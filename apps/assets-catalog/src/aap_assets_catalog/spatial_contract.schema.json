@@ -1,0 +1,2922 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:aap:assets-spatial:v1",
+  "title": "Assets spatial owner contract",
+  "type": "object",
+  "required": ["schema", "ok"],
+  "properties": {
+    "schema": {
+      "const": "aap-assets-spatial/v1"
+    },
+    "ok": {
+      "type": "boolean"
+    }
+  },
+  "oneOf": [
+    {
+      "type": "object",
+      "required": ["schema", "ok", "data"],
+      "properties": {
+        "schema": {
+          "const": "aap-assets-spatial/v1"
+        },
+        "ok": {
+          "const": true
+        },
+        "data": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AssignmentMutationResult"
+            },
+            {
+              "$ref": "#/$defs/AxisSniffResult"
+            },
+            {
+              "$ref": "#/$defs/CalibrationMutationResult"
+            },
+            {
+              "$ref": "#/$defs/CalibrationPage"
+            },
+            {
+              "$ref": "#/$defs/CalibrationRecord"
+            },
+            {
+              "$ref": "#/$defs/CameraTargetResult"
+            },
+            {
+              "$ref": "#/$defs/ItemFactsPage"
+            },
+            {
+              "$ref": "#/$defs/LayoutMutationResult"
+            },
+            {
+              "$ref": "#/$defs/LayoutPage"
+            },
+            {
+              "$ref": "#/$defs/PoseMutationResult"
+            },
+            {
+              "$ref": "#/$defs/PosePage"
+            },
+            {
+              "$ref": "#/$defs/PreparationMutationResult"
+            },
+            {
+              "$ref": "#/$defs/PreparationPage"
+            },
+            {
+              "$ref": "#/$defs/SceneMutationResult"
+            },
+            {
+              "$ref": "#/$defs/ScenePage"
+            },
+            {
+              "$ref": "#/$defs/SceneResult"
+            },
+            {
+              "$ref": "#/$defs/SpatialActorResult"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": ["schema", "ok", "error"],
+      "properties": {
+        "schema": {
+          "const": "aap-assets-spatial/v1"
+        },
+        "ok": {
+          "const": false
+        },
+        "error": {
+          "type": "object",
+          "required": ["code"],
+          "properties": {
+            "code": {
+              "enum": [
+                "invalid_request",
+                "account_not_active",
+                "account_busy",
+                "invalid_account_role",
+                "catalog_manager_required",
+                "dataset_missing",
+                "scene_missing",
+                "source_missing",
+                "source_busy",
+                "dataset_busy",
+                "scene_conflict",
+                "source_changed",
+                "operation_conflict",
+                "operation_missing",
+                "association_changed",
+                "operation_cancelled",
+                "project_missing",
+                "project_manager_required",
+                "task_missing",
+                "task_not_visible",
+                "task_busy",
+                "annotation_write_forbidden",
+                "camera_role_not_linked",
+                "camera_dataset_item_missing",
+                "camera_calibration_missing",
+                "camera_calibration_invalid",
+                "calibration_revision_conflict",
+                "camera_shared_across_projects",
+                "storage_unavailable",
+                "resource_budget_exceeded",
+                "service_unavailable",
+                "invalid_response"
+              ]
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    }
+  ],
+  "$defs": {
+    "SensorCalibration": {
+      "additionalProperties": false,
+      "description": "v0.13.1 · 相机标定。extrinsic row-major 4x4 外参(16), intrinsic row-major\n3x3 内参(9), rect 为 KITTI 可选矫正矩阵 4x4(16)。存进 DatasetItem.metadata_\n的 \"calibration\" key。投影: extrinsic·[x,y,z,1] → xyz → intrinsic·xyz → 透视除法。",
+      "properties": {
+        "extrinsic": {
+          "items": {
+            "type": "number"
+          },
+          "maxItems": 16,
+          "minItems": 16,
+          "title": "Extrinsic",
+          "type": "array"
+        },
+        "intrinsic": {
+          "items": {
+            "type": "number"
+          },
+          "maxItems": 9,
+          "minItems": 9,
+          "title": "Intrinsic",
+          "type": "array"
+        },
+        "rect": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "number"
+              },
+              "maxItems": 16,
+              "minItems": 16,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Rect"
+        }
+      },
+      "required": ["extrinsic", "intrinsic"],
+      "title": "SensorCalibration",
+      "type": "object"
+    },
+    "ApplyCalibrationRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "camera_role": {
+          "title": "Camera Role",
+          "type": "string"
+        },
+        "expected_revision": {
+          "minimum": 1,
+          "title": "Expected Revision",
+          "type": "integer"
+        },
+        "expected_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Expected Digest",
+          "type": "string"
+        },
+        "calibration": {
+          "$ref": "#/$defs/SensorCalibration"
+        },
+        "audit_context": {
+          "additionalProperties": true,
+          "title": "Audit Context",
+          "type": "object"
+        },
+        "canonical_document": {
+          "title": "Canonical Document",
+          "type": "string"
+        },
+        "current_canonical_document": {
+          "title": "Current Canonical Document",
+          "type": "string"
+        },
+        "source_snapshot": {
+          "additionalProperties": true,
+          "title": "Source Snapshot",
+          "type": "object"
+        }
+      },
+      "required": [
+        "operation_id",
+        "actor_id",
+        "task_id",
+        "camera_role",
+        "expected_revision",
+        "expected_digest",
+        "calibration",
+        "canonical_document",
+        "current_canonical_document",
+        "source_snapshot"
+      ],
+      "title": "ApplyCalibrationRequest",
+      "type": "object"
+    },
+    "PlannedScene": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 255,
+          "title": "Name",
+          "type": "string"
+        },
+        "source_format": {
+          "anyOf": [
+            {
+              "maxLength": 50,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Source Format"
+        },
+        "source_metadata": {
+          "additionalProperties": true,
+          "title": "Source Metadata",
+          "type": "object"
+        }
+      },
+      "required": ["id", "name", "source_format", "source_metadata"],
+      "title": "PlannedScene",
+      "type": "object"
+    },
+    "SceneAssignment": {
+      "additionalProperties": false,
+      "properties": {
+        "item_id": {
+          "format": "uuid",
+          "title": "Item Id",
+          "type": "string"
+        },
+        "scene_id": {
+          "format": "uuid",
+          "title": "Scene Id",
+          "type": "string"
+        },
+        "frame_index": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Frame Index"
+        }
+      },
+      "required": ["item_id", "scene_id", "frame_index"],
+      "title": "SceneAssignment",
+      "type": "object"
+    },
+    "SpatialLayoutPlan": {
+      "additionalProperties": false,
+      "properties": {
+        "scenes": {
+          "items": {
+            "$ref": "#/$defs/PlannedScene"
+          },
+          "title": "Scenes",
+          "type": "array"
+        },
+        "assignments": {
+          "items": {
+            "$ref": "#/$defs/SceneAssignment"
+          },
+          "title": "Assignments",
+          "type": "array"
+        },
+        "created_scenes": {
+          "minimum": 0,
+          "title": "Created Scenes",
+          "type": "integer"
+        },
+        "assigned_items": {
+          "minimum": 0,
+          "title": "Assigned Items",
+          "type": "integer"
+        },
+        "skipped_items": {
+          "minimum": 0,
+          "title": "Skipped Items",
+          "type": "integer"
+        },
+        "dry_run": {
+          "title": "Dry Run",
+          "type": "boolean"
+        },
+        "notes": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Notes",
+          "type": "array"
+        }
+      },
+      "required": [
+        "scenes",
+        "assignments",
+        "created_scenes",
+        "assigned_items",
+        "skipped_items",
+        "dry_run",
+        "notes"
+      ],
+      "title": "SpatialLayoutPlan",
+      "type": "object"
+    },
+    "ApplyLayoutRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "actor_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Actor Id"
+        },
+        "dataset_id": {
+          "format": "uuid",
+          "title": "Dataset Id",
+          "type": "string"
+        },
+        "mode": {
+          "enum": ["single", "per_subdirectory", "auto"],
+          "title": "Mode",
+          "type": "string"
+        },
+        "dry_run": {
+          "default": false,
+          "title": "Dry Run",
+          "type": "boolean"
+        },
+        "plan": {
+          "$ref": "#/$defs/SpatialLayoutPlan"
+        },
+        "snapshot": {
+          "additionalProperties": true,
+          "title": "Snapshot",
+          "type": "object"
+        }
+      },
+      "required": ["operation_id", "actor_id", "dataset_id", "mode", "plan", "snapshot"],
+      "title": "ApplyLayoutRequest",
+      "type": "object"
+    },
+    "CalibrationImportUpdate": {
+      "additionalProperties": false,
+      "properties": {
+        "dataset_item_id": {
+          "format": "uuid",
+          "title": "Dataset Item Id",
+          "type": "string"
+        },
+        "source_item_id": {
+          "format": "uuid",
+          "title": "Source Item Id",
+          "type": "string"
+        },
+        "source_snapshot": {
+          "additionalProperties": true,
+          "title": "Source Snapshot",
+          "type": "object"
+        },
+        "source_etag": {
+          "title": "Source Etag",
+          "type": "string"
+        },
+        "source_size": {
+          "minimum": 0,
+          "title": "Source Size",
+          "type": "integer"
+        },
+        "calibration": {
+          "$ref": "#/$defs/SensorCalibration"
+        }
+      },
+      "required": [
+        "dataset_item_id",
+        "source_item_id",
+        "source_snapshot",
+        "source_etag",
+        "source_size",
+        "calibration"
+      ],
+      "title": "CalibrationImportUpdate",
+      "type": "object"
+    },
+    "ApplyPreparationRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "creation_operation_id": {
+          "format": "uuid",
+          "title": "Creation Operation Id",
+          "type": "string"
+        },
+        "snapshot": {
+          "additionalProperties": true,
+          "title": "Snapshot",
+          "type": "object"
+        },
+        "calibration_updates": {
+          "items": {
+            "$ref": "#/$defs/CalibrationImportUpdate"
+          },
+          "title": "Calibration Updates",
+          "type": "array"
+        },
+        "frame_plan": {
+          "$ref": "#/$defs/SpatialLayoutPlan"
+        }
+      },
+      "required": ["creation_operation_id", "snapshot", "calibration_updates", "frame_plan"],
+      "title": "ApplyPreparationRequest",
+      "type": "object"
+    },
+    "AssignItemsRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "dataset_id": {
+          "format": "uuid",
+          "title": "Dataset Id",
+          "type": "string"
+        },
+        "assignments": {
+          "items": {
+            "$ref": "#/$defs/SceneAssignment"
+          },
+          "title": "Assignments",
+          "type": "array"
+        }
+      },
+      "required": ["operation_id", "dataset_id", "assignments"],
+      "title": "AssignItemsRequest",
+      "type": "object"
+    },
+    "AssignmentMutationResult": {
+      "additionalProperties": false,
+      "properties": {
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "dataset_id": {
+          "format": "uuid",
+          "title": "Dataset Id",
+          "type": "string"
+        },
+        "assigned_items": {
+          "minimum": 0,
+          "title": "Assigned Items",
+          "type": "integer"
+        }
+      },
+      "required": ["operation_id", "dataset_id", "assigned_items"],
+      "title": "AssignmentMutationResult",
+      "type": "object"
+    },
+    "AxisCameraResult": {
+      "additionalProperties": false,
+      "properties": {
+        "camera_role": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Camera Role"
+        },
+        "best": {
+          "enum": [
+            "iso_8855",
+            "ros_rep103",
+            "kitti_camera",
+            "opencv_camera",
+            "apollo",
+            "y_forward",
+            "sustechpoints_demo",
+            "raw"
+          ],
+          "title": "Best",
+          "type": "string"
+        },
+        "score": {
+          "title": "Score",
+          "type": "number"
+        }
+      },
+      "required": ["camera_role", "best", "score"],
+      "title": "AxisCameraResult",
+      "type": "object"
+    },
+    "AxisCandidate": {
+      "additionalProperties": false,
+      "properties": {
+        "convention": {
+          "enum": [
+            "iso_8855",
+            "ros_rep103",
+            "kitti_camera",
+            "opencv_camera",
+            "apollo",
+            "y_forward",
+            "sustechpoints_demo",
+            "raw"
+          ],
+          "title": "Convention",
+          "type": "string"
+        },
+        "score": {
+          "title": "Score",
+          "type": "number"
+        }
+      },
+      "required": ["convention", "score"],
+      "title": "AxisCandidate",
+      "type": "object"
+    },
+    "AxisInferenceResult": {
+      "additionalProperties": false,
+      "properties": {
+        "best": {
+          "enum": [
+            "iso_8855",
+            "ros_rep103",
+            "kitti_camera",
+            "opencv_camera",
+            "apollo",
+            "y_forward",
+            "sustechpoints_demo",
+            "raw"
+          ],
+          "title": "Best",
+          "type": "string"
+        },
+        "score": {
+          "title": "Score",
+          "type": "number"
+        },
+        "candidates": {
+          "items": {
+            "$ref": "#/$defs/AxisCandidate"
+          },
+          "title": "Candidates",
+          "type": "array"
+        },
+        "source": {
+          "enum": ["task_link", "dataset_item"],
+          "title": "Source",
+          "type": "string"
+        },
+        "camera_role": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Camera Role"
+        },
+        "camera_item_id": {
+          "format": "uuid",
+          "title": "Camera Item Id",
+          "type": "string"
+        },
+        "per_camera": {
+          "items": {
+            "$ref": "#/$defs/AxisCameraResult"
+          },
+          "title": "Per Camera",
+          "type": "array"
+        },
+        "agreement": {
+          "title": "Agreement",
+          "type": "number"
+        }
+      },
+      "required": [
+        "best",
+        "score",
+        "candidates",
+        "source",
+        "camera_role",
+        "camera_item_id",
+        "per_camera",
+        "agreement"
+      ],
+      "title": "AxisInferenceResult",
+      "type": "object"
+    },
+    "AxisSniffResult": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "dataset_id": {
+          "format": "uuid",
+          "title": "Dataset Id",
+          "type": "string"
+        },
+        "result": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AxisInferenceResult"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": ["actor_id", "dataset_id", "result"],
+      "title": "AxisSniffResult",
+      "type": "object"
+    },
+    "BackfillScenesRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "actor_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Actor Id"
+        },
+        "dataset_id": {
+          "format": "uuid",
+          "title": "Dataset Id",
+          "type": "string"
+        },
+        "mode": {
+          "default": "auto",
+          "enum": ["single", "per_subdirectory", "auto"],
+          "title": "Mode",
+          "type": "string"
+        },
+        "dry_run": {
+          "default": false,
+          "title": "Dry Run",
+          "type": "boolean"
+        }
+      },
+      "required": ["operation_id", "actor_id", "dataset_id"],
+      "title": "BackfillScenesRequest",
+      "type": "object"
+    },
+    "CalibrationState": {
+      "additionalProperties": false,
+      "properties": {
+        "dataset_item_id": {
+          "format": "uuid",
+          "title": "Dataset Item Id",
+          "type": "string"
+        },
+        "revision": {
+          "minimum": 1,
+          "title": "Revision",
+          "type": "integer"
+        },
+        "calibration": {
+          "$ref": "#/$defs/SensorCalibration"
+        },
+        "digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Digest",
+          "type": "string"
+        },
+        "created_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Created At"
+        },
+        "source_snapshot": {
+          "additionalProperties": true,
+          "title": "Source Snapshot",
+          "type": "object"
+        }
+      },
+      "required": [
+        "dataset_item_id",
+        "revision",
+        "calibration",
+        "digest",
+        "created_at",
+        "source_snapshot"
+      ],
+      "title": "CalibrationState",
+      "type": "object"
+    },
+    "CalibrationMutationResult": {
+      "additionalProperties": false,
+      "properties": {
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "camera_role": {
+          "title": "Camera Role",
+          "type": "string"
+        },
+        "state": {
+          "$ref": "#/$defs/CalibrationState"
+        }
+      },
+      "required": ["operation_id", "actor_id", "task_id", "camera_role", "state"],
+      "title": "CalibrationMutationResult",
+      "type": "object"
+    },
+    "CalibrationCursor": {
+      "additionalProperties": false,
+      "properties": {
+        "dataset_item_id": {
+          "format": "uuid",
+          "title": "Dataset Item Id",
+          "type": "string"
+        },
+        "revision": {
+          "minimum": 1,
+          "title": "Revision",
+          "type": "integer"
+        }
+      },
+      "required": ["dataset_item_id", "revision"],
+      "title": "CalibrationCursor",
+      "type": "object"
+    },
+    "CalibrationRecord": {
+      "additionalProperties": false,
+      "description": "Native raw snapshot; only the owner normalizes historical calibration JSON.",
+      "properties": {
+        "dataset_item_id": {
+          "format": "uuid",
+          "title": "Dataset Item Id",
+          "type": "string"
+        },
+        "revision": {
+          "minimum": 1,
+          "title": "Revision",
+          "type": "integer"
+        },
+        "calibration": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Calibration"
+        },
+        "digest": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Digest"
+        },
+        "created_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Created At"
+        },
+        "source_snapshot": {
+          "additionalProperties": true,
+          "title": "Source Snapshot",
+          "type": "object"
+        },
+        "error": {
+          "anyOf": [
+            {
+              "enum": [
+                "camera_dataset_item_missing",
+                "camera_calibration_missing",
+                "camera_calibration_invalid"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Error"
+        }
+      },
+      "required": [
+        "dataset_item_id",
+        "revision",
+        "calibration",
+        "digest",
+        "created_at",
+        "source_snapshot",
+        "error"
+      ],
+      "title": "CalibrationRecord",
+      "type": "object"
+    },
+    "CalibrationPage": {
+      "additionalProperties": false,
+      "properties": {
+        "dataset_item_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Dataset Item Ids",
+          "type": "array"
+        },
+        "include_history": {
+          "title": "Include History",
+          "type": "boolean"
+        },
+        "after": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CalibrationCursor"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "next_cursor": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CalibrationCursor"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "snapshot_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Snapshot Digest",
+          "type": "string"
+        },
+        "total": {
+          "minimum": 0,
+          "title": "Total",
+          "type": "integer"
+        },
+        "complete": {
+          "title": "Complete",
+          "type": "boolean"
+        },
+        "records": {
+          "items": {
+            "$ref": "#/$defs/CalibrationRecord"
+          },
+          "title": "Records",
+          "type": "array"
+        }
+      },
+      "required": [
+        "dataset_item_ids",
+        "include_history",
+        "after",
+        "next_cursor",
+        "snapshot_digest",
+        "total",
+        "complete",
+        "records"
+      ],
+      "title": "CalibrationPage",
+      "type": "object"
+    },
+    "CameraTargetResult": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "camera_role": {
+          "title": "Camera Role",
+          "type": "string"
+        },
+        "dataset_item_id": {
+          "format": "uuid",
+          "title": "Dataset Item Id",
+          "type": "string"
+        }
+      },
+      "required": ["actor_id", "task_id", "camera_role", "dataset_item_id"],
+      "title": "CameraTargetResult",
+      "type": "object"
+    },
+    "CreateSceneRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "scene_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Scene Id"
+        },
+        "dataset_id": {
+          "format": "uuid",
+          "title": "Dataset Id",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 255,
+          "title": "Name",
+          "type": "string"
+        },
+        "source_format": {
+          "anyOf": [
+            {
+              "maxLength": 50,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Format"
+        },
+        "source_metadata": {
+          "additionalProperties": true,
+          "title": "Source Metadata",
+          "type": "object"
+        },
+        "created_by": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Created By"
+        }
+      },
+      "required": ["operation_id", "dataset_id", "name"],
+      "title": "CreateSceneRequest",
+      "type": "object"
+    },
+    "GetSceneRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Actor Id"
+        },
+        "scene_id": {
+          "format": "uuid",
+          "title": "Scene Id",
+          "type": "string"
+        }
+      },
+      "required": ["actor_id", "scene_id"],
+      "title": "GetSceneRequest",
+      "type": "object"
+    },
+    "GuardSpatialActorRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "access": {
+          "enum": ["read", "manager_read", "manager_write"],
+          "title": "Access",
+          "type": "string"
+        }
+      },
+      "required": ["actor_id", "access"],
+      "title": "GuardSpatialActorRequest",
+      "type": "object"
+    },
+    "SpatialItem": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "dataset_id": {
+          "format": "uuid",
+          "title": "Dataset Id",
+          "type": "string"
+        },
+        "file_name": {
+          "title": "File Name",
+          "type": "string"
+        },
+        "file_path": {
+          "title": "File Path",
+          "type": "string"
+        },
+        "file_type": {
+          "title": "File Type",
+          "type": "string"
+        },
+        "scene_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Scene Id"
+        },
+        "frame_index": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Frame Index"
+        },
+        "metadata": {
+          "additionalProperties": true,
+          "title": "Metadata",
+          "type": "object"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "width": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Width"
+        },
+        "height": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Height"
+        },
+        "file_size": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "File Size"
+        },
+        "content_hash": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Content Hash"
+        },
+        "thumbnail_path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Thumbnail Path"
+        },
+        "axis_convention": {
+          "anyOf": [
+            {
+              "enum": [
+                "iso_8855",
+                "ros_rep103",
+                "kitti_camera",
+                "opencv_camera",
+                "apollo",
+                "y_forward",
+                "sustechpoints_demo",
+                "raw"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Axis Convention"
+        },
+        "calibration_revision": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Calibration Revision"
+        },
+        "source_snapshot": {
+          "additionalProperties": true,
+          "title": "Source Snapshot",
+          "type": "object"
+        },
+        "camera_roles": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Camera Roles",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "dataset_id",
+        "file_name",
+        "file_path",
+        "file_type",
+        "scene_id",
+        "frame_index",
+        "metadata",
+        "created_at",
+        "width",
+        "height",
+        "file_size",
+        "content_hash",
+        "thumbnail_path",
+        "axis_convention",
+        "calibration_revision",
+        "source_snapshot",
+        "camera_roles"
+      ],
+      "title": "SpatialItem",
+      "type": "object"
+    },
+    "SpatialScene": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "display_id": {
+          "title": "Display Id",
+          "type": "string"
+        },
+        "dataset_id": {
+          "format": "uuid",
+          "title": "Dataset Id",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "source_format": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Source Format"
+        },
+        "source_metadata": {
+          "additionalProperties": true,
+          "title": "Source Metadata",
+          "type": "object"
+        },
+        "created_by": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Created By"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "updated_at": {
+          "format": "date-time",
+          "title": "Updated At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "display_id",
+        "dataset_id",
+        "name",
+        "source_format",
+        "source_metadata",
+        "created_by",
+        "created_at",
+        "updated_at"
+      ],
+      "title": "SpatialScene",
+      "type": "object"
+    },
+    "ItemFactsPage": {
+      "additionalProperties": false,
+      "properties": {
+        "dataset_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Dataset Id"
+        },
+        "item_ids": {
+          "anyOf": [
+            {
+              "items": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Item Ids"
+        },
+        "after_item_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "After Item Id"
+        },
+        "next_item_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Next Item Id"
+        },
+        "snapshot_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Snapshot Digest",
+          "type": "string"
+        },
+        "total": {
+          "minimum": 0,
+          "title": "Total",
+          "type": "integer"
+        },
+        "complete": {
+          "title": "Complete",
+          "type": "boolean"
+        },
+        "items": {
+          "items": {
+            "$ref": "#/$defs/SpatialItem"
+          },
+          "title": "Items",
+          "type": "array"
+        },
+        "scenes": {
+          "items": {
+            "$ref": "#/$defs/SpatialScene"
+          },
+          "title": "Scenes",
+          "type": "array"
+        }
+      },
+      "required": [
+        "dataset_id",
+        "item_ids",
+        "after_item_id",
+        "next_item_id",
+        "snapshot_digest",
+        "total",
+        "complete",
+        "items",
+        "scenes"
+      ],
+      "title": "ItemFactsPage",
+      "type": "object"
+    },
+    "LayoutMutationResult": {
+      "additionalProperties": false,
+      "properties": {
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "actor_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Actor Id"
+        },
+        "dataset_id": {
+          "format": "uuid",
+          "title": "Dataset Id",
+          "type": "string"
+        },
+        "created_scenes": {
+          "minimum": 0,
+          "title": "Created Scenes",
+          "type": "integer"
+        },
+        "assigned_items": {
+          "minimum": 0,
+          "title": "Assigned Items",
+          "type": "integer"
+        },
+        "skipped_items": {
+          "minimum": 0,
+          "title": "Skipped Items",
+          "type": "integer"
+        },
+        "dry_run": {
+          "title": "Dry Run",
+          "type": "boolean"
+        },
+        "notes": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Notes",
+          "type": "array"
+        }
+      },
+      "required": [
+        "operation_id",
+        "actor_id",
+        "dataset_id",
+        "created_scenes",
+        "assigned_items",
+        "skipped_items",
+        "dry_run",
+        "notes"
+      ],
+      "title": "LayoutMutationResult",
+      "type": "object"
+    },
+    "LayoutPage": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Actor Id"
+        },
+        "dataset_id": {
+          "format": "uuid",
+          "title": "Dataset Id",
+          "type": "string"
+        },
+        "creation_operation_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Creation Operation Id"
+        },
+        "dataset_name": {
+          "title": "Dataset Name",
+          "type": "string"
+        },
+        "is_temporal": {
+          "title": "Is Temporal",
+          "type": "boolean"
+        },
+        "axis_convention": {
+          "anyOf": [
+            {
+              "enum": [
+                "iso_8855",
+                "ros_rep103",
+                "kitti_camera",
+                "opencv_camera",
+                "apollo",
+                "y_forward",
+                "sustechpoints_demo",
+                "raw"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Axis Convention"
+        },
+        "scene_count": {
+          "minimum": 0,
+          "title": "Scene Count",
+          "type": "integer"
+        },
+        "assigned_count": {
+          "minimum": 0,
+          "title": "Assigned Count",
+          "type": "integer"
+        },
+        "after_item_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "After Item Id"
+        },
+        "next_item_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Next Item Id"
+        },
+        "snapshot_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Snapshot Digest",
+          "type": "string"
+        },
+        "total": {
+          "minimum": 0,
+          "title": "Total",
+          "type": "integer"
+        },
+        "complete": {
+          "title": "Complete",
+          "type": "boolean"
+        },
+        "items": {
+          "items": {
+            "$ref": "#/$defs/SpatialItem"
+          },
+          "title": "Items",
+          "type": "array"
+        },
+        "scenes": {
+          "items": {
+            "$ref": "#/$defs/SpatialScene"
+          },
+          "title": "Scenes",
+          "type": "array"
+        }
+      },
+      "required": [
+        "actor_id",
+        "dataset_id",
+        "creation_operation_id",
+        "dataset_name",
+        "is_temporal",
+        "axis_convention",
+        "scene_count",
+        "assigned_count",
+        "after_item_id",
+        "next_item_id",
+        "snapshot_digest",
+        "total",
+        "complete",
+        "items",
+        "scenes"
+      ],
+      "title": "LayoutPage",
+      "type": "object"
+    },
+    "SceneCursor": {
+      "additionalProperties": false,
+      "properties": {
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "scene_id": {
+          "format": "uuid",
+          "title": "Scene Id",
+          "type": "string"
+        }
+      },
+      "required": ["created_at", "scene_id"],
+      "title": "SceneCursor",
+      "type": "object"
+    },
+    "ListScenesRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Actor Id"
+        },
+        "dataset_id": {
+          "format": "uuid",
+          "title": "Dataset Id",
+          "type": "string"
+        },
+        "after": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SceneCursor"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "page_size": {
+          "default": 200,
+          "maximum": 500,
+          "minimum": 1,
+          "title": "Page Size",
+          "type": "integer"
+        }
+      },
+      "required": ["actor_id", "dataset_id"],
+      "title": "ListScenesRequest",
+      "type": "object"
+    },
+    "LockCalibrationFactsRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Actor Id"
+        },
+        "task_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Task Id"
+        },
+        "camera_role": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Camera Role"
+        },
+        "dataset_item_id": {
+          "format": "uuid",
+          "title": "Dataset Item Id",
+          "type": "string"
+        },
+        "expected_source_snapshot": {
+          "additionalProperties": true,
+          "title": "Expected Source Snapshot",
+          "type": "object"
+        }
+      },
+      "required": [
+        "actor_id",
+        "task_id",
+        "camera_role",
+        "dataset_item_id",
+        "expected_source_snapshot"
+      ],
+      "title": "LockCalibrationFactsRequest",
+      "type": "object"
+    },
+    "ScenePatch": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "anyOf": [
+            {
+              "maxLength": 255,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Name"
+        },
+        "source_format": {
+          "anyOf": [
+            {
+              "maxLength": 50,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Format"
+        },
+        "source_metadata": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Metadata"
+        }
+      },
+      "title": "ScenePatch",
+      "type": "object"
+    },
+    "MutateSceneRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "scene_id": {
+          "format": "uuid",
+          "title": "Scene Id",
+          "type": "string"
+        },
+        "patch": {
+          "$ref": "#/$defs/ScenePatch"
+        },
+        "audit_context": {
+          "additionalProperties": true,
+          "title": "Audit Context",
+          "type": "object"
+        }
+      },
+      "required": ["operation_id", "actor_id", "scene_id", "patch"],
+      "title": "MutateSceneRequest",
+      "type": "object"
+    },
+    "PoseMutationResult": {
+      "additionalProperties": false,
+      "properties": {
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "scene_id": {
+          "format": "uuid",
+          "title": "Scene Id",
+          "type": "string"
+        },
+        "upserted": {
+          "minimum": 0,
+          "title": "Upserted",
+          "type": "integer"
+        }
+      },
+      "required": ["operation_id", "scene_id", "upserted"],
+      "title": "PoseMutationResult",
+      "type": "object"
+    },
+    "FramePose": {
+      "properties": {
+        "frame_index": {
+          "minimum": 0,
+          "title": "Frame Index",
+          "type": "integer"
+        },
+        "timestamp_us": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Timestamp Us"
+        },
+        "ego_translation": {
+          "items": {
+            "type": "number"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "title": "Ego Translation",
+          "type": "array"
+        },
+        "ego_rotation": {
+          "items": {
+            "type": "number"
+          },
+          "maxItems": 4,
+          "minItems": 4,
+          "title": "Ego Rotation",
+          "type": "array"
+        },
+        "source_metadata": {
+          "additionalProperties": true,
+          "title": "Source Metadata",
+          "type": "object"
+        }
+      },
+      "required": ["frame_index", "ego_translation", "ego_rotation"],
+      "title": "FramePose",
+      "type": "object"
+    },
+    "PosePage": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Actor Id"
+        },
+        "scene_id": {
+          "format": "uuid",
+          "title": "Scene Id",
+          "type": "string"
+        },
+        "after_frame_index": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "After Frame Index"
+        },
+        "next_frame_index": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Next Frame Index"
+        },
+        "snapshot_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Snapshot Digest",
+          "type": "string"
+        },
+        "total": {
+          "minimum": 0,
+          "title": "Total",
+          "type": "integer"
+        },
+        "complete": {
+          "title": "Complete",
+          "type": "boolean"
+        },
+        "poses": {
+          "items": {
+            "$ref": "#/$defs/FramePose"
+          },
+          "title": "Poses",
+          "type": "array"
+        }
+      },
+      "required": [
+        "actor_id",
+        "scene_id",
+        "after_frame_index",
+        "next_frame_index",
+        "snapshot_digest",
+        "total",
+        "complete",
+        "poses"
+      ],
+      "title": "PosePage",
+      "type": "object"
+    },
+    "PreparationMutationResult": {
+      "additionalProperties": false,
+      "properties": {
+        "creation_operation_id": {
+          "format": "uuid",
+          "title": "Creation Operation Id",
+          "type": "string"
+        },
+        "dataset_id": {
+          "format": "uuid",
+          "title": "Dataset Id",
+          "type": "string"
+        },
+        "calibrated_items": {
+          "minimum": 0,
+          "title": "Calibrated Items",
+          "type": "integer"
+        },
+        "created_scenes": {
+          "minimum": 0,
+          "title": "Created Scenes",
+          "type": "integer"
+        },
+        "assigned_items": {
+          "minimum": 0,
+          "title": "Assigned Items",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "creation_operation_id",
+        "dataset_id",
+        "calibrated_items",
+        "created_scenes",
+        "assigned_items"
+      ],
+      "title": "PreparationMutationResult",
+      "type": "object"
+    },
+    "PreparationPage": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "default": null,
+          "title": "Actor Id",
+          "type": "null"
+        },
+        "dataset_id": {
+          "format": "uuid",
+          "title": "Dataset Id",
+          "type": "string"
+        },
+        "creation_operation_id": {
+          "format": "uuid",
+          "title": "Creation Operation Id",
+          "type": "string"
+        },
+        "dataset_name": {
+          "title": "Dataset Name",
+          "type": "string"
+        },
+        "is_temporal": {
+          "title": "Is Temporal",
+          "type": "boolean"
+        },
+        "axis_convention": {
+          "anyOf": [
+            {
+              "enum": [
+                "iso_8855",
+                "ros_rep103",
+                "kitti_camera",
+                "opencv_camera",
+                "apollo",
+                "y_forward",
+                "sustechpoints_demo",
+                "raw"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Axis Convention"
+        },
+        "scene_count": {
+          "minimum": 0,
+          "title": "Scene Count",
+          "type": "integer"
+        },
+        "assigned_count": {
+          "minimum": 0,
+          "title": "Assigned Count",
+          "type": "integer"
+        },
+        "after_item_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "After Item Id"
+        },
+        "next_item_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Next Item Id"
+        },
+        "snapshot_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Snapshot Digest",
+          "type": "string"
+        },
+        "total": {
+          "minimum": 0,
+          "title": "Total",
+          "type": "integer"
+        },
+        "complete": {
+          "title": "Complete",
+          "type": "boolean"
+        },
+        "items": {
+          "items": {
+            "$ref": "#/$defs/SpatialItem"
+          },
+          "title": "Items",
+          "type": "array"
+        },
+        "scenes": {
+          "items": {
+            "$ref": "#/$defs/SpatialScene"
+          },
+          "title": "Scenes",
+          "type": "array"
+        }
+      },
+      "required": [
+        "dataset_id",
+        "creation_operation_id",
+        "dataset_name",
+        "is_temporal",
+        "axis_convention",
+        "scene_count",
+        "assigned_count",
+        "after_item_id",
+        "next_item_id",
+        "snapshot_digest",
+        "total",
+        "complete",
+        "items",
+        "scenes"
+      ],
+      "title": "PreparationPage",
+      "type": "object"
+    },
+    "ReadCalibrationsRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "dataset_item_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "maxItems": 5000,
+          "minItems": 1,
+          "title": "Dataset Item Ids",
+          "type": "array"
+        },
+        "include_history": {
+          "default": false,
+          "title": "Include History",
+          "type": "boolean"
+        },
+        "after": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CalibrationCursor"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "page_size": {
+          "default": 200,
+          "maximum": 500,
+          "minimum": 1,
+          "title": "Page Size",
+          "type": "integer"
+        }
+      },
+      "required": ["dataset_item_ids"],
+      "title": "ReadCalibrationsRequest",
+      "type": "object"
+    },
+    "ReadCameraTargetRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "camera_role": {
+          "title": "Camera Role",
+          "type": "string"
+        }
+      },
+      "required": ["actor_id", "task_id", "camera_role"],
+      "title": "ReadCameraTargetRequest",
+      "type": "object"
+    },
+    "ReadItemsRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "dataset_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Dataset Id"
+        },
+        "item_ids": {
+          "anyOf": [
+            {
+              "items": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "maxItems": 5000,
+              "minItems": 1,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Item Ids"
+        },
+        "after_item_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "After Item Id"
+        },
+        "page_size": {
+          "default": 200,
+          "maximum": 500,
+          "minimum": 1,
+          "title": "Page Size",
+          "type": "integer"
+        }
+      },
+      "title": "ReadItemsRequest",
+      "type": "object"
+    },
+    "ReadLayoutRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Actor Id"
+        },
+        "dataset_id": {
+          "format": "uuid",
+          "title": "Dataset Id",
+          "type": "string"
+        },
+        "creation_operation_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Creation Operation Id"
+        },
+        "after_item_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "After Item Id"
+        },
+        "page_size": {
+          "default": 200,
+          "maximum": 500,
+          "minimum": 1,
+          "title": "Page Size",
+          "type": "integer"
+        }
+      },
+      "required": ["actor_id", "dataset_id"],
+      "title": "ReadLayoutRequest",
+      "type": "object"
+    },
+    "ReadPosesRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Actor Id"
+        },
+        "scene_id": {
+          "format": "uuid",
+          "title": "Scene Id",
+          "type": "string"
+        },
+        "after_frame_index": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "After Frame Index"
+        },
+        "page_size": {
+          "default": 200,
+          "maximum": 500,
+          "minimum": 1,
+          "title": "Page Size",
+          "type": "integer"
+        }
+      },
+      "required": ["actor_id", "scene_id"],
+      "title": "ReadPosesRequest",
+      "type": "object"
+    },
+    "ReadPreparationRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "creation_operation_id": {
+          "format": "uuid",
+          "title": "Creation Operation Id",
+          "type": "string"
+        },
+        "after_item_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "After Item Id"
+        },
+        "page_size": {
+          "default": 200,
+          "maximum": 500,
+          "minimum": 1,
+          "title": "Page Size",
+          "type": "integer"
+        }
+      },
+      "required": ["creation_operation_id"],
+      "title": "ReadPreparationRequest",
+      "type": "object"
+    },
+    "SceneMutationResult": {
+      "additionalProperties": false,
+      "properties": {
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "actor_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Actor Id"
+        },
+        "scene_id": {
+          "format": "uuid",
+          "title": "Scene Id",
+          "type": "string"
+        },
+        "scene": {
+          "$ref": "#/$defs/SpatialScene"
+        }
+      },
+      "required": ["operation_id", "actor_id", "scene_id", "scene"],
+      "title": "SceneMutationResult",
+      "type": "object"
+    },
+    "ScenePage": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Actor Id"
+        },
+        "dataset_id": {
+          "format": "uuid",
+          "title": "Dataset Id",
+          "type": "string"
+        },
+        "after": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SceneCursor"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "next_cursor": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SceneCursor"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "snapshot_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Snapshot Digest",
+          "type": "string"
+        },
+        "total": {
+          "minimum": 0,
+          "title": "Total",
+          "type": "integer"
+        },
+        "complete": {
+          "title": "Complete",
+          "type": "boolean"
+        },
+        "scenes": {
+          "items": {
+            "$ref": "#/$defs/SpatialScene"
+          },
+          "title": "Scenes",
+          "type": "array"
+        }
+      },
+      "required": [
+        "actor_id",
+        "dataset_id",
+        "after",
+        "next_cursor",
+        "snapshot_digest",
+        "total",
+        "complete",
+        "scenes"
+      ],
+      "title": "ScenePage",
+      "type": "object"
+    },
+    "SceneResult": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Actor Id"
+        },
+        "scene_id": {
+          "format": "uuid",
+          "title": "Scene Id",
+          "type": "string"
+        },
+        "scene": {
+          "$ref": "#/$defs/SpatialScene"
+        }
+      },
+      "required": ["actor_id", "scene_id", "scene"],
+      "title": "SceneResult",
+      "type": "object"
+    },
+    "SetSceneSourceRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "scene_id": {
+          "format": "uuid",
+          "title": "Scene Id",
+          "type": "string"
+        },
+        "source_format": {
+          "anyOf": [
+            {
+              "maxLength": 50,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Source Format"
+        },
+        "source_metadata": {
+          "additionalProperties": true,
+          "title": "Source Metadata",
+          "type": "object"
+        }
+      },
+      "required": ["operation_id", "scene_id", "source_format", "source_metadata"],
+      "title": "SetSceneSourceRequest",
+      "type": "object"
+    },
+    "SniffAxisRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "dataset_id": {
+          "format": "uuid",
+          "title": "Dataset Id",
+          "type": "string"
+        }
+      },
+      "required": ["actor_id", "dataset_id"],
+      "title": "SniffAxisRequest",
+      "type": "object"
+    },
+    "SpatialActorResult": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "access": {
+          "enum": ["read", "manager_read", "manager_write"],
+          "title": "Access",
+          "type": "string"
+        }
+      },
+      "required": ["actor_id", "access"],
+      "title": "SpatialActorResult",
+      "type": "object"
+    },
+    "UpdateCalibrationRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "camera_role": {
+          "title": "Camera Role",
+          "type": "string"
+        },
+        "expected_revision": {
+          "minimum": 1,
+          "title": "Expected Revision",
+          "type": "integer"
+        },
+        "expected_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Expected Digest",
+          "type": "string"
+        },
+        "calibration": {
+          "$ref": "#/$defs/SensorCalibration"
+        },
+        "audit_context": {
+          "additionalProperties": true,
+          "title": "Audit Context",
+          "type": "object"
+        }
+      },
+      "required": [
+        "operation_id",
+        "actor_id",
+        "task_id",
+        "camera_role",
+        "expected_revision",
+        "expected_digest",
+        "calibration"
+      ],
+      "title": "UpdateCalibrationRequest",
+      "type": "object"
+    },
+    "UpsertPosesRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "scene_id": {
+          "format": "uuid",
+          "title": "Scene Id",
+          "type": "string"
+        },
+        "poses": {
+          "items": {
+            "$ref": "#/$defs/FramePose"
+          },
+          "title": "Poses",
+          "type": "array"
+        }
+      },
+      "required": ["operation_id", "scene_id", "poses"],
+      "title": "UpsertPosesRequest",
+      "type": "object"
+    }
+  },
+  "x-native-capabilities": {
+    "guard_spatial_actor": {
+      "signature": "aap_assets_v1.guard_spatial_actor(uuid,text)",
+      "request": {
+        "$ref": "#/$defs/GuardSpatialActorRequest"
+      },
+      "response": {
+        "$ref": "#/$defs/SpatialActorResult"
+      }
+    },
+    "list_spatial_scenes": {
+      "signature": "aap_assets_v1.list_spatial_scenes(uuid,uuid,timestamp with time zone,uuid,integer)",
+      "request": {
+        "$ref": "#/$defs/ListScenesRequest"
+      },
+      "response": {
+        "$ref": "#/$defs/ScenePage"
+      }
+    },
+    "get_spatial_scene": {
+      "signature": "aap_assets_v1.get_spatial_scene(uuid,uuid)",
+      "request": {
+        "$ref": "#/$defs/GetSceneRequest"
+      },
+      "response": {
+        "$ref": "#/$defs/SceneResult"
+      }
+    },
+    "read_spatial_layout": {
+      "signature": "aap_assets_v1.read_spatial_layout(uuid,uuid,uuid,uuid,integer)",
+      "request": {
+        "$ref": "#/$defs/ReadLayoutRequest"
+      },
+      "response": {
+        "$ref": "#/$defs/LayoutPage"
+      }
+    },
+    "read_spatial_items": {
+      "signature": "aap_assets_v1.read_spatial_items(uuid,uuid[],uuid,integer)",
+      "request": {
+        "$ref": "#/$defs/ReadItemsRequest"
+      },
+      "response": {
+        "$ref": "#/$defs/ItemFactsPage"
+      }
+    },
+    "read_spatial_poses": {
+      "signature": "aap_assets_v1.read_spatial_poses(uuid,uuid,integer,integer)",
+      "request": {
+        "$ref": "#/$defs/ReadPosesRequest"
+      },
+      "response": {
+        "$ref": "#/$defs/PosePage"
+      }
+    },
+    "read_spatial_calibrations": {
+      "signature": "aap_assets_v1.read_spatial_calibrations(uuid[],boolean,uuid,integer,integer)",
+      "request": {
+        "$ref": "#/$defs/ReadCalibrationsRequest"
+      },
+      "response": {
+        "$ref": "#/$defs/CalibrationPage"
+      }
+    },
+    "lock_spatial_calibration_facts": {
+      "signature": "aap_assets_v1.lock_spatial_calibration_facts(uuid,uuid,text,uuid,jsonb)",
+      "request": {
+        "$ref": "#/$defs/LockCalibrationFactsRequest"
+      },
+      "response": {
+        "$ref": "#/$defs/CalibrationRecord"
+      }
+    },
+    "mutate_spatial_scene": {
+      "signature": "aap_assets_v1.mutate_spatial_scene(uuid,uuid,uuid,jsonb,jsonb)",
+      "request": {
+        "$ref": "#/$defs/MutateSceneRequest"
+      },
+      "response": {
+        "$ref": "#/$defs/SceneMutationResult"
+      }
+    },
+    "apply_spatial_layout": {
+      "signature": "aap_assets_v1.apply_spatial_layout(uuid,uuid,uuid,text,boolean,jsonb,jsonb)",
+      "request": {
+        "$ref": "#/$defs/ApplyLayoutRequest"
+      },
+      "response": {
+        "$ref": "#/$defs/LayoutMutationResult"
+      }
+    },
+    "upsert_spatial_poses": {
+      "signature": "aap_assets_v1.upsert_spatial_poses(uuid,uuid,jsonb)",
+      "request": {
+        "$ref": "#/$defs/UpsertPosesRequest"
+      },
+      "response": {
+        "$ref": "#/$defs/PoseMutationResult"
+      }
+    },
+    "create_spatial_scene": {
+      "signature": "aap_assets_v1.create_spatial_scene(uuid,uuid,uuid,text,text,jsonb,uuid)",
+      "request": {
+        "$ref": "#/$defs/CreateSceneRequest"
+      },
+      "response": {
+        "$ref": "#/$defs/SceneMutationResult"
+      }
+    },
+    "assign_spatial_items": {
+      "signature": "aap_assets_v1.assign_spatial_items(uuid,uuid,jsonb)",
+      "request": {
+        "$ref": "#/$defs/AssignItemsRequest"
+      },
+      "response": {
+        "$ref": "#/$defs/AssignmentMutationResult"
+      }
+    },
+    "set_spatial_scene_source": {
+      "signature": "aap_assets_v1.set_spatial_scene_source(uuid,uuid,text,jsonb)",
+      "request": {
+        "$ref": "#/$defs/SetSceneSourceRequest"
+      },
+      "response": {
+        "$ref": "#/$defs/SceneMutationResult"
+      }
+    },
+    "update_spatial_calibration": {
+      "signature": "aap_assets_v1.update_spatial_calibration(uuid,uuid,uuid,text,integer,text,jsonb,text,text,jsonb,jsonb)",
+      "request": {
+        "$ref": "#/$defs/ApplyCalibrationRequest"
+      },
+      "response": {
+        "$ref": "#/$defs/CalibrationMutationResult"
+      }
+    },
+    "read_pointcloud_preparation": {
+      "signature": "aap_assets_v1.read_pointcloud_preparation(uuid,uuid,integer)",
+      "request": {
+        "$ref": "#/$defs/ReadPreparationRequest"
+      },
+      "response": {
+        "$ref": "#/$defs/PreparationPage"
+      }
+    },
+    "apply_pointcloud_preparation": {
+      "signature": "aap_assets_v1.apply_pointcloud_preparation(uuid,jsonb,jsonb,jsonb)",
+      "request": {
+        "$ref": "#/$defs/ApplyPreparationRequest"
+      },
+      "response": {
+        "$ref": "#/$defs/PreparationMutationResult"
+      }
+    },
+    "read_spatial_camera_target": {
+      "signature": "aap_assets_v1.read_spatial_camera_target(uuid,uuid,text)",
+      "request": {
+        "$ref": "#/$defs/ReadCameraTargetRequest"
+      },
+      "response": {
+        "$ref": "#/$defs/CameraTargetResult"
+      }
+    }
+  },
+  "x-paging": {
+    "snapshot": "opaque SHA256 of the complete native source snapshot",
+    "completion": "stable scope, total, snapshot, monotone unique records, exact echoed cursors, complete record count"
+  }
+}

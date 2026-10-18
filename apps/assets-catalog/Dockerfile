@@ -17,6 +17,12 @@ COPY apps/assets-catalog/pyproject.toml apps/assets-catalog/uv.lock ./apps/asset
 COPY apps/assets-catalog/src/ ./apps/assets-catalog/src/
 COPY apps/_shared/workspace_contract/pyproject.toml ./apps/_shared/workspace_contract/
 COPY apps/_shared/workspace_contract/src/ ./apps/_shared/workspace_contract/src/
+COPY apps/assets-source/pyproject.toml ./apps/assets-source/
+COPY apps/assets-source/src/ ./apps/assets-source/src/
+COPY apps/assets-cleanup/pyproject.toml ./apps/assets-cleanup/
+COPY apps/assets-cleanup/src/ ./apps/assets-cleanup/src/
+COPY apps/_shared/audit_contract/pyproject.toml ./apps/_shared/audit_contract/
+COPY apps/_shared/audit_contract/src/ ./apps/_shared/audit_contract/src/
 WORKDIR /app/apps/assets-catalog
 RUN uv venv /opt/venv \
     && uv sync --locked --no-dev --extra server --no-editable \

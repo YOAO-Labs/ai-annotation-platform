@@ -418,20 +418,40 @@ class SpatialLayoutPlan(_Value):
     dry_run: StrictBool
     notes: list[StrictStr]
 
+    @model_validator(mode="after")
+    def check_plan(self):
+        scene_ids = [scene.id for scene in self.scenes]
+        item_ids = [entry.item_id for entry in self.assignments]
+        if len(set(scene_ids)) != len(scene_ids) or len(set(item_ids)) != len(item_ids):
+            raise ValueError("Duplicate Scene or assignment IDs")
+        if any(entry.scene_id not in scene_ids for entry in self.assignments):
+            raise ValueError("Layout assignment escaped its Scene plan")
+        if self.created_scenes != len(self.scenes) or (
+            not self.dry_run and self.assigned_items != len(self.assignments)
+        ):
+            raise ValueError("Layout counts disagree with the actual plan")
+        return self
+
 
 class ApplyLayoutRequest(_Value):
     operation_id: UUID
-    actor_id: UUID
+    actor_id: UUID | None
     dataset_id: UUID
     mode: SceneMode
     dry_run: StrictBool = False
     plan: SpatialLayoutPlan
     snapshot: dict[str, Any]
 
+    @model_validator(mode="after")
+    def check_dry_run(self):
+        if self.dry_run != self.plan.dry_run:
+            raise ValueError("Layout plan dry-run scope differs")
+        return self
+
 
 class BackfillScenesRequest(_Value):
     operation_id: UUID
-    actor_id: UUID
+    actor_id: UUID | None
     dataset_id: UUID
     mode: SceneMode = "auto"
     dry_run: StrictBool = False
@@ -439,7 +459,7 @@ class BackfillScenesRequest(_Value):
 
 class LayoutMutationResult(_Value):
     operation_id: UUID
-    actor_id: UUID
+    actor_id: UUID | None
     dataset_id: UUID
     created_scenes: Count
     assigned_items: Count
@@ -596,7 +616,7 @@ class AxisSniffResult(_Value):
 
 
 def _check_page(rows: list[Any], total: int, complete: bool, next_cursor: Any) -> None:
-    if len(rows) > total or complete != (next_cursor is None):
+    if len(rows) > min(total, 500) or complete != (next_cursor is None):
         raise ValueError("Spatial page completion is inconsistent")
     if not complete and not rows:
         raise ValueError("Incomplete page must advance")
@@ -629,3 +649,158 @@ def canonical_calibration_document(calibration: SensorCalibration) -> str:
         separators=(",", ":"),
         allow_nan=False,
     )
+
+
+SPATIAL_NATIVE_SIGNATURES = {
+    "guard_spatial_actor": "uuid,text",
+    "list_spatial_scenes": "uuid,uuid,timestamp with time zone,uuid,integer",
+    "get_spatial_scene": "uuid,uuid",
+    "read_spatial_layout": "uuid,uuid,uuid,uuid,integer",
+    "read_spatial_items": "uuid,uuid[],uuid,integer",
+    "read_spatial_poses": "uuid,uuid,integer,integer",
+    "read_spatial_calibrations": "uuid[],boolean,uuid,integer,integer",
+    "lock_spatial_calibration_facts": "uuid,uuid,text,uuid,jsonb",
+    "mutate_spatial_scene": "uuid,uuid,uuid,jsonb,jsonb",
+    "apply_spatial_layout": "uuid,uuid,uuid,text,boolean,jsonb,jsonb",
+    "upsert_spatial_poses": "uuid,uuid,jsonb",
+    "create_spatial_scene": "uuid,uuid,uuid,text,text,jsonb,uuid",
+    "assign_spatial_items": "uuid,uuid,jsonb",
+    "set_spatial_scene_source": "uuid,uuid,text,jsonb",
+    "update_spatial_calibration": "uuid,uuid,uuid,text,integer,text,jsonb,text,text,jsonb,jsonb",
+    "read_pointcloud_preparation": "uuid,uuid,integer",
+    "apply_pointcloud_preparation": "uuid,jsonb,jsonb,jsonb",
+    "read_spatial_camera_target": "uuid,uuid,text",
+}
+
+SPATIAL_OPERATIONS = {
+    "guard_spatial_actor": (GuardSpatialActorRequest, SpatialActorResult),
+    "list_spatial_scenes": (ListScenesRequest, ScenePage),
+    "get_spatial_scene": (GetSceneRequest, SceneResult),
+    "read_spatial_layout": (ReadLayoutRequest, LayoutPage),
+    "read_spatial_items": (ReadItemsRequest, ItemFactsPage),
+    "read_spatial_poses": (ReadPosesRequest, PosePage),
+    "read_spatial_calibrations": (ReadCalibrationsRequest, CalibrationPage),
+    "lock_spatial_calibration_facts": (LockCalibrationFactsRequest, CalibrationRecord),
+    "mutate_spatial_scene": (MutateSceneRequest, SceneMutationResult),
+    "apply_spatial_layout": (ApplyLayoutRequest, LayoutMutationResult),
+    "upsert_spatial_poses": (UpsertPosesRequest, PoseMutationResult),
+    "create_spatial_scene": (CreateSceneRequest, SceneMutationResult),
+    "assign_spatial_items": (AssignItemsRequest, AssignmentMutationResult),
+    "set_spatial_scene_source": (SetSceneSourceRequest, SceneMutationResult),
+    "update_spatial_calibration": (ApplyCalibrationRequest, CalibrationMutationResult),
+    "read_pointcloud_preparation": (ReadPreparationRequest, PreparationPage),
+    "apply_pointcloud_preparation": (
+        ApplyPreparationRequest,
+        PreparationMutationResult,
+    ),
+    "read_spatial_camera_target": (ReadCameraTargetRequest, CameraTargetResult),
+}
+
+
+def require_spatial_scope(request: BaseModel, result: BaseModel) -> None:
+    """Reject replies for another operation, actor, resource, selector, or cursor."""
+    for name in (
+        "operation_id",
+        "actor_id",
+        "dataset_id",
+        "scene_id",
+        "task_id",
+        "camera_role",
+        "creation_operation_id",
+        "dataset_item_id",
+        "include_history",
+        "after",
+        "after_item_id",
+        "after_frame_index",
+        "dry_run",
+    ):
+        if name in type(request).model_fields and name in type(result).model_fields:
+            if getattr(request, name) != getattr(result, name):
+                raise ValueError(f"Assets spatial reply escaped {name}")
+    for name in ("item_ids", "dataset_item_ids"):
+        if name in type(request).model_fields and name in type(result).model_fields:
+            left, right = getattr(request, name), getattr(result, name)
+            if (left is None) != (right is None) or (
+                left is not None
+                and (len(right) != len(left) or set(left) != set(right))
+            ):
+                raise ValueError(f"Assets spatial reply escaped {name}")
+
+
+def spatial_json_schema() -> dict[str, Any]:
+    """Build the distributable schema from the exact native and HTTP wire values."""
+    definitions: dict[str, Any] = {}
+    models = set()
+    for request, result in SPATIAL_OPERATIONS.values():
+        models.update((request, result))
+    models.update(
+        (
+            BackfillScenesRequest,
+            UpdateCalibrationRequest,
+            SniffAxisRequest,
+            AxisSniffResult,
+        )
+    )
+    for model in sorted(models, key=lambda value: value.__name__):
+        schema = model.model_json_schema(ref_template="#/$defs/{model}")
+        definitions.update(schema.pop("$defs", {}))
+        definitions[model.__name__] = schema
+    return {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "urn:aap:assets-spatial:v1",
+        "title": "Assets spatial owner contract",
+        "type": "object",
+        "required": ["schema", "ok"],
+        "properties": {"schema": {"const": SPATIAL_SCHEMA}, "ok": {"type": "boolean"}},
+        "oneOf": [
+            {
+                "type": "object",
+                "required": ["schema", "ok", "data"],
+                "properties": {
+                    "schema": {"const": SPATIAL_SCHEMA},
+                    "ok": {"const": True},
+                    "data": {
+                        "anyOf": [
+                            {"$ref": f"#/$defs/{model.__name__}"}
+                            for model in sorted(
+                                {result for _, result in SPATIAL_OPERATIONS.values()}
+                                | {AxisSniffResult},
+                                key=lambda value: value.__name__,
+                            )
+                        ]
+                    },
+                },
+                "additionalProperties": False,
+            },
+            {
+                "type": "object",
+                "required": ["schema", "ok", "error"],
+                "properties": {
+                    "schema": {"const": SPATIAL_SCHEMA},
+                    "ok": {"const": False},
+                    "error": {
+                        "type": "object",
+                        "required": ["code"],
+                        "properties": {
+                            "code": {"enum": list(SpatialFailureCode.__args__)}
+                        },
+                        "additionalProperties": False,
+                    },
+                },
+                "additionalProperties": False,
+            },
+        ],
+        "$defs": definitions,
+        "x-native-capabilities": {
+            name: {
+                "signature": f"aap_assets_v1.{name}({SPATIAL_NATIVE_SIGNATURES[name]})",
+                "request": {"$ref": f"#/$defs/{request.__name__}"},
+                "response": {"$ref": f"#/$defs/{result.__name__}"},
+            }
+            for name, (request, result) in SPATIAL_OPERATIONS.items()
+        },
+        "x-paging": {
+            "snapshot": "opaque SHA256 of the complete native source snapshot",
+            "completion": "stable scope, total, snapshot, monotone unique records, exact echoed cursors, complete record count",
+        },
+    }
