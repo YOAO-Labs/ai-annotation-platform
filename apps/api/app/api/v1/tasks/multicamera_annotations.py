@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import NoReturn
 import uuid
+from ipaddress import ip_address
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -42,6 +43,9 @@ from aap_assets_catalog.spatial_contract import (
     ReadCameraTargetRequest,
     UpdateCalibrationRequest,
 )
+from aap_audit_contract import ProjectDeletionAuditContext
+from app.middleware.request_id import request_id_var
+from app.services.audit import audit_origin_from_request
 
 
 router = APIRouter()
@@ -372,6 +376,17 @@ async def patch_camera_calibration(
         raise HTTPException(
             status_code=403, detail="Only the project owner can update calibration"
         )
+    origin = audit_origin_from_request(request)
+    try:
+        ip = str(ip_address(origin.ip)) if origin.ip else None
+    except ValueError:
+        ip = None
+    audit_context = ProjectDeletionAuditContext(
+        method=origin.method,
+        path=origin.path,
+        ip=ip,
+        request_id=request_id_var.get()[:36] or None,
+    )
     try:
         gateway = AssetsSpatialGateway(db)
         result = await gateway.update_calibration(
@@ -383,16 +398,12 @@ async def patch_camera_calibration(
                 expected_revision=payload.expected_revision,
                 expected_digest=payload.expected_digest,
                 calibration=payload.calibration,
-                audit_context={
-                    "path": str(request.url.path),
-                    "method": request.method,
-                    "request_id": request.headers.get("x-request-id"),
-                    "user_agent": request.headers.get("user-agent"),
-                    "remote_addr": request.client.host if request.client else None,
-                },
+                audit_context=audit_context.model_dump(mode="json"),
             )
         )
-    except AssetsSpatialGatewayError:
+    except AssetsSpatialGatewayError as exc:
+        if exc.code == "camera_shared_across_projects":
+            raise HTTPException(status_code=403, detail=exc.message) from exc
         raise
     except MulticameraAnnotationError as exc:
         _raise_domain_error(exc)

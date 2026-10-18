@@ -414,7 +414,7 @@ GRANT SELECT (project_id), DELETE ON public.export_artifacts TO :"export_owner";
 -- Cross-owner function calls share one PostgreSQL transaction and retain the
 -- dataset -> current authority -> association -> Jobs/Labeling lock order.
 GRANT USAGE ON SCHEMA aap_identity_v1
-    TO :"identity_owner", :"workspace_owner", :"assets_owner", :"audit_owner";
+    TO :"identity_owner", :"workspace_owner", :"assets_owner", :"audit_owner", :"labeling_owner";
 GRANT USAGE ON SCHEMA aap_workspace_v1 TO :"workspace_owner", :"assets_owner",
     :"labeling_owner", :"jobs_owner", :"workflow_role";
 GRANT USAGE ON SCHEMA aap_assets_v1 TO :"assets_owner", :"labeling_owner",
@@ -436,7 +436,7 @@ GRANT USAGE ON SCHEMA aap_audit_v1
     TO :"audit_owner", :"workspace_owner", :"assets_owner";
 
 GRANT EXECUTE ON FUNCTION aap_identity_v1.lock_active_actor(uuid)
-    TO :"workspace_owner", :"assets_owner";
+    TO :"workspace_owner", :"assets_owner", :"labeling_owner";
 GRANT EXECUTE ON FUNCTION aap_identity_v1.read_actor_facts(uuid)
     TO :"workspace_owner", :"assets_owner";
 GRANT EXECUTE ON FUNCTION aap_identity_v1.lock_audit_actor(uuid)

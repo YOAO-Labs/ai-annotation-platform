@@ -49,7 +49,11 @@ from app.services.notification import NotificationService
 from app.services.data_management.task_filters import visible_tasks_stmt
 from app.services.assets_spatial import AssetsSpatialGateway
 from app.services.labeling_scene import read_spatial_item_facts
-from aap_assets_catalog.spatial_contract import ReadPosesRequest, SpatialItem
+from aap_assets_catalog.spatial_contract import (
+    ReadPosesRequest,
+    SpatialItem,
+    normalize_calibration_record,
+)
 from app.services.storage import storage_service
 from app.workers.celery_app import celery_app
 
@@ -375,7 +379,9 @@ async def _multicamera_coco_scope_digest(
                     "revision": row.revision,
                     "digest": row.digest,
                     "calibration": (
-                        row.calibration.model_dump(mode="json")
+                        normalize_calibration_record(row).calibration.model_dump(
+                            mode="json"
+                        )
                         if row.calibration is not None
                         else None
                     ),

@@ -2146,10 +2146,16 @@ BEGIN
     v_target := aap_labeling_v1.read_spatial_camera_target(p_actor_id, p_task_id, p_camera_role);
     IF v_target ->> 'schema' IS DISTINCT FROM 'aap-labeling-spatial-camera-target/v1'
        OR jsonb_typeof(v_target -> 'ok') IS DISTINCT FROM 'boolean'
-       OR (v_target - ARRAY['schema', 'ok', 'data']) IS DISTINCT FROM '{}'::jsonb THEN
+       OR (v_target - ARRAY['schema', 'ok', 'data', 'error']) IS DISTINCT FROM '{}'::jsonb THEN
         RETURN aap_assets_v1._spatial_failure('invalid_response');
     END IF;
     IF v_target -> 'ok' IS DISTINCT FROM 'true'::jsonb THEN
+        IF (v_target - ARRAY['schema', 'ok', 'error']) IS DISTINCT FROM '{}'::jsonb
+           OR jsonb_typeof(v_target -> 'error') IS DISTINCT FROM 'object'
+           OR ((v_target -> 'error') - ARRAY['code']) IS DISTINCT FROM '{}'::jsonb
+           OR jsonb_typeof(v_target #> '{error,code}') IS DISTINCT FROM 'string' THEN
+            RETURN aap_assets_v1._spatial_failure('invalid_response');
+        END IF;
         RETURN aap_assets_v1._spatial_failure(CASE v_target #>> '{error,code}'
             WHEN 'invalid_request' THEN 'invalid_request'
             WHEN 'account_not_active' THEN 'account_not_active'
@@ -2158,9 +2164,11 @@ BEGIN
             WHEN 'task_missing' THEN 'task_missing'
             WHEN 'task_busy' THEN 'task_busy'
             WHEN 'camera_role_not_linked' THEN 'camera_role_not_linked'
-            ELSE 'task_not_visible' END);
+            WHEN 'task_not_visible' THEN 'task_not_visible'
+            ELSE 'invalid_response' END);
     END IF;
-    IF jsonb_typeof(v_target -> 'data') IS DISTINCT FROM 'object'
+    IF (v_target - ARRAY['schema', 'ok', 'data']) IS DISTINCT FROM '{}'::jsonb
+       OR jsonb_typeof(v_target -> 'data') IS DISTINCT FROM 'object'
        OR ((v_target -> 'data') - ARRAY['actor_id', 'task_id', 'camera_role', 'dataset_item_id']) IS DISTINCT FROM '{}'::jsonb
        OR jsonb_typeof(v_target #> '{data,actor_id}') IS DISTINCT FROM 'string'
        OR jsonb_typeof(v_target #> '{data,task_id}') IS DISTINCT FROM 'string'

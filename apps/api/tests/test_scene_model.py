@@ -103,7 +103,9 @@ async def test_assign_items_to_scene_writes_frame_index(db_session, super_admin)
         ReadItemsRequest(item_ids=[item.id for item in items]),
         same_session_native=True,
     )
-    assert [item.frame_index for item in facts.items] == [0, 1, 2]
+    assert {item.id: item.frame_index for item in facts.items} == {
+        item.id: index for index, item in enumerate(items)
+    }
     assert all(item.scene_id == scene.id for item in facts.items)
 
 
@@ -115,7 +117,10 @@ async def test_list_for_dataset_returns_ordered(db_session, super_admin):
         ListScenesRequest(actor_id=None, dataset_id=ds.id),
         same_session_native=True,
     )
-    assert [s.id for s in scenes] == [s1.id, s2.id]
+    assert [s.id for s in scenes] == [
+        scene.id
+        for scene in sorted((s1, s2), key=lambda scene: (scene.created_at, scene.id))
+    ]
 
 
 async def test_scenes_api_get_and_patch(app_module, test_engine):
@@ -140,7 +145,7 @@ async def test_scenes_api_get_and_patch(app_module, test_engine):
         )
         actor = User(
             **make_user_dict(
-                "employee",
+                "project_admin",
                 f"scene-editor-{uuid.uuid4().hex}@test.local",
                 "Scene editor",
             )
@@ -165,7 +170,7 @@ async def test_scenes_api_get_and_patch(app_module, test_engine):
             created_by=owner.id,
         )
         dataset_id, scene_id, duplicate_id = dataset.id, scene.id, duplicate.id
-        token = create_access_token(subject=str(actor.id), role="employee")
+        token = create_access_token(subject=str(actor.id), role="project_admin")
         await db.commit()
 
     async def session_per_request():

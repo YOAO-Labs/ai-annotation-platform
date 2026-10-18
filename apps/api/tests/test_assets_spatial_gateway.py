@@ -23,12 +23,14 @@ from aap_assets_catalog.spatial_contract import (
     SceneMutationResult,
     ScenePage,
     SceneResult,
+    ScenePatch,
     SpatialLayoutPlan,
     SpatialScene,
 )
 from app.api.v1 import scenes as scene_routes
 from app.schemas.scene import SceneUpdate
 from app.services import assets_catalog
+from app.services import assets_spatial
 from app.services.assets_catalog import CatalogGatewayError
 from app.services.assets_spatial import (
     AssetsSpatialGateway,
@@ -219,6 +221,7 @@ async def test_explicit_atomic_preparation_uses_native_binding_without_commit(
         assigned_items=0,
     )
     db = AsyncMock(spec=AsyncSession)
+    monkeypatch.setattr(assets_catalog, "_MAX_REQUEST_BYTES", 32)
     db.execute.return_value = SimpleNamespace(scalar_one=lambda: _wire(expected))
     _mock_http(monkeypatch, lambda _request: pytest.fail("atomic mode must stay local"))
     apply_request = ApplyPreparationRequest(
@@ -254,6 +257,31 @@ async def test_explicit_atomic_preparation_uses_native_binding_without_commit(
     assert "aap_assets_v1.apply_pointcloud_preparation" in str(
         db.execute.await_args.args[0]
     )
+    db.commit.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_native_spatial_reply_budget_rejects_before_commit(monkeypatch):
+    operation_id, actor_id, scene_id, dataset_id = (uuid.uuid4() for _ in range(4))
+    scene = _scene(scene_id, dataset_id, "large", datetime.now(UTC)).model_copy(
+        update={"source_metadata": {"large": "x" * 1024}}
+    )
+    result = SceneMutationResult(
+        operation_id=operation_id, actor_id=actor_id, scene_id=scene_id, scene=scene
+    )
+    db = AsyncMock(spec=AsyncSession)
+    db.execute.return_value = SimpleNamespace(scalar_one=lambda: _wire(result))
+    monkeypatch.setattr(assets_spatial, "_MAX_RESPONSE_BYTES", 1024)
+    monkeypatch.setattr(assets_catalog.settings, "assets_catalog_url", "")
+    with pytest.raises(CatalogGatewayError, match="response budget"):
+        await AssetsSpatialGateway(db).mutate_scene(
+            MutateSceneRequest(
+                operation_id=operation_id,
+                actor_id=actor_id,
+                scene_id=scene_id,
+                patch=ScenePatch(name="large"),
+            )
+        )
     db.commit.assert_not_awaited()
 
 

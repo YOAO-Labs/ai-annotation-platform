@@ -9,11 +9,11 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.annotation import Annotation
-from app.db.models.dataset import ProjectDataset
 from app.db.models.task import Task
 from app.db.models.task_dataset_item_link import TaskDatasetItemLink
 from app.schemas.scene import NeighborInfo, NeighborsResponse
 from app.services.assets_spatial import AssetsSpatialGateway
+from app.services.assets_spatial_views import spatial_item_references
 from aap_assets_catalog.spatial_contract import (
     GetSceneRequest,
     ReadItemsRequest,
@@ -217,42 +217,43 @@ async def get_scene_frame_task_map(
     db: AsyncSession, scene_id: uuid.UUID
 ) -> dict[int, uuid.UUID]:
     """Map populated scene frames to their Labeling tasks, preserving link priority."""
-    scene_result = await AssetsSpatialGateway(db).get_scene(
-        GetSceneRequest(actor_id=None, scene_id=scene_id)
-    )
-    dataset_id = scene_result.scene.dataset_id
-    project_rows = await db.execute(
-        select(Task.id, Task.dataset_item_id)
-        .join(ProjectDataset, ProjectDataset.project_id == Task.project_id)
-        .where(ProjectDataset.dataset_id == dataset_id)
-        .where(Task.dataset_item_id.is_not(None))
-    )
-    direct = {item_id: task_id for task_id, item_id in project_rows.all()}
-    link_rows = await db.execute(
-        select(TaskDatasetItemLink.dataset_item_id, TaskDatasetItemLink.task_id)
-        .join(Task, Task.id == TaskDatasetItemLink.task_id)
-        .join(ProjectDataset, ProjectDataset.project_id == Task.project_id)
-        .where(ProjectDataset.dataset_id == dataset_id)
-        .where(TaskDatasetItemLink.role == _PRIMARY_LIDAR_ROLE)
-    )
-    linked: dict[uuid.UUID, uuid.UUID] = {}
-    for item_id, task_id in link_rows.all():
-        linked.setdefault(item_id, task_id)
-    item_facts, _ = await read_spatial_item_facts(db, [*direct, *linked])
+    facts = spatial_item_references.c
+    item_rows = (
+        await db.execute(
+            select(facts.item_id, facts.frame_index)
+            .where(facts.scene_id == scene_id)
+            .where(facts.frame_index.is_not(None))
+            .order_by(facts.frame_index)
+        )
+    ).all()
+    if not item_rows:
+        return {}
+    direct_rows = (
+        await db.execute(
+            select(Task.id, Task.dataset_item_id)
+            .join(spatial_item_references, facts.item_id == Task.dataset_item_id)
+            .where(facts.scene_id == scene_id)
+        )
+    ).all()
+    item_to_task = {item_id: task_id for task_id, item_id in direct_rows}
+    link_rows = (
+        await db.execute(
+            select(TaskDatasetItemLink.dataset_item_id, TaskDatasetItemLink.task_id)
+            .join(
+                spatial_item_references,
+                facts.item_id == TaskDatasetItemLink.dataset_item_id,
+            )
+            .where(facts.scene_id == scene_id)
+            .where(TaskDatasetItemLink.role == _PRIMARY_LIDAR_ROLE)
+        )
+    ).all()
+    for item_id, task_id in link_rows:
+        item_to_task.setdefault(item_id, task_id)
     frame_to_task: dict[int, uuid.UUID] = {}
-    for item_id, item in sorted(
-        item_facts.items(),
-        key=lambda pair: (
-            pair[1].frame_index is None,
-            pair[1].frame_index or 0,
-            str(pair[0]),
-        ),
-    ):
-        if item.scene_id != scene_id or item.frame_index is None:
-            continue
-        task_id = direct.get(item_id, linked.get(item_id))
+    for item_id, frame_index in item_rows:
+        task_id = item_to_task.get(item_id)
         if task_id is not None:
-            frame_to_task.setdefault(item.frame_index, task_id)
+            frame_to_task.setdefault(frame_index, task_id)
     return frame_to_task
 
 

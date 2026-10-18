@@ -15,6 +15,7 @@ from aap_assets_catalog.spatial_contract import (
     SPATIAL_NATIVE_SIGNATURES,
     SPATIAL_NATIVE_ARGUMENTS,
     SPATIAL_OPERATIONS,
+    SPATIAL_SCHEMA,
     ApplyCalibrationRequest,
     ApplyLayoutRequest,
     ApplyPreparationRequest,
@@ -34,6 +35,7 @@ from aap_assets_catalog.spatial_contract import (
     GuardSpatialActorRequest,
     ItemFactsPage,
     LayoutMutationResult,
+    LayoutReceiptResult,
     LayoutPage,
     ListScenesRequest,
     LockCalibrationFactsRequest,
@@ -76,6 +78,7 @@ from app.services.assets_catalog import (
     CatalogGatewayError,
     _encode_request,
     _peer_url,
+    _MAX_RESPONSE_BYTES,
 )
 from app.services.storage import storage_service
 
@@ -220,12 +223,28 @@ class AssetsSpatialGateway:
             operation,
             f"SELECT aap_assets_v1.{operation}({placeholders})",
             parameters,
-            _encode_request(request),
+            b"" if same_session_native else _encode_request(request),
             result_type,
             decoder=_decode_spatial,
             namespace="spatial",
             same_session_native=same_session_native,
         )
+        if not remote:
+            size = 0
+            encoder = json.JSONEncoder(
+                ensure_ascii=False, allow_nan=False, separators=(",", ":")
+            )
+            envelope = {
+                "schema": SPATIAL_SCHEMA,
+                "ok": True,
+                "data": reply.model_dump(mode="json"),
+            }
+            for chunk in encoder.iterencode(envelope):
+                size += len(chunk.encode("utf-8"))
+                if size > _MAX_RESPONSE_BYTES:
+                    raise self._invalid_response(
+                        "Assets spatial reply exceeds the response budget"
+                    )
         try:
             require_spatial_scope(request, reply)
         except (TypeError, ValueError, KeyError) as exc:
@@ -413,6 +432,23 @@ class AssetsSpatialGateway:
                 request.snapshot,
             ),
             LayoutMutationResult,
+        )
+        return result
+
+    async def read_spatial_layout_receipt(
+        self, request: BackfillScenesRequest
+    ) -> LayoutReceiptResult:
+        result, _ = await self._call(
+            "read_spatial_layout_receipt",
+            request,
+            (
+                request.operation_id,
+                request.actor_id,
+                request.dataset_id,
+                request.mode,
+                request.dry_run,
+            ),
+            LayoutReceiptResult,
         )
         return result
 
@@ -874,7 +910,7 @@ class AssetsSpatialGateway:
             ReadPosesRequest(
                 actor_id=actor_id,
                 scene_id=scene_id,
-                after_frame_index=frame_index - 1,
+                after_frame_index=frame_index - 1 if frame_index > 0 else None,
                 page_size=1,
             )
         )

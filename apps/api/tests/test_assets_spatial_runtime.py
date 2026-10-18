@@ -77,6 +77,10 @@ async def _cleanup_spatial_fixture(engine, actor_id, operation_id):
                 "DELETE FROM task_append_operations WHERE dataset_id IN (SELECT id FROM datasets WHERE created_by=:actor)",
                 {"actor": actor_id},
             ),
+            (
+                "DELETE FROM tasks WHERE project_id IN (SELECT id FROM projects WHERE owner_id=:actor)",
+                {"actor": actor_id},
+            ),
             ("DELETE FROM projects WHERE owner_id=:actor", {"actor": actor_id}),
             ("DELETE FROM async_jobs WHERE user_id=:actor", {"actor": actor_id}),
             ("DELETE FROM datasets WHERE created_by=:actor", {"actor": actor_id}),
@@ -502,6 +506,7 @@ async def test_spatial_container_complete_reads_replay_and_accepted_source_prepa
                     assert "ignored_vendor_flag" not in source.metadata_["calibration"]
                     task = Task(
                         id=uuid4(),
+                        display_id=f"T-SP-{identity[:10]}",
                         project_id=preparation.project_id,
                         dataset_item_id=preparation.items[0].id,
                         file_name="000000.pcd",
@@ -526,7 +531,7 @@ async def test_spatial_container_complete_reads_replay_and_accepted_source_prepa
                     await owner.commit()
                 calibration_path = f"/api/v1/tasks/{task_id}/point-cloud/cameras/camera_front/calibration"
                 history = await api.get(calibration_path, headers=headers)
-                assert history.status_code == 200
+                assert history.status_code == 200, history.text
                 current = history.json()
                 changed_calibration = dict(calibration_document)
                 changed_calibration.pop("ignored_vendor_flag")
@@ -542,7 +547,8 @@ async def test_spatial_container_complete_reads_replay_and_accepted_source_prepa
                     headers={**headers, "Idempotency-Key": str(calibration_patch_id)},
                     json=command,
                 )
-                assert changed.status_code == 200 and changed.json()["revision"] == 2
+                assert changed.status_code == 200, changed.text
+                assert changed.json()["revision"] == 2
                 repeated = await api.patch(
                     calibration_path,
                     headers={**headers, "Idempotency-Key": str(calibration_patch_id)},
@@ -616,7 +622,7 @@ async def test_spatial_container_complete_reads_replay_and_accepted_source_prepa
         else:
             app_module.dependency_overrides[get_db] = previous_db
         if container is not None:
-            await asyncio.to_thread(_stop_remove_container, container, image, identity)
+            await asyncio.to_thread(_stop_remove_container, container, identity)
         await asyncio.to_thread(_remove_worker_image, image, identity)
         for bucket, key in objects:
             owner_s3.delete_object(Bucket=bucket, Key=key)

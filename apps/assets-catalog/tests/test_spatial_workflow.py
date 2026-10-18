@@ -23,8 +23,9 @@ def _item(
     metadata: dict | None = None,
     camera_roles: list[str] | None = None,
 ) -> spatial.SpatialItem:
+    item_id = uuid4()
     return spatial.SpatialItem(
-        id=uuid4(),
+        id=item_id,
         dataset_id=dataset_id,
         file_name=file_name or path.rsplit("/", 1)[-1],
         file_path=path,
@@ -40,7 +41,11 @@ def _item(
         thumbnail_path=None,
         axis_convention=None,
         calibration_revision=None,
-        source_snapshot={"file_path": path, "revision": 1},
+        source_snapshot={
+            "dataset_item_id": str(item_id),
+            "file_path": path,
+            "revision": 1,
+        },
         camera_roles=camera_roles or [],
     )
 
@@ -429,6 +434,7 @@ class _CalibrationNative:
         self.item = self.item.model_copy(
             update={
                 "source_snapshot": {
+                    "dataset_item_id": str(self.item.id),
                     "file_path": self.item.file_path,
                     "revision": 2,
                 }

@@ -13,6 +13,7 @@ from sqlalchemy import func, select, text
 from aap_assets_catalog.spatial_contract import (
     CalibrationMutationResult,
     CalibrationPage,
+    CameraTargetResult,
     ProvenanceMutationResult,
     canonical_calibration_document,
     decode_spatial_reply,
@@ -49,6 +50,10 @@ _RECORD_PROVENANCE = text(
     "CAST(:operation_id AS uuid), CAST(:dataset_id AS uuid), "
     "CAST(:entries AS jsonb))"
 )
+_READ_CAMERA_TARGET = text(
+    "SELECT aap_assets_v1.read_spatial_camera_target("
+    "CAST(:actor_id AS uuid),CAST(:task_id AS uuid),'camera_front')"
+)
 
 
 def _json_value(value: object) -> dict:
@@ -74,6 +79,31 @@ def _calibration(*, scale: float = 1.0) -> SensorCalibration:
         extrinsic=[1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1],
         intrinsic=[scale, 0, 0, 0, 1, 0, 0, 0, 1],
         rect=None,
+    )
+
+
+async def test_camera_target_read_uses_current_link_and_visibility(db_session):
+    fixture = await _seed_camera_fixture(db_session)
+    result = _spatial_result(
+        await _call(db_session, _READ_CAMERA_TARGET, fixture), CameraTargetResult
+    )
+    assert result.dataset_item_id == fixture["dataset_item_id"]
+    assert result.actor_id == fixture["actor_id"]
+    assert result.task_id == fixture["task_id"]
+    await db_session.execute(
+        text("UPDATE users SET is_active=false WHERE id=:actor_id"), fixture
+    )
+    _spatial_error(
+        await _call(db_session, _READ_CAMERA_TARGET, fixture), "account_not_active"
+    )
+    await db_session.execute(
+        text("UPDATE users SET is_active=true WHERE id=:actor_id"), fixture
+    )
+    await db_session.execute(
+        text("DELETE FROM task_dataset_item_links WHERE task_id=:task_id"), fixture
+    )
+    _spatial_error(
+        await _call(db_session, _READ_CAMERA_TARGET, fixture), "camera_role_not_linked"
     )
 
 

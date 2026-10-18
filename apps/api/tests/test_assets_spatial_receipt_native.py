@@ -249,6 +249,7 @@ async def test_layout_and_item_pages_return_only_referenced_scene_summaries(db_s
                 created_by=actor_id,
             )
         )
+        await db_session.flush()
         db_session.add(
             DatasetItem(
                 id=item_id,

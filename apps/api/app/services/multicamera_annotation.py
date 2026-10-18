@@ -198,8 +198,8 @@ async def _lock_camera_calibration(
     record = await AssetsSpatialGateway(db).lock_calibration_facts(
         LockCalibrationFactsRequest(
             actor_id=actor_id,
-            task_id=task.id,
-            camera_role=context.role,
+            task_id=task.id if actor_id is not None else None,
+            camera_role=context.role if actor_id is not None else None,
             dataset_item_id=context.item.id,
             expected_source_snapshot=context.calibration.source_snapshot or {},
         )

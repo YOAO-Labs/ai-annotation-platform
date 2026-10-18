@@ -705,10 +705,6 @@ class CatalogDatabase:
     async def update_spatial_calibration(
         self, request: spatial.ApplyCalibrationRequest
     ) -> spatial.CalibrationMutationResult:
-        def check_source_snapshot(result: BaseModel) -> None:
-            if result.state.source_snapshot != request.source_snapshot:
-                raise ValueError("Calibration mutation escaped the source snapshot")
-
         return await self._spatial_call(
             "update_spatial_calibration",
             UPDATE_SPATIAL_CALIBRATION_SQL,
@@ -724,7 +720,6 @@ class CatalogDatabase:
             request.current_canonical_document,
             request.source_snapshot,
             request.audit_context,
-            result_validator=check_source_snapshot,
         )
 
     async def read_pointcloud_preparation(

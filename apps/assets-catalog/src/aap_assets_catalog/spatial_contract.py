@@ -933,6 +933,15 @@ SPATIAL_OPERATIONS = {
 
 def require_spatial_scope(request: BaseModel, result: BaseModel) -> None:
     """Reject replies for another operation, actor, resource, selector, or cursor."""
+    if isinstance(request, ApplyCalibrationRequest) and isinstance(
+        result, CalibrationMutationResult
+    ):
+        item_id = str(result.state.dataset_item_id)
+        if (
+            request.source_snapshot.get("dataset_item_id") != item_id
+            or result.state.source_snapshot.get("dataset_item_id") != item_id
+        ):
+            raise ValueError("Calibration mutation escaped the source item")
     for name in (
         "operation_id",
         "actor_id",

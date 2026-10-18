@@ -184,6 +184,8 @@ TEST_FILES = (
     "tests/test_assets_spatial_native_peer.py",
     "tests/test_assets_spatial_preparation.py",
     "tests/test_assets_spatial_concurrency.py",
+    "tests/test_assets_spatial_receipt_native.py",
+    "tests/test_assets_spatial_workflow_native.py",
     "tests/test_assets_spatial_gateway.py",
     "tests/test_assets_spatial_runtime.py",
     "tests/test_assets_catalog_runtime.py",

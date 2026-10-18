@@ -369,7 +369,10 @@ async def test_association_failure_and_parent_scope_mismatch_fail_closed() -> No
 
 
 @pytest.mark.asyncio
-async def test_spatial_calibration_binding_preserves_the_frozen_native_argument_order():
+@pytest.mark.parametrize("source_item_matches", [True, False])
+async def test_spatial_calibration_binding_preserves_the_frozen_native_argument_order(
+    source_item_matches,
+):
     operation_id, actor_id, task_id, item_id = uuid4(), uuid4(), uuid4(), uuid4()
     calibration = spatial.WireCalibration(
         extrinsic=[1.0] * 16,
@@ -385,16 +388,16 @@ async def test_spatial_calibration_binding_preserves_the_frozen_native_argument_
         calibration=calibration,
         canonical_document='{"new":true}',
         current_canonical_document='{"current":true}',
-        source_snapshot={"item": str(item_id)},
+        source_snapshot={"dataset_item_id": str(item_id), "revision": 3},
         audit_context={"request_id": "test"},
     )
     state = spatial.CalibrationState(
-        dataset_item_id=item_id,
+        dataset_item_id=item_id if source_item_matches else uuid4(),
         revision=4,
         calibration=calibration,
         digest="b" * 64,
         created_at=None,
-        source_snapshot=request.source_snapshot,
+        source_snapshot={"dataset_item_id": str(item_id), "revision": 4},
     )
     connection = _Connection(
         {
@@ -411,6 +414,11 @@ async def test_spatial_calibration_binding_preserves_the_frozen_native_argument_
     )
     database = CatalogDatabase(_Pool(connection))
 
+    if not source_item_matches:
+        with pytest.raises(DataContractError, match="outside the frozen contract"):
+            await database.update_spatial_calibration(request)
+        assert connection.transaction_events == ["rollback"]
+        return
     result = await database.update_spatial_calibration(request)
 
     assert result.state.dataset_item_id == item_id
@@ -426,7 +434,7 @@ async def test_spatial_calibration_binding_preserves_the_frozen_native_argument_
         calibration.model_dump(mode="json"),
         '{"new":true}',
         '{"current":true}',
-        {"item": str(item_id)},
+        {"dataset_item_id": str(item_id), "revision": 3},
         {"request_id": "test"},
     )
     assert connection.transaction_events == ["commit"]
