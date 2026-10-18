@@ -76,6 +76,7 @@ def http_document() -> dict:
             add("/v1/commands/" + name, operation.request, operation.result)
     for path, request, response in (
         ("source-reference", c.ReadSourceRequest, SourceReference),
+        ("raw-source-reference", c.ReadSourceRequest, SourceReference),
         ("source-references", SourceReferencesRequest, SourceReferences),
         ("internal-source-reference", InternalSourceReferenceRequest, SourceReference),
         ("assets-reference", c.AssetsRequest, MediaReferences),

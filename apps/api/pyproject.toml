@@ -8,7 +8,7 @@ dependencies = [
     "aap-assets-cleanup",
     "aap-assets-source",
     "aap-audit-contract",
-    "aap-media-probe",
+    "aap-media-probe[client]",
     "aap-task-contract",
     "aap-training-contract",
     "aap-workspace-contract",

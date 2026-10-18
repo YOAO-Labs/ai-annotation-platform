@@ -123,6 +123,12 @@ def create_app(
             request, c.ReadSourceRequest, control.source_reference, SourceReference
         )
 
+    @app.post("/v1/raw-source-reference")
+    async def raw_source_reference(request: Request):
+        return await invoke(
+            request, c.ReadSourceRequest, control.raw_source_reference, SourceReference
+        )
+
     @app.post("/v1/internal-source-reference")
     async def internal_source_reference(request: Request):
         async def reference(value):
@@ -138,7 +144,9 @@ def create_app(
     async def source_references(request: Request):
         async def batch(value):
             return SourceReferences(
-                references=await control.source_references(value.requests)
+                references=await control.source_references(
+                    value.requests, raw_only=value.raw_only
+                )
             )
 
         return await invoke(request, SourceReferencesRequest, batch, SourceReferences)

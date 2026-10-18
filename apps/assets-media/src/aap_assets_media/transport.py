@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Protocol
 from uuid import UUID
 
-from pydantic import BaseModel, Field, StrictInt, StrictStr, field_validator
+from pydantic import BaseModel, Field, StrictBool, StrictInt, StrictStr, field_validator
 
 from .contract import (
     MediaAssets,
@@ -53,6 +53,7 @@ class MediaReferences(Value):
 
 class SourceReferencesRequest(Value):
     requests: list[ReadSourceRequest] = Field(max_length=500)
+    raw_only: StrictBool = False
 
 
 class SourceReferences(Value):
@@ -154,6 +155,7 @@ async def read_samples_document(
     if request.after_sample is not None:
         raise MediaFailure("invalid_request")
     samples: list[PacketSample] = []
+    ranks: set[int] = set()
     snapshot = None
     first: SamplesPage | None = None
     while True:
@@ -180,18 +182,21 @@ async def read_samples_document(
             raise MediaFailure("source_changed")
         snapshot = current
         first = page if first is None else first
+        for sample in page.samples:
+            if sample.frame_index in ranks:
+                raise MediaFailure("invalid_response")
+            ranks.add(sample.frame_index)
         if (
             samples
             and page.samples
-            and (
-                page.samples[0].frame_index <= samples[-1].frame_index
-                or page.samples[0].offset_in_chunk < samples[-1].offset_in_chunk
-            )
+            and (page.samples[0].offset_in_chunk < samples[-1].offset_in_chunk)
         ):
             raise MediaFailure("invalid_response")
         samples.extend(page.samples)
         if page.complete:
             if len(samples) != page.total:
+                raise MediaFailure("invalid_response")
+            if ranks and max(ranks) - min(ranks) + 1 != len(ranks):
                 raise MediaFailure("invalid_response")
             return SamplesDocument(
                 **first.model_dump(

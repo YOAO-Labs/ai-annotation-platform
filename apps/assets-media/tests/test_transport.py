@@ -11,9 +11,54 @@ import pytest
 from aap_assets_media import contract as c
 from aap_assets_media.client import MediaClient
 from aap_assets_media.http_contract import http_document
-from aap_assets_media.transport import read_all_timetable
+from aap_assets_media.transport import read_all_timetable, read_all_samples
 from aap_assets_media_runtime.api import create_app
 from test_contract import source
+
+
+@pytest.mark.asyncio
+async def test_packet_pagination_preserves_b_frame_decode_order():
+    item = uuid4()
+    ranks = [0, 3, 1, 2]
+
+    class Pages:
+        async def call(self, operation, request):
+            start = 0 if request.after_sample is None else request.after_sample + 1
+            stop = min(start + 2, len(ranks))
+            return c.SamplesPage(
+                dataset_item_id=item,
+                chunk_id=0,
+                source_generation=1,
+                timetable_revision=1,
+                snapshot_digest="b" * 64,
+                codec_string="avc1.4d001e",
+                description=None,
+                width=64,
+                height=48,
+                total=4,
+                after_sample=request.after_sample,
+                next_sample=stop - 1 if stop < 4 else None,
+                complete=stop == 4,
+                samples=[
+                    c.PacketSample(
+                        frame_index=ranks[i],
+                        pts_ms=ranks[i] * 40,
+                        duration_ms=40,
+                        is_keyframe=i == 0,
+                        size_bytes=10,
+                        offset_in_chunk=i * 10,
+                    )
+                    for i in range(start, stop)
+                ],
+            )
+
+    rows = await read_all_samples(
+        Pages(),
+        c.SamplesRequest(
+            actor_id=uuid4(), dataset_item_id=item, chunk_id=0, page_size=2
+        ),
+    )
+    assert [row.frame_index for row in rows] == ranks
 
 
 @pytest.mark.asyncio
@@ -157,7 +202,7 @@ def test_shipped_http_contract_contains_control_routes_and_closed_schema_refs():
     assert json.loads(path.read_text()) == document
     assert "/v1/commands/claim_video_media" not in document["paths"]
     assert "/v1/commands/resolve_internal_media_source" in document["paths"]
-    assert len(document["paths"]) == 22
+    assert len(document["paths"]) == 24
 
     def inspect(value):
         if isinstance(value, dict):

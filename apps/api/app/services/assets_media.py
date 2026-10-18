@@ -121,6 +121,7 @@ async def _wake(job_id: UUID | None, generation: int):
 
 
 def _executor():
+    from app.services.media_probe import configured_probe_client
     from aap_assets_media_runtime.config import MediaExecutionSettings
     from aap_assets_media_runtime.worker import MediaExecutor
 
@@ -132,6 +133,7 @@ def _executor():
             frame_ttl_days=settings.video_frame_cache_ttl_days,
             chunk_ttl_days=settings.video_chunk_cache_ttl_days,
         ),
+        probe_client=configured_probe_client(),
     )
 
 
@@ -165,7 +167,7 @@ class MediaGateway:
             return False
         if self._executor is None:
             self._executor = _executor()
-        return await self._executor.execute_once(job_id=job_id)
+        return await self._executor.execute_once(job_id=job_id) is not None
 
     async def ensure_internal_frame(
         self, request: c.InternalFrameRequest, *, timeout_seconds: float = 900
@@ -264,7 +266,11 @@ async def media_execution_session():
 async def run_media_job(job_id: UUID | None = None) -> bool:
     """Run one accepted local job; a remote provider is never executed locally."""
     async with media_execution_session() as executor:
-        return False if executor is None else await executor.execute_once(job_id=job_id)
+        return (
+            False
+            if executor is None
+            else (await executor.execute_once(job_id=job_id)) is not None
+        )
 
 
 async def maintain_video_media():
@@ -275,9 +281,19 @@ async def maintain_video_media():
 async def probe_video_timetable(source: c.MediaSource, *, sparse_stride: int = 1):
     """Trusted CLI dry-run uses the portable decoder, without publication."""
     from aap_assets_media_runtime.processing import probe_source_timetable
+    from app.services.media_probe import configured_probe_client
 
+    if settings.assets_media_url:
+        from aap_assets_media_runtime.http_source import HttpMediaSourceStorage
+
+        storage = HttpMediaSourceStorage(media_gateway().provider, source)
+    else:
+        storage = media_storage()
     return await probe_source_timetable(
-        source, media_storage(), sparse_stride=sparse_stride
+        source,
+        storage,
+        sparse_stride=sparse_stride,
+        probe_client=configured_probe_client(),
     )
 
 

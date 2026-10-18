@@ -14,7 +14,7 @@ runtime = [
     "asyncpg>=0.30.0",
     "boto3>=1.43.77",
     "pillow>=10.0.0",
-    "aap-media-probe",
+    "aap-media-probe[client]",
 ]
 client = ["httpx>=0.27.0"]
 server = ["fastapi>=0.115.0", "uvicorn>=0.34.0"]

@@ -115,6 +115,20 @@ class MediaClient:
             raise c.MediaFailure("invalid_response") from None
         return result
 
+    async def raw_source_reference(
+        self, request: c.ReadSourceRequest
+    ) -> SourceReference:
+        result = await self._request(
+            "/v1/raw-source-reference", request, SourceReference
+        )
+        try:
+            c.require_scope(request, result.source)
+            if result.video_url != result.original_url:
+                raise ValueError("raw source reference selected a derived video")
+        except ValueError:
+            raise c.MediaFailure("invalid_response") from None
+        return result
+
     async def internal_source_reference(
         self, request: c.InternalSourceRequest, *, expires_in: int = 3600
     ) -> SourceReference:
@@ -132,13 +146,13 @@ class MediaClient:
         return result
 
     async def source_references(
-        self, requests: list[c.ReadSourceRequest]
+        self, requests: list[c.ReadSourceRequest], *, raw_only: bool = False
     ) -> list[SourceReference]:
         async def read_batch(batch):
             try:
                 result = await self._request(
                     "/v1/source-references",
-                    SourceReferencesRequest(requests=batch),
+                    SourceReferencesRequest(requests=batch, raw_only=raw_only),
                     SourceReferences,
                 )
             except c.MediaFailure as exc:

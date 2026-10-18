@@ -1796,6 +1796,100 @@
         }
       }
     },
+    "/v1/raw-source-reference": {
+      "post": {
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReadSourceRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Accepted owner result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["schema", "ok", "data"],
+                  "properties": {
+                    "schema": {
+                      "const": "aap-assets-media/v1"
+                    },
+                    "ok": {
+                      "const": true
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/SourceReference"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Media contract failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["schema", "ok", "error"],
+                  "properties": {
+                    "schema": {
+                      "const": "aap-assets-media/v1"
+                    },
+                    "ok": {
+                      "const": false
+                    },
+                    "error": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "invalid_request",
+                            "invalid_response",
+                            "storage_unavailable",
+                            "account_not_active",
+                            "account_busy",
+                            "invalid_account_role",
+                            "source_missing",
+                            "source_changed",
+                            "source_busy",
+                            "task_not_visible",
+                            "task_busy",
+                            "permission_denied",
+                            "metadata_not_ready",
+                            "invalid_frame_range",
+                            "asset_missing",
+                            "operation_conflict",
+                            "operation_busy",
+                            "lease_lost",
+                            "dependency_changed",
+                            "resource_budget_exceeded",
+                            "object_missing"
+                          ],
+                          "title": "Code",
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code"],
+                      "title": "_Error",
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/source-references": {
       "post": {
         "requestBody": {
@@ -4798,6 +4892,11 @@
             "maxItems": 500,
             "title": "Requests",
             "type": "array"
+          },
+          "raw_only": {
+            "default": false,
+            "title": "Raw Only",
+            "type": "boolean"
           }
         },
         "required": ["requests"],

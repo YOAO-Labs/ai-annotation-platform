@@ -157,3 +157,25 @@ async def test_selected_remote_provider_never_runs_local_executor(monkeypatch):
     )
     assert await assets_media.run_media_job(uuid4()) is False
     assert await assets_media.maintain_video_media() is None
+
+
+@pytest.mark.asyncio
+async def test_remote_cli_dry_run_never_constructs_api_s3_storage(monkeypatch):
+    from aap_assets_media_runtime import processing
+    from aap_assets_media_runtime.http_source import HttpMediaSourceStorage
+
+    monkeypatch.setattr(assets_media.settings, "assets_media_url", "http://media.local")
+    monkeypatch.setattr(assets_media.settings, "assets_media_token", "t" * 32)
+    monkeypatch.setattr(
+        assets_media,
+        "media_storage",
+        lambda: pytest.fail("remote CLI used API-local S3 credentials"),
+    )
+
+    async def probe(current, storage, **kwargs):
+        assert isinstance(storage, HttpMediaSourceStorage)
+        assert kwargs["sparse_stride"] == 3
+        return []
+
+    monkeypatch.setattr(processing, "probe_source_timetable", probe)
+    assert await assets_media.probe_video_timetable(source(), sparse_stride=3) == []

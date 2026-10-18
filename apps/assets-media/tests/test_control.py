@@ -304,3 +304,23 @@ async def test_internal_source_is_checked_again_after_implicit_frame_admission()
         await MediaControl(Database(), Storage()).internal_frame_reference(
             c.InternalFrameRequest(dataset_item_id=s.dataset_item_id, frame_index=0)
         )
+
+
+@pytest.mark.asyncio
+async def test_raw_task_source_lookup_does_not_depend_on_object_head():
+    s = source(file_type="image", video_metadata={})
+
+    class Database:
+        async def call(self, name, request):
+            assert name == "read_media_source"
+            return s
+
+    class Unavailable(Storage):
+        async def head_source(self, key):
+            pytest.fail("raw Task metadata tried to read object storage")
+
+    result = await MediaControl(Database(), Unavailable()).raw_source_reference(
+        c.ReadSourceRequest(actor_id=uuid4(), dataset_item_id=s.dataset_item_id)
+    )
+    assert result.original_url.endswith(s.file_path)
+    assert result.video_url == result.original_url

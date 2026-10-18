@@ -184,6 +184,33 @@ class MediaControl:
     async def source_reference(self, request: c.ReadSourceRequest) -> SourceReference:
         return await self._source_links(request, await self._observe(request))
 
+    async def raw_source_reference(
+        self, request: c.ReadSourceRequest
+    ) -> SourceReference:
+        source = await self.call("read_media_source", request)
+        original = await self.storage.sign_source(source.file_path, self.expires_in)
+        poster = None
+        if source.file_type == "video" and not source.source_drifted:
+            if source.materialized_generation != source.source_generation:
+                await self._metadata(source)
+            else:
+                key = source.video_metadata.get("poster_frame_path")
+                if isinstance(key, str):
+                    try:
+                        cache_key(source, key)
+                        if await self.storage.head_cache(key) is not None:
+                            poster = await self.storage.sign_cache(key, self.expires_in)
+                    except c.MediaFailure:
+                        # Task metadata remains readable during object outages.
+                        poster = None
+        return SourceReference(
+            source=source,
+            original_url=original,
+            video_url=original,
+            poster_url=poster,
+            expires_in=self.expires_in,
+        )
+
     async def internal_source_reference(
         self, request: c.InternalSourceRequest, *, expires_in: int = 3600
     ) -> SourceReference:
@@ -215,14 +242,16 @@ class MediaControl:
         )
 
     async def source_references(
-        self, requests: list[c.ReadSourceRequest]
+        self, requests: list[c.ReadSourceRequest], *, raw_only: bool = False
     ) -> list[SourceReference]:
         references = []
         encoded_size = 1024
         for start in range(0, len(requests), 4):
             batch = await asyncio.gather(
                 *(
-                    self.source_reference(request)
+                    (self.raw_source_reference if raw_only else self.source_reference)(
+                        request
+                    )
                     for request in requests[start : start + 4]
                 )
             )
