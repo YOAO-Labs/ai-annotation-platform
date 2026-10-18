@@ -107,7 +107,7 @@ async def test_project_reference_returns_identity_or_null_for_missing_row(test_e
 
 
 @pytest.mark.parametrize("finish_transaction", ["commit", "rollback"])
-async def test_project_reference_lock_blocks_owner_change_and_delete_until_transaction_end(
+async def test_project_reference_blocks_exclusive_project_lock_and_delete_until_transaction_end(
     test_engine, finish_transaction: str
 ):
     project_id, user_ids = await _create_project(test_engine)
