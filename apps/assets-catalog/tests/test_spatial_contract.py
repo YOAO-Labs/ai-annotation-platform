@@ -11,6 +11,7 @@ from aap_assets_catalog.spatial_contract import (
     CalibrationRecord,
     GuardSpatialActorRequest,
     ReadItemsRequest,
+    PosePage,
     ScenePatch,
     SpatialActorResult,
     SpatialFailure,
@@ -115,3 +116,31 @@ def test_distributable_schema_matches_wire_models_and_exact_native_surface():
     assert len(SPATIAL_NATIVE_SIGNATURES) == 18
     assert set(expected["x-native-capabilities"]) == set(SPATIAL_NATIVE_SIGNATURES)
     assert expected["$defs"]["ScenePatch"]["additionalProperties"] is False
+
+
+@pytest.mark.parametrize(
+    "indices,next_index", [([2, 1], 1), ([1, 1], 1), ([1, 2], 1), ([0], 0)]
+)
+def test_page_rejects_reordered_repeated_or_nonadvancing_trajectory(
+    indices, next_index
+):
+    with pytest.raises(ValidationError):
+        PosePage(
+            actor_id=None,
+            scene_id=uuid4(),
+            after_frame_index=0,
+            next_frame_index=next_index,
+            snapshot_digest="0" * 64,
+            total=20,
+            complete=False,
+            poses=[
+                {
+                    "frame_index": frame,
+                    "timestamp_us": -10,
+                    "translation": [0, 0, 0],
+                    "rotation": [1, 0, 0, 0],
+                    "source_metadata": {},
+                }
+                for frame in indices
+            ],
+        )

@@ -173,6 +173,13 @@ class ScenePage(_Value):
         if any(scene.dataset_id != self.dataset_id for scene in self.scenes):
             raise ValueError("Scenes escaped Dataset scope")
         _check_page(self.scenes, self.total, self.complete, self.next_cursor)
+        _check_order(
+            [(row.created_at, row.id) for row in self.scenes],
+            (self.after.created_at, self.after.scene_id) if self.after else None,
+            (self.next_cursor.created_at, self.next_cursor.scene_id)
+            if self.next_cursor
+            else None,
+        )
         return self
 
 
@@ -208,6 +215,11 @@ class LayoutPage(_Value):
         if any(scene.dataset_id != self.dataset_id for scene in self.scenes):
             raise ValueError("Layout scenes escaped Dataset scope")
         _check_page(self.items, self.total, self.complete, self.next_item_id)
+        _check_order(
+            [row.id for row in self.items], self.after_item_id, self.next_item_id
+        )
+        if self.assigned_count > self.total:
+            raise ValueError("Assigned count exceeds the full layout")
         return self
 
 
@@ -249,6 +261,9 @@ class ItemFactsPage(_Value):
         ):
             raise ValueError("Item facts escaped requested scope")
         _check_page(self.items, self.total, self.complete, self.next_item_id)
+        _check_order(
+            [row.id for row in self.items], self.after_item_id, self.next_item_id
+        )
         return self
 
 
@@ -272,6 +287,11 @@ class PosePage(_Value):
     @model_validator(mode="after")
     def check_page(self):
         _check_page(self.poses, self.total, self.complete, self.next_frame_index)
+        _check_order(
+            [row.frame_index for row in self.poses],
+            self.after_frame_index,
+            self.next_frame_index,
+        )
         return self
 
 
@@ -355,6 +375,13 @@ class CalibrationPage(_Value):
         ):
             raise ValueError("Calibration reply escaped requested item scope")
         _check_page(self.records, self.total, self.complete, self.next_cursor)
+        _check_order(
+            [(row.dataset_item_id, -row.revision) for row in self.records],
+            (self.after.dataset_item_id, -self.after.revision) if self.after else None,
+            (self.next_cursor.dataset_item_id, -self.next_cursor.revision)
+            if self.next_cursor
+            else None,
+        )
         return self
 
 
@@ -620,6 +647,15 @@ def _check_page(rows: list[Any], total: int, complete: bool, next_cursor: Any) -
         raise ValueError("Spatial page completion is inconsistent")
     if not complete and not rows:
         raise ValueError("Incomplete page must advance")
+
+
+def _check_order(keys: list[Any], after: Any, next_cursor: Any) -> None:
+    if keys != sorted(set(keys)) or (keys and after is not None and keys[0] <= after):
+        raise ValueError(
+            "Spatial page records must be unique and advance in cursor order"
+        )
+    if next_cursor is not None and (not keys or next_cursor != keys[-1]):
+        raise ValueError("Spatial next cursor must identify the final record")
 
 
 _Result = TypeVar("_Result", bound=BaseModel)
