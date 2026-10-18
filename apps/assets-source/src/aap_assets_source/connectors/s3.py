@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from typing import Any, BinaryIO, Iterable, Iterator
+from urllib.parse import urlsplit
 
 from .base import (
     SourceAdapter,
@@ -31,6 +32,31 @@ def validate_s3_source_path(config: dict, path: str | None) -> None:
     _join_under_base(str((config or {}).get("base_prefix") or ""), path)
 
 
+def validate_s3_endpoint(config: dict) -> str:
+    """Return a normalized endpoint URL without userinfo or unsupported schemes."""
+    if not isinstance(config, dict) or not isinstance(config.get("endpoint"), str):
+        raise ValueError("S3 endpoint must be a non-empty string")
+    scheme = "https" if config.get("use_ssl") else "http"
+    endpoint = config["endpoint"].strip()
+    if "://" not in endpoint:
+        endpoint = f"{scheme}://{endpoint}"
+    try:
+        parsed_endpoint = urlsplit(endpoint)
+        parsed_endpoint.port
+        valid_endpoint = (
+            parsed_endpoint.scheme in {"http", "https"}
+            and bool(parsed_endpoint.hostname)
+            and parsed_endpoint.username is None
+            and parsed_endpoint.password is None
+            and not any(ord(char) < 32 or ord(char) == 127 for char in endpoint)
+        )
+    except ValueError:
+        valid_endpoint = False
+    if not valid_endpoint:
+        raise ValueError("S3 endpoint must be an HTTP(S) URL without userinfo")
+    return endpoint
+
+
 class S3CompatibleSource(SourceAdapter):
     def __init__(
         self,
@@ -47,12 +73,12 @@ class S3CompatibleSource(SourceAdapter):
             for key in ("access_key", "secret_key")
         ):
             raise ValueError("S3 access_key and secret_key are required")
-        scheme = "https" if config.get("use_ssl") else "http"
-        endpoint = str(config["endpoint"])
-        if "://" not in endpoint:
-            endpoint = f"{scheme}://{endpoint}"
+        endpoint = validate_s3_endpoint(config)
 
-        self.bucket = str(config["bucket"])
+        bucket = config.get("bucket")
+        if not isinstance(bucket, str) or not bucket:
+            raise ValueError("S3 bucket must be a non-empty string")
+        self.bucket = bucket
         self.base_prefix = normalize_relpath(str(config.get("base_prefix") or ""))
         self._require_conditional_reads = require_conditional_reads
         if client is None:
@@ -69,6 +95,7 @@ class S3CompatibleSource(SourceAdapter):
                     connect_timeout=10,
                     read_timeout=60,
                     retries={"max_attempts": 2},
+                    proxies={},
                 ),
             )
         self.client = client
@@ -135,7 +162,12 @@ class S3CompatibleSource(SourceAdapter):
                 )
             if not resp.get("IsTruncated"):
                 break
-            continuation_token = resp.get("NextContinuationToken")
+            next_token = resp.get("NextContinuationToken")
+            if not isinstance(next_token, str) or not next_token:
+                raise ValueError("S3 listing omitted its continuation token")
+            if next_token == continuation_token:
+                raise ValueError("S3 listing repeated its continuation token")
+            continuation_token = next_token
 
     def open(self, relpath: str, *, etag: str | None = None) -> BinaryIO:
         if not etag and self._require_conditional_reads:

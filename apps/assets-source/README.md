@@ -77,3 +77,26 @@ Build the standalone image from the repository root with:
 ```sh
 docker build -f apps/assets-source/Dockerfile .
 ```
+
+## Dataset import worker
+
+`Dockerfile.import` builds a separate worker process, started with
+`python -m aap_assets_source_import`. It uses its own PostgreSQL LOGIN role,
+which must have execute access to exactly the seven Dataset import functions;
+it exposes no HTTP port. Source S3 reads are conditional on the listed ETag,
+SFTP uses known-host verification and checks the listed file identity, and the
+destination client uses only multipart create, part, complete, abort, and empty
+object PUT operations.
+
+Build the worker image from the repository root with:
+
+```sh
+docker build -f apps/assets-source/Dockerfile.import .
+```
+
+The worker buffers at most one 64 MiB multipart part. S3's 10,000-part limit
+therefore caps one object at about 625 GiB. If the accepted job budget permits
+a larger individual object, it is recorded as a per-file destination write
+failure before any destination upload starts. The accepted per-job byte budget
+remains the value frozen in the import request. Supporting larger individual
+objects requires a separate capacity design.

@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from .host_guard import assert_host_allowed, normalize_allowlist
-from .s3 import S3CompatibleSource, validate_s3_source_path
+from .s3 import S3CompatibleSource, validate_s3_endpoint, validate_s3_source_path
 from .sftp import SftpSource, validate_sftp_source_path
 
 
@@ -33,6 +33,9 @@ def validate_secret(kind: str, secret: dict[str, Any], config: dict[str, Any]) -
     if not isinstance(secret, dict):
         raise ValueError("connector secret must be an object")
     if kind == "s3":
+        validate_s3_endpoint(config)
+        if not isinstance(config.get("bucket"), str) or not config.get("bucket"):
+            raise ValueError("S3 bucket must be a non-empty string")
         if any(
             not isinstance(secret.get(key), str) or not secret.get(key)
             for key in ("access_key", "secret_key")
@@ -87,6 +90,7 @@ def build_source_adapter(
             secret,
             known_hosts_file=known_hosts_file,
             timeout_seconds=sftp_timeout_seconds,
+            require_listing_identity=require_conditional_reads,
             client=sftp_client,
         )
     raise ValueError("unsupported storage connector")

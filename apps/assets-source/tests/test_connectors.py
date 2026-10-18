@@ -23,7 +23,11 @@ from aap_assets_source.connectors import (
     extract_host,
     normalize_allowlist,
 )
-from aap_assets_source.connectors.s3 import S3CompatibleSource, validate_s3_source_path
+from aap_assets_source.connectors.s3 import (
+    S3CompatibleSource,
+    validate_s3_endpoint,
+    validate_s3_source_path,
+)
 from aap_assets_source.connectors.sftp import validate_sftp_source_path
 
 
@@ -103,6 +107,19 @@ def test_s3_adapter_keeps_legacy_unconditional_open_for_api_consumers() -> None:
 
     assert source.open("file.jpg").read() == b"content"
     assert "IfMatch" not in client.get_calls[0]
+
+
+@pytest.mark.parametrize(
+    "endpoint",
+    [
+        "https://user:secret@example.test",
+        "ftp://example.test",
+        "http:///missing-host",
+    ],
+)
+def test_s3_endpoint_rejects_userinfo_and_non_http_schemes(endpoint: str) -> None:
+    with pytest.raises(ValueError, match="HTTP"):
+        validate_s3_endpoint({"endpoint": endpoint})
 
 
 def test_connector_path_guards_reject_traversal_and_escape() -> None:

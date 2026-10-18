@@ -158,6 +158,7 @@ class SftpSource(SourceAdapter):
         *,
         known_hosts_file: str | None = None,
         timeout_seconds: float = 10,
+        require_listing_identity: bool = False,
         client: Any | None = None,
     ) -> None:
         import paramiko
@@ -165,6 +166,7 @@ class SftpSource(SourceAdapter):
         self.base_path = _clean_remote(str(config.get("base_path") or "."))
         self._client = client if client is not None else paramiko.SSHClient()
         self._timeout_seconds = timeout_seconds
+        self._require_listing_identity = require_listing_identity
         self._sftp: Any | None = None
         try:
             if known_hosts_file:
@@ -313,6 +315,8 @@ class SftpSource(SourceAdapter):
         yield from walk(root)
 
     def open(self, relpath: str, *, etag: str | None = None) -> BinaryIO:
+        if self._require_listing_identity and etag is None:
+            raise SourceChangedError("SFTP listing identity is missing")
         path = self._safe_file_path(relpath)
         try:
             attrs = self._sftp.lstat(path)
