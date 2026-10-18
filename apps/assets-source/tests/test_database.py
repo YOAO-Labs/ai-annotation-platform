@@ -221,7 +221,7 @@ async def test_scope_mismatch_and_wrong_legacy_receipt_rollback() -> None:
     assert connection.transaction_events == ["begin", "rollback"]
 
 
-def test_role_preflight_is_exactly_nine_source_functions_and_rejects_role_links() -> (
+def test_role_preflight_is_exactly_fourteen_source_functions_and_rejects_role_links() -> (
     None
 ):
     assert EXPECTED_ASSET_SOURCE_FUNCTIONS == {
@@ -234,12 +234,17 @@ def test_role_preflight_is_exactly_nine_source_functions_and_rejects_role_links(
         "delete_dataset_item(uuid,uuid,uuid,uuid,text,jsonb)",
         "lock_legacy_dataset_upload(uuid,uuid,uuid,uuid)",
         "complete_legacy_dataset_upload(uuid,uuid,uuid,uuid,text,bigint,text,integer,integer)",
+        "begin_dataset_ingest(uuid,uuid,uuid,jsonb)",
+        "prepare_dataset_ingest_batch(uuid,uuid,uuid,uuid,jsonb)",
+        "complete_dataset_ingest_batch(uuid,uuid,uuid,uuid,jsonb)",
+        "read_dataset_ingest_layout(uuid,uuid,uuid,uuid,integer)",
+        "finish_dataset_ingest(uuid,uuid,uuid,jsonb)",
     }
     assert "membership.member = login_role.oid" in ROLE_PREFLIGHT_SQL
     assert "membership.roleid = login_role.oid" in ROLE_PREFLIGHT_SQL
     assert "runtime_privileges.no_table_privileges" in ROLE_PREFLIGHT_SQL
     assert "runtime_privileges.no_sequence_privileges" in ROLE_PREFLIGHT_SQL
-    assert len(EXPECTED_ASSET_SOURCE_FUNCTIONS) == 9
+    assert len(EXPECTED_ASSET_SOURCE_FUNCTIONS) == 14
     for signature in EXPECTED_ASSET_SOURCE_FUNCTIONS:
         assert f"('{signature}'::text)" in ROLE_PREFLIGHT_SQL
 

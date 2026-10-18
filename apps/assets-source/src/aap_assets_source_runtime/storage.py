@@ -62,6 +62,11 @@ class SourceStorage:
             config=client_config,
         )
 
+    @property
+    def client(self) -> Any:
+        """Expose the explicitly configured client to the shared ingest helper."""
+        return self._client
+
     async def generate_upload_url(self, key: str, content_type: str) -> str:
         return await asyncio.to_thread(self._generate_upload_url, key, content_type)
 

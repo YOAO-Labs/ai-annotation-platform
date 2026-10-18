@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import asyncio
 from contextlib import asynccontextmanager
 import hmac
 import logging
+from tempfile import SpooledTemporaryFile
 from typing import Any
+from uuid import UUID
 
 from fastapi import Depends, FastAPI, HTTPException, Request, status
 from fastapi.exceptions import RequestValidationError
@@ -21,10 +24,20 @@ from aap_assets_source.contract import (
     UploadOutcome,
     decode_source_reply,
 )
+from aap_assets_source.ingest_contract import (
+    INGEST_SCHEMA,
+    ZIP_MAX_BYTES,
+    IngestCommand,
+    IngestFailure,
+    IngestReceipt,
+    decode_ingest_reply,
+)
 from .runtime import SourceRuntime
 
 logger = logging.getLogger("aap_assets_source_runtime")
 _SOURCE_SCHEMA = "aap-assets-source/v1"
+_ZIP_UPLOAD_PATH = "/v1/source/upload-zip"
+_ZIP_SPOOL_MEMORY_BYTES = 8 * 1024 * 1024
 
 
 class BoundedHttpBodyMiddleware:
@@ -54,33 +67,80 @@ class BoundedHttpBodyMiddleware:
             ),
             None,
         )
-        if content_length is not None and content_length.isdecimal():
-            if int(content_length) > self.max_request_bytes:
-                await self._request_too_large(scope, receive, send)
-                return
+        is_zip_upload = (
+            scope.get("method") == "POST" and scope.get("path") == _ZIP_UPLOAD_PATH
+        )
+        zip_spool = None
+        if is_zip_upload:
+            request_state = scope.setdefault("state", {})
+            request_state["_source_zip_spool"] = None
+            request_state["_source_zip_too_large"] = False
+            request_state["_source_zip_body_complete"] = False
+            if content_length is not None and content_length.isdecimal():
+                if int(content_length) > ZIP_MAX_BYTES:
+                    await self._request_too_large(scope, receive, send)
+                    return
 
-        body = bytearray()
-        while True:
-            message = await receive()
-            if message["type"] == "http.disconnect":
-                return
-            if message["type"] != "http.request":
-                continue
-            body.extend(message.get("body", b""))
-            if len(body) > self.max_request_bytes:
-                await self._request_too_large(scope, receive, send)
-                return
-            if not message.get("more_body", False):
-                break
+            received_bytes = 0
 
-        replayed = False
+            async def streaming_zip_body() -> Message:
+                nonlocal received_bytes, zip_spool
+                if request_state["_source_zip_body_complete"]:
+                    return await receive()
+                message = await receive()
+                if message["type"] == "http.request":
+                    chunk = message.get("body", b"")
+                    if received_bytes + len(chunk) > ZIP_MAX_BYTES:
+                        request_state["_source_zip_too_large"] = True
+                        request_state["_source_zip_body_complete"] = True
+                        return {"type": "http.request", "body": b"", "more_body": False}
+                    if zip_spool is None:
+                        zip_spool = SpooledTemporaryFile(
+                            max_size=_ZIP_SPOOL_MEMORY_BYTES, mode="w+b"
+                        )
+                        request_state["_source_zip_spool"] = zip_spool
+                    received_bytes += len(chunk)
+                    zip_spool.write(chunk)
+                    if not message.get("more_body", False):
+                        request_state["_source_zip_body_complete"] = True
+                        zip_spool.seek(0)
+                return message
 
-        async def replay_body() -> Message:
-            nonlocal replayed
-            if not replayed:
-                replayed = True
-                return {"type": "http.request", "body": bytes(body), "more_body": False}
-            return await receive()
+            downstream_receive = streaming_zip_body
+        else:
+            if content_length is not None and content_length.isdecimal():
+                if int(content_length) > self.max_request_bytes:
+                    await self._request_too_large(scope, receive, send)
+                    return
+
+            body = bytearray()
+            while True:
+                message = await receive()
+                if message["type"] == "http.disconnect":
+                    return
+                if message["type"] != "http.request":
+                    continue
+                body.extend(message.get("body", b""))
+                if len(body) > self.max_request_bytes:
+                    await self._request_too_large(scope, receive, send)
+                    return
+                if not message.get("more_body", False):
+                    break
+
+            replayed = False
+
+            async def replay_body() -> Message:
+                nonlocal replayed
+                if not replayed:
+                    replayed = True
+                    return {
+                        "type": "http.request",
+                        "body": bytes(body),
+                        "more_body": False,
+                    }
+                return await receive()
+
+            downstream_receive = replay_body
 
         response_start: Message | None = None
         response_body = bytearray()
@@ -117,10 +177,13 @@ class BoundedHttpBodyMiddleware:
             await send({"type": "http.response.body", "body": bytes(response_body)})
 
         try:
-            await self.app(scope, replay_body, capture_response)
+            await self.app(scope, downstream_receive, capture_response)
         except Exception as exc:  # noqa: BLE001 - hide internal failures from gateway
             logger.error("Assets source request failed (%s)", type(exc).__name__)
             await self._internal_failure(scope, receive, send)
+        finally:
+            if zip_spool is not None and not zip_spool.closed:
+                zip_spool.close()
 
     @staticmethod
     async def _request_too_large(scope: Scope, receive: Receive, send: Send) -> None:
@@ -162,6 +225,56 @@ def _failure_response(code: str) -> JSONResponse:
     else:
         raise RuntimeError("Source failure response decoded as success")
     return JSONResponse(status_code=200, content=payload)
+
+
+def _ingest_failure_response(code: str) -> JSONResponse:
+    payload = {
+        "schema": INGEST_SCHEMA,
+        "ok": False,
+        "error": {"code": code},
+    }
+    try:
+        decode_ingest_reply(payload, IngestReceipt)
+    except IngestFailure as exc:
+        if exc.code != code:
+            raise RuntimeError("Invalid ingest failure response") from None
+    else:
+        raise RuntimeError("Ingest failure response decoded as success")
+    return JSONResponse(status_code=200, content=payload)
+
+
+async def _run_until_disconnect(request: Request, operation):
+    operation_task = asyncio.create_task(operation)
+    disconnect_task = asyncio.create_task(_wait_for_disconnect(request))
+    try:
+        done, _pending = await asyncio.wait(
+            {operation_task, disconnect_task},
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+        if operation_task in done:
+            disconnect_task.cancel()
+            await asyncio.gather(disconnect_task, return_exceptions=True)
+            return operation_task.result()
+        operation_task.cancel()
+        await asyncio.gather(operation_task, return_exceptions=True)
+        return None
+    except BaseException:
+        operation_task.cancel()
+        disconnect_task.cancel()
+        await asyncio.gather(operation_task, disconnect_task, return_exceptions=True)
+        raise
+
+
+async def _wait_for_disconnect(request: Request) -> None:
+    try:
+        while True:
+            message = await request.receive()
+            if message["type"] == "http.disconnect":
+                return
+    except asyncio.CancelledError:
+        raise
+    except Exception:
+        return
 
 
 async def _require_gateway(request: Request) -> None:
@@ -212,6 +325,7 @@ def create_app(
         openapi_url=None,
         lifespan=lifespan,
     )
+    app.state.zip_upload_semaphore = asyncio.Semaphore(1)
     app.add_middleware(
         BoundedHttpBodyMiddleware,
         max_request_bytes=actual_config.max_request_bytes,
@@ -220,8 +334,10 @@ def create_app(
 
     @app.exception_handler(RequestValidationError)
     async def request_validation_handler(
-        _request: Request, _exc: RequestValidationError
+        request: Request, _exc: RequestValidationError
     ) -> JSONResponse:
+        if request.url.path in {_ZIP_UPLOAD_PATH, "/v1/source/scan"}:
+            return _ingest_failure_response("invalid_request")
         return _failure_response("invalid_request")
 
     @app.get("/health")
@@ -255,6 +371,73 @@ def create_app(
     @app.post("/v1/source/delete", dependencies=[Depends(_require_gateway)])
     async def delete_source(request: Request, body: SourceDeletionRequest) -> Response:
         payload = await request.app.state.runtime.delete_source(body)
+        return Response(content=payload, media_type="application/json")
+
+    @app.post(_ZIP_UPLOAD_PATH, dependencies=[Depends(_require_gateway)])
+    async def upload_zip(
+        request: Request,
+        operation_id: UUID,
+        actor_id: UUID,
+        dataset_id: UUID,
+    ) -> Response:
+        if request.headers.get("content-type", "").split(";", 1)[0].strip().lower() != (
+            "application/zip"
+        ):
+            return Response(
+                content=_ingest_failure_response("invalid_request").body,
+                media_type="application/json",
+            )
+        semaphore = request.app.state.zip_upload_semaphore
+        try:
+            await asyncio.wait_for(
+                semaphore.acquire(),
+                timeout=request.app.state.config.pool_timeout_seconds,
+            )
+        except TimeoutError:
+            return Response(
+                content=_ingest_failure_response("service_unavailable").body,
+                media_type="application/json",
+            )
+        try:
+            if request.state._source_zip_too_large:
+                return JSONResponse(
+                    status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                    content={"detail": "Assets source request is too large"},
+                )
+            async for _chunk in request.stream():
+                pass
+            if request.state._source_zip_too_large:
+                return JSONResponse(
+                    status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                    content={"detail": "Assets source request is too large"},
+                )
+            spool = request.state._source_zip_spool
+            if spool is None:
+                return _ingest_failure_response("invalid_request")
+            spool.seek(0)
+            command = IngestCommand(
+                operation_id=operation_id,
+                actor_id=actor_id,
+                dataset_id=dataset_id,
+            )
+            payload = await _run_until_disconnect(
+                request,
+                request.app.state.runtime.upload_zip(command, spool),
+            )
+            if payload is None:
+                return Response(status_code=status.HTTP_204_NO_CONTENT)
+            return Response(content=payload, media_type="application/json")
+        finally:
+            semaphore.release()
+
+    @app.post("/v1/source/scan", dependencies=[Depends(_require_gateway)])
+    async def scan_source(request: Request, body: IngestCommand) -> Response:
+        payload = await _run_until_disconnect(
+            request,
+            request.app.state.runtime.scan(body),
+        )
+        if payload is None:
+            return Response(status_code=status.HTTP_204_NO_CONTENT)
         return Response(content=payload, media_type="application/json")
 
     return app

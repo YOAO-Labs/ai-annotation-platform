@@ -1,4 +1,4 @@
-"""asyncpg bindings for the nine public Assets source capabilities."""
+"""asyncpg bindings for the fourteen public Assets source capabilities."""
 
 from __future__ import annotations
 
@@ -13,6 +13,21 @@ from pydantic import BaseModel, ValidationError
 
 from .config import SourceConfig
 from aap_assets_source.contract import SourceFailure, UploadInitRequest
+from aap_assets_source.ingest_contract import (
+    IngestBatchPlan,
+    IngestBatchResult,
+    IngestCommand,
+    IngestContext,
+    IngestDescriptor,
+    IngestEntryCompletion,
+    IngestFailure,
+    IngestFinish,
+    IngestLayoutPage,
+    IngestReceipt,
+    IngestSourceEntry,
+    decode_ingest_reply,
+    require_ingest_scope,
+)
 from aap_assets_source.deletion_contract import (
     DatasetSourceDeletionCommand,
     DatasetSourceDeletionFailure,
@@ -46,6 +61,11 @@ EXPECTED_ASSET_SOURCE_FUNCTIONS = frozenset(
         "delete_dataset_item(uuid,uuid,uuid,uuid,text,jsonb)",
         "lock_legacy_dataset_upload(uuid,uuid,uuid,uuid)",
         "complete_legacy_dataset_upload(uuid,uuid,uuid,uuid,text,bigint,text,integer,integer)",
+        "begin_dataset_ingest(uuid,uuid,uuid,jsonb)",
+        "prepare_dataset_ingest_batch(uuid,uuid,uuid,uuid,jsonb)",
+        "complete_dataset_ingest_batch(uuid,uuid,uuid,uuid,jsonb)",
+        "read_dataset_ingest_layout(uuid,uuid,uuid,uuid,integer)",
+        "finish_dataset_ingest(uuid,uuid,uuid,jsonb)",
     }
 )
 
@@ -60,7 +80,12 @@ WITH expected(signature) AS (
         ('delete_dataset(uuid,uuid,uuid,text,jsonb)'::text),
         ('delete_dataset_item(uuid,uuid,uuid,uuid,text,jsonb)'::text),
         ('lock_legacy_dataset_upload(uuid,uuid,uuid,uuid)'::text),
-        ('complete_legacy_dataset_upload(uuid,uuid,uuid,uuid,text,bigint,text,integer,integer)'::text)
+        ('complete_legacy_dataset_upload(uuid,uuid,uuid,uuid,text,bigint,text,integer,integer)'::text),
+        ('begin_dataset_ingest(uuid,uuid,uuid,jsonb)'::text),
+        ('prepare_dataset_ingest_batch(uuid,uuid,uuid,uuid,jsonb)'::text),
+        ('complete_dataset_ingest_batch(uuid,uuid,uuid,uuid,jsonb)'::text),
+        ('read_dataset_ingest_layout(uuid,uuid,uuid,uuid,integer)'::text),
+        ('finish_dataset_ingest(uuid,uuid,uuid,jsonb)'::text)
 ),
 target_login AS (
     SELECT role_row.*
@@ -218,6 +243,7 @@ class SourceDataPorts:
     uploads: NativeUploadData
     legacy_uploads: NativeLegacyUploadData
     deletions: NativeDeletionData
+    ingest: NativeIngestData
 
 
 class _NativeData:
@@ -519,6 +545,130 @@ class NativeDeletionData(_NativeData):
         return receipt
 
 
+class NativeIngestData(_NativeData):
+    """Bindings for the five transaction-bound source ingest capabilities."""
+
+    async def begin(
+        self, command: IngestCommand, descriptor: IngestDescriptor
+    ) -> IngestContext:
+        result = await self._call_ingest(
+            "SELECT aap_assets_v1.begin_dataset_ingest("
+            "$1::uuid, $2::uuid, $3::uuid, $4::jsonb)",
+            (
+                command.operation_id,
+                command.actor_id,
+                command.dataset_id,
+                descriptor.model_dump(mode="json"),
+            ),
+            IngestContext,
+        )
+        require_ingest_scope(command, result)
+        return result
+
+    async def prepare_batch(
+        self,
+        command: IngestCommand,
+        batch_id: UUID,
+        entries: list[IngestSourceEntry],
+    ) -> IngestBatchPlan:
+        result = await self._call_ingest(
+            "SELECT aap_assets_v1.prepare_dataset_ingest_batch("
+            "$1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::jsonb)",
+            (
+                command.operation_id,
+                command.actor_id,
+                command.dataset_id,
+                batch_id,
+                [entry.model_dump(mode="json") for entry in entries],
+            ),
+            IngestBatchPlan,
+        )
+        require_ingest_scope(command, result)
+        if result.batch_id != batch_id:
+            raise IngestFailure("invalid_response")
+        return result
+
+    async def complete_batch(
+        self,
+        command: IngestCommand,
+        batch_id: UUID,
+        entries: list[IngestEntryCompletion],
+    ) -> IngestBatchResult:
+        result = await self._call_ingest(
+            "SELECT aap_assets_v1.complete_dataset_ingest_batch("
+            "$1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::jsonb)",
+            (
+                command.operation_id,
+                command.actor_id,
+                command.dataset_id,
+                batch_id,
+                [entry.model_dump(mode="json") for entry in entries],
+            ),
+            IngestBatchResult,
+        )
+        require_ingest_scope(command, result)
+        if result.batch_id != batch_id:
+            raise IngestFailure("invalid_response")
+        return result
+
+    async def read_layout(
+        self,
+        command: IngestCommand,
+        *,
+        after_item_id: UUID | None,
+        limit: int = 500,
+    ) -> IngestLayoutPage:
+        result = await self._call_ingest(
+            "SELECT aap_assets_v1.read_dataset_ingest_layout("
+            "$1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::integer)",
+            (
+                command.operation_id,
+                command.actor_id,
+                command.dataset_id,
+                after_item_id,
+                limit,
+            ),
+            IngestLayoutPage,
+        )
+        require_ingest_scope(command, result)
+        return result
+
+    async def finish(
+        self, command: IngestCommand, finish: IngestFinish
+    ) -> IngestReceipt:
+        result = await self._call_ingest(
+            "SELECT aap_assets_v1.finish_dataset_ingest("
+            "$1::uuid, $2::uuid, $3::uuid, $4::jsonb)",
+            (
+                command.operation_id,
+                command.actor_id,
+                command.dataset_id,
+                finish.model_dump(mode="json"),
+            ),
+            IngestReceipt,
+        )
+        require_ingest_scope(command, result)
+        return result
+
+    async def _call_ingest(
+        self, statement: str, arguments: tuple[Any, ...], result_type: type[_Result]
+    ) -> _Result:
+        raw = await self._connection.fetchval(statement, *arguments)
+        try:
+            payload = self._parse_payload(raw)
+        except SourceFailure:
+            raise IngestFailure("invalid_response") from None
+        try:
+            result = decode_ingest_reply(payload, result_type)
+        except IngestFailure:
+            raise
+        except (TypeError, ValueError, ValidationError):
+            raise IngestFailure("invalid_response") from None
+        if result is None:
+            raise IngestFailure("invalid_response")
+        return result
+
+
 class SourceDatabase:
     """Bound pool with startup role preflight and one-transaction operations."""
 
@@ -559,6 +709,9 @@ class SourceDatabase:
                         connection, self._config.max_response_bytes
                     ),
                     deletions=NativeDeletionData(
+                        connection, self._config.max_response_bytes
+                    ),
+                    ingest=NativeIngestData(
                         connection, self._config.max_response_bytes
                     ),
                 )
