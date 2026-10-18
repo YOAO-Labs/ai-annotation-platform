@@ -1,0 +1,619 @@
+{
+  "components": {
+    "schemas": {
+      "PacketSample": {
+        "additionalProperties": false,
+        "properties": {
+          "duration_ms": {
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "title": "Duration Ms",
+            "type": "integer"
+          },
+          "frame_index": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "title": "Frame Index",
+            "type": "integer"
+          },
+          "is_keyframe": {
+            "title": "Is Keyframe",
+            "type": "boolean"
+          },
+          "offset_in_chunk": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "title": "Offset In Chunk",
+            "type": "integer"
+          },
+          "pts_ms": {
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "title": "Pts Ms",
+            "type": "integer"
+          },
+          "size_bytes": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "title": "Size Bytes",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "pts_ms",
+          "duration_ms",
+          "is_keyframe",
+          "size_bytes",
+          "offset_in_chunk",
+          "frame_index"
+        ],
+        "title": "PacketSample",
+        "type": "object"
+      },
+      "PacketSampleRecord": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/PacketSample"
+          },
+          "type": {
+            "const": "packet",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": ["type", "data"],
+        "title": "PacketSampleRecord",
+        "type": "object"
+      },
+      "ProbeFailure": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": ["probe_failed", "probe_timeout", "invalid_request", "file_too_large"],
+            "title": "Code",
+            "type": "string"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          }
+        },
+        "required": ["code", "message"],
+        "title": "ProbeFailure",
+        "type": "object"
+      },
+      "StreamComplete": {
+        "additionalProperties": false,
+        "properties": {
+          "count": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "title": "Count",
+            "type": "integer"
+          },
+          "sha256": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Sha256",
+            "type": "string"
+          },
+          "type": {
+            "const": "complete",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": ["type", "count", "sha256"],
+        "title": "StreamComplete",
+        "type": "object"
+      },
+      "VideoFrame": {
+        "additionalProperties": false,
+        "properties": {
+          "byte_offset": {
+            "anyOf": [
+              {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Byte Offset"
+          },
+          "frame_index": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "title": "Frame Index",
+            "type": "integer"
+          },
+          "is_keyframe": {
+            "title": "Is Keyframe",
+            "type": "boolean"
+          },
+          "pict_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pict Type"
+          },
+          "pts_ms": {
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "title": "Pts Ms",
+            "type": "integer"
+          }
+        },
+        "required": ["frame_index", "pts_ms", "is_keyframe", "pict_type", "byte_offset"],
+        "title": "VideoFrame",
+        "type": "object"
+      },
+      "VideoFrameRecord": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/VideoFrame"
+          },
+          "type": {
+            "const": "frame",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": ["type", "data"],
+        "title": "VideoFrameRecord",
+        "type": "object"
+      },
+      "VideoMetadata": {
+        "additionalProperties": false,
+        "properties": {
+          "codec": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Codec"
+          },
+          "duration_ms": {
+            "anyOf": [
+              {
+                "maximum": 9007199254740991,
+                "minimum": -9007199254740991,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duration Ms"
+          },
+          "fps": {
+            "anyOf": [
+              {
+                "minimum": 0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fps"
+          },
+          "frame_count": {
+            "anyOf": [
+              {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Frame Count"
+          },
+          "height": {
+            "anyOf": [
+              {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Height"
+          },
+          "width": {
+            "anyOf": [
+              {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Width"
+          }
+        },
+        "required": ["duration_ms", "fps", "frame_count", "width", "height", "codec"],
+        "title": "VideoMetadata",
+        "type": "object"
+      }
+    },
+    "securitySchemes": {
+      "MediaProbeBearer": {
+        "scheme": "bearer",
+        "type": "http"
+      }
+    }
+  },
+  "info": {
+    "description": "Standalone metadata, frame timetable, and packet probing over raw media uploads.",
+    "title": "AAP Media Probe",
+    "version": "0.1.0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/health": {
+      "get": {
+        "operationId": "health_health_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Health Health Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Health",
+        "tags": ["health"]
+      }
+    },
+    "/v1/frames": {
+      "post": {
+        "operationId": "probeVideoFrameTimetable",
+        "requestBody": {
+          "content": {
+            "application/octet-stream": {
+              "schema": {
+                "format": "binary",
+                "type": "string"
+              }
+            }
+          },
+          "description": "Raw media bytes. The request is streamed to a private temporary file; the configured maximum size is MEDIA_PROBE_MAX_FILE_BYTES.",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/x-ndjson": {
+                "schema": {
+                  "description": "Each record is compact UTF-8 JSON terminated by LF (\\n). Data records come first; the final record is {type: complete, count: N, sha256: H}. H is lowercase SHA-256 over the exact bytes of every preceding data line, including LF and excluding the completion line. An empty stream uses the SHA-256 digest of empty bytes. Clients must verify the final count and digest before accepting the response.",
+                  "format": "binary",
+                  "type": "string",
+                  "x-ndjson-record-schemas": [
+                    {
+                      "$ref": "#/components/schemas/VideoFrameRecord"
+                    },
+                    {
+                      "$ref": "#/components/schemas/StreamComplete"
+                    }
+                  ],
+                  "x-requires-completion-record": true
+                }
+              }
+            },
+            "description": "NDJSON frame records followed by a completion record."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProbeFailure"
+                }
+              }
+            },
+            "description": "Invalid request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProbeFailure"
+                }
+              }
+            },
+            "description": "Invalid service token"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProbeFailure"
+                }
+              }
+            },
+            "description": "Uploaded file exceeds the limit"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProbeFailure"
+                }
+              }
+            },
+            "description": "Media could not be probed"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProbeFailure"
+                }
+              }
+            },
+            "description": "Unexpected probe failure"
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProbeFailure"
+                }
+              }
+            },
+            "description": "ffprobe timed out"
+          }
+        },
+        "security": [
+          {
+            "MediaProbeBearer": []
+          }
+        ],
+        "summary": "Frames",
+        "tags": ["probe"]
+      }
+    },
+    "/v1/metadata": {
+      "post": {
+        "operationId": "probeVideoMetadata",
+        "requestBody": {
+          "content": {
+            "application/octet-stream": {
+              "schema": {
+                "format": "binary",
+                "type": "string"
+              }
+            }
+          },
+          "description": "Raw media bytes. The request is streamed to a private temporary file; the configured maximum size is MEDIA_PROBE_MAX_FILE_BYTES.",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VideoMetadata"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProbeFailure"
+                }
+              }
+            },
+            "description": "Invalid request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProbeFailure"
+                }
+              }
+            },
+            "description": "Invalid service token"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProbeFailure"
+                }
+              }
+            },
+            "description": "Uploaded file exceeds the limit"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProbeFailure"
+                }
+              }
+            },
+            "description": "Media could not be probed"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProbeFailure"
+                }
+              }
+            },
+            "description": "Unexpected probe failure"
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProbeFailure"
+                }
+              }
+            },
+            "description": "ffprobe timed out"
+          }
+        },
+        "security": [
+          {
+            "MediaProbeBearer": []
+          }
+        ],
+        "summary": "Metadata",
+        "tags": ["probe"]
+      }
+    },
+    "/v1/packets": {
+      "post": {
+        "operationId": "probeChunkPacketSamples",
+        "parameters": [
+          {
+            "description": "Non-negative safe integer used as the first presentation-rank offset.",
+            "in": "query",
+            "name": "start_frame",
+            "required": true,
+            "schema": {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/octet-stream": {
+              "schema": {
+                "format": "binary",
+                "type": "string"
+              }
+            }
+          },
+          "description": "Raw media bytes. The request is streamed to a private temporary file; the configured maximum size is MEDIA_PROBE_MAX_FILE_BYTES.",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/x-ndjson": {
+                "schema": {
+                  "description": "Each record is compact UTF-8 JSON terminated by LF (\\n). Data records come first; the final record is {type: complete, count: N, sha256: H}. H is lowercase SHA-256 over the exact bytes of every preceding data line, including LF and excluding the completion line. An empty stream uses the SHA-256 digest of empty bytes. Clients must verify the final count and digest before accepting the response.",
+                  "format": "binary",
+                  "type": "string",
+                  "x-ndjson-record-schemas": [
+                    {
+                      "$ref": "#/components/schemas/PacketSampleRecord"
+                    },
+                    {
+                      "$ref": "#/components/schemas/StreamComplete"
+                    }
+                  ],
+                  "x-requires-completion-record": true
+                }
+              }
+            },
+            "description": "NDJSON packet records followed by a completion record."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProbeFailure"
+                }
+              }
+            },
+            "description": "Invalid request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProbeFailure"
+                }
+              }
+            },
+            "description": "Invalid service token"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProbeFailure"
+                }
+              }
+            },
+            "description": "Uploaded file exceeds the limit"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProbeFailure"
+                }
+              }
+            },
+            "description": "Media could not be probed"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProbeFailure"
+                }
+              }
+            },
+            "description": "Unexpected probe failure"
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProbeFailure"
+                }
+              }
+            },
+            "description": "ffprobe timed out"
+          }
+        },
+        "security": [
+          {
+            "MediaProbeBearer": []
+          }
+        ],
+        "summary": "Packets",
+        "tags": ["probe"]
+      }
+    }
+  }
+}

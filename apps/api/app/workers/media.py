@@ -33,8 +33,9 @@ from app.services.video_frame_service import (
 )
 from app.workers.celery_app import celery_app
 from app.workers.media_materialization import SqlAlchemyMediaMaterializationWriter
+from aap_media_probe.probe import FFPROBE_TIMEOUT_SECONDS
+
 from app.services.media_probe import (
-    FFPROBE_TIMEOUT_SECONDS,
     probe_chunk_samples,
     probe_video_file,
     probe_video_frame_timetable,

@@ -197,6 +197,11 @@ last_reviewed: 2026-10-18
 
 | 变量 | 默认值 | 说明 |
 |---|---|---|
+| `MEDIA_PROBE_URL` | `—` | 独立素材探测服务地址；空值使用当前进程内实现。仅显式配置后转发，无远程失败回退。 |
+| `MEDIA_PROBE_TOKEN` | `—` | 独立服务的专用 bearer token（至少 32 字符），只在启用远程探测时必填。 |
+| `MEDIA_PROBE_TIMEOUT_SECONDS` | `90` | HTTP 各 I/O 阶段超时秒数，包含上传／等待／读取；ffprobe 自身仍有独立的 30 秒上限。 |
+| `MEDIA_PROBE_MAX_FILE_BYTES` | `1073741824` | 独立探测服务单次文件输入上限（字节），仅由 apps/media-probe 读取。 |
+| `MEDIA_PROBE_HOST_PORT` | `8092` | docker-compose.modules.yml 的宿主回环端口，仅供显式本地独立部署。 |
 | `VIDEO_CHUNK_SIZE_FRAMES` | `60` | 每个 chunk 包含的帧数。30fps 下默认 60 帧约等于 2 秒。 |
 | `VIDEO_CHUNK_WARMUP_LOOKAHEAD` | `1` | chunk warmup look-ahead：请求命中 chunk N 时顺带预解码 N+1..N+K。默认 1 仅预热紧邻的下一个 chunk，设 0 关闭。 |
 | `VIDEO_FRAME_CACHE_TTL_DAYS` | `14` | 单帧 WebP/JPEG 缓存对象未访问多少天后由 Celery beat 清理。 |

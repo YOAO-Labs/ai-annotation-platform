@@ -29,6 +29,7 @@ last_reviewed: 2026-10-17
 | 任务契约        | `apps/_shared/task_contract`                                                                | 纯 Python 统一视觉操作名（detect/segment/classify 等）与别名映射                                 |
 | 训练参数契约    | `apps/_shared/training_contract`                                                            | 纯 Python 原生框架字段快照、catalog 依赖校验、预算与回流契约                                     |
 | 训练执行器      | `apps/training-executor`                                                                    | 独立拉取式执行器，文件锁独占 GPU，管理原生训练子进程与脱敏日志                                   |
+| 素材探测服务    | `apps/media-probe`                                                                          | 独立元数据/帧时间表/packet 探测与 HTTP/NDJSON 合同；不取得数据库或对象存储访问权                 |
 | ML backend      | `apps/{grounded-sam2,sam3,yolo,rapidocr,onnxtools}-backend`                                 | 各自的池包装 / 观测 / 生命周期                                                                   |
 
 ## 2. 授权真值（唯一来源）
@@ -382,12 +383,18 @@ include 另外包含 `signals`、`heartbeat`，后者是 worker bootstep，不�
 | `apps/onnxtools-backend`     |          10 |
 | 合计                         |          63 |
 
+素材探测是另一个独立运行单元：`apps/media-probe` 提供三个版本化探测操作以及 health，
+不计入上述 ML 声明数或主 API 路由数。它的非 root 镜像和锁文件只包含探测依赖；
+主 API/worker 可按配置调用本地包或独立 HTTP 服务。协议见[素材探测](/api/guides/media-probe)，
+全模块提取状态见[模块部署](/dev/concepts/module-deployment)。
+
 | 合同                                                              | canonical source                                                                                              |
 | ----------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
 | HTTP 请求 / 响应                                                  | `apps/api/app/schemas/*.py` 及路由内导出 DTO；`scripts/export_openapi.py` 导出主快照，docs 同步副本不另立真值 |
 | 预标注请求 / stage                                                | `schemas/preannotate.py`，不是 projects 路由中的类型                                                          |
 | 几何 / tool bindings / attributes / calibration                   | `schemas/_jsonb_types.py`                                                                                     |
 | 视频媒体元信息                                                    | `schemas/task.py::VideoMetadata`                                                                              |
+| 独立素材探测 wire                                                 | `apps/media-probe/src/aap_media_probe/protocol.py` 与独立应用导出；`apps/media-probe/openapi.json` 是生成快照 |
 | 视觉任务词表与归一化                                              | `apps/_shared/task_contract`                                                                                  |
 | ML wire / lifecycle / masks                                       | `apps/_shared/protocol_v2`                                                                                    |
 | 冻结训练、原生执行、preview / observation / budget / model return | `apps/_shared/training_contract`                                                                              |

@@ -340,6 +340,40 @@ launchctl kickstart -k "gui/$(id -u)/local.ai-annotation-platform.api"
 
 API 文档：http://localhost:8000/docs
 
+### 独立素材探测服务
+
+`apps/media-probe` 提供视频元数据、完整帧时间表和分块 packet 样本的独立 HTTP
+服务，只接收文件字节与探测参数，不需要业务数据库、Redis 或对象存储凭据。
+单独构建并绑定回环端口：
+
+```bash
+export MEDIA_PROBE_TOKEN="$(openssl rand -hex 32)"
+docker compose -p aap-media-probe-dev -f docker-compose.modules.yml up -d --build media-probe
+curl --fail http://127.0.0.1:8092/health
+export MEDIA_PROBE_URL=http://127.0.0.1:8092
+```
+
+将同一 `MEDIA_PROBE_URL` 和专用 `MEDIA_PROBE_TOKEN` 传给需要远程探测的 API、
+media worker 或 CLI 进程；容器内 URL 必须从该容器实际可达。`MEDIA_PROBE_URL`
+为空时直接调用同一包内的本地实现；选择远程服务后，失败会按原调用链处理，不自动
+切回本地。HTTP 各 I/O 阶段超时由 `MEDIA_PROBE_TIMEOUT_SECONDS` 控制，默认 90 秒；
+原 ffprobe 的 30 秒子进程上限继续生效。修改运行配置后刷新对应进程。
+
+独立服务默认最多接收 1 GiB 文件，可显式设置 `MEDIA_PROBE_MAX_FILE_BYTES`。
+请求流式写入临时文件，元数据为 JSON，帧和 packet 为带数量及 SHA-256 完成行的
+NDJSON；完整性通过后才能替换持久帧索引。探测仍会在服务端整体解析 ffprobe 输出，
+这不是长视频内存或生产容量资格。每个操作都上传源文件，会增加网络和临时磁盘成本。
+
+仅清理本次单独启动的项目：
+
+```bash
+docker compose -p aap-media-probe-dev -f docker-compose.modules.yml down
+unset MEDIA_PROBE_URL MEDIA_PROBE_TOKEN
+```
+
+模块整体状态见 [模块部署与语言替换](docs-site/dev/concepts/module-deployment.md)，
+协议、独立运行和验证命令见 [media-probe](apps/media-probe/README.md)。
+
 ## 技术栈
 
 | 层        | 技术                                                 |

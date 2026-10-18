@@ -22,6 +22,11 @@ flowchart LR
 
 ## 模块语言与隔离实验
 
+完整目标与逐模块缺口见[模块独立部署与语言替换](./module-deployment)。assets 的视频探测
+三个操作已独立到 `apps/media-probe`，通过文件流与 JSON/NDJSON 合同运行；调用方的
+授权、源对象读取和最终 SQL 写入仍由原所有者负责。该子能力已有 Python/Node 真实
+消费者替换验收，其他业务模块的运行与事务边界继续逐项提取。
+
 [ADR 0090](../adr/0090-module-languages-and-audit-summary-process) 记录语言评估：身份、项目、标注、学习及正常审计月报继续 Python；Go 归并仅作隔离实验；几何计算复用原生库，Rust 需先有计算核与性能依据。
 
 `services/audit_summary.py` 持有正常月报的本地算法；主 API 保留超级管理员准入、保留期和 SQL 查询，不调用远程服务。实验适配器和测试位于 `apps/api/experiments`，不属于生产导入图或普通应用镜像。
@@ -75,7 +80,7 @@ HTTP 硬取消保留原授权、锁和通知顺序；Celery 信号适配器负�
 
 `application/dataset_reset.py::DatasetResetWorkflow` 组合任务素材引用解除与 `DatasetService` 的链接/素材/Dataset 行删除；CLI 只列出和提交，重置仍是数据库清理，不遍历或删除 MinIO 对象。nuScenes/图片导入先写对象再由调用方提交 SQL；SQL 回滚无法回滚新对象上传或对既有键的覆盖。开发 seed 替换旧 `P-PC-DEV` 时仅把旧对象 key 作为清理计划返回，并在所属调用方 SQL 提交成功后删除；SQL 提交失败保留旧对象，提交后对象删除失败则保留无引用对象并告警。数据库与对象存储仍非原子事务，新上传对象在 SQL 回滚后可能成为孤儿。
 
-运维 CLI 仅保留参数/环境读取、事务提交和报告：`application/bootstrap_admin.py` 组合 `IdentityCommandService.create_bootstrap_super_admin` 与 `AuditService.log`，既有邮箱不更新也不重复审计；`application/task_dataset_backfill.py` 承担版本扫描/核查并委托 `project_task_dataset.ensure_membership`，CLI 保持只读模式与逐批提交。`application/video_timetable_rebuild.py` 组合源对象读取、ffprobe 与稀疏锚点选择，`DatasetService` 写索引、总帧数及失败字段；CLI 按视频逐项提交，dry-run 不写数据库。批次开始前保存选择项 UUID；失败 rollback 后显式刷新后续 ORM 行，避免从已过期状态触发隐式 I/O，正常路径不增加逐项刷新。ffprobe 纯 helper 的 canonical 路径为 `services/media_probe.py`，不再从 worker 汇总模块导入。
+运维 CLI 仅保留参数/环境读取、事务提交和报告：`application/bootstrap_admin.py` 组合 `IdentityCommandService.create_bootstrap_super_admin` 与 `AuditService.log`，既有邮箱不更新也不重复审计；`application/task_dataset_backfill.py` 承担版本扫描/核查并委托 `project_task_dataset.ensure_membership`，CLI 保持只读模式与逐批提交。`application/video_timetable_rebuild.py` 组合源对象读取、ffprobe 与稀疏锚点选择，`DatasetService` 写索引、总帧数及失败字段；CLI 按视频逐项提交，dry-run 不写数据库。批次开始前保存选择项 UUID；失败 rollback 后显式刷新后续 ORM 行，避免从已过期状态触发隐式 I/O，正常路径不增加逐项刷新。ffprobe 的唯一实现位于 `apps/media-probe/src/aap_media_probe/probe.py`；`services/media_probe.py` 负责本地/HTTP 装配，调用方不从 worker 汇总模块导入。
 
 `application/dataset_deletion.py` 组合素材删除及项目解绑，`application/project_deletion.py` 组合保留引用检查和项目跨域删除，`application/project_task_cleanup.py` 组合无源任务清理。素材关联、标注聚合、反馈、缺陷引用、学习保留和项目行分别由原领域所有者写入；原单事务、锁序和检查顺序不拆成 RPC。解绑仍只清理原有限子集，未找到关联时返回 `None`，调用方须回滚此前写入；无源任务继续使用数据库反连接子查询，不把全量 ID 带入所有删除语句。计数重算归 `LabelingTaskService`，解绑与无源清理保持各自原有字段集。素材的派生金字塔前缀只在数据库提交后清理，原图不因该操作删除。
 

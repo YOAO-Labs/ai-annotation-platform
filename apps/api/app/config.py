@@ -218,6 +218,10 @@ class Settings(BaseSettings):
     # (/minio，由 Vite 代理到对象存储)。
     minio_public_url: str = ""
 
+    media_probe_url: str = ""
+    media_probe_token: str = Field(default="", repr=False)
+    media_probe_timeout_seconds: float = Field(default=90, gt=0, le=3600)
+
     # 超大图不可变 tile pyramid。服务端可先发布 schema/API；自动入队默认关闭，
     # 待容量验收后再由部署显式打开。所有 byte/pixel/tile 限额均在 worker 实际生成前后复核。
     image_pyramid_auto_generate: bool = False

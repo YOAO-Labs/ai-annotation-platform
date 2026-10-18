@@ -30,6 +30,7 @@ export const apiSidebar: DefaultTheme.SidebarItem[] = [
     collapsed: true,
     items: [
       { text: "ML Backend", link: "/api/guides/ml-backend" },
+      { text: "独立素材探测", link: "/api/guides/media-probe" },
       { text: "预测导入", link: "/api/guides/import" },
       { text: "WebSocket", link: "/api/guides/websocket" },
       { text: "导出", link: "/api/guides/export" },

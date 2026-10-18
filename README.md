@@ -258,6 +258,11 @@ docker compose --profile monitoring up -d prometheus grafana
 
 修改 `apps/api/**` 下的 worker 业务代码后，Celery 不会热重载，重启 worker 即可；修改依赖、Dockerfile 或 compose build 配置才需要 rebuild。开发 worker 不自动迁移数据库；更新包含迁移时，应先按上面的初始化命令显式迁移，再启动 worker。
 
+视频元数据、完整帧时间表和分块样本探测可独立部署为 `apps/media-probe`，使用专用
+凭据及文件流协议，不需要业务数据库或对象存储访问权。通过 `MEDIA_PROBE_URL`
+显式选择；启动与消费者配置见 [DEV.md](./DEV.md#独立素材探测服务)，
+接口见[独立素材探测协议](./docs-site/api/guides/media-probe.md)。
+
 ## 开发工作流
 
 ```bash
@@ -357,6 +362,7 @@ SDK 和 CLI 支持视频媒体／分段租约、追踪候选与质量审阅、Ma
 ai-annotation-platform/
 ├── apps/
 │   ├── api/                       # FastAPI 后端、SQLAlchemy、Alembic、Celery workers
+│   ├── media-probe/               # 独立 ffprobe 服务、流式协议与替换验收
 │   ├── web/                       # React 18 + TypeScript + Vite 标注前端
 │   ├── grounded-sam2-backend/     # Grounded-SAM-2 GPU ML Backend
 │   ├── sam3-backend/              # SAM 3 GPU ML Backend

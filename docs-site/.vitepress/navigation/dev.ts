@@ -100,6 +100,7 @@ export function createDevSidebar(
           collapsed: true,
           items: [
             { text: "后端分层", link: "/dev/concepts/backend-layers" },
+            { text: "模块独立部署与替换", link: "/dev/concepts/module-deployment" },
             { text: "前端分层", link: "/dev/concepts/frontend-layers" },
             { text: "工作台 Shell 架构", link: "/dev/concepts/workbench-shell" },
             { text: "API Schema 边界", link: "/dev/concepts/api-schema-boundary" },

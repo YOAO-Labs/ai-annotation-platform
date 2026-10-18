@@ -1,0 +1,21 @@
+services:
+  media-probe:
+    build:
+      context: .
+      dockerfile: apps/media-probe/Dockerfile
+    environment:
+      MEDIA_PROBE_TOKEN: ${MEDIA_PROBE_TOKEN:?Set a dedicated media-probe token}
+      MEDIA_PROBE_MAX_FILE_BYTES: ${MEDIA_PROBE_MAX_FILE_BYTES:-1073741824}
+    ports:
+      - "127.0.0.1:${MEDIA_PROBE_HOST_PORT:-8092}:8000"
+    cpus: 2.0
+    mem_limit: 512m
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=2)"
+      interval: 10s
+      timeout: 3s
+      retries: 3

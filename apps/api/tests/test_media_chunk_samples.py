@@ -2,7 +2,7 @@ import base64
 import struct
 
 from app.schemas.task import VideoMetadata
-from app.services.media_probe import parse_ffprobe_packet_samples
+from aap_media_probe.probe import parse_ffprobe_packet_samples
 from app.workers import media
 from app.workers.media import (
     _avc_codec_string,

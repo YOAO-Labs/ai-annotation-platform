@@ -31,6 +31,7 @@ apps/web/node_modules/
 .agents/
 .claude/
 .artifacts/
+.worktree/
 config/
 data/
 docs/

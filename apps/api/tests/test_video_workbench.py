@@ -30,7 +30,7 @@ from app.workers.media import (
     extract_video_poster,
     transcode_video_for_browser,
 )
-from app.services.media_probe import (
+from aap_media_probe.probe import (
     FFPROBE_TIMEOUT_SECONDS,
     parse_ffprobe_video_metadata,
     parse_ffprobe_frame_timetable,

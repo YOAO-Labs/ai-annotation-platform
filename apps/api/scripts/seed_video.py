@@ -9,7 +9,7 @@
 - 帧/分块(video_chunks / video_frame_cache)是**按需**生成的(前端首次请求时由 celery worker
   用 ffmpeg 切片),seed **不预填**;但 DatasetItem.metadata_["video"](fps/frame_count/宽高/codec)
   与 VideoFrameIndex(逐帧时间表)**必须**同步填好,否则前端 manifest/timetable 接口报 503。
-- 元数据用宿主 ffprobe 同步探测(复用 app.workers.media 的 probe_* 函数),不依赖异步 worker。
+- 元数据通过公开探测客户端同步取得，可按配置使用本地或独立服务，不依赖异步 worker。
 - 素材是 h264,前端切 chunk 走 smart_copy(无需转码),工作台可直接渲染。
 
 owner 用传入用户(seed.py 传 admin;独立跑兜底 admin),与其余 seed 脚本一致。
@@ -122,7 +122,7 @@ async def seed_video(
     if not video.exists():
         raise FileNotFoundError(f"开源视频素材缺失: {video}")
 
-    # 同步探测元数据 + 逐帧时间表(宿主 ffprobe)。
+    # 完整探测结果到齐后才写入素材和逐帧时间表。
     video_meta = probe_video_file(video)
     timetable = probe_video_frame_timetable(video)
 
