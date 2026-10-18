@@ -3,14 +3,17 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 import hashlib
 from io import BytesIO
+import json
 import os
 from pathlib import Path
 import time
 from unittest.mock import Mock
+from urllib.parse import urlsplit
 from uuid import UUID, uuid4
 import zipfile
 
@@ -274,6 +277,64 @@ async def test_zip_remote_replay_preserves_sources_and_plans_all_dataset_items(
                 await _deliver_source_ingest_one(db, again, dispatcher) == "delivered"
             )
             dispatcher.dispatch_thumbnail.assert_called_once_with(again.target_id)
+
+        import redis.asyncio as aioredis
+        from app.workers.dataset_import_delivery import _relay_pending
+
+        broker = urlsplit(settings.celery_broker_url)
+        observed = await asyncio.to_thread(
+            _inspect_docker, stack.resources["redis_name"]
+        )
+        assert observed["Config"]["Image"] == "redis:7-alpine"
+        assert (
+            observed["Config"]["Labels"]["org.aap.worktree-owner"]
+            == stack.resources["owner"]
+        )
+        assert broker.hostname in {"localhost", "127.0.0.1"}
+        assert any(
+            binding["HostIp"] == "127.0.0.1" and int(binding["HostPort"]) == broker.port
+            for binding in observed["NetworkSettings"]["Ports"]["6379/tcp"]
+        )
+        async with stack.world.maker() as db:
+            target = str(
+                await db.scalar(
+                    text(
+                        "SELECT target_id FROM dataset_source_ingest_deliveries WHERE operation_id=:id AND delivered_at IS NULL"
+                    ),
+                    {"id": operation},
+                )
+            )
+        client = aioredis.from_url(settings.redis_url, socket_timeout=5)
+        own_messages = []
+        try:
+            totals = await _relay_pending()
+            assert totals["delivered"] == 1 and totals["deferred"] == 0
+            assert (await _relay_pending())["claimed"] == 0
+            for message in await client.lrange("media", 0, -1):
+                envelope = json.loads(message)
+                if (
+                    envelope.get("headers", {}).get("task")
+                    != "app.workers.media.generate_thumbnail"
+                ):
+                    continue
+                arguments = json.loads(base64.b64decode(envelope["body"]))
+                if arguments[0] == [target]:
+                    own_messages.append(message)
+            assert len(own_messages) == 1
+            async with stack.world.maker() as db:
+                assert (
+                    await db.scalar(
+                        text(
+                            "SELECT count(*) FROM dataset_source_ingest_deliveries WHERE operation_id=:id AND delivered_at IS NOT NULL"
+                        ),
+                        {"id": operation},
+                    )
+                    == 2
+                )
+        finally:
+            for message in own_messages:
+                await client.lrem("media", 1, message)
+            await client.aclose()
 
 
 async def test_scan_remote_pages_only_the_legacy_prefix_without_scene_inference(

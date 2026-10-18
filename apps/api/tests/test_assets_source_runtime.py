@@ -221,6 +221,7 @@ async def _source_stack(test_engine, app_module, monkeypatch):
                     containers=containers,
                     values=values,
                     directory=Path(directory),
+                    resources=resources,
                     extras=extras,
                     storage=storage_service,
                     dispatcher=dispatcher,
