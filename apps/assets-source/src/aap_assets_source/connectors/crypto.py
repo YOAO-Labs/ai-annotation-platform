@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import base64
+import hashlib
+import hmac
 import json
+from uuid import UUID
 
 from cryptography.fernet import Fernet, InvalidToken
 
@@ -28,6 +32,11 @@ def _fernet(key: str | bytes) -> Fernet:
 
 def encrypt_secret(secret: dict, key: str | bytes) -> bytes:
     """Encrypt a connector credential object using the explicit Fernet key."""
+    plaintext = _encode_secret(secret)
+    return _fernet(key).encrypt(plaintext)
+
+
+def _encode_secret(secret: dict) -> bytes:
     if not isinstance(secret, dict):
         raise ConnectorCryptoError("connector secret must be an object")
     try:
@@ -36,7 +45,20 @@ def encrypt_secret(secret: dict, key: str | bytes) -> bytes:
         ).encode("utf-8")
     except (TypeError, ValueError) as exc:
         raise ConnectorCryptoError("connector secret is not safe JSON") from exc
-    return _fernet(key).encrypt(plaintext)
+    return plaintext
+
+
+def credential_fingerprint(secret: dict, key: str | bytes, operation_id: UUID) -> str:
+    """Bind replay intent without retaining credentials or a password verifier."""
+    _fernet(key)
+    key_bytes = base64.urlsafe_b64decode(key)
+    payload = (
+        b"aap-assets-connections-request/v1\0"
+        + str(operation_id).encode("ascii")
+        + b"\0"
+        + _encode_secret(secret)
+    )
+    return hmac.new(key_bytes, payload, hashlib.sha256).hexdigest()
 
 
 def decrypt_secret(token: bytes | str, key: str | bytes) -> dict:
