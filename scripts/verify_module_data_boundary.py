@@ -82,6 +82,7 @@ SQL_ARTIFACTS = (
     "0214_dataset_import_core.sql",
     "0215_dataset_source_ingest.sql",
     "0215_dataset_source_ingest_delivery.sql",
+    "0216_assets_spatial.sql",
 )
 SCHEMA_ARTIFACTS = (
     "0191_task_append.schema.json",
@@ -108,6 +109,7 @@ SCHEMA_ARTIFACTS = (
     "0214_dataset_import.schema.json",
     "0214_dataset_import_delivery.schema.json",
     "0215_dataset_source_ingest.schema.json",
+    "0216_assets_spatial.schema.json",
 )
 TEST_FILES = (
     "tests/test_workspace_data_contract.py",
@@ -175,6 +177,10 @@ TEST_FILES = (
     "tests/test_assets_source_runtime.py",
     "tests/test_assets_source_gateway.py",
     "tests/test_assets_catalog_native.py",
+    "tests/test_assets_spatial_native.py",
+    "tests/test_assets_spatial_calibration_native.py",
+    "tests/test_assets_spatial_gateway.py",
+    "tests/test_assets_spatial_runtime.py",
     "tests/test_assets_catalog_runtime.py",
     "tests/test_asset_association_reads.py",
     "tests/test_asset_association_runtime.py",
@@ -787,6 +793,25 @@ def _install_and_rollback_frozen_sql(
         "SELECT aap_assets_v1.complete_legacy_dataset_upload(NULL::uuid,NULL::uuid,NULL::uuid,NULL::uuid,NULL::text,NULL::bigint,NULL::text,NULL::integer,NULL::integer);\n"
         "SELECT aap_assets_v1.begin_dataset_ingest(NULL::uuid,NULL::uuid,NULL::uuid,NULL::jsonb);\n"
         "SELECT aap_assets_v1.claim_dataset_source_ingest_delivery(NULL::uuid,NULL::integer);\n"
+        "SELECT aap_assets_v1.guard_spatial_actor(NULL::uuid,NULL::text);\n"
+        "SELECT aap_assets_v1.list_spatial_scenes(NULL::uuid,NULL::uuid,NULL::timestamp with time zone,NULL::uuid,NULL::integer);\n"
+        "SELECT aap_assets_v1.get_spatial_scene(NULL::uuid,NULL::uuid);\n"
+        "SELECT aap_assets_v1.read_spatial_layout(NULL::uuid,NULL::uuid,NULL::uuid,NULL::uuid,NULL::integer);\n"
+        "SELECT aap_assets_v1.read_spatial_items(NULL::uuid,NULL::uuid[],NULL::uuid,NULL::integer);\n"
+        "SELECT aap_assets_v1.read_spatial_poses(NULL::uuid,NULL::uuid,NULL::integer,NULL::integer);\n"
+        "SELECT aap_assets_v1.read_spatial_calibrations(NULL::uuid[],NULL::boolean,NULL::uuid,NULL::integer,NULL::integer);\n"
+        "SELECT aap_assets_v1.lock_spatial_calibration_facts(NULL::uuid,NULL::uuid,NULL::text,NULL::uuid,NULL::jsonb);\n"
+        "SELECT aap_assets_v1.mutate_spatial_scene(NULL::uuid,NULL::uuid,NULL::uuid,NULL::jsonb,NULL::jsonb);\n"
+        "SELECT aap_assets_v1.apply_spatial_layout(NULL::uuid,NULL::uuid,NULL::uuid,NULL::text,NULL::boolean,NULL::jsonb,NULL::jsonb);\n"
+        "SELECT aap_assets_v1.upsert_spatial_poses(NULL::uuid,NULL::uuid,NULL::jsonb);\n"
+        "SELECT aap_assets_v1.create_spatial_scene(NULL::uuid,NULL::uuid,NULL::uuid,NULL::text,NULL::text,NULL::jsonb,NULL::uuid);\n"
+        "SELECT aap_assets_v1.assign_spatial_items(NULL::uuid,NULL::uuid,NULL::jsonb);\n"
+        "SELECT aap_assets_v1.set_spatial_scene_source(NULL::uuid,NULL::uuid,NULL::text,NULL::jsonb);\n"
+        "SELECT aap_assets_v1.update_spatial_calibration(NULL::uuid,NULL::uuid,NULL::uuid,NULL::text,NULL::integer,NULL::text,NULL::jsonb,NULL::text,NULL::text,NULL::jsonb,NULL::jsonb);\n"
+        "SELECT aap_assets_v1.read_pointcloud_preparation(NULL::uuid,NULL::uuid,NULL::integer);\n"
+        "SELECT aap_assets_v1.apply_pointcloud_preparation(NULL::uuid,NULL::jsonb,NULL::jsonb,NULL::jsonb);\n"
+        "SELECT aap_assets_v1.read_spatial_camera_target(NULL::uuid,NULL::uuid,NULL::text);\n"
+        "SELECT aap_assets_v1.record_spatial_calibration_provenance(NULL::uuid,NULL::uuid,NULL::jsonb);\n"
         "SELECT aap_learning_v1.lock_project_deletion(:'project_id'::uuid);\n"
         "SELECT aap_learning_v1.guard_project_deletion(:'project_id'::uuid);\n"
         "SELECT aap_assets_v1.delete_project_owned_records(:'project_id'::uuid);\n"
@@ -855,6 +880,7 @@ def _install_and_rollback_frozen_sql(
         "aap-legacy-dataset-upload/v1": "invalid_request",
         "aap-dataset-source-ingest/v1": "invalid_request",
         "aap-dataset-source-ingest-delivery/v1": "invalid_request",
+        "aap-assets-spatial/v1": "invalid_request",
     }
     if any(
         not any(
@@ -917,6 +943,7 @@ def _install_and_rollback_frozen_sql(
             "AND to_regclass('public.dataset_source_ingest_operations') IS NULL "
             "AND to_regclass('public.dataset_source_ingest_entries') IS NULL "
             "AND to_regclass('public.dataset_source_ingest_deliveries') IS NULL "
+            "AND to_regclass('public.dataset_spatial_operations') IS NULL "
             "AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_attribute "
             "WHERE attrelid = 'public.async_jobs'::pg_catalog.regclass "
             "AND attname = 'retained_project_id' AND NOT attisdropped) "
@@ -1125,8 +1152,8 @@ def main(argv: list[str] | None = None) -> int:
         database = resources["database"]
         evidence["database"] = database
         _, heads = migration_graph(ROOT)
-        if heads != ["0215"]:
-            raise RuntimeError("module-data acceptance requires migration head 0215")
+        if heads != ["0216"]:
+            raise RuntimeError("module-data acceptance requires migration head 0216")
         evidence["migrations"]["head_before_downgrade"] = heads[0]
         phase = "downgrade-to-0189"
         _container_details(

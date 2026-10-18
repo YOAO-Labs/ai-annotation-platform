@@ -202,6 +202,17 @@ GRANT SELECT (
     UPDATE (completed_at)
     ON public.asset_storage_deletions TO :"assets_owner";
 
+-- Spatial state stays private to the Assets function owner.
+GRANT SELECT (id, name, metadata, is_temporal) ON public.datasets TO :"assets_owner";
+GRANT SELECT (display_id, created_at, updated_at),
+    UPDATE (name, source_format, source_metadata, updated_at)
+    ON public.scenes TO :"assets_owner";
+GRANT USAGE, SELECT ON SEQUENCE public.display_seq_scenes TO :"assets_owner";
+GRANT UPDATE (metadata) ON public.dataset_items TO :"assets_owner";
+GRANT SELECT, INSERT, UPDATE ON public.scene_frame_poses TO :"assets_owner";
+GRANT SELECT, INSERT ON public.sensor_calibration_revisions,
+    public.dataset_spatial_operations TO :"assets_owner";
+
 -- Cross-owner reads use versioned projections, never private foreign-table grants.
 DO $$
 DECLARE
@@ -322,6 +333,8 @@ GRANT SELECT (
 GRANT SELECT (task_id, dataset_item_id, role),
     INSERT (id, task_id, dataset_item_id, role, sensor_name)
     ON public.task_dataset_item_links TO :"labeling_owner";
+GRANT SELECT (file_type, assignee_id, reviewer_id) ON public.tasks TO :"labeling_owner";
+GRANT UPDATE (id) ON public.task_dataset_item_links TO :"labeling_owner";
 GRANT USAGE ON SEQUENCE public.display_seq_tasks TO :"labeling_owner";
 GRANT SELECT, INSERT, UPDATE ON public.task_append_operations TO :"labeling_owner";
 GRANT SELECT (
@@ -787,8 +800,10 @@ ALTER FUNCTION aap_audit_v1.record_dataset_source_deletion(
 ) OWNER TO :"audit_owner";
 REVOKE CREATE ON SCHEMA aap_audit_v1 FROM :"audit_owner";
 
--- New import helpers stay with their schema owner; runtime roles gain no DDL.
+-- Import and spatial helpers stay with their schema owner; runtime roles gain no DDL.
 GRANT CREATE ON SCHEMA aap_assets_v1 TO :"assets_owner";
+GRANT CREATE ON SCHEMA aap_labeling_v1 TO :"labeling_owner";
+GRANT CREATE ON SCHEMA aap_workspace_v1 TO :"workspace_owner";
 GRANT CREATE ON SCHEMA aap_jobs_v1 TO :"jobs_owner";
 GRANT CREATE ON SCHEMA aap_audit_v1 TO :"audit_owner";
 GRANT CREATE ON SCHEMA aap_settings_v1 TO :"settings_owner";
@@ -803,6 +818,8 @@ BEGIN
         JOIN pg_catalog.pg_namespace AS ns ON ns.oid=proc.pronamespace
         JOIN (VALUES
             ('aap_assets_v1','aap.assets_owner'),
+            ('aap_labeling_v1','aap.labeling_owner'),
+            ('aap_workspace_v1','aap.workspace_owner'),
             ('aap_jobs_v1','aap.jobs_owner'),
             ('aap_audit_v1','aap.audit_owner'),
             ('aap_settings_v1','aap.settings_owner'),
@@ -812,6 +829,9 @@ BEGIN
           AND (proc.proname LIKE '%dataset_import%'
                OR proc.proname LIKE '%dataset_ingest%'
                OR proc.proname LIKE '%source_ingest%'
+               OR proc.proname LIKE '%spatial%'
+               OR proc.proname LIKE '%pointcloud_preparation%'
+               OR proc.proname LIKE '%sensor_calibration%'
                OR ns.nspname IN ('aap_settings_v1','aap_notifications_v1'))
     LOOP
         EXECUTE pg_catalog.format('ALTER FUNCTION %s OWNER TO %I',
@@ -820,10 +840,46 @@ BEGIN
     END LOOP;
 END $$;
 REVOKE CREATE ON SCHEMA aap_assets_v1 FROM :"assets_owner";
+REVOKE CREATE ON SCHEMA aap_labeling_v1 FROM :"labeling_owner";
+REVOKE CREATE ON SCHEMA aap_workspace_v1 FROM :"workspace_owner";
 REVOKE CREATE ON SCHEMA aap_jobs_v1 FROM :"jobs_owner";
 REVOKE CREATE ON SCHEMA aap_audit_v1 FROM :"audit_owner";
 REVOKE CREATE ON SCHEMA aap_settings_v1 FROM :"settings_owner";
 REVOKE CREATE ON SCHEMA aap_notifications_v1 FROM :"notifications_owner";
+
+-- Cross-owner spatial authority and audit stay behind their owner capabilities.
+GRANT EXECUTE ON FUNCTION aap_workspace_v1.read_spatial_project_access(uuid,uuid)
+    TO :"labeling_owner";
+GRANT EXECUTE ON FUNCTION
+    aap_labeling_v1.read_spatial_camera_roles(uuid[]),
+    aap_labeling_v1.read_spatial_camera_target(uuid,uuid,text),
+    aap_labeling_v1.lock_spatial_camera_authority(uuid,uuid,text,uuid),
+    aap_labeling_v1.lock_spatial_preparation_scope(uuid)
+    TO :"assets_owner";
+GRANT EXECUTE ON FUNCTION
+    aap_audit_v1.record_sensor_calibration_update(uuid,uuid,uuid,uuid,text,integer,text,jsonb)
+    TO :"assets_owner";
+GRANT EXECUTE ON FUNCTION
+    aap_assets_v1.guard_spatial_actor(uuid,text),
+    aap_assets_v1.list_spatial_scenes(uuid,uuid,timestamp with time zone,uuid,integer),
+    aap_assets_v1.get_spatial_scene(uuid,uuid),
+    aap_assets_v1.read_spatial_layout(uuid,uuid,uuid,uuid,integer),
+    aap_assets_v1.read_spatial_items(uuid,uuid[],uuid,integer),
+    aap_assets_v1.read_spatial_poses(uuid,uuid,integer,integer),
+    aap_assets_v1.read_spatial_calibrations(uuid[],boolean,uuid,integer,integer),
+    aap_assets_v1.lock_spatial_calibration_facts(uuid,uuid,text,uuid,jsonb),
+    aap_assets_v1.mutate_spatial_scene(uuid,uuid,uuid,jsonb,jsonb),
+    aap_assets_v1.apply_spatial_layout(uuid,uuid,uuid,text,boolean,jsonb,jsonb),
+    aap_assets_v1.upsert_spatial_poses(uuid,uuid,jsonb),
+    aap_assets_v1.create_spatial_scene(uuid,uuid,uuid,text,text,jsonb,uuid),
+    aap_assets_v1.assign_spatial_items(uuid,uuid,jsonb),
+    aap_assets_v1.set_spatial_scene_source(uuid,uuid,text,jsonb),
+    aap_assets_v1.update_spatial_calibration(uuid,uuid,uuid,text,integer,text,jsonb,text,text,jsonb,jsonb),
+    aap_assets_v1.read_pointcloud_preparation(uuid,uuid,integer),
+    aap_assets_v1.apply_pointcloud_preparation(uuid,jsonb,jsonb,jsonb),
+    aap_assets_v1.read_spatial_camera_target(uuid,uuid,text),
+    aap_assets_v1.record_spatial_calibration_provenance(uuid,uuid,jsonb)
+    TO :"workflow_role";
 
 DO $$
 DECLARE
@@ -839,6 +895,8 @@ BEGIN
         'public.dataset_import_deliveries','public.notifications',
         'public.dataset_source_ingest_operations',
         'public.dataset_source_ingest_entries', 'public.dataset_source_ingest_deliveries',
+        'public.dataset_spatial_operations', 'public.sensor_calibration_revisions',
+        'public.scene_frame_poses',
         'public.notification_preferences','public.system_settings',
         'public.dataset_items', 'public.project_datasets',
         'public.storage_connections', 'public.image_pyramid_assets',

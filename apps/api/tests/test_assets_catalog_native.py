@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from app.db.models.dataset import Dataset, DatasetItem, ProjectDataset, Scene
 from app.db.models.dataset_catalog_operation import DatasetCatalogOperation
+from aap_assets_catalog.spatial_contract import SPATIAL_NATIVE_SIGNATURES
 from app.db.models.project import Project
 from app.db.models.user import User
 
@@ -52,9 +53,16 @@ _CATALOG_FUNCTIONS = (
     "aap_assets_v1.create_catalog_dataset(uuid,uuid,jsonb)",
     "aap_assets_v1.update_catalog_dataset(uuid,uuid,uuid,jsonb)",
 )
-_CATALOG_LOGIN_FUNCTIONS = _CATALOG_FUNCTIONS + (
-    "aap_assets_v1.list_dataset_projects(uuid,uuid)",
-    "aap_assets_v1.list_project_datasets(uuid,uuid)",
+_CATALOG_LOGIN_FUNCTIONS = (
+    _CATALOG_FUNCTIONS
+    + (
+        "aap_assets_v1.list_dataset_projects(uuid,uuid)",
+        "aap_assets_v1.list_project_datasets(uuid,uuid)",
+    )
+    + tuple(
+        f"aap_assets_v1.{name}({types})"
+        for name, types in SPATIAL_NATIVE_SIGNATURES.items()
+    )
 )
 
 

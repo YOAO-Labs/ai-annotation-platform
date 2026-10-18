@@ -119,7 +119,7 @@ GRANT SELECT (
 )
     ON public.dataset_catalog_operations TO :"assets_owner";
 
--- Function owners are NOLOGIN; the runtime only receives seven public calls.
+-- Function owners are NOLOGIN; the runtime receives only the frozen public calls.
 GRANT CREATE ON SCHEMA aap_assets_v1 TO :"assets_owner";
 ALTER FUNCTION aap_assets_v1._catalog_failure(text) OWNER TO :"assets_owner";
 ALTER FUNCTION aap_assets_v1._catalog_actor(uuid, boolean) OWNER TO :"assets_owner";
@@ -145,6 +145,28 @@ GRANT EXECUTE ON FUNCTION aap_assets_v1.list_catalog_datasets(
     aap_assets_v1.update_catalog_dataset(uuid, uuid, uuid, jsonb),
     aap_assets_v1.list_dataset_projects(uuid, uuid),
     aap_assets_v1.list_project_datasets(uuid, uuid)
+    TO :"asset_catalog_role";
+
+GRANT EXECUTE ON FUNCTION
+    aap_assets_v1.guard_spatial_actor(uuid,text),
+    aap_assets_v1.list_spatial_scenes(uuid,uuid,timestamp with time zone,uuid,integer),
+    aap_assets_v1.get_spatial_scene(uuid,uuid),
+    aap_assets_v1.read_spatial_layout(uuid,uuid,uuid,uuid,integer),
+    aap_assets_v1.read_spatial_items(uuid,uuid[],uuid,integer),
+    aap_assets_v1.read_spatial_poses(uuid,uuid,integer,integer),
+    aap_assets_v1.read_spatial_calibrations(uuid[],boolean,uuid,integer,integer),
+    aap_assets_v1.lock_spatial_calibration_facts(uuid,uuid,text,uuid,jsonb),
+    aap_assets_v1.mutate_spatial_scene(uuid,uuid,uuid,jsonb,jsonb),
+    aap_assets_v1.apply_spatial_layout(uuid,uuid,uuid,text,boolean,jsonb,jsonb),
+    aap_assets_v1.upsert_spatial_poses(uuid,uuid,jsonb),
+    aap_assets_v1.create_spatial_scene(uuid,uuid,uuid,text,text,jsonb,uuid),
+    aap_assets_v1.assign_spatial_items(uuid,uuid,jsonb),
+    aap_assets_v1.set_spatial_scene_source(uuid,uuid,text,jsonb),
+    aap_assets_v1.update_spatial_calibration(uuid,uuid,uuid,text,integer,text,jsonb,text,text,jsonb,jsonb),
+    aap_assets_v1.read_pointcloud_preparation(uuid,uuid,integer),
+    aap_assets_v1.apply_pointcloud_preparation(uuid,jsonb,jsonb,jsonb),
+    aap_assets_v1.read_spatial_camera_target(uuid,uuid,text),
+    aap_assets_v1.record_spatial_calibration_provenance(uuid,uuid,jsonb)
     TO :"asset_catalog_role";
 
 -- Fail closed if the runtime role can access anything beyond the exact protocol.
@@ -175,7 +197,26 @@ DECLARE
         )::oid,
         pg_catalog.to_regprocedure(
             'aap_assets_v1.list_project_datasets(uuid,uuid)'
-        )::oid
+        )::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.guard_spatial_actor(uuid,text)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.list_spatial_scenes(uuid,uuid,timestamp with time zone,uuid,integer)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.get_spatial_scene(uuid,uuid)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.read_spatial_layout(uuid,uuid,uuid,uuid,integer)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.read_spatial_items(uuid,uuid[],uuid,integer)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.read_spatial_poses(uuid,uuid,integer,integer)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.read_spatial_calibrations(uuid[],boolean,uuid,integer,integer)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.lock_spatial_calibration_facts(uuid,uuid,text,uuid,jsonb)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.mutate_spatial_scene(uuid,uuid,uuid,jsonb,jsonb)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.apply_spatial_layout(uuid,uuid,uuid,text,boolean,jsonb,jsonb)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.upsert_spatial_poses(uuid,uuid,jsonb)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.create_spatial_scene(uuid,uuid,uuid,text,text,jsonb,uuid)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.assign_spatial_items(uuid,uuid,jsonb)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.set_spatial_scene_source(uuid,uuid,text,jsonb)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.update_spatial_calibration(uuid,uuid,uuid,text,integer,text,jsonb,text,text,jsonb,jsonb)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.read_pointcloud_preparation(uuid,uuid,integer)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.apply_pointcloud_preparation(uuid,jsonb,jsonb,jsonb)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.read_spatial_camera_target(uuid,uuid,text)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.record_spatial_calibration_provenance(uuid,uuid,jsonb)')::oid
     ];
 BEGIN
     IF EXISTS (
