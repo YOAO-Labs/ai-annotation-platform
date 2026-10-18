@@ -10,6 +10,7 @@ from typing import Any
 from fastapi import Depends, FastAPI, HTTPException, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel, ValidationError
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from .catalog import CatalogRuntime
@@ -35,6 +36,7 @@ from .associations_contract import (
     ListProjectDatasetsRequest,
     ProjectDatasetsResult,
 )
+from . import spatial_contract as spatial
 
 logger = logging.getLogger("aap_assets_catalog")
 
@@ -192,6 +194,22 @@ def _association_failure(code: str) -> dict[str, Any]:
     }
 
 
+def _spatial_success(data: BaseModel) -> dict[str, Any]:
+    return {
+        "schema": spatial.SPATIAL_SCHEMA,
+        "ok": True,
+        "data": data.model_dump(mode="json"),
+    }
+
+
+def _spatial_failure(code: str) -> dict[str, Any]:
+    return {
+        "schema": spatial.SPATIAL_SCHEMA,
+        "ok": False,
+        "error": {"code": code},
+    }
+
+
 async def _require_gateway(request: Request) -> None:
     authorization = request.headers.get("authorization", "")
     scheme, separator, token = authorization.partition(" ")
@@ -257,6 +275,12 @@ def create_app(
         _request: Request, exc: AssociationFailure
     ) -> JSONResponse:
         return JSONResponse(status_code=200, content=_association_failure(exc.code))
+
+    @app.exception_handler(spatial.SpatialFailure)
+    async def spatial_failure_handler(
+        _request: Request, exc: spatial.SpatialFailure
+    ) -> JSONResponse:
+        return JSONResponse(status_code=200, content=_spatial_failure(exc.code))
 
     @app.exception_handler(RequestValidationError)
     async def request_validation_handler(
@@ -329,5 +353,42 @@ def create_app(
             await request.app.state.runtime.catalog.list_project_datasets(body)
         )
         return _association_success(result)
+
+    @app.post("/v1/spatial/backfill_scenes", dependencies=[Depends(_require_gateway)])
+    async def backfill_scenes(request: Request, body: spatial.BackfillScenesRequest):
+        result = await request.app.state.runtime.catalog.backfill_scenes(body)
+        return _spatial_success(result)
+
+    @app.post("/v1/spatial/sniff_axis", dependencies=[Depends(_require_gateway)])
+    async def sniff_axis(request: Request, body: spatial.SniffAxisRequest):
+        result = await request.app.state.runtime.catalog.sniff_axis(body)
+        return _spatial_success(result)
+
+    @app.post(
+        "/v1/spatial/prepare_pointcloud", dependencies=[Depends(_require_gateway)]
+    )
+    async def prepare_pointcloud(
+        request: Request, body: spatial.PreparePointcloudRequest
+    ):
+        result = await request.app.state.runtime.catalog.prepare_pointcloud(body)
+        return _spatial_success(result)
+
+    @app.post("/v1/spatial/{operation}", dependencies=[Depends(_require_gateway)])
+    async def spatial_native(operation: str, request: Request, body: dict[str, Any]):
+        operation_models = spatial.SPATIAL_OPERATIONS.get(operation)
+        if operation_models is None:
+            raise HTTPException(status_code=404, detail="Unknown spatial operation")
+        request_type, _result_type = operation_models
+        try:
+            typed_request = request_type.model_validate(body)
+        except ValidationError as exc:
+            raise HTTPException(
+                status_code=422,
+                detail="Invalid Assets spatial request",
+            ) from exc
+        result = await request.app.state.runtime.catalog.spatial_native(
+            operation, typed_request
+        )
+        return _spatial_success(result)
 
     return app

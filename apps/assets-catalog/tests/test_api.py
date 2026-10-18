@@ -14,6 +14,7 @@ from aap_assets_catalog.associations_contract import (
     ListProjectDatasetsRequest,
     ProjectDatasetsResult,
 )
+from aap_assets_catalog import spatial_contract as spatial
 from aap_assets_catalog.contract import (
     CATALOG_SCHEMA,
     CatalogFailure,
@@ -41,6 +42,7 @@ def _config(
         driver_database_url="postgresql://catalog:secret@db/aap",
         gateway_token=_TOKEN,
         s3_public_endpoint="http://storage.example.test:9000",
+        s3_endpoint="http://storage.example.test:9000",
         s3_region="us-east-1",
         s3_access_key="read-only-key",
         s3_secret_key="read-only-secret",
@@ -79,6 +81,8 @@ def _summary(actor_id: UUID | None = None) -> DatasetSummary:
 class _Catalog:
     def __init__(self):
         self.calls = []
+        self.spatial_calls = []
+        self.spatial_fail_code = None
         self.fail_code = None
         self.association_fail_code = None
         self.error_message = None
@@ -175,6 +179,27 @@ class _Catalog:
         self.calls.append(("project-datasets", request))
         self._raise_association_if_configured()
         return ProjectDatasetsResult(project_id=request.project_id, datasets=[])
+
+    async def spatial_native(self, operation: str, request):
+        self.spatial_calls.append((operation, request))
+        if self.spatial_fail_code:
+            raise spatial.SpatialFailure(self.spatial_fail_code)
+        if operation == "guard_spatial_actor":
+            return spatial.SpatialActorResult(**request.model_dump())
+        raise AssertionError(f"Unexpected test spatial operation: {operation}")
+
+    async def backfill_scenes(self, request):
+        self.spatial_calls.append(("backfill_scenes", request))
+        return spatial.LayoutMutationResult(
+            operation_id=request.operation_id,
+            actor_id=request.actor_id,
+            dataset_id=request.dataset_id,
+            created_scenes=0,
+            assigned_items=0,
+            skipped_items=0,
+            dry_run=request.dry_run,
+            notes=[],
+        )
 
 
 class _Runtime:
@@ -442,3 +467,64 @@ def test_oversized_response_is_replaced_with_generic_503(client_factory) -> None
     assert response.status_code == 503
     assert response.json() == {"detail": "Assets catalog response is too large"}
     assert "x" * 64 not in response.text
+
+
+def test_spatial_operations_are_private_typed_and_use_the_spatial_envelope(
+    client_factory,
+) -> None:
+    client, catalog, _runtime = client_factory()
+    actor_id = uuid4()
+    dataset_id = uuid4()
+    operation_id = uuid4()
+    body = {"actor_id": str(actor_id), "access": "manager_write"}
+
+    unauthorized = client.post("/v1/spatial/guard_spatial_actor", json=body)
+    assert unauthorized.status_code == 401
+    assert catalog.spatial_calls == []
+
+    headers = {"Authorization": f"Bearer {_TOKEN}"}
+    response = client.post(
+        "/v1/spatial/guard_spatial_actor", json=body, headers=headers
+    )
+    assert response.status_code == 200
+    assert response.json() == {
+        "schema": spatial.SPATIAL_SCHEMA,
+        "ok": True,
+        "data": body,
+    }
+    assert catalog.spatial_calls[0][0] == "guard_spatial_actor"
+    assert catalog.spatial_calls[0][1].actor_id == actor_id
+
+    catalog.spatial_fail_code = "catalog_manager_required"
+    failure = client.post("/v1/spatial/guard_spatial_actor", json=body, headers=headers)
+    assert failure.status_code == 200
+    assert failure.json() == {
+        "schema": spatial.SPATIAL_SCHEMA,
+        "ok": False,
+        "error": {"code": "catalog_manager_required"},
+    }
+    catalog.spatial_fail_code = None
+
+    backfill = client.post(
+        "/v1/spatial/backfill_scenes",
+        json={
+            "operation_id": str(operation_id),
+            "actor_id": str(actor_id),
+            "dataset_id": str(dataset_id),
+            "mode": "auto",
+            "dry_run": True,
+        },
+        headers=headers,
+    )
+    assert backfill.status_code == 200
+    assert backfill.json()["schema"] == spatial.SPATIAL_SCHEMA
+    assert backfill.json()["data"]["dry_run"] is True
+    assert catalog.spatial_calls[-1][0] == "backfill_scenes"
+
+    invalid = client.post(
+        "/v1/spatial/guard_spatial_actor",
+        json={**body, "unexpected": True},
+        headers=headers,
+    )
+    assert invalid.status_code == 422
+    assert len(catalog.spatial_calls) == 3

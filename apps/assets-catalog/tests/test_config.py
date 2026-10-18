@@ -20,6 +20,7 @@ def _environment() -> dict[str, str]:
 def test_explicit_environment_builds_asyncpg_dsn_and_bounded_defaults() -> None:
     config = load_config(_environment())
     assert config.driver_database_url == "postgresql://catalog:secret@db/aap"
+    assert config.s3_endpoint == config.s3_public_endpoint
     assert config.host == "0.0.0.0"
     assert config.port == 8766
     assert config.pool_min_size == 1
@@ -57,10 +58,21 @@ def test_configuration_does_not_fall_back_to_generic_credentials() -> None:
         )
 
 
+def test_private_source_endpoint_can_differ_from_browser_signing_origin() -> None:
+    environment = _environment()
+    environment["ASSETS_CATALOG_S3_PUBLIC_ENDPOINT"] = "http://127.0.0.1:9000"
+    environment["ASSETS_CATALOG_S3_ENDPOINT"] = "http://minio:9000"
+
+    config = load_config(environment)
+    assert config.s3_public_endpoint == "http://127.0.0.1:9000"
+    assert config.s3_endpoint == "http://minio:9000"
+
+
 @pytest.mark.parametrize(
     ("setting", "value"),
     [
         ("ASSETS_CATALOG_S3_PUBLIC_ENDPOINT", "http://minio:9000/path"),
+        ("ASSETS_CATALOG_S3_ENDPOINT", "http://minio:9000/path"),
         ("ASSETS_CATALOG_DATASETS_BUCKET", "127.0.0.1"),
         ("ASSETS_CATALOG_MEDIA_CACHE_BUCKET", "BadBucket"),
         ("ASSETS_CATALOG_PORT", "65536"),

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pydantic import BaseModel
+
 from .contract import (
     CatalogItem,
     CreateDatasetRequest,
@@ -23,12 +25,22 @@ from .associations_contract import (
 from .config import CatalogConfig
 from .database import CatalogDatabase
 from .object_signer import CatalogObjectSigner
+from . import spatial_contract as spatial
+from .spatial_workflow import SpatialWorkflow
 
 
 class CatalogService:
-    def __init__(self, database: CatalogDatabase, signer: CatalogObjectSigner):
+    def __init__(
+        self,
+        database: CatalogDatabase,
+        signer: CatalogObjectSigner,
+        spatial_workflow: SpatialWorkflow | None = None,
+    ):
         self._database = database
         self._signer = signer
+        self._spatial = spatial_workflow or SpatialWorkflow(
+            database, signer.spatial_source_reader
+        )
 
     async def list_datasets(self, request: ListDatasetsRequest) -> DatasetPage:
         return await self._database.list_datasets(request)
@@ -62,6 +74,24 @@ class CatalogService:
     ) -> ProjectDatasetsResult:
         return await self._database.list_project_datasets(request)
 
+    async def spatial_native(self, operation: str, request: BaseModel) -> BaseModel:
+        return await self._spatial.invoke_native(operation, request)
+
+    async def backfill_scenes(
+        self, request: spatial.BackfillScenesRequest
+    ) -> spatial.LayoutMutationResult:
+        return await self._spatial.backfill_scenes(request)
+
+    async def sniff_axis(
+        self, request: spatial.SniffAxisRequest
+    ) -> spatial.AxisSniffResult:
+        return await self._spatial.sniff_axis(request)
+
+    async def prepare_pointcloud(
+        self, request: spatial.PreparePointcloudRequest
+    ) -> spatial.PreparationMutationResult:
+        return await self._spatial.prepare_pointcloud(request)
+
     def _sign_item(self, item: CatalogItem) -> CatalogItem:
         try:
             file_url = self._signer.sign_source(item.file_path)
@@ -88,7 +118,8 @@ class CatalogRuntime:
         database = await CatalogDatabase.connect(config)
         try:
             signer = CatalogObjectSigner(config)
-            return cls(CatalogService(database, signer), database)
+            workflow = SpatialWorkflow(database, signer.spatial_source_reader)
+            return cls(CatalogService(database, signer, workflow), database)
         except Exception:
             await database.close()
             raise

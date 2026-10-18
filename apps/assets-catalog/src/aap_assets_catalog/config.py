@@ -134,6 +134,7 @@ class CatalogConfig:
     driver_database_url: str
     gateway_token: str
     s3_public_endpoint: str
+    s3_endpoint: str
     s3_region: str
     s3_access_key: str
     s3_secret_key: str
@@ -164,6 +165,14 @@ def load_config(environment: Mapping[str, str] | None = None) -> CatalogConfig:
         )
 
     public_endpoint = _http_origin(source, "ASSETS_CATALOG_S3_PUBLIC_ENDPOINT")
+    source_endpoint = source.get("ASSETS_CATALOG_S3_ENDPOINT", "").strip()
+    if source_endpoint:
+        validated_source_endpoint = _http_origin(
+            {"ASSETS_CATALOG_S3_ENDPOINT": source_endpoint},
+            "ASSETS_CATALOG_S3_ENDPOINT",
+        )
+    else:
+        validated_source_endpoint = public_endpoint
     region = source.get("ASSETS_CATALOG_S3_REGION", "us-east-1").strip()
     if not region:
         raise ConfigurationError("ASSETS_CATALOG_S3_REGION must not be empty")
@@ -200,6 +209,7 @@ def load_config(environment: Mapping[str, str] | None = None) -> CatalogConfig:
         driver_database_url=driver_database_url,
         gateway_token=gateway_token,
         s3_public_endpoint=public_endpoint,
+        s3_endpoint=validated_source_endpoint,
         s3_region=region,
         s3_access_key=_required_secret(source, "ASSETS_CATALOG_S3_ACCESS_KEY"),
         s3_secret_key=_required_secret(source, "ASSETS_CATALOG_S3_SECRET_KEY"),

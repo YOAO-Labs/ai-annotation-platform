@@ -1,4 +1,4 @@
-"""asyncpg binding for the seven public Assets catalog SQL capabilities."""
+"""asyncpg binding for the scoped Assets catalog and spatial SQL capabilities."""
 
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ from typing import Any, Callable, TypeVar
 import asyncpg
 from pydantic import BaseModel, ValidationError
 
+from . import spatial_contract as spatial
 from .config import CatalogConfig
 from .contract import (
     CatalogFailure,
@@ -29,6 +30,14 @@ from .associations_contract import (
     ListProjectDatasetsRequest,
     ProjectDatasetsResult,
     decode_associations_reply,
+)
+from .spatial_contract import (
+    SPATIAL_NATIVE_SIGNATURES,
+    SPATIAL_OPERATIONS,
+    SPATIAL_SCHEMA,
+    SpatialFailure,
+    decode_spatial_reply,
+    require_spatial_scope,
 )
 
 LIST_DATASETS_SQL = """
@@ -58,8 +67,94 @@ SELECT aap_assets_v1.list_dataset_projects($1::uuid, $2::uuid)
 LIST_PROJECT_DATASETS_SQL = """
 SELECT aap_assets_v1.list_project_datasets($1::uuid, $2::uuid)
 """
+GUARD_SPATIAL_ACTOR_SQL = """
+SELECT aap_assets_v1.guard_spatial_actor($1::uuid, $2::text)
+"""
+LIST_SPATIAL_SCENES_SQL = """
+SELECT aap_assets_v1.list_spatial_scenes(
+    $1::uuid, $2::uuid, $3::timestamptz, $4::uuid, $5::integer
+)
+"""
+GET_SPATIAL_SCENE_SQL = """
+SELECT aap_assets_v1.get_spatial_scene($1::uuid, $2::uuid)
+"""
+READ_SPATIAL_LAYOUT_SQL = """
+SELECT aap_assets_v1.read_spatial_layout(
+    $1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::integer
+)
+"""
+READ_SPATIAL_ITEMS_SQL = """
+SELECT aap_assets_v1.read_spatial_items(
+    $1::uuid, $2::uuid[], $3::uuid, $4::integer
+)
+"""
+READ_SPATIAL_POSES_SQL = """
+SELECT aap_assets_v1.read_spatial_poses(
+    $1::uuid, $2::uuid, $3::integer, $4::integer
+)
+"""
+READ_SPATIAL_CALIBRATIONS_SQL = """
+SELECT aap_assets_v1.read_spatial_calibrations(
+    $1::uuid[], $2::boolean, $3::uuid, $4::integer, $5::integer
+)
+"""
+LOCK_SPATIAL_CALIBRATION_FACTS_SQL = """
+SELECT aap_assets_v1.lock_spatial_calibration_facts(
+    $1::uuid, $2::uuid, $3::text, $4::uuid, $5::jsonb
+)
+"""
+MUTATE_SPATIAL_SCENE_SQL = """
+SELECT aap_assets_v1.mutate_spatial_scene(
+    $1::uuid, $2::uuid, $3::uuid, $4::jsonb, $5::jsonb
+)
+"""
+APPLY_SPATIAL_LAYOUT_SQL = """
+SELECT aap_assets_v1.apply_spatial_layout(
+    $1::uuid, $2::uuid, $3::uuid, $4::text, $5::boolean, $6::jsonb, $7::jsonb
+)
+"""
+UPSERT_SPATIAL_POSES_SQL = """
+SELECT aap_assets_v1.upsert_spatial_poses($1::uuid, $2::uuid, $3::jsonb)
+"""
+CREATE_SPATIAL_SCENE_SQL = """
+SELECT aap_assets_v1.create_spatial_scene(
+    $1::uuid, $2::uuid, $3::uuid, $4::text, $5::text, $6::jsonb, $7::uuid
+)
+"""
+ASSIGN_SPATIAL_ITEMS_SQL = """
+SELECT aap_assets_v1.assign_spatial_items($1::uuid, $2::uuid, $3::jsonb)
+"""
+SET_SPATIAL_SCENE_SOURCE_SQL = """
+SELECT aap_assets_v1.set_spatial_scene_source(
+    $1::uuid, $2::uuid, $3::text, $4::jsonb
+)
+"""
+UPDATE_SPATIAL_CALIBRATION_SQL = """
+SELECT aap_assets_v1.update_spatial_calibration(
+    $1::uuid, $2::uuid, $3::uuid, $4::text, $5::integer, $6::text,
+    $7::jsonb, $8::text, $9::text, $10::jsonb, $11::jsonb
+)
+"""
+READ_POINTCLOUD_PREPARATION_SQL = """
+SELECT aap_assets_v1.read_pointcloud_preparation(
+    $1::uuid, $2::uuid, $3::integer
+)
+"""
+APPLY_POINTCLOUD_PREPARATION_SQL = """
+SELECT aap_assets_v1.apply_pointcloud_preparation(
+    $1::uuid, $2::jsonb, $3::jsonb, $4::jsonb
+)
+"""
+READ_SPATIAL_CAMERA_TARGET_SQL = """
+SELECT aap_assets_v1.read_spatial_camera_target($1::uuid, $2::uuid, $3::text)
+"""
+RECORD_SPATIAL_CALIBRATION_PROVENANCE_SQL = """
+SELECT aap_assets_v1.record_spatial_calibration_provenance(
+    $1::uuid, $2::uuid, $3::jsonb
+)
+"""
 
-EXPECTED_ASSET_FUNCTIONS = frozenset(
+_CATALOG_FUNCTIONS = frozenset(
     {
         "list_catalog_datasets(uuid,text,text,boolean,integer,bigint)",
         "get_catalog_dataset(uuid,uuid)",
@@ -70,17 +165,19 @@ EXPECTED_ASSET_FUNCTIONS = frozenset(
         "list_project_datasets(uuid,uuid)",
     }
 )
+_SPATIAL_FUNCTIONS = frozenset(
+    f"{name}({signature})" for name, signature in SPATIAL_NATIVE_SIGNATURES.items()
+)
+EXPECTED_ASSET_FUNCTIONS = _CATALOG_FUNCTIONS | _SPATIAL_FUNCTIONS
 
-ROLE_PREFLIGHT_SQL = """
+_EXPECTED_FUNCTION_VALUES_SQL = ",\n".join(
+    f"        ('{signature}'::text)" for signature in sorted(EXPECTED_ASSET_FUNCTIONS)
+)
+
+ROLE_PREFLIGHT_SQL = f"""
 WITH expected(signature) AS (
     VALUES
-        ('list_catalog_datasets(uuid,text,text,boolean,integer,bigint)'::text),
-        ('get_catalog_dataset(uuid,uuid)'::text),
-        ('list_catalog_items(uuid,uuid,integer,bigint)'::text),
-        ('create_catalog_dataset(uuid,uuid,jsonb)'::text),
-        ('update_catalog_dataset(uuid,uuid,uuid,jsonb)'::text),
-        ('list_dataset_projects(uuid,uuid)'::text),
-        ('list_project_datasets(uuid,uuid)'::text)
+{_EXPECTED_FUNCTION_VALUES_SQL}
 ),
 target_login AS (
     SELECT role_row.*
@@ -96,11 +193,7 @@ expected_oids AS (
     FROM expected
 ),
 accessible_assets_functions AS (
-    SELECT
-        proc.proname || '('
-            || pg_catalog.replace(
-                pg_catalog.oidvectortypes(proc.proargtypes), ' ', ''
-            ) || ')' AS signature
+    SELECT proc.oid AS function_oid
     FROM pg_catalog.pg_proc AS proc
     JOIN pg_catalog.pg_namespace AS namespace
       ON namespace.oid = proc.pronamespace
@@ -209,12 +302,24 @@ SELECT
                current_user, function_oid, 'EXECUTE'
            )
     )
-    AND (
-        SELECT pg_catalog.array_agg(signature ORDER BY signature)
-        FROM accessible_assets_functions
-    ) = (
-        SELECT pg_catalog.array_agg(signature ORDER BY signature)
-        FROM expected
+    AND NOT EXISTS (
+        SELECT 1
+        FROM expected_oids AS expected_row
+        WHERE expected_row.function_oid IS NULL
+           OR NOT EXISTS (
+               SELECT 1
+               FROM accessible_assets_functions AS accessible_row
+               WHERE accessible_row.function_oid = expected_row.function_oid
+           )
+    )
+    AND NOT EXISTS (
+        SELECT 1
+        FROM accessible_assets_functions AS accessible_row
+        WHERE NOT EXISTS (
+            SELECT 1
+            FROM expected_oids AS expected_row
+            WHERE expected_row.function_oid = accessible_row.function_oid
+        )
     )
     AND runtime_privileges.no_table_privileges
     AND runtime_privileges.no_column_privileges
@@ -381,14 +486,309 @@ class CatalogDatabase:
             )
         return result
 
+    async def guard_spatial_actor(
+        self, request: spatial.GuardSpatialActorRequest
+    ) -> spatial.SpatialActorResult:
+        return await self._spatial_call(
+            "guard_spatial_actor",
+            GUARD_SPATIAL_ACTOR_SQL,
+            request,
+            request.actor_id,
+            request.access,
+        )
+
+    async def list_spatial_scenes(
+        self, request: spatial.ListScenesRequest
+    ) -> spatial.ScenePage:
+        after = request.after
+        return await self._spatial_call(
+            "list_spatial_scenes",
+            LIST_SPATIAL_SCENES_SQL,
+            request,
+            request.actor_id,
+            request.dataset_id,
+            after.created_at if after else None,
+            after.scene_id if after else None,
+            request.page_size,
+        )
+
+    async def get_spatial_scene(
+        self, request: spatial.GetSceneRequest
+    ) -> spatial.SceneResult:
+        return await self._spatial_call(
+            "get_spatial_scene",
+            GET_SPATIAL_SCENE_SQL,
+            request,
+            request.actor_id,
+            request.scene_id,
+        )
+
+    async def read_spatial_layout(
+        self, request: spatial.ReadLayoutRequest
+    ) -> spatial.LayoutPage:
+        return await self._spatial_call(
+            "read_spatial_layout",
+            READ_SPATIAL_LAYOUT_SQL,
+            request,
+            request.actor_id,
+            request.dataset_id,
+            request.creation_operation_id,
+            request.after_item_id,
+            request.page_size,
+        )
+
+    async def read_spatial_items(
+        self, request: spatial.ReadItemsRequest
+    ) -> spatial.ItemFactsPage:
+        return await self._spatial_call(
+            "read_spatial_items",
+            READ_SPATIAL_ITEMS_SQL,
+            request,
+            request.dataset_id,
+            request.item_ids,
+            request.after_item_id,
+            request.page_size,
+        )
+
+    async def read_spatial_poses(
+        self, request: spatial.ReadPosesRequest
+    ) -> spatial.PosePage:
+        return await self._spatial_call(
+            "read_spatial_poses",
+            READ_SPATIAL_POSES_SQL,
+            request,
+            request.actor_id,
+            request.scene_id,
+            request.after_frame_index,
+            request.page_size,
+        )
+
+    async def read_spatial_calibrations(
+        self, request: spatial.ReadCalibrationsRequest
+    ) -> spatial.CalibrationPage:
+        after = request.after
+        return await self._spatial_call(
+            "read_spatial_calibrations",
+            READ_SPATIAL_CALIBRATIONS_SQL,
+            request,
+            request.dataset_item_ids,
+            request.include_history,
+            after.dataset_item_id if after else None,
+            after.revision if after else None,
+            request.page_size,
+        )
+
+    async def lock_spatial_calibration_facts(
+        self, request: spatial.LockCalibrationFactsRequest
+    ) -> spatial.CalibrationRecord:
+        def check_source_snapshot(result: BaseModel) -> None:
+            if result.source_snapshot != request.expected_source_snapshot:
+                raise ValueError("Calibration facts escaped the source snapshot")
+
+        return await self._spatial_call(
+            "lock_spatial_calibration_facts",
+            LOCK_SPATIAL_CALIBRATION_FACTS_SQL,
+            request,
+            request.actor_id,
+            request.task_id,
+            request.camera_role,
+            request.dataset_item_id,
+            request.expected_source_snapshot,
+            result_validator=check_source_snapshot,
+        )
+
+    async def mutate_spatial_scene(
+        self, request: spatial.MutateSceneRequest
+    ) -> spatial.SceneMutationResult:
+        return await self._spatial_call(
+            "mutate_spatial_scene",
+            MUTATE_SPATIAL_SCENE_SQL,
+            request,
+            request.operation_id,
+            request.actor_id,
+            request.scene_id,
+            request.patch.native_payload(),
+            request.audit_context,
+        )
+
+    async def apply_spatial_layout(
+        self, request: spatial.ApplyLayoutRequest
+    ) -> spatial.LayoutMutationResult:
+        return await self._spatial_call(
+            "apply_spatial_layout",
+            APPLY_SPATIAL_LAYOUT_SQL,
+            request,
+            request.operation_id,
+            request.actor_id,
+            request.dataset_id,
+            request.mode,
+            request.dry_run,
+            request.plan.model_dump(mode="json"),
+            request.snapshot,
+        )
+
+    async def upsert_spatial_poses(
+        self, request: spatial.UpsertPosesRequest
+    ) -> spatial.PoseMutationResult:
+        return await self._spatial_call(
+            "upsert_spatial_poses",
+            UPSERT_SPATIAL_POSES_SQL,
+            request,
+            request.operation_id,
+            request.scene_id,
+            [pose.model_dump(mode="json") for pose in request.poses],
+        )
+
+    async def create_spatial_scene(
+        self, request: spatial.CreateSceneRequest
+    ) -> spatial.SceneMutationResult:
+        return await self._spatial_call(
+            "create_spatial_scene",
+            CREATE_SPATIAL_SCENE_SQL,
+            request,
+            request.operation_id,
+            request.scene_id,
+            request.dataset_id,
+            request.name,
+            request.source_format,
+            request.source_metadata,
+            request.created_by,
+        )
+
+    async def assign_spatial_items(
+        self, request: spatial.AssignItemsRequest
+    ) -> spatial.AssignmentMutationResult:
+        return await self._spatial_call(
+            "assign_spatial_items",
+            ASSIGN_SPATIAL_ITEMS_SQL,
+            request,
+            request.operation_id,
+            request.dataset_id,
+            [assignment.model_dump(mode="json") for assignment in request.assignments],
+        )
+
+    async def set_spatial_scene_source(
+        self, request: spatial.SetSceneSourceRequest
+    ) -> spatial.SceneMutationResult:
+        return await self._spatial_call(
+            "set_spatial_scene_source",
+            SET_SPATIAL_SCENE_SOURCE_SQL,
+            request,
+            request.operation_id,
+            request.scene_id,
+            request.source_format,
+            request.source_metadata,
+        )
+
+    async def update_spatial_calibration(
+        self, request: spatial.ApplyCalibrationRequest
+    ) -> spatial.CalibrationMutationResult:
+        def check_source_snapshot(result: BaseModel) -> None:
+            if result.state.source_snapshot != request.source_snapshot:
+                raise ValueError("Calibration mutation escaped the source snapshot")
+
+        return await self._spatial_call(
+            "update_spatial_calibration",
+            UPDATE_SPATIAL_CALIBRATION_SQL,
+            request,
+            request.operation_id,
+            request.actor_id,
+            request.task_id,
+            request.camera_role,
+            request.expected_revision,
+            request.expected_digest,
+            request.calibration.model_dump(mode="json"),
+            request.canonical_document,
+            request.current_canonical_document,
+            request.source_snapshot,
+            request.audit_context,
+            result_validator=check_source_snapshot,
+        )
+
+    async def read_pointcloud_preparation(
+        self, request: spatial.ReadPreparationRequest
+    ) -> spatial.PreparationPage:
+        return await self._spatial_call(
+            "read_pointcloud_preparation",
+            READ_POINTCLOUD_PREPARATION_SQL,
+            request,
+            request.creation_operation_id,
+            request.after_item_id,
+            request.page_size,
+        )
+
+    async def apply_pointcloud_preparation(
+        self, request: spatial.ApplyPreparationRequest
+    ) -> spatial.PreparationMutationResult:
+        return await self._spatial_call(
+            "apply_pointcloud_preparation",
+            APPLY_POINTCLOUD_PREPARATION_SQL,
+            request,
+            request.creation_operation_id,
+            request.snapshot,
+            [update.model_dump(mode="json") for update in request.calibration_updates],
+            request.frame_plan.model_dump(mode="json"),
+        )
+
+    async def read_spatial_camera_target(
+        self, request: spatial.ReadCameraTargetRequest
+    ) -> spatial.CameraTargetResult:
+        return await self._spatial_call(
+            "read_spatial_camera_target",
+            READ_SPATIAL_CAMERA_TARGET_SQL,
+            request,
+            request.actor_id,
+            request.task_id,
+            request.camera_role,
+        )
+
+    async def record_spatial_calibration_provenance(
+        self, request: spatial.RecordCalibrationProvenanceRequest
+    ) -> spatial.ProvenanceMutationResult:
+        return await self._spatial_call(
+            "record_spatial_calibration_provenance",
+            RECORD_SPATIAL_CALIBRATION_PROVENANCE_SQL,
+            request,
+            request.operation_id,
+            request.dataset_id,
+            [entry.model_dump(mode="json") for entry in request.entries],
+        )
+
+    async def _spatial_call(
+        self,
+        operation: str,
+        sql: str,
+        request: BaseModel,
+        *arguments: Any,
+        result_validator: Callable[[BaseModel], None] | None = None,
+    ) -> BaseModel:
+        expected_request, result_type = SPATIAL_OPERATIONS[operation]
+        if not isinstance(request, expected_request):
+            raise TypeError(f"Invalid request model for {operation}")
+
+        def validate(result: BaseModel) -> None:
+            require_spatial_scope(request, result)
+            if result_validator is not None:
+                result_validator(result)
+
+        return await self._call(
+            sql,
+            result_type,
+            *arguments,
+            decoder=decode_spatial_reply,
+            result_validator=validate,
+        )
+
     async def _call(
         self,
         sql: str,
         result_type: type[_ResultModel],
         *arguments: Any,
         decoder: _ReplyDecoder = decode_reply,
+        result_validator: Callable[[_ResultModel], None] | None = None,
     ) -> _ResultModel:
         is_association_reply = decoder is decode_associations_reply
+        is_spatial_reply = decoder is decode_spatial_reply
         async with self._pool.acquire(
             timeout=self._acquire_timeout_seconds
         ) as connection:
@@ -399,6 +799,8 @@ class CatalogDatabase:
                         message = (
                             "Assets associations reply exceeds the response budget"
                             if is_association_reply
+                            else "Assets spatial reply exceeds the response budget"
+                            if is_spatial_reply
                             else "Assets catalog native reply exceeds the response budget"
                         )
                         raise DataContractError(message)
@@ -408,6 +810,8 @@ class CatalogDatabase:
                         message = (
                             "Assets associations returned invalid JSON"
                             if is_association_reply
+                            else "Assets spatial returned invalid JSON"
+                            if is_spatial_reply
                             else "Assets catalog returned invalid JSON"
                         )
                         raise DataContractError(message) from exc
@@ -415,17 +819,40 @@ class CatalogDatabase:
                     message = (
                         "Assets associations reply exceeds the response budget"
                         if is_association_reply
+                        else "Assets spatial reply exceeds the response budget"
+                        if is_spatial_reply
                         else "Assets catalog native reply exceeds the response budget"
                     )
                     raise DataContractError(message)
                 try:
                     decoded = decoder(raw_result, result_type)
-                except (CatalogFailure, AssociationFailure):
+                    if result_validator is not None:
+                        result_validator(decoded)
+                    if is_spatial_reply:
+                        encoded = json.dumps(
+                            {
+                                "schema": SPATIAL_SCHEMA,
+                                "ok": True,
+                                "data": decoded.model_dump(mode="json"),
+                            },
+                            ensure_ascii=False,
+                            allow_nan=False,
+                            separators=(",", ":"),
+                        ).encode("utf-8")
+                        if len(encoded) > self._max_reply_bytes:
+                            raise DataContractError(
+                                "Assets spatial encoded result exceeds the response budget"
+                            )
+                except (CatalogFailure, AssociationFailure, SpatialFailure):
+                    raise
+                except DataContractError:
                     raise
                 except (TypeError, ValueError, ValidationError) as exc:
                     message = (
                         "Assets associations returned a reply outside the frozen contract"
                         if is_association_reply
+                        else "Assets spatial returned a reply outside the frozen contract"
+                        if is_spatial_reply
                         else "Assets catalog returned a reply outside the frozen contract"
                     )
                     raise DataContractError(message) from exc

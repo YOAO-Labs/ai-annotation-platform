@@ -19,6 +19,8 @@ from aap_assets_catalog.associations_contract import (
     ListDatasetProjectsRequest,
     ListProjectDatasetsRequest,
 )
+from aap_assets_catalog import spatial_contract as spatial
+from aap_assets_catalog.spatial_contract import SPATIAL_NATIVE_SIGNATURES
 from aap_assets_catalog.database import (
     EXPECTED_ASSET_FUNCTIONS,
     ROLE_PREFLIGHT_SQL,
@@ -163,8 +165,10 @@ async def test_create_passes_canonical_default_payload_and_maps_typed_error() ->
 
 
 @pytest.mark.asyncio
-async def test_role_preflight_fails_closed_and_names_exact_seven_functions() -> None:
-    assert EXPECTED_ASSET_FUNCTIONS == {
+async def test_role_preflight_fails_closed_and_names_exact_twenty_six_functions() -> (
+    None
+):
+    catalog_functions = {
         "list_catalog_datasets(uuid,text,text,boolean,integer,bigint)",
         "get_catalog_dataset(uuid,uuid)",
         "list_catalog_items(uuid,uuid,integer,bigint)",
@@ -173,11 +177,22 @@ async def test_role_preflight_fails_closed_and_names_exact_seven_functions() -> 
         "list_dataset_projects(uuid,uuid)",
         "list_project_datasets(uuid,uuid)",
     }
+    spatial_functions = {
+        f"{name}({signature})" for name, signature in SPATIAL_NATIVE_SIGNATURES.items()
+    }
+    assert EXPECTED_ASSET_FUNCTIONS == catalog_functions | spatial_functions
+    assert len(EXPECTED_ASSET_FUNCTIONS) == 26
     for signature in EXPECTED_ASSET_FUNCTIONS:
         assert signature in ROLE_PREFLIGHT_SQL
     normalized_preflight = " ".join(ROLE_PREFLIGHT_SQL.split())
     assert "membership.member = login_role.oid" in normalized_preflight
     assert "membership.roleid = login_role.oid" in normalized_preflight
+    assert "timestamp with time zone" in normalized_preflight
+    assert "oidvectortypes" not in normalized_preflight
+    assert (
+        "accessible_row.function_oid = expected_row.function_oid"
+        in normalized_preflight
+    )
 
     class _PreflightConnection(_Connection):
         async def fetchval(self, sql, *args):
@@ -351,3 +366,86 @@ async def test_association_failure_and_parent_scope_mismatch_fail_closed() -> No
         await database.list_project_datasets(
             ListProjectDatasetsRequest(actor_id=actor_id, project_id=project_id)
         )
+
+
+@pytest.mark.asyncio
+async def test_spatial_calibration_binding_preserves_the_frozen_native_argument_order():
+    operation_id, actor_id, task_id, item_id = uuid4(), uuid4(), uuid4(), uuid4()
+    calibration = spatial.WireCalibration(
+        extrinsic=[1.0] * 16,
+        intrinsic=[1.0] * 9,
+    )
+    request = spatial.ApplyCalibrationRequest(
+        operation_id=operation_id,
+        actor_id=actor_id,
+        task_id=task_id,
+        camera_role="camera_front",
+        expected_revision=3,
+        expected_digest="a" * 64,
+        calibration=calibration,
+        canonical_document='{"new":true}',
+        current_canonical_document='{"current":true}',
+        source_snapshot={"item": str(item_id)},
+        audit_context={"request_id": "test"},
+    )
+    state = spatial.CalibrationState(
+        dataset_item_id=item_id,
+        revision=4,
+        calibration=calibration,
+        digest="b" * 64,
+        created_at=None,
+        source_snapshot=request.source_snapshot,
+    )
+    connection = _Connection(
+        {
+            "schema": spatial.SPATIAL_SCHEMA,
+            "ok": True,
+            "data": {
+                "operation_id": str(operation_id),
+                "actor_id": str(actor_id),
+                "task_id": str(task_id),
+                "camera_role": "camera_front",
+                "state": state.model_dump(mode="json"),
+            },
+        }
+    )
+    database = CatalogDatabase(_Pool(connection))
+
+    result = await database.update_spatial_calibration(request)
+
+    assert result.state.dataset_item_id == item_id
+    sql, args = connection.calls[0]
+    assert "aap_assets_v1.update_spatial_calibration" in sql
+    assert args == (
+        operation_id,
+        actor_id,
+        task_id,
+        "camera_front",
+        3,
+        "a" * 64,
+        calibration.model_dump(mode="json"),
+        '{"new":true}',
+        '{"current":true}',
+        {"item": str(item_id)},
+        {"request_id": "test"},
+    )
+    assert connection.transaction_events == ["commit"]
+
+
+@pytest.mark.asyncio
+async def test_spatial_scope_violation_rolls_back_before_exposing_a_reply():
+    actor_id = uuid4()
+    request = spatial.GuardSpatialActorRequest(actor_id=actor_id, access="manager_read")
+    connection = _Connection(
+        {
+            "schema": spatial.SPATIAL_SCHEMA,
+            "ok": True,
+            "data": {"actor_id": str(uuid4()), "access": "manager_read"},
+        }
+    )
+    database = CatalogDatabase(_Pool(connection))
+
+    with pytest.raises(DataContractError, match="outside the frozen contract"):
+        await database.guard_spatial_actor(request)
+
+    assert connection.transaction_events == ["rollback"]
