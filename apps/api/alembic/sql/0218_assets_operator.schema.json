@@ -807,6 +807,8 @@
     "batch_entries": 500
   },
   "x-failure-codes": [
+    "account_busy",
+    "account_not_active",
     "axis_conflict",
     "dataset_missing",
     "invalid_request",

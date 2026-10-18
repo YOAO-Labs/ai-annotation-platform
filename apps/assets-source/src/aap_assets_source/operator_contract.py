@@ -228,6 +228,8 @@ OPERATOR_ERROR_CODES = frozenset(
         "dataset_missing",
         "item_missing",
         "user_missing",
+        "account_not_active",
+        "account_busy",
         "storage_root_conflict",
         "axis_conflict",
         "source_changed",
@@ -240,7 +242,7 @@ OPERATOR_ERROR_CODES = frozenset(
 
 class OperatorFailure(RuntimeError):
     def __init__(self, code: str):
-        if code not in OPERATOR_ERROR_CODES:
+        if not isinstance(code, str) or code not in OPERATOR_ERROR_CODES:
             raise ValueError("unknown operator failure")
         self.code = code
         super().__init__(code)
