@@ -596,11 +596,8 @@ def _normalize_video_codec(codec: str | None) -> str | None:
 
 
 def _chunk_source_codec(metadata: VideoMetadata) -> str | None:
-    if metadata.playback_path:
-        codec = metadata.playback_codec or metadata.codec
-    else:
-        codec = metadata.codec
-    return _normalize_video_codec(codec)
+    # Chunk workers decode the original source; playback_codec describes a separate transcode.
+    return _normalize_video_codec(metadata.codec)
 
 
 def _transcode_fallback_reason(

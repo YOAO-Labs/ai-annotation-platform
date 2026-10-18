@@ -188,17 +188,78 @@ async def pts_ms_for_frame(
     frame_index: int,
     metadata: VideoMetadata,
 ) -> int | None:
+    exact_pts = (
+        select(VideoFrameIndex.pts_ms)
+        .where(
+            VideoFrameIndex.dataset_item_id == dataset_item_id,
+            VideoFrameIndex.frame_index == frame_index,
+        )
+        .limit(1)
+        .scalar_subquery()
+    )
+    previous_frame = (
+        select(VideoFrameIndex.frame_index)
+        .where(
+            VideoFrameIndex.dataset_item_id == dataset_item_id,
+            VideoFrameIndex.frame_index < frame_index,
+        )
+        .order_by(VideoFrameIndex.frame_index.desc())
+        .limit(1)
+        .scalar_subquery()
+    )
+    previous_pts = (
+        select(VideoFrameIndex.pts_ms)
+        .where(
+            VideoFrameIndex.dataset_item_id == dataset_item_id,
+            VideoFrameIndex.frame_index < frame_index,
+        )
+        .order_by(VideoFrameIndex.frame_index.desc())
+        .limit(1)
+        .scalar_subquery()
+    )
+    next_frame = (
+        select(VideoFrameIndex.frame_index)
+        .where(
+            VideoFrameIndex.dataset_item_id == dataset_item_id,
+            VideoFrameIndex.frame_index > frame_index,
+        )
+        .order_by(VideoFrameIndex.frame_index.asc())
+        .limit(1)
+        .scalar_subquery()
+    )
+    next_pts = (
+        select(VideoFrameIndex.pts_ms)
+        .where(
+            VideoFrameIndex.dataset_item_id == dataset_item_id,
+            VideoFrameIndex.frame_index > frame_index,
+        )
+        .order_by(VideoFrameIndex.frame_index.asc())
+        .limit(1)
+        .scalar_subquery()
+    )
     row = (
         await db.execute(
-            select(VideoFrameIndex.pts_ms).where(
-                VideoFrameIndex.dataset_item_id == dataset_item_id,
-                VideoFrameIndex.frame_index == frame_index,
+            select(
+                exact_pts.label("exact_pts"),
+                previous_frame.label("previous_frame"),
+                previous_pts.label("previous_pts"),
+                next_frame.label("next_frame"),
+                next_pts.label("next_pts"),
             )
         )
-    ).scalar_one_or_none()
-    if row is not None:
-        return int(row)
-    return _estimated_pts_ms(frame_index, metadata)
+    ).one()
+    if row.exact_pts is not None:
+        return int(row.exact_pts)
+
+    anchors = [
+        (int(anchor_frame), int(anchor_pts))
+        for anchor_frame, anchor_pts in (
+            (row.previous_frame, row.previous_pts),
+            (row.next_frame, row.next_pts),
+        )
+        if anchor_frame is not None and anchor_pts is not None
+    ]
+    return resolve_pts_ms_sparse(frame_index, anchors, metadata.fps, stride=1)
 
 
 async def _ensure_chunk_rows(

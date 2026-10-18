@@ -6,6 +6,7 @@ from aap_media_probe.probe import parse_ffprobe_packet_samples
 from app.workers import media
 from app.workers.media import (
     _avc_codec_string,
+    _chunk_source_codec,
     _extract_chunk_samples,
     _extract_decoder_config,
     _find_mp4_box_payload,
@@ -199,3 +200,15 @@ def test_extract_chunk_samples_falls_back_codec_without_config(monkeypatch, tmp_
 def test_extract_chunk_samples_empty_when_no_packets(monkeypatch, tmp_path):
     monkeypatch.setattr(media, "probe_chunk_samples", lambda *a, **k: [])
     assert _extract_chunk_samples(tmp_path / "c.mp4", 0, VideoMetadata(), "h264") == {}
+
+
+def test_chunk_codec_uses_original_stream_when_playback_is_transcoded():
+    hevc = VideoMetadata(
+        codec="hevc", playback_path="playback/video.mp4", playback_codec="h264"
+    )
+    vp9 = VideoMetadata(
+        codec="vp9", playback_path="playback/video.mp4", playback_codec="h264"
+    )
+
+    assert _chunk_source_codec(hevc) == "hevc"
+    assert _chunk_source_codec(vp9) == "vp9"

@@ -65,4 +65,25 @@ describe("frameTimebase", () => {
     expect(timeToFrame(0.05, timebase)).toBe(1);
     expect(timeToFrame(0.12, timebase)).toBe(3);
   });
+
+  it("interpolates sparse VFR anchors into a searchable frame timebase", () => {
+    const timetable: TaskVideoFrameTimetableResponse = {
+      task_id: "task-1",
+      fps: 10,
+      frame_count: 10,
+      source: "ffprobe",
+      frames: [
+        { frame_index: 0, pts_ms: 0, is_keyframe: true, pict_type: "I", byte_offset: 1 },
+        { frame_index: 3, pts_ms: 120, is_keyframe: false, pict_type: "P", byte_offset: 2 },
+        { frame_index: 9, pts_ms: 960, is_keyframe: false, pict_type: "P", byte_offset: 3 },
+      ],
+    };
+    const timebase = buildFrameTimebase(metadata, timetable);
+
+    expect(timebase.ptsMs).toEqual([0, 40, 80, 120, 260, 400, 540, 680, 820, 960]);
+    expect(timebase.ptsMs?.every(Number.isFinite)).toBe(true);
+    expect(frameToTime(4, timebase)).toBe(0.26);
+    expect(timeToFrame(0.15, timebase)).toBe(3);
+    expect(timeToFrame(frameToSeekTime(4, timebase), timebase)).toBe(4);
+  });
 });

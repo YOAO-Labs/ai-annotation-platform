@@ -30,6 +30,59 @@ function findClosestFrame(ptsMs: number[], targetMs: number) {
   return Math.abs(ptsMs[prev] - targetMs) <= Math.abs(ptsMs[lo] - targetMs) ? prev : lo;
 }
 
+function roundTiesToEven(value: number) {
+  const lower = Math.floor(value);
+  const fraction = value - lower;
+  if (fraction < 0.5) return lower;
+  if (fraction > 0.5) return lower + 1;
+  return lower % 2 === 0 ? lower : lower + 1;
+}
+
+function interpolateTimetable(
+  frameCount: number,
+  fps: number,
+  frames: TaskVideoFrameTimetableResponse["frames"],
+): number[] | null {
+  const byFrame = new Map<number, number>();
+  for (const frame of frames) {
+    if (
+      Number.isInteger(frame.frame_index) &&
+      frame.frame_index >= 0 &&
+      frame.frame_index < frameCount &&
+      Number.isFinite(frame.pts_ms)
+    ) {
+      byFrame.set(frame.frame_index, frame.pts_ms);
+    }
+  }
+  const anchors = [...byFrame.entries()].sort(([left], [right]) => left - right);
+  if (anchors.length === 0) return null;
+
+  const ptsMs = new Array<number>(frameCount);
+  const [firstFrame, firstPts] = anchors[0];
+  for (let frame = 0; frame < firstFrame; frame++) {
+    ptsMs[frame] = roundTiesToEven(firstPts + ((frame - firstFrame) / fps) * 1000);
+  }
+
+  for (let index = 0; index < anchors.length; index++) {
+    const [frame, pts] = anchors[index];
+    ptsMs[frame] = pts;
+    const next = anchors[index + 1];
+    if (!next) {
+      for (let trailing = frame + 1; trailing < frameCount; trailing++) {
+        ptsMs[trailing] = roundTiesToEven(pts + ((trailing - frame) / fps) * 1000);
+      }
+      continue;
+    }
+
+    const [nextFrame, nextPts] = next;
+    for (let missing = frame + 1; missing < nextFrame; missing++) {
+      const ratio = (missing - frame) / (nextFrame - frame);
+      ptsMs[missing] = roundTiesToEven(pts + ratio * (nextPts - pts));
+    }
+  }
+  return ptsMs;
+}
+
 export function buildFrameTimebase(
   metadata: VideoMetadata | undefined,
   timetable?: TaskVideoFrameTimetableResponse,
@@ -53,11 +106,8 @@ export function buildFrameTimebase(
       ? metadata.duration_ms
       : null;
   if (timetable?.source === "ffprobe" && timetable.frames.length > 0) {
-    const ptsMs: number[] = [];
-    for (const frame of timetable.frames) {
-      if (frame.frame_index >= 0) ptsMs[frame.frame_index] = frame.pts_ms;
-    }
-    return { fps, frameCount, source: "ffprobe", ptsMs, durationMs };
+    const ptsMs = interpolateTimetable(frameCount, fps, timetable.frames);
+    if (ptsMs) return { fps, frameCount, source: "ffprobe", ptsMs, durationMs };
   }
   return { fps, frameCount, source: "estimated", ptsMs: null, durationMs };
 }
