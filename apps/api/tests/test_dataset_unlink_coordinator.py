@@ -122,13 +122,14 @@ async def _seed_complete_case(test_engine) -> dict[str, object]:
         other_project = await session.get(Project, fixture["other_project_id"])
         assert task is not None and project is not None
         assert other_project is not None
+        session.add(batch)
+        await session.flush()
         task.batch_id = batch.id
         project.total_tasks = 1
         project.scene_mode = True
         other_project.scene_mode = True
         session.add_all(
             [
-                batch,
                 Annotation(
                     id=fixture["annotation_id"],
                     task_id=fixture["task_id"],
