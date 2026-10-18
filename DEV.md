@@ -1057,7 +1057,7 @@ SQL 回滚不会撤销对象存储 I/O。图片上传和 nuScenes 文件写入/�
 
 ## 视频媒体的独立控制与执行
 
-`apps/assets-media` 定义 `aap-assets-media/v1` 数据与 HTTP 契约。控制进程负责来源观察、引用签名、受理、状态与分页读取；独立执行进程领取持久作业，完成元信息、时间表、海报、播放副本、帧、分块、回填及派生缓存清理。图片缩略图、金字塔和一般 Blob 管理仍沿用各自现有路径。该切片正在隔离工作区实施与验证；协议和单元测试不代表整个 Assets 模块已经独立可部署。Go 实验不进入这些默认运行路径。
+`apps/assets-media` 定义 `aap-assets-media/v1` 数据与 HTTP 契约。控制进程负责来源观察、引用签名、受理、状态与分页读取；独立执行进程领取持久作业，完成元信息、时间表、海报、播放副本、帧、分块、回填及派生缓存清理。控制与执行已通过隔离本地进程和受限容器联调。图片缩略图、金字塔和一般 Blob 管理仍沿用各自现有路径，整个 Assets 模块的独立部署仍需完成这些边界。Go 实验不进入这些默认运行路径。
 
 迁移到 `0219` 后，沿用 module-data 初始化流程，为现有 Assets NOLOGIN owner 创建分离的 `asset_media_control_client` 和 `asset_media_worker_client` LOGIN。先应用 owner 与既有 Catalog/Source/importer/operator grants，再由 migration role 安装媒体授权：
 

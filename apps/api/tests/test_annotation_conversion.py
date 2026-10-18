@@ -28,6 +28,9 @@ from app.services.raster_mask_storage import build_rle_reference
 from tests.media_owner_fixtures import media_owner as media_owner
 
 
+pytestmark = pytest.mark.usefixtures("media_owner")
+
+
 MASK_RLE = {
     "encoding": "coco_rle",
     "size": [4, 4],

@@ -148,7 +148,7 @@ Ultralytics YOLO11 的配置页可生成原生增强预览，对照冻结原图�
 
 本地图片与 nuScenes 导入脚本通过独立的可信 Assets operator SQL 能力登记 Dataset 和 DatasetItem；nuScenes 路径还在同一调用方事务中组合标定、场景、工作区和任务写入。operator 凭据是执行授权，既有 owner UUID 只用于归属标记。该能力不是 Source HTTP runtime，也不改变导入脚本的对象存储回滚边界。见[同库数据接口](./docs-site/api/guides/module-data.md#可信导入器数据集与素材登记)和 [ADR-0104](./docs/adr/0104-operator-source-registration.md)。
 
-视频媒体切片的语言无关合同、控制进程和执行入口位于 `apps/assets-media`，覆盖元信息、时间表、海报、播放副本和帧／分块的作业围栏；实现与本地验收仍在推进。部署入口见 [DEV.md](./DEV.md#视频媒体的独立控制与执行)，当前全模块状态见[独立部署台账](./docs-site/dev/concepts/module-deployment.md)。Go 继续作为单独实验。
+视频媒体切片的语言无关合同、控制进程和执行入口位于 `apps/assets-media`，覆盖元信息、时间表、海报、播放副本和帧／分块的作业围栏，并已通过隔离本地进程与容器联调。部署入口见 [DEV.md](./DEV.md#视频媒体的独立控制与执行)，当前全模块状态及剩余边界见[独立部署台账](./docs-site/dev/concepts/module-deployment.md)。Go 继续作为单独实验。
 
 项目成员可在工作台阅读[标注指引](./docs-site/user-guide/projects/index.md#编写标注指引)及示例图；指引编辑和图片上传、删除由项目负责人或超级管理员管理。
 图片完成登记前重新核对当前管理权限；项目转移或账号停用后的旧请求不能继续登记，写入争用返回冲突。读取与存储失败语义见[项目 API](./docs-site/api/guides/projects.md#标注指引图片)。

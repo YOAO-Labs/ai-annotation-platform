@@ -13,8 +13,9 @@ worker does not depend on the API, ORM, Celery or Redis. Raw source deletion,
 Labeling state, image-pyramid ownership and general storage administration keep
 their existing owners.
 
-Implementation and local qualification are in progress. This package alone does
-not establish a runnable media deployment or whole-module completion. The exact
-state, consumer migration and remaining work are tracked in the
+The control and worker have passed isolated local HTTP/S3/FFmpeg and bounded
+container acceptance with separate restricted identities. This qualifies the
+video slice locally; long-video capacity and whole-module completion remain
+separate work. The exact state, consumer migration and remaining work are tracked in the
 [backend module plan](../../docs/plans/1792160873_backend-module-decoupling.md)
 and [ADR-0105](../../docs/adr/0105-independent-video-media-owner.md).
