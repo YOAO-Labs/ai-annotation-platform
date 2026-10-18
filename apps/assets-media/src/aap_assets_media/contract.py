@@ -165,6 +165,8 @@ class MediaSummary(Value):
     file_type: StrictStr
     metadata: JsonObject
     source_generation: Revision
+    materialized_generation: Count
+    source_drifted: StrictBool
 
 
 class MediaSummaries(Value):

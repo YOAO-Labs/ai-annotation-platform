@@ -350,6 +350,16 @@
           "minimum": 1,
           "title": "Source Generation",
           "type": "integer"
+        },
+        "materialized_generation": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Materialized Generation",
+          "type": "integer"
+        },
+        "source_drifted": {
+          "title": "Source Drifted",
+          "type": "boolean"
         }
       },
       "required": [
@@ -360,7 +370,9 @@
         "blurhash",
         "file_type",
         "metadata",
-        "source_generation"
+        "source_generation",
+        "materialized_generation",
+        "source_drifted"
       ],
       "title": "MediaSummary",
       "type": "object"

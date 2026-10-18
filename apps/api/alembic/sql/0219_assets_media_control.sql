@@ -485,12 +485,13 @@ BEGIN
                 'blurhash', item.blurhash,
                 'file_type', item.file_type,
                 'metadata', CASE
-                    WHEN item.file_type = 'video'
-                         AND pg_catalog.jsonb_typeof(item.metadata -> 'video') = 'object'
+                    WHEN pg_catalog.jsonb_typeof(item.metadata -> 'video') = 'object'
                     THEN item.metadata -> 'video'
                     ELSE '{}'::jsonb
                 END,
-                'source_generation', item.media_source_generation
+                'source_generation', item.media_source_generation,
+                'materialized_generation', item.media_materialized_generation,
+                'source_drifted', item.media_source_drifted
             ) ORDER BY requested.ordinality
         ),
         '[]'::jsonb
