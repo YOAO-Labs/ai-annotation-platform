@@ -76,6 +76,14 @@ GRANT EXECUTE ON FUNCTION aap_workspace_v1.lock_project_reference(uuid),
     aap_assets_v1.lock_dataset_reference(uuid),
     aap_assets_v1.lock_current_association(uuid, uuid),
     aap_assets_v1.associate_project(uuid, uuid, uuid),
+    aap_assets_v1.lock_scene_source_references(uuid[]),
+    aap_assets_v1.delete_dataset(uuid, uuid, uuid, text, jsonb),
+    aap_assets_v1.delete_dataset_item(uuid, uuid, uuid, uuid, text, jsonb),
+    aap_assets_v1.reserve_dataset_upload(uuid, uuid, uuid, text, text),
+    aap_assets_v1.lock_dataset_upload(uuid, uuid, uuid),
+    aap_assets_v1.find_dataset_upload_duplicate(uuid, uuid, uuid, text),
+    aap_assets_v1.complete_dataset_upload(uuid, uuid, uuid, uuid, bigint, text, integer, integer),
+    aap_assets_v1.discard_dataset_upload(uuid, uuid, uuid, text),
     aap_labeling_v1.append_dataset_items(uuid, uuid[], uuid),
     aap_labeling_v1.accept_dataset_task_creation(uuid, uuid, uuid, uuid, uuid, uuid, text, integer),
     aap_labeling_v1.prepare_dataset_task_creation(uuid, jsonb),
@@ -94,7 +102,11 @@ REVOKE ALL ON SCHEMA aap_assets_v1 FROM :"asset_cleanup_role";
 REVOKE ALL ON ALL FUNCTIONS IN SCHEMA aap_assets_v1 FROM :"asset_cleanup_role";
 REVOKE ALL ON TABLE public.asset_storage_deletions FROM :"asset_cleanup_role";
 GRANT USAGE ON SCHEMA aap_assets_v1 TO :"asset_cleanup_role";
-GRANT EXECUTE ON FUNCTION aap_assets_v1.pending_storage_deletions(uuid, integer),
+REVOKE ALL ON FUNCTION aap_assets_v1.pending_storage_deletions(uuid, integer)
+    FROM :"asset_cleanup_role";
+GRANT EXECUTE ON FUNCTION aap_assets_v1.pending_storage_deletions_v2(
+    text, timestamptz, uuid, uuid, integer
+),
     aap_assets_v1.complete_storage_deletion(uuid, uuid)
     TO :"asset_cleanup_role";
 REVOKE ALL ON SCHEMA public, aap_identity_v1, aap_workspace_v1,
@@ -108,7 +120,9 @@ REVOKE ALL ON ALL FUNCTIONS IN SCHEMA aap_identity_v1, aap_workspace_v1,
 REVOKE ALL ON ALL TABLES IN SCHEMA public FROM :"asset_cleanup_role";
 REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM :"asset_cleanup_role";
 GRANT USAGE ON SCHEMA aap_assets_v1 TO :"asset_cleanup_role";
-GRANT EXECUTE ON FUNCTION aap_assets_v1.pending_storage_deletions(uuid, integer),
+GRANT EXECUTE ON FUNCTION aap_assets_v1.pending_storage_deletions_v2(
+    text, timestamptz, uuid, uuid, integer
+),
     aap_assets_v1.complete_storage_deletion(uuid, uuid)
     TO :"asset_cleanup_role";
 ALTER DEFAULT PRIVILEGES FOR ROLE :"migration_role" IN SCHEMA public
@@ -181,11 +195,14 @@ BEGIN
        OR has_schema_privilege(current_setting('aap.asset_cleanup_role'),
                                'aap_assets_v1', 'CREATE')
        OR NOT has_function_privilege(current_setting('aap.asset_cleanup_role'),
-                                     'aap_assets_v1.pending_storage_deletions(uuid,integer)',
+                                     'aap_assets_v1.pending_storage_deletions_v2(text,timestamptz,uuid,uuid,integer)',
                                      'EXECUTE')
        OR NOT has_function_privilege(current_setting('aap.asset_cleanup_role'),
                                      'aap_assets_v1.complete_storage_deletion(uuid,uuid)',
                                      'EXECUTE')
+       OR has_function_privilege(current_setting('aap.asset_cleanup_role'),
+                                 'aap_assets_v1.pending_storage_deletions(uuid,integer)',
+                                 'EXECUTE')
        OR has_schema_privilege(current_setting('aap.asset_cleanup_role'),
                                'aap_identity_v1', 'USAGE')
        OR has_schema_privilege(current_setting('aap.asset_cleanup_role'),
@@ -217,7 +234,7 @@ BEGIN
         WHERE pg_catalog.left(namespace.nspname, 4) = 'aap_'
           AND pg_catalog.right(namespace.nspname, 3) = '_v1'
           AND proc.oid NOT IN (
-              'aap_assets_v1.pending_storage_deletions(uuid,integer)'::pg_catalog.regprocedure,
+              'aap_assets_v1.pending_storage_deletions_v2(text,timestamptz,uuid,uuid,integer)'::pg_catalog.regprocedure,
               'aap_assets_v1.complete_storage_deletion(uuid,uuid)'::pg_catalog.regprocedure
           )
           AND pg_catalog.has_function_privilege(

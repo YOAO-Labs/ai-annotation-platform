@@ -137,29 +137,44 @@ BEGIN
     );
 END $$;
 
--- Assets association and source locks use only the listed source columns.
-GRANT SELECT (id, data_type), UPDATE (id)
+-- Assets owns catalog/source rows and their exact upload/source-deletion receipts.
+GRANT SELECT (id, data_type, name), UPDATE (id, file_count, updated_at), DELETE
     ON public.datasets TO :"assets_owner";
 GRANT SELECT (id, project_id, dataset_id), INSERT (id, project_id, dataset_id),
     UPDATE (id) ON public.project_datasets TO :"assets_owner";
 GRANT DELETE ON public.project_datasets TO :"assets_owner";
-GRANT SELECT (id, dataset_id) ON public.scenes TO :"assets_owner";
-GRANT SELECT (id, dataset_id, file_name, file_path, file_type), UPDATE (id)
+GRANT SELECT (id, dataset_id), UPDATE (id), DELETE
+    ON public.scenes TO :"assets_owner";
+GRANT SELECT, INSERT (
+    id, dataset_id, file_name, file_path, file_type, file_size,
+    content_hash, width, height, metadata
+), UPDATE (id), DELETE
     ON public.dataset_items TO :"assets_owner";
+GRANT SELECT ON public.dataset_upload_intents TO :"assets_owner";
+GRANT INSERT (
+    item_id, dataset_id, actor_id, file_name, file_type, content_type, staging_key
+), UPDATE (file_path, publication_id, state, result, updated_at)
+    ON public.dataset_upload_intents TO :"assets_owner";
+GRANT SELECT (operation_id, actor_id, dataset_id, item_id, request, result, created_at),
+    INSERT (operation_id, actor_id, dataset_id, item_id, request, result),
+    UPDATE (operation_id) ON public.dataset_source_deletion_operations
+    TO :"assets_owner";
 GRANT SELECT (project_id), DELETE ON public.storage_connections TO :"assets_owner";
-GRANT SELECT (id, task_id), UPDATE (id), DELETE
+GRANT SELECT (id, task_id, dataset_item_id), UPDATE (id), DELETE
     ON public.image_pyramid_assets TO :"assets_owner";
-GRANT SELECT (asset_id, generation), UPDATE (generation)
+GRANT SELECT (asset_id, generation, status, lease_expires_at), UPDATE (generation)
     ON public.image_pyramid_generations TO :"assets_owner";
-GRANT SELECT (operation_id, asset_id, bucket, prefix, created_at, completed_at),
-    INSERT (operation_id, asset_id, bucket, prefix), UPDATE (completed_at)
+GRANT SELECT (
+    operation_id, asset_id, bucket, prefix, created_at, completed_at, not_before
+), INSERT (operation_id, asset_id, bucket, prefix, not_before),
+    UPDATE (completed_at)
     ON public.asset_storage_deletions TO :"assets_owner";
 
 -- Labeling owns all task creation mutations, counter writes, and receipts.
 GRANT SELECT (id, project_id, dataset_item_id, batch_id, status), UPDATE (id), DELETE
     ON public.tasks TO :"labeling_owner";
-GRANT SELECT (id, project_id, display_id, annotator_id, status),
-    UPDATE (id, total_tasks, completed_tasks, review_tasks, updated_at), DELETE
+GRANT SELECT (id, project_id, dataset_id, display_id, annotator_id, status),
+    UPDATE (id, dataset_id, total_tasks, completed_tasks, review_tasks, updated_at), DELETE
     ON public.task_batches TO :"labeling_owner";
 GRANT SELECT (id, project_id, task_id), DELETE
     ON public.predictions TO :"labeling_owner";
@@ -168,7 +183,8 @@ GRANT SELECT (id, project_id, task_id), DELETE
 GRANT SELECT (prediction_id, failed_prediction_id), DELETE
     ON public.prediction_metas TO :"labeling_owner";
 GRANT SELECT (
-    id, project_id, task_id, parent_annotation_id, parent_prediction_id
+    id, project_id, task_id, parent_annotation_id, parent_prediction_id,
+    sensor_dataset_item_id
 ), UPDATE (parent_annotation_id, parent_prediction_id), DELETE
     ON public.annotations TO :"labeling_owner";
 GRANT SELECT (id, project_id, task_id, annotation_id, thread_parent_id),
@@ -183,11 +199,11 @@ GRANT SELECT (project_id), DELETE ON public.task_events TO :"labeling_owner";
 GRANT SELECT (project_id), DELETE ON public.mask_review_scopes TO :"labeling_owner";
 GRANT SELECT (project_id), DELETE ON public.mask_qc_issues TO :"labeling_owner";
 GRANT SELECT (project_id), DELETE ON public.mask_qc_runs TO :"labeling_owner";
-GRANT SELECT (project_id), DELETE
+GRANT SELECT (project_id, scene_id), DELETE
     ON public.point_cloud_quality_issues TO :"labeling_owner";
 GRANT SELECT (project_id), DELETE
     ON public.point_cloud_quality_evaluations TO :"labeling_owner";
-GRANT SELECT (project_id), DELETE
+GRANT SELECT (project_id, scope_json), DELETE
     ON public.point_cloud_quality_runs TO :"labeling_owner";
 GRANT SELECT (project_id), DELETE
     ON public.mask_annotation_revisions TO :"labeling_owner";
@@ -195,7 +211,10 @@ GRANT SELECT (project_id), DELETE
     ON public.mask_repair_batches TO :"labeling_owner";
 GRANT SELECT (project_id), DELETE
     ON public.mask_format_imports TO :"labeling_owner";
-GRANT SELECT (project_id), DELETE ON public.scene_tracks TO :"labeling_owner";
+GRANT SELECT (project_id, scene_id), DELETE ON public.scene_tracks TO :"labeling_owner";
+GRANT SELECT (scene_id) ON public.scene_track_operations TO :"labeling_owner";
+GRANT SELECT (dataset_item_id) ON public.video_segments,
+    public.video_tracker_jobs TO :"labeling_owner";
 GRANT INSERT (
     id, project_id, dataset_item_id, display_id, file_name, file_path, file_type,
     tags, status, assignee_is_override, is_labeled, overlap, total_annotations,
@@ -261,7 +280,7 @@ GRANT SELECT (project_id), DELETE ON public.export_artifacts TO :"export_owner";
 -- Cross-owner function calls share one PostgreSQL transaction and retain the
 -- dataset -> current authority -> association -> Jobs/Labeling lock order.
 GRANT USAGE ON SCHEMA aap_identity_v1
-    TO :"identity_owner", :"workspace_owner", :"audit_owner";
+    TO :"identity_owner", :"workspace_owner", :"assets_owner", :"audit_owner";
 GRANT USAGE ON SCHEMA aap_workspace_v1 TO :"workspace_owner", :"assets_owner",
     :"labeling_owner", :"jobs_owner", :"workflow_role";
 GRANT USAGE ON SCHEMA aap_assets_v1 TO :"assets_owner", :"labeling_owner",
@@ -271,17 +290,19 @@ GRANT USAGE ON SCHEMA aap_labeling_v1 TO :"labeling_owner", :"jobs_owner",
     :"assets_owner", :"learning_owner", :"diagnostics_owner",
     :"workspace_owner", :"workflow_role";
 GRANT USAGE ON SCHEMA aap_jobs_v1 TO :"jobs_owner", :"labeling_owner",
-    :"workspace_owner", :"workflow_role";
-GRANT USAGE ON SCHEMA aap_learning_v1 TO :"learning_owner", :"workspace_owner";
+    :"workspace_owner", :"assets_owner", :"workflow_role";
+GRANT USAGE ON SCHEMA aap_learning_v1
+    TO :"learning_owner", :"workspace_owner", :"assets_owner";
 GRANT USAGE ON SCHEMA aap_inference_v1 TO :"inference_owner", :"workspace_owner";
 GRANT USAGE ON SCHEMA aap_insights_v1 TO :"insights_owner", :"workspace_owner";
 GRANT USAGE ON SCHEMA aap_diagnostics_v1
     TO :"diagnostics_owner", :"workspace_owner";
 GRANT USAGE ON SCHEMA aap_export_v1 TO :"export_owner", :"workspace_owner";
-GRANT USAGE ON SCHEMA aap_audit_v1 TO :"audit_owner", :"workspace_owner";
+GRANT USAGE ON SCHEMA aap_audit_v1
+    TO :"audit_owner", :"workspace_owner", :"assets_owner";
 
 GRANT EXECUTE ON FUNCTION aap_identity_v1.lock_active_actor(uuid)
-    TO :"workspace_owner";
+    TO :"workspace_owner", :"assets_owner";
 GRANT EXECUTE ON FUNCTION aap_identity_v1.lock_audit_actor(uuid)
     TO :"audit_owner";
 GRANT EXECUTE ON FUNCTION aap_workspace_v1.lock_project_reference(uuid)
@@ -300,6 +321,8 @@ GRANT EXECUTE ON FUNCTION aap_assets_v1.lock_dataset_reference(uuid)
 GRANT EXECUTE ON FUNCTION aap_assets_v1.lock_current_association(uuid, uuid),
     aap_assets_v1.lock_dataset_reference(uuid)
     TO :"workspace_owner";
+GRANT EXECUTE ON FUNCTION aap_assets_v1.lock_scene_source_references(uuid[])
+    TO :"labeling_owner", :"workflow_role";
 GRANT EXECUTE ON FUNCTION aap_assets_v1.associate_project(uuid, uuid, uuid)
     TO :"workflow_role";
 GRANT EXECUTE ON FUNCTION aap_assets_v1.delete_project_owned_records(uuid)
@@ -308,6 +331,9 @@ GRANT EXECUTE ON FUNCTION aap_labeling_v1.project_task_references(uuid)
     TO :"assets_owner", :"learning_owner", :"diagnostics_owner";
 GRANT EXECUTE ON FUNCTION aap_assets_v1.dataset_item_references(uuid, uuid)
     TO :"labeling_owner", :"learning_owner";
+GRANT EXECUTE ON FUNCTION aap_assets_v1.dataset_scene_references(uuid),
+    aap_assets_v1.dataset_association_references(uuid)
+    TO :"labeling_owner";
 GRANT EXECUTE ON FUNCTION aap_labeling_v1.dataset_task_references(uuid, uuid)
     TO :"assets_owner", :"learning_owner", :"diagnostics_owner";
 GRANT EXECUTE ON FUNCTION aap_labeling_v1.delete_project_owned_records(uuid)
@@ -318,6 +344,8 @@ GRANT EXECUTE ON FUNCTION aap_labeling_v1.append_dataset_items(uuid, uuid[], uui
     aap_labeling_v1.read_dataset_task_creation(uuid),
     aap_labeling_v1.advance_dataset_task_creation(uuid, integer)
     TO :"workflow_role";
+GRANT EXECUTE ON FUNCTION aap_labeling_v1.append_dataset_items(uuid, uuid[], uuid)
+    TO :"assets_owner";
 GRANT EXECUTE ON FUNCTION aap_labeling_v1.read_dataset_task_creation(uuid)
     TO :"jobs_owner";
 GRANT EXECUTE ON FUNCTION aap_jobs_v1.lock_task_creation_job(uuid, uuid, uuid, uuid, uuid, uuid),
@@ -333,7 +361,11 @@ GRANT EXECUTE ON FUNCTION aap_jobs_v1.create_task_creation_job(uuid, uuid, uuid,
 GRANT EXECUTE ON FUNCTION aap_jobs_v1.detach_project_references(uuid)
     TO :"workspace_owner";
 GRANT EXECUTE ON FUNCTION aap_jobs_v1.cancel_dataset_task_creation(uuid, uuid, uuid)
-    TO :"workspace_owner";
+    TO :"workspace_owner", :"assets_owner";
+GRANT EXECUTE ON FUNCTION aap_jobs_v1.guard_dataset_source_deletion(uuid)
+    TO :"assets_owner";
+GRANT EXECUTE ON FUNCTION aap_jobs_v1.task_creation_execution_active(uuid, uuid)
+    TO :"labeling_owner";
 GRANT EXECUTE ON FUNCTION aap_learning_v1.lock_project_deletion(uuid),
     aap_learning_v1.guard_project_deletion(uuid),
     aap_learning_v1.delete_project_owned_records(uuid)
@@ -352,6 +384,11 @@ GRANT EXECUTE ON FUNCTION aap_audit_v1.record_project_deletion(
 ) TO :"workspace_owner";
 GRANT EXECUTE ON FUNCTION aap_learning_v1.guard_dataset_unlink(uuid, uuid)
     TO :"workspace_owner";
+GRANT EXECUTE ON FUNCTION aap_learning_v1.guard_dataset_source_deletion(uuid, uuid)
+    TO :"assets_owner";
+GRANT EXECUTE ON FUNCTION aap_labeling_v1.guard_dataset_source_deletion(uuid, uuid),
+    aap_labeling_v1.detach_deleted_dataset_attribution(uuid)
+    TO :"assets_owner";
 GRANT EXECUTE ON FUNCTION aap_labeling_v1.lock_dataset_unlink_scope(uuid, uuid),
     aap_labeling_v1.guard_dataset_unlink(uuid, uuid),
     aap_labeling_v1.preview_dataset_unlink(uuid, uuid),
@@ -368,9 +405,29 @@ GRANT EXECUTE ON FUNCTION aap_audit_v1.valid_request_context(jsonb),
     aap_audit_v1.record_dataset_unlink(
         uuid, uuid, uuid, uuid, bigint, bigint, uuid[], jsonb
     ) TO :"workspace_owner";
-GRANT EXECUTE ON FUNCTION aap_assets_v1.pending_storage_deletions(uuid, integer),
+GRANT EXECUTE ON FUNCTION aap_audit_v1.valid_request_context(jsonb),
+    aap_audit_v1.record_dataset_source_deletion(
+        uuid, uuid, uuid, uuid, bigint, bigint, bigint, bigint, bigint, bigint, jsonb
+    ) TO :"assets_owner";
+GRANT EXECUTE ON FUNCTION aap_assets_v1.pending_storage_deletions_v2(
+    text, timestamptz, uuid, uuid, integer
+),
     aap_assets_v1.complete_storage_deletion(uuid, uuid)
     TO :"asset_cleanup_role";
+REVOKE ALL ON FUNCTION aap_assets_v1.pending_storage_deletions(uuid, integer)
+    FROM :"asset_cleanup_role";
+GRANT EXECUTE ON FUNCTION aap_assets_v1.delete_dataset(
+    uuid, uuid, uuid, text, jsonb
+), aap_assets_v1.delete_dataset_item(
+    uuid, uuid, uuid, uuid, text, jsonb
+), aap_assets_v1.reserve_dataset_upload(
+    uuid, uuid, uuid, text, text
+), aap_assets_v1.lock_dataset_upload(uuid, uuid, uuid),
+    aap_assets_v1.find_dataset_upload_duplicate(uuid, uuid, uuid, text),
+    aap_assets_v1.complete_dataset_upload(
+        uuid, uuid, uuid, uuid, bigint, text, integer, integer
+    ), aap_assets_v1.discard_dataset_upload(uuid, uuid, uuid, text)
+    TO :"workflow_role";
 GRANT EXECUTE ON FUNCTION aap_workspace_v1.preview_dataset_unlink(uuid, uuid, uuid),
     aap_workspace_v1.unlink_dataset(uuid, uuid, uuid, uuid, text, jsonb)
     TO :"workflow_role";
@@ -403,6 +460,8 @@ ALTER FUNCTION aap_assets_v1.lock_current_association(uuid, uuid) OWNER TO :"ass
 ALTER FUNCTION aap_assets_v1.lock_append_sources(uuid, uuid[]) OWNER TO :"assets_owner";
 ALTER FUNCTION aap_assets_v1.associate_project(uuid, uuid, uuid) OWNER TO :"assets_owner";
 ALTER FUNCTION aap_assets_v1.lock_task_creation_items(uuid, uuid[]) OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1.lock_scene_source_references(uuid[])
+    OWNER TO :"assets_owner";
 ALTER FUNCTION aap_assets_v1.delete_project_owned_records(uuid)
     OWNER TO :"assets_owner";
 ALTER FUNCTION aap_assets_v1.dataset_item_references(uuid, uuid)
@@ -417,6 +476,51 @@ ALTER FUNCTION aap_assets_v1.pending_storage_deletions(uuid, integer)
     OWNER TO :"assets_owner";
 ALTER FUNCTION aap_assets_v1.complete_storage_deletion(uuid, uuid)
     OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1._dataset_upload_failure(text)
+    OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1._dataset_upload_success(jsonb)
+    OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1._dataset_upload_actor(uuid)
+    OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1._dataset_upload_facts(public.dataset_upload_intents)
+    OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1._accept_dataset_upload(
+    uuid, uuid, uuid, uuid, bigint, text, integer, integer
+) OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1._finish_dataset_upload(uuid, uuid, uuid, uuid, bigint)
+    OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1.reserve_dataset_upload(uuid, uuid, uuid, text, text)
+    OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1.lock_dataset_upload(uuid, uuid, uuid)
+    OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1.find_dataset_upload_duplicate(uuid, uuid, uuid, text)
+    OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1.complete_dataset_upload(
+    uuid, uuid, uuid, uuid, bigint, text, integer, integer
+) OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1.discard_dataset_upload(uuid, uuid, uuid, text)
+    OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1._source_delete_failure(text)
+    OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1.dataset_association_references(uuid)
+    OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1._lock_dataset_source_deletion(uuid, uuid)
+    OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1._queue_pyramid_deletions(uuid, uuid[], text)
+    OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1._delete_dataset_source_records(uuid, uuid, uuid, text)
+    OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1._delete_dataset_source(
+    uuid, uuid, uuid, uuid, text, jsonb
+) OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1.delete_dataset(uuid, uuid, uuid, text, jsonb)
+    OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1.delete_dataset_item(
+    uuid, uuid, uuid, uuid, text, jsonb
+) OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1.pending_storage_deletions_v2(
+    text, timestamptz, uuid, uuid, integer
+) OWNER TO :"assets_owner";
 REVOKE CREATE ON SCHEMA aap_assets_v1 FROM :"assets_owner";
 
 GRANT CREATE ON SCHEMA aap_labeling_v1 TO :"labeling_owner";
@@ -442,6 +546,10 @@ ALTER FUNCTION aap_labeling_v1.preview_dataset_unlink(uuid, uuid)
     OWNER TO :"labeling_owner";
 ALTER FUNCTION aap_labeling_v1.delete_dataset_tasks(uuid, uuid)
     OWNER TO :"labeling_owner";
+ALTER FUNCTION aap_labeling_v1.guard_dataset_source_deletion(uuid, uuid)
+    OWNER TO :"labeling_owner";
+ALTER FUNCTION aap_labeling_v1.detach_deleted_dataset_attribution(uuid)
+    OWNER TO :"labeling_owner";
 REVOKE CREATE ON SCHEMA aap_labeling_v1 FROM :"labeling_owner";
 
 GRANT CREATE ON SCHEMA aap_jobs_v1 TO :"jobs_owner";
@@ -459,6 +567,10 @@ ALTER FUNCTION aap_jobs_v1.detach_project_references(uuid) OWNER TO :"jobs_owner
 ALTER FUNCTION aap_jobs_v1.retain_async_job_project_scope() OWNER TO :"jobs_owner";
 ALTER FUNCTION aap_jobs_v1.cancel_dataset_task_creation(uuid, uuid, uuid)
     OWNER TO :"jobs_owner";
+ALTER FUNCTION aap_jobs_v1.guard_dataset_source_deletion(uuid)
+    OWNER TO :"jobs_owner";
+ALTER FUNCTION aap_jobs_v1.task_creation_execution_active(uuid, uuid)
+    OWNER TO :"jobs_owner";
 REVOKE CREATE ON SCHEMA aap_jobs_v1 FROM :"jobs_owner";
 
 GRANT CREATE ON SCHEMA aap_learning_v1 TO :"learning_owner";
@@ -469,6 +581,8 @@ ALTER FUNCTION aap_learning_v1.delete_project_owned_records(uuid)
 ALTER FUNCTION aap_learning_v1.guard_dataset_item_deletion(uuid, uuid)
     OWNER TO :"learning_owner";
 ALTER FUNCTION aap_learning_v1.guard_dataset_unlink(uuid, uuid)
+    OWNER TO :"learning_owner";
+ALTER FUNCTION aap_learning_v1.guard_dataset_source_deletion(uuid, uuid)
     OWNER TO :"learning_owner";
 REVOKE CREATE ON SCHEMA aap_learning_v1 FROM :"learning_owner";
 
@@ -505,6 +619,9 @@ ALTER FUNCTION aap_audit_v1.valid_request_context(jsonb)
 ALTER FUNCTION aap_audit_v1.record_dataset_unlink(
     uuid, uuid, uuid, uuid, bigint, bigint, uuid[], jsonb
 ) OWNER TO :"audit_owner";
+ALTER FUNCTION aap_audit_v1.record_dataset_source_deletion(
+    uuid, uuid, uuid, uuid, bigint, bigint, bigint, bigint, bigint, bigint, jsonb
+) OWNER TO :"audit_owner";
 REVOKE CREATE ON SCHEMA aap_audit_v1 FROM :"audit_owner";
 
 DO $$
@@ -514,7 +631,8 @@ BEGIN
     FOREACH target IN ARRAY ARRAY[
         'public.users', 'public.projects', 'public.project_members',
         'public.project_templates', 'public.project_deletion_operations',
-        'public.dataset_unlink_operations', 'public.asset_storage_deletions',
+        'public.dataset_unlink_operations', 'public.dataset_source_deletion_operations',
+        'public.dataset_upload_intents', 'public.asset_storage_deletions',
         'public.audit_logs', 'public.datasets', 'public.scenes',
         'public.dataset_items', 'public.project_datasets',
         'public.storage_connections', 'public.image_pyramid_assets',
@@ -654,6 +772,8 @@ BEGIN
     IF has_function_privilege(current_setting('aap.workflow_role'),
         'aap_assets_v1.pending_storage_deletions(uuid,integer)', 'EXECUTE')
        OR has_function_privilege(current_setting('aap.workflow_role'),
+        'aap_assets_v1.pending_storage_deletions_v2(text,timestamptz,uuid,uuid,integer)', 'EXECUTE')
+       OR has_function_privilege(current_setting('aap.workflow_role'),
         'aap_assets_v1.complete_storage_deletion(uuid,uuid)', 'EXECUTE')
        OR has_function_privilege(current_setting('aap.workflow_role'),
         'aap_jobs_v1.cancel_dataset_task_creation(uuid,uuid,uuid)', 'EXECUTE')
@@ -692,11 +812,52 @@ BEGIN
         RAISE EXCEPTION 'Caller must use the Workspace dataset-unlink capability';
     END IF;
 
+    IF has_function_privilege(current_setting('aap.workflow_role'),
+        'aap_assets_v1._accept_dataset_upload(uuid,uuid,uuid,uuid,bigint,text,integer,integer)', 'EXECUTE')
+       OR has_function_privilege(current_setting('aap.workflow_role'),
+        'aap_assets_v1._finish_dataset_upload(uuid,uuid,uuid,uuid,bigint)', 'EXECUTE')
+       OR has_function_privilege(current_setting('aap.workflow_role'),
+        'aap_assets_v1._dataset_upload_failure(text)', 'EXECUTE')
+       OR has_function_privilege(current_setting('aap.workflow_role'),
+        'aap_assets_v1._dataset_upload_success(jsonb)', 'EXECUTE')
+       OR has_function_privilege(current_setting('aap.workflow_role'),
+        'aap_assets_v1._dataset_upload_actor(uuid)', 'EXECUTE')
+       OR has_function_privilege(current_setting('aap.workflow_role'),
+        'aap_assets_v1._dataset_upload_facts(public.dataset_upload_intents)', 'EXECUTE')
+       OR has_function_privilege(current_setting('aap.workflow_role'),
+        'aap_assets_v1._delete_dataset_source(uuid,uuid,uuid,uuid,text,jsonb)', 'EXECUTE')
+       OR has_function_privilege(current_setting('aap.workflow_role'),
+        'aap_assets_v1._delete_dataset_source_records(uuid,uuid,uuid,text)', 'EXECUTE')
+       OR has_function_privilege(current_setting('aap.workflow_role'),
+        'aap_assets_v1._source_delete_failure(text)', 'EXECUTE')
+       OR has_function_privilege(current_setting('aap.workflow_role'),
+        'aap_assets_v1._lock_dataset_source_deletion(uuid,uuid)', 'EXECUTE')
+       OR has_function_privilege(current_setting('aap.workflow_role'),
+        'aap_assets_v1._queue_pyramid_deletions(uuid,uuid[],text)', 'EXECUTE')
+       OR has_function_privilege(current_setting('aap.workflow_role'),
+        'aap_assets_v1.dataset_association_references(uuid)', 'EXECUTE')
+       OR has_function_privilege(current_setting('aap.workflow_role'),
+        'aap_jobs_v1.guard_dataset_source_deletion(uuid)', 'EXECUTE')
+       OR has_function_privilege(current_setting('aap.workflow_role'),
+        'aap_jobs_v1.task_creation_execution_active(uuid,uuid)', 'EXECUTE')
+       OR has_function_privilege(current_setting('aap.workflow_role'),
+        'aap_learning_v1.guard_dataset_source_deletion(uuid,uuid)', 'EXECUTE')
+       OR has_function_privilege(current_setting('aap.workflow_role'),
+        'aap_labeling_v1.guard_dataset_source_deletion(uuid,uuid)', 'EXECUTE')
+       OR has_function_privilege(current_setting('aap.workflow_role'),
+        'aap_labeling_v1.detach_deleted_dataset_attribution(uuid)', 'EXECUTE')
+       OR has_function_privilege(current_setting('aap.workflow_role'),
+        'aap_audit_v1.record_dataset_source_deletion(uuid,uuid,uuid,uuid,bigint,bigint,bigint,bigint,bigint,bigint,jsonb)', 'EXECUTE') THEN
+        RAISE EXCEPTION 'Workflow caller must use the public Assets source/upload capabilities';
+    END IF;
+
     IF NOT has_schema_privilege(current_setting('aap.asset_cleanup_role'), 'aap_assets_v1', 'USAGE')
        OR NOT has_function_privilege(current_setting('aap.asset_cleanup_role'),
-        'aap_assets_v1.pending_storage_deletions(uuid,integer)', 'EXECUTE')
+        'aap_assets_v1.pending_storage_deletions_v2(text,timestamptz,uuid,uuid,integer)', 'EXECUTE')
        OR NOT has_function_privilege(current_setting('aap.asset_cleanup_role'),
         'aap_assets_v1.complete_storage_deletion(uuid,uuid)', 'EXECUTE')
+       OR has_function_privilege(current_setting('aap.asset_cleanup_role'),
+        'aap_assets_v1.pending_storage_deletions(uuid,integer)', 'EXECUTE')
        OR EXISTS (
            SELECT 1
            FROM pg_catalog.pg_proc AS proc
@@ -705,7 +866,7 @@ BEGIN
                  current_setting('aap.asset_cleanup_role'), proc.oid, 'EXECUTE'
              )
              AND proc.oid NOT IN (
-                 'aap_assets_v1.pending_storage_deletions(uuid,integer)'::pg_catalog.regprocedure,
+                 'aap_assets_v1.pending_storage_deletions_v2(text,timestamptz,uuid,uuid,integer)'::pg_catalog.regprocedure,
                  'aap_assets_v1.complete_storage_deletion(uuid,uuid)'::pg_catalog.regprocedure
              )
        ) OR EXISTS (
@@ -732,6 +893,24 @@ BEGIN
        OR NOT has_function_privilege(current_setting('aap.workflow_role'),
         'aap_workspace_v1.unlink_dataset(uuid,uuid,uuid,uuid,text,jsonb)', 'EXECUTE') THEN
         RAISE EXCEPTION 'Caller is missing the public dataset-unlink capabilities';
+    END IF;
+    IF NOT has_function_privilege(current_setting('aap.workflow_role'),
+        'aap_assets_v1.delete_dataset(uuid,uuid,uuid,text,jsonb)', 'EXECUTE')
+       OR NOT has_function_privilege(current_setting('aap.workflow_role'),
+        'aap_assets_v1.delete_dataset_item(uuid,uuid,uuid,uuid,text,jsonb)', 'EXECUTE')
+       OR NOT has_function_privilege(current_setting('aap.workflow_role'),
+        'aap_assets_v1.reserve_dataset_upload(uuid,uuid,uuid,text,text)', 'EXECUTE')
+       OR NOT has_function_privilege(current_setting('aap.workflow_role'),
+        'aap_assets_v1.lock_dataset_upload(uuid,uuid,uuid)', 'EXECUTE')
+       OR NOT has_function_privilege(current_setting('aap.workflow_role'),
+        'aap_assets_v1.find_dataset_upload_duplicate(uuid,uuid,uuid,text)', 'EXECUTE')
+       OR NOT has_function_privilege(current_setting('aap.workflow_role'),
+        'aap_assets_v1.complete_dataset_upload(uuid,uuid,uuid,uuid,bigint,text,integer,integer)', 'EXECUTE')
+       OR NOT has_function_privilege(current_setting('aap.workflow_role'),
+        'aap_assets_v1.discard_dataset_upload(uuid,uuid,uuid,text)', 'EXECUTE')
+       OR NOT has_function_privilege(current_setting('aap.workflow_role'),
+        'aap_assets_v1.lock_scene_source_references(uuid[])', 'EXECUTE') THEN
+        RAISE EXCEPTION 'Caller is missing a public Assets source or upload capability';
     END IF;
 END $$;
 COMMIT;
