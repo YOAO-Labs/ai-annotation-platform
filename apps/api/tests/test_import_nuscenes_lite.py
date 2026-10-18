@@ -1329,6 +1329,7 @@ async def test_existing_ascii_scene_is_upgraded_in_place(
     await db_session.refresh(item_orm)
     assert item_orm.file_size == len(upgraded)
     assert item_orm.content_hash == hashlib.sha256(upgraded).hexdigest()
+    await db_session.refresh(dataset, attribute_names=["metadata_"])
     assert dataset.metadata_["source"]["pcd_encoding"] == "binary_xyz_f32"
     assert dataset.metadata_["source"]["storage_layout"] == "legacy_name"
 
@@ -1499,6 +1500,8 @@ async def test_existing_scene_backfills_missing_camera_dimensions(
         owner_id=user.id,
     )
 
+    for item in camera_items:
+        await db_session.refresh(item, attribute_names=["width", "height"])
     assert [(item.width, item.height) for item in camera_items] == [(1, 1), (1, 1)]
     assert second["scenes"] == [
         {

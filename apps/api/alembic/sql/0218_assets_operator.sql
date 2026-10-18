@@ -594,10 +594,10 @@ BEGIN
        OR spec ->> 'axis_convention' NOT IN ('iso_8855', 'apollo')
        OR pg_catalog.jsonb_typeof(spec -> 'frame') IS DISTINCT FROM 'string'
        OR spec ->> 'frame' NOT IN ('sensor', 'ego')
-       OR spec ->> 'axis_convention' IS DISTINCT FROM CASE
+       OR spec ->> 'axis_convention' IS DISTINCT FROM (CASE
             WHEN spec ->> 'frame' = 'ego' THEN 'iso_8855'
             ELSE 'apollo'
-       END
+       END)
        OR pg_catalog.jsonb_typeof(spec -> 'scene_names') IS DISTINCT FROM 'array' THEN
         RETURN aap_assets_v1._operator_reply(NULL, 'invalid_request');
     END IF;
