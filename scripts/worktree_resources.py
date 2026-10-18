@@ -381,7 +381,7 @@ class LocalResources:
             await engine.dispose()
 
     async def grant_runtime(self) -> None:
-        """Keep separate runtime/DDL logins usable without creating or altering roles."""
+        """Keep the broad legacy runtime usable; module clients use owner grants."""
         runtime = make_url(self.settings.database_url)
         if runtime.username == self.url.username:
             return
@@ -401,9 +401,13 @@ class LocalResources:
                     f"GRANT EXECUTE ON FUNCTION aap_workspace_v1.lock_project_reference(uuid), "
                     "aap_workspace_v1.lock_project_manager(uuid, uuid), "
                     "aap_workspace_v1.delete_project(uuid, uuid, uuid, jsonb), "
+                    "aap_workspace_v1.preview_dataset_unlink(uuid, uuid, uuid), "
+                    "aap_workspace_v1.unlink_dataset(uuid, uuid, uuid, uuid, text, jsonb), "
                     "aap_assets_v1.lock_dataset_reference(uuid), "
                     "aap_assets_v1.lock_current_association(uuid, uuid), "
                     "aap_assets_v1.associate_project(uuid, uuid, uuid), "
+                    "aap_assets_v1.pending_storage_deletions(uuid, integer), "
+                    "aap_assets_v1.complete_storage_deletion(uuid, uuid), "
                     "aap_labeling_v1.append_dataset_items(uuid, uuid[], uuid), "
                     "aap_labeling_v1.accept_dataset_task_creation(uuid, uuid, uuid, uuid, uuid, uuid, text, integer), "
                     "aap_labeling_v1.prepare_dataset_task_creation(uuid, jsonb), "

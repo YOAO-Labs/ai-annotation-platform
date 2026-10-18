@@ -1,12 +1,16 @@
 -- Run with psql as the migration owner after the application migration head is
 -- installed. All changes are confined to the selected database and runtime role.
 -- psql -v expected_database=annotation_production -v application_role=anno_prod_app
---       -v migration_role=anno_prod_owner -f lan-production-grants.sql
+--       -v migration_role=anno_prod_owner -v asset_cleanup_role=asset_cleanup_client
+--       -f lan-production-grants.sql
+-- application_role retains broad legacy table access; module-data-grants.sql
+-- defines the isolated workflow and Assets cleanup LOGIN boundaries.
 \set ON_ERROR_STOP on
 BEGIN;
 SELECT set_config('aap.expected_database', :'expected_database', true);
 SELECT set_config('aap.application_role', :'application_role', true);
 SELECT set_config('aap.migration_role', :'migration_role', true);
+SELECT set_config('aap.asset_cleanup_role', :'asset_cleanup_role', true);
 
 DO $$
 BEGIN
@@ -20,6 +24,22 @@ BEGIN
        OR pg_has_role(current_setting('aap.application_role'), current_user, 'MEMBER') THEN
         RAISE EXCEPTION 'The runtime role must not inherit the migration owner';
     END IF;
+    IF current_setting('aap.asset_cleanup_role') IN (
+           current_setting('aap.application_role'), current_user
+       )
+       OR pg_has_role(current_setting('aap.asset_cleanup_role'), current_user, 'MEMBER')
+       OR EXISTS (
+           SELECT 1 FROM pg_catalog.pg_auth_members AS member
+           WHERE member.member = (
+               SELECT candidate.oid FROM pg_catalog.pg_roles AS candidate
+               WHERE candidate.rolname = current_setting('aap.asset_cleanup_role')
+           ) OR member.roleid = (
+               SELECT candidate.oid FROM pg_catalog.pg_roles AS candidate
+               WHERE candidate.rolname = current_setting('aap.asset_cleanup_role')
+           )
+       ) THEN
+        RAISE EXCEPTION 'The Assets cleanup role must be distinct and have no role memberships';
+    END IF;
     IF EXISTS (
         SELECT 1 FROM pg_roles
         WHERE rolname = current_setting('aap.application_role')
@@ -27,11 +47,21 @@ BEGIN
     ) THEN
         RAISE EXCEPTION 'The runtime role must not hold cluster administration privileges';
     END IF;
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_catalog.pg_roles
+        WHERE rolname = current_setting('aap.asset_cleanup_role')
+          AND rolcanlogin
+          AND NOT (rolsuper OR rolcreatedb OR rolcreaterole OR rolreplication OR rolbypassrls)
+    ) THEN
+        RAISE EXCEPTION 'The Assets cleanup role must be a non-admin LOGIN role';
+    END IF;
 END $$;
 
 REVOKE ALL ON DATABASE :"expected_database" FROM PUBLIC;
 -- Concurrent materialized-view refresh uses temporary relations internally.
 GRANT CONNECT, TEMPORARY ON DATABASE :"expected_database" TO :"application_role";
+REVOKE ALL ON DATABASE :"expected_database" FROM :"asset_cleanup_role";
+GRANT CONNECT ON DATABASE :"expected_database" TO :"asset_cleanup_role";
 REVOKE CREATE ON SCHEMA public FROM PUBLIC;
 GRANT USAGE, CREATE ON SCHEMA public TO :"application_role";
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO :"application_role";
@@ -41,6 +71,8 @@ GRANT USAGE ON SCHEMA aap_workspace_v1, aap_assets_v1, aap_labeling_v1,
 GRANT EXECUTE ON FUNCTION aap_workspace_v1.lock_project_reference(uuid),
     aap_workspace_v1.lock_project_manager(uuid, uuid),
     aap_workspace_v1.delete_project(uuid, uuid, uuid, jsonb),
+    aap_workspace_v1.preview_dataset_unlink(uuid, uuid, uuid),
+    aap_workspace_v1.unlink_dataset(uuid, uuid, uuid, uuid, text, jsonb),
     aap_assets_v1.lock_dataset_reference(uuid),
     aap_assets_v1.lock_current_association(uuid, uuid),
     aap_assets_v1.associate_project(uuid, uuid, uuid),
@@ -54,8 +86,31 @@ GRANT EXECUTE ON FUNCTION aap_workspace_v1.lock_project_reference(uuid),
     aap_jobs_v1.claim_task_creation_job(uuid, text),
     aap_jobs_v1.finish_task_creation_job(uuid, uuid),
     aap_jobs_v1.fail_task_creation_job(uuid, uuid, text),
-    aap_jobs_v1.cancel_task_creation_job(uuid, uuid)
+    aap_jobs_v1.cancel_task_creation_job(uuid, uuid),
+    aap_assets_v1.pending_storage_deletions(uuid, integer),
+    aap_assets_v1.complete_storage_deletion(uuid, uuid)
     TO :"application_role";
+REVOKE ALL ON SCHEMA aap_assets_v1 FROM :"asset_cleanup_role";
+REVOKE ALL ON ALL FUNCTIONS IN SCHEMA aap_assets_v1 FROM :"asset_cleanup_role";
+REVOKE ALL ON TABLE public.asset_storage_deletions FROM :"asset_cleanup_role";
+GRANT USAGE ON SCHEMA aap_assets_v1 TO :"asset_cleanup_role";
+GRANT EXECUTE ON FUNCTION aap_assets_v1.pending_storage_deletions(uuid, integer),
+    aap_assets_v1.complete_storage_deletion(uuid, uuid)
+    TO :"asset_cleanup_role";
+REVOKE ALL ON SCHEMA public, aap_identity_v1, aap_workspace_v1,
+    aap_labeling_v1, aap_jobs_v1, aap_learning_v1, aap_inference_v1,
+    aap_insights_v1, aap_diagnostics_v1, aap_export_v1, aap_audit_v1
+    FROM :"asset_cleanup_role";
+REVOKE ALL ON ALL FUNCTIONS IN SCHEMA aap_identity_v1, aap_workspace_v1,
+    aap_labeling_v1, aap_jobs_v1, aap_learning_v1, aap_inference_v1,
+    aap_insights_v1, aap_diagnostics_v1, aap_export_v1, aap_audit_v1
+    FROM :"asset_cleanup_role";
+REVOKE ALL ON ALL TABLES IN SCHEMA public FROM :"asset_cleanup_role";
+REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM :"asset_cleanup_role";
+GRANT USAGE ON SCHEMA aap_assets_v1 TO :"asset_cleanup_role";
+GRANT EXECUTE ON FUNCTION aap_assets_v1.pending_storage_deletions(uuid, integer),
+    aap_assets_v1.complete_storage_deletion(uuid, uuid)
+    TO :"asset_cleanup_role";
 ALTER DEFAULT PRIVILEGES FOR ROLE :"migration_role" IN SCHEMA public
     GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO :"application_role";
 ALTER DEFAULT PRIVILEGES FOR ROLE :"migration_role" IN SCHEMA public
@@ -93,6 +148,83 @@ BEGIN
        OR has_table_privilege(current_setting('aap.application_role'),
                               'public.gpu_backend_fences', 'DELETE') THEN
         RAISE EXCEPTION 'The runtime role still has effective GPU tombstone DELETE privileges';
+    END IF;
+END $$;
+
+DO $$
+DECLARE
+    relation oid;
+BEGIN
+    FOR relation IN
+        SELECT catalog.oid
+        FROM pg_catalog.pg_class AS catalog
+        JOIN pg_catalog.pg_namespace AS namespace
+          ON namespace.oid = catalog.relnamespace
+        WHERE namespace.nspname = 'public'
+          AND catalog.relkind IN ('r', 'p', 'v', 'm', 'f')
+    LOOP
+        IF has_any_column_privilege(current_setting('aap.asset_cleanup_role'),
+                                    relation, 'SELECT,INSERT,UPDATE,REFERENCES')
+           OR has_table_privilege(current_setting('aap.asset_cleanup_role'),
+                                  relation,
+                                  'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER') THEN
+            RAISE EXCEPTION 'The Assets cleanup role has direct table access';
+        END IF;
+    END LOOP;
+
+    IF NOT has_schema_privilege(current_setting('aap.asset_cleanup_role'),
+                                'aap_assets_v1', 'USAGE')
+       OR has_database_privilege(current_setting('aap.asset_cleanup_role'),
+                                 current_database(), 'CREATE')
+       OR has_schema_privilege(current_setting('aap.asset_cleanup_role'),
+                               'public', 'CREATE')
+       OR has_schema_privilege(current_setting('aap.asset_cleanup_role'),
+                               'aap_assets_v1', 'CREATE')
+       OR NOT has_function_privilege(current_setting('aap.asset_cleanup_role'),
+                                     'aap_assets_v1.pending_storage_deletions(uuid,integer)',
+                                     'EXECUTE')
+       OR NOT has_function_privilege(current_setting('aap.asset_cleanup_role'),
+                                     'aap_assets_v1.complete_storage_deletion(uuid,uuid)',
+                                     'EXECUTE')
+       OR has_schema_privilege(current_setting('aap.asset_cleanup_role'),
+                               'aap_identity_v1', 'USAGE')
+       OR has_schema_privilege(current_setting('aap.asset_cleanup_role'),
+                               'aap_workspace_v1', 'USAGE')
+       OR has_schema_privilege(current_setting('aap.asset_cleanup_role'),
+                               'aap_labeling_v1', 'USAGE')
+       OR has_schema_privilege(current_setting('aap.asset_cleanup_role'),
+                               'aap_jobs_v1', 'USAGE')
+       OR has_schema_privilege(current_setting('aap.asset_cleanup_role'),
+                               'aap_learning_v1', 'USAGE')
+       OR has_schema_privilege(current_setting('aap.asset_cleanup_role'),
+                               'aap_inference_v1', 'USAGE')
+       OR has_schema_privilege(current_setting('aap.asset_cleanup_role'),
+                               'aap_insights_v1', 'USAGE')
+       OR has_schema_privilege(current_setting('aap.asset_cleanup_role'),
+                               'aap_diagnostics_v1', 'USAGE')
+       OR has_schema_privilege(current_setting('aap.asset_cleanup_role'),
+                               'aap_export_v1', 'USAGE')
+       OR has_schema_privilege(current_setting('aap.asset_cleanup_role'),
+                               'aap_audit_v1', 'USAGE') THEN
+        RAISE EXCEPTION 'The Assets cleanup role has access outside Assets';
+    END IF;
+
+    IF EXISTS (
+        SELECT 1
+        FROM pg_catalog.pg_proc AS proc
+        JOIN pg_catalog.pg_namespace AS namespace
+          ON namespace.oid = proc.pronamespace
+        WHERE pg_catalog.left(namespace.nspname, 4) = 'aap_'
+          AND pg_catalog.right(namespace.nspname, 3) = '_v1'
+          AND proc.oid NOT IN (
+              'aap_assets_v1.pending_storage_deletions(uuid,integer)'::pg_catalog.regprocedure,
+              'aap_assets_v1.complete_storage_deletion(uuid,uuid)'::pg_catalog.regprocedure
+          )
+          AND pg_catalog.has_function_privilege(
+              current_setting('aap.asset_cleanup_role'), proc.oid, 'EXECUTE'
+          )
+    ) THEN
+        RAISE EXCEPTION 'The Assets cleanup role can execute outside its two outbox functions';
     END IF;
 END $$;
 COMMIT;

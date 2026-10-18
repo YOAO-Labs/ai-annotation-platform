@@ -69,6 +69,26 @@ async def append_engine() -> AsyncEngine:
 
 
 @pytest_asyncio.fixture
+async def asset_cleanup_engine() -> AsyncEngine:
+    engine = _engine(
+        _role_url("AAP_MODULE_DATA_ASSET_CLEANUP_URL", "asset_cleanup_client")
+    )
+    try:
+        async with engine.connect() as connection:
+            assert (
+                await connection.scalar(text("SELECT current_user"))
+                == "asset_cleanup_client"
+            )
+            assert (
+                await connection.scalar(text("SELECT session_user"))
+                == "asset_cleanup_client"
+            )
+        yield engine
+    finally:
+        await engine.dispose()
+
+
+@pytest_asyncio.fixture
 async def legacy_runtime_engine() -> AsyncEngine:
     engine = _engine(_role_url("AAP_MODULE_DATA_LEGACY_RUNTIME_URL", "legacy_runtime"))
     try:
@@ -250,7 +270,8 @@ async def _assert_permission_denied(
 
 
 async def test_append_client_cannot_read_or_write_private_tables_or_escalate(
-    append_engine: AsyncEngine, legacy_runtime_engine: AsyncEngine
+    append_engine: AsyncEngine,
+    legacy_runtime_engine: AsyncEngine,
 ):
     async with legacy_runtime_engine.connect() as legacy:
         assert await legacy.scalar(
@@ -264,6 +285,18 @@ async def test_append_client_cannot_read_or_write_private_tables_or_escalate(
                 "'SELECT,INSERT,UPDATE,DELETE')"
             )
         )
+        for signature in (
+            "aap_workspace_v1.preview_dataset_unlink(uuid,uuid,uuid)",
+            "aap_workspace_v1.unlink_dataset(uuid,uuid,uuid,uuid,text,jsonb)",
+            "aap_assets_v1.pending_storage_deletions(uuid,integer)",
+            "aap_assets_v1.complete_storage_deletion(uuid,uuid)",
+        ):
+            assert await legacy.scalar(
+                text(
+                    "SELECT has_function_privilege(current_user, :signature, 'EXECUTE')"
+                ),
+                {"signature": signature},
+            ), signature
         assert (
             await legacy.scalar(
                 text("SELECT aap_workspace_v1.lock_project_reference(:id)"),
@@ -293,6 +326,8 @@ async def test_append_client_cannot_read_or_write_private_tables_or_escalate(
         "public.task_append_operations",
         "public.task_creation_operations",
         "public.task_creation_chunks",
+        "public.asset_storage_deletions",
+        "public.dataset_unlink_operations",
     )
     async with append_engine.connect() as connection:
         for relation in relations:
@@ -325,6 +360,13 @@ async def test_append_client_cannot_read_or_write_private_tables_or_escalate(
             "assets_code",
             "labeling_code",
             "jobs_code",
+            "learning_code",
+            "inference_code",
+            "insights_code",
+            "diagnostics_code",
+            "export_code",
+            "audit_code",
+            "asset_cleanup_client",
         ):
             await _assert_permission_denied(connection, f"SET ROLE {role}")
 
@@ -333,6 +375,24 @@ async def test_append_client_cannot_read_or_write_private_tables_or_escalate(
             "aap_jobs_v1._task_creation_job_payload_valid(uuid,jsonb)",
             "aap_jobs_v1.update_task_creation_progress(uuid,uuid,bigint,bigint,bigint)",
             "aap_assets_v1.lock_task_creation_items(uuid,uuid[])",
+            "aap_assets_v1.dataset_item_references(uuid,uuid)",
+            "aap_assets_v1.dataset_scene_references(uuid)",
+            "aap_assets_v1.prepare_dataset_unlink_cleanup(uuid,uuid,uuid,text)",
+            "aap_assets_v1.remove_dataset_association(uuid,uuid,uuid)",
+            "aap_assets_v1.pending_storage_deletions(uuid,integer)",
+            "aap_assets_v1.complete_storage_deletion(uuid,uuid)",
+            "aap_jobs_v1.cancel_dataset_task_creation(uuid,uuid,uuid)",
+            "aap_audit_v1.valid_request_context(jsonb)",
+            "aap_audit_v1.record_dataset_unlink(uuid,uuid,uuid,uuid,bigint,bigint,uuid[],jsonb)",
+            "aap_workspace_v1._dataset_unlink_failure(text,text)",
+            "aap_learning_v1.guard_dataset_item_deletion(uuid,uuid)",
+            "aap_learning_v1.guard_dataset_unlink(uuid,uuid)",
+            "aap_labeling_v1._dataset_unlink_task_snapshot(uuid,uuid)",
+            "aap_labeling_v1.dataset_task_references(uuid,uuid)",
+            "aap_labeling_v1.lock_dataset_unlink_scope(uuid,uuid)",
+            "aap_labeling_v1.guard_dataset_unlink(uuid,uuid)",
+            "aap_labeling_v1.preview_dataset_unlink(uuid,uuid)",
+            "aap_labeling_v1.delete_dataset_tasks(uuid,uuid)",
         ):
             assert not await connection.scalar(
                 text(
@@ -354,9 +414,191 @@ async def test_append_client_cannot_read_or_write_private_tables_or_escalate(
         assert not await connection.scalar(
             text("SELECT has_schema_privilege(current_user, 'public', 'CREATE')")
         )
+        for signature in (
+            "aap_workspace_v1.preview_dataset_unlink(uuid,uuid,uuid)",
+            "aap_workspace_v1.unlink_dataset(uuid,uuid,uuid,uuid,text,jsonb)",
+        ):
+            assert await connection.scalar(
+                text(
+                    "SELECT has_function_privilege(current_user, :signature, 'EXECUTE')"
+                ),
+                {"signature": signature},
+            ), signature
         await _assert_permission_denied(
             connection,
             "CREATE TABLE public.append_client_forbidden_probe (id integer)",
+        )
+
+
+async def test_asset_cleanup_client_uses_only_the_storage_outbox_functions(
+    asset_cleanup_engine: AsyncEngine, append_engine: AsyncEngine
+):
+    operation_id, asset_id = uuid4(), uuid4()
+    async with asset_cleanup_engine.connect() as cleanup:
+        assert await cleanup.scalar(
+            text("SELECT has_schema_privilege(current_user, 'aap_assets_v1', 'USAGE')")
+        )
+        assert not await cleanup.scalar(
+            text("SELECT has_schema_privilege(current_user, 'aap_assets_v1', 'CREATE')")
+        )
+        for schema in (
+            "aap_identity_v1",
+            "aap_workspace_v1",
+            "aap_labeling_v1",
+            "aap_jobs_v1",
+            "aap_learning_v1",
+            "aap_inference_v1",
+            "aap_insights_v1",
+            "aap_diagnostics_v1",
+            "aap_export_v1",
+            "aap_audit_v1",
+        ):
+            assert not await cleanup.scalar(
+                text("SELECT has_schema_privilege(current_user, :schema, 'USAGE')"),
+                {"schema": schema},
+            ), schema
+
+        for signature in (
+            "aap_assets_v1.pending_storage_deletions(uuid,integer)",
+            "aap_assets_v1.complete_storage_deletion(uuid,uuid)",
+        ):
+            assert await cleanup.scalar(
+                text(
+                    "SELECT has_function_privilege(current_user, :signature, 'EXECUTE')"
+                ),
+                {"signature": signature},
+            ), signature
+        for signature in (
+            "aap_assets_v1.lock_dataset_reference(uuid)",
+            "aap_assets_v1.lock_current_association(uuid,uuid)",
+            "aap_assets_v1.lock_append_sources(uuid,uuid[])",
+            "aap_assets_v1.lock_task_creation_items(uuid,uuid[])",
+            "aap_assets_v1.associate_project(uuid,uuid,uuid)",
+            "aap_assets_v1.dataset_item_references(uuid,uuid)",
+            "aap_assets_v1.dataset_scene_references(uuid)",
+            "aap_assets_v1.prepare_dataset_unlink_cleanup(uuid,uuid,uuid,text)",
+            "aap_assets_v1.remove_dataset_association(uuid,uuid,uuid)",
+            "aap_assets_v1.delete_project_owned_records(uuid)",
+            "aap_workspace_v1.unlink_dataset(uuid,uuid,uuid,uuid,text,jsonb)",
+        ):
+            assert not await cleanup.scalar(
+                text(
+                    "SELECT has_function_privilege(current_user, :signature, 'EXECUTE')"
+                ),
+                {"signature": signature},
+            ), signature
+
+        assert (
+            await cleanup.scalar(
+                text(
+                    "SELECT count(*) FROM pg_catalog.pg_proc AS proc "
+                    "JOIN pg_catalog.pg_namespace AS namespace "
+                    "ON namespace.oid = proc.pronamespace "
+                    "WHERE ((namespace.nspname = 'aap_assets_v1' AND proc.oid NOT IN ("
+                    "'aap_assets_v1.pending_storage_deletions(uuid,integer)'::regprocedure, "
+                    "'aap_assets_v1.complete_storage_deletion(uuid,uuid)'::regprocedure)) "
+                    "OR (namespace.nspname <> 'aap_assets_v1' "
+                    "AND left(namespace.nspname, 4) = 'aap_' "
+                    "AND right(namespace.nspname, 3) = '_v1')) "
+                    "AND has_function_privilege(current_user, proc.oid, 'EXECUTE')"
+                )
+            )
+            == 0
+        )
+
+        for relation in (
+            "public.asset_storage_deletions",
+            "public.dataset_unlink_operations",
+            "public.async_jobs",
+            "public.projects",
+        ):
+            assert not await cleanup.scalar(
+                text(
+                    "SELECT has_any_column_privilege(current_user, :relation, "
+                    "'SELECT,INSERT,UPDATE,REFERENCES') OR "
+                    "has_table_privilege(current_user, :relation, "
+                    "'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')"
+                ),
+                {"relation": relation},
+            ), relation
+
+        assert (
+            await cleanup.scalar(
+                text(
+                    "SELECT count(*) FROM aap_assets_v1.pending_storage_deletions("
+                    "CAST(:operation_id AS uuid), 1)"
+                ),
+                {"operation_id": operation_id},
+            )
+            == 0
+        )
+        assert (
+            await cleanup.scalar(
+                text(
+                    "SELECT aap_assets_v1.complete_storage_deletion("
+                    "CAST(:operation_id AS uuid), CAST(:asset_id AS uuid))"
+                ),
+                {"operation_id": operation_id, "asset_id": asset_id},
+            )
+            is False
+        )
+
+        await _assert_permission_denied(
+            cleanup, "SELECT * FROM public.asset_storage_deletions"
+        )
+        await _assert_permission_denied(
+            cleanup,
+            "SELECT aap_assets_v1.prepare_dataset_unlink_cleanup("
+            "CAST(:operation_id AS uuid), CAST(:dataset_id AS uuid), "
+            "CAST(:project_id AS uuid), 'cache-bucket')",
+            {
+                "operation_id": operation_id,
+                "dataset_id": uuid4(),
+                "project_id": uuid4(),
+            },
+        )
+        await _assert_permission_denied(
+            cleanup,
+            "SELECT aap_workspace_v1.preview_dataset_unlink("
+            "CAST(:actor_id AS uuid), CAST(:dataset_id AS uuid), "
+            "CAST(:project_id AS uuid))",
+            {"actor_id": uuid4(), "dataset_id": uuid4(), "project_id": uuid4()},
+        )
+        await _assert_permission_denied(
+            cleanup,
+            "SELECT aap_workspace_v1.unlink_dataset("
+            "CAST(:operation_id AS uuid), CAST(:actor_id AS uuid), "
+            "CAST(:dataset_id AS uuid), CAST(:project_id AS uuid), "
+            "'cache-bucket', NULL::jsonb)",
+            {
+                "operation_id": operation_id,
+                "actor_id": uuid4(),
+                "dataset_id": uuid4(),
+                "project_id": uuid4(),
+            },
+        )
+        await _assert_permission_denied(cleanup, "SET ROLE assets_code")
+
+    async with append_engine.connect() as workflow:
+        for signature in (
+            "aap_assets_v1.pending_storage_deletions(uuid,integer)",
+            "aap_assets_v1.complete_storage_deletion(uuid,uuid)",
+        ):
+            assert not await workflow.scalar(
+                text(
+                    "SELECT has_function_privilege(current_user, :signature, 'EXECUTE')"
+                ),
+                {"signature": signature},
+            ), signature
+        await _assert_permission_denied(
+            workflow,
+            "SELECT * FROM aap_assets_v1.pending_storage_deletions(NULL::uuid, 1)",
+        )
+        await _assert_permission_denied(
+            workflow,
+            "SELECT aap_assets_v1.complete_storage_deletion("
+            "CAST(:operation_id AS uuid), CAST(:asset_id AS uuid))",
+            {"operation_id": operation_id, "asset_id": asset_id},
         )
 
 
