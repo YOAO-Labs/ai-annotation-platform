@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from uuid import uuid4
 
 import pytest
@@ -14,6 +15,7 @@ from aap_assets_images.policy import ImagePolicy
 from aap_assets_images.transport import (
     ImageAssetReferencesRequest,
     ImageGenerationReferenceRequest,
+    ImageSourceReferencesRequest,
     InternalImageSourceReferenceRequest,
 )
 from aap_assets_images_runtime.control import ImageControl
@@ -126,6 +128,33 @@ async def test_image_control_closes_optional_async_storage_client():
     storage = CloseableStorage()
     await ImageControl(None, storage).close()
     assert storage.closed
+
+
+@pytest.mark.asyncio
+async def test_source_batch_settles_peer_reads_before_reporting_a_leaf_failure(
+    monkeypatch,
+):
+    failed, peer = uuid4(), uuid4()
+    settled = []
+    control = ImageControl(None, FakeStorage())
+
+    async def read(request):
+        if request.task_id == failed:
+            raise c.ImageFailure("source_missing")
+        await asyncio.sleep(0.01)
+        settled.append(request.task_id)
+
+    monkeypatch.setattr(control, "source_reference", read)
+    with pytest.raises(c.ImageFailure, match="source_missing"):
+        await control.source_references(
+            ImageSourceReferencesRequest(
+                requests=[
+                    c.ReadImageSourceRequest(actor_id=uuid4(), task_id=task_id)
+                    for task_id in (failed, peer)
+                ]
+            )
+        )
+    assert settled == [peer]
 
 
 class Database:
@@ -266,6 +295,8 @@ async def test_actor_source_first_read_can_bind_an_unregistered_identity():
             if operation == "read_image_source":
                 reads += 1
                 return unbound if reads == 1 else bound
+            if operation == "prepare_image_media":
+                return accepted_for(request, bound)
             assert operation == "observe_image_source"
             return bound
 
@@ -745,13 +776,16 @@ async def test_generation_reference_uses_latest_dimensions_without_auto_dispatch
         auto_generate_pyramids=False,
     )
     calls = []
+    metadata_ready = False
 
     class RegisteredDimensionsDatabase:
         async def call(self, operation, request):
+            nonlocal metadata_ready
             calls.append(operation)
             if operation in {"read_image_source", "observe_image_source"}:
-                return current
+                return registered if metadata_ready else current
             assert operation == "read_image_generation"
+            metadata_ready = True
             return c.ImageGenerationRead(source=registered, pyramid=missing.pyramid)
 
     result = await ImageControl(
@@ -953,7 +987,12 @@ async def test_read_only_thumbnail_verification_rejects_unrelated_work(
             assert operation == "read_internal_image_work"
             return work_status
 
-    with pytest.raises(c.ImageFailure, match="invalid_response"):
+    expected_code = (
+        "source_changed"
+        if source_generation != 1 or spec_snapshot != "a" * 64
+        else "invalid_response"
+    )
+    with pytest.raises(c.ImageFailure, match=expected_code):
         await ImageControl(
             ReadOnlyDatabase(), FakeStorage(cache_keys=[key])
         ).source_reference(

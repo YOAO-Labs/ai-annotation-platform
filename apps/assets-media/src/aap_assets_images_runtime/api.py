@@ -27,39 +27,6 @@ from aap_assets_images.transport import (
 )
 
 
-def error_status(code: str) -> int:
-    if code == "account_not_active":
-        return 401
-    if code in {"permission_denied", "task_not_visible", "invalid_account_role"}:
-        return 403
-    if code in {"source_missing", "asset_missing"}:
-        return 404
-    if code == "retry_cooldown":
-        return 429
-    if code in {
-        "invalid_request",
-        "not_image",
-        "invalid_coordinate",
-        "unsupported_dimensions",
-        "resource_limit",
-    }:
-        return 422
-    if code == "resource_budget_exceeded":
-        return 413
-    if code == "invalid_response":
-        return 502
-    if code in {
-        "source_not_ready",
-        "source_unavailable",
-        "storage_unavailable",
-        "object_missing",
-    }:
-        return 503
-    if code in {"already_ready", "not_eligible"}:
-        return 409
-    return 409
-
-
 def _reply(data=None, *, error: str | None = None, status: int = 200) -> Response:
     body = {
         "schema": c.IMAGE_SCHEMA,
@@ -136,7 +103,7 @@ def install_image_routes(app: FastAPI, control, token: str) -> FastAPI:
                     raise c.ImageFailure("invalid_response") from None
             return _reply(result)
         except c.ImageFailure as exc:
-            return _reply(error=exc.code, status=error_status(exc.code))
+            return _reply(error=exc.code, status=c.http_error_status(exc.code))
         except Exception:
             return _reply(error="storage_unavailable", status=503)
 

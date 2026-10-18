@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import sys
+
 import httpx
 import pytest
 
@@ -122,7 +124,7 @@ async def test_shared_runtime_installs_image_routes_on_video_app(monkeypatch):
         image_storages.append(storage)
         return storage
 
-    monkeypatch.setattr(shared_runtime, "_create_pool", asyncpg.create_pool)
+    monkeypatch.setitem(sys.modules, "asyncpg", asyncpg)
     monkeypatch.setattr(shared_runtime, "check_capabilities", check_capabilities)
     monkeypatch.setattr(shared_runtime, "AsyncpgMediaDatabase", _VideoDatabase)
     monkeypatch.setattr(shared_runtime, "AsyncpgImageDatabase", _ImageDatabase)
@@ -171,6 +173,8 @@ async def test_shared_runtime_installs_image_routes_on_video_app(monkeypatch):
     assert image_storage_configs[0].legacy_bucket == "annotations"
     assert image_storage_configs[0].connect_timeout == 2
     assert image_storage_configs[0].read_timeout == 10
+    assert asyncpg.arguments[0] == ()
+    assert asyncpg.arguments[1]["dsn"] == _control_config().database_url
 
 
 @pytest.mark.asyncio
@@ -182,7 +186,7 @@ async def test_shared_readiness_fails_when_combined_capability_check_fails(monke
         assert role == "control"
         return next(health_results)
 
-    monkeypatch.setattr(shared_runtime, "_create_pool", asyncpg.create_pool)
+    monkeypatch.setitem(sys.modules, "asyncpg", asyncpg)
     monkeypatch.setattr(shared_runtime, "check_capabilities", check_capabilities)
     monkeypatch.setattr(shared_runtime, "AsyncpgMediaDatabase", _VideoDatabase)
     monkeypatch.setattr(shared_runtime, "AsyncpgImageDatabase", _ImageDatabase)

@@ -240,8 +240,8 @@ class ImageControl:
             and actual.object_identity == expected.object_identity
             and actual.file_path == expected.file_path
             and actual.bucket_kind == expected.bucket_kind
-            and actual.width == expected.width
-            and actual.height == expected.height
+            and (expected.width is None or actual.width == expected.width)
+            and (expected.height is None or actual.height == expected.height)
             and not actual.source_drifted
         )
 
@@ -580,8 +580,14 @@ class ImageControl:
                         else self.source_reference
                     )(item)
                     for item in request.requests[start : start + 4]
-                )
+                ),
+                return_exceptions=True,
             )
+            failure = next(
+                (row for row in batch if isinstance(row, BaseException)), None
+            )
+            if failure is not None:
+                raise failure
             for reference in batch:
                 encoded_size += len(c.json_bytes(reference)) + 2
                 if encoded_size > c.PAGE_BYTES:

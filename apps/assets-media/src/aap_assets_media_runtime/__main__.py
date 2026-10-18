@@ -64,7 +64,7 @@ def configured_app(config):
     @asynccontextmanager
     async def lifespan(app):
         pool = await _create_pool(
-            config.database_url,
+            dsn=config.database_url,
             min_size=config.pool_min_size,
             max_size=config.pool_max_size,
             timeout=config.pool_timeout_seconds,

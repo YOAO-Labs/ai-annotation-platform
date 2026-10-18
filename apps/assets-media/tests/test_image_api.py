@@ -12,7 +12,7 @@ from aap_assets_images.transport import (
     ImagePyramidSummary,
     ImageSourceReference,
 )
-from aap_assets_images_runtime.api import error_status, install_image_routes
+from aap_assets_images_runtime.api import install_image_routes
 
 
 def source(item_id=None):
@@ -156,7 +156,7 @@ async def test_request_budget_and_source_not_ready_status():
                 content=b" " * 33,
                 headers={"Authorization": "Bearer " + token},
             )
-        assert error_status("source_not_ready") == 503
+        assert c.http_error_status("source_not_ready") == 503
     assert source_not_ready.status_code == 503
     assert source_not_ready.json()["error"]["code"] == "source_not_ready"
     assert oversized.status_code == 413
@@ -230,7 +230,7 @@ async def test_api_rejects_generation_reply_from_another_profile():
 
 
 def test_retry_error_statuses_are_explicit():
-    assert error_status("retry_cooldown") == 429
-    assert error_status("already_ready") == 409
-    assert error_status("not_eligible") == 409
-    assert error_status("not_image") == 422
+    assert c.http_error_status("retry_cooldown") == 429
+    assert c.http_error_status("already_ready") == 409
+    assert c.http_error_status("not_eligible") == 409
+    assert c.http_error_status("not_image") == 422
