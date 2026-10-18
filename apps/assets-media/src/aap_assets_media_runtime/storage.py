@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from contextlib import suppress
 from hashlib import sha256
 from pathlib import Path
 import re
@@ -109,7 +110,7 @@ class S3MediaStorage:
         if source.object_identity is None:
             raise MediaFailure("source_changed")
         _validate_key(source.file_path)
-        await asyncio.to_thread(self._download_source, source, destination)
+        await _run_blocking(self._download_source, source, destination)
 
     def _download_source(self, source: MediaSource, destination: Path) -> None:
         identity = source.object_identity
@@ -178,7 +179,7 @@ class S3MediaStorage:
     async def upload_cache(self, path: Path, key: str) -> Artifact:
         _validate_cache_key(key)
         try:
-            return await asyncio.to_thread(self._upload_cache, path, key)
+            return await _run_blocking(self._upload_cache, path, key)
         except MediaFailure:
             raise
         except Exception as exc:
@@ -395,3 +396,14 @@ def _storage_error(exc: Exception, *, missing_is_object: bool = False) -> MediaF
     ):
         return MediaFailure("object_missing")
     return MediaFailure("storage_unavailable")
+
+
+async def _run_blocking(function, /, *args, **kwargs):
+    """Keep a boto thread alive until it exits, even when its caller is canceled."""
+    task = asyncio.create_task(asyncio.to_thread(function, *args, **kwargs))
+    try:
+        return await asyncio.shield(task)
+    except asyncio.CancelledError:
+        with suppress(BaseException):
+            await task
+        raise

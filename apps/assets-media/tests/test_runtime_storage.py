@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 from io import BytesIO
 from pathlib import Path
+import threading
 from uuid import uuid4
 
 import pytest
@@ -214,6 +215,38 @@ def test_jpeg_output_upload_uses_jpeg_media_type(tmp_path: Path):
 
     call = next(call for call in client.calls if call[0] == "upload_file")
     assert call[1]["ContentType"] == "image/jpeg"
+
+
+@pytest.mark.asyncio
+async def test_cancelled_upload_waits_for_boto_thread_before_returning(tmp_path: Path):
+    class _SlowUpload(_FakeS3):
+        def __init__(self):
+            super().__init__()
+            self.started = threading.Event()
+            self.release = threading.Event()
+
+        def upload_file(self, filename, bucket, key, ExtraArgs):
+            self.started.set()
+            if not self.release.wait(timeout=2):
+                raise TimeoutError("test upload was not released")
+            super().upload_file(filename, bucket, key, ExtraArgs)
+
+    client = _SlowUpload()
+    storage, _ = _storage(client)
+    key = f"media-assets/{uuid4()}/g1/a{uuid4()}/poster.webp"
+    path = tmp_path / "poster.webp"
+    path.write_bytes(b"image")
+
+    task = asyncio.create_task(storage.upload_cache(path, key))
+    assert await asyncio.to_thread(client.started.wait, 1)
+    task.cancel()
+    await asyncio.sleep(0.01)
+    assert not task.done()
+    client.release.set()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert ("media-cache", key) in client.objects
 
 
 def test_missing_bucket_is_not_misreported_as_a_missing_cache_object():
