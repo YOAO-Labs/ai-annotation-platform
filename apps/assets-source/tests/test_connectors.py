@@ -15,6 +15,7 @@ from aap_assets_source.connectors import (
     ConnectorCryptoError,
     ConnectorCryptoNotConfigured,
     ConnectorHostDenied,
+    SourceChangedError,
     SourcePathError,
     assert_host_allowed,
     decrypt_secret,
@@ -88,8 +89,20 @@ def test_s3_rejects_ambient_credentials_and_missing_conditional_etag() -> None:
         client=_FakeS3Client({}),
         require_conditional_reads=True,
     )
-    with pytest.raises(Exception, match="ETag"):
+    with pytest.raises(SourceChangedError, match="ETag"):
         source.open("file.jpg")
+
+
+def test_s3_adapter_keeps_legacy_unconditional_open_for_api_consumers() -> None:
+    client = _FakeS3Client({"file.jpg": b"content"})
+    source = S3CompatibleSource(
+        {"endpoint": "http://example.test", "bucket": "bucket"},
+        {"access_key": "access", "secret_key": "secret"},
+        client=client,
+    )
+
+    assert source.open("file.jpg").read() == b"content"
+    assert "IfMatch" not in client.get_calls[0]
 
 
 def test_connector_path_guards_reject_traversal_and_escape() -> None:
