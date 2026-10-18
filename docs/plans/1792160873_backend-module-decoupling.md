@@ -1690,3 +1690,10 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
 - 独立包 37 项、客户端定向检查、TypeScript、架构/兼容检查、文档构建、固定 Ruff 及 API 镜像构建/冷导入通过；API 工件包含 119 张映射表，公开 485 paths / 872 schemas。重复与不适用测试单独记录，不累加进业务资格数量。
 - 独立一次性 PostgreSQL 上的 fresh/reversible/forward/restore 四阶段迁移验证通过，衍生数据库和 dump 全部清理；完整 SQL 工件往返另由目录资格验证器重复确认。
 - 当前 Assets 台账为 17 张表；新回执没有自动清理。目录服务只覆盖所选五项操作，关联项目的跨 owner 投影、连接器/扫描/导入、媒体派生、完整 Blob 协议、身份/成员生命周期及其他模块运行时仍未完成。主 API 暂保留聚合装配与宽权限；全目标继续推进，Go 月报保持隔离实验，未部署真实环境。
+
+### Catalog local runtime qualification
+
+- 实现已本地合入主工作区，日常开发库升级 0210→0211；目录回执为零，五项缺参能力在只读事务中返回冻结错误并回滚，未播种测试业务数据。
+- 常驻 API 按已验证的 LaunchAgent/PID/cwd 停止并恢复，锁定依赖同步通过。补齐 API 锁文件中 path 包的 pytest-asyncio 开发元数据，解析版本不变；主解释器额外通过独立包 37 项测试。
+- 实时 OpenAPI 与快照完全相同（485 paths / 872 schemas），DB/Redis/MinIO 均为 200；源码内容不变的热重载在 8.763 秒内更换实际服务子进程。日常 Celery 未启动，整体/Celery 健康保留原 503。
+- 目录与清理独立进程只在隔离资源上验收，不向真实环境部署。证据 `.worktree/assets-catalog-main-runtime.json`、`.worktree/assets-catalog-verification.json`；无 push、发布或远程 CI/生产容量声明，总目标继续进行。
