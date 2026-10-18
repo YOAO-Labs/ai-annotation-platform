@@ -186,6 +186,8 @@ class _Catalog:
             raise spatial.SpatialFailure(self.spatial_fail_code)
         if operation == "guard_spatial_actor":
             return spatial.SpatialActorResult(**request.model_dump())
+        if operation == "set_spatial_dataset_axis":
+            return spatial.DatasetAxisMutationResult(**request.model_dump())
         raise AssertionError(f"Unexpected test spatial operation: {operation}")
 
     async def backfill_scenes(self, request):
@@ -587,3 +589,36 @@ def test_update_calibration_is_a_private_owner_workflow_route(client_factory) ->
         "ok": False,
         "error": {"code": "camera_shared_across_projects"},
     }
+
+
+def test_operator_dataset_axis_capability_is_private_and_accepts_null_axis(
+    client_factory,
+) -> None:
+    client, catalog, _runtime = client_factory()
+    operation_id, dataset_id = uuid4(), uuid4()
+    body = {
+        "operation_id": str(operation_id),
+        "dataset_id": str(dataset_id),
+        "axis_convention": None,
+    }
+
+    unauthorized = client.post("/v1/spatial/set_spatial_dataset_axis", json=body)
+    assert unauthorized.status_code == 401
+    assert catalog.spatial_calls == []
+
+    response = client.post(
+        "/v1/spatial/set_spatial_dataset_axis",
+        json=body,
+        headers={"Authorization": f"Bearer {_TOKEN}"},
+    )
+    assert response.status_code == 200
+    assert response.json() == {
+        "schema": spatial.SPATIAL_SCHEMA,
+        "ok": True,
+        "data": body,
+    }
+    operation, request = catalog.spatial_calls[0]
+    assert operation == "set_spatial_dataset_axis"
+    assert request.operation_id == operation_id
+    assert request.dataset_id == dataset_id
+    assert request.axis_convention is None

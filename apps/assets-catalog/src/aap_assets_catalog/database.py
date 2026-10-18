@@ -153,6 +153,9 @@ SELECT aap_assets_v1.record_spatial_calibration_provenance(
     $1::uuid, $2::uuid, $3::jsonb
 )
 """
+SET_SPATIAL_DATASET_AXIS_SQL = """
+SELECT aap_assets_v1.set_spatial_dataset_axis($1::uuid, $2::uuid, $3::text)
+"""
 
 _CATALOG_FUNCTIONS = frozenset(
     {
@@ -752,6 +755,18 @@ class CatalogDatabase:
             request.operation_id,
             request.dataset_id,
             [entry.model_dump(mode="json") for entry in request.entries],
+        )
+
+    async def set_spatial_dataset_axis(
+        self, request: spatial.SetDatasetAxisRequest
+    ) -> spatial.DatasetAxisMutationResult:
+        return await self._spatial_call(
+            "set_spatial_dataset_axis",
+            SET_SPATIAL_DATASET_AXIS_SQL,
+            request,
+            request.operation_id,
+            request.dataset_id,
+            request.axis_convention,
         )
 
     async def _spatial_call(

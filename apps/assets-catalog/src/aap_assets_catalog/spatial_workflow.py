@@ -118,6 +118,10 @@ class SpatialNativeBinding(Protocol):
         self, request: spatial.RecordCalibrationProvenanceRequest
     ) -> spatial.ProvenanceMutationResult: ...
 
+    async def set_spatial_dataset_axis(
+        self, request: spatial.SetDatasetAxisRequest
+    ) -> spatial.DatasetAxisMutationResult: ...
+
 
 class CalibrationSourceReader(Protocol):
     """Read one object from a preconfigured, fixed datasets bucket."""

@@ -181,7 +181,7 @@ async def test_role_preflight_fails_closed_and_names_exact_twenty_six_functions(
         f"{name}({signature})" for name, signature in SPATIAL_NATIVE_SIGNATURES.items()
     }
     assert EXPECTED_ASSET_FUNCTIONS == catalog_functions | spatial_functions
-    assert len(EXPECTED_ASSET_FUNCTIONS) == 26
+    assert len(EXPECTED_ASSET_FUNCTIONS) == 27
     for signature in EXPECTED_ASSET_FUNCTIONS:
         assert signature in ROLE_PREFLIGHT_SQL
     normalized_preflight = " ".join(ROLE_PREFLIGHT_SQL.split())
@@ -449,3 +449,33 @@ async def test_spatial_scope_violation_rolls_back_before_exposing_a_reply():
         await database.guard_spatial_actor(request)
 
     assert connection.transaction_events == ["rollback"]
+
+
+@pytest.mark.asyncio
+async def test_dataset_axis_binding_passes_null_axis_in_frozen_argument_order():
+    operation_id, dataset_id = uuid4(), uuid4()
+    request = spatial.SetDatasetAxisRequest(
+        operation_id=operation_id,
+        dataset_id=dataset_id,
+        axis_convention=None,
+    )
+    connection = _Connection(
+        {
+            "schema": spatial.SPATIAL_SCHEMA,
+            "ok": True,
+            "data": {
+                "operation_id": str(operation_id),
+                "dataset_id": str(dataset_id),
+                "axis_convention": None,
+            },
+        }
+    )
+    database = CatalogDatabase(_Pool(connection))
+
+    result = await database.set_spatial_dataset_axis(request)
+
+    assert result.axis_convention is None
+    sql, args = connection.calls[0]
+    assert "aap_assets_v1.set_spatial_dataset_axis" in sql
+    assert args == (operation_id, dataset_id, None)
+    assert connection.transaction_events == ["commit"]
