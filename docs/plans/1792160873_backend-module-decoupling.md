@@ -1609,6 +1609,7 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
 - 本地隔离验收为 100 passed、零跳过，含 5 个 Workspace 用例、7 个 SQL/合同用例、14 个实际消费者用例、4 个独立登录/原生调用权限用例，以及 70 个既有导入、ZIP、关联、删除、worker 和连接器回归。架构另为 268 passed、109 个不适用的 lazy-root 跳过；5 个纯客户端绑定用例已包含在上述 100 项中，不重复计数。资源 helper 的 7 个单测、固定 Ruff、OpenAPI 快照、差异与文档构建通过。
 - 专属 PostgreSQL 容器上的真实 `NOLOGIN` owner 与独立登录调用方验收证明，该登录角色没有任何私有业务表列/表 CRUD、owner 继承或 schema CREATE 权限，仍能调用追加操作。原生 `psql` 独立调用和外层回滚通过。实际执行 Alembic 回退前序、冻结 SQL 原生安装/调用/回滚，再正常升级至 head；未 stamp 或修改日常 PostgreSQL 角色。验收脚本为 `scripts/verify_module_data_boundary.py`，本地记录保存为 `.worktree/module-data-boundary.json` 及 JUnit。
 - 临时 PostgreSQL、Redis、九个隔离桶和模式数据均已销毁。主 API 仍使用现有宽权限运行账号；本片不把它改名当作已隔离服务。初次关联的分块创建、在途作业关联代次、当前主体/项目权限、项目级删除与其余模块继续推进，全模块目标保持进行中。Go 实验没有变化。
+- 主 checkout 的已核实 API LaunchAgent 已加载新代码并迁移至 0191；空追加烟测的临时回执已回滚，DB/Redis/MinIO 均为 200。源码热重载在约三秒内更换服务子进程，公开 485 paths 与 872 schemas 和原快照完全一致；当前没有运行中的日常 Celery 容器需要刷新。服务管理器退出后残留的旧 reloader 已核实命令与 cwd，再单独结束；运行记录保存在 `.worktree/module-data-main-runtime.json`。
 
 ### 前序切片结果与当前目标状态
 

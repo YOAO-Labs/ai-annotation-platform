@@ -294,7 +294,7 @@ last_reviewed: 2026-10-17
 | learning                       |    87 |        105 | dataset、run/study/executor/preview、recipe、evaluation、active-learning、model/policy |
 | insights                       |    34 |         37 | Data Manager、dashboard、performance、task views、search、analytics                    |
 | supporting                     |    36 |         41 | notifications、storage、settings、jobs、audit、bug reports、health                     |
-| 合计                           |   485 |        568 | operationId 全部唯一；另含 57 个 tag、852 个 schema                                    |
+| 合计                           |   485 |        568 | operationId 全部唯一；另含 57 个 tag、872 个 schema                                    |
 
 源码路由索引只收集非空字面量路径，当前为 82 个模块、509 行；根路径操作、独立 executor/health 装配、隐藏路径的口径不同，不应为了对齐数字删改 API。以下入口单独核对：
 
