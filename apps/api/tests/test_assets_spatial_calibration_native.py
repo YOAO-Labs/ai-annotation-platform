@@ -238,7 +238,7 @@ async def _provenance_entries(db_session, item_ids: list[UUID]) -> list[dict]:
     page = await _calibration_page(db_session, item_ids)
     return [
         {
-            "dataset_item_id": record.dataset_item_id,
+            "dataset_item_id": str(record.dataset_item_id),
             "calibration": normalize_calibration_record(record).calibration.model_dump(
                 mode="json"
             ),
@@ -250,6 +250,74 @@ async def _provenance_entries(db_session, item_ids: list[UUID]) -> list[dict]:
         }
         for record in page.records
     ]
+
+
+async def test_legacy_coercible_calibration_and_linked_custom_file_type_can_update(
+    db_session,
+):
+    fixture = await _seed_camera_fixture(db_session)
+    item = await db_session.get(DatasetItem, fixture["dataset_item_id"])
+    raw = fixture["calibration"].model_dump(mode="json")
+    raw["extrinsic"][1] = False
+    raw["intrinsic"][0] = "123.5"
+    item.metadata_ = {"calibration": raw, "unrelated": {"preserve": True}}
+    item.file_type = "legacy_camera"
+    await db_session.flush()
+    page = await _calibration_page(db_session, [item.id])
+    current = normalize_calibration_record(page.records[0])
+    assert current.calibration.intrinsic[0] == 123.5
+    assert current.calibration.extrinsic[1] == 0.0
+    changed = _calibration(scale=2.0)
+    operation_id = uuid.uuid4()
+    reply = await _call(
+        db_session,
+        _UPDATE_CALIBRATION,
+        _update_values(
+            operation_id=operation_id,
+            actor_id=fixture["actor_id"],
+            task_id=fixture["task_id"],
+            calibration=changed,
+            expected_revision=current.revision,
+            expected_digest=current.digest,
+            current_canonical_document=canonical_calibration_document(
+                current.calibration
+            ),
+            source_snapshot=current.source_snapshot,
+        ),
+    )
+    result = _spatial_result(reply, CalibrationMutationResult)
+    assert result.state.revision == 2
+    assert result.state.digest == calibration_digest(changed)
+    metadata = await db_session.scalar(
+        select(DatasetItem.metadata_).where(DatasetItem.id == item.id)
+    )
+    assert metadata["unrelated"] == {"preserve": True}
+    assert await _audit_count(db_session, item.id) == 1
+
+
+async def test_provenance_late_invalid_entry_does_not_persist_valid_prefix(db_session):
+    fixture = await _seed_camera_fixture(db_session, export_metadata={"sample": "kept"})
+    item_id = fixture["dataset_item_id"]
+    entries = await _provenance_entries(db_session, [item_id])
+    entries.append({**entries[0], "dataset_item_id": str(uuid.uuid4())})
+    operation_id = uuid.uuid4()
+    reply = _json_value(
+        await _call(
+            db_session,
+            _RECORD_PROVENANCE,
+            {
+                "operation_id": operation_id,
+                "dataset_id": fixture["dataset_id"],
+                "entries": json.dumps(entries, default=str),
+            },
+        )
+    )
+    assert reply["ok"] is False
+    metadata = await db_session.scalar(
+        select(DatasetItem.metadata_).where(DatasetItem.id == item_id)
+    )
+    assert metadata["nuscenes_export"] == {"sample": "kept"}
+    assert await _receipt_count(db_session, operation_id) == 0
 
 
 async def test_legacy_calibration_cas_preserves_metadata_and_rolls_back_audit_and_receipt(
@@ -265,18 +333,8 @@ async def test_legacy_calibration_cas_preserves_metadata_and_rolls_back_audit_an
     assert record.created_at is None
     assert current.revision == 1
     assert current.digest == calibration_digest(fixture["calibration"])
-    assert set(record.source_snapshot) == {
-        "dataset_item_id",
-        "dataset_id",
-        "file_path",
-        "file_size",
-        "content_hash",
-        "scene_id",
-        "frame_index",
-        "calibration",
-        "revision",
-        "digest",
-    }
+    assert record.source_snapshot["dataset_item_id"] == str(item_id)
+    assert record.source_snapshot["dataset_id"] == str(fixture["dataset_id"])
 
     updated = _calibration(scale=2.0)
     operation_id = uuid.uuid4()

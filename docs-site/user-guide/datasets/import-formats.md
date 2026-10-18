@@ -74,7 +74,7 @@ scene 边界与 `frame_index` 的概念详见 [Scene + frame_index 跨 task 帧�
 - **一个 dataset 可以装多个 scene**;scene 边界由 importer / 目录布局决定。
 - scene 内 `frame_index` 决定跨帧导航(`Shift+→` 延续、邻帧框叠加)的顺序;跨 scene 不串(scene-A 末帧的"下一帧"为空,不会跳到 scene-B 首帧)。
 - 对象桶扫描只补建 DatasetItem，不推断或断言 Scene。因此扫描不会让原本没有 Scene 的数据集自动变成时序数据集。
-- 管理员也可通过认证 API 客户端调用 `PATCH /api/v1/scenes/{id}` 修正 scene 名称或来源字段；成功响应在事务提交后返回，后续 `GET` 可读取已保存结果。同一 dataset 内重名返回 `409` 且不应用本次其他字段更改；省略字段或传 `null` 表示不修改，`source_metadata: {}` 则清空该字段。
+- 管理员也可通过认证 API 客户端调用 `PATCH /api/v1/scenes/{id}` 修正 scene 名称或来源字段；成功响应在事务提交后返回，后续 `GET` 可读取已保存结果。可附带 UUID `Idempotency-Key`，响应中断后用原键和原内容确认结果。同一 dataset 内重名返回 `409` 且不应用本次其他字段更改；省略字段或传 `null` 表示不修改，`source_metadata: {}` 则清空该字段。
 
 > ⚠️ **不要**把 `lidar` / `camera` / `calib` / `image` / `video` 用作顶层 scene 目录名——它们是角色目录的保留名,会让多 scene 启发式误判为单 scene。
 
@@ -149,7 +149,7 @@ nuScenes 脚本会把 `sample_data` 中的相机像素宽高一并持久化，�
 | `intrinsic`  | 9 float(row-major)  | 相机内参 3×3 矩阵 K                       |
 | `rect`(可选) | 16 float            | KITTI 风格 4×4 矫正矩阵;非 KITTI 数据不填 |
 
-非 schema 字段(上游 / 厂商夹带的杂键)入库时自动剥除,不会让一份合法标定整体作废。机制(`attach_calibration`):读 calib JSON 后先 `{k: v for k, v in raw if k in {extrinsic, intrinsic, rect}}` 把未建模键过滤掉,再过 `SensorCalibration` 校验(`extra="forbid"`,只接受三字段);若过滤后仍非法(如长度不对)则 `warning` 跳过该相机、不抛错。入库时写的是 `model_dump(exclude_none=True)`,所以不带 `rect` 的标定不会落一个 `rect: null`。
+非 schema 字段(上游 / 厂商夹带的杂键)入库时自动剥除,不会让一份合法标定整体作废。素材准备流程：读 calib JSON 后先 `{k: v for k, v in raw if k in {extrinsic, intrinsic, rect}}` 把未建模键过滤掉,再过 `SensorCalibration` 校验(`extra="forbid"`,只接受三字段);若过滤后仍非法(如长度不对)则 `warning` 跳过该相机、不抛错。原始标定缺少 `rect` 时保持可读取。已有人工标定修订优先，导入不会覆盖它；读取期间素材来源发生变化时，本次迟到结果不会写入。
 
 **前后对比**——以 SUSTechPOINTS 示例 `calib/camera/left.json` 为例,上游夹带了一个非 schema 的 `extrinsic_ok` 键(疑似占位 / 历史外参):
 

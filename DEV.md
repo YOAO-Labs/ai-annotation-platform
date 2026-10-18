@@ -464,9 +464,9 @@ writer 配置要求 lease 严格长于其 hard time limit。旧 cleanup Celery t
 
 ## 独立 Assets 目录服务
 
-`apps/assets-catalog` 提供目录列表、详情、文件分页、公开创建/更新及数据集与项目的双向关联列表。数据集关联写入、建题、
+`apps/assets-catalog` 提供目录列表、详情、文件分页、公开创建/更新、数据集与项目的双向关联列表，以及 Scene、位姿、标定和点云素材准备。数据集关联写入、建题、
 导入、上传和来源删除继续使用自己的既有事务合同；不要把需要保留调用方锁的内部
-`DatasetService` 操作替换为 HTTP。完整范围见[目录协议](docs-site/api/guides/assets-catalog.md)。
+`DatasetService` 操作替换为 HTTP。完整范围见[目录协议](docs-site/api/guides/assets-catalog.md)和[空间素材协议](docs-site/api/guides/assets-spatial.md)。
 
 先应用迁移并完成上面的 module-data owner 授权，再创建一个无管理权限、无角色成员资格、
 不拥有业务表的独立 `asset_catalog_client` LOGIN，运行专用授权脚本：
@@ -478,7 +478,7 @@ psql -v expected_database=annotation_test -v migration_role=owner \
 ```
 
 这里的数据库和连接参数应换成明确选择的环境；不要把日常 API 的宽权限账号当作目录
-LOGIN。该 LOGIN 只可执行七个目录/关联函数，不可读取表、序列或其他 owner schema。启动时的
+LOGIN。该 LOGIN 只可执行 27 个目录、关联与空间素材函数，不可读取表、序列或其他 owner schema。启动时的
 权限检查会拒绝过宽身份。迁移期主 API 仍保持既有角色，未因此获得整体隔离资格。
 
 目录服务使用独立的四个 secret：数据库 URL、Bearer token、S3 access key、S3 secret key。
@@ -487,7 +487,7 @@ datasets 桶的 `GetObject` 和 media-cache 中 `thumbnails/`、`videos/`、`pla
 `image-pyramids/` 的 `GetObject`，不允许列桶、Put/Delete 或桶管理。原始文件可能使用历史
 数据集名称路径，不能只授予新的 `dataset-sources/` 前缀。桶须预先准备，普通创建不写目录标记。
 
-配置浏览器可达的固定签名 origin 及两个桶后，显式启动本地项目；目录服务只签名，不连接 S3 下载：
+配置浏览器可达的固定签名 origin 及两个桶后，显式启动本地项目。空间素材准备还从 datasets 桶只读标定 JSON；`ASSETS_CATALOG_S3_ENDPOINT` 可另设服务可达 origin，留空沿用公开 origin：
 
 ```bash
 docker compose -p aap-assets-catalog-dev -f docker-compose.assets-catalog.yml up -d --build
@@ -504,11 +504,11 @@ docker compose -p aap-assets-catalog-dev -f docker-compose.assets-catalog.yml ex
 远程不可用时返回错误，不切换成本地写入；HTTP 各 I/O 阶段默认 5 秒，上限 60 秒。
 内部请求/响应预算分别为 1/16 MiB，超出明确失败，不截断数据。
 
-先将 SQL 升至 0212 并重跑 owner/目录授权，升级目录镜像，确认 `/health` 和 `/ready` 后再切换网关配置。旧目录镜像的五项权限预检不接受新的七项角色，需协调本次升级。创建和更新使用保存的
+先暂停受影响写入，将 SQL 升至 0216 并重跑 owner/目录授权，升级目录镜像，确认 `/health` 和 `/ready` 后再切换网关配置。旧镜像的权限预检不接受新的 27 项角色，需协调升级。创建、更新、Scene PATCH、场景回填和标定 PATCH 使用保存的
 UUID `Idempotency-Key`，结果不确定时以原内容和原键重放；回执保留原快照，重复创建不会
 生成第二个数据集。回退服务实现可先清空网关 URL、重启网关并保留兼容 SQL 和回执，
 再停止同一 `-p` / `-f` 的独立项目。若要回退迁移，必须先停止目录写入并处理仍需确认的
-请求；删除回执会丢失重放依据。目录/来源回执目前没有自动清理。
+请求；删除回执会丢失重放依据。目录、来源和空间素材回执目前没有自动清理。
 
 `verify_module_data_boundary.py` 在自有 PostgreSQL、Redis、桶和专属只读 S3 身份上验证
 真实目录容器、公开 API 消费、响应丢失、重启和本地/远程切换；不修改日常角色，不提供

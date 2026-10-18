@@ -1988,7 +1988,7 @@ BEGIN
         IF jsonb_typeof(v_values) IS DISTINCT FROM 'array' THEN
             RETURN false;
         END IF;
-        IF jsonb_array_length(v_values) <> CASE WHEN v_key = 'extrinsic' THEN 16 ELSE 9 END THEN
+        IF jsonb_array_length(v_values) <> (CASE WHEN v_key = 'extrinsic' THEN 16 ELSE 9 END) THEN
             RETURN false;
         END IF;
         FOR v_value IN SELECT value FROM jsonb_array_elements(v_values)
@@ -2041,7 +2041,7 @@ BEGIN
     FOREACH v_key IN ARRAY ARRAY['extrinsic', 'intrinsic'] LOOP
         v_values := p_raw -> v_key;
         IF jsonb_typeof(v_values) IS DISTINCT FROM 'array'
-           OR jsonb_array_length(v_values) <> CASE WHEN v_key = 'extrinsic' THEN 16 ELSE 9 END THEN
+           OR jsonb_array_length(v_values) <> (CASE WHEN v_key = 'extrinsic' THEN 16 ELSE 9 END) THEN
             RETURN NULL;
         END IF;
         v_result := '[]'::jsonb;

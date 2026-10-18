@@ -278,7 +278,7 @@ ListBucket/DeleteObject，不继承 API、Redis 或 Celery 配置。配置、独
 
 `list_dataset_projects(actor,dataset)` 和 `list_project_datasets(actor,project)` 返回冻结 `aap-assets-associations/v1`，完整结构见 `0212_asset_association_reads.schema.json`。两者均为 STABLE 读取，按最外层 SELECT 的同一个 MVCC 快照组合身份、关联、配置与计数，不调用写入围栏或持有行锁。快照开始后的撤权和解绑不改变已开始读取的结果，下一条 READ COMMITTED 语句读取新状态。
 
-Identity 只提供 actor UUID、平台角色和活跃状态；Workspace 提供原始项目配置及当前可见性；Labeling 提供持久项目计数和按直接来源分组的任务数；Assets 持有目录、条目与关联。Owner 间只授予版本化投影/函数权限，不授予其他 owner 私有表。目录 LOGIN 仅执行七个公开 Assets 操作，不能读取这些投影。
+Identity 只提供 actor UUID、平台角色和活跃状态；Workspace 提供原始项目配置及当前可见性；Labeling 提供持久项目计数和按直接来源分组的任务数；Assets 持有目录、条目与关联。Owner 间只授予版本化投影/函数权限，不授予其他 owner 私有表。目录 LOGIN 执行目录、关联与空间素材的 27 个公开 Assets 操作，不能读取这些投影。
 
 ## 旧上传条目的完成与回执
 
@@ -319,3 +319,9 @@ Assets 的 `prepare_dataset_import`、`accept_dataset_import` 与 `cancel_datase
 Item、文件数、Labeling append、游标/计数、Jobs 进度和媒体派发意图共同提交或回滚。Jobs 终态经 Notifications 能力持久化通知；Settings 的当前白名单通过其版本化能力读取。两个新 NOLOGIN owner 不读取 Identity 私表，Identity 存在事实由既有公开能力提供。
 
 后续派发使用 `aap-dataset-import-delivery/v1`：领取在实际传输前提交，失败保留租约供重试，成功再确认；原始 SQL/schema 包含 wall-clock 期限检查。该回执只表示传输被接受，不证明既有媒体计算完成。迁移拒绝活动旧导入，不能为其推导受理证据；先排空或取消再升级。操作和运行限制见 [ADR-0100](/dev/adr/0100-durable-connector-import)。
+
+## 空间素材状态与同事务组合
+
+场景、帧组织、位姿、标定与 nuScenes 标定 provenance 使用二十项公开原生能力；完整合同见[空间素材协议](./assets-spatial)。Assets 新增不可变 `dataset_spatial_operations`，不保存 live-resource 外键。Catalog LOGIN 共 27 项 execute-only 能力，Source LOGIN 保持 14 项。
+
+Assets 只通过 Labeling 当前相机/共享与受理范围、Workspace 当前项目访问和 Audit 事件能力组合跨 owner 状态，不读取其他 owner 私有表。标定更新与审计、回执、历史修订和元数据共同提交；需要同事务的建题导入继续在调用方同一 SQL 连接上组合公开能力。读取标定文件前不增加空间状态行锁，最终应用再检查来源快照和已受理作业/关联代次。普通远程故障不触发本地回退。

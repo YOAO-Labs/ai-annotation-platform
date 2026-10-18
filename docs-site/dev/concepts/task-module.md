@@ -245,7 +245,7 @@ scene 模式把一段时序录像切成多个 task，每个 task 通过其关联
 - 边界口径：
   - 历史未 backfill / 关联不到 `dataset_item` / item 无 `scene_id` → `200` + 空 `prev`/`next`（与首末帧对调用方一致，避免前端多做一种区分）
   - `scene_id` 非空但 `frame_index` 为 NULL（异常数据）→ `409`
-- 服务层在 `app/services/scene.py:get_neighbors_for_task()`；按 `frame_index` 排序后反查 task，主帧（`dataset_item_id`）与多模态点云链接（`TaskDatasetItemLink`）两条路径合并去重。
+- 服务层在 `app/services/labeling_scene.py:get_neighbors_for_task()`；按 `frame_index` 排序后反查 task，主帧（`dataset_item_id`）与多模态点云链接（`TaskDatasetItemLink`）两条路径合并去重。
 
 ### 跨帧标注传播
 

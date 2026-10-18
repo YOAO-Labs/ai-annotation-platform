@@ -127,11 +127,11 @@ scene API 提供列表/单条读取及部分元数据 PATCH；create 由 importe
 
 `GET /api/v1/tasks/{id}/point-cloud/manifest` 返回 `scene_id` / `scene_name` / `frame_index` / `scene_total_frames` 四字段；未回填 Scene 时均为空。
 
-该清单由 `application/point_cloud_manifest.py` 组合 Labeling 链接引用与 Assets 的素材/标定/Scene/位姿事实。HTTP 先核验当前任务可见性和项目类型，读取端口只接收 UUID，在同一 Session 内保留原读取及签名顺序；完整素材 ORM 留在 Assets SQL 适配器内。缺失 Scene 或位姿继续返回空值，位姿的自由来源 JSON 复制后交付，避免消费者修改 ORM 缓存。
+该清单由 `application/point_cloud_manifest.py` 组合 Labeling 链接引用与 Assets 的公开素材、标定、Scene 和位姿事实。HTTP 先核验当前任务可见性和项目类型，读取端口只接收 UUID；消费者不读取 Assets 私有 ORM。需要与标注写入串行化的标定事实通过同事务原生快照锁确认。缺失 Scene 或位姿继续返回空值，自由来源 JSON 以脱离持久化对象的值交付。
 
 ## scene_inference 算法
 
-`services/scene_inference.py` 暴露 `infer_and_apply(db, *, dataset_id, mode, dry_run)`。
+`aap_assets_catalog.spatial_workflow.SpatialWorkflow.backfill_scenes` 接收公开 `BackfillScenesRequest`，复用 Source 的纯 Scene planner。API 通过 `services/assets_spatial.py` 选择独立运行时或同一原生合同；需要整体回滚的导入显式使用调用方 SQL 连接。
 
 ### 三种 mode
 
@@ -227,7 +227,7 @@ scene 只给了"帧的相对顺序";`scene_frame_poses` 表补上"帧的时空"�
 
 ### 数据来源与回填
 
-- `import_nuscenes_scene.py` 落 scene 后逐帧 upsert(`services/scene_pose.py::upsert_frame_poses`,按唯一键 `ON CONFLICT DO UPDATE`,幂等)。
+- `import_nuscenes_scene.py` 落 scene 后逐帧 upsert(`AssetsSpatialGateway.upsert_poses`,按唯一键 `ON CONFLICT DO UPDATE`,幂等)。
 - 历史 dataset 用 `scripts/backfill_frame_poses.py --dataset-id <uuid|display_id> --nuscenes-root <root>` 补;按 `scene.source_metadata.scene_token` 反查原元数据。
 
 ### ego 补偿与插值如何消费 trajectory(v0.15.1)

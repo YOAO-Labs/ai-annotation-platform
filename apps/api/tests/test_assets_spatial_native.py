@@ -13,6 +13,7 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from aap_assets_catalog.spatial_contract import (
+    DatasetAxisMutationResult,
     LayoutPage,
     PoseMutationResult,
     PosePage,
@@ -24,6 +25,7 @@ from aap_assets_catalog.spatial_contract import (
     SpatialActorResult,
     SpatialLayoutPlan,
     SPATIAL_NATIVE_SIGNATURES,
+    SPATIAL_NATIVE_ARGUMENTS,
     SPATIAL_SCHEMA,
     decode_spatial_reply,
 )
@@ -314,6 +316,161 @@ async def test_spatial_capability_returns_a_real_typed_envelope(db_session) -> N
     assert actor.access == "manager_write"
 
 
+async def test_native_argument_names_match_frozen_same_type_argument_order(db_session):
+    for name, types in SPATIAL_NATIVE_SIGNATURES.items():
+        names = await db_session.scalar(
+            text(
+                "SELECT proargnames FROM pg_catalog.pg_proc WHERE oid=pg_catalog.to_regprocedure(:signature)"
+            ),
+            {"signature": f"aap_assets_v1.{name}({types})"},
+        )
+        assert names == [f"p_{field}" for field in SPATIAL_NATIVE_ARGUMENTS[name]]
+
+
+async def test_axis_operator_preserves_metadata_replay_and_published_query_facts(
+    db_session,
+):
+    actor_id = await _seed_actor(db_session)
+    dataset_id = await _seed_dataset(
+        db_session,
+        actor_id=actor_id,
+        metadata={"axis_convention": "apollo", "source": {"keep": True}},
+    )
+    scene = await _create_scene(
+        db_session,
+        operation_id=uuid.uuid4(),
+        scene_id=uuid.uuid4(),
+        dataset_id=dataset_id,
+        name="empty-scene",
+        created_by=None,
+    )
+    statement = text(
+        "SELECT aap_assets_v1.set_spatial_dataset_axis(CAST(:operation AS uuid),CAST(:dataset AS uuid),CAST(:axis AS text))"
+    )
+    operation_id = uuid.uuid4()
+    changed = _spatial_result(
+        await _call(
+            db_session,
+            statement,
+            {"operation": operation_id, "dataset": dataset_id, "axis": "iso_8855"},
+        ),
+        DatasetAxisMutationResult,
+    )
+    assert changed.axis_convention == "iso_8855"
+    row = await db_session.execute(
+        text("SELECT metadata,ctid::text FROM datasets WHERE id=:id"),
+        {"id": dataset_id},
+    )
+    metadata, before_noop = row.one()
+    assert metadata == {"axis_convention": "iso_8855", "source": {"keep": True}}
+    await _call(
+        db_session,
+        statement,
+        {"operation": uuid.uuid4(), "dataset": dataset_id, "axis": "iso_8855"},
+    )
+    assert (
+        await db_session.scalar(
+            text("SELECT ctid::text FROM datasets WHERE id=:id"), {"id": dataset_id}
+        )
+        == before_noop
+    )
+    cleared = _spatial_result(
+        await _call(
+            db_session,
+            statement,
+            {"operation": uuid.uuid4(), "dataset": dataset_id, "axis": None},
+        ),
+        DatasetAxisMutationResult,
+    )
+    assert cleared.axis_convention is None
+    replay = _spatial_result(
+        await _call(
+            db_session,
+            statement,
+            {"operation": operation_id, "dataset": dataset_id, "axis": "iso_8855"},
+        ),
+        DatasetAxisMutationResult,
+    )
+    assert replay == changed
+    assert await db_session.scalar(
+        text("SELECT metadata FROM datasets WHERE id=:id"), {"id": dataset_id}
+    ) == {"source": {"keep": True}}
+    assert (
+        await db_session.scalar(
+            text(
+                "SELECT scene_name FROM aap_assets_v1.spatial_scene_references WHERE scene_id=:id"
+            ),
+            {"id": scene.scene_id},
+        )
+        == "empty-scene"
+    )
+    # Presence is the historical JSONB predicate, including malformed values.
+    item_id = uuid.uuid4()
+    await db_session.execute(
+        text(
+            "INSERT INTO dataset_items(id,dataset_id,file_name,file_path,file_type,scene_id,frame_index,metadata) VALUES(:id,:dataset,'legacy.pcd','legacy/path','legacy',:scene,-1,CAST(:metadata AS jsonb))"
+        ),
+        {
+            "id": item_id,
+            "dataset": dataset_id,
+            "scene": scene.scene_id,
+            "metadata": json.dumps({"calibration": None}),
+        },
+    )
+    facts = (
+        await db_session.execute(
+            text(
+                "SELECT scene_id,frame_index,axis_convention,calibration_metadata_present FROM aap_assets_v1.spatial_item_references WHERE item_id=:id"
+            ),
+            {"id": item_id},
+        )
+    ).one()
+    assert facts == (scene.scene_id, -1, None, True)
+
+
+async def test_layout_late_invalid_assignment_does_not_persist_scene_or_prefix(
+    db_session,
+):
+    scope = await _seed_pointcloud_preparation(db_session, actor_role="super_admin")
+    operation_id = await _accept_pointcloud_creation(db_session, scope, job_id=None)
+    page = await _read_preparation(db_session, operation_id)
+    plan = _single_frame_plan(page.dataset_name, scope["item_id"]).model_dump(
+        mode="json"
+    )
+    plan["assignments"].append({**plan["assignments"][0], "item_id": str(uuid.uuid4())})
+    plan["assigned_items"] = 2
+    reply = _json_value(
+        await _call(
+            db_session,
+            _APPLY_LAYOUT,
+            {
+                "operation_id": uuid.uuid4(),
+                "actor_id": scope["actor_id"],
+                "dataset_id": scope["dataset_id"],
+                "mode": "single",
+                "dry_run": False,
+                "plan": json.dumps(plan),
+                "snapshot": json.dumps({"snapshot_digest": page.snapshot_digest}),
+            },
+        )
+    )
+    assert reply["ok"] is False
+    assert (
+        await db_session.scalar(
+            text("SELECT count(*) FROM scenes WHERE dataset_id=:id"),
+            {"id": scope["dataset_id"]},
+        )
+        == 0
+    )
+    assert (
+        await db_session.scalar(
+            text("SELECT scene_id FROM dataset_items WHERE id=:id"),
+            {"id": scope["item_id"]},
+        )
+        is None
+    )
+
+
 async def test_create_scene_replay_and_dataset_name_conflict(db_session) -> None:
     actor_id = await _seed_actor(db_session)
     dataset_id = await _seed_dataset(db_session, actor_id=actor_id)
@@ -408,7 +565,7 @@ async def test_assign_spatial_items_rejects_cross_dataset_without_writes(
         },
     )
 
-    _spatial_error(rejected, "source_changed")
+    _spatial_error(rejected, "source_missing")
     assignment = (
         await db_session.execute(
             text("SELECT scene_id, frame_index FROM public.dataset_items WHERE id=:id"),

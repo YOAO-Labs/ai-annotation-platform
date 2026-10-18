@@ -1,6 +1,6 @@
 # 后端业务模块解耦与跨语言替换设计
 
-> Status: 进行中。当前目标覆盖 identity、workspace、assets、labeling、inference、learning、insights、jobs、audit、notifications 及运行装配。前序 Python 进程内切片、常驻 API 恢复和既有训练作业执行权交接已完成。assets 视频探测三个操作已提供独立 Python 工件、流式合同及真实调用端的 Node 替换验收；同步 ZIP 与旧前缀扫描已纳入既有 Assets Source 工件及 0215 原生合同，并通过真实隔离服务、受限角色与故障恢复验收。Assets CRUD、标定、派生媒体、脚本和其余模块提取继续推进。Go 月报保持独立实验，其可用性和容量不作为本目标门槛。当前各模块缺口见[模块部署与语言替换状态](../../docs-site/dev/concepts/module-deployment.md)。
+> Status: 进行中。当前目标覆盖 identity、workspace、assets、labeling、inference、learning、insights、jobs、audit、notifications 及运行装配。前序 Python 进程内切片、常驻 API 恢复和既有训练作业执行权交接已完成。assets 视频探测三个操作已提供独立 Python 工件、流式合同及真实调用端的 Node 替换验收；同步 ZIP 与旧前缀扫描已纳入既有 Assets Source 工件及 0215 原生合同，并通过真实隔离服务、受限角色与故障恢复验收。Scene、位姿和标定切片正在提取至既有 Catalog 工件，数据库与真实运行时资格尚待本轮验证；媒体/Blob、连接器管理、其余脚本和其他模块继续推进。Go 月报保持独立实验，其可用性和容量不作为本目标门槛。当前各模块缺口见[模块部署与语言替换状态](../../docs-site/dev/concepts/module-deployment.md)。
 >
 > 创建日期：2026-10-16。
 >
@@ -1727,3 +1727,10 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
 - The source LOGIN surface grows from nine existing functions to 14 with five ingest capabilities. The two media delivery claim/ack functions belong to the API maintenance relay. No new runtime environment variables are required.
 - Local integration and follow-up results cover 775 distinct passing cases without business skips. The standalone package passes 221 cases, SDK/CLI and catalog checks 96, and focused Web checks 32. Real Source HTTP/SQL/S3 cases cover lost-response replay, process loss, whole-operation rollback, immutable object retention, media outbox retry, historical scene inputs, 1,003-object pagination and the declared 512 MiB/256 MiB resource profile. Frozen SQL install/rollback and all four migration phases pass.
 - The larger goal remains active with other Assets CRUD, calibration, derived media, scripts and all remaining modules still to be extracted and qualified. These local slice results do not establish production capacity or full module deployment.
+
+## Assets spatial state extraction — implementation in progress
+
+- The spatial boundary covers persisted Scene, DatasetItem scene/frame assignment, poses, calibration history/CAS, axis inference, accepted point-cloud source preparation and nuScenes calibration provenance. Task, camera-link, annotation and track composition remains with Labeling.
+- The existing Catalog runtime is reused. The frozen protocol publishes twenty native capabilities plus four complete owner workflows; Catalog LOGIN grows from seven to 27 functions, while Source remains fourteen. One immutable spatial receipt table raises the ownership ledger to 127 tables, with 25 owned by Assets.
+- Caller-owned imports retain one SQL transaction through published native capabilities. Ordinary remote calls do not fall back. Materialized calibration digests remain opaque across JSONB round trips; virtual legacy state keeps exact historical normalization. Replay identity excludes derived current documents, plans and source snapshots.
+- Pure kernels, 120 standalone package checks, twenty native database cases and a focused preparation case have local passing evidence. Native qualification includes restricted psql, scoped roles, migration/frozen-SQL rollback, historical calibration compatibility, cancellation/unlink fencing and query projections. Actual HTTP/S3, response-loss, large-page and full consumer qualification are still pending; do not report the slice, local migration or all-module goal as complete until they pass.
