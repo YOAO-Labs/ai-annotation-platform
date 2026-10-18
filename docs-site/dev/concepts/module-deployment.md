@@ -17,13 +17,13 @@ last_reviewed: 2026-10-19
 
 ## 当前模块状态
 
-当前入口清单覆盖主 API 的 485 paths、568 operations，另有 WebSocket、Celery、训练 executor、CLI 和诊断工具。逻辑所有权台账覆盖 129 张 ORM 表。路由数和表数用于定位现有边界，不代表模块已有稳定 wire schema。具体入口以[仓库地图](./repository-map#公开契约与入口台账)为准，表和事务以[后端分层](./backend-layers#权威数据与写入所有权)为准。
+当前入口清单覆盖主 API 的 485 paths、568 operations，另有 WebSocket、Celery、训练 executor、CLI 和诊断工具。逻辑所有权台账覆盖 133 张 ORM 表。路由数和表数用于定位现有边界，不代表模块已有稳定 wire schema。具体入口以[仓库地图](./repository-map#公开契约与入口台账)为准，表和事务以[后端分层](./backend-layers#权威数据与写入所有权)为准。
 
 | 模块          | 已有证据                                                                                                                                                                                                                                                                                          | 独立部署与替换仍缺少的能力                                                                                                                                                                                             |
 | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | identity      | 52 个路径、61 个操作、8 张所有者表。认证、身份事实、API key、自助资料和生命周期已有若干值接口与单一写入服务；初始建题、项目删除和数据集解绑会读取当前身份事实。                                                                                                                                   | 身份服务自己的版本化协议、凭据与会话运行时，以及供其他服务使用的可信主体和当前撤权合同。成员授予、邀请、离职仍涉及 Workspace、Labeling 和 Audit 的共享事务，需明确唯一事务 owner。                                     |
 | workspace     | 31 个路径、41 个操作、5 张所有者表。项目配置、模板、成员与项目删除已有领域 owner；项目删除和数据集解绑使用 Workspace 当前权限合同及同库事务协调。                                                                                                                                                 | Workspace 尚非独立服务。项目转移、邀请、成员生命周期仍涉及多 owner 当前授权、写入与审计；完整入口、迁移和独立凭据仍缺。                                                                                                |
-| assets        | 40 个路径、51 个操作、27 张所有者表。视频探测有独立工件与 Node 互操作验收；目录、关联读取及 Scene/位姿/标定由既有 Catalog 工件提供；来源控制、六项连接管理操作、同步 ZIP/扫描、清理和持久连接器导入使用现有 Assets Source 运行时；本地图片与 nuScenes importer 使用单独的六项 operator SQL 能力。 | 其余导入/运维写入、派生媒体与完整 Blob/读取合同仍待提取；独立运行仍覆盖子能力，全模块部署与语言替换尚未完成。                                                                                                          |
+| assets        | 40 个路径、51 个操作、31 张所有者表。视频探测有独立工件与 Node 互操作验收；目录、关联读取及 Scene/位姿/标定由既有 Catalog 工件提供；来源控制、六项连接管理操作、同步 ZIP/扫描、清理和持久连接器导入使用现有 Assets Source 运行时；本地图片与 nuScenes importer 使用单独的六项 operator SQL 能力。 | 视频执行与引用合同已实现，正在做受限角色及真实进程验收；图片、一般 Blob、已接受推理源快照和其余运维写入仍待提取，全模块部署与语言替换尚未完成。                                                                        |
 | labeling      | 123 个路径、138 个操作、36 张所有者表，覆盖任务、批次、标注、候选、审核、反馈、轨迹、Mask 和质检。多项写入端口及解绑主来源选择、保留检查、Task 清理和投影已有 owner 合同。                                                                                                                        | 许多操作仍绑定请求方 SQL Session。完整写入集合仍须与账号、成员、Task 和编辑锁的当前权威串行化；跨模块事务 owner 和远程撤权/重放协议仍待完成。                                                                          |
 | inference     | 82 个路径、94 个操作与 tracking/quality 路由合计；9 张推理控制面所有者表。五个 ML backend 已是独立 HTTP 服务，已有 JSON/Pydantic 协议包。                                                                                                                                                         | ML backend 是计算子能力，不是平台 inference 模块。Registry、pool、GPU 仲裁、路由、pipeline 和作业账本仍在 API/Redis/Celery 内。需公开平台控制协议，约束 GPU 租约、取消和迟到结果，并解除对 Python 协议包的运行时依赖。 |
 | learning      | 87 个路径、105 个操作、35 张所有者表。训练 executor 有独立 HTTP 拉取进程和执行权交接验收；项目删除与 Dataset/Item 删除、解绑已有保留检查能力。                                                                                                                                                    | executor 只是执行子能力；版本、训练、评估与发布账本仍由 API 持有，并依赖 Labeling/Assets 冻结来源、Workspace 权威和 Inference 安装/试用。                                                                              |
@@ -131,7 +131,7 @@ Source LOGIN 精确执行 23 项 Assets 能力：既有 14 项来源/入库函�
 
 连接管理的限域本地资格覆盖 13 个受限角色原生/HTTP 用例，包括真实 S3/SFTP、并发、重放、重启与切换。临近响应上限的列表测试读取 1,033 条记录、合计 42,139,197 字节，分 7 个内部页完成，单页最大 15,206,907 字节；在 0.5 CPU、512 MiB Source 容器中用时 6.238 秒，峰值内存为 149,778,432 字节。迁移四阶段验证通过。这些是隔离本地证据，不代表 CI、生产容量或完整 Assets 独立部署资格。
 
-旧上传完成不再通过 API 的私有 ORM 修改来源；0213 原子组合元数据、Labeling 建题、计数和 Assets 自己的不可变回执。ZIP 以 `dataset-sources/{dataset}/{item}/{publication}/{logical_relpath}` 写入不可变 publication，metadata 保存逻辑路径；扫描仅读取精确 Dataset name 前缀，不接管 modern publication 或未登记拷贝。ZIP/扫描 Item、计数、Labeling append、ZIP Scene/frame 更新、最终回执和媒体 outbox 在同一个外层事务提交。原始对象不会被覆盖或删除，完成回执可按原 actor/Dataset/操作类型/请求身份重放。0218 后 Assets 共 27 张表，全仓 ORM 所有权台账为 129 张表。完整协议、预算、部署顺序与回退见[来源控制](/api/guides/assets-source)、[同库数据接口](/api/guides/module-data)及 [ADR-0101](/dev/adr/0101-assets-synchronous-zip-and-scan)。
+旧上传完成不再通过 API 的私有 ORM 修改来源；0213 原子组合元数据、Labeling 建题、计数和 Assets 自己的不可变回执。ZIP 以 `dataset-sources/{dataset}/{item}/{publication}/{logical_relpath}` 写入不可变 publication，metadata 保存逻辑路径；扫描仅读取精确 Dataset name 前缀，不接管 modern publication 或未登记拷贝。ZIP/扫描 Item、计数、Labeling append、ZIP Scene/frame 更新、最终回执和媒体 outbox 在同一个外层事务提交。原始对象不会被覆盖或删除，完成回执可按原 actor/Dataset/操作类型/请求身份重放。Assets 当前共 31 张表，全仓 ORM 所有权台账为 133 张表；四张新增表归独立视频媒体作业、回执、暂存和垃圾清理账本。完整协议、预算、部署顺序与回退见[来源控制](/api/guides/assets-source)、[同库数据接口](/api/guides/module-data)及 [ADR-0101](/dev/adr/0101-assets-synchronous-zip-and-scan)。
 
 ## 全目标完成门槛
 
@@ -180,3 +180,11 @@ Source LOGIN 精确执行 23 项 Assets 能力：既有 14 项来源/入库函�
 公开 ZIP 和扫描入口已使用既有 Assets Source HTTP 工件及同库原生合同；本地装配复用同一工作流。ZIP 保留活跃账号与 `datasets:write` 权限，扫描保留管理员限制。旧 ORM 导入循环已移除，ZIP 使用不可变 publication key，扫描只分页读取当前 Dataset 的旧名称前缀。素材、任务追加、计数、ZIP 场景与帧分配、完成回执和媒体派发意图在同一事务提交。完整行为和恢复规则见[来源控制](/api/guides/assets-source)与 [ADR-0101](/dev/adr/0101-assets-synchronous-zip-and-scan)。
 
 连接管理与来源控制共用既有 Source runtime，但这项边界更新不改变 ZIP/扫描的同步响应和对象预算，也不构成当前连接操作的真实环境或生产容量资格声明。
+
+## 视频媒体控制与执行
+
+`apps/assets-media` 提供独立控制和轮询执行进程，冻结 `aap-assets-media/v1` 数据及 HTTP 工件。原生控制 LOGIN 精确执行 18 项能力，执行 LOGIN 精确执行 10 项；新增四张账本表记录逻辑作业、不可变操作回执、时间表暂存与可重试垃圾责任。来源、作业、租约与时间表依赖在发布时核验，执行进程不导入 API、ORM、Celery 或 Redis。
+
+视频 REST、摘要、Data Manager 聚合、帧预标注、导出引用、seed、时间表工具及旧 Celery 注册入口已接入 owner。显式远程配置不会回退；本地绑定使用同一套实现。当前正在隔离资源中验证原生 SQL 和真实进程，尚不授予完整视频切片的本地资格。完整字段、预算、缓存丢失与来源漂移规则见[视频媒体接口](/api/guides/assets-media)。
+
+已接受的跟踪和推理作业仍需在受理时冻结来源引用与代次，才能安全迁移其原始文件读取。图片缩略图/金字塔、一般 Blob、章节和运维 reset 继续推进；这些缺口及其他模块没有因视频子能力提取而完成。Go 仍是单独实验。

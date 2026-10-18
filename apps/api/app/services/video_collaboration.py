@@ -118,12 +118,18 @@ async def segment_work_bounds_for_task(
         frame_count = (video_metadata or {}).get("frame_count")
     else:
         frame_count = video_metadata.frame_count
+    if frame_count is None or frame_count <= 0:
+        raise HTTPException(
+            status_code=503,
+            detail={"reason": "video_metadata_not_ready"},
+            headers={"Retry-After": "3"},
+        )
     return segment_work_bounds(
         start_frame=segment.start_frame,
         end_frame=segment.end_frame,
         segment_index=segment.segment_index,
         segment_count=max(1, segment_count),
-        frame_count=max(1, int(frame_count or 1)),
+        frame_count=int(frame_count),
         overlap_frames=config.overlap_frames,
     )
 

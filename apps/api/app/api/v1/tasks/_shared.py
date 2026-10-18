@@ -32,7 +32,7 @@ from app.services.storage import storage_service
 from app.db.models.project_member import ProjectMember
 from app.services.assets_media_summary import AssetsTaskMediaSummaryReader
 from app.services.assets_media_summary_contract import TaskMediaSummary
-from app.services.assets_media import media_gateway
+from app.services.assets_media import browser_media_url, media_gateway
 
 logger = logging.getLogger(__name__)
 
@@ -306,7 +306,7 @@ def _task_with_url(
     )
     if owner_source_reference_loaded:
         file_url = (
-            owner_source_reference.original_url
+            browser_media_url(owner_source_reference.original_url)
             if owner_source is not None and not owner_source.source_drifted
             else None
         )
@@ -342,7 +342,9 @@ def _task_with_url(
     if owner_source_reference_loaded:
         if owner_source is not None and owner_source.file_type == "video":
             thumbnail_url = (
-                owner_source_reference.poster_url if owner_source_current else None
+                browser_media_url(owner_source_reference.poster_url)
+                if owner_source_current
+                else None
             )
         elif owner_source is not None and thumbnail_path:
             thumb_bucket = storage_service.bucket_for_cache_key(

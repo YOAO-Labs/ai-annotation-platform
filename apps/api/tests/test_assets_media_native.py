@@ -242,7 +242,7 @@ async def test_timetable_publish_and_late_finish_retain_attempt_prefix(db_sessio
             {"garbage_id": garbage.garbage_id, "lease_token": garbage.lease_token},
         )
     )
-    assert first_ack == {"garbage_id": garbage.garbage_id, "completed": True}
+    assert first_ack == {"garbage_id": str(garbage.garbage_id), "completed": True}
     retained = (
         await db_session.execute(
             text(
@@ -274,7 +274,10 @@ async def test_timetable_publish_and_late_finish_retain_attempt_prefix(db_sessio
             {"garbage_id": garbage.garbage_id, "lease_token": garbage.lease_token},
         )
     )
-    assert invalidated_ack == {"garbage_id": garbage.garbage_id, "completed": False}
+    assert invalidated_ack == {
+        "garbage_id": str(garbage.garbage_id),
+        "completed": False,
+    }
     next_sweep = await _claim_prefix(db_session)
     assert next_sweep.garbage_id == garbage.garbage_id
     assert next_sweep.lease_token != garbage.lease_token

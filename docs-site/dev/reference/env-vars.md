@@ -199,6 +199,7 @@ last_reviewed: 2026-10-19
 |---|---|---|
 | `MEDIA_PROBE_URL` | `—` | 独立素材探测服务地址；空值使用当前进程内实现。仅显式配置后转发，无远程失败回退。 |
 | `MEDIA_PROBE_TOKEN` | `—` | 独立服务的专用 bearer token（至少 32 字符），只在启用远程探测时必填。 |
+| `MEDIA_PROBE_TOKEN_FILE` | `—` | 独立媒体执行进程可用 secret 文件替代 MEDIA_PROBE_TOKEN；二者不要同时传入。 主 API 网关仍使用上面的实际 token 值；Compose 文件路径需由自有 override 挂载。 |
 | `MEDIA_PROBE_TIMEOUT_SECONDS` | `90` | HTTP 各 I/O 阶段超时秒数，包含上传／等待／读取；ffprobe 自身仍有独立的 30 秒上限。 |
 | `MEDIA_PROBE_MAX_FILE_BYTES` | `1073741824` | 独立探测服务单次文件输入上限（字节），仅由 apps/media-probe 读取。 |
 | `MEDIA_PROBE_HOST_PORT` | `8092` | docker-compose.modules.yml 的宿主回环端口，仅供显式本地独立部署。 |

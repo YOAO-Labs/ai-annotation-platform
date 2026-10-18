@@ -38,7 +38,7 @@ from app.schemas.video_frame_service import (
     VideoFramePrefetchResponse,
     VideoManifestV2Response,
 )
-from app.services.assets_media import media_gateway, media_http_error
+from app.services.assets_media import browser_media_url, media_gateway, media_http_error
 from app.services import video_context
 from app.services.video_context_contract import VideoContextReader
 
@@ -361,7 +361,7 @@ def _chunk_out(asset: MediaAsset) -> VideoChunkOut:
         start_frame=asset.start_frame,
         end_frame=asset.end_frame,
         status=status,
-        url=asset.url if status == "ready" else None,
+        url=browser_media_url(asset.url) if status == "ready" else None,
         byte_size=asset.byte_size,
         generation_mode=asset.generation_mode,
         diagnostics=diagnostics,
@@ -381,7 +381,7 @@ def _frame_out(asset: MediaAsset) -> VideoFrameOut:
         width=asset.width,
         format=format_,
         status=status,
-        url=asset.url if status == "ready" else None,
+        url=browser_media_url(asset.url) if status == "ready" else None,
         retry_after=3 if status == "pending" else None,
         error=asset.error if status == "failed" else None,
     )
@@ -439,7 +439,7 @@ async def list_chunks(
         dataset_item_id=ctx.dataset_item_id,
         task_id=ctx.task_id,
         chunk_size_frames=settings.video_chunk_size_frames,
-        fallback_video_url=references.video_url,
+        fallback_video_url=browser_media_url(references.video_url),
         chunks=[_chunk_out(asset) for asset in references.assets],
     )
     await db.commit()
@@ -587,8 +587,8 @@ async def manifest_v2(
     return VideoManifestV2Response(
         task_id=ctx.task_id,
         dataset_item_id=ctx.dataset_item_id,
-        video_url=reference.video_url,
-        poster_url=reference.poster_url,
+        video_url=browser_media_url(reference.video_url),
+        poster_url=browser_media_url(reference.poster_url),
         fps=ctx.metadata.fps,
         frame_count=ctx.metadata.frame_count,
         duration_ms=ctx.metadata.duration_ms,

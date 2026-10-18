@@ -98,20 +98,22 @@ def _run_ffmpeg(args: list[str], *, timeout: int, error: str) -> None:
 def extract_video_frame_image(
     input_path: str | Path,
     output_path: str | Path,
-    pts_ms: int,
+    frame_index: int,
     width: int,
 ) -> None:
-    """Extract one original-source frame using the existing FFmpeg seek path."""
+    """Select the decoded source ordinal without rounded or interpolated seeks."""
     _run_ffmpeg(
         [
-            "-ss",
-            f"{max(0, pts_ms) / 1000:.3f}",
             "-i",
             str(input_path),
+            "-map",
+            "0:v:0",
             "-frames:v",
             "1",
             "-vf",
-            f"scale='min({max(1, width)},iw)':-2",
+            f"select='eq(n,{max(0, frame_index)})',scale='min({max(1, width)},iw)':-2",
+            "-fps_mode",
+            "vfr",
             str(output_path),
         ],
         timeout=FFMPEG_FRAME_TIMEOUT_SECONDS,
@@ -122,16 +124,20 @@ def extract_video_frame_image(
 def extract_video_chunk(
     input_path: str | Path,
     output_path: str | Path,
-    start_ms: int,
+    start_frame: int,
     frame_count: int,
 ) -> None:
-    """Transcode a frame-count-bounded H.264 chunk for browser playback."""
+    """Transcode the exact decoded source ordinal interval, preserving VFR gaps."""
     _run_ffmpeg(
         [
-            "-ss",
-            f"{max(0, start_ms) / 1000:.3f}",
             "-i",
             str(input_path),
+            "-map",
+            "0:v:0",
+            "-vf",
+            f"select='between(n,{start_frame},{start_frame + max(1, frame_count) - 1})',setpts=PTS-STARTPTS",
+            "-fps_mode",
+            "vfr",
             "-frames:v",
             str(max(1, frame_count)),
             "-an",
@@ -487,7 +493,6 @@ def _process_metadata(
 ) -> ProcessedWork:
     assert claim.source is not None and isinstance(claim.spec, MetadataSpec)
     spec = claim.spec
-    source_metadata = dict(claim.source.video_metadata)
     patch: dict[str, Any] = {}
     clear_errors: list[str] = []
     artifacts: list[ProcessedArtifact] = []
@@ -546,10 +551,8 @@ def _process_metadata(
 
     if spec.generate_poster:
         poster_path = output_dir / "poster.webp"
-        fps = metadata.get("fps") or source_metadata.get("fps")
-        pts_ms = resolve_pts_ms_sparse(0, claim.timing.anchors, fps, 1) or 0
         try:
-            extract_video_frame_image(source_path, poster_path, pts_ms, 512)
+            extract_video_frame_image(source_path, poster_path, 0, 512)
             artifact = _artifact(claim, poster_path, "poster.webp")
             artifacts.append(ProcessedArtifact(artifact, poster_path))
             patch["poster_frame_path"] = artifact.key
@@ -627,13 +630,8 @@ def _process_frame(
     source = claim.source
     assert source is not None
     frame_index = claim.spec.frame_index
-    metadata = source.video_metadata
-    fps = metadata.get("fps")
-    pts_ms = resolve_pts_ms_sparse(frame_index, claim.timing.anchors, fps, 1)
-    if pts_ms is None:
-        raise MediaProcessingError("metadata_not_ready", "Frame timing is unavailable")
     path = _frame_path(output_dir, frame_index, claim.spec.width, claim.spec.format)
-    extract_video_frame_image(source_path, path, pts_ms, claim.spec.width)
+    extract_video_frame_image(source_path, path, frame_index, claim.spec.width)
     artifact = _artifact(claim, path, f"frame.{claim.spec.format}")
     return ProcessedWork(
         FrameResult(
@@ -711,7 +709,7 @@ def _process_chunk(
         extract_video_chunk(
             source_path,
             path,
-            start_ms,
+            start_frame,
             end_frame - start_frame + 1,
         )
         diagnostics["output_codec"] = "h264"

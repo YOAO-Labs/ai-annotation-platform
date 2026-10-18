@@ -561,6 +561,164 @@ def test_real_chunk_path_smartcopies_keyframe_aligned_h264(tmp_path):
     assert frame_result.artifacts[0].path.is_file()
 
 
+@pytest.mark.parametrize("vfr", [False, True])
+def test_frame_pixels_match_source_ordinals_with_sparse_timing(tmp_path, vfr):
+    from PIL import Image
+    from aap_media_probe.probe import probe_video_file, probe_video_frame_timetable
+
+    if shutil.which("ffmpeg") is None or shutil.which("ffprobe") is None:
+        pytest.skip("ffmpeg/ffprobe are unavailable")
+    for index in range(12):
+        Image.new("RGB", (48, 32), (index * 17, 240 - index * 19, index * 11)).save(
+            tmp_path / f"source-{index:02d}.png"
+        )
+    clip = tmp_path / "source.mp4"
+    command = [
+        "ffmpeg",
+        "-y",
+        "-loglevel",
+        "error",
+        "-framerate",
+        "30",
+        "-i",
+        str(tmp_path / "source-%02d.png"),
+    ]
+    if vfr:
+        command += ["-vf", "setpts=PTS+if(gte(N\\,3)\\,0.1/TB\\,0)"]
+    command += [
+        "-c:v",
+        "libx264",
+        "-pix_fmt",
+        "yuv420p",
+        "-crf",
+        "0",
+        "-g",
+        "4",
+        "-fps_mode",
+        "vfr",
+        str(clip),
+    ]
+    subprocess.run(command, check=True, capture_output=True, timeout=30)
+    reference = subprocess.run(
+        [
+            "ffmpeg",
+            "-loglevel",
+            "error",
+            "-i",
+            str(clip),
+            "-map",
+            "0:v:0",
+            "-fps_mode",
+            "passthrough",
+            "-f",
+            "rawvideo",
+            "-pix_fmt",
+            "rgb24",
+            "-",
+        ],
+        check=True,
+        capture_output=True,
+        timeout=30,
+    ).stdout
+    frame_size = 48 * 32 * 3
+    assert len(reference) == 12 * frame_size
+    rows = [FrameEntry.model_validate(row) for row in probe_video_frame_timetable(clip)]
+    anchors = [rows[index] for index in (0, 4, 8, 11)]
+    storage = _Storage(clip.read_bytes())
+    source = _source(storage).model_copy(
+        update={"video_metadata": probe_video_file(clip)}
+    )
+    for index in (1, 2, 5):
+        job, lease = uuid4(), uuid4()
+        claim = MediaClaim(
+            job_id=job,
+            generation=1,
+            lease_token=lease,
+            lease_expires_at="2026-10-19T00:00:00Z",
+            source=source,
+            spec=FrameSpec(frame_index=index, width=48, format="jpeg"),
+            output_prefix=f"media-assets/{job}/g1/a{lease}/",
+            timetable_revision=0,
+            timing=WorkTiming(anchors=anchors),
+        )
+        work = process_claim(
+            claim,
+            clip,
+            tmp_path / f"result-{index}",
+            storage.identity,
+            hashlib.sha256(clip.read_bytes()).hexdigest(),
+        )
+        expected = Image.frombytes(
+            "RGB", (48, 32), reference[index * frame_size : (index + 1) * frame_size]
+        ).getpixel((24, 16))
+        with Image.open(work.artifacts[0].path) as image:
+            actual = image.convert("RGB").getpixel((24, 16))
+        assert max(abs(a - b) for a, b in zip(actual, expected)) <= 5, (
+            index,
+            actual,
+            expected,
+        )
+
+    job, lease = uuid4(), uuid4()
+    chunk_claim = MediaClaim(
+        job_id=job,
+        generation=1,
+        lease_token=lease,
+        lease_expires_at="2026-10-19T00:00:00Z",
+        source=source,
+        spec=ChunkSpec(chunk_id=1, chunk_size_frames=2),
+        output_prefix=f"media-assets/{job}/g1/a{lease}/",
+        timetable_revision=0,
+        timing=WorkTiming(
+            start_frame=2, end_frame=3, anchors=anchors, is_keyframe=False
+        ),
+    )
+    chunk = process_claim(
+        chunk_claim,
+        clip,
+        tmp_path / "chunk",
+        storage.identity,
+        hashlib.sha256(clip.read_bytes()).hexdigest(),
+    )
+    decoded = subprocess.run(
+        [
+            "ffmpeg",
+            "-loglevel",
+            "error",
+            "-i",
+            str(chunk.artifacts[0].path),
+            "-map",
+            "0:v:0",
+            "-fps_mode",
+            "passthrough",
+            "-f",
+            "rawvideo",
+            "-pix_fmt",
+            "rgb24",
+            "-",
+        ],
+        check=True,
+        capture_output=True,
+        timeout=30,
+    ).stdout
+    assert len(decoded) == 2 * frame_size
+    for offset, index in enumerate((2, 3)):
+        expected = Image.frombytes(
+            "RGB", (48, 32), reference[index * frame_size : (index + 1) * frame_size]
+        ).getpixel((24, 16))
+        actual = Image.frombytes(
+            "RGB", (48, 32), decoded[offset * frame_size : (offset + 1) * frame_size]
+        ).getpixel((24, 16))
+        assert max(abs(a - b) for a, b in zip(actual, expected)) <= 5, (
+            index,
+            actual,
+            expected,
+        )
+    assert [
+        sample["frame_index"] for sample in chunk.result.diagnostics["samples"]
+    ] == [2, 3]
+
+
 def test_processing_uses_selected_probe_client_for_all_published_probe_operations(
     monkeypatch, tmp_path
 ):

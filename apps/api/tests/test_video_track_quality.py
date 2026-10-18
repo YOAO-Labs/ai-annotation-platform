@@ -1,4 +1,5 @@
 from unittest.mock import Mock
+from types import SimpleNamespace
 
 import pytest
 
@@ -39,6 +40,22 @@ async def _boundary(db, owner_id):
     return task, item, segments
 
 
+def _bind_fixture_metadata_reader(monkeypatch, item):
+    from app.services import video_track_quality
+
+    # These rows belong to a rollback-only SAVEPOINT, not the independent owner.
+    metadata = VideoMetadata.model_validate((item.metadata_ or {}).get("video") or {})
+
+    class Reader:
+        def __init__(self, db):
+            pass
+
+        async def from_task(self, **kwargs):
+            return SimpleNamespace(metadata=metadata)
+
+    monkeypatch.setattr(video_track_quality, "AssetsVideoContextReader", Reader)
+
+
 async def test_boundary_annotations_exclude_foreign_task_on_shared_segments(
     db_session, super_admin
 ):
@@ -74,10 +91,11 @@ async def test_boundary_annotations_exclude_foreign_task_on_shared_segments(
 
 
 async def test_dispatch_failure_finishes_both_quality_run_and_async_job(
-    db_session, super_admin
+    db_session, super_admin, monkeypatch
 ):
     owner, _ = super_admin
-    task, _, segments = await _boundary(db_session, owner.id)
+    task, item, segments = await _boundary(db_session, owner.id)
+    _bind_fixture_metadata_reader(monkeypatch, item)
     run, job, created = await create_quality_run(
         db_session,
         task=task,
@@ -112,12 +130,13 @@ async def test_dispatch_failure_finishes_both_quality_run_and_async_job(
 
 
 async def test_existing_quality_run_reuses_supplied_video_facts(
-    db_session, test_engine, super_admin
+    db_session, test_engine, super_admin, monkeypatch
 ):
     from sqlalchemy import event
 
     owner, _ = super_admin
     task, item, segments = await _boundary(db_session, owner.id)
+    _bind_fixture_metadata_reader(monkeypatch, item)
     arguments = {
         "task": task,
         "left_segment_id": segments[0].id,
@@ -160,3 +179,66 @@ async def test_existing_quality_run_reuses_supplied_video_facts(
     assert repeated.id == run.id and job is None and not created
     assert project.id == task.project_id
     assert tuple(statements) == loaded_row_statements
+
+
+@pytest.mark.parametrize("supplied", [False, True])
+@pytest.mark.parametrize("unready_metadata", [{}, {"frame_count": 90}])
+async def test_quality_run_rejects_unready_source_before_sampling(
+    db_session, super_admin, monkeypatch, supplied, unready_metadata
+):
+    from sqlalchemy import func, select
+    from app.services import video_track_quality
+
+    owner, _ = super_admin
+    task, _, segments = await _boundary(db_session, owner.id)
+    project = await db_session.get(Project, task.project_id)
+    project.video_collaboration = {"enabled": True, "overlap_frames": 10}
+    project.video_sampling = {"mode": "fps", "target_fps": 10}
+
+    class Reader:
+        def __init__(self, db):
+            pass
+
+        async def from_task(self, **kwargs):
+            return SimpleNamespace(
+                metadata=VideoMetadata.model_validate(unready_metadata)
+            )
+
+    monkeypatch.setattr(video_track_quality, "AssetsVideoContextReader", Reader)
+    with pytest.raises(VideoTrackQualityError) as error:
+        await create_quality_run(
+            db_session,
+            task=task,
+            left_segment_id=segments[0].id,
+            right_segment_id=segments[1].id,
+            actor_id=owner.id,
+            video_metadata=VideoMetadata.model_validate(unready_metadata)
+            if supplied
+            else None,
+        )
+    assert error.value.status_code == 503
+    assert error.value.detail == {"reason": "video_metadata_not_ready"}
+    assert (
+        await db_session.scalar(
+            select(func.count())
+            .select_from(VideoTrackQualityRun)
+            .where(VideoTrackQualityRun.task_id == task.id)
+        )
+        == 0
+    )
+
+
+async def test_overlap_bounds_reject_empty_supplied_video_metadata(
+    db_session, super_admin
+):
+    from fastapi import HTTPException
+    from app.services.video_collaboration import segment_work_bounds_for_task
+
+    owner, _ = super_admin
+    task, _, segments = await _boundary(db_session, owner.id)
+    with pytest.raises(HTTPException) as error:
+        await segment_work_bounds_for_task(
+            db_session, task=task, segment=segments[0], video_metadata=VideoMetadata()
+        )
+    assert error.value.status_code == 503
+    assert error.value.detail == {"reason": "video_metadata_not_ready"}

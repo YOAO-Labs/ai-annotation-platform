@@ -179,3 +179,62 @@ async def test_remote_cli_dry_run_never_constructs_api_s3_storage(monkeypatch):
 
     monkeypatch.setattr(processing, "probe_source_timetable", probe)
     assert await assets_media.probe_video_timetable(source(), sparse_stride=3) == []
+
+
+@pytest.mark.asyncio
+async def test_local_reference_batches_split_at_provider_byte_budget():
+    requests = [
+        c.ReadSourceRequest(actor_id=uuid4(), dataset_item_id=uuid4()) for _ in range(4)
+    ]
+    calls = []
+
+    class Provider:
+        async def source_references(self, batch, *, raw_only):
+            assert raw_only is True
+            calls.append(len(batch))
+            if len(batch) > 2:
+                raise c.MediaFailure("resource_budget_exceeded")
+            return [request.dataset_item_id for request in batch]
+
+    async with assets_media.MediaGateway(Provider()) as gateway:
+        result = await gateway.source_references(requests, raw_only=True)
+    assert result == [request.dataset_item_id for request in requests]
+    assert calls == [4, 2, 2]
+
+
+@pytest.mark.asyncio
+async def test_reference_singleton_budget_failure_is_not_retried():
+    class Provider:
+        calls = 0
+
+        async def source_references(self, requests, *, raw_only):
+            self.calls += 1
+            raise c.MediaFailure("resource_budget_exceeded")
+
+    provider = Provider()
+    async with assets_media.MediaGateway(provider) as gateway:
+        with pytest.raises(c.MediaFailure, match="resource_budget_exceeded"):
+            await gateway.source_references(
+                [c.ReadSourceRequest(actor_id=uuid4(), dataset_item_id=uuid4())]
+            )
+    assert provider.calls == 1
+
+
+def test_local_browser_proxy_is_applied_only_at_response_edges(monkeypatch):
+    monkeypatch.setattr(assets_media.settings, "assets_media_url", "")
+    monkeypatch.setattr(assets_media.settings, "minio_public_url", "/minio")
+    monkeypatch.setattr(assets_media.settings, "minio_endpoint", "localhost:9000")
+    monkeypatch.setattr(assets_media.settings, "minio_use_ssl", False)
+    url = "http://localhost:9000/cache/frame.webp?X-Amz-Signature=untouched"
+    storage = assets_media.media_storage()
+    assert storage._signer.meta.endpoint_url == "http://localhost:9000"
+    assert (
+        assets_media.browser_media_url(url)
+        == "/minio/cache/frame.webp?X-Amz-Signature=untouched"
+    )
+    other = "https://objects.example/cache/frame.webp?X-Amz-Signature=untouched"
+    assert assets_media.browser_media_url(other) == other
+    monkeypatch.setattr(
+        assets_media.settings, "assets_media_url", "http://media.example"
+    )
+    assert assets_media.browser_media_url(url) == url

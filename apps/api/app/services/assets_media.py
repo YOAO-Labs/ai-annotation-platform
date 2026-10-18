@@ -83,10 +83,15 @@ def media_storage(*, control: bool = False):
     from aap_assets_media_runtime.storage import S3MediaStorage
 
     scheme = "https" if settings.minio_use_ssl else "http"
+    endpoint = f"{scheme}://{settings.minio_endpoint}"
+    public_endpoint = settings.minio_public_url or endpoint
+    if public_endpoint.startswith("/") and not public_endpoint.startswith("//"):
+        # The API's browser proxy restores the signed upstream host and path.
+        # Portable owner references remain absolute for workers and exports.
+        public_endpoint = endpoint
     return S3MediaStorage(
-        endpoint=f"{scheme}://{settings.minio_endpoint}",
-        public_endpoint=settings.minio_public_url
-        or f"{scheme}://{settings.minio_endpoint}",
+        endpoint=endpoint,
+        public_endpoint=public_endpoint,
         region="us-east-1",
         access_key=settings.minio_access_key,
         secret_key=settings.minio_secret_key,
@@ -94,6 +99,25 @@ def media_storage(*, control: bool = False):
         cache_bucket=settings.minio_media_cache_bucket,
         connect_timeout=2 if control else 10,
         read_timeout=10 if control else 120,
+    )
+
+
+def browser_media_url(url: str | None) -> str | None:
+    """Apply only the local API's existing path proxy at public response edges."""
+    public = settings.minio_public_url
+    if (
+        url is None
+        or settings.assets_media_url
+        or not public.startswith("/")
+        or public.startswith("//")
+    ):
+        return url
+    scheme = "https" if settings.minio_use_ssl else "http"
+    internal = f"{scheme}://{settings.minio_endpoint}"
+    return (
+        public.rstrip("/") + url[len(internal) :]
+        if url.startswith(internal + "/")
+        else url
     )
 
 
@@ -168,6 +192,26 @@ class MediaGateway:
         if self._executor is None:
             self._executor = _executor()
         return await self._executor.execute_once(job_id=job_id) is not None
+
+    async def source_references(self, requests, *, raw_only=False):
+        if self.caller_transaction:
+            raise c.MediaFailure("invalid_request")
+
+        async def read_batch(batch):
+            try:
+                return await self.provider.source_references(batch, raw_only=raw_only)
+            except c.MediaFailure as exc:
+                if exc.code != "resource_budget_exceeded" or len(batch) <= 1:
+                    raise
+                middle = len(batch) // 2
+                return await read_batch(batch[:middle]) + await read_batch(
+                    batch[middle:]
+                )
+
+        references = []
+        for start in range(0, len(requests), 50):
+            references.extend(await read_batch(requests[start : start + 50]))
+        return references
 
     async def ensure_internal_frame(
         self, request: c.InternalFrameRequest, *, timeout_seconds: float = 900

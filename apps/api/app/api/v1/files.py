@@ -16,7 +16,7 @@ from app.application.task_workflow_errors import TaskWorkflowError
 from app.services import task_access
 from app.services.media_job_dispatch import MediaJobDispatcher
 from app.services.storage import storage_service
-from app.services.assets_media import media_gateway, media_http_error
+from app.services.assets_media import browser_media_url, media_gateway, media_http_error
 from aap_assets_media.contract import MediaFailure, ReadSourceRequest
 
 router = APIRouter()
@@ -98,7 +98,8 @@ async def get_file_url(
                 status_code=409, detail="Source changed; refresh the task."
             )
         return TaskFileUrlResponse(
-            url=reference.original_url, expires_in=reference.expires_in
+            url=browser_media_url(reference.original_url),
+            expires_in=reference.expires_in,
         )
 
     url = storage_service.generate_download_url(task.file_path)

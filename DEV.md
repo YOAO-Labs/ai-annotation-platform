@@ -989,7 +989,7 @@ psql -v expected_database=annotation_test -v migration_role=owner \
 
 连接管理凭据使用可选 `ASSETS_SOURCE_CONNECTOR_ENCRYPTION_KEY` 或 `_FILE`，值与本地 API/导入执行器的 `CONNECTOR_ENCRYPTION_KEY` 相同。该 key 留空时 Source 仍可启动；创建凭据或需要解密既有密文的操作会返回配置错误，单纯改名或空 patch 不需要 key。`ASSETS_SOURCE_CONNECTOR_HOST_ALLOWLIST` 是 JSON 字符串数组回退值，数据库 `system_settings.connector_host_allowlist` 覆盖它；`ASSETS_SOURCE_SFTP_KNOWN_HOSTS_FILE` 可指定只读的可信 SFTP 主机文件。空白回退列表拒绝连接器网络目标。DNS 和探测在锁外完成，最终提交只短暂共享锁定 Settings 表并复核策略。API 的 `ASSETS_SOURCE_URL` 留空时用本地 Source 工作流；一旦配置远程 URL，远程错误不会回退到本地。
 
-Assets 当前由 27 张映射表组成；全仓 ORM 所有权台账共 129 张表。连接操作写入新的 `storage_connection_operations` 不可变回执表，该表没有指向实时连接的外键。连接删除保留已接受的导入快照；后续导入仍要重新读取当前连接。
+Assets 当前由 31 张映射表组成；全仓 ORM 所有权台账共 133 张表。连接操作写入新的 `storage_connection_operations` 不可变回执表，该表没有指向实时连接的外键。连接删除保留已接受的导入快照；后续导入仍要重新读取当前连接。
 
 0215 SQL 工件升级时先安装 `0215_dataset_source_ingest.sql`，再安装 `0215_dataset_source_ingest_delivery.sql`；降级由迁移包装器按依赖移除函数和表。每个独立 Source 进程同时只接收一个 ZIP 请求，Compose 限制内存为 512 MiB、`/tmp` 为 256 MiB。公开网关另为 multipart 边界和头部保留 64 KiB，流式拒绝超出包体预算的上传；文件本身仍最多 200 MiB。ZIP 新对象只写 `dataset-sources/{dataset}/{item}/{publication}/{logical_relpath}`，扫描只读取原生能力返回的精确 Dataset 前缀。回滚不删除对象存储中的原始字节。
 
@@ -1069,7 +1069,7 @@ psql -v expected_database=annotation_test -v migration_role=owner \
   -f infra/docker/assets-media-grants.sql
 ```
 
-控制 LOGIN 只有 17 个控制/受信任系统函数，执行 LOGIN 只有 10 个领取、租约、发布和维护函数。二者都没有表、列、sequence、外部 owner schema、成员继承或 CREATE/TEMP 权限；初始化必须处理 PUBLIC 的 TEMP。来源身份、Task 可见性及任务级帧重试的标注写权限由 owner 能力组合验证，不把布尔权限结果当作授权。已受理的后台工作按来源代次、作业状态和显式取消继续执行，不在每块重新检查最初发起者的角色。
+控制 LOGIN 只有 18 个控制/受信任系统函数，执行 LOGIN 只有 10 个领取、租约、发布和维护函数。二者都没有表、列、sequence、外部 owner schema、成员继承或 CREATE/TEMP 权限；初始化必须处理 PUBLIC 的 TEMP。来源身份、Task 可见性及任务级帧重试的标注写权限由 owner 能力组合验证，不把布尔权限结果当作授权。已受理的后台工作按来源代次、作业状态和显式取消继续执行，不在每块重新检查最初发起者的角色。
 
 为两个进程准备不同的数据库和 S3 身份。源桶只需对象 HEAD/GET，不能写或删除原素材；控制身份对缓存只需 HEAD/GET，执行身份另需 `media-assets/*` 的 Put/Get/List/Delete 及精确旧视频缓存清理，不授予桶管理。S3 不单独定义 HEAD 动作，相应权限由 GetObject 提供。浏览器可达的 `ASSETS_MEDIA_S3_PUBLIC_ENDPOINT` 必须与内部请求地址分开配置；不改写已签名主机名。
 
@@ -1085,5 +1085,7 @@ uv run --project apps/assets-media --extra runtime python -m aap_assets_media_ru
 原生请求/完整回复上限为 8/16 MiB，记录页为 15 MiB/500 条；完整时间表和 packet 样本可以跨页。客户端验证顺序、总数、游标、来源和摘要，来源引用批量读取也按回复预算拆分。控制默认池为 1..8、取连接 2 秒、SQL 5 秒、S3 连接/读取 2/10 秒；执行默认轮询 5 秒、租约 1200 秒及定期续租，S3 连接/读取为 10/120 秒。帧和分块的空闲保留为 14/30 天，海报使用独立持久对象，不参与普通帧淘汰。Compose 的控制 512 MiB/0.5 CPU 和执行 2 GiB/2 CPU 是可选本地预算，不是生产容量证明；解码、完整索引及临时文件仍随视频大小增长。
 
 切换前先排空或停止旧视频消费者；旧进程不会因迁移自动获得新写入栅栏。领取事务在下载、FFmpeg 或上传前提交，输出在不可变 attempt 目录，迟到执行者不能替换当前投影。首次观察绑定对象身份；后续外部覆盖使来源漂移并拒绝发布，需由 Source 登记所有者核对。旧视频缓存从未验证代次开始按需重建，原素材、标注和学习证据保持保留。清理先在 SQL 中脱离引用并持久登记垃圾，再删除对象并确认。
+
+执行进程也保留 `MEDIA_PROBE_URL`、`MEDIA_PROBE_TOKEN` 和 `MEDIA_PROBE_TIMEOUT_SECONDS` 的选择；可选 Compose 显式转发这三项。宿主独立进程可用 `MEDIA_PROBE_TOKEN_FILE` 替代 token 实际值，二者只传其一；Compose 使用文件时需在自己的 override 中挂载并设置该入口。
 
 控制 `/health/live` 只证明进程可响应，`/health/ready` 和执行器 `--healthcheck` 验证精确 SQL 身份；它们不能替代实际对象权限、解码和发布验收。数据 schema 与 HTTP OpenAPI 分别随包发布为 `protocol.schema.json`、`openapi.snapshot.json`。完整切片状态与本地证据记录在[后端解耦计划](docs/plans/1792160873_backend-module-decoupling.md)和 [ADR-0105](docs/adr/0105-independent-video-media-owner.md)。

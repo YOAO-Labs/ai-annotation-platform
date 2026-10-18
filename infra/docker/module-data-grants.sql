@@ -901,6 +901,11 @@ GRANT SELECT ON aap_assets_v1.spatial_item_references,
 GRANT EXECUTE ON FUNCTION aap_workspace_v1.read_spatial_project_access(uuid,uuid)
     TO :"labeling_owner";
 GRANT EXECUTE ON FUNCTION
+    aap_workspace_v1.read_media_project_access(uuid,uuid),
+    aap_workspace_v1.lock_media_project_access(uuid,uuid),
+    aap_workspace_v1.read_media_managed_projects(uuid,uuid[])
+    TO :"labeling_owner";
+GRANT EXECUTE ON FUNCTION
     aap_labeling_v1.read_spatial_camera_roles(uuid[]),
     aap_labeling_v1.read_spatial_camera_target(uuid,uuid,text),
     aap_labeling_v1.lock_spatial_camera_authority(uuid,uuid,text,uuid),

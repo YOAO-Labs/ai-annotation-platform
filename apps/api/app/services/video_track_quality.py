@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+import math
 from collections import Counter, defaultdict
 from datetime import datetime, timezone
 from typing import Any
@@ -103,13 +104,6 @@ async def _boundary(
             left_status=left.status,
             right_status=right.status,
         )
-    left_start, left_end = await segment_work_bounds_for_task(
-        db, task=task, segment=left, project=project, video_metadata=video_metadata
-    )
-    right_start, right_end = await segment_work_bounds_for_task(
-        db, task=task, segment=right, project=project, video_metadata=video_metadata
-    )
-    start, end = max(left_start, right_start), min(left_end, right_end)
     if video_metadata is None:
         video_metadata = (
             await AssetsVideoContextReader(db).from_task(
@@ -120,7 +114,28 @@ async def _boundary(
                 dataset_item_id=task.dataset_item_id,
             )
         ).metadata
-    step = derive_step(video_metadata.fps, project.video_sampling or {})
+    sampling = project.video_sampling or {}
+    if (
+        video_metadata.frame_count is None
+        or video_metadata.frame_count <= 0
+        or (
+            sampling.get("mode") == "fps"
+            and (
+                video_metadata.fps is None
+                or not math.isfinite(video_metadata.fps)
+                or video_metadata.fps <= 0
+            )
+        )
+    ):
+        raise VideoTrackQualityError(503, "video_metadata_not_ready")
+    left_start, left_end = await segment_work_bounds_for_task(
+        db, task=task, segment=left, project=project, video_metadata=video_metadata
+    )
+    right_start, right_end = await segment_work_bounds_for_task(
+        db, task=task, segment=right, project=project, video_metadata=video_metadata
+    )
+    start, end = max(left_start, right_start), min(left_end, right_end)
+    step = derive_step(video_metadata.fps, sampling)
     frames = [frame for frame in range(start, end + 1) if frame % step == 0]
     if not frames:
         raise VideoTrackQualityError(422, "video_boundary_sampling_empty")
