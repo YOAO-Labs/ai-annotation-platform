@@ -10,13 +10,14 @@ from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models.dataset import DatasetItem
-from app.schemas._jsonb_types import SensorCalibration
-from app.services.dataset_frame_grouping import group_frames
-from app.services.dataset_task_facts import (
+from aap_assets_source.frame_layout import (
     PreparedDatasetItem,
     PreparedPointCloudFrame,
+    group_frames,
+    source_ingest_logical_path,
 )
+from app.db.models.dataset import DatasetItem
+from app.schemas._jsonb_types import SensorCalibration
 from app.services.storage import storage_service
 
 logger = logging.getLogger(__name__)
@@ -61,6 +62,8 @@ async def prepare_pointcloud_frames(
             file_path=item.file_path,
             file_type=item.file_type,
             scene_id=item.scene_id,
+            logical_path=getattr(item, "logical_path", None)
+            or source_ingest_logical_path(item.metadata_),
         )
         for item in items
     )
@@ -116,6 +119,8 @@ async def attach_calibration(db: AsyncSession, *, dataset_id: uuid.UUID) -> int:
             file_path=item.file_path,
             file_type=item.file_type,
             scene_id=item.scene_id,
+            logical_path=getattr(item, "logical_path", None)
+            or source_ingest_logical_path(item.metadata_),
         )
         for item in items
     )

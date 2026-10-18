@@ -13,10 +13,9 @@ import uuid
 import pytest
 
 from app.db.models.dataset import Dataset, DatasetItem, ProjectDataset, Scene
+from aap_assets_source.frame_layout import PreparedDatasetItem, group_frames
 from app.services import pointcloud_import
-from app.services.dataset_frame_grouping import group_frames
 from app.application.dataset_task_creation import DatasetTaskCreationWorkflow
-from app.services.dataset_task_facts import PreparedDatasetItem
 from app.services.storage import storage_service
 from app.services.task_dataset_link import get_linked_items
 from tests.factory import create_project

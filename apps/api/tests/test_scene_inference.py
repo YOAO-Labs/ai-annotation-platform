@@ -1,11 +1,4 @@
-"""v0.14.0 · scene_inference 测试
-
-覆盖:
-- 纯函数:自然排序、_split_into_scene_groups、_is_pointcloud_like
-- infer_and_apply 三 mode × §3.3.2 表里 4 种 ZIP 布局
-- 幂等(重复跑 / 已有 scene / 部分 items 已有 scene_id)
-- 边界(> 100 scene 报错 / 空 dataset / 纯图像 dataset)
-"""
+"""ORM adapter coverage for applying portable scene-layout plans."""
 
 from __future__ import annotations
 
@@ -14,106 +7,6 @@ import uuid
 
 from app.db.models.dataset import Dataset, DatasetItem, Scene
 from app.services import scene_inference as si
-
-
-# ───── 纯函数 ─────────────────────────────────────────
-
-
-def test_natural_sort_numeric_aware():
-    xs = ["000010", "000001", "000002", "a", "000009"]
-    assert sorted(xs, key=si._natural_sort_key) == [
-        "000001",
-        "000002",
-        "000009",
-        "000010",
-        "a",
-    ]
-
-
-class _FakeItem:
-    """轻量 DatasetItem 替身,仅用于纯函数测试。"""
-
-    def __init__(self, fp: str):
-        self.file_path = fp
-        self.file_name = fp.split("/")[-1]
-        self.id = uuid.uuid4()
-
-
-def test_split_into_scene_groups_sustech_single():
-    """SUSTech 单 scene:顶层全是 ROLE_DIR_NAMES → _single。"""
-    items = [
-        _FakeItem("ds/lidar/000001.pcd"),
-        _FakeItem("ds/camera/front/000001.jpg"),
-        _FakeItem("ds/calib/camera/front.json"),
-    ]
-    g = si._split_into_scene_groups(items, "ds")
-    assert list(g.keys()) == [si._SINGLE_GROUP_KEY]
-    assert len(g[si._SINGLE_GROUP_KEY]) == 3
-
-
-def test_split_into_scene_groups_role_alias_single():
-    """xtreme1 风格角色别名顶层目录 → _single。"""
-    items = [
-        _FakeItem("ds/lidar_point_cloud_0/000001.pcd"),
-        _FakeItem("ds/camera_image_0/000001.jpg"),
-        _FakeItem("ds/calibration/camera_image_0.json"),
-    ]
-    g = si._split_into_scene_groups(items, "ds")
-    assert list(g.keys()) == [si._SINGLE_GROUP_KEY]
-    assert len(g[si._SINGLE_GROUP_KEY]) == 3
-
-
-def test_split_into_scene_groups_multi_scene():
-    """顶层是 N 个非角色子目录 → N 个 scene。"""
-    items = [
-        _FakeItem("ds/scene_a/lidar/000001.pcd"),
-        _FakeItem("ds/scene_a/camera/front/000001.jpg"),
-        _FakeItem("ds/scene_b/lidar/000002.pcd"),
-    ]
-    g = si._split_into_scene_groups(items, "ds")
-    assert sorted(g.keys()) == ["scene_a", "scene_b"]
-    assert len(g["scene_a"]) == 2
-    assert len(g["scene_b"]) == 1
-
-
-def test_split_into_scene_groups_nuscenes_naming():
-    """nuScenes 顶层 scene_token 命名 → N scene。"""
-    items = [
-        _FakeItem("ds/nu-scene-0061/lidar/000001.pcd"),
-        _FakeItem("ds/nu-scene-0103/lidar/000001.pcd"),
-        _FakeItem("ds/nu-scene-0103/camera/front/000001.jpg"),
-    ]
-    g = si._split_into_scene_groups(items, "ds")
-    assert sorted(g.keys()) == ["nu-scene-0061", "nu-scene-0103"]
-
-
-def test_split_into_scene_groups_mixed_role_and_extra():
-    """混搭:有 role 目录 + 额外非角色目录 → _single + scene_extra。"""
-    items = [
-        _FakeItem("ds/lidar/000001.pcd"),
-        _FakeItem("ds/scene_extra/lidar/000001.pcd"),
-    ]
-    g = si._split_into_scene_groups(items, "ds")
-    assert sorted(g.keys()) == [si._SINGLE_GROUP_KEY, "scene_extra"]
-
-
-def test_split_into_scene_groups_root_files():
-    """顶层文件无子目录 → 落 _root,后续会被 infer_and_apply 跳过。"""
-    items = [_FakeItem("ds/000001.pcd")]
-    g = si._split_into_scene_groups(items, "ds")
-    assert si._ROOT_GROUP_KEY in g
-
-
-def test_is_pointcloud_like():
-    pc_items = [_FakeItem("ds/lidar/000001.pcd")]
-    alias_items = [_FakeItem("ds/lidar_point_cloud_0/000001.pcd")]
-    flat_items = [_FakeItem("ds/000001.jpg"), _FakeItem("ds/000002.jpg")]
-    assert si._is_pointcloud_like(pc_items) is True
-    assert si._is_pointcloud_like(alias_items) is True
-    assert si._is_pointcloud_like(flat_items) is False
-
-
-# ───── 依赖 DB 的 infer_and_apply ──────────────────────
 
 
 async def _make_dataset(db, owner_id, name="ds-test"):

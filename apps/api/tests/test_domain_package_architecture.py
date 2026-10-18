@@ -388,14 +388,6 @@ DOMAIN_PACKAGES = (
     DomainSpec(package="test_seed_access", legacy_facades=()),
     DomainSpec(package="dataset_task_facts", legacy_facades=(), allowed_app_imports=()),
     DomainSpec(
-        package="dataset_frame_grouping",
-        legacy_facades=(),
-        allowed_app_imports=(
-            "app.services.dataset_task_facts",
-            "app.services.role_patterns",
-        ),
-    ),
-    DomainSpec(
         package="training_authority_contract",
         legacy_facades=(),
         allowed_app_imports=(),

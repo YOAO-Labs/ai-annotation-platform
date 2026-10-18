@@ -1,186 +1,25 @@
-"""v0.14.0 · Scene inference
-
-给已存在的 dataset 自动推断 scene 结构 + 给 items 赋 frame_index。
-
-三种 mode:
-- "single":全 dataset = 1 个 scene。scene.name 默认取 dataset.name。
-- "per_subdirectory":按 file_path 中 dataset_name 之后第一段分组,每组一个 scene。
-- "auto":顶层目录全是已知角色名 → single;否则 per_subdirectory。
-
-幂等:
-- 该 dataset 已有 scene → 整个跳过,不报错。
-- 部分 items 已有 scene_id → 不动它们,只对 NULL items 跑;notes 警告。
-
-frame_index 赋值算法(point_cloud / 多模态):
-1. 调 group_frames 拿到 {frame_stem: {lidar, cameras}} + {cam: calib}。
-2. frame_stem 自然排序("000001" < "000010")后 lidar 取 0..N-1。
-3. 同帧 cam item 共享 lidar 的 frame_index。
-4. calib_items 仅写 scene_id,frame_index=NULL。
-
-非点云 dataset:按 file_name 自然排序赋 0..N-1,所有 items 都有 frame_index。
-"""
+"""ORM adapter for the portable scene-layout planner."""
 
 from __future__ import annotations
 
-import logging
-import re
 import uuid
-from pathlib import PurePosixPath
-from typing import Literal
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models.dataset import Dataset, DatasetItem
+from aap_assets_source.frame_layout import (
+    PreparedDatasetItem,
+    source_ingest_logical_path,
+)
+from aap_assets_source.scene_layout import (
+    IngestScenePlan,
+    SceneInferenceMode,
+    SceneLayoutInput,
+    plan_scenes,
+)
+from app.db.models.dataset import Dataset, DatasetItem, Scene
 from app.schemas.scene import InferenceResult
 from app.services import scene as scene_svc
-from app.services.dataset_frame_grouping import group_frames
-from app.services.dataset_task_facts import PreparedDatasetItem
-from app.services.role_patterns import (
-    DEFAULT_ROLE_PATTERNS,
-    matches_any_role_dir,
-    role_dir_names,
-)
-
-logger = logging.getLogger(__name__)
-
-# This asset grouping is shared with pointcloud_import and task creation:
-# scene inference assigns frame indices but does not construct labeling tasks.
-_EXTRA_ROLE_DIR_PATTERNS = ("video", "images", "videos")
-ROLE_DIR_NAMES = role_dir_names(DEFAULT_ROLE_PATTERNS, extra=_EXTRA_ROLE_DIR_PATTERNS)
-
-# 与 pointcloud_import 共享的扩展名集合
-_POINT_CLOUD_EXTS = {".pcd", ".bin", ".ply", ".las", ".laz", ".npy"}
-
-_SINGLE_GROUP_KEY = "_single"
-_ROOT_GROUP_KEY = "_root"
-
-# per_subdirectory 安全阀:推出超过这个数 → 报错,避免把巨型 jpg 序列误识别成 N 万个伪 scene
-_MAX_INFERRED_SCENES = 100
-
-
-SceneInferenceMode = Literal["single", "per_subdirectory", "auto"]
-
-
-def _is_role_dir_name(part: str) -> bool:
-    return matches_any_role_dir(
-        part,
-        DEFAULT_ROLE_PATTERNS,
-        extra=_EXTRA_ROLE_DIR_PATTERNS,
-    )
-
-
-def _natural_sort_key(s: str) -> list:
-    """自然排序 key('000001' < '000010' < 'a')。"""
-    return [int(t) if t.isdigit() else t.lower() for t in re.split(r"(\d+)", s)]
-
-
-def _split_into_scene_groups(
-    items: list[DatasetItem], dataset_name: str
-) -> dict[str, list[DatasetItem]]:
-    """把 items 按"file_path 中 dataset_name 之后第一段"分组。
-
-    跳过开头 dataset_name 段;若第一段是已知角色名 → 单 scene("_single");
-    否则该段就是 scene 名(典型:nuScenes scene_token / SUSTech 多 scene zip 顶层目录)。
-    无子目录的 item 落入 "_root" 组(理论不应出现于点云/帧序列 dataset)。
-    """
-    by_scene: dict[str, list[DatasetItem]] = {}
-    for item in items:
-        parts = PurePosixPath(item.file_path).parts
-        # 跳过开头的 dataset_name 前缀(若存在)
-        start = 1 if parts and parts[0] == dataset_name else 0
-        rest = parts[start:]
-        if len(rest) < 2:
-            by_scene.setdefault(_ROOT_GROUP_KEY, []).append(item)
-            continue
-        first = rest[0]
-        key = _SINGLE_GROUP_KEY if _is_role_dir_name(first) else first
-        by_scene.setdefault(key, []).append(item)
-    return by_scene
-
-
-def _is_pointcloud_like(items: list[DatasetItem]) -> bool:
-    """是否含点云 / 多模态布局(有 lidar/ camera/ calib 角色目录)。"""
-    for item in items:
-        parts = PurePosixPath(item.file_path).parts
-        if any(_is_role_dir_name(p) for p in parts):
-            return True
-        if PurePosixPath(item.file_path).suffix.lower() in _POINT_CLOUD_EXTS:
-            return True
-    return False
-
-
-def _assign_frame_indices_pointcloud(
-    scene_id: uuid.UUID, items: list[DatasetItem]
-) -> tuple[int, list[str]]:
-    """Point-cloud layouts use shared frame grouping and natural frame order."""
-    notes: list[str] = []
-    items_by_id = {item.id: item for item in items}
-    item_facts = tuple(
-        PreparedDatasetItem(
-            id=item.id,
-            file_name=item.file_name,
-            file_path=item.file_path,
-            file_type=item.file_type,
-            scene_id=item.scene_id,
-        )
-        for item in items
-    )
-    frames, calib_items = group_frames(item_facts)
-
-    grouped_ids: set[uuid.UUID] = set()
-    sorted_stems = sorted(frames, key=_natural_sort_key)
-    assigned = 0
-    lidar_missing_stems: list[str] = []
-
-    for frame_index, stem in enumerate(sorted_stems):
-        frame = frames[stem]
-        lidar = frame.lidar
-        if lidar is None:
-            lidar_missing_stems.append(stem)
-        else:
-            item = items_by_id[lidar.id]
-            item.scene_id = scene_id
-            item.frame_index = frame_index
-            grouped_ids.add(item.id)
-            assigned += 1
-        for _camera, camera_fact in frame.cameras:
-            item = items_by_id[camera_fact.id]
-            item.scene_id = scene_id
-            item.frame_index = frame_index
-            grouped_ids.add(item.id)
-            assigned += 1
-
-    for calib_fact in calib_items.values():
-        item = items_by_id[calib_fact.id]
-        item.scene_id = scene_id
-        item.frame_index = None
-        grouped_ids.add(item.id)
-        assigned += 1
-
-    if lidar_missing_stems:
-        notes.append(
-            f"{len(lidar_missing_stems)} frames without lidar item, frame_index skipped"
-        )
-    if calib_items:
-        notes.append(f"{len(calib_items)} calib items left frame_index=NULL")
-    leftover = [item for item in items if item.id not in grouped_ids]
-    if leftover:
-        notes.append(
-            f"{len(leftover)} items not matched by group_frames, left untouched"
-        )
-    return assigned, notes
-
-
-def _assign_frame_indices_flat(
-    scene_id: uuid.UUID, items: list[DatasetItem]
-) -> tuple[int, list[str]]:
-    """非点云 dataset(纯 image / video 帧序列):按 file_name 自然排序赋 0..N-1。"""
-    sorted_items = sorted(items, key=lambda it: _natural_sort_key(it.file_name))
-    for fi, item in enumerate(sorted_items):
-        item.scene_id = scene_id
-        item.frame_index = fi
-    return len(sorted_items), []
 
 
 async def infer_and_apply(
@@ -190,11 +29,7 @@ async def infer_and_apply(
     mode: SceneInferenceMode = "auto",
     dry_run: bool = False,
 ) -> InferenceResult:
-    """对 dataset 做 scene 推断 + frame_index 赋值。
-
-    幂等:dataset 已有 scene → 跳过整个 inference,返回 created_scenes=0。
-    部分 items 已有 scene_id → 跳过 inference,notes 报"部分迁移状态,人工检查"。
-    """
+    """Read ORM facts, plan once in the portable module, and apply the plan."""
     dataset = await db.get(Dataset, dataset_id)
     if dataset is None:
         return InferenceResult(
@@ -206,127 +41,83 @@ async def infer_and_apply(
             notes=[f"dataset {dataset_id} not found"],
         )
 
-    existing_scenes = await scene_svc.list_for_dataset(db, dataset_id)
-    if existing_scenes:
-        return InferenceResult(
-            dataset_id=dataset_id,
-            created_scenes=0,
-            assigned_items=0,
-            skipped_items=0,
-            dry_run=dry_run,
-            notes=[
-                f"dataset already has {len(existing_scenes)} scene(s), inference skipped (idempotent)"
-            ],
+    scene_count = await db.scalar(
+        select(func.count(Scene.id)).where(Scene.dataset_id == dataset_id)
+    )
+    items: list[DatasetItem] = []
+    facts: tuple[PreparedDatasetItem, ...] = ()
+    item_count = 0
+    assigned_count = 0
+    if not scene_count:
+        counts = await db.execute(
+            select(
+                func.count(DatasetItem.id),
+                func.count(DatasetItem.id).filter(DatasetItem.scene_id.is_not(None)),
+            ).where(DatasetItem.dataset_id == dataset_id)
         )
-
-    items_rows = (
-        (
-            await db.execute(
+        item_count, assigned_count = counts.one()
+        if item_count and not assigned_count:
+            rows = await db.execute(
                 select(DatasetItem).where(DatasetItem.dataset_id == dataset_id)
             )
-        )
-        .scalars()
-        .all()
-    )
-    all_items: list[DatasetItem] = list(items_rows)
-    if not all_items:
-        return InferenceResult(
-            dataset_id=dataset_id,
-            created_scenes=0,
-            assigned_items=0,
-            skipped_items=0,
-            dry_run=dry_run,
-            notes=["dataset has no items"],
-        )
-
-    assigned_ids = [it.id for it in all_items if it.scene_id is not None]
-    if assigned_ids:
-        return InferenceResult(
-            dataset_id=dataset_id,
-            created_scenes=0,
-            assigned_items=0,
-            skipped_items=len(assigned_ids),
-            dry_run=dry_run,
-            notes=[
-                f"{len(assigned_ids)} items already have scene_id; partial migration state, manual review required"
-            ],
-        )
-
-    # 决定 scene 分组
-    groups: dict[str, list[DatasetItem]]
-    if mode == "single":
-        groups = {_SINGLE_GROUP_KEY: all_items}
-    else:
-        groups = _split_into_scene_groups(all_items, dataset.name)
-        if mode == "auto":
-            keys = set(groups.keys())
-            if keys.issubset({_SINGLE_GROUP_KEY, _ROOT_GROUP_KEY}):
-                # 全是 role 目录布局 → 单 scene
-                groups = {_SINGLE_GROUP_KEY: all_items}
-
-    # 把 _root 抛出 notes,不参与建 scene
-    notes: list[str] = []
-    root_items = groups.pop(_ROOT_GROUP_KEY, None)
-    if root_items:
-        notes.append(
-            f"{len(root_items)} items at dataset root (no subdirectory) skipped"
-        )
-
-    if not groups:
-        return InferenceResult(
-            dataset_id=dataset_id,
-            created_scenes=0,
-            assigned_items=0,
-            skipped_items=len(all_items),
-            dry_run=dry_run,
-            notes=notes or ["no scene groups inferred"],
-        )
-
-    if len(groups) > _MAX_INFERRED_SCENES:
-        role_names = ", ".join(sorted(ROLE_DIR_NAMES))
-        raise ValueError(
-            f"inferred {len(groups)} scenes > {_MAX_INFERRED_SCENES}; "
-            "likely misidentified a flat or pseudo multi-scene ZIP. "
-            f"Top-level scene directories must not use reserved role names ({role_names}); "
-            "for large multi-scene imports use the conversion script. "
-            "See docs-site/user-guide/datasets/import-formats.md"
-        )
-
-    created = 0
-    assigned = 0
-    for group_key, group_items in groups.items():
-        scene_name = dataset.name if group_key == _SINGLE_GROUP_KEY else group_key
-        if dry_run:
-            created += 1
-            assigned += len(group_items)
-            notes.append(
-                f"[dry-run] would create scene {scene_name!r} with {len(group_items)} items"
+            items = list(rows.scalars().all())
+            facts = tuple(
+                PreparedDatasetItem(
+                    id=item.id,
+                    file_name=item.file_name,
+                    file_path=item.file_path,
+                    file_type=item.file_type,
+                    scene_id=item.scene_id,
+                    frame_index=item.frame_index,
+                    logical_path=getattr(item, "logical_path", None)
+                    or source_ingest_logical_path(item.metadata_),
+                )
+                for item in items
             )
-            continue
-
-        scene = await scene_svc.create_scene(
-            db,
-            dataset_id=dataset_id,
-            name=scene_name,
-            source_format="inferred",
-            source_metadata={"mode": mode, "group_key": group_key},
+    plan = plan_scenes(
+        SceneLayoutInput(
+            dataset_name=dataset.name,
+            items=facts,
+            scene_count=scene_count,
+            assigned_count=assigned_count,
+            item_count=item_count,
+            mode=mode,
+            dry_run=dry_run,
         )
-        if _is_pointcloud_like(group_items):
-            count, sub_notes = _assign_frame_indices_pointcloud(scene.id, group_items)
-        else:
-            count, sub_notes = _assign_frame_indices_flat(scene.id, group_items)
-        assigned += count
-        notes.extend(f"[{scene_name}] {n}" for n in sub_notes)
-        created += 1
-
+    )
     if not dry_run:
-        await db.flush()
+        await _apply_plan(db, dataset_id, items, plan)
 
     return InferenceResult(
         dataset_id=dataset_id,
-        created_scenes=created,
-        assigned_items=assigned,
-        skipped_items=0,
-        dry_run=dry_run,
-        notes=notes,
+        created_scenes=plan.created_scenes,
+        assigned_items=plan.assigned_items,
+        skipped_items=plan.skipped_items,
+        dry_run=plan.dry_run,
+        notes=list(plan.notes),
     )
+
+
+async def _apply_plan(
+    db: AsyncSession,
+    dataset_id: uuid.UUID,
+    items: list[DatasetItem],
+    plan: IngestScenePlan,
+) -> None:
+    for scene in plan.scenes:
+        await scene_svc.create_scene(
+            db,
+            scene_id=scene.id,
+            dataset_id=dataset_id,
+            name=scene.name,
+            source_format=scene.source_format,
+            source_metadata=scene.source_metadata,
+        )
+    items_by_id = {item.id: item for item in items}
+    for assignment in plan.assignments:
+        item = items_by_id.get(assignment.item_id)
+        if item is None:
+            continue
+        item.scene_id = assignment.scene_id
+        item.frame_index = assignment.frame_index
+    await db.flush()

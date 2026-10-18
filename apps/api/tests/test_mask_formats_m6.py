@@ -16,12 +16,12 @@ from app.db.models.task import Task
 from app.services.exporting.cache import compute_cache_key
 from app.services.mask_formats.catalog import registry
 from app.services.mask_formats.adapters import _ALLOWED_GEOMETRY
-from app.services.mask_formats.safe_archive import (
+from aap_assets_source.archive import (
     ArchiveLimits,
     ArchiveSafetyError,
     SafeZipArchive,
-    validate_png_contract,
 )
+from app.services.mask_formats.png_contract import validate_png_contract
 from app.services.storage import storage_service
 
 

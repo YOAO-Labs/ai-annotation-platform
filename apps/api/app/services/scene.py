@@ -89,6 +89,7 @@ async def lock_scene_source_references(
 async def create_scene(
     db: AsyncSession,
     *,
+    scene_id: uuid.UUID | None = None,
     dataset_id: uuid.UUID,
     name: str,
     source_format: str | None = None,
@@ -98,7 +99,7 @@ async def create_scene(
     """新建 scene。同 dataset 下 name 重复 → SceneNameConflict。"""
     display_id = await next_display_id(db, "scenes")
     scene = Scene(
-        id=uuid.uuid4(),
+        id=scene_id or uuid.uuid4(),
         display_id=display_id,
         dataset_id=dataset_id,
         name=name,

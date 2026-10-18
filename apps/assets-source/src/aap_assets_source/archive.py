@@ -23,6 +23,7 @@ class ArchiveLimits:
     max_entry_bytes: int = 512 * 1024 * 1024
     max_total_bytes: int = 8 * 1024 * 1024 * 1024
     max_compression_ratio: float = 100.0
+    max_central_directory_entries: int = 400_000
 
 
 @dataclass(frozen=True)
@@ -34,7 +35,9 @@ class SafeArchiveEntry:
 
 
 _DRIVE_RE = re.compile(r"^[A-Za-z]:")
-_PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
+_CENTRAL_DIRECTORY_SIGNATURE = b"PK\x01\x02"
+_CENTRAL_DIRECTORY_HEADER_SIZE = 46
+_CENTRAL_DIRECTORY_LENGTHS_OFFSET = 28
 
 
 def normalize_archive_path(raw_name: str) -> str:
@@ -69,6 +72,74 @@ def _is_symlink(info: zipfile.ZipInfo) -> bool:
     return stat.S_ISLNK(mode)
 
 
+def _scan_central_directory(source: BinaryIO, max_entries: int) -> None:
+    """Count central-directory records before ZipFile builds its ZipInfo list."""
+    try:
+        end_record = zipfile._EndRecData(source)
+    except (OSError, zipfile.BadZipFile) as exc:
+        raise ArchiveSafetyError(
+            "archive_invalid", "archive is not a valid ZIP"
+        ) from exc
+    if end_record is None:
+        return
+
+    directory_size = end_record[zipfile._ECD_SIZE]
+    directory_offset = end_record[zipfile._ECD_LOCATION] - directory_size
+    if directory_size < 0 or directory_offset < 0:
+        raise ArchiveSafetyError("archive_invalid", "archive is not a valid ZIP")
+
+    source.seek(directory_offset)
+    consumed = 0
+    count = 0
+    while consumed < directory_size:
+        if count >= max_entries:
+            raise ArchiveSafetyError(
+                "resource_budget_exceeded",
+                "archive central directory entry count exceeds the limit",
+                detail={
+                    "budget": "max_central_directory_entries",
+                    "limit": max_entries,
+                    "observed": max_entries + 1,
+                },
+            )
+        header = source.read(_CENTRAL_DIRECTORY_HEADER_SIZE)
+        if len(header) != _CENTRAL_DIRECTORY_HEADER_SIZE or not header.startswith(
+            _CENTRAL_DIRECTORY_SIGNATURE
+        ):
+            raise ArchiveSafetyError("archive_invalid", "archive is not a valid ZIP")
+        filename_size, extra_size, comment_size = struct.unpack_from(
+            "<HHH", header, _CENTRAL_DIRECTORY_LENGTHS_OFFSET
+        )
+        record_size = (
+            _CENTRAL_DIRECTORY_HEADER_SIZE + filename_size + extra_size + comment_size
+        )
+        consumed += record_size
+        if consumed > directory_size:
+            raise ArchiveSafetyError("archive_invalid", "archive is not a valid ZIP")
+        source.seek(filename_size + extra_size + comment_size, os.SEEK_CUR)
+        count += 1
+
+
+def _preflight_central_directory(
+    source: str | os.PathLike[str] | BinaryIO, max_entries: int
+) -> None:
+    if isinstance(source, (str, os.PathLike)):
+        try:
+            with open(source, "rb") as stream:
+                _scan_central_directory(stream, max_entries)
+        except OSError as exc:
+            raise ArchiveSafetyError(
+                "archive_invalid", "archive is not a valid ZIP"
+            ) from exc
+        return
+
+    position = source.tell()
+    try:
+        _scan_central_directory(source, max_entries)
+    finally:
+        source.seek(position)
+
+
 class SafeZipArchive:
     def __init__(
         self,
@@ -81,7 +152,12 @@ class SafeZipArchive:
         self.skip_unsafe_paths = skip_unsafe_paths
         self.skipped_paths: list[str] = []
         try:
+            _preflight_central_directory(
+                source, self.limits.max_central_directory_entries
+            )
             self._zip = zipfile.ZipFile(source)
+        except ArchiveSafetyError:
+            raise
         except (zipfile.BadZipFile, OSError) as exc:
             raise ArchiveSafetyError(
                 "archive_invalid", "archive is not a valid ZIP"
@@ -240,43 +316,3 @@ class SafeZipArchive:
                 pass
             raise
         return copied
-
-
-def inspect_png_header(source: BinaryIO) -> tuple[int, int, int, int]:
-    header = source.read(33)
-    if len(header) < 33 or header[:8] != _PNG_SIGNATURE or header[12:16] != b"IHDR":
-        raise ArchiveSafetyError(
-            "png_magic_invalid", "PNG signature or IHDR is invalid"
-        )
-    width, height, bit_depth, color_type = struct.unpack(">IIBB", header[16:26])
-    if width <= 0 or height <= 0:
-        raise ArchiveSafetyError(
-            "png_dimensions_invalid", "PNG dimensions must be positive"
-        )
-    return width, height, bit_depth, color_type
-
-
-def validate_png_contract(
-    source: BinaryIO,
-    *,
-    expected_width: int,
-    expected_height: int,
-    allowed_bit_depths: frozenset[int] = frozenset({8}),
-    allowed_color_types: frozenset[int] = frozenset({0, 3}),
-) -> None:
-    width, height, bit_depth, color_type = inspect_png_header(source)
-    if (width, height) != (expected_width, expected_height):
-        raise ArchiveSafetyError(
-            "image_size_mismatch",
-            "PNG dimensions do not match the manifest",
-            detail={
-                "expected": [expected_width, expected_height],
-                "observed": [width, height],
-            },
-        )
-    if bit_depth not in allowed_bit_depths or color_type not in allowed_color_types:
-        raise ArchiveSafetyError(
-            "png_contract_unsupported",
-            "PNG bit depth or color type is unsupported",
-            detail={"bit_depth": bit_depth, "color_type": color_type},
-        )
