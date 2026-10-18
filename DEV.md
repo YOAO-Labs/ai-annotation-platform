@@ -973,9 +973,9 @@ nuScenes mini 到 `~/.cache/ai-annotation-platform/nuscenes-mini`（约 4 GB，�
 
 ## 独立 Assets 来源服务
 
-`apps/assets-source` 执行单文件上传初始化、条件发布完成、Dataset/Item 删除、同步 ZIP 入库和旧对象桶扫描。公开 API 保留认证、scope、ZIP/扫描各自既有角色规则和同步响应；来源服务不连接 Redis/Celery。协议与重放见[来源控制](docs-site/api/guides/assets-source.md)。
+`apps/assets-source` 的现有 HTTP runtime 执行单文件上传初始化、条件发布完成、Dataset/Item 删除、同步 ZIP 入库和旧对象桶扫描，也承载六项连接管理操作：列表、读取、创建、更新、删除和连通性测试。公开 API 保留认证、scope、ZIP/扫描各自既有角色规则和同步响应；来源服务不连接 Redis/Celery。连接操作继续使用现有 API 路由和 Source runtime，不另加一个连接服务。协议与重放见[来源控制](docs-site/api/guides/assets-source.md)。
 
-先将迁移应用至 0215、完成 module-data owner 授权，再为独立 `asset_source_client` LOGIN 应用：
+先将迁移应用至当前 head `0217`、完成 module-data owner 授权，再为独立 `asset_source_client` LOGIN 应用：
 
 ```bash
 psql -v expected_database=annotation_test -v migration_role=owner \
@@ -983,9 +983,13 @@ psql -v expected_database=annotation_test -v migration_role=owner \
   -f infra/docker/assets-source-grants.sql
 ```
 
-数据库名和连接参数应指向明确选择的环境。0215 后该角色只能执行 14 项来源函数，即既有九项加五项批量入库能力；不读业务关系、序列或其他 owner schema，不授予角色成员资格。两项批量媒体派发 claim/ack 能力只给 API maintenance relay，不授予 Source LOGIN。不要把日常宽权限 API 账号用于此服务。
+数据库名和连接参数应指向明确选择的环境。Source LOGIN 精确执行 23 项 `aap_assets_v1` 能力：既有 14 项来源/入库能力与 9 项连接管理能力。它不读业务关系或序列，不使用其他 owner schema，也不授予任何方向的角色成员资格。两项批量媒体派发 claim/ack 能力只给 API maintenance relay。导入执行器仍使用独立的七函数 LOGIN，Catalog LOGIN 仍是 29 项；不要把日常宽权限 API 账号用于这些工件。
 
-服务显式配置专用 DSN、token、S3 access/secret；可用 `.env.example` 的 `_FILE` 变量。secret 必须能被用户 10003 读取。S3 授予 import 桶 `dataset-uploads/*` Get/Put、datasets 桶历史来源的条件读取和该配置桶自身的 ListBucket，以及 `dataset-sources/*` Put/multipart Abort。不要授予来源 Delete、其他桶 List 或桶管理；cache 桶只用于 SQL outbox。内部 I/O endpoint 与浏览器签名 endpoint 分开，均从服务配置取得。ZIP 的 200 MiB 压缩/展开预算与 JSON 请求体预算独立，不需要新增环境变量。
+服务显式配置专用 DSN、token、S3 access/secret；可用 `.env.example` 的 `_FILE` 变量。secret 必须能被用户 10003 读取。S3 授予 import 桶 `dataset-uploads/*` Get/Put、datasets 桶历史来源的条件读取和该配置桶自身的 ListBucket，以及 `dataset-sources/*` Put/multipart Abort。不要授予来源 Delete、其他桶 List 或桶管理；cache 桶只用于 SQL outbox。内部 I/O endpoint 与浏览器签名 endpoint 分开，均从服务配置取得。ZIP 的 200 MiB 压缩/展开预算与 JSON 请求体预算独立。
+
+连接管理凭据使用可选 `ASSETS_SOURCE_CONNECTOR_ENCRYPTION_KEY` 或 `_FILE`，值与本地 API/导入执行器的 `CONNECTOR_ENCRYPTION_KEY` 相同。该 key 留空时 Source 仍可启动；创建凭据或需要解密既有密文的操作会返回配置错误，单纯改名或空 patch 不需要 key。`ASSETS_SOURCE_CONNECTOR_HOST_ALLOWLIST` 是 JSON 字符串数组回退值，数据库 `system_settings.connector_host_allowlist` 覆盖它；`ASSETS_SOURCE_SFTP_KNOWN_HOSTS_FILE` 可指定只读的可信 SFTP 主机文件。空白回退列表拒绝连接器网络目标。DNS 和探测在锁外完成，最终提交只短暂共享锁定 Settings 表并复核策略。API 的 `ASSETS_SOURCE_URL` 留空时用本地 Source 工作流；一旦配置远程 URL，远程错误不会回退到本地。
+
+Assets 当前由 26 张映射表组成；全仓 ORM 所有权台账共 128 张表。连接操作写入新的 `storage_connection_operations` 不可变回执表，该表没有指向实时连接的外键。连接删除保留已接受的导入快照；后续导入仍要重新读取当前连接。
 
 0215 SQL 工件升级时先安装 `0215_dataset_source_ingest.sql`，再安装 `0215_dataset_source_ingest_delivery.sql`；降级由迁移包装器按依赖移除函数和表。每个独立 Source 进程同时只接收一个 ZIP 请求，Compose 限制内存为 512 MiB、`/tmp` 为 256 MiB。公开网关另为 multipart 边界和头部保留 64 KiB，流式拒绝超出包体预算的上传；文件本身仍最多 200 MiB。ZIP 新对象只写 `dataset-sources/{dataset}/{item}/{publication}/{logical_relpath}`，扫描只读取原生能力返回的精确 Dataset 前缀。回滚不删除对象存储中的原始字节。
 
@@ -1000,7 +1004,7 @@ docker compose -p aap-assets-source-dev -f docker-compose.assets-source.yml exec
 
 复制后进程退出或 SQL 回滚可能留下未登记来源拷贝；目前保留这些字节，尚无自动回收。单文件上传重试保持原 Item/操作 UUID，并使用新 publication 代次，不能通过删除原始文件或旧条目恢复。ZIP/扫描在一个外层 SQL 事务中提交素材、Labeling append、计数、ZIP Scene/frame 变更、收据和媒体派发意图。媒体派发由 API maintenance relay 领取，交付回执只表示 broker 接受，不代表媒体已完成。
 
-回退时可先清空网关 URL、刷新 API 并保留 SQL/回执，再停止同一 `-p`/`-f` 独立项目。回退迁移须先停止写入并处理活动操作及待确认媒体派发；0215 会拒绝降级仍在准备的已提交操作或待派发记录。允许降级时会移除完成收据，原幂等键将不再有可重放结果。完整 Assets 的 CRUD、标定、派生媒体和 Blob 边界仍在推进；此服务不提供全模块或生产容量资格。
+回退时可先清空网关 URL、刷新 API 并保留 SQL/回执，再停止同一 `-p`/`-f` 独立项目。回退迁移须先停止写入并处理活动操作及待确认媒体派发；0215 会拒绝降级仍在准备的已提交操作或待派发记录，0217 会拒绝删除仍保留的连接操作回执。完整 Assets 的其他 CRUD、派生媒体和 Blob 边界仍在推进；此服务不代表全模块独立部署或生产容量资格。
 
 ## 独立连接器导入执行器
 

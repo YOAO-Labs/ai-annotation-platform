@@ -3,7 +3,7 @@ audience: [dev, ops]
 type: explanation
 since: v0.1.0
 status: stable
-last_reviewed: 2026-07-29
+last_reviewed: 2026-10-19
 ---
 
 # 部署拓扑
@@ -39,6 +39,12 @@ last_reviewed: 2026-07-29
 prompt、媒体和 pipeline 参数是推理输入，不是直接选择物理主机的路由键。协议契约见 [ML Backend 协议](../reference/ml-backend-protocol)，服务池语义见 [ADR 0050 — ML Backend 服务池路由](../adr/archive/0050-ml-backend-service-pools-and-request-routing)。
 
 Kubernetes 编排目前不是既定路线；如果 Compose 和服务池已无法满足调度、容错或运维要求，应先新建 ADR 论证迁移边界。
+
+### Assets Source 可选运行时
+
+`apps/assets-source` 是现有上传、删除、ZIP/扫描和连接管理流程使用的独立 Python 运行时。它不进入默认或生产主 Compose；需要远程部署时由 `docker-compose.assets-source.yml` 以独立项目启动，内部监听 8767。API 的 `ASSETS_SOURCE_URL` 留空时用本地 Source 工作流；配置远程地址后，只调用该服务，超时或错误不会回退成本地数据库实现。
+
+Source 使用专用 PostgreSQL LOGIN 精确执行 23 项 Assets 能力，不直接读取业务关系或序列。连接器导入使用另一个只有七项能力的 LOGIN，Catalog 保持自己的 29 项 LOGIN 能力。Source 的 Fernet key 在进程启动时可留空；创建凭据或解密已有密文时才需要配置与现有连接器 key 相同的值。主机 allowlist 的数据库设置覆盖 Source JSON 环境回退值，SFTP 可选加载只读 `known_hosts` 文件。
 
 ### 受控训练计算节点 (Training Executor)
 

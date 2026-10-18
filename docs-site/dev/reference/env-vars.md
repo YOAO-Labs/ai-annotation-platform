@@ -4,7 +4,7 @@ audience: [dev, ops]
 type: reference
 since: v0.9.0
 status: stable
-last_reviewed: 2026-10-18
+last_reviewed: 2026-10-19
 ---
 
 # 环境变量参考
@@ -279,11 +279,11 @@ last_reviewed: 2026-10-18
 |---|---|---|
 | `SECRET_KEY` | `change-this-to-a-random-string-in-production` | JWT 签名密钥；生产环境必须替换为高强度随机字符串（≥32 字符） |
 
-## 存储连接器（外部 S3 / SFTP 服务端拉取）凭据 Fernet 加密 key。
+## 存储连接器（外部 S3 / SFTP 服务端拉取）凭据 Fernet key，与 SECRET_KEY 隔离。
 
 | 变量 | 默认值 | 说明 |
 |---|---|---|
-| `CONNECTOR_ENCRYPTION_KEY` | `—` | 与 SECRET_KEY 隔离；留空则连接器加解密一律拒绝（API 返回 503）。 生成: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())" |
+| `CONNECTOR_ENCRYPTION_KEY` | `—` | 本地 API 模式留空时，创建或解密凭据的连接器操作不可用；远程 Source 模式由 Source 服务配置同一 key。 生成: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())" |
 | `CONNECTOR_HOST_ALLOWLIST` | `—` | 存储连接器主机白名单部署默认值（CIDR/IP/域名，CSV 或 JSON 数组）。 超管通过 /storage-connections/allowlist 写入 DB 后会覆盖该默认值。 本地连接宿主机 SFTP 示例: CONNECTOR_HOST_ALLOWLIST=172.17.0.1/32,172.26.1.17/32 |
 | `CONNECTOR_DEPLOYMENT_SFTP_HOST` | `—` | 可选：超级管理员「添加部署主机」快捷项预填的 SFTP hostname/IP；留空不展示。 只配置地址，不包含凭据、路径或白名单规则。目标仍须显式加入 CONNECTOR_HOST_ALLOWLIST。 |
 | `DATASET_IMPORT_MAX_FILES` | `50000` | 连接器导入单个 job 最多扫描 / 导入的文件数；超限直接失败，避免误扫全桶。 |
@@ -470,16 +470,20 @@ last_reviewed: 2026-10-18
 
 | 变量 | 默认值 | 说明 |
 |---|---|---|
-| `ASSETS_SOURCE_URL` | `—` | 网关：空 URL 保持本地模式；显式远程失败不会回退。 |
+| `ASSETS_SOURCE_URL` | `—` | 网关：URL 留空时用本地 Source 工作流；设置 URL 后所有操作都走远程，失败不会回退。 |
 | `ASSETS_SOURCE_TOKEN` | `—` | — |
 | `ASSETS_SOURCE_TIMEOUT_SECONDS` | `300` | — |
-| `ASSETS_SOURCE_DATABASE_URL` | `—` | 独立进程：显式专用 DSN/token/S3 凭据，不能使用日常 API 宽凭据。 0215 后 source LOGIN 精确执行 14 项来源函数；媒体 delivery claim/ack 留给 API maintenance relay。 不授予业务关系、序列或其他 owner schema 的直接访问权限。 |
+| `ASSETS_SOURCE_DATABASE_URL` | `—` | 独立进程：显式专用 DSN/token/S3 凭据，不能使用日常 API 宽凭据。 Source LOGIN 精确执行 23 项 Assets 能力（14 项来源/入库 + 9 项连接管理）；Catalog 29 项、导入 LOGIN 7 项各自独立。 不授予业务关系、序列或其他 owner schema 的直接访问权限。 |
 | `ASSETS_SOURCE_DATABASE_URL_FILE` | `—` | — |
 | `ASSETS_SOURCE_TOKEN_FILE` | `—` | — |
 | `ASSETS_SOURCE_S3_ACCESS_KEY` | `—` | — |
 | `ASSETS_SOURCE_S3_ACCESS_KEY_FILE` | `—` | — |
 | `ASSETS_SOURCE_S3_SECRET_KEY` | `—` | — |
 | `ASSETS_SOURCE_S3_SECRET_KEY_FILE` | `—` | — |
+| `ASSETS_SOURCE_CONNECTOR_ENCRYPTION_KEY` | `—` | 可选 Fernet key；应与 CONNECTOR_ENCRYPTION_KEY 相同，以读取既有密文。留空仍可启动；创建/加密或需要解密密文的操作会失败。 |
+| `ASSETS_SOURCE_CONNECTOR_ENCRYPTION_KEY_FILE` | `—` | — |
+| `ASSETS_SOURCE_CONNECTOR_HOST_ALLOWLIST` | `[]` | Settings 数据库覆盖不存在时使用的部署回退；必须为 JSON 字符串数组，空数组不允许连接器目标出网。 |
+| `ASSETS_SOURCE_SFTP_KNOWN_HOSTS_FILE` | `—` | 可选只读 known_hosts 文件；容器内路径必须可读，未知 SFTP 主机仍被拒绝。 |
 | `ASSETS_SOURCE_S3_ENDPOINT` | `—` | I/O origin 供服务访问；public origin 供浏览器签名访问，签名后不替换 Host。 |
 | `ASSETS_SOURCE_S3_PUBLIC_ENDPOINT` | `—` | — |
 | `ASSETS_SOURCE_S3_REGION` | `us-east-1` | — |

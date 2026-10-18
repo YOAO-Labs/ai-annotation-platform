@@ -3,7 +3,7 @@ audience: [ops]
 type: how-to
 since: v0.1.0
 status: stable
-last_reviewed: 2026-08-14
+last_reviewed: 2026-10-19
 ---
 
 # 生产部署（Docker Compose）
@@ -12,7 +12,7 @@ last_reviewed: 2026-08-14
 
 > 适用读者：第一次把平台搬到 staging / production 的运维或开发者。本机开发部署见[开发部署（本地）](/ops/deploy/development)，不确定去哪先看[部署总览](/ops/deploy/)。
 >
-> 当前部署形态：叠加 `docker-compose.prod.yml` 把 **api / web 容器化**（api 镜像 entrypoint 自动跑迁移 + uvicorn，web 镜像 nginx 托管构建产物 + 反代），基础设施（PG / Redis / MinIO / Celery）沿用基础 `docker-compose.yml`。完整 K8s / Terraform 模板暂未维护。不走容器、改 systemd 进程式跑 api/web 的替代路径见 §4.5。
+> 当前部署形态：叠加 `docker-compose.prod.yml` 把 **api / web 容器化**（api 镜像 entrypoint 自动跑迁移 + uvicorn，web 镜像 nginx 托管构建产物 + 反代），基础设施（PG / Redis / MinIO / Celery）沿用基础 `docker-compose.yml`。Assets Source 不在这组默认/生产 Compose 内；它有独立的 `docker-compose.assets-source.yml` 项目，按需部署。不走容器、改 systemd 进程式跑 api/web 的替代路径见 §4.5。
 >
 > 想先理解开发态 / staging / 生产态的整体差异（谁进容器、profile、`ENVIRONMENT` 断言行为），先读[运行环境形态](/dev/concepts/runtime-environments)。
 >
@@ -29,6 +29,8 @@ last_reviewed: 2026-08-14
 />
 
 > **Celery beat 必须单实例**：worker 可水平扩多副本，但 beat 多实例会重复触发定时任务（见 §4.2），漏了它则审计归档、PerfHud、ml health 等全部静默失效。
+
+连接列表、读取、创建、更新、删除与测试默认由本地 API 装配的 Source 工作流处理。部署独立 Source runtime 时，API 配置 `ASSETS_SOURCE_URL` 和共享 token 后会把这些操作发送到远端；远端不可用或返回错误时 API 不切回本地 SQL。Source 使用专用 PostgreSQL LOGIN 和对象存储身份，连接管理共用现有 runtime，不另加连接容器。具体变量、可选 Fernet key、JSON 主机 allowlist 回退与 SFTP known-hosts 文件见[环境变量参考](/dev/reference/env-vars)和[模块部署状态](/dev/concepts/module-deployment)。
 
 最小生产部署：1 台 4C8G + 1 个独立 PG 实例（托管 RDS 优先）。
 
