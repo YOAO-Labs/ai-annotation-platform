@@ -1635,4 +1635,5 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
 - 追加建题通过后续迁移恢复 ORM 原有的项目更新时间维护，不修改已部署的旧 SQL 工件；回执重放既不覆盖当前计数，也不改变当前更新时间。
 - 本地独立 PostgreSQL、五个 NOLOGIN owner、受限 LOGIN 调用角色及旧宽权限 runtime 验收共 209 passed、零跳过。覆盖原生 psql 与无主 API/SQLAlchemy/Celery 导入的 asyncpg peer 交接、强制退出/重启、解绑重建、取消、失败提交、点云真实样例与 33,000 项建题。真实 Celery 用受限角色完成发起者停用后的已接受作业，重复投递不建重复 Task。全部冻结 SQL 独立安装/回滚及迁移回退/升级通过，隔离资源清理完成。证据为 `.worktree/task-creation-qualified.json` 与对应 JUnit。
 - 架构守卫 273 passed、111 skipped；跳过均为未声明 lazy-root 规则，业务套件没有跳过。环境脚本单测 42 项通过，固定 Ruff 与 OpenAPI 快照检查通过。
+- 前端类型检查、作业列表 15 项测试、文档构建及提交门禁通过。主 checkout 已应用至 0195，实际 API 的 485 paths/872 schemas 与快照完全一致；源码热重载在约 3.2 秒内更换服务子进程。DB/Redis/MinIO 检查均为 200；日常 Celery 原本未启动，总健康检查相应为 503，本次隔离 worker 已实际验证并清理。主库只运行只读/回滚烟测，未留下建题操作。运行证据保存在 `.worktree/task-creation-main-runtime.json`。
 - 本片只建立选定授权、关联、建题与作业的数据接口；主 API 仍使用宽权限账号，共享 PostgreSQL 仍是前提。项目级删除、完整 owner 凭据/运行工件、对象存储权限和其余模块协议继续推进，总目标保持未完成。Go 月报仍仅为实验。决策见 [ADR-0093](../adr/0093-durable-task-creation-authority.md)。
