@@ -138,3 +138,4 @@
 - [0092](0092-transactional-module-data-capabilities.md) — 同库事务中的版本化模块数据接口
 - [0093](0093-durable-task-creation-authority.md) — 已接受建题操作的执行权与分块围栏
 - [0094](0094-transactional-project-deletion.md) — Transactional project deletion across module owners
+- [0095](0095-transactional-dataset-unlink.md) — Transactional Dataset unlink across module owners

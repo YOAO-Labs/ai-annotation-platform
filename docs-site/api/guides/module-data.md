@@ -10,10 +10,13 @@ last_reviewed: 2026-10-18
 这些接口供可信后端进程使用，不是终端用户 REST API。调用方仍负责身份认证和用例准入；
 初始操作接受时还会在数据库内校验当前项目管理权。持有函数执行权限不等于获得任意用户的项目管理权限。
 
-实现与冻结合同位于 `apps/api/alembic/sql/0190*` 至 `0200*`。接口通过 PostgreSQL
+实现与冻结合同位于 `apps/api/alembic/sql/0190*` 至 `0205*`。接口通过 PostgreSQL
 协议调用，使用调用方同一连接的外层事务，不接收 Python Session、ORM 或任意 SQL。
 安装、独立角色及本地验收命令见仓库 `DEV.md`；数据所有权见
 [ADR-0092](/dev/adr/0092-transactional-module-data-capabilities)。
+
+HTTP 数据集路由对 API key 按操作检查 `datasets:read` / `datasets:write` scope；现有 JWT
+授权行为保持不变。SQL 能力执行权不代替 HTTP 身份、scope 或当前项目管理权校验。
 
 ## 操作与职责
 
@@ -166,6 +169,48 @@ actor/project/operation 身份完全一致时才重放原结果；同一 ID 换 
 必须与冻结 payload 相符；有效 v1 作业若丢失必需范围，worker 只能持久化带 `job_scope_mismatch` 的终态失败，不能从 payload 重建范围。
 旧未版本化作业与范围不一致均失败关闭，不做 payload 授权回填；取消后的迟到 worker 不会复活作业。
 
-该切片只完成项目删除的同库事务合同。素材解绑与数据集删除的并发边界、身份生命周期、其余
-Workspace/Assets 操作，以及所有模块独立运行工件和完整凭据边界仍待完成；总体状态见
-[模块部署台账](/dev/concepts/module-deployment) 与 [ADR-0094](/dev/adr/0094-transactional-project-deletion)。
+## Workspace 数据集解绑与清理回执
+
+`DELETE /datasets/{dataset_id}/link/{project_id}` 成功仍返回 HTTP 200 和原有五个字段：
+`deleted_tasks`、`deleted_annotations`、`deleted_batches`、`deleted_batch_ids`、`soft`。
+Workspace 的 `aap_workspace_v1.preview_dataset_unlink(actor_id, dataset_id, project_id)`
+提供只读删除数量预览；`aap_workspace_v1.unlink_dataset(operation_id, actor_id,
+dataset_id, project_id, cleanup_bucket, audit_context)` 是有写入效果的事务协调命令。
+调用方保留同一 PostgreSQL 连接和外层事务，预览与执行都复用 Labeling 的同一素材来源选择规则。
+
+来源选择优先使用 `Task.dataset_item_id`；仅当旧点云 Task 没有直接来源时，才回退到
+`TaskDatasetItemLink(role='primary_lidar')`。相机链接和真正无来源的 Task 不会被当成待解绑来源。
+新命令锁定活跃身份并串行化 operation ID，然后按 Dataset → 当前项目管理权与排他 Project 行锁
+`FOR UPDATE NOWAIT` → 原关联 generation → Labeling 批次再 Task 的顺序加锁。锁后会检查来源与
+批次快照是否仍匹配；锁争用、来源漂移、主动学习引用或有保留意义的反馈/标注 lineage 都会在删除前
+失败并回滚。Learning guard 同时检查所有轮次、所有项目的 pool member/candidate Task 引用；Labeling
+guard 不允许静默删除人工反馈或外部标注 lineage。
+
+通过检查后，Diagnostics 仅解除匹配 Task 的 bug report 引用，保留报告、评论和 Project 引用；Assets
+为 Task 所有的 pyramid 记录对象 UUID、精确 prefix 和受信 bucket 到持久 cleanup outbox，并清理自有
+SQL metadata；Jobs 只取消与 Dataset、Project 和原关联 UUID 完全一致的版本化待处理/运行中建题作业；
+Labeling 删除被解绑 Task 的评论、draft、prediction、prediction metadata、annotation、lock 和 Task，
+保留 feedback，并在同一事务内重算 Project 与 batch 投影；Assets 最后只移除锁定的关联 UUID 代次。
+Audit 写入 `dataset.unlink`，Workspace 保存带 operation、actor、Dataset、Project、association、
+删除计数、audit ID 和 cleanup bucket 的不可变回执。owner 的清理、作业取消、投影、审计及回执共同
+提交或共同回滚。
+
+operation 回执的规范请求包含 operation ID、actor ID、Dataset ID、Project ID 与受信 cleanup bucket；
+审计传输上下文不参与请求身份。重放要求原 actor 仍活跃且规范请求一致，不要求重新取得管理权；同 ID
+换请求返回 `operation_conflict`。Bucket 由可信服务配置传入，不是终端用户字段。
+
+解绑事务内不执行 S3 或 broker 操作。提交后，API 可尝试清理；cleanup worker 可重试未完成的 outbox
+条目。它仅按记录的 asset UUID、prefix 和 bucket 做幂等删除及确认；配置 bucket 与记录不一致时拒绝
+执行。源对象字节、item-owned pyramid 和共享 pyramid 不会被此操作删除。独立 cleanup LOGIN 才能读取
+待处理并确认完成，workflow LOGIN 不能扫描 outbox 或读取其私有表。
+
+`active_learning_reference`、`task_feedback_retained` 和
+`annotation_reference_retained` 表示证据必须先保留或经明确的领域流程处理；`source_in_use` 表示数据库
+仍有其他受限来源引用。锁/序列化争用返回 `project_busy`，完整回滚后重试整个命令；同 operation ID
+对应不同 Dataset、Project、actor 或 bucket 时返回 `operation_conflict`，不能覆盖原回执。
+
+数据集解绑是 Workspace 的同库事务切片，不代表 Workspace 或各参与 owner 已能独立部署。Dataset 与
+DatasetItem 的公开删除命令仍未迁移；0201 Learning guard 和后续 owner 引用能力目前是这些删除边界的
+私有基础，不是完整删除操作。身份/成员生命周期、其他模块操作以及完整运行工件和凭据仍待完成；总体
+状态见[模块部署台账](/dev/concepts/module-deployment)、[ADR-0094](/dev/adr/0094-transactional-project-deletion)
+和 [ADR-0095](/dev/adr/0095-transactional-dataset-unlink)。
