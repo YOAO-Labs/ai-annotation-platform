@@ -98,6 +98,8 @@ class CatalogService:
         return await self._spatial.update_calibration(request)
 
     def _sign_item(self, item: CatalogItem) -> CatalogItem:
+        if item.file_type == "video":
+            return item.model_copy(update={"file_url": None, "thumbnail_url": None})
         try:
             file_url = self._signer.sign_source(item.file_path)
         except Exception:

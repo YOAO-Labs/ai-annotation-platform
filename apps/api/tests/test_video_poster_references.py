@@ -136,3 +136,43 @@ async def test_video_poster_urls_omit_nonvideo_and_broken_owner_replies(monkeypa
         None,
         None,
     ]
+
+
+@pytest.mark.asyncio
+async def test_pending_metadata_keeps_verified_original_but_omits_poster(monkeypatch):
+    request = ReadSourceRequest(actor_id=uuid4(), dataset_item_id=uuid4())
+
+    class FakeGateway:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def source_reference(self, _request):
+            return _reference(
+                request.dataset_item_id,
+                poster_url="http://minio:9000/stale-poster.webp",
+                materialized=1,
+                generation=2,
+            )
+
+    monkeypatch.setattr(
+        video_poster_references, "media_gateway", lambda _db: FakeGateway()
+    )
+    monkeypatch.setattr(
+        video_poster_references,
+        "browser_media_url",
+        lambda url: url.replace("http://minio:9000", "/minio"),
+    )
+
+    references = await video_poster_references.video_source_references(
+        object(), [request]
+    )
+    poster_urls = await video_poster_references.video_poster_urls(object(), [request])
+
+    assert references[0] is not None
+    assert references[0].original_url == "/minio/source.mp4"
+    assert references[0].video_url == references[0].original_url
+    assert references[0].poster_url is None
+    assert poster_urls == [None]

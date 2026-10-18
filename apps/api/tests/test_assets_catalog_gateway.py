@@ -24,6 +24,8 @@ from aap_assets_catalog import (
     ListItemsRequest,
     UpdateDatasetRequest,
 )
+from aap_assets_media.contract import MediaSource
+from aap_assets_media.transport import SourceReference
 from app.services import assets_catalog
 from app.api.v1 import datasets as dataset_routes
 from app.schemas.dataset import DatasetCreate, DatasetUpdate
@@ -424,11 +426,45 @@ def _catalog_item(
     )
 
 
+def _video_source_reference(
+    item_id: uuid.UUID,
+    *,
+    poster_url: str | None,
+    materialized_generation: int = 2,
+):
+    return SourceReference(
+        source=MediaSource(
+            dataset_item_id=item_id,
+            dataset_id=uuid.uuid4(),
+            source_generation=2,
+            source_snapshot="a" * 64,
+            timetable_revision=0,
+            materialized_generation=materialized_generation,
+            object_identity=None,
+            source_drifted=False,
+            file_name=f"{item_id}.mp4",
+            file_path=f"source/{item_id}",
+            file_type="video",
+            file_size=1,
+            content_hash=None,
+            width=16,
+            height=9,
+            thumbnail_path=None,
+            blurhash=None,
+            video_metadata={},
+        ),
+        original_url=f"https://browser.test/source/{item_id}",
+        video_url=f"https://browser.test/source/{item_id}",
+        poster_url=poster_url,
+        expires_in=3600,
+    )
+
+
 @pytest.mark.parametrize("remote", [False, True])
 @pytest.mark.asyncio
-async def test_catalog_video_thumbnails_always_use_owner_reference(monkeypatch, remote):
+async def test_catalog_video_links_always_use_owner_reference(monkeypatch, remote):
     actor_id, dataset_id = uuid.uuid4(), uuid.uuid4()
-    video_ids = [uuid.uuid4(), uuid.uuid4()]
+    video_ids = [uuid.uuid4() for _ in range(3)]
     image_id = uuid.uuid4()
     page = ItemPage(
         dataset_id=dataset_id,
@@ -451,8 +487,14 @@ async def test_catalog_video_thumbnails_always_use_owner_reference(monkeypatch, 
                 file_type="video",
                 thumbnail_url="upstream:other-stale-poster",
             ),
+            _catalog_item(
+                item_id=video_ids[2],
+                dataset_id=dataset_id,
+                file_type="video",
+                thumbnail_url="upstream:third-stale-poster",
+            ),
         ],
-        total=3,
+        total=4,
         limit=50,
         offset=0,
     )
@@ -472,11 +514,21 @@ async def test_catalog_video_thumbnails_always_use_owner_reference(monkeypatch, 
     monkeypatch.setattr(assets_catalog.storage_service, "generate_download_url", sign)
     requests = []
 
-    async def owner_posters(_db, source_requests):
+    async def owner_sources(_db, source_requests):
         requests.extend(source_requests)
-        return ["browser:verified-poster", None]
+        return [
+            _video_source_reference(
+                video_ids[0], poster_url="https://browser.test/verified-poster"
+            ),
+            _video_source_reference(
+                video_ids[1],
+                poster_url=None,
+                materialized_generation=1,
+            ),
+            None,
+        ]
 
-    monkeypatch.setattr(assets_catalog, "video_poster_urls", owner_posters)
+    monkeypatch.setattr(assets_catalog, "video_source_references", owner_sources)
 
     result = await gateway.items(
         ListItemsRequest(actor_id=actor_id, dataset_id=dataset_id)
@@ -486,16 +538,25 @@ async def test_catalog_video_thumbnails_always_use_owner_reference(monkeypatch, 
     assert all(
         request.actor_id == actor_id and request.task_id is None for request in requests
     )
-    assert result.items[0].thumbnail_url == "browser:verified-poster"
+    assert result.items[0].file_url == (f"https://browser.test/source/{video_ids[0]}")
+    assert result.items[0].thumbnail_url == "https://browser.test/verified-poster"
     assert result.items[0].blurhash is None
+    assert result.items[2].file_url == (f"https://browser.test/source/{video_ids[1]}")
+    assert result.items[2].thumbnail_url is None
+    assert result.items[2].blurhash is None
     assert result.items[1].thumbnail_url == (
         "upstream:image-poster"
         if remote
         else f"signed:media-assets/old/{image_id}.webp"
     )
     assert result.items[1].blurhash == "image-blurhash"
-    assert result.items[2].thumbnail_url is None
-    assert result.items[2].blurhash is None
+    assert result.items[3].file_url is None
+    assert result.items[3].thumbnail_url is None
+    assert result.items[3].blurhash is None
     if not remote:
         assert f"media-assets/old/{video_ids[0]}.webp" not in signed
         assert f"media-assets/old/{video_ids[1]}.webp" not in signed
+        assert f"media-assets/old/{video_ids[2]}.webp" not in signed
+        assert f"source/{video_ids[0]}" not in signed
+        assert f"source/{video_ids[1]}" not in signed
+        assert f"source/{video_ids[2]}" not in signed
