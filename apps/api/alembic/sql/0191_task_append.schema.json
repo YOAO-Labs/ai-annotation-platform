@@ -1,0 +1,108 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:aap:contract:task-append:v1",
+  "title": "Dataset task append v1",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/request"
+    },
+    {
+      "$ref": "#/$defs/result"
+    }
+  ],
+  "$defs": {
+    "request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["dataset_id", "item_ids", "operation_id"],
+      "properties": {
+        "dataset_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "item_ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "operation_id": {
+          "type": "string",
+          "format": "uuid"
+        }
+      }
+    },
+    "association": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "project_id"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "project_id": {
+          "type": "string",
+          "format": "uuid"
+        }
+      }
+    },
+    "project_total": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["project_id", "total_tasks"],
+      "properties": {
+        "project_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "total_tasks": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "operation_id",
+        "dataset_id",
+        "created",
+        "project_totals",
+        "associations"
+      ],
+      "properties": {
+        "schema": {
+          "const": "aap-task-append/v1"
+        },
+        "operation_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "dataset_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "created": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "project_totals": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/project_total"
+          }
+        },
+        "associations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/association"
+          }
+        }
+      }
+    }
+  }
+}

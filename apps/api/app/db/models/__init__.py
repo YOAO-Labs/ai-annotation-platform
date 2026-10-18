@@ -9,6 +9,7 @@ from app.db.models.project_pipeline import ProjectPipeline
 from app.db.models.project_template import ProjectTemplate
 from app.db.models.project_task_view import ProjectTaskView
 from app.db.models.task import Task
+from app.db.models.task_append_operation import TaskAppendOperation
 from app.db.models.image_pyramid import ImagePyramidAsset, ImagePyramidGeneration
 from app.db.models.task_batch import TaskBatch
 from app.db.models.task_lock import TaskLock, AnnotationDraft
@@ -148,6 +149,7 @@ __all__ = [
     "ProjectTemplate",
     "ProjectTaskView",
     "Task",
+    "TaskAppendOperation",
     "ImagePyramidAsset",
     "ImagePyramidGeneration",
     "TaskBatch",
