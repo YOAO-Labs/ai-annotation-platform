@@ -121,6 +121,11 @@ async def _seed_world(test_engine) -> _World:
                     status="offline",
                     is_active=True,
                 ),
+            ]
+        )
+        await db.flush()
+        db.add_all(
+            [
                 Dataset(
                     id=dataset_id,
                     display_id=f"D-UP-{suffix}",
