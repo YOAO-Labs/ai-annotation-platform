@@ -217,9 +217,8 @@ async def main() -> None:
         info = await seed_video(db, owner_id=owner_id)
         await db.commit()
 
-        # 缩略图回填:seed 同步填了 video metadata,但未生成 poster,thumbnail_path 一直
-        # 为 NULL。提交后对本数据集派发 backfill_media(幂等),由 media worker 异步生成
-        # poster。依赖 media worker 在跑。
+        # Seed populated video metadata but not its poster. Keep this on the
+        # existing video-owner backfill path; image work is admitted separately.
         from sqlalchemy import select
 
         from app.db.models.dataset import Dataset

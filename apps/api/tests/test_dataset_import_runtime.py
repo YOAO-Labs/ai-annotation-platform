@@ -1163,7 +1163,6 @@ async def test_import_delivery_reaches_real_owned_broker_and_notification_channe
         worker = _start_importer(stack, "delivery")
         await _wait_healthy(worker)
         facts = await _wait_job(stack, job)
-        item_id = str(facts.items[0]["id"])
         notification_id = str(
             next(target for kind, target in facts.deliveries if kind == "notification")
         )
@@ -1189,11 +1188,11 @@ async def test_import_delivery_reaches_real_owned_broker_and_notification_channe
                     payload = json.loads(message)
                     if (
                         payload.get("headers", {}).get("task")
-                        != "app.workers.media.generate_thumbnail"
+                        != "app.workers.image_pyramid.execute_image_media"
                     ):
                         continue
                     body = json.loads(base64.b64decode(payload["body"]))
-                    if body[0] == [item_id]:
+                    if body[0] == [None]:
                         own_messages.append(message)
                 assert len(own_messages) == 1
             async with stack.world.maker() as db:

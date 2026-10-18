@@ -1032,32 +1032,65 @@ async def test_screenshot_media_prepares_only_owned_image_video_datasets(
     prepared = []
     checked = []
 
-    async def backfill(dataset_id):
-        prepared.append(uuid.UUID(dataset_id))
-        items = (
-            await db_session.scalars(
-                select(DatasetItem).where(
-                    DatasetItem.dataset_id == uuid.UUID(dataset_id)
+    class Gateway:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+        async def call(self, operation, request):
+            if operation == "schedule_image_media":
+                assert request.operation_id is not None
+                assert request.spec.selection.accepted_before.tzinfo is not None
+                prepared.append(request.spec.selection.dataset_id)
+                return None
+            if operation == "read_image_summaries":
+                return SimpleNamespace(
+                    items=[
+                        SimpleNamespace(
+                            source=SimpleNamespace(
+                                owner=SimpleNamespace(id=row.dataset_item_id),
+                                thumbnail_current=True,
+                                thumbnail_path=f"thumbnails/{row.dataset_item_id}.webp",
+                            )
+                        )
+                        for row in request.selectors
+                    ]
                 )
-            )
-        ).all()
-        for item in items:
-            item.thumbnail_path = f"thumbnails/{item.id}.webp"
-            if item.file_type == "video":
-                item.metadata_ = {
-                    "video": {
-                        "frame_count": 24,
-                        "fps": 24,
-                        "poster_frame_path": item.thumbnail_path,
-                    }
-                }
-        await db_session.flush()
+            if operation == "read_media_summaries":
+                return SimpleNamespace(
+                    items=[
+                        SimpleNamespace(
+                            dataset_item_id=item_id,
+                            thumbnail_path=f"thumbnails/{item_id}.webp",
+                            source_drifted=False,
+                            materialized_generation=1,
+                            source_generation=1,
+                            metadata={
+                                "video": {
+                                    "frame_count": 24,
+                                    "fps": 24,
+                                    "poster_frame_path": f"thumbnails/{item_id}.webp",
+                                }
+                            },
+                        )
+                        for item_id in request.item_ids
+                    ]
+                )
+            raise AssertionError(operation)
+
+    async def video_backfill(dataset_id, operation_id):
+        assert operation_id is not None
+        prepared.append(uuid.UUID(dataset_id))
 
     def verify_upload(key, *, bucket):
         checked.append((key, bucket))
         return {"ContentLength": 128}
 
-    monkeypatch.setattr("app.workers.media._backfill_media", backfill)
+    monkeypatch.setattr("app.services.assets_images.image_gateway", Gateway)
+    monkeypatch.setattr("app.services.assets_media.media_gateway", Gateway)
+    monkeypatch.setattr("app.workers.media._schedule_video_backfill", video_backfill)
     monkeypatch.setattr(
         "scripts.seed_screenshot_profile.storage_service.verify_upload", verify_upload
     )
@@ -1086,18 +1119,65 @@ async def test_screenshot_media_fails_when_backfill_does_not_make_media_ready(
 ):
     await _ready_profile(db_session)
 
-    async def backfill(dataset_id):
-        if failure != "thumbnail":
-            items = await db_session.scalars(
-                select(DatasetItem).where(
-                    DatasetItem.dataset_id == uuid.UUID(dataset_id)
-                )
-            )
-            for item in items:
-                item.thumbnail_path = f"missing/{item.id}.webp"
-            await db_session.flush()
+    class Gateway:
+        async def __aenter__(self):
+            return self
 
-    monkeypatch.setattr("app.workers.media._backfill_media", backfill)
+        async def __aexit__(self, *args):
+            return None
+
+        async def call(self, operation, request):
+            if operation == "schedule_image_media":
+                return None
+            if operation == "read_image_summaries":
+                ready = failure != "thumbnail"
+                return SimpleNamespace(
+                    items=[
+                        SimpleNamespace(
+                            source=SimpleNamespace(
+                                owner=SimpleNamespace(id=row.dataset_item_id),
+                                thumbnail_current=ready,
+                                thumbnail_path=(
+                                    f"missing/{row.dataset_item_id}.webp"
+                                    if ready
+                                    else None
+                                ),
+                            )
+                        )
+                        for row in request.selectors
+                    ]
+                )
+            if operation == "read_media_summaries":
+                return SimpleNamespace(
+                    items=[
+                        SimpleNamespace(
+                            dataset_item_id=item_id,
+                            thumbnail_path=f"missing/{item_id}.webp",
+                            source_drifted=False,
+                            materialized_generation=1,
+                            source_generation=1,
+                            metadata={
+                                "video": {
+                                    "frame_count": None if failure == "video" else 24,
+                                    "fps": 24,
+                                    "poster_frame_path": f"missing/{item_id}.webp",
+                                }
+                            },
+                        )
+                        for item_id in request.item_ids
+                    ]
+                )
+            raise AssertionError(operation)
+
+    async def video_backfill(dataset_id, operation_id):
+        return None
+
+    monkeypatch.setattr("app.services.assets_images.image_gateway", Gateway)
+    monkeypatch.setattr("app.services.assets_media.media_gateway", Gateway)
+    monkeypatch.setattr("app.workers.media._schedule_video_backfill", video_backfill)
+    monkeypatch.setattr(
+        "scripts.seed_screenshot_profile.SCREENSHOT_MEDIA_WAIT_SECONDS", 0
+    )
     monkeypatch.setattr(
         "scripts.seed_screenshot_profile.storage_service.verify_upload",
         lambda *args, **kwargs: None if failure == "object" else {"ContentLength": 128},

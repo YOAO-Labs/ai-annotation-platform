@@ -27,24 +27,28 @@ from pathlib import Path
 import re
 import time
 from typing import Any
+from datetime import datetime, timezone
+import uuid
 
+from aap_assets_images.contract import (
+    ImageBackfillSelection,
+    ImageSourceSelector,
+    ReadImageGenerationRequest,
+    ReadImageSummariesRequest,
+)
 from botocore.exceptions import ClientError
 from sqlalchemy import func, or_, select
 
 from app.config import settings
 from app.db.base import async_session, engine
 from app.db.models.dataset import Dataset, DatasetItem, ProjectDataset
-from app.db.models.image_pyramid import (
-    ImagePyramidAsset,
-    ImagePyramidGeneration,
-)
 from app.db.models.project import Project
 from app.db.models.task import Task
 from app.db.models.user import User
 from app.application.dataset_task_creation import DatasetTaskCreationWorkflow
-from app.services.image_pyramid import pyramid_eligible, pyramid_required
+from app.services.assets_images import image_gateway, image_policy
 from app.services.storage import storage_service
-from app.workers.image_pyramid import enqueue_image_pyramid
+from scripts.image_media_backfill import accept_image_backfill
 
 
 _PARENTS = Path(__file__).resolve().parents
@@ -450,51 +454,60 @@ async def _task_map(project_id, item_ids: list) -> dict:
         return {task.dataset_item_id: task for task in rows}
 
 
-async def _pyramid_statuses(item_ids: list) -> dict[str, dict[str, Any]]:
-    async with async_session() as db:
-        rows = (
-            await db.execute(
-                select(
-                    ImagePyramidAsset.dataset_item_id,
-                    ImagePyramidGeneration.generation,
-                    ImagePyramidGeneration.status,
-                    ImagePyramidGeneration.error_code,
-                    ImagePyramidGeneration.tile_count,
-                    ImagePyramidGeneration.retained_bytes,
-                )
-                .join(
-                    ImagePyramidGeneration,
-                    ImagePyramidGeneration.asset_id == ImagePyramidAsset.id,
-                )
-                .where(ImagePyramidAsset.dataset_item_id.in_(item_ids))
-                .order_by(
-                    ImagePyramidAsset.dataset_item_id,
-                    ImagePyramidGeneration.generation.desc(),
-                )
-            )
-        ).all()
+async def _pyramid_statuses(
+    item_ids: list, actor_id, *, include_details: bool = False
+) -> dict[str, dict[str, Any]]:
     statuses: dict[str, dict[str, Any]] = {}
-    for row in rows:
-        key = str(row.dataset_item_id)
-        if key not in statuses:
-            statuses[key] = {
-                "generation": row.generation,
-                "status": row.status,
-                "error_code": row.error_code,
-                "tile_count": row.tile_count,
-                "retained_bytes": row.retained_bytes,
-            }
+    async with image_gateway() as owner:
+        for offset in range(0, len(item_ids), 500):
+            batch = item_ids[offset : offset + 500]
+            summaries = await owner.call(
+                "read_image_summaries",
+                ReadImageSummariesRequest(
+                    actor_id=actor_id,
+                    selectors=[
+                        ImageSourceSelector(dataset_item_id=item_id)
+                        for item_id in batch
+                    ],
+                    profile_version=image_policy().profile_version,
+                ),
+            )
+            for summary in summaries.items:
+                pyramid = summary.pyramid
+                statuses[str(summary.selector.dataset_item_id)] = {
+                    "generation": pyramid.generation,
+                    "status": pyramid.status,
+                    "error_code": pyramid.error_code,
+                    "width": pyramid.width,
+                    "height": pyramid.height,
+                }
+        if include_details:
+            for item_id in item_ids:
+                current = await owner.call(
+                    "read_image_generation",
+                    ReadImageGenerationRequest(
+                        actor_id=actor_id,
+                        dataset_item_id=item_id,
+                        profile_version=image_policy().profile_version,
+                    ),
+                )
+                pyramid = current.pyramid
+                statuses[str(item_id)].update(
+                    tile_count=pyramid.tile_count,
+                    retained_bytes=pyramid.retained_bytes,
+                )
     return statuses
 
 
-async def _wait_for_pyramids(item_ids: list, timeout_seconds: int) -> dict:
+async def _wait_for_pyramids(item_ids: list, actor_id, timeout_seconds: int) -> dict:
     deadline = time.monotonic() + timeout_seconds
     while True:
-        statuses = await _pyramid_statuses(item_ids)
+        statuses = await _pyramid_statuses(item_ids, actor_id)
         if len(statuses) == len(item_ids) and all(
-            status["status"] in {"ready", "failed"} for status in statuses.values()
+            status["status"] in {"ready", "failed", "stale", "inconsistent"}
+            for status in statuses.values()
         ):
-            return statuses
+            return await _pyramid_statuses(item_ids, actor_id, include_details=True)
         if time.monotonic() >= deadline:
             raise LargeImageSeedError(
                 f"timed out waiting for {len(item_ids)} image pyramids"
@@ -531,14 +544,33 @@ async def run(args: argparse.Namespace) -> dict[str, Any]:
     tasks = await _task_map(project.id, [item.id for _, item, _ in item_rows])
 
     queued_item_ids = []
-    celery_task_ids: dict[str, str] = {}
+    image_job_id = None
+    operation_id = args.operation_id or uuid.uuid4()
+    policy = image_policy()
     if args.enqueue_pyramids:
-        for fixture, item, _ in item_rows:
-            if pyramid_eligible(fixture.width, fixture.height):
-                celery_task_ids[fixture.id] = enqueue_image_pyramid(
-                    "dataset_item", item.id
-                )
-                queued_item_ids.append(item.id)
+        eligible = [
+            (fixture, item)
+            for fixture, item, _ in item_rows
+            if policy.pyramid_eligible(fixture.width, fixture.height)
+        ]
+        if len(eligible) > 500:
+            raise LargeImageSeedError(
+                "at most 500 fixtures may be admitted in one image backfill"
+            )
+        if eligible:
+            accepted_before = args.accepted_before or datetime.now(timezone.utc)
+            selection = ImageBackfillSelection(
+                owner_kind="dataset_item",
+                owner_ids=[item.id for _, item in eligible],
+                purpose="pyramid",
+                only_missing=True,
+                accepted_before=accepted_before,
+            )
+            accepted = await accept_image_backfill(
+                selection, operation_id=operation_id, policy=policy
+            )
+            image_job_id = accepted.work.job_id
+            queued_item_ids.extend(item.id for _, item in eligible)
 
     statuses: dict[str, dict[str, Any]] = {}
     if args.wait_seconds:
@@ -546,11 +578,14 @@ async def run(args: argparse.Namespace) -> dict[str, Any]:
             raise LargeImageSeedError(
                 "--wait-seconds requires at least one eligible enqueued fixture"
             )
-        statuses = await _wait_for_pyramids(queued_item_ids, args.wait_seconds)
+        statuses = await _wait_for_pyramids(
+            queued_item_ids, project.owner_id, args.wait_seconds
+        )
         failed = [
             fixture.id
             for fixture, item, _ in item_rows
-            if statuses.get(str(item.id), {}).get("status") == "failed"
+            if statuses.get(str(item.id), {}).get("status")
+            in {"failed", "stale", "inconsistent"}
         ]
         if failed:
             raise LargeImageSeedError(
@@ -572,9 +607,17 @@ async def run(args: argparse.Namespace) -> dict[str, Any]:
                 "task_id": str(task.id),
                 "task_display_id": task.display_id,
                 "uploaded": uploaded,
-                "pyramid_eligible": pyramid_eligible(fixture.width, fixture.height),
-                "pyramid_required": pyramid_required(fixture.width, fixture.height),
-                "celery_task_id": celery_task_ids.get(fixture.id),
+                "pyramid_eligible": policy.pyramid_eligible(
+                    fixture.width, fixture.height
+                ),
+                "pyramid_required": policy.pyramid_required(
+                    fixture.width, fixture.height
+                ),
+                "image_backfill_job_id": (
+                    str(image_job_id)
+                    if item.id in queued_item_ids and image_job_id is not None
+                    else None
+                ),
                 "pyramid": statuses.get(str(item.id)),
                 "credit": fixture.credit,
             }
@@ -586,6 +629,10 @@ async def run(args: argparse.Namespace) -> dict[str, Any]:
         "dataset_display_id": dataset.display_id,
         "dataset_id": str(dataset.id),
         "tasks_created": task_result["created"],
+        "image_backfill_operation_id": (
+            str(operation_id) if image_job_id is not None else None
+        ),
+        "image_backfill_job_id": str(image_job_id) if image_job_id else None,
         "workbench_base_url": f"/projects/{project.id}/annotate",
         "fixtures": fixture_output,
     }
@@ -598,12 +645,20 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--id", dest="ids", action="append", default=[])
     parser.add_argument("--owner-email", default="admin")
     parser.add_argument("--enqueue-pyramids", action="store_true")
+    parser.add_argument("--operation-id", type=uuid.UUID)
+    parser.add_argument(
+        "--accepted-before",
+        type=lambda value: datetime.fromisoformat(value.replace("Z", "+00:00")),
+        help="reuse the exact accepted cutoff when replaying --operation-id",
+    )
     parser.add_argument("--wait-seconds", type=int, default=0)
     args = parser.parse_args()
     if args.wait_seconds < 0:
         parser.error("--wait-seconds must be >= 0")
     if args.wait_seconds and not args.enqueue_pyramids:
         parser.error("--wait-seconds requires --enqueue-pyramids")
+    if args.accepted_before is not None and args.accepted_before.tzinfo is None:
+        parser.error("--accepted-before must include a timezone")
     return args
 
 

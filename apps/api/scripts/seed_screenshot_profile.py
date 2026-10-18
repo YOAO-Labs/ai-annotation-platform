@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import copy
+import asyncio
 import logging
+import time
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -49,6 +52,7 @@ except ModuleNotFoundError:  # package import from tests
 
 logger = logging.getLogger(__name__)
 FIXED_TIME = datetime(2026, 7, 1, 9, 0, tzinfo=UTC)
+SCREENSHOT_MEDIA_WAIT_SECONDS = 600
 ANNOTATION_NAMESPACE = uuid.UUID("6ebc9dd9-8b9d-4f5a-8658-843b3f0ac82d")
 SCREENSHOT_POINTCLOUD_TOOL_BINDINGS = {
     "lidar_box_3d": {
@@ -69,6 +73,22 @@ SCREENSHOT_POINTCLOUD_TOOL_BINDINGS = {
 
 class ScreenshotSeedReconcileError(RuntimeError):
     pass
+
+
+@dataclass(frozen=True)
+class _ScreenshotMediaItem:
+    item_id: uuid.UUID
+    file_name: str
+    file_type: str
+
+
+@dataclass(frozen=True)
+class _ScreenshotMediaDataset:
+    owner_id: uuid.UUID
+    dataset_id: uuid.UUID
+    display_id: str
+    data_type: str
+    items: tuple[_ScreenshotMediaItem, ...]
 
 
 @dataclass(frozen=True)
@@ -871,46 +891,194 @@ async def finalize_screenshot_seed_timestamps(
 async def prepare_screenshot_seed_media(
     db: AsyncSession, *, asset_sha256: dict[str, str]
 ) -> dict[str, int]:
-    """Synchronously prepare and verify media only in owned screenshot datasets."""
-    from app.workers.media import _backfill_media
+    """Accept owner work, wait for current outputs, and verify screenshot media."""
+    from aap_assets_images.contract import (
+        ImageBackfillSelection,
+    )
+    from app.services.assets_images import image_gateway, image_policy
+    from scripts.image_media_backfill import accept_image_backfill
 
     datasets = []
     for logical_key, spec in PROJECT_SPECS.items():
         if spec.data_type not in {"image", "video"}:
             continue
-        _, dataset, _ = await _resolve_owned_resources(
+        project, dataset, _ = await _resolve_owned_resources(
             db,
             logical_key,
             adopt_keys=frozenset(),
             asset_sha256=asset_sha256[logical_key],
         )
-        datasets.append(dataset)
-    # The established media helpers use their own sessions.
+        datasets.append(
+            (project.owner_id, dataset.id, dataset.display_id, dataset.data_type)
+        )
+
     await db.commit()
 
-    item_count = 0
-    for dataset in datasets:
-        await _backfill_media(str(dataset.id))
-        items = list(
-            (
-                await db.execute(
-                    select(DatasetItem)
-                    .where(DatasetItem.dataset_id == dataset.id)
-                    .execution_options(populate_existing=True)
-                )
-            ).scalars()
+    media_rows = []
+    for owner_id, dataset_id, display_id, data_type in datasets:
+        item_rows = (
+            await db.execute(
+                select(DatasetItem.id, DatasetItem.file_name, DatasetItem.file_type)
+                .where(DatasetItem.dataset_id == dataset_id)
+                .order_by(DatasetItem.id)
+            )
+        ).all()
+        media_rows.append(
+            _ScreenshotMediaDataset(
+                owner_id=owner_id,
+                dataset_id=dataset_id,
+                display_id=display_id,
+                data_type=data_type,
+                items=tuple(
+                    _ScreenshotMediaItem(
+                        item_id=row.id,
+                        file_name=row.file_name,
+                        file_type=row.file_type,
+                    )
+                    for row in item_rows
+                ),
+            )
         )
-        for item in items:
-            prefix = f"{dataset.display_id}: {item.file_name}"
-            if item.file_type not in {"image", "video"}:
-                raise ScreenshotSeedReconcileError(
-                    f"{prefix}: unexpected screenshot media type {item.file_type}"
+
+    # Release the read transaction before owner admission, polling and object HEADs.
+    await db.commit()
+
+    for dataset in media_rows:
+        if dataset.data_type == "image":
+            await accept_image_backfill(
+                ImageBackfillSelection(
+                    owner_kind="dataset_item",
+                    dataset_id=dataset.dataset_id,
+                    purpose="thumbnail",
+                    only_missing=True,
+                    accepted_before=datetime.now(UTC),
+                ),
+                operation_id=uuid.uuid4(),
+                policy=image_policy(),
+            )
+        elif dataset.data_type == "video":
+            from app.workers.media import _schedule_video_backfill
+
+            await _schedule_video_backfill(str(dataset.dataset_id), uuid.uuid4())
+
+    deadline = time.monotonic() + SCREENSHOT_MEDIA_WAIT_SECONDS
+    image_sources: dict[uuid.UUID, Any] = {}
+    video_sources: dict[uuid.UUID, Any] = {}
+    pending_image = pending_video = False
+    while True:
+        image_sources.clear()
+        video_sources.clear()
+        pending_image = pending_video = False
+        for dataset in media_rows:
+            image_items = [item for item in dataset.items if item.file_type == "image"]
+            video_items = [item for item in dataset.items if item.file_type == "video"]
+            if len(image_items) + len(video_items) != len(dataset.items):
+                unexpected = next(
+                    item.file_type
+                    for item in dataset.items
+                    if item.file_type not in {"image", "video"}
                 )
+                raise ScreenshotSeedReconcileError(
+                    f"{dataset.display_id}: unexpected screenshot media type {unexpected}"
+                )
+
+            if image_items:
+                from aap_assets_images.contract import (
+                    ImageSourceSelector,
+                    ReadImageSummariesRequest,
+                )
+
+                for offset in range(0, len(image_items), 500):
+                    batch = image_items[offset : offset + 500]
+                    async with image_gateway() as owner:
+                        summaries = await owner.call(
+                            "read_image_summaries",
+                            ReadImageSummariesRequest(
+                                actor_id=dataset.owner_id,
+                                selectors=[
+                                    ImageSourceSelector(dataset_item_id=item.item_id)
+                                    for item in batch
+                                ],
+                                profile_version=image_policy().profile_version,
+                            ),
+                        )
+                    for summary in summaries.items:
+                        image_sources[summary.source.owner.id] = summary.source
+                if any(
+                    item.item_id not in image_sources
+                    or not image_sources[item.item_id].thumbnail_current
+                    or not image_sources[item.item_id].thumbnail_path
+                    for item in image_items
+                ):
+                    pending_image = True
+
+            if video_items:
+                from aap_assets_media.contract import SummaryRequest
+                from app.services.assets_media import media_gateway
+
+                for offset in range(0, len(video_items), 500):
+                    batch = video_items[offset : offset + 500]
+                    async with media_gateway() as owner:
+                        summaries = await owner.call(
+                            "read_media_summaries",
+                            SummaryRequest(item_ids=[item.item_id for item in batch]),
+                        )
+                    for summary in summaries.items:
+                        video_sources[summary.dataset_item_id] = summary
+                if any(
+                    item.item_id not in video_sources
+                    or not video_sources[item.item_id].thumbnail_path
+                    or video_sources[item.item_id].source_drifted
+                    or video_sources[item.item_id].materialized_generation
+                    != video_sources[item.item_id].source_generation
+                    or not (
+                        video_sources[item.item_id].metadata.get("video") or {}
+                    ).get("frame_count")
+                    or not (
+                        video_sources[item.item_id].metadata.get("video") or {}
+                    ).get("fps")
+                    or (video_sources[item.item_id].metadata.get("video") or {}).get(
+                        "probe_error"
+                    )
+                    or (video_sources[item.item_id].metadata.get("video") or {}).get(
+                        "poster_error"
+                    )
+                    or (video_sources[item.item_id].metadata.get("video") or {}).get(
+                        "poster_frame_path"
+                    )
+                    != video_sources[item.item_id].thumbnail_path
+                    for item in video_items
+                ):
+                    pending_video = True
+
+        if not pending_image and not pending_video:
+            break
+        if time.monotonic() >= deadline:
+            if pending_video:
+                raise ScreenshotSeedReconcileError(
+                    "screenshot video metadata/poster is not ready"
+                )
+            raise ScreenshotSeedReconcileError(
+                "screenshot thumbnail/poster is not ready; check media generation "
+                "errors or rerun with --repair"
+            )
+        await asyncio.sleep(2)
+
+    item_count = 0
+    for dataset in media_rows:
+        for item in dataset.items:
+            prefix = f"{dataset.display_id}: {item.file_name}"
+            source = (
+                image_sources.get(item.item_id)
+                if item.file_type == "image"
+                else video_sources.get(item.item_id)
+            )
+            thumbnail_path = source.thumbnail_path if source is not None else None
             head = (
                 storage_service.verify_upload(
-                    item.thumbnail_path, bucket=storage_service.media_cache_bucket
+                    thumbnail_path, bucket=storage_service.media_cache_bucket
                 )
-                if item.thumbnail_path
+                if thumbnail_path
                 else None
             )
             if not head or head.get("ContentLength", 0) <= 0:
@@ -918,20 +1086,8 @@ async def prepare_screenshot_seed_media(
                     f"{prefix}: screenshot thumbnail/poster is not ready; "
                     "check media generation errors or rerun with --repair"
                 )
-            if item.file_type == "video":
-                video = (item.metadata_ or {}).get("video") or {}
-                if (
-                    not video.get("frame_count")
-                    or not video.get("fps")
-                    or video.get("probe_error")
-                    or video.get("poster_error")
-                    or video.get("poster_frame_path") != item.thumbnail_path
-                ):
-                    raise ScreenshotSeedReconcileError(
-                        f"{prefix}: screenshot video metadata/poster is not ready"
-                    )
             item_count += 1
-    return {"datasets": len(datasets), "items": item_count}
+    return {"datasets": len(media_rows), "items": item_count}
 
 
 async def reconcile_screenshot_seed(

@@ -25,6 +25,7 @@ import io
 import uuid
 import zipfile
 from pathlib import Path
+from datetime import UTC, datetime
 
 # repo root。host 布局 apps/api/scripts/<this> 取 parents[3];浅布局(如容器把代码挂在
 # /app)parents[3] 会越界,退化为文件系统根 → 夹具 .exists()=False 时各 seed 优雅跳过不崩。
@@ -336,19 +337,35 @@ async def main() -> None:
         info = await seed_coco8(db, owner_id=owner_id)
         await db.commit()
 
-        # 缩略图回填:seed 直接写 DatasetItem,绕过了上传路径的 enqueue,thumbnail_path
-        # 一直为 NULL。提交后对本数据集派发 backfill_media(幂等,只补缺失的),由 media
-        # worker 异步生成。依赖 media worker 在跑。
+        # Seed writes DatasetItem rows directly, so explicitly accept a durable
+        # image-owner backfill after those rows commit.
         from sqlalchemy import select
 
         from app.db.models.dataset import Dataset
-        from app.workers.media import backfill_media
+        from aap_assets_images.contract import ImageBackfillSelection
+        from app.services.assets_images import image_policy
+        from scripts.image_media_backfill import accept_image_backfill
 
         ds = await db.scalar(
             select(Dataset).where(Dataset.display_id == DATASET_DISPLAY_ID)
         )
         if ds is not None:
-            backfill_media.delay(str(ds.id))
+            accepted = await accept_image_backfill(
+                ImageBackfillSelection(
+                    owner_kind="dataset_item",
+                    dataset_id=ds.id,
+                    purpose="thumbnail",
+                    only_missing=True,
+                    accepted_before=datetime.now(UTC),
+                ),
+                operation_id=uuid.uuid4(),
+                policy=image_policy(),
+            )
+            print(
+                f"接受图片缩略图回填 operation={accepted.operation_id} "
+                f"cutoff={accepted.spec.selection.accepted_before.isoformat()} "
+                f"job={accepted.work.job_id}"
+            )
 
     print("=== coco8 图片标注 dev 数据 ===")
     if info is None:

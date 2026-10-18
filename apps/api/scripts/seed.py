@@ -10,6 +10,7 @@ import asyncio
 import sys
 import uuid
 from pathlib import Path
+from datetime import UTC, datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 from sqlalchemy import select
@@ -484,20 +485,47 @@ async def seed(
             )
 
     if not strict:
-        # Demo keeps asynchronous backfill for all image/video datasets. The
-        # screenshots profile has already verified its owned media synchronously.
+        # Demo accepts image backfills through Assets. Video work retains the
+        # existing video-owner Celery path. The screenshots profile has already
+        # waited for and verified its owned media synchronously.
         from app.db.models.dataset import Dataset
         from app.workers.media import backfill_media
 
         async with Session() as db:
             ds_rows = await db.execute(
-                select(Dataset.id, Dataset.display_id).where(
+                select(Dataset.id, Dataset.display_id, Dataset.data_type).where(
                     Dataset.data_type.in_(["image", "video"])
                 )
             )
-            for ds_id, disp in ds_rows.all():
-                backfill_media.delay(str(ds_id))
-                print(f"  media  enqueue 缩略图回填 → {disp}")
+            selected_datasets = ds_rows.all()
+        for ds_id, disp, data_type in selected_datasets:
+            if data_type == "image":
+                from aap_assets_images.contract import ImageBackfillSelection
+                from app.services.assets_images import image_policy
+                from scripts.image_media_backfill import accept_image_backfill
+
+                accepted = await accept_image_backfill(
+                    ImageBackfillSelection(
+                        owner_kind="dataset_item",
+                        dataset_id=ds_id,
+                        purpose="thumbnail",
+                        only_missing=True,
+                        accepted_before=datetime.now(UTC),
+                    ),
+                    operation_id=uuid.uuid4(),
+                    policy=image_policy(),
+                )
+                print(
+                    f"  image  accepted thumbnail backfill → {disp} "
+                    f"operation={accepted.operation_id} "
+                    f"cutoff={accepted.spec.selection.accepted_before.isoformat()} "
+                    f"job={accepted.work.job_id}"
+                )
+            else:
+                result = backfill_media.delay(str(ds_id))
+                print(
+                    f"  video  accepted metadata/poster backfill → {disp} id={result.id}"
+                )
 
     await engine.dispose()
 

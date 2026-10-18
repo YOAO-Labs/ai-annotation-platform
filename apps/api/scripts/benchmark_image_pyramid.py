@@ -12,8 +12,8 @@ measured:
 
 from __future__ import annotations
 
-import argparse
 import os
+import argparse
 import json
 import resource
 import shutil
@@ -28,15 +28,12 @@ os.environ.setdefault(
     "VIPS_CONCURRENCY", os.environ.get("IMAGE_PYRAMID_VIPS_CONCURRENCY", "4")
 )
 
-import pyvips
 from PIL import Image
 
-from app.services.image_pyramid import ImagePyramidError, ImagePyramidOwner
-from app.workers.image_pyramid import (
-    _clear_vips_cache,
-    _directory_size,
-    _generate_local,
-    _verify_local_tiles,
+from aap_assets_images.policy import image_policy_from_environment
+from aap_assets_images_runtime.processing import (
+    ImageProcessingError,
+    build_pyramid,
 )
 
 LARGE_CASES = {
@@ -46,49 +43,47 @@ LARGE_CASES = {
 }
 
 
-def _owner(path: Path, width: int, height: int) -> ImagePyramidOwner:
-    return ImagePyramidOwner(
-        kind="task",
-        id=uuid.uuid4(),
-        file_path=path.name,
-        bucket="fixture",
-        width=width,
-        height=height,
-        file_type="image",
-        file_size=path.stat().st_size,
-    )
+def _directory_size(root: Path, *, limit: int) -> int:
+    total = 0
+    for path in root.rglob("*"):
+        if path.is_file():
+            total += path.stat().st_size
+            if total > limit:
+                raise RuntimeError("benchmark output exceeded its byte limit")
+    return total
 
 
 def _run_fixture(path: Path, width: int, height: int) -> dict:
     output = path.parent / f"{path.stem}-output-{uuid.uuid4().hex}"
-    output.mkdir()
     started = time.monotonic()
-    result = _generate_local(
+    result = build_pyramid(
         path,
         output,
-        owner=_owner(path, width, height),
+        generation=1,
+        expected_dimensions=(width, height),
+        policy=image_policy_from_environment(),
+        srgb_profile=Path(
+            os.environ.get(
+                "ASSETS_IMAGES_SRGB_PROFILE",
+                os.environ.get(
+                    "IMAGE_PYRAMID_SRGB_PROFILE", "/usr/share/color/icc/sRGB.icc"
+                ),
+            )
+        ),
         deadline=time.monotonic() + 1800,
     )
-    tiles = _verify_local_tiles(
-        result[0],
-        width=result[2],
-        height=result[3],
-        deadline=time.monotonic() + 1800,
-    )
-    first_tile = pyvips.Image.new_from_file(str(tiles[0][0]), access="sequential")
-    first_tile_bands = int(first_tile.bands)
-    first_tile_has_alpha = bool(first_tile.hasalpha())
-    del first_tile
-    _clear_vips_cache()
+    with Image.open(result.tiles[0].path) as first_tile:
+        first_tile_bands = len(first_tile.getbands())
+        first_tile_has_alpha = "A" in first_tile.getbands()
     report = {
         "source": path.name,
-        "width": result[2],
-        "height": result[3],
-        "overview_width": result[4],
-        "overview_height": result[5],
+        "width": result.width,
+        "height": result.height,
+        "overview_width": result.overview_width,
+        "overview_height": result.overview_height,
         "source_bytes": path.stat().st_size,
         "derived_bytes": _directory_size(output, limit=16 * 1024**3),
-        "tile_count": len(tiles),
+        "tile_count": result.tile_count,
         "first_tile_bands": first_tile_bands,
         "first_tile_has_alpha": first_tile_has_alpha,
         "wall_seconds": round(time.monotonic() - started, 3),
@@ -230,7 +225,7 @@ def main() -> None:
             corrupt_error = None
             try:
                 _run_fixture(corrupt, 10, 10)
-            except ImagePyramidError as exc:
+            except ImageProcessingError as exc:
                 corrupt_error = exc.code
             if corrupt_error != "decode_failed":
                 raise RuntimeError(

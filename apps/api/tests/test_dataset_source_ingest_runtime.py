@@ -295,15 +295,6 @@ async def test_zip_remote_replay_preserves_sources_and_plans_all_dataset_items(
             binding["HostIp"] == "127.0.0.1" and int(binding["HostPort"]) == broker.port
             for binding in observed["NetworkSettings"]["Ports"]["6379/tcp"]
         )
-        async with stack.world.maker() as db:
-            target = str(
-                await db.scalar(
-                    text(
-                        "SELECT target_id FROM dataset_source_ingest_deliveries WHERE operation_id=:id AND delivered_at IS NULL"
-                    ),
-                    {"id": operation},
-                )
-            )
         client = aioredis.from_url(settings.redis_url, socket_timeout=5)
         own_messages = []
         try:
@@ -314,11 +305,11 @@ async def test_zip_remote_replay_preserves_sources_and_plans_all_dataset_items(
                 envelope = json.loads(message)
                 if (
                     envelope.get("headers", {}).get("task")
-                    != "app.workers.media.generate_thumbnail"
+                    != "app.workers.image_pyramid.execute_image_media"
                 ):
                     continue
                 arguments = json.loads(base64.b64decode(envelope["body"]))
-                if arguments[0] == [target]:
+                if arguments[0] == [None]:
                     own_messages.append(message)
             assert len(own_messages) == 1
             async with stack.world.maker() as db:

@@ -86,6 +86,9 @@ celery_app.conf.update(
         "app.workers.media.extract_video_frames": {"queue": "media"},
         "app.workers.media.execute_video_media": {"queue": "media"},
         "app.workers.media.cleanup_video_frame_assets": {"queue": "media"},
+        "app.workers.image_pyramid.execute_image_media": {"queue": "image-pyramid"},
+        "app.workers.image_pyramid.reconcile_image_media": {"queue": "cleanup"},
+        # Retain routes for messages produced before the native image cutover.
         "app.workers.image_pyramid.generate_image_pyramid": {"queue": "image-pyramid"},
         "app.workers.image_pyramid.reconcile_image_pyramids": {"queue": "cleanup"},
         # shortcut: shared legacy queue; split it before deploying an Assets LOGIN worker.
@@ -254,7 +257,7 @@ celery_app.conf.update(
             "options": {"expires": 55},
         },
         "reconcile-image-pyramids": {
-            "task": "app.workers.image_pyramid.reconcile_image_pyramids",
+            "task": "app.workers.image_pyramid.reconcile_image_media",
             "schedule": crontab(hour=2, minute=45),
         },
         # v0.10.16 · DuckDB 离线分析视图同步（每日 02:30 UTC）
