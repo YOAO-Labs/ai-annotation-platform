@@ -10,7 +10,7 @@ last_reviewed: 2026-10-18
 这些接口供可信后端进程使用，不是终端用户 REST API。调用方仍负责身份认证和用例准入；
 初始操作接受时还会在数据库内校验当前项目管理权。持有函数执行权限不等于获得任意用户的项目管理权限。
 
-实现与冻结合同位于 `apps/api/alembic/sql/0190*` 至 `0195*`。接口通过 PostgreSQL
+实现与冻结合同位于 `apps/api/alembic/sql/0190*` 至 `0200*`。接口通过 PostgreSQL
 协议调用，使用调用方同一连接的外层事务，不接收 Python Session、ORM 或任意 SQL。
 安装、独立角色及本地验收命令见仓库 `DEV.md`；数据所有权见
 [ADR-0092](/dev/adr/0092-transactional-module-data-capabilities)。
@@ -127,4 +127,45 @@ Celery 对连接、锁和序列化暂时失败持续重试，不将它们转为�
 保留累计结果。未版本化旧作业以 `legacy_job_scope` 拒绝，不能从当前负责人补造原许可。
 切换前先排空旧作业；需要重建时由当前管理者重新接受操作，不通过解绑删除已有任务来恢复。
 
-完整模块的其余操作、运行时与凭据仍在迁移，总体进度见[模块部署台账](/dev/concepts/module-deployment)。
+## 项目删除与跨 owner 强事务
+
+`DELETE /projects/{project_id}` 成功仍返回 HTTP 204。Workspace 的
+`aap_workspace_v1.delete_project(operation_id, actor_id, project_id, audit_context)`
+是该命令的事务协调者：它在调用方同一 PostgreSQL 连接和外层事务中组合各 owner 的
+检查、清理、审计与回执，不在函数内部提交。Python 适配器只传 UUID 和 JSON，校验冻结
+响应并提交原请求事务；它不把 ORM 对象或 SQL Session 传给其他 owner。
+
+新命令先锁定当前活跃身份，再按稳定操作 ID 和项目串行化，随后锁定当前项目管理权并以
+NOWAIT 锁定项目行。Learning owner 按既定优先级检查主动学习引用和保留的训练、模型、评估、
+策略及数据版本；有保留引用时拒绝删除。通过检查后，Workspace 依次调用 Diagnostics、
+Assets、Inference、Insights、Export、Jobs、Learning 和 Labeling 的私有数据所有者能力，
+最后清除成员与模板来源引用、删除项目，并由 Audit owner 写入 `project.delete` 记录。
+Audit owner 通过 Identity 的私有类型化 `lock_audit_actor` helper 获取当前锁定身份事实；只有 Audit owner
+可以执行该 helper。
+审计快照、删除计数和操作回执与这些删除处于同一事务；owner 清理函数不授予工作流调用角色。
+
+函数返回 `aap-project-delete/v1`。成功结果包含 operation、actor 与 project UUID，删除的 Task/annotation
+计数及 audit ID；失败返回稳定 `error.code`，由现有 Python/HTTP 边界恢复原状态与错误细节。Owner-specific
+cleanup 函数只授予各自 `NOLOGIN` owner 和协调方需要的最小权限；受限 `LOGIN` 调用者没有其他 owner 的私有
+表权限或清理 helper 执行权。
+
+数据库异常或事务最终提交失败会使所有 owner 的变更、审计行和回执共同回滚。锁冲突返回稳定
+`project_busy` 失败结果；其他未预期数据库错误继续中止事务。该命令不删除源对象存储字节或导出文件，
+不发布或撤销 broker 消息。Jobs owner 在 SQL 中取消活动建题作业并解除 live Project 外键；这不是
+Celery 撤销或对象存储清理。
+
+回执不依赖 Project 外键，因而项目删除后仍保留。相同操作 ID 只有在 actor 仍是原活跃账号且
+actor/project/operation 身份完全一致时才重放原结果；同一 ID 换 actor 或 project 返回
+`operation_conflict`。仅拥有函数执行权限不代表有管理权：首次执行仍按当前账号和项目管理权
+锁重新授权。需要处理不确定提交的原生调用方必须在首次发送前生成并保存稳定 operation ID。
+现有 REST 路由仍按原行为处理缺失项目，HTTP 重试不会自动暴露原生回执重放接口。
+
+迁移 0200 在 `async_jobs` 保存由数据库维护、不可重绑且无 Project 外键的
+`retained_project_id`。项目删除后，作业以及关联通知仍使用原项目范围进行授权；项目 A 的作业不能变成
+全局作业或转绑项目 B，现存全局作业也不能通过更新进入项目 A。合法版本化 `create_tasks` 作业的实时/保留范围
+必须与冻结 payload 相符；有效 v1 作业若丢失必需范围，worker 只能持久化带 `job_scope_mismatch` 的终态失败，不能从 payload 重建范围。
+旧未版本化作业与范围不一致均失败关闭，不做 payload 授权回填；取消后的迟到 worker 不会复活作业。
+
+该切片只完成项目删除的同库事务合同。素材解绑与数据集删除的并发边界、身份生命周期、其余
+Workspace/Assets 操作，以及所有模块独立运行工件和完整凭据边界仍待完成；总体状态见
+[模块部署台账](/dev/concepts/module-deployment) 与 [ADR-0094](/dev/adr/0094-transactional-project-deletion)。
