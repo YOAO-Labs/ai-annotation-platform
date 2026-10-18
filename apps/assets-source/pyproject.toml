@@ -33,7 +33,7 @@ aap-audit-contract = { path = "../_shared/audit_contract", editable = true }
 aap-assets-cleanup = { path = "../assets-cleanup", editable = true }
 
 [tool.setuptools.package-data]
-aap_assets_source = ["protocol.schema.json"]
+aap_assets_source = ["import_contract.schema.json", "protocol.schema.json"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

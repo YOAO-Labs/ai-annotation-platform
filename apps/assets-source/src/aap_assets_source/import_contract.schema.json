@@ -1,0 +1,639 @@
+{
+  "$defs": {
+    "ImportAcceptance": {
+      "additionalProperties": false,
+      "properties": {
+        "job_id": {
+          "format": "uuid",
+          "title": "Job Id",
+          "type": "string"
+        },
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "dataset_id": {
+          "format": "uuid",
+          "title": "Dataset Id",
+          "type": "string"
+        },
+        "connection_id": {
+          "format": "uuid",
+          "title": "Connection Id",
+          "type": "string"
+        }
+      },
+      "required": ["job_id", "actor_id", "dataset_id", "connection_id"],
+      "title": "ImportAcceptance",
+      "type": "object"
+    },
+    "ImportConnection": {
+      "additionalProperties": false,
+      "properties": {
+        "job_id": {
+          "format": "uuid",
+          "title": "Job Id",
+          "type": "string"
+        },
+        "lease_token": {
+          "format": "uuid",
+          "title": "Lease Token",
+          "type": "string"
+        },
+        "kind": {
+          "enum": ["s3", "sftp"],
+          "title": "Kind",
+          "type": "string"
+        },
+        "config": {
+          "additionalProperties": true,
+          "title": "Config",
+          "type": "object"
+        },
+        "secret_enc": {
+          "maxLength": 8192,
+          "minLength": 1,
+          "title": "Secret Enc",
+          "type": "string"
+        },
+        "allowlist": {
+          "items": {
+            "maxLength": 253,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 256,
+          "title": "Allowlist",
+          "type": "array"
+        }
+      },
+      "required": ["job_id", "lease_token", "kind", "config", "secret_enc", "allowlist"],
+      "title": "ImportConnection",
+      "type": "object",
+      "x-invariants": [
+        "secret_enc is base64-encoded encrypted connector data",
+        "config contains no credentials"
+      ]
+    },
+    "ImportContext": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "dataset_id": {
+          "format": "uuid",
+          "title": "Dataset Id",
+          "type": "string"
+        },
+        "dataset_display_id": {
+          "maxLength": 20,
+          "minLength": 1,
+          "title": "Dataset Display Id",
+          "type": "string"
+        },
+        "dataset_name": {
+          "maxLength": 255,
+          "minLength": 1,
+          "title": "Dataset Name",
+          "type": "string"
+        },
+        "connection_id": {
+          "format": "uuid",
+          "title": "Connection Id",
+          "type": "string"
+        },
+        "connection_name": {
+          "maxLength": 255,
+          "minLength": 1,
+          "title": "Connection Name",
+          "type": "string"
+        },
+        "connection_kind": {
+          "enum": ["s3", "sftp"],
+          "title": "Connection Kind",
+          "type": "string"
+        },
+        "connection_config": {
+          "additionalProperties": true,
+          "title": "Connection Config",
+          "type": "object"
+        }
+      },
+      "required": [
+        "actor_id",
+        "dataset_id",
+        "dataset_display_id",
+        "dataset_name",
+        "connection_id",
+        "connection_name",
+        "connection_kind",
+        "connection_config"
+      ],
+      "title": "ImportContext",
+      "type": "object",
+      "x-invariants": [
+        "dataset_display_id is the persisted bounded string identifier",
+        "connection_config contains no credentials"
+      ]
+    },
+    "ImportEntry": {
+      "additionalProperties": false,
+      "properties": {
+        "job_id": {
+          "format": "uuid",
+          "title": "Job Id",
+          "type": "string"
+        },
+        "lease_token": {
+          "format": "uuid",
+          "title": "Lease Token",
+          "type": "string"
+        },
+        "index": {
+          "maximum": 2147483647,
+          "minimum": 0,
+          "title": "Index",
+          "type": "integer"
+        },
+        "item_id": {
+          "format": "uuid",
+          "title": "Item Id",
+          "type": "string"
+        },
+        "publication_id": {
+          "format": "uuid",
+          "title": "Publication Id",
+          "type": "string"
+        },
+        "file_name": {
+          "maxLength": 500,
+          "minLength": 1,
+          "title": "File Name",
+          "type": "string"
+        },
+        "file_path": {
+          "maxLength": 1000,
+          "minLength": 1,
+          "title": "File Path",
+          "type": "string"
+        },
+        "file_type": {
+          "enum": ["image", "video", "point_cloud", "other"],
+          "title": "File Type",
+          "type": "string"
+        },
+        "source": {
+          "$ref": "#/$defs/ImportSourceObject"
+        }
+      },
+      "required": [
+        "job_id",
+        "lease_token",
+        "index",
+        "item_id",
+        "publication_id",
+        "file_name",
+        "file_path",
+        "file_type",
+        "source"
+      ],
+      "title": "ImportEntry",
+      "type": "object",
+      "x-invariants": [
+        "file_path is dataset-sources/{dataset_id}/{item_id}/{publication_id}/{file_name}",
+        "dataset_id matches the active ImportState.dataset_id",
+        "publication_id changes on every transfer attempt",
+        "file_name fits DatasetItem.file_name and the S3 key byte limit"
+      ]
+    },
+    "ImportEntryCompletion": {
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "enum": ["copied", "error"],
+          "title": "Status",
+          "type": "string"
+        },
+        "file_size": {
+          "anyOf": [
+            {
+              "maximum": 9223372036854775807,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "File Size"
+        },
+        "content_hash": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{32}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Content Hash"
+        },
+        "width": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "maximum": 2147483647,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Width"
+        },
+        "height": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "maximum": 2147483647,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Height"
+        },
+        "error_code": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Error Code"
+        }
+      },
+      "required": ["status"],
+      "title": "ImportEntryCompletion",
+      "type": "object",
+      "x-invariants": [
+        "copied requires non-negative file_size, lowercase MD5 and paired optional dimensions",
+        "error requires only a bounded safe error_code"
+      ]
+    },
+    "ImportLimits": {
+      "additionalProperties": false,
+      "properties": {
+        "dataset_import_max_files": {
+          "exclusiveMinimum": 0,
+          "maximum": 2147483647,
+          "title": "Dataset Import Max Files",
+          "type": "integer"
+        },
+        "dataset_import_max_total_bytes": {
+          "exclusiveMinimum": 0,
+          "maximum": 9223372036854775807,
+          "title": "Dataset Import Max Total Bytes",
+          "type": "integer"
+        },
+        "version": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": ["dataset_import_max_files", "dataset_import_max_total_bytes", "version"],
+      "title": "ImportLimits",
+      "type": "object"
+    },
+    "ImportSourceObject": {
+      "additionalProperties": false,
+      "properties": {
+        "relpath": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "title": "Relpath",
+          "type": "string"
+        },
+        "size": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Size",
+          "type": "integer"
+        },
+        "mtime": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Mtime"
+        },
+        "etag": {
+          "anyOf": [
+            {
+              "maxLength": 1024,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Etag"
+        }
+      },
+      "required": ["relpath", "size", "mtime", "etag"],
+      "title": "ImportSourceObject",
+      "type": "object"
+    },
+    "ImportState": {
+      "additionalProperties": false,
+      "properties": {
+        "job_id": {
+          "format": "uuid",
+          "title": "Job Id",
+          "type": "string"
+        },
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "dataset_id": {
+          "format": "uuid",
+          "title": "Dataset Id",
+          "type": "string"
+        },
+        "connection_id": {
+          "format": "uuid",
+          "title": "Connection Id",
+          "type": "string"
+        },
+        "source_path": {
+          "maxLength": 2048,
+          "title": "Source Path",
+          "type": "string"
+        },
+        "recursive": {
+          "title": "Recursive",
+          "type": "boolean"
+        },
+        "include_globs": {
+          "items": {
+            "maxLength": 255,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 256,
+          "title": "Include Globs",
+          "type": "array"
+        },
+        "settings_snapshot": {
+          "$ref": "#/$defs/ImportLimits"
+        },
+        "stage": {
+          "enum": ["enumerating", "importing", "completed", "failed", "cancelled"],
+          "title": "Stage",
+          "type": "string"
+        },
+        "cursor": {
+          "maximum": 2147483647,
+          "minimum": 0,
+          "title": "Cursor",
+          "type": "integer"
+        },
+        "total": {
+          "anyOf": [
+            {
+              "maximum": 2147483647,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Total"
+        },
+        "total_bytes": {
+          "anyOf": [
+            {
+              "maximum": 9223372036854775807,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Total Bytes"
+        },
+        "added": {
+          "maximum": 2147483647,
+          "minimum": 0,
+          "title": "Added",
+          "type": "integer"
+        },
+        "skipped": {
+          "maximum": 2147483647,
+          "minimum": 0,
+          "title": "Skipped",
+          "type": "integer"
+        },
+        "error_count": {
+          "maximum": 2147483647,
+          "minimum": 0,
+          "title": "Error Count",
+          "type": "integer"
+        },
+        "errors": {
+          "items": {
+            "maxLength": 512,
+            "type": "string"
+          },
+          "maxItems": 100,
+          "title": "Errors",
+          "type": "array"
+        },
+        "linked_tasks": {
+          "maximum": 2147483647,
+          "minimum": 0,
+          "title": "Linked Tasks",
+          "type": "integer"
+        },
+        "committed_bytes": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Committed Bytes",
+          "type": "integer"
+        },
+        "lease_token": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Lease Token"
+        },
+        "lease_expires_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Lease Expires At"
+        }
+      },
+      "required": [
+        "job_id",
+        "actor_id",
+        "dataset_id",
+        "connection_id",
+        "source_path",
+        "recursive",
+        "include_globs",
+        "settings_snapshot",
+        "stage",
+        "cursor",
+        "total",
+        "total_bytes",
+        "added",
+        "skipped",
+        "error_count",
+        "errors",
+        "linked_tasks",
+        "committed_bytes",
+        "lease_token",
+        "lease_expires_at"
+      ],
+      "title": "ImportState",
+      "type": "object",
+      "x-invariants": [
+        "lease_token and lease_expires_at are both null or both present",
+        "enumerating has no manifest and cursor zero",
+        "importing has a frozen manifest",
+        "cursor never exceeds total",
+        "terminal states hold no lease"
+      ]
+    },
+    "ImportFailureCode": {
+      "type": "string",
+      "enum": [
+        "invalid_request",
+        "account_not_active",
+        "account_busy",
+        "manager_required",
+        "dataset_missing",
+        "connection_missing",
+        "connection_changed",
+        "dataset_busy",
+        "operation_conflict",
+        "job_missing",
+        "job_terminal",
+        "lease_lost",
+        "import_cancelled",
+        "invalid_response",
+        "storage_unavailable",
+        "source_changed"
+      ]
+    },
+    "reply": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["schema", "ok", "data"],
+          "properties": {
+            "schema": {
+              "const": "aap-dataset-import/v1"
+            },
+            "ok": {
+              "const": true
+            },
+            "data": {}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["schema", "ok", "error"],
+          "properties": {
+            "schema": {
+              "const": "aap-dataset-import/v1"
+            },
+            "ok": {
+              "const": false
+            },
+            "error": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["code"],
+              "properties": {
+                "code": {
+                  "$ref": "#/$defs/ImportFailureCode"
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  },
+  "anyOf": [
+    {
+      "$ref": "#/$defs/ImportAcceptance"
+    },
+    {
+      "$ref": "#/$defs/ImportConnection"
+    },
+    {
+      "$ref": "#/$defs/ImportContext"
+    },
+    {
+      "$ref": "#/$defs/ImportEntry"
+    },
+    {
+      "$ref": "#/$defs/ImportEntryCompletion"
+    },
+    {
+      "$ref": "#/$defs/ImportLimits"
+    },
+    {
+      "$ref": "#/$defs/ImportSourceObject"
+    },
+    {
+      "$ref": "#/$defs/ImportState"
+    }
+  ],
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:aap:dataset-import:v1",
+  "title": "Assets Dataset connector import values"
+}
