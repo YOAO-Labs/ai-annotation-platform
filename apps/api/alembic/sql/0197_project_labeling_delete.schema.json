@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:aap:contract:project-labeling-delete:v1",
+  "title": "Project labeling deletion v1",
+  "oneOf": [
+    { "$ref": "#/$defs/projectRequest" },
+    { "$ref": "#/$defs/taskReferences" },
+    { "$ref": "#/$defs/deleteResponse" }
+  ],
+  "$defs": {
+    "uuid": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "projectRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["project_id"],
+      "properties": {
+        "project_id": { "$ref": "#/$defs/uuid" }
+      }
+    },
+    "taskReference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["task_id"],
+      "properties": {
+        "task_id": { "$ref": "#/$defs/uuid" }
+      }
+    },
+    "taskReferences": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/taskReference" }
+    },
+    "deleteData": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["deleted_tasks", "deleted_annotations"],
+      "properties": {
+        "deleted_tasks": { "type": "integer", "minimum": 0 },
+        "deleted_annotations": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "deleteResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "ok", "data"],
+      "properties": {
+        "schema": { "const": "aap-project-labeling-delete/v1" },
+        "ok": { "const": true },
+        "data": { "$ref": "#/$defs/deleteData" }
+      }
+    }
+  }
+}
