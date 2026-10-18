@@ -151,3 +151,4 @@
 - [0104](0104-operator-source-registration.md) — Operator source registration through native Assets capabilities
 
 - [ADR-0105: Durable video media execution and source-bound publication](0105-independent-video-media-owner.md)
+- [ADR-0106: Independent image materialization and source-bound delivery](0106-independent-image-media-owner.md)
