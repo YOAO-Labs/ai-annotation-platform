@@ -12,6 +12,7 @@ celery_app = Celery(
         "app.workers.tasks",
         "app.workers.media",
         "app.workers.image_pyramid",
+        "app.workers.dataset_import_delivery",
         "app.workers.cleanup",
         "app.workers.audit",
         "app.workers.deactivation",
@@ -139,6 +140,9 @@ celery_app.conf.update(
         "app.workers.prediction_partition.ensure_future_prediction_partitions": {
             "queue": "maintenance"
         },
+        "app.workers.dataset_import_delivery.relay_dataset_import_deliveries": {
+            "queue": "maintenance"
+        },
         # v0.9.11 PerfHud · 1s 推送任务走 default queue (worker 默认订阅 default,ml,media)
         "app.workers.ml_health.publish_ml_backend_stats": {"queue": "default"},
         # v0.8.6 · check_ml_backends_health 历史也漏在路由表外, 同步补上避免 stale celery 队列堆积
@@ -262,6 +266,10 @@ celery_app.conf.update(
         "purge-expired-export-artifacts": {
             "task": "app.workers.export_cleanup.purge_expired_export_artifacts",
             "schedule": crontab(hour=4, minute=30),
+        },
+        "relay-dataset-import-deliveries": {
+            "task": "app.workers.dataset_import_delivery.relay_dataset_import_deliveries",
+            "schedule": timedelta(seconds=10),
         },
         # v0.11.18 · worker 心跳已从 beat 任务改为 worker bootstep（每个 worker 进程自身
         # 定时写 Redis，见 heartbeat.py），不再由 beat 派发，故此处移除。

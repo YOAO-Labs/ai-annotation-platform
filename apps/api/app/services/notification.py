@@ -522,6 +522,41 @@ class NotificationService:
                     e,
                 )
 
+    async def publish_by_id(self, notification_id: uuid.UUID) -> bool:
+        """Publish one committed row, propagating transport failures to its relay.
+
+        Missing rows and rows no longer authorized are safe no-ops. Unlike
+        :meth:`publish_committed`, a Redis error is raised so a durable delivery
+        lease is not acknowledged before publication is accepted.
+        """
+        row = await self.db.get(Notification, notification_id)
+        if row is None:
+            return False
+        scopes = await self._resolve_delivery_scopes([row])
+        if 0 not in await self._allowed_delivery_indices([row], scopes):
+            log.info(
+                "notification delivery suppressed for revoked project access "
+                "notification=%s user=%s type=%s",
+                row.id,
+                row.user_id,
+                row.type,
+            )
+            return False
+        await _publish(
+            user_id=row.user_id,
+            message={
+                "id": str(row.id),
+                "type": row.type,
+                "target_type": row.target_type,
+                "target_id": str(row.target_id),
+                "payload": row.payload,
+                "created_at": (
+                    row.created_at or datetime.now(timezone.utc)
+                ).isoformat(),
+            },
+        )
+        return True
+
     async def publish_sync(self, user_id: uuid.UUID, *, reason: str) -> None:
         """Best-effort ``notifications.sync`` publication for a committed change.
 

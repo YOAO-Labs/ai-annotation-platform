@@ -1,0 +1,233 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:aap:dataset-import-delivery:v1",
+  "title": "Assets connector-import delivery contract",
+  "description": "Leased at-least-once broker handoff for committed connector-import media and notifications.",
+  "x-postgresql-functions": [
+    "aap_assets_v1.queue_dataset_import_delivery(uuid, text, uuid)",
+    "aap_assets_v1.dataset_import_delivery_target_is_current(text, uuid)",
+    "aap_assets_v1.claim_dataset_import_delivery(uuid, integer)",
+    "aap_assets_v1.complete_dataset_import_delivery(uuid, uuid)"
+  ],
+  "x-postgresql-argument-order": {
+    "aap_assets_v1.queue_dataset_import_delivery(uuid, text, uuid)": [
+      "job_id",
+      "kind",
+      "target_id"
+    ],
+    "aap_assets_v1.dataset_import_delivery_target_is_current(text, uuid)": ["kind", "target_id"],
+    "aap_assets_v1.claim_dataset_import_delivery(uuid, integer)": ["lease_token", "lease_seconds"],
+    "aap_assets_v1.complete_dataset_import_delivery(uuid, uuid)": ["delivery_id", "lease_token"]
+  },
+  "oneOf": [
+    { "$ref": "#/$defs/QueueDeliveryCall" },
+    { "$ref": "#/$defs/TargetCurrentCall" },
+    { "$ref": "#/$defs/ClaimDeliveryCall" },
+    { "$ref": "#/$defs/CompleteDeliveryCall" }
+  ],
+  "$defs": {
+    "uuid": { "type": "string", "format": "uuid" },
+    "timestamp": { "type": "string", "format": "date-time" },
+    "deliveryKind": {
+      "enum": ["thumbnail", "video_metadata", "notification"],
+      "type": "string"
+    },
+    "mediaDeliveryKind": {
+      "enum": ["thumbnail", "video_metadata"],
+      "type": "string"
+    },
+    "failure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code"],
+      "properties": {
+        "code": { "enum": ["invalid_request", "lease_lost"], "type": "string" }
+      }
+    },
+    "DatasetImportDelivery": {
+      "additionalProperties": false,
+      "properties": {
+        "delivery_id": {
+          "format": "uuid",
+          "title": "Delivery Id",
+          "type": "string"
+        },
+        "job_id": {
+          "format": "uuid",
+          "title": "Job Id",
+          "type": "string"
+        },
+        "kind": {
+          "enum": ["thumbnail", "video_metadata", "notification"],
+          "title": "Kind",
+          "type": "string"
+        },
+        "target_id": {
+          "format": "uuid",
+          "title": "Target Id",
+          "type": "string"
+        },
+        "lease_token": {
+          "format": "uuid",
+          "title": "Lease Token",
+          "type": "string"
+        },
+        "lease_expires_at": {
+          "format": "date-time",
+          "title": "Lease Expires At",
+          "type": "string"
+        }
+      },
+      "required": ["delivery_id", "job_id", "kind", "target_id", "lease_token", "lease_expires_at"],
+      "title": "DatasetImportDelivery",
+      "type": "object"
+    },
+    "DatasetImportDeliveryCompletion": {
+      "additionalProperties": false,
+      "properties": {
+        "delivery_id": {
+          "format": "uuid",
+          "title": "Delivery Id",
+          "type": "string"
+        },
+        "lease_token": {
+          "format": "uuid",
+          "title": "Lease Token",
+          "type": "string"
+        },
+        "delivered": { "const": true, "title": "Delivered", "type": "boolean" }
+      },
+      "required": ["delivery_id", "lease_token", "delivered"],
+      "title": "DatasetImportDeliveryCompletion",
+      "type": "object"
+    },
+    "claimSuccess": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "ok", "data"],
+      "properties": {
+        "schema": { "const": "aap-dataset-import-delivery/v1" },
+        "ok": { "const": true },
+        "data": {
+          "oneOf": [{ "$ref": "#/$defs/DatasetImportDelivery" }, { "type": "null" }]
+        }
+      }
+    },
+    "claimFailure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "ok", "error"],
+      "properties": {
+        "schema": { "const": "aap-dataset-import-delivery/v1" },
+        "ok": { "const": false },
+        "error": { "$ref": "#/$defs/failure" }
+      }
+    },
+    "claimReply": {
+      "oneOf": [{ "$ref": "#/$defs/claimSuccess" }, { "$ref": "#/$defs/claimFailure" }]
+    },
+    "completeSuccess": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "ok", "data"],
+      "properties": {
+        "schema": { "const": "aap-dataset-import-delivery/v1" },
+        "ok": { "const": true },
+        "data": { "$ref": "#/$defs/DatasetImportDeliveryCompletion" }
+      }
+    },
+    "completeFailure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "ok", "error"],
+      "properties": {
+        "schema": { "const": "aap-dataset-import-delivery/v1" },
+        "ok": { "const": false },
+        "error": { "$ref": "#/$defs/failure" }
+      }
+    },
+    "completeReply": {
+      "oneOf": [{ "$ref": "#/$defs/completeSuccess" }, { "$ref": "#/$defs/completeFailure" }]
+    },
+    "QueueDeliveryCall": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["function", "arguments"],
+      "properties": {
+        "function": {
+          "const": "aap_assets_v1.queue_dataset_import_delivery(uuid, text, uuid)"
+        },
+        "arguments": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["job_id", "kind", "target_id"],
+          "properties": {
+            "job_id": { "$ref": "#/$defs/uuid" },
+            "kind": { "$ref": "#/$defs/deliveryKind" },
+            "target_id": { "$ref": "#/$defs/uuid" }
+          }
+        }
+      }
+    },
+    "TargetCurrentCall": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["function", "arguments"],
+      "properties": {
+        "function": {
+          "const": "aap_assets_v1.dataset_import_delivery_target_is_current(text, uuid)"
+        },
+        "arguments": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "target_id"],
+          "properties": {
+            "kind": { "$ref": "#/$defs/mediaDeliveryKind" },
+            "target_id": { "$ref": "#/$defs/uuid" }
+          }
+        },
+        "returns": { "type": "boolean" }
+      }
+    },
+    "ClaimDeliveryCall": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["function", "arguments", "returns"],
+      "properties": {
+        "function": {
+          "const": "aap_assets_v1.claim_dataset_import_delivery(uuid, integer)"
+        },
+        "arguments": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["lease_token", "lease_seconds"],
+          "properties": {
+            "lease_token": { "$ref": "#/$defs/uuid" },
+            "lease_seconds": { "type": "integer", "minimum": 30, "maximum": 3600 }
+          }
+        },
+        "returns": { "$ref": "#/$defs/claimReply" }
+      }
+    },
+    "CompleteDeliveryCall": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["function", "arguments", "returns"],
+      "properties": {
+        "function": {
+          "const": "aap_assets_v1.complete_dataset_import_delivery(uuid, uuid)"
+        },
+        "arguments": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["delivery_id", "lease_token"],
+          "properties": {
+            "delivery_id": { "$ref": "#/$defs/uuid" },
+            "lease_token": { "$ref": "#/$defs/uuid" }
+          }
+        },
+        "returns": { "$ref": "#/$defs/completeReply" }
+      }
+    }
+  }
+}
