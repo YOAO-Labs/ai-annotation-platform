@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from contextlib import suppress
 from typing import Any
 
@@ -21,7 +22,9 @@ async def probe_connection(
 ) -> tuple[bool, str, int | None]:
     """Check a connector and count a small sample without exposing SDK errors."""
     normalized_allowlist = normalize_allowlist(allowlist)
-    assert_host_allowed(target_host(kind, config), normalized_allowlist)
+    await asyncio.to_thread(
+        assert_host_allowed, target_host(kind, config), normalized_allowlist
+    )
 
     try:
         # AnyIO and the connector SDKs are runtime-only dependencies. Keep them

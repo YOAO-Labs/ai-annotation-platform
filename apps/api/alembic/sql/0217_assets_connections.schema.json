@@ -425,14 +425,6 @@
           "title": "Actor Id",
           "type": "string"
         },
-        "fallback_allowlist": {
-          "items": {
-            "type": "string"
-          },
-          "maxItems": 256,
-          "title": "Fallback Allowlist",
-          "type": "array"
-        },
         "connection_id": {
           "format": "uuid",
           "title": "Connection Id",
@@ -444,7 +436,7 @@
           "type": "string"
         }
       },
-      "required": ["actor_id", "fallback_allowlist", "connection_id", "access"],
+      "required": ["actor_id", "connection_id", "access"],
       "title": "CaptureConnectionRequest",
       "type": "object"
     },
@@ -543,24 +535,6 @@
           "title": "Platform Role",
           "type": "string"
         },
-        "allowlist": {
-          "items": {
-            "type": "string"
-          },
-          "maxItems": 256,
-          "title": "Allowlist",
-          "type": "array"
-        },
-        "policy_source": {
-          "enum": ["database", "environment"],
-          "title": "Policy Source",
-          "type": "string"
-        },
-        "policy_digest": {
-          "pattern": "^[0-9a-f]{64}$",
-          "title": "Policy Digest",
-          "type": "string"
-        },
         "connection_id": {
           "format": "uuid",
           "title": "Connection Id",
@@ -596,9 +570,6 @@
       "required": [
         "actor_id",
         "platform_role",
-        "allowlist",
-        "policy_source",
-        "policy_digest",
         "connection_id",
         "access",
         "connection",
@@ -2435,8 +2406,8 @@
       "result": "ConnectionPolicy"
     },
     "capture_storage_connection": {
-      "signature": "aap_assets_v1.capture_storage_connection(uuid,uuid,text,jsonb)",
-      "arguments": ["actor_id", "connection_id", "access", "fallback_allowlist"],
+      "signature": "aap_assets_v1.capture_storage_connection(uuid,uuid,text)",
+      "arguments": ["actor_id", "connection_id", "access"],
       "request": "CaptureConnectionRequest",
       "result": "ConnectionCapture"
     },

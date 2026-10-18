@@ -15,6 +15,7 @@ from pydantic import (
     StrictBool,
     StrictInt,
     StrictStr,
+    field_validator,
     model_validator,
 )
 
@@ -34,6 +35,16 @@ class _Value(BaseModel):
     model_config = ConfigDict(
         extra="forbid", frozen=True, allow_inf_nan=False, hide_input_in_errors=True
     )
+
+    @field_validator("config", "secret", check_fields=False)
+    @classmethod
+    def require_json_object_values(cls, value):
+        if value is not None:
+            try:
+                json.dumps(value, sort_keys=True, allow_nan=False)
+            except (TypeError, ValueError, RecursionError):
+                raise ValueError("connection JSON field is invalid") from None
+        return value
 
 
 class ConnectionCursor(_Value):
@@ -251,12 +262,15 @@ class ConnectionPolicy(_Value):
     policy_digest: Digest
 
 
-class CaptureConnectionRequest(ConnectionPolicyRequest):
+class CaptureConnectionRequest(_Value):
+    actor_id: UUID
     connection_id: UUID
     access: ConnectionAccess
 
 
-class ConnectionCapture(ConnectionPolicy):
+class ConnectionCapture(_Value):
+    actor_id: UUID
+    platform_role: PlatformRole
     connection_id: UUID
     access: ConnectionAccess
     connection: NativeConnectionFacts
@@ -318,7 +332,6 @@ CONNECTION_NATIVE_ARGUMENTS: dict[str, tuple[str, ...]] = {
         "actor_id",
         "connection_id",
         "access",
-        "fallback_allowlist",
     ),
     "read_storage_connection_receipt": (
         "operation_id",
@@ -370,7 +383,7 @@ CONNECTION_NATIVE_SIGNATURES = {
     "list_storage_connections": "uuid,timestamptz,uuid,integer",
     "read_storage_connection": "uuid,uuid",
     "read_storage_connection_policy": "uuid,jsonb",
-    "capture_storage_connection": "uuid,uuid,text,jsonb",
+    "capture_storage_connection": "uuid,uuid,text",
     "read_storage_connection_receipt": "uuid,uuid,text,uuid,jsonb",
     "create_storage_connection": "uuid,uuid,jsonb,jsonb,text,text,jsonb,jsonb",
     "update_storage_connection": "uuid,uuid,uuid,jsonb,jsonb,text,text,text,jsonb,jsonb",
@@ -500,9 +513,47 @@ def require_connection_scope(request: BaseModel, result: BaseModel) -> None:
             or getattr(result, "action", None) != "create"
         ):
             raise ValueError("connection create response escaped its operation")
+        intent = (
+            request.intent
+            if isinstance(request, CreateConnectionNativeRequest)
+            else request
+        )
+        record = result.connection
+        if (
+            record is None
+            or any(
+                getattr(record, name) != getattr(intent, name)
+                for name in ("name", "kind", "scope")
+            )
+            or record.created_by != request.actor_id
+            or record.project_id is not None
+            or not record.secret_set
+        ):
+            raise ValueError("connection create response changed its accepted values")
+        if (
+            isinstance(request, CreateConnectionNativeRequest)
+            and record.config != request.config
+        ):
+            raise ValueError("connection create response changed its normalized config")
     elif isinstance(request, (UpdateConnectionRequest, UpdateConnectionNativeRequest)):
         if getattr(result, "action", None) != "update":
             raise ValueError("connection update response has another action")
+        intent = (
+            request.intent
+            if isinstance(request, UpdateConnectionNativeRequest)
+            else request
+        )
+        if intent.name is not None and result.connection.name != intent.name:
+            raise ValueError("connection update response changed its accepted name")
+        if isinstance(request, UpdateConnectionNativeRequest):
+            if result.connection.config != request.config:
+                raise ValueError(
+                    "connection update response changed its normalized config"
+                )
+            if request.secret_enc is not None and not result.connection.secret_set:
+                raise ValueError(
+                    "connection update response lost its supplied credential"
+                )
     elif isinstance(request, TestConnectionRequest):
         if getattr(result, "action", None) != "test":
             raise ValueError("connection test response has another action")

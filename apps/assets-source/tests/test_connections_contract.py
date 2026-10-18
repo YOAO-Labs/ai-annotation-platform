@@ -16,6 +16,7 @@ from aap_assets_source.connections_contract import (
     ConnectionReceiptLookup,
     ConnectionReceiptRequest,
     ConnectionRecord,
+    CreateConnectionRequest,
     EmptyConnectionIntent,
     ListConnectionsRequest,
     NativeConnectionFacts,
@@ -131,6 +132,21 @@ def test_public_connection_rejects_legacy_embedded_credentials():
     raw["config"] = {"endpoint": "http://user:password@example.test", "bucket": "data"}
     with pytest.raises(ValidationError):
         ConnectionRecord.model_validate(raw)
+
+
+def test_connection_input_rejects_non_json_values_and_hides_credential_repr():
+    values = dict(
+        operation_id=uuid4(),
+        actor_id=uuid4(),
+        name="valid",
+        kind="s3",
+        config={"endpoint": "http://8.8.8.8", "bucket": "data"},
+        secret={"password": "do-not-echo"},
+    )
+    request = CreateConnectionRequest(**values)
+    assert "do-not-echo" not in repr(request)
+    with pytest.raises(ValidationError):
+        CreateConnectionRequest(**{**values, "secret": {"password": float("nan")}})
 
 
 def test_connection_pages_require_progress_and_correct_completion():
