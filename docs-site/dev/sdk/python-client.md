@@ -116,13 +116,14 @@ with Client() as client:
 | `upload_zip`     | `upload_zip(dataset_id, zip_path: str \| Path)`                                                                       | `ZipUploadResult`      |
 | `link_project`   | `link_project(dataset_id, project_id)`                                                                                | `LinkResult`           |
 | `preview_unlink` | `preview_unlink(dataset_id, project_id)`                                                                              | `DatasetUnlinkPreview` |
-| `unlink_project` | `unlink_project(dataset_id, project_id)`                                                                              | `DatasetUnlinkResult`  |
+| `unlink_project` | `unlink_project(dataset_id, project_id, *, idempotency_key: UUID \| str \| None = None)`                              | `DatasetUnlinkResult`  |
 
 - `upload_files`:逐文件三步流(upload-init → PUT 预签名 URL → upload-complete)。`on_progress(done, total, file_name)` 在每个文件完成后回调。
 - `upload_zip`:multipart 上传单个 ZIP 包,后端解压入库(≤200MB / ≤5000 文件)。
 - `link_project`:返回的 `LinkResult.status == "linking"` 时建任务走异步,用 `async_job_id` 配合 `client.jobs.wait` 等待。
 - `update`: `**fields` 保留“未提供”与“显式传 `None`”的区别，因此可以用 `axis_convention=None` 清除坐标系约定。
 - `preview_unlink` 返回将删除的 task / annotation / batch 计数；`unlink_project` 返回实际删除计数。
+- `unlink_project` 默认每次调用生成 UUID `Idempotency-Key`。如果响应丢失后要在另一次调用中安全重放，请保存调用方生成的 UUID 并通过 `idempotency_key` 原样复用。
 
 ### client.tasks
 

@@ -6,7 +6,7 @@ import mimetypes
 import time
 from pathlib import Path
 from typing import Any, Callable, Sequence
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from ai_annotation._http import HttpTransport, _drop_none
 from ai_annotation.batch_operation_models import (
@@ -568,9 +568,22 @@ class Datasets:
         return DatasetUnlinkPreview.model_validate(resp.json())
 
     def unlink_project(
-        self, dataset_id: IdLike, project_id: IdLike
+        self,
+        dataset_id: IdLike,
+        project_id: IdLike,
+        *,
+        idempotency_key: IdLike | None = None,
     ) -> DatasetUnlinkResult:
-        resp = self._http.request("DELETE", f"/datasets/{dataset_id}/link/{project_id}")
+        """Unlink a dataset, allowing callers to replay with a saved UUID key."""
+        try:
+            key = uuid4() if idempotency_key is None else UUID(str(idempotency_key))
+        except (TypeError, ValueError) as exc:
+            raise ValueError("idempotency_key must be a UUID") from exc
+        resp = self._http.request(
+            "DELETE",
+            f"/datasets/{dataset_id}/link/{project_id}",
+            headers={"Idempotency-Key": str(key)},
+        )
         return DatasetUnlinkResult.model_validate(resp.json())
 
 

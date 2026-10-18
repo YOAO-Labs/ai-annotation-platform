@@ -1,5 +1,5 @@
 import json
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import httpx
 import pytest
@@ -159,9 +159,60 @@ def test_list_projects_and_unlink(client, respx_mock):
     )
     result = client.datasets.unlink_project(DS_ID, project_id)
     assert unlink_route.called
+    assert (
+        str(UUID(unlink_route.calls.last.request.headers["Idempotency-Key"]))
+        == (unlink_route.calls.last.request.headers["Idempotency-Key"])
+    )
     assert isinstance(result, DatasetUnlinkResult)
     assert result.deleted_batches == 1
     assert str(result.deleted_batch_ids[0]) == batch_id
+
+
+def test_unlink_reuses_persisted_key_after_lost_response(client, respx_mock):
+    project_id = str(uuid4())
+    idempotency_key = str(uuid4())
+    response_body = {
+        "deleted_tasks": 1,
+        "deleted_annotations": 2,
+        "deleted_batches": 0,
+        "deleted_batch_ids": [],
+        "soft": False,
+    }
+    route = respx_mock.delete(f"{API}/datasets/{DS_ID}/link/{project_id}").mock(
+        side_effect=[
+            httpx.ReadTimeout("response lost after the server accepted the request"),
+            httpx.Response(200, json=response_body),
+        ]
+    )
+
+    with pytest.raises(httpx.ReadTimeout):
+        client.datasets.unlink_project(
+            DS_ID, project_id, idempotency_key=idempotency_key
+        )
+
+    result = client.datasets.unlink_project(
+        DS_ID, project_id, idempotency_key=idempotency_key
+    )
+
+    assert isinstance(result, DatasetUnlinkResult)
+    assert result.deleted_tasks == 1
+    assert route.call_count == 2
+    assert [call.request.headers["Idempotency-Key"] for call in route.calls] == [
+        idempotency_key,
+        idempotency_key,
+    ]
+
+
+def test_invalid_unlink_idempotency_key_sends_no_request(client, respx_mock):
+    project_id = str(uuid4())
+    route = respx_mock.delete(f"{API}/datasets/{DS_ID}/link/{project_id}").mock(
+        return_value=httpx.Response(200, json={})
+    )
+
+    with pytest.raises(ValueError, match="idempotency_key must be a UUID"):
+        client.datasets.unlink_project(DS_ID, project_id, idempotency_key="not-a-uuid")
+
+    assert route.call_count == 0
 
 
 @pytest.mark.parametrize(
