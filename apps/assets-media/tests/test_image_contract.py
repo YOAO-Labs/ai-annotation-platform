@@ -263,6 +263,55 @@ def test_actor_acceptance_captures_the_exact_image_policy():
         )
 
 
+def test_dimensions_schedule_captures_preview_intent():
+    owner = c.ImageOwner(kind="dataset_item", id=uuid4())
+    source = image_source(owner=owner, item_id=owner.id)
+    request = c.ScheduleImageMediaRequest(
+        operation_id=uuid4(),
+        owner_kind=owner.kind,
+        owner_id=owner.id,
+        spec=c.DimensionsWorkSpec(
+            expected_source_snapshot=source.source_snapshot,
+            generate_preview=True,
+        ),
+        force=False,
+    )
+    accepted = c.AcceptedImageWork(
+        operation_id=request.operation_id,
+        source=source,
+        work=c.ImageWorkReference(
+            job_id=uuid4(),
+            generation=1,
+            owner=owner,
+            source_generation=source.source_generation,
+            kind="dimensions",
+            status="pending",
+        ),
+        spec=request.spec,
+    )
+
+    assert (
+        c.DimensionsWorkSpec(
+            expected_source_snapshot=source.source_snapshot
+        ).generate_preview
+        is False
+    )
+    c.require_scope(request, accepted)
+    assert accepted.spec.generate_preview is True
+
+    altered = accepted.model_copy(
+        update={
+            "spec": c.DimensionsWorkSpec(
+                expected_source_snapshot=source.source_snapshot,
+                policy=request.spec.policy,
+                generate_preview=False,
+            )
+        }
+    )
+    with pytest.raises(ValueError, match="changed its accepted spec"):
+        c.require_scope(request, altered)
+
+
 def test_schedule_accepts_server_captured_backfill_cutoff_and_rejects_source_substitution():
     operation_id = uuid4()
     owner_id = uuid4()

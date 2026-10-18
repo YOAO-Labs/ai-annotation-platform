@@ -603,6 +603,7 @@ class DimensionsWorkSpec(Value):
     kind: Literal["dimensions"] = "dimensions"
     expected_source_snapshot: Digest
     policy: ImagePolicy = Field(default_factory=ImagePolicy)
+    generate_preview: StrictBool = False
 
 
 class ThumbnailWorkSpec(Value):

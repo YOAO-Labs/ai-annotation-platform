@@ -55,12 +55,7 @@
           "$ref": "#/$defs/ImageWorkReference"
         }
       },
-      "required": [
-        "operation_id",
-        "source",
-        "work",
-        "spec"
-      ],
+      "required": ["operation_id", "source", "work", "spec"],
       "title": "AcceptedImageWork",
       "type": "object"
     },
@@ -102,11 +97,7 @@
           "default": null
         }
       },
-      "required": [
-        "job_id",
-        "generation",
-        "lease_token"
-      ],
+      "required": ["job_id", "generation", "lease_token"],
       "title": "AdvanceImageBackfillRequest",
       "type": "object"
     },
@@ -131,11 +122,7 @@
           "type": "string"
         }
       },
-      "required": [
-        "key",
-        "byte_size",
-        "sha256"
-      ],
+      "required": ["key", "byte_size", "sha256"],
       "title": "Artifact",
       "type": "object"
     },
@@ -158,11 +145,7 @@
           "type": "string"
         }
       },
-      "required": [
-        "operation_id",
-        "actor_id",
-        "job_id"
-      ],
+      "required": ["operation_id", "actor_id", "job_id"],
       "title": "CancelImageMediaRequest",
       "type": "object"
     },
@@ -184,11 +167,7 @@
           "type": "string"
         }
       },
-      "required": [
-        "operation_id",
-        "job_id",
-        "canceled"
-      ],
+      "required": ["operation_id", "job_id", "canceled"],
       "title": "CancelImageMediaResult",
       "type": "object"
     },
@@ -215,9 +194,7 @@
           "type": "string"
         }
       },
-      "required": [
-        "worker_id"
-      ],
+      "required": ["worker_id"],
       "title": "ClaimImageGarbageRequest",
       "type": "object"
     },
@@ -239,12 +216,7 @@
         },
         "kinds": {
           "items": {
-            "enum": [
-              "dimensions",
-              "thumbnail",
-              "pyramid",
-              "image_backfill"
-            ],
+            "enum": ["dimensions", "thumbnail", "pyramid", "image_backfill"],
             "type": "string"
           },
           "maxItems": 4,
@@ -265,9 +237,7 @@
           "type": "string"
         }
       },
-      "required": [
-        "worker_id"
-      ],
+      "required": ["worker_id"],
       "title": "ClaimImageMediaRequest",
       "type": "object"
     },
@@ -285,9 +255,7 @@
           ]
         }
       },
-      "required": [
-        "claim"
-      ],
+      "required": ["claim"],
       "title": "ClaimedImageWork",
       "type": "object"
     },
@@ -305,10 +273,7 @@
           "type": "string"
         }
       },
-      "required": [
-        "garbage_id",
-        "lease_token"
-      ],
+      "required": ["garbage_id", "lease_token"],
       "title": "CompleteImageGarbageRequest",
       "type": "object"
     },
@@ -350,11 +315,7 @@
           "type": "integer"
         }
       },
-      "required": [
-        "source_identity",
-        "width",
-        "height"
-      ],
+      "required": ["source_identity", "width", "height"],
       "title": "DimensionsResult",
       "type": "object"
     },
@@ -366,6 +327,11 @@
           "title": "Expected Source Snapshot",
           "type": "string"
         },
+        "generate_preview": {
+          "default": false,
+          "title": "Generate Preview",
+          "type": "boolean"
+        },
         "kind": {
           "const": "dimensions",
           "default": "dimensions",
@@ -376,9 +342,7 @@
           "$ref": "#/$defs/ImagePolicy"
         }
       },
-      "required": [
-        "expected_source_snapshot"
-      ],
+      "required": ["expected_source_snapshot"],
       "title": "DimensionsWorkSpec",
       "type": "object"
     },
@@ -452,13 +416,7 @@
           "type": "string"
         }
       },
-      "required": [
-        "job_id",
-        "generation",
-        "lease_token",
-        "error_code",
-        "error_detail"
-      ],
+      "required": ["job_id", "generation", "lease_token", "error_code", "error_detail"],
       "title": "FailImageMediaRequest",
       "type": "object"
     },
@@ -504,12 +462,7 @@
           "title": "Result"
         }
       },
-      "required": [
-        "job_id",
-        "generation",
-        "lease_token",
-        "result"
-      ],
+      "required": ["job_id", "generation", "lease_token", "result"],
       "title": "FinishImageMediaRequest",
       "type": "object"
     },
@@ -540,11 +493,7 @@
           "type": "string"
         }
       },
-      "required": [
-        "job_id",
-        "generation",
-        "lease_token"
-      ],
+      "required": ["job_id", "generation", "lease_token"],
       "title": "HeartbeatImageMediaRequest",
       "type": "object"
     },
@@ -566,10 +515,7 @@
           "type": "array"
         }
       },
-      "required": [
-        "batch_token",
-        "items"
-      ],
+      "required": ["batch_token", "items"],
       "title": "ImageBackfillObservations",
       "type": "object"
     },
@@ -596,10 +542,7 @@
         "after_owner_kind": {
           "anyOf": [
             {
-              "enum": [
-                "dataset_item",
-                "task"
-              ],
+              "enum": ["dataset_item", "task"],
               "type": "string"
             },
             {
@@ -635,10 +578,7 @@
         "next_owner_kind": {
           "anyOf": [
             {
-              "enum": [
-                "dataset_item",
-                "task"
-              ],
+              "enum": ["dataset_item", "task"],
               "type": "string"
             },
             {
@@ -737,10 +677,7 @@
         "next_owner_kind": {
           "anyOf": [
             {
-              "enum": [
-                "dataset_item",
-                "task"
-              ],
+              "enum": ["dataset_item", "task"],
               "type": "string"
             },
             {
@@ -824,10 +761,7 @@
           "type": "array"
         },
         "owner_kind": {
-          "enum": [
-            "dataset_item",
-            "task"
-          ],
+          "enum": ["dataset_item", "task"],
           "title": "Owner Kind",
           "type": "string"
         },
@@ -845,19 +779,12 @@
           "title": "Project Id"
         },
         "purpose": {
-          "enum": [
-            "dimensions",
-            "thumbnail",
-            "pyramid"
-          ],
+          "enum": ["dimensions", "thumbnail", "pyramid"],
           "title": "Purpose",
           "type": "string"
         }
       },
-      "required": [
-        "owner_kind",
-        "purpose"
-      ],
+      "required": ["owner_kind", "purpose"],
       "title": "ImageBackfillSelection",
       "type": "object"
     },
@@ -867,10 +794,7 @@
         "error_code": {
           "anyOf": [
             {
-              "enum": [
-                "source_missing",
-                "source_changed"
-              ],
+              "enum": ["source_missing", "source_changed"],
               "type": "string"
             },
             {
@@ -898,12 +822,7 @@
           "type": "string"
         }
       },
-      "required": [
-        "owner",
-        "source_snapshot",
-        "object_identity",
-        "error_code"
-      ],
+      "required": ["owner", "source_snapshot", "object_identity", "error_code"],
       "title": "ImageBackfillSourceObservation",
       "type": "object"
     },
@@ -923,9 +842,7 @@
           "$ref": "#/$defs/ImageBackfillSelection"
         }
       },
-      "required": [
-        "selection"
-      ],
+      "required": ["selection"],
       "title": "ImageBackfillSpec",
       "type": "object"
     },
@@ -1066,10 +983,7 @@
           "type": "string"
         }
       },
-      "required": [
-        "garbage_id",
-        "completed"
-      ],
+      "required": ["garbage_id", "completed"],
       "title": "ImageGarbageAck",
       "type": "object"
     },
@@ -1085,9 +999,7 @@
           "type": "array"
         }
       },
-      "required": [
-        "items"
-      ],
+      "required": ["items"],
       "title": "ImageGarbageBatch",
       "type": "object"
     },
@@ -1111,11 +1023,7 @@
           "type": "string"
         }
       },
-      "required": [
-        "garbage_id",
-        "lease_token",
-        "prefix"
-      ],
+      "required": ["garbage_id", "lease_token", "prefix"],
       "title": "ImageGarbageItem",
       "type": "object"
     },
@@ -1129,10 +1037,7 @@
           "$ref": "#/$defs/ImageSource"
         }
       },
-      "required": [
-        "source",
-        "pyramid"
-      ],
+      "required": ["source", "pyramid"],
       "title": "ImageGenerationRead",
       "type": "object"
     },
@@ -1154,12 +1059,7 @@
           "title": "Generation"
         },
         "kind": {
-          "enum": [
-            "thumbnail",
-            "overview",
-            "manifest",
-            "tile"
-          ],
+          "enum": ["thumbnail", "overview", "manifest", "tile"],
           "title": "Kind",
           "type": "string"
         },
@@ -1211,10 +1111,7 @@
           "title": "Y"
         }
       },
-      "required": [
-        "source_snapshot",
-        "kind"
-      ],
+      "required": ["source_snapshot", "kind"],
       "title": "ImageInvalidation",
       "type": "object"
     },
@@ -1254,13 +1151,7 @@
           "type": "string"
         }
       },
-      "required": [
-        "job_id",
-        "generation",
-        "lease_token",
-        "active",
-        "lease_expires_at"
-      ],
+      "required": ["job_id", "generation", "lease_token", "active", "lease_expires_at"],
       "title": "ImageLeaseState",
       "type": "object"
     },
@@ -1284,11 +1175,7 @@
           "type": "string"
         }
       },
-      "required": [
-        "asset_id",
-        "generation",
-        "last_modified"
-      ],
+      "required": ["asset_id", "generation", "last_modified"],
       "title": "ImageOrphanCandidate",
       "type": "object"
     },
@@ -1301,18 +1188,12 @@
           "type": "string"
         },
         "kind": {
-          "enum": [
-            "dataset_item",
-            "task"
-          ],
+          "enum": ["dataset_item", "task"],
           "title": "Kind",
           "type": "string"
         }
       },
-      "required": [
-        "kind",
-        "id"
-      ],
+      "required": ["kind", "id"],
       "title": "ImageOwner",
       "type": "object"
     },
@@ -1485,10 +1366,7 @@
         "building_status": {
           "anyOf": [
             {
-              "enum": [
-                "pending",
-                "building"
-              ],
+              "enum": ["pending", "building"],
               "type": "string"
             },
             {
@@ -1765,14 +1643,7 @@
           "type": "integer"
         }
       },
-      "required": [
-        "level",
-        "scaleFactor",
-        "width",
-        "height",
-        "columns",
-        "rows"
-      ],
+      "required": ["level", "scaleFactor", "width", "height", "columns", "rows"],
       "title": "ImagePyramidLevel",
       "type": "object"
     },
@@ -1877,11 +1748,7 @@
           "type": "integer"
         }
       },
-      "required": [
-        "width",
-        "height",
-        "contentDigest"
-      ],
+      "required": ["width", "height", "contentDigest"],
       "title": "ImagePyramidOverview",
       "type": "object"
     },
@@ -1904,10 +1771,7 @@
         "building_status": {
           "anyOf": [
             {
-              "enum": [
-                "pending",
-                "building"
-              ],
+              "enum": ["pending", "building"],
               "type": "string"
             },
             {
@@ -2117,10 +1981,7 @@
           "title": "Blurhash"
         },
         "bucket_kind": {
-          "enum": [
-            "datasets",
-            "legacy"
-          ],
+          "enum": ["datasets", "legacy"],
           "title": "Bucket Kind",
           "type": "string"
         },
@@ -2383,9 +2244,7 @@
           "type": "array"
         }
       },
-      "required": [
-        "items"
-      ],
+      "required": ["items"],
       "title": "ImageSummaries",
       "type": "object"
     },
@@ -2406,12 +2265,7 @@
           "type": "boolean"
         }
       },
-      "required": [
-        "selector",
-        "source",
-        "thumbnail_current",
-        "pyramid"
-      ],
+      "required": ["selector", "source", "thumbnail_current", "pyramid"],
       "title": "ImageSummaryItem",
       "type": "object"
     },
@@ -2440,12 +2294,7 @@
           "type": "integer"
         }
       },
-      "required": [
-        "level",
-        "x",
-        "y",
-        "artifact"
-      ],
+      "required": ["level", "x", "y", "artifact"],
       "title": "ImageTileArtifact",
       "type": "object"
     },
@@ -2540,11 +2389,7 @@
           "type": "string"
         }
       },
-      "required": [
-        "job_id",
-        "generation",
-        "outcome"
-      ],
+      "required": ["job_id", "generation", "outcome"],
       "title": "ImageWorkOutcome",
       "type": "object"
     },
@@ -2563,12 +2408,7 @@
           "type": "string"
         },
         "kind": {
-          "enum": [
-            "dimensions",
-            "thumbnail",
-            "pyramid",
-            "image_backfill"
-          ],
+          "enum": ["dimensions", "thumbnail", "pyramid", "image_backfill"],
           "title": "Kind",
           "type": "string"
         },
@@ -2589,25 +2429,12 @@
           "type": "integer"
         },
         "status": {
-          "enum": [
-            "pending",
-            "running",
-            "ready",
-            "failed",
-            "canceled"
-          ],
+          "enum": ["pending", "running", "ready", "failed", "canceled"],
           "title": "Status",
           "type": "string"
         }
       },
-      "required": [
-        "job_id",
-        "generation",
-        "owner",
-        "source_generation",
-        "kind",
-        "status"
-      ],
+      "required": ["job_id", "generation", "owner", "source_generation", "kind", "status"],
       "title": "ImageWorkReference",
       "type": "object"
     },
@@ -2687,14 +2514,7 @@
           "$ref": "#/$defs/ImageWorkReference"
         }
       },
-      "required": [
-        "work",
-        "spec",
-        "progress",
-        "error_code",
-        "error_detail",
-        "lease_expires_at"
-      ],
+      "required": ["work", "spec", "progress", "error_code", "error_detail", "lease_expires_at"],
       "title": "ImageWorkStatus",
       "type": "object"
     },
@@ -2736,10 +2556,7 @@
           "title": "Task Id"
         }
       },
-      "required": [
-        "actor_id",
-        "invalidation"
-      ],
+      "required": ["actor_id", "invalidation"],
       "title": "InvalidateImageMediaRequest",
       "type": "object"
     },
@@ -2754,10 +2571,7 @@
           "$ref": "#/$defs/ImageSource"
         }
       },
-      "required": [
-        "source",
-        "changed"
-      ],
+      "required": ["source", "changed"],
       "title": "InvalidationResult",
       "type": "object"
     },
@@ -2791,10 +2605,7 @@
           "title": "Version Id"
         }
       },
-      "required": [
-        "etag",
-        "byte_size"
-      ],
+      "required": ["etag", "byte_size"],
       "title": "ObjectIdentity",
       "type": "object"
     },
@@ -2841,11 +2652,7 @@
           "title": "Task Id"
         }
       },
-      "required": [
-        "actor_id",
-        "source_snapshot",
-        "object_identity"
-      ],
+      "required": ["actor_id", "source_snapshot", "object_identity"],
       "title": "ObserveImageSourceRequest",
       "type": "object"
     },
@@ -2897,11 +2704,7 @@
           "$ref": "#/$defs/ImagePolicy"
         },
         "purpose": {
-          "enum": [
-            "dimensions",
-            "thumbnail",
-            "pyramid"
-          ],
+          "enum": ["dimensions", "thumbnail", "pyramid"],
           "title": "Purpose",
           "type": "string"
         },
@@ -2919,11 +2722,7 @@
           "title": "Task Id"
         }
       },
-      "required": [
-        "actor_id",
-        "operation_id",
-        "purpose"
-      ],
+      "required": ["actor_id", "operation_id", "purpose"],
       "title": "PrepareImageMediaRequest",
       "type": "object"
     },
@@ -3005,9 +2804,7 @@
           "$ref": "#/$defs/ImagePolicy"
         }
       },
-      "required": [
-        "expected_source_snapshot"
-      ],
+      "required": ["expected_source_snapshot"],
       "title": "PyramidWorkSpec",
       "type": "object"
     },
@@ -3060,9 +2857,7 @@
           "title": "Task Id"
         }
       },
-      "required": [
-        "actor_id"
-      ],
+      "required": ["actor_id"],
       "title": "ReadImageGenerationRequest",
       "type": "object"
     },
@@ -3101,9 +2896,7 @@
           "title": "Task Id"
         }
       },
-      "required": [
-        "actor_id"
-      ],
+      "required": ["actor_id"],
       "title": "ReadImageSourceRequest",
       "type": "object"
     },
@@ -3124,10 +2917,7 @@
           "type": "array"
         }
       },
-      "required": [
-        "actor_id",
-        "selectors"
-      ],
+      "required": ["actor_id", "selectors"],
       "title": "ReadImageSummariesRequest",
       "type": "object"
     },
@@ -3145,10 +2935,7 @@
           "type": "string"
         }
       },
-      "required": [
-        "actor_id",
-        "job_id"
-      ],
+      "required": ["actor_id", "job_id"],
       "title": "ReadImageWorkRequest",
       "type": "object"
     },
@@ -3161,9 +2948,7 @@
           "type": "string"
         }
       },
-      "required": [
-        "job_id"
-      ],
+      "required": ["job_id"],
       "title": "ReadInternalImageWorkRequest",
       "type": "object"
     },
@@ -3222,18 +3007,12 @@
           "type": "string"
         },
         "owner_kind": {
-          "enum": [
-            "dataset_item",
-            "task"
-          ],
+          "enum": ["dataset_item", "task"],
           "title": "Owner Kind",
           "type": "string"
         }
       },
-      "required": [
-        "owner_kind",
-        "owner_id"
-      ],
+      "required": ["owner_kind", "owner_id"],
       "title": "ResolveInternalImageSourceRequest",
       "type": "object"
     },
@@ -3285,11 +3064,7 @@
           "$ref": "#/$defs/ImagePolicy"
         },
         "purpose": {
-          "enum": [
-            "dimensions",
-            "thumbnail",
-            "pyramid"
-          ],
+          "enum": ["dimensions", "thumbnail", "pyramid"],
           "title": "Purpose",
           "type": "string"
         },
@@ -3307,11 +3082,7 @@
           "title": "Task Id"
         }
       },
-      "required": [
-        "actor_id",
-        "operation_id",
-        "purpose"
-      ],
+      "required": ["actor_id", "operation_id", "purpose"],
       "title": "RetryImageMediaRequest",
       "type": "object"
     },
@@ -3334,10 +3105,7 @@
         "after_owner_kind": {
           "anyOf": [
             {
-              "enum": [
-                "dataset_item",
-                "task"
-              ],
+              "enum": ["dataset_item", "task"],
               "type": "string"
             },
             {
@@ -3358,9 +3126,7 @@
           "$ref": "#/$defs/ImageBackfillSelection"
         }
       },
-      "required": [
-        "selection"
-      ],
+      "required": ["selection"],
       "title": "ScanImageBackfillRequest",
       "type": "object"
     },
@@ -3399,10 +3165,7 @@
         "owner_kind": {
           "anyOf": [
             {
-              "enum": [
-                "dataset_item",
-                "task"
-              ],
+              "enum": ["dataset_item", "task"],
               "type": "string"
             },
             {
@@ -3438,12 +3201,7 @@
           "title": "Spec"
         }
       },
-      "required": [
-        "operation_id",
-        "owner_kind",
-        "owner_id",
-        "spec"
-      ],
+      "required": ["operation_id", "owner_kind", "owner_id", "spec"],
       "title": "ScheduleImageMediaRequest",
       "type": "object"
     },
@@ -3628,14 +3386,7 @@
           "type": "integer"
         }
       },
-      "required": [
-        "source_identity",
-        "source_sha256",
-        "width",
-        "height",
-        "blurhash",
-        "artifact"
-      ],
+      "required": ["source_identity", "source_sha256", "width", "height", "blurhash", "artifact"],
       "title": "ThumbnailResult",
       "type": "object"
     },
@@ -3657,9 +3408,7 @@
           "$ref": "#/$defs/ImagePolicy"
         }
       },
-      "required": [
-        "expected_source_snapshot"
-      ],
+      "required": ["expected_source_snapshot"],
       "title": "ThumbnailWorkSpec",
       "type": "object"
     }
@@ -3675,119 +3424,70 @@
   },
   "x-native": {
     "advance_image_backfill": {
-      "arguments": [
-        "job_id",
-        "generation",
-        "lease_token",
-        "batch_size",
-        "observations"
-      ],
+      "arguments": ["job_id", "generation", "lease_token", "batch_size", "observations"],
       "request": "AdvanceImageBackfillRequest",
       "result": "ImageBackfillProgress",
       "role": "worker",
       "signature": "aap_assets_v1.advance_image_backfill(uuid,bigint,uuid,integer,jsonb)"
     },
     "cancel_image_media": {
-      "arguments": [
-        "operation_id",
-        "actor_id",
-        "job_id"
-      ],
+      "arguments": ["operation_id", "actor_id", "job_id"],
       "request": "CancelImageMediaRequest",
       "result": "CancelImageMediaResult",
       "role": "control",
       "signature": "aap_assets_v1.cancel_image_media(uuid,uuid,uuid)"
     },
     "claim_image_garbage": {
-      "arguments": [
-        "worker_id",
-        "lease_seconds",
-        "batch_size"
-      ],
+      "arguments": ["worker_id", "lease_seconds", "batch_size"],
       "request": "ClaimImageGarbageRequest",
       "result": "ImageGarbageBatch",
       "role": "cleanup",
       "signature": "aap_assets_v1.claim_image_garbage(uuid,integer,integer)"
     },
     "claim_image_media": {
-      "arguments": [
-        "worker_id",
-        "job_id",
-        "lease_seconds",
-        "kinds"
-      ],
+      "arguments": ["worker_id", "job_id", "lease_seconds", "kinds"],
       "request": "ClaimImageMediaRequest",
       "result": "ClaimedImageWork",
       "role": "worker",
       "signature": "aap_assets_v1.claim_image_media(uuid,uuid,integer,text[])"
     },
     "complete_image_garbage": {
-      "arguments": [
-        "garbage_id",
-        "lease_token"
-      ],
+      "arguments": ["garbage_id", "lease_token"],
       "request": "CompleteImageGarbageRequest",
       "result": "ImageGarbageAck",
       "role": "cleanup",
       "signature": "aap_assets_v1.complete_image_garbage(uuid,uuid)"
     },
     "fail_image_media": {
-      "arguments": [
-        "job_id",
-        "generation",
-        "lease_token",
-        "error_code",
-        "error_detail"
-      ],
+      "arguments": ["job_id", "generation", "lease_token", "error_code", "error_detail"],
       "request": "FailImageMediaRequest",
       "result": "ImageWorkOutcome",
       "role": "worker",
       "signature": "aap_assets_v1.fail_image_media(uuid,bigint,uuid,text,text)"
     },
     "finish_image_media": {
-      "arguments": [
-        "job_id",
-        "generation",
-        "lease_token",
-        "result"
-      ],
+      "arguments": ["job_id", "generation", "lease_token", "result"],
       "request": "FinishImageMediaRequest",
       "result": "ImageWorkOutcome",
       "role": "worker",
       "signature": "aap_assets_v1.finish_image_media(uuid,bigint,uuid,jsonb)"
     },
     "heartbeat_image_media": {
-      "arguments": [
-        "job_id",
-        "generation",
-        "lease_token",
-        "lease_seconds"
-      ],
+      "arguments": ["job_id", "generation", "lease_token", "lease_seconds"],
       "request": "HeartbeatImageMediaRequest",
       "result": "ImageLeaseState",
       "role": "worker",
       "signature": "aap_assets_v1.heartbeat_image_media(uuid,bigint,uuid,integer)"
     },
     "invalidate_image_media": {
-      "arguments": [
-        "actor_id",
-        "task_id",
-        "dataset_item_id",
-        "invalidation"
-      ],
+      "arguments": ["actor_id", "task_id", "dataset_item_id", "invalidation"],
       "request": "InvalidateImageMediaRequest",
       "result": "InvalidationResult",
       "role": "control",
       "signature": "aap_assets_v1.invalidate_image_media(uuid,uuid,uuid,jsonb)"
     },
     "observe_image_source": {
-      "arguments": [
-        "actor_id",
-        "task_id",
-        "dataset_item_id",
-        "source_snapshot",
-        "object_identity"
-      ],
+      "arguments": ["actor_id", "task_id", "dataset_item_id", "source_snapshot", "object_identity"],
       "request": "ObserveImageSourceRequest",
       "result": "ImageSource",
       "role": "control",
@@ -3810,33 +3510,21 @@
       "signature": "aap_assets_v1.prepare_image_media(uuid,uuid,uuid,uuid,text,text,jsonb,boolean)"
     },
     "read_image_generation": {
-      "arguments": [
-        "actor_id",
-        "task_id",
-        "dataset_item_id",
-        "generation"
-      ],
+      "arguments": ["actor_id", "task_id", "dataset_item_id", "generation"],
       "request": "ReadImageGenerationRequest",
       "result": "ImageGenerationRead",
       "role": "control",
       "signature": "aap_assets_v1.read_image_generation(uuid,uuid,uuid,integer)"
     },
     "read_image_source": {
-      "arguments": [
-        "actor_id",
-        "task_id",
-        "dataset_item_id"
-      ],
+      "arguments": ["actor_id", "task_id", "dataset_item_id"],
       "request": "ReadImageSourceRequest",
       "result": "ImageSource",
       "role": "control",
       "signature": "aap_assets_v1.read_image_source(uuid,uuid,uuid)"
     },
     "read_image_summaries": {
-      "arguments": [
-        "actor_id",
-        "selectors"
-      ],
+      "arguments": ["actor_id", "selectors"],
       "request": "ReadImageSummariesRequest",
       "result": "ImageSummaries",
       "role": "control",
@@ -3850,41 +3538,28 @@
       "signature": "aap_assets_v1.read_image_usage()"
     },
     "read_image_work": {
-      "arguments": [
-        "actor_id",
-        "job_id"
-      ],
+      "arguments": ["actor_id", "job_id"],
       "request": "ReadImageWorkRequest",
       "result": "ImageWorkStatus",
       "role": "control",
       "signature": "aap_assets_v1.read_image_work(uuid,uuid)"
     },
     "read_internal_image_work": {
-      "arguments": [
-        "job_id"
-      ],
+      "arguments": ["job_id"],
       "request": "ReadInternalImageWorkRequest",
       "result": "ImageWorkStatus",
       "role": "system",
       "signature": "aap_assets_v1.read_internal_image_work(uuid)"
     },
     "reconcile_image_media": {
-      "arguments": [
-        "candidates",
-        "batch_size"
-      ],
+      "arguments": ["candidates", "batch_size"],
       "request": "ReconcileImageMediaRequest",
       "result": "ImageReconcileResult",
       "role": "worker",
       "signature": "aap_assets_v1.reconcile_image_media(jsonb,integer)"
     },
     "resolve_internal_image_source": {
-      "arguments": [
-        "owner_kind",
-        "owner_id",
-        "expected_source_snapshot",
-        "object_identity"
-      ],
+      "arguments": ["owner_kind", "owner_id", "expected_source_snapshot", "object_identity"],
       "request": "ResolveInternalImageSourceRequest",
       "result": "ImageSource",
       "role": "system",
@@ -3907,25 +3582,14 @@
       "signature": "aap_assets_v1.retry_image_media(uuid,uuid,uuid,uuid,text,text,jsonb,boolean)"
     },
     "scan_image_backfill": {
-      "arguments": [
-        "selection",
-        "after_owner_kind",
-        "after_owner_id",
-        "page_size"
-      ],
+      "arguments": ["selection", "after_owner_kind", "after_owner_id", "page_size"],
       "request": "ScanImageBackfillRequest",
       "result": "ImageBackfillPage",
       "role": "system",
       "signature": "aap_assets_v1.scan_image_backfill(jsonb,text,uuid,integer)"
     },
     "schedule_image_media": {
-      "arguments": [
-        "operation_id",
-        "owner_kind",
-        "owner_id",
-        "spec",
-        "force"
-      ],
+      "arguments": ["operation_id", "owner_kind", "owner_id", "spec", "force"],
       "request": "ScheduleImageMediaRequest",
       "result": "AcceptedImageWork",
       "role": "system",
