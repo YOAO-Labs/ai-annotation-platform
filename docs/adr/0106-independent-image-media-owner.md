@@ -64,6 +64,13 @@ login gains private table access, other-owner schema access or DDL. The image
 worker has conditional read-only source access to datasets and the fixed legacy
 Task bucket, plus derived PUT/GET/LIST. Assets Cleanup owns derived deletion.
 
+Source and connector-import producers use two trusted image capabilities on
+their existing transaction connection: resolve/bind the pre-observed published
+source, then admit its captured-policy work. Their published Source/import wire
+shapes remain unchanged. Independent producers read the existing
+`IMAGE_PYRAMID_*` configuration names; the API binding captures its validated
+settings. Frozen thumbnail source limits are not configurable.
+
 Migration 0220 adds image jobs, immutable operation receipts and retained image
 garbage responsibilities. Jobs are authoritative for accepted work, attempts and
 terminal state; existing pyramid Asset/Generation rows become the atomically

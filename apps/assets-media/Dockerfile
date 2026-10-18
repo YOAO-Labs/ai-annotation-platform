@@ -36,3 +36,13 @@ USER 10005:10005
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
     CMD ["python", "-m", "aap_assets_media_runtime.worker", "--healthcheck"]
 CMD ["python", "-m", "aap_assets_media_runtime.worker"]
+
+FROM runtime AS image-worker
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libvips-tools icc-profiles-free \
+    && rm -rf /var/lib/apt/lists/*
+USER 10005:10005
+ENV IMAGE_PYRAMID_SRGB_PROFILE=/usr/share/color/icc/sRGB.icc
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
+    CMD ["python", "-m", "aap_assets_images_runtime.worker", "--healthcheck"]
+CMD ["python", "-m", "aap_assets_images_runtime.worker"]

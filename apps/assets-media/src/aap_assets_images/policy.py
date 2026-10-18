@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from typing import Annotated, Literal
+import os
+from typing import Annotated, Literal, Mapping
 
 from pydantic import (
     BaseModel,
@@ -69,3 +70,46 @@ class ImagePolicy(BaseModel):
             and height > 0
             and width * height >= self.required_pixels
         )
+
+
+def image_policy_from_environment(
+    environment: Mapping[str, str] | None = None,
+) -> ImagePolicy:
+    """Capture the existing image settings at independent producer boundaries."""
+    values = os.environ if environment is None else environment
+    overrides = {}
+    for field in ImagePolicy.model_fields:
+        if field == "thumbnail_max_source_bytes":
+            continue
+        name = "IMAGE_PYRAMID_" + (
+            "AUTO_GENERATE" if field == "auto_generate_pyramids" else field.upper()
+        )
+        if name not in values:
+            continue
+        raw = values[name]
+        if field in {"profile_version", "normalization_version"}:
+            overrides[field] = raw
+        elif field == "auto_generate_pyramids":
+            normalized = raw.strip().lower()
+            if normalized not in {
+                "0",
+                "1",
+                "false",
+                "true",
+                "f",
+                "t",
+                "no",
+                "yes",
+                "n",
+                "y",
+                "off",
+                "on",
+            }:
+                raise ValueError(f"{name} must be a boolean")
+            overrides[field] = normalized in {"1", "true", "t", "yes", "y", "on"}
+        else:
+            try:
+                overrides[field] = int(raw)
+            except (ValueError, TypeError):
+                raise ValueError(f"{name} must be an integer") from None
+    return ImagePolicy.model_validate(overrides)

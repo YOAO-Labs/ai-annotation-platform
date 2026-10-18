@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from aap_assets_images.policy import ImagePolicy
+from aap_assets_images.policy import ImagePolicy, image_policy_from_environment
 
 
 def test_policy_preserves_existing_image_thresholds_and_boundaries():
@@ -42,3 +42,24 @@ def test_policy_is_frozen_but_new_operations_can_capture_new_limits():
     assert future.pyramid_eligible(32, 32)
     with pytest.raises(ValidationError):
         accepted.max_pixels = 1
+
+
+def test_independent_producers_capture_existing_environment_names():
+    environment = {
+        "IMAGE_PYRAMID_AUTO_GENERATE": "true",
+        "IMAGE_PYRAMID_JOB_TIMEOUT_SECONDS": "3600",
+        "IMAGE_PYRAMID_LEASE_SECONDS": "3700",
+        "IMAGE_PYRAMID_REQUIRED_PIXELS": "60000000",
+        "IMAGE_PYRAMID_PROFILE_VERSION": "production-images",
+    }
+    policy = image_policy_from_environment(environment)
+    environment["IMAGE_PYRAMID_LEASE_SECONDS"] = "1800"
+    assert policy.auto_generate_pyramids
+    assert policy.lease_seconds == 3700
+    assert policy.required_pixels == 60_000_000
+    assert policy.profile_version == "production-images"
+    assert image_policy_from_environment({}) == ImagePolicy()
+    with pytest.raises(ValidationError):
+        image_policy_from_environment(environment)
+    with pytest.raises(ValueError, match="IMAGE_PYRAMID_AUTO_GENERATE"):
+        image_policy_from_environment({"IMAGE_PYRAMID_AUTO_GENERATE": "sometimes"})
