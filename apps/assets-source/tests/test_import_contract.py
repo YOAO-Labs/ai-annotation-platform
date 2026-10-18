@@ -114,6 +114,15 @@ def test_import_values_are_bounded_and_retain_the_existing_dataset_display_id():
         allowlist=["storage.example"],
     )
     assert len(large_connection.secret_enc) == 65536
+    with pytest.raises(ValidationError):
+        ImportConnection(
+            job_id=JOB,
+            lease_token=LEASE,
+            kind="s3",
+            config={"endpoint": "https://storage.example", "bucket": "data"},
+            secret_enc=large_secret + "A",
+            allowlist=["storage.example"],
+        )
 
     with pytest.raises(ValidationError):
         ImportContext(

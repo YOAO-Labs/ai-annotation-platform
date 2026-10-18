@@ -1,0 +1,603 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:aap:dataset-import:v1",
+  "title": "Assets connector Dataset import contract v1",
+  "description": "Accepted connector-import state and seven bounded importer capabilities. Every SQL call runs in the caller-owned transaction.",
+  "x-postgresql-functions": [
+    "aap_assets_v1.prepare_dataset_import(uuid, uuid, uuid)",
+    "aap_assets_v1.accept_dataset_import(uuid, uuid, uuid, uuid, jsonb, jsonb, jsonb)",
+    "aap_assets_v1.cancel_dataset_import(uuid, uuid)",
+    "aap_assets_v1.claim_dataset_import(uuid, integer, uuid)",
+    "aap_assets_v1.heartbeat_dataset_import(uuid, uuid, integer)",
+    "aap_assets_v1.read_dataset_import_connection(uuid, uuid, jsonb)",
+    "aap_assets_v1.save_dataset_import_manifest(uuid, uuid, jsonb)",
+    "aap_assets_v1.next_dataset_import_entry(uuid, uuid, uuid)",
+    "aap_assets_v1.complete_dataset_import_entry(uuid, uuid, bigint, uuid, jsonb)",
+    "aap_assets_v1.finish_dataset_import(uuid, uuid, text)"
+  ],
+  "x-postgresql-dependencies": [
+    "aap_identity_v1.lock_active_actor(uuid)",
+    "aap_identity_v1.lock_audit_actor(uuid)",
+    "aap_jobs_v1.create_dataset_import_job(uuid, uuid, jsonb)",
+    "aap_jobs_v1.lock_dataset_import_job(uuid)",
+    "aap_jobs_v1.claim_dataset_import_job(uuid)",
+    "aap_jobs_v1.update_dataset_import_job_progress(uuid, text, integer, integer, bigint)",
+    "aap_jobs_v1.finish_dataset_import_job(uuid, text, jsonb, text)",
+    "aap_jobs_v1.cancel_dataset_import_job(uuid, uuid, jsonb)",
+    "aap_settings_v1.resolve_connector_host_allowlist(jsonb)",
+    "aap_audit_v1.valid_request_context(jsonb)",
+    "aap_audit_v1.record_dataset_import(uuid, uuid, uuid, jsonb, jsonb)",
+    "aap_labeling_v1.append_dataset_items(uuid, uuid[], uuid)",
+    "aap_notifications_v1.create_job_terminal_notification(uuid, uuid, text, jsonb)",
+    "aap_assets_v1.queue_dataset_import_delivery(uuid, text, uuid)"
+  ],
+  "x-migration-sql-order": [
+    "0214_dataset_import_delivery.sql",
+    "0214_dataset_import_support.sql",
+    "0214_dataset_import_core.sql"
+  ],
+  "oneOf": [
+    { "$ref": "#/$defs/prepareCall" },
+    { "$ref": "#/$defs/acceptCall" },
+    { "$ref": "#/$defs/cancelCall" },
+    { "$ref": "#/$defs/claimCall" },
+    { "$ref": "#/$defs/heartbeatCall" },
+    { "$ref": "#/$defs/readConnectionCall" },
+    { "$ref": "#/$defs/saveManifestCall" },
+    { "$ref": "#/$defs/nextEntryCall" },
+    { "$ref": "#/$defs/completeEntryCall" },
+    { "$ref": "#/$defs/finishCall" }
+  ],
+  "$defs": {
+    "uuid": { "type": "string", "format": "uuid" },
+    "timestamp": { "type": "string", "format": "date-time" },
+    "nonnegativeInteger": { "type": "integer", "minimum": 0, "maximum": 2147483647 },
+    "nonnegativeBigint": { "type": "integer", "minimum": 0, "maximum": 9223372036854775807 },
+    "failureCode": {
+      "type": "string",
+      "enum": [
+        "invalid_request",
+        "invalid_source_object",
+        "account_not_active",
+        "account_busy",
+        "manager_required",
+        "dataset_missing",
+        "connection_missing",
+        "connection_changed",
+        "dataset_busy",
+        "operation_conflict",
+        "job_missing",
+        "job_terminal",
+        "lease_lost",
+        "import_cancelled",
+        "invalid_response",
+        "storage_unavailable",
+        "source_changed"
+      ]
+    },
+    "failure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "ok", "error"],
+      "properties": {
+        "schema": { "const": "aap-dataset-import/v1" },
+        "ok": { "const": false },
+        "error": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["code"],
+          "properties": { "code": { "$ref": "#/$defs/failureCode" } }
+        }
+      }
+    },
+    "importLimits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["dataset_import_max_files", "dataset_import_max_total_bytes", "version"],
+      "properties": {
+        "dataset_import_max_files": { "type": "integer", "minimum": 1, "maximum": 2147483647 },
+        "dataset_import_max_total_bytes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9223372036854775807
+        },
+        "version": { "type": "string", "minLength": 1, "maxLength": 128 }
+      }
+    },
+    "importContext": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "actor_id",
+        "dataset_id",
+        "dataset_display_id",
+        "dataset_name",
+        "connection_id",
+        "connection_name",
+        "connection_kind",
+        "connection_config"
+      ],
+      "properties": {
+        "actor_id": { "$ref": "#/$defs/uuid" },
+        "dataset_id": { "$ref": "#/$defs/uuid" },
+        "dataset_display_id": { "type": "string", "minLength": 1, "maxLength": 20 },
+        "dataset_name": { "type": "string", "maxLength": 255 },
+        "connection_id": { "$ref": "#/$defs/uuid" },
+        "connection_name": { "type": "string", "minLength": 1, "maxLength": 255 },
+        "connection_kind": { "enum": ["s3", "sftp"], "type": "string" },
+        "connection_config": { "$ref": "#/$defs/connectionConfig" }
+      }
+    },
+    "connectionConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "endpoint": { "type": "string", "minLength": 1, "maxLength": 2048 },
+        "bucket": { "type": "string", "minLength": 1, "maxLength": 255 },
+        "region": { "type": "string", "maxLength": 2048 },
+        "base_prefix": { "type": "string", "maxLength": 2048 },
+        "use_ssl": { "type": "boolean" },
+        "host": { "type": "string", "minLength": 1, "maxLength": 255 },
+        "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
+        "username": { "type": "string", "minLength": 1, "maxLength": 255 },
+        "base_path": { "type": "string", "maxLength": 2048 },
+        "auth_type": { "type": "string", "maxLength": 2048 }
+      },
+      "oneOf": [{ "required": ["endpoint", "bucket"] }, { "required": ["host", "username"] }],
+      "description": "Credential-bearing values are forbidden. The API validates endpoint/path against the host allowlist before acceptance."
+    },
+    "importAcceptance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["job_id", "actor_id", "dataset_id", "connection_id"],
+      "properties": {
+        "job_id": { "$ref": "#/$defs/uuid" },
+        "actor_id": { "$ref": "#/$defs/uuid" },
+        "dataset_id": { "$ref": "#/$defs/uuid" },
+        "connection_id": { "$ref": "#/$defs/uuid" }
+      }
+    },
+    "sourceObject": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["relpath", "size", "mtime", "etag"],
+      "properties": {
+        "relpath": { "type": "string", "minLength": 1, "maxLength": 4096 },
+        "size": { "$ref": "#/$defs/nonnegativeBigint" },
+        "mtime": { "oneOf": [{ "$ref": "#/$defs/timestamp" }, { "type": "null" }] },
+        "etag": { "type": ["string", "null"], "maxLength": 1024 }
+      },
+      "description": "relpath is a safe relative path; UTF-8 length is also limited to 4096 bytes."
+    },
+    "importState": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "job_id",
+        "actor_id",
+        "dataset_id",
+        "connection_id",
+        "source_path",
+        "recursive",
+        "include_globs",
+        "settings_snapshot",
+        "stage",
+        "cursor",
+        "total",
+        "total_bytes",
+        "added",
+        "skipped",
+        "error_count",
+        "errors",
+        "linked_tasks",
+        "committed_bytes",
+        "lease_token",
+        "lease_expires_at"
+      ],
+      "properties": {
+        "job_id": { "$ref": "#/$defs/uuid" },
+        "actor_id": { "$ref": "#/$defs/uuid" },
+        "dataset_id": { "$ref": "#/$defs/uuid" },
+        "connection_id": { "$ref": "#/$defs/uuid" },
+        "source_path": { "type": "string", "maxLength": 2048 },
+        "recursive": { "type": "boolean" },
+        "include_globs": {
+          "type": "array",
+          "maxItems": 256,
+          "items": { "type": "string", "minLength": 1, "maxLength": 255 }
+        },
+        "settings_snapshot": { "$ref": "#/$defs/importLimits" },
+        "stage": {
+          "enum": ["enumerating", "importing", "completed", "failed", "cancelled"],
+          "type": "string"
+        },
+        "cursor": { "$ref": "#/$defs/nonnegativeInteger" },
+        "total": { "oneOf": [{ "$ref": "#/$defs/nonnegativeInteger" }, { "type": "null" }] },
+        "total_bytes": { "oneOf": [{ "$ref": "#/$defs/nonnegativeBigint" }, { "type": "null" }] },
+        "added": { "$ref": "#/$defs/nonnegativeInteger" },
+        "skipped": { "$ref": "#/$defs/nonnegativeInteger" },
+        "error_count": { "$ref": "#/$defs/nonnegativeInteger" },
+        "errors": {
+          "type": "array",
+          "maxItems": 100,
+          "items": { "type": "string", "maxLength": 512 }
+        },
+        "linked_tasks": { "$ref": "#/$defs/nonnegativeInteger" },
+        "committed_bytes": { "$ref": "#/$defs/nonnegativeBigint" },
+        "lease_token": { "oneOf": [{ "$ref": "#/$defs/uuid" }, { "type": "null" }] },
+        "lease_expires_at": { "oneOf": [{ "$ref": "#/$defs/timestamp" }, { "type": "null" }] }
+      },
+      "description": "lease fields are paired; added + skipped + error_count = cursor; errors <= error_count; total fields are paired; committed and manifest bytes stay within accepted limits; completed consumes the full manifest; terminal states have no lease."
+    },
+    "importConnection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["job_id", "lease_token", "kind", "config", "secret_enc", "allowlist"],
+      "properties": {
+        "job_id": { "$ref": "#/$defs/uuid" },
+        "lease_token": { "$ref": "#/$defs/uuid" },
+        "kind": { "enum": ["s3", "sftp"], "type": "string" },
+        "config": { "$ref": "#/$defs/connectionConfig" },
+        "secret_enc": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 65536,
+          "pattern": "^[A-Za-z0-9+/]+={0,2}$"
+        },
+        "allowlist": {
+          "type": "array",
+          "maxItems": 256,
+          "items": { "type": "string", "minLength": 1, "maxLength": 253 }
+        }
+      },
+      "description": "secret_enc is outer standard Base64 of encrypted connector bytes (raw stored encrypted bytes are limited to 49152); the runtime decodes it before decrypting."
+    },
+    "importEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "job_id",
+        "lease_token",
+        "index",
+        "item_id",
+        "publication_id",
+        "file_name",
+        "file_path",
+        "file_type",
+        "source"
+      ],
+      "properties": {
+        "job_id": { "$ref": "#/$defs/uuid" },
+        "lease_token": { "$ref": "#/$defs/uuid" },
+        "index": { "$ref": "#/$defs/nonnegativeInteger" },
+        "item_id": { "$ref": "#/$defs/uuid" },
+        "publication_id": { "$ref": "#/$defs/uuid" },
+        "file_name": { "type": "string", "minLength": 1, "maxLength": 500 },
+        "file_path": { "type": "string", "minLength": 1, "maxLength": 1000 },
+        "file_type": { "enum": ["image", "video", "point_cloud", "other"], "type": "string" },
+        "source": { "$ref": "#/$defs/sourceObject" }
+      },
+      "description": "file_path is dataset-sources/{dataset_id}/{item_id}/{publication_id}/{file_name}; UTF-8 path length <=1024 bytes and filename <=897 bytes."
+    },
+    "importEntryCompletion": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "file_size", "content_hash"],
+          "properties": {
+            "status": { "const": "copied" },
+            "file_size": { "$ref": "#/$defs/nonnegativeBigint" },
+            "content_hash": { "type": "string", "pattern": "^[0-9a-f]{32}$" },
+            "width": { "type": ["integer", "null"], "minimum": 1, "maximum": 2147483647 },
+            "height": { "type": ["integer", "null"], "minimum": 1, "maximum": 2147483647 }
+          },
+          "description": "width and height are both null or both positive."
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "error_code"],
+          "properties": {
+            "status": { "const": "error" },
+            "error_code": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "pattern": "^[a-z][a-z0-9_]{0,63}$"
+            }
+          }
+        }
+      ]
+    },
+    "successReply": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "ok", "data"],
+      "properties": {
+        "schema": { "const": "aap-dataset-import/v1" },
+        "ok": { "const": true },
+        "data": {
+          "oneOf": [
+            { "$ref": "#/$defs/importContext" },
+            { "$ref": "#/$defs/importAcceptance" },
+            { "$ref": "#/$defs/importState" },
+            { "$ref": "#/$defs/importConnection" },
+            { "$ref": "#/$defs/importEntry" },
+            { "type": "null" }
+          ]
+        }
+      }
+    },
+    "reply": { "oneOf": [{ "$ref": "#/$defs/successReply" }, { "$ref": "#/$defs/failure" }] },
+    "call": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["function", "arguments", "result"],
+      "properties": {
+        "function": { "type": "string" },
+        "arguments": { "type": "object" },
+        "result": { "$ref": "#/$defs/reply" }
+      }
+    },
+    "prepareCall": {
+      "allOf": [
+        { "$ref": "#/$defs/call" },
+        {
+          "properties": {
+            "function": { "const": "aap_assets_v1.prepare_dataset_import(uuid, uuid, uuid)" },
+            "arguments": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["p_actor_id", "p_dataset_id", "p_connection_id"],
+              "properties": {
+                "p_actor_id": { "$ref": "#/$defs/uuid" },
+                "p_dataset_id": { "$ref": "#/$defs/uuid" },
+                "p_connection_id": { "$ref": "#/$defs/uuid" }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "acceptCall": {
+      "allOf": [
+        { "$ref": "#/$defs/call" },
+        {
+          "properties": {
+            "function": {
+              "const": "aap_assets_v1.accept_dataset_import(uuid, uuid, uuid, uuid, jsonb, jsonb, jsonb)"
+            },
+            "arguments": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "p_operation_id",
+                "p_actor_id",
+                "p_dataset_id",
+                "p_connection_id",
+                "p_request",
+                "p_limits",
+                "p_audit_context"
+              ],
+              "properties": {
+                "p_operation_id": { "$ref": "#/$defs/uuid" },
+                "p_actor_id": { "$ref": "#/$defs/uuid" },
+                "p_dataset_id": { "$ref": "#/$defs/uuid" },
+                "p_connection_id": { "$ref": "#/$defs/uuid" },
+                "p_request": { "$ref": "#/$defs/importRequest" },
+                "p_limits": { "$ref": "#/$defs/importLimits" },
+                "p_audit_context": { "$ref": "#/$defs/auditContext" }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "cancelCall": {
+      "allOf": [
+        { "$ref": "#/$defs/call" },
+        {
+          "properties": {
+            "function": { "const": "aap_assets_v1.cancel_dataset_import(uuid, uuid)" },
+            "arguments": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["p_actor_id", "p_job_id"],
+              "properties": {
+                "p_actor_id": { "$ref": "#/$defs/uuid" },
+                "p_job_id": { "$ref": "#/$defs/uuid" }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "claimCall": {
+      "allOf": [
+        { "$ref": "#/$defs/call" },
+        {
+          "properties": {
+            "function": { "const": "aap_assets_v1.claim_dataset_import(uuid, integer, uuid)" },
+            "arguments": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["p_lease_token", "p_lease_seconds", "p_requested_job"],
+              "properties": {
+                "p_lease_token": { "$ref": "#/$defs/uuid" },
+                "p_lease_seconds": { "type": "integer", "minimum": 30, "maximum": 3600 },
+                "p_requested_job": { "oneOf": [{ "$ref": "#/$defs/uuid" }, { "type": "null" }] }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "heartbeatCall": {
+      "allOf": [
+        { "$ref": "#/$defs/call" },
+        {
+          "properties": {
+            "function": { "const": "aap_assets_v1.heartbeat_dataset_import(uuid, uuid, integer)" },
+            "arguments": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["p_job_id", "p_lease_token", "p_lease_seconds"],
+              "properties": {
+                "p_job_id": { "$ref": "#/$defs/uuid" },
+                "p_lease_token": { "$ref": "#/$defs/uuid" },
+                "p_lease_seconds": { "type": "integer", "minimum": 30, "maximum": 3600 }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "readConnectionCall": {
+      "allOf": [
+        { "$ref": "#/$defs/call" },
+        {
+          "properties": {
+            "function": {
+              "const": "aap_assets_v1.read_dataset_import_connection(uuid, uuid, jsonb)"
+            },
+            "arguments": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["p_job_id", "p_lease_token", "p_fallback_allowlist"],
+              "properties": {
+                "p_job_id": { "$ref": "#/$defs/uuid" },
+                "p_lease_token": { "$ref": "#/$defs/uuid" },
+                "p_fallback_allowlist": {
+                  "type": "array",
+                  "maxItems": 256,
+                  "items": { "type": "string", "minLength": 1, "maxLength": 253 }
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "saveManifestCall": {
+      "allOf": [
+        { "$ref": "#/$defs/call" },
+        {
+          "properties": {
+            "function": {
+              "const": "aap_assets_v1.save_dataset_import_manifest(uuid, uuid, jsonb)"
+            },
+            "arguments": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["p_job_id", "p_lease_token", "p_objects"],
+              "properties": {
+                "p_job_id": { "$ref": "#/$defs/uuid" },
+                "p_lease_token": { "$ref": "#/$defs/uuid" },
+                "p_objects": {
+                  "type": "array",
+                  "items": { "$ref": "#/$defs/sourceObject" },
+                  "description": "The serialized JSON array is limited to 16 MiB."
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "nextEntryCall": {
+      "allOf": [
+        { "$ref": "#/$defs/call" },
+        {
+          "properties": {
+            "function": { "const": "aap_assets_v1.next_dataset_import_entry(uuid, uuid, uuid)" },
+            "arguments": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["p_job_id", "p_lease_token", "p_publication_id"],
+              "properties": {
+                "p_job_id": { "$ref": "#/$defs/uuid" },
+                "p_lease_token": { "$ref": "#/$defs/uuid" },
+                "p_publication_id": { "$ref": "#/$defs/uuid" }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "completeEntryCall": {
+      "allOf": [
+        { "$ref": "#/$defs/call" },
+        {
+          "properties": {
+            "function": {
+              "const": "aap_assets_v1.complete_dataset_import_entry(uuid, uuid, bigint, uuid, jsonb)"
+            },
+            "arguments": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "p_job_id",
+                "p_lease_token",
+                "p_index",
+                "p_publication_id",
+                "p_completion"
+              ],
+              "properties": {
+                "p_job_id": { "$ref": "#/$defs/uuid" },
+                "p_lease_token": { "$ref": "#/$defs/uuid" },
+                "p_index": { "$ref": "#/$defs/nonnegativeBigint" },
+                "p_publication_id": { "$ref": "#/$defs/uuid" },
+                "p_completion": { "$ref": "#/$defs/importEntryCompletion" }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "finishCall": {
+      "allOf": [
+        { "$ref": "#/$defs/call" },
+        {
+          "properties": {
+            "function": { "const": "aap_assets_v1.finish_dataset_import(uuid, uuid, text)" },
+            "arguments": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["p_job_id", "p_lease_token", "p_fatal_error"],
+              "properties": {
+                "p_job_id": { "$ref": "#/$defs/uuid" },
+                "p_lease_token": { "$ref": "#/$defs/uuid" },
+                "p_fatal_error": { "type": ["string", "null"], "pattern": "^[a-z][a-z0-9_]{0,63}$" }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "importRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_path", "recursive", "include_globs"],
+      "properties": {
+        "source_path": { "type": "string", "maxLength": 2048 },
+        "recursive": { "type": "boolean" },
+        "include_globs": {
+          "type": "array",
+          "maxItems": 256,
+          "items": { "type": "string", "minLength": 1, "maxLength": 255 }
+        }
+      }
+    },
+    "auditContext": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "method": { "type": ["string", "null"], "maxLength": 8 },
+        "path": { "type": ["string", "null"], "maxLength": 256 },
+        "ip": { "type": ["string", "null"], "maxLength": 64 },
+        "request_id": { "type": ["string", "null"], "maxLength": 36 }
+      }
+    }
+  }
+}
