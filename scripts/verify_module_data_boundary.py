@@ -51,6 +51,7 @@ MODULE_ROLES = (
     "asset_catalog_client",
     "asset_source_client",
     "asset_import_client",
+    "asset_operator_client",
 )
 SQL_ARTIFACTS = (
     "0190_workspace_data_contract.sql",
@@ -87,6 +88,7 @@ SQL_ARTIFACTS = (
     "0216_assets_spatial_projections.sql",
     "0217_assets_connections_support.sql",
     "0217_assets_connections.sql",
+    "0218_assets_operator.sql",
 )
 SCHEMA_ARTIFACTS = (
     "0191_task_append.schema.json",
@@ -115,6 +117,7 @@ SCHEMA_ARTIFACTS = (
     "0215_dataset_source_ingest.schema.json",
     "0216_assets_spatial.schema.json",
     "0217_assets_connections.schema.json",
+    "0218_assets_operator.schema.json",
 )
 TEST_FILES = (
     "tests/test_workspace_data_contract.py",
@@ -192,6 +195,9 @@ TEST_FILES = (
     "tests/test_assets_spatial_pose_pairs_native.py",
     "tests/test_storage_connections_native.py",
     "tests/test_storage_connections_peer.py",
+    "tests/test_assets_operator_native.py",
+    "tests/test_assets_operator_peer.py",
+    "tests/test_assets_operator_runtime.py",
     "tests/test_assets_spatial_gateway.py",
     "tests/test_assets_spatial_runtime.py",
     "tests/test_assets_catalog_runtime.py",
@@ -686,6 +692,7 @@ def _create_module_roles(
     catalog_password: str,
     source_password: str,
     import_password: str,
+    operator_password: str,
 ) -> None:
     _psql(
         container_id,
@@ -735,6 +742,9 @@ def _create_module_roles(
             "NOINHERIT NOREPLICATION NOBYPASSRLS;\n"
             "CREATE ROLE asset_import_client LOGIN "
             f"PASSWORD '{import_password}' NOSUPERUSER NOCREATEDB NOCREATEROLE "
+            "NOINHERIT NOREPLICATION NOBYPASSRLS;\n"
+            "CREATE ROLE asset_operator_client LOGIN "
+            f"PASSWORD '{operator_password}' NOSUPERUSER NOCREATEDB NOCREATEROLE "
             "NOINHERIT NOREPLICATION NOBYPASSRLS;\n"
         ),
     )
@@ -960,6 +970,7 @@ def _install_and_rollback_frozen_sql(
             "AND to_regclass('public.dataset_source_ingest_entries') IS NULL "
             "AND to_regclass('public.dataset_source_ingest_deliveries') IS NULL "
             "AND to_regclass('public.dataset_spatial_operations') IS NULL "
+            "AND to_regclass('public.dataset_operator_operations') IS NULL "
             "AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_attribute "
             "WHERE attrelid = 'public.async_jobs'::pg_catalog.regclass "
             "AND attname = 'retained_project_id' AND NOT attisdropped) "
@@ -1045,6 +1056,7 @@ def main(argv: list[str] | None = None) -> int:
         catalog_grants_path = ROOT / "infra/docker/assets-catalog-grants.sql"
         source_grants_path = ROOT / "infra/docker/assets-source-grants.sql"
         import_grants_path = ROOT / "infra/docker/assets-import-grants.sql"
+        operator_grants_path = ROOT / "infra/docker/assets-operator-grants.sql"
         artifacts = tuple(
             ROOT / "apps/api/alembic/sql" / name for name in SQL_ARTIFACTS
         )
@@ -1056,6 +1068,7 @@ def main(argv: list[str] | None = None) -> int:
             or not catalog_grants_path.is_file()
             or not source_grants_path.is_file()
             or not import_grants_path.is_file()
+            or not operator_grants_path.is_file()
             or any(not path.is_file() for path in artifacts)
             or any(not path.is_file() for path in schema_paths)
         ):
@@ -1075,6 +1088,7 @@ def main(argv: list[str] | None = None) -> int:
         catalog_grant_sql = catalog_grants_path.read_text(encoding="utf-8")
         source_grant_sql = source_grants_path.read_text(encoding="utf-8")
         import_grant_sql = import_grants_path.read_text(encoding="utf-8")
+        operator_grant_sql = operator_grants_path.read_text(encoding="utf-8")
 
         from sqlalchemy.engine import URL
 
@@ -1092,6 +1106,7 @@ def main(argv: list[str] | None = None) -> int:
         catalog_password = f"catalog-{secrets.token_hex(16)}"
         source_password = f"source-{secrets.token_hex(16)}"
         import_password = f"import-{secrets.token_hex(16)}"
+        operator_password = f"operator-{secrets.token_hex(16)}"
         container_id = docker(
             "run",
             "-d",
@@ -1168,8 +1183,8 @@ def main(argv: list[str] | None = None) -> int:
         database = resources["database"]
         evidence["database"] = database
         _, heads = migration_graph(ROOT)
-        if heads != ["0217"]:
-            raise RuntimeError("module-data acceptance requires migration head 0217")
+        if heads != ["0218"]:
+            raise RuntimeError("module-data acceptance requires migration head 0218")
         evidence["migrations"]["head_before_downgrade"] = heads[0]
         phase = "downgrade-to-0189"
         _container_details(
@@ -1246,6 +1261,14 @@ def main(argv: list[str] | None = None) -> int:
             port=port,
             database=database,
         ).render_as_string(hide_password=False)
+        operator_url = URL.create(
+            "postgresql+asyncpg",
+            username="asset_operator_client",
+            password=operator_password,
+            host="127.0.0.1",
+            port=port,
+            database=database,
+        ).render_as_string(hide_password=False)
         role_create_password = append_password.replace("'", "''")
         phase = "create-scoped-roles"
         _create_module_roles(
@@ -1259,6 +1282,7 @@ def main(argv: list[str] | None = None) -> int:
             catalog_password,
             source_password,
             import_password,
+            operator_password,
         )
         phase = "install-module-grants"
         _psql(
@@ -1339,6 +1363,22 @@ def main(argv: list[str] | None = None) -> int:
                 "asset_import_role": "asset_import_client",
             },
         )
+        phase = "install-operator-grants"
+        _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="owner",
+            password=owner_password,
+            database=database,
+            sql=operator_grant_sql,
+            variables={
+                "expected_database": database,
+                "migration_role": "owner",
+                "assets_owner": "assets_code",
+                "asset_operator_role": "asset_operator_client",
+            },
+        )
         phase = "create-scoped-storage-identity"
         cleanup_storage = _cleanup_storage_scope(backend)
         _create_cleanup_storage_scope(cleanup_storage)
@@ -1374,6 +1414,7 @@ def main(argv: list[str] | None = None) -> int:
                 "AAP_MODULE_DATA_ASSET_CATALOG_URL": catalog_url,
                 "AAP_MODULE_DATA_ASSET_SOURCE_URL": source_url,
                 "AAP_MODULE_DATA_ASSET_IMPORT_URL": import_url,
+                "AAP_MODULE_DATA_ASSET_OPERATOR_URL": operator_url,
                 "AAP_MODULE_DATA_ASSET_IMPORT_S3_ACCESS_KEY": import_storage[
                     "access_key"
                 ],

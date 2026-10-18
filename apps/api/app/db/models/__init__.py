@@ -146,6 +146,7 @@ from app.db.models.storage_connection import (
     StorageConnectionScope,
 )
 from app.db.models.storage_connection_operation import StorageConnectionOperation
+from app.db.models.dataset_operator_operation import DatasetOperatorOperation
 
 __all__ = [
     "TrainedModelVersion",
@@ -249,6 +250,7 @@ __all__ = [
     "StorageConnectionKind",
     "StorageConnectionScope",
     "StorageConnectionOperation",
+    "DatasetOperatorOperation",
 ]
 
 from app.db.models.learning_policy import LearningPolicy, LearningTrigger

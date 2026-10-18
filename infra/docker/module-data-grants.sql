@@ -213,6 +213,11 @@ GRANT SELECT (
 
 -- Spatial state stays private to the Assets function owner.
 GRANT SELECT (id, name, metadata, is_temporal) ON public.datasets TO :"assets_owner";
+GRANT SELECT (description, created_by, created_at, updated_at),
+    INSERT (id, display_id, name, description, data_type, is_temporal,
+        file_count, created_by, metadata),
+    UPDATE (metadata, is_temporal)
+    ON public.datasets TO :"assets_owner";
 GRANT SELECT (display_id, created_at, updated_at),
     UPDATE (name, source_format, source_metadata, updated_at)
     ON public.scenes TO :"assets_owner";
@@ -221,6 +226,9 @@ GRANT UPDATE (metadata) ON public.dataset_items TO :"assets_owner";
 GRANT SELECT, INSERT, UPDATE ON public.scene_frame_poses TO :"assets_owner";
 GRANT SELECT, INSERT ON public.sensor_calibration_revisions,
     public.dataset_spatial_operations TO :"assets_owner";
+GRANT SELECT (operation_id, action, intent, result, created_at),
+    INSERT (operation_id, action, intent, result)
+    ON public.dataset_operator_operations TO :"assets_owner";
 
 -- Cross-owner reads use versioned projections, never private foreign-table grants.
 DO $$
@@ -846,6 +854,7 @@ BEGIN
                OR proc.proname LIKE '%pointcloud_preparation%'
                OR proc.proname LIKE '%sensor_calibration%'
                OR proc.proname LIKE '%storage_connection%'
+               OR proc.proname LIKE '%operator%'
                OR ns.nspname IN ('aap_settings_v1','aap_notifications_v1'))
     LOOP
         EXECUTE pg_catalog.format('ALTER FUNCTION %s OWNER TO %I',
@@ -923,6 +932,7 @@ BEGIN
         'public.dataset_source_ingest_operations',
         'public.dataset_source_ingest_entries', 'public.dataset_source_ingest_deliveries',
         'public.dataset_spatial_operations', 'public.sensor_calibration_revisions',
+        'public.dataset_operator_operations',
         'public.scene_frame_poses',
         'public.notification_preferences','public.system_settings',
         'public.dataset_items', 'public.project_datasets',
