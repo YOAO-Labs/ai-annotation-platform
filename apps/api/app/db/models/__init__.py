@@ -145,6 +145,7 @@ from app.db.models.storage_connection import (
     StorageConnectionKind,
     StorageConnectionScope,
 )
+from app.db.models.storage_connection_operation import StorageConnectionOperation
 
 __all__ = [
     "TrainedModelVersion",
@@ -247,6 +248,7 @@ __all__ = [
     "StorageConnection",
     "StorageConnectionKind",
     "StorageConnectionScope",
+    "StorageConnectionOperation",
 ]
 
 from app.db.models.learning_policy import LearningPolicy, LearningTrigger

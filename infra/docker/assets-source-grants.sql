@@ -102,7 +102,7 @@ END $$;
 REVOKE ALL ON SCHEMA aap_assets_v1 FROM :"asset_source_role";
 GRANT USAGE ON SCHEMA aap_assets_v1 TO :"asset_source_role";
 
--- The runtime can execute only the fourteen source-control capabilities.
+-- The runtime can execute only the twenty-three frozen Source capabilities.
 GRANT EXECUTE ON FUNCTION aap_assets_v1.reserve_dataset_upload(uuid,uuid,uuid,text,text),
     aap_assets_v1.lock_dataset_upload(uuid,uuid,uuid),
     aap_assets_v1.find_dataset_upload_duplicate(uuid,uuid,uuid,text),
@@ -116,7 +116,16 @@ GRANT EXECUTE ON FUNCTION aap_assets_v1.reserve_dataset_upload(uuid,uuid,uuid,te
     aap_assets_v1.prepare_dataset_ingest_batch(uuid,uuid,uuid,uuid,jsonb),
     aap_assets_v1.complete_dataset_ingest_batch(uuid,uuid,uuid,uuid,jsonb),
     aap_assets_v1.read_dataset_ingest_layout(uuid,uuid,uuid,uuid,integer),
-    aap_assets_v1.finish_dataset_ingest(uuid,uuid,uuid,jsonb)
+    aap_assets_v1.finish_dataset_ingest(uuid,uuid,uuid,jsonb),
+    aap_assets_v1.list_storage_connections(uuid,timestamptz,uuid,integer),
+    aap_assets_v1.read_storage_connection(uuid,uuid),
+    aap_assets_v1.read_storage_connection_policy(uuid,jsonb),
+    aap_assets_v1.capture_storage_connection(uuid,uuid,text),
+    aap_assets_v1.read_storage_connection_receipt(uuid,uuid,text,uuid,jsonb),
+    aap_assets_v1.create_storage_connection(uuid,uuid,jsonb,jsonb,text,text,jsonb,jsonb),
+    aap_assets_v1.update_storage_connection(uuid,uuid,uuid,jsonb,jsonb,text,text,text,jsonb,jsonb),
+    aap_assets_v1.delete_storage_connection(uuid,uuid,uuid,jsonb),
+    aap_assets_v1.record_storage_connection_test(uuid,uuid,uuid,text,text,jsonb,jsonb,jsonb)
     TO :"asset_source_role";
 
 -- Fail closed if the runtime role can access anything beyond the exact protocol.
@@ -140,7 +149,16 @@ DECLARE
         pg_catalog.to_regprocedure('aap_assets_v1.prepare_dataset_ingest_batch(uuid,uuid,uuid,uuid,jsonb)')::oid,
         pg_catalog.to_regprocedure('aap_assets_v1.complete_dataset_ingest_batch(uuid,uuid,uuid,uuid,jsonb)')::oid,
         pg_catalog.to_regprocedure('aap_assets_v1.read_dataset_ingest_layout(uuid,uuid,uuid,uuid,integer)')::oid,
-        pg_catalog.to_regprocedure('aap_assets_v1.finish_dataset_ingest(uuid,uuid,uuid,jsonb)')::oid
+        pg_catalog.to_regprocedure('aap_assets_v1.finish_dataset_ingest(uuid,uuid,uuid,jsonb)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.list_storage_connections(uuid,timestamptz,uuid,integer)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.read_storage_connection(uuid,uuid)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.read_storage_connection_policy(uuid,jsonb)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.capture_storage_connection(uuid,uuid,text)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.read_storage_connection_receipt(uuid,uuid,text,uuid,jsonb)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.create_storage_connection(uuid,uuid,jsonb,jsonb,text,text,jsonb,jsonb)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.update_storage_connection(uuid,uuid,uuid,jsonb,jsonb,text,text,text,jsonb,jsonb)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.delete_storage_connection(uuid,uuid,uuid,jsonb)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.record_storage_connection_test(uuid,uuid,uuid,text,text,jsonb,jsonb,jsonb)')::oid
     ];
 BEGIN
     IF EXISTS (

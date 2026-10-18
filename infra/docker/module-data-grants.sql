@@ -153,7 +153,7 @@ BEGIN
     );
 END $$;
 
--- Assets owns catalog/source rows and their exact upload/source-deletion receipts.
+-- Assets owns catalog/source rows and their exact upload, deletion and connection receipts.
 GRANT SELECT (id, display_id, data_type, name, file_count),
     UPDATE (id, file_count, updated_at), DELETE
     ON public.datasets TO :"assets_owner";
@@ -185,7 +185,16 @@ GRANT SELECT (operation_id, actor_id, dataset_id, item_id, request, result, crea
     TO :"assets_owner";
 GRANT SELECT (project_id), DELETE ON public.storage_connections TO :"assets_owner";
 GRANT SELECT (id, name, kind, config, secret_enc, scope, created_by, updated_at, created_at, project_id),
-    UPDATE (id) ON public.storage_connections TO :"assets_owner";
+    INSERT (id, name, kind, config, secret_enc, scope, project_id, created_by),
+    UPDATE (id, name, config, secret_enc, updated_at)
+    ON public.storage_connections TO :"assets_owner";
+GRANT SELECT (
+    operation_id, actor_id, action, connection_id, intent,
+    connection_scope, connection_created_by, result, created_at
+), INSERT (
+    operation_id, actor_id, action, connection_id, intent,
+    connection_scope, connection_created_by, result
+) ON public.storage_connection_operations TO :"assets_owner";
 GRANT SELECT (is_temporal) ON public.datasets TO :"assets_owner";
 GRANT SELECT, INSERT, UPDATE ON public.dataset_import_operations,
     public.dataset_import_entries, public.dataset_import_deliveries TO :"assets_owner";
@@ -362,6 +371,8 @@ GRANT UPDATE (
 
 -- Settings and Notifications retain their own relation permissions.
 GRANT SELECT (key, value_json) ON public.system_settings TO :"settings_owner";
+-- SHARE table locking fences an absent connector policy row from a concurrent insert.
+GRANT UPDATE ON public.system_settings TO :"settings_owner";
 GRANT SELECT, INSERT ON public.notifications TO :"notifications_owner";
 GRANT SELECT (user_id, type, channels)
     ON public.notification_preferences TO :"notifications_owner";
@@ -374,6 +385,8 @@ GRANT EXECUTE ON FUNCTION aap_identity_v1.lock_active_actor(uuid) TO :"jobs_owne
 GRANT EXECUTE ON FUNCTION aap_identity_v1.read_actor_facts(uuid)
     TO :"notifications_owner";
 GRANT EXECUTE ON FUNCTION aap_settings_v1.resolve_connector_host_allowlist(jsonb)
+    TO :"assets_owner";
+GRANT EXECUTE ON FUNCTION aap_settings_v1.lock_connector_host_allowlist(jsonb)
     TO :"assets_owner";
 GRANT EXECUTE ON FUNCTION aap_notifications_v1.create_job_terminal_notification(
     uuid, uuid, text, jsonb
@@ -832,6 +845,7 @@ BEGIN
                OR proc.proname LIKE '%spatial%'
                OR proc.proname LIKE '%pointcloud_preparation%'
                OR proc.proname LIKE '%sensor_calibration%'
+               OR proc.proname LIKE '%storage_connection%'
                OR ns.nspname IN ('aap_settings_v1','aap_notifications_v1'))
     LOOP
         EXECUTE pg_catalog.format('ALTER FUNCTION %s OWNER TO %I',
@@ -866,7 +880,8 @@ GRANT EXECUTE ON FUNCTION
     aap_labeling_v1.read_spatial_preparation_scope(uuid)
     TO :"assets_owner";
 GRANT EXECUTE ON FUNCTION
-    aap_audit_v1.record_sensor_calibration_update(uuid,uuid,uuid,uuid,text,integer,text,jsonb)
+    aap_audit_v1.record_sensor_calibration_update(uuid,uuid,uuid,uuid,text,integer,text,jsonb),
+    aap_audit_v1.record_storage_connection_change(uuid,uuid,text,uuid,jsonb,jsonb)
     TO :"assets_owner";
 GRANT EXECUTE ON FUNCTION
     aap_assets_v1.guard_spatial_actor(uuid,text),
@@ -911,7 +926,8 @@ BEGIN
         'public.scene_frame_poses',
         'public.notification_preferences','public.system_settings',
         'public.dataset_items', 'public.project_datasets',
-        'public.storage_connections', 'public.image_pyramid_assets',
+        'public.storage_connections', 'public.storage_connection_operations',
+        'public.image_pyramid_assets',
         'public.tasks', 'public.task_batches', 'public.task_locks',
         'public.predictions', 'public.prediction_metas', 'public.failed_predictions',
         'public.annotations', 'public.annotation_feedbacks', 'public.annotation_drafts',

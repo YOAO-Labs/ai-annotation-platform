@@ -85,6 +85,8 @@ SQL_ARTIFACTS = (
     "0216_assets_spatial_authorities.sql",
     "0216_assets_spatial.sql",
     "0216_assets_spatial_projections.sql",
+    "0217_assets_connections_support.sql",
+    "0217_assets_connections.sql",
 )
 SCHEMA_ARTIFACTS = (
     "0191_task_append.schema.json",
@@ -112,6 +114,7 @@ SCHEMA_ARTIFACTS = (
     "0214_dataset_import_delivery.schema.json",
     "0215_dataset_source_ingest.schema.json",
     "0216_assets_spatial.schema.json",
+    "0217_assets_connections.schema.json",
 )
 TEST_FILES = (
     "tests/test_workspace_data_contract.py",
@@ -187,6 +190,8 @@ TEST_FILES = (
     "tests/test_assets_spatial_receipt_native.py",
     "tests/test_assets_spatial_workflow_native.py",
     "tests/test_assets_spatial_pose_pairs_native.py",
+    "tests/test_storage_connections_native.py",
+    "tests/test_storage_connections_peer.py",
     "tests/test_assets_spatial_gateway.py",
     "tests/test_assets_spatial_runtime.py",
     "tests/test_assets_catalog_runtime.py",
@@ -1163,8 +1168,8 @@ def main(argv: list[str] | None = None) -> int:
         database = resources["database"]
         evidence["database"] = database
         _, heads = migration_graph(ROOT)
-        if heads != ["0216"]:
-            raise RuntimeError("module-data acceptance requires migration head 0216")
+        if heads != ["0217"]:
+            raise RuntimeError("module-data acceptance requires migration head 0217")
         evidence["migrations"]["head_before_downgrade"] = heads[0]
         phase = "downgrade-to-0189"
         _container_details(
