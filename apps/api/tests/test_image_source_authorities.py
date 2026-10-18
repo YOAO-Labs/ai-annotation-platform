@@ -607,6 +607,49 @@ async def test_task_backfill_scope_has_stable_source_snapshot_and_paging(db_sess
     )
 
 
+async def test_task_source_snapshot_and_backfill_digest_are_timezone_independent(
+    db_session,
+):
+    actor_id = await _seed_actor(db_session)
+    task = await _seed_image_task(db_session, actor_id=actor_id)
+    cutoff = await db_session.scalar(
+        text("SELECT clock_timestamp() + interval '1 minute'")
+    )
+    selection = {
+        "owner_kind": "task",
+        "dataset_id": None,
+        "project_id": str(task.project_id),
+        "owner_ids": [],
+        "all_owners": False,
+        "purpose": "thumbnail",
+        "only_missing": False,
+        "accepted_before": cutoff.isoformat(),
+    }
+
+    async def read_source_and_scan():
+        source = _data(await _read(db_session, task.id))["source_snapshot"]
+        scan = _data(
+            await db_session.scalar(
+                _SCAN_TASKS,
+                {
+                    "selection": json.dumps(selection),
+                    "after_id": None,
+                    "page_size": 10,
+                },
+            )
+        )
+        return source, scan
+
+    await db_session.execute(text("SET LOCAL TIME ZONE 'UTC'"))
+    utc_source_snapshot, utc_scan = await read_source_and_scan()
+    await db_session.execute(text("SET LOCAL TIME ZONE 'Asia/Shanghai'"))
+    shanghai_source_snapshot, shanghai_scan = await read_source_and_scan()
+
+    assert shanghai_source_snapshot == utc_source_snapshot
+    assert shanghai_scan["snapshot_digest"] == utc_scan["snapshot_digest"]
+    assert shanghai_scan["accepted_before"] != utc_scan["accepted_before"]
+
+
 async def test_task_thumbnail_invalidation_is_snapshot_and_key_cas(db_session):
     actor_id = await _seed_actor(db_session)
     task = await _seed_image_task(db_session, actor_id=actor_id)

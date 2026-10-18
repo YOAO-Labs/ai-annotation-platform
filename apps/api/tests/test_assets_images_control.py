@@ -222,6 +222,50 @@ async def test_item_source_observation_and_pyramid_summary_follow_generation(
     assert changed["width"] is None and changed["height"] is None
 
 
+async def test_item_source_snapshot_and_backfill_digest_are_timezone_independent(
+    db_session,
+):
+    actor_id = await _seed_actor(db_session)
+    dataset_id, item_id = await _seed_image_item(db_session, actor_id=actor_id)
+    cutoff = await db_session.scalar(
+        text("SELECT clock_timestamp() + interval '1 minute'")
+    )
+    selection = {
+        "owner_kind": "dataset_item",
+        "dataset_id": str(dataset_id),
+        "project_id": None,
+        "owner_ids": [],
+        "all_owners": False,
+        "purpose": "thumbnail",
+        "only_missing": False,
+        "accepted_before": cutoff.isoformat(),
+    }
+
+    async def read_source_and_scan():
+        source = _data(await _read(db_session, actor_id, item_id))["data"]
+        scan = _data(
+            await db_session.scalar(
+                _SCAN,
+                {
+                    "selection": json.dumps(selection),
+                    "after_kind": None,
+                    "after_id": None,
+                    "page_size": 10,
+                },
+            )
+        )
+        return source["source_snapshot"], scan
+
+    await db_session.execute(text("SET LOCAL TIME ZONE 'UTC'"))
+    utc_source_snapshot, utc_scan = await read_source_and_scan()
+    await db_session.execute(text("SET LOCAL TIME ZONE 'Asia/Shanghai'"))
+    shanghai_source_snapshot, shanghai_scan = await read_source_and_scan()
+
+    assert shanghai_source_snapshot == utc_source_snapshot
+    assert shanghai_scan["snapshot_digest"] == utc_scan["snapshot_digest"]
+    assert shanghai_scan["accepted_before"] != utc_scan["accepted_before"]
+
+
 async def test_linked_task_source_uses_dataset_item_facts_and_current_visibility(
     db_session,
 ):

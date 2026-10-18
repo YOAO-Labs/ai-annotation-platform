@@ -23,7 +23,7 @@ AS $function$
         pg_catalog.sha256(pg_catalog.convert_to(
             pg_catalog.jsonb_build_object(
                 'task_id', (p_task).id,
-                'created_at', (p_task).created_at,
+                'created_at', (p_task).created_at AT TIME ZONE 'UTC',
                 'project_id', (p_task).project_id,
                 'dataset_item_id', (p_task).dataset_item_id,
                 'file_type', (p_task).file_type,
@@ -764,12 +764,15 @@ BEGIN
     ), snapshot AS (
         SELECT pg_catalog.count(*)::bigint AS total,
                pg_catalog.encode(pg_catalog.sha256(pg_catalog.convert_to(
-                   COALESCE(pg_catalog.jsonb_agg(
-                       pg_catalog.jsonb_build_object(
-                           'task_id', candidates.id,
-                           'source_snapshot', candidates.source_snapshot
-                       ) ORDER BY candidates.id
-                   ), '[]'::jsonb)::text,
+                   pg_catalog.jsonb_build_object(
+                       'accepted_before', v_cutoff AT TIME ZONE 'UTC',
+                       'items', COALESCE(pg_catalog.jsonb_agg(
+                           pg_catalog.jsonb_build_object(
+                               'task_id', candidates.id,
+                               'source_snapshot', candidates.source_snapshot
+                           ) ORDER BY candidates.id
+                       ), '[]'::jsonb)
+                   )::text,
                    'UTF8'
                )), 'hex') AS snapshot_digest
         FROM candidates
