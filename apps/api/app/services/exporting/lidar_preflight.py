@@ -17,13 +17,13 @@ from app.db.models.scene_pose import SceneFramePose
 from app.db.models.scene_track import SceneTrack
 from app.db.models.task import Task
 from app.db.models.task_dataset_item_link import TaskDatasetItemLink
-from app.schemas._jsonb_types import SensorCalibration
+from aap_assets_catalog.spatial_values import SensorCalibration
 from app.schemas.export import (
     LidarExportIssue,
     LidarExportOptions,
     LidarExportPreflightResponse,
 )
-from app.services.axis_convention import R_NORM
+from aap_assets_catalog.axis_convention import R_NORM
 from aap_workspace_contract import derive_classes_list
 from app.services.sensor_calibration import resolve_calibration_states
 from app.services.storage import storage_service

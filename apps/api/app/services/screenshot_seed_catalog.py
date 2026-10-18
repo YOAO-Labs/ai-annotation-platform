@@ -20,7 +20,7 @@ from app.db.models.project_member import ProjectMember
 from app.db.models.task import Task
 from app.db.models.task_batch import TaskBatch
 from app.db.models.user import User
-from app.schemas._jsonb_types import SensorCalibration
+from aap_assets_catalog.spatial_values import SensorCalibration
 from app.services.ml_backend import MLBackendService
 from app.services.screenshot_seed_backends import (
     backend_requirement_issues,

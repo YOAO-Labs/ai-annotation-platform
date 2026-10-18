@@ -46,7 +46,7 @@ async def backfill_frame_poses(
     from sqlalchemy import select
 
     from app.db.models.dataset import Dataset, Scene
-    from app.schemas.scene_pose import FramePose
+    from aap_assets_catalog.spatial_values import FramePose
     from app.services import scene_pose as scene_pose_svc
 
     try:

@@ -1,15 +1,17 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-import hashlib
-import json
 import uuid
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from aap_assets_catalog.spatial_values import (
+    SensorCalibration,
+    calibration_digest as _calibration_digest,
+)
+
 from app.db.models.dataset import DatasetItem, SensorCalibrationRevision
-from app.schemas._jsonb_types import SensorCalibration
 
 
 class SensorCalibrationError(ValueError):
@@ -25,16 +27,6 @@ class SensorCalibrationState:
     revision: int
     digest: str
     created_at: object | None = None
-
-
-def calibration_digest(calibration: SensorCalibration) -> str:
-    encoded = json.dumps(
-        calibration.model_dump(mode="json"),
-        sort_keys=True,
-        separators=(",", ":"),
-        allow_nan=False,
-    )
-    return hashlib.sha256(encoded.encode()).hexdigest()
 
 
 def _metadata_calibration(item: DatasetItem) -> SensorCalibration:
@@ -76,7 +68,7 @@ async def resolve_calibration_state(
         dataset_item_id=item.id,
         calibration=calibration,
         revision=1,
-        digest=calibration_digest(calibration),
+        digest=_calibration_digest(calibration),
     )
 
 
@@ -114,7 +106,7 @@ async def resolve_calibration_states(
                 dataset_item_id=item.id,
                 calibration=calibration,
                 revision=1,
-                digest=calibration_digest(calibration),
+                digest=_calibration_digest(calibration),
             )
             continue
         calibration = SensorCalibration.model_validate(row.calibration)
@@ -152,7 +144,7 @@ async def list_calibration_revisions(
                 dataset_item_id=item.id,
                 calibration=calibration,
                 revision=1,
-                digest=calibration_digest(calibration),
+                digest=_calibration_digest(calibration),
             )
         ]
     return [
@@ -197,7 +189,7 @@ async def update_calibration(
             "calibration_revision_conflict", "camera calibration changed"
         )
 
-    next_digest = calibration_digest(calibration)
+    next_digest = _calibration_digest(calibration)
     if next_digest == current.digest:
         return current
 

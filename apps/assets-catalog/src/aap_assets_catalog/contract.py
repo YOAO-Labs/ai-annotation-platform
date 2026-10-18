@@ -13,6 +13,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, StrictStr
 
+from .spatial_values import LidarAxisConvention
+
 CATALOG_SCHEMA = "aap-assets-catalog/v1"
 
 CatalogFailureCode = Literal[
@@ -25,17 +27,6 @@ CatalogFailureCode = Literal[
     "source_busy",
     "operation_conflict",
     "reserved_namespace",
-]
-
-LidarAxisConvention = Literal[
-    "iso_8855",
-    "ros_rep103",
-    "kitti_camera",
-    "opencv_camera",
-    "apollo",
-    "y_forward",
-    "sustechpoints_demo",
-    "raw",
 ]
 
 PageLimit = Annotated[StrictInt, Field(ge=1, le=200)]

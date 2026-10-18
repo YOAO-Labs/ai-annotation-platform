@@ -30,25 +30,9 @@ from pydantic import (
     model_validator,
 )
 
+from aap_assets_catalog.spatial_values import LidarAxisConvention, SensorCalibration
+
 from app.utils.raster_mask_rle import MAX_IMAGE_MASK_DIMENSION
-
-
-# ── v0.13.11 · 点云 lidar 坐标系约定 ──────────────────────────────────
-
-# 平台内部统一假设 ISO 8855 (+X 前 / +Y 左 / +Z 上)。LidarAxisConvention 描述
-# 「数据源系 → ISO 系」的旋转关系；前端加载时做归一化，上层几何代码 (cameraAnchor /
-# frontCameraForward / psrFromPoints / ...) 无需感知 convention 存在。
-# 详见 docs/adr/0034-lidar-axis-convention.md。
-LidarAxisConvention = Literal[
-    "iso_8855",  # +X 前 / +Y 左 / +Z 上 (默认, ISO 8855 / SAE J670)
-    "ros_rep103",  # 同 iso_8855 (ROS REP-103, 别名)
-    "kitti_camera",  # +X 右 / +Y 下 / +Z 前 (KITTI camera-as-world)
-    "opencv_camera",  # 同 kitti_camera (别名)
-    "apollo",  # +X 右 / +Y 前 / +Z 上 (Apollo)
-    "y_forward",  # 同 apollo (Velodyne raw 常见别名)
-    "sustechpoints_demo",  # +X 车左 / +Y 车后 / +Z 天 (third-party/SUSTechPOINTS 自带示例)
-    "raw",  # 不归一化, 平台不为该数据集承诺 ISO
-]
 
 
 # ── 项目级 attribute schema / classes config ────────────────────────
@@ -1089,21 +1073,6 @@ class AuditDetail(BaseModel):
     new_name: str | None = None
 
     model_config = ConfigDict(extra="allow")
-
-
-# ── v0.13.1 · 点云相机标定（calibration）────────────────────────────
-
-
-class SensorCalibration(BaseModel):
-    """v0.13.1 · 相机标定。extrinsic row-major 4x4 外参(16), intrinsic row-major
-    3x3 内参(9), rect 为 KITTI 可选矫正矩阵 4x4(16)。存进 DatasetItem.metadata_
-    的 "calibration" key。投影: extrinsic·[x,y,z,1] → xyz → intrinsic·xyz → 透视除法。"""
-
-    extrinsic: list[float] = Field(min_length=16, max_length=16)
-    intrinsic: list[float] = Field(min_length=9, max_length=9)
-    rect: list[float] | None = Field(default=None, min_length=16, max_length=16)
-
-    model_config = ConfigDict(extra="forbid")
 
 
 class DatasetItemMetadata(BaseModel):

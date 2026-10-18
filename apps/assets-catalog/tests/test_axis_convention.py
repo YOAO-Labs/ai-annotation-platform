@@ -4,7 +4,7 @@ import math
 
 import pytest
 
-from app.services.axis_convention import (
+from aap_assets_catalog.axis_convention import (
     R_NORM,
     apply_to_psr,
     sniff_convention_from_forward,
@@ -29,32 +29,33 @@ def test_sniff_convention_from_forward_matches_r_norm_row0(
     convention,
     expected_best,
 ):
-    m = R_NORM[convention]
+    matrix = R_NORM[convention]
 
-    result = sniff_convention_from_forward(m[0], m[1], m[2])
+    result = sniff_convention_from_forward(matrix[0], matrix[1], matrix[2])
 
     assert result is not None
     assert result["best"] == expected_best
     assert result["score"] == pytest.approx(1.0)
     assert any(
-        c["convention"] == convention and c["score"] == pytest.approx(1.0)
-        for c in result["candidates"]
+        candidate["convention"] == convention
+        and candidate["score"] == pytest.approx(1.0)
+        for candidate in result["candidates"]
     )
 
 
 def test_apply_unapply_psr_round_trip():
-    src = {
+    source = {
         "center": [1.5, -2.0, 3.25],
         "size": [4.0, 1.8, 1.6],
         "rotation": [0.1, -0.2, math.pi / 4],
     }
 
-    iso = apply_to_psr(src, "apollo")
-    out = unapply_to_psr(iso, "apollo")
+    iso = apply_to_psr(source, "apollo")
+    output = unapply_to_psr(iso, "apollo")
 
-    assert out["center"] == pytest.approx(src["center"])
-    assert out["size"] == pytest.approx(src["size"])
-    assert out["rotation"] == pytest.approx(src["rotation"])
+    assert output["center"] == pytest.approx(source["center"])
+    assert output["size"] == pytest.approx(source["size"])
+    assert output["rotation"] == pytest.approx(source["rotation"])
 
 
 def test_transform_box_geometry_axis_frame_source_keeps_extra_fields():
@@ -66,17 +67,17 @@ def test_transform_box_geometry_axis_frame_source_keeps_extra_fields():
         "convention_at_create": "apollo",
     }
 
-    out = transform_box_geometry_axis_frame(
+    output = transform_box_geometry_axis_frame(
         geometry,
         dataset_convention="apollo",
         axis_frame="source",
     )
 
-    assert out["center"] == pytest.approx([-1, 0, 0])
-    assert out["size"] == pytest.approx([4, 2, 1])
-    assert out["axis_frame"] == "source"
-    assert out["axis_convention"] == "apollo"
-    assert out["convention_at_create"] == "apollo"
+    assert output["center"] == pytest.approx([-1, 0, 0])
+    assert output["size"] == pytest.approx([4, 2, 1])
+    assert output["axis_frame"] == "source"
+    assert output["axis_convention"] == "apollo"
+    assert output["convention_at_create"] == "apollo"
 
 
 def test_transform_box_geometry_axis_frame_iso_is_noop_copy():
@@ -87,11 +88,11 @@ def test_transform_box_geometry_axis_frame_iso_is_noop_copy():
         "rotation": [0, 0, 0],
     }
 
-    out = transform_box_geometry_axis_frame(
+    output = transform_box_geometry_axis_frame(
         geometry,
         dataset_convention="apollo",
         axis_frame="iso",
     )
 
-    assert out == geometry
-    assert out is not geometry
+    assert output == geometry
+    assert output is not geometry

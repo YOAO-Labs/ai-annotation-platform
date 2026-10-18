@@ -420,7 +420,7 @@ async def test_propagate_endpoint_annotation_task_mismatch_404(
 
 async def _seed_poses(db, scene_id, frames: int, step: float = 2.0):
     """直线轨迹: 帧 i 的 ego 在世界系 x = i*step,无旋转。"""
-    from app.schemas.scene_pose import FramePose
+    from aap_assets_catalog.spatial_values import FramePose
     from app.services import scene_pose as scene_pose_svc
 
     await scene_pose_svc.upsert_frame_poses(

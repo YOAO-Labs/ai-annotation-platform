@@ -43,13 +43,14 @@ from app.db.models.project import Project
 from app.db.models.task import Task
 from app.db.models.task_dataset_item_link import TaskDatasetItemLink
 from app.db.models.scene_pose import SceneFramePose
-from app.schemas._jsonb_types import SensorCalibration
+from aap_assets_catalog.spatial_values import SensorCalibration
 from app.services.exporting.service import (
     ExportService,
     UnsupportedExportError,
     _bbox_geometry,
 )
-from app.services.axis_convention import AxisFrame, R_NORM
+from aap_assets_catalog.axis_convention import R_NORM
+from aap_assets_catalog.spatial_values import AxisFrame
 from app.services.exporting.lidar import (
     LidarCameraExportCtx,
     LidarFrameExportCtx,

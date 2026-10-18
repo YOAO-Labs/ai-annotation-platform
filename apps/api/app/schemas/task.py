@@ -3,8 +3,11 @@ from uuid import UUID
 from datetime import datetime
 from typing import Literal
 
-from app.schemas._jsonb_types import LidarAxisConvention, SensorCalibration
-from app.schemas.scene_pose import FramePose
+from aap_assets_catalog.spatial_values import (
+    FramePose,
+    LidarAxisConvention,
+    SensorCalibration,
+)
 from app.schemas.user import UserBrief
 from app.schemas.image_pyramid import ImagePyramidSummary
 

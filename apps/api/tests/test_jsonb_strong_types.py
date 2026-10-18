@@ -11,6 +11,8 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
+from aap_assets_catalog.spatial_values import SensorCalibration
+
 from app.schemas._jsonb_types import (
     AnnotationAttributes,
     Attachment,
@@ -35,7 +37,6 @@ from app.schemas._jsonb_types import (
     PolygonGeometry,
     PolylineGeometry,
     RotatedBboxGeometry,
-    SensorCalibration,
     ToolBinding,
     VideoModesConfig,
     VideoTrackBbox,

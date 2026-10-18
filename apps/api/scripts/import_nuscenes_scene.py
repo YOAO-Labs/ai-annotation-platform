@@ -431,7 +431,7 @@ async def import_nuscenes(
 
     from app.application.nuscenes_import import NuScenesImportWorkflow
     from app.db.models.dataset import DatasetItem
-    from app.schemas.scene_pose import FramePose
+    from aap_assets_catalog.spatial_values import FramePose
     from app.services import scene as scene_svc
     from app.services import scene_pose as scene_pose_svc
     from app.services.dataset import DatasetService

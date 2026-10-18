@@ -10,8 +10,8 @@ import math
 
 import pytest
 
-from app.schemas.scene_pose import FramePose
-from app.services.axis_convention import _euler_xyz_to_mat3, _mat_vec
+from aap_assets_catalog.spatial_values import FramePose
+from aap_assets_catalog.axis_convention import _euler_xyz_to_mat3, _mat_vec
 from app.services.ego_transform import (
     _mat3_to_quat_wxyz,
     _quat_wxyz_to_mat3,

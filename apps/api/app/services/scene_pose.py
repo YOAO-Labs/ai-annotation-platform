@@ -18,7 +18,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.scene_pose import SceneFramePose
-from app.schemas.scene_pose import FramePose
+from aap_assets_catalog.spatial_values import FramePose
 
 
 async def upsert_frame_poses(

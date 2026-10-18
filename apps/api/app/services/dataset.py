@@ -513,8 +513,10 @@ class DatasetService:
             item.content_hash = content_hash
 
     async def record_nuscenes_calibration_digests(self, dataset_id: uuid.UUID) -> None:
-        from app.schemas._jsonb_types import SensorCalibration
-        from app.services.sensor_calibration import calibration_digest
+        from aap_assets_catalog.spatial_values import (
+            SensorCalibration,
+            calibration_digest,
+        )
 
         camera_items = list(
             (

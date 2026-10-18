@@ -17,7 +17,7 @@ from app.db.models.async_job import AsyncJob
 from app.db.models.dataset import Dataset, DatasetItem
 from app.db.models.task import Task
 from app.db.models.task_batch import TaskBatch
-from app.schemas._jsonb_types import SensorCalibration
+from aap_assets_catalog.spatial_values import SensorCalibration
 from app.schemas.export import LidarExportOptions
 from app.services.exporting.lidar import (
     LidarCameraExportCtx,

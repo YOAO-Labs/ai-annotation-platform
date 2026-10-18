@@ -15,7 +15,7 @@ from app.db.models.dataset import Dataset, DatasetItem, Scene, SensorCalibration
 from app.db.models.scene_track import SceneTrack
 from app.db.models.task import Task
 from app.db.models.task_dataset_item_link import TaskDatasetItemLink
-from app.schemas._jsonb_types import SensorCalibration
+from aap_assets_catalog.spatial_values import SensorCalibration, calibration_digest
 from app.schemas.multicamera_annotation import NormalizedCameraBbox
 from app.services.multicamera_annotation import (
     MulticameraAnnotationError,
@@ -30,7 +30,6 @@ from app.services.exporting.lidar_preflight import preflight_lidar_export
 from app.services.exporting.packaging import build_export_zip
 from app.services.scene_track_domain import bind_annotation_to_scene_track
 from app.services.sensor_calibration import (
-    calibration_digest,
     list_calibration_revisions,
     update_calibration,
 )

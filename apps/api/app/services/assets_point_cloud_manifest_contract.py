@@ -6,8 +6,11 @@ from dataclasses import dataclass
 from typing import Protocol
 from uuid import UUID
 
-from app.schemas._jsonb_types import LidarAxisConvention, SensorCalibration
-from app.schemas.scene_pose import FramePose
+from aap_assets_catalog.spatial_values import (
+    FramePose,
+    LidarAxisConvention,
+    SensorCalibration,
+)
 
 
 @dataclass(frozen=True, slots=True)

@@ -19,8 +19,8 @@ from app.db.models.point_cloud_quality import (
 )
 from app.db.models.project import Project
 from app.schemas.point_cloud_quality import PointCloudQualityConfig
-from app.schemas._jsonb_types import SensorCalibration
-from app.services.axis_convention import R_NORM
+from aap_assets_catalog.spatial_values import SensorCalibration
+from aap_assets_catalog.axis_convention import R_NORM
 from app.services.point_cloud_quality.config import severity_for_rule
 from app.services.point_cloud_quality.kernel import (
     Box3D,

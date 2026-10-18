@@ -36,7 +36,7 @@ from aap_workspace_contract import (
     sanitize_annotation_attributes,
 )
 from app.services.prediction import to_internal_shape
-from app.services.axis_convention import (
+from aap_assets_catalog.axis_convention import (
     AxisFrame,
     transform_box_geometry_axis_frame,
 )

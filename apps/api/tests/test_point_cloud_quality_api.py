@@ -13,7 +13,7 @@ from app.db.models.dataset import Dataset, DatasetItem, ProjectDataset, Scene
 from app.db.models.point_cloud_quality import PointCloudQualityIssue
 from app.db.models.scene_track import SceneTrack, SceneTrackInterval
 from app.db.models.task import Task
-from app.schemas._jsonb_types import SensorCalibration
+from aap_assets_catalog.spatial_values import SensorCalibration, calibration_digest
 from app.schemas.point_cloud_quality import (
     PointCloudQualityConfig,
     PointCloudQualityRunRequest,
@@ -23,7 +23,6 @@ from app.services.point_cloud_quality.service import (
     list_issues,
     refresh_issue_staleness,
 )
-from app.services.sensor_calibration import calibration_digest
 from app.services.task_dataset_link import link_items
 from app.services.point_cloud_quality.execution import (
     _cancel_requested,

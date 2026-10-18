@@ -18,8 +18,8 @@ from typing import Any
 import numpy as np
 
 from app.db.models.annotation import Annotation
-from app.schemas._jsonb_types import SensorCalibration
-from app.services.axis_convention import PsrDict, _euler_xyz_to_mat3
+from aap_assets_catalog.spatial_values import SensorCalibration
+from aap_assets_catalog.axis_convention import PsrDict, _euler_xyz_to_mat3
 from app.services.pointcloud_projection import (
     NEAR_PLANE as _NEAR_PLANE,
     apply_camera_point as _apply_camera_point,

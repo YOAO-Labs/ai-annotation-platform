@@ -17,7 +17,7 @@ from aap_assets_source.frame_layout import (
     source_ingest_logical_path,
 )
 from app.db.models.dataset import DatasetItem
-from app.schemas._jsonb_types import SensorCalibration
+from aap_assets_catalog.spatial_values import SensorCalibration
 from app.services.storage import storage_service
 
 logger = logging.getLogger(__name__)

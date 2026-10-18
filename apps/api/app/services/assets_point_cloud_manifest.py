@@ -9,7 +9,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.dataset import Dataset, DatasetItem, Scene
-from app.schemas.scene_pose import FramePose
+from aap_assets_catalog.spatial_values import FramePose
 from app.services import scene_pose
 from app.services.assets_point_cloud_manifest_contract import (
     PointCloudManifestAssetsReader,

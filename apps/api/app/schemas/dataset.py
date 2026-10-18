@@ -7,7 +7,9 @@ from pydantic import BaseModel, Field, field_validator
 
 from aap_assets_source.upload_contract import validate_relative_file_name
 
-from app.schemas._jsonb_types import DatasetItemMetadata, LidarAxisConvention
+from aap_assets_catalog.spatial_values import LidarAxisConvention
+
+from app.schemas._jsonb_types import DatasetItemMetadata
 
 
 class DatasetCreate(BaseModel):

@@ -8,11 +8,9 @@ Keep the two implementations in lockstep; tests cover the shared contract.
 from __future__ import annotations
 
 import math
-from typing import Literal, TypedDict, cast
+from typing import TypedDict, cast
 
-from app.schemas._jsonb_types import LidarAxisConvention
-
-AxisFrame = Literal["iso", "source"]
+from .spatial_values import AxisFrame, LidarAxisConvention
 
 Mat3 = tuple[
     float,

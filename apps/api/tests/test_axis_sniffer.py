@@ -6,7 +6,7 @@ import pytest
 
 from app.db.models.dataset import Dataset, DatasetItem
 from app.db.models.task import Task
-from app.services.axis_convention import R_NORM
+from aap_assets_catalog.axis_convention import R_NORM
 from app.services.task_dataset_link import link_items
 from tests.factory import create_project
 

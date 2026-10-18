@@ -6,8 +6,8 @@ from dataclasses import dataclass
 import math
 from typing import Protocol
 
-from app.schemas._jsonb_types import SensorCalibration
-from app.services.axis_convention import PsrDict, R_NORM
+from aap_assets_catalog.spatial_values import SensorCalibration
+from aap_assets_catalog.axis_convention import PsrDict, R_NORM
 
 
 class ProjectionCamera(Protocol):

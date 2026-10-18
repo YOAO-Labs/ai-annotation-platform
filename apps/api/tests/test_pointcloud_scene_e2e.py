@@ -127,7 +127,7 @@ async def test_scene_import_end_to_end(db_session, _patch_calib_read):
     # 每帧 link: 1 primary_lidar + 该帧实际存在的相机
     # v0.13.2 · attach_calibration 入库前经 SensorCalibration 归一化（剥未建模杂键、
     # exclude_none），故期望值同样归一化（夹具 left.json 含杂键 extrinsic_ok，被剥掉）。
-    from app.schemas._jsonb_types import SensorCalibration
+    from aap_assets_catalog.spatial_values import SensorCalibration
 
     _known = set(SensorCalibration.model_fields)
     expected_calib = {

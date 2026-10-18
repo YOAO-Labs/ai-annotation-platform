@@ -18,8 +18,8 @@ from __future__ import annotations
 
 import math
 
-from app.schemas.scene_pose import FramePose
-from app.services.axis_convention import (
+from aap_assets_catalog.spatial_values import FramePose
+from aap_assets_catalog.axis_convention import (
     Mat3,
     PsrDict,
     _euler_xyz_to_mat3,

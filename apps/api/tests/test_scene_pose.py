@@ -12,7 +12,7 @@ import pytest
 from pydantic import ValidationError
 
 from app.db.models.dataset import Dataset
-from app.schemas.scene_pose import FramePose
+from aap_assets_catalog.spatial_values import FramePose
 from app.services import scene as scene_svc
 from app.services import scene_pose as scene_pose_svc
 
