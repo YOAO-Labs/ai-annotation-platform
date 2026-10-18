@@ -9,6 +9,7 @@ description = "Assets source contracts and independent SQL/S3 runtime"
 requires-python = ">=3.11"
 dependencies = [
     "pydantic>=2.10.0",
+    "cryptography>=43.0.0",
     "aap-audit-contract",
     "aap-assets-cleanup",
 ]
@@ -20,6 +21,12 @@ server = [
     "fastapi>=0.115.0",
     "pillow>=10.0.0",
     "uvicorn>=0.34.0",
+]
+importer = [
+    "asyncpg>=0.30.0",
+    "boto3>=1.43.77",
+    "paramiko>=3.4.0",
+    "pillow>=10.0.0",
 ]
 test = [
     "httpx>=0.27.0",
