@@ -205,6 +205,11 @@ class ImportData:
         )
         if result is not None and result.lease_token != token:
             raise ImportFailure("invalid_response")
+        if result is not None and result.stage not in {"enumerating", "importing"}:
+            raise ImportFailure("invalid_response")
+        if requested_job is not None and result is not None:
+            if result.job_id != requested_job:
+                raise ImportFailure("invalid_response")
         return result
 
     async def heartbeat(
@@ -248,6 +253,7 @@ class ImportData:
         self._require_lease(result, job_id, token)
         if (
             result.stage != "importing"
+            or result.cursor != 0
             or result.total != len(objects)
             or result.total_bytes != sum(item.size for item in objects)
         ):
@@ -263,9 +269,9 @@ class ImportData:
             (job_id, token, publication_id),
             ImportEntry,
         )
-        if result is not None and (result.job_id, result.lease_token) != (
-            job_id,
-            token,
+        if result is not None and (
+            (result.job_id, result.lease_token) != (job_id, token)
+            or result.publication_id != publication_id
         ):
             raise ImportFailure("invalid_response")
         return result
@@ -292,7 +298,7 @@ class ImportData:
         )
         assert result is not None
         self._require_lease(result, job_id, token)
-        if result.cursor < index + 1:
+        if result.cursor != index + 1:
             raise ImportFailure("invalid_response")
         return result
 
@@ -308,6 +314,10 @@ class ImportData:
         if result.job_id != job_id:
             raise ImportFailure("invalid_response")
         if result.stage not in {"completed", "failed", "cancelled"}:
+            raise ImportFailure("invalid_response")
+        if fatal_error is None and result.stage != "completed":
+            raise ImportFailure("invalid_response")
+        if fatal_error is not None and result.stage not in {"failed", "cancelled"}:
             raise ImportFailure("invalid_response")
         return result
 

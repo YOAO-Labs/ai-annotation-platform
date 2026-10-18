@@ -71,6 +71,12 @@ def _state(
     )
 
 
+def _replace_state(state: ImportState, **updates) -> ImportState:
+    value = state.model_dump(mode="python")
+    value.update(updates)
+    return ImportState.model_validate(value)
+
+
 class _Source:
     def __init__(self, objects):
         self.objects = objects
@@ -158,6 +164,93 @@ def test_native_entry_dataset_scope_is_checked_again_at_runtime() -> None:
         _validate_entry_scope(entry, state, {"base_prefix": ""}, publication_id)
 
 
+@pytest.mark.asyncio
+async def test_wrong_scope_next_entry_rolls_back_before_opening_source() -> None:
+    state = _state(stage="importing")
+    database = _TransactionRecorder(_WrongScopeNextData(state))
+    adapter = _NoOpenAdapter()
+    workflow = ImportWorkflow(database, object(), object())
+    keeper = LeaseKeeper(database, object(), state, asyncio.Event())
+
+    with pytest.raises(ImportFailure, match="invalid_response"):
+        await workflow._copy_manifest(state, adapter, {"base_prefix": ""}, keeper)
+
+    assert database.commits == 0
+    assert database.rollbacks == 1
+    assert adapter.opened == []
+    assert state.cursor == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("cursor", [0, 1])
+async def test_null_next_entry_is_only_valid_at_manifest_end(cursor: int) -> None:
+    state = _state(stage="importing")
+    if cursor == 1:
+        state = _replace_state(state, cursor=1, error_count=1)
+    database = _TransactionRecorder(_NoEntryData())
+    workflow = ImportWorkflow(database, object(), object())
+
+    if cursor == 0:
+        with pytest.raises(ImportFailure, match="invalid_response"):
+            await workflow._next_entry(state, {"base_prefix": ""}, uuid4())
+        assert database.commits == 0
+        assert database.rollbacks == 1
+    else:
+        assert await workflow._next_entry(state, {"base_prefix": ""}, uuid4()) is None
+        assert database.commits == 1
+        assert database.rollbacks == 0
+
+
+@pytest.mark.asyncio
+async def test_wrong_scope_manifest_reply_rolls_back_before_commit() -> None:
+    state = _state()
+    database = _TransactionRecorder(_WrongScopeSaveData(state))
+    workflow = ImportWorkflow(database, object(), object())
+
+    with pytest.raises(ImportFailure, match="invalid_response"):
+        await workflow._save_manifest(state, [])
+
+    assert database.commits == 0
+    assert database.rollbacks == 1
+
+
+@pytest.mark.asyncio
+async def test_wrong_scope_finish_reply_rolls_back_before_commit() -> None:
+    state = _state(stage="importing")
+    database = _TransactionRecorder(_WrongScopeFinishData(state))
+    workflow = ImportWorkflow(database, object(), object())
+
+    with pytest.raises(ImportFailure, match="invalid_response"):
+        await workflow._finish_completed(state)
+
+    assert database.commits == 0
+    assert database.rollbacks == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("reply_error", ["wrong_scope", "jumped_cursor"])
+async def test_invalid_completion_reply_rolls_back_without_advancing(
+    reply_error: str,
+) -> None:
+    state = _state(stage="importing")
+    if reply_error == "jumped_cursor":
+        state = _replace_state(state, total=3, total_bytes=3)
+    entry = _valid_entry(state)
+    database = _TransactionRecorder(
+        _SettlementReplyData(state, jump_cursor=reply_error == "jumped_cursor")
+    )
+    workflow = ImportWorkflow(database, object(), object())
+    keeper = LeaseKeeper(database, object(), state, asyncio.Event())
+    completion = ImportEntryCompletion(status="error", error_code="source_changed")
+
+    with pytest.raises(ImportFailure, match="invalid_response"):
+        await workflow._complete_with_retry(state, entry, completion, keeper)
+
+    assert database.commits == 0
+    assert database.rollbacks == 1
+    assert state.cursor == 0
+
+
 def _valid_entry(state: ImportState) -> ImportEntry:
     assert state.lease_token is not None
     item_id = uuid4()
@@ -168,9 +261,9 @@ def _valid_entry(state: ImportState) -> ImportEntry:
         index=0,
         item_id=item_id,
         publication_id=publication_id,
-        file_name="batch/photo.jpg",
+        file_name="photo.jpg",
         file_path=(
-            f"dataset-sources/{state.dataset_id}/{item_id}/{publication_id}/batch/photo.jpg"
+            f"dataset-sources/{state.dataset_id}/{item_id}/{publication_id}/photo.jpg"
         ),
         file_type="image",
         source=ImportSourceObject(
@@ -261,6 +354,110 @@ class _RejectedSourceDatabase:
     @asynccontextmanager
     async def transaction(self):
         yield self.data
+
+
+class _TransactionRecorder:
+    def __init__(self, data) -> None:
+        self.data = data
+        self.commits = 0
+        self.rollbacks = 0
+
+    @asynccontextmanager
+    async def transaction(self):
+        try:
+            yield self.data
+        except BaseException:
+            self.rollbacks += 1
+            raise
+        else:
+            self.commits += 1
+
+
+class _WrongScopeNextData:
+    def __init__(self, state: ImportState) -> None:
+        self.state = state
+
+    async def next_entry(self, _job_id, _lease_token, publication_id):
+        entry = _valid_entry(self.state)
+        return ImportEntry(
+            job_id=entry.job_id,
+            lease_token=entry.lease_token,
+            index=entry.index,
+            item_id=entry.item_id,
+            publication_id=publication_id,
+            file_name=entry.file_name,
+            file_path=(
+                f"dataset-sources/{uuid4()}/{entry.item_id}/"
+                f"{publication_id}/{entry.file_name}"
+            ),
+            file_type=entry.file_type,
+            source=entry.source,
+        )
+
+
+class _NoEntryData:
+    async def next_entry(self, *_arguments):
+        return None
+
+
+class _WrongScopeSaveData:
+    def __init__(self, state: ImportState) -> None:
+        self.state = state
+
+    async def save_manifest(self, _job_id, _lease_token, objects):
+        saved = _replace_state(
+            self.state,
+            actor_id=uuid4(),
+            stage="importing",
+            total=len(objects),
+            total_bytes=0,
+        )
+        return saved
+
+
+class _WrongScopeFinishData:
+    def __init__(self, state: ImportState, *, stage: str = "completed") -> None:
+        self.state = state
+        self.stage = stage
+
+    async def finish(self, *_arguments):
+        return _replace_state(
+            self.state,
+            dataset_id=uuid4(),
+            stage=self.stage,
+            cursor=self.state.total if self.stage == "completed" else self.state.cursor,
+            error_count=(
+                self.state.total
+                if self.stage == "completed"
+                else self.state.error_count
+            ),
+            lease_token=None,
+            lease_expires_at=None,
+        )
+
+
+class _SettlementReplyData:
+    def __init__(self, state: ImportState, *, jump_cursor: bool = False) -> None:
+        self.state = state
+        self.jump_cursor = jump_cursor
+
+    async def complete_entry(self, _job_id, _token, index, _publication, _completion):
+        cursor = index + (2 if self.jump_cursor else 1)
+        return _replace_state(
+            self.state,
+            actor_id=uuid4() if not self.jump_cursor else self.state.actor_id,
+            cursor=cursor,
+            error_count=cursor,
+        )
+
+
+class _NoOpenAdapter:
+    def __init__(self) -> None:
+        self.opened = []
+
+    def open(self, *_args, **_kwargs):
+        self.opened.append(True)
+        raise AssertionError("wrong-scope entry must be rejected before source I/O")
 
 
 class _ValidOnlyAdapter:
@@ -382,33 +579,60 @@ async def test_operation_conflict_is_not_misclassified_as_transient_contention(
 
 
 class _FatalFailureData:
-    def __init__(self) -> None:
+    def __init__(self, state: ImportState) -> None:
+        self.state = state
         self.calls = []
 
     async def finish(self, *arguments):
         self.calls.append(arguments)
-        return SimpleNamespace(stage="failed")
+        return _replace_state(
+            self.state,
+            stage="failed",
+            lease_token=None,
+            lease_expires_at=None,
+        )
 
 
 class _FatalFailureDatabase:
     def __init__(self, data: _FatalFailureData) -> None:
         self.data = data
+        self.commits = 0
+        self.rollbacks = 0
 
     @asynccontextmanager
     async def transaction(self):
-        yield self.data
+        try:
+            yield self.data
+        except BaseException:
+            self.rollbacks += 1
+            raise
+        else:
+            self.commits += 1
 
 
 @pytest.mark.asyncio
 async def test_operation_conflict_is_terminalized_instead_of_reclaimed() -> None:
     state = _state(stage="importing")
     assert state.lease_token is not None
-    data = _FatalFailureData()
+    data = _FatalFailureData(state)
     database = _FatalFailureDatabase(data)
 
     await _handle_failure(database, state, ImportFailure("operation_conflict"))
 
     assert data.calls == [(state.job_id, state.lease_token, "operation_conflict")]
+    assert database.commits == 1
+    assert database.rollbacks == 0
+
+
+@pytest.mark.asyncio
+async def test_wrong_scope_failure_finish_reply_rolls_back_before_commit() -> None:
+    state = _state(stage="importing")
+    database = _TransactionRecorder(_WrongScopeFinishData(state, stage="failed"))
+
+    await _handle_failure(database, state, ImportFailure("operation_conflict"))
+
+    assert database.commits == 0
+    assert database.rollbacks == 1
 
 
 def test_database_role_is_limited_to_the_frozen_seven_capabilities() -> None:
@@ -479,6 +703,35 @@ async def test_heartbeat_terminal_state_stops_worker_before_settlement(
 
     assert data.heartbeat_calls == 1
     assert data.settled == 0
+
+
+@pytest.mark.asyncio
+async def test_wrong_scope_heartbeat_reply_rolls_back_before_commit() -> None:
+    state = _state(stage="importing")
+    data = _HeartbeatData()
+    data.state = _replace_state(state, actor_id=uuid4())
+    database = _TransactionRecorder(data)
+    keeper = LeaseKeeper(
+        database,
+        SimpleNamespace(heartbeat_seconds=0.01, lease_seconds=120),
+        state,
+        asyncio.Event(),
+    )
+
+    async with keeper:
+        await asyncio.wait_for(data.called.wait(), timeout=1)
+        for _ in range(100):
+            try:
+                keeper.check()
+            except ImportFailure as exc:
+                assert exc.code == "invalid_response"
+                break
+            await asyncio.sleep(0.001)
+        else:
+            pytest.fail("wrong-scope heartbeat must stop the worker")
+
+    assert database.commits == 0
+    assert database.rollbacks == 1
 
 
 @pytest.mark.asyncio

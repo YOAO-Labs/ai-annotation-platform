@@ -18,6 +18,7 @@ from .workflow import (
     LeaseUnavailable,
     PersistenceBusy,
     WorkerStopping,
+    _require_same_scope,
     claim_next,
 )
 
@@ -105,6 +106,7 @@ async def _handle_failure(
     try:
         async with database.transaction() as data:
             finished = await data.finish(state.job_id, state.lease_token, code)
+            _require_same_scope(state, finished)
         logger.warning(
             "Dataset import failed job=%s code=%s stage=%s",
             state.job_id,

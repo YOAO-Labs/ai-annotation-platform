@@ -138,11 +138,9 @@ class LeaseKeeper:
                         self._state.lease_token,
                         self._config.lease_seconds,
                     )
-                if renewed.lease_token != self._state.lease_token:
-                    self._interrupted = ImportFailure("lease_lost")
-                    self._thread_stop.set()
-                    return
-                _require_same_scope(self._state, renewed)
+                    if renewed.lease_token != self._state.lease_token:
+                        raise ImportFailure("lease_lost")
+                    _require_same_scope(self._state, renewed)
             except ImportFailure as exc:
                 self._interrupted = exc
                 self._thread_stop.set()
@@ -224,22 +222,13 @@ class ImportWorkflow:
                         )
                         raise ImportFailure("storage_unavailable") from None
                     keeper.check()
-                    previous_state = state
-                    async with self._database.transaction() as data:
-                        state = await data.save_manifest(
-                            state.job_id, state.lease_token, objects
-                        )
-                    _require_same_scope(previous_state, state)
+                    state = await self._save_manifest(state, objects)
 
                 if state.stage != "importing" or state.total is None:
                     raise ImportFailure("invalid_response")
                 await self._copy_manifest(state, adapter, connection.config, keeper)
                 keeper.check()
-                async with self._database.transaction() as data:
-                    finished = await data.finish(state.job_id, state.lease_token, None)
-                _require_same_scope(state, finished)
-                if finished.stage != "completed":
-                    raise ImportFailure("invalid_response")
+                await self._finish_completed(state)
             except (WorkerStopping, LeaseUnavailable, PersistenceBusy):
                 raise
             except ImportFailure:
@@ -265,6 +254,44 @@ class ImportWorkflow:
                 state.lease_token,
                 self._config.connector_host_allowlist,
             )
+
+    async def _save_manifest(
+        self, state: ImportState, objects: list[ImportSourceObject]
+    ) -> ImportState:
+        assert state.lease_token is not None
+        async with self._database.transaction() as data:
+            saved = await data.save_manifest(state.job_id, state.lease_token, objects)
+            _require_same_scope(state, saved)
+        return saved
+
+    async def _next_entry(
+        self,
+        state: ImportState,
+        connector_config: dict[str, Any],
+        publication_id: UUID,
+    ) -> ImportEntry | None:
+        assert state.lease_token is not None
+        async with self._database.transaction() as data:
+            entry = await data.next_entry(
+                state.job_id, state.lease_token, publication_id
+            )
+            if entry is None:
+                if state.total is None or state.cursor != state.total:
+                    raise ImportFailure("invalid_response")
+            else:
+                if state.total is None or state.cursor >= state.total:
+                    raise ImportFailure("invalid_response")
+                _validate_entry_scope(entry, state, connector_config, publication_id)
+        return entry
+
+    async def _finish_completed(self, state: ImportState) -> ImportState:
+        assert state.lease_token is not None
+        async with self._database.transaction() as data:
+            finished = await data.finish(state.job_id, state.lease_token, None)
+            _require_same_scope(state, finished)
+            if finished.stage != "completed":
+                raise ImportFailure("invalid_response")
+        return finished
 
     def _decrypt_connection(self, connection: ImportConnection) -> dict[str, Any]:
         try:
@@ -294,10 +321,7 @@ class ImportWorkflow:
             keeper.check()
             publication_id = uuid4()
             try:
-                async with self._database.transaction() as data:
-                    entry = await data.next_entry(
-                        state.job_id, state.lease_token, publication_id
-                    )
+                entry = await self._next_entry(state, connector_config, publication_id)
             except ImportFailure as exc:
                 if exc.code != "invalid_source_object":
                     raise
@@ -310,7 +334,6 @@ class ImportWorkflow:
                 continue
             if entry is None:
                 raise ImportFailure("invalid_response")
-            _validate_entry_scope(entry, state, connector_config, publication_id)
             file_type = _infer_file_type(entry.file_name)
             if file_type != entry.file_type:
                 completion = ImportEntryCompletion(
@@ -447,9 +470,9 @@ class ImportWorkflow:
                         publication_id,
                         completion,
                     )
-                if completed.cursor != index + 1:
-                    raise ImportFailure("invalid_response")
-                _require_same_scope(state, completed)
+                    if completed.cursor != index + 1:
+                        raise ImportFailure("invalid_response")
+                    _require_same_scope(state, completed)
                 return completed
             except ImportFailure as exc:
                 if exc.code not in _CHUNKED_PART_ERROR_CODES:
