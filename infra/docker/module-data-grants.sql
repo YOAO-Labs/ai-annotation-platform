@@ -380,6 +380,7 @@ GRANT UPDATE (
     media_source_generation, media_object_identity, media_source_drifted,
     thumbnail_path, blurhash
 ) ON public.tasks TO :"labeling_owner";
+GRANT UPDATE (updated_at) ON public.tasks TO :"labeling_owner";
 GRANT SELECT (
     display_id, annotation_contributor_ids, review_round_id,
     review_contributor_ids, review_submitter_id

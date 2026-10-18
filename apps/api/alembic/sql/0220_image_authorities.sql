@@ -12,7 +12,15 @@ ALTER TABLE public.tasks
             OR pg_catalog.jsonb_typeof(media_object_identity) = 'object'
         );
 -- aap-statement-break
-CREATE FUNCTION aap_labeling_v1._image_source_snapshot(p_task public.tasks)
+CREATE FUNCTION aap_labeling_v1._image_source_snapshot_fields(
+    p_task_id uuid,
+    p_created_at timestamptz,
+    p_project_id uuid,
+    p_dataset_item_id uuid,
+    p_file_type text,
+    p_file_path text,
+    p_source_generation bigint
+)
 RETURNS text
 LANGUAGE sql
 IMMUTABLE
@@ -22,17 +30,39 @@ AS $function$
     SELECT pg_catalog.encode(
         pg_catalog.sha256(pg_catalog.convert_to(
             pg_catalog.jsonb_build_object(
-                'task_id', (p_task).id,
-                'created_at', (p_task).created_at AT TIME ZONE 'UTC',
-                'project_id', (p_task).project_id,
-                'dataset_item_id', (p_task).dataset_item_id,
-                'file_type', (p_task).file_type,
-                'file_path', (p_task).file_path,
-                'source_generation', (p_task).media_source_generation
+                'task_id', p_task_id,
+                'created_at', p_created_at AT TIME ZONE 'UTC',
+                'project_id', p_project_id,
+                'dataset_item_id', p_dataset_item_id,
+                'file_type', p_file_type,
+                'file_path', p_file_path,
+                'source_generation', p_source_generation
             )::text,
             'UTF8'
         )),
         'hex'
+    )
+$function$;
+-- aap-statement-break
+REVOKE ALL ON FUNCTION aap_labeling_v1._image_source_snapshot_fields(
+    uuid, timestamptz, uuid, uuid, text, text, bigint
+) FROM PUBLIC;
+-- aap-statement-break
+CREATE FUNCTION aap_labeling_v1._image_source_snapshot(p_task public.tasks)
+RETURNS text
+LANGUAGE sql
+IMMUTABLE
+PARALLEL SAFE
+SET search_path = pg_catalog, pg_temp
+AS $function$
+    SELECT aap_labeling_v1._image_source_snapshot_fields(
+        (p_task).id,
+        (p_task).created_at,
+        (p_task).project_id,
+        (p_task).dataset_item_id,
+        (p_task).file_type,
+        (p_task).file_path,
+        (p_task).media_source_generation
     )
 $function$;
 -- aap-statement-break
@@ -240,7 +270,16 @@ BEGIN
             END IF;
         END IF;
         BEGIN
-            SELECT task.* INTO v_task
+            SELECT task.id, task.project_id, task.dataset_item_id, task.batch_id,
+                   task.status, task.file_type, task.file_path, task.file_name,
+                   task.created_at, task.assignee_id, task.reviewer_id,
+                   task.media_source_generation, task.media_object_identity,
+                   task.media_source_drifted, task.thumbnail_path, task.blurhash
+            INTO v_task.id, v_task.project_id, v_task.dataset_item_id, v_task.batch_id,
+                 v_task.status, v_task.file_type, v_task.file_path, v_task.file_name,
+                 v_task.created_at, v_task.assignee_id, v_task.reviewer_id,
+                 v_task.media_source_generation, v_task.media_object_identity,
+                 v_task.media_source_drifted, v_task.thumbnail_path, v_task.blurhash
             FROM public.tasks AS task
             WHERE task.id = p_task_id
             FOR UPDATE NOWAIT;
@@ -255,7 +294,16 @@ BEGIN
             RETURN aap_labeling_v1._image_source_reply(NULL, 'source_changed');
         END IF;
     ELSE
-        SELECT task.* INTO v_task
+        SELECT task.id, task.project_id, task.dataset_item_id, task.batch_id,
+               task.status, task.file_type, task.file_path, task.file_name,
+               task.created_at, task.assignee_id, task.reviewer_id,
+               task.media_source_generation, task.media_object_identity,
+               task.media_source_drifted, task.thumbnail_path, task.blurhash
+        INTO v_task.id, v_task.project_id, v_task.dataset_item_id, v_task.batch_id,
+             v_task.status, v_task.file_type, v_task.file_path, v_task.file_name,
+             v_task.created_at, v_task.assignee_id, v_task.reviewer_id,
+             v_task.media_source_generation, v_task.media_object_identity,
+             v_task.media_source_drifted, v_task.thumbnail_path, v_task.blurhash
         FROM public.tasks AS task
         WHERE task.id = p_task_id;
         IF NOT FOUND THEN
@@ -438,7 +486,16 @@ BEGIN
         'byte_size', p_identity -> 'byte_size',
         'version_id', COALESCE(p_identity -> 'version_id', 'null'::jsonb)
     );
-    SELECT task.* INTO v_task
+    SELECT task.id, task.project_id, task.dataset_item_id, task.batch_id,
+           task.status, task.file_type, task.file_path, task.file_name,
+           task.created_at, task.assignee_id, task.reviewer_id,
+           task.media_source_generation, task.media_object_identity,
+           task.media_source_drifted, task.thumbnail_path, task.blurhash
+    INTO v_task.id, v_task.project_id, v_task.dataset_item_id, v_task.batch_id,
+         v_task.status, v_task.file_type, v_task.file_path, v_task.file_name,
+         v_task.created_at, v_task.assignee_id, v_task.reviewer_id,
+         v_task.media_source_generation, v_task.media_object_identity,
+         v_task.media_source_drifted, v_task.thumbnail_path, v_task.blurhash
     FROM public.tasks AS task
     WHERE task.id = p_task_id;
     IF NOT FOUND THEN
@@ -471,7 +528,16 @@ BEGIN
     END IF;
 
     BEGIN
-        SELECT task.* INTO v_task
+        SELECT task.id, task.project_id, task.dataset_item_id, task.batch_id,
+               task.status, task.file_type, task.file_path, task.file_name,
+               task.created_at, task.assignee_id, task.reviewer_id,
+               task.media_source_generation, task.media_object_identity,
+               task.media_source_drifted, task.thumbnail_path, task.blurhash
+        INTO v_task.id, v_task.project_id, v_task.dataset_item_id, v_task.batch_id,
+             v_task.status, v_task.file_type, v_task.file_path, v_task.file_name,
+             v_task.created_at, v_task.assignee_id, v_task.reviewer_id,
+             v_task.media_source_generation, v_task.media_object_identity,
+             v_task.media_source_drifted, v_task.thumbnail_path, v_task.blurhash
         FROM public.tasks AS task
         WHERE task.id = p_task_id
         FOR UPDATE NOWAIT;
@@ -517,13 +583,31 @@ BEGIN
             blurhash = NULL,
             updated_at = pg_catalog.clock_timestamp()
         WHERE task.id = p_task_id
-        RETURNING task.* INTO v_task;
+        RETURNING task.id, task.project_id, task.dataset_item_id, task.batch_id,
+                  task.status, task.file_type, task.file_path, task.file_name,
+                  task.created_at, task.assignee_id, task.reviewer_id,
+                  task.media_source_generation, task.media_object_identity,
+                  task.media_source_drifted, task.thumbnail_path, task.blurhash
+        INTO v_task.id, v_task.project_id, v_task.dataset_item_id, v_task.batch_id,
+             v_task.status, v_task.file_type, v_task.file_path, v_task.file_name,
+             v_task.created_at, v_task.assignee_id, v_task.reviewer_id,
+             v_task.media_source_generation, v_task.media_object_identity,
+             v_task.media_source_drifted, v_task.thumbnail_path, v_task.blurhash;
     ELSE
         UPDATE public.tasks AS task
         SET media_object_identity = v_identity,
             updated_at = pg_catalog.clock_timestamp()
         WHERE task.id = p_task_id
-        RETURNING task.* INTO v_task;
+        RETURNING task.id, task.project_id, task.dataset_item_id, task.batch_id,
+                  task.status, task.file_type, task.file_path, task.file_name,
+                  task.created_at, task.assignee_id, task.reviewer_id,
+                  task.media_source_generation, task.media_object_identity,
+                  task.media_source_drifted, task.thumbnail_path, task.blurhash
+        INTO v_task.id, v_task.project_id, v_task.dataset_item_id, v_task.batch_id,
+             v_task.status, v_task.file_type, v_task.file_path, v_task.file_name,
+             v_task.created_at, v_task.assignee_id, v_task.reviewer_id,
+             v_task.media_source_generation, v_task.media_object_identity,
+             v_task.media_source_drifted, v_task.thumbnail_path, v_task.blurhash;
     END IF;
     RETURN aap_labeling_v1._image_source_reply(
         pg_catalog.jsonb_build_object(
@@ -572,7 +656,16 @@ BEGIN
         );
     END IF;
     BEGIN
-        SELECT task.* INTO v_task
+        SELECT task.id, task.project_id, task.dataset_item_id, task.batch_id,
+               task.status, task.file_type, task.file_path, task.file_name,
+               task.created_at, task.assignee_id, task.reviewer_id,
+               task.media_source_generation, task.media_object_identity,
+               task.media_source_drifted, task.thumbnail_path, task.blurhash
+        INTO v_task.id, v_task.project_id, v_task.dataset_item_id, v_task.batch_id,
+             v_task.status, v_task.file_type, v_task.file_path, v_task.file_name,
+             v_task.created_at, v_task.assignee_id, v_task.reviewer_id,
+             v_task.media_source_generation, v_task.media_object_identity,
+             v_task.media_source_drifted, v_task.thumbnail_path, v_task.blurhash
         FROM public.tasks AS task
         WHERE task.id = p_task_id
         FOR UPDATE NOWAIT;
@@ -749,7 +842,15 @@ BEGIN
     END IF;
     WITH candidates AS MATERIALIZED (
         SELECT task.id,
-               aap_labeling_v1._image_source_snapshot(task) AS source_snapshot
+               aap_labeling_v1._image_source_snapshot_fields(
+                   task.id,
+                   task.created_at,
+                   task.project_id,
+                   task.dataset_item_id,
+                   task.file_type,
+                   task.file_path,
+                   task.media_source_generation
+               ) AS source_snapshot
         FROM public.tasks AS task
         WHERE task.file_type = 'image'
           AND task.dataset_item_id IS NULL
@@ -777,13 +878,38 @@ BEGIN
                )), 'hex') AS snapshot_digest
         FROM candidates
     ), ranked AS (
-        SELECT task.*, candidates.source_snapshot AS image_source_snapshot,
+        SELECT task.id,
+               task.project_id,
+               task.dataset_item_id,
+               task.file_type,
+               task.file_path,
+               task.file_name,
+               task.created_at,
+               task.media_source_generation,
+               task.media_object_identity,
+               task.media_source_drifted,
+               task.thumbnail_path,
+               task.blurhash,
+               candidates.source_snapshot AS image_source_snapshot,
                pg_catalog.row_number() OVER (ORDER BY task.id) AS row_number
         FROM public.tasks AS task
         JOIN candidates ON candidates.id = task.id
         WHERE p_after_id IS NULL OR task.id > p_after_id
     ), page AS (
-        SELECT ranked.*
+        SELECT ranked.id,
+               ranked.project_id,
+               ranked.dataset_item_id,
+               ranked.file_type,
+               ranked.file_path,
+               ranked.file_name,
+               ranked.created_at,
+               ranked.media_source_generation,
+               ranked.media_object_identity,
+               ranked.media_source_drifted,
+               ranked.thumbnail_path,
+               ranked.blurhash,
+               ranked.image_source_snapshot,
+               ranked.row_number
         FROM ranked
         WHERE ranked.row_number <= p_page_size + 1
     )
@@ -871,7 +997,16 @@ BEGIN
         );
     END IF;
     BEGIN
-        SELECT task.* INTO v_task
+        SELECT task.id, task.project_id, task.dataset_item_id, task.batch_id,
+               task.status, task.file_type, task.file_path, task.file_name,
+               task.created_at, task.assignee_id, task.reviewer_id,
+               task.media_source_generation, task.media_object_identity,
+               task.media_source_drifted, task.thumbnail_path, task.blurhash
+        INTO v_task.id, v_task.project_id, v_task.dataset_item_id, v_task.batch_id,
+             v_task.status, v_task.file_type, v_task.file_path, v_task.file_name,
+             v_task.created_at, v_task.assignee_id, v_task.reviewer_id,
+             v_task.media_source_generation, v_task.media_object_identity,
+             v_task.media_source_drifted, v_task.thumbnail_path, v_task.blurhash
         FROM public.tasks AS task
         WHERE task.id = p_task_id
         FOR UPDATE NOWAIT;

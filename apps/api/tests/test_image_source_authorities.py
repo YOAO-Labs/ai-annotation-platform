@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
+import re
 from uuid import uuid4
 
 import pytest
@@ -16,6 +18,24 @@ from tests.factory import create_project
 from tests.test_assets_catalog_native import _seed_actor, _seed_dataset
 
 pytestmark = pytest.mark.asyncio
+
+_IMAGE_AUTHORITIES_SQL = (
+    Path(__file__).resolve().parents[1]
+    / "alembic"
+    / "sql"
+    / "0220_image_authorities.sql"
+)
+_MODULE_DATA_GRANTS = (
+    Path(__file__).resolve().parents[3] / "infra" / "docker" / "module-data-grants.sql"
+)
+
+
+def _sql_function_body(source: str, name: str) -> str:
+    prefix = f"CREATE FUNCTION aap_labeling_v1.{name}"
+    start = source.index(prefix)
+    end = source.index("$function$;", start)
+    return source[start:end]
+
 
 _READ = text(
     "SELECT aap_labeling_v1.read_image_task_source("
@@ -43,6 +63,38 @@ _INVALIDATE_THUMBNAIL = text(
     "SELECT aap_labeling_v1.invalidate_task_image_thumbnail("
     "CAST(:task_id AS uuid), CAST(:expected_snapshot AS text), CAST(:expected_key AS text))"
 )
+
+
+async def test_image_task_authorities_use_only_granted_task_columns():
+    source = _IMAGE_AUTHORITIES_SQL.read_text(encoding="utf-8")
+    for function_name in (
+        "read_image_task_source",
+        "observe_image_task_source",
+        "publish_task_image_thumbnail",
+        "scan_image_task_sources",
+        "invalidate_task_image_thumbnail",
+    ):
+        body = _sql_function_body(source, function_name)
+        assert (
+            re.search(r"\b(?:SELECT|RETURNING)\s+task\s*\.\s*\*", body, re.IGNORECASE)
+            is None
+        ), function_name
+
+    scan = _sql_function_body(source, "scan_image_task_sources")
+    assert "_image_source_snapshot_fields(" in scan
+    assert "_image_source_snapshot(task)" not in scan
+
+    grants = _MODULE_DATA_GRANTS.read_text(encoding="utf-8")
+    assert 'GRANT UPDATE (updated_at) ON public.tasks TO :"labeling_owner";' in grants
+    assert (
+        re.search(
+            r"GRANT\s+(?:ALL(?:\s+PRIVILEGES)?|SELECT(?!\s*\())[^;]*"
+            r"\s+ON\s+public\.tasks\b",
+            grants,
+            re.IGNORECASE,
+        )
+        is None
+    )
 
 
 def _object(value: object) -> dict:
