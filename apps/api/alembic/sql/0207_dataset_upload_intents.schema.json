@@ -1,0 +1,568 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:aap:contract:dataset-upload:v1",
+  "title": "Assets Dataset upload intent v1",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/successIntent"
+    },
+    {
+      "$ref": "#/$defs/successAcceptance"
+    },
+    {
+      "$ref": "#/$defs/successDuplicate"
+    },
+    {
+      "$ref": "#/$defs/failure"
+    }
+  ],
+  "x-postgresql-functions": [
+    "aap_assets_v1.reserve_dataset_upload(uuid, uuid, uuid, text, text)",
+    "aap_assets_v1.lock_dataset_upload(uuid, uuid, uuid)",
+    "aap_assets_v1.find_dataset_upload_duplicate(uuid, uuid, uuid, text)",
+    "aap_assets_v1.complete_dataset_upload(uuid, uuid, uuid, uuid, bigint, text, integer, integer)",
+    "aap_assets_v1.discard_dataset_upload(uuid, uuid, uuid, text)",
+    "aap_assets_v1._accept_dataset_upload(uuid, uuid, uuid, uuid, bigint, text, integer, integer)",
+    "aap_assets_v1._finish_dataset_upload(uuid, uuid, uuid, uuid, bigint)"
+  ],
+  "$defs": {
+    "DatasetUploadReserve": {
+      "additionalProperties": false,
+      "properties": {
+        "item_id": {
+          "format": "uuid",
+          "title": "Item Id",
+          "type": "string"
+        },
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "dataset_id": {
+          "format": "uuid",
+          "title": "Dataset Id",
+          "type": "string"
+        },
+        "file_name": {
+          "description": "Safe relative file path; may contain legitimate subdirectories.",
+          "maxLength": 500,
+          "minLength": 1,
+          "title": "File Name",
+          "type": "string"
+        },
+        "content_type": {
+          "maxLength": 255,
+          "minLength": 1,
+          "title": "Content Type",
+          "type": "string"
+        }
+      },
+      "required": ["item_id", "actor_id", "dataset_id", "file_name", "content_type"],
+      "title": "DatasetUploadReserve",
+      "type": "object"
+    },
+    "DatasetUploadCompletion": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "dataset_id": {
+          "format": "uuid",
+          "title": "Dataset Id",
+          "type": "string"
+        },
+        "item_id": {
+          "format": "uuid",
+          "title": "Item Id",
+          "type": "string"
+        },
+        "publication_id": {
+          "format": "uuid",
+          "title": "Publication Id",
+          "type": "string"
+        },
+        "file_size": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "File Size",
+          "type": "integer"
+        },
+        "content_hash": {
+          "anyOf": [
+            {
+              "pattern": "^(?:[0-9a-fA-F]{32}|[0-9a-fA-F]{64})$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Content Hash"
+        },
+        "width": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "maximum": 2147483647,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Width"
+        },
+        "height": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "maximum": 2147483647,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Height"
+        }
+      },
+      "required": [
+        "actor_id",
+        "dataset_id",
+        "item_id",
+        "publication_id",
+        "file_size",
+        "content_hash",
+        "width",
+        "height"
+      ],
+      "title": "DatasetUploadCompletion",
+      "type": "object",
+      "x-invariants": [
+        "content_hash is null or 32/64 hexadecimal characters",
+        "width and height are both null or both positive integers"
+      ]
+    },
+    "DatasetUploadDiscard": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "dataset_id": {
+          "format": "uuid",
+          "title": "Dataset Id",
+          "type": "string"
+        },
+        "item_id": {
+          "format": "uuid",
+          "title": "Item Id",
+          "type": "string"
+        },
+        "reason": {
+          "const": "missing",
+          "title": "Reason",
+          "type": "string"
+        }
+      },
+      "required": ["actor_id", "dataset_id", "item_id", "reason"],
+      "title": "DatasetUploadDiscard",
+      "type": "object"
+    },
+    "DatasetUploadCompletedResult": {
+      "additionalProperties": false,
+      "properties": {
+        "item_id": {
+          "format": "uuid",
+          "title": "Item Id",
+          "type": "string"
+        },
+        "linked_tasks": {
+          "minimum": 0,
+          "title": "Linked Tasks",
+          "type": "integer"
+        }
+      },
+      "required": ["item_id", "linked_tasks"],
+      "title": "DatasetUploadCompletedResult",
+      "type": "object"
+    },
+    "DatasetUploadDiscardedResult": {
+      "additionalProperties": false,
+      "properties": {
+        "duplicate_of": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Duplicate Of"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "enum": ["missing", "source_deleted"],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reason"
+        }
+      },
+      "title": "DatasetUploadDiscardedResult",
+      "type": "object",
+      "x-invariants": [
+        "exactly one of duplicate_of or reason is present",
+        "reason is missing or source_deleted"
+      ]
+    },
+    "DatasetUploadIntent": {
+      "additionalProperties": false,
+      "properties": {
+        "item_id": {
+          "format": "uuid",
+          "title": "Item Id",
+          "type": "string"
+        },
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "dataset_id": {
+          "format": "uuid",
+          "title": "Dataset Id",
+          "type": "string"
+        },
+        "file_name": {
+          "maxLength": 500,
+          "minLength": 1,
+          "title": "File Name",
+          "type": "string"
+        },
+        "file_path": {
+          "anyOf": [
+            {
+              "maxLength": 1000,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "File Path"
+        },
+        "file_type": {
+          "enum": ["image", "video", "other"],
+          "title": "File Type",
+          "type": "string"
+        },
+        "content_type": {
+          "maxLength": 255,
+          "minLength": 1,
+          "title": "Content Type",
+          "type": "string"
+        },
+        "staging_key": {
+          "title": "Staging Key",
+          "type": "string"
+        },
+        "publication_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Publication Id"
+        },
+        "state": {
+          "enum": ["pending", "completed", "discarded"],
+          "title": "State",
+          "type": "string"
+        },
+        "result": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DatasetUploadCompletedResult"
+            },
+            {
+              "$ref": "#/$defs/DatasetUploadDiscardedResult"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Result"
+        }
+      },
+      "required": [
+        "item_id",
+        "actor_id",
+        "dataset_id",
+        "file_name",
+        "file_path",
+        "file_type",
+        "content_type",
+        "staging_key",
+        "publication_id",
+        "state",
+        "result"
+      ],
+      "title": "DatasetUploadIntent",
+      "type": "object",
+      "x-invariants": [
+        "publication_id and file_path are both null or both present",
+        "file_path is dataset-sources/{dataset_id}/{item_id}/{publication_id}/{file_name}",
+        "pending has no result; completed has item_id and linked_tasks; discarded has one disposition"
+      ]
+    },
+    "DatasetUploadAcceptance": {
+      "additionalProperties": false,
+      "properties": {
+        "item_id": {
+          "format": "uuid",
+          "title": "Item Id",
+          "type": "string"
+        },
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "dataset_id": {
+          "format": "uuid",
+          "title": "Dataset Id",
+          "type": "string"
+        },
+        "file_name": {
+          "maxLength": 500,
+          "minLength": 1,
+          "title": "File Name",
+          "type": "string"
+        },
+        "file_path": {
+          "anyOf": [
+            {
+              "maxLength": 1000,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "File Path"
+        },
+        "file_type": {
+          "enum": ["image", "video", "other"],
+          "title": "File Type",
+          "type": "string"
+        },
+        "content_type": {
+          "maxLength": 255,
+          "minLength": 1,
+          "title": "Content Type",
+          "type": "string"
+        },
+        "staging_key": {
+          "title": "Staging Key",
+          "type": "string"
+        },
+        "publication_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Publication Id"
+        },
+        "state": {
+          "enum": ["pending", "completed", "discarded"],
+          "title": "State",
+          "type": "string"
+        },
+        "result": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DatasetUploadCompletedResult"
+            },
+            {
+              "$ref": "#/$defs/DatasetUploadDiscardedResult"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Result"
+        },
+        "disposition": {
+          "enum": ["accepted", "duplicate"],
+          "title": "Disposition",
+          "type": "string"
+        },
+        "duplicate_of": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Duplicate Of"
+        }
+      },
+      "required": [
+        "item_id",
+        "actor_id",
+        "dataset_id",
+        "file_name",
+        "file_path",
+        "file_type",
+        "content_type",
+        "staging_key",
+        "publication_id",
+        "state",
+        "result",
+        "disposition"
+      ],
+      "title": "DatasetUploadAcceptance",
+      "type": "object",
+      "x-invariants": [
+        "accepted contains the completed frozen result",
+        "duplicate contains the discarded duplicate_of result"
+      ]
+    },
+    "DatasetUploadDuplicate": {
+      "additionalProperties": false,
+      "properties": {
+        "duplicate_of": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Duplicate Of"
+        }
+      },
+      "required": ["duplicate_of"],
+      "title": "DatasetUploadDuplicate",
+      "type": "object"
+    },
+    "successIntent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "ok", "data"],
+      "properties": {
+        "schema": {
+          "const": "aap-dataset-upload/v1"
+        },
+        "ok": {
+          "const": true
+        },
+        "data": {
+          "$ref": "#/$defs/DatasetUploadIntent"
+        }
+      },
+      "title": "Dataset upload intent success"
+    },
+    "successAcceptance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "ok", "data"],
+      "properties": {
+        "schema": {
+          "const": "aap-dataset-upload/v1"
+        },
+        "ok": {
+          "const": true
+        },
+        "data": {
+          "$ref": "#/$defs/DatasetUploadAcceptance"
+        }
+      },
+      "title": "Dataset upload completion success"
+    },
+    "successDuplicate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "ok", "data"],
+      "properties": {
+        "schema": {
+          "const": "aap-dataset-upload/v1"
+        },
+        "ok": {
+          "const": true
+        },
+        "data": {
+          "$ref": "#/$defs/DatasetUploadDuplicate"
+        }
+      },
+      "title": "Dataset upload duplicate lookup success"
+    },
+    "failure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "ok", "error"],
+      "properties": {
+        "schema": {
+          "const": "aap-dataset-upload/v1"
+        },
+        "ok": {
+          "const": false
+        },
+        "error": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["code"],
+          "properties": {
+            "code": {
+              "enum": [
+                "invalid_request",
+                "account_not_active",
+                "account_busy",
+                "invalid_account_role",
+                "dataset_missing",
+                "upload_missing",
+                "upload_scope_mismatch",
+                "upload_not_pending",
+                "dataset_busy",
+                "operation_conflict",
+                "source_changed"
+              ],
+              "type": "string"
+            }
+          }
+        }
+      },
+      "title": "Dataset upload failure"
+    }
+  }
+}
