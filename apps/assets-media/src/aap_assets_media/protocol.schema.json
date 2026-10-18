@@ -2,38 +2,6 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "aap-assets-media/v1",
   "$defs": {
-    "ReadSourceRequest": {
-      "additionalProperties": false,
-      "properties": {
-        "actor_id": {
-          "format": "uuid",
-          "title": "Actor Id",
-          "type": "string"
-        },
-        "dataset_item_id": {
-          "format": "uuid",
-          "title": "Dataset Item Id",
-          "type": "string"
-        },
-        "task_id": {
-          "anyOf": [
-            {
-              "format": "uuid",
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Task Id"
-        }
-      },
-      "required": ["actor_id", "dataset_item_id"],
-      "title": "ReadSourceRequest",
-      "type": "object"
-    },
-    "JsonValue": {},
     "ObjectIdentity": {
       "additionalProperties": false,
       "properties": {
@@ -67,6 +35,44 @@
       "title": "ObjectIdentity",
       "type": "object"
     },
+    "InternalSourceRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "dataset_item_id": {
+          "format": "uuid",
+          "title": "Dataset Item Id",
+          "type": "string"
+        },
+        "source_snapshot": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Snapshot"
+        },
+        "object_identity": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ObjectIdentity"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": ["dataset_item_id"],
+      "title": "InternalSourceRequest",
+      "type": "object"
+    },
+    "JsonValue": {},
     "MediaSource": {
       "additionalProperties": false,
       "properties": {
@@ -226,6 +232,37 @@
         "video_metadata"
       ],
       "title": "MediaSource",
+      "type": "object"
+    },
+    "ReadSourceRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "dataset_item_id": {
+          "format": "uuid",
+          "title": "Dataset Item Id",
+          "type": "string"
+        },
+        "task_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Task Id"
+        }
+      },
+      "required": ["actor_id", "dataset_item_id"],
+      "title": "ReadSourceRequest",
       "type": "object"
     },
     "SummaryRequest": {
@@ -392,6 +429,12 @@
           "const": "frames",
           "default": "frames",
           "title": "Kind",
+          "type": "string"
+        },
+        "intent": {
+          "default": "access",
+          "enum": ["access", "task_frame_retry"],
+          "title": "Intent",
           "type": "string"
         },
         "frame_indices": {
@@ -3430,6 +3473,13 @@
     "batch_size": 500
   },
   "x-native": {
+    "resolve_internal_media_source": {
+      "signature": "aap_assets_v1.resolve_internal_media_source(uuid,text,jsonb)",
+      "arguments": ["dataset_item_id", "source_snapshot", "object_identity"],
+      "request": "InternalSourceRequest",
+      "result": "MediaSource",
+      "role": "system"
+    },
     "read_media_source": {
       "signature": "aap_assets_v1.read_media_source(uuid,uuid,uuid)",
       "arguments": ["actor_id", "dataset_item_id", "task_id"],

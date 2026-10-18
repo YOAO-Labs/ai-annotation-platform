@@ -140,6 +140,18 @@ class ObserveSourceRequest(ReadSourceRequest):
     object_identity: ObjectIdentity
 
 
+class InternalSourceRequest(Value):
+    dataset_item_id: UUID
+    source_snapshot: Digest | None = None
+    object_identity: ObjectIdentity | None = None
+
+    @model_validator(mode="after")
+    def paired_observation(self):
+        if (self.source_snapshot is None) != (self.object_identity is None):
+            raise ValueError("source observation requires identity and snapshot")
+        return self
+
+
 class SummaryRequest(Value):
     item_ids: Annotated[list[UUID], Field(max_length=BATCH_SIZE)]
 
@@ -243,6 +255,7 @@ WorkSpec = Annotated[
 
 class FrameSelection(Value):
     kind: Literal["frames"] = "frames"
+    intent: Literal["access", "task_frame_retry"] = "access"
     frame_indices: Annotated[list[Index], Field(max_length=BATCH_SIZE)]
     width: Annotated[StrictInt, Field(ge=1, le=4096)] = 512
     format: FrameFormat = "webp"
@@ -789,6 +802,13 @@ class NativeOperation:
 
 
 OPERATIONS = {
+    "resolve_internal_media_source": NativeOperation(
+        InternalSourceRequest,
+        MediaSource,
+        ("dataset_item_id", "source_snapshot", "object_identity"),
+        ("uuid", "text", "jsonb"),
+        "system",
+    ),
     "read_media_source": NativeOperation(
         ReadSourceRequest,
         MediaSource,
@@ -1041,6 +1061,10 @@ def decode_reply(raw: Any, result_type: type[_Result]) -> _Result:
 
 
 def require_scope(request: BaseModel, result: BaseModel) -> None:
+    if isinstance(request, SummaryRequest) and isinstance(result, MediaSummaries):
+        ids = [item.dataset_item_id for item in result.items]
+        if len(ids) != len(set(ids)) or not set(ids).issubset(request.item_ids):
+            raise ValueError("media summaries escaped the requested sources")
     for field in ("operation_id", "job_id", "generation", "lease_token", "garbage_id"):
         if (
             hasattr(request, field)
@@ -1068,6 +1092,17 @@ def require_scope(request: BaseModel, result: BaseModel) -> None:
             for asset in result.assets
         ):
             raise ValueError("media assets mixed source generations")
+        if isinstance(request, InternalFrameRequest) and (
+            len(result.assets) > 1
+            or any(
+                asset.kind != "frame"
+                or asset.frame_index != request.frame_index
+                or asset.width != request.width
+                or asset.format != request.format
+                for asset in result.assets
+            )
+        ):
+            raise ValueError("internal frame result escaped its locator")
         if isinstance(request, AssetsRequest):
             selection = request.selection
             if isinstance(selection, FrameSelection):
