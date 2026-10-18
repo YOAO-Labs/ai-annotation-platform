@@ -390,6 +390,7 @@ DOMAIN_PACKAGES = (
         legacy_facades=("app.services.storage_connection",),
         allowed_app_imports=("app.config",),
     ),
+    DomainSpec(package="assets_operator", legacy_facades=()),
     DomainSpec(
         package="dataset_source_ingest_delivery",
         legacy_facades=(),

@@ -373,3 +373,150 @@ async def test_nuscenes_native_source_writes_preserve_reimport_and_cross_owner_r
         )
     finally:
         await engine.dispose()
+
+
+async def test_restricted_operator_pages_large_sources_and_rolls_back_oversized_patch(
+    test_engine,
+):
+    from aap_assets_source.operator_contract import (
+        OPERATOR_PAGE_BYTES,
+        OPERATOR_REPLY_BYTES,
+        CreateOperatorImageDatasetRequest,
+        OperatorFailure,
+        OperatorSourceEntry,
+        OperatorSourcePatch,
+    )
+    from app.services.assets_operator import AssetsOperatorGateway, _json
+    from uuid import UUID
+    import time
+
+    _resources(test_engine)
+    operator_url = make_url(_required_env("AAP_MODULE_DATA_ASSET_OPERATOR_URL"))
+    engine = create_async_engine(operator_url, hide_parameters=True)
+    maker = async_sessionmaker(engine, expire_on_commit=False)
+    async with async_sessionmaker(test_engine, expire_on_commit=False).begin() as owner:
+        actor_id = await _seed_actor(owner, role="viewer", active=False)
+    operation_id = uuid4()
+    first_id = uuid4().int & ~0xFFFF
+    metadata_value = "元" * 300_000
+    entries = [
+        OperatorSourceEntry(
+            id=UUID(int=first_id + index),
+            file_name=f"item-{index}.jpg",
+            file_path=f"operator-budget/{operation_id}/{index}.jpg",
+            file_type="image",
+            metadata={"value": metadata_value} if index < 22 else {},
+        )
+        for index in range(523)
+    ]
+    try:
+        started = time.monotonic()
+        async with maker() as caller:
+            gateway = AssetsOperatorGateway(caller)
+            created = await gateway.create_operator_image_dataset(
+                CreateOperatorImageDatasetRequest(
+                    operation_id=operation_id,
+                    created_by=actor_id,
+                    name="operator-budget-" + operation_id.hex,
+                    description="restricted operator attribution remains independent of actor state",
+                )
+            )
+            assert created.dataset.created_by == actor_id
+            saved = await gateway.append_all_items(operation_id, reversed(entries))
+            assert [item.id for item in saved] == [
+                item.id for item in reversed(entries)
+            ]
+            await caller.commit()
+        pages = []
+        async with maker() as caller:
+            gateway = AssetsOperatorGateway(caller)
+            read_page = gateway.read_operator_items
+
+            async def capture(request):
+                page = await read_page(request)
+                pages.append(len(_json(page.items).encode("utf-8")))
+                return page
+
+            gateway.read_operator_items = capture
+            observed = await gateway.read_all_items(operation_id)
+            assert [item.id for item in observed] == [item.id for item in entries]
+            assert all(
+                item.metadata == entry.metadata
+                for item, entry in zip(observed, entries, strict=True)
+            )
+        record_bytes = sum(pages)
+        assert record_bytes > OPERATOR_REPLY_BYTES
+        assert len(pages) >= 4 and max(pages) <= OPERATOR_PAGE_BYTES
+
+        # Legacy rows can exceed the new write budget; reject a late oversized
+        # reply without committing the preceding source observations.
+        oversized_id = uuid4()
+        async with async_sessionmaker(
+            test_engine, expire_on_commit=False
+        ).begin() as owner:
+            await owner.execute(
+                text(
+                    "INSERT INTO public.dataset_items "
+                    "(id,dataset_id,file_name,file_path,file_type,file_size,metadata) "
+                    "VALUES (:id,:dataset_id,'legacy.jpg',:path,'image',1, "
+                    "jsonb_build_object('legacy',repeat('x',:size)))"
+                ),
+                {
+                    "id": oversized_id,
+                    "dataset_id": operation_id,
+                    "path": f"operator-budget/{operation_id}/legacy.jpg",
+                    "size": OPERATOR_REPLY_BYTES,
+                },
+            )
+            snapshot = await owner.scalar(
+                text(
+                    "SELECT aap_assets_v1._operator_source_snapshot(item) "
+                    "FROM public.dataset_items AS item WHERE item.id=:id"
+                ),
+                {"id": oversized_id},
+            )
+        receipts_before = await _count(
+            test_engine, "SELECT count(*) FROM public.dataset_operator_operations"
+        )
+        async with maker() as caller:
+            with pytest.raises(OperatorFailure) as failed:
+                await AssetsOperatorGateway(caller).patch_all_items(
+                    operation_id,
+                    [
+                        OperatorSourcePatch(
+                            id=oversized_id, source_snapshot=snapshot, file_size=99
+                        )
+                    ],
+                )
+            assert failed.value.code == "resource_budget_exceeded"
+            await caller.commit()
+        assert (
+            await _count(
+                test_engine,
+                "SELECT file_size FROM public.dataset_items WHERE id=:id",
+                id=oversized_id,
+            )
+            == 1
+        )
+        assert (
+            await _count(
+                test_engine, "SELECT count(*) FROM public.dataset_operator_operations"
+            )
+            == receipts_before
+        )
+        _evidence(
+            "restricted_budget",
+            {
+                "status": "passed",
+                "operator_login": "asset_operator_client",
+                "inactive_nonmanager_attribution": True,
+                "items": len(entries),
+                "record_bytes": record_bytes,
+                "pages": len(pages),
+                "largest_page_record_bytes": max(pages),
+                "seconds": round(time.monotonic() - started, 3),
+                "late_reply_budget_rollback": True,
+            },
+        )
+    finally:
+        await engine.dispose()
