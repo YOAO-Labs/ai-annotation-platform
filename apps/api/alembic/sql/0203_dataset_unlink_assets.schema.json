@@ -1,0 +1,192 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:aap:contract:dataset-unlink-assets:v1",
+  "title": "Dataset unlink Assets and Diagnostics capabilities v1",
+  "description": "Language-neutral signatures and typed row/result shapes. Cleanup IO runs outside the transaction.",
+  "x-postgresql-functions": [
+    "aap_assets_v1.dataset_item_references(uuid, uuid)",
+    "aap_assets_v1.dataset_scene_references(uuid)",
+    "aap_assets_v1.remove_dataset_association(uuid, uuid, uuid)",
+    "aap_assets_v1.prepare_dataset_unlink_cleanup(uuid, uuid, uuid, text)",
+    "aap_assets_v1.pending_storage_deletions(uuid, integer)",
+    "aap_assets_v1.complete_storage_deletion(uuid, uuid)",
+    "aap_diagnostics_v1.detach_dataset_task_references(uuid, uuid)"
+  ],
+  "x-postgresql-dependencies": ["aap_labeling_v1.dataset_task_references(uuid, uuid)"],
+  "oneOf": [
+    { "$ref": "#/$defs/itemReferencesCall" },
+    { "$ref": "#/$defs/sceneReferencesCall" },
+    { "$ref": "#/$defs/removeAssociationCall" },
+    { "$ref": "#/$defs/prepareCleanupCall" },
+    { "$ref": "#/$defs/pendingDeletionsCall" },
+    { "$ref": "#/$defs/completeDeletionCall" },
+    { "$ref": "#/$defs/detachReportsCall" }
+  ],
+  "$defs": {
+    "uuid": { "type": "string", "format": "uuid" },
+    "nullableUuid": { "type": ["string", "null"], "format": "uuid" },
+    "integerCount": { "type": "integer", "minimum": 0 },
+    "bucket": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 63,
+      "pattern": "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*$",
+      "not": { "pattern": "^[0-9]+(\\.[0-9]+){3}$" }
+    },
+    "projectArguments": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["p_dataset_id", "p_project_id"],
+      "properties": {
+        "p_dataset_id": { "$ref": "#/$defs/uuid" },
+        "p_project_id": { "$ref": "#/$defs/uuid" }
+      }
+    },
+    "itemReferenceRow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["item_id"],
+      "properties": { "item_id": { "$ref": "#/$defs/uuid" } }
+    },
+    "sceneReferenceRow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scene_id"],
+      "properties": { "scene_id": { "$ref": "#/$defs/uuid" } }
+    },
+    "pendingDeletionRow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["operation_id", "asset_id", "bucket", "prefix"],
+      "properties": {
+        "operation_id": { "$ref": "#/$defs/uuid" },
+        "asset_id": { "$ref": "#/$defs/uuid" },
+        "bucket": { "$ref": "#/$defs/bucket" },
+        "prefix": {
+          "type": "string",
+          "pattern": "^image-pyramids/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/$"
+        }
+      }
+    },
+    "itemReferencesCall": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["function", "arguments", "result"],
+      "properties": {
+        "function": { "const": "aap_assets_v1.dataset_item_references(uuid, uuid)" },
+        "arguments": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["p_dataset_id", "p_item_id"],
+          "properties": {
+            "p_dataset_id": { "$ref": "#/$defs/uuid" },
+            "p_item_id": { "$ref": "#/$defs/nullableUuid" }
+          }
+        },
+        "result": { "type": "array", "items": { "$ref": "#/$defs/itemReferenceRow" } }
+      }
+    },
+    "sceneReferencesCall": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["function", "arguments", "result"],
+      "properties": {
+        "function": { "const": "aap_assets_v1.dataset_scene_references(uuid)" },
+        "arguments": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["p_dataset_id"],
+          "properties": { "p_dataset_id": { "$ref": "#/$defs/uuid" } }
+        },
+        "result": { "type": "array", "items": { "$ref": "#/$defs/sceneReferenceRow" } }
+      }
+    },
+    "removeAssociationCall": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["function", "arguments", "result"],
+      "properties": {
+        "function": { "const": "aap_assets_v1.remove_dataset_association(uuid, uuid, uuid)" },
+        "arguments": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["p_dataset_id", "p_project_id", "p_association_id"],
+          "properties": {
+            "p_dataset_id": { "$ref": "#/$defs/uuid" },
+            "p_project_id": { "$ref": "#/$defs/uuid" },
+            "p_association_id": { "$ref": "#/$defs/uuid" }
+          }
+        },
+        "result": { "type": "boolean" }
+      }
+    },
+    "prepareCleanupCall": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["function", "arguments", "result"],
+      "properties": {
+        "function": {
+          "const": "aap_assets_v1.prepare_dataset_unlink_cleanup(uuid, uuid, uuid, text)"
+        },
+        "arguments": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["p_operation_id", "p_dataset_id", "p_project_id", "p_bucket"],
+          "properties": {
+            "p_operation_id": { "$ref": "#/$defs/uuid" },
+            "p_dataset_id": { "$ref": "#/$defs/uuid" },
+            "p_project_id": { "$ref": "#/$defs/uuid" },
+            "p_bucket": { "$ref": "#/$defs/bucket" }
+          }
+        },
+        "result": { "$ref": "#/$defs/integerCount" }
+      }
+    },
+    "pendingDeletionsCall": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["function", "arguments", "result"],
+      "properties": {
+        "function": { "const": "aap_assets_v1.pending_storage_deletions(uuid, integer)" },
+        "arguments": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["p_operation_id", "p_limit"],
+          "properties": {
+            "p_operation_id": { "$ref": "#/$defs/nullableUuid" },
+            "p_limit": { "type": "integer", "minimum": 1, "maximum": 1000 }
+          }
+        },
+        "result": { "type": "array", "items": { "$ref": "#/$defs/pendingDeletionRow" } }
+      }
+    },
+    "completeDeletionCall": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["function", "arguments", "result"],
+      "properties": {
+        "function": { "const": "aap_assets_v1.complete_storage_deletion(uuid, uuid)" },
+        "arguments": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["p_operation_id", "p_asset_id"],
+          "properties": {
+            "p_operation_id": { "$ref": "#/$defs/uuid" },
+            "p_asset_id": { "$ref": "#/$defs/uuid" }
+          }
+        },
+        "result": { "type": "boolean" }
+      }
+    },
+    "detachReportsCall": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["function", "arguments", "result"],
+      "properties": {
+        "function": { "const": "aap_diagnostics_v1.detach_dataset_task_references(uuid, uuid)" },
+        "arguments": { "$ref": "#/$defs/projectArguments" },
+        "result": { "$ref": "#/$defs/integerCount" }
+      }
+    }
+  }
+}
