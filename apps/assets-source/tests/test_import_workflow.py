@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import hashlib
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from uuid import uuid4
+import io
 
 import pytest
 
@@ -153,7 +155,7 @@ def test_native_entry_dataset_scope_is_checked_again_at_runtime() -> None:
         ),
     )
     with pytest.raises(ImportFailure, match="invalid_response"):
-        _validate_entry_scope(entry, state, {"base_prefix": ""})
+        _validate_entry_scope(entry, state, {"base_prefix": ""}, publication_id)
 
 
 def _valid_entry(state: ImportState) -> ImportEntry:
@@ -205,6 +207,81 @@ class _SettlementDatabase:
         yield self.data
 
 
+class _RejectedSourceData:
+    def __init__(self, state: ImportState) -> None:
+        self.state = state
+        self.next_publications: list = []
+        self.completions: list = []
+        self.busy_once = True
+
+    async def next_entry(self, _job_id, _lease_token, publication_id):
+        self.next_publications.append(publication_id)
+        if len(self.next_publications) == 1:
+            raise ImportFailure("invalid_source_object")
+        item_id = uuid4()
+        return ImportEntry(
+            job_id=self.state.job_id,
+            lease_token=self.state.lease_token,
+            index=self.state.cursor,
+            item_id=item_id,
+            publication_id=publication_id,
+            file_name="valid.jpg",
+            file_path=(
+                f"dataset-sources/{self.state.dataset_id}/{item_id}/"
+                f"{publication_id}/valid.jpg"
+            ),
+            file_type="image",
+            source=ImportSourceObject(
+                relpath="batch/valid.jpg", size=3, mtime=None, etag="listed-etag"
+            ),
+        )
+
+    async def complete_entry(
+        self, _job_id, _lease_token, index, publication_id, completion
+    ):
+        self.completions.append((index, publication_id, completion))
+        if completion.status == "error" and self.busy_once:
+            self.busy_once = False
+            raise ImportFailure("dataset_busy")
+        updates = {
+            "cursor": index + 1,
+            "error_count": self.state.error_count
+            + (1 if completion.status == "error" else 0),
+            "added": self.state.added + (1 if completion.status == "copied" else 0),
+            "committed_bytes": self.state.committed_bytes + (completion.file_size or 0),
+        }
+        self.state = self.state.model_copy(update=updates)
+        return self.state
+
+
+class _RejectedSourceDatabase:
+    def __init__(self, data: _RejectedSourceData) -> None:
+        self.data = data
+
+    @asynccontextmanager
+    async def transaction(self):
+        yield self.data
+
+
+class _ValidOnlyAdapter:
+    def __init__(self) -> None:
+        self.opened: list[str] = []
+
+    def open(self, relpath, *, etag=None):
+        self.opened.append(relpath)
+        assert etag == "listed-etag"
+        return io.BytesIO(b"img")
+
+
+class _ValidOnlyStorage:
+    async def transfer(self, _stream, entry, *, byte_budget, before_io, on_bytes):
+        assert entry.source.relpath == "batch/valid.jpg"
+        assert byte_budget >= 3
+        before_io()
+        on_bytes(3)
+        return 3, hashlib.md5(b"img", usedforsecurity=False).hexdigest(), None
+
+
 @pytest.mark.asyncio
 async def test_settlement_retries_persistence_contention_with_same_receipt(
     monkeypatch,
@@ -227,6 +304,38 @@ async def test_settlement_retries_persistence_contention_with_same_receipt(
     assert len(data.calls) == 3
     assert {call[3] for call in data.calls} == {entry.publication_id}
     assert {call[4] for call in data.calls} == {completion}
+
+
+@pytest.mark.asyncio
+async def test_unrepresentable_source_name_is_recorded_and_next_file_is_copied(
+    monkeypatch,
+) -> None:
+    async def no_sleep(_seconds):
+        return None
+
+    monkeypatch.setattr("aap_assets_source_import.workflow.asyncio.sleep", no_sleep)
+    state = _state(stage="importing").model_copy(update={"total": 2, "total_bytes": 8})
+    data = _RejectedSourceData(state)
+    database = _RejectedSourceDatabase(data)
+    adapter = _ValidOnlyAdapter()
+    workflow = ImportWorkflow(database, _ValidOnlyStorage(), object())
+    keeper = LeaseKeeper(database, object(), state, asyncio.Event())
+
+    await workflow._copy_manifest(state, adapter, {"base_prefix": ""}, keeper)
+
+    assert len(data.next_publications) == 2
+    invalid_settlements = [item for item in data.completions if item[0] == 0]
+    assert len(invalid_settlements) == 2
+    assert {item[1] for item in invalid_settlements} == {data.next_publications[0]}
+    assert {item[2].error_code for item in invalid_settlements} == {
+        "invalid_source_object"
+    }
+    assert data.completions[-1][0] == 1
+    assert data.completions[-1][2].status == "copied"
+    assert adapter.opened == ["batch/valid.jpg"]
+    assert data.state.cursor == 2
+    assert data.state.error_count == 1
+    assert data.state.added == 1
 
 
 @pytest.mark.asyncio

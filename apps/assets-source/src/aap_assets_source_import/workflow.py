@@ -293,13 +293,24 @@ class ImportWorkflow:
         while state.cursor < (state.total or 0):
             keeper.check()
             publication_id = uuid4()
-            async with self._database.transaction() as data:
-                entry = await data.next_entry(
-                    state.job_id, state.lease_token, publication_id
+            try:
+                async with self._database.transaction() as data:
+                    entry = await data.next_entry(
+                        state.job_id, state.lease_token, publication_id
+                    )
+            except ImportFailure as exc:
+                if exc.code != "invalid_source_object":
+                    raise
+                state = await self._complete_pending_error_with_retry(
+                    state,
+                    publication_id,
+                    _item_error("invalid_source_object"),
+                    keeper,
                 )
+                continue
             if entry is None:
                 raise ImportFailure("invalid_response")
-            _validate_entry_scope(entry, state, connector_config)
+            _validate_entry_scope(entry, state, connector_config, publication_id)
             file_type = _infer_file_type(entry.file_name)
             if file_type != entry.file_type:
                 completion = ImportEntryCompletion(
@@ -392,6 +403,38 @@ class ImportWorkflow:
         completion: ImportEntryCompletion,
         keeper: LeaseKeeper,
     ) -> ImportState:
+        return await self._settle_entry_with_retry(
+            state,
+            entry.index,
+            entry.publication_id,
+            completion,
+            keeper,
+        )
+
+    async def _complete_pending_error_with_retry(
+        self,
+        state: ImportState,
+        publication_id: UUID,
+        completion: ImportEntryCompletion,
+        keeper: LeaseKeeper,
+    ) -> ImportState:
+        """Settle a rejected pending manifest row without inventing an entry DTO."""
+        return await self._settle_entry_with_retry(
+            state,
+            state.cursor,
+            publication_id,
+            completion,
+            keeper,
+        )
+
+    async def _settle_entry_with_retry(
+        self,
+        state: ImportState,
+        index: int,
+        publication_id: UUID,
+        completion: ImportEntryCompletion,
+        keeper: LeaseKeeper,
+    ) -> ImportState:
         assert state.lease_token is not None
         for attempt in range(5):
             keeper.check()
@@ -400,11 +443,11 @@ class ImportWorkflow:
                     completed = await data.complete_entry(
                         state.job_id,
                         state.lease_token,
-                        entry.index,
-                        entry.publication_id,
+                        index,
+                        publication_id,
                         completion,
                     )
-                if completed.cursor != entry.index + 1:
+                if completed.cursor != index + 1:
                     raise ImportFailure("invalid_response")
                 _require_same_scope(state, completed)
                 return completed
@@ -484,7 +527,10 @@ def _collect_manifest(
 
 
 def _validate_entry_scope(
-    entry: ImportEntry, state: ImportState, connector_config: dict[str, Any]
+    entry: ImportEntry,
+    state: ImportState,
+    connector_config: dict[str, Any],
+    requested_publication_id: UUID,
 ) -> None:
     if state.lease_token is None:
         raise ImportFailure("lease_lost")
@@ -492,6 +538,7 @@ def _validate_entry_scope(
         entry.job_id != state.job_id
         or entry.lease_token != state.lease_token
         or entry.index != state.cursor
+        or entry.publication_id != requested_publication_id
     ):
         raise ImportFailure("invalid_response")
     parts = entry.file_path.split("/", 4)
