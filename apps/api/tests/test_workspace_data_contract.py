@@ -214,7 +214,7 @@ async def test_project_reference_ignores_temporary_projects_table(test_engine):
     try:
         async with maker.begin() as session:
             await session.execute(
-                text("CREATE TEMP TABLE projects (id uuid PRIMARY KEY)")
+                text("CREATE TEMP TABLE projects (id uuid PRIMARY KEY) ON COMMIT DROP")
             )
             await session.execute(
                 text("INSERT INTO pg_temp.projects (id) VALUES (:project_id)"),

@@ -397,6 +397,11 @@ class LocalResources:
                     f"GRANT USAGE ON SCHEMA public TO {role}",
                     f"GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO {role}",
                     f"GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO {role}",
+                    f"GRANT USAGE ON SCHEMA aap_workspace_v1, aap_assets_v1, aap_labeling_v1 TO {role}",
+                    f"GRANT EXECUTE ON FUNCTION aap_workspace_v1.lock_project_reference(uuid), "
+                    "aap_assets_v1.lock_dataset_reference(uuid), "
+                    "aap_assets_v1.lock_current_association(uuid, uuid), "
+                    f"aap_labeling_v1.append_dataset_items(uuid, uuid[], uuid) TO {role}",
                 ):
                     await connection.exec_driver_sql(sql)
         finally:

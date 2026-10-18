@@ -263,6 +263,11 @@ docker compose --profile monitoring up -d prometheus grafana
 显式选择；启动与消费者配置见 [DEV.md](./DEV.md#独立素材探测服务)，
 接口见[独立素材探测协议](./docs-site/api/guides/media-probe.md)。
 
+已有数据集的追加建题通过版本化 PostgreSQL 数据接口共享外层事务，保留素材、任务和
+计数的共同回滚；独立受限账号的配置与本地验收见 [DEV.md](./DEV.md#同库事务的数据接口)。
+这只覆盖一个写入操作；[所有模块的部署与语言替换状态](./docs-site/dev/concepts/module-deployment.md)
+仍按完整运行工件、协议、权限与事务逐项验收。
+
 ## 开发工作流
 
 ```bash

@@ -27,6 +27,9 @@ async def delete_dataset(
 async def unlink_dataset_from_project(
     db: AsyncSession, dataset_id: uuid.UUID, project_id: uuid.UUID
 ) -> dict | None:
+    assets = DatasetService(db)
+    if await assets.lock_project_association(dataset_id, project_id) is None:
+        return None
     target_rows = (
         await db.execute(
             select(Task.id, Task.batch_id)
@@ -46,7 +49,6 @@ async def unlink_dataset_from_project(
     labeling = LabelingTaskService(db)
     deleted = await labeling.delete_unlinked_tasks(task_ids)
 
-    assets = DatasetService(db)
     if not await assets.remove_project_association(dataset_id, project_id):
         return None
 

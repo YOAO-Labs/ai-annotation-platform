@@ -369,6 +369,12 @@ async def upload_complete(
         await db.commit()
         raise HTTPException(status_code=400, detail="File not found in storage")
 
+    if await svc.lock_dataset_reference(dataset_id) is None:
+        raise HTTPException(status_code=404, detail="Item not found")
+    item = await db.get(DatasetItem, item_id, populate_existing=True)
+    if item is None or item.dataset_id != dataset_id:
+        raise HTTPException(status_code=404, detail="Item not found")
+
     content_length = meta.get("ContentLength")
     if content_length:
         svc.record_uploaded_item_content(item, file_size=content_length)

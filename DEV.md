@@ -374,6 +374,35 @@ unset MEDIA_PROBE_URL MEDIA_PROBE_TOKEN
 模块整体状态见 [模块部署与语言替换](docs-site/dev/concepts/module-deployment.md)，
 协议、独立运行和验证命令见 [media-probe](apps/media-probe/README.md)。
 
+### 同库事务的数据接口
+
+已有数据集的追加建题通过 `aap_labeling_v1.append_dataset_items` 执行，输入为 dataset
+UUID、素材 UUID 数组与唯一操作 UUID，返回 `aap-task-append/v1` JSON。函数与来源素材
+写入共享调用方事务，不内部提交。调用端可以使用任何 PostgreSQL 驱动；不可读取其他
+模块私有表来代替公开接口。SQL 和 JSON Schema 位于 `apps/api/alembic/sql/0190*`、
+`0191*`，迁移链安装同一份冻结 SQL。
+
+独立数据接口的函数 owner 使用三个无登录角色，调用端使用独立登录角色。
+`infra/docker/module-data-grants.sql` 只向显式数据库中的既有角色授权，不创建角色或
+修改密码。部署操作者先提供角色及迁移者向其转交函数的权限，再运行：
+
+```bash
+psql -v expected_database=annotation_test -v migration_role=owner \
+  -v workspace_owner=workspace_code -v assets_owner=assets_code \
+  -v labeling_owner=labeling_code -v workflow_role=append_client \
+  -f infra/docker/module-data-grants.sql
+```
+
+连接参数由操作者在本地显式配置。该脚本拒绝带管理权限、继承 owner 或能直接读写
+业务表的调用角色；不会自动缩减现有主 API 的宽权限账号。现有主 API/worker 迁移期
+仍使用原运行角色，分离迁移账号时需在迁移后执行原环境授权流程以获取新接口执行权。
+
+本地验收使用专属 PostgreSQL 容器、test mode 数据库、Redis 与九个隔离桶，不创建或
+修改日常 PostgreSQL 的角色。运行命令及参数见
+`scripts/verify_module_data_boundary.py --help`；记录该命令的 JUnit 与 JSON 结果。
+它不验证生产容量，也不提供完整 assets/labeling 模块的独立部署资格。具体事务约束
+见 [ADR-0092](docs/adr/0092-transactional-module-data-capabilities.md)。
+
 ## 技术栈
 
 | 层        | 技术                                                 |

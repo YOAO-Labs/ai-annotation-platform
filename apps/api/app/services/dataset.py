@@ -9,7 +9,7 @@ import uuid
 from typing import Any, AsyncIterator, BinaryIO, Literal, Mapping, Sequence
 
 from fastapi import HTTPException
-from sqlalchemy import select, func, delete
+from sqlalchemy import select, func, delete, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.dataset import (
@@ -21,7 +21,6 @@ from app.db.models.dataset import (
 )
 from app.db.models.project import Project
 from app.services.display_id import next_display_id
-from app.services.dataset_task_facts import PreparedDatasetItem
 from app.services.project_kind import (
     dataset_has_scenes,
     dataset_kind,
@@ -613,10 +612,18 @@ class DatasetService:
     async def delete_item(
         self, item_id: uuid.UUID, *, dataset_id: uuid.UUID | None = None
     ) -> bool:
-        item = await self.db.scalar(
-            select(DatasetItem).where(DatasetItem.id == item_id).with_for_update()
+        parent_id = await self.db.scalar(
+            select(DatasetItem.dataset_id).where(DatasetItem.id == item_id)
         )
-        if not item or (dataset_id is not None and item.dataset_id != dataset_id):
+        if parent_id is None or (dataset_id is not None and parent_id != dataset_id):
+            return False
+        await self.lock_dataset_reference(parent_id)
+        item = await self.db.scalar(
+            select(DatasetItem)
+            .where(DatasetItem.id == item_id, DatasetItem.dataset_id == parent_id)
+            .with_for_update()
+        )
+        if not item:
             return False
 
         await guard_source(self.db, item_ids=[item_id])
@@ -1037,6 +1044,7 @@ class DatasetService:
     async def associate_project(
         self, dataset_id: uuid.UUID, project_id: uuid.UUID
     ) -> DatasetProjectAssociation:
+        await self.lock_dataset_reference(dataset_id)
         existing = (
             await self.db.execute(
                 select(ProjectDataset).where(
@@ -1079,6 +1087,8 @@ class DatasetService:
     async def remove_project_association(
         self, dataset_id: uuid.UUID, project_id: uuid.UUID
     ) -> bool:
+        if await self.lock_project_association(dataset_id, project_id) is None:
+            return False
         result = await self.db.execute(
             delete(ProjectDataset).where(
                 ProjectDataset.dataset_id == dataset_id,
@@ -1087,39 +1097,23 @@ class DatasetService:
         )
         return result.rowcount != 0
 
-    async def linked_project_ids(self, dataset_id: uuid.UUID) -> tuple[uuid.UUID, ...]:
-        rows = await self.db.execute(
-            select(ProjectDataset.project_id).where(
-                ProjectDataset.dataset_id == dataset_id
-            )
+    async def lock_project_association(
+        self, dataset_id: uuid.UUID, project_id: uuid.UUID
+    ) -> uuid.UUID | None:
+        await self.db.flush()
+        return await self.db.scalar(
+            text(
+                "SELECT aap_assets_v1.lock_current_association("
+                "CAST(:dataset_id AS uuid), CAST(:project_id AS uuid))"
+            ),
+            {"dataset_id": dataset_id, "project_id": project_id},
         )
-        return tuple(row[0] for row in rows.all())
 
-    async def prepare_task_items(
-        self,
-        dataset_id: uuid.UUID,
-        item_ids: tuple[uuid.UUID, ...],
-    ) -> tuple[PreparedDatasetItem, ...]:
-        if not item_ids:
-            return ()
-        query = select(
-            DatasetItem.id,
-            DatasetItem.file_name,
-            DatasetItem.file_path,
-            DatasetItem.file_type,
-        ).where(
-            DatasetItem.dataset_id == dataset_id,
-            DatasetItem.id.in_(item_ids),
-        )
-        rows = (await self.db.execute(query)).all()
-        return tuple(
-            PreparedDatasetItem(
-                id=row.id,
-                file_name=row.file_name,
-                file_path=row.file_path,
-                file_type=row.file_type,
-            )
-            for row in rows
+    async def lock_dataset_reference(self, dataset_id: uuid.UUID) -> uuid.UUID | None:
+        await self.db.flush()
+        return await self.db.scalar(
+            text("SELECT aap_assets_v1.lock_dataset_reference(CAST(:id AS uuid))"),
+            {"id": dataset_id},
         )
 
     async def assert_temporal_dataset_has_scenes(self, dataset_id: uuid.UUID) -> None:

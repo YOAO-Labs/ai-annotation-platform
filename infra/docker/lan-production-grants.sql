@@ -36,6 +36,12 @@ REVOKE CREATE ON SCHEMA public FROM PUBLIC;
 GRANT USAGE, CREATE ON SCHEMA public TO :"application_role";
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO :"application_role";
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO :"application_role";
+GRANT USAGE ON SCHEMA aap_workspace_v1, aap_assets_v1, aap_labeling_v1 TO :"application_role";
+GRANT EXECUTE ON FUNCTION aap_workspace_v1.lock_project_reference(uuid),
+    aap_assets_v1.lock_dataset_reference(uuid),
+    aap_assets_v1.lock_current_association(uuid, uuid),
+    aap_labeling_v1.append_dataset_items(uuid, uuid[], uuid)
+    TO :"application_role";
 ALTER DEFAULT PRIVILEGES FOR ROLE :"migration_role" IN SCHEMA public
     GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO :"application_role";
 ALTER DEFAULT PRIVILEGES FOR ROLE :"migration_role" IN SCHEMA public

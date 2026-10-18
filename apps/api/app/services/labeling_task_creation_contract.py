@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import uuid
-from typing import Protocol, TypedDict
+from typing import Annotated, Literal, Protocol, TypedDict
+
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.services.dataset_task_facts import (
     PreparedDatasetItem,
@@ -16,6 +18,33 @@ class TaskCreationCounts(TypedDict):
 
     created: int
     total: int
+
+
+class AppendProjectTotal(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    project_id: uuid.UUID
+    total_tasks: Annotated[int, Field(strict=True, ge=0)]
+
+
+class AppendAssociation(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    id: uuid.UUID
+    project_id: uuid.UUID
+
+
+class TaskAppendResult(BaseModel):
+    """The persisted aap-task-append/v1 receipt, independent of ORM objects."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    schema_version: Literal["aap-task-append/v1"] = Field(alias="schema")
+    operation_id: uuid.UUID
+    dataset_id: uuid.UUID
+    created: Annotated[int, Field(strict=True, ge=0)]
+    project_totals: tuple[AppendProjectTotal, ...]
+    associations: tuple[AppendAssociation, ...]
 
 
 class LabelingTaskCreationPort(Protocol):
@@ -52,9 +81,10 @@ class LabelingTaskCreationPort(Protocol):
         commit_each_chunk: bool = True,
     ) -> TaskCreationCounts: ...
 
-    async def append_items(
+    async def append_dataset_items(
         self,
         *,
-        project_ids: tuple[uuid.UUID, ...],
-        items: tuple[PreparedDatasetItem, ...],
+        dataset_id: uuid.UUID,
+        item_ids: tuple[uuid.UUID, ...],
+        operation_id: uuid.UUID,
     ) -> int: ...

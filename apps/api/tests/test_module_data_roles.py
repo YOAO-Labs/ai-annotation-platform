@@ -264,6 +264,22 @@ async def test_append_client_cannot_read_or_write_private_tables_or_escalate(
                 "'SELECT,INSERT,UPDATE,DELETE')"
             )
         )
+        assert (
+            await legacy.scalar(
+                text("SELECT aap_workspace_v1.lock_project_reference(:id)"),
+                {"id": uuid4()},
+            )
+            is None
+        )
+        assert (
+            await legacy.scalar(
+                text("SELECT aap_assets_v1.lock_dataset_reference(:id)"),
+                {"id": uuid4()},
+            )
+            is None
+        )
+        assert (await _append(legacy, uuid4(), (), uuid4()))["created"] == 0
+        await legacy.rollback()
 
     relations = (
         "public.projects",

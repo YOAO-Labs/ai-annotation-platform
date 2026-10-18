@@ -509,7 +509,7 @@ def main(argv: list[str] | None = None) -> int:
         _container_details(
             container_id, container_name, container_identity, require_running=True
         )
-        backend.grant_runtime()
+        asyncio.run(backend.grant_runtime())
         evidence["migrations"]["runtime_grants_reapplied"] = True
         append_url = URL.create(
             "postgresql+asyncpg",

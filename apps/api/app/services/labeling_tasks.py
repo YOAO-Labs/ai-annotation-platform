@@ -6,6 +6,7 @@ from datetime import datetime
 
 from sqlalchemy import delete, func, insert, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm.util import identity_key
 from sqlalchemy.orm.attributes import set_committed_value
 from sqlalchemy.sql.selectable import FromClause
 
@@ -20,6 +21,7 @@ from app.services.dataset_task_facts import (
 )
 from app.services.labeling_task_creation_contract import (
     LabelingTaskCreationPort,
+    TaskAppendResult,
     TaskCreationCounts,
 )
 
@@ -403,73 +405,38 @@ class LabelingTaskService(LabelingTaskCreationPort):
 
         return {"created": created, "total": total}
 
-    async def append_items(
+    async def append_dataset_items(
         self,
         *,
-        project_ids: tuple[uuid.UUID, ...],
-        items: tuple[PreparedDatasetItem, ...],
+        dataset_id: uuid.UUID,
+        item_ids: tuple[uuid.UUID, ...],
+        operation_id: uuid.UUID,
     ) -> int:
-        if not project_ids or not items:
-            return 0
-
-        existing_rows = await self.db.execute(
-            select(Task.project_id, Task.dataset_item_id).where(
-                Task.project_id.in_(project_ids),
-                Task.dataset_item_id.in_([item.id for item in items]),
-            )
-        )
-        existing_pairs = {(row[0], row[1]) for row in existing_rows.all()}
-        pending = [
-            (project_id, item)
-            for project_id in project_ids
-            for item in items
-            if (project_id, item.id) not in existing_pairs
-        ]
-        if not pending:
-            return 0
-
-        total_created = 0
-        chunk_size = 5000
-        for start in range(0, len(pending), chunk_size):
-            chunk = pending[start : start + chunk_size]
-            seq_result = await self.db.execute(
-                text("SELECT nextval('display_seq_tasks') FROM generate_series(1, :n)"),
-                {"n": len(chunk)},
-            )
-            display_nums = [row[0] for row in seq_result.all()]
-            rows = [
-                {
-                    "id": uuid.uuid4(),
-                    "project_id": project_id,
-                    "dataset_item_id": item.id,
-                    "batch_id": None,
-                    "display_id": f"T-{display_nums[index]}",
-                    "file_name": item.file_name,
-                    "file_path": item.file_path,
-                    "file_type": item.file_type,
-                    "status": "pending",
-                    "annotation_contributor_ids": [],
-                }
-                for index, (project_id, item) in enumerate(chunk)
-            ]
-            await self.db.execute(insert(Task), rows)
-            total_created += len(chunk)
-
-        created_by_project: dict[uuid.UUID, int] = {}
-        for project_id, _item in pending:
-            created_by_project[project_id] = created_by_project.get(project_id, 0) + 1
-        projects = (
-            (await self.db.execute(select(Project).where(Project.id.in_(project_ids))))
-            .scalars()
-            .all()
-        )
-        for project in projects:
-            project.total_tasks = (project.total_tasks or 0) + created_by_project.get(
-                project.id, 0
-            )
-
+        # Flush source inserts into the same transaction before crossing the data API.
         await self.db.flush()
-        return total_created
+        payload = await self.db.scalar(
+            text(
+                "SELECT aap_labeling_v1.append_dataset_items("
+                "CAST(:dataset_id AS uuid), CAST(:item_ids AS uuid[]), "
+                "CAST(:operation_id AS uuid))"
+            ),
+            {
+                "dataset_id": dataset_id,
+                "item_ids": list(item_ids),
+                "operation_id": operation_id,
+            },
+        )
+        result = TaskAppendResult.model_validate(payload)
+        if result.dataset_id != dataset_id or result.operation_id != operation_id:
+            raise ValueError("Task append receipt does not match its request")
+        for total in result.project_totals:
+            project = self.db.identity_map.get(
+                identity_key(Project, ident=total.project_id)
+            )
+            if project is not None:
+                # Replayed receipts contain historical totals, not current projections.
+                self.db.expire(project, ["total_tasks"])
+        return result.created
 
     async def delete_unlinked_tasks(self, task_ids: list[uuid.UUID]) -> dict[str, int]:
         """Delete the limited legacy child set used by dataset unlink."""
@@ -510,6 +477,10 @@ class LabelingTaskService(LabelingTaskCreationPort):
     ) -> list[uuid.UUID]:
         from app.db.models.task_batch import TaskBatch
 
+        await self.db.scalar(
+            text("SELECT id FROM public.projects WHERE id = :id FOR NO KEY UPDATE"),
+            {"id": project_id},
+        )
         project = await self.db.get(Project, project_id)
         if project:
             row = (

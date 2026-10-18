@@ -30,6 +30,7 @@ last_reviewed: 2026-10-17
 | 训练参数契约    | `apps/_shared/training_contract`                                                            | 纯 Python 原生框架字段快照、catalog 依赖校验、预算与回流契约                                     |
 | 训练执行器      | `apps/training-executor`                                                                    | 独立拉取式执行器，文件锁独占 GPU，管理原生训练子进程与脱敏日志                                   |
 | 素材探测服务    | `apps/media-probe`                                                                          | 独立元数据/帧时间表/packet 探测与 HTTP/NDJSON 合同；不取得数据库或对象存储访问权                 |
+| 事务数据能力    | `apps/api/alembic/sql/0190*`、`0191*`                                                       | Workspace/Assets 引用与 Labeling 追加建题；冻结 SQL/JSON 合同，保留同库外层事务                  |
 | ML backend      | `apps/{grounded-sam2,sam3,yolo,rapidocr,onnxtools}-backend`                                 | 各自的池包装 / 观测 / 生命周期                                                                   |
 
 ## 2. 授权真值（唯一来源）

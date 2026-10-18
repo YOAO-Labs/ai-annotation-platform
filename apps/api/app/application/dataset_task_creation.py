@@ -112,8 +112,8 @@ class DatasetTaskCreationWorkflow:
         unique_item_ids = tuple(dict.fromkeys(item_ids))
         if not unique_item_ids:
             return 0
-        project_ids = await self.assets.linked_project_ids(dataset_id)
-        if not project_ids:
-            return 0
-        items = await self.assets.prepare_task_items(dataset_id, unique_item_ids)
-        return await self.labeling.append_items(project_ids=project_ids, items=items)
+        return await self.labeling.append_dataset_items(
+            dataset_id=dataset_id,
+            item_ids=unique_item_ids,
+            operation_id=uuid.uuid4(),
+        )

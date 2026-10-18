@@ -86,7 +86,6 @@ DECLARE
     v_association_id uuid;
     v_associations jsonb := '[]'::jsonb;
     v_items jsonb := '[]'::jsonb;
-    v_item record;
 BEGIN
     IF p_dataset_id IS NULL OR p_item_ids IS NULL THEN
         RAISE EXCEPTION USING
@@ -136,14 +135,14 @@ BEGIN
         );
     END IF;
 
-    FOR v_item IN
-        WITH requested AS (
-            SELECT input.item_id, pg_catalog.min(input.ordinality) AS ordinality
-            FROM pg_catalog.unnest(p_item_ids) WITH ORDINALITY
-                AS input(item_id, ordinality)
-            WHERE input.item_id IS NOT NULL
-            GROUP BY input.item_id
-        )
+    WITH requested AS (
+        SELECT input.item_id, pg_catalog.min(input.ordinality) AS ordinality
+        FROM pg_catalog.unnest(p_item_ids) WITH ORDINALITY
+            AS input(item_id, ordinality)
+        WHERE input.item_id IS NOT NULL
+        GROUP BY input.item_id
+    ),
+    locked_items AS MATERIALIZED (
         SELECT
             item.id,
             item.file_name,
@@ -156,16 +155,20 @@ BEGIN
          AND item.dataset_id = v_dataset_id
         ORDER BY requested.ordinality, item.id
         FOR KEY SHARE OF item
-    LOOP
-        v_items := v_items || pg_catalog.jsonb_build_array(
+    )
+    SELECT COALESCE(
+        pg_catalog.jsonb_agg(
             pg_catalog.jsonb_build_object(
-                'id', v_item.id,
-                'file_name', v_item.file_name,
-                'file_path', v_item.file_path,
-                'file_type', v_item.file_type
-            )
-        );
-    END LOOP;
+                'id', item.id,
+                'file_name', item.file_name,
+                'file_path', item.file_path,
+                'file_type', item.file_type
+            ) ORDER BY item.ordinality, item.id
+        ),
+        '[]'::jsonb
+    )
+    INTO v_items
+    FROM locked_items AS item;
 
     RETURN pg_catalog.jsonb_build_object(
         'schema', 'aap-assets-append-sources/v1',
@@ -215,6 +218,9 @@ BEGIN
         SELECT DISTINCT input.item_id
         FROM pg_catalog.unnest(p_item_ids) AS input(item_id)
     ) AS requested;
+
+    -- Source writers already hold this parent lock before calling the contract.
+    PERFORM aap_assets_v1.lock_dataset_reference(p_dataset_id);
 
     INSERT INTO public.task_append_operations (
         operation_id,

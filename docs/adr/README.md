@@ -135,3 +135,4 @@
 - [0089](archive/0089-injected-quality-job-dispatch.md) — 质量执行通过领域端口注入 Celery 派发适配器
 - [0090](0090-module-languages-and-audit-summary-process.md) — 按模块选择语言，以只读审计月报验证 Go 进程边界
 - [0091](0091-independent-media-probe-contract.md) — 独立素材探测协议与逐模块提取
+- [0092](0092-transactional-module-data-capabilities.md) — 同库事务中的版本化模块数据接口
