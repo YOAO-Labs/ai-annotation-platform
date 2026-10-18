@@ -2,14 +2,16 @@
 
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, datetime, timedelta
 import json
 import uuid
 
 import pytest
 from sqlalchemy import text
+from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from aap_assets_media.contract import GarbageBatch, MediaClaim
+from aap_assets_media.contract import GarbageBatch, MediaClaim, MediaSource
 from app.db.models.asset_media import AssetMediaJob
 from app.db.models.dataset import DatasetItem
 from tests.test_assets_catalog_native import _seed_actor, _seed_dataset
@@ -47,6 +49,10 @@ _ADVANCE_BACKFILL = text(
     "SELECT aap_assets_v1.advance_video_backfill("
     "CAST(:job_id AS uuid),CAST(:generation AS bigint),"
     "CAST(:lease_token AS uuid),1)"
+)
+_RESOLVE_INTERNAL_SOURCE = text(
+    "SELECT aap_assets_v1.resolve_internal_media_source("
+    "CAST(:item AS uuid),CAST(:snapshot AS text),CAST(:identity AS jsonb))"
 )
 
 
@@ -447,3 +453,180 @@ async def test_legacy_md5_hint_is_not_compared_to_worker_sha256(db_session):
         {"item": item_id},
     )
     assert after == snapshot
+
+
+async def test_internal_source_reads_all_item_types_without_item_lock(test_engine):
+    maker = async_sessionmaker(test_engine, expire_on_commit=False)
+    actor_id: uuid.UUID | None = None
+    dataset_id: uuid.UUID | None = None
+    item_id = uuid.uuid4()
+    identity = {"etag": "image-head", "byte_size": 12, "version_id": None}
+    snapshot: str | None = None
+    try:
+        async with maker.begin() as owner:
+            actor_id = await _seed_actor(owner)
+            dataset_id = await _seed_dataset(
+                owner, actor_id=actor_id, data_type="image"
+            )
+            owner.add(
+                DatasetItem(
+                    id=item_id,
+                    dataset_id=dataset_id,
+                    file_name="source-image.jpg",
+                    file_path=f"source/{item_id}.jpg",
+                    file_type="image",
+                    file_size=12,
+                    metadata_={},
+                )
+            )
+            await owner.flush()
+            snapshot = await owner.scalar(
+                text(
+                    "SELECT aap_assets_v1._media_source_snapshot(item) "
+                    "FROM public.dataset_items AS item WHERE item.id=:item"
+                ),
+                {"item": item_id},
+            )
+
+        lock_connection = await test_engine.connect()
+        lock_transaction = await lock_connection.begin()
+        reader = await test_engine.connect()
+        reader_transaction = await reader.begin()
+        try:
+            await lock_connection.execute(
+                text("SELECT id FROM public.dataset_items WHERE id=:item FOR UPDATE"),
+                {"item": item_id},
+            )
+            reply = await asyncio.wait_for(
+                reader.scalar(
+                    _RESOLVE_INTERNAL_SOURCE,
+                    {"item": item_id, "snapshot": None, "identity": None},
+                ),
+                timeout=3,
+            )
+            source = MediaSource.model_validate(_data(reply))
+            assert source.dataset_item_id == item_id
+            assert source.file_type == "image"
+            assert source.object_identity is None
+        finally:
+            await reader_transaction.rollback()
+            await lock_transaction.rollback()
+            await reader.close()
+            await lock_connection.close()
+
+        async with test_engine.begin() as owner:
+            await owner.execute(
+                text(
+                    "UPDATE public.dataset_items SET media_object_identity="
+                    "CAST(:identity AS jsonb) WHERE id=:item"
+                ),
+                {"item": item_id, "identity": json.dumps(identity)},
+            )
+            snapshot = await owner.scalar(
+                text(
+                    "SELECT aap_assets_v1._media_source_snapshot(item) "
+                    "FROM public.dataset_items AS item WHERE item.id=:item"
+                ),
+                {"item": item_id},
+            )
+
+        lock_connection = await test_engine.connect()
+        lock_transaction = await lock_connection.begin()
+        reader = await test_engine.connect()
+        reader_transaction = await reader.begin()
+        try:
+            await lock_connection.execute(
+                text("SELECT id FROM public.dataset_items WHERE id=:item FOR UPDATE"),
+                {"item": item_id},
+            )
+            reply = await asyncio.wait_for(
+                reader.scalar(
+                    _RESOLVE_INTERNAL_SOURCE,
+                    {
+                        "item": item_id,
+                        "snapshot": snapshot,
+                        "identity": json.dumps(identity),
+                    },
+                ),
+                timeout=3,
+            )
+            source = MediaSource.model_validate(_data(reply))
+            assert source.file_type == "image"
+            assert source.object_identity is not None
+            assert source.object_identity.etag == "image-head"
+        finally:
+            await reader_transaction.rollback()
+            await lock_transaction.rollback()
+            await reader.close()
+            await lock_connection.close()
+
+        async with test_engine.begin() as owner:
+            await owner.execute(
+                text(
+                    "UPDATE public.dataset_items SET media_object_identity=NULL "
+                    "WHERE id=:item"
+                ),
+                {"item": item_id},
+            )
+            snapshot = await owner.scalar(
+                text(
+                    "SELECT aap_assets_v1._media_source_snapshot(item) "
+                    "FROM public.dataset_items AS item WHERE item.id=:item"
+                ),
+                {"item": item_id},
+            )
+
+        lock_connection = await test_engine.connect()
+        lock_transaction = await lock_connection.begin()
+        reader = await test_engine.connect()
+        reader_transaction = await reader.begin()
+        try:
+            await lock_connection.execute(
+                text("SELECT id FROM public.dataset_items WHERE id=:item FOR UPDATE"),
+                {"item": item_id},
+            )
+            reply = await asyncio.wait_for(
+                reader.scalar(
+                    _RESOLVE_INTERNAL_SOURCE,
+                    {
+                        "item": item_id,
+                        "snapshot": snapshot,
+                        "identity": json.dumps(identity),
+                    },
+                ),
+                timeout=3,
+            )
+            assert reply["schema"] == "aap-assets-media/v1"
+            assert reply["ok"] is False
+            assert reply["error"]["code"] == "source_busy"
+        finally:
+            await reader_transaction.rollback()
+            await lock_transaction.rollback()
+            await reader.close()
+            await lock_connection.close()
+
+        async with test_engine.connect() as observer:
+            assert (
+                await observer.scalar(
+                    text(
+                        "SELECT media_object_identity FROM public.dataset_items WHERE id=:item"
+                    ),
+                    {"item": item_id},
+                )
+                is None
+            )
+    finally:
+        if actor_id is not None and dataset_id is not None:
+            async with test_engine.begin() as cleanup:
+                await cleanup.execute(
+                    text("DELETE FROM public.dataset_items WHERE id=:item"),
+                    {"item": item_id},
+                )
+                await cleanup.execute(
+                    text("DELETE FROM public.datasets WHERE id=:dataset"),
+                    {"dataset": dataset_id},
+                )
+                await cleanup.execute(
+                    text("DELETE FROM public.users WHERE id=:actor"),
+                    {"actor": actor_id},
+                )

@@ -125,6 +125,7 @@ _DOWNGRADE_SIGNATURES: tuple[str, ...] = (
     "aap_assets_v1._media_worker_outcome(uuid, bigint, text)",
     "aap_assets_v1.read_internal_video_frame(uuid, integer, integer, text)",
     "aap_assets_v1.scan_video_backfill(jsonb, uuid, integer)",
+    "aap_assets_v1.read_video_media_totals(uuid[])",
     "aap_assets_v1.read_video_failures(uuid, integer, bigint)",
     "aap_assets_v1.retry_video_media(uuid, uuid, jsonb)",
     "aap_assets_v1.cancel_video_media(uuid, uuid, uuid)",

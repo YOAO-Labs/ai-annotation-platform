@@ -491,6 +491,7 @@ class LocalResources:
                     "aap_assets_v1.schedule_video_media(uuid, uuid, jsonb, boolean), "
                     "aap_assets_v1.read_video_work(uuid, uuid), "
                     "aap_assets_v1.scan_video_backfill(jsonb, uuid, integer), "
+                    "aap_assets_v1.read_video_media_totals(uuid[]), "
                     "aap_assets_v1.read_internal_video_frame(uuid, integer, integer, text), "
                     "aap_assets_v1.claim_video_media(uuid, uuid, integer, text[]), "
                     "aap_assets_v1.heartbeat_video_media(uuid, bigint, uuid, integer), "

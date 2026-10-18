@@ -136,6 +136,7 @@ GRANT EXECUTE ON FUNCTION
     aap_assets_v1.schedule_video_media(uuid,uuid,jsonb,boolean),
     aap_assets_v1.read_video_work(uuid,uuid),
     aap_assets_v1.scan_video_backfill(jsonb,uuid,integer),
+    aap_assets_v1.read_video_media_totals(uuid[]),
     aap_assets_v1.read_internal_video_frame(uuid,integer,integer,text)
     TO :"asset_media_control_role";
 GRANT EXECUTE ON FUNCTION
@@ -178,6 +179,7 @@ DECLARE
         pg_catalog.to_regprocedure('aap_assets_v1.schedule_video_media(uuid,uuid,jsonb,boolean)')::oid,
         pg_catalog.to_regprocedure('aap_assets_v1.read_video_work(uuid,uuid)')::oid,
         pg_catalog.to_regprocedure('aap_assets_v1.scan_video_backfill(jsonb,uuid,integer)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.read_video_media_totals(uuid[])')::oid,
         pg_catalog.to_regprocedure('aap_assets_v1.read_internal_video_frame(uuid,integer,integer,text)')::oid
     ];
     worker_functions oid[] := ARRAY[

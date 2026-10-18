@@ -824,6 +824,37 @@ BEGIN
            AND p_observed_sha256 !~ '^[0-9a-f]{64}$') THEN
         RETURN aap_assets_v1._media_reply(NULL, 'invalid_request');
     END IF;
+    SELECT item.* INTO v_item
+    FROM public.dataset_items AS item
+    WHERE item.id = p_dataset_item_id;
+    IF NOT FOUND THEN
+        RETURN aap_assets_v1._media_reply(NULL, 'source_missing');
+    END IF;
+    IF p_expected_snapshot IS NULL THEN
+        RETURN aap_assets_v1._media_reply(aap_assets_v1._media_source_json(v_item), NULL);
+    END IF;
+    IF aap_assets_v1._media_source_snapshot(v_item) IS DISTINCT FROM p_expected_snapshot THEN
+        RETURN aap_assets_v1._media_reply(NULL, 'source_changed');
+    END IF;
+    IF v_item.media_source_drifted THEN
+        RETURN aap_assets_v1._media_reply(aap_assets_v1._media_source_json(v_item), NULL);
+    END IF;
+    v_drift := (
+        v_item.file_size IS NOT NULL
+        AND v_item.file_size <> (p_object_identity ->> 'byte_size')::bigint
+    ) OR (
+        v_item.media_object_identity IS NOT NULL
+        AND v_item.media_object_identity IS DISTINCT FROM p_object_identity
+    ) OR (
+        p_observed_sha256 IS NOT NULL
+        AND v_item.content_hash IS NOT NULL
+        AND v_item.content_hash ~* '^[0-9a-f]{64}$'
+        AND pg_catalog.lower(v_item.content_hash) IS DISTINCT FROM p_observed_sha256
+    );
+    IF v_item.media_object_identity IS NOT NULL AND NOT v_drift THEN
+        RETURN aap_assets_v1._media_reply(aap_assets_v1._media_source_json(v_item), NULL);
+    END IF;
+
     BEGIN
         SELECT item.* INTO v_item
         FROM public.dataset_items AS item
@@ -832,11 +863,8 @@ BEGIN
     EXCEPTION WHEN lock_not_available OR serialization_failure OR deadlock_detected THEN
         RETURN aap_assets_v1._media_reply(NULL, 'source_busy');
     END;
-    IF NOT FOUND OR v_item.file_type <> 'video' THEN
+    IF NOT FOUND THEN
         RETURN aap_assets_v1._media_reply(NULL, 'source_missing');
-    END IF;
-    IF p_expected_snapshot IS NULL THEN
-        RETURN aap_assets_v1._media_reply(aap_assets_v1._media_source_json(v_item), NULL);
     END IF;
     IF aap_assets_v1._media_source_snapshot(v_item) IS DISTINCT FROM p_expected_snapshot THEN
         RETURN aap_assets_v1._media_reply(NULL, 'source_changed');
