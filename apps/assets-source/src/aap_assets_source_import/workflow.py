@@ -335,6 +335,7 @@ class ImportWorkflow:
             if entry is None:
                 raise ImportFailure("invalid_response")
             file_type = _infer_file_type(entry.file_name)
+            stream_bytes = 0
             if file_type != entry.file_type:
                 completion = ImportEntryCompletion(
                     status="error", error_code="invalid_source_object"
@@ -351,9 +352,13 @@ class ImportWorkflow:
                         - attempted_bytes,
                     ),
                 )
-                attempted_bytes += stream_bytes
 
+            previous_committed_bytes = state.committed_bytes
             state = await self._complete_with_retry(state, entry, completion, keeper)
+            if stream_bytes and state.committed_bytes == previous_committed_bytes:
+                # Failed reads are not persisted in committed_bytes. Track their
+                # consumed source bytes only until this worker lease is reclaimed.
+                attempted_bytes += stream_bytes
         if state.cursor != state.total:
             raise ImportFailure("invalid_response")
 

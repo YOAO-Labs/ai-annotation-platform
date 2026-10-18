@@ -11,6 +11,7 @@ import io
 
 import pytest
 
+from aap_assets_source.connectors import SourceChangedError
 from aap_assets_source.connectors.base import SourceObject
 from aap_assets_source.import_contract import (
     ImportConnection,
@@ -23,6 +24,7 @@ from aap_assets_source.import_contract import (
 )
 from aap_assets_source_import.database import EXPECTED_IMPORT_FUNCTIONS
 from aap_assets_source_import.__main__ import _handle_failure
+from aap_assets_source_import.storage import SourceReadError
 from aap_assets_source_import.workflow import (
     ImportWorkflow,
     LeaseKeeper,
@@ -477,6 +479,167 @@ class _ValidOnlyStorage:
         before_io()
         on_bytes(3)
         return 3, hashlib.md5(b"img", usedforsecurity=False).hexdigest(), None
+
+
+class _BudgetData:
+    def __init__(
+        self,
+        state: ImportState,
+        entries: dict[int, tuple[str, bytes]],
+        *,
+        duplicates: set[int] | None = None,
+    ) -> None:
+        self.state = state
+        self.entries = entries
+        self.duplicates = duplicates or set()
+
+    async def next_entry(self, _job_id, _lease_token, publication_id):
+        index = self.state.cursor
+        name, payload = self.entries[index]
+        item_id = uuid4()
+        file_name = name
+        return ImportEntry(
+            job_id=self.state.job_id,
+            lease_token=self.state.lease_token,
+            index=index,
+            item_id=item_id,
+            publication_id=publication_id,
+            file_name=file_name,
+            file_path=(
+                f"dataset-sources/{self.state.dataset_id}/{item_id}/"
+                f"{publication_id}/{file_name}"
+            ),
+            file_type="other",
+            source=ImportSourceObject(
+                relpath=f"batch/{name}",
+                size=len(payload),
+                mtime=None,
+                etag=f"etag-{index}",
+            ),
+        )
+
+    async def complete_entry(
+        self, _job_id, _lease_token, index, _publication_id, completion
+    ):
+        cursor = index + 1
+        updates = {"cursor": cursor}
+        if completion.status == "error":
+            updates["error_count"] = self.state.error_count + 1
+        else:
+            updates["committed_bytes"] = (
+                self.state.committed_bytes + completion.file_size
+            )
+            counter = "skipped" if index in self.duplicates else "added"
+            updates[counter] = getattr(self.state, counter) + 1
+        self.state = _replace_state(self.state, **updates)
+        return self.state
+
+
+class _BudgetAdapter:
+    def __init__(self, entries: dict[int, tuple[str, bytes]]) -> None:
+        self.entries = entries
+        self.opened: list[str] = []
+
+    def open(self, relpath, *, etag=None):
+        self.opened.append(relpath)
+        index = int(relpath.split("/")[-1].split(".")[0].removeprefix("item"))
+        assert etag == f"etag-{index}"
+        return io.BytesIO(self.entries[index][1])
+
+
+class _BudgetStorage:
+    def __init__(self, *, fail_after: dict[int, int] | None = None) -> None:
+        self.fail_after = fail_after or {}
+        self.budgets: list[int] = []
+
+    async def transfer(self, stream, entry, *, byte_budget, before_io, on_bytes):
+        self.budgets.append(byte_budget)
+        before_io()
+        if entry.source.size > byte_budget:
+            raise SourceChangedError("source exceeds current byte budget")
+        index = int(
+            entry.source.relpath.split("/")[-1].split(".")[0].removeprefix("item")
+        )
+        if index in self.fail_after:
+            chunk = stream.read(self.fail_after[index])
+            on_bytes(len(chunk))
+            raise SourceReadError("simulated partial source read")
+        payload = stream.read()
+        on_bytes(len(payload))
+        return (
+            len(payload),
+            hashlib.md5(payload, usedforsecurity=False).hexdigest(),
+            None,
+        )
+
+
+@pytest.mark.asyncio
+async def test_committed_success_bytes_are_not_counted_again_in_local_budget() -> None:
+    state = _state(stage="importing", max_bytes=6).model_copy(
+        update={"total": 2, "total_bytes": 6}
+    )
+    entries = {0: ("item0.dat", b"abc"), 1: ("item1.dat", b"def")}
+    data = _BudgetData(state, entries, duplicates={1})
+    database = _TransactionRecorder(data)
+    adapter = _BudgetAdapter(entries)
+    storage = _BudgetStorage()
+    workflow = ImportWorkflow(database, storage, object())
+    keeper = LeaseKeeper(database, object(), state, asyncio.Event())
+
+    await workflow._copy_manifest(state, adapter, {"base_prefix": ""}, keeper)
+
+    assert storage.budgets == [6, 3]
+    assert data.state.cursor == 2
+    assert data.state.added == 1
+    assert data.state.skipped == 1
+    assert data.state.committed_bytes == 6
+
+
+@pytest.mark.asyncio
+async def test_partial_failed_read_reduces_same_worker_budget() -> None:
+    state = _state(stage="importing", max_bytes=6).model_copy(
+        update={"total": 2, "total_bytes": 6}
+    )
+    entries = {0: ("item0.dat", b"ab"), 1: ("item1.dat", b"wxyz")}
+    data = _BudgetData(state, entries)
+    database = _TransactionRecorder(data)
+    storage = _BudgetStorage(fail_after={0: 2})
+    workflow = ImportWorkflow(database, storage, object())
+    keeper = LeaseKeeper(database, object(), state, asyncio.Event())
+
+    await workflow._copy_manifest(
+        state, _BudgetAdapter(entries), {"base_prefix": ""}, keeper
+    )
+
+    assert storage.budgets == [6, 4]
+    assert data.state.cursor == 2
+    assert data.state.error_count == 1
+    assert data.state.added == 1
+    assert data.state.committed_bytes == 4
+
+
+@pytest.mark.asyncio
+async def test_reclaimed_worker_restarts_partial_attempt_budget_from_durable_bytes() -> (
+    None
+):
+    after_partial_error = _state(stage="importing", max_bytes=6).model_copy(
+        update={"cursor": 1, "total": 2, "total_bytes": 6, "error_count": 1}
+    )
+    remaining = {1: ("item1.dat", b"wxyz")}
+    data = _BudgetData(after_partial_error, remaining)
+    database = _TransactionRecorder(data)
+    storage = _BudgetStorage()
+    workflow = ImportWorkflow(database, storage, object())
+    keeper = LeaseKeeper(database, object(), after_partial_error, asyncio.Event())
+
+    await workflow._copy_manifest(
+        after_partial_error, _BudgetAdapter(remaining), {"base_prefix": ""}, keeper
+    )
+
+    assert storage.budgets == [6]
+    assert data.state.cursor == 2
+    assert data.state.error_count == 1
+    assert data.state.committed_bytes == 4
 
 
 @pytest.mark.asyncio
