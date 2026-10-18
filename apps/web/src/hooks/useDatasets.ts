@@ -138,11 +138,19 @@ export function useLinkProject(datasetId: string) {
   });
 }
 
-export function useUnlinkProject(datasetId: string) {
+export function useUnlinkProject() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (projectId: string) => datasetsApi.unlinkProject(datasetId, projectId),
-    onSuccess: (_data, projectId) => {
+    mutationFn: ({
+      datasetId,
+      projectId,
+      idempotencyKey,
+    }: {
+      datasetId: string;
+      projectId: string;
+      idempotencyKey: string;
+    }) => datasetsApi.unlinkProject(datasetId, projectId, { idempotencyKey }),
+    onSuccess: (_data, { datasetId, projectId }) => {
       qc.invalidateQueries({ queryKey: ["datasets"] });
       qc.invalidateQueries({ queryKey: ["dataset", datasetId] });
       qc.invalidateQueries({ queryKey: ["dataset-projects", datasetId] });

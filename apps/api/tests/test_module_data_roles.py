@@ -26,6 +26,15 @@ pytestmark = [
     ),
 ]
 
+# Resolve catalog OIDs without USAGE on the target owner's private schema.
+_FUNCTION_PRIVILEGE = text(
+    "SELECT has_function_privilege(current_user, proc.oid, 'EXECUTE') "
+    "FROM pg_catalog.pg_proc AS proc "
+    "JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid = proc.pronamespace "
+    "WHERE namespace.nspname || '.' || proc.proname || '(' || "
+    "replace(pg_catalog.oidvectortypes(proc.proargtypes), ' ', '') || ')' = :signature"
+)
+
 
 def _role_url(name: str, expected_user: str) -> str:
     url = os.environ.get(name)
@@ -394,11 +403,9 @@ async def test_append_client_cannot_read_or_write_private_tables_or_escalate(
             "aap_labeling_v1.preview_dataset_unlink(uuid,uuid)",
             "aap_labeling_v1.delete_dataset_tasks(uuid,uuid)",
         ):
-            assert not await connection.scalar(
-                text(
-                    "SELECT has_function_privilege(current_user, :signature, 'EXECUTE')"
-                ),
-                {"signature": signature},
+            assert (
+                await connection.scalar(_FUNCTION_PRIVILEGE, {"signature": signature})
+                is False
             ), signature
         await _assert_permission_denied(
             connection,
@@ -481,11 +488,9 @@ async def test_asset_cleanup_client_uses_only_the_storage_outbox_functions(
             "aap_assets_v1.delete_project_owned_records(uuid)",
             "aap_workspace_v1.unlink_dataset(uuid,uuid,uuid,uuid,text,jsonb)",
         ):
-            assert not await cleanup.scalar(
-                text(
-                    "SELECT has_function_privilege(current_user, :signature, 'EXECUTE')"
-                ),
-                {"signature": signature},
+            assert (
+                await cleanup.scalar(_FUNCTION_PRIVILEGE, {"signature": signature})
+                is False
             ), signature
 
         assert (

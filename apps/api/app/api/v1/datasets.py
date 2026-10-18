@@ -5,8 +5,17 @@ import mimetypes
 import uuid
 from pathlib import PurePosixPath
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
-from sqlalchemy import select
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Header,
+    HTTPException,
+    Query,
+    Request,
+    Response,
+    UploadFile,
+)
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.deps import (
@@ -45,6 +54,7 @@ from app.application.dataset_task_creation import DatasetTaskCreationWorkflow
 from app.application.dataset_deletion import (
     delete_dataset as delete_dataset_workflow,
     unlink_dataset_from_project,
+    preview_dataset_unlink,
 )
 from app.services.media_job_dispatch import MediaJobDispatcher
 from app.services.mask_formats.safe_archive import (
@@ -85,7 +95,12 @@ async def list_datasets(
     return DatasetListResponse(items=items, total=total, limit=limit, offset=offset)
 
 
-@router.post("", response_model=DatasetOut, status_code=201)
+@router.post(
+    "",
+    response_model=DatasetOut,
+    status_code=201,
+    dependencies=[Depends(require_scopes("datasets:write"))],
+)
 async def create_dataset(
     data: DatasetCreate,
     db: AsyncSession = Depends(get_db),
@@ -123,7 +138,11 @@ async def get_dataset(
     return result
 
 
-@router.put("/{dataset_id}", response_model=DatasetOut)
+@router.put(
+    "/{dataset_id}",
+    response_model=DatasetOut,
+    dependencies=[Depends(require_scopes("datasets:write"))],
+)
 async def update_dataset(
     dataset_id: uuid.UUID,
     data: DatasetUpdate,
@@ -156,6 +175,7 @@ async def update_dataset(
 @router.post(
     "/{dataset_id}/sniff-axis-convention",
     response_model=SniffAxisConventionResponse,
+    dependencies=[Depends(require_scopes("datasets:read"))],
 )
 async def sniff_axis_convention(
     dataset_id: uuid.UUID,
@@ -182,7 +202,11 @@ async def sniff_axis_convention(
     )
 
 
-@router.delete("/{dataset_id}", status_code=204)
+@router.delete(
+    "/{dataset_id}",
+    status_code=204,
+    dependencies=[Depends(require_scopes("datasets:write"))],
+)
 async def delete_dataset(
     dataset_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
@@ -198,7 +222,11 @@ async def delete_dataset(
 # ── Items ───────────────────────────────────────────────────────────────────
 
 
-@router.get("/{dataset_id}/items", response_model=DatasetItemListResponse)
+@router.get(
+    "/{dataset_id}/items",
+    response_model=DatasetItemListResponse,
+    dependencies=[Depends(require_scopes("datasets:read"))],
+)
 async def list_dataset_items(
     dataset_id: uuid.UUID,
     limit: int = Query(50, ge=1, le=200),
@@ -218,6 +246,7 @@ async def list_dataset_items(
     "/{dataset_id}/import-from-connection",
     response_model=DatasetImportFromConnectionResponse,
     status_code=202,
+    dependencies=[Depends(require_scopes("datasets:write"))],
 )
 async def import_from_connection(
     dataset_id: uuid.UUID,
@@ -310,7 +339,9 @@ async def import_from_connection(
 
 
 @router.post(
-    "/{dataset_id}/items/upload-init", response_model=DatasetUploadInitResponse
+    "/{dataset_id}/items/upload-init",
+    response_model=DatasetUploadInitResponse,
+    dependencies=[Depends(require_scopes("datasets:write"))],
 )
 async def upload_init(
     dataset_id: uuid.UUID,
@@ -345,7 +376,10 @@ async def upload_init(
     )
 
 
-@router.post("/{dataset_id}/items/upload-complete/{item_id}")
+@router.post(
+    "/{dataset_id}/items/upload-complete/{item_id}",
+    dependencies=[Depends(require_scopes("datasets:write"))],
+)
 async def upload_complete(
     dataset_id: uuid.UUID,
     item_id: uuid.UUID,
@@ -476,7 +510,10 @@ def _normalize_zip_relpath(name: str) -> str | None:
     return str(p)
 
 
-@router.post("/{dataset_id}/items/upload-zip")
+@router.post(
+    "/{dataset_id}/items/upload-zip",
+    dependencies=[Depends(require_scopes("datasets:write"))],
+)
 async def upload_zip(
     dataset_id: uuid.UUID,
     file: UploadFile = File(...),
@@ -706,7 +743,10 @@ async def upload_zip(
     }
 
 
-@router.post("/{dataset_id}/items/scan")
+@router.post(
+    "/{dataset_id}/items/scan",
+    dependencies=[Depends(require_scopes("datasets:write"))],
+)
 async def scan_items(
     dataset_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
@@ -737,7 +777,10 @@ async def scan_items(
     return {"status": "ok", "new_items": len(new_ids), "linked_tasks": linked_tasks}
 
 
-@router.post("/{dataset_id}/backfill-dimensions")
+@router.post(
+    "/{dataset_id}/backfill-dimensions",
+    dependencies=[Depends(require_scopes("datasets:write"))],
+)
 async def backfill_dimensions(
     dataset_id: uuid.UUID,
     batch: int = Query(50, ge=1, le=200),
@@ -782,7 +825,10 @@ async def backfill_dimensions(
     }
 
 
-@router.post("/{dataset_id}/backfill-media")
+@router.post(
+    "/{dataset_id}/backfill-media",
+    dependencies=[Depends(require_scopes("datasets:write"))],
+)
 async def backfill_media_endpoint(
     dataset_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
@@ -800,7 +846,10 @@ async def backfill_media_endpoint(
     return {"status": "queued", "dataset_id": str(dataset_id)}
 
 
-@router.post("/{dataset_id}/scenes/backfill")
+@router.post(
+    "/{dataset_id}/scenes/backfill",
+    dependencies=[Depends(require_scopes("datasets:write"))],
+)
 async def backfill_scenes_endpoint(
     dataset_id: uuid.UUID,
     mode: str = Query(
@@ -840,7 +889,11 @@ async def backfill_scenes_endpoint(
     return result
 
 
-@router.delete("/{dataset_id}/items/{item_id}", status_code=204)
+@router.delete(
+    "/{dataset_id}/items/{item_id}",
+    status_code=204,
+    dependencies=[Depends(require_scopes("datasets:write"))],
+)
 async def delete_item(
     dataset_id: uuid.UUID,
     item_id: uuid.UUID,
@@ -857,7 +910,10 @@ async def delete_item(
 # ── Project linking ─────────────────────────────────────────────────────────
 
 
-@router.post("/{dataset_id}/link")
+@router.post(
+    "/{dataset_id}/link",
+    dependencies=[Depends(require_scopes("datasets:write"))],
+)
 async def link_project(
     dataset_id: uuid.UUID,
     data: DatasetLinkRequest,
@@ -922,7 +978,10 @@ async def link_project(
     }
 
 
-@router.get("/{dataset_id}/link/{project_id}/preview-unlink")
+@router.get(
+    "/{dataset_id}/link/{project_id}/preview-unlink",
+    dependencies=[Depends(require_scopes("datasets:read"))],
+)
 async def preview_unlink_project(
     dataset_id: uuid.UUID,
     project_id: uuid.UUID,
@@ -930,102 +989,83 @@ async def preview_unlink_project(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """v0.6.7 B-10 v2：取消关联前的预览数字（will be deleted）。前端拿来做二次确认文案。
-    v0.7.3：补 will_delete_batches —— 与 service 层一致：失去 task 后变空壳的 batch（B-DEFAULT 除外）。
-    """
-    from sqlalchemy import func
-    from app.db.models.dataset import DatasetItem
-    from app.db.models.task import Task
-    from app.db.models.annotation import Annotation
-    from app.db.models.task_batch import TaskBatch
-
-    target_rows = (
-        await db.execute(
-            select(Task.id, Task.batch_id)
-            .join(DatasetItem, DatasetItem.id == Task.dataset_item_id)
-            .where(Task.project_id == project_id, DatasetItem.dataset_id == dataset_id)
-        )
-    ).all()
-    task_ids = [r[0] for r in target_rows]
-    affected_batch_ids = {r[1] for r in target_rows if r[1] is not None}
-    task_count = len(task_ids)
-    ann_count = 0
-    if task_ids:
-        ann_count = (
-            await db.execute(
-                select(func.count(Annotation.id)).where(
-                    Annotation.task_id.in_(list(task_ids))
-                )
-            )
-        ).scalar() or 0
-
-    # 哪些受影响 batch 在删完 task 后会变空壳 → 与 unlink 真实行为一致
-    will_delete_batches = 0
-    if affected_batch_ids:
-        loss_per_batch = dict(
-            (
-                await db.execute(
-                    select(Task.batch_id, func.count())
-                    .where(Task.id.in_(task_ids))
-                    .group_by(Task.batch_id)
-                )
-            ).all()
-        )
-        for b in (
-            (
-                await db.execute(
-                    select(TaskBatch).where(TaskBatch.id.in_(affected_batch_ids))
-                )
-            )
-            .scalars()
-            .all()
-        ):
-            if b.display_id == "B-DEFAULT":
-                continue
-            if (b.total_tasks or 0) - loss_per_batch.get(b.id, 0) <= 0:
-                will_delete_batches += 1
-
-    return {
-        "will_delete_tasks": int(task_count),
-        "will_delete_annotations": int(ann_count),
-        "will_delete_batches": int(will_delete_batches),
-    }
+    preview = await preview_dataset_unlink(
+        db, actor_id=current_user.id, dataset_id=dataset_id, project_id=project_id
+    )
+    return preview.model_dump(mode="json")
 
 
-@router.delete("/{dataset_id}/link/{project_id}", status_code=200)
+@router.delete(
+    "/{dataset_id}/link/{project_id}",
+    status_code=200,
+    dependencies=[Depends(require_scopes("datasets:write"))],
+    responses={
+        200: {
+            "headers": {
+                "Idempotency-Key": {
+                    "description": "Reuse this UUID to replay the committed unlink result.",
+                    "schema": {"type": "string", "format": "uuid"},
+                }
+            }
+        }
+    },
+)
 async def unlink_project(
     dataset_id: uuid.UUID,
     project_id: uuid.UUID,
     request: Request,
+    response: Response,
     _project: Project = Depends(require_project_owner),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    media_dispatcher: MediaJobDispatcher = Depends(get_media_job_dispatcher),
+    idempotency_key: uuid.UUID | None = Header(default=None, alias="Idempotency-Key"),
 ):
-    info = await unlink_dataset_from_project(db, dataset_id, project_id)
+    import logging
+    from ipaddress import ip_address
+
+    from app.middleware.request_id import request_id_var
+    from app.services.audit import audit_origin_from_request
+    from app.services.project_deletion_contract import ProjectDeletionAuditContext
+
+    operation_id = idempotency_key if idempotency_key is not None else uuid.uuid4()
+    origin = audit_origin_from_request(request)
+    try:
+        ip = str(ip_address(origin.ip)) if origin.ip else None
+    except ValueError:
+        ip = None
+    info = await unlink_dataset_from_project(
+        db,
+        dataset_id,
+        project_id,
+        actor_id=current_user.id,
+        cleanup_bucket=storage_service.media_cache_bucket,
+        operation_id=operation_id,
+        audit_context=ProjectDeletionAuditContext(
+            method=origin.method,
+            path=origin.path,
+            ip=ip,
+            request_id=request_id_var.get()[:36] or None,
+        ),
+    )
     if info is None:
         raise HTTPException(status_code=404, detail="Link not found")
-    await AuditService.log(
-        db,
-        actor=current_user,
-        action=AuditAction.DATASET_UNLINK,
-        target_type="dataset",
-        target_id=str(dataset_id),
-        request=request,
-        status_code=200,
-        detail={
-            "project_id": str(project_id),
-            "deleted_tasks": info["deleted_tasks"],
-            "deleted_annotations": info["deleted_annotations"],
-            "deleted_batches": info.get("deleted_batches", 0),
-            "deleted_batch_ids": info.get("deleted_batch_ids", []),
-            "soft": False,
-        },
-    )
     await db.commit()
+    response.headers["Idempotency-Key"] = str(operation_id)
+    try:
+        media_dispatcher.dispatch_asset_storage_cleanup(operation_id)
+    except Exception:
+        logging.getLogger(__name__).exception(
+            "Committed unlink cleanup remains pending for %s", operation_id
+        )
     return info
 
 
-@router.get("/{dataset_id}/projects", response_model=list[ProjectOut])
+@router.get(
+    "/{dataset_id}/projects",
+    response_model=list[ProjectOut],
+    dependencies=[Depends(require_scopes("datasets:read"))],
+)
 async def get_linked_projects(
     dataset_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),

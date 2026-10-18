@@ -346,6 +346,32 @@ DOMAIN_PACKAGES = (
         allowed_app_imports=("app.services.project_deletion_contract",),
     ),
     DomainSpec(
+        package="dataset_unlink_contract",
+        legacy_facades=(),
+        allowed_app_imports=(
+            "app.services.project_deletion_contract",
+            "app.services.asset_storage_cleanup_contract",
+        ),
+    ),
+    DomainSpec(
+        package="dataset_unlink_data",
+        legacy_facades=(),
+        allowed_app_imports=("app.services.dataset_unlink_contract",),
+    ),
+    DomainSpec(
+        package="asset_storage_cleanup_contract",
+        legacy_facades=(),
+        allowed_app_imports=(),
+    ),
+    DomainSpec(
+        package="asset_storage_cleanup",
+        legacy_facades=(),
+        allowed_app_imports=(
+            "app.services.asset_storage_cleanup_contract",
+            "app.services.storage",
+        ),
+    ),
+    DomainSpec(
         package="task_creation_jobs",
         legacy_facades=(),
         allowed_app_imports=("app.services.task_creation_contract",),

@@ -37,6 +37,8 @@ from app.services import async_job as async_job_svc
 
 log = logging.getLogger(__name__)
 
+_ASSET_CLEANUP_TASK = "app.workers.asset_storage_cleanup.retry_asset_storage_deletions"
+
 
 async def _apply_terminal(
     celery_task_id: str,
@@ -78,7 +80,8 @@ def _on_task_failure(  # noqa: ARG001
     **kwargs,
 ):
     """Fallback: an exception the task body did not catch."""
-    if not task_id:
+    # Assets cleanup owns a durable outbox and has no AsyncJob row.
+    if not task_id or getattr(sender, "name", None) == _ASSET_CLEANUP_TASK:
         return
     try:
         error = f"{type(exception).__name__}: {exception}" if exception else "unknown"
@@ -98,7 +101,9 @@ def _on_task_revoked(  # noqa: ARG001
 ):
     """Fallback: Celery revoke / terminate / expired."""
     task_id = getattr(request, "id", None) if request else None
-    if not task_id:
+    task = getattr(request, "task", None)
+    task_name = getattr(task, "name", task) or getattr(request, "name", None)
+    if not task_id or task_name == _ASSET_CLEANUP_TASK:
         return
     try:
         asyncio.run(_mark_cancelled(task_id))

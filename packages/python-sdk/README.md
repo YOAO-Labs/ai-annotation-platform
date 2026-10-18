@@ -199,7 +199,7 @@ aap datasets upload <dataset-id> ./imgs            # 目录/单文件逐个上�
 aap datasets upload <dataset-id> ./data.zip --zip  # ZIP 整包上传
 aap datasets link <dataset-id> <project-id>        # 异步建任务时自动等待 job
 aap datasets preview-unlink <dataset-id> <project-id>
-aap datasets unlink <dataset-id> <project-id> --yes
+aap datasets unlink <dataset-id> <project-id> --yes --idempotency-key <saved-uuid>
 
 aap batches create <project-id> --name round-1 --dataset-id <dataset-id>
 aap members list <project-id>                    # 项目角色 / 平台角色分列

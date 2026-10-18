@@ -1051,19 +1051,6 @@ class DatasetService:
             payload, "aap-dataset-association/v1", DatasetAssociationFacts
         )
 
-    async def remove_project_association(
-        self, dataset_id: uuid.UUID, project_id: uuid.UUID
-    ) -> bool:
-        if await self.lock_project_association(dataset_id, project_id) is None:
-            return False
-        result = await self.db.execute(
-            delete(ProjectDataset).where(
-                ProjectDataset.dataset_id == dataset_id,
-                ProjectDataset.project_id == project_id,
-            )
-        )
-        return result.rowcount != 0
-
     async def lock_project_association(
         self, dataset_id: uuid.UUID, project_id: uuid.UUID
     ) -> uuid.UUID | None:

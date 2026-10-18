@@ -528,6 +528,17 @@ async def _cleanup(
     test_engine, fixture: dict[str, object], ids: list[uuid.UUID]
 ) -> None:
     async with test_engine.begin() as owner:
+        await owner.execute(text("SET LOCAL app.allow_audit_update = 'true'"))
+        await owner.execute(
+            text(
+                "DELETE FROM public.audit_logs WHERE actor_id=:actor AND action='dataset.unlink'"
+            ),
+            {"actor": fixture["actor_id"]},
+        )
+        await owner.execute(
+            text("DELETE FROM public.dataset_unlink_operations WHERE actor_id=:actor"),
+            {"actor": fixture["actor_id"]},
+        )
         if ids:
             await owner.execute(
                 text(
@@ -704,7 +715,11 @@ async def test_unlink_relink_changes_association_generation_before_next_chunk(
         maker = async_sessionmaker(test_engine, expire_on_commit=False)
         async with maker.begin() as owner:
             result = await unlink_dataset_from_project(
-                owner, fixture["dataset_id"], fixture["project_id"]
+                owner,
+                fixture["dataset_id"],
+                fixture["project_id"],
+                actor_id=fixture["actor_id"],
+                cleanup_bucket="creation-handoff-cache",
             )
             assert result is not None
             assert result["deleted_tasks"] == 2

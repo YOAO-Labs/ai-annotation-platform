@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timezone
 import json
 import os
@@ -16,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from app.db.models.annotation import Annotation
 from app.db.models.annotation_feedback import AnnotationFeedback
 from app.db.models.async_job import AsyncJob
-from app.db.models.dataset import Dataset, ProjectDataset
+from app.db.models.dataset import Dataset, DatasetItem, ProjectDataset
 from app.db.models.project import Project
 from app.db.models.project_member import ProjectMember
 from app.db.models.task import Task
@@ -745,11 +746,18 @@ async def test_unlink_commits_exact_cleanup_projection_audit_and_receipt(test_en
             assert (
                 await _count(
                     verify,
-                    "SELECT count(*) FROM public.bug_reports WHERE reporter_id=:id "
+                    "SELECT count(*) FROM public.bug_reports WHERE id=:id "
                     "AND task_id IS NOT NULL",
-                    id=fixture["user_id"],
+                    id=fixture["report_target_id"],
                 )
                 == 0
+            )
+            assert (
+                await verify.scalar(
+                    text("SELECT task_id FROM public.bug_reports WHERE id=:id"),
+                    {"id": fixture["report_unrelated_id"]},
+                )
+                == fixture["other_task_id"]
             )
             assert (
                 await _count(
@@ -818,7 +826,7 @@ async def test_unlink_commits_exact_cleanup_projection_audit_and_receipt(test_en
                     await verify.execute(
                         text(
                             "SELECT id, actor_id, actor_email, actor_role, action, target_type, "
-                            "target_id, method, path, status_code, ip::text, request_id, detail_json "
+                            "target_id, method, path, status_code, host(ip) AS ip, request_id, detail_json "
                             "FROM public.audit_logs WHERE action='dataset.unlink' "
                             "AND detail_json ->> 'operation_id'=:id"
                         ),
@@ -1035,23 +1043,38 @@ async def test_active_learning_reference_blocks_unlink_before_cleanup(
     from tests.active_learning_fixtures import seed as seed_active_learning
 
     owner, _ = super_admin
-    world = await seed_active_learning(db_session, owner, monkeypatch, count=1)
-    await create_active_learning_round(db_session, owner, world)
+    world = await seed_active_learning(db_session, owner, monkeypatch)
     dataset = Dataset(
         id=uuid.uuid4(),
         display_id=f"ALU-{uuid.uuid4().hex[:10].upper()}",
         name="Dataset retained by active learning",
         data_type="image",
         created_by=owner.id,
-        file_count=0,
+        file_count=len(world.tasks),
     )
     association = ProjectDataset(
         id=uuid.uuid4(),
         project_id=world.project.id,
         dataset_id=dataset.id,
     )
-    db_session.add_all([dataset, association])
+    db_session.add(dataset)
     await db_session.flush()
+    items = [
+        DatasetItem(
+            id=uuid.uuid4(),
+            dataset_id=dataset.id,
+            file_name=task.file_name,
+            file_path=task.file_path,
+            file_type=task.file_type,
+        )
+        for task in world.tasks
+    ]
+    db_session.add_all([*items, association])
+    await db_session.flush()
+    for task, item in zip(world.tasks, items, strict=True):
+        task.dataset_item_id = item.id
+    await db_session.flush()
+    await create_active_learning_round(db_session, owner, world)
     fixture = {
         "user_id": owner.id,
         "dataset_id": dataset.id,
@@ -1206,6 +1229,44 @@ async def test_audit_lock_contention_rolls_back_unlink_owner_changes(test_engine
         await _cleanup_fixture(test_engine, fixture)
 
 
+@pytest.mark.parametrize(
+    "locked_table", ["image_pyramid_assets", "image_pyramid_generations"]
+)
+async def test_pyramid_contention_returns_busy_before_cascade_and_retries(
+    test_engine, locked_table
+):
+    fixture = await _seed_complete_case(test_engine)
+    operation_id = uuid.uuid4()
+    fixture["operation_ids"].append(operation_id)
+    maker = async_sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
+    locker, caller = maker(), maker()
+    key = "id" if locked_table == "image_pyramid_assets" else "asset_id"
+    try:
+        await locker.execute(
+            text(f"SELECT {key} FROM public.{locked_table} WHERE {key}=:id FOR UPDATE"),
+            {"id": fixture["task_asset_id"]},
+        )
+        reply = await asyncio.wait_for(
+            _unlink(caller, fixture, operation_id), timeout=3
+        )
+        assert reply == {
+            "schema": "aap-dataset-unlink/v1",
+            "ok": False,
+            "error": {"code": "project_busy"},
+        }
+        await _assert_unmodified(caller, fixture, operation_id)
+        await caller.rollback()
+        await locker.rollback()
+        reply = await _unlink(caller, fixture, operation_id)
+        assert reply["ok"] is True
+        await caller.commit()
+        await _assert_unlinked_graph(caller, fixture)
+    finally:
+        await caller.close()
+        await locker.close()
+        await _cleanup_fixture(test_engine, fixture)
+
+
 async def test_workflow_and_cleanup_logins_use_only_their_unlink_capabilities(
     test_engine,
 ):
@@ -1327,6 +1388,7 @@ async def test_workflow_and_cleanup_logins_use_only_their_unlink_capabilities(
                     {"operation_id": operation_id},
                 )
             ).all() == []
+            await worker.commit()
             await _assert_permission_denied(
                 worker,
                 "SELECT count(*) FROM public.asset_storage_deletions",

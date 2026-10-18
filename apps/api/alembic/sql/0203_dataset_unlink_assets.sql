@@ -141,6 +141,27 @@ BEGIN
             DETAIL = '{"code":"invalid_request"}';
     END IF;
 
+    -- Publication holds Asset before its Task projection; do not wait in reverse.
+    PERFORM asset.id
+    FROM public.image_pyramid_assets AS asset
+    WHERE asset.task_id IN (
+        SELECT reference.task_id
+        FROM aap_labeling_v1.dataset_task_references(p_dataset_id, p_project_id) AS reference
+    )
+    ORDER BY asset.id
+    FOR UPDATE NOWAIT;
+
+    -- Reconciliation can hold Generation before Asset; fence the cascade too.
+    PERFORM generation.asset_id
+    FROM public.image_pyramid_generations AS generation
+    JOIN public.image_pyramid_assets AS asset ON asset.id = generation.asset_id
+    WHERE asset.task_id IN (
+        SELECT reference.task_id
+        FROM aap_labeling_v1.dataset_task_references(p_dataset_id, p_project_id) AS reference
+    )
+    ORDER BY generation.asset_id, generation.generation
+    FOR UPDATE OF generation NOWAIT;
+
     WITH candidate_assets AS MATERIALIZED (
         SELECT asset.id AS asset_id
         FROM public.image_pyramid_assets AS asset

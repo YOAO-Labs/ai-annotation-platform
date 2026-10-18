@@ -192,7 +192,11 @@ function DatasetRow({
 function DatasetDetail({ ds }: { ds: DatasetResponse }) {
   const [itemPage, setItemPage] = useState(0);
   const [uploadOpen, setUploadOpen] = useState(false);
-  const [confirmUnlink, setConfirmUnlink] = useState<ProjectResponse | null>(null);
+  const [confirmUnlink, setConfirmUnlink] = useState<{
+    datasetId: string;
+    project: ProjectResponse;
+    idempotencyKey: string;
+  } | null>(null);
   // v0.12.0 · 大 dataset 关联后异步建 task 的进度
   const [linkJob, setLinkJob] = useState<{ jobId: string; projectId: string } | null>(null);
   const queryClient = useQueryClient();
@@ -202,7 +206,7 @@ function DatasetDetail({ ds }: { ds: DatasetResponse }) {
   });
   const { data: linkedProjects = [] } = useDatasetProjects(ds.id);
   const { data: allProjects } = useProjects();
-  const unlinkMutation = useUnlinkProject(ds.id);
+  const unlinkMutation = useUnlinkProject();
   const linkMutation = useLinkProject(ds.id);
   const scanMutation = useScanDatasetItems(ds.id);
   const backfillMutation = useBackfillDimensions(ds.id);
@@ -481,7 +485,13 @@ function DatasetDetail({ ds }: { ds: DatasetResponse }) {
                   <Button
                     size="sm"
                     variant="ghost"
-                    onClick={() => setConfirmUnlink(p)}
+                    onClick={() =>
+                      setConfirmUnlink({
+                        datasetId: ds.id,
+                        project: p,
+                        idempotencyKey: crypto.randomUUID(),
+                      })
+                    }
                     title="取消关联"
                   >
                     <Icon name="x" size={11} />
@@ -531,26 +541,34 @@ function DatasetDetail({ ds }: { ds: DatasetResponse }) {
 
           {confirmUnlink && (
             <UnlinkConfirmModal
-              datasetId={ds.id}
+              key={`${confirmUnlink.datasetId}:${confirmUnlink.project.id}`}
+              datasetId={confirmUnlink.datasetId}
               datasetName={ds.name}
-              project={confirmUnlink}
+              project={confirmUnlink.project}
               onClose={() => setConfirmUnlink(null)}
               onConfirm={() => {
-                unlinkMutation.mutate(confirmUnlink.id, {
-                  onSuccess: (res) => {
-                    const parts: string[] = [];
-                    if (res?.deleted_tasks) parts.push(`${res.deleted_tasks} 个任务`);
-                    if (res?.deleted_annotations) parts.push(`${res.deleted_annotations} 个标注`);
-                    if (res?.deleted_batches) parts.push(`${res.deleted_batches} 个空批次`);
-                    pushToast({
-                      msg: "已取消关联",
-                      sub: parts.length ? `已清理 ${parts.join(" · ")}` : undefined,
-                    });
-                    setConfirmUnlink(null);
+                unlinkMutation.mutate(
+                  {
+                    datasetId: confirmUnlink.datasetId,
+                    projectId: confirmUnlink.project.id,
+                    idempotencyKey: confirmUnlink.idempotencyKey,
                   },
-                  onError: (err: Error) =>
-                    pushToast({ msg: "取消关联失败", sub: err.message, kind: "error" }),
-                });
+                  {
+                    onSuccess: (res) => {
+                      const parts: string[] = [];
+                      if (res?.deleted_tasks) parts.push(`${res.deleted_tasks} 个任务`);
+                      if (res?.deleted_annotations) parts.push(`${res.deleted_annotations} 个标注`);
+                      if (res?.deleted_batches) parts.push(`${res.deleted_batches} 个空批次`);
+                      pushToast({
+                        msg: "已取消关联",
+                        sub: parts.length ? `已清理 ${parts.join(" · ")}` : undefined,
+                      });
+                      setConfirmUnlink(null);
+                    },
+                    onError: (err: Error) =>
+                      pushToast({ msg: "取消关联失败", sub: err.message, kind: "error" }),
+                  },
+                );
               }}
             />
           )}

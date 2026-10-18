@@ -1,0 +1,340 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:aap:contract:dataset-unlink:v1",
+  "title": "Workspace transactional dataset unlink v1",
+  "x-postgresql-functions": [
+    "aap_workspace_v1.unlink_dataset(uuid, uuid, uuid, uuid, text, jsonb)",
+    "aap_workspace_v1.preview_dataset_unlink(uuid, uuid, uuid)"
+  ],
+  "oneOf": [
+    {
+      "$ref": "#/$defs/command"
+    },
+    {
+      "$ref": "#/$defs/previewCommand"
+    },
+    {
+      "$ref": "#/$defs/unlinkSuccess"
+    },
+    {
+      "$ref": "#/$defs/previewSuccess"
+    },
+    {
+      "$ref": "#/$defs/failure"
+    }
+  ],
+  "$defs": {
+    "ProjectDeletionAuditContext": {
+      "additionalProperties": false,
+      "properties": {
+        "method": {
+          "anyOf": [
+            {
+              "maxLength": 8,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Method"
+        },
+        "path": {
+          "anyOf": [
+            {
+              "maxLength": 256,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Path"
+        },
+        "ip": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ip"
+        },
+        "request_id": {
+          "anyOf": [
+            {
+              "maxLength": 36,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Request Id"
+        }
+      },
+      "title": "ProjectDeletionAuditContext",
+      "type": "object"
+    },
+    "command": {
+      "additionalProperties": false,
+      "properties": {
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "dataset_id": {
+          "format": "uuid",
+          "title": "Dataset Id",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "cleanup_bucket": {
+          "maxLength": 63,
+          "minLength": 3,
+          "not": {
+            "pattern": "^[0-9]+(\\.[0-9]+){3}$"
+          },
+          "pattern": "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*$",
+          "title": "Cleanup Bucket",
+          "type": "string"
+        },
+        "audit_context": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProjectDeletionAuditContext"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": ["operation_id", "actor_id", "dataset_id", "project_id", "cleanup_bucket"],
+      "title": "DatasetUnlinkCommand",
+      "type": "object"
+    },
+    "receipt": {
+      "additionalProperties": false,
+      "properties": {
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "dataset_id": {
+          "format": "uuid",
+          "title": "Dataset Id",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "association_id": {
+          "format": "uuid",
+          "title": "Association Id",
+          "type": "string"
+        },
+        "cleanup_bucket": {
+          "maxLength": 63,
+          "minLength": 3,
+          "not": {
+            "pattern": "^[0-9]+(\\.[0-9]+){3}$"
+          },
+          "pattern": "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*$",
+          "title": "Cleanup Bucket",
+          "type": "string"
+        },
+        "audit_id": {
+          "exclusiveMinimum": 0,
+          "title": "Audit Id",
+          "type": "integer"
+        },
+        "deleted_tasks": {
+          "minimum": 0,
+          "title": "Deleted Tasks",
+          "type": "integer"
+        },
+        "deleted_annotations": {
+          "minimum": 0,
+          "title": "Deleted Annotations",
+          "type": "integer"
+        },
+        "deleted_batches": {
+          "minimum": 0,
+          "title": "Deleted Batches",
+          "type": "integer"
+        },
+        "deleted_batch_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Deleted Batch Ids",
+          "type": "array"
+        },
+        "soft": {
+          "const": false,
+          "title": "Soft",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "operation_id",
+        "actor_id",
+        "dataset_id",
+        "project_id",
+        "association_id",
+        "cleanup_bucket",
+        "audit_id",
+        "deleted_tasks",
+        "deleted_annotations",
+        "deleted_batches",
+        "deleted_batch_ids",
+        "soft"
+      ],
+      "title": "DatasetUnlinkReceipt",
+      "type": "object"
+    },
+    "previewResult": {
+      "additionalProperties": false,
+      "properties": {
+        "will_delete_tasks": {
+          "minimum": 0,
+          "title": "Will Delete Tasks",
+          "type": "integer"
+        },
+        "will_delete_annotations": {
+          "minimum": 0,
+          "title": "Will Delete Annotations",
+          "type": "integer"
+        },
+        "will_delete_batches": {
+          "minimum": 0,
+          "title": "Will Delete Batches",
+          "type": "integer"
+        }
+      },
+      "required": ["will_delete_tasks", "will_delete_annotations", "will_delete_batches"],
+      "title": "DatasetUnlinkPreview",
+      "type": "object"
+    },
+    "previewCommand": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "dataset_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "project_id": {
+          "type": "string",
+          "format": "uuid"
+        }
+      },
+      "required": ["actor_id", "dataset_id", "project_id"]
+    },
+    "unlinkSuccess": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-dataset-unlink/v1"
+        },
+        "ok": {
+          "const": true
+        },
+        "data": {
+          "$ref": "#/$defs/receipt"
+        }
+      },
+      "required": ["schema", "ok", "data"]
+    },
+    "previewSuccess": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-dataset-unlink-preview/v1"
+        },
+        "ok": {
+          "const": true
+        },
+        "data": {
+          "$ref": "#/$defs/previewResult"
+        }
+      },
+      "required": ["schema", "ok", "data"]
+    },
+    "failure": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "enum": ["aap-dataset-unlink/v1", "aap-dataset-unlink-preview/v1"]
+        },
+        "ok": {
+          "const": false
+        },
+        "error": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "enum": [
+                "invalid_request",
+                "account_busy",
+                "account_not_active",
+                "invalid_account_role",
+                "invalid_project_role",
+                "membership_busy",
+                "membership_incompatible",
+                "project_manager_required",
+                "project_missing",
+                "dataset_missing",
+                "link_missing",
+                "project_busy",
+                "operation_conflict",
+                "active_learning_reference",
+                "task_feedback_retained",
+                "annotation_reference_retained",
+                "source_in_use"
+              ]
+            }
+          },
+          "required": ["code"]
+        }
+      },
+      "required": ["schema", "ok", "error"]
+    }
+  }
+}

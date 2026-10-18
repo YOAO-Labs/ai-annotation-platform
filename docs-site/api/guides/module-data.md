@@ -173,6 +173,8 @@ actor/project/operation 身份完全一致时才重放原结果；同一 ID 换 
 
 `DELETE /datasets/{dataset_id}/link/{project_id}` 成功仍返回 HTTP 200 和原有五个字段：
 `deleted_tasks`、`deleted_annotations`、`deleted_batches`、`deleted_batch_ids`、`soft`。
+可选的 UUID `Idempotency-Key` 请求头固定一次操作，成功响应回传同一值。自动重试或丢失响应后
+重试必须复用原 key；SDK 允许显式传入，Web 确认窗口在本次重试中保留它。
 Workspace 的 `aap_workspace_v1.preview_dataset_unlink(actor_id, dataset_id, project_id)`
 提供只读删除数量预览；`aap_workspace_v1.unlink_dataset(operation_id, actor_id,
 dataset_id, project_id, cleanup_bucket, audit_context)` 是有写入效果的事务协调命令。
@@ -197,12 +199,13 @@ Audit 写入 `dataset.unlink`，Workspace 保存带 operation、actor、Dataset�
 
 operation 回执的规范请求包含 operation ID、actor ID、Dataset ID、Project ID 与受信 cleanup bucket；
 审计传输上下文不参与请求身份。重放要求原 actor 仍活跃且规范请求一致，不要求重新取得管理权；同 ID
-换请求返回 `operation_conflict`。Bucket 由可信服务配置传入，不是终端用户字段。
+换请求返回 `operation_conflict`。REST 入口仍要求当前项目管理权，原生回执的重放许可不绕过该入口检查。Bucket 由可信服务配置传入，不是终端用户字段。
 
-解绑事务内不执行 S3 或 broker 操作。提交后，API 可尝试清理；cleanup worker 可重试未完成的 outbox
+解绑事务内不执行 S3 或 broker 操作。提交后，API 通过媒体作业端口派发清理任务，cleanup worker 和周期重试处理未完成的 outbox
 条目。它仅按记录的 asset UUID、prefix 和 bucket 做幂等删除及确认；配置 bucket 与记录不一致时拒绝
 执行。源对象字节、item-owned pyramid 和共享 pyramid 不会被此操作删除。独立 cleanup LOGIN 才能读取
-待处理并确认完成，workflow LOGIN 不能扫描 outbox 或读取其私有表。
+待处理并确认完成，workflow LOGIN 不能扫描 outbox 或读取其私有表。当前受限角色使用隔离
+专用队列验收；默认 Compose 仍是宽权限 worker 的共享 `cleanup` 队列，部署受限 worker 前须先拆队列。
 
 `active_learning_reference`、`task_feedback_retained` 和
 `annotation_reference_retained` 表示证据必须先保留或经明确的领域流程处理；`source_in_use` 表示数据库

@@ -556,9 +556,13 @@ async def test_unlink_scope_fails_fast_when_batch_or_target_task_is_locked(
         batch_id=batch.id,
     )
     async with maker.begin() as seed:
-        seed.add_all([owner, dataset, project])
+        seed.add(owner)
         await seed.flush()
-        seed.add_all([item, batch, task])
+        seed.add_all([dataset, project])
+        await seed.flush()
+        seed.add_all([item, batch])
+        await seed.flush()
+        seed.add(task)
         seed.add(ProjectDataset(dataset_id=dataset.id, project_id=project.id))
 
     holder = maker()

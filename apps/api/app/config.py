@@ -450,7 +450,12 @@ class Settings(BaseSettings):
 
     # CORS — production 收紧 methods / headers
     cors_allow_methods: list[str] = ["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"]
-    cors_allow_headers: list[str] = ["Authorization", "Content-Type", "X-Request-ID"]
+    cors_allow_headers: list[str] = [
+        "Authorization",
+        "Content-Type",
+        "X-Request-ID",
+        "Idempotency-Key",
+    ]
 
     # v0.8.3 · 在线状态心跳：超过该分钟数未刷新 last_seen_at 的 online 用户由
     # Celery beat 任务 mark_inactive_offline 置 offline。前端 30s 心跳 × 10 容差。

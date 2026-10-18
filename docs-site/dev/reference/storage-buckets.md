@@ -68,6 +68,8 @@ MEDIA_CACHE_PREFIXES = ("thumbnails/", "videos/", "playback/", "image-pyramids/"
 | training：样本评估         | `projects/{project_id}/` ＋ `sample-evaluations/` ＋ `{run_id}/{attempt_id}/{sha}.json`                                                                                     | learning sample-evaluations；引用/保留检查与删除意图保留冻结对象身份                               |
 | training：主动学习媒体     | `projects/{project_id}/` ＋ `active-learning/{round_id}/` ＋ `media/{ordinal}.png`                                                                                          | active-learning；报告在 Attempt JSON；源码未发现独立媒体 GC，不套用 preview TTL 或臆造 report 前缀 |
 
+项目解绑只为被删 Task 自有的金字塔记录 `asset_storage_deletions`：业务提交后，Assets 清理 worker 按冻结的 bucket 和 `image-pyramids/{asset_id}/` 删除并确认，失败保留待重试。配置 bucket 不匹配时不执行对象删除；原始素材和 item-owned 金字塔保留。该 outbox 不接管其他既有金字塔回收路径。
+
 外部 S3/SFTP 连接器有独立 endpoint、bucket/base-prefix 与访问凭据，属于 assets 的读取/复制入口，不授予本项目删除外部 canonical 对象的权力。对象 key 不是授权依据；各业务仍按当前账号/项目与冻结资源身份检查。
 
 ## 非对象存储状态

@@ -58275,6 +58275,23 @@
               "title": "Project Id",
               "type": "string"
             }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
+            }
           }
         ],
         "responses": {
@@ -58284,7 +58301,16 @@
                 "schema": {}
               }
             },
-            "description": "Successful Response"
+            "description": "Successful Response",
+            "headers": {
+              "Idempotency-Key": {
+                "description": "Reuse this UUID to replay the committed unlink result.",
+                "schema": {
+                  "format": "uuid",
+                  "type": "string"
+                }
+              }
+            }
           },
           "422": {
             "content": {
@@ -58310,7 +58336,6 @@
     },
     "/api/v1/datasets/{dataset_id}/link/{project_id}/preview-unlink": {
       "get": {
-        "description": "v0.6.7 B-10 v2：取消关联前的预览数字（will be deleted）。前端拿来做二次确认文案。\nv0.7.3：补 will_delete_batches —— 与 service 层一致：失去 task 后变空壳的 batch（B-DEFAULT 除外）。",
         "operationId": "preview_unlink_project_api_v1_datasets__dataset_id__link__project_id__preview_unlink_get",
         "parameters": [
           {

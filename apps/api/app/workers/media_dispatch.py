@@ -10,6 +10,11 @@ from app.services.media_job_dispatch import VideoFrameRequest
 class CeleryMediaJobDispatcher:
     __slots__ = ()
 
+    def dispatch_asset_storage_cleanup(self, operation_id: UUID) -> None:
+        from app.workers.asset_storage_cleanup import retry_asset_storage_deletions
+
+        retry_asset_storage_deletions.delay(str(operation_id))
+
     def dispatch_thumbnail(self, item_id: UUID) -> None:
         from app.workers.media import generate_thumbnail
 

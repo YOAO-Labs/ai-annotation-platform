@@ -149,6 +149,8 @@ GRANT SELECT (id, dataset_id, file_name, file_path, file_type), UPDATE (id)
 GRANT SELECT (project_id), DELETE ON public.storage_connections TO :"assets_owner";
 GRANT SELECT (id, task_id), UPDATE (id), DELETE
     ON public.image_pyramid_assets TO :"assets_owner";
+GRANT SELECT (asset_id, generation), UPDATE (generation)
+    ON public.image_pyramid_generations TO :"assets_owner";
 GRANT SELECT (operation_id, asset_id, bucket, prefix, created_at, completed_at),
     INSERT (operation_id, asset_id, bucket, prefix), UPDATE (completed_at)
     ON public.asset_storage_deletions TO :"assets_owner";
@@ -235,7 +237,7 @@ GRANT UPDATE (
 
 -- Learning holds project retention evidence, task-derived streams and recipes.
 GRANT SELECT (project_id) ON public.active_learning_rounds TO :"learning_owner";
-GRANT SELECT (task_id) ON public.active_learning_pool_members,
+GRANT SELECT (task_id, dataset_item_id) ON public.active_learning_pool_members,
     public.active_learning_candidates TO :"learning_owner";
 GRANT SELECT (project_id) ON public.training_studies,
     public.trained_model_versions, public.project_model_selections,

@@ -324,6 +324,12 @@ last_reviewed: 2026-10-18
 |---|---|---|
 | `CORS_ALLOW_ORIGIN_REGEX` | `http://localhost:\d+` | — |
 
+## Production request-header allowlist; keep Idempotency-Key for repeatable unlink requests.
+
+| 变量 | 默认值 | 说明 |
+|---|---|---|
+| `CORS_ALLOW_HEADERS` | `["Authorization","Content-Type","X-Request-ID","Idempotency-Key"]` | Allowed cross-origin clients can read the echoed Idempotency-Key response header. |
+
 ## Grounded-SAM-2 ML Backend
 
 | 变量 | 默认值 | 说明 |

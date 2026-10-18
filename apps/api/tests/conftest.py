@@ -197,6 +197,7 @@ def app_module():
 class _MediaJobDispatcherStub:
     def __init__(self) -> None:
         self.thumbnails: list[UUID] = []
+        self.asset_storage_cleanups: list[UUID] = []
         self.task_thumbnails: list[UUID] = []
         self.task_thumbnail_backfills: list[UUID] = []
         self.video_metadata: list[UUID] = []
@@ -205,6 +206,9 @@ class _MediaJobDispatcherStub:
 
     def dispatch_thumbnail(self, item_id: UUID) -> None:
         self.thumbnails.append(item_id)
+
+    def dispatch_asset_storage_cleanup(self, operation_id: UUID) -> None:
+        self.asset_storage_cleanups.append(operation_id)
 
     def dispatch_video_metadata(self, item_id: UUID) -> None:
         self.video_metadata.append(item_id)

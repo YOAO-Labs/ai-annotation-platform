@@ -125,7 +125,7 @@ def _verified_resource_manifest(test_engine, cleanup_url: URL) -> dict:
     if not isinstance(identity, dict) or not isinstance(resource, dict):
         pytest.fail("the verifier's resource manifest has an invalid shape")
     resource_id = identity.get("id")
-    checkout = hashlib.sha256(str(_REPO_ROOT.resolve()).encode()).hexdigest()[:16]
+    checkout = hashlib.sha256(str(resource_root).encode()).hexdigest()[:16]
     owner = f"aap-worktree:{resource_id}:test:{checkout}"
     if not (
         identity.get("schema") == 1

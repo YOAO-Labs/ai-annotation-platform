@@ -102,7 +102,9 @@ describe("datasetsApi · endpoint 契约", () => {
     datasetsApi.linkProject("d1", "p1");
     expect(post).toHaveBeenCalledWith("/datasets/d1/link", { project_id: "p1" });
     datasetsApi.unlinkProject("d1", "p1");
-    expect(del).toHaveBeenCalledWith("/datasets/d1/link/p1");
+    expect(del).toHaveBeenCalledWith("/datasets/d1/link/p1", {
+      headers: { "Idempotency-Key": expect.stringMatching(/^[0-9a-f-]{36}$/) },
+    });
     datasetsApi.previewUnlink("d1", "p1");
     expect(get).toHaveBeenCalledWith("/datasets/d1/link/p1/preview-unlink");
   });

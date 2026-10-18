@@ -5,6 +5,8 @@ from app.db.models.group import Group
 from app.db.models.organization import Organization, OrganizationMember
 from app.db.models.project import Project
 from app.db.models.project_deletion_operation import ProjectDeletionOperation
+from app.db.models.dataset_unlink_operation import DatasetUnlinkOperation
+from app.db.models.asset_storage_deletion import AssetStorageDeletion
 from app.db.models.project_member import ProjectMember
 from app.db.models.project_pipeline import ProjectPipeline
 from app.db.models.project_template import ProjectTemplate
@@ -247,3 +249,4 @@ __all__ += ["ModelDecision"]
 __all__ += ["TrainingStudy", "TrainingTrial"]
 
 __all__ += ["ProjectDeletionOperation"]
+__all__ += ["DatasetUnlinkOperation", "AssetStorageDeletion"]

@@ -168,7 +168,7 @@ aap datasets projects <dataset-id> [--json]
 aap datasets upload <dataset-id> <路径> [--zip] [--json]
 aap datasets link <dataset-id> <project-id> [--json]
 aap datasets preview-unlink <dataset-id> <project-id> [--json]
-aap datasets unlink <dataset-id> <project-id> [--yes] [--json]
+aap datasets unlink <dataset-id> <project-id> [--idempotency-key <UUID>] [--yes] [--json]
 aap datasets delete <dataset-id> [--yes] [--json]
 ```
 
@@ -182,8 +182,10 @@ aap datasets upload 0199aa... ./imgs
 aap datasets upload 0199aa... ./data.zip --zip
 aap datasets link 0199aa... 0199bb...
 aap datasets preview-unlink 0199aa... 0199bb...
-aap datasets unlink 0199aa... 0199bb... --yes
+aap datasets unlink 0199aa... 0199bb... --yes --idempotency-key <saved-uuid>
 ```
+
+自动化脚本在首次调用前生成并保存 UUID；响应丢失后再次运行时通过 `--idempotency-key` 复用它。省略时每次命令生成新键，不能用于重放前一次不确定结果。
 
 ### aap batches
 

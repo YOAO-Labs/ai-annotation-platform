@@ -41,6 +41,8 @@ class _FakeDb:
         self.acknowledgements = list(acknowledgements)
         self.events: list[tuple[str, object]] = []
         self.active = False
+        self.commit_errors: list[Exception | None] = []
+        self.completed: tuple[uuid.UUID, uuid.UUID] | None = None
 
     def in_transaction(self) -> bool:
         return self.active
@@ -58,22 +60,26 @@ class _FakeDb:
         if isinstance(result, Exception):
             raise result
         if result is True:
-            self.pending_rows = [
-                row
-                for row in self.pending_rows
-                if not (
-                    row["operation_id"] == params["operation"]
-                    and row["asset_id"] == params["asset"]
-                )
-            ]
+            self.completed = params["operation"], params["asset"]
         return result
 
     async def commit(self) -> None:
         self.events.append(("commit", None))
+        error = self.commit_errors.pop(0) if self.commit_errors else None
+        if error is not None:
+            raise error
+        if self.completed is not None:
+            self.pending_rows = [
+                row
+                for row in self.pending_rows
+                if (row["operation_id"], row["asset_id"]) != self.completed
+            ]
+        self.completed = None
         self.active = False
 
     async def rollback(self) -> None:
         self.events.append(("rollback", None))
+        self.completed = None
         self.active = False
 
 
@@ -195,6 +201,30 @@ async def test_invalid_prefix_reply_is_rejected_before_object_io():
     assert storage.calls == []
     assert db.events[-1][0] == "rollback"
     assert db.pending_rows == [_row(prefix="image-pyramids/unrelated/")]
+
+
+@pytest.mark.asyncio
+async def test_failed_ack_commit_retries_already_deleted_objects():
+    db = _FakeDb([_row()])
+    db.commit_errors = [
+        None,
+        OSError("database disconnected before acknowledgement commit"),
+    ]
+    storage = _FakeStorage(db)
+
+    assert await drain_asset_storage_deletions(db, storage) == {
+        "completed": 0,
+        "failed": 1,
+    }
+    assert db.pending_rows == [_row()]
+    assert db.events[-1][0] == "rollback"
+
+    assert await drain_asset_storage_deletions(db, storage) == {
+        "completed": 1,
+        "failed": 0,
+    }
+    assert storage.calls == [(PREFIX, BUCKET, False), (PREFIX, BUCKET, False)]
+    assert db.pending_rows == []
 
 
 def test_storage_reference_is_frozen_and_rejects_extra_or_invalid_scope():

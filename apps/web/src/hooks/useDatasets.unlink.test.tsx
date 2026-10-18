@@ -52,7 +52,7 @@ describe("useUnlinkProject", () => {
       expect(call).toEqual([datasetId, projectId, { idempotencyKey }]);
     }
 
-    expect(invalidate.mock.calls.map(([filters]) => filters.queryKey)).toEqual([
+    expect(invalidate.mock.calls.map(([filters]) => filters?.queryKey)).toEqual([
       ["datasets"],
       ["dataset", datasetId],
       ["dataset-projects", datasetId],

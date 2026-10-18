@@ -238,7 +238,7 @@ describe("DatasetsSection", () => {
     renderUI();
     fireEvent.click(screen.getByRole("button", { name: /取消关联/ }));
     await screen.findByText("项目中没有由该数据集创建的任务，可放心取消。");
-    fireEvent.click(screen.getByRole("button", { name: "取消", exact: true }));
+    fireEvent.click(screen.getByRole("button", { name: "取消" }));
 
     fireEvent.click(screen.getByRole("button", { name: /取消关联/ }));
     await screen.findByText("项目中没有由该数据集创建的任务，可放心取消。");

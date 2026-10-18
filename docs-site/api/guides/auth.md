@@ -244,8 +244,9 @@ PATCH 省略 `expires_in_days` 保留原值，显式 `null` 清除有效期。�
 
 - key 的 `scopes` 在路由层经 `require_scopes` 校验；缺少所需 scope → **403**。
 - 含通配 `"*"`（完全访问 / full-access）的 key 绕过 scope 校验，等同用户全权。
-- 已挂强制的 scope：`annotations:read` / `annotations:write` / `datasets:read` / `predictions:read`（其余路由暂不限制）。
-- ⚠️ **scope 不是只读隔离**：未挂强制的端点（含多数写操作，以及 `/ws/ml-backend-stats` 监控流）仍遵从 key 所属用户的角色——只勾读 scope 的 key 在 owner 为 super_admin / project_admin 时仍能触达 `POST /datasets`、`DELETE /projects/*` 等高危写操作。需要真正受限的程序化访问，请用低权限账号创建 key。
+- 已挂强制的 scope：`annotations:read` / `annotations:write` / `datasets:read` / `datasets:write` / `predictions:read`（其余路由暂不限制）。
+- ⚠️ **scope 不是只读隔离**：未挂强制的端点（含多数写操作，以及 `/ws/ml-backend-stats` 监控流）仍遵从 key 所属用户的角色——只勾读 scope 的 key 在 owner 为 super_admin / project_admin 时仍能触达 `DELETE /projects/*` 等未挂 scope 的写操作。需要真正受限的程序化访问，请用低权限账号创建 key。
+- 数据集的 20 个路由已全部强制 scope：6 个读取（含 POST sniff）要求 `datasets:read`，14 个修改要求 `datasets:write`。只持有 `datasets:read` 的 key 不能创建、导入、上传、解绑或删除数据集。
 - JWT / 密码登录的会话不受 scope 约束（视为 full-access）。
 
 ## 错误码

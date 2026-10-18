@@ -276,7 +276,10 @@ object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'
 | `allow_origin_regex` | `http://localhost:\d+`          | 自动失效（`config.py:36-41`）         |
 | `allow_methods`      | `*`                             | 显式白名单 `cors_allow_methods`       |
 | `allow_headers`      | `*`                             | 显式白名单 `cors_allow_headers`       |
+| `expose_headers`     | `Idempotency-Key`               | `Idempotency-Key`                     |
 | `allow_credentials`  | `True`                          | `True`                                |
+
+默认请求头白名单包含 `Idempotency-Key`；自定义 `CORS_ALLOW_HEADERS` 时保留该项，才能从跨域前端安全重试数据集解绑。允许的跨域来源可以读取成功响应回传的同名头。
 
 production 收紧的目的：避免误把 dev regex 上线放任何 localhost 端口；避免接受未声明的 method 让某些奇怪 path 被探到。
 

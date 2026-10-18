@@ -202,14 +202,16 @@ export const datasetsApi = {
       created_tasks?: number;
     }>(`/datasets/${id}/link`, { project_id: projectId }),
 
-  unlinkProject: (id: string, projectId: string) =>
+  unlinkProject: (id: string, projectId: string, options?: { idempotencyKey?: string }) =>
     apiClient.delete<{
       deleted_tasks: number;
       deleted_annotations: number;
       deleted_batches: number;
       deleted_batch_ids: string[];
       soft: boolean;
-    }>(`/datasets/${id}/link/${projectId}`),
+    }>(`/datasets/${id}/link/${projectId}`, {
+      headers: { "Idempotency-Key": options?.idempotencyKey ?? crypto.randomUUID() },
+    }),
 
   previewUnlink: (id: string, projectId: string) =>
     apiClient.get<{

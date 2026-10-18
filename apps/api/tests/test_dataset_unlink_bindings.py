@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import uuid
+from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
@@ -87,6 +88,22 @@ class _FakeDb:
 
     async def commit(self) -> None:
         self.commits += 1
+
+
+def test_frozen_native_schema_matches_the_typed_bindings():
+    path = (
+        Path(__file__).resolve().parents[1]
+        / "alembic/sql/0205_dataset_unlink.schema.json"
+    )
+    definitions = json.loads(path.read_text())["$defs"]
+    command = DatasetUnlinkCommand.model_json_schema()
+    assert (
+        definitions["ProjectDeletionAuditContext"]
+        == command.pop("$defs")["ProjectDeletionAuditContext"]
+    )
+    assert definitions["command"] == command
+    assert definitions["receipt"] == DatasetUnlinkReceipt.model_json_schema()
+    assert definitions["previewResult"] == DatasetUnlinkPreview.model_json_schema()
 
 
 def test_command_and_frozen_receipt_reject_noncanonical_inputs():

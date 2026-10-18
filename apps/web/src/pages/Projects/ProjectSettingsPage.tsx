@@ -255,7 +255,7 @@ export function ProjectSettingsPage() {
           {section === "readiness" && <ProjectReadinessSection project={project} />}
           {section === "classes" && <ClassesSection project={project} />}
           {section === "members" && <MembersSection project={project} />}
-          {section === "datasets" && <DatasetsSection project={project} />}
+          {section === "datasets" && <DatasetsSection key={project.id} project={project} />}
           {section === "batches" && <BatchesSection project={project} />}
           {section === "ml-backends" && <MlBackendsSection project={project} />}
           {section === "rendering" && <RenderingConfigSection project={project} />}

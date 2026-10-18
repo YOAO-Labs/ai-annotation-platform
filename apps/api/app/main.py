@@ -225,6 +225,7 @@ app.add_middleware(
     allow_headers=["*"]
     if settings.environment != "production"
     else settings.cors_allow_headers,
+    expose_headers=["Idempotency-Key"],
 )
 
 # Pure ASGI pre-parser guard: registered outermost so multipart/JSON parsing can

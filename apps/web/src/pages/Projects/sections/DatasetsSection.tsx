@@ -120,6 +120,7 @@ export function DatasetsSection({ project }: { project: ProjectResponse }) {
 
       {unlinkTarget && (
         <UnlinkConfirmModal
+          key={`${project.id}:${unlinkTarget.dataset_id}`}
           projectId={project.id}
           datasetId={unlinkTarget.dataset_id}
           datasetName={unlinkTarget.name}
@@ -262,7 +263,12 @@ function UnlinkConfirmModal({
   const [confirmText, setConfirmText] = useState("");
   const dangerous = (preview?.tasks ?? 0) > 0;
   const canSubmit = dangerous ? confirmText.trim() === datasetName : true;
-  const unlink = useUnlinkProject(datasetId);
+  const unlink = useUnlinkProject();
+  const [unlinkRequest] = useState(() => ({
+    datasetId,
+    projectId,
+    idempotencyKey: crypto.randomUUID(),
+  }));
   const pushToast = useToastStore((s) => s.push);
 
   useEffect(() => {
@@ -287,7 +293,7 @@ function UnlinkConfirmModal({
 
   const onConfirm = () => {
     if (!canSubmit) return;
-    unlink.mutate(projectId, {
+    unlink.mutate(unlinkRequest, {
       onSuccess: (res) => {
         const parts: string[] = [];
         if (res?.deleted_tasks) parts.push(`${res.deleted_tasks} 个任务`);

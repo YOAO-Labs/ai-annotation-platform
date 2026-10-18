@@ -13,6 +13,7 @@ from app.db.models.project import Project
 from app.db.models.task import Task
 from app.application.dataset_task_creation import DatasetTaskCreationWorkflow
 from app.application.dataset_deletion import unlink_dataset_from_project
+from app.services.storage import storage_service
 from app.services.dataset import DatasetService
 
 
@@ -288,7 +289,13 @@ async def test_unlink_project_hard_deletes_tasks(db_session: AsyncSession, super
     await db_session.refresh(project)
     assert project.total_tasks == 10
 
-    info = await unlink_dataset_from_project(db_session, ds.id, project.id)
+    info = await unlink_dataset_from_project(
+        db_session,
+        ds.id,
+        project.id,
+        actor_id=user.id,
+        cleanup_bucket=storage_service.media_cache_bucket,
+    )
     assert info is not None
     assert info["deleted_tasks"] == 10
     assert info["soft"] is False
@@ -359,7 +366,13 @@ async def test_unlink_cascades_user_split_batches(
     db_session.add(manual_empty)
     await db_session.flush()
 
-    info = await unlink_dataset_from_project(db_session, ds.id, project.id)
+    info = await unlink_dataset_from_project(
+        db_session,
+        ds.id,
+        project.id,
+        actor_id=user.id,
+        cleanup_bucket=storage_service.media_cache_bucket,
+    )
     assert info is not None
     deleted_ids = set(info["deleted_batch_ids"])
     assert str(sub_a.id) in deleted_ids
@@ -416,7 +429,13 @@ async def test_unlink_cascades_legacy_default_batch(
     )
     await db_session.flush()
 
-    info = await unlink_dataset_from_project(db_session, ds.id, project.id)
+    info = await unlink_dataset_from_project(
+        db_session,
+        ds.id,
+        project.id,
+        actor_id=user.id,
+        cleanup_bucket=storage_service.media_cache_bucket,
+    )
     assert info is not None
     assert str(legacy_default.id) in info["deleted_batch_ids"]
 
@@ -477,7 +496,13 @@ async def test_link_unlink_relink_no_double_count(
     await DatasetTaskCreationWorkflow(db_session).link_project(
         ds.id, project.id, actor_id=user.id
     )
-    await unlink_dataset_from_project(db_session, ds.id, project.id)
+    await unlink_dataset_from_project(
+        db_session,
+        ds.id,
+        project.id,
+        actor_id=user.id,
+        cleanup_bucket=storage_service.media_cache_bucket,
+    )
     await DatasetTaskCreationWorkflow(db_session).link_project(
         ds.id, project.id, actor_id=user.id
     )

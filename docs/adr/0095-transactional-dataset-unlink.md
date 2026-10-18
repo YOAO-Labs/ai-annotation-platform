@@ -69,17 +69,23 @@ platform-wide independent-deployment goal.
    `operation_conflict`.
 7. The cleanup bucket is supplied from trusted Assets configuration, never an
    end-user field. No S3 or broker action runs inside the unlink transaction.
-   After commit, the API may attempt cleanup; a worker can retry the durable
-   outbox. Cleanup uses the recorded UUID/prefix/bucket, refuses a bucket that
+   After commit, the API dispatches a cleanup task through its media-job port;
+   a periodic worker also retries the durable outbox. Cleanup uses the recorded UUID/prefix/bucket, refuses a bucket that
    differs from its configured media-cache scope, and acknowledges completion
    idempotently. A separate cleanup LOGIN may scan and complete pending work;
-   the workflow LOGIN cannot drain the outbox or read its private rows.
+   the workflow LOGIN cannot drain the outbox or read its private rows. This
+   restricted role is qualified on an isolated queue; the default compose
+   still uses a broad legacy worker on the shared cleanup queue. A dedicated
+   queue and service are required before deploying the restricted worker.
 8. The existing REST unlink response retains its five fields:
    `deleted_tasks`, `deleted_annotations`, `deleted_batches`,
    `deleted_batch_ids`, and `soft`. API-key callers use the `datasets:write`
    scope; the existing JWT authorization behavior is unchanged. The native
    operation receipt is for trusted backend callers and does not expand the
-   public response body.
+   public response body. REST accepts an optional UUID `Idempotency-Key` and
+   echoes it after commit; clients reuse the key for the same logical request,
+   including a lost-response retry after relinking. The REST preflight still
+   requires current project management authority, even for a native receipt replay.
 
 The expected lock, serialization, and deadlock failures roll back owner writes,
 outbox, audit, and receipt before returning the retryable `project_busy` result.

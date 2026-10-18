@@ -7,11 +7,13 @@ v0.10.12 起 style-src 也去 'unsafe-inline'.
 from __future__ import annotations
 
 from starlette.applications import Starlette
+from starlette.middleware.cors import CORSMiddleware
 from starlette.responses import JSONResponse
 from starlette.routing import Route
 from starlette.testclient import TestClient
 
 from app.middleware.security_headers import SecurityHeadersMiddleware
+from app.config import Settings
 
 
 def _build_app() -> Starlette:
@@ -70,3 +72,24 @@ def test_other_security_headers_intact():
     assert resp.headers.get("x-frame-options") == "DENY"
     assert resp.headers.get("referrer-policy") == "strict-origin-when-cross-origin"
     assert "max-age=" in resp.headers.get("strict-transport-security", "")
+
+
+def test_production_header_defaults_allow_idempotent_unlink_preflight():
+    settings = Settings(_env_file=None, environment="development")
+    app = _build_app()
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["https://frontend.example.test"],
+        allow_methods=["DELETE"],
+        allow_headers=settings.cors_allow_headers,
+    )
+    response = TestClient(app).options(
+        "/hello",
+        headers={
+            "Origin": "https://frontend.example.test",
+            "Access-Control-Request-Method": "DELETE",
+            "Access-Control-Request-Headers": "Authorization,Idempotency-Key",
+        },
+    )
+    assert response.status_code == 200
+    assert "idempotency-key" in response.headers["access-control-allow-headers"].lower()

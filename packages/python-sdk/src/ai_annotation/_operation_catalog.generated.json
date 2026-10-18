@@ -1413,6 +1413,23 @@
             "type": "string",
             "format": "uuid"
           }
+        },
+        {
+          "name": "Idempotency-Key",
+          "in": "header",
+          "required": false,
+          "schema": {
+            "title": "Idempotency-Key",
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
         }
       ],
       "responses": {
@@ -6280,7 +6297,7 @@
       "path": "/api/v1/datasets/{dataset_id}/link/{project_id}/preview-unlink",
       "operation_id": "preview_unlink_project_api_v1_datasets__dataset_id__link__project_id__preview_unlink_get",
       "summary": "Preview Unlink Project",
-      "description": "v0.6.7 B-10 v2：取消关联前的预览数字（will be deleted）。前端拿来做二次确认文案。\nv0.7.3：补 will_delete_batches —— 与 service 层一致：失去 task 后变空壳的 batch（B-DEFAULT 除外）。",
+      "description": null,
       "tags": [
         "datasets"
       ],
@@ -45030,11 +45047,21 @@
           "annotation": "IdLike",
           "required": true,
           "default": null
+        },
+        {
+          "name": "idempotency_key",
+          "kind": "keyword_only",
+          "annotation": "IdLike | None",
+          "required": false,
+          "default": null
         }
       ],
       "return_type": "DatasetUnlinkResult",
       "python_only": false,
-      "constructed_models": [],
+      "constructed_models": [
+        "UUID",
+        "ValueError"
+      ],
       "direct_api_operations": [
         "DELETE /api/v1/datasets/{dataset_id}/link/{project_id}"
       ],
@@ -68402,6 +68429,17 @@
           "default": null,
           "type": "str",
           "description": "项目 ID"
+        },
+        {
+          "name": "idempotency_key",
+          "kind": "option",
+          "options": [
+            "--idempotency-key"
+          ],
+          "required": false,
+          "default": null,
+          "type": "str | None",
+          "description": "稳定 UUID；响应不确定时重试请复用原值"
         },
         {
           "name": "yes",

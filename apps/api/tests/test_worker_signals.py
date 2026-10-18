@@ -20,6 +20,7 @@ points the signal module at the same disposable test database.
 from __future__ import annotations
 
 import uuid
+import asyncio
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
@@ -39,6 +40,56 @@ from tests.factory import create_project, create_user
 pytestmark = pytest.mark.asyncio
 
 _HEX64 = "a" * 64
+
+
+@pytest.mark.parametrize("name_field", ["task", "name"])
+async def test_asset_cleanup_signals_do_not_open_foreign_job_storage(
+    monkeypatch, name_field
+):
+    def forbidden_engine(*args, **kwargs):
+        pytest.fail("Assets cleanup must not open Jobs storage from a signal")
+
+    monkeypatch.setattr(signals, "create_async_engine", forbidden_engine)
+    name = "app.workers.asset_storage_cleanup.retry_asset_storage_deletions"
+    await asyncio.to_thread(
+        signals._on_task_failure,
+        sender=SimpleNamespace(name=name),
+        task_id="cleanup-task",
+        exception=RuntimeError("failure"),
+    )
+    await asyncio.to_thread(
+        signals._on_task_revoked,
+        request=SimpleNamespace(id="cleanup-task", **{name_field: name}),
+    )
+
+
+async def test_asset_cleanup_revocation_uses_the_real_celery_task_identity(monkeypatch):
+    from celery.worker.request import Request
+    from kombu import Message
+
+    from app.workers.asset_storage_cleanup import retry_asset_storage_deletions
+    from app.workers.celery_app import celery_app
+
+    def forbidden_engine(*args, **kwargs):
+        pytest.fail("Revoking an Assets cleanup task must not access Jobs storage")
+
+    monkeypatch.setattr(signals, "create_async_engine", forbidden_engine)
+    request = Request(
+        Message(
+            body=([], {}, {}),
+            headers={
+                "id": "cleanup-task",
+                "task": retry_asset_storage_deletions.name,
+                "shadow": "friendly cleanup name",
+            },
+        ),
+        app=celery_app,
+        decoded=True,
+    )
+    assert not isinstance(request.task, str)
+    assert request.task.name == retry_asset_storage_deletions.name
+    assert request.name == "friendly cleanup name"
+    await asyncio.to_thread(signals._on_task_revoked, request=request)
 
 
 class _SignalWorld:

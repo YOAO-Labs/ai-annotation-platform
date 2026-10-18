@@ -41,6 +41,7 @@ async def append_state(test_engine):
                 email=f"append-consumer-{suffix}@example.test",
                 name="Append consumer fixture",
                 password_hash="unused-test-hash",
+                role="project_admin",
             )
         )
         await db.flush()
@@ -79,10 +80,27 @@ async def append_state(test_engine):
         )
     try:
         yield SimpleNamespace(
-            maker=maker, dataset_id=dataset_id, project_id=project_id, item_id=item_id
+            maker=maker,
+            owner_id=owner_id,
+            dataset_id=dataset_id,
+            project_id=project_id,
+            item_id=item_id,
         )
     finally:
         async with maker.begin() as db:
+            await db.execute(text("SET LOCAL app.allow_audit_update = 'true'"))
+            await db.execute(
+                text(
+                    "DELETE FROM public.audit_logs WHERE actor_id=:actor AND action='dataset.unlink'"
+                ),
+                {"actor": owner_id},
+            )
+            await db.execute(
+                text(
+                    "DELETE FROM public.dataset_unlink_operations WHERE actor_id=:actor"
+                ),
+                {"actor": owner_id},
+            )
             await db.execute(delete(Task).where(Task.project_id == project_id))
             await db.execute(
                 delete(ProjectDataset).where(ProjectDataset.dataset_id == dataset_id)
@@ -267,7 +285,11 @@ async def test_real_append_and_unlink_serialize_without_orphan_tasks(
 
         async def unlink(db):
             return await unlink_dataset_from_project(
-                db, state.dataset_id, state.project_id
+                db,
+                state.dataset_id,
+                state.project_id,
+                actor_id=state.owner_id,
+                cleanup_bucket="append-consumer-cache",
             )
 
         leading, trailing = (append, unlink) if first == "append" else (unlink, append)
@@ -373,7 +395,7 @@ async def test_inflight_replay_cannot_invert_source_writer_parent_lock(
 
 
 @pytest.mark.asyncio
-async def test_unlink_recount_waits_for_other_dataset_append_before_reading_total(
+async def test_busy_unlink_retries_after_other_dataset_append_without_losing_total(
     test_engine, append_state
 ):
     state = append_state
@@ -409,30 +431,39 @@ async def test_unlink_recount_waits_for_other_dataset_append_before_reading_tota
         )
     try:
         async with state.maker() as appender, state.maker() as unlinker:
-            append_pid = await appender.scalar(text("SELECT pg_backend_pid()"))
-            unlink_pid = await unlinker.scalar(text("SELECT pg_backend_pid()"))
             assert (
                 await DatasetTaskCreationWorkflow(appender).append_items(
                     other_dataset_id, [other_item_id]
                 )
                 == 1
             )
-            pending = asyncio.create_task(
-                unlink_dataset_from_project(
-                    unlinker, state.dataset_id, state.project_id
+            from fastapi import HTTPException
+
+            operation_id = uuid4()
+            with pytest.raises(HTTPException) as busy:
+                await unlink_dataset_from_project(
+                    unlinker,
+                    state.dataset_id,
+                    state.project_id,
+                    actor_id=state.owner_id,
+                    cleanup_bucket="append-consumer-cache",
+                    operation_id=operation_id,
                 )
-            )
-            try:
-                await _wait_for_blocker(test_engine, unlink_pid, append_pid)
-                await appender.commit()
-                assert (await asyncio.wait_for(pending, timeout=5))[
-                    "deleted_tasks"
-                ] == 1
-                await unlinker.commit()
-            finally:
-                if not pending.done():
-                    pending.cancel()
-                await asyncio.gather(pending, return_exceptions=True)
+            assert busy.value.status_code == 409
+            assert busy.value.detail == {"reason": "project_busy"}
+            await unlinker.rollback()
+            await appender.commit()
+            assert (
+                await unlink_dataset_from_project(
+                    unlinker,
+                    state.dataset_id,
+                    state.project_id,
+                    actor_id=state.owner_id,
+                    cleanup_bucket="append-consumer-cache",
+                    operation_id=operation_id,
+                )
+            )["deleted_tasks"] == 1
+            await unlinker.commit()
         async with state.maker() as observer:
             assert (await observer.get(Project, state.project_id)).total_tasks == 1
             assert (

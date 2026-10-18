@@ -393,7 +393,7 @@ UUID、素材 UUID 数组与唯一操作 UUID，返回 `aap-task-append/v1` JSON
 不允许改绑项目；旧的范围缺失作业不会从 payload 补造授权。详见
 [ADR-0094](docs/adr/0094-transactional-project-deletion.md)。
 
-项目取消数据集关联也使用 Workspace 原生命令：当前账号/项目管理权、关联代次、学习和标注引用检查、任务删除与计数、Audit、Workspace 回执及 Assets 的派生金字塔清理计划在调用方同一事务中提交或回滚。Jobs 只取消匹配当前 dataset/project/association 代次的冻结 `create_tasks` 作业；任务源文件与共享来源金字塔保留。数据库事务提交后才派发 S3 清理，Celery 的周期任务会重试未完成回执。API 的 `Idempotency-Key` 可选 UUID，成功时回传；SDK/Web 重试应复用原 key。
+项目取消数据集关联也使用 Workspace 原生命令：当前账号/项目管理权、关联代次、学习和标注引用检查、任务删除与计数、Audit、Workspace 回执及 Assets 的派生金字塔清理计划在调用方同一事务中提交或回滚。Jobs 只取消匹配当前 dataset/project/association 代次的冻结 `create_tasks` 作业；任务源文件与共享来源金字塔保留。数据库事务提交后才派发 S3 清理，Celery 的周期任务会重试未完成回执。API 的 `Idempotency-Key` 可选 UUID，成功时回传；SDK/Web 重试应复用原 key。允许的跨域客户端可读取该响应头；production 自定义 `CORS_ALLOW_HEADERS` 时需包含 `Idempotency-Key`。
 
 独立数据接口使用 Identity、Workspace、Assets、Jobs、Labeling、Learning、Inference、
 Insights、Diagnostics、Export、Audit 十一个无登录函数 owner，以及 `append_client` 与
@@ -418,13 +418,16 @@ psql -v expected_database=annotation_test -v migration_role=owner \
 连接参数由操作者在本地显式配置。该脚本拒绝带管理权限、继承 owner 或能直接读写
 业务表的调用角色；不会自动缩减现有主 API 的宽权限账号。独立的清理 worker 使用其
 进程 `DATABASE_URL` 以 `asset_cleanup_client` 连接；API/普通 workflow 不得领取或确认
-清理 outbox。现有主 API/worker 迁移期仍使用原运行角色，分离迁移账号时需在迁移后
+清理 outbox。当前受限清理角色仅在隔离的专用验收队列中运行；默认 Compose 仍由宽权限
+worker 消费共享 `cleanup` 队列。部署受限 Assets worker 前须先拆分队列与服务，不能替换
+共享 worker 的数据库账号。现有主 API/worker 迁移期仍使用原运行角色，分离迁移账号时需在迁移后
 执行原环境授权流程以获取新接口执行权。
 
 本地验收使用专属 PostgreSQL 容器、test mode 数据库、Redis 与九个隔离桶，不创建或
 修改日常 PostgreSQL 的角色。运行命令及参数见
-`scripts/verify_module_data_boundary.py --help`；模块验收还需提供
-`AAP_MODULE_DATA_ASSET_CLEANUP_URL`；记录该命令的 JUnit 与 JSON 结果。
+`scripts/verify_module_data_boundary.py --help`；验证器会创建两类登录角色并向测试进程注入
+`AAP_MODULE_DATA_APPEND_URL` 和 `AAP_MODULE_DATA_ASSET_CLEANUP_URL`，无需改动日常凭据。
+记录该命令的 JUnit 与 JSON 结果。
 它不验证生产容量，也不提供完整 assets/labeling 模块的独立部署资格。具体事务约束
 见 [ADR-0092](docs/adr/0092-transactional-module-data-capabilities.md)。
 
