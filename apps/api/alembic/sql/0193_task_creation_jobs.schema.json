@@ -1,0 +1,384 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:aap:contract:task-creation-jobs:v1",
+  "title": "Durable task creation job capabilities v1",
+  "description": "Frozen request, accepted AsyncJob payload and reply shapes for the Jobs-owned initial task creation contract.",
+  "anyOf": [
+    { "$ref": "#/$defs/createRequest" },
+    { "$ref": "#/$defs/discoveryRequest" },
+    { "$ref": "#/$defs/claimRequest" },
+    { "$ref": "#/$defs/lockRequest" },
+    { "$ref": "#/$defs/progressRequest" },
+    { "$ref": "#/$defs/finishRequest" },
+    { "$ref": "#/$defs/failRequest" },
+    { "$ref": "#/$defs/cancelRequest" },
+    { "$ref": "#/$defs/createTasksPayload" },
+    { "$ref": "#/$defs/createSuccess" },
+    { "$ref": "#/$defs/createFailure" },
+    { "$ref": "#/$defs/discoverySuccess" },
+    { "$ref": "#/$defs/discoveryFailure" },
+    { "$ref": "#/$defs/claimSuccess" },
+    { "$ref": "#/$defs/claimFailure" },
+    { "$ref": "#/$defs/lockSuccess" },
+    { "$ref": "#/$defs/lockFailure" },
+    { "$ref": "#/$defs/finishSuccess" },
+    { "$ref": "#/$defs/finishFailure" },
+    { "$ref": "#/$defs/progressResult" }
+  ],
+  "$defs": {
+    "uuid": { "type": "string", "format": "uuid" },
+    "nullableUuid": { "type": ["string", "null"], "format": "uuid" },
+    "status": {
+      "type": "string",
+      "enum": ["pending", "running", "completed", "failed", "cancelled"]
+    },
+    "error": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code"],
+      "properties": {
+        "code": {
+          "type": "string",
+          "enum": [
+            "account_not_active",
+            "account_busy",
+            "project_missing",
+            "project_busy",
+            "invalid_account_role",
+            "membership_busy",
+            "invalid_project_role",
+            "membership_incompatible",
+            "project_manager_required",
+            "authority_contract_mismatch",
+            "association_stale",
+            "invalid_request",
+            "operation_conflict",
+            "job_missing",
+            "legacy_job_scope",
+            "job_scope_mismatch",
+            "job_not_active",
+            "job_state_invalid",
+            "operation_contract_mismatch",
+            "operation_incomplete",
+            "operation_missing",
+            "source_changed",
+            "dataset_missing",
+            "mode_mismatch",
+            "jobs_contract_mismatch"
+          ]
+        }
+      }
+    },
+    "createRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["operation_id", "actor_id", "dataset_id", "project_id", "association_id"],
+      "properties": {
+        "operation_id": { "$ref": "#/$defs/uuid" },
+        "actor_id": { "$ref": "#/$defs/uuid" },
+        "dataset_id": { "$ref": "#/$defs/uuid" },
+        "project_id": { "$ref": "#/$defs/uuid" },
+        "association_id": { "$ref": "#/$defs/uuid" }
+      }
+    },
+    "discoveryRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["actor_id", "dataset_id", "project_id", "association_id"],
+      "properties": {
+        "actor_id": { "$ref": "#/$defs/uuid" },
+        "dataset_id": { "$ref": "#/$defs/uuid" },
+        "project_id": { "$ref": "#/$defs/uuid" },
+        "association_id": { "$ref": "#/$defs/uuid" }
+      }
+    },
+    "claimRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["job_id", "execution_id"],
+      "properties": {
+        "job_id": { "$ref": "#/$defs/uuid" },
+        "execution_id": { "type": "string", "minLength": 1, "maxLength": 64 }
+      }
+    },
+    "lockRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "job_id",
+        "operation_id",
+        "actor_id",
+        "dataset_id",
+        "project_id",
+        "association_id"
+      ],
+      "properties": {
+        "job_id": { "$ref": "#/$defs/uuid" },
+        "operation_id": { "$ref": "#/$defs/uuid" },
+        "actor_id": { "$ref": "#/$defs/uuid" },
+        "dataset_id": { "$ref": "#/$defs/uuid" },
+        "project_id": { "$ref": "#/$defs/uuid" },
+        "association_id": { "$ref": "#/$defs/uuid" }
+      }
+    },
+    "progressRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["job_id", "operation_id", "processed", "total", "created"],
+      "properties": {
+        "job_id": { "$ref": "#/$defs/uuid" },
+        "operation_id": { "$ref": "#/$defs/uuid" },
+        "processed": { "type": "integer", "minimum": 0 },
+        "total": { "type": "integer", "minimum": 0 },
+        "created": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "finishRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["job_id", "operation_id"],
+      "properties": {
+        "job_id": { "$ref": "#/$defs/uuid" },
+        "operation_id": { "$ref": "#/$defs/uuid" }
+      }
+    },
+    "failRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["job_id", "operation_id", "code"],
+      "properties": {
+        "job_id": { "$ref": "#/$defs/uuid" },
+        "operation_id": { "$ref": "#/$defs/nullableUuid" },
+        "code": { "type": "string", "pattern": "^[a-z_]{1,64}$" }
+      }
+    },
+    "cancelRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["actor_id", "job_id"],
+      "properties": {
+        "actor_id": { "$ref": "#/$defs/uuid" },
+        "job_id": { "$ref": "#/$defs/uuid" }
+      }
+    },
+    "createTasksPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "operation_id",
+        "actor_id",
+        "dataset_id",
+        "project_id",
+        "association_id",
+        "mode"
+      ],
+      "properties": {
+        "schema": { "const": "aap-create-tasks/v1" },
+        "operation_id": { "$ref": "#/$defs/uuid" },
+        "actor_id": { "$ref": "#/$defs/uuid" },
+        "dataset_id": { "$ref": "#/$defs/uuid" },
+        "project_id": { "$ref": "#/$defs/uuid" },
+        "association_id": { "$ref": "#/$defs/uuid" },
+        "mode": { "const": "link" },
+        "cancel_requested": { "type": "boolean" },
+        "cancel_requested_at": { "type": "string", "format": "date-time" }
+      },
+      "allOf": [
+        {
+          "if": { "required": ["cancel_requested_at"] },
+          "then": {
+            "required": ["cancel_requested"],
+            "properties": { "cancel_requested": { "const": true } }
+          }
+        }
+      ]
+    },
+    "successBase": {
+      "type": "object",
+      "required": ["schema", "ok", "data"],
+      "properties": {
+        "schema": { "type": "string" },
+        "ok": { "const": true },
+        "data": { "type": "object" }
+      }
+    },
+    "failureBase": {
+      "type": "object",
+      "required": ["schema", "ok", "error"],
+      "properties": {
+        "schema": { "type": "string" },
+        "ok": { "const": false },
+        "error": { "$ref": "#/$defs/error" }
+      }
+    },
+    "createSuccess": {
+      "allOf": [
+        { "$ref": "#/$defs/successBase" },
+        {
+          "properties": {
+            "schema": { "const": "aap-task-creation-job-command/v1" },
+            "data": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["job_id"],
+              "properties": { "job_id": { "$ref": "#/$defs/uuid" } }
+            }
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "createFailure": {
+      "allOf": [
+        { "$ref": "#/$defs/failureBase" },
+        { "properties": { "schema": { "const": "aap-task-creation-job-command/v1" } } }
+      ],
+      "unevaluatedProperties": false
+    },
+    "discoverySuccess": {
+      "allOf": [
+        { "$ref": "#/$defs/successBase" },
+        {
+          "properties": {
+            "schema": { "const": "aap-task-creation-job-discovery/v1" },
+            "data": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["job_id", "operation_id", "status"],
+              "properties": {
+                "job_id": { "$ref": "#/$defs/nullableUuid" },
+                "operation_id": { "$ref": "#/$defs/nullableUuid" },
+                "status": { "type": ["string", "null"], "enum": ["pending", "running", null] }
+              }
+            }
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "discoveryFailure": {
+      "allOf": [
+        { "$ref": "#/$defs/failureBase" },
+        { "properties": { "schema": { "const": "aap-task-creation-job-discovery/v1" } } }
+      ],
+      "unevaluatedProperties": false
+    },
+    "claimSuccess": {
+      "allOf": [
+        { "$ref": "#/$defs/successBase" },
+        {
+          "properties": {
+            "schema": { "const": "aap-task-creation-job-claim/v1" },
+            "data": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "job_id",
+                "operation_id",
+                "actor_id",
+                "dataset_id",
+                "project_id",
+                "association_id",
+                "status",
+                "cancel_requested"
+              ],
+              "properties": {
+                "job_id": { "$ref": "#/$defs/uuid" },
+                "operation_id": { "$ref": "#/$defs/uuid" },
+                "actor_id": { "$ref": "#/$defs/uuid" },
+                "dataset_id": { "$ref": "#/$defs/uuid" },
+                "project_id": { "$ref": "#/$defs/uuid" },
+                "association_id": { "$ref": "#/$defs/uuid" },
+                "status": { "$ref": "#/$defs/status" },
+                "cancel_requested": { "type": "boolean" }
+              }
+            }
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "claimFailure": {
+      "allOf": [
+        { "$ref": "#/$defs/failureBase" },
+        { "properties": { "schema": { "const": "aap-task-creation-job-claim/v1" } } }
+      ],
+      "unevaluatedProperties": false
+    },
+    "lockSuccess": {
+      "allOf": [
+        { "$ref": "#/$defs/successBase" },
+        {
+          "properties": {
+            "schema": { "const": "aap-task-creation-job/v1" },
+            "data": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["job_id", "status", "cancel_requested"],
+              "properties": {
+                "job_id": { "$ref": "#/$defs/uuid" },
+                "status": { "$ref": "#/$defs/status" },
+                "cancel_requested": { "type": "boolean" }
+              }
+            }
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "lockFailure": {
+      "allOf": [
+        { "$ref": "#/$defs/failureBase" },
+        { "properties": { "schema": { "const": "aap-task-creation-job/v1" } } }
+      ],
+      "unevaluatedProperties": false
+    },
+    "finishSuccess": {
+      "allOf": [
+        { "$ref": "#/$defs/successBase" },
+        {
+          "properties": {
+            "schema": { "const": "aap-task-creation-job-finish/v1" },
+            "data": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["status", "result"],
+              "properties": {
+                "status": { "$ref": "#/$defs/status" },
+                "result": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["created_tasks", "total"],
+                  "properties": {
+                    "created_tasks": { "type": "integer", "minimum": 0 },
+                    "total": { "type": "integer", "minimum": 0 }
+                  }
+                }
+              }
+            }
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "finishFailure": {
+      "allOf": [
+        { "$ref": "#/$defs/failureBase" },
+        { "properties": { "schema": { "const": "aap-task-creation-job-finish/v1" } } }
+      ],
+      "unevaluatedProperties": false
+    },
+    "progressResult": { "type": "boolean" }
+  },
+  "x-postgresql-functions": [
+    "aap_jobs_v1.create_task_creation_job(uuid, uuid, uuid, uuid, uuid)",
+    "aap_jobs_v1.find_task_creation_job(uuid, uuid, uuid, uuid)",
+    "aap_jobs_v1.claim_task_creation_job(uuid, text)",
+    "aap_jobs_v1.lock_task_creation_job(uuid, uuid, uuid, uuid, uuid, uuid)",
+    "aap_jobs_v1.update_task_creation_progress(uuid, uuid, bigint, bigint, bigint)",
+    "aap_jobs_v1.finish_task_creation_job(uuid, uuid)",
+    "aap_jobs_v1.fail_task_creation_job(uuid, uuid, text)",
+    "aap_jobs_v1.cancel_task_creation_job(uuid, uuid)"
+  ]
+}
