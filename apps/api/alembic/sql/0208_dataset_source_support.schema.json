@@ -1,0 +1,176 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:aap:dataset-source-support:v1",
+  "title": "Dataset source deletion Jobs and Audit capabilities v1",
+  "description": "Read-only source job guards and fixed deletion audit writes in the caller-owned transaction.",
+  "oneOf": [
+    { "$ref": "#/$defs/guardDatasetSourceDeletionRequest" },
+    { "$ref": "#/$defs/guardDatasetSourceDeletionResult" },
+    { "$ref": "#/$defs/taskCreationExecutionActiveRequest" },
+    { "$ref": "#/$defs/taskCreationExecutionActiveResult" },
+    { "$ref": "#/$defs/recordDatasetSourceDeletionRequest" },
+    { "$ref": "#/$defs/recordDatasetSourceDeletionResult" }
+  ],
+  "$defs": {
+    "uuid": { "type": "string", "format": "uuid" },
+    "nonnegativeBigint": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9223372036854775807
+    },
+    "auditContext": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "method": {
+          "anyOf": [{ "type": "string", "maxLength": 8 }, { "type": "null" }]
+        },
+        "path": {
+          "anyOf": [{ "type": "string", "maxLength": 256 }, { "type": "null" }]
+        },
+        "ip": {
+          "anyOf": [{ "type": "string", "maxLength": 64 }, { "type": "null" }]
+        },
+        "request_id": {
+          "anyOf": [{ "type": "string", "maxLength": 36 }, { "type": "null" }]
+        }
+      }
+    },
+    "sourceRetentionError": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "code": { "enum": ["invalid_request", "source_busy"] }
+      },
+      "required": ["code"]
+    },
+    "guardDatasetSourceDeletionRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "dataset_id": { "$ref": "#/$defs/uuid" }
+      },
+      "required": ["dataset_id"]
+    },
+    "guardDatasetSourceDeletionResult": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "schema": { "const": "aap-source-retention/v1" },
+            "ok": { "const": true },
+            "data": { "type": "object", "maxProperties": 0 }
+          },
+          "required": ["schema", "ok", "data"]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "schema": { "const": "aap-source-retention/v1" },
+            "ok": { "const": false },
+            "error": { "$ref": "#/$defs/sourceRetentionError" }
+          },
+          "required": ["schema", "ok", "error"]
+        }
+      ]
+    },
+    "taskCreationExecutionActiveRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "operation_id": { "$ref": "#/$defs/uuid" },
+        "job_id": {
+          "anyOf": [{ "$ref": "#/$defs/uuid" }, { "type": "null" }]
+        }
+      },
+      "required": ["operation_id", "job_id"]
+    },
+    "taskCreationExecutionActiveResult": { "type": "boolean" },
+    "recordDatasetSourceDeletionRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "operation_id": { "$ref": "#/$defs/uuid" },
+        "actor_id": { "$ref": "#/$defs/uuid" },
+        "dataset_id": { "$ref": "#/$defs/uuid" },
+        "item_id": {
+          "anyOf": [{ "$ref": "#/$defs/uuid" }, { "type": "null" }]
+        },
+        "deleted_items": { "$ref": "#/$defs/nonnegativeBigint" },
+        "deleted_scenes": { "$ref": "#/$defs/nonnegativeBigint" },
+        "deleted_associations": { "$ref": "#/$defs/nonnegativeBigint" },
+        "discarded_uploads": { "$ref": "#/$defs/nonnegativeBigint" },
+        "cancelled_jobs": { "$ref": "#/$defs/nonnegativeBigint" },
+        "queued_storage": { "$ref": "#/$defs/nonnegativeBigint" },
+        "context": {
+          "anyOf": [{ "$ref": "#/$defs/auditContext" }, { "type": "null" }],
+          "description": "SQL NULL is accepted; JSON null is rejected by the database function."
+        }
+      },
+      "required": [
+        "operation_id",
+        "actor_id",
+        "dataset_id",
+        "item_id",
+        "deleted_items",
+        "deleted_scenes",
+        "deleted_associations",
+        "discarded_uploads",
+        "cancelled_jobs",
+        "queued_storage",
+        "context"
+      ]
+    },
+    "recordDatasetSourceDeletionResult": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9223372036854775807
+    },
+    "datasetSourceDeletionAuditDetail": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "operation_id": { "$ref": "#/$defs/uuid" },
+        "dataset_id": { "$ref": "#/$defs/uuid" },
+        "item_id": {
+          "anyOf": [{ "$ref": "#/$defs/uuid" }, { "type": "null" }]
+        },
+        "deleted_items": { "$ref": "#/$defs/nonnegativeBigint" },
+        "deleted_scenes": { "$ref": "#/$defs/nonnegativeBigint" },
+        "deleted_associations": { "$ref": "#/$defs/nonnegativeBigint" },
+        "discarded_uploads": { "$ref": "#/$defs/nonnegativeBigint" },
+        "cancelled_jobs": { "$ref": "#/$defs/nonnegativeBigint" },
+        "queued_storage": { "$ref": "#/$defs/nonnegativeBigint" }
+      },
+      "required": [
+        "operation_id",
+        "dataset_id",
+        "item_id",
+        "deleted_items",
+        "deleted_scenes",
+        "deleted_associations",
+        "discarded_uploads",
+        "cancelled_jobs",
+        "queued_storage"
+      ]
+    }
+  },
+  "x-audit-log-entry": {
+    "action": { "enum": ["dataset.delete", "dataset.item_delete"] },
+    "target_type": { "enum": ["dataset", "dataset_item"] },
+    "status_code": 204,
+    "detail": { "$ref": "#/$defs/datasetSourceDeletionAuditDetail" }
+  },
+  "x-postgresql-functions": [
+    "aap_jobs_v1.guard_dataset_source_deletion(uuid)",
+    "aap_jobs_v1.task_creation_execution_active(uuid, uuid)",
+    "aap_audit_v1.record_dataset_source_deletion(uuid, uuid, uuid, uuid, bigint, bigint, bigint, bigint, bigint, bigint, jsonb)"
+  ],
+  "x-postgresql-dependencies": [
+    "aap_jobs_v1._task_creation_job_payload_valid(uuid, jsonb)",
+    "aap_audit_v1.valid_request_context(jsonb)",
+    "aap_identity_v1.lock_audit_actor(uuid)"
+  ]
+}
