@@ -13,13 +13,18 @@ from aap_assets_source.operator_contract import (
     OPERATOR_SCHEMA,
     AppendOperatorItemsRequest,
     CreateOperatorImageDatasetRequest,
+    EnsureOperatorNuScenesDatasetRequest,
+    NuScenesDatasetSpec,
     OperatorDataset,
     OperatorDatasetMutation,
+    OperatorDimensions,
     OperatorFailure,
     OperatorItem,
     OperatorItemsMutation,
     OperatorItemsPage,
     OperatorSourceEntry,
+    OperatorSourcePatch,
+    PatchOperatorItemsRequest,
     ReadOperatorItemsRequest,
     decode_operator_reply,
     operator_contract_document,
@@ -204,3 +209,89 @@ def test_operator_pages_require_progress_and_complete_scope():
         require_operator_scope(
             request, result.model_copy(update={"next_item_id": None})
         )
+
+
+def test_operator_dimension_reply_checks_fill_count_without_changing_existing_values():
+    dataset_id = uuid4()
+    entry = OperatorSourceEntry(
+        id=uuid4(),
+        file_name="camera.jpg",
+        file_path="camera.jpg",
+        file_type="image",
+        width=320,
+        height=200,
+    )
+    item = _item(dataset_id, entry)
+    patch = OperatorSourcePatch(
+        id=item.id,
+        source_snapshot=item.source_snapshot,
+        dimensions=OperatorDimensions(width=640, height=480),
+    )
+    request = PatchOperatorItemsRequest(
+        operation_id=uuid4(), dataset_id=dataset_id, entries=[patch]
+    )
+    unchanged = OperatorItemsMutation(
+        operation_id=request.operation_id,
+        dataset_id=dataset_id,
+        action="patch_items",
+        items=[item],
+        file_count=1,
+        dimensions_backfilled=0,
+    )
+    require_operator_scope(request, unchanged)
+    with pytest.raises(ValueError):
+        require_operator_scope(
+            request, unchanged.model_copy(update={"dimensions_backfilled": 1})
+        )
+    with pytest.raises(ValueError):
+        require_operator_scope(
+            request, unchanged.model_copy(update={"dimensions_backfilled": 2})
+        )
+
+
+def test_operator_nuscenes_reuse_preserves_existing_name_kind_and_creator():
+    owner_id = uuid4()
+    request = EnsureOperatorNuScenesDatasetRequest(
+        operation_id=uuid4(),
+        owner_id=owner_id,
+        spec=NuScenesDatasetSpec(
+            display_id="DS-EXISTING",
+            name="new-CLI-name",
+            version="v1.0-mini",
+            scene_names=["scene"],
+            axis_convention="apollo",
+            frame="sensor",
+            pcd_encoding="binary",
+        ),
+    )
+    now = datetime.now(timezone.utc)
+    source = {
+        "format": "nuscenes",
+        "version": "v1.0-mini",
+        "scenes": ["scene"],
+        "pcd_encoding": "binary",
+        "storage_root": "new-CLI-name",
+        "storage_layout": "legacy_name",
+    }
+    dataset = OperatorDataset(
+        id=uuid4(),
+        display_id=request.spec.display_id,
+        name="existing Dataset name",
+        description="retained",
+        data_type="lidar",
+        is_temporal=True,
+        file_count=3,
+        created_by=uuid4(),
+        metadata={"source": source, "keep": True},
+        created_at=now,
+        updated_at=now,
+    )
+    result = OperatorDatasetMutation(
+        operation_id=request.operation_id,
+        dataset_id=dataset.id,
+        action="ensure_nuscenes_dataset",
+        dataset=dataset,
+        storage_root="new-CLI-name",
+        needs_pcd_upgrade=True,
+    )
+    require_operator_scope(request, result)

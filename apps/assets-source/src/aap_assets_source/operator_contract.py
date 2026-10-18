@@ -363,6 +363,13 @@ def require_operator_scope(request: BaseModel, result: BaseModel) -> None:
             )
         ):
             raise ValueError("operator item mutation escaped its requested rows")
+        requested_dimensions = (
+            []
+            if isinstance(request, AppendOperatorItemsRequest)
+            else [entry for entry in request.entries if entry.dimensions is not None]
+        )
+        if result.dimensions_backfilled > len(requested_dimensions):
+            raise ValueError("operator reply backfilled unrequested dimensions")
         for entry, item in zip(request.entries, result.items, strict=True):
             if isinstance(request, AppendOperatorItemsRequest):
                 fields = (
@@ -393,6 +400,16 @@ def require_operator_scope(request: BaseModel, result: BaseModel) -> None:
                     raise ValueError(
                         "operator patch changed its requested observations"
                     )
+                if entry.dimensions is not None and (
+                    not item.width
+                    or not item.height
+                    or (
+                        result.dimensions_backfilled == len(requested_dimensions)
+                        and (item.width, item.height)
+                        != (entry.dimensions.width, entry.dimensions.height)
+                    )
+                ):
+                    raise ValueError("operator reply contradicts its dimension fills")
     if isinstance(result, OperatorItemsPage):
         ids = [item.id for item in result.items]
         if (

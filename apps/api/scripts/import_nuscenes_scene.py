@@ -873,6 +873,7 @@ async def import_nuscenes(
             backfilled_camera_dimensions = await assets.patch_all_items(
                 ds.id,
                 [OperatorSourcePatch(**patch) for patch in patch_rows.values()],
+                observed_items={item.id: item for item in existing_items},
             )
             report = {"name": scene_name, "frames": len(samples), "skipped": True}
             if upgraded_point_clouds:

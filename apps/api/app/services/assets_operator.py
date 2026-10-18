@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from typing import Any, Iterable, TypeVar
+from typing import Any, Iterable, Mapping, TypeVar
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ValidationError
@@ -16,6 +16,7 @@ from aap_assets_source.operator_contract import (
     OPERATOR_NATIVE_ARGUMENTS,
     OPERATOR_NATIVE_OPERATIONS,
     OPERATOR_NATIVE_SIGNATURES,
+    OPERATOR_PAGE_BYTES,
     OPERATOR_REPLY_BYTES,
     OPERATOR_REQUEST_BYTES,
     AppendOperatorItemsRequest,
@@ -136,10 +137,22 @@ class AssetsOperatorGateway:
                 raise ValueError("oversized operator reply")
             decoded = decode_operator_reply(raw, result_type)
             require_operator_scope(request, decoded)
+            if (
+                isinstance(decoded, OperatorItemsPage)
+                and len(_json(decoded.items).encode("utf-8")) > OPERATOR_PAGE_BYTES
+            ):
+                raise ValueError("oversized operator page records")
             return decoded
         except OperatorFailure as exc:
             _restore_failure(exc)
-        except (ValueError, TypeError, KeyError, AttributeError, ValidationError):
+        except (
+            ValueError,
+            TypeError,
+            KeyError,
+            AttributeError,
+            ValidationError,
+            RecursionError,
+        ):
             raise OperatorFailure("invalid_response") from None
 
     async def create_operator_image_dataset(
@@ -190,15 +203,72 @@ class AssetsOperatorGateway:
         return tuple(result)
 
     async def patch_all_items(
-        self, dataset_id: UUID, entries: Iterable[OperatorSourcePatch]
+        self,
+        dataset_id: UUID,
+        entries: Iterable[OperatorSourcePatch],
+        *,
+        observed_items: Mapping[UUID, OperatorItem] | None = None,
     ) -> int:
         filled = 0
         for batch in _batches(entries):
-            saved = await self.patch_operator_items(
-                PatchOperatorItemsRequest(
-                    operation_id=uuid4(), dataset_id=dataset_id, entries=batch
-                )
+            request = PatchOperatorItemsRequest(
+                operation_id=uuid4(), dataset_id=dataset_id, entries=batch
             )
+            if observed_items is not None:
+                for entry in batch:
+                    before = observed_items.get(entry.id)
+                    if (
+                        before is None
+                        or before.dataset_id != dataset_id
+                        or before.source_snapshot != entry.source_snapshot
+                    ):
+                        raise OperatorFailure("invalid_request")
+            saved = await self.patch_operator_items(request)
+            if observed_items is not None:
+                expected_filled = 0
+                for entry, item in zip(batch, saved.items, strict=True):
+                    before = observed_items[entry.id]
+                    fields = (
+                        "id",
+                        "dataset_id",
+                        "file_name",
+                        "file_path",
+                        "file_type",
+                        "scene_id",
+                        "frame_index",
+                    )
+                    dimensions = (before.width, before.height)
+                    if entry.dimensions is not None and not (
+                        before.width and before.height
+                    ):
+                        dimensions = (entry.dimensions.width, entry.dimensions.height)
+                        expected_filled += 1
+                    metadata = dict(before.metadata)
+                    if entry.nuscenes_export is not None:
+                        metadata["nuscenes_export"] = entry.nuscenes_export
+                    if (
+                        any(
+                            getattr(item, name) != getattr(before, name)
+                            for name in fields
+                        )
+                        or (item.width, item.height) != dimensions
+                        or item.metadata != metadata
+                        or item.file_size
+                        != (
+                            before.file_size
+                            if entry.file_size is None
+                            else entry.file_size
+                        )
+                        or item.content_hash
+                        != (
+                            before.content_hash
+                            if entry.content_hash is None
+                            else entry.content_hash
+                        )
+                    ):
+                        raise OperatorFailure("invalid_response")
+                if saved.dimensions_backfilled != expected_filled:
+                    raise OperatorFailure("invalid_response")
             filled += saved.dimensions_backfilled
         return filled
 

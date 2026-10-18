@@ -15,11 +15,14 @@ from aap_assets_source.operator_contract import (
     CreateOperatorImageDatasetRequest,
     OperatorDataset,
     OperatorDatasetMutation,
+    OperatorDimensions,
     OperatorFailure,
     OperatorItem,
     OperatorItemsMutation,
     OperatorItemsPage,
     OperatorSourceEntry,
+    OperatorSourcePatch,
+    ReadOperatorItemsRequest,
 )
 from app.services import assets_operator
 from app.services.assets_operator import AssetsOperatorGateway
@@ -242,3 +245,84 @@ async def test_operator_read_discards_results_when_snapshot_changes():
     with pytest.raises(OperatorFailure) as rejected:
         await gateway.read_all_items(dataset_id)
     assert rejected.value.code == "source_changed"
+
+
+@pytest.mark.asyncio
+async def test_operator_page_rejects_excess_record_bytes_inside_reply_limit(
+    monkeypatch,
+):
+    monkeypatch.setattr(assets_operator, "OPERATOR_PAGE_BYTES", 1000)
+    dataset_id = uuid4()
+    entry = _entry(metadata={"value": "x" * 1100})
+    page = OperatorItemsPage(
+        dataset_id=dataset_id,
+        after_item_id=None,
+        next_item_id=None,
+        snapshot_digest="a" * 64,
+        total=1,
+        complete=True,
+        items=[_item(dataset_id, entry)],
+    )
+    db = AsyncMock(spec=AsyncSession)
+    db.execute.return_value = SimpleNamespace(scalar_one=lambda: _wire(page))
+    with pytest.raises(OperatorFailure) as rejected:
+        await AssetsOperatorGateway(db).read_operator_items(
+            ReadOperatorItemsRequest(dataset_id=dataset_id)
+        )
+    assert rejected.value.code == "invalid_response"
+    db.commit.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("had_dimensions", [False, True])
+async def test_operator_patch_checks_captured_dimension_condition(had_dimensions):
+    dataset_id = uuid4()
+    entry = _entry(
+        width=320 if had_dimensions else None,
+        height=200 if had_dimensions else None,
+        metadata={"keep": True},
+    )
+    before = _item(dataset_id, entry)
+    patch = OperatorSourcePatch(
+        id=entry.id,
+        source_snapshot=before.source_snapshot,
+        dimensions=OperatorDimensions(width=640, height=480),
+    )
+    gateway = AssetsOperatorGateway(AsyncMock(spec=AsyncSession))
+
+    async def correct(request):
+        item = (
+            before
+            if had_dimensions
+            else before.model_copy(update={"width": 640, "height": 480})
+        )
+        return OperatorItemsMutation(
+            operation_id=request.operation_id,
+            dataset_id=dataset_id,
+            action="patch_items",
+            items=[item],
+            file_count=1,
+            dimensions_backfilled=int(not had_dimensions),
+        )
+
+    gateway.patch_operator_items = correct
+    assert await gateway.patch_all_items(
+        dataset_id, [patch], observed_items={before.id: before}
+    ) == int(not had_dimensions)
+
+    async def wrong(request):
+        return OperatorItemsMutation(
+            operation_id=request.operation_id,
+            dataset_id=dataset_id,
+            action="patch_items",
+            items=[before.model_copy(update={"width": 123, "height": 456})],
+            file_count=1,
+            dimensions_backfilled=0,
+        )
+
+    gateway.patch_operator_items = wrong
+    with pytest.raises(OperatorFailure) as rejected:
+        await gateway.patch_all_items(
+            dataset_id, [patch], observed_items={before.id: before}
+        )
+    assert rejected.value.code == "invalid_response"
