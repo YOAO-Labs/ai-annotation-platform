@@ -131,7 +131,7 @@ class ImportContext(_Value):
     actor_id: UUID
     dataset_id: UUID
     dataset_display_id: Annotated[StrictStr, Field(min_length=1, max_length=20)]
-    dataset_name: Annotated[StrictStr, Field(min_length=1, max_length=255)]
+    dataset_name: Annotated[StrictStr, Field(max_length=255)]
     connection_id: UUID
     connection_name: Annotated[StrictStr, Field(min_length=1, max_length=255)]
     connection_kind: Literal["s3", "sftp"]
@@ -219,6 +219,11 @@ class ImportState(_Value):
                 "enumerating has no manifest and cursor zero",
                 "importing has a frozen manifest",
                 "cursor never exceeds total",
+                "added plus skipped plus error_count equals cursor",
+                "errors contains at most error_count entries",
+                "total and total_bytes are both null or both present",
+                "completed has a manifest and cursor equals total",
+                "manifest and committed byte counts stay within accepted limits",
                 "terminal states hold no lease",
             ]
         },
@@ -288,12 +293,34 @@ class ImportState(_Value):
             raise ValueError("lease_expires_at must include a timezone")
         if self.total is not None and self.cursor > self.total:
             raise ValueError("cursor cannot exceed total")
+        if (self.total is None) != (self.total_bytes is None):
+            raise ValueError("total and total_bytes must be paired")
+        if self.added + self.skipped + self.error_count != self.cursor:
+            raise ValueError("outcome counts must equal the processed cursor")
+        if len(self.errors) > self.error_count:
+            raise ValueError("errors cannot exceed error_count")
+        if (
+            self.total is not None
+            and self.total > self.settings_snapshot.dataset_import_max_files
+        ):
+            raise ValueError("manifest exceeds accepted file-count limit")
+        if (
+            self.total_bytes is not None
+            and self.total_bytes > self.settings_snapshot.dataset_import_max_total_bytes
+        ):
+            raise ValueError("manifest exceeds accepted byte limit")
+        if self.committed_bytes > self.settings_snapshot.dataset_import_max_total_bytes:
+            raise ValueError("committed bytes exceed accepted byte limit")
         if self.stage == "enumerating" and (self.total is not None or self.cursor != 0):
             raise ValueError("enumerating state cannot contain a manifest cursor")
         if self.stage == "importing" and (
             self.total is None or self.total_bytes is None
         ):
             raise ValueError("importing state requires a frozen manifest")
+        if self.stage == "completed" and (
+            self.total is None or self.cursor != self.total
+        ):
+            raise ValueError("completed state must consume the full manifest")
         if (
             self.stage in {"completed", "failed", "cancelled"}
             and self.lease_token is not None

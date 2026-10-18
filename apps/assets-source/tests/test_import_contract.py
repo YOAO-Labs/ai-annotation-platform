@@ -74,6 +74,16 @@ def test_import_values_are_bounded_and_retain_the_existing_dataset_display_id():
         connection_kind="s3",
         connection_config={"endpoint": "https://storage.example", "bucket": "data"},
     )
+    empty_name = ImportContext(
+        actor_id=ACTOR,
+        dataset_id=DATASET,
+        dataset_display_id="DS-ABC123",
+        dataset_name="",
+        connection_id=CONNECTION,
+        connection_name="source",
+        connection_kind="s3",
+        connection_config={"endpoint": "https://storage.example", "bucket": "data"},
+    )
     acceptance = ImportAcceptance(
         job_id=JOB,
         actor_id=ACTOR,
@@ -81,6 +91,7 @@ def test_import_values_are_bounded_and_retain_the_existing_dataset_display_id():
         connection_id=CONNECTION,
     )
     assert context.dataset_display_id == "DS-ABC123"
+    assert empty_name.dataset_name == ""
     assert acceptance.job_id == JOB
     assert ImportLimits.model_validate(_limits()).dataset_import_max_files == 100
     connection = ImportConnection(
@@ -150,6 +161,7 @@ def test_import_state_requires_a_frozen_manifest_before_copying():
             total=2,
             total_bytes=20,
             cursor=1,
+            added=1,
         )
     )
     assert state.cursor == 1
@@ -161,6 +173,19 @@ def test_import_state_requires_a_frozen_manifest_before_copying():
             "lease_token": None,
             "lease_expires_at": None,
             "errors": ["x"] * 101,
+        },
+        {"stage": "importing", "total": 2, "total_bytes": 20, "cursor": 1},
+        {
+            "stage": "completed",
+            "total": 2,
+            "total_bytes": 20,
+            "cursor": 1,
+            "added": 1,
+            "lease_token": None,
+            "lease_expires_at": None,
+        },
+        {
+            "committed_bytes": 1_000_001,
         },
     ):
         with pytest.raises(ValidationError):

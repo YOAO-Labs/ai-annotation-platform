@@ -97,7 +97,6 @@
         },
         "dataset_name": {
           "maxLength": 255,
-          "minLength": 1,
           "title": "Dataset Name",
           "type": "string"
         },
@@ -541,6 +540,11 @@
         "enumerating has no manifest and cursor zero",
         "importing has a frozen manifest",
         "cursor never exceeds total",
+        "added plus skipped plus error_count equals cursor",
+        "errors contains at most error_count entries",
+        "total and total_bytes are both null or both present",
+        "completed has a manifest and cursor equals total",
+        "manifest and committed byte counts stay within accepted limits",
         "terminal states hold no lease"
       ]
     },
