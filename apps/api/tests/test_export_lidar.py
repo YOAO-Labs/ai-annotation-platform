@@ -975,10 +975,12 @@ async def test_lidar_export_zip_writes_standard_targets(
     )
 
     assert preflight_response.status_code == 200
-    assert preflight_response.json()["ready"] is True
+    assert preflight_response.json()["ready"] is True, preflight_response.json()
     assert batch_preflight_response.status_code == 200
     assert batch_preflight_response.json()["checked_tasks"] == 1
-    assert batch_preflight_response.json()["ready"] is True
+    assert batch_preflight_response.json()["ready"] is True, (
+        batch_preflight_response.json()
+    )
     assert export_response.status_code == 202
     assert dispatched["opts"]["lidar"] == {"kitti_camera_role": "camera_front"}
 

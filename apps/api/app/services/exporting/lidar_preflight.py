@@ -759,7 +759,7 @@ async def preflight_lidar_export(
         if role.startswith("camera_")
     ]
     calibration_states = {}
-    if needs_nuscenes and camera_items:
+    if (needs_kitti or needs_nuscenes) and camera_items:
         for record in await AssetsSpatialGateway(db).read_calibrations(
             [item.id for item in camera_items]
         ):
