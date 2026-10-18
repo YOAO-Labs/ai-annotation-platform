@@ -8,11 +8,17 @@ import signal
 import threading
 from datetime import datetime
 from typing import Protocol
+from uuid import UUID, uuid4
 
 import asyncpg
 
 from .config import CleanupConfig
-from .contract import AssetStorageDeletion, DeletionCursor, PendingAssetStorageDeletion
+from .contract import (
+    AssetStorageDeletion,
+    DeletionCursor,
+    ImageGarbageClaim,
+    PendingAssetStorageDeletion,
+)
 from .data import DataContractError, StorageDeletionData
 from .health import HealthState, start_health_server
 from .object_store import CleanupStopped, S3PrefixDeleter
@@ -30,6 +36,16 @@ class CleanupDataPort(Protocol):
     ) -> tuple[PendingAssetStorageDeletion, ...]: ...
 
     async def complete(self, reference: AssetStorageDeletion) -> None: ...
+
+    async def claim_image_garbage(
+        self,
+        *,
+        worker_id: UUID,
+        lease_seconds: int,
+        batch_size: int,
+    ) -> tuple[ImageGarbageClaim, ...]: ...
+
+    async def complete_image_garbage(self, claim: ImageGarbageClaim) -> None: ...
 
 
 class PrefixDeletePort(Protocol):
@@ -122,6 +138,75 @@ async def drain_pending(
     return {"completed": completed, "failed": failed, "pages": pages}
 
 
+async def drain_image_garbage(
+    data: CleanupDataPort,
+    storage: PrefixDeletePort,
+    *,
+    worker_id: UUID,
+    batch_size: int,
+    lease_seconds: int,
+    stop: asyncio.Event,
+    storage_stop: threading.Event,
+    health: HealthState | None = None,
+) -> dict[str, int]:
+    """Delete only exact image scopes leased by the Assets image owner."""
+    completed = failed = batches = 0
+    if not 1 <= batch_size <= 500:
+        raise ValueError("Image cleanup batch size must be 1-500")
+
+    while not stop.is_set():
+        claims = await data.claim_image_garbage(
+            worker_id=worker_id,
+            lease_seconds=lease_seconds,
+            batch_size=batch_size,
+        )
+        if len(claims) > batch_size:
+            raise DataContractError("Assets exceeded the requested image cleanup batch")
+        if not claims:
+            break
+        batches += 1
+        if health is not None:
+            health.heartbeat()
+
+        for claim in claims:
+            if stop.is_set():
+                break
+            try:
+                await asyncio.to_thread(
+                    storage.delete_prefix, claim.prefix, storage_stop
+                )
+            except CleanupStopped:
+                stop.set()
+                break
+            except Exception as exc:  # noqa: BLE001 - continue independent scopes.
+                failed += 1
+                code = getattr(exc, "code", type(exc).__name__)
+                log.warning(
+                    "Image cleanup delete failed garbage_id=%s code=%s",
+                    claim.garbage_id,
+                    str(code)[:64],
+                )
+                continue
+
+            try:
+                await data.complete_image_garbage(claim)
+            except Exception as exc:  # noqa: BLE001 - the exact lease stays retryable.
+                failed += 1
+                code = getattr(exc, "code", type(exc).__name__)
+                log.warning(
+                    "Image cleanup acknowledgement failed garbage_id=%s code=%s",
+                    claim.garbage_id,
+                    str(code)[:64],
+                )
+                continue
+
+            completed += 1
+            if health is not None:
+                health.heartbeat()
+
+    return {"completed": completed, "failed": failed, "batches": batches}
+
+
 async def _sleep_or_stop(stop: asyncio.Event, duration: float) -> None:
     try:
         await asyncio.wait_for(stop.wait(), timeout=duration)
@@ -144,6 +229,7 @@ async def run_worker(config: CleanupConfig) -> None:
     health = HealthState(poll_seconds=config.poll_seconds)
     health_server = None
     pool: asyncpg.Pool | None = None
+    worker_id = uuid4()
     try:
         pool = await asyncpg.create_pool(
             dsn=config.database_url,
@@ -175,8 +261,19 @@ async def run_worker(config: CleanupConfig) -> None:
                     storage_stop=storage_stop,
                     health=health,
                 )
+                image_result = await drain_image_garbage(
+                    data,
+                    storage,
+                    worker_id=worker_id,
+                    batch_size=min(config.page_size, 500),
+                    lease_seconds=3600,
+                    stop=stop,
+                    storage_stop=storage_stop,
+                    health=health,
+                )
                 health.add_result(
-                    completed=result["completed"], failed=result["failed"]
+                    completed=result["completed"] + image_result["completed"],
+                    failed=result["failed"] + image_result["failed"],
                 )
                 health.set_ready(True)
             except Exception as exc:  # noqa: BLE001 - retain rows and retry next poll.

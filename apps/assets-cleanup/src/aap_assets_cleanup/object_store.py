@@ -1,4 +1,4 @@
-"""Delete only UUID-scoped image-pyramid prefixes using explicit credentials."""
+"""Delete only UUID-scoped image prefixes using explicit credentials."""
 
 from __future__ import annotations
 
@@ -11,10 +11,14 @@ from botocore.exceptions import ClientError
 
 from .config import CleanupConfig
 
+_UUID = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
 _ASSET_PREFIX = re.compile(
-    r"^image-pyramids/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/$"
+    rf"^(?:image-pyramids/{_UUID}/|"
+    rf"image-assets/{_UUID}/g[1-9][0-9]*/a{_UUID}/|"
+    rf"image-pyramids/{_UUID}/g[1-9][0-9]*/|"
+    rf"image-pyramids/{_UUID}/g[1-9][0-9]*/a{_UUID}/)$"
 )
-_LIST_PREFIX = "image-pyramids/"
+_LIST_PREFIXES = ("image-assets/", "image-pyramids/")
 
 
 class StorageFailure(RuntimeError):
@@ -48,11 +52,12 @@ class S3PrefixDeleter:
 
     def probe(self) -> None:
         try:
-            self.client.list_objects_v2(
-                Bucket=self.bucket,
-                Prefix=_LIST_PREFIX,
-                MaxKeys=1,
-            )
+            for prefix in _LIST_PREFIXES:
+                self.client.list_objects_v2(
+                    Bucket=self.bucket,
+                    Prefix=prefix,
+                    MaxKeys=1,
+                )
         except Exception as exc:
             raise StorageFailure("s3_scope_probe_failed") from exc
 

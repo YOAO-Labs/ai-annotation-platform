@@ -5,9 +5,13 @@ from uuid import UUID, uuid4
 
 import pytest
 
-from aap_assets_cleanup.contract import DeletionCursor, PendingAssetStorageDeletion
+from aap_assets_cleanup.contract import (
+    DeletionCursor,
+    ImageGarbageClaim,
+    PendingAssetStorageDeletion,
+)
 from aap_assets_cleanup.object_store import CleanupStopped
-from aap_assets_cleanup.worker import drain_pending
+from aap_assets_cleanup.worker import drain_image_garbage, drain_pending
 
 
 def _row(created_at: datetime, *, bucket: str = "media-cache"):
@@ -77,6 +81,42 @@ class _Storage:
         if self.stop_after == prefix:
             stop.set()
             raise CleanupStopped("stopped")
+
+
+class _ImageData:
+    def __init__(self, claims, events=None, *, ack_failures=()):
+        self.claims = list(claims)
+        self.events = events if events is not None else []
+        self.ack_failures = set(ack_failures)
+        self.ack_calls = []
+        self.claim_calls = []
+
+    async def claim_image_garbage(self, *, worker_id, lease_seconds, batch_size):
+        self.claim_calls.append((worker_id, lease_seconds, batch_size))
+        self.events.append(("claim", worker_id))
+        return self.claims.pop(0) if self.claims else ()
+
+    async def complete_image_garbage(self, claim):
+        identity = claim.garbage_id, claim.lease_token
+        self.events.append(("ack_image", identity))
+        self.ack_calls.append(identity)
+        if identity in self.ack_failures:
+            self.ack_failures.remove(identity)
+            raise OSError("ack unavailable")
+
+
+class _ImageStorage(_Storage):
+    def __init__(self, events, objects=(), *, late_put=None, **kwargs):
+        super().__init__(events, **kwargs)
+        self.objects = set(objects)
+        self.late_put = late_put
+
+    def delete_prefix(self, prefix, stop):
+        super().delete_prefix(prefix, stop)
+        self.objects = {key for key in self.objects if not key.startswith(prefix)}
+        if self.late_put is not None:
+            key, self.late_put = self.late_put, None
+            self.objects.add(key)
 
 
 @pytest.mark.asyncio
@@ -175,4 +215,101 @@ async def test_shutdown_during_prefix_delete_never_acknowledges_partial_work():
     )
 
     assert result == {"completed": 0, "failed": 0, "pages": 1}
+    assert data.ack_calls == []
+
+
+def _image_claim(prefix, *, garbage_id=None, lease_token=None):
+    return ImageGarbageClaim(
+        garbage_id=garbage_id or uuid4(),
+        prefix=prefix,
+        lease_token=lease_token or uuid4(),
+    )
+
+
+@pytest.mark.asyncio
+async def test_image_garbage_deletes_only_claimed_attempt_prefixes():
+    job_id, lease_id = uuid4(), uuid4()
+    prefix = f"image-assets/{job_id}/g1/a{lease_id}/"
+    claim = _image_claim(prefix)
+    worker_id = uuid4()
+    events = []
+    data = _ImageData([(claim,)], events)
+    keep_key = f"image-assets/{uuid4()}/keep"
+    storage = _ImageStorage(
+        events,
+        objects={prefix + "thumbnail.webp", keep_key},
+    )
+
+    result = await drain_image_garbage(
+        data,
+        storage,
+        worker_id=worker_id,
+        batch_size=7,
+        lease_seconds=300,
+        stop=asyncio.Event(),
+        storage_stop=threading.Event(),
+    )
+
+    assert result == {"completed": 1, "failed": 0, "batches": 1}
+    assert data.claim_calls == [(worker_id, 300, 7), (worker_id, 300, 7)]
+    assert storage.calls == [prefix]
+    assert storage.objects == {keep_key}
+    assert data.ack_calls == [(claim.garbage_id, claim.lease_token)]
+
+
+@pytest.mark.asyncio
+async def test_image_garbage_retries_late_put_after_lost_ack():
+    job_id, first_lease, second_lease = uuid4(), uuid4(), uuid4()
+    prefix = f"image-pyramids/{job_id}/g4/a{first_lease}/"
+    first = _image_claim(prefix, garbage_id=uuid4(), lease_token=first_lease)
+    second = _image_claim(prefix, garbage_id=first.garbage_id, lease_token=second_lease)
+    events = []
+    identity = first.garbage_id, first.lease_token
+    data = _ImageData([(first,), (second,), ()], events, ack_failures=(identity,))
+    storage = _ImageStorage(
+        events,
+        objects={prefix + "manifest.json"},
+        late_put=(prefix + "late-tile.webp"),
+    )
+
+    result = await drain_image_garbage(
+        data,
+        storage,
+        worker_id=uuid4(),
+        batch_size=5,
+        lease_seconds=3600,
+        stop=asyncio.Event(),
+        storage_stop=threading.Event(),
+    )
+
+    assert result == {"completed": 1, "failed": 1, "batches": 2}
+    assert storage.calls == [prefix, prefix]
+    assert storage.objects == set()
+    assert data.ack_calls == [
+        (first.garbage_id, first.lease_token),
+        (second.garbage_id, second.lease_token),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_image_garbage_shutdown_during_delete_does_not_ack_lease():
+    prefix = f"image-assets/{uuid4()}/g1/a{uuid4()}/"
+    claim = _image_claim(prefix)
+    events = []
+    data = _ImageData([(claim,)], events)
+    storage_stop = threading.Event()
+    storage = _ImageStorage(events, stop_after=prefix)
+    stop = asyncio.Event()
+
+    result = await drain_image_garbage(
+        data,
+        storage,
+        worker_id=uuid4(),
+        batch_size=1,
+        lease_seconds=300,
+        stop=stop,
+        storage_stop=storage_stop,
+    )
+
+    assert result == {"completed": 0, "failed": 0, "batches": 1}
     assert data.ack_calls == []

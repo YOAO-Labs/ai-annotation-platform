@@ -4,6 +4,7 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import (
+    Boolean,
     CheckConstraint,
     DateTime,
     Index,
@@ -44,14 +45,14 @@ class AssetStorageDeletion(Base):
             "operation_id",
             "asset_id",
             postgresql_include=["not_before"],
-            postgresql_where=text("completed_at IS NULL"),
+            postgresql_where=text("completed_at IS NULL OR retained"),
         ),
         Index(
             "ix_asset_storage_deletions_pending_created",
             "created_at",
             "operation_id",
             "asset_id",
-            postgresql_where=text("completed_at IS NULL"),
+            postgresql_where=text("completed_at IS NULL OR retained"),
         ),
     )
 
@@ -66,6 +67,9 @@ class AssetStorageDeletion(Base):
     )
     completed_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
+    )
+    retained: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("false")
     )
     not_before: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()

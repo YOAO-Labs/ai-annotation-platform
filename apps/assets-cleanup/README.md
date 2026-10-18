@@ -1,8 +1,8 @@
 # Assets cleanup worker
 
-This package independently consumes the Assets-owned, committed object-deletion outbox. It has no API application, ORM, Celery, Redis, or broker dependency. PostgreSQL is its only data contract: bucket-filtered keyset pages from `aap_assets_v1.pending_storage_deletions_v2` and acknowledgements through `aap_assets_v1.complete_storage_deletion`. Pages exclude work until the Assets producer's `not_before` deadline, so an in-flight pyramid generation cannot publish objects after cleanup acknowledges its prefix.
+This package independently consumes the Assets-owned, committed object-deletion outbox. It has no API application, ORM, Celery, Redis, or broker dependency. PostgreSQL is its only data contract: bucket-filtered keyset pages from `aap_assets_v1.pending_storage_deletions_v2`, acknowledgements through `aap_assets_v1.complete_storage_deletion`, and leased image-prefix claims through `aap_assets_v1.claim_image_garbage` / `aap_assets_v1.complete_image_garbage`. Existing whole-pyramid cleanup rows wait until their producer's `not_before` deadline and remain retained for periodic resweeps; image-attempt prefixes are deleted only from explicit owner-issued leases.
 
-The worker validates the exact `image-pyramids/{asset_id}/` prefix, lists and deletes at most 1,000 keys per S3 request, checks partial delete failures, and acknowledges only after the entire prefix is gone. It commits the page-read transaction before object-store IO. A failed request or acknowledgement leaves the outbox row pending; retrying a completed prefix is safe. The keyset cursor advances past failed rows during each scan so one persistent object error cannot block later records.
+The worker validates only `image-pyramids/{asset_id}/`, `image-pyramids/{asset_id}/gN/`, `image-pyramids/{asset_id}/gN/a{lease}/`, and `image-assets/{job_id}/gN/a{lease}/` prefixes. It lists and deletes at most 1,000 keys per S3 request, checks partial delete failures, and acknowledges only after the exact prefix is gone. It commits each database transaction before object-store IO. A failed request or acknowledgement leaves the whole-asset outbox row pending or the image lease unacknowledged; retries are safe and late attempt writes are removed by subsequent owner-issued sweeps. The keyset cursor advances past failed whole-asset rows during each scan so one persistent object error cannot block later records.
 
 ## Configuration
 
@@ -21,11 +21,11 @@ The process reads only these explicit settings. It never falls back to `DATABASE
 | `ASSET_CLEANUP_HEALTH_HOST`                                         | no       | `127.0.0.1` | Health server bind address; must be IPv4 loopback.   |
 | `ASSET_CLEANUP_HEALTH_PORT`                                         | no       | `8765`      | Loopback-only readiness port.                        |
 
-Mount database and object-store credentials as files where the runtime supports secret mounts. The object-store policy needs `ListBucket` constrained to `image-pyramids/*` in the configured bucket and `DeleteObject` under that bucket's `image-pyramids/*` resource. It does not need object reads, writes, bucket administration, or access to another bucket.
+Mount database and object-store credentials as files where the runtime supports secret mounts. The object-store policy needs `ListBucket` constrained to `image-assets/*` and `image-pyramids/*` in the configured bucket and `DeleteObject` under those two prefixes. It does not need object reads, writes, bucket administration, source access, or access to another bucket.
 
 Each process scans one configured bucket. When changing the media-cache bucket, keep a cleanup process with its old bucket and credential available until all old-bucket outbox rows have completed; start the new bucket process alongside it for new work.
 
-At startup, the worker verifies that its login is a LOGIN without elevated attributes or role memberships, has no application table/sequence privileges, has no other module capability grants, and can execute exactly the cleanup pending/complete functions. It also probes the configured bucket through the allowed prefix before reporting ready.
+At startup, the worker verifies that its login is a LOGIN without elevated attributes or role memberships, has no application table/sequence privileges, has no other module capability grants, and can execute exactly the cleanup pending/complete and image claim/complete functions. It also probes the configured bucket through the two allowed prefixes before reporting ready.
 
 `GET /health/live` reports process liveness and `GET /health/ready` reports whether the loop has passed its database and storage checks. Both bind only to loopback inside the container. SIGTERM stops pagination between S3 pages and exits without acknowledging a partially deleted prefix.
 
@@ -49,4 +49,4 @@ uv run --locked --extra worker --group dev ruff check .
 uv run --locked --extra worker --group dev ruff format --check .
 ```
 
-The frozen protocol schema is in `../api/alembic/sql/0210_asset_storage_cleanup.schema.json`; the package's strict Pydantic models define the corresponding four-field row contract and its timestamped keyset-page extension.
+The whole-asset protocol remains frozen in `../api/alembic/sql/0210_asset_storage_cleanup.schema.json`; its four-field row and timestamped keyset-page wire are unchanged. The image protocol is a strict `aap-assets-images/v1` JSON envelope carrying only a garbage ID, exact prefix and lease token; the worker never receives raw keys, source paths or arbitrary bucket names.

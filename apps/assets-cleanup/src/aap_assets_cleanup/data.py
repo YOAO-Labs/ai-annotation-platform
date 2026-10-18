@@ -1,11 +1,21 @@
-"""The two narrowly granted, versioned PostgreSQL calls used by this worker."""
+"""The narrowly granted, versioned PostgreSQL calls used by this worker."""
 
 from __future__ import annotations
 
 import asyncpg
+import json
 from pydantic import ValidationError
+from uuid import UUID
 
-from .contract import AssetStorageDeletion, DeletionCursor, PendingAssetStorageDeletion
+from .contract import (
+    AssetStorageDeletion,
+    DeletionCursor,
+    ImageGarbageClaim,
+    ImageGarbageClaimData,
+    ImageGarbageCompleteData,
+    ImageGarbageEnvelope,
+    PendingAssetStorageDeletion,
+)
 
 PENDING_SQL = """
 SELECT operation_id, asset_id, bucket, prefix, created_at
@@ -15,6 +25,12 @@ FROM aap_assets_v1.pending_storage_deletions_v2(
 """
 COMPLETE_SQL = """
 SELECT aap_assets_v1.complete_storage_deletion($1::uuid, $2::uuid)
+"""
+CLAIM_IMAGE_GARBAGE_SQL = """
+SELECT aap_assets_v1.claim_image_garbage($1::uuid, $2::integer, $3::integer)
+"""
+COMPLETE_IMAGE_GARBAGE_SQL = """
+SELECT aap_assets_v1.complete_image_garbage($1::uuid, $2::uuid)
 """
 
 _PREFLIGHT_SQL = """
@@ -30,7 +46,13 @@ allowed_functions AS (
         )::oid AS pending_oid,
         pg_catalog.to_regprocedure(
             'aap_assets_v1.complete_storage_deletion(uuid,uuid)'
-        )::oid AS complete_oid
+        )::oid AS complete_oid,
+        pg_catalog.to_regprocedure(
+            'aap_assets_v1.claim_image_garbage(uuid,integer,integer)'
+        )::oid AS claim_image_oid,
+        pg_catalog.to_regprocedure(
+            'aap_assets_v1.complete_image_garbage(uuid,uuid)'
+        )::oid AS complete_image_oid
 )
 SELECT
     current_user = session_user
@@ -84,6 +106,8 @@ SELECT
           AND proc.prokind IN ('f', 'p')
           AND proc.oid <> COALESCE(allowed.pending_oid, 0::oid)
           AND proc.oid <> COALESCE(allowed.complete_oid, 0::oid)
+          AND proc.oid <> COALESCE(allowed.claim_image_oid, 0::oid)
+          AND proc.oid <> COALESCE(allowed.complete_image_oid, 0::oid)
           AND pg_catalog.has_function_privilege(
               current_user, proc.oid, 'EXECUTE'
           )
@@ -154,6 +178,22 @@ SELECT
             'EXECUTE'
         ),
         false
+    )
+    AND COALESCE(
+        pg_catalog.has_function_privilege(
+            current_user,
+            allowed.claim_image_oid,
+            'EXECUTE'
+        ),
+        false
+    )
+    AND COALESCE(
+        pg_catalog.has_function_privilege(
+            current_user,
+            allowed.complete_image_oid,
+            'EXECUTE'
+        ),
+        false
     ) AS is_scoped
 FROM target_login AS login_role
 CROSS JOIN allowed_functions AS allowed
@@ -217,3 +257,66 @@ class StorageDeletionData:
                     raise DataContractError(
                         "Assets did not acknowledge the matching cleanup row"
                     )
+
+    async def claim_image_garbage(
+        self,
+        *,
+        worker_id: UUID,
+        lease_seconds: int,
+        batch_size: int,
+    ) -> tuple[ImageGarbageClaim, ...]:
+        if not 1 <= lease_seconds <= 3600:
+            raise ValueError("Image cleanup lease must be 1-3600 seconds")
+        if not 1 <= batch_size <= 500:
+            raise ValueError("Image cleanup batch size must be 1-500")
+        async with self._pool.acquire() as connection:
+            async with connection.transaction():
+                payload = await connection.fetchval(
+                    CLAIM_IMAGE_GARBAGE_SQL,
+                    worker_id,
+                    lease_seconds,
+                    batch_size,
+                )
+        data = _decode_image_reply(payload, ImageGarbageClaimData)
+        if len(data.items) > batch_size:
+            raise DataContractError("Assets exceeded the requested image cleanup batch")
+        return tuple(data.items)
+
+    async def complete_image_garbage(self, claim: ImageGarbageClaim) -> None:
+        async with self._pool.acquire() as connection:
+            async with connection.transaction():
+                payload = await connection.fetchval(
+                    COMPLETE_IMAGE_GARBAGE_SQL,
+                    claim.garbage_id,
+                    claim.lease_token,
+                )
+        data = _decode_image_reply(payload, ImageGarbageCompleteData)
+        if data.garbage_id != claim.garbage_id or data.completed is not True:
+            raise DataContractError(
+                "Assets did not acknowledge the matching image cleanup lease"
+            )
+
+
+def _decode_image_reply(payload, result_type):
+    if isinstance(payload, str):
+        try:
+            payload = json.loads(payload)
+        except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+            raise DataContractError(
+                "Assets returned invalid image cleanup JSON"
+            ) from exc
+    try:
+        reply = ImageGarbageEnvelope.model_validate(payload)
+    except (ValidationError, TypeError, ValueError) as exc:
+        raise DataContractError(
+            "Assets returned an invalid image cleanup reply"
+        ) from exc
+    if not reply.ok:
+        if reply.error is None:
+            raise DataContractError("Assets returned an invalid image cleanup error")
+        code = reply.error.code
+        raise DataContractError(f"Assets rejected image cleanup: {code[:64]}")
+    try:
+        return result_type.model_validate(reply.data)
+    except (ValidationError, TypeError, ValueError) as exc:
+        raise DataContractError("Assets returned invalid image cleanup data") from exc
