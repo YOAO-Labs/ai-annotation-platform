@@ -2212,6 +2212,19 @@
       "title": "PreparationPage",
       "type": "object"
     },
+    "PreparePointcloudRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "creation_operation_id": {
+          "format": "uuid",
+          "title": "Creation Operation Id",
+          "type": "string"
+        }
+      },
+      "required": ["creation_operation_id"],
+      "title": "PreparePointcloudRequest",
+      "type": "object"
+    },
     "ProvenanceMutationResult": {
       "additionalProperties": false,
       "properties": {
@@ -3008,6 +3021,228 @@
       },
       "response": {
         "$ref": "#/$defs/ProvenanceMutationResult"
+      }
+    }
+  },
+  "x-http-operations": {
+    "guard_spatial_actor": {
+      "method": "POST",
+      "path": "/v1/spatial/guard_spatial_actor",
+      "request": {
+        "$ref": "#/$defs/GuardSpatialActorRequest"
+      },
+      "response": {
+        "$ref": "#/$defs/SpatialActorResult"
+      }
+    },
+    "list_spatial_scenes": {
+      "method": "POST",
+      "path": "/v1/spatial/list_spatial_scenes",
+      "request": {
+        "$ref": "#/$defs/ListScenesRequest"
+      },
+      "response": {
+        "$ref": "#/$defs/ScenePage"
+      }
+    },
+    "get_spatial_scene": {
+      "method": "POST",
+      "path": "/v1/spatial/get_spatial_scene",
+      "request": {
+        "$ref": "#/$defs/GetSceneRequest"
+      },
+      "response": {
+        "$ref": "#/$defs/SceneResult"
+      }
+    },
+    "read_spatial_layout": {
+      "method": "POST",
+      "path": "/v1/spatial/read_spatial_layout",
+      "request": {
+        "$ref": "#/$defs/ReadLayoutRequest"
+      },
+      "response": {
+        "$ref": "#/$defs/LayoutPage"
+      }
+    },
+    "read_spatial_items": {
+      "method": "POST",
+      "path": "/v1/spatial/read_spatial_items",
+      "request": {
+        "$ref": "#/$defs/ReadItemsRequest"
+      },
+      "response": {
+        "$ref": "#/$defs/ItemFactsPage"
+      }
+    },
+    "read_spatial_poses": {
+      "method": "POST",
+      "path": "/v1/spatial/read_spatial_poses",
+      "request": {
+        "$ref": "#/$defs/ReadPosesRequest"
+      },
+      "response": {
+        "$ref": "#/$defs/PosePage"
+      }
+    },
+    "read_spatial_calibrations": {
+      "method": "POST",
+      "path": "/v1/spatial/read_spatial_calibrations",
+      "request": {
+        "$ref": "#/$defs/ReadCalibrationsRequest"
+      },
+      "response": {
+        "$ref": "#/$defs/CalibrationPage"
+      }
+    },
+    "lock_spatial_calibration_facts": {
+      "method": "POST",
+      "path": "/v1/spatial/lock_spatial_calibration_facts",
+      "request": {
+        "$ref": "#/$defs/LockCalibrationFactsRequest"
+      },
+      "response": {
+        "$ref": "#/$defs/CalibrationRecord"
+      }
+    },
+    "mutate_spatial_scene": {
+      "method": "POST",
+      "path": "/v1/spatial/mutate_spatial_scene",
+      "request": {
+        "$ref": "#/$defs/MutateSceneRequest"
+      },
+      "response": {
+        "$ref": "#/$defs/SceneMutationResult"
+      }
+    },
+    "apply_spatial_layout": {
+      "method": "POST",
+      "path": "/v1/spatial/apply_spatial_layout",
+      "request": {
+        "$ref": "#/$defs/ApplyLayoutRequest"
+      },
+      "response": {
+        "$ref": "#/$defs/LayoutMutationResult"
+      }
+    },
+    "upsert_spatial_poses": {
+      "method": "POST",
+      "path": "/v1/spatial/upsert_spatial_poses",
+      "request": {
+        "$ref": "#/$defs/UpsertPosesRequest"
+      },
+      "response": {
+        "$ref": "#/$defs/PoseMutationResult"
+      }
+    },
+    "create_spatial_scene": {
+      "method": "POST",
+      "path": "/v1/spatial/create_spatial_scene",
+      "request": {
+        "$ref": "#/$defs/CreateSceneRequest"
+      },
+      "response": {
+        "$ref": "#/$defs/SceneMutationResult"
+      }
+    },
+    "assign_spatial_items": {
+      "method": "POST",
+      "path": "/v1/spatial/assign_spatial_items",
+      "request": {
+        "$ref": "#/$defs/AssignItemsRequest"
+      },
+      "response": {
+        "$ref": "#/$defs/AssignmentMutationResult"
+      }
+    },
+    "set_spatial_scene_source": {
+      "method": "POST",
+      "path": "/v1/spatial/set_spatial_scene_source",
+      "request": {
+        "$ref": "#/$defs/SetSceneSourceRequest"
+      },
+      "response": {
+        "$ref": "#/$defs/SceneMutationResult"
+      }
+    },
+    "update_spatial_calibration": {
+      "method": "POST",
+      "path": "/v1/spatial/update_spatial_calibration",
+      "request": {
+        "$ref": "#/$defs/ApplyCalibrationRequest"
+      },
+      "response": {
+        "$ref": "#/$defs/CalibrationMutationResult"
+      }
+    },
+    "read_pointcloud_preparation": {
+      "method": "POST",
+      "path": "/v1/spatial/read_pointcloud_preparation",
+      "request": {
+        "$ref": "#/$defs/ReadPreparationRequest"
+      },
+      "response": {
+        "$ref": "#/$defs/PreparationPage"
+      }
+    },
+    "apply_pointcloud_preparation": {
+      "method": "POST",
+      "path": "/v1/spatial/apply_pointcloud_preparation",
+      "request": {
+        "$ref": "#/$defs/ApplyPreparationRequest"
+      },
+      "response": {
+        "$ref": "#/$defs/PreparationMutationResult"
+      }
+    },
+    "read_spatial_camera_target": {
+      "method": "POST",
+      "path": "/v1/spatial/read_spatial_camera_target",
+      "request": {
+        "$ref": "#/$defs/ReadCameraTargetRequest"
+      },
+      "response": {
+        "$ref": "#/$defs/CameraTargetResult"
+      }
+    },
+    "record_spatial_calibration_provenance": {
+      "method": "POST",
+      "path": "/v1/spatial/record_spatial_calibration_provenance",
+      "request": {
+        "$ref": "#/$defs/RecordCalibrationProvenanceRequest"
+      },
+      "response": {
+        "$ref": "#/$defs/ProvenanceMutationResult"
+      }
+    },
+    "backfill_scenes": {
+      "method": "POST",
+      "path": "/v1/spatial/backfill_scenes",
+      "request": {
+        "$ref": "#/$defs/BackfillScenesRequest"
+      },
+      "response": {
+        "$ref": "#/$defs/LayoutMutationResult"
+      }
+    },
+    "sniff_axis": {
+      "method": "POST",
+      "path": "/v1/spatial/sniff_axis",
+      "request": {
+        "$ref": "#/$defs/SniffAxisRequest"
+      },
+      "response": {
+        "$ref": "#/$defs/AxisSniffResult"
+      }
+    },
+    "prepare_pointcloud": {
+      "method": "POST",
+      "path": "/v1/spatial/prepare_pointcloud",
+      "request": {
+        "$ref": "#/$defs/PreparePointcloudRequest"
+      },
+      "response": {
+        "$ref": "#/$defs/PreparationMutationResult"
       }
     }
   },

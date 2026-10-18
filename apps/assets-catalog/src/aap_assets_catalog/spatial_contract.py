@@ -600,6 +600,10 @@ class ReadPreparationRequest(_Value):
     page_size: PageSize = SPATIAL_PAGE_SIZE
 
 
+class PreparePointcloudRequest(_Value):
+    creation_operation_id: UUID
+
+
 class PreparationPage(LayoutPage):
     actor_id: None = None
     creation_operation_id: UUID
@@ -774,6 +778,7 @@ def require_spatial_scope(request: BaseModel, result: BaseModel) -> None:
         "after_item_id",
         "after_frame_index",
         "dry_run",
+        "access",
     ):
         if name in type(request).model_fields and name in type(result).model_fields:
             if (
@@ -812,6 +817,7 @@ def spatial_json_schema() -> dict[str, Any]:
             UpdateCalibrationRequest,
             SniffAxisRequest,
             AxisSniffResult,
+            PreparePointcloudRequest,
         )
     )
     for model in sorted(models, key=lambda value: value.__name__):
@@ -871,6 +877,35 @@ def spatial_json_schema() -> dict[str, Any]:
                 "response": {"$ref": f"#/$defs/{result.__name__}"},
             }
             for name, (request, result) in SPATIAL_OPERATIONS.items()
+        },
+        "x-http-operations": {
+            **{
+                name: {
+                    "method": "POST",
+                    "path": f"/v1/spatial/{name}",
+                    "request": {"$ref": f"#/$defs/{request.__name__}"},
+                    "response": {"$ref": f"#/$defs/{result.__name__}"},
+                }
+                for name, (request, result) in SPATIAL_OPERATIONS.items()
+            },
+            "backfill_scenes": {
+                "method": "POST",
+                "path": "/v1/spatial/backfill_scenes",
+                "request": {"$ref": "#/$defs/BackfillScenesRequest"},
+                "response": {"$ref": "#/$defs/LayoutMutationResult"},
+            },
+            "sniff_axis": {
+                "method": "POST",
+                "path": "/v1/spatial/sniff_axis",
+                "request": {"$ref": "#/$defs/SniffAxisRequest"},
+                "response": {"$ref": "#/$defs/AxisSniffResult"},
+            },
+            "prepare_pointcloud": {
+                "method": "POST",
+                "path": "/v1/spatial/prepare_pointcloud",
+                "request": {"$ref": "#/$defs/PreparePointcloudRequest"},
+                "response": {"$ref": "#/$defs/PreparationMutationResult"},
+            },
         },
         "x-paging": {
             "snapshot": "opaque SHA256 of the complete native source snapshot",
