@@ -9,16 +9,16 @@ from app.schemas._jsonb_types import DatasetItemMetadata, LidarAxisConvention
 
 
 class DatasetCreate(BaseModel):
-    name: str
+    name: str = Field(max_length=255)
     description: str = ""
-    data_type: str = "image"
+    data_type: str = Field(default="image", max_length=30)
     is_temporal: bool = False
     # v0.13.11 · 点云数据集 lidar 坐标系约定，写进 Dataset.metadata_["axis_convention"]。
     axis_convention: LidarAxisConvention | None = None
 
 
 class DatasetUpdate(BaseModel):
-    name: str | None = None
+    name: str | None = Field(default=None, max_length=255)
     description: str | None = None
     # v0.13.11 · 未传 = 不改；显式 None = 清除；具体值 = 覆盖。
     axis_convention: LidarAxisConvention | None = None

@@ -17,6 +17,14 @@ from fastapi import (
 )
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from aap_assets_catalog import (
+    CreateDatasetRequest,
+    DatasetPatch,
+    GetDatasetRequest,
+    ListDatasetsRequest,
+    ListItemsRequest,
+    UpdateDatasetRequest,
+)
 from app.deps import (
     get_db,
     get_current_user,
@@ -49,6 +57,7 @@ from app.services.dataset import (
     DatasetService,
     ensure_dataset_storage_name_is_writable,
 )
+from app.services.assets_catalog import AssetsCatalogGateway
 from app.application.dataset_task_creation import DatasetTaskCreationWorkflow
 from app.application.dataset_upload import DatasetUploadWorkflow
 from app.application.dataset_deletion import (
@@ -97,22 +106,29 @@ def _deletion_audit_context(request: Request) -> ProjectDeletionAuditContext:
 )
 async def list_datasets(
     search: str | None = None,
-    data_type: str | None = None,
+    data_type: str | None = Query(default=None, max_length=30),
     has_scenes: bool | None = None,
     limit: int = Query(50, ge=1, le=200),
-    offset: int = Query(0, ge=0),
+    offset: int = Query(0, ge=0, le=9_223_372_036_854_775_807),
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ):
-    svc = DatasetService(db)
-    items, total = await svc.list(
-        search=search,
-        data_type=data_type,
-        has_scenes=has_scenes,
-        limit=limit,
-        offset=offset,
+    result = await AssetsCatalogGateway(db).list(
+        ListDatasetsRequest(
+            actor_id=current_user.id,
+            search=search,
+            data_type=data_type,
+            has_scenes=has_scenes,
+            limit=limit,
+            offset=offset,
+        )
     )
-    return DatasetListResponse(items=items, total=total, limit=limit, offset=offset)
+    return DatasetListResponse(
+        items=result.items,
+        total=result.total,
+        limit=result.limit,
+        offset=result.offset,
+    )
 
 
 @router.post(
@@ -120,25 +136,38 @@ async def list_datasets(
     response_model=DatasetOut,
     status_code=201,
     dependencies=[Depends(require_scopes("datasets:write"))],
+    responses={
+        201: {
+            "headers": {
+                "Idempotency-Key": {
+                    "description": "Reuse this UUID to replay the committed creation.",
+                    "schema": {"type": "string", "format": "uuid"},
+                }
+            }
+        }
+    },
 )
 async def create_dataset(
     data: DatasetCreate,
+    response: Response,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles(*_MANAGERS)),
+    idempotency_key: uuid.UUID | None = Header(default=None, alias="Idempotency-Key"),
 ):
-    svc = DatasetService(db)
-    ds = await svc.create(
-        name=data.name,
-        description=data.description,
-        data_type=data.data_type,
-        user_id=current_user.id,
-        axis_convention=data.axis_convention,
-        is_temporal=data.is_temporal,
+    operation_id = idempotency_key or uuid.uuid4()
+    result = await AssetsCatalogGateway(db).create(
+        CreateDatasetRequest(
+            operation_id=operation_id,
+            actor_id=current_user.id,
+            name=data.name,
+            description=data.description,
+            data_type=data.data_type,
+            is_temporal=data.is_temporal,
+            axis_convention=data.axis_convention,
+        )
     )
-    await db.commit()
-    await db.refresh(ds)
-    result = await svc.get_with_project_count(ds.id)
-    return result
+    response.headers["Idempotency-Key"] = str(operation_id)
+    return result.dataset
 
 
 @router.get(
@@ -149,47 +178,51 @@ async def create_dataset(
 async def get_dataset(
     dataset_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ):
-    svc = DatasetService(db)
-    result = await svc.get_with_project_count(dataset_id)
-    if not result:
-        raise HTTPException(status_code=404, detail="Dataset not found")
-    return result
+    result = await AssetsCatalogGateway(db).get(
+        GetDatasetRequest(actor_id=current_user.id, dataset_id=dataset_id)
+    )
+    return result.dataset
 
 
 @router.put(
     "/{dataset_id}",
     response_model=DatasetOut,
     dependencies=[Depends(require_scopes("datasets:write"))],
+    responses={
+        200: {
+            "headers": {
+                "Idempotency-Key": {
+                    "description": "Reuse this UUID to replay the committed update.",
+                    "schema": {"type": "string", "format": "uuid"},
+                }
+            }
+        }
+    },
 )
 async def update_dataset(
     dataset_id: uuid.UUID,
     data: DatasetUpdate,
+    response: Response,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles(*_MANAGERS)),
+    idempotency_key: uuid.UUID | None = Header(default=None, alias="Idempotency-Key"),
 ):
-    svc = DatasetService(db)
-    # v0.13.11 · 用 model_fields_set 区分「字段未传」与「显式传 None」(后者清除
-    # metadata_["axis_convention"])。未传时不进 kwargs，让 service 走 _UNSET。
-    update_kwargs: dict = {}
-    if "axis_convention" in data.model_fields_set:
-        update_kwargs["axis_convention"] = data.axis_convention
-    ds = await svc.update(
-        dataset_id,
-        name=data.name,
-        description=data.description,
-        **update_kwargs,
+    operation_id = idempotency_key or uuid.uuid4()
+    patch = DatasetPatch.model_validate(
+        data.model_dump(exclude_unset=True), strict=True
     )
-    if not ds:
-        raise HTTPException(status_code=404, detail="Dataset not found")
-    await db.commit()
-    # v0.13.11 · 在 commit 后 ds 各属性进入 expired 状态; get_with_project_count
-    # 复用 identity map 中的同一对象, 直接访问 .updated_at 会触发 sync lazy reload
-    # 在 async session 下抛 MissingGreenlet。显式 refresh 重读, 复刻 POST 的做法。
-    await db.refresh(ds)
-    result = await svc.get_with_project_count(dataset_id)
-    return result
+    result = await AssetsCatalogGateway(db).update(
+        UpdateDatasetRequest(
+            operation_id=operation_id,
+            actor_id=current_user.id,
+            dataset_id=dataset_id,
+            patch=patch,
+        )
+    )
+    response.headers["Idempotency-Key"] = str(operation_id)
+    return result.dataset
 
 
 @router.post(
@@ -268,16 +301,24 @@ async def delete_dataset(
 async def list_dataset_items(
     dataset_id: uuid.UUID,
     limit: int = Query(50, ge=1, le=200),
-    offset: int = Query(0, ge=0),
+    offset: int = Query(0, ge=0, le=9_223_372_036_854_775_807),
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ):
-    svc = DatasetService(db)
-    ds = await svc.get(dataset_id)
-    if not ds:
-        raise HTTPException(status_code=404, detail="Dataset not found")
-    items, total = await svc.list_items(dataset_id, limit=limit, offset=offset)
-    return DatasetItemListResponse(items=items, total=total, limit=limit, offset=offset)
+    result = await AssetsCatalogGateway(db).items(
+        ListItemsRequest(
+            actor_id=current_user.id,
+            dataset_id=dataset_id,
+            limit=limit,
+            offset=offset,
+        )
+    )
+    return DatasetItemListResponse(
+        items=[item.public_payload() for item in result.items],
+        total=result.total,
+        limit=result.limit,
+        offset=result.offset,
+    )
 
 
 @router.post(

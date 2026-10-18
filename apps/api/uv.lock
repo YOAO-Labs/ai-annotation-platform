@@ -13,6 +13,31 @@ overrides = [
 ]
 
 [[package]]
+name = "aap-assets-catalog"
+version = "0.1.0"
+source = { editable = "../assets-catalog" }
+dependencies = [
+    { name = "pydantic" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "asyncpg", marker = "extra == 'server'", specifier = ">=0.30.0" },
+    { name = "boto3", marker = "extra == 'server'", specifier = ">=1.43.77" },
+    { name = "fastapi", marker = "extra == 'server'", specifier = ">=0.115.0" },
+    { name = "pydantic", specifier = ">=2.10.0" },
+    { name = "uvicorn", marker = "extra == 'server'", specifier = ">=0.34.0" },
+]
+provides-extras = ["server"]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "httpx", specifier = ">=0.27.0" },
+    { name = "pytest", specifier = ">=8.3.0" },
+    { name = "ruff", specifier = "==0.15.22" },
+]
+
+[[package]]
 name = "aap-assets-cleanup"
 version = "0.1.0"
 source = { editable = "../assets-cleanup" }
@@ -125,6 +150,7 @@ name = "anno-api"
 version = "0.26.1"
 source = { virtual = "." }
 dependencies = [
+    { name = "aap-assets-catalog" },
     { name = "aap-assets-cleanup" },
     { name = "aap-media-probe" },
     { name = "aap-protocol-v2" },
@@ -171,6 +197,7 @@ test = [
 
 [package.metadata]
 requires-dist = [
+    { name = "aap-assets-catalog", editable = "../assets-catalog" },
     { name = "aap-assets-cleanup", editable = "../assets-cleanup" },
     { name = "aap-media-probe", editable = "../media-probe" },
     { name = "aap-protocol-v2", editable = "../_shared/protocol_v2" },
