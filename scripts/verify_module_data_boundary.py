@@ -322,6 +322,23 @@ def _cleanup_storage_scope(backend) -> dict:
     }
 
 
+def _enable_owned_bucket_versioning(backend, bucket: str) -> None:
+    tags = backend.s3.get_bucket_tagging(Bucket=bucket)["TagSet"]
+    if not any(
+        tag["Key"] == "aap-worktree-owner"
+        and tag["Value"] == backend.resources["owner"]
+        for tag in tags
+    ):
+        raise RuntimeError("The image source bucket is not owned by this acceptance")
+    backend.s3.put_bucket_versioning(
+        Bucket=bucket,
+        VersioningConfiguration={"Status": "Enabled"},
+    )
+    state = backend.s3.get_bucket_versioning(Bucket=bucket)
+    if state.get("Status") != "Enabled":
+        raise RuntimeError("The owned image source bucket is not versioned")
+
+
 def _cleanup_mc(
     scope: dict, arguments: list[str], *, payload: str | None = None
 ) -> None:
@@ -361,28 +378,38 @@ def _cleanup_mc(
         raise RuntimeError("MinIO cleanup identity administration failed")
 
 
+def _cleanup_storage_policy(scope: dict) -> dict:
+    cache_arn = f"arn:aws:s3:::{scope['bucket']}"
+    return {
+        "Version": "2012-10-17",
+        "Statement": [
+            {
+                "Effect": "Allow",
+                "Action": ["s3:ListBucket"],
+                "Resource": [cache_arn],
+                "Condition": {
+                    "StringLike": {"s3:prefix": ["image-assets/*", "image-pyramids/*"]}
+                },
+            },
+            {
+                "Effect": "Allow",
+                "Action": ["s3:DeleteObject"],
+                "Resource": [
+                    f"{cache_arn}/image-assets/*",
+                    f"{cache_arn}/image-pyramids/*",
+                ],
+            },
+        ],
+    }
+
+
 def _create_cleanup_storage_scope(scope: dict) -> None:
     _cleanup_mc(
         scope,
         ["admin", "user", "add", "scoped", scope["access_key"], scope["secret_key"]],
     )
     scope["user_created"] = True
-    policy = {
-        "Version": "2012-10-17",
-        "Statement": [
-            {
-                "Effect": "Allow",
-                "Action": ["s3:ListBucket"],
-                "Resource": [f"arn:aws:s3:::{scope['bucket']}"],
-                "Condition": {"StringLike": {"s3:prefix": ["image-pyramids/*"]}},
-            },
-            {
-                "Effect": "Allow",
-                "Action": ["s3:DeleteObject"],
-                "Resource": [f"arn:aws:s3:::{scope['bucket']}/image-pyramids/*"],
-            },
-        ],
-    }
+    policy = _cleanup_storage_policy(scope)
     _cleanup_mc(
         scope,
         ["admin", "policy", "create", "scoped", scope["policy"], "/dev/stdin"],
@@ -462,18 +489,17 @@ def _create_catalog_storage_scope(scope: dict) -> None:
     )
 
 
-def _create_media_storage_scope(scope: dict, *, worker: bool) -> None:
-    _cleanup_mc(
-        scope,
-        ["admin", "user", "add", "scoped", scope["access_key"], scope["secret_key"]],
-    )
-    scope["user_created"] = True
-    cache_objects = f"arn:aws:s3:::{scope['bucket']}/media-assets/*"
+def _media_storage_policy(scope: dict, *, worker: bool) -> dict:
+    cache_bucket_arn = f"arn:aws:s3:::{scope['bucket']}"
+    cache_objects = f"{cache_bucket_arn}/media-assets/*"
+    source_objects = [f"arn:aws:s3:::{scope['datasets_bucket']}/*"]
+    if scope.get("legacy_bucket"):
+        source_objects.append(f"arn:aws:s3:::{scope['legacy_bucket']}/*")
     statements = [
         {
             "Effect": "Allow",
-            "Action": ["s3:GetObject"],
-            "Resource": [f"arn:aws:s3:::{scope['datasets_bucket']}/*"],
+            "Action": ["s3:GetObject", "s3:GetObjectVersion"],
+            "Resource": source_objects,
         }
     ]
     if worker:
@@ -482,7 +508,7 @@ def _create_media_storage_scope(scope: dict, *, worker: bool) -> None:
                 {
                     "Effect": "Allow",
                     "Action": ["s3:ListBucket"],
-                    "Resource": [f"arn:aws:s3:::{scope['bucket']}"],
+                    "Resource": [cache_bucket_arn],
                     "Condition": {"StringLike": {"s3:prefix": ["media-assets/*"]}},
                 },
                 {
@@ -494,8 +520,8 @@ def _create_media_storage_scope(scope: dict, *, worker: bool) -> None:
                     "Effect": "Allow",
                     "Action": ["s3:DeleteObject"],
                     "Resource": [
-                        f"arn:aws:s3:::{scope['bucket']}/videos/*/frames/*",
-                        f"arn:aws:s3:::{scope['bucket']}/videos/*/chunks/*",
+                        f"{cache_bucket_arn}/videos/*/frames/*",
+                        f"{cache_bucket_arn}/videos/*/chunks/*",
                     ],
                 },
             ]
@@ -507,16 +533,88 @@ def _create_media_storage_scope(scope: dict, *, worker: bool) -> None:
                 "Action": ["s3:GetObject"],
                 "Resource": [
                     cache_objects,
-                    f"arn:aws:s3:::{scope['bucket']}/videos/*/frames/*",
-                    f"arn:aws:s3:::{scope['bucket']}/videos/*/chunks/*",
-                    f"arn:aws:s3:::{scope['bucket']}/playback/*.mp4",
+                    f"{cache_bucket_arn}/videos/*/frames/*",
+                    f"{cache_bucket_arn}/videos/*/chunks/*",
+                    f"{cache_bucket_arn}/playback/*.mp4",
+                    f"{cache_bucket_arn}/image-assets/*",
+                    f"{cache_bucket_arn}/image-pyramids/*",
                 ],
             }
         )
+    return {"Version": "2012-10-17", "Statement": statements}
+
+
+def _create_media_storage_scope(scope: dict, *, worker: bool) -> None:
+    _cleanup_mc(
+        scope,
+        ["admin", "user", "add", "scoped", scope["access_key"], scope["secret_key"]],
+    )
+    scope["user_created"] = True
+    policy = _media_storage_policy(scope, worker=worker)
     _cleanup_mc(
         scope,
         ["admin", "policy", "create", "scoped", scope["policy"], "/dev/stdin"],
-        payload=json.dumps({"Version": "2012-10-17", "Statement": statements}),
+        payload=json.dumps(policy),
+    )
+    scope["policy_created"] = True
+    _cleanup_mc(
+        scope,
+        [
+            "admin",
+            "policy",
+            "attach",
+            "scoped",
+            scope["policy"],
+            "--user",
+            scope["access_key"],
+        ],
+    )
+
+
+def _image_worker_storage_policy(scope: dict) -> dict:
+    cache_bucket_arn = f"arn:aws:s3:::{scope['bucket']}"
+    source_objects = [
+        f"arn:aws:s3:::{scope['datasets_bucket']}/*",
+        f"arn:aws:s3:::{scope['legacy_bucket']}/*",
+    ]
+    derived_objects = [
+        f"{cache_bucket_arn}/image-assets/*",
+        f"{cache_bucket_arn}/image-pyramids/*",
+    ]
+    return {
+        "Version": "2012-10-17",
+        "Statement": [
+            {
+                "Effect": "Allow",
+                "Action": ["s3:GetObject", "s3:GetObjectVersion"],
+                "Resource": source_objects,
+            },
+            {
+                "Effect": "Allow",
+                "Action": ["s3:ListBucket"],
+                "Resource": [cache_bucket_arn],
+                "Condition": {"StringLike": {"s3:prefix": ["image-pyramids/*"]}},
+            },
+            {
+                "Effect": "Allow",
+                "Action": ["s3:GetObject", "s3:PutObject"],
+                "Resource": derived_objects,
+            },
+        ],
+    }
+
+
+def _create_image_storage_scope(scope: dict) -> None:
+    _cleanup_mc(
+        scope,
+        ["admin", "user", "add", "scoped", scope["access_key"], scope["secret_key"]],
+    )
+    scope["user_created"] = True
+    policy = _image_worker_storage_policy(scope)
+    _cleanup_mc(
+        scope,
+        ["admin", "policy", "create", "scoped", scope["policy"], "/dev/stdin"],
+        payload=json.dumps(policy),
     )
     scope["policy_created"] = True
     _cleanup_mc(
@@ -1158,6 +1256,7 @@ def main(argv: list[str] | None = None) -> int:
             "import_source_storage_identity_removed": False,
             "media_control_storage_identity_removed": False,
             "media_worker_storage_identity_removed": False,
+            "image_worker_storage_identity_removed": False,
             "local_resources_destroyed": False,
             "postgres_container_removed": False,
             "resource_root_retained": None,
@@ -1177,6 +1276,7 @@ def main(argv: list[str] | None = None) -> int:
     import_source_storage = None
     media_control_storage = None
     media_worker_storage = None
+    image_worker_storage = None
     resource_root = Path(
         tempfile.mkdtemp(prefix="aap-module-data-acceptance-")
     ).resolve()
@@ -1579,6 +1679,11 @@ def main(argv: list[str] | None = None) -> int:
             },
         )
         phase = "create-scoped-storage-identity"
+        for bucket in {
+            resources["buckets"]["MINIO_DATASETS_BUCKET"],
+            resources["buckets"]["MINIO_BUCKET"],
+        }:
+            _enable_owned_bucket_versioning(backend, bucket)
         cleanup_storage = _cleanup_storage_scope(backend)
         _create_cleanup_storage_scope(cleanup_storage)
         catalog_storage = _cleanup_storage_scope(backend)
@@ -1606,6 +1711,7 @@ def main(argv: list[str] | None = None) -> int:
         media_control_storage["datasets_bucket"] = resources["buckets"][
             "MINIO_DATASETS_BUCKET"
         ]
+        media_control_storage["legacy_bucket"] = resources["buckets"]["MINIO_BUCKET"]
         media_control_storage["policy"] = "aap-media-control-" + secrets.token_hex(8)
         _create_media_storage_scope(media_control_storage, worker=False)
         media_worker_storage = _cleanup_storage_scope(backend)
@@ -1614,6 +1720,13 @@ def main(argv: list[str] | None = None) -> int:
         ]
         media_worker_storage["policy"] = "aap-media-worker-" + secrets.token_hex(8)
         _create_media_storage_scope(media_worker_storage, worker=True)
+        image_worker_storage = _cleanup_storage_scope(backend)
+        image_worker_storage["datasets_bucket"] = resources["buckets"][
+            "MINIO_DATASETS_BUCKET"
+        ]
+        image_worker_storage["legacy_bucket"] = resources["buckets"]["MINIO_BUCKET"]
+        image_worker_storage["policy"] = "aap-images-worker-" + secrets.token_hex(8)
+        _create_image_storage_scope(image_worker_storage)
         from cryptography.fernet import Fernet
 
         media_control_access_key = media_control_storage["access_key"]
@@ -1669,6 +1782,12 @@ def main(argv: list[str] | None = None) -> int:
                 "AAP_MODULE_DATA_ASSET_MEDIA_CONTROL_S3_SECRET_KEY": media_control_secret_key,
                 "AAP_MODULE_DATA_ASSET_MEDIA_WORKER_S3_ACCESS_KEY": media_worker_access_key,
                 "AAP_MODULE_DATA_ASSET_MEDIA_WORKER_S3_SECRET_KEY": media_worker_secret_key,
+                "AAP_MODULE_DATA_ASSET_IMAGE_WORKER_S3_ACCESS_KEY": image_worker_storage[
+                    "access_key"
+                ],
+                "AAP_MODULE_DATA_ASSET_IMAGE_WORKER_S3_SECRET_KEY": image_worker_storage[
+                    "secret_key"
+                ],
                 "AAP_MODULE_DATA_LEGACY_RUNTIME_URL": URL.create(
                     "postgresql+asyncpg",
                     username="legacy_runtime",
@@ -1710,6 +1829,7 @@ def main(argv: list[str] | None = None) -> int:
         exit_code = 1
     finally:
         for label, scope in (
+            ("image_worker", image_worker_storage),
             ("media_worker", media_worker_storage),
             ("media_control", media_control_storage),
             ("import", import_storage),
