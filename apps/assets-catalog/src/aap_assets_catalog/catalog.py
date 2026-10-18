@@ -92,6 +92,11 @@ class CatalogService:
     ) -> spatial.PreparationMutationResult:
         return await self._spatial.prepare_pointcloud(request)
 
+    async def update_calibration(
+        self, request: spatial.UpdateCalibrationRequest
+    ) -> spatial.CalibrationMutationResult:
+        return await self._spatial.update_calibration(request)
+
     def _sign_item(self, item: CatalogItem) -> CatalogItem:
         try:
             file_url = self._signer.sign_source(item.file_path)

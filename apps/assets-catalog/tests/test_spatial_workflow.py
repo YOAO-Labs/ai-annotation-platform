@@ -323,8 +323,10 @@ class _CalibrationNative:
             extrinsic=[1.0] * 16,
             intrinsic=[1.0] * 9,
         )
+        self.current_revision = 2
         self.calls = []
-        self.updated_request = None
+        self.updated_requests = []
+        self.receipt = None
 
     async def read_spatial_camera_target(self, request):
         self.calls.append(("target", request))
@@ -353,9 +355,9 @@ class _CalibrationNative:
         self.calls.append(("facts", request))
         return spatial.CalibrationRecord(
             dataset_item_id=self.item.id,
-            revision=2,
+            revision=self.current_revision,
             calibration=self.current_calibration.model_dump(mode="json"),
-            digest="b" * 64,
+            digest="b" * 64 if self.current_revision == 2 else "d" * 64,
             created_at=None,
             source_snapshot=self.item.source_snapshot,
             error=None,
@@ -363,8 +365,20 @@ class _CalibrationNative:
 
     async def update_spatial_calibration(self, request):
         self.calls.append(("update", request))
-        self.updated_request = request
-        return spatial.CalibrationMutationResult(
+        self.updated_requests.append(request)
+        if self.receipt is not None:
+            prior = self.updated_requests[0]
+            assert request.operation_id == prior.operation_id
+            assert request.actor_id == prior.actor_id
+            assert request.task_id == prior.task_id
+            assert request.camera_role == prior.camera_role
+            assert request.expected_revision == prior.expected_revision
+            assert request.expected_digest == prior.expected_digest
+            assert request.canonical_document == prior.canonical_document
+            assert request.audit_context == prior.audit_context
+            return self.receipt
+
+        self.receipt = spatial.CalibrationMutationResult(
             operation_id=request.operation_id,
             actor_id=request.actor_id,
             task_id=request.task_id,
@@ -378,10 +392,24 @@ class _CalibrationNative:
                 source_snapshot=request.source_snapshot,
             ),
         )
+        self.current_calibration = spatial.WireCalibration(
+            extrinsic=[2.0] * 16,
+            intrinsic=[3.0] * 9,
+        )
+        self.current_revision = 3
+        self.item = self.item.model_copy(
+            update={
+                "source_snapshot": {
+                    "file_path": self.item.file_path,
+                    "revision": 2,
+                }
+            }
+        )
+        return self.receipt
 
 
 @pytest.mark.asyncio
-async def test_calibration_workflow_leaves_stale_intent_to_the_native_receipt_check():
+async def test_calibration_workflow_replays_same_key_after_current_facts_change():
     actor_id, task_id = uuid4(), uuid4()
     item = _item(uuid4(), path="dataset/camera/front.jpg", file_type="image")
     desired = spatial.WireCalibration(
@@ -402,24 +430,43 @@ async def test_calibration_workflow_leaves_stale_intent_to_the_native_receipt_ch
     workflow = SpatialWorkflow(native, object())
 
     result = await workflow.update_calibration(request)
+    replay = await workflow.update_calibration(request)
 
     assert [name for name, _payload in native.calls] == [
         "target",
         "item",
         "facts",
         "update",
+        "target",
+        "item",
+        "facts",
+        "update",
     ]
-    apply_request = native.updated_request
-    assert apply_request is not None
-    assert apply_request.operation_id == request.operation_id
-    assert apply_request.expected_revision == request.expected_revision
-    assert apply_request.expected_digest == request.expected_digest
-    assert apply_request.canonical_document == spatial.canonical_calibration_document(
+    first_request, replay_request = native.updated_requests
+    assert first_request.operation_id == request.operation_id
+    assert first_request.expected_revision == request.expected_revision
+    assert first_request.expected_digest == request.expected_digest
+    assert first_request.canonical_document == spatial.canonical_calibration_document(
         desired
     )
     assert (
-        apply_request.current_canonical_document
-        == spatial.canonical_calibration_document(native.current_calibration)
+        first_request.current_canonical_document
+        == spatial.canonical_calibration_document(
+            spatial.WireCalibration(
+                extrinsic=[1.0] * 16,
+                intrinsic=[1.0] * 9,
+            )
+        )
     )
-    assert apply_request.source_snapshot == item.source_snapshot
+    assert first_request.source_snapshot == item.source_snapshot
+    assert replay_request.operation_id == first_request.operation_id
+    assert replay_request.expected_revision == first_request.expected_revision
+    assert replay_request.expected_digest == first_request.expected_digest
+    assert replay_request.canonical_document == first_request.canonical_document
+    assert (
+        replay_request.current_canonical_document
+        != first_request.current_canonical_document
+    )
+    assert replay_request.source_snapshot != first_request.source_snapshot
+    assert replay == result
     assert result.state.revision == 3

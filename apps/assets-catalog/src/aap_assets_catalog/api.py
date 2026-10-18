@@ -373,6 +373,15 @@ def create_app(
         result = await request.app.state.runtime.catalog.prepare_pointcloud(body)
         return _spatial_success(result)
 
+    @app.post(
+        "/v1/spatial/update_calibration", dependencies=[Depends(_require_gateway)]
+    )
+    async def update_calibration(
+        request: Request, body: spatial.UpdateCalibrationRequest
+    ):
+        result = await request.app.state.runtime.catalog.update_calibration(body)
+        return _spatial_success(result)
+
     @app.post("/v1/spatial/{operation}", dependencies=[Depends(_require_gateway)])
     async def spatial_native(operation: str, request: Request, body: dict[str, Any]):
         operation_models = spatial.SPATIAL_OPERATIONS.get(operation)

@@ -201,6 +201,25 @@ class _Catalog:
             notes=[],
         )
 
+    async def update_calibration(self, request):
+        self.spatial_calls.append(("update_calibration", request))
+        if self.spatial_fail_code:
+            raise spatial.SpatialFailure(self.spatial_fail_code)
+        return spatial.CalibrationMutationResult(
+            operation_id=request.operation_id,
+            actor_id=request.actor_id,
+            task_id=request.task_id,
+            camera_role=request.camera_role,
+            state=spatial.CalibrationState(
+                dataset_item_id=uuid4(),
+                revision=request.expected_revision + 1,
+                calibration=request.calibration,
+                digest="b" * 64,
+                created_at=None,
+                source_snapshot={"source": "captured"},
+            ),
+        )
+
 
 class _Runtime:
     def __init__(self, catalog: _Catalog, *, ready: bool = True):
@@ -528,3 +547,43 @@ def test_spatial_operations_are_private_typed_and_use_the_spatial_envelope(
     )
     assert invalid.status_code == 422
     assert len(catalog.spatial_calls) == 3
+
+
+def test_update_calibration_is_a_private_owner_workflow_route(client_factory) -> None:
+    client, catalog, _runtime = client_factory()
+    operation_id, actor_id, task_id = uuid4(), uuid4(), uuid4()
+    body = {
+        "operation_id": str(operation_id),
+        "actor_id": str(actor_id),
+        "task_id": str(task_id),
+        "camera_role": "camera_front",
+        "expected_revision": 1,
+        "expected_digest": "a" * 64,
+        "calibration": {
+            "extrinsic": [1.0] * 16,
+            "intrinsic": [1.0] * 9,
+        },
+        "audit_context": {"request_id": "api-test"},
+    }
+
+    unauthorized = client.post("/v1/spatial/update_calibration", json=body)
+    assert unauthorized.status_code == 401
+    assert catalog.spatial_calls == []
+
+    headers = {"Authorization": f"Bearer {_TOKEN}"}
+    response = client.post("/v1/spatial/update_calibration", json=body, headers=headers)
+    assert response.status_code == 200
+    assert response.json()["schema"] == spatial.SPATIAL_SCHEMA
+    assert response.json()["data"]["operation_id"] == str(operation_id)
+    assert response.json()["data"]["state"]["revision"] == 2
+    assert catalog.spatial_calls[0][0] == "update_calibration"
+    assert catalog.spatial_calls[0][1].actor_id == actor_id
+
+    catalog.spatial_fail_code = "camera_shared_across_projects"
+    failure = client.post("/v1/spatial/update_calibration", json=body, headers=headers)
+    assert failure.status_code == 200
+    assert failure.json() == {
+        "schema": spatial.SPATIAL_SCHEMA,
+        "ok": False,
+        "error": {"code": "camera_shared_across_projects"},
+    }
