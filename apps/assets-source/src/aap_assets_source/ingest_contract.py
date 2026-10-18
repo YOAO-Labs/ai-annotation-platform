@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from typing import Annotated, Any, Literal, TypeVar
+from typing import Annotated, Any, Literal, Protocol, TypeVar
 from uuid import UUID
 
 from pydantic import (
@@ -437,6 +437,33 @@ class IngestDeliveryLease(_Value):
 
 class IngestDeliveryAcknowledged(_Value):
     id: UUID
+
+
+class IngestDataPort(Protocol):
+    """Five owner capabilities bound to the caller's one outer transaction."""
+
+    async def begin(
+        self, command: IngestCommand, descriptor: IngestDescriptor
+    ) -> IngestContext: ...
+
+    async def prepare_batch(
+        self, command: IngestCommand, batch_id: UUID, entries: list[IngestSourceEntry]
+    ) -> IngestBatchPlan: ...
+
+    async def complete_batch(
+        self,
+        command: IngestCommand,
+        batch_id: UUID,
+        entries: list[IngestEntryCompletion],
+    ) -> IngestBatchResult: ...
+
+    async def read_layout(
+        self, command: IngestCommand, *, after_item_id: UUID | None, limit: int = 500
+    ) -> IngestLayoutPage: ...
+
+    async def finish(
+        self, command: IngestCommand, finish: IngestFinish
+    ) -> IngestReceipt: ...
 
 
 def require_ingest_scope(expected: IngestScope, returned: IngestScope) -> None:
