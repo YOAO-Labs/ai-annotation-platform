@@ -1181,6 +1181,112 @@ $function$;
 -- aap-statement-break
 REVOKE ALL ON FUNCTION aap_assets_v1.read_spatial_poses(uuid, uuid, integer, integer) FROM PUBLIC;
 -- aap-statement-break
+CREATE FUNCTION aap_assets_v1.read_spatial_pose_pairs(p_pairs jsonb)
+RETURNS jsonb
+LANGUAGE plpgsql
+STABLE
+PARALLEL UNSAFE
+SECURITY DEFINER
+SET search_path = pg_catalog, pg_temp
+AS $function$
+DECLARE
+    v_pair jsonb;
+    v_scene_id uuid;
+    v_scene_text text;
+    v_frame_value jsonb;
+    v_frame_numeric numeric;
+    v_pairs jsonb;
+    v_unique_count integer;
+    v_poses jsonb;
+    v_snapshot_digest text;
+BEGIN
+    IF jsonb_typeof(p_pairs) IS DISTINCT FROM 'array' THEN
+        RETURN aap_assets_v1._spatial_failure('invalid_request');
+    END IF;
+    IF jsonb_array_length(p_pairs) NOT BETWEEN 1 AND 5000 THEN
+        RETURN aap_assets_v1._spatial_failure('invalid_request');
+    END IF;
+
+    -- Validate every supplied pair, including canonical UUID layout (either
+    -- hex case) and integral frame bounds, before reading any pose rows.
+    FOR v_pair IN
+        SELECT value FROM jsonb_array_elements(p_pairs) AS requested(value)
+    LOOP
+        IF jsonb_typeof(v_pair) IS DISTINCT FROM 'object'
+           OR (v_pair - ARRAY['scene_id', 'frame_index']) IS DISTINCT FROM '{}'::jsonb
+           OR NOT (v_pair ?& ARRAY['scene_id', 'frame_index'])
+           OR jsonb_typeof(v_pair -> 'scene_id') IS DISTINCT FROM 'string'
+           OR jsonb_typeof(v_pair -> 'frame_index') IS DISTINCT FROM 'number' THEN
+            RETURN aap_assets_v1._spatial_failure('invalid_request');
+        END IF;
+
+        v_scene_text := v_pair ->> 'scene_id';
+        v_scene_id := v_scene_text::uuid;
+        IF lower(v_scene_id::text) IS DISTINCT FROM lower(v_scene_text) THEN
+            RETURN aap_assets_v1._spatial_failure('invalid_request');
+        END IF;
+
+        v_frame_value := v_pair -> 'frame_index';
+        v_frame_numeric := (v_frame_value #>> '{}')::numeric;
+        IF v_frame_numeric <> trunc(v_frame_numeric)
+           OR v_frame_numeric < 0
+           OR v_frame_numeric > 2147483647 THEN
+            RETURN aap_assets_v1._spatial_failure('invalid_request');
+        END IF;
+    END LOOP;
+
+    SELECT COALESCE(jsonb_agg(jsonb_build_object(
+        'scene_id', (value ->> 'scene_id')::uuid,
+        'frame_index', trunc((value ->> 'frame_index')::numeric)::integer
+    ) ORDER BY ordinality), '[]'::jsonb)
+    INTO v_pairs
+    FROM jsonb_array_elements(p_pairs) WITH ORDINALITY AS requested(value, ordinality);
+
+    SELECT count(*) INTO v_unique_count
+    FROM (
+        SELECT (value ->> 'scene_id')::uuid AS scene_id,
+               (value ->> 'frame_index')::integer AS frame_index
+        FROM jsonb_array_elements(v_pairs) AS requested(value)
+        GROUP BY 1, 2
+    ) AS unique_pairs;
+    IF v_unique_count <> jsonb_array_length(v_pairs) THEN
+        RETURN aap_assets_v1._spatial_failure('invalid_request');
+    END IF;
+
+    WITH requested AS MATERIALIZED (
+        SELECT (value ->> 'scene_id')::uuid AS scene_id,
+               (value ->> 'frame_index')::integer AS frame_index
+        FROM jsonb_array_elements(v_pairs) AS input(value)
+    )
+    SELECT COALESCE(jsonb_agg(jsonb_build_object(
+        'scene_id', pose.scene_id,
+        'frame_index', pose.frame_index,
+        'timestamp_us', pose.timestamp_us,
+        'ego_translation', pose.ego_translation,
+        'ego_rotation', pose.ego_rotation,
+        'source_metadata', pose.source_metadata
+    ) ORDER BY pose.scene_id, pose.frame_index), '[]'::jsonb)
+    INTO v_poses
+    FROM requested
+    JOIN public.scene_frame_poses AS pose
+      ON pose.scene_id = requested.scene_id
+     AND pose.frame_index = requested.frame_index;
+
+    v_snapshot_digest := encode(public.digest(convert_to(jsonb_build_object(
+        'pairs', v_pairs, 'poses', v_poses
+    )::text, 'UTF8'), 'sha256'), 'hex');
+    RETURN aap_assets_v1._spatial_success(jsonb_build_object(
+        'pairs', v_pairs,
+        'poses', v_poses,
+        'snapshot_digest', v_snapshot_digest
+    ));
+EXCEPTION WHEN invalid_text_representation OR numeric_value_out_of_range THEN
+    RETURN aap_assets_v1._spatial_failure('invalid_request');
+END;
+$function$;
+-- aap-statement-break
+REVOKE ALL ON FUNCTION aap_assets_v1.read_spatial_pose_pairs(jsonb) FROM PUBLIC;
+-- aap-statement-break
 CREATE FUNCTION aap_assets_v1.read_spatial_calibrations(
     p_dataset_item_ids uuid[],
     p_include_history boolean,
