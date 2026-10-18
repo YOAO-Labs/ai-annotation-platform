@@ -358,7 +358,9 @@ async def test_project_labeling_delete_fails_fast_when_a_task_is_locked(test_eng
                 is_active=True,
             )
         )
+        await seed.flush()
         seed.add(project)
+        await seed.flush()
         seed.add(task)
         await seed.commit()
 
