@@ -209,6 +209,17 @@ class _LeaseHeartbeat:
                 pass
 
 
+async def _job_storage_call(heartbeat, operation, /, *args, **kwargs):
+    heartbeat.check()
+    try:
+        async with asyncio.timeout_at(heartbeat.deadline):
+            result = await operation(*args, **kwargs)
+    except TimeoutError:
+        raise ImageFailure("timeout") from None
+    heartbeat.check()
+    return result
+
+
 class ImageExecutor:
     """Execute accepted image work with no database or owner lock over S3 I/O."""
 
@@ -334,14 +345,18 @@ class ImageExecutor:
         heartbeat.check()
 
         if isinstance(claim.spec, DimensionsWorkSpec):
-            header = await self.storage.read_source_header(source)
-            heartbeat.check()
+            header = await _job_storage_call(
+                heartbeat, self.storage.read_source_header, source
+            )
             if header.identity != source.object_identity:
                 raise ImageFailure("source_changed")
             dimensions = image_dimensions_from_bytes(header.data[:IMAGE_HEADER_BYTES])
             if dimensions is not None:
                 self._validate_known_dimensions(source, dimensions)
-                if await self.storage.head_source(source) != source.object_identity:
+                if (
+                    await _job_storage_call(heartbeat, self.storage.head_source, source)
+                    != source.object_identity
+                ):
                     raise ImageFailure("source_changed")
                 return DimensionsResult(
                     source_identity=header.identity,
@@ -363,7 +378,10 @@ class ImageExecutor:
                 )
                 self._validate_known_dimensions(source, dimensions)
                 heartbeat.check()
-                if await self.storage.head_source(source) != source.object_identity:
+                if (
+                    await _job_storage_call(heartbeat, self.storage.head_source, source)
+                    != source.object_identity
+                ):
                     raise ImageFailure("source_changed")
                 return DimensionsResult(
                     source_identity=source.object_identity,
@@ -392,8 +410,9 @@ class ImageExecutor:
 
         thumbnail_dimensions: tuple[int, int] | None = None
         if isinstance(claim.spec, ThumbnailWorkSpec):
-            header = await self.storage.read_source_header(source)
-            heartbeat.check()
+            header = await _job_storage_call(
+                heartbeat, self.storage.read_source_header, source
+            )
             if header.identity != identity:
                 raise ImageFailure("source_changed")
             thumbnail_dimensions = image_dimensions_from_bytes(
@@ -442,7 +461,10 @@ class ImageExecutor:
                 raise ImageFailure("resource_limit")
             await self._upload_result_artifacts(claim, result, output_dir, heartbeat)
             heartbeat.check()
-            if await self.storage.head_source(source) != identity:
+            if (
+                await _job_storage_call(heartbeat, self.storage.head_source, source)
+                != identity
+            ):
                 raise ImageFailure("source_changed")
             return result
 
@@ -452,8 +474,9 @@ class ImageExecutor:
         source = claim.source
         if source is None or source.object_identity is None:
             raise ImageFailure("invalid_response")
-        downloaded = await self.storage.download_source(source, destination)
-        heartbeat.check()
+        downloaded = await _job_storage_call(
+            heartbeat, self.storage.download_source, source, destination
+        )
         if (
             downloaded.identity != source.object_identity
             or downloaded.byte_size != source.object_identity.byte_size
@@ -820,7 +843,9 @@ class ImageExecutor:
 
             async def upload_tile(tile: dict[str, Any]) -> ImageTileArtifact:
                 key = prefix + f"tiles/{tile['level']}/{tile['x']}/{tile['y']}.webp"
-                artifact = await self.storage.upload_cache(tile["path"], key)
+                artifact = await _job_storage_call(
+                    heartbeat, self.storage.upload_cache, tile["path"], key
+                )
                 if artifact.key != key or artifact.byte_size != tile["byte_size"]:
                     raise ImageFailure("upload_verification_failed")
                 return ImageTileArtifact(
@@ -847,14 +872,20 @@ class ImageExecutor:
                 raise ImageFailure("invalid_response")
             heartbeat.check()
 
-        uploaded_manifest = await self.storage.upload_cache(
-            manifest_path, prefix + "manifest.json"
+        uploaded_manifest = await _job_storage_call(
+            heartbeat,
+            self.storage.upload_cache,
+            manifest_path,
+            prefix + "manifest.json",
         )
         if uploaded_manifest != manifest_artifact:
             raise ImageFailure("upload_verification_failed")
         heartbeat.check()
-        uploaded_overview = await self.storage.upload_cache(
-            overview_path, prefix + "overview.webp"
+        uploaded_overview = await _job_storage_call(
+            heartbeat,
+            self.storage.upload_cache,
+            overview_path,
+            prefix + "overview.webp",
         )
         if uploaded_overview != overview_artifact:
             raise ImageFailure("upload_verification_failed")
@@ -881,8 +912,11 @@ class ImageExecutor:
         assert claim.output_prefix is not None
         output_path = output_dir / "thumbnail.webp"
         heartbeat.check()
-        observed = await self.storage.upload_cache(
-            output_path, claim.output_prefix + "thumbnail.webp"
+        observed = await _job_storage_call(
+            heartbeat,
+            self.storage.upload_cache,
+            output_path,
+            claim.output_prefix + "thumbnail.webp",
         )
         if observed != result.artifact:
             raise ImageFailure("upload_verification_failed")
@@ -985,7 +1019,9 @@ class ImageExecutor:
             heartbeat.check()
             async with semaphore:
                 try:
-                    identity = await self.storage.head_source(source)
+                    identity = await _job_storage_call(
+                        heartbeat, self.storage.head_source, source
+                    )
                 except ImageFailure as exc:
                     if exc.code == "object_missing":
                         return ImageBackfillSourceObservation(
@@ -1081,6 +1117,9 @@ class ImageExecutor:
 
     async def close(self) -> None:
         self._closed = True
+        storage_close = getattr(self.storage, "close", None)
+        if callable(storage_close):
+            await storage_close()
 
 
 async def _run_child(

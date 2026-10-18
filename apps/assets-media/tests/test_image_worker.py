@@ -52,7 +52,7 @@ def _jpeg_with_large_icc(size=(4, 2), *, icc_bytes=300 * 1024) -> bytes:
 
 
 def _policy(**patch) -> ImagePolicy:
-    return ImagePolicy(job_timeout_seconds=30, lease_seconds=91, **patch)
+    return ImagePolicy(**{"job_timeout_seconds": 30, "lease_seconds": 91, **patch})
 
 
 def _source(data: bytes, *, width=None, height=None) -> ImageSource:
@@ -435,6 +435,84 @@ async def test_thumbnail_worker_probes_small_image_with_large_icc_header():
     assert [name for name, _request in database.calls][-1] == "finish_image_media"
     assert len(storage.uploads) == 1
     assert storage.uploads[0][0].endswith("/thumbnail.webp")
+
+
+@pytest.mark.asyncio
+async def test_job_deadline_cancels_blocked_source_transfer():
+    data = _png_bytes()
+    source = _source(data)
+    claim = _claim(
+        source,
+        PyramidWorkSpec(
+            expected_source_snapshot=source.source_snapshot,
+            policy=_policy(job_timeout_seconds=1),
+        ),
+    )
+    database = _FakeDatabase(claim)
+    storage = _FakeStorage(data)
+    transfer_started = asyncio.Event()
+    transfer_cancelled = asyncio.Event()
+
+    async def blocked_download(_source, _destination):
+        transfer_started.set()
+        try:
+            await asyncio.Event().wait()
+        finally:
+            transfer_cancelled.set()
+
+    storage.download_source = blocked_download
+
+    result = await ImageExecutor(database, storage).execute_once()
+
+    assert transfer_started.is_set()
+    assert transfer_cancelled.is_set()
+    assert result.outcome == "failed"
+    assert database.calls[-1][0] == "fail_image_media"
+    assert database.calls[-1][1].error_code == "timeout"
+
+
+@pytest.mark.asyncio
+async def test_transient_source_transfer_failure_keeps_accepted_job_retryable():
+    data = _png_bytes()
+    source = _source(data)
+    claim = _claim(
+        source,
+        PyramidWorkSpec(
+            expected_source_snapshot=source.source_snapshot,
+            policy=_policy(),
+        ),
+    )
+    database = _FakeDatabase(claim)
+    storage = _FakeStorage(data)
+
+    async def unavailable(_source, _destination):
+        raise ImageFailure("storage_unavailable")
+
+    storage.download_source = unavailable
+
+    with pytest.raises(ImageFailure, match="storage_unavailable"):
+        await ImageExecutor(database, storage).execute_once()
+
+    assert [name for name, _request in database.calls] == [
+        "claim_image_media",
+        "heartbeat_image_media",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_executor_close_closes_its_storage_client():
+    storage = _FakeStorage()
+    storage.closed = False
+
+    async def close_storage():
+        storage.closed = True
+
+    storage.close = close_storage
+    executor = ImageExecutor(_FakeDatabase(None), storage)
+
+    await executor.close()
+
+    assert storage.closed
 
 
 @pytest.mark.asyncio
