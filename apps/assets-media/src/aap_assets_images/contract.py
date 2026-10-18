@@ -945,8 +945,47 @@ class FailImageMediaRequest(ImageLeaseRequest):
     error_detail: Annotated[StrictStr, Field(max_length=2000)]
 
 
+class ImageBackfillSourceObservation(Value):
+    owner: ImageOwner
+    source_snapshot: Digest
+    object_identity: ObjectIdentity | None
+    error_code: Literal["source_missing", "source_changed"] | None
+
+    @model_validator(mode="after")
+    def exactly_one_observation_outcome(self):
+        if (self.object_identity is None) == (self.error_code is None):
+            raise ValueError(
+                "backfill source observation requires exactly one identity or error"
+            )
+        return self
+
+
+class ImageBackfillObservations(Value):
+    batch_token: UUID
+    items: Annotated[
+        list[ImageBackfillSourceObservation], Field(min_length=1, max_length=BATCH_SIZE)
+    ]
+
+    @model_validator(mode="after")
+    def unique_owners(self):
+        owners = [item.owner for item in self.items]
+        if len(owners) != len(set(owners)):
+            raise ValueError("duplicate observed backfill owners")
+        return self
+
+
 class AdvanceImageBackfillRequest(ImageLeaseRequest):
     batch_size: PageSize = BATCH_SIZE
+    observations: ImageBackfillObservations | None = None
+
+    @model_validator(mode="after")
+    def observation_batch_fits_request(self):
+        if (
+            self.observations is not None
+            and len(self.observations.items) > self.batch_size
+        ):
+            raise ValueError("observed backfill batch exceeds requested batch size")
+        return self
 
 
 class ImageBackfillProgress(Value):
@@ -958,11 +997,29 @@ class ImageBackfillProgress(Value):
     complete: StrictBool
     next_owner_kind: OwnerKind | None
     next_owner_id: UUID | None
+    batch_token: UUID | None = None
+    candidates: Annotated[list[ImageSource], Field(max_length=BATCH_SIZE)] = Field(
+        default_factory=list
+    )
+    needs_observation: StrictBool = False
 
     @model_validator(mode="after")
     def cursor_is_paired(self):
         if (self.next_owner_kind is None) != (self.next_owner_id is None):
             raise ValueError("backfill progress has an incomplete cursor")
+        owners = [item.owner for item in self.candidates]
+        if len(owners) != len(set(owners)):
+            raise ValueError("duplicate backfill observation candidates")
+        if self.needs_observation and (
+            self.batch_token is None
+            or not self.candidates
+            or self.complete
+            or self.scheduled != 0
+            or self.skipped != 0
+        ):
+            raise ValueError("backfill observation preparation is incomplete")
+        if not self.needs_observation and self.candidates:
+            raise ValueError("backfill candidates require an observation phase")
         return self
 
 
@@ -1201,8 +1258,8 @@ OPERATIONS = {
     "advance_image_backfill": NativeOperation(
         AdvanceImageBackfillRequest,
         ImageBackfillProgress,
-        ("job_id", "generation", "lease_token", "batch_size"),
-        ("uuid", "bigint", "uuid", "integer"),
+        ("job_id", "generation", "lease_token", "batch_size", "observations"),
+        ("uuid", "bigint", "uuid", "integer", "jsonb"),
         "worker",
     ),
     "reconcile_image_media": NativeOperation(
@@ -1478,8 +1535,25 @@ def require_scope(request: BaseModel, result: BaseModel) -> None:
             request.lease_token,
         ):
             raise ValueError("image backfill progress escaped its lease")
-        if result.complete != (result.next_owner_id is None):
-            raise ValueError("image backfill progress has invalid completion state")
+        if len(result.candidates) > request.batch_size:
+            raise ValueError("image backfill candidates exceeded the requested batch")
+        if request.observations is None:
+            if result.needs_observation:
+                if result.scheduled != 0 or result.skipped != 0:
+                    raise ValueError("backfill advanced before source observation")
+            elif result.batch_token is not None or result.complete != (
+                result.next_owner_id is None
+            ):
+                raise ValueError("unobserved backfill progress has invalid state")
+        elif (
+            result.needs_observation
+            or result.candidates
+            or result.batch_token != request.observations.batch_token
+            or result.scheduled + result.skipped != len(request.observations.items)
+            or result.scheduled + result.skipped > request.batch_size
+            or result.complete != (result.next_owner_id is None)
+        ):
+            raise ValueError("backfill observation commit has invalid progress")
     if isinstance(request, ReconcileImageMediaRequest) and isinstance(
         result, ImageReconcileResult
     ):

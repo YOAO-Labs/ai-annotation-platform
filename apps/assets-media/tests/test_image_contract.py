@@ -154,6 +154,15 @@ def test_image_schema_operation_signatures_and_http_artifacts_are_frozen():
     for operation in c.OPERATIONS.values():
         assert set(operation.arguments) <= operation.request.model_fields.keys()
         assert len(operation.arguments) == len(operation.sql_types)
+    advance = c.OPERATIONS["advance_image_backfill"]
+    assert advance.arguments == (
+        "job_id",
+        "generation",
+        "lease_token",
+        "batch_size",
+        "observations",
+    )
+    assert advance.sql_types == ("uuid", "bigint", "uuid", "integer", "jsonb")
     document_path = source_root / "openapi.snapshot.json"
     document = json.loads(document_path.read_text())
     from aap_assets_images.http_contract import http_document
@@ -340,6 +349,151 @@ def test_backfill_selection_cursor_and_reconcile_candidate_scope_are_bounded():
                 }
             ]
             * 2
+        )
+
+
+def test_image_backfill_two_phase_observation_is_bounded_and_token_bound():
+    job_id = uuid4()
+    lease_token = uuid4()
+    batch_token = uuid4()
+    first = image_source()
+    second = image_source()
+    prepare = c.AdvanceImageBackfillRequest(
+        job_id=job_id, generation=1, lease_token=lease_token, batch_size=2
+    )
+    assert prepare.observations is None
+    empty = c.ImageBackfillProgress(
+        job_id=job_id,
+        generation=1,
+        lease_token=lease_token,
+        scheduled=0,
+        skipped=0,
+        complete=True,
+        next_owner_kind=None,
+        next_owner_id=None,
+    )
+    assert empty.batch_token is None and empty.candidates == []
+    assert empty.needs_observation is False
+    c.require_scope(prepare, empty)
+    staged = c.ImageBackfillProgress(
+        job_id=job_id,
+        generation=1,
+        lease_token=lease_token,
+        scheduled=0,
+        skipped=0,
+        complete=False,
+        next_owner_kind=None,
+        next_owner_id=None,
+        batch_token=batch_token,
+        candidates=[first, second],
+        needs_observation=True,
+    )
+    c.require_scope(prepare, staged)
+    with pytest.raises(ValidationError, match="duplicate"):
+        c.ImageBackfillProgress(
+            job_id=job_id,
+            generation=1,
+            lease_token=lease_token,
+            scheduled=0,
+            skipped=0,
+            complete=False,
+            next_owner_kind=None,
+            next_owner_id=None,
+            batch_token=batch_token,
+            candidates=[first, first],
+            needs_observation=True,
+        )
+
+    observations = c.ImageBackfillObservations(
+        batch_token=batch_token,
+        items=[
+            {
+                "owner": first.owner,
+                "source_snapshot": first.source_snapshot,
+                "object_identity": first.object_identity,
+                "error_code": None,
+            },
+            {
+                "owner": second.owner,
+                "source_snapshot": second.source_snapshot,
+                "object_identity": None,
+                "error_code": "source_missing",
+            },
+        ],
+    )
+    commit = c.AdvanceImageBackfillRequest(
+        job_id=job_id,
+        generation=1,
+        lease_token=lease_token,
+        batch_size=2,
+        observations=observations,
+    )
+    published = c.ImageBackfillProgress(
+        job_id=job_id,
+        generation=1,
+        lease_token=lease_token,
+        scheduled=1,
+        skipped=1,
+        complete=True,
+        next_owner_kind=None,
+        next_owner_id=None,
+        batch_token=batch_token,
+    )
+    c.require_scope(commit, published)
+    with pytest.raises(ValueError, match="observation commit"):
+        c.require_scope(commit, published.model_copy(update={"batch_token": uuid4()}))
+    with pytest.raises(ValidationError, match="exactly one"):
+        c.ImageBackfillSourceObservation(
+            owner=first.owner,
+            source_snapshot=first.source_snapshot,
+            object_identity=None,
+            error_code=None,
+        )
+    with pytest.raises(ValidationError, match="exactly one"):
+        c.ImageBackfillSourceObservation(
+            owner=first.owner,
+            source_snapshot=first.source_snapshot,
+            object_identity=first.object_identity,
+            error_code="source_changed",
+        )
+    with pytest.raises(ValidationError, match="duplicate"):
+        c.ImageBackfillObservations(
+            batch_token=batch_token,
+            items=[
+                {
+                    "owner": first.owner,
+                    "source_snapshot": first.source_snapshot,
+                    "object_identity": first.object_identity,
+                    "error_code": None,
+                },
+                {
+                    "owner": first.owner,
+                    "source_snapshot": first.source_snapshot,
+                    "object_identity": first.object_identity,
+                    "error_code": None,
+                },
+            ],
+        )
+    with pytest.raises(ValidationError):
+        c.ImageBackfillObservations(
+            batch_token=batch_token,
+            items=[
+                {
+                    "owner": {"kind": "task", "id": uuid4()},
+                    "source_snapshot": "a" * 64,
+                    "object_identity": None,
+                    "error_code": "source_missing",
+                }
+                for _ in range(501)
+            ],
+        )
+    with pytest.raises(ValidationError, match="batch size"):
+        c.AdvanceImageBackfillRequest(
+            job_id=job_id,
+            generation=1,
+            lease_token=lease_token,
+            batch_size=1,
+            observations=observations,
         )
 
 

@@ -89,6 +89,17 @@
           "format": "uuid",
           "title": "Lease Token",
           "type": "string"
+        },
+        "observations": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ImageBackfillObservations"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         }
       },
       "required": [
@@ -534,6 +545,31 @@
       "title": "HeartbeatImageMediaRequest",
       "type": "object"
     },
+    "ImageBackfillObservations": {
+      "additionalProperties": false,
+      "properties": {
+        "batch_token": {
+          "format": "uuid",
+          "title": "Batch Token",
+          "type": "string"
+        },
+        "items": {
+          "items": {
+            "$ref": "#/$defs/ImageBackfillSourceObservation"
+          },
+          "maxItems": 500,
+          "minItems": 1,
+          "title": "Items",
+          "type": "array"
+        }
+      },
+      "required": [
+        "batch_token",
+        "items"
+      ],
+      "title": "ImageBackfillObservations",
+      "type": "object"
+    },
     "ImageBackfillPage": {
       "additionalProperties": false,
       "properties": {
@@ -637,6 +673,27 @@
     "ImageBackfillProgress": {
       "additionalProperties": false,
       "properties": {
+        "batch_token": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Batch Token"
+        },
+        "candidates": {
+          "items": {
+            "$ref": "#/$defs/ImageSource"
+          },
+          "maxItems": 500,
+          "title": "Candidates",
+          "type": "array"
+        },
         "complete": {
           "title": "Complete",
           "type": "boolean"
@@ -656,6 +713,11 @@
           "format": "uuid",
           "title": "Lease Token",
           "type": "string"
+        },
+        "needs_observation": {
+          "default": false,
+          "title": "Needs Observation",
+          "type": "boolean"
         },
         "next_owner_id": {
           "anyOf": [
@@ -794,6 +856,52 @@
         "purpose"
       ],
       "title": "ImageBackfillSelection",
+      "type": "object"
+    },
+    "ImageBackfillSourceObservation": {
+      "additionalProperties": false,
+      "properties": {
+        "error_code": {
+          "anyOf": [
+            {
+              "enum": [
+                "source_missing",
+                "source_changed"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Error Code"
+        },
+        "object_identity": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ObjectIdentity"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "owner": {
+          "$ref": "#/$defs/ImageOwner"
+        },
+        "source_snapshot": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Source Snapshot",
+          "type": "string"
+        }
+      },
+      "required": [
+        "owner",
+        "source_snapshot",
+        "object_identity",
+        "error_code"
+      ],
+      "title": "ImageBackfillSourceObservation",
       "type": "object"
     },
     "ImageBackfillSpec": {
@@ -3568,12 +3676,13 @@
         "job_id",
         "generation",
         "lease_token",
-        "batch_size"
+        "batch_size",
+        "observations"
       ],
       "request": "AdvanceImageBackfillRequest",
       "result": "ImageBackfillProgress",
       "role": "worker",
-      "signature": "aap_assets_v1.advance_image_backfill(uuid,bigint,uuid,integer)"
+      "signature": "aap_assets_v1.advance_image_backfill(uuid,bigint,uuid,integer,jsonb)"
     },
     "cancel_image_media": {
       "arguments": [
