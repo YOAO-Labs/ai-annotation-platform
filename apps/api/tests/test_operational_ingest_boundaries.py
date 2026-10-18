@@ -1,8 +1,14 @@
 from __future__ import annotations
 
+import ast
+from pathlib import Path
 import uuid
 
 import pytest
+from aap_assets_source.operator_contract import (
+    CreateOperatorImageDatasetRequest,
+    OperatorSourceEntry,
+)
 from sqlalchemy import func, select
 
 from app.application.dataset_reset import DatasetResetWorkflow
@@ -12,38 +18,57 @@ from app.db.enums import UserRole
 from app.db.models.dataset import Dataset, DatasetItem, ProjectDataset
 from app.db.models.task import Task
 from app.db.models.user import User
+from app.services.assets_operator import AssetsOperatorGateway
 from app.services.dataset import DatasetService
 from app.services.identity_commands import IdentityCommandService
 from tests.factory import create_project
 
 
+async def _create_operator_image_dataset(db, *, name: str, description: str, owner_id):
+    return await AssetsOperatorGateway(db).create_operator_image_dataset(
+        CreateOperatorImageDatasetRequest(
+            operation_id=uuid.uuid4(),
+            created_by=owner_id,
+            name=name,
+            description=description,
+        )
+    )
+
+
 @pytest.mark.asyncio
 async def test_deferred_image_import_items_keep_dataset_count(db_session, super_admin):
     owner, _ = super_admin
-    assets = DatasetService(db_session)
-    dataset = await assets.create_local_image_import_dataset(
+    created = await _create_operator_image_dataset(
+        db_session,
         name="operational image import",
         description="from local images",
-        created_by=owner.id,
+        owner_id=owner.id,
     )
-    for filename in ("one.png", "two.png"):
-        await assets.add_item(
-            dataset_id=dataset.id,
-            file_name=filename,
-            file_path=f"custom-folder/{filename}",
-            file_type="image",
-            file_size=17,
-            flush=False,
-        )
-    await db_session.flush()
-    await db_session.refresh(dataset, ["file_count"])
+    dataset = created.dataset
+    await AssetsOperatorGateway(db_session).append_all_items(
+        dataset.id,
+        [
+            OperatorSourceEntry(
+                id=uuid.uuid4(),
+                file_name=filename,
+                file_path=f"custom-folder/{filename}",
+                file_type="image",
+                file_size=17,
+                metadata={},
+            )
+            for filename in ("one.png", "two.png")
+        ],
+    )
 
     stored_items = await db_session.scalar(
         select(func.count())
         .select_from(DatasetItem)
         .where(DatasetItem.dataset_id == dataset.id)
     )
-    assert dataset.file_count == stored_items == 2
+    file_count = await db_session.scalar(
+        select(Dataset.file_count).where(Dataset.id == dataset.id)
+    )
+    assert file_count == stored_items == 2
 
 
 @pytest.mark.asyncio
@@ -51,22 +76,31 @@ async def test_generic_task_creation_can_stay_in_callers_transaction(
     db_session, super_admin
 ):
     owner, _ = super_admin
-    assets = DatasetService(db_session)
-    dataset = await assets.create_local_image_import_dataset(
+    created = await _create_operator_image_dataset(
+        db_session,
         name="generic transaction dataset",
         description="caller-owned task transaction",
-        created_by=owner.id,
+        owner_id=owner.id,
     )
-    await assets.add_item(
-        dataset_id=dataset.id,
-        file_name="frame.jpg",
-        file_path="generic/frame.jpg",
-        file_type="image",
-        file_size=23,
+    dataset = created.dataset
+    await AssetsOperatorGateway(db_session).append_all_items(
+        dataset.id,
+        [
+            OperatorSourceEntry(
+                id=uuid.uuid4(),
+                file_name="frame.jpg",
+                file_path="generic/frame.jpg",
+                file_type="image",
+                file_size=23,
+                metadata={},
+            )
+        ],
     )
     project = await create_project(db_session, owner_id=owner.id)
     project.data_type = "image"
-    await assets.associate_project(dataset.id, project.id, actor_id=owner.id)
+    await DatasetService(db_session).associate_project(
+        dataset.id, project.id, actor_id=owner.id
+    )
     await db_session.flush()
 
     project_id = project.id
@@ -96,21 +130,30 @@ async def test_dataset_reset_detaches_tasks_and_deletes_database_assets(
     db_session, super_admin
 ):
     owner, _ = super_admin
-    assets = DatasetService(db_session)
-    dataset = await assets.create_local_image_import_dataset(
+    created = await _create_operator_image_dataset(
+        db_session,
         name="reset target",
         description="database reset contract",
-        created_by=owner.id,
+        owner_id=owner.id,
     )
-    item = await assets.add_item(
-        dataset_id=dataset.id,
-        file_name="frame.jpg",
-        file_path="reset-target/frame.jpg",
-        file_type="image",
-        file_size=23,
+    dataset = created.dataset
+    (item,) = await AssetsOperatorGateway(db_session).append_all_items(
+        dataset.id,
+        [
+            OperatorSourceEntry(
+                id=uuid.uuid4(),
+                file_name="frame.jpg",
+                file_path="reset-target/frame.jpg",
+                file_type="image",
+                file_size=23,
+                metadata={},
+            )
+        ],
     )
     project = await create_project(db_session, owner_id=owner.id)
-    await assets.associate_project(dataset.id, project.id, actor_id=owner.id)
+    await DatasetService(db_session).associate_project(
+        dataset.id, project.id, actor_id=owner.id
+    )
     task = Task(
         id=uuid.uuid4(),
         project_id=project.id,
@@ -190,3 +233,35 @@ async def test_import_admin_creation_keeps_existing_identity_semantics(db_sessio
 
     replayed = await commands.ensure_import_admin(environment="production")
     assert replayed.id == admin.id
+
+
+def test_operator_importers_do_not_use_retired_dataset_item_writers():
+    scripts = Path(__file__).parents[1] / "scripts"
+    retired_methods = {
+        "create_local_image_import_dataset",
+        "ensure_nuscenes_dataset",
+        "add_item",
+        "set_nuscenes_export_context",
+        "backfill_camera_dimensions",
+        "refresh_imported_item_content",
+        "record_uploaded_item_content",
+        "recount_items",
+    }
+    for script in ("import_images.py", "import_nuscenes_scene.py"):
+        source = (scripts / script).read_text(encoding="utf-8")
+        tree = ast.parse(source)
+        calls = {
+            node.func.attr
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+        }
+        assert not calls.intersection(retired_methods), script
+        assert "AssetsOperatorGateway" in source
+        assert not any(
+            isinstance(node, ast.ImportFrom)
+            and node.module == "app.db.models.dataset"
+            and any(alias.name in {"Dataset", "DatasetItem"} for alias in node.names)
+            for node in ast.walk(tree)
+        ), script
+
+    assert all(not hasattr(DatasetService, name) for name in retired_methods)

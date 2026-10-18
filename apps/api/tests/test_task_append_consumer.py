@@ -9,6 +9,7 @@ from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
+from aap_assets_source.operator_contract import OperatorItem, OperatorSourceEntry
 from pydantic import ValidationError
 from sqlalchemy import delete, event, func, insert, inspect, select, text
 from sqlalchemy.ext.asyncio import async_sessionmaker
@@ -21,13 +22,37 @@ from app.db.models.project import Project
 from app.db.models.task import Task
 from app.db.models.task_append_operation import TaskAppendOperation
 from app.db.models.user import User
-from app.services.dataset import DatasetService
+from app.services.assets_operator import AssetsOperatorGateway
 from app.services.labeling_task_creation_contract import (
     AppendAssociation,
     AppendProjectTotal,
     TaskAppendResult,
 )
 from app.services.labeling_tasks import LabelingTaskService
+
+
+async def _append_operator_item(
+    db,
+    dataset_id,
+    file_name: str,
+    file_path: str,
+    file_type: str,
+    file_size: int | None = None,
+) -> OperatorItem:
+    (item,) = await AssetsOperatorGateway(db).append_all_items(
+        dataset_id,
+        [
+            OperatorSourceEntry(
+                id=uuid4(),
+                file_name=file_name,
+                file_path=file_path,
+                file_type=file_type,
+                file_size=file_size,
+                metadata={},
+            )
+        ],
+    )
+    return item
 
 
 @pytest.fixture
@@ -193,8 +218,12 @@ async def test_receipt_replay_does_not_replace_current_cached_total_with_histori
             == 1
         )
         await db.commit()
-        item = await DatasetService(db).add_item(
-            state.dataset_id, "second.jpg", "append-consumer/second.jpg", "image"
+        item = await _append_operator_item(
+            db,
+            state.dataset_id,
+            "second.jpg",
+            "append-consumer/second.jpg",
+            "image",
         )
         workflow = DatasetTaskCreationWorkflow(db)
         assert await workflow.append_items(state.dataset_id, [item.id]) == 1
@@ -377,14 +406,18 @@ async def test_cached_dataset_count_cannot_overwrite_another_source_writer(
     async with state.maker() as stale, state.maker() as peer:
         cached = await stale.get(Dataset, state.dataset_id)
         assert cached.file_count == 1
-        await DatasetService(peer).add_item(
-            state.dataset_id, "peer.jpg", "peer.jpg", "image"
+        peer_item = await _append_operator_item(
+            peer, state.dataset_id, "peer.jpg", "peer.jpg", "image"
         )
         await peer.commit()
-        await DatasetService(stale).add_item(
-            state.dataset_id, "stale.jpg", "stale.jpg", "image"
+        stale_item = await _append_operator_item(
+            stale, state.dataset_id, "stale.jpg", "stale.jpg", "image"
         )
-        assert cached.file_count == 3
+        assert (peer_item.dataset_id, stale_item.dataset_id) == (
+            state.dataset_id,
+            state.dataset_id,
+        )
+        assert cached.file_count == 1
         await stale.commit()
     async with state.maker() as observer:
         assert (
@@ -412,8 +445,12 @@ async def test_inflight_replay_cannot_invert_source_writer_parent_lock(
     async with state.maker() as source_writer, state.maker() as retry:
         source_pid = await source_writer.scalar(text("SELECT pg_backend_pid()"))
         retry_pid = await retry.scalar(text("SELECT pg_backend_pid()"))
-        item = await DatasetService(source_writer).add_item(
-            state.dataset_id, "inflight.jpg", "append-consumer/inflight.jpg", "image"
+        item = await _append_operator_item(
+            source_writer,
+            state.dataset_id,
+            "inflight.jpg",
+            "append-consumer/inflight.jpg",
+            "image",
         )
         arguments = {
             "dataset_id": state.dataset_id,

@@ -21,14 +21,20 @@
 import argparse
 import asyncio
 from pathlib import Path
+from uuid import uuid4
 
 import boto3
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 
+from aap_assets_source.operator_contract import (
+    OPERATOR_BATCH_SIZE,
+    CreateOperatorImageDatasetRequest,
+    OperatorSourceEntry,
+)
 from app.config import settings
 from app.db.models.user import User
-from app.services.dataset import DatasetService
+from app.services.assets_operator import AssetsOperatorGateway
 
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".bmp", ".webp", ".tiff", ".tif"}
 
@@ -94,15 +100,20 @@ async def import_to_dataset(
             print("错误: 数据库中没有用户，请先运行 seed.py")
             return
 
-        assets = DatasetService(db)
-        ds = await assets.create_local_image_import_dataset(
-            name=name,
-            description=f"从本地文件夹 {folder.name} 导入",
-            created_by=owner.id,
+        assets = AssetsOperatorGateway(db)
+        created = await assets.create_operator_image_dataset(
+            CreateOperatorImageDatasetRequest(
+                operation_id=uuid4(),
+                created_by=owner.id,
+                name=name,
+                description=f"从本地文件夹 {folder.name} 导入",
+            )
         )
+        ds = created.dataset
         print(f"数据集: {ds.display_id} (owner: {owner.email})\n")
 
         imported = 0
+        pending_entries: list[OperatorSourceEntry] = []
         for img_path in images:
             # 保留 image_dir 下的相对目录结构 (posix `/` 分隔, Windows 兼容),
             # 与 Web 数据集扫描入口的「file_path = 完整 key 保留嵌套」对齐。
@@ -117,18 +128,26 @@ async def import_to_dataset(
             )
 
             file_size = img_path.stat().st_size
-            await assets.add_item(
-                dataset_id=ds.id,
-                file_name=img_path.name,
-                file_path=storage_key,
-                file_type=infer_file_type(img_path.suffix.lower()),
-                file_size=file_size,
-                flush=False,
+            pending_entries.append(
+                OperatorSourceEntry(
+                    id=uuid4(),
+                    file_name=img_path.name,
+                    file_path=storage_key,
+                    file_type=infer_file_type(img_path.suffix.lower()),
+                    file_size=file_size,
+                    metadata={},
+                )
             )
             imported += 1
+            if len(pending_entries) == OPERATOR_BATCH_SIZE:
+                await assets.append_all_items(ds.id, pending_entries)
+                pending_entries.clear()
             print(
                 f"  [{imported:>3}/{len(images)}] {img_path.name} → {bucket}/{storage_key}"
             )
+
+        if pending_entries:
+            await assets.append_all_items(ds.id, pending_entries)
         await db.commit()
 
     await engine.dispose()

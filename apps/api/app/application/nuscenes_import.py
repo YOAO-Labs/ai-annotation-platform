@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import uuid
 
+from aap_assets_source.operator_contract import RecountOperatorItemsRequest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.application.dataset_task_creation import DatasetTaskCreationWorkflow
 from app.db.models.project import Project
 from app.services.dataset import DatasetService
+from app.services.assets_operator import AssetsOperatorGateway
 from app.services.project_workspace import create_import_project, find_import_project
 
 
@@ -45,5 +47,9 @@ class NuScenesImportWorkflow:
             commit_task_chunks=False,
         )
         await assets.record_nuscenes_calibration_digests(dataset_id)
-        await assets.recount_items(dataset_id)
+        await AssetsOperatorGateway(self.db).recount_operator_items(
+            RecountOperatorItemsRequest(
+                operation_id=uuid.uuid4(), dataset_id=dataset_id
+            )
+        )
         return project

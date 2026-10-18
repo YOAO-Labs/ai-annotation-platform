@@ -5,6 +5,7 @@ from __future__ import annotations
 import uuid
 
 import pytest
+from aap_assets_source.operator_contract import OperatorItem, OperatorSourceEntry
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -14,7 +15,26 @@ from app.db.models.task import Task
 from app.application.dataset_task_creation import DatasetTaskCreationWorkflow
 from app.application.dataset_deletion import unlink_dataset_from_project
 from app.services.storage import storage_service
-from app.services.dataset import DatasetService
+from app.services.assets_operator import AssetsOperatorGateway
+
+
+async def _append_operator_item(
+    db: AsyncSession, dataset_id: uuid.UUID, *, file_name: str, file_path: str
+) -> OperatorItem:
+    (item,) = await AssetsOperatorGateway(db).append_all_items(
+        dataset_id,
+        [
+            OperatorSourceEntry(
+                id=uuid.uuid4(),
+                file_name=file_name,
+                file_path=file_path,
+                file_type="video",
+                file_size=123,
+                metadata={},
+            )
+        ],
+    )
+    return item
 
 
 async def _seed_dataset(db: AsyncSession, owner_id: uuid.UUID, n_items: int) -> Dataset:
@@ -206,13 +226,11 @@ async def test_append_item_after_link_creates_tasks_for_linked_projects(
     await workflow.link_project(ds.id, project_a.id, actor_id=user.id)
     await workflow.link_project(ds.id, project_b.id, actor_id=user.id)
 
-    svc = DatasetService(db_session)
-    item = await svc.add_item(
-        dataset_id=ds.id,
+    item = await _append_operator_item(
+        db_session,
+        ds.id,
         file_name="new-video.mp4",
         file_path="link_project bulk test/new-video.mp4",
-        file_type="video",
-        file_size=123,
     )
 
     created = await workflow.append_items(ds.id, [item.id])
