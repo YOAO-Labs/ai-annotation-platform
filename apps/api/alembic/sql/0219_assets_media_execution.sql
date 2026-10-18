@@ -750,6 +750,8 @@ DECLARE
     v_timetable_total bigint;
     v_timetable_count bigint;
     v_expected_count bigint;
+    v_grid_count bigint;
+    v_timetable_error_only boolean := false;
     v_stride integer := 1;
     v_next_timetable_revision bigint;
     v_replay text;
@@ -906,6 +908,14 @@ BEGIN
                 'attempt_abandoned'
             );
             RETURN aap_assets_v1._media_worker_outcome(p_job_id, p_generation, 'replayed');
+        ELSIF v_job.last_outcome = 'failed'
+           AND v_job.error_code = 'frame_timetable_error' THEN
+            PERFORM aap_assets_v1._media_queue_prefix(
+                'media-assets/' || p_job_id::text || '/g'
+                    || p_generation::text || '/a' || p_lease_token::text || '/',
+                'attempt_abandoned'
+            );
+            RETURN aap_assets_v1._media_worker_outcome(p_job_id, p_generation, 'failed');
         ELSIF v_job.last_outcome IN ('source_changed', 'dependency_changed') THEN
             PERFORM aap_assets_v1._media_queue_prefix(
                 'media-assets/' || p_job_id::text || '/g'
@@ -1023,7 +1033,24 @@ BEGIN
         IF v_job.kind = 'video_timetable'
            AND (p_result -> 'timetable_total_frames' IS NULL
                 OR p_result -> 'timetable_total_frames' = 'null'::jsonb) THEN
-            RETURN aap_assets_v1._media_reply(NULL, 'invalid_request');
+            IF pg_catalog.jsonb_typeof(
+                    p_result -> 'metadata_patch' -> 'frame_timetable_error'
+               ) IS DISTINCT FROM 'string'
+               OR pg_catalog.char_length(
+                    p_result -> 'metadata_patch' ->> 'frame_timetable_error'
+               ) NOT BETWEEN 1 AND 2000
+               OR (p_result -> 'metadata_patch' - ARRAY['frame_timetable_error'])
+                    IS DISTINCT FROM '{}'::jsonb
+               OR EXISTS (
+                    SELECT 1
+                    FROM pg_catalog.jsonb_array_elements(
+                        COALESCE(p_result -> 'clear_errors', '[]'::jsonb)
+                    ) AS error(value)
+                    WHERE error.value #>> '{}' = 'frame_timetable_error'
+               ) THEN
+                RETURN aap_assets_v1._media_reply(NULL, 'invalid_request');
+            END IF;
+            v_timetable_error_only := true;
         END IF;
         IF p_result -> 'timetable_total_frames' <> 'null'::jsonb THEN
             v_timetable_total := (p_result ->> 'timetable_total_frames')::bigint;
@@ -1034,30 +1061,45 @@ BEGIN
                 v_stride := 1;
             END IF;
             IF v_timetable_total < 1 OR v_stride < 1
-               OR v_timetable_count <> pg_catalog.ceil(v_timetable_total::numeric / v_stride)::bigint
-            OR ((p_result -> 'metadata_patch') ? 'frame_count'
-                AND (p_result -> 'metadata_patch') ->> 'frame_count'
+               OR v_timetable_count < pg_catalog.ceil(v_timetable_total::numeric / v_stride)::bigint
+               OR v_timetable_count > v_timetable_total
+               OR ((p_result -> 'metadata_patch') ? 'frame_count'
+                   AND (p_result -> 'metadata_patch') ->> 'frame_count'
                        IS DISTINCT FROM v_timetable_total::text) THEN
                 RETURN aap_assets_v1._media_reply(NULL, 'invalid_request');
             END IF;
-            SELECT pg_catalog.count(*) INTO v_expected_count
+            SELECT pg_catalog.count(*),
+                   pg_catalog.count(*) FILTER (WHERE staged.frame_index % v_stride = 0)
+            INTO v_expected_count, v_grid_count
             FROM public.asset_media_timetable_staging AS staged
             WHERE staged.job_id = p_job_id
               AND staged.generation = p_generation
               AND staged.lease_token = p_lease_token;
-            IF v_expected_count <> v_timetable_count OR EXISTS (
+            IF v_expected_count <> v_timetable_count
+               OR v_grid_count <> pg_catalog.ceil(v_timetable_total::numeric / v_stride)::bigint
+               OR NOT EXISTS (
+                    SELECT 1
+                    FROM public.asset_media_timetable_staging AS staged
+                    WHERE staged.job_id = p_job_id
+                      AND staged.generation = p_generation
+                      AND staged.lease_token = p_lease_token
+                      AND staged.frame_index = v_timetable_total - 1
+               )
+               OR EXISTS (
                 SELECT 1
                 FROM (
                     SELECT staged.frame_index, staged.pts_ms,
-                           pg_catalog.row_number() OVER (ORDER BY staged.frame_index) AS ordinal,
+                           staged.is_keyframe,
                            pg_catalog.lag(staged.pts_ms) OVER (ORDER BY staged.frame_index) AS previous_pts
                     FROM public.asset_media_timetable_staging AS staged
                     WHERE staged.job_id = p_job_id
                       AND staged.generation = p_generation
                       AND staged.lease_token = p_lease_token
                 ) AS ordered
-                WHERE ordered.frame_index <> (ordered.ordinal - 1) * v_stride
-                   OR ordered.frame_index >= v_timetable_total
+                WHERE ordered.frame_index >= v_timetable_total
+                   OR (ordered.frame_index % v_stride <> 0
+                       AND ordered.frame_index <> v_timetable_total - 1
+                       AND NOT ordered.is_keyframe)
                    OR (ordered.previous_pts IS NOT NULL AND ordered.pts_ms < ordered.previous_pts)
             ) THEN
                 RETURN aap_assets_v1._media_reply(NULL, 'invalid_request');
@@ -1400,6 +1442,16 @@ BEGIN
             completed_at = pg_catalog.clock_timestamp(),
             updated_at = pg_catalog.clock_timestamp()
         WHERE job.job_id = p_job_id;
+    ELSIF v_timetable_error_only THEN
+        UPDATE public.asset_media_jobs AS job
+        SET status = 'failed', progress = '{}'::jsonb,
+            error_code = 'frame_timetable_error',
+            error_detail = p_result -> 'metadata_patch' ->> 'frame_timetable_error',
+            lease_token = NULL, lease_expires_at = NULL,
+            last_lease_token = p_lease_token, last_outcome = 'failed',
+            completed_at = pg_catalog.clock_timestamp(),
+            updated_at = pg_catalog.clock_timestamp()
+        WHERE job.job_id = p_job_id;
     ELSE
         UPDATE public.asset_media_jobs AS job
         SET status = 'ready', progress = CASE
@@ -1419,7 +1471,11 @@ BEGIN
         WHERE job.job_id = p_job_id;
     END IF;
     PERFORM aap_assets_v1._media_queue_prefix(v_prefix, 'attempt_abandoned');
-    RETURN aap_assets_v1._media_worker_outcome(p_job_id, p_generation, 'published');
+    RETURN aap_assets_v1._media_worker_outcome(
+        p_job_id,
+        p_generation,
+        CASE WHEN v_timetable_error_only THEN 'failed' ELSE 'published' END
+    );
 END;
 $function$;
 -- aap-statement-break
@@ -1441,13 +1497,35 @@ SET search_path = pg_catalog, pg_temp
 AS $function$
 #variable_conflict use_variable
 DECLARE
+    v_candidate public.asset_media_jobs%ROWTYPE;
     v_job public.asset_media_jobs%ROWTYPE;
+    v_item public.dataset_items%ROWTYPE;
+    v_frame public.video_frame_cache%ROWTYPE;
+    v_chunk public.video_chunks%ROWTYPE;
+    v_has_frame boolean := false;
+    v_has_chunk boolean := false;
 BEGIN
     IF p_job_id IS NULL OR p_generation IS NULL OR p_generation < 1
        OR p_lease_token IS NULL
        OR p_error_code IS NULL OR pg_catalog.char_length(p_error_code) NOT BETWEEN 1 AND 64
        OR p_error_detail IS NULL OR pg_catalog.char_length(p_error_detail) > 2000 THEN
         RETURN aap_assets_v1._media_reply(NULL, 'invalid_request');
+    END IF;
+    SELECT job.* INTO v_candidate
+    FROM public.asset_media_jobs AS job
+    WHERE job.job_id = p_job_id;
+    IF NOT FOUND THEN
+        RETURN aap_assets_v1._media_worker_outcome(p_job_id, p_generation, 'lease_lost');
+    END IF;
+    IF v_candidate.dataset_item_id IS NOT NULL THEN
+        BEGIN
+            SELECT item.* INTO v_item
+            FROM public.dataset_items AS item
+            WHERE item.id = v_candidate.dataset_item_id
+            FOR UPDATE NOWAIT;
+        EXCEPTION WHEN lock_not_available OR serialization_failure OR deadlock_detected THEN
+            RETURN aap_assets_v1._media_reply(NULL, 'operation_busy');
+        END;
     END IF;
     BEGIN
         SELECT job.* INTO v_job
@@ -1482,11 +1560,68 @@ BEGIN
         );
         RETURN aap_assets_v1._media_worker_outcome(p_job_id, p_generation, 'lease_lost');
     END IF;
+    IF v_item.id IS NOT NULL
+       AND v_item.file_type = 'video'
+       AND NOT v_item.media_source_drifted
+       AND v_item.media_source_generation = v_job.source_generation
+       AND v_candidate.dataset_item_id IS NOT DISTINCT FROM v_job.dataset_item_id
+       AND v_job.kind IN ('frame', 'chunk')
+       AND v_item.media_timetable_revision = v_job.timetable_revision THEN
+        IF v_job.kind = 'frame'
+           AND v_job.slot_key = 'frame:' || (v_job.spec ->> 'frame_index') || ':'
+                || (v_job.spec ->> 'width') || ':' || (v_job.spec ->> 'format') THEN
+            BEGIN
+                SELECT cache.* INTO v_frame
+                FROM public.video_frame_cache AS cache
+                WHERE cache.dataset_item_id = v_item.id
+                  AND cache.frame_index = (v_job.spec ->> 'frame_index')::integer
+                  AND cache.width = (v_job.spec ->> 'width')::integer
+                  AND cache.format = v_job.spec ->> 'format'
+                FOR UPDATE NOWAIT;
+            EXCEPTION WHEN lock_not_available OR serialization_failure OR deadlock_detected THEN
+                RETURN aap_assets_v1._media_reply(NULL, 'operation_busy');
+            END;
+            v_has_frame := FOUND
+                AND v_frame.source_generation = v_job.source_generation
+                AND v_frame.timetable_revision = v_job.timetable_revision;
+        ELSIF v_job.kind = 'chunk'
+           AND v_job.slot_key = 'chunk:' || (v_job.spec ->> 'chunk_id') THEN
+            BEGIN
+                SELECT chunk.* INTO v_chunk
+                FROM public.video_chunks AS chunk
+                WHERE chunk.dataset_item_id = v_item.id
+                  AND chunk.chunk_id = (v_job.spec ->> 'chunk_id')::integer
+                FOR UPDATE NOWAIT;
+            EXCEPTION WHEN lock_not_available OR serialization_failure OR deadlock_detected THEN
+                RETURN aap_assets_v1._media_reply(NULL, 'operation_busy');
+            END;
+            v_has_chunk := FOUND
+                AND v_chunk.source_generation = v_job.source_generation
+                AND v_chunk.timetable_revision = v_job.timetable_revision;
+        END IF;
+    END IF;
     PERFORM aap_assets_v1._media_queue_prefix(
         'media-assets/' || v_job.job_id::text || '/g'
             || v_job.generation::text || '/a' || v_job.lease_token::text || '/',
         'attempt_abandoned'
     );
+    IF v_has_frame THEN
+        UPDATE public.video_frame_cache AS cache
+        SET status = CASE WHEN v_frame.storage_key IS NOT NULL THEN 'ready' ELSE 'failed' END,
+            error = CASE WHEN v_frame.storage_key IS NOT NULL THEN NULL ELSE p_error_detail END,
+            updated_at = pg_catalog.clock_timestamp()
+        WHERE cache.id = v_frame.id
+          AND cache.source_generation = v_job.source_generation
+          AND cache.timetable_revision = v_job.timetable_revision;
+    ELSIF v_has_chunk THEN
+        UPDATE public.video_chunks AS chunk
+        SET status = CASE WHEN v_chunk.storage_key IS NOT NULL THEN 'ready' ELSE 'failed' END,
+            error = CASE WHEN v_chunk.storage_key IS NOT NULL THEN NULL ELSE p_error_detail END,
+            updated_at = pg_catalog.clock_timestamp()
+        WHERE chunk.id = v_chunk.id
+          AND chunk.source_generation = v_job.source_generation
+          AND chunk.timetable_revision = v_job.timetable_revision;
+    END IF;
     UPDATE public.asset_media_jobs AS job
     SET status = 'failed',
         progress = '{}'::jsonb,
