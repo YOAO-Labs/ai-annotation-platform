@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from typing import Any, TypeVar
+from typing import Any, Callable, TypeVar
 
 import asyncpg
 from pydantic import BaseModel, ValidationError
@@ -224,6 +224,7 @@ CROSS JOIN runtime_privileges
 """
 
 _ResultModel = TypeVar("_ResultModel", bound=BaseModel)
+_ReplyDecoder = Callable[[Any, type[_ResultModel]], _ResultModel]
 
 
 class DataContractError(RuntimeError):
@@ -351,11 +352,12 @@ class CatalogDatabase:
     async def list_dataset_projects(
         self, request: ListDatasetProjectsRequest
     ) -> DatasetProjectsResult:
-        result = await self._association_call(
+        result = await self._call(
             LIST_DATASET_PROJECTS_SQL,
             DatasetProjectsResult,
             request.actor_id,
             request.dataset_id,
+            decoder=decode_associations_reply,
         )
         if result.dataset_id != request.dataset_id:
             raise DataContractError(
@@ -366,11 +368,12 @@ class CatalogDatabase:
     async def list_project_datasets(
         self, request: ListProjectDatasetsRequest
     ) -> ProjectDatasetsResult:
-        result = await self._association_call(
+        result = await self._call(
             LIST_PROJECT_DATASETS_SQL,
             ProjectDatasetsResult,
             request.actor_id,
             request.project_id,
+            decoder=decode_associations_reply,
         )
         if result.project_id != request.project_id:
             raise DataContractError(
@@ -383,7 +386,9 @@ class CatalogDatabase:
         sql: str,
         result_type: type[_ResultModel],
         *arguments: Any,
+        decoder: _ReplyDecoder = decode_reply,
     ) -> _ResultModel:
+        is_association_reply = decoder is decode_associations_reply
         async with self._pool.acquire(
             timeout=self._acquire_timeout_seconds
         ) as connection:
@@ -391,70 +396,46 @@ class CatalogDatabase:
                 raw_result = await connection.fetchval(sql, *arguments)
                 if isinstance(raw_result, str):
                     if len(raw_result.encode("utf-8")) > self._max_reply_bytes:
-                        raise DataContractError(
-                            "Assets catalog native reply exceeds the response budget"
+                        message = (
+                            "Assets associations reply exceeds the response budget"
+                            if is_association_reply
+                            else "Assets catalog native reply exceeds the response budget"
                         )
+                        raise DataContractError(message)
                     try:
                         raw_result = json.loads(raw_result)
                     except json.JSONDecodeError as exc:
-                        raise DataContractError(
-                            "Assets catalog returned invalid JSON"
-                        ) from exc
+                        message = (
+                            "Assets associations returned invalid JSON"
+                            if is_association_reply
+                            else "Assets catalog returned invalid JSON"
+                        )
+                        raise DataContractError(message) from exc
                 if self._encoded_size_exceeds_budget(raw_result):
-                    raise DataContractError(
-                        "Assets catalog native reply exceeds the response budget"
+                    message = (
+                        "Assets associations reply exceeds the response budget"
+                        if is_association_reply
+                        else "Assets catalog native reply exceeds the response budget"
                     )
+                    raise DataContractError(message)
                 try:
-                    decoded = decode_reply(raw_result, result_type)
-                except CatalogFailure:
+                    decoded = decoder(raw_result, result_type)
+                except (CatalogFailure, AssociationFailure):
                     raise
                 except (TypeError, ValueError, ValidationError) as exc:
-                    raise DataContractError(
-                        "Assets catalog returned a reply outside the frozen contract"
-                    ) from exc
+                    message = (
+                        "Assets associations returned a reply outside the frozen contract"
+                        if is_association_reply
+                        else "Assets catalog returned a reply outside the frozen contract"
+                    )
+                    raise DataContractError(message) from exc
         return decoded
 
     def _encoded_size_exceeds_budget(self, payload: Any) -> bool:
         size = 0
-        encoder = json.JSONEncoder(separators=(",", ":"))
+        encoder = json.JSONEncoder(ensure_ascii=False, separators=(",", ":"))
         for part in encoder.iterencode(payload):
             size += len(part.encode("utf-8"))
             if size > self._max_reply_bytes:
                 return True
         return False
-
-    async def _association_call(
-        self,
-        sql: str,
-        result_type: type[_ResultModel],
-        *arguments: Any,
-    ) -> _ResultModel:
-        async with self._pool.acquire(
-            timeout=self._acquire_timeout_seconds
-        ) as connection:
-            async with connection.transaction():
-                raw_result = await connection.fetchval(sql, *arguments)
-                if isinstance(raw_result, str):
-                    if len(raw_result.encode("utf-8")) > self._max_reply_bytes:
-                        raise DataContractError(
-                            "Assets associations reply exceeds the response budget"
-                        )
-                    try:
-                        raw_result = json.loads(raw_result)
-                    except json.JSONDecodeError as exc:
-                        raise DataContractError(
-                            "Assets associations returned invalid JSON"
-                        ) from exc
-                if self._encoded_size_exceeds_budget(raw_result):
-                    raise DataContractError(
-                        "Assets associations reply exceeds the response budget"
-                    )
-                try:
-                    decoded = decode_associations_reply(raw_result, result_type)
-                except AssociationFailure:
-                    raise
-                except (TypeError, ValueError, ValidationError) as exc:
-                    raise DataContractError(
-                        "Assets associations returned a reply outside the frozen contract"
-                    ) from exc
-        return decoded

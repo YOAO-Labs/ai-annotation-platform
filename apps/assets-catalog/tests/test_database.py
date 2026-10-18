@@ -1,6 +1,6 @@
 import json
 from contextlib import asynccontextmanager
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 
@@ -9,6 +9,7 @@ from aap_assets_catalog.contract import (
     CatalogFailure,
     CreateDatasetRequest,
     DatasetMutationResult,
+    GetDatasetRequest,
     ListDatasetsRequest,
     ListItemsRequest,
 )
@@ -245,6 +246,40 @@ async def test_oversized_native_item_reply_rolls_back_before_publication() -> No
             ListItemsRequest(actor_id=uuid4(), dataset_id=dataset_id)
         )
     assert connection.transaction_events == ["rollback"]
+
+
+@pytest.mark.asyncio
+async def test_utf8_reply_budget_accepts_exact_unicode_boundary_and_rejects_one_below() -> (
+    None
+):
+    actor_id = uuid4()
+    dataset = _dataset()
+    dataset["name"] = "café"
+    raw = {
+        "schema": CATALOG_SCHEMA,
+        "ok": True,
+        "data": {"dataset": dataset},
+    }
+    reply_size = len(
+        json.dumps(raw, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    )
+    request = GetDatasetRequest(actor_id=actor_id, dataset_id=UUID(dataset["id"]))
+
+    exact_connection = _Connection(raw)
+    exact_database = CatalogDatabase(
+        _Pool(exact_connection), max_reply_bytes=reply_size
+    )
+    result = await exact_database.get_dataset(request)
+    assert result.dataset.name == "café"
+    assert exact_connection.transaction_events == ["commit"]
+
+    short_connection = _Connection(raw)
+    short_database = CatalogDatabase(
+        _Pool(short_connection), max_reply_bytes=reply_size - 1
+    )
+    with pytest.raises(DataContractError, match="response budget"):
+        await short_database.get_dataset(request)
+    assert short_connection.transaction_events == ["rollback"]
 
 
 @pytest.mark.asyncio
