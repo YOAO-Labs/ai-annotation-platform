@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aap-project-deletion-retention-v1.schema.json",
+  "title": "Learning project deletion retention capability response",
+  "oneOf": [{ "$ref": "#/$defs/guardSuccess" }, { "$ref": "#/$defs/guardFailure" }],
+  "$defs": {
+    "guardSuccess": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "ok", "data"],
+      "properties": {
+        "schema": { "const": "aap-project-delete-retention/v1" },
+        "ok": { "const": true },
+        "data": {
+          "type": "object",
+          "additionalProperties": false
+        }
+      }
+    },
+    "guardFailure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "ok", "error"],
+      "properties": {
+        "schema": { "const": "aap-project-delete-retention/v1" },
+        "ok": { "const": false },
+        "error": { "$ref": "#/$defs/retentionError" }
+      }
+    },
+    "retentionError": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code"],
+      "properties": {
+        "code": {
+          "enum": [
+            "invalid_request",
+            "active_learning_reference",
+            "retained_training_studies",
+            "retained_trained_models",
+            "retained_model_decisions",
+            "retained_sample_evaluations",
+            "retained_learning_policies",
+            "retained_training_dataset_versions",
+            "retained_training_runs",
+            "retained_training_previews",
+            "retained_learning_triggers"
+          ]
+        }
+      }
+    }
+  },
+  "x-postgresql-functions": [
+    "aap_learning_v1.lock_project_deletion(uuid)",
+    "aap_learning_v1.guard_project_deletion(uuid)",
+    "aap_learning_v1.delete_project_owned_records(uuid)"
+  ]
+}
