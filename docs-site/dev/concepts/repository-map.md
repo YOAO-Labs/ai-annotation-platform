@@ -112,7 +112,7 @@ last_reviewed: 2026-10-19
 - 媒体物化：`services/media_materialization.py::MediaMaterializationWriter` 定义结果写端口，
   `workers/media_materialization.py` 绑定 assets/labeling 的元信息与帧索引所有者；
   媒体执行器持有 codec、对象 I/O 和派生帧/分块技术缓存，不代写项目管理权限。
-- 图片金字塔：`api/v1/tasks/image_pyramid.py` 保留任务可见性、缓存响应和队列派发，批量列表及三个任务操作消费 `ImagePyramidApiPort`；SQL owner 持有素材/代次、源与派生检查及签名 URL，不向 API 交付 ORM。`services/image_pyramid.py::_touch_generation_access` 写入 ready 代次访问时间并保持十分钟节流和提交，不修改 AsyncJob 或 Task 缩略图状态。
+- 图片金字塔：`api/v1/tasks/image_pyramid.py` 保留 Task 可见性和 REST 缓存语义；`services/image_pyramid.py::AssetsImagePyramidApi` 将列表、manifest、asset URL 与重试组合到 `aap-assets-images/v1`，通过 `services/assets_images.py::ImageGateway` 调用本地原生能力或共享 `apps/assets-media` 控制服务。Assets 持有图片 source/job/receipt/generation 状态；Labeling 提供 direct Task 来源与 Task 缩略图投影，HTTP 不接收 ORM 作为跨模块值。图片 worker 使用独立 image LOGIN 与 lease 驱动执行；源/代次变化、取消和垃圾清理继续受 owner SQL 围栏。
 - 失败预测管理：`app/services/prediction.py::assert_can_manage_failed_prediction`；
   `PredictionService` 持有 dismiss/restore、retry 结果计数与成功删除，路由保留当前
   项目管理准入及有状态变更时才记录审计和提交；worker 只持有推理/队列编排。
@@ -161,7 +161,7 @@ last_reviewed: 2026-10-19
    单文件来源发布由公开 Source 工作流和原生命令持有，HTTP 保留认证/scope。旧无 intent 条目不补造上传者，完成元数据、Labeling append 与 Assets 回执共同提交。
    项目删除由 `application/project_deletion.py` 和严格 `services/project_deletion_contract.py` / `project_deletion_data.py` 绑定 Workspace 原生事务命令；各 owner 清理、学习保留、审计与删除回执共同提交，原始素材保留。Jobs 的 `retained_project_id` 固定删除后的访问范围，不从 payload 推断权限。
    `api/v1/datasets.py` 的 20 个 HTTP 路由（6 个读取，含 POST sniff；14 个写入）仍由同一 API 入口装配。项目解绑通过 Workspace 的 `DatasetUnlinkCommand` / `Receipt`，公开来源删除通过 Assets 的 `DatasetSourceDeletionCommand` / `Receipt` 调用原生协调命令。当前身份/权限、关联代次、Learning/Labeling 保留、Jobs 检查/取消、计数、Audit、owner 清理及不可变回执在同一调用方连接提交。`Idempotency-Key` 是可选 UUID，REST 回传它，SDK/Web 对同一操作复用原 key。
-   项目解绑保留 Dataset、Item、原始文件和共享来源金字塔；来源删除保护关联证据，只排队 item-owned 金字塔。上传初始化仅保留 intent 并签发 staging PUT，完成时以 ETag 条件拷贝后原子登记 Item、追加 Task 和保存回执。独立 `apps/assets-cleanup` 用两个公开 SQL 能力和 prefix 受限 S3 身份轮询已提交责任；不依赖 API、ORM、Celery 或 Redis，也不在业务事务内删除对象。目录列表、详情、文件分页、创建/更新由独立 `apps/assets-catalog` 与同一原生 SQL 合同提供，创建/更新保留不可变回执，两项关联读取使用同一语句快照。同步 ZIP/旧前缀扫描由既有 `apps/assets-source` 工作流与 0215 Assets 原生合同执行；ZIP publication 保留不可变来源，Item、Labeling append、计数、Scene/frame 结果和派发意图在同一事务提交。连接器导入由独立进程消费持久清单/游标/租约，原子登记素材、任务与派发意图；其他 CRUD、标定、派生写入和无源任务清理仍待逐项提取，不能据此声称整个 Assets/Labeling 模块独立部署。
+   项目解绑保留 Dataset、Item、原始文件和共享来源金字塔；来源删除保护关联证据，只排队 item-owned 金字塔。上传初始化仅保留 intent 并签发 staging PUT，完成时以 ETag 条件拷贝后原子登记 Item、追加 Task 和保存回执。独立 `apps/assets-cleanup` 用受限 SQL 能力和 prefix/key 受限 S3 身份轮询已提交责任；不依赖 API、ORM、Celery 或 Redis，也不在业务事务内删除对象。目录列表、详情、文件分页、创建/更新由独立 `apps/assets-catalog` 与同一原生 SQL 合同提供，创建/更新保留不可变回执，两项关联读取使用同一语句快照。同步 ZIP/旧前缀扫描由既有 `apps/assets-source` 工作流与 0215 Assets 原生合同执行；ZIP publication 保留不可变来源，Item、Labeling append、计数、Scene/frame 结果和派发意图在同一事务提交。连接器导入由独立进程消费持久清单/游标/租约，原子登记素材、任务与派发意图。视频和图片媒体有各自冻结协议、受限执行身份及持久工作/清理状态，但目录/来源以外的其他 CRUD、场景/标定、以及一般素材清理边界仍需单独评估；不能据此声称整个 Assets/Labeling 模块独立部署。
    生命周期、审核及单题/整批送审经 `application/task_lifecycle.py`、`task_review.py`、
    `task_submission.py`；状态/部分项目计数写入归 `LabelingTaskService`，证据归
    `annotation_evidence`，应用组合反馈、审计和通知。整批默认 200 题分块提交，

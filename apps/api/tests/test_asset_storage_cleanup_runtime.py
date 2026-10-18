@@ -334,6 +334,18 @@ async def _assert_cleanup_login(test_engine, cleanup_engine, media_bucket: str):
                 "'aap_assets_v1.complete_storage_deletion(uuid,uuid)', 'EXECUTE')"
             )
         )
+        assert await cleanup.scalar(
+            text(
+                "SELECT has_function_privilege(current_user, "
+                "'aap_assets_v1.claim_image_garbage(uuid,integer,integer)', 'EXECUTE')"
+            )
+        )
+        assert await cleanup.scalar(
+            text(
+                "SELECT has_function_privilege(current_user, "
+                "'aap_assets_v1.complete_image_garbage(uuid,uuid)', 'EXECUTE')"
+            )
+        )
         assert not await cleanup.scalar(
             text(
                 "SELECT has_function_privilege(current_user, "

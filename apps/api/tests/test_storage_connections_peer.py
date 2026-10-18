@@ -45,6 +45,9 @@ _EXPECTED_LEGACY_SOURCE_CAPABILITIES = {
     "complete_dataset_ingest_batch",
     "read_dataset_ingest_layout",
     "finish_dataset_ingest",
+    "resolve_internal_image_source",
+    "schedule_image_media",
+    "read_legacy_dataset_upload",
 }
 
 
@@ -335,7 +338,7 @@ async def test_restricted_source_psql_calls_frozen_connection_surface_and_rolls_
         capabilities = json.loads(lines[2])
         assert isinstance(capabilities, list)
         by_name = {entry["name"]: entry["args"] for entry in capabilities}
-        assert len(by_name) == 23
+        assert len(by_name) == 26
         assert set(by_name) == _EXPECTED_LEGACY_SOURCE_CAPABILITIES | set(
             CONNECTION_NATIVE_SIGNATURES
         )

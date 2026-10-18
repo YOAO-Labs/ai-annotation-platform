@@ -116,7 +116,7 @@ docker compose down -v
 - **构建**：`apps/assets-source/Dockerfile`；独立 Python runtime，也承载现有连接管理流程。
 - **启动**：单独项目 `docker-compose.assets-source.yml`，默认和生产主 Compose 都不拉起；内部监听 `8767`。
 - **职责**：单文件上传/发布、Dataset/Item 删除、同步 ZIP/旧前缀扫描，以及连接列表、读取、创建、更新、删除和连通性检查。
-- **数据库与对象存储**：使用 23 项 Assets Source LOGIN 能力和专用 S3 身份；连接导入进程另用七项 LOGIN，Catalog 使用独立 29 项 LOGIN。没有对业务表或其他 owner schema 的直接授权。
+- **数据库与对象存储**：使用 26 项 Assets Source LOGIN 能力和专用 S3 身份；连接导入进程另用九项 LOGIN，Catalog 使用独立 29 项 LOGIN。视频与图片共用的 media control LOGIN 执行 32 项能力；视频 worker 为 10 项，图片 worker 使用独立 6 项 LOGIN。没有对业务表或其他 owner schema 的直接授权。
 - **API 选择**：`ASSETS_SOURCE_URL` 留空时走本地 Source 工作流；设置远程 URL 后，Source 错误不会回退到本地实现。Source 服务不连接 Redis 或 Celery。
 - **连接器凭据**：Source Fernet key 可留空启动，但创建密文或解密凭据时需要它；它应与现有连接器 key 相同。主机策略采用 Settings 数据库覆盖、Source JSON 环境回退的顺序。
 

@@ -322,7 +322,7 @@ async def test_operator_psql_login_executes_exact_six_capabilities_and_rolls_bac
         )
     if owner_database != operator_url.database or not owner_database.endswith("_test"):
         pytest.fail("owner connection did not target the operator test database")
-    assert (source_count, catalog_count, import_count) == (23, 29, 7)
+    assert (source_count, catalog_count, import_count) == (26, 29, 9)
     assert non_operator_has_operator_execute is False
     _verify_postgres(operator_url)
 

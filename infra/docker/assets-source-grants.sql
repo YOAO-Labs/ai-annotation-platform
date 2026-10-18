@@ -102,7 +102,7 @@ END $$;
 REVOKE ALL ON SCHEMA aap_assets_v1 FROM :"asset_source_role";
 GRANT USAGE ON SCHEMA aap_assets_v1 TO :"asset_source_role";
 
--- The runtime can execute only the twenty-three frozen Source capabilities.
+-- The runtime can execute only the twenty-six frozen Source capabilities.
 GRANT EXECUTE ON FUNCTION aap_assets_v1.reserve_dataset_upload(uuid,uuid,uuid,text,text),
     aap_assets_v1.lock_dataset_upload(uuid,uuid,uuid),
     aap_assets_v1.find_dataset_upload_duplicate(uuid,uuid,uuid,text),
@@ -125,7 +125,10 @@ GRANT EXECUTE ON FUNCTION aap_assets_v1.reserve_dataset_upload(uuid,uuid,uuid,te
     aap_assets_v1.create_storage_connection(uuid,uuid,jsonb,jsonb,text,text,jsonb,jsonb),
     aap_assets_v1.update_storage_connection(uuid,uuid,uuid,jsonb,jsonb,text,text,text,jsonb,jsonb),
     aap_assets_v1.delete_storage_connection(uuid,uuid,uuid,jsonb),
-    aap_assets_v1.record_storage_connection_test(uuid,uuid,uuid,text,text,jsonb,jsonb,jsonb)
+    aap_assets_v1.record_storage_connection_test(uuid,uuid,uuid,text,text,jsonb,jsonb,jsonb),
+    aap_assets_v1.resolve_internal_image_source(text,uuid,text,jsonb),
+    aap_assets_v1.schedule_image_media(uuid,text,uuid,jsonb,boolean),
+    aap_assets_v1.read_legacy_dataset_upload(uuid,uuid,uuid,uuid)
     TO :"asset_source_role";
 
 -- Fail closed if the runtime role can access anything beyond the exact protocol.
@@ -158,7 +161,10 @@ DECLARE
         pg_catalog.to_regprocedure('aap_assets_v1.create_storage_connection(uuid,uuid,jsonb,jsonb,text,text,jsonb,jsonb)')::oid,
         pg_catalog.to_regprocedure('aap_assets_v1.update_storage_connection(uuid,uuid,uuid,jsonb,jsonb,text,text,text,jsonb,jsonb)')::oid,
         pg_catalog.to_regprocedure('aap_assets_v1.delete_storage_connection(uuid,uuid,uuid,jsonb)')::oid,
-        pg_catalog.to_regprocedure('aap_assets_v1.record_storage_connection_test(uuid,uuid,uuid,text,text,jsonb,jsonb,jsonb)')::oid
+        pg_catalog.to_regprocedure('aap_assets_v1.record_storage_connection_test(uuid,uuid,uuid,text,text,jsonb,jsonb,jsonb)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.resolve_internal_image_source(text,uuid,text,jsonb)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.schedule_image_media(uuid,text,uuid,jsonb,boolean)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.read_legacy_dataset_upload(uuid,uuid,uuid,uuid)')::oid
     ];
 BEGIN
     IF EXISTS (

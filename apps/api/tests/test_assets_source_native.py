@@ -380,7 +380,7 @@ async def test_legacy_cannot_adopt_modern_intent_and_nowait_contention_retries(
     os.environ.get("AAP_MODULE_DATA_ROLE_ACCEPTANCE") != "1",
     reason="requires the disposable module-data boundary verifier",
 )
-async def test_source_login_has_twenty_three_capabilities_and_can_complete_without_relations(
+async def test_source_login_has_twenty_six_capabilities_and_can_complete_without_relations(
     legacy_world,
 ):
     world, item = legacy_world
@@ -400,8 +400,13 @@ async def test_source_login_has_twenty_three_capabilities_and_can_complete_witho
                 .scalars()
                 .all()
             )
-            assert len(functions) == 23
+            assert len(functions) == 26
             assert all(name.startswith("aap_assets_v1.") for name in functions)
+            assert {name.split("(", 1)[0] for name in functions} >= {
+                "aap_assets_v1.resolve_internal_image_source",
+                "aap_assets_v1.schedule_image_media",
+                "aap_assets_v1.read_legacy_dataset_upload",
+            }
             assert not await source.scalar(
                 text(
                     "SELECT has_any_column_privilege(current_user,'public.dataset_items','SELECT') OR has_table_privilege(current_user,'public.dataset_legacy_upload_operations','SELECT') OR has_any_column_privilege(current_user,'public.storage_connections','SELECT') OR has_table_privilege(current_user,'public.storage_connection_operations','SELECT')"

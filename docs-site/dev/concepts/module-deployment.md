@@ -123,7 +123,9 @@ Assets 的来源删除命令在当前素材库管理员与来源锁内组合 Lea
 
 `apps/assets-source` 的既有 HTTP runtime 执行单文件上传初始化、发布完成、Dataset/Item 删除、同步 ZIP、旧前缀扫描，以及列表、读取、创建、更新、删除和测试六项连接管理操作。连接管理仍通过 API 原有认证入口；内部 Source 接口接收 API 提供的 actor UUID，并由 Identity 与 Assets 原生能力重新验证活动状态、连接范围和当前权限。`ASSETS_SOURCE_URL` 为空时使用本地 Source 工作流；配置远程 URL 后，远程故障不会回退到本地实现。Source 容器不是默认或生产 Compose 的一部分，按独立工件部署。
 
-Source LOGIN 精确执行 23 项 Assets 能力：既有 14 项来源/入库函数和 9 项连接管理函数，不授予业务关系、序列或其他 owner schema 的直接权限。两个媒体派发 claim/ack 能力只供 API maintenance relay。Catalog LOGIN 仍为 29 项，导入执行器 LOGIN 仍为单独的 7 项。
+Source LOGIN 精确执行 26 项 Assets 能力：14 项既有来源/入库函数、9 项连接管理函数和 3 项图片来源能力（已接受来源解析、派发和旧 Task 上传事实读取），不授予业务关系、序列或其他 owner schema 的直接权限。Catalog LOGIN 仍为 29 项，导入执行器 LOGIN 为 9 项。
+
+Assets Media 共用控制 LOGIN 执行 32 项能力（视频 18 项、图片 14 项），视频 worker 保留 10 项能力；图片执行 worker 使用独立 LOGIN，精确执行 6 项 worker 能力。Assets cleanup LOGIN 执行 4 项能力，其中两项处理通用存储 outbox、两项领取和确认图片垃圾清理。以上受限角色均不获得业务表、列、序列、外部 owner schema 或 DDL 权限。
 
 连接凭据只以密文写入；列表与普通读取返回公开配置和 `secret_set`，捕获能力只向受信任的 Source 工作流返回加密凭据。创建、更新、删除和测试结果与 Audit 及 `storage_connection_operations` 不可变回执同事务提交。该回执表没有实时连接外键；删除连接不会级联删除已接受的导入快照。创建者对 owner 连接保留管理权限，哪怕之后平台角色降低；全局连接仍由超级管理员管理。新连接写入忽略旧 `project_id`，旧非全局连接在公开响应中映射为 owner 并保留其项目 ID。
 
@@ -131,7 +133,7 @@ Source LOGIN 精确执行 23 项 Assets 能力：既有 14 项来源/入库函�
 
 连接管理的限域本地资格覆盖 13 个受限角色原生/HTTP 用例，包括真实 S3/SFTP、并发、重放、重启与切换。临近响应上限的列表测试读取 1,033 条记录、合计 42,139,197 字节，分 7 个内部页完成，单页最大 15,206,907 字节；在 0.5 CPU、512 MiB Source 容器中用时 6.238 秒，峰值内存为 149,778,432 字节。迁移四阶段验证通过。这些是隔离本地证据，不代表 CI、生产容量或完整 Assets 独立部署资格。
 
-旧上传完成不再通过 API 的私有 ORM 修改来源；0213 原子组合元数据、Labeling 建题、计数和 Assets 自己的不可变回执。ZIP 以 `dataset-sources/{dataset}/{item}/{publication}/{logical_relpath}` 写入不可变 publication，metadata 保存逻辑路径；扫描仅读取精确 Dataset name 前缀，不接管 modern publication 或未登记拷贝。ZIP/扫描 Item、计数、Labeling append、ZIP Scene/frame 更新、最终回执和媒体 outbox 在同一个外层事务提交。原始对象不会被覆盖或删除，完成回执可按原 actor/Dataset/操作类型/请求身份重放。Assets 当前共 31 张表，全仓 ORM 所有权台账为 133 张表；四张新增表归独立视频媒体作业、回执、暂存和垃圾清理账本。完整协议、预算、部署顺序与回退见[来源控制](/api/guides/assets-source)、[同库数据接口](/api/guides/module-data)及 [ADR-0101](/dev/adr/0101-assets-synchronous-zip-and-scan)。
+旧上传完成不再通过 API 的私有 ORM 修改来源；0213 原子组合元数据、Labeling 建题、计数和 Assets 自己的不可变回执。ZIP 以 `dataset-sources/{dataset}/{item}/{publication}/{logical_relpath}` 写入不可变 publication，metadata 保存逻辑路径；扫描仅读取精确 Dataset name 前缀，不接管 modern publication 或未登记拷贝。ZIP/扫描 Item、计数、Labeling append、ZIP Scene/frame 更新、最终回执和媒体 outbox 在同一个外层事务提交。原始对象不会被覆盖或删除，完成回执可按原 actor/Dataset/操作类型/请求身份重放。Assets 当前共 34 张表，全仓 ORM 所有权台账为 136 张表；视频媒体有四张作业、回执、暂存和垃圾清理表，图片媒体有三张作业、不可变回执和垃圾清理表。这些边界不单独证明完整 Assets 模块的独立部署资格。完整协议、预算、部署顺序与回退见[来源控制](/api/guides/assets-source)、[同库数据接口](/api/guides/module-data)及 [ADR-0101](/dev/adr/0101-assets-synchronous-zip-and-scan)。
 
 ## 全目标完成门槛
 

@@ -3,7 +3,7 @@ title: 超大图金字塔派生资产
 audience: [dev]
 type: explanation
 status: stable
-last_reviewed: 2026-07-31
+last_reviewed: 2026-10-19
 ---
 
 # 超大图金字塔派生资产
@@ -53,7 +53,7 @@ pending → building → ready
 同一 asset 同时最多有一个 pending/building generation。Worker 在所有对象上传和校验成功后，才在事务中
 更新 `active_generation`。同源重建时旧 active 可继续提供服务；源被替换后旧 active 立即失效，避免旧像素
 与新坐标叠加。
-只有当前 asset 与 generation 行通过 `FOR UPDATE` 持有匹配 lease 的发布才能修改缩略图投影。DatasetItem 缩略图仍由 assets 在发布事务中写入；Task 的 overview 路径经 `MediaMaterializationWriter` 交给 `LabelingTaskService`，由 image-pyramid worker 与代次状态一起提交。失去 lease 时两类缩略图投影都不会写入。
+图片执行使用 `asset_image_jobs` 保存接受的 source snapshot、策略、attempt lease 和终态，`asset_image_operations` 保存不可变操作回执，`asset_image_garbage` 保留派生清理责任。既有 Asset/Generation 行成为服务交付投影；迁移不把未验证的旧 generation 补造成新来源代次。DatasetItem 仍是关联 Task 共用的素材 owner；未关联素材的 direct Task 由 Labeling 提供来源身份及缩略图发布能力。DatasetItem 的变化和 Task 重绑会递增对应 source generation、清理不兼容投影并围住旧执行；Task 的分配、审核状态变化不作为图片来源修订。
 
 对象布局是服务端实现细节：
 
@@ -129,7 +129,7 @@ pressure 先释放非可见 detail，不能淘汰 dirty Mask 或撤销历史。
 
 Task 列表和详情只附带 `image_pyramid` 轻量摘要，不附完整 levels 或 URL。
 
-批量摘要和下面三个操作通过 `ImagePyramidApiPort` 交付。HTTP 将已加载 Task 的 ID、素材 ID、文件路径和类型投影为源事实，SQL 实现绑定原 Session，Asset/Generation 行留在所有者内；摘要沿用原集合查询，避免逐任务查询。API 继续负责权限、缓存响应和实际派发，返回值中的重试计划不代表队列已完成投递。
+批量摘要和下面三个操作通过 `ImagePyramidApiPort` 适配器交付。`AssetsImagePyramidApi` 使用 `aap-assets-images/v1` 的 source、summary、generation 和 URL reference 值，并由 `ImageGateway` 选择同库原生能力或共享 `apps/assets-media` 控制端点。API 继续负责当前 Task 可见性、公开响应、缓存和 scope；数据库中的 Asset/Generation 投影、source CAS、作业和回执仍由 Assets 所有。接口返回的接受结果表示已提交工作责任，进程唤醒只用于降低等待，不替代持久 worker 扫描。
 
 ```text
 GET  /api/v1/tasks/{task_id}/image-pyramid
@@ -141,7 +141,7 @@ GET 返回状态 envelope；ready 时返回 manifest 和短期 overview URL，�
 `asset-urls` 最多接受 128 个 overview/tile 逻辑请求，去重后按首次出现顺序返回。服务端验证 Task 可见性、
 generation、level/grid 坐标和对象存在性，再统一签发到期时间。
 
-只有通过 URL 准备的 ready 响应才写入 `last_accessed_at`；带 `If-None-Match` 的 304 会在该写入前返回。`services/image_pyramid.py::_touch_generation_access` 持有该代次元数据，仅在时间为空或严格早于十分钟前时更新，并保留原提交点。该元数据独立于 AsyncJob 状态和 Task 缩略图发布。
+只有通过 URL 准备的 ready 响应才写入 `last_accessed_at`；带 `If-None-Match` 的 304 会在该写入前返回。访问时间与 generation 投影的更新由 Assets image native owner 在调用方事务中完成，不使用 AsyncJob 或 Task 缩略图状态作为 generation 身份。
 
 对象缺失或 source fence 不匹配时，不返回 URL，并把 active generation 标记为不一致或陈旧。retry 对
 pending/building 是幂等的，对失败请求有冷却和频率限制。
@@ -151,7 +151,7 @@ Minimap、评论画布和相邻任务预取只消费 thumbnail/overview；审核
 
 ## 资源与生命周期
 
-专用 Celery Worker 订阅 `image-pyramid` 队列，初始并发为 1。生成流程按以下顺序执行：
+`apps/assets-media` 的独立 image worker 通过专用 LOGIN 轮询六项执行能力，不依赖 API/ORM、Celery 或 Redis。镜像包含 `image-worker` target；运行该 target 需单独配置 image 数据库 LOGIN、对象存储身份和 sRGB profile。生成流程按以下顺序执行：
 
 ```text
 取得 DB lease
@@ -163,8 +163,9 @@ Minimap、评论画布和相邻任务预取只消费 thumbnail/overview；审核
   → 事务发布 active generation
 ```
 
-像素、单边尺寸、source/derived/temp bytes、tile 数和 wall time都有硬限制。每日 reconciliation 回收过期
-lease、非 active 旧代次和孤儿前缀。source 或 owner 删除时同步清理对应派生对象；`image-pyramids/`
+像素、单边尺寸、source/derived/temp bytes、tile 数和 wall time都有硬限制。周期 reconciliation 回收过期
+lease、非 active 旧代次和孤儿前缀。source 或 owner 删除时同步提交对应清理责任；独立 Cleanup 按
+lease 和当前引用重新校验后删除派生对象，原始来源与不确定的旧缩略图 key 保留。`image-pyramids/`
 不使用普通媒体缓存的固定期限 lifecycle。
 
 相关运维步骤见[图片金字塔运行手册](/ops/runbooks/image-pyramid)。

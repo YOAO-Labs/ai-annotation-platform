@@ -98,6 +98,26 @@ async def asset_cleanup_engine() -> AsyncEngine:
 
 
 @pytest_asyncio.fixture
+async def asset_image_worker_engine() -> AsyncEngine:
+    engine = _engine(
+        _role_url("AAP_MODULE_DATA_ASSET_IMAGE_WORKER_URL", "asset_image_worker_client")
+    )
+    try:
+        async with engine.connect() as connection:
+            assert (
+                await connection.scalar(text("SELECT current_user"))
+                == "asset_image_worker_client"
+            )
+            assert (
+                await connection.scalar(text("SELECT session_user"))
+                == "asset_image_worker_client"
+            )
+        yield engine
+    finally:
+        await engine.dispose()
+
+
+@pytest_asyncio.fixture
 async def legacy_runtime_engine() -> AsyncEngine:
     engine = _engine(_role_url("AAP_MODULE_DATA_LEGACY_RUNTIME_URL", "legacy_runtime"))
     try:
@@ -470,6 +490,8 @@ async def test_asset_cleanup_client_uses_only_the_storage_outbox_functions(
         for signature in (
             "aap_assets_v1.pending_storage_deletions_v2(text,timestamptz,uuid,uuid,integer)",
             "aap_assets_v1.complete_storage_deletion(uuid,uuid)",
+            "aap_assets_v1.claim_image_garbage(uuid,integer,integer)",
+            "aap_assets_v1.complete_image_garbage(uuid,uuid)",
         ):
             assert await cleanup.scalar(
                 text(
@@ -504,7 +526,9 @@ async def test_asset_cleanup_client_uses_only_the_storage_outbox_functions(
                     "ON namespace.oid = proc.pronamespace "
                     "WHERE ((namespace.nspname = 'aap_assets_v1' AND proc.oid NOT IN ("
                     "'aap_assets_v1.pending_storage_deletions_v2(text,timestamptz,uuid,uuid,integer)'::regprocedure, "
-                    "'aap_assets_v1.complete_storage_deletion(uuid,uuid)'::regprocedure)) "
+                    "'aap_assets_v1.complete_storage_deletion(uuid,uuid)'::regprocedure, "
+                    "'aap_assets_v1.claim_image_garbage(uuid,integer,integer)'::regprocedure, "
+                    "'aap_assets_v1.complete_image_garbage(uuid,uuid)'::regprocedure)) "
                     "OR (namespace.nspname <> 'aap_assets_v1' "
                     "AND left(namespace.nspname, 4) = 'aap_' "
                     "AND right(namespace.nspname, 3) = '_v1')) "
@@ -593,6 +617,8 @@ async def test_asset_cleanup_client_uses_only_the_storage_outbox_functions(
         for signature in (
             "aap_assets_v1.pending_storage_deletions_v2(text,timestamptz,uuid,uuid,integer)",
             "aap_assets_v1.complete_storage_deletion(uuid,uuid)",
+            "aap_assets_v1.claim_image_garbage(uuid,integer,integer)",
+            "aap_assets_v1.complete_image_garbage(uuid,uuid)",
         ):
             assert not await workflow.scalar(
                 text(
@@ -609,6 +635,82 @@ async def test_asset_cleanup_client_uses_only_the_storage_outbox_functions(
             "SELECT aap_assets_v1.complete_storage_deletion("
             "CAST(:operation_id AS uuid), CAST(:asset_id AS uuid))",
             {"operation_id": operation_id, "asset_id": asset_id},
+        )
+
+
+async def test_asset_image_worker_client_executes_only_image_worker_capabilities(
+    asset_image_worker_engine: AsyncEngine,
+):
+    expected = {
+        "aap_assets_v1.claim_image_media(uuid,uuid,integer,text[])",
+        "aap_assets_v1.heartbeat_image_media(uuid,bigint,uuid,integer)",
+        "aap_assets_v1.finish_image_media(uuid,bigint,uuid,jsonb)",
+        "aap_assets_v1.fail_image_media(uuid,bigint,uuid,text,text)",
+        "aap_assets_v1.advance_image_backfill(uuid,bigint,uuid,integer,jsonb)",
+        "aap_assets_v1.reconcile_image_media(jsonb,integer)",
+    }
+    async with asset_image_worker_engine.connect() as worker:
+        assert await worker.scalar(
+            text("SELECT has_schema_privilege(current_user, 'aap_assets_v1', 'USAGE')")
+        )
+        assert not await worker.scalar(
+            text("SELECT has_schema_privilege(current_user, 'aap_assets_v1', 'CREATE')")
+        )
+        for schema in (
+            "aap_identity_v1",
+            "aap_workspace_v1",
+            "aap_labeling_v1",
+            "aap_jobs_v1",
+            "aap_learning_v1",
+            "aap_inference_v1",
+            "aap_insights_v1",
+            "aap_diagnostics_v1",
+            "aap_export_v1",
+            "aap_audit_v1",
+            "aap_settings_v1",
+            "aap_notifications_v1",
+        ):
+            assert not await worker.scalar(
+                text("SELECT has_schema_privilege(current_user, :schema, 'USAGE')"),
+                {"schema": schema},
+            ), schema
+        for signature in expected:
+            assert await worker.scalar(
+                text(
+                    "SELECT has_function_privilege(current_user, :signature, 'EXECUTE')"
+                ),
+                {"signature": signature},
+            ), signature
+        assert await worker.scalar(
+            text(
+                "SELECT count(*) FROM pg_catalog.pg_proc AS proc "
+                "JOIN pg_catalog.pg_namespace AS namespace "
+                "ON namespace.oid = proc.pronamespace "
+                "WHERE namespace.nspname = 'aap_assets_v1' "
+                "AND has_function_privilege(current_user, proc.oid, 'EXECUTE')"
+            )
+        ) == len(expected)
+        for relation in (
+            "public.asset_image_jobs",
+            "public.asset_image_operations",
+            "public.asset_image_garbage",
+            "public.dataset_items",
+            "public.tasks",
+        ):
+            assert not await worker.scalar(
+                text(
+                    "SELECT has_any_column_privilege(current_user, :relation, "
+                    "'SELECT,INSERT,UPDATE,REFERENCES') OR "
+                    "has_table_privilege(current_user, :relation, "
+                    "'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')"
+                ),
+                {"relation": relation},
+            ), relation
+        assert not await worker.scalar(
+            text(
+                "SELECT has_database_privilege(current_user, current_database(), 'CREATE') "
+                "OR has_database_privilege(current_user, current_database(), 'TEMP')"
+            )
         )
 
 

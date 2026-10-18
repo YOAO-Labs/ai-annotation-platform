@@ -1,4 +1,4 @@
--- Grant the exact Assets media HTTP-control and polling-worker capabilities.
+-- Grant the exact Assets video/image control and video-worker capabilities.
 -- Run after migrations and module-data/catalog/source/import/operator grants.
 -- psql -v expected_database=annotation_test -v migration_role=owner
 --   -v assets_owner=assets_code
@@ -137,7 +137,21 @@ GRANT EXECUTE ON FUNCTION
     aap_assets_v1.read_video_work(uuid,uuid),
     aap_assets_v1.scan_video_backfill(jsonb,uuid,integer),
     aap_assets_v1.read_video_media_totals(uuid[]),
-    aap_assets_v1.read_internal_video_frame(uuid,integer,integer,text)
+    aap_assets_v1.read_internal_video_frame(uuid,integer,integer,text),
+    aap_assets_v1.read_image_source(uuid,uuid,uuid),
+    aap_assets_v1.observe_image_source(uuid,uuid,uuid,text,jsonb),
+    aap_assets_v1.read_image_summaries(uuid,jsonb,text),
+    aap_assets_v1.prepare_image_media(uuid,uuid,uuid,uuid,text,text,jsonb,boolean),
+    aap_assets_v1.read_image_generation(uuid,uuid,uuid,integer,text),
+    aap_assets_v1.read_image_work(uuid,uuid),
+    aap_assets_v1.retry_image_media(uuid,uuid,uuid,uuid,text,text,jsonb,boolean),
+    aap_assets_v1.invalidate_image_media(uuid,uuid,uuid,jsonb),
+    aap_assets_v1.cancel_image_media(uuid,uuid,uuid),
+    aap_assets_v1.resolve_internal_image_source(text,uuid,text,jsonb),
+    aap_assets_v1.schedule_image_media(uuid,text,uuid,jsonb,boolean),
+    aap_assets_v1.read_internal_image_work(uuid),
+    aap_assets_v1.scan_image_backfill(jsonb,text,uuid,integer),
+    aap_assets_v1.read_image_usage()
     TO :"asset_media_control_role";
 GRANT EXECUTE ON FUNCTION
     aap_assets_v1.claim_video_media(uuid,uuid,integer,text[]),
@@ -180,7 +194,21 @@ DECLARE
         pg_catalog.to_regprocedure('aap_assets_v1.read_video_work(uuid,uuid)')::oid,
         pg_catalog.to_regprocedure('aap_assets_v1.scan_video_backfill(jsonb,uuid,integer)')::oid,
         pg_catalog.to_regprocedure('aap_assets_v1.read_video_media_totals(uuid[])')::oid,
-        pg_catalog.to_regprocedure('aap_assets_v1.read_internal_video_frame(uuid,integer,integer,text)')::oid
+        pg_catalog.to_regprocedure('aap_assets_v1.read_internal_video_frame(uuid,integer,integer,text)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.read_image_source(uuid,uuid,uuid)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.observe_image_source(uuid,uuid,uuid,text,jsonb)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.read_image_summaries(uuid,jsonb,text)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.prepare_image_media(uuid,uuid,uuid,uuid,text,text,jsonb,boolean)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.read_image_generation(uuid,uuid,uuid,integer,text)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.read_image_work(uuid,uuid)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.retry_image_media(uuid,uuid,uuid,uuid,text,text,jsonb,boolean)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.invalidate_image_media(uuid,uuid,uuid,jsonb)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.cancel_image_media(uuid,uuid,uuid)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.resolve_internal_image_source(text,uuid,text,jsonb)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.schedule_image_media(uuid,text,uuid,jsonb,boolean)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.read_internal_image_work(uuid)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.scan_image_backfill(jsonb,text,uuid,integer)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.read_image_usage()')::oid
     ];
     worker_functions oid[] := ARRAY[
         pg_catalog.to_regprocedure('aap_assets_v1.claim_video_media(uuid,uuid,integer,text[])')::oid,

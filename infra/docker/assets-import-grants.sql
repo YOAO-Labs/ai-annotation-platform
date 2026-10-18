@@ -102,14 +102,16 @@ END $$;
 REVOKE ALL ON SCHEMA aap_assets_v1 FROM :"asset_import_role";
 GRANT USAGE ON SCHEMA aap_assets_v1 TO :"asset_import_role";
 
--- The runtime can execute only the seven accepted-import capabilities.
+-- The runtime can execute only the nine accepted-import capabilities.
 GRANT EXECUTE ON FUNCTION aap_assets_v1.claim_dataset_import(uuid,integer,uuid),
     aap_assets_v1.heartbeat_dataset_import(uuid,uuid,integer),
     aap_assets_v1.read_dataset_import_connection(uuid,uuid,jsonb),
     aap_assets_v1.save_dataset_import_manifest(uuid,uuid,jsonb),
     aap_assets_v1.next_dataset_import_entry(uuid,uuid,uuid),
     aap_assets_v1.complete_dataset_import_entry(uuid,uuid,bigint,uuid,jsonb),
-    aap_assets_v1.finish_dataset_import(uuid,uuid,text)
+    aap_assets_v1.finish_dataset_import(uuid,uuid,text),
+    aap_assets_v1.resolve_internal_image_source(text,uuid,text,jsonb),
+    aap_assets_v1.schedule_image_media(uuid,text,uuid,jsonb,boolean)
     TO :"asset_import_role";
 
 -- Fail closed if the runtime role can access anything beyond the exact protocol.
@@ -126,7 +128,9 @@ DECLARE
         pg_catalog.to_regprocedure('aap_assets_v1.save_dataset_import_manifest(uuid,uuid,jsonb)')::oid,
         pg_catalog.to_regprocedure('aap_assets_v1.next_dataset_import_entry(uuid,uuid,uuid)')::oid,
         pg_catalog.to_regprocedure('aap_assets_v1.complete_dataset_import_entry(uuid,uuid,bigint,uuid,jsonb)')::oid,
-        pg_catalog.to_regprocedure('aap_assets_v1.finish_dataset_import(uuid,uuid,text)')::oid
+        pg_catalog.to_regprocedure('aap_assets_v1.finish_dataset_import(uuid,uuid,text)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.resolve_internal_image_source(text,uuid,text,jsonb)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.schedule_image_media(uuid,text,uuid,jsonb,boolean)')::oid
     ];
 BEGIN
     IF EXISTS (

@@ -789,8 +789,8 @@ async def test_connections_real_source_crud_probes_replay_restart_and_pages(
         )
         evidence = {
             "status": "passed",
-            "source_functions": 23,
-            "importer_functions": 7,
+            "source_functions": 26,
+            "importer_functions": 9,
             "cpu": 0.5,
             "memory_limit_bytes": 512 * 1024 * 1024,
             "observed_peak_before_restart": peak_before,

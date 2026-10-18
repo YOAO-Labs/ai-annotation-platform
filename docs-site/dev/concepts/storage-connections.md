@@ -40,7 +40,7 @@ last_reviewed: 2026-10-19
 
 关键不变量：**明文密钥永不落库，也不出现在公开响应中**。`config` 与 `secret` 在 schema 层分离；`config` 是可读的连接参数，`secret`（access/secret key、密码、私钥）加密后只进 `secret_enc`，对外仅以 `secret_set: bool` 表达是否已配密钥。
 
-六项连接管理操作复用 Assets Source 工作流。API 在本地模式调用同一工作流；独立模式经受信任的内部 HTTP 传入请求值，凭据由 Source 加密。Source LOGIN 精确执行 23 项能力，其中九项服务于连接管理，不能直接读取业务表。白名单与部署快捷项仍由 Settings 和部署配置持有。成功变更、审计和 `storage_connection_operations` 不可变回执原子提交，UUID 幂等键可找回首次结果。
+六项连接管理操作复用 Assets Source 工作流。API 在本地模式调用同一工作流；独立模式经受信任的内部 HTTP 传入请求值，凭据由 Source 加密。Source LOGIN 精确执行 26 项能力，其中九项服务于连接管理，不能直接读取业务表。白名单与部署快捷项仍由 Settings 和部署配置持有。成功变更、审计和 `storage_connection_operations` 不可变回执原子提交，UUID 幂等键可找回首次结果。
 
 > 历史字段 `project_id` 已弃用：当前作用域是「个人 / 全局」，新建连接器不再写入项目级归属。
 

@@ -201,14 +201,15 @@ GRANT SELECT, INSERT, UPDATE ON public.dataset_import_operations,
 GRANT SELECT, INSERT, UPDATE ON public.dataset_source_ingest_operations,
     public.dataset_source_ingest_entries, public.dataset_source_ingest_deliveries
     TO :"assets_owner";
-GRANT SELECT (id, task_id, dataset_item_id), UPDATE (id), DELETE
-    ON public.image_pyramid_assets TO :"assets_owner";
-GRANT SELECT (asset_id, generation, status, lease_expires_at), UPDATE (generation)
-    ON public.image_pyramid_generations TO :"assets_owner";
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.image_pyramid_assets
+    TO :"assets_owner";
+GRANT SELECT, INSERT, UPDATE ON public.image_pyramid_generations
+    TO :"assets_owner";
 GRANT SELECT (
-    operation_id, asset_id, bucket, prefix, created_at, completed_at, not_before
-), INSERT (operation_id, asset_id, bucket, prefix, not_before),
-    UPDATE (completed_at)
+    operation_id, asset_id, bucket, prefix, created_at, completed_at, not_before,
+    retained
+), INSERT (operation_id, asset_id, bucket, prefix, not_before, retained),
+    UPDATE (completed_at, not_before, retained)
     ON public.asset_storage_deletions TO :"assets_owner";
 
 -- Spatial state stays private to the Assets function owner.
@@ -240,6 +241,9 @@ GRANT UPDATE (
     not_before, last_ack_token
 )
     ON public.asset_media_garbage TO :"assets_owner";
+GRANT SELECT, INSERT, UPDATE ON public.asset_image_jobs TO :"assets_owner";
+GRANT SELECT, INSERT ON public.asset_image_operations TO :"assets_owner";
+GRANT SELECT, INSERT, UPDATE ON public.asset_image_garbage TO :"assets_owner";
 GRANT SELECT, INSERT, UPDATE ON public.scene_frame_poses TO :"assets_owner";
 GRANT SELECT, INSERT ON public.sensor_calibration_revisions,
     public.dataset_spatial_operations TO :"assets_owner";
@@ -367,7 +371,15 @@ GRANT SELECT (
 GRANT SELECT (task_id, dataset_item_id, role),
     INSERT (id, task_id, dataset_item_id, role, sensor_name)
     ON public.task_dataset_item_links TO :"labeling_owner";
-GRANT SELECT (file_type, assignee_id, reviewer_id) ON public.tasks TO :"labeling_owner";
+GRANT SELECT (
+    file_type, file_path, file_name, assignee_id, reviewer_id, created_at,
+    media_source_generation, media_object_identity, media_source_drifted,
+    thumbnail_path, blurhash
+) ON public.tasks TO :"labeling_owner";
+GRANT UPDATE (
+    media_source_generation, media_object_identity, media_source_drifted,
+    thumbnail_path, blurhash
+) ON public.tasks TO :"labeling_owner";
 GRANT SELECT (
     display_id, annotation_contributor_ids, review_round_id,
     review_contributor_ids, review_submitter_id
@@ -495,6 +507,8 @@ GRANT EXECUTE ON FUNCTION aap_assets_v1.lock_dataset_reference(uuid),
     aap_assets_v1.lock_append_sources(uuid, uuid[]),
     aap_assets_v1.lock_task_creation_items(uuid, uuid[])
     TO :"labeling_owner";
+GRANT EXECUTE ON FUNCTION aap_assets_v1.invalidate_task_image_source(uuid)
+    TO :"labeling_owner";
 GRANT EXECUTE ON FUNCTION aap_assets_v1.lock_current_association(uuid, uuid)
     TO :"jobs_owner";
 GRANT EXECUTE ON FUNCTION aap_assets_v1.lock_dataset_reference(uuid)
@@ -514,6 +528,14 @@ GRANT EXECUTE ON FUNCTION aap_assets_v1.delete_project_owned_records(uuid)
     TO :"workspace_owner";
 GRANT EXECUTE ON FUNCTION aap_labeling_v1.project_task_references(uuid)
     TO :"assets_owner", :"learning_owner", :"diagnostics_owner";
+GRANT EXECUTE ON FUNCTION
+    aap_labeling_v1.read_image_task_source(uuid, uuid, boolean),
+    aap_labeling_v1.observe_image_task_source(uuid, text, jsonb),
+    aap_labeling_v1.publish_task_image_thumbnail(uuid, text, bigint, text, text),
+    aap_labeling_v1.image_thumbnail_references(text),
+    aap_labeling_v1.scan_image_task_sources(jsonb, uuid, integer),
+    aap_labeling_v1.invalidate_task_image_thumbnail(uuid, text, text)
+    TO :"assets_owner";
 GRANT EXECUTE ON FUNCTION aap_assets_v1.dataset_item_references(uuid, uuid)
     TO :"labeling_owner", :"learning_owner";
 GRANT EXECUTE ON FUNCTION aap_assets_v1.dataset_scene_references(uuid),
@@ -597,7 +619,9 @@ GRANT EXECUTE ON FUNCTION aap_audit_v1.valid_request_context(jsonb),
 GRANT EXECUTE ON FUNCTION aap_assets_v1.pending_storage_deletions_v2(
     text, timestamptz, uuid, uuid, integer
 ),
-    aap_assets_v1.complete_storage_deletion(uuid, uuid)
+    aap_assets_v1.complete_storage_deletion(uuid, uuid),
+    aap_assets_v1.claim_image_garbage(uuid, integer, integer),
+    aap_assets_v1.complete_image_garbage(uuid, uuid)
     TO :"asset_cleanup_role";
 REVOKE ALL ON FUNCTION aap_assets_v1.pending_storage_deletions(uuid, integer)
     FROM :"asset_cleanup_role";
@@ -736,6 +760,25 @@ ALTER FUNCTION aap_assets_v1.delete_dataset_item(
 ALTER FUNCTION aap_assets_v1.pending_storage_deletions_v2(
     text, timestamptz, uuid, uuid, integer
 ) OWNER TO :"assets_owner";
+DO $$
+DECLARE
+    target record;
+    owner_name text := current_setting('aap.assets_owner');
+BEGIN
+    FOR target IN
+        SELECT proc.oid::regprocedure AS signature
+        FROM pg_catalog.pg_proc AS proc
+        JOIN pg_catalog.pg_namespace AS namespace
+          ON namespace.oid = proc.pronamespace
+        WHERE namespace.nspname = 'aap_assets_v1'
+          AND proc.prokind IN ('f', 'p')
+          AND proc.proname LIKE '%image%'
+    LOOP
+        EXECUTE pg_catalog.format(
+            'ALTER FUNCTION %s OWNER TO %I', target.signature, owner_name
+        );
+    END LOOP;
+END $$;
 REVOKE CREATE ON SCHEMA aap_assets_v1 FROM :"assets_owner";
 
 GRANT CREATE ON SCHEMA aap_labeling_v1 TO :"labeling_owner";
@@ -768,6 +811,25 @@ ALTER FUNCTION aap_labeling_v1.detach_deleted_dataset_attribution(uuid)
 ALTER FUNCTION aap_labeling_v1.project_dataset_task_counts(uuid)
     OWNER TO :"labeling_owner";
 ALTER VIEW aap_labeling_v1.project_catalog_counters OWNER TO :"labeling_owner";
+DO $$
+DECLARE
+    target record;
+    owner_name text := current_setting('aap.labeling_owner');
+BEGIN
+    FOR target IN
+        SELECT proc.oid::regprocedure AS signature
+        FROM pg_catalog.pg_proc AS proc
+        JOIN pg_catalog.pg_namespace AS namespace
+          ON namespace.oid = proc.pronamespace
+        WHERE namespace.nspname = 'aap_labeling_v1'
+          AND proc.prokind IN ('f', 'p')
+          AND proc.proname LIKE '%image%'
+    LOOP
+        EXECUTE pg_catalog.format(
+            'ALTER FUNCTION %s OWNER TO %I', target.signature, owner_name
+        );
+    END LOOP;
+END $$;
 REVOKE CREATE ON SCHEMA aap_labeling_v1 FROM :"labeling_owner";
 
 GRANT CREATE ON SCHEMA aap_jobs_v1 TO :"jobs_owner";
@@ -1196,6 +1258,10 @@ BEGIN
         'aap_assets_v1.pending_storage_deletions_v2(text,timestamptz,uuid,uuid,integer)', 'EXECUTE')
        OR NOT has_function_privilege(current_setting('aap.asset_cleanup_role'),
         'aap_assets_v1.complete_storage_deletion(uuid,uuid)', 'EXECUTE')
+       OR NOT has_function_privilege(current_setting('aap.asset_cleanup_role'),
+        'aap_assets_v1.claim_image_garbage(uuid,integer,integer)', 'EXECUTE')
+       OR NOT has_function_privilege(current_setting('aap.asset_cleanup_role'),
+        'aap_assets_v1.complete_image_garbage(uuid,uuid)', 'EXECUTE')
        OR has_function_privilege(current_setting('aap.asset_cleanup_role'),
         'aap_assets_v1.pending_storage_deletions(uuid,integer)', 'EXECUTE')
        OR EXISTS (
@@ -1207,7 +1273,9 @@ BEGIN
              )
              AND proc.oid NOT IN (
                  'aap_assets_v1.pending_storage_deletions_v2(text,timestamptz,uuid,uuid,integer)'::pg_catalog.regprocedure,
-                 'aap_assets_v1.complete_storage_deletion(uuid,uuid)'::pg_catalog.regprocedure
+                 'aap_assets_v1.complete_storage_deletion(uuid,uuid)'::pg_catalog.regprocedure,
+                 'aap_assets_v1.claim_image_garbage(uuid,integer,integer)'::pg_catalog.regprocedure,
+                 'aap_assets_v1.complete_image_garbage(uuid,uuid)'::pg_catalog.regprocedure
              )
        ) OR EXISTS (
            SELECT 1
