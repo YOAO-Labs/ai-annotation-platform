@@ -153,6 +153,9 @@ class _ErrorReportingGroup(typer.core.TyperGroup):
                     error_type = (
                         re.sub(r"[^A-Za-z0-9_]+", "_", error_type).strip("_").lower()
                     )
+                    error_type = {"int_range": "integer_range"}.get(
+                        error_type, error_type
+                    )
                 if (
                     isinstance(name, str)
                     and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_-]{0,63}", name)

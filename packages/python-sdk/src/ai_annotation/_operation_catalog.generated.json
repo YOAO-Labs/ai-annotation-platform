@@ -22340,6 +22340,23 @@
             "type": "string",
             "format": "uuid"
           }
+        },
+        {
+          "name": "Idempotency-Key",
+          "in": "header",
+          "required": false,
+          "schema": {
+            "title": "Idempotency-Key",
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
         }
       ],
       "responses": {
@@ -22665,6 +22682,23 @@
           "schema": {
             "title": "Camera Role",
             "type": "string"
+          }
+        },
+        {
+          "name": "Idempotency-Key",
+          "in": "header",
+          "required": false,
+          "schema": {
+            "title": "Idempotency-Key",
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         }
       ],
@@ -25451,7 +25485,7 @@
       "path": "/api/v1/datasets/{dataset_id}/scenes/backfill",
       "operation_id": "backfill_scenes_endpoint_api_v1_datasets__dataset_id__scenes_backfill_post",
       "summary": "Backfill Scenes Endpoint",
-      "description": "v0.14.0 · 对 dataset 跑 scene_inference,补 scene + frame_index。\n\n幂等:dataset 已有 scene → 直接返回(notes 提示)。\ndry_run:不写库,返回会创建 / 赋值的统计。",
+      "description": "v0.14.0 · 对 dataset 跑 scene layout backfill,补 scene + frame_index。\n\n幂等:dataset 已有 scene → 直接返回(notes 提示)。\ndry_run:不写库,返回会创建 / 赋值的统计。",
       "tags": [
         "datasets"
       ],
@@ -25494,6 +25528,23 @@
             "title": "Dry Run",
             "type": "boolean",
             "default": false
+          }
+        },
+        {
+          "name": "Idempotency-Key",
+          "in": "header",
+          "required": false,
+          "schema": {
+            "title": "Idempotency-Key",
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         }
       ],
@@ -44736,6 +44787,13 @@
           "annotation": "bool",
           "required": false,
           "default": false
+        },
+        {
+          "name": "idempotency_key",
+          "kind": "keyword_only",
+          "annotation": "IdLike | None",
+          "required": false,
+          "default": null
         }
       ],
       "return_type": "DatasetBackfillScenesResult",
@@ -50443,6 +50501,13 @@
           "annotation": "SensorCalibrationUpdate",
           "required": true,
           "default": null
+        },
+        {
+          "name": "idempotency_key",
+          "kind": "keyword_only",
+          "annotation": "IdLike | None",
+          "required": false,
+          "default": null
         }
       ],
       "return_type": "SensorCalibrationRevision",
@@ -53829,6 +53894,13 @@
           "kind": "positional_or_keyword",
           "annotation": "SceneUpdate",
           "required": true,
+          "default": null
+        },
+        {
+          "name": "idempotency_key",
+          "kind": "keyword_only",
+          "annotation": "IdLike | None",
+          "required": false,
           "default": null
         }
       ],
@@ -68205,6 +68277,17 @@
           "description": "确认回填场景"
         },
         {
+          "name": "idempotency_key",
+          "kind": "option",
+          "options": [
+            "--idempotency-key"
+          ],
+          "required": false,
+          "default": null,
+          "type": "str | None",
+          "description": "稳定 UUID；响应不确定时重试请复用原值"
+        },
+        {
           "name": "json_output",
           "kind": "option",
           "options": [
@@ -80101,6 +80184,17 @@
           "description": "确认更新共享传感器标定"
         },
         {
+          "name": "idempotency_key",
+          "kind": "option",
+          "options": [
+            "--idempotency-key"
+          ],
+          "required": false,
+          "default": null,
+          "type": "str | None",
+          "description": "稳定 UUID；响应不确定时重试请复用原值"
+        },
+        {
           "name": "json_output",
           "kind": "option",
           "options": [
@@ -83323,6 +83417,17 @@
           "default": false,
           "type": "bool",
           "description": "确认更新共享场景元数据"
+        },
+        {
+          "name": "idempotency_key",
+          "kind": "option",
+          "options": [
+            "--idempotency-key"
+          ],
+          "required": false,
+          "default": null,
+          "type": "str | None",
+          "description": "稳定 UUID；响应不确定时重试请复用原值"
         },
         {
           "name": "json_output",

@@ -120,7 +120,9 @@ def test_scene_list_prints_bare_json_array(monkeypatch):
 def test_scene_update_reads_patch_from_stdin_and_confirms(monkeypatch):
     received = []
     api = SimpleNamespace(
-        update=lambda scene_id, body: received.append((scene_id, body)) or SCENE
+        update=lambda scene_id, body, *, idempotency_key=None: (
+            received.append((scene_id, body, idempotency_key)) or SCENE
+        )
     )
     monkeypatch.setattr(
         scenes_cli,
@@ -137,6 +139,7 @@ def test_scene_update_reads_patch_from_stdin_and_confirms(monkeypatch):
     assert result.exit_code == 0, result.output
     assert received[0][0] == SCENE_ID
     assert received[0][1].source_metadata == {"split": "validation"}
+    assert received[0][2] is None
     assert json.loads(result.stdout)["id"] == SCENE_ID
 
 

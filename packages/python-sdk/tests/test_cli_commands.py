@@ -389,7 +389,12 @@ def test_datasets_upload_dir(respx_mock, tmp_path):
     init = respx_mock.post(f"{API}/datasets/{DS_ID}/items/upload-init").mock(
         side_effect=[
             httpx.Response(
-                200, json={"item_id": iid, "upload_url": f"http://minio.local/b/{i}"}
+                200,
+                json={
+                    "item_id": iid,
+                    "upload_url": f"http://minio.local/b/{i}",
+                    "expires_in": 3600,
+                },
             )
             for i, iid in enumerate(item_ids)
         ]
@@ -397,10 +402,12 @@ def test_datasets_upload_dir(respx_mock, tmp_path):
     respx_mock.put(host="minio.local").mock(return_value=httpx.Response(200))
     for iid in item_ids:
         respx_mock.post(f"{API}/datasets/{DS_ID}/items/upload-complete/{iid}").mock(
-            return_value=httpx.Response(200, json={"status": "ok", "item_id": iid})
+            return_value=httpx.Response(
+                200, json={"status": "ok", "item_id": iid, "linked_tasks": 0}
+            )
         )
     result = runner.invoke(app, ["datasets", "upload", DS_ID, str(d)], env=ENV)
-    assert result.exit_code == 0
+    assert result.exit_code == 0, result.output
     assert init.call_count == 2
     plain = _plain(result.output)
     assert "上传完成" in plain
@@ -413,17 +420,25 @@ def test_datasets_upload_single_file_json(respx_mock, tmp_path):
     item_id = str(uuid4())
     respx_mock.post(f"{API}/datasets/{DS_ID}/items/upload-init").mock(
         return_value=httpx.Response(
-            200, json={"item_id": item_id, "upload_url": "http://minio.local/b/a"}
+            200,
+            json={
+                "item_id": item_id,
+                "upload_url": "http://minio.local/b/a",
+                "expires_in": 3600,
+            },
         )
     )
     respx_mock.put(host="minio.local").mock(return_value=httpx.Response(200))
     respx_mock.post(f"{API}/datasets/{DS_ID}/items/upload-complete/{item_id}").mock(
-        return_value=httpx.Response(200, json={"status": "ok", "item_id": item_id})
+        return_value=httpx.Response(
+            200,
+            json={"status": "ok", "item_id": item_id, "linked_tasks": 0},
+        )
     )
     result = runner.invoke(
         app, ["datasets", "upload", DS_ID, str(f), "--json"], env=ENV
     )
-    assert result.exit_code == 0
+    assert result.exit_code == 0, result.output
     data = json.loads(result.stdout)
     assert data[0]["item_id"] == item_id
     assert data[0]["file_name"] == "a.jpg"
