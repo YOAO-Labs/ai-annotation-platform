@@ -61,6 +61,15 @@ def test_claim_rejects_naive_lease_and_unknown_failure_code():
             }
         )
 
+    with pytest.raises(ValidationError):
+        decode_dataset_import_delivery_claim(
+            {
+                "schema": "aap-dataset-import-delivery/v1",
+                "ok": False,
+                "error": None,
+            }
+        )
+
 
 def test_completion_is_bound_to_the_claimed_lease():
     delivery_id = uuid4()
@@ -91,6 +100,19 @@ def test_lease_lost_is_a_retryable_delivery_failure():
                 "schema": "aap-dataset-import-delivery/v1",
                 "ok": False,
                 "error": {"code": "lease_lost"},
+            },
+            delivery_id=uuid4(),
+            lease_token=uuid4(),
+        )
+
+
+def test_failure_envelope_rejects_null_error():
+    with pytest.raises(ValidationError):
+        decode_dataset_import_delivery_completion(
+            {
+                "schema": "aap-dataset-import-delivery/v1",
+                "ok": False,
+                "error": None,
             },
             delivery_id=uuid4(),
             lease_token=uuid4(),

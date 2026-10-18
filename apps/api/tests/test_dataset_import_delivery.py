@@ -176,6 +176,31 @@ async def test_missing_media_target_is_acked_without_recreation(monkeypatch):
     assert events == ["source_check", "commit", "ack", "commit"]
 
 
+@pytest.mark.parametrize("malformed", [None, "true", 1])
+async def test_malformed_source_check_is_not_treated_as_stale_ack(
+    monkeypatch, malformed
+):
+    delivery = _delivery("thumbnail")
+    db = _Session()
+    db.next_value = malformed
+    ack = AsyncMock()
+    monkeypatch.setattr(
+        delivery_worker,
+        "dataset_import_delivery_target_is_current",
+        delivery_data.dataset_import_delivery_target_is_current,
+    )
+    monkeypatch.setattr(delivery_worker, "complete_dataset_import_delivery", ack)
+    dispatcher = SimpleNamespace(
+        dispatch_thumbnail=AsyncMock(),
+        dispatch_video_metadata=AsyncMock(),
+    )
+
+    with pytest.raises(ValueError, match="must be a boolean"):
+        await delivery_worker._deliver_one(db, delivery, dispatcher)
+    ack.assert_not_awaited()
+    dispatcher.dispatch_thumbnail.assert_not_awaited()
+
+
 async def test_broker_failure_leaves_delivery_unacknowledged(monkeypatch):
     delivery = _delivery("thumbnail")
     ack = AsyncMock()

@@ -41,14 +41,18 @@ async def dataset_import_delivery_target_is_current(
     db: AsyncSession, delivery: DatasetImportDelivery
 ) -> bool:
     if delivery.kind == "notification":
-        return False
+        raise ValueError("notification targets use NotificationService.publish_by_id")
     current = (
         await db.execute(
             _TARGET_IS_CURRENT,
             {"kind": delivery.kind, "target_id": delivery.target_id},
         )
     ).scalar_one()
-    return current is True
+    if current is True:
+        return True
+    if current is False:
+        return False
+    raise ValueError("Assets target-current reply must be a boolean")
 
 
 async def complete_dataset_import_delivery(

@@ -123,8 +123,11 @@ SET search_path = pg_catalog, pg_temp
 AS $function$
 DECLARE
     v_delivery public.dataset_import_deliveries%ROWTYPE;
+    v_now timestamptz := pg_catalog.clock_timestamp();
 BEGIN
-    IF p_lease_token IS NULL OR p_lease_seconds NOT BETWEEN 30 AND 3600 THEN
+    IF p_lease_token IS NULL
+       OR p_lease_seconds IS NULL
+       OR p_lease_seconds NOT BETWEEN 30 AND 3600 THEN
         RETURN aap_assets_v1._dataset_import_delivery_reply(NULL, 'invalid_request');
     END IF;
 
@@ -134,7 +137,7 @@ BEGIN
         WHERE delivery.delivered_at IS NULL
           AND (
               delivery.lease_expires_at IS NULL
-              OR delivery.lease_expires_at <= pg_catalog.now()
+              OR delivery.lease_expires_at <= v_now
           )
         ORDER BY delivery.created_at, delivery.id
         FOR UPDATE OF delivery SKIP LOCKED
@@ -142,8 +145,7 @@ BEGIN
     )
     UPDATE public.dataset_import_deliveries AS delivery
     SET lease_token = p_lease_token,
-        lease_expires_at = pg_catalog.now()
-            + pg_catalog.make_interval(secs => p_lease_seconds),
+        lease_expires_at = v_now + pg_catalog.make_interval(secs => p_lease_seconds),
         attempts = delivery.attempts + 1
     FROM candidate
     WHERE delivery.id = candidate.id
@@ -177,18 +179,20 @@ RETURNS jsonb
 LANGUAGE plpgsql VOLATILE PARALLEL UNSAFE SECURITY DEFINER
 SET search_path = pg_catalog, pg_temp
 AS $function$
+DECLARE
+    v_now timestamptz := pg_catalog.clock_timestamp();
 BEGIN
     IF p_delivery_id IS NULL OR p_lease_token IS NULL THEN
         RETURN aap_assets_v1._dataset_import_delivery_reply(NULL, 'invalid_request');
     END IF;
 
     UPDATE public.dataset_import_deliveries AS delivery
-    SET delivered_at = pg_catalog.now(),
+    SET delivered_at = v_now,
         lease_token = NULL,
         lease_expires_at = NULL
     WHERE delivery.id = p_delivery_id
       AND delivery.lease_token = p_lease_token
-      AND delivery.lease_expires_at > pg_catalog.now()
+      AND delivery.lease_expires_at > v_now
       AND delivery.delivered_at IS NULL;
 
     IF NOT FOUND THEN

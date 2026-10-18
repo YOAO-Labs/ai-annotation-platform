@@ -66,7 +66,7 @@ class _ClaimReply(_Value):
         if self.ok:
             if "data" not in self.model_fields_set or "error" in self.model_fields_set:
                 raise ValueError("successful claim must contain only data")
-        elif "error" not in self.model_fields_set or "data" in self.model_fields_set:
+        elif self.error is None or "data" in self.model_fields_set:
             raise ValueError("failed claim must contain only error")
         return self
 
@@ -82,7 +82,7 @@ class _CompleteReply(_Value):
         if self.ok:
             if self.data is None or "error" in self.model_fields_set:
                 raise ValueError("successful completion must contain only its receipt")
-        elif "error" not in self.model_fields_set or "data" in self.model_fields_set:
+        elif self.error is None or "data" in self.model_fields_set:
             raise ValueError("failed completion must contain only error")
         return self
 
