@@ -605,6 +605,27 @@ async def test_task_frame_retry_accepts_failed_only_and_forced_selection_shapes(
         "invalid_request",
     )
 
+    for minimal_selection, expected_fields in (
+        (
+            {"kind": "frames", "frame_indices": [1]},
+            {"width": 512, "format": "webp", "frame_index": 1},
+        ),
+        (
+            {"kind": "chunks", "chunk_ids": [0]},
+            {"chunk_id": 0, "start_frame": 0, "end_frame": 2},
+        ),
+    ):
+        reply = _object(
+            await db_session.scalar(
+                _ENSURE,
+                {**params, "selection": json.dumps(minimal_selection)},
+            )
+        )
+        assert reply["ok"] is True
+        assert len(reply["data"]["assets"]) == 1
+        asset = reply["data"]["assets"][0]
+        assert {field: asset[field] for field in expected_fields} == expected_fields
+
 
 async def test_manager_request_replays_receipt_while_implicit_schedule_does_not_add_one(
     db_session,

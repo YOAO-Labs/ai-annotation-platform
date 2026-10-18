@@ -2266,6 +2266,9 @@ BEGIN
     v_kind := p_selection ->> 'kind';
     v_intent := COALESCE(p_selection ->> 'intent', 'access');
     IF v_kind = 'frames' THEN
+        p_selection := pg_catalog.jsonb_build_object(
+            'width', 512, 'format', 'webp', 'force', false, 'failed_only', false
+        ) || p_selection;
         IF (p_selection - ARRAY['kind', 'intent', 'expected_source_snapshot', 'frame_indices', 'width', 'format', 'force', 'failed_only'])
                 IS DISTINCT FROM '{}'::jsonb
            OR (p_selection ? 'expected_source_snapshot'
@@ -2305,6 +2308,9 @@ BEGIN
         v_force := (p_selection ->> 'force')::boolean;
         v_failed_only := (p_selection ->> 'failed_only')::boolean;
     ELSIF v_kind = 'chunks' THEN
+        p_selection := pg_catalog.jsonb_build_object(
+            'chunk_size_frames', 60, 'force', false, 'failed_only', false
+        ) || p_selection;
         IF (p_selection - ARRAY['kind', 'expected_source_snapshot', 'chunk_ids', 'chunk_size_frames', 'force', 'failed_only'])
                 IS DISTINCT FROM '{}'::jsonb
            OR (p_selection ? 'expected_source_snapshot'
