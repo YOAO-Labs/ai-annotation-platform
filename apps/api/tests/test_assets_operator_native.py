@@ -7,6 +7,7 @@ from pathlib import Path
 from uuid import UUID, uuid4
 
 import pytest
+from pydantic import BaseModel
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
@@ -61,8 +62,18 @@ _READ = text(
 )
 
 
+def _wire_value(value):
+    if isinstance(value, BaseModel):
+        value = value.model_dump(mode="json")
+    if isinstance(value, dict):
+        return {key: _wire_value(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_wire_value(item) for item in value]
+    return value
+
+
 def _wire(value) -> str:
-    return json.dumps(value, ensure_ascii=False, allow_nan=False)
+    return json.dumps(_wire_value(value), ensure_ascii=False, allow_nan=False)
 
 
 def _body(value) -> dict:
@@ -685,6 +696,7 @@ async def test_patch_cas_merges_only_observations_and_preserves_scene_metadata(
             created_by=actor_id,
         )
     )
+    await db_session.flush()
     db_session.add(
         _item_insert(
             item_id=item_id,
