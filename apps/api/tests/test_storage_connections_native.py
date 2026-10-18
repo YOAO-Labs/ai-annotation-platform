@@ -224,8 +224,10 @@ async def test_native_connection_reads_preserve_visibility_and_keep_ciphertext_o
             _LIST,
             {
                 "actor_id": actor_id,
-                "after_created_at": page_one["next_cursor"]["created_at"],
-                "after_id": page_one["next_cursor"]["id"],
+                "after_created_at": datetime.fromisoformat(
+                    page_one["next_cursor"]["created_at"]
+                ),
+                "after_id": UUID(page_one["next_cursor"]["id"]),
                 "page_size": 1,
             },
         )
@@ -513,8 +515,8 @@ async def test_native_connection_source_and_policy_snapshots_fence_replacement(
     # A current Settings row now supersedes the older environment/database policy.
     await db_session.execute(
         text(
-            "INSERT INTO public.system_settings(key, value_json) "
-            "VALUES ('connector_host_allowlist', CAST(:value AS jsonb)) "
+            "INSERT INTO public.system_settings(key, value_type, value_json) "
+            "VALUES ('connector_host_allowlist', 'json', CAST(:value AS jsonb)) "
             "ON CONFLICT (key) DO UPDATE SET value_json=EXCLUDED.value_json"
         ),
         {"value": json.dumps([replacement_host])},

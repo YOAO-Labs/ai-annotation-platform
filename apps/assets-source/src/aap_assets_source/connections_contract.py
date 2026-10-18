@@ -595,17 +595,25 @@ def require_connection_scope(request: BaseModel, result: BaseModel) -> None:
 
 
 def connections_contract_document() -> dict[str, Any]:
-    models: dict[str, Any] = {}
+    from pydantic.json_schema import models_json_schema
+
+    models: dict[str, type[BaseModel]] = {}
     for request, result in (
         *CONNECTION_NATIVE_OPERATIONS.values(),
         *CONNECTION_OPERATIONS.values(),
     ):
         for model in (request, result):
-            models[model.__name__] = model.model_json_schema()
+            models[model.__name__] = model
+    _, document = models_json_schema(
+        [(model, "validation") for model in models.values()]
+    )
     return {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "urn:aap:assets-connections:v1",
+        "title": CONNECTIONS_SCHEMA,
         "schema": CONNECTIONS_SCHEMA,
         "failure_codes": sorted(CONNECTION_ERROR_CODES),
-        "models": models,
+        "$defs": document["$defs"],
         "native": {
             name: {
                 "signature": f"aap_assets_v1.{name}({CONNECTION_NATIVE_SIGNATURES[name]})",

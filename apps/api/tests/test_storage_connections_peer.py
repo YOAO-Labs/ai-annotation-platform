@@ -10,12 +10,13 @@ from uuid import uuid4
 import pytest
 from sqlalchemy import text
 from sqlalchemy.engine import make_url
-from sqlalchemy.ext.asyncio import async_sessionmaker
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from aap_assets_source.connections_contract import (
     CONNECTION_NATIVE_ARGUMENTS,
     CONNECTION_NATIVE_SIGNATURES,
 )
+from aap_assets_source_runtime.database import ROLE_PREFLIGHT_SQL
 from tests.test_asset_storage_cleanup_runtime import _required_env, _verify_postgres
 from tests.test_assets_catalog_native import _seed_actor
 
@@ -301,6 +302,12 @@ async def test_restricted_source_psql_calls_frozen_connection_surface_and_rolls_
     if owner_database != source_url.database or not owner_database.endswith("_test"):
         pytest.fail("owner connection did not target the Source test database")
     _verify_postgres(source_url)
+    restricted_engine = create_async_engine(source_url, hide_parameters=True)
+    try:
+        async with restricted_engine.connect() as restricted:
+            assert await restricted.scalar(text(ROLE_PREFLIGHT_SQL)) is True
+    finally:
+        await restricted_engine.dispose()
 
     actor_id = None
     create_operation_id, update_operation_id = uuid4(), uuid4()
@@ -323,7 +330,7 @@ async def test_restricted_source_psql_calls_frozen_connection_surface_and_rolls_
         assert (
             lines[0] == f"asset_source_client|asset_source_client|{source_url.database}"
         )
-        assert lines[1] == "t|f|f|f|f|f|f|f|f|f"
+        assert lines[1].split("|") == ["true"] + ["false"] * 9
 
         capabilities = json.loads(lines[2])
         assert isinstance(capabilities, list)

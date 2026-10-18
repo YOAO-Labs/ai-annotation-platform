@@ -98,13 +98,24 @@ BEGIN
         v_actor := aap_identity_v1.lock_active_actor(p_actor_id);
         IF v_actor IS NULL
            OR v_actor ->> 'schema' IS DISTINCT FROM 'aap-active-actor/v1'
-           OR (v_actor - ARRAY['schema', 'ok', 'data']) IS DISTINCT FROM '{}'::jsonb THEN
+           OR pg_catalog.jsonb_typeof(v_actor -> 'ok') IS DISTINCT FROM 'boolean'
+           OR (v_actor - ARRAY['schema', 'ok', 'data', 'error']) IS DISTINCT FROM '{}'::jsonb THEN
             RETURN aap_assets_v1._storage_connection_reply(NULL, 'invalid_response');
         END IF;
         IF v_actor -> 'ok' IS DISTINCT FROM 'true'::jsonb THEN
+            IF (v_actor - ARRAY['schema', 'ok', 'error']) IS DISTINCT FROM '{}'::jsonb
+               OR pg_catalog.jsonb_typeof(v_actor -> 'error') IS DISTINCT FROM 'object'
+               OR (v_actor -> 'error') - ARRAY['code'] IS DISTINCT FROM '{}'::jsonb
+               OR v_actor #>> '{error,code}' IS NULL
+               OR v_actor #>> '{error,code}' NOT IN ('account_not_active', 'account_busy') THEN
+                RETURN aap_assets_v1._storage_connection_reply(NULL, 'invalid_response');
+            END IF;
             RETURN aap_assets_v1._storage_connection_reply(
-                NULL, COALESCE(v_actor #>> '{error,code}', 'account_not_active')
+                NULL, v_actor #>> '{error,code}'
             );
+        END IF;
+        IF (v_actor - ARRAY['schema', 'ok', 'data']) IS DISTINCT FROM '{}'::jsonb THEN
+            RETURN aap_assets_v1._storage_connection_reply(NULL, 'invalid_response');
         END IF;
         v_actor_id := (v_actor #>> '{data,actor_id}')::uuid;
         v_role := v_actor #>> '{data,platform_role}';
@@ -427,13 +438,14 @@ AS $function$
 DECLARE
     v_actor jsonb;
     v_role text;
-    v_visible jsonb;
     v_total bigint;
     v_digest text;
     v_connections jsonb := '[]'::jsonb;
     v_next jsonb;
     v_more boolean := false;
     v_seen integer := 0;
+    v_page_bytes bigint := 2;
+    v_record_bytes bigint;
     v_page record;
 BEGIN
     IF actor_id IS NULL OR page_size IS NULL OR page_size NOT BETWEEN 1 AND 500
@@ -454,14 +466,23 @@ BEGIN
             WHERE v_role = 'super_admin'
                OR connection.scope = 'global'
                OR connection.created_by = actor_id
-        ), summary AS (
+        ), summary AS MATERIALIZED (
             SELECT count(*) AS total,
-                   COALESCE(
-                       pg_catalog.jsonb_agg(
-                           visible.facts ORDER BY visible.created_at DESC, visible.id DESC
+                   pg_catalog.encode(
+                       public.digest(
+                           pg_catalog.convert_to(
+                               COALESCE(
+                                   pg_catalog.jsonb_agg(
+                                       visible.facts ORDER BY visible.created_at DESC, visible.id DESC
+                                   ),
+                                   '[]'::jsonb
+                               )::text,
+                               'UTF8'
+                           ),
+                           'sha256'
                        ),
-                       '[]'::jsonb
-                   ) AS visible_rows
+                       'hex'
+                   ) AS snapshot_digest
             FROM visible
         ), page AS (
             SELECT visible.id, visible.created_at, visible.facts,
@@ -474,18 +495,14 @@ BEGIN
             ORDER BY visible.created_at DESC, visible.id DESC
             LIMIT page_size + 1
         )
-        SELECT summary.total, summary.visible_rows,
+        SELECT summary.total, summary.snapshot_digest,
                page.id, page.created_at, page.facts, page.page_number
         FROM summary
         LEFT JOIN page ON true
         ORDER BY page.page_number
     LOOP
         v_total := v_page.total;
-        v_visible := v_page.visible_rows;
-        v_digest := pg_catalog.encode(
-            public.digest(pg_catalog.convert_to(v_visible::text, 'UTF8'), 'sha256'),
-            'hex'
-        );
+        v_digest := v_page.snapshot_digest;
         IF v_page.page_number IS NULL THEN
             EXIT;
         END IF;
@@ -494,6 +511,15 @@ BEGIN
             v_more := true;
             EXIT;
         END IF;
+        v_record_bytes := pg_catalog.octet_length(v_page.facts::text) + 2;
+        IF v_page_bytes + v_record_bytes > 15728640 THEN
+            IF v_seen = 1 THEN
+                RETURN aap_assets_v1._storage_connection_reply(NULL, 'resource_budget_exceeded');
+            END IF;
+            v_more := true;
+            EXIT;
+        END IF;
+        v_page_bytes := v_page_bytes + v_record_bytes;
         v_connections := v_connections || pg_catalog.jsonb_build_array(v_page.facts);
         v_next := pg_catalog.jsonb_build_object(
             'created_at', v_page.created_at,

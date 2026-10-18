@@ -22,6 +22,8 @@ Connection capture does not resolve network policy. Name-only and null patches r
 
 The Source runtime receives an explicit optional connector encryption key matching the existing importer key, an environment fallback allowlist and an optional known-hosts file. Existing source operations do not require the connector key. Fernet ciphertext stays within provider/native bindings. HTTP results contain only allowlisted public config and `secret_set`; historical endpoint userinfo and unsupported secret config fields are removed. Probes retain the twenty-entry sample, timeouts and SSH host-key rejection, and expose exception class names instead of SDK text.
 
+The public list preserves its complete result. Native pages stop at the requested row count or fifteen MiB of record JSON, leaving room for the envelope under the sixteen-MiB private reply limit. The page size is an upper bound, and an individually oversized legacy record returns `resource_budget_exceeded`. Each page computes the full visible snapshot digest once; the gateway checks stable scope, total, ordering and cursor progress before returning the assembled list.
+
 Replay identity stores a keyed, operation-bound credential fingerprint rather than plaintext or an unsalted password digest. The key is the decoded thirty-two-byte Fernet key. The HMAC-SHA256 input is `aap-assets-connections-request/v1`, a NUL byte, the canonical lowercase operation UUID, another NUL byte and the existing sorted, compact, ASCII-escaped finite JSON credential encoding. Portable crypto fixtures freeze that profile. Request context and newly randomized Fernet ciphertext are not part of replay identity. Receipt reads still check the current active actor and relevant ownership/management rights before returning the first committed result. A new key requests a fresh probe.
 
 Deleting a connection does not delete retained import operation snapshots or evidence. Subsequent importer credential reads keep their current `connection_changed` behavior; an already loaded lease retains its existing execution semantics. This does not change the separate rule that deleting referenced source assets returns 409 until project detachment.
@@ -31,6 +33,8 @@ Deleting a connection does not delete retained import operation snapshots or evi
 The Assets provider owns encryption, probes and durable connection mutation. API remains the public authenticated gateway; allowlist and deployment-preset administration stay with Settings and deployment configuration. A different provider language must implement the frozen JSON/native contract and credential-intent fixtures, without loading the API or Python runtime.
 
 This closes the connection administration slice. Non-spatial operator ingestion, derived media/Blob operations, remaining Assets capabilities and other modules still require extraction and qualification. Go remains an isolated experiment.
+
+Local qualification includes restricted PostgreSQL execution, real Source HTTP/S3/SFTP, mutation and actor/policy changes during connector I/O, lost-response replay, restart without a connector key, unknown SSH host rejection and explicit local cutover. A 1,033-record list with near-request-limit configurations returns 42,139,197 public bytes through seven bounded pages; the largest private page is 15,206,907 bytes. Under the declared 0.5 CPU / 512 MiB Source profile, the observed cgroup peak is 149,778,432 bytes and the public list takes 6.24 seconds. These are local acceptance observations, not production sizing or remote CI evidence.
 
 ## References
 

@@ -204,9 +204,7 @@ SELECT
     AND NOT EXISTS (
         SELECT 1
         FROM pg_catalog.pg_namespace AS namespace
-        WHERE namespace.nspname NOT IN ('pg_catalog', 'information_schema')
-          AND namespace.nspname NOT LIKE 'pg_toast%'
-          AND namespace.nspname NOT LIKE 'pg_temp_%'
+        WHERE namespace.nspname ~ '^aap_[a-z0-9_]+_v1$'
           AND namespace.nspname <> 'aap_assets_v1'
           AND pg_catalog.has_schema_privilege(
               current_user, namespace.oid, 'USAGE'

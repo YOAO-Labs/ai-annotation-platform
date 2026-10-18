@@ -223,6 +223,49 @@ async def test_remote_connection_list_rejects_wrong_cursor_echo(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_remote_connection_list_preserves_results_beyond_one_page_budget(
+    monkeypatch,
+):
+    actor_id = uuid.uuid4()
+    now = datetime.now(UTC)
+    records = [
+        _record(uuid.uuid4(), actor_id, str(index), now - timedelta(seconds=index))
+        for index in range(3)
+    ]
+    for record in records:
+        record.config["base_prefix"] = "p" * 1000
+    pages = []
+    for index, record in enumerate(records):
+        pages.append(
+            ConnectionsPage(
+                actor_id=actor_id,
+                after=None if index == 0 else pages[-1].next_cursor,
+                next_cursor=ConnectionCursor(created_at=record.created_at, id=record.id)
+                if index < len(records) - 1
+                else None,
+                snapshot_digest="a" * 64,
+                total=len(records),
+                complete=index == len(records) - 1,
+                connections=[record],
+            )
+        )
+    maximum = max(len(json.dumps(_wire(page)).encode()) for page in pages)
+    monkeypatch.setattr(assets_connections, "_MAX_RESPONSE_BYTES", maximum)
+    remaining = iter(pages)
+    _mock_http(
+        monkeypatch,
+        lambda _request: httpx.Response(200, json=_wire(next(remaining))),
+    )
+    db = AsyncMock(spec=AsyncSession)
+
+    result = await AssetsConnectionsGateway(db).list_connections(actor_id)
+
+    assert [record.id for record in result] == [record.id for record in records]
+    assert sum(len(record.model_dump_json()) for record in result) > maximum
+    db.execute.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_remote_connection_scope_failure_does_not_fall_back(monkeypatch):
     actor_id, connection_id = uuid.uuid4(), uuid.uuid4()
     wrong_id = uuid.uuid4()

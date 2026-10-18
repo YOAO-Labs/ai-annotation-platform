@@ -11,7 +11,7 @@ last_reviewed: 2026-10-19
 
 所有端点前缀 `/api/v1/storage-connections`，需登录。**密钥永不在响应中回吐**——响应仅含 `secret_set: bool` 表达是否已配密钥。
 
-> 若部署未配置 `CONNECTOR_ENCRYPTION_KEY`，涉及密钥的端点（create / test / 导入）返回 `503`。
+> 本地工作流使用 `CONNECTOR_ENCRYPTION_KEY`；独立 Source 使用 `ASSETS_SOURCE_CONNECTOR_ENCRYPTION_KEY` 或对应的 `_FILE`，有效密钥需与导入进程一致。创建、轮换或解密凭据缺少密钥时返回 `503`。读取列表、名称更新和空补丁不需要密钥。
 
 ## 端点一览
 

@@ -443,4 +443,4 @@ Scene、DatasetItem 的 Scene/frame 分配、位姿和标定通过 Assets 的 `a
 
 标定 CAS、历史修订、当前元数据合并、Audit 和不可变回执共享事务；最终写入重新校验当前项目管理与共享相机权限。已受理点云准备保持原操作执行权，解绑、取消和关联代次变化阻止迟到结果。普通远程工作流由独立工件执行；明确要求整体回滚的导入在同一调用方 SQL 连接上组合公开原生能力，不在远程故障后自动回退。
 
-Catalog LOGIN 精确执行 29 项公开能力；Source LOGIN 执行 23 项（14 项来源/入库能力和 9 项连接管理能力），导入 LOGIN 另有 7 项能力。连接列表、读取、策略、捕获、回执和四类写入均经既有 Assets Source runtime；它不直接读取业务表。`storage_connection_operations` 保存无 live FK 的不可变回执。需要网络策略的变更在 DNS/探测完成后才短暂锁定 Settings 并重查策略；锁不跨越外部 I/O。完整字段、分页完整性、S3 条件读取与部署次序见[空间素材协议](/api/guides/assets-spatial)及 [ADR-0102](/dev/adr/0102-assets-spatial-state)。媒体/Blob 派生和其余模块仍按各自缺口推进。
+Catalog LOGIN 精确执行 29 项公开能力；Source LOGIN 执行 23 项（14 项来源/入库能力和 9 项连接管理能力），导入 LOGIN 另有 7 项能力。连接列表、读取、策略、捕获、回执和四类写入均经既有 Assets Source runtime；它不直接读取业务表。`storage_connection_operations` 保存无 live FK 的不可变回执。需要网络策略的变更在 DNS/探测完成后才短暂锁定 Settings 并重查策略；锁不跨越外部 I/O。连接管理字段与重放规则见[连接器 API](/api/guides/storage-connections)；空间字段、分页完整性、S3 条件读取与部署次序见[空间素材协议](/api/guides/assets-spatial)及 [ADR-0102](/dev/adr/0102-assets-spatial-state)。媒体/Blob 派生和其余模块仍按各自缺口推进。

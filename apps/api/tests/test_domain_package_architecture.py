@@ -79,6 +79,7 @@ REMOVED_MODULES = (
     "app.services.project",
     "app.services.dataset_upload_contract",
     "app.services.dataset_source_deletion_contract",
+    "app.services.storage_connection",
     *_SPATIAL_RETIRED_MODULES,
 )
 
@@ -385,6 +386,11 @@ DOMAIN_PACKAGES = (
         legacy_facades=(),
     ),
     DomainSpec(
+        package="assets_connections",
+        legacy_facades=("app.services.storage_connection",),
+        allowed_app_imports=("app.config",),
+    ),
+    DomainSpec(
         package="dataset_source_ingest_delivery",
         legacy_facades=(),
     ),
@@ -425,6 +431,7 @@ DOMAIN_PACKAGES = (
             "app.db.models.task_dataset_item_link",
             "app.schemas.scene",
             "app.services.assets_spatial",
+            "app.services.assets_spatial_views",
         ),
     ),
     DomainSpec(

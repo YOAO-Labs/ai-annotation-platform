@@ -357,7 +357,6 @@ class AssetsConnectionsGateway:
         cursor = None
         first_page: ConnectionsPage | None = None
         items = []
-        serialized_items_size = 2
         seen: set[Any] = set()
         previous_key: tuple[Any, Any] | None = None
         while True:
@@ -383,11 +382,6 @@ class AssetsConnectionsGateway:
                     raise _invalid_response(
                         "Assets connection list is not unique and descending"
                     )
-                serialized_items_size += len(_result_bytes(connection)) + (
-                    1 if items else 0
-                )
-                if serialized_items_size > _MAX_RESPONSE_BYTES:
-                    raise _invalid_response("Assets connection list exceeds its budget")
                 seen.add(identity)
                 previous_key = key
                 items.append(connection)
@@ -396,16 +390,6 @@ class AssetsConnectionsGateway:
             if page.complete:
                 if page.next_cursor is not None or len(items) != first_page.total:
                     raise _invalid_response("Assets connection list is incomplete")
-                assembled = ConnectionsPage(
-                    actor_id=first_page.actor_id,
-                    after=None,
-                    next_cursor=None,
-                    snapshot_digest=first_page.snapshot_digest,
-                    total=first_page.total,
-                    complete=True,
-                    connections=items,
-                )
-                _result_bytes(assembled)
                 return items
             if (
                 page.next_cursor is None

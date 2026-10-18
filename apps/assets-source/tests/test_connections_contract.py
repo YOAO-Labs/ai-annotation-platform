@@ -8,6 +8,7 @@ from pydantic import ValidationError
 
 from aap_assets_source.connections_contract import (
     CONNECTION_NATIVE_ARGUMENTS,
+    CONNECTION_NATIVE_OPERATIONS,
     CONNECTION_NATIVE_SIGNATURES,
     CONNECTION_OPERATIONS,
     CONNECTIONS_SCHEMA,
@@ -51,6 +52,14 @@ def test_connection_contract_freezes_nine_native_and_six_public_operations():
     for name, signature in CONNECTION_NATIVE_SIGNATURES.items():
         assert len(signature.split(",")) == len(CONNECTION_NATIVE_ARGUMENTS[name])
     expected = connections_contract_document()
+    assert expected["$schema"] == "https://json-schema.org/draft/2020-12/schema"
+    assert expected["$id"] == "urn:aap:assets-connections:v1"
+    for request, result in (
+        *CONNECTION_NATIVE_OPERATIONS.values(),
+        *CONNECTION_OPERATIONS.values(),
+    ):
+        assert request.__name__ in expected["$defs"]
+        assert result.__name__ in expected["$defs"]
     package = (
         Path(__file__).resolve().parents[1]
         / "src/aap_assets_source/connections_contract.schema.json"
