@@ -136,6 +136,10 @@ DECLARE
         )::oid
     ];
 BEGIN
+    IF pg_catalog.has_database_privilege(role_oid, current_database(), 'CREATE')
+       OR pg_catalog.has_database_privilege(role_oid, current_database(), 'TEMP') THEN
+        RAISE EXCEPTION 'Operator LOGIN can create database or temporary objects';
+    END IF;
     IF EXISTS (
         SELECT 1 FROM pg_catalog.pg_namespace AS ns
         WHERE ns.nspname ~ '^aap_[a-z0-9_]+_v1$'

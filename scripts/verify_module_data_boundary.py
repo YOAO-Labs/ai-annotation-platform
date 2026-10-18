@@ -746,7 +746,17 @@ def _create_module_roles(
             "CREATE ROLE asset_operator_client LOGIN "
             f"PASSWORD '{operator_password}' NOSUPERUSER NOCREATEDB NOCREATEROLE "
             "NOINHERIT NOREPLICATION NOBYPASSRLS;\n"
+            'REVOKE TEMPORARY ON DATABASE :"expected_database" FROM PUBLIC;\n'
+            'GRANT TEMPORARY ON DATABASE :"expected_database" TO '
+            + ", ".join(
+                ("legacy_runtime",)
+                + tuple(
+                    role for role in MODULE_ROLES if role != "asset_operator_client"
+                )
+            )
+            + ";\n"
         ),
+        variables={"expected_database": database},
     )
 
 

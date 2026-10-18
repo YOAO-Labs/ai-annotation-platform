@@ -1049,7 +1049,7 @@ psql -v expected_database=annotation_test -v migration_role=owner \
   -f infra/docker/assets-operator-grants.sql
 ```
 
-`asset_operator_client` 必须与 migration role 和 `assets_code` owner 分离，作为 LOGIN 使用且不继承其他角色。它只能执行 `aap_assets_v1` 中六项 operator 函数，不直接读写表、不访问其他 owner schema；`dataset_operator_operations` 保存不可变操作回执且没有 live Dataset/Item 外键。不要把 Source 的 23 项、Catalog 的 29 项或导入执行器的 7 项能力授给该角色。
+`asset_operator_client` 必须与 migration role 和 `assets_code` owner 分离，作为 LOGIN 使用且不继承其他角色。它只能执行 `aap_assets_v1` 中六项 operator 函数，不直接读写表、不访问其他 owner schema；`dataset_operator_operations` 保存不可变操作回执且没有 live Dataset/Item 外键。不要把 Source 的 23 项、Catalog 的 29 项或导入执行器的 7 项能力授给该角色。现有脚本继续使用原装配连接；六函数账号供来源能力的独立消费者使用，不能直接运行还包含 Identity、Workspace 或 Labeling 步骤的完整脚本。operator grants 会拒绝数据库 CREATE/TEMP 权限，包含从 PUBLIC 获得的权限；初始化应撤销 PUBLIC 的 TEMP，只对既有确需临时表的角色显式授予。
 
 登记操作继续使用调用方同一 SQL 事务；nuScenes 导入可将 Dataset/Item、Scene、标定、工作区关联和 Labeling 任务共同提交或回滚。条目按输入顺序以至多 500 项分批追加或更新。重导读取通过排序游标返回稳定快照；单页最多 500 项，记录 JSON 上限 15 MiB，完整响应上限 16 MiB，单次请求上限 8 MiB。调用方校验页序、总数和快照摘要后再使用数据；source snapshot 是不透明 CAS 值，更新时由 Assets 重新校验并只合并请求字段。
 

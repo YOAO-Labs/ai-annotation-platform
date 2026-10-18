@@ -48,6 +48,8 @@ SELECT current_user || '|' || session_user || '|' || current_database();
 SELECT
     pg_catalog.has_schema_privilege(session_user, 'aap_assets_v1', 'USAGE')
     AND NOT pg_catalog.has_schema_privilege(session_user, 'aap_assets_v1', 'CREATE')
+    AND NOT pg_catalog.has_database_privilege(session_user, current_database(), 'CREATE')
+    AND NOT pg_catalog.has_database_privilege(session_user, current_database(), 'TEMP')
     AND NOT EXISTS (
         SELECT 1 FROM pg_catalog.pg_namespace AS namespace
         WHERE namespace.nspname ~ '^aap_[a-z0-9_]+_v1$'

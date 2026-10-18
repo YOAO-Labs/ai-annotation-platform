@@ -57,9 +57,12 @@ Source LOGIN. The connection import worker has its own login limited to seven
 import capabilities; the Catalog login remains separate with twenty-nine
 capabilities.
 
-The local image and nuScenes importer scripts use a separate trusted
-`asset_operator_client` login for six Assets Dataset/Item registration
-functions. This is not part of the Source runtime or its 23-function login:
+The local image and nuScenes importer scripts register Dataset/Item state
+through six native Assets functions. A separate trusted `asset_operator_client`
+login is published for consumers of those six functions. The complete scripts
+keep their existing composition connection: the six-function login cannot run
+their Identity, Workspace or Labeling steps. This is not part of the Source
+runtime or its 23-function login:
 the importer scripts call the native SQL contract on their caller-owned
 transaction and do not use the Source HTTP API or fall back through
 `ASSETS_SOURCE_URL`. The operator login has no direct table privileges and no
