@@ -1,0 +1,136 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:aap:contract:dataset-source-guards:v1",
+  "title": "Dataset source-deletion owner capabilities v1",
+  "description": "Same-transaction source-retention guards and Dataset attribution cleanup. Functions never commit or delete source bytes.",
+  "x-postgresql-functions": [
+    "aap_learning_v1.guard_dataset_source_deletion(uuid, uuid)",
+    "aap_labeling_v1.guard_dataset_source_deletion(uuid, uuid)",
+    "aap_labeling_v1.detach_deleted_dataset_attribution(uuid)"
+  ],
+  "x-postgresql-dependencies": [
+    "aap_assets_v1.dataset_item_references(uuid, uuid)",
+    "aap_assets_v1.dataset_scene_references(uuid)",
+    "aap_assets_v1.dataset_association_references(uuid)",
+    "aap_jobs_v1.task_creation_execution_active(uuid, uuid)"
+  ],
+  "oneOf": [
+    { "$ref": "#/$defs/learningGuardCall" },
+    { "$ref": "#/$defs/labelingGuardCall" },
+    { "$ref": "#/$defs/detachAttributionCall" }
+  ],
+  "$defs": {
+    "uuid": { "type": "string", "format": "uuid" },
+    "guardArguments": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["p_dataset_id", "p_item_id"],
+      "properties": {
+        "p_dataset_id": { "$ref": "#/$defs/uuid" },
+        "p_item_id": { "anyOf": [{ "$ref": "#/$defs/uuid" }, { "type": "null" }] }
+      }
+    },
+    "detachArguments": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["p_dataset_id"],
+      "properties": { "p_dataset_id": { "$ref": "#/$defs/uuid" } }
+    },
+    "sourceRetentionSuccess": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "ok", "data"],
+      "properties": {
+        "schema": { "const": "aap-source-retention/v1" },
+        "ok": { "const": true },
+        "data": { "type": "object", "additionalProperties": false }
+      }
+    },
+    "learningFailure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "ok", "error"],
+      "properties": {
+        "schema": { "const": "aap-source-retention/v1" },
+        "ok": { "const": false },
+        "error": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["code"],
+          "properties": {
+            "code": {
+              "enum": ["invalid_request", "active_learning_reference"]
+            }
+          }
+        }
+      }
+    },
+    "labelingFailure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "ok", "error"],
+      "properties": {
+        "schema": { "const": "aap-source-retention/v1" },
+        "ok": { "const": false },
+        "error": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["code"],
+          "properties": {
+            "code": {
+              "enum": ["invalid_request", "source_in_use", "creation_in_progress"]
+            }
+          }
+        }
+      }
+    },
+    "learningResponse": {
+      "oneOf": [
+        { "$ref": "#/$defs/sourceRetentionSuccess" },
+        { "$ref": "#/$defs/learningFailure" }
+      ]
+    },
+    "labelingResponse": {
+      "oneOf": [
+        { "$ref": "#/$defs/sourceRetentionSuccess" },
+        { "$ref": "#/$defs/labelingFailure" }
+      ]
+    },
+    "learningGuardCall": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["function", "arguments", "result"],
+      "properties": {
+        "function": {
+          "const": "aap_learning_v1.guard_dataset_source_deletion(uuid, uuid)"
+        },
+        "arguments": { "$ref": "#/$defs/guardArguments" },
+        "result": { "$ref": "#/$defs/learningResponse" }
+      }
+    },
+    "labelingGuardCall": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["function", "arguments", "result"],
+      "properties": {
+        "function": {
+          "const": "aap_labeling_v1.guard_dataset_source_deletion(uuid, uuid)"
+        },
+        "arguments": { "$ref": "#/$defs/guardArguments" },
+        "result": { "$ref": "#/$defs/labelingResponse" }
+      }
+    },
+    "detachAttributionCall": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["function", "arguments", "result"],
+      "properties": {
+        "function": {
+          "const": "aap_labeling_v1.detach_deleted_dataset_attribution(uuid)"
+        },
+        "arguments": { "$ref": "#/$defs/detachArguments" },
+        "result": { "type": "integer", "minimum": 0 }
+      }
+    }
+  }
+}
