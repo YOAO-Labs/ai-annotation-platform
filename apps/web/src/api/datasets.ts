@@ -99,10 +99,15 @@ export const datasetsApi = {
 
   get: (id: string) => apiClient.get<DatasetResponse>(`/datasets/${id}`),
 
-  create: (payload: DatasetCreatePayload) => apiClient.post<DatasetResponse>("/datasets", payload),
+  create: (payload: DatasetCreatePayload, options?: { idempotencyKey?: string }) =>
+    apiClient.post<DatasetResponse>("/datasets", payload, {
+      headers: { "Idempotency-Key": options?.idempotencyKey ?? crypto.randomUUID() },
+    }),
 
-  update: (id: string, payload: DatasetUpdatePayload) =>
-    apiClient.put<DatasetResponse>(`/datasets/${id}`, payload),
+  update: (id: string, payload: DatasetUpdatePayload, options?: { idempotencyKey?: string }) =>
+    apiClient.put<DatasetResponse>(`/datasets/${id}`, payload, {
+      headers: { "Idempotency-Key": options?.idempotencyKey ?? crypto.randomUUID() },
+    }),
 
   sniffAxisConvention: (id: string) =>
     apiClient.post<SniffAxisConventionResponse>(`/datasets/${id}/sniff-axis-convention`),

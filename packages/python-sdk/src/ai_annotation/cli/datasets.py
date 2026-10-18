@@ -74,12 +74,24 @@ def list_(
 def create(
     name: str = typer.Option(..., "--name", help="数据集名称"),
     data_type: str = typer.Option("image", "--data-type", help="数据类型"),
+    idempotency_key: str | None = typer.Option(
+        None,
+        "--idempotency-key",
+        help="稳定 UUID；响应不确定时重试请复用原值",
+    ),
     json_output: bool = typer.Option(False, "--json", help="输出裸 JSON"),
 ) -> None:
     """创建数据集。"""
+    if idempotency_key is not None:
+        try:
+            idempotency_key = str(UUID(idempotency_key))
+        except ValueError as exc:
+            raise typer.BadParameter("--idempotency-key 必须是 UUID") from exc
     with cli_errors(json_output):
         with get_client(json_output) as client:
-            dataset = client.datasets.create(name=name, data_type=data_type)
+            dataset = client.datasets.create(
+                name=name, data_type=data_type, idempotency_key=idempotency_key
+            )
     if json_output:
         print_json(dataset.model_dump(mode="json"))
     else:
@@ -99,9 +111,19 @@ def update(
     clear_axis_convention: bool = typer.Option(
         False, "--clear-axis-convention", help="清除坐标系约定"
     ),
+    idempotency_key: str | None = typer.Option(
+        None,
+        "--idempotency-key",
+        help="稳定 UUID；响应不确定时重试请复用原值",
+    ),
     json_output: bool = typer.Option(False, "--json", help="输出裸 JSON"),
 ) -> None:
     """更新数据集的显式指定字段。"""
+    if idempotency_key is not None:
+        try:
+            idempotency_key = str(UUID(idempotency_key))
+        except ValueError as exc:
+            raise typer.BadParameter("--idempotency-key 必须是 UUID") from exc
     if axis_convention is not None and clear_axis_convention:
         raise typer.BadParameter(
             "--axis-convention 与 --clear-axis-convention 不能同时使用"
@@ -117,7 +139,9 @@ def update(
         raise typer.BadParameter("至少提供一个更新选项")
     with cli_errors(json_output):
         with get_client(json_output) as client:
-            dataset = client.datasets.update(dataset_id, **fields)
+            dataset = client.datasets.update(
+                dataset_id, idempotency_key=idempotency_key, **fields
+            )
     if json_output:
         print_json(dataset.model_dump(mode="json"))
     else:

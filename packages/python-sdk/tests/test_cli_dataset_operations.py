@@ -115,6 +115,97 @@ def test_import_from_connection_cli_requires_confirmation_and_returns_job(
     )
 
 
+@pytest.mark.parametrize("operation", ["create", "update"])
+def test_dataset_mutation_cli_reuses_saved_key_after_lost_response(
+    operation, client, monkeypatch, respx_mock
+):
+    _patch_cli_clients(monkeypatch, client)
+    key = str(uuid4())
+    dataset = {
+        "id": DATASET_ID,
+        "display_id": "D-1",
+        "name": "ds",
+        "description": "updated",
+        "data_type": "image",
+        "file_count": 2,
+        "total_size": 100,
+        "created_at": "2026-06-11T00:00:00Z",
+    }
+    if operation == "create":
+        route = respx_mock.post(f"{API}/datasets").mock(
+            side_effect=[
+                httpx.ReadTimeout(
+                    "response lost after the server accepted the request"
+                ),
+                httpx.Response(201, json=dataset),
+            ]
+        )
+        args = [
+            "create",
+            "--name",
+            "ds",
+            "--idempotency-key",
+            key,
+            "--json",
+        ]
+        expected_body = {"name": "ds", "data_type": "image"}
+    else:
+        route = respx_mock.put(f"{API}/datasets/{DATASET_ID}").mock(
+            side_effect=[
+                httpx.ReadTimeout(
+                    "response lost after the server accepted the request"
+                ),
+                httpx.Response(200, json=dataset),
+            ]
+        )
+        args = [
+            "update",
+            DATASET_ID,
+            "--description",
+            "updated",
+            "--idempotency-key",
+            key,
+            "--json",
+        ]
+        expected_body = {"description": "updated"}
+
+    first = runner.invoke(datasets_app, args, env=ENV)
+    assert first.exit_code == 1, first.output
+    second = runner.invoke(datasets_app, args, env=ENV)
+
+    assert second.exit_code == 0, second.output
+    assert json.loads(second.stdout)["id"] == DATASET_ID
+    assert [call.request.headers["Idempotency-Key"] for call in route.calls] == [
+        key,
+        key,
+    ]
+    assert [json.loads(call.request.content) for call in route.calls] == [
+        expected_body,
+        expected_body,
+    ]
+
+
+@pytest.mark.parametrize("operation", ["create", "update"])
+def test_dataset_mutation_cli_rejects_bad_key_before_request(operation, respx_mock):
+    if operation == "create":
+        route = respx_mock.post(f"{API}/datasets").mock(
+            return_value=httpx.Response(201, json={})
+        )
+        args = ["create", "--name", "ds"]
+    else:
+        route = respx_mock.put(f"{API}/datasets/{DATASET_ID}").mock(
+            return_value=httpx.Response(200, json={})
+        )
+        args = ["update", DATASET_ID, "--description", "updated"]
+    args.extend(["--idempotency-key", "not-a-uuid", "--json"])
+
+    result = runner.invoke(datasets_app, args, env=ENV)
+
+    assert result.exit_code != 0
+    assert "UUID" in result.output
+    assert route.call_count == 0
+
+
 def test_unlink_cli_reuses_saved_key_after_lost_response(
     client, monkeypatch, respx_mock
 ):

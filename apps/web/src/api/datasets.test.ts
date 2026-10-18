@@ -51,14 +51,48 @@ describe("datasetsApi · endpoint 契约", () => {
   it("get / create / update", () => {
     datasetsApi.get("d1");
     expect(get).toHaveBeenCalledWith("/datasets/d1");
-    datasetsApi.create({ name: "n", data_type: "lidar", axis_convention: "apollo" });
-    expect(post).toHaveBeenCalledWith("/datasets", {
-      name: "n",
-      data_type: "lidar",
-      axis_convention: "apollo",
-    });
-    datasetsApi.update("d1", { axis_convention: null });
-    expect(put).toHaveBeenCalledWith("/datasets/d1", { axis_convention: null });
+    const createKey = "35d9bbf7-2410-4d34-9ca0-6cb9b13ea83b";
+    datasetsApi.create(
+      { name: "n", data_type: "lidar", axis_convention: "apollo" },
+      { idempotencyKey: createKey },
+    );
+    expect(post).toHaveBeenCalledWith(
+      "/datasets",
+      {
+        name: "n",
+        data_type: "lidar",
+        axis_convention: "apollo",
+      },
+      { headers: { "Idempotency-Key": createKey } },
+    );
+    const updateKey = "7b14b573-3203-4d64-8b51-6ab7b5fbe4cb";
+    datasetsApi.update("d1", { axis_convention: null }, { idempotencyKey: updateKey });
+    expect(put).toHaveBeenCalledWith(
+      "/datasets/d1",
+      { axis_convention: null },
+      {
+        headers: { "Idempotency-Key": updateKey },
+      },
+    );
+  });
+
+  it("dataset create/update generate UUID keys when omitted", () => {
+    datasetsApi.create({ name: "n" });
+    datasetsApi.update("d1", { description: "changed" });
+    expect(post).toHaveBeenCalledWith(
+      "/datasets",
+      { name: "n" },
+      {
+        headers: { "Idempotency-Key": expect.stringMatching(/^[0-9a-f-]{36}$/) },
+      },
+    );
+    expect(put).toHaveBeenCalledWith(
+      "/datasets/d1",
+      { description: "changed" },
+      {
+        headers: { "Idempotency-Key": expect.stringMatching(/^[0-9a-f-]{36}$/) },
+      },
+    );
   });
 
   it("sniffAxisConvention POST 到 sniff 端点", () => {

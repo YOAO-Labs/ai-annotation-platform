@@ -54,6 +54,8 @@ def test_create_and_get_dataset(client, respx_mock):
     ds = client.datasets.create(name="ds", data_type="image", is_temporal=False)
     body = json.loads(create.calls.last.request.content)
     assert body == {"name": "ds", "data_type": "image", "is_temporal": False}
+    key = create.calls.last.request.headers["Idempotency-Key"]
+    assert str(UUID(key)) == key
     assert ds.display_id == "D-1"
 
     respx_mock.get(f"{API}/datasets/{DS_ID}").mock(
@@ -68,7 +70,88 @@ def test_update_dataset_preserves_explicit_none(client, respx_mock):
     )
     dataset = client.datasets.update(DS_ID, axis_convention=None)
     assert json.loads(route.calls.last.request.content) == {"axis_convention": None}
+    key = route.calls.last.request.headers["Idempotency-Key"]
+    assert str(UUID(key)) == key
     assert isinstance(dataset, Dataset)
+
+
+@pytest.mark.parametrize("operation", ["create", "update"])
+def test_dataset_create_update_reuses_saved_key_after_lost_response(
+    client, respx_mock, operation
+):
+    key = str(uuid4())
+    if operation == "create":
+        route = respx_mock.post(f"{API}/datasets").mock(
+            side_effect=[
+                httpx.ReadTimeout(
+                    "response lost after the server accepted the request"
+                ),
+                httpx.Response(201, json=DATASET),
+            ]
+        )
+
+        def call():
+            return client.datasets.create(
+                name="ds", data_type="image", is_temporal=False, idempotency_key=key
+            )
+
+        expected_body = {
+            "name": "ds",
+            "data_type": "image",
+            "is_temporal": False,
+        }
+    else:
+        route = respx_mock.put(f"{API}/datasets/{DS_ID}").mock(
+            side_effect=[
+                httpx.ReadTimeout(
+                    "response lost after the server accepted the request"
+                ),
+                httpx.Response(200, json=DATASET),
+            ]
+        )
+
+        def call():
+            return client.datasets.update(
+                DS_ID, axis_convention=None, idempotency_key=key
+            )
+
+        expected_body = {"axis_convention": None}
+
+    with pytest.raises(httpx.ReadTimeout):
+        call()
+    assert isinstance(call(), Dataset)
+    assert [call.request.headers["Idempotency-Key"] for call in route.calls] == [
+        key,
+        key,
+    ]
+    assert [json.loads(call.request.content) for call in route.calls] == [
+        expected_body,
+        expected_body,
+    ]
+
+
+@pytest.mark.parametrize("operation", ["create", "update"])
+def test_invalid_dataset_mutation_key_sends_no_request(client, respx_mock, operation):
+    if operation == "create":
+        route = respx_mock.post(f"{API}/datasets").mock(
+            return_value=httpx.Response(201, json=DATASET)
+        )
+
+        def call():
+            return client.datasets.create(name="ds", idempotency_key="not-a-uuid")
+    else:
+        route = respx_mock.put(f"{API}/datasets/{DS_ID}").mock(
+            return_value=httpx.Response(200, json=DATASET)
+        )
+
+        def call():
+            return client.datasets.update(
+                DS_ID, name="new name", idempotency_key="not-a-uuid"
+            )
+
+    with pytest.raises(ValueError, match="idempotency_key must be a UUID"):
+        call()
+    assert route.call_count == 0
 
 
 def test_delete_dataset(client, respx_mock):

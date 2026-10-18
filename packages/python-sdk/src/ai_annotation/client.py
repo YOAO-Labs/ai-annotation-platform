@@ -177,6 +177,15 @@ from ai_annotation.models import (
 
 IdLike = str | UUID
 
+
+def _dataset_idempotency_header(value: IdLike | None) -> dict[str, str]:
+    try:
+        key = uuid4() if value is None else UUID(str(value))
+    except (TypeError, ValueError) as exc:
+        raise ValueError("idempotency_key must be a UUID") from exc
+    return {"Idempotency-Key": str(key)}
+
+
 _JOB_TERMINAL = frozenset({"completed", "failed", "cancelled"})
 
 
@@ -421,9 +430,20 @@ class Datasets:
         )
         return Page[Dataset].model_validate(resp.json())
 
-    def create(self, name: str, data_type: str = "image", **kwargs: Any) -> Dataset:
+    def create(
+        self,
+        name: str,
+        data_type: str = "image",
+        *,
+        idempotency_key: IdLike | None = None,
+        **kwargs: Any,
+    ) -> Dataset:
+        """Create a dataset; pass a saved UUID to replay after a lost response."""
         resp = self._http.request(
-            "POST", "/datasets", json={"name": name, "data_type": data_type, **kwargs}
+            "POST",
+            "/datasets",
+            json={"name": name, "data_type": data_type, **kwargs},
+            headers=_dataset_idempotency_header(idempotency_key),
         )
         return Dataset.model_validate(resp.json())
 
@@ -431,22 +451,30 @@ class Datasets:
         resp = self._http.request("GET", f"/datasets/{dataset_id}")
         return Dataset.model_validate(resp.json())
 
-    def update(self, dataset_id: IdLike, **fields: Any) -> Dataset:
-        resp = self._http.request("PUT", f"/datasets/{dataset_id}", json=fields)
+    def update(
+        self,
+        dataset_id: IdLike,
+        *,
+        idempotency_key: IdLike | None = None,
+        **fields: Any,
+    ) -> Dataset:
+        """Update a dataset; pass a saved UUID to replay after a lost response."""
+        resp = self._http.request(
+            "PUT",
+            f"/datasets/{dataset_id}",
+            json=fields,
+            headers=_dataset_idempotency_header(idempotency_key),
+        )
         return Dataset.model_validate(resp.json())
 
     def delete(
         self, dataset_id: IdLike, *, idempotency_key: IdLike | None = None
     ) -> None:
         """Delete a dataset; pass a saved UUID to replay after a lost response."""
-        try:
-            key = uuid4() if idempotency_key is None else UUID(str(idempotency_key))
-        except (TypeError, ValueError) as exc:
-            raise ValueError("idempotency_key must be a UUID") from exc
         self._http.request(
             "DELETE",
             f"/datasets/{dataset_id}",
-            headers={"Idempotency-Key": str(key)},
+            headers=_dataset_idempotency_header(idempotency_key),
         )
 
     def backfill_dimensions(
@@ -523,14 +551,10 @@ class Datasets:
         idempotency_key: IdLike | None = None,
     ) -> None:
         """Delete a dataset source; pass a saved UUID to replay a lost response."""
-        try:
-            key = uuid4() if idempotency_key is None else UUID(str(idempotency_key))
-        except (TypeError, ValueError) as exc:
-            raise ValueError("idempotency_key must be a UUID") from exc
         self._http.request(
             "DELETE",
             f"/datasets/{dataset_id}/items/{item_id}",
-            headers={"Idempotency-Key": str(key)},
+            headers=_dataset_idempotency_header(idempotency_key),
         )
 
     def list_projects(self, dataset_id: IdLike) -> list[Project]:
@@ -601,14 +625,10 @@ class Datasets:
         idempotency_key: IdLike | None = None,
     ) -> DatasetUnlinkResult:
         """Unlink a dataset, allowing callers to replay with a saved UUID key."""
-        try:
-            key = uuid4() if idempotency_key is None else UUID(str(idempotency_key))
-        except (TypeError, ValueError) as exc:
-            raise ValueError("idempotency_key must be a UUID") from exc
         resp = self._http.request(
             "DELETE",
             f"/datasets/{dataset_id}/link/{project_id}",
-            headers={"Idempotency-Key": str(key)},
+            headers=_dataset_idempotency_header(idempotency_key),
         )
         return DatasetUnlinkResult.model_validate(resp.json())
 

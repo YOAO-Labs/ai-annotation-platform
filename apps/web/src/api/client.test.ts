@@ -111,3 +111,41 @@ it("DELETE preserves JSON bodies and sends RequestInit headers without a fake bo
     useAuthStore.getState().logout();
   }
 });
+
+it("dataset POST/PUT send Idempotency-Key headers without changing JSON bodies", async () => {
+  const fetch = vi
+    .fn()
+    .mockImplementation(() =>
+      Promise.resolve(new Response(JSON.stringify({ id: "d1" }), { status: 200 })),
+    );
+  vi.stubGlobal("fetch", fetch);
+  useAuthStore.getState().setAuth("dataset-token", { id: "dataset-user" } as MeResponse);
+  const createKey = "35d9bbf7-2410-4d34-9ca0-6cb9b13ea83b";
+  const updateKey = "7b14b573-3203-4d64-8b51-6ab7b5fbe4cb";
+  try {
+    await apiClient.post(
+      "/datasets",
+      { name: "ds", data_type: "image" },
+      {
+        headers: { "Idempotency-Key": createKey },
+      },
+    );
+    await apiClient.put(
+      "/datasets/d1",
+      { axis_convention: null },
+      {
+        headers: { "Idempotency-Key": updateKey },
+      },
+    );
+
+    const createRequest = fetch.mock.calls[0]?.[1] as RequestInit;
+    expect(createRequest.body).toBe(JSON.stringify({ name: "ds", data_type: "image" }));
+    expect(new Headers(createRequest.headers).get("Idempotency-Key")).toBe(createKey);
+    const updateRequest = fetch.mock.calls[1]?.[1] as RequestInit;
+    expect(updateRequest.body).toBe(JSON.stringify({ axis_convention: null }));
+    expect(new Headers(updateRequest.headers).get("Idempotency-Key")).toBe(updateKey);
+  } finally {
+    vi.unstubAllGlobals();
+    useAuthStore.getState().logout();
+  }
+});
