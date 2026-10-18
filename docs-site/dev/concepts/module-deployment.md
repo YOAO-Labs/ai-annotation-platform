@@ -167,7 +167,7 @@ Source LOGIN 精确执行 23 项 Assets 能力：既有 14 项来源/入库函�
 
 冻结清单、租约接替、条件源读取与不可变发布路径，使导入在进程中断后继续已提交进度。Item、Labeling append、计数、游标和派发 outbox 原子提交；显式取消与当前作业状态阻止迟到 I/O 重新建题。后续媒体/通知仍由现有执行方接手，outbox 只保证可恢复派发，不宣称计算完成或 broker 恰好一次。
 
-迁移拒绝仍在活动的旧导入，需先由原运行时排空或取消，不能补造其执行权。完整边界与保留限制见 [ADR-0100](/dev/adr/0100-durable-connector-import) 和[来源控制](/api/guides/assets-source)。ZIP 与扫描已归入既有 Source 工件；其他 Assets CRUD、标定、媒体/Blob 和其余模块的完整操作、凭据与故障切换仍未全部提取，全模块独立部署目标尚未完成。
+迁移拒绝仍在活动的旧导入，需先由原运行时排空或取消，不能补造其执行权。完整边界与保留限制见 [ADR-0100](/dev/adr/0100-durable-connector-import) 和[来源控制](/api/guides/assets-source)。ZIP 与扫描已归入既有 Source 工件；其余 Assets 媒体/Blob、运维流程和其他模块的完整操作、凭据与故障切换仍未全部提取，全模块独立部署目标尚未完成。
 
 ## 可信本地导入器写入
 
