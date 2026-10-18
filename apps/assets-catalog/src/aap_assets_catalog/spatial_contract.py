@@ -343,11 +343,13 @@ def normalize_calibration_record(record: CalibrationRecord) -> CalibrationState:
         raise SpatialFailure("camera_calibration_missing")
     try:
         calibration = SensorCalibration.model_validate(record.calibration)
-        digest = calibration_digest(calibration)
+        digest = (
+            record.digest
+            if record.digest is not None
+            else calibration_digest(calibration)
+        )
     except (TypeError, ValueError) as exc:
         raise SpatialFailure("camera_calibration_invalid") from exc
-    if record.digest is not None and record.digest != digest:
-        raise ValueError("Materialized calibration digest does not match its value")
     return CalibrationState(
         dataset_item_id=record.dataset_item_id,
         revision=record.revision,

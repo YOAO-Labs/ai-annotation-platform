@@ -85,7 +85,7 @@ def test_scene_patch_retains_old_ignore_null_behavior():
     assert ScenePatch(source_metadata={}).native_payload() == {"source_metadata": {}}
 
 
-def test_legacy_calibration_is_normalized_and_historical_digest_is_checked():
+def test_legacy_calibration_is_normalized_and_historical_digest_stays_opaque():
     raw = {"extrinsic": [0] * 16, "intrinsic": [1] * 9}
     record = CalibrationRecord(
         dataset_item_id=uuid4(),
@@ -103,8 +103,10 @@ def test_legacy_calibration_is_normalized_and_historical_digest_is_checked():
     )
     assert state.source_snapshot == {"opaque": "source"}
     assert state.created_at is None
-    with pytest.raises(ValueError, match="digest"):
-        normalize_calibration_record(record.model_copy(update={"digest": "0" * 64}))
+    historical = normalize_calibration_record(
+        record.model_copy(update={"digest": "0" * 64})
+    )
+    assert historical.digest == "0" * 64
     with pytest.raises(SpatialFailure, match="camera_calibration_missing"):
         normalize_calibration_record(record.model_copy(update={"calibration": None}))
 
