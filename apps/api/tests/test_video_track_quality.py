@@ -18,6 +18,7 @@ from app.services.video_track_quality import (
     dispatch_quality_run,
 )
 from tests.factory import create_project, create_task
+from tests.media_owner_fixtures import media_owner as media_owner
 from tests.test_video_frame_service import _make_video_task
 
 
@@ -57,7 +58,7 @@ def _bind_fixture_metadata_reader(monkeypatch, item):
 
 
 async def test_boundary_annotations_exclude_foreign_task_on_shared_segments(
-    db_session, super_admin
+    db_session, super_admin, media_owner
 ):
     owner, _ = super_admin
     task, item, segments = await _boundary(db_session, owner.id)
@@ -91,7 +92,7 @@ async def test_boundary_annotations_exclude_foreign_task_on_shared_segments(
 
 
 async def test_dispatch_failure_finishes_both_quality_run_and_async_job(
-    db_session, super_admin, monkeypatch
+    db_session, super_admin, monkeypatch, media_owner
 ):
     owner, _ = super_admin
     task, item, segments = await _boundary(db_session, owner.id)
@@ -130,7 +131,7 @@ async def test_dispatch_failure_finishes_both_quality_run_and_async_job(
 
 
 async def test_existing_quality_run_reuses_supplied_video_facts(
-    db_session, test_engine, super_admin, monkeypatch
+    db_session, test_engine, super_admin, monkeypatch, media_owner
 ):
     from sqlalchemy import event
 
@@ -184,7 +185,7 @@ async def test_existing_quality_run_reuses_supplied_video_facts(
 @pytest.mark.parametrize("supplied", [False, True])
 @pytest.mark.parametrize("unready_metadata", [{}, {"frame_count": 90}])
 async def test_quality_run_rejects_unready_source_before_sampling(
-    db_session, super_admin, monkeypatch, supplied, unready_metadata
+    db_session, super_admin, monkeypatch, media_owner, supplied, unready_metadata
 ):
     from sqlalchemy import func, select
     from app.services import video_track_quality
@@ -229,7 +230,7 @@ async def test_quality_run_rejects_unready_source_before_sampling(
 
 
 async def test_overlap_bounds_reject_empty_supplied_video_metadata(
-    db_session, super_admin
+    db_session, super_admin, media_owner
 ):
     from fastapi import HTTPException
     from app.services.video_collaboration import segment_work_bounds_for_task

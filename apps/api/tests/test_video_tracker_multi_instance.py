@@ -27,6 +27,7 @@ from app.services.video_tracking.runner import (
 )
 from app.services.video_context import VideoContext
 from app.schemas.task import VideoMetadata
+from tests.media_owner_fixtures import media_owner as media_owner
 
 
 class _TrackerJobDispatcher:
@@ -117,7 +118,7 @@ def test_partition_no_primary_flag_numeric_ids_use_numeric_min():
 # ── runner 端到端: 单 seed → 多实例 → 多 annotation ──────────────────
 
 
-async def _make_video_task(db_session, owner_id):
+async def _make_video_task(db_session, owner_id, media_owner=None):
     project = Project(
         display_id=f"P-MI-{uuid.uuid4().hex[:6]}",
         name="Multi-instance Tracker Project",
@@ -148,6 +149,8 @@ async def _make_video_task(db_session, owner_id):
     )
     db_session.add(item)
     await db_session.flush()
+    if media_owner is not None:
+        await media_owner.seed_video_item(item, owner_id)
     task = Task(
         project_id=project.id,
         dataset_item_id=item.id,
@@ -208,14 +211,15 @@ class _MultiInstanceAdapter:
 
 
 async def test_runner_lands_extra_instances_as_new_tracks(
-    db_session, super_admin, monkeypatch
+    db_session, super_admin, monkeypatch, media_owner
 ):
     user, _ = super_admin
-    task, item = await _make_video_task(db_session, user.id)
+    user_id = user.id
+    task, item = await _make_video_task(db_session, user_id, media_owner)
     source = Annotation(
         task_id=task.id,
         project_id=task.project_id,
-        user_id=user.id,
+        user_id=user_id,
         annotation_type="bbox",
         class_name="car",
         tool_unit_id="bbox",
@@ -227,7 +231,7 @@ async def test_runner_lands_extra_instances_as_new_tracks(
         task_id=task.id,
         dataset_item_id=item.id,
         annotation_id=source.id,
-        created_by=user.id,
+        created_by=user_id,
         status=VideoTrackerJobStatus.QUEUED.value,
         model_key="sam3_video",
         direction="forward",
@@ -286,7 +290,7 @@ async def test_runner_lands_extra_instances_as_new_tracks(
     assert pre_extra == []  # 接受前无新轨迹
 
     # 接受 → 落库。
-    await accept_tracker_job(db_session, job.id, actor_id=user.id, publisher=collect)
+    await accept_tracker_job(db_session, job.id, actor_id=user_id, publisher=collect)
     await db_session.refresh(job)
     await db_session.refresh(source)
     assert job.status == "accepted"
@@ -319,7 +323,7 @@ async def test_runner_lands_extra_instances_as_new_tracks(
         assert r.class_name == "car"  # 继承 source label
         assert r.tool_unit_id == "bbox"
         assert r.annotation_type == "video_track_bbox"
-        assert r.user_id == user.id
+        assert r.user_id == user_id
         frames = [kf["frame_index"] for kf in r.geometry["keyframes"]]
         assert frames == [0, 1, 2, 3]  # 跨两窗连续
         # 全为预测帧 (新目标无人工 seed)。
@@ -328,19 +332,20 @@ async def test_runner_lands_extra_instances_as_new_tracks(
 
 
 async def test_runner_sourceless_detection_lands_all_as_new_tracks(
-    db_session, super_admin, monkeypatch
+    db_session, super_admin, monkeypatch, media_owner
 ):
     """v0.22.1 · B · 无源检测 (annotation_id=None, 画布级文本/种子发起): 所有实例含主实例
     都新建轨迹, 类别取 job.target_class_name (不继承任何 source)。"""
     user, _ = super_admin
-    task, item = await _make_video_task(db_session, user.id)
+    user_id = user.id
+    task, item = await _make_video_task(db_session, user_id, media_owner)
     job = VideoTrackerJob(
         task_id=task.id,
         dataset_item_id=item.id,
         annotation_id=None,
         target_class_name="pedestrian",
         target_tool_unit_id="bbox",
-        created_by=user.id,
+        created_by=user_id,
         status=VideoTrackerJobStatus.QUEUED.value,
         model_key="sam3_video",
         direction="forward",
@@ -368,7 +373,7 @@ async def test_runner_sourceless_detection_lands_all_as_new_tracks(
     await db_session.refresh(job)
     assert job.status == "pending_review"
 
-    await accept_tracker_job(db_session, job.id, actor_id=user.id, publisher=collect)
+    await accept_tracker_job(db_session, job.id, actor_id=user_id, publisher=collect)
     await db_session.refresh(job)
     assert job.status == "accepted"
     assert job.staged_result is None
@@ -392,7 +397,7 @@ async def test_runner_sourceless_detection_lands_all_as_new_tracks(
         assert r.class_name == "pedestrian"  # 取 job.target_class_name, 不继承 source
         assert r.tool_unit_id == "bbox"
         assert r.annotation_type == "video_track_bbox"
-        assert r.user_id == user.id
+        assert r.user_id == user_id
         assert all(kf["source"] == "prediction" for kf in r.geometry["keyframes"])
 
 
@@ -663,15 +668,16 @@ async def test_create_tracker_job_with_source_keeps_target_null(
 
 
 async def test_runner_single_instance_no_extra_tracks(
-    db_session, super_admin, monkeypatch
+    db_session, super_admin, monkeypatch, media_owner
 ):
     """单实例 (instance_id 全 None) 不建新 annotation —— 零回归。"""
     user, _ = super_admin
-    task, item = await _make_video_task(db_session, user.id)
+    user_id = user.id
+    task, item = await _make_video_task(db_session, user_id, media_owner)
     source = Annotation(
         task_id=task.id,
         project_id=task.project_id,
-        user_id=user.id,
+        user_id=user_id,
         annotation_type="bbox",
         class_name="car",
         geometry={"type": "bbox", "x": 1, "y": 2, "w": 10, "h": 12},
@@ -682,7 +688,7 @@ async def test_runner_single_instance_no_extra_tracks(
         task_id=task.id,
         dataset_item_id=item.id,
         annotation_id=source.id,
-        created_by=user.id,
+        created_by=user_id,
         status=VideoTrackerJobStatus.QUEUED.value,
         model_key="mock_bbox",
         direction="forward",
@@ -706,7 +712,7 @@ async def test_runner_single_instance_no_extra_tracks(
     await run_tracker_job(db_session, job.id, publisher=collect)
     await db_session.refresh(job)
     assert job.status == "pending_review"
-    await accept_tracker_job(db_session, job.id, actor_id=user.id, publisher=collect)
+    await accept_tracker_job(db_session, job.id, actor_id=user_id, publisher=collect)
     await db_session.refresh(job)
     assert job.status == "accepted"
 
@@ -726,15 +732,16 @@ async def test_runner_single_instance_no_extra_tracks(
 
 
 async def test_runner_discard_leaves_annotation_untouched(
-    db_session, super_admin, monkeypatch
+    db_session, super_admin, monkeypatch, media_owner
 ):
     """v0.21.28 · 丢弃候选: 源 annotation 零改动, 无新轨迹, staged_result 清空。"""
     user, _ = super_admin
-    task, item = await _make_video_task(db_session, user.id)
+    user_id = user.id
+    task, item = await _make_video_task(db_session, user_id, media_owner)
     source = Annotation(
         task_id=task.id,
         project_id=task.project_id,
-        user_id=user.id,
+        user_id=user_id,
         annotation_type="bbox",
         class_name="car",
         tool_unit_id="bbox",
@@ -746,7 +753,7 @@ async def test_runner_discard_leaves_annotation_untouched(
         task_id=task.id,
         dataset_item_id=item.id,
         annotation_id=source.id,
-        created_by=user.id,
+        created_by=user_id,
         status=VideoTrackerJobStatus.QUEUED.value,
         model_key="sam3_video",
         direction="forward",
@@ -916,17 +923,18 @@ class _WindowLocalMultiplexAdapter:
 
 
 async def test_runner_associates_window_local_ids_across_windows(
-    db_session, super_admin, monkeypatch
+    db_session, super_admin, monkeypatch, media_owner
 ):
     """窗内 id 跨窗重排时, 平台 IoU 关联把同一物理目标的帧归到一条全局轨迹 (不因 id 互换分裂)。"""
     from app.services.video_tracking.runner import accept_tracker_job
 
     user, _ = super_admin
-    task, item = await _make_video_task(db_session, user.id)
+    user_id = user.id
+    task, item = await _make_video_task(db_session, user_id, media_owner)
     source = Annotation(
         task_id=task.id,
         project_id=task.project_id,
-        user_id=user.id,
+        user_id=user_id,
         annotation_type="bbox",
         class_name="car",
         tool_unit_id="bbox",
@@ -938,7 +946,7 @@ async def test_runner_associates_window_local_ids_across_windows(
         task_id=task.id,
         dataset_item_id=item.id,
         annotation_id=source.id,
-        created_by=user.id,
+        created_by=user_id,
         status=VideoTrackerJobStatus.QUEUED.value,
         model_key="sam3_video",
         direction="forward",
@@ -965,7 +973,7 @@ async def test_runner_associates_window_local_ids_across_windows(
         return None
 
     await run_tracker_job(db_session, job.id, publisher=collect)
-    await accept_tracker_job(db_session, job.id, actor_id=user.id, publisher=collect)
+    await accept_tracker_job(db_session, job.id, actor_id=user_id, publisher=collect)
     await db_session.refresh(source)
 
     # 源轨迹 (primary=left): 4 帧全为 left 几何 (x≈0.1), 不混入 right (x≈0.5)。
@@ -1036,13 +1044,14 @@ class _MultiSourceAdapter:
             )
 
 
-async def _seed_two_source_job(db_session, user):
+async def _seed_two_source_job(db_session, user, media_owner):
     """建两条源轨迹 + 一个带 {obj_id ↔ source_annotation_id} 种子的多源 job。"""
-    task, item = await _make_video_task(db_session, user.id)
+    user_id = user.id
+    task, item = await _make_video_task(db_session, user_id, media_owner)
     src_a = Annotation(
         task_id=task.id,
         project_id=task.project_id,
-        user_id=user.id,
+        user_id=user_id,
         annotation_type="bbox",
         class_name="car",
         tool_unit_id="bbox",
@@ -1051,7 +1060,7 @@ async def _seed_two_source_job(db_session, user):
     src_b = Annotation(
         task_id=task.id,
         project_id=task.project_id,
-        user_id=user.id,
+        user_id=user_id,
         annotation_type="bbox",
         class_name="car",
         tool_unit_id="bbox",
@@ -1063,7 +1072,7 @@ async def _seed_two_source_job(db_session, user):
         task_id=task.id,
         dataset_item_id=item.id,
         annotation_id=None,  # v0.22.2 · §8 · 多源 job 不认单主 annotation_id → NULL
-        created_by=user.id,
+        created_by=user_id,
         status=VideoTrackerJobStatus.QUEUED.value,
         model_key="sam3_video_interactive",
         direction="forward",
@@ -1087,11 +1096,12 @@ async def _seed_two_source_job(db_session, user):
 
 
 async def test_runner_multi_source_backfills_each_own_track(
-    db_session, super_admin, monkeypatch
+    db_session, super_admin, monkeypatch, media_owner
 ):
     """2 条源轨迹各带 obj_id 种子 → 1 job → 各回填各自源 (不串), 无额外新轨迹。"""
     user, _ = super_admin
-    task, src_a, src_b, job = await _seed_two_source_job(db_session, user)
+    user_id = user.id
+    task, src_a, src_b, job = await _seed_two_source_job(db_session, user, media_owner)
 
     monkeypatch.setattr(settings, "video_tracker_sam3_window_size_frames", 2)
     adapter = _MultiSourceAdapter()
@@ -1108,7 +1118,7 @@ async def test_runner_multi_source_backfills_each_own_track(
     await db_session.refresh(job)
     assert job.status == "pending_review"
 
-    await accept_tracker_job(db_session, job.id, actor_id=user.id, publisher=collect)
+    await accept_tracker_job(db_session, job.id, actor_id=user_id, publisher=collect)
     await db_session.refresh(job)
     await db_session.refresh(src_a)
     await db_session.refresh(src_b)
@@ -1139,13 +1149,14 @@ async def test_runner_multi_source_backfills_each_own_track(
 
 
 async def test_accept_multi_source_soft_deleted_source_fails_closed(
-    db_session, super_admin, monkeypatch
+    db_session, super_admin, monkeypatch, media_owner
 ):
     """一源在 job 运行后被软删 → 整批冲突且零写入。"""
     from app.services.video_tracking.runner import TrackerJobStateConflict
 
     user, _ = super_admin
-    task, src_a, src_b, job = await _seed_two_source_job(db_session, user)
+    user_id = user.id
+    task, src_a, src_b, job = await _seed_two_source_job(db_session, user, media_owner)
 
     monkeypatch.setattr(settings, "video_tracker_sam3_window_size_frames", 2)
     adapter = _MultiSourceAdapter()
@@ -1163,12 +1174,13 @@ async def test_accept_multi_source_soft_deleted_source_fails_closed(
     assert job.status == "pending_review"
 
     # 接受前软删 src_b (obj2 的源)。
+    await db_session.refresh(src_b)
     src_b.is_active = False
     await db_session.flush()
 
     with pytest.raises(TrackerJobStateConflict, match="inactive"):
         await accept_tracker_job(
-            db_session, job.id, actor_id=user.id, publisher=collect
+            db_session, job.id, actor_id=user_id, publisher=collect
         )
     await db_session.refresh(job)
     await db_session.refresh(src_a)
@@ -1268,16 +1280,18 @@ async def test_create_tracker_job_multi_source_builds_seeds(db_session, super_ad
 
 
 async def test_track_video_endpoint_multi_source_builds_job(
-    httpx_client, super_admin, db_session, monkeypatch
+    httpx_client, super_admin, db_session, monkeypatch, media_owner
 ):
     """v0.22.2 · M · track_video 端点透传 source_annotation_ids: 多源建 job (annotation_id
     为 None, prompt.seeds 各源一条)。"""
     user, token = super_admin
-    task, item = await _make_video_task(db_session, user.id)
+    user_id = user.id
+    task, item = await _make_video_task(db_session, user_id, media_owner)
+    task_id = task.id
     src_a = Annotation(
         task_id=task.id,
         project_id=task.project_id,
-        user_id=user.id,
+        user_id=user_id,
         annotation_type="bbox",
         class_name="car",
         tool_unit_id="bbox",
@@ -1286,7 +1300,7 @@ async def test_track_video_endpoint_multi_source_builds_job(
     src_b = Annotation(
         task_id=task.id,
         project_id=task.project_id,
-        user_id=user.id,
+        user_id=user_id,
         annotation_type="bbox",
         class_name="car",
         tool_unit_id="bbox",
@@ -1294,6 +1308,7 @@ async def test_track_video_endpoint_multi_source_builds_job(
     )
     db_session.add_all([src_a, src_b])
     await db_session.flush()
+    source_ids = (src_a.id, src_b.id)
     await db_session.commit()
 
     class FakeAsyncResult:
@@ -1305,13 +1320,13 @@ async def test_track_video_endpoint_multi_source_builds_job(
     )
 
     resp = await httpx_client.post(
-        f"/api/v1/tasks/{task.id}/video:track",
+        f"/api/v1/tasks/{task_id}/video:track",
         headers={"Authorization": f"Bearer {token}"},
         json={
             "from_frame": 0,
             "to_frame": 3,
             "model_key": "mock_bbox",
-            "source_annotation_ids": [str(src_a.id), str(src_b.id)],
+            "source_annotation_ids": [str(source_ids[0]), str(source_ids[1])],
         },
     )
     assert resp.status_code == 202, resp.text
@@ -1321,7 +1336,10 @@ async def test_track_video_endpoint_multi_source_builds_job(
     row = await db_session.get(VideoTrackerJob, uuid.UUID(body["id"]))
     seeds = row.prompt["seeds"]
     assert [s["obj_id"] for s in seeds] == [1, 2]
-    assert {s["source_annotation_id"] for s in seeds} == {str(src_a.id), str(src_b.id)}
+    assert {s["source_annotation_id"] for s in seeds} == {
+        str(source_ids[0]),
+        str(source_ids[1]),
+    }
     assert all(s["geometry"]["type"] == "bbox" for s in seeds)
 
 
@@ -1351,14 +1369,15 @@ class _MultiSourcePlusDiscoveryAdapter:
 
 
 async def test_accept_multi_source_touched_covers_sources_and_created(
-    db_session, super_admin, monkeypatch
+    db_session, super_admin, monkeypatch, media_owner
 ):
     """v0.22.2 · M · accept 后 job.prompt.touched_annotation_ids 覆盖回填源 + 新建; 未接受
     时为空。VideoTrackerJobOut 把它提到顶层字段。"""
     from app.schemas.video_tracker_job import VideoTrackerJobOut
 
     user, _ = super_admin
-    task, src_a, src_b, job = await _seed_two_source_job(db_session, user)
+    user_id = user.id
+    task, src_a, src_b, job = await _seed_two_source_job(db_session, user, media_owner)
 
     monkeypatch.setattr(settings, "video_tracker_sam3_window_size_frames", 2)
     adapter = _MultiSourcePlusDiscoveryAdapter()
@@ -1383,7 +1402,7 @@ async def test_accept_multi_source_touched_covers_sources_and_created(
         is None
     )
 
-    await accept_tracker_job(db_session, job.id, actor_id=user.id, publisher=collect)
+    await accept_tracker_job(db_session, job.id, actor_id=user_id, publisher=collect)
     await db_session.refresh(job)
     assert job.status == "accepted"
 
@@ -1411,11 +1430,11 @@ async def test_accept_multi_source_touched_covers_sources_and_created(
 
 
 async def _seed_pending_review_job_with_source(
-    db_session, owner_id, *, expected_versions: dict | None
+    db_session, owner_id, media_owner, *, expected_versions: dict | None
 ):
     """Run a job to pending_review; optionally inject expected_source_versions
     into prompt (mirroring what create_tracker_job records at creation time)."""
-    task, item = await _make_video_task(db_session, owner_id)
+    task, item = await _make_video_task(db_session, owner_id, media_owner)
     source = Annotation(
         task_id=task.id,
         project_id=task.project_id,
@@ -1459,16 +1478,18 @@ monkeypatch_holder: dict = {}
 
 
 async def test_accept_tracker_job_conflict_on_source_version_mismatch(
-    db_session, super_admin, monkeypatch
+    db_session, super_admin, monkeypatch, media_owner
 ):
     """source annotation version bumped between job creation and accept → 409,
     source geometry unchanged (no last-writer-wins)."""
     from app.services.video_tracking.runner import TrackerJobStateConflict
 
     user, _ = super_admin
+    user_id = user.id
     task, source, job = await _seed_pending_review_job_with_source(
         db_session,
-        user.id,
+        user_id,
+        media_owner,
         expected_versions={str("__SOURCE__"): 1},  # placeholder, fixed below
     )
     # Replace the placeholder with the actual source id + version snapshot.
@@ -1500,7 +1521,7 @@ async def test_accept_tracker_job_conflict_on_source_version_mismatch(
 
     with pytest.raises(TrackerJobStateConflict) as exc:
         await accept_tracker_job(
-            db_session, job.id, actor_id=user.id, publisher=collect
+            db_session, job.id, actor_id=user_id, publisher=collect
         )
     assert (
         "version changed" in str(exc.value).lower()
@@ -1516,15 +1537,17 @@ async def test_accept_tracker_job_conflict_on_source_version_mismatch(
 
 
 async def test_accept_tracker_job_legacy_without_expected_versions_fails_closed(
-    db_session, super_admin, monkeypatch
+    db_session, super_admin, monkeypatch, media_owner
 ):
     """A source candidate without a creation-time version cannot be accepted safely."""
     from app.services.video_tracking.runner import TrackerJobStateConflict
 
     user, _ = super_admin
+    user_id = user.id
     task, source, job = await _seed_pending_review_job_with_source(
         db_session,
-        user.id,
+        user_id,
+        media_owner,
         expected_versions=None,  # legacy: no snapshot
     )
     monkeypatch.setattr(settings, "video_tracker_sam3_window_size_frames", 2)
@@ -1543,13 +1566,14 @@ async def test_accept_tracker_job_legacy_without_expected_versions_fails_closed(
     assert job.status == "pending_review"
 
     # Even if the row is currently readable, drift since creation is unknowable.
+    await db_session.refresh(source)
     source.version = (source.version or 1) + 5
     await db_session.commit()
     await db_session.refresh(source)
 
     with pytest.raises(TrackerJobStateConflict, match="snapshot is missing"):
         await accept_tracker_job(
-            db_session, job.id, actor_id=user.id, publisher=collect
+            db_session, job.id, actor_id=user_id, publisher=collect
         )
     await db_session.refresh(job)
     assert job.status == "pending_review"
@@ -1557,7 +1581,7 @@ async def test_accept_tracker_job_legacy_without_expected_versions_fails_closed(
 
 
 async def test_accept_tracker_job_rejects_locked_or_soft_deleted_source(
-    db_session, super_admin, monkeypatch
+    db_session, super_admin, monkeypatch, media_owner
 ):
     from app.services.video_tracking.runner import (
         TrackerJobStateConflict,
@@ -1565,9 +1589,11 @@ async def test_accept_tracker_job_rejects_locked_or_soft_deleted_source(
     )
 
     user, _ = super_admin
+    user_id = user.id
     _task, source, job = await _seed_pending_review_job_with_source(
-        db_session, user.id, expected_versions=None
+        db_session, user_id, media_owner, expected_versions=None
     )
+    source_id = source.id
     monkeypatch.setattr(settings, "video_tracker_sam3_window_size_frames", 2)
     monkeypatch.setattr(
         "app.services.video_tracking.runner.get_tracker_adapter",
@@ -1578,20 +1604,21 @@ async def test_accept_tracker_job_rejects_locked_or_soft_deleted_source(
         return None
 
     await run_tracker_job(db_session, job.id, publisher=collect)
+    await db_session.refresh(source)
     job.prompt = {
         **(job.prompt or {}),
-        "expected_source_versions": {str(source.id): int(source.version)},
+        "expected_source_versions": {str(source_id): int(source.version)},
     }
     source.is_locked = True
     await db_session.commit()
     with pytest.raises(TrackerJobStateConflict, match="locked"):
         await accept_tracker_job(
-            db_session, job.id, actor_id=user.id, publisher=collect
+            db_session, job.id, actor_id=user_id, publisher=collect
         )
 
 
 async def test_accept_tracker_job_rechecks_task_status(
-    db_session, super_admin, monkeypatch
+    db_session, super_admin, monkeypatch, media_owner
 ):
     from app.services.video_tracking.runner import (
         TrackerJobStateConflict,
@@ -1599,8 +1626,9 @@ async def test_accept_tracker_job_rechecks_task_status(
     )
 
     user, _ = super_admin
+    user_id = user.id
     task, _source, job = await _seed_pending_review_job_with_source(
-        db_session, user.id, expected_versions=None
+        db_session, user_id, media_owner, expected_versions=None
     )
     monkeypatch.setattr(settings, "video_tracker_sam3_window_size_frames", 2)
     monkeypatch.setattr(
@@ -1614,26 +1642,28 @@ async def test_accept_tracker_job_rechecks_task_status(
     await run_tracker_job(db_session, job.id, publisher=collect)
     # Review-state accept is rejected by the canonical frozen-evidence guard
     # (unknown legacy evidence) before the legacy status lock message.
+    await db_session.refresh(task)
     task.status = "review"
     await db_session.commit()
     with pytest.raises(TrackerJobStateConflict) as exc:
         await accept_tracker_job(
-            db_session, job.id, actor_id=user.id, publisher=collect
+            db_session, job.id, actor_id=user_id, publisher=collect
         )
     assert exc.value.detail["reason"] == "review_contributors_unknown"
 
     # A completed task is still rejected by the status/phase lock.
+    await db_session.refresh(task)
     task.status = "completed"
     await db_session.commit()
     with pytest.raises(TrackerJobStateConflict) as exc:
         await accept_tracker_job(
-            db_session, job.id, actor_id=user.id, publisher=collect
+            db_session, job.id, actor_id=user_id, publisher=collect
         )
     assert exc.value.detail["reason"] == "task_locked"
 
 
 async def test_accept_tracker_job_rechecks_segment_lease(
-    db_session, super_admin, monkeypatch
+    db_session, super_admin, monkeypatch, media_owner
 ):
     from app.services.video_tracking.runner import (
         TrackerJobStateConflict,
@@ -1641,16 +1671,17 @@ async def test_accept_tracker_job_rechecks_segment_lease(
     )
 
     user, _ = super_admin
+    user_id = user.id
     _task, _source, job = await _seed_pending_review_job_with_source(
-        db_session, user.id, expected_versions=None
+        db_session, user_id, media_owner, expected_versions=None
     )
     segment = VideoSegment(
         dataset_item_id=job.dataset_item_id,
         segment_index=0,
         start_frame=0,
         end_frame=3,
-        assignee_id=user.id,
-        locked_by=user.id,
+        assignee_id=user_id,
+        locked_by=user_id,
         lock_expires_at=datetime.now(timezone.utc) - timedelta(seconds=1),
     )
     db_session.add(segment)
@@ -1669,5 +1700,5 @@ async def test_accept_tracker_job_rechecks_segment_lease(
     await run_tracker_job(db_session, job.id, publisher=collect)
     with pytest.raises(TrackerJobStateConflict, match="segment lease"):
         await accept_tracker_job(
-            db_session, job.id, actor_id=user.id, publisher=collect
+            db_session, job.id, actor_id=user_id, publisher=collect
         )
