@@ -202,6 +202,28 @@ last_reviewed: 2026-10-18
 | `MEDIA_PROBE_TIMEOUT_SECONDS` | `90` | HTTP 各 I/O 阶段超时秒数，包含上传／等待／读取；ffprobe 自身仍有独立的 30 秒上限。 |
 | `MEDIA_PROBE_MAX_FILE_BYTES` | `1073741824` | 独立探测服务单次文件输入上限（字节），仅由 apps/media-probe 读取。 |
 | `MEDIA_PROBE_HOST_PORT` | `8092` | docker-compose.modules.yml 的宿主回环端口，仅供显式本地独立部署。 |
+| `ASSETS_CATALOG_URL` | `—` | 独立 Assets 目录服务：留空时五项目录操作使用同一原生 SQL 合同；显式选远程后不自动回退。 |
+| `ASSETS_CATALOG_TIMEOUT_SECONDS` | `5` | 网关 HTTP 各 I/O 阶段超时；范围 (0,60] 秒。 |
+| `ASSETS_CATALOG_TOKEN` | `—` | API 网关与目录服务共享专用 Bearer secret，至少 32 个非空白 ASCII 字符。 |
+| `ASSETS_CATALOG_TOKEN_FILE` | `—` | 独立目录服务的 secret 文件入口；主 API 网关使用上面的实际 token 值。 |
+| `ASSETS_CATALOG_DATABASE_URL` | `—` | 独立目录服务专用 execute-only LOGIN，不使用 API DATABASE_URL。 |
+| `ASSETS_CATALOG_DATABASE_URL_FILE` | `—` | — |
+| `ASSETS_CATALOG_S3_ACCESS_KEY` | `—` | 专用只读 S3 身份；不得沿用 API/MinIO 管理员凭据。 |
+| `ASSETS_CATALOG_S3_SECRET_KEY` | `—` | — |
+| `ASSETS_CATALOG_S3_ACCESS_KEY_FILE` | `—` | — |
+| `ASSETS_CATALOG_S3_SECRET_KEY_FILE` | `—` | — |
+| `ASSETS_CATALOG_S3_PUBLIC_ENDPOINT` | `—` | 固定公开签名 origin，必须能由浏览器到达；服务只签名，不从请求接收 endpoint。 |
+| `ASSETS_CATALOG_S3_REGION` | `us-east-1` | — |
+| `ASSETS_CATALOG_DATASETS_BUCKET` | `—` | — |
+| `ASSETS_CATALOG_MEDIA_CACHE_BUCKET` | `—` | — |
+| `ASSETS_CATALOG_HOST` | `0.0.0.0` | 独立服务进程监听；Compose 只在内部网络开放端口。 |
+| `ASSETS_CATALOG_PORT` | `8766` | — |
+| `ASSETS_CATALOG_MAX_REQUEST_BYTES` | `1048576` | 独立服务 JSON 请求上限（1 MiB）；网关自身上限同为 1 MiB。 |
+| `ASSETS_CATALOG_MAX_RESPONSE_BYTES` | `16777216` | 独立服务原生回执/HTTP 响应上限（16 MiB）；网关远程接收上限同为 16 MiB。 |
+| `ASSETS_CATALOG_POOL_MIN_SIZE` | `1` | 专用数据库连接池及获取连接/SQL 的秒级等待上限。 |
+| `ASSETS_CATALOG_POOL_MAX_SIZE` | `8` | — |
+| `ASSETS_CATALOG_POOL_TIMEOUT_SECONDS` | `2` | — |
+| `ASSETS_CATALOG_SQL_TIMEOUT_SECONDS` | `5` | — |
 | `ASSET_CLEANUP_DATABASE_URL` | `—` | 独立 Assets 清理进程；不继承 API 的 DATABASE_URL、MINIO_* 或 Celery 配置。 宿主进程可直接设置 ASSET_CLEANUP_DATABASE_URL / S3_ACCESS_KEY / S3_SECRET_KEY； 每项与对应 *_FILE 二选一。Compose 的 *_FILE 是宿主 secret 文件路径。 |
 | `ASSET_CLEANUP_S3_ACCESS_KEY` | `—` | — |
 | `ASSET_CLEANUP_S3_SECRET_KEY` | `—` | — |

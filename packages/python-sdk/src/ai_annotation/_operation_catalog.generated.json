@@ -6129,7 +6129,8 @@
             "title": "Data Type",
             "anyOf": [
               {
-                "type": "string"
+                "type": "string",
+                "maxLength": 30
               },
               {
                 "type": "null"
@@ -6173,7 +6174,8 @@
             "title": "Offset",
             "type": "integer",
             "default": 0,
-            "minimum": 0
+            "minimum": 0,
+            "maximum": 9223372036854775807
           }
         }
       ],
@@ -6298,7 +6300,8 @@
             "title": "Offset",
             "type": "integer",
             "default": 0,
-            "minimum": 0
+            "minimum": 0,
+            "maximum": 9223372036854775807
           }
         }
       ],
@@ -24858,7 +24861,25 @@
       "cli_aliases": [
         "datasets.create"
       ],
-      "parameters": [],
+      "parameters": [
+        {
+          "name": "Idempotency-Key",
+          "in": "header",
+          "required": false,
+          "schema": {
+            "title": "Idempotency-Key",
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      ],
       "responses": {
         "201": {
           "description": "Successful Response",
@@ -37977,6 +37998,23 @@
             "type": "string",
             "format": "uuid"
           }
+        },
+        {
+          "name": "Idempotency-Key",
+          "in": "header",
+          "required": false,
+          "schema": {
+            "title": "Idempotency-Key",
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
         }
       ],
       "responses": {
@@ -44643,6 +44681,13 @@
           "default": "image"
         },
         {
+          "name": "idempotency_key",
+          "kind": "keyword_only",
+          "annotation": "IdLike | None",
+          "required": false,
+          "default": null
+        },
+        {
           "name": "kwargs",
           "kind": "var_keyword",
           "annotation": "Any",
@@ -44689,10 +44734,7 @@
       ],
       "return_type": "None",
       "python_only": false,
-      "constructed_models": [
-        "UUID",
-        "ValueError"
-      ],
+      "constructed_models": [],
       "direct_api_operations": [
         "DELETE /api/v1/datasets/{dataset_id}"
       ],
@@ -44735,10 +44777,7 @@
       ],
       "return_type": "None",
       "python_only": false,
-      "constructed_models": [
-        "UUID",
-        "ValueError"
-      ],
+      "constructed_models": [],
       "direct_api_operations": [
         "DELETE /api/v1/datasets/{dataset_id}/items/{item_id}"
       ],
@@ -45112,10 +45151,7 @@
       ],
       "return_type": "DatasetUnlinkResult",
       "python_only": false,
-      "constructed_models": [
-        "UUID",
-        "ValueError"
-      ],
+      "constructed_models": [],
       "direct_api_operations": [
         "DELETE /api/v1/datasets/{dataset_id}/link/{project_id}"
       ],
@@ -45139,6 +45175,13 @@
           "kind": "positional_or_keyword",
           "annotation": "IdLike",
           "required": true,
+          "default": null
+        },
+        {
+          "name": "idempotency_key",
+          "kind": "keyword_only",
+          "annotation": "IdLike | None",
+          "required": false,
           "default": null
         },
         {
@@ -67992,6 +68035,17 @@
           "description": "数据类型"
         },
         {
+          "name": "idempotency_key",
+          "kind": "option",
+          "options": [
+            "--idempotency-key"
+          ],
+          "required": false,
+          "default": null,
+          "type": "str | None",
+          "description": "稳定 UUID；响应不确定时重试请复用原值"
+        },
+        {
           "name": "json_output",
           "kind": "option",
           "options": [
@@ -68603,6 +68657,17 @@
           "default": false,
           "type": "bool",
           "description": "清除坐标系约定"
+        },
+        {
+          "name": "idempotency_key",
+          "kind": "option",
+          "options": [
+            "--idempotency-key"
+          ],
+          "required": false,
+          "default": null,
+          "type": "str | None",
+          "description": "稳定 UUID；响应不确定时重试请复用原值"
         },
         {
           "name": "json_output",

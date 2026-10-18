@@ -140,3 +140,4 @@
 - [0094](0094-transactional-project-deletion.md) — Transactional project deletion across module owners
 - [0095](0095-transactional-dataset-unlink.md) — Transactional Dataset unlink across module owners
 - [0096](0096-assets-source-deletion-and-cleanup.md) — Assets source deletion, staged publication and independent cleanup
+- [0097](0097-independent-assets-catalog.md) — Independent Assets catalog and durable create/update replay

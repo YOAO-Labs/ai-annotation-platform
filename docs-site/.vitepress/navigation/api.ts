@@ -13,6 +13,7 @@ export const apiSidebar: DefaultTheme.SidebarItem[] = [
     collapsed: true,
     items: [
       { text: "项目", link: "/api/guides/projects" },
+      { text: "独立素材目录", link: "/api/guides/assets-catalog" },
       { text: "任务与标注", link: "/api/guides/tasks-and-annotations" },
       { text: "预测与作业", link: "/api/guides/predictions" },
     ],

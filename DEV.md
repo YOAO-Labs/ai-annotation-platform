@@ -455,11 +455,63 @@ writer 配置要求 lease 严格长于其 hard time limit。旧 cleanup Celery t
 
 本地验收使用专属 PostgreSQL 容器、test mode 数据库、Redis 与九个隔离桶，不创建或
 修改日常 PostgreSQL 的角色。运行命令及参数见
-`scripts/verify_module_data_boundary.py --help`；验证器会创建两类登录角色并向测试进程注入
-`AAP_MODULE_DATA_APPEND_URL` 和 `AAP_MODULE_DATA_ASSET_CLEANUP_URL`，无需改动日常凭据。
+`scripts/verify_module_data_boundary.py --help`；验证器会创建 workflow、cleanup、catalog 三类受限登录角色并向测试进程注入
+`AAP_MODULE_DATA_APPEND_URL`、`AAP_MODULE_DATA_ASSET_CLEANUP_URL` 和 `AAP_MODULE_DATA_ASSET_CATALOG_URL`，无需改动日常凭据。
 记录该命令的 JUnit 与 JSON 结果。
 它不验证生产容量，也不提供完整 assets/labeling 模块的独立部署资格。具体事务约束
 见 [ADR-0092](docs/adr/0092-transactional-module-data-capabilities.md)。
+
+## 独立 Assets 目录服务
+
+`apps/assets-catalog` 提供目录列表、详情、文件分页和公开创建/更新。数据集关联、建题、
+导入、上传和来源删除继续使用自己的既有事务合同；不要把需要保留调用方锁的内部
+`DatasetService` 操作替换为 HTTP。完整范围见[目录协议](docs-site/api/guides/assets-catalog.md)。
+
+先应用迁移并完成上面的 module-data owner 授权，再创建一个无管理权限、无角色成员资格、
+不拥有业务表的独立 `asset_catalog_client` LOGIN，运行专用授权脚本：
+
+```bash
+psql -v expected_database=annotation_test -v migration_role=owner \
+  -v assets_owner=assets_code -v asset_catalog_role=asset_catalog_client \
+  -f infra/docker/assets-catalog-grants.sql
+```
+
+这里的数据库和连接参数应换成明确选择的环境；不要把日常 API 的宽权限账号当作目录
+LOGIN。该 LOGIN 只可执行五个目录函数，不可读取表、序列或其他 owner schema。启动时的
+权限检查会拒绝过宽身份。迁移期主 API 仍保持既有角色，未因此获得整体隔离资格。
+
+目录服务使用独立的四个 secret：数据库 URL、Bearer token、S3 access key、S3 secret key。
+容器通过 `.env.example` 对应 `_FILE` 变量选择宿主文件，用户 10002 必须可读。S3 身份仅允许
+datasets 桶的 `GetObject` 和 media-cache 中 `thumbnails/`、`videos/`、`playback/`、
+`image-pyramids/` 的 `GetObject`，不允许列桶、Put/Delete 或桶管理。原始文件可能使用历史
+数据集名称路径，不能只授予新的 `dataset-sources/` 前缀。桶须预先准备，普通创建不写目录标记。
+
+配置浏览器可达的固定签名 origin 及两个桶后，显式启动本地项目；目录服务只签名，不连接 S3 下载：
+
+```bash
+docker compose -p aap-assets-catalog-dev -f docker-compose.assets-catalog.yml up -d --build
+docker compose -p aap-assets-catalog-dev -f docker-compose.assets-catalog.yml exec assets-catalog python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8766/ready', timeout=2)"
+```
+
+该 Compose 默认不发布宿主端口。网关与目录服务应在可互通的容器网络中运行；宿主 API
+联调可在本机用 `uv run --project apps/assets-catalog --extra server python -m aap_assets_catalog`
+启动目录服务，并为该进程显式传入专用配置，再将网关指向 `http://127.0.0.1:8766`。
+目录进程不读取主 API 的通用数据库或 AWS 凭据。
+
+网关的 `ASSETS_CATALOG_URL` 留空使用同一原生 SQL 合同；设置 URL 后还需设置实际
+`ASSETS_CATALOG_TOKEN`，独立服务的同名 secret 可用 `_FILE`。刷新网关进程使配置生效。
+远程不可用时返回错误，不切换成本地写入；HTTP 各 I/O 阶段默认 5 秒，上限 60 秒。
+内部请求/响应预算分别为 1/16 MiB，超出明确失败，不截断数据。
+
+先升级 SQL/授权、确认目录 `/health` 和 `/ready`，再切换网关配置。创建和更新使用保存的
+UUID `Idempotency-Key`，结果不确定时以原内容和原键重放；回执保留原快照，重复创建不会
+生成第二个数据集。回退服务实现可先清空网关 URL、重启网关并保留兼容 SQL 和回执，
+再停止同一 `-p` / `-f` 的独立项目。若要回退迁移，必须先停止目录写入并处理仍需确认的
+请求；删除回执会丢失重放依据。目录/来源回执目前没有自动清理。
+
+`verify_module_data_boundary.py` 在自有 PostgreSQL、Redis、桶和专属只读 S3 身份上验证
+真实目录容器、公开 API 消费、响应丢失、重启和本地/远程切换；不修改日常角色，不提供
+生产容量或完整 Assets 语言替换资格。Go 月报仍是单独实验，不参与默认运行。
 
 ## 技术栈
 

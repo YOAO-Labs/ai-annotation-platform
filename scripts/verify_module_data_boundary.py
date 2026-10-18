@@ -46,6 +46,7 @@ MODULE_ROLES = (
     "audit_code",
     "append_client",
     "asset_cleanup_client",
+    "asset_catalog_client",
 )
 SQL_ARTIFACTS = (
     "0190_workspace_data_contract.sql",
@@ -69,6 +70,7 @@ SQL_ARTIFACTS = (
     "0208_dataset_source_support.sql",
     "0209_dataset_source_deletion.sql",
     "0210_asset_storage_cleanup.sql",
+    "0211_dataset_catalog.sql",
 )
 SCHEMA_ARTIFACTS = (
     "0191_task_append.schema.json",
@@ -89,6 +91,7 @@ SCHEMA_ARTIFACTS = (
     "0208_dataset_source_support.schema.json",
     "0209_dataset_source_deletion.schema.json",
     "0210_asset_storage_cleanup.schema.json",
+    "0211_dataset_catalog.schema.json",
 )
 TEST_FILES = (
     "tests/test_workspace_data_contract.py",
@@ -139,7 +142,12 @@ TEST_FILES = (
     "tests/test_dataset_unlink_bindings.py",
     "tests/test_dataset_unlink_http.py",
     "tests/test_asset_storage_cleanup_runtime.py",
+    "tests/test_assets_catalog_native.py",
+    "tests/test_assets_catalog_runtime.py",
     "tests/test_dataset_api_scopes.py",
+    "tests/test_datasets_list_has_scenes.py",
+    "tests/test_dataset_axis_convention.py",
+    "tests/test_media_materialization.py",
     "tests/test_worker_signals.py",
     "tests/test_security_headers.py",
     "tests/test_create_tasks_worker.py",
@@ -321,6 +329,53 @@ def _destroy_cleanup_storage_scope(scope: dict) -> None:
     docker("exec", scope["container"], "rm", "-rf", "--", scope["config"])
 
 
+def _create_catalog_storage_scope(scope: dict) -> None:
+    _cleanup_mc(
+        scope,
+        ["admin", "user", "add", "scoped", scope["access_key"], scope["secret_key"]],
+    )
+    scope["user_created"] = True
+    policy = {
+        "Version": "2012-10-17",
+        "Statement": [
+            {
+                "Effect": "Allow",
+                "Action": ["s3:GetObject"],
+                "Resource": [
+                    f"arn:aws:s3:::{scope['datasets_bucket']}/*",
+                    *(
+                        f"arn:aws:s3:::{scope['bucket']}/{prefix}/*"
+                        for prefix in (
+                            "thumbnails",
+                            "videos",
+                            "playback",
+                            "image-pyramids",
+                        )
+                    ),
+                ],
+            }
+        ],
+    }
+    _cleanup_mc(
+        scope,
+        ["admin", "policy", "create", "scoped", scope["policy"], "/dev/stdin"],
+        payload=json.dumps(policy),
+    )
+    scope["policy_created"] = True
+    _cleanup_mc(
+        scope,
+        [
+            "admin",
+            "policy",
+            "attach",
+            "scoped",
+            scope["policy"],
+            "--user",
+            scope["access_key"],
+        ],
+    )
+
+
 def _container_details(
     container_id: str, name: str, identity: str, *, require_running: bool
 ):
@@ -464,6 +519,7 @@ def _create_module_roles(
     owner_password: str,
     append_password: str,
     cleanup_password: str,
+    catalog_password: str,
 ) -> None:
     _psql(
         container_id,
@@ -500,6 +556,9 @@ def _create_module_roles(
             "NOINHERIT NOREPLICATION NOBYPASSRLS;\n"
             "CREATE ROLE asset_cleanup_client LOGIN "
             f"PASSWORD '{cleanup_password}' NOSUPERUSER NOCREATEDB NOCREATEROLE "
+            "NOINHERIT NOREPLICATION NOBYPASSRLS;\n"
+            "CREATE ROLE asset_catalog_client LOGIN "
+            f"PASSWORD '{catalog_password}' NOSUPERUSER NOCREATEDB NOCREATEROLE "
             "NOINHERIT NOREPLICATION NOBYPASSRLS;\n"
         ),
     )
@@ -560,6 +619,11 @@ def _install_and_rollback_frozen_sql(
         "SELECT aap_assets_v1.reserve_dataset_upload(NULL::uuid,NULL::uuid,NULL::uuid,NULL::text,NULL::text);\n"
         "SELECT aap_assets_v1.delete_dataset(NULL::uuid,NULL::uuid,NULL::uuid,NULL::text,NULL::jsonb);\n"
         "SELECT count(*) FROM aap_assets_v1.pending_storage_deletions_v2('cache-bucket',NULL::timestamptz,NULL::uuid,NULL::uuid,100);\n"
+        "SELECT aap_assets_v1.list_catalog_datasets(NULL::uuid,NULL::text,NULL::text,NULL::boolean,50,0::bigint);\n"
+        "SELECT aap_assets_v1.get_catalog_dataset(NULL::uuid,NULL::uuid);\n"
+        "SELECT aap_assets_v1.list_catalog_items(NULL::uuid,NULL::uuid,50,0::bigint);\n"
+        "SELECT aap_assets_v1.create_catalog_dataset(NULL::uuid,NULL::uuid,NULL::jsonb);\n"
+        "SELECT aap_assets_v1.update_catalog_dataset(NULL::uuid,NULL::uuid,NULL::uuid,NULL::jsonb);\n"
         "SELECT aap_learning_v1.lock_project_deletion(:'project_id'::uuid);\n"
         "SELECT aap_learning_v1.guard_project_deletion(:'project_id'::uuid);\n"
         "SELECT aap_assets_v1.delete_project_owned_records(:'project_id'::uuid);\n"
@@ -623,6 +687,7 @@ def _install_and_rollback_frozen_sql(
         "aap-dataset-unlink/v1": "invalid_request",
         "aap-dataset-source-delete/v1": "invalid_request",
         "aap-dataset-upload/v1": "invalid_request",
+        "aap-assets-catalog/v1": "invalid_request",
     }
     if any(
         not any(
@@ -675,6 +740,7 @@ def _install_and_rollback_frozen_sql(
             "AND to_regclass('public.asset_storage_deletions') IS NULL "
             "AND to_regclass('public.dataset_upload_intents') IS NULL "
             "AND to_regclass('public.dataset_source_deletion_operations') IS NULL "
+            "AND to_regclass('public.dataset_catalog_operations') IS NULL "
             "AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_attribute "
             "WHERE attrelid = 'public.async_jobs'::pg_catalog.regclass "
             "AND attname = 'retained_project_id' AND NOT attisdropped) "
@@ -730,6 +796,7 @@ def main(argv: list[str] | None = None) -> int:
         },
         "cleanup": {
             "storage_identity_removed": False,
+            "catalog_storage_identity_removed": False,
             "local_resources_destroyed": False,
             "postgres_container_removed": False,
             "resource_root_retained": None,
@@ -743,12 +810,14 @@ def main(argv: list[str] | None = None) -> int:
     container_identity = secrets.token_hex(12)
     backend = None
     cleanup_storage = None
+    catalog_storage = None
     resource_root = Path(
         tempfile.mkdtemp(prefix="aap-module-data-acceptance-")
     ).resolve()
 
     try:
         grants_path = ROOT / "infra/docker/module-data-grants.sql"
+        catalog_grants_path = ROOT / "infra/docker/assets-catalog-grants.sql"
         artifacts = tuple(
             ROOT / "apps/api/alembic/sql" / name for name in SQL_ARTIFACTS
         )
@@ -757,6 +826,7 @@ def main(argv: list[str] | None = None) -> int:
         )
         if (
             not grants_path.is_file()
+            or not catalog_grants_path.is_file()
             or any(not path.is_file() for path in artifacts)
             or any(not path.is_file() for path in schema_paths)
         ):
@@ -773,6 +843,7 @@ def main(argv: list[str] | None = None) -> int:
             ):
                 raise RuntimeError(f"invalid frozen module-data schema: {path.name}")
         grant_sql = grants_path.read_text(encoding="utf-8")
+        catalog_grant_sql = catalog_grants_path.read_text(encoding="utf-8")
 
         from sqlalchemy.engine import URL
 
@@ -787,6 +858,7 @@ def main(argv: list[str] | None = None) -> int:
         runtime_password = f"runtime-{secrets.token_hex(16)}"
         append_password = f"append-{secrets.token_hex(16)}"
         cleanup_password = f"cleanup-{secrets.token_hex(16)}"
+        catalog_password = f"catalog-{secrets.token_hex(16)}"
         container_id = docker(
             "run",
             "-d",
@@ -863,8 +935,8 @@ def main(argv: list[str] | None = None) -> int:
         database = resources["database"]
         evidence["database"] = database
         _, heads = migration_graph(ROOT)
-        if heads != ["0210"]:
-            raise RuntimeError("module-data acceptance requires migration head 0210")
+        if heads != ["0211"]:
+            raise RuntimeError("module-data acceptance requires migration head 0211")
         evidence["migrations"]["head_before_downgrade"] = heads[0]
         phase = "downgrade-to-0189"
         _container_details(
@@ -917,6 +989,14 @@ def main(argv: list[str] | None = None) -> int:
             port=port,
             database=database,
         ).render_as_string(hide_password=False)
+        catalog_url = URL.create(
+            "postgresql+asyncpg",
+            username="asset_catalog_client",
+            password=catalog_password,
+            host="127.0.0.1",
+            port=port,
+            database=database,
+        ).render_as_string(hide_password=False)
         role_create_password = append_password.replace("'", "''")
         phase = "create-scoped-roles"
         _create_module_roles(
@@ -927,6 +1007,7 @@ def main(argv: list[str] | None = None) -> int:
             owner_password,
             role_create_password,
             cleanup_password,
+            catalog_password,
         )
         phase = "install-module-grants"
         _psql(
@@ -957,14 +1038,42 @@ def main(argv: list[str] | None = None) -> int:
         )
 
         resource_environment = backend.environment()
+        phase = "install-catalog-grants"
+        _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="owner",
+            password=owner_password,
+            database=database,
+            sql=catalog_grant_sql,
+            variables={
+                "expected_database": database,
+                "migration_role": "owner",
+                "assets_owner": "assets_code",
+                "asset_catalog_role": "asset_catalog_client",
+            },
+        )
         phase = "create-scoped-storage-identity"
         cleanup_storage = _cleanup_storage_scope(backend)
         _create_cleanup_storage_scope(cleanup_storage)
+        catalog_storage = _cleanup_storage_scope(backend)
+        catalog_storage["datasets_bucket"] = resources["buckets"][
+            "MINIO_DATASETS_BUCKET"
+        ]
+        _create_catalog_storage_scope(catalog_storage)
         resource_environment.update(
             {
                 "AAP_MODULE_DATA_ROLE_ACCEPTANCE": "1",
                 "AAP_MODULE_DATA_APPEND_URL": append_url,
                 "AAP_MODULE_DATA_ASSET_CLEANUP_URL": cleanup_url,
+                "AAP_MODULE_DATA_ASSET_CATALOG_URL": catalog_url,
+                "AAP_MODULE_DATA_ASSET_CATALOG_S3_ACCESS_KEY": catalog_storage[
+                    "access_key"
+                ],
+                "AAP_MODULE_DATA_ASSET_CATALOG_S3_SECRET_KEY": catalog_storage[
+                    "secret_key"
+                ],
                 "AAP_MODULE_DATA_ASSET_CLEANUP_S3_ACCESS_KEY": cleanup_storage[
                     "access_key"
                 ],
@@ -1011,6 +1120,15 @@ def main(argv: list[str] | None = None) -> int:
         evidence["failure"] = {"phase": phase, "error_type": type(error).__name__}
         exit_code = 1
     finally:
+        if catalog_storage is not None:
+            try:
+                _destroy_cleanup_storage_scope(catalog_storage)
+                evidence["cleanup"]["catalog_storage_identity_removed"] = True
+            except Exception as error:
+                evidence["cleanup"]["errors"].append(
+                    {"catalog_storage_identity": type(error).__name__}
+                )
+                exit_code = 1
         if cleanup_storage is not None:
             try:
                 _destroy_cleanup_storage_scope(cleanup_storage)

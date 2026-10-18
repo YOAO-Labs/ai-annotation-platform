@@ -778,7 +778,7 @@ async def test_catalog_rejects_malformed_identity_facts_and_allows_unknown_read_
     actor_id = uuid.uuid4()
 
     async def replace_identity_reply(reply: dict) -> None:
-        encoded = json.dumps(reply, separators=(",", ":"))
+        encoded = json.dumps(reply)
         await db_session.execute(
             text(
                 "CREATE OR REPLACE FUNCTION aap_identity_v1.lock_active_actor("
