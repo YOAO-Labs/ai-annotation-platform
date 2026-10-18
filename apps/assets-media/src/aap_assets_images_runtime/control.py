@@ -98,8 +98,6 @@ class ImageControl:
         self,
         operation: str,
         request: BaseModel,
-        *,
-        allow_retry_policy_replay: bool = False,
     ) -> BaseModel:
         definition = c.OPERATIONS.get(operation)
         if (
@@ -117,18 +115,7 @@ class ImageControl:
         if not isinstance(result, definition.result):
             raise c.ImageFailure("invalid_response")
         try:
-            scope_request = request
-            if (
-                allow_retry_policy_replay
-                and isinstance(request, c.RetryImageMediaRequest)
-                and isinstance(result, c.AcceptedImageWork)
-            ):
-                # A retry operation receipt replays the captured policy, even
-                # after the control process has loaded a newer configuration.
-                scope_request = request.model_copy(
-                    update={"policy": result.spec.policy}
-                )
-            c.require_scope(scope_request, result)
+            c.require_scope(request, result)
         except (ValueError, TypeError, AttributeError):
             raise c.ImageFailure("invalid_response") from None
         if isinstance(result, c.AcceptedImageWork):
@@ -366,7 +353,6 @@ class ImageControl:
             accepted = await self._native_call(
                 "retry_image_media",
                 receipt_request,
-                allow_retry_policy_replay=True,
             )
         except c.ImageFailure as exc:
             if exc.code != "source_not_ready":
@@ -384,7 +370,6 @@ class ImageControl:
             return await self._native_call(
                 "retry_image_media",
                 admission,
-                allow_retry_policy_replay=True,
             )
         if (
             request.expected_source_snapshot is not None

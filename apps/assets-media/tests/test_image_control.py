@@ -14,6 +14,7 @@ from aap_assets_images.policy import ImagePolicy
 from aap_assets_images.transport import (
     ImageAssetReferencesRequest,
     ImageGenerationReferenceRequest,
+    InternalImageSourceReferenceRequest,
 )
 from aap_assets_images_runtime.control import ImageControl
 
@@ -394,8 +395,32 @@ async def test_verified_current_thumbnail_and_original_are_signed_with_source_re
     assert result.source == current
     assert result.original_url.endswith("datasets/source/image.png")
     assert result.thumbnail_url.endswith(key + "?expires=900")
-    assert [name for name, _request in storage.signed_source] == [current]
+    assert storage.signed_source == [(current, 900)]
     assert storage.head_source_calls == [current, current]
+
+
+@pytest.mark.asyncio
+async def test_internal_source_reference_uses_its_explicit_default_expiry():
+    owner = c.ImageOwner(kind="dataset_item", id=uuid4())
+    current = source(owner=owner)
+
+    class InternalDatabase:
+        async def call(self, operation, request):
+            assert operation == "resolve_internal_image_source"
+            assert request.owner == owner
+            return current
+
+    storage = FakeStorage()
+    request = InternalImageSourceReferenceRequest(
+        source=c.InternalImageSourceRequest(owner=owner)
+    )
+    result = await ImageControl(InternalDatabase(), storage).internal_source_reference(
+        request
+    )
+
+    assert result.actor_id is None
+    assert result.expires_in == 3600
+    assert storage.signed_source == [(current, 3600)]
 
 
 @pytest.mark.asyncio
@@ -474,6 +499,56 @@ async def test_retry_replays_native_receipt_without_source_io_or_retargeting():
     control = ImageControl(ReceiptDatabase(), NoSourceIO(), request.policy)
     replay = await control.call("retry_image_media", request)
     assert replay == receipt
+
+
+@pytest.mark.asyncio
+async def test_retry_rejects_native_receipt_with_substituted_policy_before_wakeup():
+    owner = c.ImageOwner(kind="dataset_item", id=uuid4())
+    current = source(owner=owner)
+    request = c.RetryImageMediaRequest(
+        operation_id=uuid4(),
+        actor_id=uuid4(),
+        dataset_item_id=owner.id,
+        purpose="pyramid",
+        expected_source_snapshot=None,
+    )
+    substituted_policy = ImagePolicy(max_source_bytes=123456)
+    receipt = c.AcceptedImageWork(
+        operation_id=request.operation_id,
+        source=current,
+        work=c.ImageWorkReference(
+            job_id=uuid4(),
+            generation=1,
+            owner=owner,
+            source_generation=current.source_generation,
+            kind="pyramid",
+            status="pending",
+        ),
+        spec=c.PyramidWorkSpec(
+            expected_source_snapshot=current.source_snapshot,
+            policy=substituted_policy,
+        ),
+    )
+    wakeups = []
+
+    class SubstitutingDatabase:
+        async def call(self, operation, forwarded):
+            assert operation == "retry_image_media"
+            assert forwarded.operation_id == request.operation_id
+            assert forwarded.policy == ImagePolicy()
+            return receipt
+
+    async def wakeup(job_id, generation):
+        wakeups.append((job_id, generation))
+
+    storage = FakeStorage()
+    with pytest.raises(c.ImageFailure, match="invalid_response"):
+        await ImageControl(
+            SubstitutingDatabase(), storage, wakeup=wakeup
+        ).retry_image_media(request)
+
+    assert wakeups == []
+    assert storage.head_source_calls == []
 
 
 @pytest.mark.asyncio
