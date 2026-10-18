@@ -87,7 +87,7 @@ def _error(reply: dict, code: str) -> None:
 
 
 def _identity(size: int = 128) -> dict:
-    return {"etag": "registered-image-etag", "byte_size": size}
+    return {"etag": "registered-image-etag", "byte_size": size, "version_id": None}
 
 
 async def _seed_image(
@@ -571,7 +571,9 @@ async def test_pyramid_finish_validates_the_complete_grid_and_publishes_atomical
     generation = await db_session.get(
         ImagePyramidGeneration, (asset_id, public_generation)
     )
-    assert asset is not None and asset.active_generation == public_generation
+    assert asset is not None
+    await db_session.refresh(asset)
+    assert asset.active_generation == public_generation
     assert asset.building_generation is None
     assert generation is not None and generation.status == "ready"
     assert generation.manifest == manifest

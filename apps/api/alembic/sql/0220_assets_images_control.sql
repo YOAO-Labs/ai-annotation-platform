@@ -92,7 +92,7 @@ BEGIN
             'thumbnail_error'
        ])
        OR pg_catalog.jsonb_typeof(p_source -> 'owner') IS DISTINCT FROM 'object'
-       OR (p_source -> 'owner' - ARRAY['kind', 'id']) IS DISTINCT FROM '{}'::jsonb
+       OR ((p_source -> 'owner') - ARRAY['kind', 'id']) IS DISTINCT FROM '{}'::jsonb
        OR NOT (p_source -> 'owner' ?& ARRAY['kind', 'id'])
        OR pg_catalog.jsonb_typeof(p_source #> '{owner,kind}') IS DISTINCT FROM 'string'
        OR p_source #>> '{owner,kind}' NOT IN ('task', 'dataset_item')
@@ -1466,8 +1466,8 @@ BEGIN
     IF v_kind = 'pyramid' THEN
         BEGIN
             IF v_owner_kind = 'dataset_item' THEN
-                INSERT INTO public.image_pyramid_assets(dataset_item_id, profile_version)
-                VALUES (v_owner_id, v_policy ->> 'profile_version')
+                INSERT INTO public.image_pyramid_assets(id, dataset_item_id, profile_version)
+                VALUES (pg_catalog.gen_random_uuid(), v_owner_id, v_policy ->> 'profile_version')
                 ON CONFLICT (dataset_item_id, profile_version)
                     WHERE dataset_item_id IS NOT NULL DO NOTHING;
                 SELECT asset.* INTO v_asset
@@ -1476,8 +1476,8 @@ BEGIN
                   AND asset.profile_version = v_policy ->> 'profile_version'
                 FOR UPDATE NOWAIT;
             ELSE
-                INSERT INTO public.image_pyramid_assets(task_id, profile_version)
-                VALUES (v_owner_id, v_policy ->> 'profile_version')
+                INSERT INTO public.image_pyramid_assets(id, task_id, profile_version)
+                VALUES (pg_catalog.gen_random_uuid(), v_owner_id, v_policy ->> 'profile_version')
                 ON CONFLICT (task_id, profile_version)
                     WHERE task_id IS NOT NULL DO NOTHING;
                 SELECT asset.* INTO v_asset
@@ -2086,6 +2086,7 @@ DECLARE
     v_row jsonb;
     v_previous_id uuid;
     v_current_id uuid;
+    v_source jsonb;
 BEGIN
     IF p_page_size IS NULL OR p_page_size NOT BETWEEN 1 AND 500
        OR ((p_after_owner_kind IS NULL) <> (p_after_owner_id IS NULL)) THEN
@@ -2256,11 +2257,12 @@ BEGIN
                    ORDER BY page.id
                ) FILTER (WHERE page.row_number <= p_page_size), '[]'::jsonb),
                COALESCE(pg_catalog.bool_or(page.row_number > p_page_size), false),
-               max(page.id) FILTER (WHERE page.row_number = p_page_size)
+               (pg_catalog.array_agg(page.id) FILTER (WHERE page.row_number = p_page_size))[1]
         INTO v_total, v_digest, v_items, v_complete, v_next_id
         FROM snapshot
         LEFT JOIN page ON true
-        LEFT JOIN public.dataset_items AS item ON item.id = page.id;
+        LEFT JOIN public.dataset_items AS item ON item.id = page.id
+        GROUP BY snapshot.total, snapshot.snapshot_digest;
         v_complete := NOT v_complete;
         v_item_count := pg_catalog.jsonb_array_length(v_items);
         IF v_item_count = 0 OR v_complete THEN

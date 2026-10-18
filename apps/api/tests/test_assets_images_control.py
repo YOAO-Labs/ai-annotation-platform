@@ -78,7 +78,7 @@ def _object(value: object) -> dict:
 
 def _data(reply: object) -> dict:
     parsed = _object(reply)
-    assert set(parsed) == {"schema", "ok", "data"}
+    assert set(parsed) == {"schema", "ok", "data"}, parsed
     assert parsed["schema"] == "aap-assets-images/v1"
     assert parsed["ok"] is True
     assert isinstance(parsed["data"], dict)
@@ -151,7 +151,7 @@ async def test_item_source_observation_and_pyramid_summary_follow_generation(
     actor_id = await _seed_actor(db_session)
     _, item_id = await _seed_image_item(db_session, actor_id=actor_id)
 
-    source = _data(await _read(db_session, actor_id, item_id))["data"]
+    source = _data(await _read(db_session, actor_id, item_id))
     assert source["owner"] == {"kind": "dataset_item", "id": str(item_id)}
     assert source["object_identity"] is None
     assert source["width"] == 5000 and source["height"] == 5000
@@ -160,7 +160,7 @@ async def test_item_source_observation_and_pyramid_summary_follow_generation(
     bound_reply = await _observe(
         db_session, actor_id, source, identity, item_id=item_id
     )
-    bound = _data(bound_reply)["data"]
+    bound = _data(bound_reply)
     assert bound["object_identity"]["etag"] == "image-object-v1"
     assert bound["source_generation"] == source["source_generation"]
     assert bound["source_snapshot"] == source["source_snapshot"]
@@ -173,7 +173,7 @@ async def test_item_source_observation_and_pyramid_summary_follow_generation(
             {**identity, "version_id": None},
             item_id=item_id,
         )
-    )["data"]
+    )
     assert same["source_generation"] == bound["source_generation"]
     assert same["source_snapshot"] == bound["source_snapshot"]
     trusted = _data(
@@ -215,7 +215,7 @@ async def test_item_source_observation_and_pyramid_summary_follow_generation(
             {"etag": "unexpected-replacement", "byte_size": 2048},
             item_id=item_id,
         )
-    )["data"]
+    )
     assert changed["source_drifted"] is True
     assert changed["source_generation"] == bound["source_generation"] + 1
     assert changed["source_snapshot"] != bound["source_snapshot"]
@@ -242,7 +242,7 @@ async def test_item_source_snapshot_and_backfill_digest_are_timezone_independent
     }
 
     async def read_source_and_scan():
-        source = _data(await _read(db_session, actor_id, item_id))["data"]
+        source = _data(await _read(db_session, actor_id, item_id))
         scan = _data(
             await db_session.scalar(
                 _SCAN,
@@ -281,7 +281,7 @@ async def test_linked_task_source_uses_dataset_item_facts_and_current_visibility
     task.file_path = "stale-task-copy/must-not-win.png"
     await db_session.flush()
 
-    source = _data(await _read(db_session, actor_id, None, task_id=task.id))["data"]
+    source = _data(await _read(db_session, actor_id, None, task_id=task.id))
     assert source["owner"] == {"kind": "dataset_item", "id": str(item_id)}
     assert source["task_id"] == str(task.id)
     assert source["project_id"] == str(task.project_id)
@@ -294,7 +294,7 @@ async def test_linked_task_source_uses_dataset_item_facts_and_current_visibility
 async def test_pyramid_reads_select_the_requested_profile(db_session):
     actor_id = await _seed_actor(db_session)
     _, item_id = await _seed_image_item(db_session, actor_id=actor_id)
-    source = _data(await _read(db_session, actor_id, item_id))["data"]
+    source = _data(await _read(db_session, actor_id, item_id))
     bound = _data(
         await _observe(
             db_session,
@@ -303,7 +303,7 @@ async def test_pyramid_reads_select_the_requested_profile(db_session):
             {"etag": "profile-read", "byte_size": 2048},
             item_id=item_id,
         )
-    )["data"]
+    )
     v1_asset = ImagePyramidAsset(
         id=uuid4(),
         dataset_item_id=item_id,
@@ -446,7 +446,7 @@ async def test_task_source_reads_newest_current_ready_image_dimensions(db_sessio
     actor_id = await _seed_actor(db_session)
     task = await _seed_image_task(db_session, actor_id=actor_id)
     first_identity = {"etag": "task-dimensions-v1", "byte_size": 4096}
-    source = _data(await _read(db_session, actor_id, None, task_id=task.id))["data"]
+    source = _data(await _read(db_session, actor_id, None, task_id=task.id))
     bound = _data(
         await _observe(
             db_session,
@@ -455,7 +455,7 @@ async def test_task_source_reads_newest_current_ready_image_dimensions(db_sessio
             first_identity,
             task_id=task.id,
         )
-    )["data"]
+    )
 
     ready_results = (
         (
@@ -510,12 +510,12 @@ async def test_task_source_reads_newest_current_ready_image_dimensions(db_sessio
             },
         )
 
-    current = _data(await _read(db_session, actor_id, None, task_id=task.id))["data"]
+    current = _data(await _read(db_session, actor_id, None, task_id=task.id))
     assert (current["width"], current["height"]) == (1024, 768)
 
     task.file_path = f"image-source/replaced-{uuid4()}.png"
     await db_session.flush()
-    changed = _data(await _read(db_session, actor_id, None, task_id=task.id))["data"]
+    changed = _data(await _read(db_session, actor_id, None, task_id=task.id))
     changed = _data(
         await _observe(
             db_session,
@@ -524,7 +524,7 @@ async def test_task_source_reads_newest_current_ready_image_dimensions(db_sessio
             {"etag": "task-dimensions-v2", "byte_size": 4096},
             task_id=task.id,
         )
-    )["data"]
+    )
     assert changed["source_generation"] == current["source_generation"] + 1
     assert (changed["width"], changed["height"]) == (None, None)
 
@@ -534,7 +534,7 @@ async def test_retry_receipt_replays_before_ready_and_new_retry_is_rejected(db_s
     _, item_id = await _seed_image_item(
         db_session, actor_id=actor_id, width=None, height=None
     )
-    source = _data(await _read(db_session, actor_id, item_id))["data"]
+    source = _data(await _read(db_session, actor_id, item_id))
     bound = _data(
         await _observe(
             db_session,
@@ -543,7 +543,7 @@ async def test_retry_receipt_replays_before_ready_and_new_retry_is_rejected(db_s
             {"etag": "retry-source", "byte_size": 2048},
             item_id=item_id,
         )
-    )["data"]
+    )
     operation_id = uuid4()
     accepted = _data(
         await db_session.scalar(
@@ -645,7 +645,7 @@ async def test_pyramid_retry_receipt_replays_after_dimensions_make_it_ineligible
     _, item_id = await _seed_image_item(
         db_session, actor_id=actor_id, width=5000, height=5000
     )
-    source = _data(await _read(db_session, actor_id, item_id))["data"]
+    source = _data(await _read(db_session, actor_id, item_id))
     _data(
         await _observe(
             db_session,
@@ -715,7 +715,7 @@ async def test_pyramid_retry_receipt_replays_after_dimensions_make_it_ineligible
 async def test_saved_retry_source_snapshot_change_returns_source_changed(db_session):
     actor_id = await _seed_actor(db_session)
     _, item_id = await _seed_image_item(db_session, actor_id=actor_id)
-    source = _data(await _read(db_session, actor_id, item_id))["data"]
+    source = _data(await _read(db_session, actor_id, item_id))
     _data(
         await _observe(
             db_session,
@@ -828,7 +828,7 @@ async def test_saved_task_retry_detects_relinked_owner_before_source_readiness(
     task.dataset_item_id = first_item_id
     await db_session.flush()
 
-    source = _data(await _read(db_session, actor_id, None, task_id=task.id))["data"]
+    source = _data(await _read(db_session, actor_id, None, task_id=task.id))
     _data(
         await _observe(
             db_session,
@@ -884,7 +884,7 @@ async def test_explicit_cancel_is_receipted_and_fences_pending_work(db_session):
     _, item_id = await _seed_image_item(
         db_session, actor_id=actor_id, width=None, height=None
     )
-    source = _data(await _read(db_session, actor_id, item_id))["data"]
+    source = _data(await _read(db_session, actor_id, item_id))
     _data(
         await _observe(
             db_session,
@@ -949,7 +949,7 @@ async def test_schedule_backfill_freezes_cutoff_and_item_scan_pages(db_session):
     dataset_id, item_id = await _seed_image_item(
         db_session, actor_id=actor_id, width=100, height=100
     )
-    source = _data(await _read(db_session, actor_id, item_id))["data"]
+    source = _data(await _read(db_session, actor_id, item_id))
     _data(
         await _observe(
             db_session,
@@ -1033,7 +1033,7 @@ async def test_schedule_backfill_freezes_cutoff_and_item_scan_pages(db_session):
     assert first["items"][0]["owner"] == {"kind": "dataset_item", "id": str(item_id)}
     assert (
         first["items"][0]["source_snapshot"]
-        == _data(await _read(db_session, actor_id, item_id))["data"]["source_snapshot"]
+        == _data(await _read(db_session, actor_id, item_id))["source_snapshot"]
     )
 
 
@@ -1044,7 +1044,7 @@ async def test_trusted_source_schedule_rejects_unbound_identity_without_receipt(
     _, item_id = await _seed_image_item(
         db_session, actor_id=actor_id, width=None, height=None
     )
-    source = _data(await _read(db_session, actor_id, item_id))["data"]
+    source = _data(await _read(db_session, actor_id, item_id))
     operation_id = uuid4()
     spec = {
         "kind": "dimensions",
@@ -1127,7 +1127,7 @@ async def test_all_task_backfill_status_requires_current_global_superadmin(db_se
 async def test_pyramid_admission_skips_reserved_orphan_generation(db_session):
     actor_id = await _seed_actor(db_session)
     _, item_id = await _seed_image_item(db_session, actor_id=actor_id)
-    source = _data(await _read(db_session, actor_id, item_id))["data"]
+    source = _data(await _read(db_session, actor_id, item_id))
     bound = _data(
         await _observe(
             db_session,
@@ -1136,7 +1136,7 @@ async def test_pyramid_admission_skips_reserved_orphan_generation(db_session):
             {"etag": "pyramid-source", "byte_size": 2048},
             item_id=item_id,
         )
-    )["data"]
+    )
     asset_id = uuid4()
     await db_session.execute(
         text(
@@ -1189,7 +1189,7 @@ async def test_item_thumbnail_invalidation_detaches_before_queueing(db_session):
     _, item_id = await _seed_image_item(
         db_session, actor_id=actor_id, width=100, height=100
     )
-    source = _data(await _read(db_session, actor_id, item_id))["data"]
+    source = _data(await _read(db_session, actor_id, item_id))
     bound = _data(
         await _observe(
             db_session,
@@ -1198,7 +1198,7 @@ async def test_item_thumbnail_invalidation_detaches_before_queueing(db_session):
             {"etag": "thumbnail-source", "byte_size": 2048},
             item_id=item_id,
         )
-    )["data"]
+    )
     key = f"image-assets/{uuid4()}/g1/a{uuid4()}/thumbnail.webp"
     await db_session.execute(
         text(
@@ -1207,7 +1207,7 @@ async def test_item_thumbnail_invalidation_detaches_before_queueing(db_session):
         ),
         {"item_id": item_id, "key": key},
     )
-    source = _data(await _read(db_session, actor_id, item_id))["data"]
+    source = _data(await _read(db_session, actor_id, item_id))
     invalidated = _data(
         await db_session.scalar(
             _INVALIDATE,

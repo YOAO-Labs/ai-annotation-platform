@@ -1746,7 +1746,7 @@ BEGIN
     END IF;
     v_selection := pg_catalog.jsonb_set(
         v_spec -> 'selection', '{accepted_before}',
-        pg_catalog.to_jsonb(v_candidate.backfill_cutoff::text), true
+        pg_catalog.to_jsonb(v_candidate.backfill_cutoff), true
     );
     v_purpose := v_selection ->> 'purpose';
     v_only_missing := COALESCE(v_selection -> 'only_missing' = 'true'::jsonb, true);

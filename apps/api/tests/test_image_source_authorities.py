@@ -53,7 +53,7 @@ def _object(value: object) -> dict:
 
 def _data(reply: object, schema: str = "aap-labeling-image-source/v1") -> dict:
     parsed = _object(reply)
-    assert set(parsed) == {"schema", "ok", "data"}
+    assert set(parsed) == {"schema", "ok", "data"}, parsed
     assert parsed["schema"] == schema
     assert parsed["ok"] is True
     assert isinstance(parsed["data"], dict)
@@ -380,8 +380,9 @@ async def test_observation_binds_once_then_drift_fences_thumbnail_publication(
     assert drifted["source_snapshot"] != bound["source_snapshot"]
     assert drifted["object_identity"] == changed_identity
     assert drifted["source_drifted"] is True
-    assert drifted["thumbnail_path"] is None
-    assert drifted["blurhash"] is None
+    drifted_source = _data(await _read(db_session, task.id))
+    assert drifted_source["thumbnail_path"] is None
+    assert drifted_source["blurhash"] is None
     assert await db_session.scalar(_REFERENCES, {"prefix": prefix}) is False
 
     stale = _data(
@@ -512,6 +513,7 @@ async def test_thumbnail_output_and_cleanup_scopes_are_narrow(db_session):
         blurhash="must-not-write",
     )
     _error(invalid_key, "invalid_request", "aap-labeling-image-thumbnail/v1")
+    await db_session.refresh(task)
     assert task.thumbnail_path == key
     assert task.blurhash is None
 
@@ -589,14 +591,14 @@ async def test_task_backfill_scope_has_stable_source_snapshot_and_paging(db_sess
             )
         )
 
-    first = _data(await scan(), "aap-labeling-image-backfill/v1")
+    first = _data(await scan())
     assert first["total"] == 2
     assert first["complete"] is False
     assert first["items"][0]["task_id"] == str(tasks[0].id)
     assert first["items"][0]["thumbnail_path"] == key
     assert first["next_id"] == str(tasks[0].id)
 
-    second = _data(await scan(first["next_id"]), "aap-labeling-image-backfill/v1")
+    second = _data(await scan(first["next_id"]))
     assert second["complete"] is True
     assert second["items"][0]["task_id"] == str(tasks[1].id)
     assert second["next_id"] is None

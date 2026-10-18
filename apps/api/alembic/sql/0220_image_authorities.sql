@@ -777,7 +777,7 @@ BEGIN
                )), 'hex') AS snapshot_digest
         FROM candidates
     ), ranked AS (
-        SELECT task.*,
+        SELECT task.*, candidates.source_snapshot AS image_source_snapshot,
                pg_catalog.row_number() OVER (ORDER BY task.id) AS row_number
         FROM public.tasks AS task
         JOIN candidates ON candidates.id = task.id
@@ -799,7 +799,7 @@ BEGIN
                    'file_name', page.file_name,
                    'created_at', page.created_at,
                    'source_generation', page.media_source_generation,
-                   'source_snapshot', aap_labeling_v1._image_source_snapshot(page),
+                   'source_snapshot', page.image_source_snapshot,
                    'object_identity', page.media_object_identity,
                    'source_drifted', page.media_source_drifted,
                    'upload_ready', true,
@@ -815,10 +815,11 @@ BEGIN
                ) ORDER BY page.id
            ) FILTER (WHERE page.row_number <= p_page_size), '[]'::jsonb),
            COALESCE(pg_catalog.bool_or(page.row_number > p_page_size), false),
-           pg_catalog.max(page.id) FILTER (WHERE page.row_number = p_page_size)
+           (pg_catalog.array_agg(page.id) FILTER (WHERE page.row_number = p_page_size))[1]
     INTO v_total, v_digest, v_items, v_more, v_next_id
     FROM snapshot
-    LEFT JOIN page ON true;
+    LEFT JOIN page ON true
+    GROUP BY snapshot.total, snapshot.snapshot_digest;
     RETURN aap_labeling_v1._image_source_reply(
         pg_catalog.jsonb_build_object(
             'items', v_items,

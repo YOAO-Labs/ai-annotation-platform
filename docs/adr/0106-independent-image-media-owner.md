@@ -71,6 +71,13 @@ shapes remain unchanged. Independent producers read the existing
 `IMAGE_PYRAMID_*` configuration names; the API binding captures its validated
 settings. Frozen thumbnail source limits are not configurable.
 
+Legacy upload preflight reads current source and receipt facts before object
+I/O; final publication still takes the original authority locks and compares the
+captured source. Thumbnail handoff audit rows are retained as completed. A
+deferred source-binding constraint rejects an older producer that registers an
+image without the new atomic binding path. Drain pending legacy deliveries and
+refresh the producer binaries during cutover.
+
 Migration 0220 adds image jobs, immutable operation receipts and retained image
 garbage responsibilities. Jobs are authoritative for accepted work, attempts and
 terminal state; existing pyramid Asset/Generation rows become the atomically

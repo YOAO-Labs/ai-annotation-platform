@@ -119,7 +119,9 @@ class DatasetItem(Base):
     media_materialized_generation: Mapped[int] = mapped_column(
         BigInteger, nullable=False, server_default="0"
     )
-    media_object_identity: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    media_object_identity: Mapped[dict | None] = mapped_column(
+        JSONB(none_as_null=True), nullable=True
+    )
     media_source_drifted: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default="false"
     )

@@ -65,7 +65,9 @@ class Task(Base):
     media_source_generation: Mapped[int] = mapped_column(
         BigInteger, nullable=False, default=1, server_default="1"
     )
-    media_object_identity: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    media_object_identity: Mapped[dict | None] = mapped_column(
+        JSONB(none_as_null=True), nullable=True
+    )
     media_source_drifted: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"
     )

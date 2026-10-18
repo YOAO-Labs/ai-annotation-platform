@@ -93,6 +93,8 @@ class AssetImageJob(Base):
             "(kind <> 'image_backfill' AND owner_kind IN ('dataset_item', 'task') "
             "AND owner_id IS NOT NULL AND source_generation > 0 "
             "AND source_snapshot IS NOT NULL AND source_facts IS NOT NULL "
+            "AND pg_catalog.jsonb_typeof(source_facts -> 'object_identity') "
+            "IS NOT DISTINCT FROM 'object' "
             "AND backfill_cutoff IS NULL AND backfill_cursor_kind IS NULL "
             "AND backfill_cursor_id IS NULL)",
             name="ck_asset_image_jobs_scope",
@@ -117,6 +119,13 @@ class AssetImageJob(Base):
         ),
         Index("ix_asset_image_jobs_claim", "status", "lease_expires_at", "accepted_at"),
         Index("ix_asset_image_jobs_owner_status", "owner_kind", "owner_id", "status"),
+        Index(
+            "ix_asset_image_jobs_pyramid_status",
+            "pyramid_asset_id",
+            "pyramid_generation",
+            "status",
+            postgresql_where=text("pyramid_asset_id IS NOT NULL"),
+        ),
     )
 
 

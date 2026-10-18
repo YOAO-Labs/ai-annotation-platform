@@ -8,6 +8,16 @@ BEGIN
         RAISE EXCEPTION USING ERRCODE = '55000',
             MESSAGE = 'Drain accepted legacy image pyramid writers before migration';
     END IF;
+    IF EXISTS (
+        SELECT 1 FROM public.dataset_import_deliveries
+        WHERE kind = 'thumbnail' AND delivered_at IS NULL
+    ) OR EXISTS (
+        SELECT 1 FROM public.dataset_source_ingest_deliveries
+        WHERE kind = 'thumbnail' AND delivered_at IS NULL
+    ) THEN
+        RAISE EXCEPTION USING ERRCODE = '55000',
+            MESSAGE = 'Drain legacy thumbnail deliveries before migration; their source identity cannot be reconstructed';
+    END IF;
 END;
 $block$;
 -- aap-statement-break
@@ -83,6 +93,8 @@ CREATE TABLE public.asset_image_jobs (
         (kind <> 'image_backfill' AND owner_kind IN ('dataset_item', 'task')
          AND owner_id IS NOT NULL AND source_generation > 0
          AND source_snapshot IS NOT NULL AND source_facts IS NOT NULL
+         AND pg_catalog.jsonb_typeof(source_facts -> 'object_identity')
+             IS NOT DISTINCT FROM 'object'
          AND backfill_cutoff IS NULL AND backfill_cursor_kind IS NULL
          AND backfill_cursor_id IS NULL)
     ),
@@ -103,6 +115,10 @@ CREATE INDEX ix_asset_image_jobs_claim
 -- aap-statement-break
 CREATE INDEX ix_asset_image_jobs_owner_status
     ON public.asset_image_jobs(owner_kind, owner_id, status);
+-- aap-statement-break
+CREATE INDEX ix_asset_image_jobs_pyramid_status
+    ON public.asset_image_jobs(pyramid_asset_id, pyramid_generation, status)
+    WHERE pyramid_asset_id IS NOT NULL;
 -- aap-statement-break
 REVOKE ALL ON TABLE public.asset_image_jobs FROM PUBLIC;
 -- aap-statement-break
@@ -439,13 +455,21 @@ BEGIN
         RETURN pg_catalog.jsonb_build_object('kind', v_kind, 'selection', v_selection, 'policy', v_policy);
     END IF;
     IF v_kind NOT IN ('dimensions', 'thumbnail', 'pyramid')
-       OR (p_spec - ARRAY['kind', 'expected_source_snapshot', 'policy']) <> '{}'::jsonb
+       OR (p_spec - CASE WHEN v_kind = 'dimensions'
+            THEN ARRAY['kind', 'expected_source_snapshot', 'policy', 'generate_preview']
+            ELSE ARRAY['kind', 'expected_source_snapshot', 'policy'] END) <> '{}'::jsonb
        OR pg_catalog.jsonb_typeof(p_spec -> 'expected_source_snapshot') IS DISTINCT FROM 'string'
        OR p_spec ->> 'expected_source_snapshot' !~ '^[0-9a-f]{64}$' THEN RETURN NULL; END IF;
+    IF v_kind = 'dimensions' AND p_spec ? 'generate_preview'
+       AND pg_catalog.jsonb_typeof(p_spec -> 'generate_preview') IS DISTINCT FROM 'boolean' THEN
+        RETURN NULL;
+    END IF;
     RETURN pg_catalog.jsonb_build_object(
         'kind', v_kind, 'expected_source_snapshot', p_spec -> 'expected_source_snapshot',
         'policy', v_policy
-    );
+    ) || CASE WHEN v_kind = 'dimensions' THEN pg_catalog.jsonb_build_object(
+        'generate_preview', COALESCE(p_spec -> 'generate_preview', 'false'::jsonb)
+    ) ELSE '{}'::jsonb END;
 END;
 $function$;
 -- aap-statement-break
