@@ -154,14 +154,26 @@ def items(
 def delete_item(
     dataset_id: str = typer.Argument(..., help="数据集 ID"),
     item_id: str = typer.Argument(..., help="文件 ID"),
+    idempotency_key: str | None = typer.Option(
+        None,
+        "--idempotency-key",
+        help="稳定 UUID；响应不确定时重试请复用原值",
+    ),
     yes: bool = typer.Option(False, "--yes", "-y", help="跳过确认"),
     json_output: bool = typer.Option(False, "--json", help="输出裸 JSON"),
 ) -> None:
     """删除数据集文件。"""
+    if idempotency_key is not None:
+        try:
+            idempotency_key = str(UUID(idempotency_key))
+        except ValueError as exc:
+            raise typer.BadParameter("--idempotency-key 必须是 UUID") from exc
     confirm_destructive(f"确认删除文件 {item_id}?", yes, json_output)
     with cli_errors(json_output):
         with get_client(json_output) as client:
-            client.datasets.delete_item(dataset_id, item_id)
+            client.datasets.delete_item(
+                dataset_id, item_id, idempotency_key=idempotency_key
+            )
     if json_output:
         print_json({"deleted": True, "dataset_id": dataset_id, "item_id": item_id})
     else:
@@ -258,14 +270,24 @@ def unlink(
 @app.command("delete")
 def delete(
     dataset_id: str = typer.Argument(..., help="数据集 ID"),
+    idempotency_key: str | None = typer.Option(
+        None,
+        "--idempotency-key",
+        help="稳定 UUID；响应不确定时重试请复用原值",
+    ),
     yes: bool = typer.Option(False, "--yes", "-y", help="跳过确认"),
     json_output: bool = typer.Option(False, "--json", help="输出裸 JSON"),
 ) -> None:
     """删除数据集。"""
+    if idempotency_key is not None:
+        try:
+            idempotency_key = str(UUID(idempotency_key))
+        except ValueError as exc:
+            raise typer.BadParameter("--idempotency-key 必须是 UUID") from exc
     confirm_destructive(f"确认删除数据集 {dataset_id}?", yes, json_output)
     with cli_errors(json_output):
         with get_client(json_output) as client:
-            client.datasets.delete(dataset_id)
+            client.datasets.delete(dataset_id, idempotency_key=idempotency_key)
     if json_output:
         print_json({"deleted": True, "dataset_id": dataset_id})
     else:

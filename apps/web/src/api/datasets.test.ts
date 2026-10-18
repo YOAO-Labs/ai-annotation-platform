@@ -67,12 +67,26 @@ describe("datasetsApi · endpoint 契约", () => {
   });
 
   it("delete / listItems（带/不带分页）", () => {
-    datasetsApi.delete("d1");
-    expect(del).toHaveBeenCalledWith("/datasets/d1");
+    const idempotencyKey = "35d9bbf7-2410-4d34-9ca0-6cb9b13ea83b";
+    datasetsApi.delete("d1", { idempotencyKey });
+    expect(del).toHaveBeenCalledWith("/datasets/d1", undefined, {
+      headers: { "Idempotency-Key": idempotencyKey },
+    });
     datasetsApi.listItems("d1");
     expect(get).toHaveBeenCalledWith("/datasets/d1/items");
     datasetsApi.listItems("d1", { limit: 5, offset: 10 });
     expect(get).toHaveBeenCalledWith("/datasets/d1/items?limit=5&offset=10");
+  });
+
+  it("source deletes generate UUID Idempotency-Key headers when omitted", () => {
+    datasetsApi.delete("d1");
+    datasetsApi.deleteItem("d1", "i1");
+    expect(del).toHaveBeenNthCalledWith(1, "/datasets/d1", undefined, {
+      headers: { "Idempotency-Key": expect.stringMatching(/^[0-9a-f-]{36}$/) },
+    });
+    expect(del).toHaveBeenNthCalledWith(2, "/datasets/d1/items/i1", undefined, {
+      headers: { "Idempotency-Key": expect.stringMatching(/^[0-9a-f-]{36}$/) },
+    });
   });
 
   it("upload init / complete", () => {
@@ -97,12 +111,15 @@ describe("datasetsApi · endpoint 契约", () => {
   });
 
   it("deleteItem / link / unlink / preview-unlink", () => {
-    datasetsApi.deleteItem("d1", "i1");
-    expect(del).toHaveBeenCalledWith("/datasets/d1/items/i1");
+    const idempotencyKey = "7b14b573-3203-4d64-8b51-6ab7b5fbe4cb";
+    datasetsApi.deleteItem("d1", "i1", { idempotencyKey });
+    expect(del).toHaveBeenCalledWith("/datasets/d1/items/i1", undefined, {
+      headers: { "Idempotency-Key": idempotencyKey },
+    });
     datasetsApi.linkProject("d1", "p1");
     expect(post).toHaveBeenCalledWith("/datasets/d1/link", { project_id: "p1" });
     datasetsApi.unlinkProject("d1", "p1");
-    expect(del).toHaveBeenCalledWith("/datasets/d1/link/p1", {
+    expect(del).toHaveBeenCalledWith("/datasets/d1/link/p1", undefined, {
       headers: { "Idempotency-Key": expect.stringMatching(/^[0-9a-f-]{36}$/) },
     });
     datasetsApi.previewUnlink("d1", "p1");

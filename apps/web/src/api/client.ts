@@ -138,11 +138,12 @@ export const apiClient = {
     request<T>(path, { method: "PUT", body: JSON.stringify(body ?? {}), ...extra }),
   patch: <T>(path: string, body?: unknown, extra?: RequestInit) =>
     request<T>(path, { method: "PATCH", body: JSON.stringify(body ?? {}), ...extra }),
-  delete: <T>(path: string, body?: unknown) =>
-    request<T>(
-      path,
-      body !== undefined ? { method: "DELETE", body: JSON.stringify(body) } : { method: "DELETE" },
-    ),
+  delete: <T>(path: string, body?: unknown, extra?: RequestInit) =>
+    request<T>(path, {
+      method: "DELETE",
+      ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+      ...extra,
+    }),
   /** 公开请求：不携带 Authorization；401 不触发全局 logout（用于 /auth/register 等公开端点）。 */
   publicGet: <T>(path: string) => request<T>(path, undefined, { anonymous: true }),
   publicPost: <T>(path: string, body?: unknown) =>

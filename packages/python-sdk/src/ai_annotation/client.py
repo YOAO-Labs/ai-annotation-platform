@@ -435,8 +435,19 @@ class Datasets:
         resp = self._http.request("PUT", f"/datasets/{dataset_id}", json=fields)
         return Dataset.model_validate(resp.json())
 
-    def delete(self, dataset_id: IdLike) -> None:
-        self._http.request("DELETE", f"/datasets/{dataset_id}")
+    def delete(
+        self, dataset_id: IdLike, *, idempotency_key: IdLike | None = None
+    ) -> None:
+        """Delete a dataset; pass a saved UUID to replay after a lost response."""
+        try:
+            key = uuid4() if idempotency_key is None else UUID(str(idempotency_key))
+        except (TypeError, ValueError) as exc:
+            raise ValueError("idempotency_key must be a UUID") from exc
+        self._http.request(
+            "DELETE",
+            f"/datasets/{dataset_id}",
+            headers={"Idempotency-Key": str(key)},
+        )
 
     def backfill_dimensions(
         self, dataset_id: IdLike, batch: int = 50
@@ -504,8 +515,23 @@ class Datasets:
         )
         return Page[DatasetItem].model_validate(resp.json())
 
-    def delete_item(self, dataset_id: IdLike, item_id: IdLike) -> None:
-        self._http.request("DELETE", f"/datasets/{dataset_id}/items/{item_id}")
+    def delete_item(
+        self,
+        dataset_id: IdLike,
+        item_id: IdLike,
+        *,
+        idempotency_key: IdLike | None = None,
+    ) -> None:
+        """Delete a dataset source; pass a saved UUID to replay a lost response."""
+        try:
+            key = uuid4() if idempotency_key is None else UUID(str(idempotency_key))
+        except (TypeError, ValueError) as exc:
+            raise ValueError("idempotency_key must be a UUID") from exc
+        self._http.request(
+            "DELETE",
+            f"/datasets/{dataset_id}/items/{item_id}",
+            headers={"Idempotency-Key": str(key)},
+        )
 
     def list_projects(self, dataset_id: IdLike) -> list[Project]:
         resp = self._http.request("GET", f"/datasets/{dataset_id}/projects")

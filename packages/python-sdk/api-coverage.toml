@@ -14,6 +14,7 @@ watched_tags = ["*"]
 "DELETE /api/v1/admin/ml-integrations/registry/{registry_id}" = { status = "covered" }
 "DELETE /api/v1/admin/ml-integrations/service-pools/{pool_id}" = { status = "covered" }
 "DELETE /api/v1/admin/ml-integrations/service-pools/{pool_id}/members/{registry_id}" = { status = "covered" }
+# Both source deletes return an empty 204; callers can reuse a UUID Idempotency-Key after a lost response.
 "DELETE /api/v1/datasets/{dataset_id}" = { status = "covered" }
 "DELETE /api/v1/datasets/{dataset_id}/items/{item_id}" = { status = "covered" }
 "DELETE /api/v1/datasets/{dataset_id}/link/{project_id}" = { status = "covered" }

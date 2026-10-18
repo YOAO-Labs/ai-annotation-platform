@@ -107,7 +107,10 @@ export const datasetsApi = {
   sniffAxisConvention: (id: string) =>
     apiClient.post<SniffAxisConventionResponse>(`/datasets/${id}/sniff-axis-convention`),
 
-  delete: (id: string) => apiClient.delete<void>(`/datasets/${id}`),
+  delete: (id: string, options?: { idempotencyKey?: string }) =>
+    apiClient.delete<void>(`/datasets/${id}`, undefined, {
+      headers: { "Idempotency-Key": options?.idempotencyKey ?? crypto.randomUUID() },
+    }),
 
   listItems: (id: string, params?: { limit?: number; offset?: number }) => {
     const q = new URLSearchParams();
@@ -189,8 +192,10 @@ export const datasetsApi = {
   backfillMedia: (id: string) =>
     apiClient.post<{ status: string; dataset_id: string }>(`/datasets/${id}/backfill-media`),
 
-  deleteItem: (id: string, itemId: string) =>
-    apiClient.delete<void>(`/datasets/${id}/items/${itemId}`),
+  deleteItem: (id: string, itemId: string, options?: { idempotencyKey?: string }) =>
+    apiClient.delete<void>(`/datasets/${id}/items/${itemId}`, undefined, {
+      headers: { "Idempotency-Key": options?.idempotencyKey ?? crypto.randomUUID() },
+    }),
 
   linkProject: (id: string, projectId: string) =>
     apiClient.post<{
@@ -209,7 +214,7 @@ export const datasetsApi = {
       deleted_batches: number;
       deleted_batch_ids: string[];
       soft: boolean;
-    }>(`/datasets/${id}/link/${projectId}`, {
+    }>(`/datasets/${id}/link/${projectId}`, undefined, {
       headers: { "Idempotency-Key": options?.idempotencyKey ?? crypto.randomUUID() },
     }),
 

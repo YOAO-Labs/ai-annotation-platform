@@ -4,7 +4,7 @@ from uuid import UUID, uuid4
 import httpx
 import pytest
 
-from ai_annotation.errors import PermissionDeniedError
+from ai_annotation.errors import ConflictError, NotFoundError, PermissionDeniedError
 from ai_annotation.dataset_operation_models import DatasetImportFromConnectionRequest
 from ai_annotation.models import (
     Dataset,
@@ -77,6 +77,8 @@ def test_delete_dataset(client, respx_mock):
     )
     assert client.datasets.delete(DS_ID) is None
     assert route.called
+    key = route.calls.last.request.headers["Idempotency-Key"]
+    assert str(UUID(key)) == key
 
 
 def test_list_and_delete_dataset_items(client, respx_mock):
@@ -111,6 +113,91 @@ def test_list_and_delete_dataset_items(client, respx_mock):
     )
     assert client.datasets.delete_item(DS_ID, item_id) is None
     assert delete_route.called
+    key = delete_route.calls.last.request.headers["Idempotency-Key"]
+    assert str(UUID(key)) == key
+
+
+@pytest.mark.parametrize(
+    ("path", "delete"),
+    [
+        (
+            f"/datasets/{DS_ID}",
+            lambda client, key: client.datasets.delete(DS_ID, idempotency_key=key),
+        ),
+        (
+            f"/datasets/{DS_ID}/items/item",
+            lambda client, key: client.datasets.delete_item(
+                DS_ID, "item", idempotency_key=key
+            ),
+        ),
+    ],
+)
+def test_source_delete_reuses_saved_key_after_lost_response(
+    client, respx_mock, path, delete
+):
+    key = str(uuid4())
+    route = respx_mock.delete(f"{API}{path}").mock(
+        side_effect=[
+            httpx.ReadTimeout("response lost after the server accepted the request"),
+            httpx.Response(204),
+        ]
+    )
+
+    with pytest.raises(httpx.ReadTimeout):
+        delete(client, key)
+    assert delete(client, key) is None
+    assert [call.request.headers["Idempotency-Key"] for call in route.calls] == [
+        key,
+        key,
+    ]
+
+
+@pytest.mark.parametrize(
+    ("status", "detail", "exception_type"),
+    [
+        (404, "Item not found", NotFoundError),
+        (
+            409,
+            {"code": "source_in_use", "message": "Reference retained the source"},
+            ConflictError,
+        ),
+        (409, {"reason": "source_busy"}, ConflictError),
+        (409, {"reason": "operation_conflict"}, ConflictError),
+    ],
+)
+def test_source_delete_preserves_server_error_details(
+    client, respx_mock, status, detail, exception_type
+):
+    route = respx_mock.delete(f"{API}/datasets/{DS_ID}/items/item").mock(
+        return_value=httpx.Response(status, json={"detail": detail})
+    )
+    with pytest.raises(exception_type) as caught:
+        client.datasets.delete_item(DS_ID, "item", idempotency_key=str(uuid4()))
+    assert caught.value.status_code == status
+    assert caught.value.detail == detail
+    assert route.called
+
+
+@pytest.mark.parametrize(
+    ("path", "delete"),
+    [
+        (
+            f"/datasets/{DS_ID}",
+            lambda client, key: client.datasets.delete(DS_ID, idempotency_key=key),
+        ),
+        (
+            f"/datasets/{DS_ID}/items/item",
+            lambda client, key: client.datasets.delete_item(
+                DS_ID, "item", idempotency_key=key
+            ),
+        ),
+    ],
+)
+def test_invalid_source_delete_key_sends_no_request(client, respx_mock, path, delete):
+    route = respx_mock.delete(f"{API}{path}").mock(return_value=httpx.Response(204))
+    with pytest.raises(ValueError, match="idempotency_key must be a UUID"):
+        delete(client, "not-a-uuid")
+    assert route.call_count == 0
 
 
 def test_list_projects_and_unlink(client, respx_mock):

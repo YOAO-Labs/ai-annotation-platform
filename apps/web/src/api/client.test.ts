@@ -86,3 +86,28 @@ it("reads authenticated binary responses with abort support and preserves struct
     useAuthStore.getState().logout();
   }
 });
+
+it("DELETE preserves JSON bodies and sends RequestInit headers without a fake body", async () => {
+  const fetch = vi.fn().mockResolvedValue(new Response(null, { status: 204 }));
+  vi.stubGlobal("fetch", fetch);
+  useAuthStore.getState().setAuth("delete-token", { id: "delete-user" } as MeResponse);
+  const idempotencyKey = "35d9bbf7-2410-4d34-9ca0-6cb9b13ea83b";
+  try {
+    await apiClient.delete<void>("/items/item", { purge: true });
+    await apiClient.delete<void>("/datasets/d1", undefined, {
+      headers: { "Idempotency-Key": idempotencyKey },
+    });
+
+    const bodyRequest = fetch.mock.calls[0]?.[1] as RequestInit;
+    expect(bodyRequest.method).toBe("DELETE");
+    expect(bodyRequest.body).toBe(JSON.stringify({ purge: true }));
+
+    const headerRequest = fetch.mock.calls[1]?.[1] as RequestInit;
+    expect(headerRequest.method).toBe("DELETE");
+    expect(headerRequest.body).toBeUndefined();
+    expect(new Headers(headerRequest.headers).get("Idempotency-Key")).toBe(idempotencyKey);
+  } finally {
+    vi.unstubAllGlobals();
+    useAuthStore.getState().logout();
+  }
+});

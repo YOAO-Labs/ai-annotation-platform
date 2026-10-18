@@ -6,6 +6,7 @@ import json
 from uuid import uuid4
 
 import httpx
+import pytest
 from typer.main import get_command
 from typer.testing import CliRunner
 
@@ -228,6 +229,91 @@ def test_unlink_cli_rejects_invalid_key_before_requests(
     assert "UUID" in result.output
     assert not preview.called
     assert not unlink.called
+
+
+@pytest.mark.parametrize("delete_item", [False, True])
+def test_source_delete_cli_reuses_saved_key_after_lost_response(
+    delete_item, client, monkeypatch, respx_mock
+):
+    _patch_cli_clients(monkeypatch, client)
+    item_id = str(uuid4())
+    path = (
+        f"{API}/datasets/{DATASET_ID}/items/{item_id}"
+        if delete_item
+        else f"{API}/datasets/{DATASET_ID}"
+    )
+    command = "delete-item" if delete_item else "delete"
+    key = str(uuid4())
+    route = respx_mock.delete(path).mock(
+        side_effect=[
+            httpx.ReadTimeout("response lost after the server accepted the request"),
+            httpx.Response(204),
+        ]
+    )
+    args = [command, DATASET_ID]
+    if delete_item:
+        args.append(item_id)
+    args.extend(["--json", "--yes", "--idempotency-key", key])
+
+    first = runner.invoke(datasets_app, args, env=ENV)
+    assert first.exit_code == 1, first.output
+    second = runner.invoke(datasets_app, args, env=ENV)
+
+    expected = {"deleted": True, "dataset_id": DATASET_ID}
+    if delete_item:
+        expected["item_id"] = item_id
+    assert second.exit_code == 0, second.output
+    assert json.loads(second.stdout) == expected
+    assert [call.request.headers["Idempotency-Key"] for call in route.calls] == [
+        key,
+        key,
+    ]
+
+
+@pytest.mark.parametrize("delete_item", [False, True])
+def test_source_delete_cli_rejects_bad_key_before_any_request(delete_item, respx_mock):
+    item_id = str(uuid4())
+    path = (
+        f"{API}/datasets/{DATASET_ID}/items/{item_id}"
+        if delete_item
+        else f"{API}/datasets/{DATASET_ID}"
+    )
+    command = "delete-item" if delete_item else "delete"
+    route = respx_mock.delete(path).mock(return_value=httpx.Response(204))
+    args = [command, DATASET_ID]
+    if delete_item:
+        args.append(item_id)
+    args.extend(["--yes", "--json", "--idempotency-key", "not-a-uuid"])
+
+    result = runner.invoke(datasets_app, args, env=ENV)
+
+    assert result.exit_code != 0
+    assert "UUID" in result.output
+    assert route.call_count == 0
+
+
+@pytest.mark.parametrize("delete_item", [False, True])
+def test_source_delete_json_requires_confirmation_even_with_a_key(
+    delete_item, respx_mock
+):
+    item_id = str(uuid4())
+    path = (
+        f"{API}/datasets/{DATASET_ID}/items/{item_id}"
+        if delete_item
+        else f"{API}/datasets/{DATASET_ID}"
+    )
+    command = "delete-item" if delete_item else "delete"
+    route = respx_mock.delete(path).mock(return_value=httpx.Response(204))
+    args = [command, DATASET_ID]
+    if delete_item:
+        args.append(item_id)
+    args.extend(["--json", "--idempotency-key", str(uuid4())])
+
+    result = runner.invoke(datasets_app, args, env=ENV)
+
+    assert result.exit_code == 2
+    assert "--yes" in result.output
+    assert route.call_count == 0
 
 
 def test_guide_asset_put_cli_requires_confirmation_and_does_not_complete(
