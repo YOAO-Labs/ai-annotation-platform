@@ -22,6 +22,7 @@ from pydantic import (
 
 ImportFailureCode = Literal[
     "invalid_request",
+    "invalid_source_object",
     "account_not_active",
     "account_busy",
     "manager_required",
@@ -345,7 +346,7 @@ class ImportConnection(_Value):
     lease_token: UUID
     kind: Literal["s3", "sftp"]
     config: dict[str, Any]
-    secret_enc: Annotated[StrictStr, Field(min_length=1, max_length=8192)]
+    secret_enc: Annotated[StrictStr, Field(min_length=1, max_length=65536)]
     allowlist: Annotated[
         list[Annotated[StrictStr, Field(min_length=1, max_length=253)]],
         Field(max_length=256),

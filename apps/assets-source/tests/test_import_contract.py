@@ -1,5 +1,6 @@
-from importlib.resources import files
+import base64
 import json
+from importlib.resources import files
 from uuid import UUID
 
 from pydantic import ValidationError
@@ -103,6 +104,16 @@ def test_import_values_are_bounded_and_retain_the_existing_dataset_display_id():
         allowlist=["storage.example"],
     )
     assert connection.secret_enc == "ZW5jcnlwdGVk"
+    large_secret = base64.b64encode(b"x" * 49152).decode("ascii")
+    large_connection = ImportConnection(
+        job_id=JOB,
+        lease_token=LEASE,
+        kind="s3",
+        config={"endpoint": "https://storage.example", "bucket": "data"},
+        secret_enc=large_secret,
+        allowlist=["storage.example"],
+    )
+    assert len(large_connection.secret_enc) == 65536
 
     with pytest.raises(ValidationError):
         ImportContext(
@@ -285,6 +296,16 @@ def test_import_reply_decoder_rejects_malformed_and_unknown_errors():
             ImportState,
         )
     assert failure.value.code == "connection_changed"
+    with pytest.raises(ImportFailure) as failure:
+        decode_import_reply(
+            {
+                "schema": "aap-dataset-import/v1",
+                "ok": False,
+                "error": {"code": "invalid_source_object"},
+            },
+            ImportEntry,
+        )
+    assert failure.value.code == "invalid_source_object"
     with pytest.raises(ImportFailure) as failure:
         decode_import_reply(
             {"schema": "aap-dataset-import/v2", "ok": True, "data": {}},

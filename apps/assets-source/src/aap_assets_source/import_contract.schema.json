@@ -52,7 +52,7 @@
           "type": "object"
         },
         "secret_enc": {
-          "maxLength": 8192,
+          "maxLength": 65536,
           "minLength": 1,
           "title": "Secret Enc",
           "type": "string"
@@ -552,6 +552,7 @@
       "type": "string",
       "enum": [
         "invalid_request",
+        "invalid_source_object",
         "account_not_active",
         "account_busy",
         "manager_required",
