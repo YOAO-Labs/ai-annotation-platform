@@ -5,7 +5,8 @@
 --   -v jobs_owner=jobs_code -v learning_owner=learning_code
 --   -v inference_owner=inference_code -v insights_owner=insights_code
 --   -v diagnostics_owner=diagnostics_code -v export_owner=export_code
---   -v audit_owner=audit_code -v workflow_role=append_client
+--   -v audit_owner=audit_code -v settings_owner=settings_code
+--   -v notifications_owner=notifications_code -v workflow_role=append_client
 --   -v asset_cleanup_role=asset_cleanup_client
 --   -f infra/docker/module-data-grants.sql
 \set ON_ERROR_STOP on
@@ -23,6 +24,8 @@ SELECT set_config('aap.insights_owner', :'insights_owner', true);
 SELECT set_config('aap.diagnostics_owner', :'diagnostics_owner', true);
 SELECT set_config('aap.export_owner', :'export_owner', true);
 SELECT set_config('aap.audit_owner', :'audit_owner', true);
+SELECT set_config('aap.settings_owner', :'settings_owner', true);
+SELECT set_config('aap.notifications_owner', :'notifications_owner', true);
 SELECT set_config('aap.workflow_role', :'workflow_role', true);
 SELECT set_config('aap.asset_cleanup_role', :'asset_cleanup_role', true);
 
@@ -41,6 +44,8 @@ DECLARE
         current_setting('aap.diagnostics_owner'),
         current_setting('aap.export_owner'),
         current_setting('aap.audit_owner'),
+        current_setting('aap.settings_owner'),
+        current_setting('aap.notifications_owner'),
         current_setting('aap.workflow_role'),
         current_setting('aap.asset_cleanup_role')
     ];
@@ -49,7 +54,7 @@ BEGIN
        OR current_user <> current_setting('aap.migration_role') THEN
         RAISE EXCEPTION 'Unexpected database or migration owner';
     END IF;
-    IF (SELECT count(DISTINCT n) FROM unnest(role_names) AS n) <> 13 THEN
+    IF (SELECT count(DISTINCT n) FROM unnest(role_names) AS n) <> 15 THEN
         RAISE EXCEPTION 'Module owners and caller must be distinct roles';
     END IF;
     FOREACH role_name IN ARRAY role_names LOOP
@@ -83,14 +88,14 @@ END $$;
 
 REVOKE ALL ON SCHEMA aap_identity_v1, aap_workspace_v1, aap_assets_v1,
     aap_labeling_v1, aap_jobs_v1, aap_learning_v1, aap_inference_v1,
-    aap_insights_v1, aap_diagnostics_v1, aap_export_v1, aap_audit_v1 FROM PUBLIC;
+    aap_insights_v1, aap_diagnostics_v1, aap_export_v1, aap_audit_v1, aap_settings_v1, aap_notifications_v1 FROM PUBLIC;
 REVOKE ALL ON ALL FUNCTIONS IN SCHEMA aap_identity_v1, aap_workspace_v1,
     aap_assets_v1, aap_labeling_v1, aap_jobs_v1, aap_learning_v1,
     aap_inference_v1, aap_insights_v1, aap_diagnostics_v1, aap_export_v1,
-    aap_audit_v1 FROM PUBLIC;
+    aap_audit_v1, aap_settings_v1, aap_notifications_v1 FROM PUBLIC;
 REVOKE ALL ON SCHEMA aap_identity_v1, aap_workspace_v1, aap_assets_v1,
     aap_labeling_v1, aap_jobs_v1, aap_learning_v1, aap_inference_v1,
-    aap_insights_v1, aap_diagnostics_v1, aap_export_v1, aap_audit_v1
+    aap_insights_v1, aap_diagnostics_v1, aap_export_v1, aap_audit_v1, aap_settings_v1, aap_notifications_v1
     FROM :"asset_cleanup_role";
 REVOKE ALL ON ALL FUNCTIONS IN SCHEMA aap_identity_v1, aap_workspace_v1,
     aap_assets_v1, aap_labeling_v1, aap_jobs_v1, aap_learning_v1,
@@ -106,7 +111,7 @@ REVOKE ALL ON ALL FUNCTIONS IN SCHEMA public FROM :"asset_cleanup_role";
 GRANT USAGE ON SCHEMA public TO :"identity_owner", :"workspace_owner",
     :"assets_owner", :"labeling_owner", :"jobs_owner", :"learning_owner",
     :"inference_owner", :"insights_owner", :"diagnostics_owner",
-    :"export_owner", :"audit_owner";
+    :"export_owner", :"audit_owner", :"settings_owner", :"notifications_owner";
 
 -- Identity and Workspace provide only the current actor/project facts needed
 -- to retain their row locks through the caller-owned transaction.
@@ -176,6 +181,11 @@ GRANT SELECT (operation_id, actor_id, dataset_id, item_id, request, result, crea
     UPDATE (operation_id) ON public.dataset_source_deletion_operations
     TO :"assets_owner";
 GRANT SELECT (project_id), DELETE ON public.storage_connections TO :"assets_owner";
+GRANT SELECT (id, name, kind, config, secret_enc, scope, created_by, updated_at, created_at, project_id),
+    UPDATE (id) ON public.storage_connections TO :"assets_owner";
+GRANT SELECT (is_temporal) ON public.datasets TO :"assets_owner";
+GRANT SELECT, INSERT, UPDATE ON public.dataset_import_operations,
+    public.dataset_import_entries, public.dataset_import_deliveries TO :"assets_owner";
 GRANT SELECT (id, task_id, dataset_item_id), UPDATE (id), DELETE
     ON public.image_pyramid_assets TO :"assets_owner";
 GRANT SELECT (asset_id, generation, status, lease_expires_at), UPDATE (generation)
@@ -194,6 +204,17 @@ BEGIN
     FOR denied IN
         SELECT * FROM (VALUES
             (current_setting('aap.assets_owner'), 'public.users'),
+            (current_setting('aap.assets_owner'), 'public.system_settings'),
+            (current_setting('aap.assets_owner'), 'public.notifications'),
+            (current_setting('aap.assets_owner'), 'public.notification_preferences'),
+            (current_setting('aap.jobs_owner'), 'public.users'),
+            (current_setting('aap.jobs_owner'), 'public.notifications'),
+            (current_setting('aap.jobs_owner'), 'public.system_settings'),
+            (current_setting('aap.notifications_owner'), 'public.users'),
+            (current_setting('aap.notifications_owner'), 'public.async_jobs'),
+            (current_setting('aap.notifications_owner'), 'public.datasets'),
+            (current_setting('aap.settings_owner'), 'public.users'),
+            (current_setting('aap.settings_owner'), 'public.async_jobs'),
             (current_setting('aap.assets_owner'), 'public.projects'),
             (current_setting('aap.assets_owner'), 'public.project_members'),
             (current_setting('aap.assets_owner'), 'public.tasks'),
@@ -317,8 +338,36 @@ GRANT INSERT (id, kind, project_id, user_id, status, progress_pct, payload, resu
     ON public.async_jobs TO :"jobs_owner";
 GRANT UPDATE (
     status, progress_pct, result, error_message, celery_task_id, started_at,
-    completed_at, updated_at, project_id, retained_project_id
+    completed_at, updated_at, project_id, retained_project_id, payload
 ) ON public.async_jobs TO :"jobs_owner";
+
+-- Settings and Notifications retain their own relation permissions.
+GRANT SELECT (key, value_json) ON public.system_settings TO :"settings_owner";
+GRANT SELECT, INSERT ON public.notifications TO :"notifications_owner";
+GRANT SELECT (user_id, type, channels)
+    ON public.notification_preferences TO :"notifications_owner";
+
+GRANT USAGE ON SCHEMA aap_settings_v1 TO :"settings_owner", :"assets_owner";
+GRANT USAGE ON SCHEMA aap_notifications_v1
+    TO :"notifications_owner", :"jobs_owner";
+GRANT USAGE ON SCHEMA aap_identity_v1 TO :"jobs_owner", :"notifications_owner";
+GRANT EXECUTE ON FUNCTION aap_identity_v1.lock_active_actor(uuid) TO :"jobs_owner";
+GRANT EXECUTE ON FUNCTION aap_identity_v1.read_actor_facts(uuid)
+    TO :"notifications_owner";
+GRANT EXECUTE ON FUNCTION aap_settings_v1.resolve_connector_host_allowlist(jsonb)
+    TO :"assets_owner";
+GRANT EXECUTE ON FUNCTION aap_notifications_v1.create_job_terminal_notification(
+    uuid, uuid, text, jsonb
+) TO :"jobs_owner";
+GRANT EXECUTE ON FUNCTION aap_jobs_v1.create_dataset_import_job(uuid,uuid,jsonb),
+    aap_jobs_v1.lock_dataset_import_job(uuid),
+    aap_jobs_v1.claim_dataset_import_job(uuid),
+    aap_jobs_v1.update_dataset_import_job_progress(uuid,text,integer,integer,bigint),
+    aap_jobs_v1.finish_dataset_import_job(uuid,text,jsonb,text),
+    aap_jobs_v1.cancel_dataset_import_job(uuid,uuid,jsonb)
+    TO :"assets_owner";
+GRANT EXECUTE ON FUNCTION aap_audit_v1.record_dataset_import(uuid,uuid,uuid,jsonb,jsonb)
+    TO :"assets_owner";
 
 -- Learning holds project retention evidence, task-derived streams and recipes.
 GRANT SELECT (project_id) ON public.active_learning_rounds TO :"learning_owner";
@@ -721,6 +770,42 @@ ALTER FUNCTION aap_audit_v1.record_dataset_source_deletion(
 ) OWNER TO :"audit_owner";
 REVOKE CREATE ON SCHEMA aap_audit_v1 FROM :"audit_owner";
 
+-- New import helpers stay with their schema owner; runtime roles gain no DDL.
+GRANT CREATE ON SCHEMA aap_assets_v1 TO :"assets_owner";
+GRANT CREATE ON SCHEMA aap_jobs_v1 TO :"jobs_owner";
+GRANT CREATE ON SCHEMA aap_audit_v1 TO :"audit_owner";
+GRANT CREATE ON SCHEMA aap_settings_v1 TO :"settings_owner";
+GRANT CREATE ON SCHEMA aap_notifications_v1 TO :"notifications_owner";
+DO $$
+DECLARE
+    capability record;
+BEGIN
+    FOR capability IN
+        SELECT proc.oid, scopes.owner_key
+        FROM pg_catalog.pg_proc AS proc
+        JOIN pg_catalog.pg_namespace AS ns ON ns.oid=proc.pronamespace
+        JOIN (VALUES
+            ('aap_assets_v1','aap.assets_owner'),
+            ('aap_jobs_v1','aap.jobs_owner'),
+            ('aap_audit_v1','aap.audit_owner'),
+            ('aap_settings_v1','aap.settings_owner'),
+            ('aap_notifications_v1','aap.notifications_owner')
+        ) AS scopes(schema_name,owner_key) ON scopes.schema_name=ns.nspname
+        WHERE proc.prokind='f'
+          AND (proc.proname LIKE '%dataset_import%'
+               OR ns.nspname IN ('aap_settings_v1','aap_notifications_v1'))
+    LOOP
+        EXECUTE pg_catalog.format('ALTER FUNCTION %s OWNER TO %I',
+            capability.oid::pg_catalog.regprocedure,
+            current_setting(capability.owner_key));
+    END LOOP;
+END $$;
+REVOKE CREATE ON SCHEMA aap_assets_v1 FROM :"assets_owner";
+REVOKE CREATE ON SCHEMA aap_jobs_v1 FROM :"jobs_owner";
+REVOKE CREATE ON SCHEMA aap_audit_v1 FROM :"audit_owner";
+REVOKE CREATE ON SCHEMA aap_settings_v1 FROM :"settings_owner";
+REVOKE CREATE ON SCHEMA aap_notifications_v1 FROM :"notifications_owner";
+
 DO $$
 DECLARE
     target text;
@@ -731,6 +816,9 @@ BEGIN
         'public.dataset_unlink_operations', 'public.dataset_source_deletion_operations',
         'public.dataset_upload_intents', 'public.asset_storage_deletions',
         'public.audit_logs', 'public.datasets', 'public.scenes',
+        'public.dataset_import_operations','public.dataset_import_entries',
+        'public.dataset_import_deliveries','public.notifications',
+        'public.notification_preferences','public.system_settings',
         'public.dataset_items', 'public.project_datasets',
         'public.storage_connections', 'public.image_pyramid_assets',
         'public.tasks', 'public.task_batches', 'public.task_locks',

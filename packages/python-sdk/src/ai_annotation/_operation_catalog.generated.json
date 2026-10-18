@@ -25053,6 +25053,23 @@
             "type": "string",
             "format": "uuid"
           }
+        },
+        {
+          "name": "Idempotency-Key",
+          "in": "header",
+          "required": false,
+          "schema": {
+            "title": "Idempotency-Key",
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
         }
       ],
       "responses": {
@@ -44880,6 +44897,13 @@
           "annotation": "DatasetImportFromConnectionRequest",
           "required": true,
           "default": null
+        },
+        {
+          "name": "idempotency_key",
+          "kind": "keyword_only",
+          "annotation": "IdLike | None",
+          "required": false,
+          "default": null
         }
       ],
       "return_type": "DatasetImportFromConnectionResult",
@@ -44894,7 +44918,7 @@
       "calls": [],
       "external_http": false,
       "constraints": [
-        "Platform manager operation on the global dataset catalogue. Rechecks connector visibility, host guard and source path, freezes import budgets, then returns HTTP 202 job_id. Observe that AsyncJob explicitly; no idempotency key or automatic retry."
+        "Platform manager operation on the global dataset catalogue. Rechecks connector visibility, host guard and source path, freezes import budgets, then returns HTTP 202 job_id. Save the optional caller-supplied UUID idempotency_key and exact request to replay an uncertain acceptance. Observe that AsyncJob explicitly; no automatic retry."
       ],
       "cli_aliases": [
         "datasets.import-from-connection"
@@ -68350,6 +68374,17 @@
           "default": false,
           "type": "bool",
           "description": "确认排队导入任务"
+        },
+        {
+          "name": "idempotency_key",
+          "kind": "option",
+          "options": [
+            "--idempotency-key"
+          ],
+          "required": false,
+          "default": null,
+          "type": "str | None",
+          "description": "稳定 UUID；响应不确定时重试请复用原值"
         },
         {
           "name": "json_output",

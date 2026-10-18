@@ -287,3 +287,15 @@ Identity 只提供 actor UUID、平台角色和活跃状态；Workspace 提供�
 调用方在同一个外层事务中持有锁，期间只读取既有来源的 HEAD/有限图像头，不复制或删除旧字节。文件缺失或内容重复不清除旧行、对象或人工证据。成功时元数据、任务、计数、Labeling 回执和 Assets 回执共同提交；最终提交失败则共同回滚。Labeling 的可复用追加 ID 不能单独证明 Assets 已完成上传。
 
 `dataset_legacy_upload_operations` 没有 live Dataset/Item/账号外键，也不自动过期。重放仍检查当前活跃身份、父子存在关系和当前来源路径/类型；不同规范请求复用操作 ID 返回 `operation_conflict`，来源替换返回 `source_changed`，不会按历史回执改回当前来源。状态为 pending/completed/duplicate，完整字段及错误见 `0213_assets_source_runtime.schema.json`。独立来源进程的专用 LOGIN 仅执行五项现代上传、两项来源删除和两项旧上传操作，不读取业务关系。
+
+## 持久连接器导入
+
+Assets 的 `prepare_dataset_import`、`accept_dataset_import` 与 `cancel_dataset_import` 服务公开适配器；独立执行器只获得 claim、heartbeat、connection、manifest、next、complete-entry、finish 七项能力，不能接受新授权或读取其他 owner 关系。协议为 `aap-dataset-import/v1`，完整定义见 `0214_dataset_import.schema.json` 和随包的 `import_contract.schema.json`。
+
+`dataset_import_operations` 保存已接受执行权、加密连接快照、预算、租约和聚合进度；`dataset_import_entries` 保存不可变清单、稳定条目 UUID 与逐文件回执。它们和 `dataset_import_deliveries` 没有 live 业务外键，也不自动过期。通用清理保留带该受理协议的 Jobs 回执，避免清理后原 UUID 无法重放。最多 16 MiB 的清单在复制前校验；源路径与文件名分别受目录安全、数据库字符及对象 key UTF-8 预算约束。
+
+接受时仍校验当前活跃管理员与连接器使用权，prepare 持有连接行锁直到调用方完成主机/路径校验和接受提交。同一 UUID 重放绑定原用户意图并沿用首次预算。执行不重新授予或撤回原受理者的权限；显式取消、当前作业、连接器版本、Dataset 与 lease/token 在 SQL 中逐文件围栏。每次复制使用新的 publication 路径，原始及不确定拷贝保留。
+
+Item、文件数、Labeling append、游标/计数、Jobs 进度和媒体派发意图共同提交或回滚。Jobs 终态经 Notifications 能力持久化通知；Settings 的当前白名单通过其版本化能力读取。两个新 NOLOGIN owner 不读取 Identity 私表，Identity 存在事实由既有公开能力提供。
+
+后续派发使用 `aap-dataset-import-delivery/v1`：领取在实际传输前提交，失败保留租约供重试，成功再确认；原始 SQL/schema 包含 wall-clock 期限检查。该回执只表示传输被接受，不证明既有媒体计算完成。迁移拒绝活动旧导入，不能为其推导受理证据；先排空或取消再升级。操作和运行限制见 [ADR-0100](/dev/adr/0100-durable-connector-import)。

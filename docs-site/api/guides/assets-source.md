@@ -47,3 +47,17 @@ S3 身份只拥有 import 桶 `dataset-uploads/*` 的 Get/Put、datasets 桶历�
 先应用 0213、运行 module-data owner 授权与 `infra/docker/assets-source-grants.sql`，再为非 root 用户 10003 准备专用 secret、固定桶和 S3 origin。独立启动配置见仓库 `DEV.md`、`docker-compose.assets-source.yml` 及服务 README。先确认服务 `/health` 与 `/ready`，再设置网关 `ASSETS_SOURCE_URL`、`ASSETS_SOURCE_TOKEN` 并刷新 API。网关 I/O 超时默认 300 秒，上限 3600 秒；独立服务的池、SQL、S3 连接/读取和消息预算均可独立限制。
 
 回退到本地模式可清空网关 URL 并刷新 API，保留兼容的 SQL 与完成回执，再停止指定独立 Compose 项目。回退迁移前须停止来源写入并处理仍需确认的操作；空库迁移往返不证明删除在途回执安全。Go 仍是隔离实验，不进入本服务或真实环境。
+
+## 持久连接器导入
+
+`POST /api/v1/datasets/{dataset_id}/import-from-connection` 仍返回 202 与 `job_id`，并保留 `datasets:write`、全局管理员角色、连接器可见性和出网白名单检查。可传 UUID `Idempotency-Key`，成功时回显；相同键与请求找回原作业，改变请求复用旧键返回 409。当前账户与权限在重放时仍需有效。
+
+`aap-dataset-import/v1` 将接受、租约、冻结清单、逐文件完成和终态分开；每次调用在完整回复验证后提交。`python -m aap_assets_source_import` 使用独立数据库身份轮询已接受作业，不导入 API、ORM、Celery 或 Redis。七项执行能力只允许处理已接受的导入；接受和取消能力由 API 使用，不授予执行器。
+
+每个作业固定预算与连接器配置/加密凭据。执行时再次读取有效白名单，显式空数据库覆盖保持拒绝。连接器修改或删除阻止后续提交。已接受执行不因原发起者被停用而丢弃；显式取消、Jobs 终态、父数据集和当前租约仍逐项围栏。
+
+清单在复制前完整持久保存。每次尝试写入独立 `dataset-sources/{dataset}/{item}/{publication}/` 路径，不覆盖按文件名共用的 key，也不在判重时删除原始字节。条目、文件计数、Labeling append、导入游标/计数和后续派发记录在一个事务内提交。提交结果不确定或进程被终止后，接替执行器从已提交游标继续；数据库锁竞争保留当前文件重试，不计为文件失败。
+
+S3 源读取核对枚举的 ETag；SFTP 使用已知主机指纹、目录围栏和读取前后身份校验。取消可能无法立即中止外部阻塞调用，但旧结果不能越过 SQL 围栏登记。已提交条目保留；未知或重复的未引用原始拷贝暂不回收。
+
+媒体和通知沿用既有执行方，持久 outbox 由 API maintenance relay 领取并在派发成功后确认。队列投递可能重复；确认代表 broker 接受，不代表媒体计算完成。此能力不迁移 ZIP、扫描、连接器管理和媒体执行本身，也不等同完整 Assets 可独立部署。部署及旧作业排空规则见 `DEV.md` 与 [ADR-0100](/dev/adr/0100-durable-connector-import)。

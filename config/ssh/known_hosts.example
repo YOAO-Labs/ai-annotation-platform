@@ -1,0 +1,2 @@
+# Copy reviewed SSH host keys into an ignored known_hosts file before using SFTP.
+# An empty file rejects every unknown SFTP host; no key is accepted automatically.

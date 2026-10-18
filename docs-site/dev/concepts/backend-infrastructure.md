@@ -1,7 +1,6 @@
 ---
 audience: [dev]
 type: explanation
-since: v0.1.0
 status: stable
 last_reviewed: 2026-07-29
 ---
@@ -125,18 +124,18 @@ Celery 里任务先被**投递（publish）到某个命名队列**，worker 只*
 - **worker 分组订阅**（按设备与权限隔离并发）：主 worker `-Q default,media,cleanup,audit`（`--concurrency=4`）；维护 worker `-Q maintenance`（单并发，执行分区维护与统计刷新）；GPU 控制 worker `-Q gpu.control`（单并发、唯一持有 collector 数据库凭据）；GPU worker `-Q ml,gpu`（`CELERY_GPU_CONCURRENCY=2`，低并发护显存）；CPU worker `-Q ml.cpu`（`CELERY_CPU_CONCURRENCY=4`）；导出 worker `-Q export`。预标任务按模型 `resource_profile.device` 路由：整条 pipeline 全 CPU → `ml.cpu`，任一 GPU/未自报 → `ml`（保守，零退化）。
 - **任务 → 队列 的映射**：`apps/api/app/workers/celery_app.py` 的 `task_routes` 显式指定；**未显式路由的任务落到 `task_default_queue`**。
 
-  | Queue         | 谁路由进来                                                                             | 典型任务                                                                                                                  | 前端可见？                                |
-  | ------------- | -------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------- |
-  | `default`     | `task_default_queue` 兜底 + ml_health                                                  | `publish_ml_backend_stats`(PerfHud) / `check_ml_backends_health` / `worker-heartbeat` / `mark_inactive_offline`(在线状态) | 部分（PerfHud / 在线状态点）              |
-  | `ml`          | `batch_predict`（device=gpu/未自报）/ `retry_failed_prediction`                        | 跑 GPU ML backend / 重试失败预测                                                                                          | ✅ 工作台 AI 候选框                       |
-  | `ml.cpu`      | `batch_predict`（整条 pipeline 全 device=cpu）                                         | 跑 CPU 模型预标（高并发）                                                                                                 | ✅ 工作台 AI 候选框                       |
-  | `media`       | `generate_thumbnail` / `extract_video_frames` / `run_dataset_import` 等                | 缩略图、视频帧、媒体 backfill、连接器数据集导入                                                                           | ✅ 列表 / 工作台的图与帧 / 数据集导入进度 |
-  | `gpu`         | `run_video_tracker_job`                                                                | 视频目标追踪                                                                                                              | ✅ 视频追踪结果                           |
-  | `cleanup`     | `purge_soft_deleted_attachments` / `sync_to_duckdb` 等                                 | 普通数据清理、DuckDB 同步                                                                                                 | 间接（效率看板数据）                      |
-  | `maintenance` | 两个 `refresh_*_mv`、两个 `ensure_future_*_partitions`、`archive_old_audit_partitions` | 所有者权限的统计刷新、月分区创建与归档                                                                                    | 间接（统计与分区维护）                    |
-  | `audit`       | `persist_audit_entry` / `persist_task_events_batch`                                    | 审计日志 / task event 批量入库                                                                                            | ✅ admin 审计页                           |
-  | `gpu.control` | GPU 显存仲裁控制面任务                                                                 | 显存 repair、tombstone GC 与 collector 账本维护                                                                           | 间接（GPU 资源治理）                      |
-  | `export`      | `app.workers.export.run_export`                                                        | 独立构建并上传导出产物                                                                                                    | ✅ 异步导出状态与下载                     |
+  | Queue         | 谁路由进来                                                                             | 典型任务                                                                                                                  | 前端可见？                   |
+  | ------------- | -------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- | ---------------------------- |
+  | `default`     | `task_default_queue` 兜底 + ml_health                                                  | `publish_ml_backend_stats`(PerfHud) / `check_ml_backends_health` / `worker-heartbeat` / `mark_inactive_offline`(在线状态) | 部分（PerfHud / 在线状态点） |
+  | `ml`          | `batch_predict`（device=gpu/未自报）/ `retry_failed_prediction`                        | 跑 GPU ML backend / 重试失败预测                                                                                          | ✅ 工作台 AI 候选框          |
+  | `ml.cpu`      | `batch_predict`（整条 pipeline 全 device=cpu）                                         | 跑 CPU 模型预标（高并发）                                                                                                 | ✅ 工作台 AI 候选框          |
+  | `media`       | `generate_thumbnail` / `extract_video_frames` 等                                       | 缩略图、视频帧、媒体 backfill                                                                                             | ✅ 列表 / 工作台的图与帧     |
+  | `gpu`         | `run_video_tracker_job`                                                                | 视频目标追踪                                                                                                              | ✅ 视频追踪结果              |
+  | `cleanup`     | `purge_soft_deleted_attachments` / `sync_to_duckdb` 等                                 | 普通数据清理、DuckDB 同步                                                                                                 | 间接（效率看板数据）         |
+  | `maintenance` | 两个 `refresh_*_mv`、两个 `ensure_future_*_partitions`、`archive_old_audit_partitions` | 所有者权限的统计刷新、月分区创建与归档                                                                                    | 间接（统计与分区维护）       |
+  | `audit`       | `persist_audit_entry` / `persist_task_events_batch`                                    | 审计日志 / task event 批量入库                                                                                            | ✅ admin 审计页              |
+  | `gpu.control` | GPU 显存仲裁控制面任务                                                                 | 显存 repair、tombstone GC 与 collector 账本维护                                                                           | 间接（GPU 资源治理）         |
+  | `export`      | `app.workers.export.run_export`                                                        | 独立构建并上传导出产物                                                                                                    | ✅ 异步导出状态与下载        |
 
   ::: warning 易踩坑：`task_default_queue`
   Celery 内置默认队列名是 `celery`，**不在 worker 的 `-Q` 列表里**。若某 beat / 异步任务忘了在 `task_routes` 里路由、且 `task_default_queue` 仍是 `celery`，它就投进无人消费的 `celery` 队列里**静默堆积、永不执行**。修复：`celery_app.conf` 设 `task_default_queue="default"`，让兜底任务落到 worker 实际订阅的 `default` 队列。排查时 `redis-cli llen celery` 看死队列是否堆积。

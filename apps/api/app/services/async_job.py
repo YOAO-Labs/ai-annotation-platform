@@ -16,7 +16,7 @@ from collections.abc import Collection
 from datetime import datetime, timezone
 from typing import AsyncIterator
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.async_job import AsyncJob, AsyncJobKind, AsyncJobStatus
@@ -67,6 +67,13 @@ async def delete_terminal_jobs_before(
         .where(
             AsyncJob.status.in_(statuses),
             AsyncJob.created_at < cutoff,
+            # Accepted imports replay through their retained Jobs receipt.
+            or_(
+                AsyncJob.kind != AsyncJobKind.DATASET_IMPORT.value,
+                AsyncJob.payload["import_protocol"].astext.is_distinct_from(
+                    "aap-dataset-import/v1"
+                ),
+            ),
         )
         .returning(AsyncJob.id)
     )

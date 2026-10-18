@@ -859,6 +859,38 @@
         "scripts.seed_screenshot_profile"
       ],
       "frozen_symbols": ["delete_project_records"]
+    },
+    {
+      "facade_module": "app.services.sources",
+      "public_module": "aap_assets_source.connectors",
+      "exports": [
+        {
+          "module": "aap_assets_source.connectors",
+          "names": ["SourceAdapter", "SourceObject", "SourcePathError"]
+        }
+      ],
+      "consumer_modules": ["app.api.v1.datasets", "app.services.storage_connection"],
+      "frozen_symbols": [
+        "SourceAdapter",
+        "SourceObject",
+        "SourcePathError",
+        "S3CompatibleSource",
+        "SftpSource",
+        "build_adapter",
+        "validate_source_path"
+      ]
+    },
+    {
+      "facade_module": "app.workers.dataset_import",
+      "public_module": "aap_assets_source_import.workflow",
+      "exports": [
+        {
+          "module": "aap_assets_source_import.workflow",
+          "names": ["ImportWorkflow"]
+        }
+      ],
+      "consumer_modules": ["app.api.v1.datasets", "app.workers.dataset_import_delivery"],
+      "frozen_symbols": ["run_dataset_import"]
     }
   ]
 }

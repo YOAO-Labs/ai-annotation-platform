@@ -44,10 +44,13 @@ MODULE_ROLES = (
     "diagnostics_code",
     "export_code",
     "audit_code",
+    "settings_code",
+    "notifications_code",
     "append_client",
     "asset_cleanup_client",
     "asset_catalog_client",
     "asset_source_client",
+    "asset_import_client",
 )
 SQL_ARTIFACTS = (
     "0190_workspace_data_contract.sql",
@@ -74,6 +77,9 @@ SQL_ARTIFACTS = (
     "0211_dataset_catalog.sql",
     "0212_asset_association_reads.sql",
     "0213_assets_source_runtime.sql",
+    "0214_dataset_import_delivery.sql",
+    "0214_dataset_import_support.sql",
+    "0214_dataset_import_core.sql",
 )
 SCHEMA_ARTIFACTS = (
     "0191_task_append.schema.json",
@@ -97,6 +103,8 @@ SCHEMA_ARTIFACTS = (
     "0211_dataset_catalog.schema.json",
     "0212_asset_association_reads.schema.json",
     "0213_assets_source_runtime.schema.json",
+    "0214_dataset_import.schema.json",
+    "0214_dataset_import_delivery.schema.json",
 )
 TEST_FILES = (
     "tests/test_workspace_data_contract.py",
@@ -128,6 +136,13 @@ TEST_FILES = (
     "tests/test_module_data_roles.py",
     "tests/test_datasets_upload_zip.py",
     "tests/test_dataset_import.py",
+    "tests/test_dataset_import_native.py",
+    "tests/test_dataset_import_migration.py",
+    "tests/test_assets_import_bindings.py",
+    "tests/test_dataset_import_cancellation.py",
+    "tests/test_dataset_import_runtime.py",
+    "tests/test_dataset_import_delivery.py",
+    "tests/test_dataset_import_delivery_native.py",
     "tests/test_dataset_link.py",
     "tests/test_dataset_link_kind_match.py",
     "tests/test_dataset_source_deletion_bindings.py",
@@ -438,6 +453,60 @@ def _create_source_storage_scope(scope: dict) -> None:
     )
 
 
+def _create_import_storage_scope(scope: dict, *, source: bool) -> None:
+    _cleanup_mc(
+        scope,
+        ["admin", "user", "add", "scoped", scope["access_key"], scope["secret_key"]],
+    )
+    scope["user_created"] = True
+    if source:
+        statements = [
+            {
+                "Effect": "Allow",
+                "Action": ["s3:ListBucket"],
+                "Resource": [f"arn:aws:s3:::{scope['source_bucket']}"],
+                "Condition": {
+                    "StringLike": {"s3:prefix": ["connector-import-source/*"]}
+                },
+            },
+            {
+                "Effect": "Allow",
+                "Action": ["s3:GetObject"],
+                "Resource": [
+                    f"arn:aws:s3:::{scope['source_bucket']}/connector-import-source/*"
+                ],
+            },
+        ]
+    else:
+        statements = [
+            {
+                "Effect": "Allow",
+                "Action": ["s3:PutObject", "s3:AbortMultipartUpload"],
+                "Resource": [
+                    f"arn:aws:s3:::{scope['datasets_bucket']}/dataset-sources/*"
+                ],
+            }
+        ]
+    _cleanup_mc(
+        scope,
+        ["admin", "policy", "create", "scoped", scope["policy"], "/dev/stdin"],
+        payload=json.dumps({"Version": "2012-10-17", "Statement": statements}),
+    )
+    scope["policy_created"] = True
+    _cleanup_mc(
+        scope,
+        [
+            "admin",
+            "policy",
+            "attach",
+            "scoped",
+            scope["policy"],
+            "--user",
+            scope["access_key"],
+        ],
+    )
+
+
 def _container_details(
     container_id: str, name: str, identity: str, *, require_running: bool
 ):
@@ -583,6 +652,7 @@ def _create_module_roles(
     cleanup_password: str,
     catalog_password: str,
     source_password: str,
+    import_password: str,
 ) -> None:
     _psql(
         container_id,
@@ -614,6 +684,10 @@ def _create_module_roles(
             "NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS;\n"
             "CREATE ROLE audit_code NOLOGIN NOSUPERUSER NOCREATEDB "
             "NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS;\n"
+            "CREATE ROLE settings_code NOLOGIN NOSUPERUSER NOCREATEDB "
+            "NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS;\n"
+            "CREATE ROLE notifications_code NOLOGIN NOSUPERUSER NOCREATEDB "
+            "NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS;\n"
             "CREATE ROLE append_client LOGIN "
             f"PASSWORD '{append_password}' NOSUPERUSER NOCREATEDB NOCREATEROLE "
             "NOINHERIT NOREPLICATION NOBYPASSRLS;\n"
@@ -625,6 +699,9 @@ def _create_module_roles(
             "NOINHERIT NOREPLICATION NOBYPASSRLS;\n"
             "CREATE ROLE asset_source_client LOGIN "
             f"PASSWORD '{source_password}' NOSUPERUSER NOCREATEDB NOCREATEROLE "
+            "NOINHERIT NOREPLICATION NOBYPASSRLS;\n"
+            "CREATE ROLE asset_import_client LOGIN "
+            f"PASSWORD '{import_password}' NOSUPERUSER NOCREATEDB NOCREATEROLE "
             "NOINHERIT NOREPLICATION NOBYPASSRLS;\n"
         ),
     )
@@ -804,6 +881,8 @@ def _install_and_rollback_frozen_sql(
             "AND to_regnamespace('aap_diagnostics_v1') IS NULL "
             "AND to_regnamespace('aap_export_v1') IS NULL "
             "AND to_regnamespace('aap_audit_v1') IS NULL "
+            "AND to_regnamespace('aap_settings_v1') IS NULL "
+            "AND to_regnamespace('aap_notifications_v1') IS NULL "
             "AND to_regclass('public.task_append_operations') IS NULL "
             "AND to_regclass('public.task_creation_operations') IS NULL "
             "AND to_regclass('public.task_creation_chunks') IS NULL "
@@ -814,6 +893,9 @@ def _install_and_rollback_frozen_sql(
             "AND to_regclass('public.dataset_source_deletion_operations') IS NULL "
             "AND to_regclass('public.dataset_catalog_operations') IS NULL "
             "AND to_regclass('public.dataset_legacy_upload_operations') IS NULL "
+            "AND to_regclass('public.dataset_import_operations') IS NULL "
+            "AND to_regclass('public.dataset_import_entries') IS NULL "
+            "AND to_regclass('public.dataset_import_deliveries') IS NULL "
             "AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_attribute "
             "WHERE attrelid = 'public.async_jobs'::pg_catalog.regclass "
             "AND attname = 'retained_project_id' AND NOT attisdropped) "
@@ -871,6 +953,8 @@ def main(argv: list[str] | None = None) -> int:
             "storage_identity_removed": False,
             "catalog_storage_identity_removed": False,
             "source_storage_identity_removed": False,
+            "import_storage_identity_removed": False,
+            "import_source_storage_identity_removed": False,
             "local_resources_destroyed": False,
             "postgres_container_removed": False,
             "resource_root_retained": None,
@@ -886,6 +970,8 @@ def main(argv: list[str] | None = None) -> int:
     cleanup_storage = None
     catalog_storage = None
     source_storage = None
+    import_storage = None
+    import_source_storage = None
     resource_root = Path(
         tempfile.mkdtemp(prefix="aap-module-data-acceptance-")
     ).resolve()
@@ -894,6 +980,7 @@ def main(argv: list[str] | None = None) -> int:
         grants_path = ROOT / "infra/docker/module-data-grants.sql"
         catalog_grants_path = ROOT / "infra/docker/assets-catalog-grants.sql"
         source_grants_path = ROOT / "infra/docker/assets-source-grants.sql"
+        import_grants_path = ROOT / "infra/docker/assets-import-grants.sql"
         artifacts = tuple(
             ROOT / "apps/api/alembic/sql" / name for name in SQL_ARTIFACTS
         )
@@ -904,6 +991,7 @@ def main(argv: list[str] | None = None) -> int:
             not grants_path.is_file()
             or not catalog_grants_path.is_file()
             or not source_grants_path.is_file()
+            or not import_grants_path.is_file()
             or any(not path.is_file() for path in artifacts)
             or any(not path.is_file() for path in schema_paths)
         ):
@@ -922,6 +1010,7 @@ def main(argv: list[str] | None = None) -> int:
         grant_sql = grants_path.read_text(encoding="utf-8")
         catalog_grant_sql = catalog_grants_path.read_text(encoding="utf-8")
         source_grant_sql = source_grants_path.read_text(encoding="utf-8")
+        import_grant_sql = import_grants_path.read_text(encoding="utf-8")
 
         from sqlalchemy.engine import URL
 
@@ -938,6 +1027,7 @@ def main(argv: list[str] | None = None) -> int:
         cleanup_password = f"cleanup-{secrets.token_hex(16)}"
         catalog_password = f"catalog-{secrets.token_hex(16)}"
         source_password = f"source-{secrets.token_hex(16)}"
+        import_password = f"import-{secrets.token_hex(16)}"
         container_id = docker(
             "run",
             "-d",
@@ -1014,8 +1104,8 @@ def main(argv: list[str] | None = None) -> int:
         database = resources["database"]
         evidence["database"] = database
         _, heads = migration_graph(ROOT)
-        if heads != ["0213"]:
-            raise RuntimeError("module-data acceptance requires migration head 0213")
+        if heads != ["0214"]:
+            raise RuntimeError("module-data acceptance requires migration head 0214")
         evidence["migrations"]["head_before_downgrade"] = heads[0]
         phase = "downgrade-to-0189"
         _container_details(
@@ -1084,6 +1174,14 @@ def main(argv: list[str] | None = None) -> int:
             port=port,
             database=database,
         ).render_as_string(hide_password=False)
+        import_url = URL.create(
+            "postgresql+asyncpg",
+            username="asset_import_client",
+            password=import_password,
+            host="127.0.0.1",
+            port=port,
+            database=database,
+        ).render_as_string(hide_password=False)
         role_create_password = append_password.replace("'", "''")
         phase = "create-scoped-roles"
         _create_module_roles(
@@ -1096,6 +1194,7 @@ def main(argv: list[str] | None = None) -> int:
             cleanup_password,
             catalog_password,
             source_password,
+            import_password,
         )
         phase = "install-module-grants"
         _psql(
@@ -1120,6 +1219,8 @@ def main(argv: list[str] | None = None) -> int:
                 "diagnostics_owner": "diagnostics_code",
                 "export_owner": "export_code",
                 "audit_owner": "audit_code",
+                "settings_owner": "settings_code",
+                "notifications_owner": "notifications_code",
                 "workflow_role": "append_client",
                 "asset_cleanup_role": "asset_cleanup_client",
             },
@@ -1158,6 +1259,22 @@ def main(argv: list[str] | None = None) -> int:
                 "asset_source_role": "asset_source_client",
             },
         )
+        phase = "install-import-grants"
+        _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="owner",
+            password=owner_password,
+            database=database,
+            sql=import_grant_sql,
+            variables={
+                "expected_database": database,
+                "migration_role": "owner",
+                "assets_owner": "assets_code",
+                "asset_import_role": "asset_import_client",
+            },
+        )
         phase = "create-scoped-storage-identity"
         cleanup_storage = _cleanup_storage_scope(backend)
         _create_cleanup_storage_scope(cleanup_storage)
@@ -1172,13 +1289,40 @@ def main(argv: list[str] | None = None) -> int:
         ]
         source_storage["import_bucket"] = resources["buckets"]["MINIO_IMPORT_BUCKET"]
         _create_source_storage_scope(source_storage)
+        import_storage = _cleanup_storage_scope(backend)
+        import_storage["datasets_bucket"] = resources["buckets"][
+            "MINIO_DATASETS_BUCKET"
+        ]
+        _create_import_storage_scope(import_storage, source=False)
+        import_source_storage = _cleanup_storage_scope(backend)
+        import_source_storage["source_bucket"] = resources["buckets"][
+            "MINIO_IMPORT_BUCKET"
+        ]
+        _create_import_storage_scope(import_source_storage, source=True)
+        from cryptography.fernet import Fernet
+
         resource_environment.update(
             {
                 "AAP_MODULE_DATA_ROLE_ACCEPTANCE": "1",
+                "RUN_NATIVE_IMPORT_DELIVERY_LEASE_TEST": "1",
                 "AAP_MODULE_DATA_APPEND_URL": append_url,
                 "AAP_MODULE_DATA_ASSET_CLEANUP_URL": cleanup_url,
                 "AAP_MODULE_DATA_ASSET_CATALOG_URL": catalog_url,
                 "AAP_MODULE_DATA_ASSET_SOURCE_URL": source_url,
+                "AAP_MODULE_DATA_ASSET_IMPORT_URL": import_url,
+                "AAP_MODULE_DATA_ASSET_IMPORT_S3_ACCESS_KEY": import_storage[
+                    "access_key"
+                ],
+                "AAP_MODULE_DATA_ASSET_IMPORT_S3_SECRET_KEY": import_storage[
+                    "secret_key"
+                ],
+                "AAP_MODULE_DATA_IMPORT_SOURCE_S3_ACCESS_KEY": import_source_storage[
+                    "access_key"
+                ],
+                "AAP_MODULE_DATA_IMPORT_SOURCE_S3_SECRET_KEY": import_source_storage[
+                    "secret_key"
+                ],
+                "CONNECTOR_ENCRYPTION_KEY": Fernet.generate_key().decode(),
                 "AAP_MODULE_DATA_ASSET_SOURCE_S3_ACCESS_KEY": source_storage[
                     "access_key"
                 ],
@@ -1237,6 +1381,19 @@ def main(argv: list[str] | None = None) -> int:
         evidence["failure"] = {"phase": phase, "error_type": type(error).__name__}
         exit_code = 1
     finally:
+        for label, scope in (
+            ("import", import_storage),
+            ("import_source", import_source_storage),
+        ):
+            if scope is not None:
+                try:
+                    _destroy_cleanup_storage_scope(scope)
+                    evidence["cleanup"][label + "_storage_identity_removed"] = True
+                except Exception as error:
+                    evidence["cleanup"]["errors"].append(
+                        {label + "_storage_identity": type(error).__name__}
+                    )
+                    exit_code = 1
         if source_storage is not None:
             try:
                 _destroy_cleanup_storage_scope(source_storage)

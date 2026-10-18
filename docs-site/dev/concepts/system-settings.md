@@ -1,7 +1,6 @@
 ---
 audience: [dev, ops]
 type: explanation
-since: v0.25.3
 status: stable
 last_reviewed: 2026-09-09
 ---
@@ -35,7 +34,7 @@ SMTP 密码只在内部用于发送，响应和冲突详情只返回 `password_s
 
 ## 导入快照
 
-连接器导入 API 用同一次数据库读取把文件数、总字节和设置版本写入 `AsyncJob.payload.settings_snapshot`。worker 将快照显式传给 `_collect_within_limits()`，枚举超限在产生任何业务导入前失败，逐文件循环不查询系统设置。旧任务第一次执行时在作业行锁内补写快照并在枚举前提交；重复投递及重试继续使用同一快照。
+连接器导入 API 用同一次读取取得文件数、总字节和设置版本，由原生接受命令同时保存到 Assets 操作与 `AsyncJob.payload.settings_snapshot`。独立执行进程按该快照保存完整清单，枚举超限在复制前失败；进程接替和同 UUID 重放继续使用首次预算。主机白名单仍在外部连接附近读取当前覆盖，显式空覆盖拒绝连接。迁移不自动采纳缺少受理证据的活动旧作业，需先排空或取消。
 
 导入 worker 的 `payload.stage` 在枚举时为 `collecting`，进入逐项导入后为 `importing`，终态以 `AsyncJob.status` 为准。数据库无法取得预算快照时任务失败，不回退到更宽松的部署值。
 

@@ -38,6 +38,8 @@ CURRENT_COMPAT_FACADES: tuple[str, ...] = ()
 
 # Retired modules must not return through first-party imports or dynamic calls.
 REMOVED_MODULES = (
+    "app.services.sources",
+    "app.workers.dataset_import",
     "app.services.data_manager",
     "app.services.data_manager_cursor",
     "app.services.data_manager_entities",

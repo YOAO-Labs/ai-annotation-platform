@@ -1,9 +1,8 @@
 ---
 audience: [dev, ops]
 type: reference
-since: v0.11.14
 status: stable
-last_reviewed: 2026-08-14
+last_reviewed: 2026-10-18
 ---
 
 # 连接器安全与部署配置
@@ -32,7 +31,7 @@ python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().d
 
 注意事项：
 
-- **必须在创建任何连接器前配置**。未配置时 `core/crypto.py` 抛 `ConnectorCryptoNotConfigured`，create / test / 导入端点返回 `503`。
+- **必须在创建任何连接器前配置**。API 与独立导入执行器使用同一 Fernet key；API 未配置时 create / test / 导入端点返回 `503`，执行器缺少有效 key 时拒绝启动。执行器支持用 `CONNECTOR_ENCRYPTION_KEY_FILE` 读取 secret 文件。
 - **不要轮换已有 key 而不迁移数据**：换 key 后旧 `secret_enc` 无法解密，`test` / 导入会报 `ConnectorCryptoError`（密文损坏或密钥不匹配）。轮换需重新录入各连接器的密钥。
 - 生产环境从密钥管理 / `.env.production` 注入，不要提交进仓库。
 
@@ -87,7 +86,7 @@ CONNECTOR_HOST_ALLOWLIST=172.17.0.1/32
 
 ## 部署主机 SFTP 快捷项
 
-需要把本仓库部署服务器作为导入来源时，配置一个 API 与 worker 都可达的地址：
+需要把本仓库部署服务器作为导入来源时，配置一个 API 与独立导入执行器都可达的地址：
 
 ```bash
 CONNECTOR_DEPLOYMENT_SFTP_HOST=deploy-sftp.internal
@@ -95,11 +94,15 @@ CONNECTOR_DEPLOYMENT_SFTP_HOST=deploy-sftp.internal
 
 超级管理员随后可在数据连接器页点击「添加部署主机」，复用 SFTP 表单并预填地址与端口 22。该快捷项不会自动探测宿主地址、加入白名单或写入凭据；仍需显式配置白名单，并录入专用 SFTP 账号。推荐使用只能读取 staging 目录、最好禁用 shell 的账号和私钥认证，不要使用 root 或日常部署账号。
 
-SFTP 测试与实际导入统一支持 RSA、Ed25519、ECDSA 私钥，并都使用 Paramiko `RejectPolicy`。目标主机指纹必须预先写入 `config/ssh/known_hosts`；生产 Compose 会把同一文件只读挂载到 API 与 worker，未知主机不会被自动信任。
+SFTP 测试与实际导入统一支持 RSA、Ed25519、ECDSA 私钥，并都使用 Paramiko `RejectPolicy`。API 的目标主机指纹写入 `config/ssh/known_hosts`；独立导入执行器通过 `ASSETS_IMPORT_SFTP_KNOWN_HOSTS` 指向只读挂载的同一份指纹文件。可选 Compose 的默认示例文件没有指纹，未知主机会被拒绝；启用 SFTP 导入前须显式配置。S3 导入不需要 SSH 指纹。
 
 ## 导入护栏
 
 `DATASET_IMPORT_MAX_FILES` 与 `DATASET_IMPORT_MAX_TOTAL_BYTES` 限制单次导入规模，避免误把整个存储桶拉进来。超限任务直接失败，应缩小 `source_path` 或用 `include_globs` 过滤。
+
+API 受理时固定本次限制，独立执行器在复制前保存不可变清单；修改部署限制不会改变已受理作业。清单另有 16 MiB 协议上限。单个对象使用最多 64 MiB 的分块与最多 10000 个分块，协议上限为 625 GiB；这不是容量承诺。
+
+导入执行器使用独立的七函数数据库账号和目标存储写入凭据，不读取业务表，也不连接 Redis/Celery。目标凭据只允许 `dataset-sources/*` 的 Put 与中止未完成 multipart；来源连接器使用自身只读凭据。未登记的复制对象保留，当前没有自动回收。运行边界见[模块部署](/dev/concepts/module-deployment#独立连接器导入执行)，具体部署命令见仓库 `DEV.md`。
 
 ## 相关文档
 

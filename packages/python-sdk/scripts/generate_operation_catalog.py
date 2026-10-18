@@ -974,7 +974,7 @@ for _namespace, _methods, _note in [
     (
         "datasets",
         "import_from_connection",
-        "Platform manager operation on the global dataset catalogue. Rechecks connector visibility, host guard and source path, freezes import budgets, then returns HTTP 202 job_id. Observe that AsyncJob explicitly; no idempotency key or automatic retry.",
+        "Platform manager operation on the global dataset catalogue. Rechecks connector visibility, host guard and source path, freezes import budgets, then returns HTTP 202 job_id. Save the optional caller-supplied UUID idempotency_key and exact request to replay an uncertain acceptance. Observe that AsyncJob explicitly; no automatic retry.",
     ),
     (
         "datasets",

@@ -23,6 +23,7 @@ DATASET_IMPORT_PROTOCOL = "aap-dataset-import/v1"
 
 _FAILURES: dict[str, tuple[int, object, dict[str, str] | None]] = {
     "invalid_request": (422, "导入参数无效", None),
+    "invalid_source_object": (422, "来源文件名或路径超出支持范围", None),
     "account_not_active": (
         401,
         "账号已停用或不存在",

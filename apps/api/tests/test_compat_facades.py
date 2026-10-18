@@ -72,6 +72,25 @@ FACADE_SPECS: tuple[FacadeSpec, ...] = ()
 # verify every removed module is truly gone.
 REMOVED_MODULE_SPECS: tuple[FacadeSpec, ...] = (
     FacadeSpec(
+        facade_module="app.services.sources",
+        public_module="aap_assets_source.connectors",
+        exports=(
+            _exports(
+                "aap_assets_source.connectors",
+                "SourceAdapter",
+                "SourceObject",
+                "SourcePathError",
+            ),
+        ),
+        consumer_modules=("app.api.v1.datasets", "app.services.storage_connection"),
+    ),
+    FacadeSpec(
+        facade_module="app.workers.dataset_import",
+        public_module="aap_assets_source_import.workflow",
+        exports=(_exports("aap_assets_source_import.workflow", "ImportWorkflow"),),
+        consumer_modules=("app.api.v1.datasets", "app.workers.dataset_import_delivery"),
+    ),
+    FacadeSpec(
         facade_module="app.services.data_manager",
         public_module="app.services.data_management.service",
         exports=(

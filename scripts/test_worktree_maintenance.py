@@ -21,6 +21,7 @@ MAINTENANCE_TASKS = {
     "app.workers.audit_partition.ensure_future_audit_partitions",
     "app.workers.audit_partition.archive_old_audit_partitions",
     "app.workers.prediction_partition.ensure_future_prediction_partitions",
+    "app.workers.dataset_import_delivery.relay_dataset_import_deliveries",
 }
 
 

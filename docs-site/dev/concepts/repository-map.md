@@ -30,7 +30,7 @@ last_reviewed: 2026-10-17
 | 训练参数契约    | `apps/_shared/training_contract`                                                            | 纯 Python 原生框架字段快照、catalog 依赖校验、预算与回流契约                                     |
 | 项目只读契约    | `apps/_shared/workspace_contract`                                                           | 纯 Project 配置快照、类别与属性投影；不依赖提供方 ORM、API 或运行时                              |
 | 独立素材目录    | `apps/assets-catalog`                                                                       | 七项目录与关联读取操作；受限 SQL LOGIN、只读 S3 身份与独立镜像                                   |
-| 独立素材来源    | `apps/assets-source`                                                                        | 单文件上传/发布与来源删除；纯合同、独立 SQL/S3 身份及运行时                                      |
+| 独立素材来源    | `apps/assets-source`                                                                        | 单文件上传/发布、来源删除与持久连接器导入；纯合同、独立 SQL/S3 身份及运行时                      |
 | 审计请求契约    | `apps/_shared/audit_contract`                                                               | 冻结请求上下文字段，不依赖 API 或 ORM                                                            |
 | 训练执行器      | `apps/training-executor`                                                                    | 独立拉取式执行器，文件锁独占 GPU，管理原生训练子进程与脱敏日志                                   |
 | 素材探测服务    | `apps/media-probe`                                                                          | 独立元数据/帧时间表/packet 探测与 HTTP/NDJSON 合同；不取得数据库或对象存储访问权                 |
@@ -157,10 +157,10 @@ last_reviewed: 2026-10-17
    `services/labeling_task_creation_contract` 与 `task_creation_contract` 定义初始/追加建题端口和严格值绑定；`LabelingTaskService` 消费冻结 SQL/JSON 能力，实际写入仅由 Labeling SQL 持有。初始操作保存许可、来源计划、游标和块回执；Jobs 客户端只调用其 owner 的生命周期能力。
    assets 关联结果与建题应用结果只返回 `link_id` 等标量，不向入口交付 `ProjectDataset` ORM。
    分块提交、追加 flush-only 和标定前置提交不同，不能合并成一种事务。
-   上传完成的内容观测归 `DatasetService.record_uploaded_item_content`，图片尺寸归其既有 `set_item_dimensions`；HTTP 保留 Head/尺寸读取、去重、占位清理与追加建题的原事务及派发顺序。
+   单文件来源发布由公开 Source 工作流和原生命令持有，HTTP 保留认证/scope。旧无 intent 条目不补造上传者，完成元数据、Labeling append 与 Assets 回执共同提交。
    项目删除由 `application/project_deletion.py` 和严格 `services/project_deletion_contract.py` / `project_deletion_data.py` 绑定 Workspace 原生事务命令；各 owner 清理、学习保留、审计与删除回执共同提交，原始素材保留。Jobs 的 `retained_project_id` 固定删除后的访问范围，不从 payload 推断权限。
    `api/v1/datasets.py` 的 20 个 HTTP 路由（6 个读取，含 POST sniff；14 个写入）仍由同一 API 入口装配。项目解绑通过 Workspace 的 `DatasetUnlinkCommand` / `Receipt`，公开来源删除通过 Assets 的 `DatasetSourceDeletionCommand` / `Receipt` 调用原生协调命令。当前身份/权限、关联代次、Learning/Labeling 保留、Jobs 检查/取消、计数、Audit、owner 清理及不可变回执在同一调用方连接提交。`Idempotency-Key` 是可选 UUID，REST 回传它，SDK/Web 对同一操作复用原 key。
-   项目解绑保留 Dataset、Item、原始文件和共享来源金字塔；来源删除保护关联证据，只排队 item-owned 金字塔。上传初始化仅保留 intent 并签发 staging PUT，完成时以 ETag 条件拷贝后原子登记 Item、追加 Task 和保存回执。独立 `apps/assets-cleanup` 用两个公开 SQL 能力和 prefix 受限 S3 身份轮询已提交责任；不依赖 API、ORM、Celery 或 Redis，也不在业务事务内删除对象。目录列表、详情、文件分页、创建/更新由独立 `apps/assets-catalog` 与同一原生 SQL 合同提供，创建/更新保留不可变回执；关联读取、其他 CRUD、导入、派生写入和无源任务清理仍待逐项提取，不能据此声称整个 Assets/Labeling 模块独立部署。
+   项目解绑保留 Dataset、Item、原始文件和共享来源金字塔；来源删除保护关联证据，只排队 item-owned 金字塔。上传初始化仅保留 intent 并签发 staging PUT，完成时以 ETag 条件拷贝后原子登记 Item、追加 Task 和保存回执。独立 `apps/assets-cleanup` 用两个公开 SQL 能力和 prefix 受限 S3 身份轮询已提交责任；不依赖 API、ORM、Celery 或 Redis，也不在业务事务内删除对象。目录列表、详情、文件分页、创建/更新由独立 `apps/assets-catalog` 与同一原生 SQL 合同提供，创建/更新保留不可变回执，两项关联读取使用同一语句快照。连接器导入由独立进程消费持久清单/游标/租约，原子登记素材、任务与派发意图；其他 CRUD、ZIP、扫描、派生写入和无源任务清理仍待逐项提取，不能据此声称整个 Assets/Labeling 模块独立部署。
    生命周期、审核及单题/整批送审经 `application/task_lifecycle.py`、`task_review.py`、
    `task_submission.py`；状态/部分项目计数写入归 `LabelingTaskService`，证据归
    `annotation_evidence`，应用组合反馈、审计和通知。整批默认 200 题分块提交，

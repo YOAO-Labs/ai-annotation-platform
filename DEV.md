@@ -410,7 +410,8 @@ psql -v expected_database=annotation_test -v migration_role=owner \
   -v labeling_owner=labeling_code -v learning_owner=learning_code \
   -v inference_owner=inference_code -v insights_owner=insights_code \
   -v diagnostics_owner=diagnostics_code -v export_owner=export_code \
-  -v audit_owner=audit_code -v workflow_role=append_client \
+  -v audit_owner=audit_code -v settings_owner=settings_code \
+  -v notifications_owner=notifications_code -v workflow_role=append_client \
   -v asset_cleanup_role=asset_cleanup_client \
   -f infra/docker/module-data-grants.sql
 ```
@@ -998,3 +999,34 @@ docker compose -p aap-assets-source-dev -f docker-compose.assets-source.yml exec
 复制后退出或 SQL 回滚可能留下未登记来源拷贝；目前保留这些字节，尚无自动回收。重试保持原 Item/操作 UUID，并使用新 publication 代次，不能通过删除原始文件或旧条目恢复。默认派生媒体派发仍由 API 在发布提交后执行，发布结果不代表媒体已完成。
 
 回退时可先清空网关 URL、刷新 API 并保留 SQL/回执，再停止同一 `-p`/`-f` 独立项目。回退迁移须先停止写入并处理未确认请求，删除回执会失去重放依据。完整 Assets 的导入、扫描、媒体与 Blob 边界仍在推进；此服务不提供全模块或生产容量资格。
+
+## 独立连接器导入执行器
+
+`apps/assets-source` 另提供 `python -m aap_assets_source_import`，领取已受理的连接器导入；它与来源 HTTP 服务使用不同的数据库和 S3 身份。公开导入 API 继续返回 202 和 Job，执行器离线时作业保持待领取。旧 Celery 导入入口已移除，首次迁移到 0214 前必须让旧运行时排空或显式取消活动的 `dataset_import`；迁移不会自动转移旧作业。
+
+完成迁移与 `infra/docker/module-data-grants.sql` 的全部 owner 授权后，为独立的 `asset_import_client` LOGIN 应用：
+
+```bash
+psql -v expected_database=annotation_test -v migration_role=owner \
+  -v assets_owner=assets_code -v asset_import_role=asset_import_client \
+  -f infra/docker/assets-import-grants.sql
+```
+
+连接参数和数据库名须指向选定环境。该账号仅能执行七项导入能力，不能读业务关系、序列或其他模块 schema，也不能有任一方向的角色成员资格。受理/取消和派发能力留给 API/维护运行时，不授予导入账号。
+
+准备 `.secrets/assets-import-database-url`、`assets-import-s3-access-key`、`assets-import-s3-secret-key` 和 `connector-encryption-key`，内容分别为专用 DSN、目标存储身份及与 API 相同的 Fernet key；文件须能被容器用户 10004 读取。可用 `.env.example` 中对应的 `_FILE` 变量改路径。目标存储身份只允许 datasets 桶的 `dataset-sources/*` Put 与 AbortMultipartUpload，不授予 Get、List、Delete 或桶管理。来源连接器使用自身的只读凭据，不复用目标凭据。
+
+显式设置 `ASSETS_IMPORT_S3_ENDPOINT` 和 `ASSETS_IMPORT_DATASETS_BUCKET`。执行器每次读取当前数据库白名单，未覆盖时才用 `CONNECTOR_HOST_ALLOWLIST` 部署默认值；显式空数组全拒。SFTP 需将可信指纹文件路径赋给 `ASSETS_IMPORT_SFTP_KNOWN_HOSTS`；默认示例为空，只支持不依赖 SSH 的来源，未知 SFTP 主机被拒绝。
+
+```bash
+docker compose -p aap-assets-import-dev -f docker-compose.assets-import.yml up -d --build
+docker compose -p aap-assets-import-dev -f docker-compose.assets-import.yml exec assets-import python -m aap_assets_source_import --healthcheck
+```
+
+该项目不进入默认 Compose，不开放 HTTP 端口，不连接 Redis/Celery。宿主联调可用 `uv run --project apps/assets-source --extra importer python -m aap_assets_source_import`；`--once` 处理至多一项已受理操作。健康检查验证配置和精确 SQL 权限，不能代替来源连通性或实际对象权限验收。
+
+默认租约 120 秒、续租 20 秒，连接池 1..4，SQL 超时 10 秒；来源读取超时与续租独立。复制按对象大小使用 8..64 MiB 分块，最多 10000 块；单对象协议上限 625 GiB，另受受理时固定的文件数、总字节数和 16 MiB 清单上限约束。这些限制不表示已验证生产容量。
+
+媒体和通知由维护队列每 10 秒中继持久派发记录，仍需现有媒体消费者和 Redis；中继确认代表派发被接受，不代表媒体计算完成。部署后应刷新受影响的维护 worker/beat 并检查任务 `app.workers.dataset_import_delivery.relay_dataset_import_deliveries` 注册及 maintenance 路由。
+
+可停止上述独立项目后重启接替，无需更换操作 UUID；过期租约会被重新领取，已提交条目不重复建题，未提交复制使用新 publication 路径。显式取消阻止迟到提交。回退先暂停新的受理并排空/取消当前操作、处理待派发记录，再停止该项目；降级迁移会拒绝活动作业或未确认派发，删除回执会失去重放依据。未登记来源拷贝保留，当前没有自动回收，也不自动恢复已移除的 Celery 导入器。

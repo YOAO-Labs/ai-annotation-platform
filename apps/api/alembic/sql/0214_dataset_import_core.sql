@@ -1546,6 +1546,8 @@ DECLARE
     v_progress integer;
     v_error_text text;
     v_max_bytes bigint;
+    v_expected_file_path text;
+    v_progress_reply jsonb;
 BEGIN
     IF p_job_id IS NULL OR p_lease_token IS NULL OR p_index IS NULL
        OR p_index < 0 OR p_index > 2147483647 OR p_publication_id IS NULL
@@ -1786,11 +1788,11 @@ BEGIN
                     END IF;
                     INSERT INTO public.dataset_items (
                         id, dataset_id, file_name, file_path, file_type, file_size,
-                        content_hash, width, height, metadata, created_at, updated_at
+                        content_hash, width, height, metadata
                     ) VALUES (
                         v_entry.item_id, v_dataset_id, v_entry.file_name, v_entry.file_path,
                         v_entry.file_type, v_file_size, v_content_hash, v_width, v_height,
-                        '{}'::jsonb, pg_catalog.clock_timestamp(), pg_catalog.clock_timestamp()
+                        '{}'::jsonb
                     );
                     v_link_reply := aap_labeling_v1.append_dataset_items(
                         v_dataset_id, ARRAY[v_entry.item_id]::uuid[], v_entry.item_id

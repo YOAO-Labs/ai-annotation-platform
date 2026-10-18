@@ -1,7 +1,6 @@
 ---
 audience: [dev]
 type: explanation
-since: v0.11.14
 status: stable
 last_reviewed: 2026-10-17
 ---
@@ -22,8 +21,8 @@ last_reviewed: 2026-10-17
 | 业务服务        | `apps/api/app/services/storage_connection.py`                                             |
 | 密钥加解密      | `apps/api/app/core/crypto.py`                                                             |
 | SSRF 白名单门禁 | `apps/api/app/services/connector_guard.py`                                                |
-| 源适配器        | `apps/api/app/services/sources/`（`s3.py` / `sftp.py`）                                   |
-| 导入任务        | `apps/api/app/workers/dataset_import.py`                                                  |
+| 源适配器        | `apps/assets-source/src/aap_assets_source/connectors/`                                    |
+| 导入任务        | `apps/assets-source/src/aap_assets_source_import/`                                        |
 | 迁移            | `alembic/versions/0086_storage_connections.py`、`0087_storage_connections_owner_scope.py` |
 
 ## 数据模型
@@ -103,27 +102,29 @@ python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().d
 
 ## 导入链路
 
-数据集从连接器导入由 `POST /datasets/{id}/import-from-connection` 触发，返回 `202` 并投递 Celery 任务 `app.workers.dataset_import.run_dataset_import`，进度走 [AsyncJob](/api/guides/async-jobs)。
+数据集从连接器导入由 `POST /datasets/{id}/import-from-connection` 触发，返回 `202` 与持久 `job_id`，进度走 [AsyncJob](/api/guides/async-jobs)。接受操作、Jobs 行和审计共同提交；执行进程轮询已接受操作，API 不再投递旧 Celery 导入任务。
 
 ```mermaid
 flowchart TD
-    Request["import-from-connection：冻结预算并提交作业"] --> Worker["run_dataset_import"]
-    Worker --> Adapter["build_adapter：解密 / 白名单 / 路径沙箱"]
-    Adapter --> Enumerate["按受理时 max_files / max_total_bytes 枚举"]
-    Enumerate --> Asset["DatasetService.ingest_one：入库与去重"]
-    Asset --> Added{"新增素材？"}
-    Added -->|是| Tasks["DatasetTaskCreationWorkflow.append_items"]
-    Tasks --> Labeling["LabelingTaskService：建题与项目计数"]
-    Labeling --> Commit["当前文件提交"]
-    Commit --> Media["提交后尽力派发媒体"]
-    Added -->|重复或失败| Outcome["沿用原跳过 / 错误 / 回滚处理"]
+    Request["API：认证、范围、主机和路径检查"] --> Accept["原子接受：Assets、Jobs、Audit"]
+    Accept --> Worker["独立进程领取租约"]
+    Worker --> Manifest["持久保存预算内的源清单"]
+    Manifest --> Copy["条件读取与不可变路径复制"]
+    Copy --> Commit["原子登记：素材、Labeling、游标和计数"]
+    Commit --> Outbox["持久媒体与通知派发记录"]
+    Outbox --> Relay["API maintenance relay"]
+    Relay --> Media["既有媒体与通知执行方"]
 ```
 
-原逐文件提交和取消检查不变。资产服务不再在 `ingest_one` 内代建 Task；素材行、追加任务和项目任务数仍绑定同一本地事务。连接器 worker 不自动推断 scene，时序数据集仍在原收尾位置校验；已提交文件不会因为后续校验失败自动回滚。
+执行进程不导入 API、ORM、Celery 或 Redis。专用 LOGIN 仅有七项执行能力；Settings 和 Notifications 的读取/写入经各自 owner 能力，Jobs 自己持有通用作业状态。API 保留当前认证和 `datasets:write`，原生命令再次校验当前管理角色、连接器使用权和父数据集。
 
-通用作业行只由 `services/async_job.py` 写入。受理时的 `settings_snapshot` 固定该次导入预算；历史作业缺少快照时，worker 先以 `FOR UPDATE` / `populate_existing` 重读作业，在锁内捕获预算并通过 `update_payload` 浅合并，提交后才进入枚举。无关 payload 字段保留，后续部署或系统预算变化不改写已固定快照。
+受理时固定预算及连接器版本，UUID 幂等键绑定用户的规范请求。相同请求重放保留原预算，不因之后修改系统设置而创建第二个作业。当前账户仍须有效；已经接受的执行保留原操作权，后续提交持续检查作业终态、显式取消、连接器版本与租约。
 
-取消仍在文件边界检查，不能中断已经开始的单个文件。HTTP 会立即将导入作业记为 cancelled；已投递 worker 仍可能先完成枚举及阶段进度，之后通过通用所有者为已经 cancelled 的行替换最终计数，不把进度强制改为 100。逐文件已提交素材与任务继续保留，尚未开始的文件计入 skipped。终态通知按既有去重规则保留一次，不承诺再次刷新 HTTP 取消时已经发布的计数；数据库提交、对象存储与 Celery 派发仍没有分布式原子性。
+枚举清单持久后才开始复制。每个尝试使用不同 publication UUID，素材行、文件数、Labeling append 与项目计数、游标和派发记录在同一事务提交。数据库锁竞争留待重试，不变成逐文件失败。进程崩溃后，新的进程在旧租约到期后接续已提交游标。时序数据集仍在收尾检查已有 Scene；该检查失败保留已经提交的文件。
+
+取消原子设置终态，保留已提交的部分。外部调用可能稍后才返回，但旧租约或终态结果不能登记新素材，因此取消后释放来源删除围栏不会产生迟到写入。S3 使用 ETag 条件读取；SFTP 使用已知主机指纹和目录/源身份检查。原始及不确定拷贝不自动删除。
+
+媒体和实时通知继续使用既有执行方。持久派发记录可恢复提交到队列前后的中断；broker 消息可能重复，派发确认不代表媒体计算完成。ZIP、扫描、连接器管理及其他 Assets 能力仍有独立迁移工作，见 [ADR-0100](/dev/adr/0100-durable-connector-import)。
 
 请求参数：
 

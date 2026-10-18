@@ -1,0 +1,63 @@
+services:
+  assets-import:
+    build:
+      context: .
+      dockerfile: apps/assets-source/Dockerfile.import
+    environment:
+      ASSETS_IMPORT_DATABASE_URL_FILE: /run/secrets/assets_import_database_url
+      ASSETS_IMPORT_S3_ACCESS_KEY_FILE: /run/secrets/assets_import_s3_access_key
+      ASSETS_IMPORT_S3_SECRET_KEY_FILE: /run/secrets/assets_import_s3_secret_key
+      CONNECTOR_ENCRYPTION_KEY_FILE: /run/secrets/assets_import_encryption_key
+      ASSETS_IMPORT_SFTP_KNOWN_HOSTS: /run/secrets/assets_import_known_hosts
+      ASSETS_IMPORT_S3_ENDPOINT: ${ASSETS_IMPORT_S3_ENDPOINT:?Set the service-reachable S3 origin}
+      ASSETS_IMPORT_S3_REGION: ${ASSETS_IMPORT_S3_REGION:-us-east-1}
+      ASSETS_IMPORT_DATASETS_BUCKET: ${ASSETS_IMPORT_DATASETS_BUCKET:?Set the datasets bucket}
+      CONNECTOR_HOST_ALLOWLIST: ${CONNECTOR_HOST_ALLOWLIST:-[]}
+      ASSETS_IMPORT_LEASE_SECONDS: ${ASSETS_IMPORT_LEASE_SECONDS:-120}
+      ASSETS_IMPORT_HEARTBEAT_SECONDS: ${ASSETS_IMPORT_HEARTBEAT_SECONDS:-20}
+      ASSETS_IMPORT_POLL_SECONDS: ${ASSETS_IMPORT_POLL_SECONDS:-2}
+      ASSETS_IMPORT_POOL_MIN_SIZE: ${ASSETS_IMPORT_POOL_MIN_SIZE:-1}
+      ASSETS_IMPORT_POOL_MAX_SIZE: ${ASSETS_IMPORT_POOL_MAX_SIZE:-4}
+      ASSETS_IMPORT_POOL_TIMEOUT_SECONDS: ${ASSETS_IMPORT_POOL_TIMEOUT_SECONDS:-2}
+      ASSETS_IMPORT_SQL_TIMEOUT_SECONDS: ${ASSETS_IMPORT_SQL_TIMEOUT_SECONDS:-10}
+      ASSETS_IMPORT_S3_CONNECT_TIMEOUT_SECONDS: ${ASSETS_IMPORT_S3_CONNECT_TIMEOUT_SECONDS:-10}
+      ASSETS_IMPORT_S3_READ_TIMEOUT_SECONDS: ${ASSETS_IMPORT_S3_READ_TIMEOUT_SECONDS:-120}
+      ASSETS_IMPORT_SFTP_TIMEOUT_SECONDS: ${ASSETS_IMPORT_SFTP_TIMEOUT_SECONDS:-10}
+    secrets:
+      - assets_import_database_url
+      - assets_import_s3_access_key
+      - assets_import_s3_secret_key
+      - assets_import_encryption_key
+      - assets_import_known_hosts
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 64
+    cpus: 0.5
+    mem_limit: 256m
+    restart: unless-stopped
+    stop_grace_period: 30s
+    healthcheck:
+      test: [CMD, python, -m, aap_assets_source_import, --healthcheck]
+      interval: 30s
+      timeout: 10s
+      start_period: 30s
+      retries: 3
+
+secrets:
+  assets_import_database_url:
+    file: ${ASSETS_IMPORT_DATABASE_URL_FILE:-./.secrets/assets-import-database-url}
+  assets_import_s3_access_key:
+    file: ${ASSETS_IMPORT_S3_ACCESS_KEY_FILE:-./.secrets/assets-import-s3-access-key}
+  assets_import_s3_secret_key:
+    file: ${ASSETS_IMPORT_S3_SECRET_KEY_FILE:-./.secrets/assets-import-s3-secret-key}
+  assets_import_encryption_key:
+    file: ${CONNECTOR_ENCRYPTION_KEY_FILE:-./.secrets/connector-encryption-key}
+  assets_import_known_hosts:
+    file: ${ASSETS_IMPORT_SFTP_KNOWN_HOSTS:-./config/ssh/known_hosts.example}
