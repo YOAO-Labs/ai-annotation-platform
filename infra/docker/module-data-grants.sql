@@ -848,13 +848,22 @@ REVOKE CREATE ON SCHEMA aap_settings_v1 FROM :"settings_owner";
 REVOKE CREATE ON SCHEMA aap_notifications_v1 FROM :"notifications_owner";
 
 -- Cross-owner spatial authority and audit stay behind their owner capabilities.
+GRANT CREATE ON SCHEMA aap_assets_v1 TO :"assets_owner";
+ALTER VIEW aap_assets_v1.spatial_item_references OWNER TO :"assets_owner";
+ALTER VIEW aap_assets_v1.spatial_scene_references OWNER TO :"assets_owner";
+REVOKE CREATE ON SCHEMA aap_assets_v1 FROM :"assets_owner";
+GRANT USAGE ON SCHEMA aap_assets_v1 TO :"insights_owner";
+GRANT SELECT ON aap_assets_v1.spatial_item_references,
+    aap_assets_v1.spatial_scene_references
+    TO :"labeling_owner", :"insights_owner", :"workflow_role";
 GRANT EXECUTE ON FUNCTION aap_workspace_v1.read_spatial_project_access(uuid,uuid)
     TO :"labeling_owner";
 GRANT EXECUTE ON FUNCTION
     aap_labeling_v1.read_spatial_camera_roles(uuid[]),
     aap_labeling_v1.read_spatial_camera_target(uuid,uuid,text),
     aap_labeling_v1.lock_spatial_camera_authority(uuid,uuid,text,uuid),
-    aap_labeling_v1.lock_spatial_preparation_scope(uuid)
+    aap_labeling_v1.lock_spatial_preparation_scope(uuid),
+    aap_labeling_v1.read_spatial_preparation_scope(uuid)
     TO :"assets_owner";
 GRANT EXECUTE ON FUNCTION
     aap_audit_v1.record_sensor_calibration_update(uuid,uuid,uuid,uuid,text,integer,text,jsonb)
@@ -878,7 +887,8 @@ GRANT EXECUTE ON FUNCTION
     aap_assets_v1.read_pointcloud_preparation(uuid,uuid,integer),
     aap_assets_v1.apply_pointcloud_preparation(uuid,jsonb,jsonb,jsonb),
     aap_assets_v1.read_spatial_camera_target(uuid,uuid,text),
-    aap_assets_v1.record_spatial_calibration_provenance(uuid,uuid,jsonb)
+    aap_assets_v1.record_spatial_calibration_provenance(uuid,uuid,jsonb),
+    aap_assets_v1.set_spatial_dataset_axis(uuid,uuid,text)
     TO :"workflow_role";
 
 DO $$

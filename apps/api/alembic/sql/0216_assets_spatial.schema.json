@@ -44,6 +44,9 @@
               "$ref": "#/$defs/CameraTargetResult"
             },
             {
+              "$ref": "#/$defs/DatasetAxisMutationResult"
+            },
+            {
               "$ref": "#/$defs/ItemFactsPage"
             },
             {
@@ -1091,6 +1094,45 @@
       },
       "required": ["operation_id", "dataset_id", "name"],
       "title": "CreateSceneRequest",
+      "type": "object"
+    },
+    "DatasetAxisMutationResult": {
+      "additionalProperties": false,
+      "properties": {
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "dataset_id": {
+          "format": "uuid",
+          "title": "Dataset Id",
+          "type": "string"
+        },
+        "axis_convention": {
+          "anyOf": [
+            {
+              "enum": [
+                "iso_8855",
+                "ros_rep103",
+                "kitti_camera",
+                "opencv_camera",
+                "apollo",
+                "y_forward",
+                "sustechpoints_demo",
+                "raw"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Axis Convention"
+        }
+      },
+      "required": ["operation_id", "dataset_id", "axis_convention"],
+      "title": "DatasetAxisMutationResult",
       "type": "object"
     },
     "GetSceneRequest": {
@@ -2701,6 +2743,45 @@
       "title": "SceneResult",
       "type": "object"
     },
+    "SetDatasetAxisRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "dataset_id": {
+          "format": "uuid",
+          "title": "Dataset Id",
+          "type": "string"
+        },
+        "axis_convention": {
+          "anyOf": [
+            {
+              "enum": [
+                "iso_8855",
+                "ros_rep103",
+                "kitti_camera",
+                "opencv_camera",
+                "apollo",
+                "y_forward",
+                "sustechpoints_demo",
+                "raw"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Axis Convention"
+        }
+      },
+      "required": ["operation_id", "dataset_id", "axis_convention"],
+      "title": "SetDatasetAxisRequest",
+      "type": "object"
+    },
     "SetSceneSourceRequest": {
       "additionalProperties": false,
       "properties": {
@@ -2770,6 +2851,108 @@
       },
       "required": ["actor_id", "access"],
       "title": "SpatialActorResult",
+      "type": "object"
+    },
+    "SpatialItemReference": {
+      "additionalProperties": false,
+      "properties": {
+        "item_id": {
+          "format": "uuid",
+          "title": "Item Id",
+          "type": "string"
+        },
+        "dataset_id": {
+          "format": "uuid",
+          "title": "Dataset Id",
+          "type": "string"
+        },
+        "scene_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Scene Id"
+        },
+        "frame_index": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Frame Index"
+        },
+        "file_type": {
+          "title": "File Type",
+          "type": "string"
+        },
+        "axis_convention": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Axis Convention"
+        },
+        "scene_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Scene Name"
+        },
+        "calibration_metadata_present": {
+          "title": "Calibration Metadata Present",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "item_id",
+        "dataset_id",
+        "scene_id",
+        "frame_index",
+        "file_type",
+        "axis_convention",
+        "scene_name",
+        "calibration_metadata_present"
+      ],
+      "title": "SpatialItemReference",
+      "type": "object"
+    },
+    "SpatialSceneReference": {
+      "additionalProperties": false,
+      "properties": {
+        "scene_id": {
+          "format": "uuid",
+          "title": "Scene Id",
+          "type": "string"
+        },
+        "dataset_id": {
+          "format": "uuid",
+          "title": "Dataset Id",
+          "type": "string"
+        },
+        "scene_name": {
+          "title": "Scene Name",
+          "type": "string"
+        }
+      },
+      "required": ["scene_id", "dataset_id", "scene_name"],
+      "title": "SpatialSceneReference",
       "type": "object"
     },
     "UpdateCalibrationRequest": {
@@ -3087,6 +3270,16 @@
       "response": {
         "$ref": "#/$defs/ProvenanceMutationResult"
       }
+    },
+    "set_spatial_dataset_axis": {
+      "signature": "aap_assets_v1.set_spatial_dataset_axis(uuid,uuid,text)",
+      "arguments": ["operation_id", "dataset_id", "axis_convention"],
+      "request": {
+        "$ref": "#/$defs/SetDatasetAxisRequest"
+      },
+      "response": {
+        "$ref": "#/$defs/DatasetAxisMutationResult"
+      }
     }
   },
   "x-http-operations": {
@@ -3280,6 +3473,16 @@
         "$ref": "#/$defs/ProvenanceMutationResult"
       }
     },
+    "set_spatial_dataset_axis": {
+      "method": "POST",
+      "path": "/v1/spatial/set_spatial_dataset_axis",
+      "request": {
+        "$ref": "#/$defs/SetDatasetAxisRequest"
+      },
+      "response": {
+        "$ref": "#/$defs/DatasetAxisMutationResult"
+      }
+    },
     "backfill_scenes": {
       "method": "POST",
       "path": "/v1/spatial/backfill_scenes",
@@ -3309,6 +3512,30 @@
       "response": {
         "$ref": "#/$defs/PreparationMutationResult"
       }
+    },
+    "update_calibration": {
+      "method": "POST",
+      "path": "/v1/spatial/update_calibration",
+      "request": {
+        "$ref": "#/$defs/UpdateCalibrationRequest"
+      },
+      "response": {
+        "$ref": "#/$defs/CalibrationMutationResult"
+      }
+    }
+  },
+  "x-postgresql-projections": {
+    "aap_assets_v1.spatial_item_references": {
+      "row": {
+        "$ref": "#/$defs/SpatialItemReference"
+      },
+      "semantics": "Current Source/Scene fields; calibration_metadata_present is JSONB key presence, not validity or history resolution"
+    },
+    "aap_assets_v1.spatial_scene_references": {
+      "row": {
+        "$ref": "#/$defs/SpatialSceneReference"
+      },
+      "semantics": "Current Scene names, including Scenes without items"
     }
   },
   "x-paging": {

@@ -135,6 +135,23 @@ class SpatialItem(_Value):
     camera_roles: list[StrictStr]
 
 
+class SpatialItemReference(_Value):
+    item_id: UUID
+    dataset_id: UUID
+    scene_id: UUID | None
+    frame_index: StrictInt | None
+    file_type: StrictStr
+    axis_convention: StrictStr | None
+    scene_name: StrictStr | None
+    calibration_metadata_present: StrictBool
+
+
+class SpatialSceneReference(_Value):
+    scene_id: UUID
+    dataset_id: UUID
+    scene_name: StrictStr
+
+
 class SceneCursor(_Value):
     created_at: datetime
     scene_id: UUID
@@ -558,6 +575,18 @@ class SetSceneSourceRequest(_Value):
     source_metadata: dict[str, Any]
 
 
+class SetDatasetAxisRequest(_Value):
+    operation_id: UUID
+    dataset_id: UUID
+    axis_convention: LidarAxisConvention | None
+
+
+class DatasetAxisMutationResult(_Value):
+    operation_id: UUID
+    dataset_id: UUID
+    axis_convention: LidarAxisConvention | None
+
+
 class ReadCameraTargetRequest(_Value):
     actor_id: UUID
     task_id: UUID
@@ -753,6 +782,7 @@ SPATIAL_NATIVE_SIGNATURES = {
     "apply_pointcloud_preparation": "uuid,jsonb,jsonb,jsonb",
     "read_spatial_camera_target": "uuid,uuid,text",
     "record_spatial_calibration_provenance": "uuid,uuid,jsonb",
+    "set_spatial_dataset_axis": "uuid,uuid,text",
 }
 
 SPATIAL_NATIVE_ARGUMENTS = {
@@ -847,6 +877,7 @@ SPATIAL_NATIVE_ARGUMENTS = {
     ),
     "read_spatial_camera_target": ("actor_id", "task_id", "camera_role"),
     "record_spatial_calibration_provenance": ("operation_id", "dataset_id", "entries"),
+    "set_spatial_dataset_axis": ("operation_id", "dataset_id", "axis_convention"),
 }
 
 SPATIAL_OPERATIONS = {
@@ -875,6 +906,7 @@ SPATIAL_OPERATIONS = {
         RecordCalibrationProvenanceRequest,
         ProvenanceMutationResult,
     ),
+    "set_spatial_dataset_axis": (SetDatasetAxisRequest, DatasetAxisMutationResult),
 }
 
 
@@ -895,6 +927,7 @@ def require_spatial_scope(request: BaseModel, result: BaseModel) -> None:
         "after_frame_index",
         "dry_run",
         "access",
+        "axis_convention",
     ):
         if name in type(request).model_fields and name in type(result).model_fields:
             if (
@@ -934,6 +967,8 @@ def spatial_json_schema() -> dict[str, Any]:
             SniffAxisRequest,
             AxisSniffResult,
             PreparePointcloudRequest,
+            SpatialItemReference,
+            SpatialSceneReference,
         )
     )
     for model in sorted(models, key=lambda value: value.__name__):
@@ -1022,6 +1057,22 @@ def spatial_json_schema() -> dict[str, Any]:
                 "path": "/v1/spatial/prepare_pointcloud",
                 "request": {"$ref": "#/$defs/PreparePointcloudRequest"},
                 "response": {"$ref": "#/$defs/PreparationMutationResult"},
+            },
+            "update_calibration": {
+                "method": "POST",
+                "path": "/v1/spatial/update_calibration",
+                "request": {"$ref": "#/$defs/UpdateCalibrationRequest"},
+                "response": {"$ref": "#/$defs/CalibrationMutationResult"},
+            },
+        },
+        "x-postgresql-projections": {
+            "aap_assets_v1.spatial_item_references": {
+                "row": {"$ref": "#/$defs/SpatialItemReference"},
+                "semantics": "Current Source/Scene fields; calibration_metadata_present is JSONB key presence, not validity or history resolution",
+            },
+            "aap_assets_v1.spatial_scene_references": {
+                "row": {"$ref": "#/$defs/SpatialSceneReference"},
+                "semantics": "Current Scene names, including Scenes without items",
             },
         },
         "x-paging": {

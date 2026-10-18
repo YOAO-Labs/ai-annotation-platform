@@ -166,7 +166,8 @@ GRANT EXECUTE ON FUNCTION
     aap_assets_v1.read_pointcloud_preparation(uuid,uuid,integer),
     aap_assets_v1.apply_pointcloud_preparation(uuid,jsonb,jsonb,jsonb),
     aap_assets_v1.read_spatial_camera_target(uuid,uuid,text),
-    aap_assets_v1.record_spatial_calibration_provenance(uuid,uuid,jsonb)
+    aap_assets_v1.record_spatial_calibration_provenance(uuid,uuid,jsonb),
+    aap_assets_v1.set_spatial_dataset_axis(uuid,uuid,text)
     TO :"asset_catalog_role";
 
 -- Fail closed if the runtime role can access anything beyond the exact protocol.
@@ -216,7 +217,8 @@ DECLARE
         pg_catalog.to_regprocedure('aap_assets_v1.read_pointcloud_preparation(uuid,uuid,integer)')::oid,
         pg_catalog.to_regprocedure('aap_assets_v1.apply_pointcloud_preparation(uuid,jsonb,jsonb,jsonb)')::oid,
         pg_catalog.to_regprocedure('aap_assets_v1.read_spatial_camera_target(uuid,uuid,text)')::oid,
-        pg_catalog.to_regprocedure('aap_assets_v1.record_spatial_calibration_provenance(uuid,uuid,jsonb)')::oid
+        pg_catalog.to_regprocedure('aap_assets_v1.record_spatial_calibration_provenance(uuid,uuid,jsonb)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.set_spatial_dataset_axis(uuid,uuid,text)')::oid
     ];
 BEGIN
     IF EXISTS (

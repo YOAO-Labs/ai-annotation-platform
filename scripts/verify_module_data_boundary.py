@@ -82,7 +82,9 @@ SQL_ARTIFACTS = (
     "0214_dataset_import_core.sql",
     "0215_dataset_source_ingest.sql",
     "0215_dataset_source_ingest_delivery.sql",
+    "0216_assets_spatial_authorities.sql",
     "0216_assets_spatial.sql",
+    "0216_assets_spatial_projections.sql",
 )
 SCHEMA_ARTIFACTS = (
     "0191_task_append.schema.json",
@@ -813,6 +815,7 @@ def _install_and_rollback_frozen_sql(
         "SELECT aap_assets_v1.apply_pointcloud_preparation(NULL::uuid,NULL::jsonb,NULL::jsonb,NULL::jsonb);\n"
         "SELECT aap_assets_v1.read_spatial_camera_target(NULL::uuid,NULL::uuid,NULL::text);\n"
         "SELECT aap_assets_v1.record_spatial_calibration_provenance(NULL::uuid,NULL::uuid,NULL::jsonb);\n"
+        "SELECT aap_assets_v1.set_spatial_dataset_axis(NULL::uuid,NULL::uuid,NULL::text);\n"
         "SELECT aap_learning_v1.lock_project_deletion(:'project_id'::uuid);\n"
         "SELECT aap_learning_v1.guard_project_deletion(:'project_id'::uuid);\n"
         "SELECT aap_assets_v1.delete_project_owned_records(:'project_id'::uuid);\n"

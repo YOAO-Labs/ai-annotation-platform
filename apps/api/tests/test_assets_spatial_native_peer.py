@@ -220,7 +220,7 @@ async def test_restricted_catalog_psql_spatial_transaction_rolls_back(test_engin
             {"operation_id", "actor_id", "scene_id", "scene"},
         )
         assert created["operation_id"] == str(create_operation_id)
-        assert created["actor_id"] == str(actor_id)
+        assert created["actor_id"] is None
         assert created["scene_id"] == str(scene_id)
         _scene(
             created["scene"],

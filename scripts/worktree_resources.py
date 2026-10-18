@@ -398,6 +398,8 @@ class LocalResources:
                     f"GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO {role}",
                     f"GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO {role}",
                     f"GRANT USAGE ON SCHEMA aap_workspace_v1, aap_assets_v1, aap_labeling_v1, aap_jobs_v1 TO {role}",
+                    "GRANT SELECT ON aap_assets_v1.spatial_item_references, "
+                    f"aap_assets_v1.spatial_scene_references TO {role}",
                     f"GRANT EXECUTE ON FUNCTION aap_workspace_v1.lock_project_reference(uuid), "
                     "aap_workspace_v1.lock_project_manager(uuid, uuid), "
                     "aap_workspace_v1.delete_project(uuid, uuid, uuid, jsonb), "
@@ -444,6 +446,7 @@ class LocalResources:
                     "aap_assets_v1.apply_pointcloud_preparation(uuid,jsonb,jsonb,jsonb), "
                     "aap_assets_v1.read_spatial_camera_target(uuid,uuid,text), "
                     "aap_assets_v1.record_spatial_calibration_provenance(uuid,uuid,jsonb), "
+                    "aap_assets_v1.set_spatial_dataset_axis(uuid,uuid,text), "
                     "aap_assets_v1.prepare_dataset_import(uuid, uuid, uuid), "
                     "aap_assets_v1.accept_dataset_import(uuid, uuid, uuid, uuid, jsonb, jsonb, jsonb), "
                     "aap_assets_v1.cancel_dataset_import(uuid, uuid), "

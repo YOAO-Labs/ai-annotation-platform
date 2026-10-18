@@ -118,7 +118,7 @@ def test_distributable_schema_matches_wire_models_and_exact_native_surface():
     expected = spatial_json_schema()
     packaged = files("aap_assets_catalog").joinpath("spatial_contract.schema.json")
     assert json.loads(packaged.read_text()) == expected
-    assert len(SPATIAL_NATIVE_SIGNATURES) == 19
+    assert len(SPATIAL_NATIVE_SIGNATURES) == 20
     assert set(expected["x-native-capabilities"]) == set(SPATIAL_NATIVE_SIGNATURES)
     assert expected["$defs"]["ScenePatch"]["additionalProperties"] is False
     for name, signature in SPATIAL_NATIVE_SIGNATURES.items():
