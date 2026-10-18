@@ -1631,24 +1631,6 @@ BEGIN
     IF NOT aap_assets_v1._image_source_data_valid(v_source) THEN
         RETURN aap_assets_v1._image_reply(NULL, 'invalid_response');
     END IF;
-    IF v_source -> 'source_drifted' = 'true'::jsonb THEN
-        RETURN aap_assets_v1._image_reply(NULL, 'source_changed');
-    END IF;
-    IF v_source -> 'upload_ready' IS DISTINCT FROM 'true'::jsonb
-       OR v_source -> 'object_identity' = 'null'::jsonb THEN
-        RETURN aap_assets_v1._image_reply(NULL, 'source_not_ready');
-    END IF;
-    IF p_expected_source_snapshot IS NOT NULL
-       AND v_source ->> 'source_snapshot' IS DISTINCT FROM p_expected_source_snapshot THEN
-        RETURN aap_assets_v1._image_reply(NULL, 'source_changed');
-    END IF;
-    IF p_purpose = 'pyramid'
-       AND v_source -> 'width' <> 'null'::jsonb
-       AND v_source -> 'height' <> 'null'::jsonb
-       AND (v_source ->> 'width')::numeric * (v_source ->> 'height')::numeric
-            < (v_policy ->> 'optional_pixels')::numeric THEN
-        RETURN aap_assets_v1._image_reply(NULL, 'resource_limit');
-    END IF;
     v_spec := pg_catalog.jsonb_build_object(
         'kind', p_purpose,
         'expected_source_snapshot', v_source -> 'source_snapshot',
@@ -1680,16 +1662,42 @@ BEGIN
            OR (v_data - ARRAY['operation_id', 'source', 'work', 'spec']) IS DISTINCT FROM '{}'::jsonb
            OR v_data ->> 'operation_id' IS DISTINCT FROM p_operation_id::text
            OR NOT aap_assets_v1._image_source_data_valid(v_data -> 'source')
-           OR v_data #>> '{source,owner,kind}' IS DISTINCT FROM v_source #>> '{owner,kind}'
-           OR v_data #>> '{source,owner,id}' IS DISTINCT FROM v_source #>> '{owner,id}'
-           OR v_data #>> '{source,source_snapshot}' IS DISTINCT FROM v_source ->> 'source_snapshot'
+           OR aap_assets_v1._image_spec(v_data -> 'spec') IS DISTINCT FROM v_data -> 'spec'
+           OR pg_catalog.jsonb_typeof(v_data -> 'work') IS DISTINCT FROM 'object'
            OR v_data #>> '{spec,kind}' IS DISTINCT FROM p_purpose
            OR v_data #>> '{work,kind}' IS DISTINCT FROM p_purpose
-           OR v_data #>> '{spec,expected_source_snapshot}' IS DISTINCT FROM v_source ->> 'source_snapshot'
-           OR pg_catalog.jsonb_typeof(v_data -> 'work') IS DISTINCT FROM 'object' THEN
+           OR v_data #>> '{spec,expected_source_snapshot}' IS DISTINCT FROM v_data #>> '{source,source_snapshot}'
+           OR v_data #> '{spec,policy}' IS DISTINCT FROM v_policy
+           OR v_data #>> '{work,owner,kind}' IS DISTINCT FROM v_data #>> '{source,owner,kind}'
+           OR v_data #>> '{work,owner,id}' IS DISTINCT FROM v_data #>> '{source,owner,id}'
+           OR v_data #>> '{work,source_generation}' IS DISTINCT FROM v_data #>> '{source,source_generation}' THEN
             RETURN aap_assets_v1._image_reply(NULL, 'invalid_response');
         END IF;
+        IF v_data #>> '{source,owner,kind}' IS DISTINCT FROM v_source #>> '{owner,kind}'
+           OR v_data #>> '{source,owner,id}' IS DISTINCT FROM v_source #>> '{owner,id}'
+           OR v_data #>> '{source,source_snapshot}' IS DISTINCT FROM v_source ->> 'source_snapshot'
+           OR v_data #>> '{source,source_generation}' IS DISTINCT FROM v_source ->> 'source_generation' THEN
+            RETURN aap_assets_v1._image_reply(NULL, 'source_changed');
+        END IF;
         RETURN v_saved;
+    END IF;
+    IF v_source -> 'source_drifted' = 'true'::jsonb THEN
+        RETURN aap_assets_v1._image_reply(NULL, 'source_changed');
+    END IF;
+    IF v_source -> 'upload_ready' IS DISTINCT FROM 'true'::jsonb
+       OR v_source -> 'object_identity' = 'null'::jsonb THEN
+        RETURN aap_assets_v1._image_reply(NULL, 'source_not_ready');
+    END IF;
+    IF p_expected_source_snapshot IS NOT NULL
+       AND v_source ->> 'source_snapshot' IS DISTINCT FROM p_expected_source_snapshot THEN
+        RETURN aap_assets_v1._image_reply(NULL, 'source_changed');
+    END IF;
+    IF p_purpose = 'pyramid'
+       AND v_source -> 'width' <> 'null'::jsonb
+       AND v_source -> 'height' <> 'null'::jsonb
+       AND (v_source ->> 'width')::numeric * (v_source ->> 'height')::numeric
+            < (v_policy ->> 'optional_pixels')::numeric THEN
+        RETURN aap_assets_v1._image_reply(NULL, 'resource_limit');
     END IF;
     IF p_action = 'retry' THEN
         v_owner_kind := v_source #>> '{owner,kind}';

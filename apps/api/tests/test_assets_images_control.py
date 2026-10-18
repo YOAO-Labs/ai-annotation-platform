@@ -352,6 +352,247 @@ async def test_retry_receipt_replays_before_ready_and_new_retry_is_rejected(db_s
     }
 
 
+async def test_pyramid_retry_receipt_replays_after_dimensions_make_it_ineligible(
+    db_session,
+):
+    actor_id = await _seed_actor(db_session)
+    _, item_id = await _seed_image_item(
+        db_session, actor_id=actor_id, width=5000, height=5000
+    )
+    source = _data(await _read(db_session, actor_id, item_id))["data"]
+    _data(
+        await _observe(
+            db_session,
+            actor_id,
+            source,
+            {"etag": "pyramid-replay", "byte_size": 2048},
+            item_id=item_id,
+        )
+    )
+    operation_id = uuid4()
+    accepted = _data(
+        await db_session.scalar(
+            _RETRY,
+            {
+                "operation_id": operation_id,
+                "actor_id": actor_id,
+                "task_id": None,
+                "item_id": item_id,
+                "purpose": "pyramid",
+                "snapshot": None,
+                "policy": "{}",
+                "force": True,
+            },
+        )
+    )
+
+    await db_session.execute(
+        text("UPDATE public.dataset_items SET width=100,height=100 WHERE id=:item_id"),
+        {"item_id": item_id},
+    )
+    replay = _data(
+        await db_session.scalar(
+            _RETRY,
+            {
+                "operation_id": operation_id,
+                "actor_id": actor_id,
+                "task_id": None,
+                "item_id": item_id,
+                "purpose": "pyramid",
+                "snapshot": None,
+                "policy": "{}",
+                "force": True,
+            },
+        )
+    )
+    assert replay["work"]["job_id"] == accepted["work"]["job_id"]
+    assert replay["source"]["source_snapshot"] == accepted["source"]["source_snapshot"]
+
+    _error(
+        await db_session.scalar(
+            _RETRY,
+            {
+                "operation_id": uuid4(),
+                "actor_id": actor_id,
+                "task_id": None,
+                "item_id": item_id,
+                "purpose": "pyramid",
+                "snapshot": None,
+                "policy": "{}",
+                "force": True,
+            },
+        ),
+        "resource_limit",
+    )
+
+
+async def test_saved_retry_source_snapshot_change_returns_source_changed(db_session):
+    actor_id = await _seed_actor(db_session)
+    _, item_id = await _seed_image_item(db_session, actor_id=actor_id)
+    source = _data(await _read(db_session, actor_id, item_id))["data"]
+    _data(
+        await _observe(
+            db_session,
+            actor_id,
+            source,
+            {"etag": "snapshot-replay", "byte_size": 2048},
+            item_id=item_id,
+        )
+    )
+    operation_id = uuid4()
+    await db_session.scalar(
+        _RETRY,
+        {
+            "operation_id": operation_id,
+            "actor_id": actor_id,
+            "task_id": None,
+            "item_id": item_id,
+            "purpose": "pyramid",
+            "snapshot": None,
+            "policy": "{}",
+            "force": True,
+        },
+    )
+    await db_session.execute(
+        text("UPDATE public.dataset_items SET file_path=:path WHERE id=:item_id"),
+        {"item_id": item_id, "path": f"replacement/{item_id}.png"},
+    )
+
+    _error(
+        await db_session.scalar(
+            _RETRY,
+            {
+                "operation_id": operation_id,
+                "actor_id": actor_id,
+                "task_id": None,
+                "item_id": item_id,
+                "purpose": "pyramid",
+                "snapshot": None,
+                "policy": "{}",
+                "force": True,
+            },
+        ),
+        "source_changed",
+    )
+
+
+async def test_malformed_saved_retry_receipt_still_returns_invalid_response(db_session):
+    from aap_assets_images.policy import ImagePolicy
+
+    actor_id = await _seed_actor(db_session)
+    _, item_id = await _seed_image_item(db_session, actor_id=actor_id)
+    operation_id = uuid4()
+    await db_session.execute(
+        text(
+            "INSERT INTO public.asset_image_operations "
+            "(operation_id,actor_id,action,scope,intent,result) "
+            "VALUES (:operation_id,:actor_id,'retry',CAST(:scope AS jsonb), "
+            "CAST(:intent AS jsonb),CAST(:result AS jsonb))"
+        ),
+        {
+            "operation_id": operation_id,
+            "actor_id": actor_id,
+            "scope": json.dumps(
+                {
+                    "task_id": None,
+                    "dataset_item_id": str(item_id),
+                    "purpose": "pyramid",
+                }
+            ),
+            "intent": json.dumps(
+                {
+                    "expected_source_snapshot": None,
+                    "policy": ImagePolicy().model_dump(mode="json"),
+                    "force": True,
+                }
+            ),
+            "result": json.dumps(
+                {"schema": "aap-assets-images/v1", "ok": True, "data": None}
+            ),
+        },
+    )
+
+    _error(
+        await db_session.scalar(
+            _RETRY,
+            {
+                "operation_id": operation_id,
+                "actor_id": actor_id,
+                "task_id": None,
+                "item_id": item_id,
+                "purpose": "pyramid",
+                "snapshot": None,
+                "policy": "{}",
+                "force": True,
+            },
+        ),
+        "invalid_response",
+    )
+
+
+async def test_saved_task_retry_detects_relinked_owner_before_source_readiness(
+    db_session,
+):
+    from tests.test_image_source_authorities import _seed_image_task
+
+    actor_id = await _seed_actor(db_session)
+    _, first_item_id = await _seed_image_item(db_session, actor_id=actor_id)
+    _, replacement_item_id = await _seed_image_item(db_session, actor_id=actor_id)
+    task = await _seed_image_task(db_session, actor_id=actor_id)
+    task.dataset_item_id = first_item_id
+    await db_session.flush()
+
+    source = _data(await _read(db_session, actor_id, None, task_id=task.id))["data"]
+    _data(
+        await _observe(
+            db_session,
+            actor_id,
+            source,
+            {"etag": "linked-replay", "byte_size": 2048},
+            task_id=task.id,
+        )
+    )
+    operation_id = uuid4()
+    accepted = _data(
+        await db_session.scalar(
+            _RETRY,
+            {
+                "operation_id": operation_id,
+                "actor_id": actor_id,
+                "task_id": task.id,
+                "item_id": None,
+                "purpose": "pyramid",
+                "snapshot": None,
+                "policy": "{}",
+                "force": True,
+            },
+        )
+    )
+    assert accepted["source"]["owner"] == {
+        "kind": "dataset_item",
+        "id": str(first_item_id),
+    }
+
+    task.dataset_item_id = replacement_item_id
+    await db_session.flush()
+    _error(
+        await db_session.scalar(
+            _RETRY,
+            {
+                "operation_id": operation_id,
+                "actor_id": actor_id,
+                "task_id": task.id,
+                "item_id": None,
+                "purpose": "pyramid",
+                "snapshot": None,
+                "policy": "{}",
+                "force": True,
+            },
+        ),
+        "source_changed",
+    )
+
+
 async def test_explicit_cancel_is_receipted_and_fences_pending_work(db_session):
     actor_id = await _seed_actor(db_session)
     _, item_id = await _seed_image_item(
