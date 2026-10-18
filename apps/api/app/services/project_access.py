@@ -6,7 +6,7 @@ import uuid
 from typing import NoReturn
 
 from fastapi import HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -32,6 +32,30 @@ from app.db.enums import (
 from app.db.models.project import Project
 from app.db.models.project_member import ProjectMember
 from app.db.models.user import User
+from app.services.task_creation_contract import (
+    ProjectManagerFacts,
+    decode_creation_reply,
+)
+
+
+async def lock_creation_project_manager(
+    db: AsyncSession, *, actor_id: uuid.UUID, project_id: uuid.UUID
+) -> ProjectManagerFacts:
+    """Resolve manager facts through the Workspace-owned data capability."""
+    with db.no_autoflush:
+        payload = await db.scalar(
+            text(
+                "SELECT aap_workspace_v1.lock_project_manager("
+                "CAST(:actor_id AS uuid), CAST(:project_id AS uuid))"
+            ),
+            {"actor_id": actor_id, "project_id": project_id},
+        )
+    result = decode_creation_reply(
+        payload, "aap-project-manager/v1", ProjectManagerFacts
+    )
+    if result.actor_id != actor_id or result.project_id != project_id:
+        raise ValueError("Creation authority does not match its request")
+    return result
 
 
 def assert_membership_role_compatible(platform_role: str, project_role: str) -> None:

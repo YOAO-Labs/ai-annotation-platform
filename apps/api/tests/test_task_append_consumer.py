@@ -191,6 +191,51 @@ async def test_receipt_replay_does_not_replace_current_cached_total_with_histori
         assert project.total_tasks == 2
 
 
+async def test_append_updates_project_timestamp_but_receipt_replay_does_not(
+    append_state,
+):
+    state = append_state
+    operation_id = uuid4()
+    async with state.maker.begin() as owner:
+        await owner.execute(
+            text(
+                "UPDATE public.projects SET updated_at = '2000-01-01 UTC' WHERE id = :id"
+            ),
+            {"id": state.project_id},
+        )
+    async with state.maker() as db:
+        project = await db.get(Project, state.project_id)
+        original = project.updated_at
+        service = LabelingTaskService(db)
+        await service.append_dataset_items(
+            dataset_id=state.dataset_id,
+            item_ids=(state.item_id,),
+            operation_id=operation_id,
+        )
+        assert "updated_at" in inspect(project).expired_attributes
+        await db.refresh(project)
+        assert project.updated_at > original
+        await db.commit()
+    async with state.maker.begin() as owner:
+        newer = await owner.scalar(
+            text(
+                "UPDATE public.projects SET updated_at = updated_at + interval '1 day' "
+                "WHERE id = :id RETURNING updated_at"
+            ),
+            {"id": state.project_id},
+        )
+    async with state.maker() as db:
+        assert (
+            await LabelingTaskService(db).append_dataset_items(
+                dataset_id=state.dataset_id,
+                item_ids=(state.item_id,),
+                operation_id=operation_id,
+            )
+            == 1
+        )
+        assert (await db.get(Project, state.project_id)).updated_at == newer
+
+
 async def _wait_for_blocker(test_engine, waiter: int, holder: int):
     async def wait():
         async with test_engine.connect() as observer:

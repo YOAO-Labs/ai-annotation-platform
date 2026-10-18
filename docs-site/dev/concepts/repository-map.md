@@ -30,7 +30,7 @@ last_reviewed: 2026-10-17
 | 训练参数契约    | `apps/_shared/training_contract`                                                            | 纯 Python 原生框架字段快照、catalog 依赖校验、预算与回流契约                                     |
 | 训练执行器      | `apps/training-executor`                                                                    | 独立拉取式执行器，文件锁独占 GPU，管理原生训练子进程与脱敏日志                                   |
 | 素材探测服务    | `apps/media-probe`                                                                          | 独立元数据/帧时间表/packet 探测与 HTTP/NDJSON 合同；不取得数据库或对象存储访问权                 |
-| 事务数据能力    | `apps/api/alembic/sql/0190*`、`0191*`                                                       | Workspace/Assets 引用与 Labeling 追加建题；冻结 SQL/JSON 合同，保留同库外层事务                  |
+| 事务数据能力    | `apps/api/alembic/sql/0190*` 至 `0195*`                                                     | 当前授权、关联、Jobs 和 Labeling 初始/追加建题；冻结 SQL/JSON 合同，保留同库外层事务             |
 | ML backend      | `apps/{grounded-sam2,sam3,yolo,rapidocr,onnxtools}-backend`                                 | 各自的池包装 / 观测 / 生命周期                                                                   |
 
 ## 2. 授权真值（唯一来源）
@@ -150,7 +150,7 @@ last_reviewed: 2026-10-17
    素材关联/初始建题和入库后的追加建题经 `app/application/dataset_task_creation.py`；
    `services/dataset` 持有素材事实，`services/labeling_tasks` 持有建题、媒体关联与项目任务数增量，
    素材/帧传递使用 `services/dataset_task_facts`，共享分组在 `services/dataset_frame_grouping`。
-   `services/labeling_task_creation_contract` 定义待建来源、初始泛型/点云和追加建题端口，应用绑定原 Session 的 `LabelingTaskService`；缺失任务的单条 `NOT EXISTS` 读取归该 SQL 所有者，结果仍是计数字典。
+   `services/labeling_task_creation_contract` 与 `task_creation_contract` 定义初始/追加建题端口和严格值绑定；`LabelingTaskService` 消费冻结 SQL/JSON 能力，实际写入仅由 Labeling SQL 持有。初始操作保存许可、来源计划、游标和块回执；Jobs 客户端只调用其 owner 的生命周期能力。
    assets 关联结果与建题应用结果只返回 `link_id` 等标量，不向入口交付 `ProjectDataset` ORM。
    分块提交、追加 flush-only 和标定前置提交不同，不能合并成一种事务。
    上传完成的内容观测归 `DatasetService.record_uploaded_item_content`，图片尺寸归其既有 `set_item_dimensions`；HTTP 保留 Head/尺寸读取、去重、占位清理与追加建题的原事务及派发顺序。

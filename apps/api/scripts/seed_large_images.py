@@ -525,7 +525,9 @@ async def run(args: argparse.Namespace) -> dict[str, Any]:
     async with async_session() as db:
         task_result = await DatasetTaskCreationWorkflow(
             db
-        ).create_tasks_for_linked_dataset(dataset_id=dataset.id, project_id=project.id)
+        ).create_tasks_for_linked_dataset(
+            dataset_id=dataset.id, project_id=project.id, actor_id=project.owner_id
+        )
     tasks = await _task_map(project.id, [item.id for _, item, _ in item_rows])
 
     queued_item_ids = []

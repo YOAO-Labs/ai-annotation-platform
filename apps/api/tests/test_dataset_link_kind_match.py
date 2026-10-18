@@ -3,12 +3,12 @@ from __future__ import annotations
 import uuid
 
 import pytest
-from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.dataset import Dataset, Scene
 from app.db.models.project import Project
 from app.application.dataset_task_creation import DatasetTaskCreationWorkflow
+from app.services.task_creation_contract import TaskCreationFailure
 
 
 async def _dataset(
@@ -90,28 +90,50 @@ async def test_link_project_enforces_data_type_and_scene_mode(
         db_session, user.id, data_type="lidar", scene_mode=True
     )
 
-    assert (await workflow.link_project(plain_image.id, normal_project.id)).link_id
-    assert (await workflow.link_project(scene_image.id, scene_project.id)).link_id
-    assert (await workflow.link_project(scene_lidar.id, lidar_scene_project.id)).link_id
+    assert (
+        await workflow.link_project(plain_image.id, normal_project.id, actor_id=user.id)
+    ).link_id
+    assert (
+        await workflow.link_project(scene_image.id, scene_project.id, actor_id=user.id)
+    ).link_id
+    assert (
+        await workflow.link_project(
+            scene_lidar.id, lidar_scene_project.id, actor_id=user.id
+        )
+    ).link_id
 
-    with pytest.raises(HTTPException) as scene_exc:
-        await workflow.link_project(plain_image.id, scene_project.id)
-    assert scene_exc.value.status_code == 422
-    assert "scene" in scene_exc.value.detail
+    with pytest.raises(TaskCreationFailure) as scene_exc:
+        await workflow.link_project(plain_image.id, scene_project.id, actor_id=user.id)
+    assert scene_exc.value.code == "scene_kind_mismatch"
+    assert (
+        scene_exc.value.facts["project_scene_mode"]
+        != scene_exc.value.facts["dataset_has_scenes"]
+    )
 
-    with pytest.raises(HTTPException) as type_exc:
-        await workflow.link_project(scene_lidar.id, scene_project.id)
-    assert type_exc.value.status_code == 422
-    assert "data_type" in type_exc.value.detail
+    with pytest.raises(TaskCreationFailure) as type_exc:
+        await workflow.link_project(scene_lidar.id, scene_project.id, actor_id=user.id)
+    assert type_exc.value.code == "media_kind_mismatch"
+    assert (
+        type_exc.value.facts["project_data_type"]
+        != type_exc.value.facts["dataset_data_type"]
+    )
 
     # 反向 scene 门:普通项目拒绝 has_scenes 数据集(对称强制)。
-    with pytest.raises(HTTPException) as inv_scene_exc:
-        await workflow.link_project(scene_image.id, normal_project.id)
-    assert inv_scene_exc.value.status_code == 422
-    assert "scene" in inv_scene_exc.value.detail
+    with pytest.raises(TaskCreationFailure) as inv_scene_exc:
+        await workflow.link_project(scene_image.id, normal_project.id, actor_id=user.id)
+    assert inv_scene_exc.value.code == "scene_kind_mismatch"
+    assert (
+        inv_scene_exc.value.facts["project_scene_mode"]
+        != inv_scene_exc.value.facts["dataset_has_scenes"]
+    )
 
     # 反向 data_type 门:lidar 项目拒绝 image 数据集。
-    with pytest.raises(HTTPException) as inv_type_exc:
-        await workflow.link_project(scene_image.id, lidar_scene_project.id)
-    assert inv_type_exc.value.status_code == 422
-    assert "data_type" in inv_type_exc.value.detail
+    with pytest.raises(TaskCreationFailure) as inv_type_exc:
+        await workflow.link_project(
+            scene_image.id, lidar_scene_project.id, actor_id=user.id
+        )
+    assert inv_type_exc.value.code == "media_kind_mismatch"
+    assert (
+        inv_type_exc.value.facts["project_data_type"]
+        != inv_type_exc.value.facts["dataset_data_type"]
+    )

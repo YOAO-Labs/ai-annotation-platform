@@ -66,7 +66,7 @@ async def test_generic_task_creation_can_stay_in_callers_transaction(
     )
     project = await create_project(db_session, owner_id=owner.id)
     project.data_type = "image"
-    await assets.associate_project(dataset.id, project.id)
+    await assets.associate_project(dataset.id, project.id, actor_id=owner.id)
     await db_session.flush()
 
     project_id = project.id
@@ -76,8 +76,10 @@ async def test_generic_task_creation_can_stay_in_callers_transaction(
         dataset_id=dataset.id,
         project_id=project_id,
         commit_task_chunks=False,
+        actor_id=owner.id,
     )
     assert result == {"created": 1, "total": 1}
+    await db_session.refresh(project, ["total_tasks"])
     assert project.total_tasks == 1
 
     await db_session.rollback()
@@ -108,7 +110,7 @@ async def test_dataset_reset_detaches_tasks_and_deletes_database_assets(
         file_size=23,
     )
     project = await create_project(db_session, owner_id=owner.id)
-    await assets.associate_project(dataset.id, project.id)
+    await assets.associate_project(dataset.id, project.id, actor_id=owner.id)
     task = Task(
         id=uuid.uuid4(),
         project_id=project.id,

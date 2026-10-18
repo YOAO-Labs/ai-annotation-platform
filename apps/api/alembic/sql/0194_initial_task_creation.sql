@@ -179,6 +179,7 @@ SET search_path = pg_catalog, pg_temp
 AS $function$
 DECLARE
     v_manager jsonb;
+    v_dataset_id uuid;
     v_association_id uuid;
     v_job jsonb;
     v_job_data jsonb;
@@ -206,6 +207,7 @@ BEGIN
     END IF;
 
     -- Acceptance is the only stage that checks current actor authority.
+    v_dataset_id := aap_assets_v1.lock_dataset_reference(p_dataset_id);
     v_manager := aap_workspace_v1.lock_project_manager(p_actor_id, p_project_id);
     IF v_manager ->> 'schema' IS DISTINCT FROM 'aap-project-manager/v1' THEN
         RETURN pg_catalog.jsonb_build_object(
@@ -222,6 +224,12 @@ BEGIN
         );
     END IF;
 
+    IF v_dataset_id IS NULL THEN
+        RETURN pg_catalog.jsonb_build_object(
+            'schema', 'aap-task-creation/v1', 'ok', false,
+            'error', pg_catalog.jsonb_build_object('code', 'dataset_missing')
+        );
+    END IF;
     v_expected_mode := CASE
         WHEN v_manager #>> '{data,data_type}' = 'lidar' THEN 'pointcloud'
         ELSE 'generic'
@@ -242,7 +250,7 @@ BEGIN
         RETURN pg_catalog.jsonb_build_object(
             'schema', 'aap-task-creation/v1',
             'ok', false,
-            'error', pg_catalog.jsonb_build_object('code', 'association_stale')
+            'error', pg_catalog.jsonb_build_object('code', 'association_changed')
         );
     END IF;
 
@@ -493,7 +501,7 @@ BEGIN
         RETURN pg_catalog.jsonb_build_object(
             'schema', 'aap-task-creation/v1',
             'ok', false,
-            'error', pg_catalog.jsonb_build_object('code', 'association_stale')
+            'error', pg_catalog.jsonb_build_object('code', 'association_changed')
         );
     END IF;
 
@@ -612,7 +620,7 @@ BEGIN
                     'error', pg_catalog.jsonb_build_object('code', 'invalid_request')
                 );
             END IF;
-            IF pg_catalog.jsonb_object_length(v_frame) <> 2
+            IF (v_frame - ARRAY['primary_item_id', 'cameras']) <> '{}'::jsonb
                OR NOT (v_frame ? 'primary_item_id')
                OR NOT (v_frame ? 'cameras')
                OR pg_catalog.jsonb_typeof(v_frame -> 'primary_item_id') <> 'string'
@@ -636,7 +644,7 @@ BEGIN
                         'error', pg_catalog.jsonb_build_object('code', 'invalid_request')
                     );
                 END IF;
-                IF pg_catalog.jsonb_object_length(v_camera) <> 2
+                IF (v_camera - ARRAY['item_id', 'sensor_name']) <> '{}'::jsonb
                    OR NOT (v_camera ? 'item_id')
                    OR NOT (v_camera ? 'sensor_name')
                    OR pg_catalog.jsonb_typeof(v_camera -> 'item_id') <> 'string'
@@ -929,7 +937,7 @@ BEGIN
         RETURN pg_catalog.jsonb_build_object(
             'schema', 'aap-task-creation/v1',
             'ok', false,
-            'error', pg_catalog.jsonb_build_object('code', 'association_stale')
+            'error', pg_catalog.jsonb_build_object('code', 'association_changed')
         );
     END IF;
 
@@ -1105,7 +1113,7 @@ BEGIN
         RETURN pg_catalog.jsonb_build_object(
             'schema', 'aap-task-creation-chunk/v1',
             'ok', false,
-            'error', pg_catalog.jsonb_build_object('code', 'association_stale')
+            'error', pg_catalog.jsonb_build_object('code', 'association_changed')
         );
     END IF;
 

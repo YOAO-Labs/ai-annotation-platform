@@ -96,7 +96,7 @@ BEGIN
         INTO v_project_id, v_owner_id, v_data_type, v_scene_mode
         FROM public.projects AS project
         WHERE project.id = p_project_id
-        FOR KEY SHARE NOWAIT;
+        FOR SHARE NOWAIT;
     EXCEPTION
         WHEN lock_not_available OR serialization_failure OR deadlock_detected THEN
             RETURN pg_catalog.jsonb_build_object(
@@ -215,6 +215,8 @@ DECLARE
     v_dataset_media text;
     v_facts jsonb;
 BEGIN
+    -- Take the parent before authority locks that also conflict with counters.
+    v_dataset_id := aap_assets_v1.lock_dataset_reference(p_dataset_id);
     v_manager := aap_workspace_v1.lock_project_manager(p_actor_id, p_project_id);
     IF v_manager ->> 'ok' IS DISTINCT FROM 'true' THEN
         RETURN pg_catalog.jsonb_build_object(
@@ -227,7 +229,6 @@ BEGIN
     v_project_data_type := v_manager #>> '{data,data_type}';
     v_project_scene_mode := (v_manager #>> '{data,scene_mode}')::boolean;
 
-    v_dataset_id := aap_assets_v1.lock_dataset_reference(p_dataset_id);
     IF v_dataset_id IS NULL THEN
         RETURN pg_catalog.jsonb_build_object(
             'schema', 'aap-dataset-association/v1',

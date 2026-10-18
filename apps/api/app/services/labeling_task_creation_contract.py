@@ -7,14 +7,15 @@ from typing import Annotated, Literal, Protocol, TypedDict
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.services.dataset_task_facts import (
-    PreparedDatasetItem,
-    PreparedPointCloudFrame,
+from app.services.task_creation_contract import (
+    CreationChunk,
+    CreationMode,
+    CreationOperation,
 )
 
 
 class TaskCreationCounts(TypedDict):
-    """Counts of the pending snapshot; already-created tasks are excluded."""
+    """Actual inserts and the operation's frozen pending-source total."""
 
     created: int
     total: int
@@ -48,38 +49,35 @@ class TaskAppendResult(BaseModel):
 
 
 class LabelingTaskCreationPort(Protocol):
-    """Local creation operations bound to the caller's existing transaction.
+    """Versioned data operations; their caller retains transaction ownership."""
 
-    Initial creation keeps its chunk commits when enabled, while append only
-    flushes. Empty initial inputs return zero counts without committing. Asset
-    calibration and its separate commit remain the application owner's work.
-    """
-
-    async def read_pending_dataset_items(
-        self, *, dataset_id: uuid.UUID, project_id: uuid.UUID
-    ) -> tuple[PreparedDatasetItem, ...]:
-        """Read pending assets in one statement, ordered by asset UUID."""
-        ...
-
-    async def create_initial_generic(
+    async def accept_dataset_task_creation(
         self,
         *,
+        operation_id: uuid.UUID,
+        actor_id: uuid.UUID,
+        dataset_id: uuid.UUID,
         project_id: uuid.UUID,
-        pending_items: tuple[PreparedDatasetItem, ...],
-        job_id: uuid.UUID | None = None,
-        chunk_size: int = 5000,
-        commit_each_chunk: bool = True,
-    ) -> TaskCreationCounts: ...
+        association_id: uuid.UUID,
+        job_id: uuid.UUID | None,
+        mode: CreationMode,
+        chunk_size: int,
+    ) -> CreationOperation: ...
 
-    async def create_initial_pointcloud(
+    async def prepare_dataset_task_creation(
         self,
         *,
-        project_id: uuid.UUID,
-        frames: tuple[PreparedPointCloudFrame, ...],
-        job_id: uuid.UUID | None = None,
-        chunk_size: int = 5000,
-        commit_each_chunk: bool = True,
-    ) -> TaskCreationCounts: ...
+        operation_id: uuid.UUID,
+        frames: list[dict[str, object]] | None,
+    ) -> CreationOperation: ...
+
+    async def read_dataset_task_creation(
+        self, operation_id: uuid.UUID
+    ) -> CreationOperation: ...
+
+    async def advance_dataset_task_creation(
+        self, operation_id: uuid.UUID, chunk_index: int
+    ) -> CreationChunk: ...
 
     async def append_dataset_items(
         self,

@@ -58,7 +58,9 @@ async def _seed_linked(db: AsyncSession, owner_id: uuid.UUID, n_items: int) -> P
     db.add(project)
     await db.flush()
 
-    await DatasetTaskCreationWorkflow(db).link_project(ds.id, project.id)
+    await DatasetTaskCreationWorkflow(db).link_project(
+        ds.id, project.id, actor_id=owner_id
+    )
     return project
 
 

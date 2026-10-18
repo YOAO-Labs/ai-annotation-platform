@@ -11,6 +11,7 @@ from app.application.async_job_contracts import (
     JobCancellationPort,
 )
 from app.application.job_terminal import reconcile_domain_terminal
+from app.application.task_creation_errors import raise_task_creation_http_failure
 from app.db.models.async_job import AsyncJob, AsyncJobStatus
 from app.db.models.project import Project
 from app.db.models.user import User
@@ -21,6 +22,8 @@ from app.services.async_job_notify import notify_job_terminal
 from app.services.job_execution_control import JobExecutionControl
 from app.services.mask_formats import service as mask_formats
 from app.services.project_write_guard import lock_project_manager
+from app.services.task_creation_contract import TaskCreationFailure
+from app.services.task_creation_jobs import TaskCreationJobs
 from app.services.training_dataset_cancellation_contract import (
     TrainingDatasetCancellationFailure,
     TrainingDatasetCancellationPort,
@@ -29,6 +32,7 @@ from app.services.training_dataset_cancellation_contract import (
 log = logging.getLogger(__name__)
 
 CANCELLABLE_KINDS = {
+    "create_tasks",
     "sample_evaluation",
     "training_dataset",
     "batch_predict",
@@ -89,6 +93,13 @@ class SqlJobCancellation(JobCancellationPort):
                     status_code=409,
                     detail=f"cannot cancel terminal job (status={job.status})",
                 )
+
+            if job.kind == "create_tasks":
+                try:
+                    result = await TaskCreationJobs(db).cancel(actor_id, job.id)
+                except TaskCreationFailure as exc:
+                    raise_task_creation_http_failure(exc)
+                return result.status
 
             if job.kind == "sample_evaluation":
                 project = await db.get(Project, job.project_id)

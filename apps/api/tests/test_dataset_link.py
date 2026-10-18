@@ -66,7 +66,9 @@ async def test_dataset_task_creation_creates_tasks_in_bulk(
     ds = await _seed_dataset(db_session, user.id, n_items=25)
     project = await _seed_project(db_session, user.id)
 
-    await DatasetTaskCreationWorkflow(db_session).link_project(ds.id, project.id)
+    await DatasetTaskCreationWorkflow(db_session).link_project(
+        ds.id, project.id, actor_id=user.id
+    )
 
     count = (
         await db_session.execute(
@@ -108,6 +110,7 @@ async def test_initial_generic_task_sequence_follows_item_uuid_order(
             for item_id in item_ids
         ]
     )
+    db_session.add(ProjectDataset(dataset_id=ds.id, project_id=project.id))
     await db_session.flush()
 
     result = await DatasetTaskCreationWorkflow(
@@ -116,6 +119,7 @@ async def test_initial_generic_task_sequence_follows_item_uuid_order(
         dataset_id=ds.id,
         project_id=project.id,
         commit_task_chunks=False,
+        actor_id=user.id,
     )
 
     rows = (
@@ -139,8 +143,8 @@ async def test_link_project_idempotent(db_session: AsyncSession, super_admin):
     project = await _seed_project(db_session, user.id)
 
     workflow = DatasetTaskCreationWorkflow(db_session)
-    link1 = await workflow.link_project(ds.id, project.id)
-    link2 = await workflow.link_project(ds.id, project.id)
+    link1 = await workflow.link_project(ds.id, project.id, actor_id=user.id)
+    link2 = await workflow.link_project(ds.id, project.id, actor_id=user.id)
     # Replays retain the association identity without returning a live ORM row.
     assert link1.link_id == link2.link_id, "重复 link 应返回同一关联"
 
@@ -160,7 +164,7 @@ async def test_link_project_empty_dataset(db_session: AsyncSession, super_admin)
 
     async with db_session.begin_nested() as caller_transaction:
         result = await DatasetTaskCreationWorkflow(db_session).link_project(
-            ds.id, project.id
+            ds.id, project.id, actor_id=user.id
         )
         assert (
             await db_session.scalar(
@@ -198,8 +202,8 @@ async def test_append_item_after_link_creates_tasks_for_linked_projects(
     project_b = await _seed_project(db_session, user.id)
 
     workflow = DatasetTaskCreationWorkflow(db_session)
-    await workflow.link_project(ds.id, project_a.id)
-    await workflow.link_project(ds.id, project_b.id)
+    await workflow.link_project(ds.id, project_a.id, actor_id=user.id)
+    await workflow.link_project(ds.id, project_b.id, actor_id=user.id)
 
     svc = DatasetService(db_session)
     item = await svc.add_item(
@@ -242,7 +246,9 @@ async def test_link_project_no_default_batch(db_session: AsyncSession, super_adm
     await db_session.flush()
     project = await _seed_project(db_session, user.id)
 
-    await DatasetTaskCreationWorkflow(db_session).link_project(ds.id, project.id)
+    await DatasetTaskCreationWorkflow(db_session).link_project(
+        ds.id, project.id, actor_id=user.id
+    )
 
     # 不应有任何 batch 自动生成
     batches = (
@@ -276,7 +282,9 @@ async def test_unlink_project_hard_deletes_tasks(db_session: AsyncSession, super
     ds = await _seed_dataset(db_session, user.id, n_items=10)
     project = await _seed_project(db_session, user.id)
 
-    await DatasetTaskCreationWorkflow(db_session).link_project(ds.id, project.id)
+    await DatasetTaskCreationWorkflow(db_session).link_project(
+        ds.id, project.id, actor_id=user.id
+    )
     await db_session.refresh(project)
     assert project.total_tasks == 10
 
@@ -308,7 +316,9 @@ async def test_unlink_cascades_user_split_batches(
     ds = await _seed_dataset(db_session, user.id, n_items=6)
     project = await _seed_project(db_session, user.id)
 
-    await DatasetTaskCreationWorkflow(db_session).link_project(ds.id, project.id)
+    await DatasetTaskCreationWorkflow(db_session).link_project(
+        ds.id, project.id, actor_id=user.id
+    )
     # v0.7.3：link 不再自建 batch，task 全部 batch_id=NULL；用户随后调 split
 
     tasks = (
@@ -384,7 +394,9 @@ async def test_unlink_cascades_legacy_default_batch(
     await db_session.flush()
     project = await _seed_project(db_session, user.id)
 
-    await DatasetTaskCreationWorkflow(db_session).link_project(ds.id, project.id)
+    await DatasetTaskCreationWorkflow(db_session).link_project(
+        ds.id, project.id, actor_id=user.id
+    )
 
     legacy_default = TaskBatch(
         id=uuid.uuid4(),
@@ -415,7 +427,9 @@ async def test_unclassified_count_endpoint(httpx_client, db_session, super_admin
     user, token = super_admin
     ds = await _seed_dataset(db_session, user.id, n_items=5)
     project = await _seed_project(db_session, user.id)
-    await DatasetTaskCreationWorkflow(db_session).link_project(ds.id, project.id)
+    await DatasetTaskCreationWorkflow(db_session).link_project(
+        ds.id, project.id, actor_id=user.id
+    )
     await db_session.commit()
 
     resp = await httpx_client.get(
@@ -434,7 +448,9 @@ async def test_project_datasets_endpoint(httpx_client, db_session, super_admin):
     ds.name = "DS-A"
     await db_session.flush()
     project = await _seed_project(db_session, user.id)
-    await DatasetTaskCreationWorkflow(db_session).link_project(ds.id, project.id)
+    await DatasetTaskCreationWorkflow(db_session).link_project(
+        ds.id, project.id, actor_id=user.id
+    )
     await db_session.commit()
 
     resp = await httpx_client.get(
@@ -458,9 +474,13 @@ async def test_link_unlink_relink_no_double_count(
     ds = await _seed_dataset(db_session, user.id, n_items=4)
     project = await _seed_project(db_session, user.id)
 
-    await DatasetTaskCreationWorkflow(db_session).link_project(ds.id, project.id)
+    await DatasetTaskCreationWorkflow(db_session).link_project(
+        ds.id, project.id, actor_id=user.id
+    )
     await unlink_dataset_from_project(db_session, ds.id, project.id)
-    await DatasetTaskCreationWorkflow(db_session).link_project(ds.id, project.id)
+    await DatasetTaskCreationWorkflow(db_session).link_project(
+        ds.id, project.id, actor_id=user.id
+    )
 
     await db_session.refresh(project)
     real_total = (

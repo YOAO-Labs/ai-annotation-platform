@@ -147,7 +147,7 @@ async def seed_ocr(
     await db.flush()
 
     await DatasetTaskCreationWorkflow(db).create_tasks_for_linked_dataset(
-        dataset_id=ds.id, project_id=project.id
+        dataset_id=ds.id, project_id=project.id, actor_id=owner_id
     )
     return {"project": PROJECT_DISPLAY_ID, "project_id": str(project.id)}
 

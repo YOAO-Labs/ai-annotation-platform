@@ -302,7 +302,9 @@ async def seed_coco8(
     # 每图一个 Task(内部分块 commit)。
     tasks_result = await DatasetTaskCreationWorkflow(
         db
-    ).create_tasks_for_linked_dataset(dataset_id=ds.id, project_id=project_id)
+    ).create_tasks_for_linked_dataset(
+        dataset_id=ds.id, project_id=project_id, actor_id=owner_id
+    )
 
     # 预标注导入:coco8 YOLO 框 → predictions(每图一条,含该图全部框),source=external_import。
     # 走平台现成 import_yolo,按文件名 stem 匹配 task;task 仍 pending,待人工采纳。

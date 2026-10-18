@@ -510,7 +510,10 @@ async def test_authority_nowait_contention_and_project_lock_survive_until_transa
     test_engine,
 ):
     fixture = await _seed(
-        test_engine, platform_role="employee", member_role="annotator"
+        test_engine,
+        platform_role="employee",
+        member_role="annotator",
+        actor_is_owner=False,
     )
     maker = async_sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
     holder, contender = maker(), maker()
@@ -557,7 +560,9 @@ async def test_authority_nowait_contention_and_project_lock_survive_until_transa
         assert response["ok"] is True
         with pytest.raises(DBAPIError) as transfer:
             await contender.execute(
-                text("SELECT id FROM public.projects WHERE id = :id FOR UPDATE NOWAIT"),
+                text(
+                    "SELECT id FROM public.projects WHERE id = :id FOR NO KEY UPDATE NOWAIT"
+                ),
                 {"id": fixture["project_id"]},
             )
         assert _sqlstate(transfer.value) == "55P03"

@@ -37,10 +37,11 @@ class NuScenesImportWorkflow:
             )
 
         assets = DatasetService(self.db)
-        await assets.associate_project(dataset_id, project.id)
+        await assets.associate_project(dataset_id, project.id, actor_id=owner_id)
         await DatasetTaskCreationWorkflow(self.db).create_tasks_for_linked_dataset(
             dataset_id=dataset_id,
             project_id=project.id,
+            actor_id=owner_id,
             commit_calibration=False,
             commit_task_chunks=False,
         )

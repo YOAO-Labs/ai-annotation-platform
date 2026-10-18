@@ -23,14 +23,15 @@ from app.db.models.project import Project
 from app.services.display_id import next_display_id
 from app.services.project_kind import (
     dataset_has_scenes,
-    dataset_kind,
-    kind_mismatch_detail,
     media_kind_aliases,
-    project_kind,
 )
 from app.services.media_job_dispatch import MediaJobDispatcher
 from app.services.storage import TRUSTED_NUSCENES_PREFIX, storage_service
 from app.services.active_learning_references import guard_source
+from app.services.task_creation_contract import (
+    DatasetAssociationFacts,
+    decode_creation_reply,
+)
 
 _STREAM_UPLOAD_CHUNK_BYTES = 8 * 1024 * 1024
 _IMAGE_HEAD_BYTES = 256 * 1024
@@ -60,13 +61,6 @@ class IngestOutcome:
     content_hash: str | None = None
     reason: str | None = None
     error: str | None = None
-
-
-@dataclass(frozen=True)
-class DatasetProjectAssociation:
-    link_id: uuid.UUID
-    existing: bool
-    item_count: int
 
 
 @dataclass(frozen=True)
@@ -1042,46 +1036,19 @@ class DatasetService:
     # ── Project linking ─────────────────────────────────────────────────────
 
     async def associate_project(
-        self, dataset_id: uuid.UUID, project_id: uuid.UUID
-    ) -> DatasetProjectAssociation:
-        await self.lock_dataset_reference(dataset_id)
-        existing = (
-            await self.db.execute(
-                select(ProjectDataset).where(
-                    ProjectDataset.dataset_id == dataset_id,
-                    ProjectDataset.project_id == project_id,
-                )
-            )
-        ).scalar_one_or_none()
-        if existing is not None:
-            return DatasetProjectAssociation(
-                link_id=existing.id, existing=True, item_count=0
-            )
-
-        dataset = await self.db.get(Dataset, dataset_id)
-        project = await self.db.get(Project, project_id)
-        if dataset is None or project is None:
-            raise HTTPException(status_code=404, detail="Dataset or project not found")
-        has_scenes = await dataset_has_scenes(self.db, dataset_id)
-        mismatch = kind_mismatch_detail(
-            project_kind(project),
-            dataset_kind(dataset, has_scenes=has_scenes),
-        )
-        if mismatch:
-            raise HTTPException(status_code=422, detail=mismatch)
-
-        link = ProjectDataset(dataset_id=dataset_id, project_id=project_id)
-        self.db.add(link)
+        self, dataset_id: uuid.UUID, project_id: uuid.UUID, *, actor_id: uuid.UUID
+    ) -> DatasetAssociationFacts:
         await self.db.flush()
-        item_count = (
-            await self.db.execute(
-                select(func.count())
-                .select_from(DatasetItem)
-                .where(DatasetItem.dataset_id == dataset_id)
-            )
-        ).scalar() or 0
-        return DatasetProjectAssociation(
-            link_id=link.id, existing=False, item_count=item_count
+        payload = await self.db.scalar(
+            text(
+                "SELECT aap_assets_v1.associate_project("
+                "CAST(:actor_id AS uuid), CAST(:dataset_id AS uuid), "
+                "CAST(:project_id AS uuid))"
+            ),
+            {"actor_id": actor_id, "dataset_id": dataset_id, "project_id": project_id},
+        )
+        return decode_creation_reply(
+            payload, "aap-dataset-association/v1", DatasetAssociationFacts
         )
 
     async def remove_project_association(

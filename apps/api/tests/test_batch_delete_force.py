@@ -55,7 +55,9 @@ async def _seed_batch(db: AsyncSession, owner_id: uuid.UUID, n_items: int):
     )
     db.add(project)
     await db.flush()
-    await DatasetTaskCreationWorkflow(db).link_project(ds.id, project.id)
+    await DatasetTaskCreationWorkflow(db).link_project(
+        ds.id, project.id, actor_id=owner_id
+    )
     batches = await BatchService(db).split(
         project.id,
         BatchSplitRequest(strategy="random", n_batches=1, name_prefix="B"),

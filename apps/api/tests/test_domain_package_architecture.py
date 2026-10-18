@@ -332,7 +332,15 @@ DOMAIN_PACKAGES = (
     DomainSpec(
         package="labeling_task_creation_contract",
         legacy_facades=(),
-        allowed_app_imports=("app.services.dataset_task_facts",),
+        allowed_app_imports=("app.services.task_creation_contract",),
+    ),
+    DomainSpec(
+        package="task_creation_contract", legacy_facades=(), allowed_app_imports=()
+    ),
+    DomainSpec(
+        package="task_creation_jobs",
+        legacy_facades=(),
+        allowed_app_imports=("app.services.task_creation_contract",),
     ),
     DomainSpec(package="labeling_assignment", legacy_facades=()),
     DomainSpec(

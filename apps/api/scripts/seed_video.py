@@ -197,7 +197,9 @@ async def seed_video(
     # 每个视频一个 Task(video 走普通路径,非 lidar 分支)。
     tasks_result = await DatasetTaskCreationWorkflow(
         db
-    ).create_tasks_for_linked_dataset(dataset_id=ds.id, project_id=project_id)
+    ).create_tasks_for_linked_dataset(
+        dataset_id=ds.id, project_id=project_id, actor_id=owner_id
+    )
 
     return {
         "project": PROJECT_DISPLAY_ID,

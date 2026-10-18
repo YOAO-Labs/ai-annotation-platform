@@ -50,7 +50,7 @@
             "membership_incompatible",
             "project_manager_required",
             "authority_contract_mismatch",
-            "association_stale",
+            "association_changed",
             "invalid_request",
             "operation_conflict",
             "job_missing",

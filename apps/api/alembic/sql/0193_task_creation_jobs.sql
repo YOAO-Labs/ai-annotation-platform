@@ -82,6 +82,7 @@ SET search_path = pg_catalog, pg_temp
 AS $function$
 DECLARE
     v_manager jsonb;
+    v_dataset_id uuid;
     v_association_id uuid;
     v_payload jsonb;
     v_job public.async_jobs%ROWTYPE;
@@ -94,6 +95,7 @@ BEGIN
         );
     END IF;
 
+    v_dataset_id := aap_assets_v1.lock_dataset_reference(p_dataset_id);
     v_manager := aap_workspace_v1.lock_project_manager(p_actor_id, p_project_id);
     IF v_manager ->> 'schema' IS DISTINCT FROM 'aap-project-manager/v1' THEN
         RETURN aap_jobs_v1._task_creation_job_failure(
@@ -114,12 +116,17 @@ BEGIN
         );
     END IF;
 
+    IF v_dataset_id IS NULL THEN
+        RETURN aap_jobs_v1._task_creation_job_failure(
+            'aap-task-creation-job-command/v1', 'dataset_missing'
+        );
+    END IF;
     v_association_id := aap_assets_v1.lock_current_association(
         p_dataset_id, p_project_id
     );
     IF v_association_id IS NULL OR v_association_id <> p_association_id THEN
         RETURN aap_jobs_v1._task_creation_job_failure(
-            'aap-task-creation-job-command/v1', 'association_stale'
+            'aap-task-creation-job-command/v1', 'association_changed'
         );
     END IF;
 
@@ -193,6 +200,7 @@ SET search_path = pg_catalog, pg_temp
 AS $function$
 DECLARE
     v_manager jsonb;
+    v_dataset_id uuid;
     v_association_id uuid;
     v_job public.async_jobs%ROWTYPE;
     v_legacy_seen boolean := false;
@@ -204,6 +212,7 @@ BEGIN
         );
     END IF;
 
+    v_dataset_id := aap_assets_v1.lock_dataset_reference(p_dataset_id);
     v_manager := aap_workspace_v1.lock_project_manager(p_actor_id, p_project_id);
     IF v_manager ->> 'schema' IS DISTINCT FROM 'aap-project-manager/v1' THEN
         RETURN aap_jobs_v1._task_creation_job_failure(
@@ -224,12 +233,17 @@ BEGIN
         );
     END IF;
 
+    IF v_dataset_id IS NULL THEN
+        RETURN aap_jobs_v1._task_creation_job_failure(
+            'aap-task-creation-job-discovery/v1', 'dataset_missing'
+        );
+    END IF;
     v_association_id := aap_assets_v1.lock_current_association(
         p_dataset_id, p_project_id
     );
     IF v_association_id IS NULL OR v_association_id <> p_association_id THEN
         RETURN aap_jobs_v1._task_creation_job_failure(
-            'aap-task-creation-job-discovery/v1', 'association_stale'
+            'aap-task-creation-job-discovery/v1', 'association_changed'
         );
     END IF;
 
@@ -753,8 +767,7 @@ BEGIN
         RETURN aap_jobs_v1._task_creation_job_failure(v_failure_schema, 'invalid_request');
     END IF;
 
-    -- Resolve the frozen project without locking Jobs first. Workspace locks
-    -- account -> project -> membership; only then take the Jobs row lock.
+    -- Resolve immutable scope before taking the dataset -> authority -> Jobs locks.
     SELECT job.*
     INTO v_job
     FROM public.async_jobs AS job
@@ -774,6 +787,7 @@ BEGIN
         RETURN aap_jobs_v1._task_creation_job_failure(v_failure_schema, 'job_scope_mismatch');
     END IF;
 
+    PERFORM aap_assets_v1.lock_dataset_reference((v_job.payload ->> 'dataset_id')::uuid);
     v_manager := aap_workspace_v1.lock_project_manager(p_actor_id, v_job.project_id);
     IF v_manager ->> 'schema' IS DISTINCT FROM 'aap-project-manager/v1' THEN
         RETURN aap_jobs_v1._task_creation_job_failure(

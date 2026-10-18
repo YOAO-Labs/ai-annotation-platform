@@ -18,7 +18,7 @@ from pathlib import Path, PurePosixPath
 
 import pytest
 
-from app.db.models.dataset import Dataset, DatasetItem
+from app.db.models.dataset import Dataset, DatasetItem, ProjectDataset
 from app.application.dataset_task_creation import DatasetTaskCreationWorkflow
 from app.services.storage import storage_service
 from app.services.task_dataset_link import get_linked_items
@@ -101,10 +101,14 @@ async def test_scene_import_end_to_end(db_session, _patch_calib_read):
     await db_session.flush()
 
     ds = await _seed_scene_dataset(db_session, "scene-a", owner.id)
+    db_session.add(ProjectDataset(dataset_id=ds.id, project_id=project.id))
+    await db_session.flush()
 
     result = await DatasetTaskCreationWorkflow(
         db_session
-    ).create_tasks_for_linked_dataset(dataset_id=ds.id, project_id=project.id)
+    ).create_tasks_for_linked_dataset(
+        dataset_id=ds.id, project_id=project.id, actor_id=owner.id
+    )
 
     # 每个 lidar 帧一个 Task
     assert result == {"created": len(lidar_frames), "total": len(lidar_frames)}

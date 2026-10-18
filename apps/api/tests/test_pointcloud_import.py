@@ -12,7 +12,7 @@ import uuid
 
 import pytest
 
-from app.db.models.dataset import Dataset, DatasetItem, Scene
+from app.db.models.dataset import Dataset, DatasetItem, ProjectDataset, Scene
 from app.services import pointcloud_import
 from app.services.dataset_frame_grouping import group_frames
 from app.application.dataset_task_creation import DatasetTaskCreationWorkflow
@@ -38,11 +38,15 @@ async def _seed_dataset(db_session, owner_id: uuid.UUID) -> Dataset:
     return ds
 
 
-async def _seed_lidar_project(db_session, owner_id: uuid.UUID):
+async def _seed_lidar_project(
+    db_session, owner_id: uuid.UUID, *, dataset_id: uuid.UUID
+):
     project = await create_project(
         db_session, owner_id=owner_id, type_key="lidar", type_label="点云检测"
     )
     project.data_type = "lidar"
+    await db_session.flush()
+    db_session.add(ProjectDataset(dataset_id=dataset_id, project_id=project.id))
     await db_session.flush()
     return project
 
@@ -86,6 +90,87 @@ async def _seed_scene(db_session, ds, frames, cameras):
         out[frame] = {"lidar": lidar, "cameras": cams}
     await db_session.flush()
     return out
+
+
+async def test_link_retry_resumes_after_calibration_commit(test_engine, monkeypatch):
+    from sqlalchemy import text
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+    from app.application import dataset_task_creation
+    from tests.test_task_creation_handoff import _cleanup, _seed
+
+    fixture = await _seed(test_engine, item_count=1)
+    maker = async_sessionmaker(test_engine, expire_on_commit=False)
+    operation_ids = []
+    try:
+        async with test_engine.begin() as owner:
+            for sql in (
+                "DELETE FROM public.project_datasets WHERE dataset_id = :dataset_id",
+                "UPDATE public.datasets SET data_type = 'point_cloud' WHERE id = :dataset_id",
+                "UPDATE public.projects SET data_type = 'lidar' WHERE id = :project_id",
+                "UPDATE public.dataset_items SET file_type = 'point_cloud', "
+                "file_name = '000001.pcd', file_path = 'recovery/lidar/000001.pcd' "
+                "WHERE dataset_id = :dataset_id",
+            ):
+                await owner.execute(text(sql), fixture)
+
+        original = dataset_task_creation.prepare_pointcloud_frames
+
+        async def unavailable(*args, **kwargs):
+            raise OSError("temporary preparation failure")
+
+        monkeypatch.setattr(
+            dataset_task_creation, "prepare_pointcloud_frames", unavailable
+        )
+        async with maker() as first:
+            with pytest.raises(OSError, match="temporary preparation"):
+                await DatasetTaskCreationWorkflow(first).link_project(
+                    fixture["dataset_id"],
+                    fixture["project_id"],
+                    actor_id=fixture["actor_id"],
+                )
+            await first.rollback()
+        async with test_engine.connect() as observer:
+            operation_id, state = (
+                await observer.execute(
+                    text(
+                        "SELECT id, state FROM public.task_creation_operations WHERE dataset_id = :dataset_id"
+                    ),
+                    fixture,
+                )
+            ).one()
+            operation_ids.append(operation_id)
+            assert state == "accepted"
+
+        monkeypatch.setattr(
+            dataset_task_creation, "prepare_pointcloud_frames", original
+        )
+        async with maker() as retry:
+            result = await DatasetTaskCreationWorkflow(retry).link_project(
+                fixture["dataset_id"],
+                fixture["project_id"],
+                actor_id=fixture["actor_id"],
+            )
+            assert result.link_id == operation_id
+            assert result.created_tasks == 1 and result.async_job_id is None
+            await retry.commit()
+            again = await DatasetTaskCreationWorkflow(retry).link_project(
+                fixture["dataset_id"],
+                fixture["project_id"],
+                actor_id=fixture["actor_id"],
+            )
+            assert again.created_tasks == 0
+        async with test_engine.connect() as observer:
+            assert (
+                await observer.scalar(
+                    text(
+                        "SELECT count(*) FROM public.task_creation_operations WHERE dataset_id = :dataset_id"
+                    ),
+                    fixture,
+                )
+                == 1
+            )
+    finally:
+        await _cleanup(test_engine, fixture, operation_ids)
 
 
 async def test_group_frames_accepts_role_alias_directories():
@@ -149,12 +234,14 @@ async def test_group_frames_channel_less_camera_uses_default_channel():
 async def test_build_tasks_groups_frames_and_links(db_session, super_admin):
     user, _ = super_admin
     ds = await _seed_dataset(db_session, user.id)
-    project = await _seed_lidar_project(db_session, user.id)
+    project = await _seed_lidar_project(db_session, user.id, dataset_id=ds.id)
     seeded = await _seed_scene(db_session, ds, ["000970", "000971"], ["front", "left"])
 
     result = await DatasetTaskCreationWorkflow(
         db_session
-    ).create_tasks_for_linked_dataset(dataset_id=ds.id, project_id=project.id)
+    ).create_tasks_for_linked_dataset(
+        dataset_id=ds.id, project_id=project.id, actor_id=user.id
+    )
     assert result == {"created": 2, "total": 2}
 
     from sqlalchemy import select
@@ -190,17 +277,17 @@ async def test_build_tasks_groups_frames_and_links(db_session, super_admin):
 async def test_build_tasks_idempotent(db_session, super_admin):
     user, _ = super_admin
     ds = await _seed_dataset(db_session, user.id)
-    project = await _seed_lidar_project(db_session, user.id)
+    project = await _seed_lidar_project(db_session, user.id, dataset_id=ds.id)
     await _seed_scene(db_session, ds, ["000970", "000971"], ["front"])
 
     workflow = DatasetTaskCreationWorkflow(db_session)
     first = await workflow.create_tasks_for_linked_dataset(
-        dataset_id=ds.id, project_id=project.id
+        dataset_id=ds.id, project_id=project.id, actor_id=user.id
     )
     assert first["created"] == 2
 
     second = await workflow.create_tasks_for_linked_dataset(
-        dataset_id=ds.id, project_id=project.id
+        dataset_id=ds.id, project_id=project.id, actor_id=user.id
     )
     assert second == {"created": 0, "total": 0}
 
@@ -212,7 +299,7 @@ async def test_lidar_replay_commits_calibration_without_new_tasks(
 
     user, _ = super_admin
     ds = await _seed_dataset(db_session, user.id)
-    project = await _seed_lidar_project(db_session, user.id)
+    project = await _seed_lidar_project(db_session, user.id, dataset_id=ds.id)
     seeded = await _seed_scene(db_session, ds, ["000970"], ["front"])
     _add_item(db_session, ds.id, f"{ds.name}/calib/camera/front.json", "other")
     await db_session.flush()
@@ -231,7 +318,7 @@ async def test_lidar_replay_commits_calibration_without_new_tasks(
     )
     workflow = DatasetTaskCreationWorkflow(db_session)
     first = await workflow.create_tasks_for_linked_dataset(
-        dataset_id=ds.id, project_id=project.id
+        dataset_id=ds.id, project_id=project.id, actor_id=user.id
     )
     assert first == {"created": 1, "total": 1}
 
@@ -239,7 +326,7 @@ async def test_lidar_replay_commits_calibration_without_new_tasks(
         pointcloud_import, "_read_calibration", lambda _key: updated_calibration
     )
     replay = await workflow.create_tasks_for_linked_dataset(
-        dataset_id=ds.id, project_id=project.id
+        dataset_id=ds.id, project_id=project.id, actor_id=user.id
     )
     assert replay == {"created": 0, "total": 0}
 
@@ -253,7 +340,7 @@ async def test_lidar_replay_commits_calibration_without_new_tasks(
 async def test_build_tasks_missing_camera_tolerated(db_session, super_admin):
     user, _ = super_admin
     ds = await _seed_dataset(db_session, user.id)
-    project = await _seed_lidar_project(db_session, user.id)
+    project = await _seed_lidar_project(db_session, user.id, dataset_id=ds.id)
 
     # 帧 000970 完整 (front+left)，帧 000971 只有 lidar+front。
     name = ds.name
@@ -266,7 +353,9 @@ async def test_build_tasks_missing_camera_tolerated(db_session, super_admin):
 
     result = await DatasetTaskCreationWorkflow(
         db_session
-    ).create_tasks_for_linked_dataset(dataset_id=ds.id, project_id=project.id)
+    ).create_tasks_for_linked_dataset(
+        dataset_id=ds.id, project_id=project.id, actor_id=user.id
+    )
     assert result == {"created": 2, "total": 2}
 
     from sqlalchemy import select
@@ -293,7 +382,7 @@ async def test_build_tasks_multi_scene_same_frame_stem(db_session, super_admin):
 
     user, _ = super_admin
     ds = await _seed_dataset(db_session, user.id)
-    project = await _seed_lidar_project(db_session, user.id)
+    project = await _seed_lidar_project(db_session, user.id, dataset_id=ds.id)
 
     # 两个 scene，各自 2 帧，帧 stem 跨 scene 重复（000 / 001）。
     scenes: dict[str, dict] = {}
@@ -325,7 +414,9 @@ async def test_build_tasks_multi_scene_same_frame_stem(db_session, super_admin):
 
     result = await DatasetTaskCreationWorkflow(
         db_session
-    ).create_tasks_for_linked_dataset(dataset_id=ds.id, project_id=project.id)
+    ).create_tasks_for_linked_dataset(
+        dataset_id=ds.id, project_id=project.id, actor_id=user.id
+    )
     # 2 scene × 2 帧 = 4 个 task（修复前会因同号帧覆盖只建 2 个）。
     assert result == {"created": 4, "total": 4}
 

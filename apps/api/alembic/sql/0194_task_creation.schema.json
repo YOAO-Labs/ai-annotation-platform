@@ -36,7 +36,7 @@
             "invalid_project_role",
             "membership_incompatible",
             "project_manager_required",
-            "association_stale",
+            "association_changed",
             "mode_mismatch",
             "job_missing",
             "job_scope_mismatch",

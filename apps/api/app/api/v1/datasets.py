@@ -879,9 +879,15 @@ async def link_project(
         raise HTTPException(
             status_code=403, detail="仅项目负责人或超级管理员可关联数据集"
         )
-    link_result = await DatasetTaskCreationWorkflow(db).link_project(
-        dataset_id, data.project_id
-    )
+    from app.application.task_creation_errors import raise_task_creation_http_failure
+    from app.services.task_creation_contract import TaskCreationFailure
+
+    try:
+        link_result = await DatasetTaskCreationWorkflow(db).link_project(
+            dataset_id, data.project_id, actor_id=current_user.id
+        )
+    except TaskCreationFailure as failure:
+        raise_task_creation_http_failure(failure)
     await AuditService.log(
         db,
         actor=current_user,

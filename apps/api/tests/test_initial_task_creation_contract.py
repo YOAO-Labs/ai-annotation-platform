@@ -230,7 +230,7 @@ async def _seed_uncommitted(
 async def _add_job(
     db: AsyncSession, state: SimpleNamespace, operation_id: uuid.UUID
 ) -> uuid.UUID:
-    job_id = uuid.uuid4()
+    job_id = operation_id
     db.add(
         AsyncJob(
             id=job_id,
@@ -336,7 +336,7 @@ async def test_generic_accept_prepare_and_chunk_receipt_survive_client_restart(
         chunk_size=2,
     )
     assert accepted["schema"] == "aap-task-creation/v1"
-    assert accepted["ok"] is True
+    assert accepted["ok"] is True, accepted
     assert accepted["data"]["state"] == "accepted"
     assert accepted["data"]["total"] is None
 
@@ -574,7 +574,7 @@ async def test_accepted_operation_survives_actor_deactivation_but_not_relink(
 
     stale = await _advance(db_session, operation_id, 0)
     assert stale["ok"] is False
-    assert stale["error"]["code"] == "association_stale"
+    assert stale["error"]["code"] == "association_changed"
     assert (
         await db_session.scalar(
             select(func.count())
@@ -882,7 +882,7 @@ def test_task_creation_schema_and_frozen_sql_chunks():
     assert len(functions) == 5
     assert all(statement.endswith("$function$;") for statement in functions)
     assert all(
-        statement.count(";") == 1
+        sum(line.split("--", 1)[0].count(";") for line in statement.splitlines()) == 1
         for statement in statements
         if not statement.startswith("CREATE FUNCTION")
     )

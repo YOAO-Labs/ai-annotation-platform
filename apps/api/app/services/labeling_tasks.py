@@ -2,32 +2,32 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
+import json
 from datetime import datetime
 
-from sqlalchemy import delete, func, insert, select, text, update
+from sqlalchemy import delete, func, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.util import identity_key
 from sqlalchemy.orm.attributes import set_committed_value
 from sqlalchemy.sql.selectable import FromClause
 
-from app.db.models.dataset import DatasetItem
 from app.db.models.project import Project
 from app.db.models.task import Task
-from app.services import async_job as async_job_svc, task_access
+from app.services import task_access
 from app.services.annotation_evidence import ensure_review_round, start_review_round
-from app.services.dataset_task_facts import (
-    PreparedDatasetItem,
-    PreparedPointCloudFrame,
-)
 from app.services.labeling_task_creation_contract import (
     LabelingTaskCreationPort,
     TaskAppendResult,
-    TaskCreationCounts,
 )
 
 from app.services.display_id import next_display_id
-from app.services.task_dataset_link import link_items
 from app.services.task_lock import TaskLockService
+from app.services.task_creation_contract import (
+    CreationChunk,
+    CreationMode,
+    CreationOperation,
+    decode_creation_reply,
+)
 
 
 class LabelingUploadTaskNotFound(LookupError):
@@ -241,169 +241,116 @@ class LabelingTaskService(LabelingTaskCreationPort):
         set_committed_value(project, "completed_tasks", counts.completed_tasks)
         set_committed_value(project, "review_tasks", counts.review_tasks)
 
-    async def read_pending_dataset_items(
-        self, *, dataset_id: uuid.UUID, project_id: uuid.UUID
-    ) -> tuple[PreparedDatasetItem, ...]:
-        rows = (
-            await self.db.execute(
-                select(
-                    DatasetItem.id,
-                    DatasetItem.file_name,
-                    DatasetItem.file_path,
-                    DatasetItem.file_type,
-                )
-                .where(DatasetItem.dataset_id == dataset_id)
-                .where(
-                    ~select(Task.id)
-                    .where(
-                        Task.project_id == project_id,
-                        Task.dataset_item_id == DatasetItem.id,
-                    )
-                    .exists()
-                )
-                .order_by(DatasetItem.id)
-            )
-        ).all()
-        return tuple(
-            PreparedDatasetItem(
-                id=row.id,
-                file_name=row.file_name,
-                file_path=row.file_path,
-                file_type=row.file_type,
-            )
-            for row in rows
-        )
-
-    async def create_initial_generic(
+    async def accept_dataset_task_creation(
         self,
         *,
+        operation_id: uuid.UUID,
+        actor_id: uuid.UUID,
+        dataset_id: uuid.UUID,
         project_id: uuid.UUID,
-        pending_items: tuple[PreparedDatasetItem, ...],
-        job_id: uuid.UUID | None = None,
-        chunk_size: int = 5000,
-        commit_each_chunk: bool = True,
-    ) -> TaskCreationCounts:
-        """Insert the workflow's pending snapshot without a second preselection."""
-        total = len(pending_items)
-        if total == 0:
-            return {"created": 0, "total": 0}
+        association_id: uuid.UUID,
+        job_id: uuid.UUID | None,
+        mode: CreationMode,
+        chunk_size: int,
+    ) -> CreationOperation:
+        await self.db.flush()
+        payload = await self.db.scalar(
+            text(
+                "SELECT aap_labeling_v1.accept_dataset_task_creation("
+                "CAST(:operation_id AS uuid), CAST(:actor_id AS uuid), "
+                "CAST(:dataset_id AS uuid), CAST(:project_id AS uuid), "
+                "CAST(:association_id AS uuid), CAST(:job_id AS uuid), "
+                ":mode, :chunk_size)"
+            ),
+            {
+                "operation_id": operation_id,
+                "actor_id": actor_id,
+                "dataset_id": dataset_id,
+                "project_id": project_id,
+                "association_id": association_id,
+                "job_id": job_id,
+                "mode": mode,
+                "chunk_size": chunk_size,
+            },
+        )
+        result = decode_creation_reply(
+            payload, "aap-task-creation/v1", CreationOperation
+        )
+        if (
+            result.operation_id != operation_id
+            or result.actor_id != actor_id
+            or result.dataset_id != dataset_id
+            or result.project_id != project_id
+            or result.association_id != association_id
+            or result.job_id != job_id
+            or result.mode != mode
+            or result.chunk_size != chunk_size
+        ):
+            raise ValueError("Accepted creation does not match its request")
+        return result
 
-        created = 0
-        last_pct = 0
-        for start in range(0, total, chunk_size):
-            chunk = pending_items[start : start + chunk_size]
-            seq_result = await self.db.execute(
-                text("SELECT nextval('display_seq_tasks') FROM generate_series(1, :n)"),
-                {"n": len(chunk)},
-            )
-            display_nums = [row[0] for row in seq_result.all()]
-            rows = [
-                {
-                    "id": uuid.uuid4(),
-                    "project_id": project_id,
-                    "dataset_item_id": item.id,
-                    "batch_id": None,
-                    "display_id": f"T-{display_nums[index]}",
-                    "file_name": item.file_name,
-                    "file_path": item.file_path,
-                    "file_type": item.file_type,
-                    "status": "pending",
-                    "annotation_contributor_ids": [],
-                }
-                for index, item in enumerate(chunk)
-            ]
-            await self.db.execute(insert(Task), rows)
-            created += len(chunk)
-
-            project = await self.db.get(Project, project_id)
-            if project:
-                project.total_tasks = (project.total_tasks or 0) + len(chunk)
-
-            if job_id is not None:
-                pct = int(created / total * 100)
-                if pct >= last_pct + 5 or created == total:
-                    await async_job_svc.update_progress(self.db, job_id, pct)
-                    last_pct = pct
-
-            if commit_each_chunk:
-                await self.db.commit()
-
-        return {"created": created, "total": total}
-
-    async def create_initial_pointcloud(
+    async def prepare_dataset_task_creation(
         self,
         *,
-        project_id: uuid.UUID,
-        frames: tuple[PreparedPointCloudFrame, ...],
-        job_id: uuid.UUID | None = None,
-        chunk_size: int = 5000,
-        commit_each_chunk: bool = True,
-    ) -> TaskCreationCounts:
-        if not frames:
-            return {"created": 0, "total": 0}
-
-        lidar_ids = [frame.lidar.id for frame in frames]
-        existing_rows = await self.db.execute(
-            select(Task.dataset_item_id).where(
-                Task.project_id == project_id,
-                Task.dataset_item_id.in_(lidar_ids),
-            )
+        operation_id: uuid.UUID,
+        frames: list[dict[str, object]] | None,
+    ) -> CreationOperation:
+        await self.db.flush()
+        payload = await self.db.scalar(
+            text(
+                "SELECT aap_labeling_v1.prepare_dataset_task_creation("
+                "CAST(:operation_id AS uuid), CAST(:frames AS jsonb))"
+            ),
+            {
+                "operation_id": operation_id,
+                "frames": json.dumps(frames) if frames is not None else None,
+            },
         )
-        existing_ids = {row[0] for row in existing_rows.all()}
-        pending = [frame for frame in frames if frame.lidar.id not in existing_ids]
-        total = len(pending)
-        if total == 0:
-            return {"created": 0, "total": 0}
+        result = decode_creation_reply(
+            payload, "aap-task-creation/v1", CreationOperation
+        )
+        if result.operation_id != operation_id:
+            raise ValueError("Prepared creation does not match its request")
+        return result
 
-        created = 0
-        last_pct = 0
-        for start in range(0, total, chunk_size):
-            chunk = pending[start : start + chunk_size]
-            seq_result = await self.db.execute(
-                text("SELECT nextval('display_seq_tasks') FROM generate_series(1, :n)"),
-                {"n": len(chunk)},
-            )
-            display_nums = [row[0] for row in seq_result.all()]
+    async def read_dataset_task_creation(
+        self, operation_id: uuid.UUID
+    ) -> CreationOperation:
+        payload = await self.db.scalar(
+            text(
+                "SELECT aap_labeling_v1.read_dataset_task_creation("
+                "CAST(:operation_id AS uuid))"
+            ),
+            {"operation_id": operation_id},
+        )
+        result = decode_creation_reply(
+            payload, "aap-task-creation/v1", CreationOperation
+        )
+        if result.operation_id != operation_id:
+            raise ValueError("Creation snapshot does not match its request")
+        return result
 
-            for index, frame in enumerate(chunk):
-                lidar = frame.lidar
-                task = Task(
-                    project_id=project_id,
-                    dataset_item_id=lidar.id,
-                    batch_id=None,
-                    display_id=f"T-{display_nums[index]}",
-                    file_name=lidar.file_name,
-                    file_path=lidar.file_path,
-                    file_type="point_cloud",
-                    status="pending",
-                    annotation_contributor_ids=[],
-                )
-                self.db.add(task)
-                await self.db.flush()
-                link_payload: list[tuple[uuid.UUID, str, str | None]] = [
-                    (lidar.id, "primary_lidar", None)
-                ]
-                link_payload.extend(
-                    (camera_item.id, f"camera_{camera}", camera)
-                    for camera, camera_item in frame.cameras
-                )
-                await link_items(self.db, task.id, link_payload)
-
-            created += len(chunk)
-            project = await self.db.get(Project, project_id)
-            if project:
-                project.total_tasks = (project.total_tasks or 0) + len(chunk)
-
-            if job_id is not None:
-                pct = int(created / total * 100)
-                if pct >= last_pct + 5 or created == total:
-                    await async_job_svc.update_progress(self.db, job_id, pct)
-                    last_pct = pct
-
-            if commit_each_chunk:
-                await self.db.commit()
-
-        return {"created": created, "total": total}
+    async def advance_dataset_task_creation(
+        self, operation_id: uuid.UUID, chunk_index: int
+    ) -> CreationChunk:
+        payload = await self.db.scalar(
+            text(
+                "SELECT aap_labeling_v1.advance_dataset_task_creation("
+                "CAST(:operation_id AS uuid), :chunk_index)"
+            ),
+            {"operation_id": operation_id, "chunk_index": chunk_index},
+        )
+        result = decode_creation_reply(
+            payload, "aap-task-creation-chunk/v1", CreationChunk
+        )
+        if result.operation_id != operation_id or result.chunk_index != chunk_index:
+            raise ValueError("Creation chunk does not match its request")
+        project = self.db.identity_map.get(
+            identity_key(Project, ident=result.project_id)
+        )
+        if project is not None:
+            self.db.expire(project, ["total_tasks", "updated_at"])
+        return result
 
     async def append_dataset_items(
         self,
@@ -435,7 +382,7 @@ class LabelingTaskService(LabelingTaskCreationPort):
             )
             if project is not None:
                 # Replayed receipts contain historical totals, not current projections.
-                self.db.expire(project, ["total_tasks"])
+                self.db.expire(project, ["total_tasks", "updated_at"])
         return result.created
 
     async def delete_unlinked_tasks(self, task_ids: list[uuid.UUID]) -> dict[str, int]:

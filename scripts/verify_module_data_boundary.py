@@ -45,6 +45,7 @@ SQL_ARTIFACTS = (
     "0192_creation_authority.sql",
     "0193_task_creation_jobs.sql",
     "0194_initial_task_creation.sql",
+    "0195_task_append_timestamp.sql",
 )
 SCHEMA_ARTIFACTS = (
     "0191_task_append.schema.json",
@@ -73,6 +74,11 @@ TEST_FILES = (
     "tests/test_dataset_link_kind_match.py",
     "tests/test_dataset_delete_cleanup.py",
     "tests/test_create_tasks_worker.py",
+    "tests/test_batch_delete_force.py",
+    "tests/test_batch_delete_reset.py",
+    "tests/test_batch_split_by_scene.py",
+    "tests/test_batch_split_semantics.py",
+    "tests/test_project_scene_mode.py",
     "tests/test_operational_ingest_boundaries.py",
     "tests/test_storage_connections_api.py",
 )
@@ -572,8 +578,8 @@ def main(argv: list[str] | None = None) -> int:
         database = resources["database"]
         evidence["database"] = database
         _, heads = migration_graph(ROOT)
-        if heads != ["0194"]:
-            raise RuntimeError("module-data acceptance requires migration head 0194")
+        if heads != ["0195"]:
+            raise RuntimeError("module-data acceptance requires migration head 0195")
         evidence["migrations"]["head_before_downgrade"] = heads[0]
         phase = "downgrade-to-0189"
         _container_details(

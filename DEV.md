@@ -384,14 +384,18 @@ unset MEDIA_PROBE_URL MEDIA_PROBE_TOKEN
 UUID、素材 UUID 数组与唯一操作 UUID，返回 `aap-task-append/v1` JSON。函数与来源素材
 写入共享调用方事务，不内部提交。调用端可以使用任何 PostgreSQL 驱动；不可读取其他
 模块私有表来代替公开接口。SQL 和 JSON Schema 位于 `apps/api/alembic/sql/0190*`、
-`0191*`，迁移链安装同一份冻结 SQL。
+`0191*` 至 `0195*`，迁移链安装同一份冻结 SQL。初始建题另有当前管理权、
+关联创建、Jobs 生命周期和持久化计划/分块回执合同，参数及恢复规则见
+[同库事务数据接口](docs-site/api/guides/module-data.md)。
 
-独立数据接口的函数 owner 使用三个无登录角色，调用端使用独立登录角色。
+独立数据接口的函数 owner 使用 Identity、Workspace、Assets、Jobs、Labeling 五个
+无登录角色，调用端使用独立登录角色。
 `infra/docker/module-data-grants.sql` 只向显式数据库中的既有角色授权，不创建角色或
 修改密码。部署操作者先提供角色及迁移者向其转交函数的权限，再运行：
 
 ```bash
 psql -v expected_database=annotation_test -v migration_role=owner \
+  -v identity_owner=identity_code -v jobs_owner=jobs_code \
   -v workspace_owner=workspace_code -v assets_owner=assets_code \
   -v labeling_owner=labeling_code -v workflow_role=append_client \
   -f infra/docker/module-data-grants.sql

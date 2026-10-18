@@ -179,7 +179,7 @@ async def seed_pointcloud(
     await db.flush()
 
     result = await DatasetTaskCreationWorkflow(db).create_tasks_for_linked_dataset(
-        dataset_id=ds.id, project_id=project.id
+        dataset_id=ds.id, project_id=project.id, actor_id=owner_id
     )
     return {"project": project_display_id, "files": n, "tasks": result}
 

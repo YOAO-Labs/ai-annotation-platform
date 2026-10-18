@@ -282,12 +282,17 @@ async def test_append_client_cannot_read_or_write_private_tables_or_escalate(
         await legacy.rollback()
 
     relations = (
+        "public.users",
+        "public.project_members",
+        "public.async_jobs",
         "public.projects",
         "public.datasets",
         "public.dataset_items",
         "public.project_datasets",
         "public.tasks",
         "public.task_append_operations",
+        "public.task_creation_operations",
+        "public.task_creation_chunks",
     )
     async with append_engine.connect() as connection:
         for relation in relations:
@@ -314,8 +319,32 @@ async def test_append_client_cannot_read_or_write_private_tables_or_escalate(
         ):
             await _assert_permission_denied(connection, statement, parameters)
 
-        for role in ("workspace_code", "assets_code", "labeling_code"):
+        for role in (
+            "identity_code",
+            "workspace_code",
+            "assets_code",
+            "labeling_code",
+            "jobs_code",
+        ):
             await _assert_permission_denied(connection, f"SET ROLE {role}")
+
+        for signature in (
+            "aap_jobs_v1._task_creation_job_failure(text,text)",
+            "aap_jobs_v1._task_creation_job_payload_valid(uuid,jsonb)",
+            "aap_jobs_v1.update_task_creation_progress(uuid,uuid,bigint,bigint,bigint)",
+            "aap_assets_v1.lock_task_creation_items(uuid,uuid[])",
+        ):
+            assert not await connection.scalar(
+                text(
+                    "SELECT has_function_privilege(current_user, :signature, 'EXECUTE')"
+                ),
+                {"signature": signature},
+            ), signature
+        await _assert_permission_denied(
+            connection,
+            "SELECT aap_identity_v1.lock_active_actor(CAST(:id AS uuid))",
+            {"id": uuid4()},
+        )
 
         assert not await connection.scalar(
             text(
