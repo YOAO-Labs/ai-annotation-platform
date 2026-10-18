@@ -1,22 +1,20 @@
 import time
 import uuid
 from typing import Literal
-from botocore.exceptions import BotoCoreError, ClientError
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
-from sqlalchemy import select, func
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from aap_assets_media.contract import MediaFailure, TimetableRequest
 
 from app.services.quality_job_dispatch import QualityJobDispatcher
 from app.deps import (
     get_quality_job_dispatcher,
     get_video_tracker_job_dispatcher,
-    get_media_job_dispatcher,
     get_db,
     get_current_user,
     require_scopes,
 )
 from app.db.models.user import User
-from app.db.models.dataset import VideoFrameIndex
 from app.db.models.task import Task
 from app.schemas.annotation import AnnotationOut
 from app.schemas.task import (
@@ -24,7 +22,6 @@ from app.schemas.task import (
     TaskVideoFrameTimetableResponse,
     TaskVideoManifestResponse,
     VideoFrameTimetableEntry,
-    VideoMetadata,
 )
 from app.schemas.video_frame_service import (
     VideoChunkOut,
@@ -63,7 +60,7 @@ from app.services.labeling_point_cloud_manifest import (
     SqlAlchemyTaskDatasetItemLinksReader,
 )
 from app.services.video_frame_service import (
-    _VideoContextSqlAdapter,
+    AssetsVideoContextReader,
     get_chunk as get_video_chunk_asset,
     get_frame as get_video_frame_asset,
     list_chunks as list_video_chunks,
@@ -102,7 +99,7 @@ from app.services.annotation_evidence import (
     capture_first_review_contributor_snapshot,
     task_contributor_snapshot,
 )
-from app.services.media_job_dispatch import MediaJobDispatcher
+from app.services.assets_media import media_gateway, media_http_error
 from app.services.video_tracking.dispatch import VideoTrackerJobDispatcher
 from app.observability.metrics import observe_mask_ai_phase, record_mask_ai_operation
 
@@ -110,11 +107,9 @@ from app.observability.metrics import observe_mask_ai_phase, record_mask_ai_oper
 from app.services import task_access
 from app.api.v1.tasks._shared import (
     _load_task_or_404,
-    _attach_dimensions,
     require_task_annotation_write,
     require_task_review_write,
     VIDEO_MANIFEST_URL_EXPIRES_IN,
-    logger,
 )
 from app.services.workspace_contract import ProjectAccess
 
@@ -166,113 +161,29 @@ async def get_video_manifest(
     if task.file_type != "video":
         raise HTTPException(status_code=400, detail="Task is not a video task")
 
-    bucket = (
-        storage_service.datasets_bucket
-        if task.dataset_item_id
-        else storage_service.bucket
+    if not task.dataset_item_id:
+        raise HTTPException(status_code=503, detail="Video metadata not ready")
+    ctx = await AssetsVideoContextReader(db).from_task(
+        actor_id=current_user.id,
+        task_id=task.id,
+        project_id=task.project_id,
+        file_type=task.file_type,
+        dataset_item_id=task.dataset_item_id,
     )
-    try:
-        _, _, thumb, _, video_metadata = await _attach_dimensions(db, task)
-    except Exception as exc:
-        logger.exception("Failed to load video metadata task_id=%s", task.id)
-        raise HTTPException(
-            status_code=503, detail="Video metadata unavailable"
-        ) from exc
-
-    metadata = VideoMetadata.model_validate(video_metadata or {})
+    metadata = ctx.metadata
     if not metadata.fps or not metadata.frame_count:
         raise HTTPException(status_code=503, detail="Video metadata not ready")
-
-    video_path = metadata.playback_path or task.file_path
-    # v0.10.17 · playback/* 走 media-cache 桶,原始源文件走 datasets 桶
-    video_bucket = storage_service.bucket_for_cache_key(video_path, default=bucket)
-    try:
-        video_url = storage_service.generate_download_url(
-            video_path,
-            expires_in=VIDEO_MANIFEST_URL_EXPIRES_IN,
-            bucket=video_bucket,
-        )
-    except ClientError as exc:
-        code = (exc.response.get("Error") or {}).get("Code")
-        if code in {"NoSuchKey", "404", "NotFound"}:
-            raise HTTPException(
-                status_code=404, detail="Video file not available"
-            ) from exc
-        logger.exception(
-            "Failed to generate video manifest URL task_id=%s bucket=%s key=%s",
-            task.id,
-            video_bucket,
-            video_path,
-        )
-        raise HTTPException(
-            status_code=503, detail="Video storage unavailable"
-        ) from exc
-    except BotoCoreError as exc:
-        logger.exception(
-            "Failed to generate video manifest URL task_id=%s bucket=%s key=%s",
-            task.id,
-            video_bucket,
-            video_path,
-        )
-        raise HTTPException(
-            status_code=503, detail="Video storage unavailable"
-        ) from exc
-    except Exception as exc:
-        logger.exception(
-            "Unexpected video manifest URL error task_id=%s bucket=%s key=%s",
-            task.id,
-            video_bucket,
-            video_path,
-        )
-        raise HTTPException(
-            status_code=503, detail="Video storage unavailable"
-        ) from exc
-
-    poster_path = metadata.poster_frame_path or thumb
-    poster_url: str | None = None
-    poster_bucket: str | None = None
-    if poster_path:
-        # poster 可能是 thumbnails/* 或 videos/*/frames/* (media-cache) 或源 key (datasets)
-        poster_bucket = storage_service.bucket_for_cache_key(
-            poster_path, default=bucket
-        )
-        try:
-            poster_url = storage_service.generate_download_url(
-                poster_path,
-                expires_in=VIDEO_MANIFEST_URL_EXPIRES_IN,
-                bucket=poster_bucket,
-            )
-        except ClientError as exc:
-            code = (exc.response.get("Error") or {}).get("Code")
-            if code not in {"NoSuchKey", "404", "NotFound"}:
-                logger.exception(
-                    "Failed to generate video poster URL task_id=%s bucket=%s key=%s",
-                    task.id,
-                    poster_bucket,
-                    poster_path,
-                )
-        except BotoCoreError:
-            logger.exception(
-                "Failed to generate video poster URL task_id=%s bucket=%s key=%s",
-                task.id,
-                poster_bucket,
-                poster_path,
-            )
-        except Exception:
-            logger.exception(
-                "Unexpected video poster URL error task_id=%s bucket=%s key=%s",
-                task.id,
-                poster_bucket,
-                poster_path,
-            )
+    reference = ctx.source_reference
+    if reference is None:
+        raise HTTPException(status_code=503, detail="Video source unavailable")
 
     return TaskVideoManifestResponse(
         task_id=task.id,
         dataset_item_id=task.dataset_item_id,
-        video_url=video_url,
-        poster_url=poster_url,
+        video_url=reference.video_url,
+        poster_url=reference.poster_url,
         metadata=metadata,
-        expires_in=VIDEO_MANIFEST_URL_EXPIRES_IN,
+        expires_in=reference.expires_in,
     )
 
 
@@ -334,39 +245,33 @@ async def get_video_frame_timetable(
         raise HTTPException(status_code=400, detail="Task is not a video task")
     response.headers["Cache-Control"] = "private, max-age=3600"
 
-    _, _, _, _, video_metadata = await _attach_dimensions(db, task)
-    metadata = VideoMetadata.model_validate(video_metadata or {})
+    if not task.dataset_item_id:
+        raise HTTPException(status_code=503, detail="Video metadata not ready")
+    ctx = await AssetsVideoContextReader(db).from_task(
+        actor_id=current_user.id,
+        task_id=task.id,
+        project_id=task.project_id,
+        file_type=task.file_type,
+        dataset_item_id=task.dataset_item_id,
+    )
+    metadata = ctx.metadata
     if not metadata.fps or not metadata.frame_count:
         raise HTTPException(status_code=503, detail="Video metadata not ready")
 
-    if not task.dataset_item_id:
-        return TaskVideoFrameTimetableResponse(
-            task_id=task.id,
-            fps=metadata.fps,
-            frame_count=metadata.frame_count,
-            source="estimated",
-            frames=[],
-        )
-
-    has_timetable = (
-        await db.execute(
-            select(func.count(VideoFrameIndex.id)).where(
-                VideoFrameIndex.dataset_item_id == task.dataset_item_id
+    try:
+        async with media_gateway(db) as gateway:
+            frames = await gateway.read_all_timetable(
+                TimetableRequest(
+                    actor_id=current_user.id,
+                    dataset_item_id=task.dataset_item_id,
+                    task_id=task.id,
+                    from_frame=from_frame,
+                    to_frame=to_frame,
+                )
             )
-        )
-    ).scalar_one() > 0
-    stmt = select(VideoFrameIndex).where(
-        VideoFrameIndex.dataset_item_id == task.dataset_item_id
-    )
-    if from_frame is not None:
-        stmt = stmt.where(VideoFrameIndex.frame_index >= from_frame)
-    if to_frame is not None:
-        stmt = stmt.where(VideoFrameIndex.frame_index <= to_frame)
-    rows = (
-        (await db.execute(stmt.order_by(VideoFrameIndex.frame_index.asc())))
-        .scalars()
-        .all()
-    )
+    except MediaFailure as exc:
+        raise media_http_error(exc) from None
+    has_timetable = bool(metadata.frame_timetable_frame_count) or bool(frames)
 
     body = TaskVideoFrameTimetableResponse(
         task_id=task.id,
@@ -375,13 +280,13 @@ async def get_video_frame_timetable(
         source="ffprobe" if has_timetable else "estimated",
         frames=[
             VideoFrameTimetableEntry(
-                frame_index=row.frame_index,
-                pts_ms=row.pts_ms,
-                is_keyframe=row.is_keyframe,
-                pict_type=row.pict_type,
-                byte_offset=row.byte_offset,
+                frame_index=frame.frame_index,
+                pts_ms=frame.pts_ms,
+                is_keyframe=frame.is_keyframe,
+                pict_type=frame.pict_type,
+                byte_offset=frame.byte_offset,
             )
-            for row in rows
+            for frame in frames
         ],
     )
     response.headers["ETag"] = (
@@ -400,7 +305,8 @@ async def get_video_manifest_v2(
 ):
     task = await _load_task_or_404(db, task_id)
     await task_access.assert_task_visible(db, task, current_user.id)
-    ctx = await _VideoContextSqlAdapter(db).from_task(
+    ctx = await AssetsVideoContextReader(db).from_task(
+        actor_id=current_user.id,
         task_id=task.id,
         project_id=task.project_id,
         file_type=task.file_type,
@@ -417,7 +323,8 @@ async def get_video_segments(
 ):
     task = await _load_task_or_404(db, task_id)
     await task_access.assert_task_visible(db, task, current_user.id)
-    ctx = await _VideoContextSqlAdapter(db).from_task(
+    ctx = await AssetsVideoContextReader(db).from_task(
+        actor_id=current_user.id,
         task_id=task.id,
         project_id=task.project_id,
         file_type=task.file_type,
@@ -440,7 +347,8 @@ async def claim_video_segment(
 ):
     task = await _load_task_or_404(db, task_id)
     await task_access.assert_task_visible(db, task, current_user.id)
-    ctx = await _VideoContextSqlAdapter(db).from_task(
+    ctx = await AssetsVideoContextReader(db).from_task(
+        actor_id=current_user.id,
         task_id=task.id,
         project_id=task.project_id,
         file_type=task.file_type,
@@ -479,7 +387,8 @@ async def heartbeat_video_segment(
 ):
     task = await _load_task_or_404(db, task_id)
     await task_access.assert_task_visible(db, task, current_user.id)
-    ctx = await _VideoContextSqlAdapter(db).from_task(
+    ctx = await AssetsVideoContextReader(db).from_task(
+        actor_id=current_user.id,
         task_id=task.id,
         project_id=task.project_id,
         file_type=task.file_type,
@@ -520,7 +429,8 @@ async def release_video_segment(
 ):
     task = await _load_task_or_404(db, task_id)
     await task_access.assert_task_visible(db, task, current_user.id)
-    ctx = await _VideoContextSqlAdapter(db).from_task(
+    ctx = await AssetsVideoContextReader(db).from_task(
+        actor_id=current_user.id,
         task_id=task.id,
         project_id=task.project_id,
         file_type=task.file_type,
@@ -576,7 +486,8 @@ async def submit_video_segment(
 ):
     task = await _load_task_or_404(db, task_id)
     await task_access.assert_task_visible(db, task, current_user.id)
-    ctx = await _VideoContextSqlAdapter(db).from_task(
+    ctx = await AssetsVideoContextReader(db).from_task(
+        actor_id=current_user.id,
         task_id=task.id,
         project_id=task.project_id,
         file_type=task.file_type,
@@ -691,7 +602,8 @@ async def reopen_video_segment(
     await task_access.assert_task_visible(db, task, current_user.id)
     if not await _segment_privileged(db, task, current_user):
         raise HTTPException(status_code=403, detail="reviewer privilege required")
-    ctx = await _VideoContextSqlAdapter(db).from_task(
+    ctx = await AssetsVideoContextReader(db).from_task(
+        actor_id=current_user.id,
         task_id=task.id,
         project_id=task.project_id,
         file_type=task.file_type,
@@ -718,7 +630,8 @@ async def unassign_video_segment(
     await task_access.assert_task_visible(db, task, current_user.id)
     if not await _segment_privileged(db, task, current_user):
         raise HTTPException(status_code=403, detail="reviewer privilege required")
-    ctx = await _VideoContextSqlAdapter(db).from_task(
+    ctx = await AssetsVideoContextReader(db).from_task(
+        actor_id=current_user.id,
         task_id=task.id,
         project_id=task.project_id,
         file_type=task.file_type,
@@ -889,19 +802,17 @@ async def get_video_chunks(
     to_frame: int | None = Query(default=None, ge=0),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
-    media_dispatcher: MediaJobDispatcher = Depends(get_media_job_dispatcher),
 ):
     task = await _load_task_or_404(db, task_id)
     await task_access.assert_task_visible(db, task, current_user.id)
-    ctx = await _VideoContextSqlAdapter(db).from_task(
+    ctx = await AssetsVideoContextReader(db).from_task(
+        actor_id=current_user.id,
         task_id=task.id,
         project_id=task.project_id,
         file_type=task.file_type,
         dataset_item_id=task.dataset_item_id,
     )
-    return await list_video_chunks(
-        db, ctx, from_frame, to_frame, dispatcher=media_dispatcher
-    )
+    return await list_video_chunks(db, ctx, from_frame, to_frame)
 
 
 @router.get(
@@ -921,17 +832,17 @@ async def get_video_chunk(
     response: Response,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
-    media_dispatcher: MediaJobDispatcher = Depends(get_media_job_dispatcher),
 ):
     task = await _load_task_or_404(db, task_id)
     await task_access.assert_task_visible(db, task, current_user.id)
-    ctx = await _VideoContextSqlAdapter(db).from_task(
+    ctx = await AssetsVideoContextReader(db).from_task(
+        actor_id=current_user.id,
         task_id=task.id,
         project_id=task.project_id,
         file_type=task.file_type,
         dataset_item_id=task.dataset_item_id,
     )
-    body = await get_video_chunk_asset(db, ctx, chunk_id, dispatcher=media_dispatcher)
+    body = await get_video_chunk_asset(db, ctx, chunk_id)
     if body.status == "pending":
         response.status_code = 202
         response.headers["Retry-After"] = str(body.retry_after or 3)
@@ -957,19 +868,17 @@ async def get_video_frame(
     w: int = Query(default=512, ge=1, le=4096),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
-    media_dispatcher: MediaJobDispatcher = Depends(get_media_job_dispatcher),
 ):
     task = await _load_task_or_404(db, task_id)
     await task_access.assert_task_visible(db, task, current_user.id)
-    ctx = await _VideoContextSqlAdapter(db).from_task(
+    ctx = await AssetsVideoContextReader(db).from_task(
+        actor_id=current_user.id,
         task_id=task.id,
         project_id=task.project_id,
         file_type=task.file_type,
         dataset_item_id=task.dataset_item_id,
     )
-    body = await get_video_frame_asset(
-        db, ctx, frame_index, w, format, dispatcher=media_dispatcher
-    )
+    body = await get_video_frame_asset(db, ctx, frame_index, w, format)
     if body.status == "pending":
         response.status_code = 202
         response.headers["Retry-After"] = str(body.retry_after or 3)
@@ -988,11 +897,11 @@ async def prefetch_video_frame_assets(
     payload: VideoFramePrefetchRequest,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
-    media_dispatcher: MediaJobDispatcher = Depends(get_media_job_dispatcher),
 ):
     task = await _load_task_or_404(db, task_id)
     await task_access.assert_task_visible(db, task, current_user.id)
-    ctx = await _VideoContextSqlAdapter(db).from_task(
+    ctx = await AssetsVideoContextReader(db).from_task(
+        actor_id=current_user.id,
         task_id=task.id,
         project_id=task.project_id,
         file_type=task.file_type,
@@ -1004,7 +913,6 @@ async def prefetch_video_frame_assets(
         payload.frame_indices,
         payload.width,
         payload.format,
-        dispatcher=media_dispatcher,
     )
 
 
@@ -1018,11 +926,11 @@ async def retry_video_frame_assets(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
     access: ProjectAccess = Depends(require_task_annotation_write),
-    media_dispatcher: MediaJobDispatcher = Depends(get_media_job_dispatcher),
 ):
     task = await _load_task_or_404(db, task_id)
     await task_access.assert_task_visible(db, task, current_user.id)
-    ctx = await _VideoContextSqlAdapter(db).from_task(
+    ctx = await AssetsVideoContextReader(db).from_task_summary(
+        actor_id=current_user.id,
         task_id=task.id,
         project_id=task.project_id,
         file_type=task.file_type,
@@ -1034,8 +942,8 @@ async def retry_video_frame_assets(
         payload.frame_indices,
         payload.width,
         payload.format,
-        dispatcher=media_dispatcher,
         force=payload.force,
+        task_annotation_retry=True,
     )
 
 
@@ -1074,7 +982,8 @@ async def save_video_mask_correction_keyframe(
         expected_version = int(raw_if_match.removeprefix('W/"').removesuffix('"'))
     except ValueError as exc:
         raise HTTPException(status_code=400, detail="Invalid If-Match format") from exc
-    ctx = await _VideoContextSqlAdapter(db).from_task(
+    ctx = await AssetsVideoContextReader(db).from_task(
+        actor_id=current_user.id,
         task_id=task.id,
         project_id=task.project_id,
         file_type=task.file_type,
@@ -1142,7 +1051,8 @@ async def operate_video_mask_correction_keyframe(
         expected_version = int(raw_if_match.removeprefix('W/"').removesuffix('"'))
     except ValueError as exc:
         raise HTTPException(status_code=400, detail="Invalid If-Match format") from exc
-    ctx = await _VideoContextSqlAdapter(db).from_task(
+    ctx = await AssetsVideoContextReader(db).from_task(
+        actor_id=current_user.id,
         task_id=task.id,
         project_id=task.project_id,
         file_type=task.file_type,
@@ -1203,7 +1113,8 @@ async def create_video_mask_correction(
     task = await _load_task_or_404(db, task_id)
     await task_access.assert_task_visible(db, task, current_user.id, access=access)
     task_access.assert_task_editable(task, current_user.id, access=access)
-    ctx = await _VideoContextSqlAdapter(db).from_task(
+    ctx = await AssetsVideoContextReader(db).from_task(
+        actor_id=current_user.id,
         task_id=task.id,
         project_id=task.project_id,
         file_type=task.file_type,
@@ -1344,7 +1255,8 @@ async def propagate_video_track(
     task = await _load_task_or_404(db, task_id)
     await task_access.assert_task_visible(db, task, current_user.id, access=access)
     task_access.assert_task_editable(task, current_user.id, access=access)
-    ctx = await _VideoContextSqlAdapter(db).from_task(
+    ctx = await AssetsVideoContextReader(db).from_task(
+        actor_id=current_user.id,
         task_id=task.id,
         project_id=task.project_id,
         file_type=task.file_type,
@@ -1404,7 +1316,8 @@ async def track_video(
     task = await _load_task_or_404(db, task_id)
     await task_access.assert_task_visible(db, task, current_user.id, access=access)
     task_access.assert_task_editable(task, current_user.id, access=access)
-    ctx = await _VideoContextSqlAdapter(db).from_task(
+    ctx = await AssetsVideoContextReader(db).from_task(
+        actor_id=current_user.id,
         task_id=task.id,
         project_id=task.project_id,
         file_type=task.file_type,

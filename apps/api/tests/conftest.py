@@ -29,16 +29,11 @@ from __future__ import annotations
 import os
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
-from typing import TYPE_CHECKING
 from uuid import UUID, uuid4
 
 import httpx
 import pytest
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
-
-if TYPE_CHECKING:
-    from app.services.media_job_dispatch import VideoFrameRequest
-
 
 if os.environ.get("AAP_WORKTREE_MODE") == "dev":
     raise pytest.UsageError(
@@ -201,7 +196,7 @@ class _MediaJobDispatcherStub:
         self.task_thumbnail_backfills: list[UUID] = []
         self.video_metadata: list[UUID] = []
         self.video_chunks: list[tuple[UUID, list[int]]] = []
-        self.video_frames: list[tuple[UUID, list[VideoFrameRequest]]] = []
+        self.video_frames: list[tuple[UUID, list[dict]]] = []
 
     def dispatch_thumbnail(self, item_id: UUID) -> None:
         self.thumbnails.append(item_id)
@@ -219,9 +214,7 @@ class _MediaJobDispatcherStub:
     def dispatch_video_chunks(self, item_id: UUID, chunk_ids: list[int]) -> None:
         self.video_chunks.append((item_id, chunk_ids))
 
-    def dispatch_video_frames(
-        self, item_id: UUID, requests: list[VideoFrameRequest]
-    ) -> None:
+    def dispatch_video_frames(self, item_id: UUID, requests: list[dict]) -> None:
         self.video_frames.append((item_id, requests))
 
 

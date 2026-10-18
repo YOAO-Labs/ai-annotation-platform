@@ -16,7 +16,7 @@ from app.schemas.export import (
     VideoExportScopeRequest,
     VideoExportSegmentSelection,
 )
-from app.services.video_frame_service import _VideoContextSqlAdapter
+from app.services.video_frame_service import AssetsVideoContextReader
 from app.services.video_tracks import normalize_outside_ranges, resolve_track_at_frame
 
 
@@ -90,6 +90,7 @@ class VideoExportScope:
 async def normalize_video_export_scope(
     db: AsyncSession,
     *,
+    actor_id: uuid.UUID,
     project: Project,
     request: VideoExportScopeRequest | None,
     batch_id: uuid.UUID | None = None,
@@ -105,7 +106,8 @@ async def normalize_video_export_scope(
     if batch_id is not None and task.batch_id != batch_id:
         raise ValueError("video export task does not belong to this batch")
 
-    ctx = await _VideoContextSqlAdapter(db).from_task(
+    ctx = await AssetsVideoContextReader(db).from_task(
+        actor_id=actor_id,
         task_id=task.id,
         project_id=task.project_id,
         file_type=task.file_type,

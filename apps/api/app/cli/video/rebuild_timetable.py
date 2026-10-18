@@ -6,12 +6,11 @@ import uuid
 from typing import Sequence
 
 from app.application.video_timetable_rebuild import VideoTimetableRebuildWorkflow
-from app.db.base import async_session, engine
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Rebuild video_frame_indices for existing video dataset items.",
+        description="Rebuild persisted video frame timetables for selected videos.",
     )
     parser.add_argument(
         "--dataset-item-id",
@@ -56,42 +55,27 @@ async def async_main(argv: Sequence[str] | None = None) -> int:
         _parse_uuid(args.dataset_id, "--dataset-id") if args.dataset_id else None
     )
 
-    async with async_session() as db:
-        workflow = VideoTimetableRebuildWorkflow(db)
-        items = await workflow.select_items(
-            dataset_item_ids=dataset_item_ids,
-            dataset_id=dataset_id,
-            all_items=args.all,
-            limit=args.limit,
-        )
-        failures = 0
-        # Rollback expires every selected row, including unprocessed items.
-        item_ids = [item.id for item in items]
-        reload_after_rollback = False
-        for item_id, item in zip(item_ids, items, strict=True):
-            try:
-                if reload_after_rollback:
-                    await db.refresh(item)
-                count = await workflow.rebuild_item(
-                    item, dry_run=args.dry_run, sparse_stride=args.sparse_stride
-                )
-                if not args.dry_run:
-                    await db.commit()
-                prefix = "would rebuild" if args.dry_run else "rebuilt"
-                suffix = " (sparse)" if args.sparse_stride > 1 else ""
-                print(f"{prefix} {item_id}: {count} anchor rows{suffix}")
-            except Exception as exc:
-                failures += 1
-                await db.rollback()
-                reload_after_rollback = True
-                if not args.dry_run:
-                    await workflow.record_item_error(item_id, str(exc))
-                    await db.commit()
-                print(f"failed {item_id}: {exc}")
-                if not args.keep_going:
-                    break
-
-    await engine.dispose()
+    workflow = VideoTimetableRebuildWorkflow()
+    items = await workflow.select_items(
+        dataset_item_ids=dataset_item_ids,
+        dataset_id=dataset_id,
+        all_items=args.all,
+        limit=args.limit,
+    )
+    failures = 0
+    for source in items:
+        try:
+            count = await workflow.rebuild_item(
+                source, dry_run=args.dry_run, sparse_stride=args.sparse_stride
+            )
+            prefix = "would rebuild" if args.dry_run else "rebuilt"
+            suffix = " (sparse)" if args.sparse_stride > 1 else ""
+            print(f"{prefix} {source.dataset_item_id}: {count} anchor rows{suffix}")
+        except Exception as exc:
+            failures += 1
+            print(f"failed {source.dataset_item_id}: {exc}")
+            if not args.keep_going:
+                break
     return 1 if failures else 0
 
 

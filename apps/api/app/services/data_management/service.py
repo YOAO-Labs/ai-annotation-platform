@@ -30,6 +30,7 @@ from app.services.data_management.task_metrics import (  # noqa: F401
 
 import json
 from typing import Any
+from uuid import UUID
 
 from fastapi import HTTPException
 from sqlalchemy import (
@@ -72,6 +73,36 @@ from app.services.data_management.views import (
     visible_tasks_stmt,
 )
 from app.services.data_management.match_evidence import collect_match_evidence
+
+VIDEO_TOTALS_BATCH_ITEMS = 100_000
+
+
+async def _read_video_media_totals(
+    db: AsyncSession, item_ids: list[UUID]
+) -> tuple[int, int]:
+    from aap_assets_media.contract import MediaFailure, VideoTotalsRequest
+
+    from app.services.assets_media import media_gateway, media_http_error
+
+    duration_ms = 0
+    frame_count = 0
+    try:
+        async with media_gateway(db) as gateway:
+            # Retain duplicate IDs: the former Task join counted once per matched
+            # task, even when several tasks share a source item.
+            for offset in range(0, len(item_ids), VIDEO_TOTALS_BATCH_ITEMS):
+                batch = item_ids[offset : offset + VIDEO_TOTALS_BATCH_ITEMS]
+                totals = await gateway.call(
+                    "read_video_media_totals",
+                    VideoTotalsRequest(item_ids=batch),
+                )
+                if totals.matched_items != len(batch):
+                    raise MediaFailure("source_changed")
+                duration_ms += totals.duration_ms
+                frame_count += totals.frame_count
+    except MediaFailure as exc:
+        raise media_http_error(exc) from None
+    return duration_ms, frame_count
 
 
 def _json_scalar_text(value: Any) -> str:
@@ -343,24 +374,22 @@ class DataManagerService:
                 "distinct_resolutions": int(image_rows.distinct_resolutions or 0),
             }
         elif kind.data_type == "video":
-            video_meta = DatasetItem.metadata_["video"]
-            video_rows = (
-                await self.db.execute(
-                    select(
-                        func.coalesce(
-                            func.sum(cast(video_meta["duration_ms"].astext, Integer)),
-                            0,
-                        ).label("duration_ms"),
-                        func.coalesce(
-                            func.sum(cast(video_meta["frame_count"].astext, Integer)),
-                            0,
-                        ).label("frame_count"),
+            video_item_ids = list(
+                (
+                    await self.db.execute(
+                        select(Task.dataset_item_id)
+                        .select_from(Task)
+                        .join(matched_ids, matched_ids.c.id == Task.id)
+                        .join(DatasetItem, DatasetItem.id == Task.dataset_item_id)
+                        .where(Task.dataset_item_id.is_not(None))
                     )
-                    .select_from(Task)
-                    .join(matched_ids, matched_ids.c.id == Task.id)
-                    .join(DatasetItem, DatasetItem.id == Task.dataset_item_id)
                 )
-            ).one()
+                .scalars()
+                .all()
+            )
+            duration_ms, frame_count = await _read_video_media_totals(
+                self.db, video_item_ids
+            )
             keyframes = case(
                 (
                     func.jsonb_typeof(Annotation.geometry["keyframes"]) == "array",
@@ -386,8 +415,8 @@ class DataManagerService:
                 )
             ).one()
             kind_metrics = {
-                "duration_ms": int(video_rows.duration_ms or 0),
-                "frame_count": int(video_rows.frame_count or 0),
+                "duration_ms": duration_ms,
+                "frame_count": frame_count,
                 "keyframes": int(video_annotation_rows.keyframes or 0),
                 "outside_ranges": int(video_annotation_rows.outside_ranges or 0),
             }

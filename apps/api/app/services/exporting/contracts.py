@@ -114,10 +114,19 @@ def export_contracts(project, targets):
     }
 
 
-def video_source_contract(project, task, item, metadata, scope=None):
+def video_source_contract(
+    project,
+    task,
+    item,
+    metadata,
+    scope=None,
+    *,
+    source_file_path: str | None = None,
+    source_content_hash: str | None = None,
+):
     """Freeze the absolute source grid shared by JSON and archive exports."""
-    from app.services.video_frame_service import source_key_for_item
-
+    if item is not None and source_file_path is None:
+        raise ValueError("video export source must come from the media owner")
     source = source_contract(project)
     step = derive_step(metadata.get("fps"), source["video_sampling"])
     frames = derive_sampled_frames(metadata.get("frame_count") or 0, step)
@@ -126,8 +135,8 @@ def video_source_contract(project, task, item, metadata, scope=None):
     result = {
         "task_id": str(task.id),
         "dataset_item_id": str(item.id) if item else None,
-        "source_key": source_key_for_item(item) if item else task.file_path,
-        "content_hash": item.content_hash if item else None,
+        "source_key": source_file_path if item else task.file_path,
+        "content_hash": source_content_hash if item else None,
         "sampling": source["video_sampling"],
         "collaboration": source["video_collaboration"],
         "frame_index_base": 0,

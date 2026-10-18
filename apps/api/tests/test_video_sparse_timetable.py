@@ -6,15 +6,8 @@
 
 from __future__ import annotations
 
-from types import SimpleNamespace
-from unittest.mock import AsyncMock
-from uuid import uuid4
-
-import pytest
-
 from app.services.video_frame_service import (
     derive_anchor_frames,
-    pts_ms_for_frame,
     resolve_pts_ms_sparse,
     select_sparse_anchor_rows,
     warmup_chunk_ids,
@@ -51,6 +44,7 @@ def test_derive_anchor_frames_single_frame():
 
 def test_resolve_sparse_exact_anchor_hit():
     anchors = [(0, 0), (10, 1000), (20, 2000)]
+    assert resolve_pts_ms_sparse(0, anchors, fps=10, stride=10) == 0
     assert resolve_pts_ms_sparse(10, anchors, fps=10, stride=10) == 1000
 
 
@@ -64,6 +58,11 @@ def test_resolve_sparse_interpolation_non_uniform_anchors():
     # 锚点 pts 非匀速 (变帧率): frame 5 在 (0,0)-(10,2000) 之间 → 1000
     anchors = [(0, 0), (10, 2000)]
     assert resolve_pts_ms_sparse(5, anchors, fps=10, stride=10) == 1000
+
+
+def test_resolve_sparse_vfr_non_keyframe_gap():
+    anchors = [(2, 100), (8, 550)]
+    assert resolve_pts_ms_sparse(4, anchors, fps=30, stride=1) == 250
 
 
 def test_resolve_sparse_extrapolate_before_first_anchor():
@@ -90,77 +89,6 @@ def test_resolve_sparse_out_of_range_no_fps_is_none():
     anchors = [(0, 0), (10, 1000)]
     # 范围外且无 fps → 无法外推
     assert resolve_pts_ms_sparse(20, anchors, fps=None, stride=10) is None
-
-
-@pytest.mark.asyncio
-async def test_pts_ms_for_frame_interpolates_vfr_non_keyframe_gap_in_one_statement():
-    db = SimpleNamespace(
-        execute=AsyncMock(
-            return_value=SimpleNamespace(
-                one=lambda: SimpleNamespace(
-                    exact_pts=None,
-                    previous_frame=2,
-                    previous_pts=100,
-                    next_frame=8,
-                    next_pts=550,
-                )
-            )
-        )
-    )
-
-    pts_ms = await pts_ms_for_frame(
-        db, uuid4(), frame_index=4, metadata=SimpleNamespace(fps=30)
-    )
-
-    assert pts_ms == 250
-    db.execute.assert_awaited_once()
-
-
-@pytest.mark.asyncio
-async def test_pts_ms_for_frame_preserves_exact_zero_and_fps_fallback():
-    db = SimpleNamespace(
-        execute=AsyncMock(
-            return_value=SimpleNamespace(
-                one=lambda: SimpleNamespace(
-                    exact_pts=0,
-                    previous_frame=0,
-                    previous_pts=10,
-                    next_frame=2,
-                    next_pts=200,
-                )
-            )
-        )
-    )
-    assert (
-        await pts_ms_for_frame(
-            db, uuid4(), frame_index=1, metadata=SimpleNamespace(fps=30)
-        )
-        == 0
-    )
-
-    db.execute = AsyncMock(
-        return_value=SimpleNamespace(
-            one=lambda: SimpleNamespace(
-                exact_pts=None,
-                previous_frame=None,
-                previous_pts=None,
-                next_frame=None,
-                next_pts=None,
-            )
-        )
-    )
-    assert (
-        await pts_ms_for_frame(
-            db, uuid4(), frame_index=10, metadata=SimpleNamespace(fps=10)
-        )
-        == 1000
-    )
-    assert (
-        await pts_ms_for_frame(
-            db, uuid4(), frame_index=10, metadata=SimpleNamespace(fps=None)
-        )
-        is None
-    )
 
 
 # ── select_sparse_anchor_rows ────────────────────────────────────────

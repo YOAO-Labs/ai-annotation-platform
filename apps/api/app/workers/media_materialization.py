@@ -1,8 +1,7 @@
-"""Bind media result writes to their asset and labeling domain owners."""
+"""Bind image and task thumbnail writes to their source owners."""
 
 from __future__ import annotations
 
-from typing import Any, Mapping, Sequence
 from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -29,38 +28,6 @@ class SqlAlchemyMediaMaterializationWriter:
     ) -> None:
         await self.datasets.set_item_thumbnail(
             item_id, thumbnail_path, blurhash=blurhash
-        )
-
-    async def replace_video_frame_index(
-        self,
-        item_id: UUID,
-        frame_timetable: Sequence[Mapping[str, Any]],
-    ) -> None:
-        await self.datasets.replace_video_frame_index(item_id, frame_timetable)
-
-    async def set_video_dimensions(
-        self,
-        item_id: UUID,
-        *,
-        width: Any | None,
-        height: Any | None,
-    ) -> None:
-        await self.datasets.set_video_dimensions(item_id, width=width, height=height)
-
-    async def record_video_probe_error(
-        self, item_id: UUID, video_metadata: Mapping[str, Any]
-    ) -> None:
-        await self.datasets.record_video_probe_error(item_id, video_metadata)
-
-    async def save_video_materialization(
-        self,
-        item_id: UUID,
-        video_metadata: Mapping[str, Any],
-        *,
-        thumbnail_path: str | None,
-    ) -> None:
-        await self.datasets.save_video_materialization(
-            item_id, video_metadata, thumbnail_path=thumbnail_path
         )
 
     async def set_task_thumbnail(

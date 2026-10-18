@@ -16,6 +16,7 @@ from app.db.models.user import User
 from app.db.models.video_tracker_job import VideoTrackerJob, VideoTrackerJobStatus
 from app.schemas.project import VideoCollaborationConfig
 from app.schemas.task import VideoMetadata
+from app.services.assets_media_summary import AssetsTaskMediaSummaryReader
 from app.services.video_context import derive_step
 
 
@@ -101,9 +102,20 @@ async def segment_work_bounds_for_task(
         ).scalar_one()
     )
     if video_metadata is None:
-        item = await db.get(DatasetItem, task.dataset_item_id)
-        stored_video = ((item.metadata_ if item else {}) or {}).get("video") or {}
-        frame_count = stored_video.get("frame_count")
+        video_metadata = (
+            await AssetsTaskMediaSummaryReader(db).current_video_metadata(
+                task.dataset_item_id
+            )
+            if task.dataset_item_id is not None
+            else None
+        )
+        if task.dataset_item_id is not None and video_metadata is None:
+            raise HTTPException(
+                status_code=503,
+                detail={"reason": "video_metadata_not_ready"},
+                headers={"Retry-After": "3"},
+            )
+        frame_count = (video_metadata or {}).get("frame_count")
     else:
         frame_count = video_metadata.frame_count
     return segment_work_bounds(
@@ -209,10 +221,10 @@ async def validate_project_collaboration_update(
         sampling = requested_video_sampling
         if sampling is None:
             sampling = project.video_sampling or {}
-        items = list(
+        item_ids = list(
             (
                 await db.execute(
-                    select(DatasetItem)
+                    select(DatasetItem.id)
                     .join(Task, Task.dataset_item_id == DatasetItem.id)
                     .where(Task.project_id == project.id)
                     .distinct()
@@ -221,8 +233,23 @@ async def validate_project_collaboration_update(
             .scalars()
             .all()
         )
-        for item in items:
-            metadata = (item.metadata_ or {}).get("video") or {}
+        summaries = await AssetsTaskMediaSummaryReader(db).current_video_metadata_many(
+            tuple(item_ids)
+        )
+        if set(item_ids) - summaries.keys():
+            raise HTTPException(
+                status_code=503,
+                detail={"reason": "video_media_summary_unavailable"},
+            )
+        for item_id in item_ids:
+            metadata = summaries.get(item_id)
+            if metadata is None:
+                raise HTTPException(
+                    status_code=503,
+                    detail={"reason": "video_metadata_not_ready"},
+                    headers={"Retry-After": "3"},
+                )
+            metadata = metadata or {}
             frame_count = max(0, int(metadata.get("frame_count") or 0))
             step = derive_step(metadata.get("fps"), sampling)
             for boundary in range(
@@ -240,7 +267,7 @@ async def validate_project_collaboration_update(
                         status_code=422,
                         detail={
                             "reason": "video_collaboration_sampling_empty",
-                            "dataset_item_id": str(item.id),
+                            "dataset_item_id": str(item_id),
                             "boundary_frame": boundary,
                         },
                     )

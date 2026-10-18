@@ -491,13 +491,14 @@ async def validate_mask_geometry_for_task(
         if task.dataset_item_id is None:
             raise ValueError("video mask requires a primary dataset item")
         if video_context is None:
-            item = await db.get(DatasetItem, task.dataset_item_id)
-            if item is None or item.file_type != "video":
+            from app.services.assets_media_summary import AssetsTaskMediaSummaryReader
+
+            summary = await AssetsTaskMediaSummaryReader(db).current_video_summary(
+                task.dataset_item_id
+            )
+            if summary is None:
                 raise ValueError("video mask requires a video dataset item")
-            video = (item.metadata_ or {}).get("video")
-            video = video if isinstance(video, dict) else {}
-            width = item.width or video.get("width")
-            height = item.height or video.get("height")
+            width, height, video = summary
             frame_count = video.get("frame_count")
         else:
             if (

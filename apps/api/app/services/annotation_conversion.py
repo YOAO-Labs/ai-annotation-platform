@@ -17,7 +17,7 @@ from app.db.models.annotation_operation import (
     AnnotationLineageEdge,
     AnnotationOperation,
 )
-from app.db.models.dataset import DatasetItem, VideoSegment
+from app.db.models.dataset import VideoSegment
 from app.db.models.project import Project
 from app.db.models.task import Task
 from app.db.models.user import User
@@ -285,32 +285,43 @@ class AnnotationConversionService:
         self.db = db
         self._generated_rles: dict[str, dict[str, Any]] = {}
 
-    async def _task_item_and_dimensions(
-        self, task: Task
-    ) -> tuple[DatasetItem, int, int, str]:
-        item = (
-            await self.db.get(DatasetItem, task.dataset_item_id)
-            if task.dataset_item_id is not None
-            else None
-        )
-        if item is None:
+    async def _task_item_and_dimensions(self, task: Task) -> tuple[None, int, int, str]:
+        if task.dataset_item_id is None:
             raise AnnotationConversionError(
                 status_code=409,
                 reason="source_media_missing",
                 message="conversion requires a primary dataset item",
             )
-        metadata = item.metadata_ if isinstance(item.metadata_, dict) else {}
-        video = metadata.get("video") if isinstance(metadata.get("video"), dict) else {}
-        width = item.width or video.get("width")
-        height = item.height or video.get("height")
+        from app.services.assets_media_summary import AssetsTaskMediaSummaryReader
+
+        reader = AssetsTaskMediaSummaryReader(self.db)
+        if task.file_type == "video":
+            video_summary = await reader.current_video_summary(task.dataset_item_id)
+            if video_summary is None:
+                raise AnnotationConversionError(
+                    status_code=409,
+                    reason="source_dimensions_missing",
+                    message="conversion requires current source video dimensions",
+                )
+            width, height, _video = video_summary
+            media = "video"
+        else:
+            summary = await reader.one(task.dataset_item_id)
+            if summary is None:
+                raise AnnotationConversionError(
+                    status_code=409,
+                    reason="source_media_missing",
+                    message="conversion requires a primary dataset item",
+                )
+            width, height = summary[0], summary[1]
+            media = "image"
         if not width or not height:
             raise AnnotationConversionError(
                 status_code=409,
                 reason="source_dimensions_missing",
                 message="conversion requires source width and height",
             )
-        media = "video" if item.file_type == "video" else "image"
-        return item, int(width), int(height), media
+        return None, int(width), int(height), media
 
     async def _load_sources(
         self, task_id: uuid.UUID, annotation_ids: list[uuid.UUID], *, lock: bool

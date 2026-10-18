@@ -4,19 +4,18 @@ import uuid
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
-from sqlalchemy import select, func
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from aap_assets_media.contract import MediaFailure, SamplesRequest, TimetableRequest
 
 from app.services import task_access
 from app.services.workspace_contract import ProjectAccess
-from app.db.models.dataset import VideoChunk, VideoFrameIndex
 from app.db.models.task import Task
 from app.db.models.user import User
 from app.db.models.video_chapter import VideoChapter
 from app.deps import (
     get_current_user,
     get_db,
-    get_media_job_dispatcher,
     require_active_task_actor,
 )
 from app.schemas.task import (
@@ -44,9 +43,9 @@ from app.schemas.video_frame_service import (
 from app.application.task_workflow_errors import TaskWorkflowError
 from app.application.video_chapters import VideoChapterWorkflow
 from app.services.audit import AuditAction, AuditService
-from app.services.media_job_dispatch import MediaJobDispatcher
+from app.services.assets_media import media_gateway, media_http_error
 from app.services.video_frame_service import (
-    _VideoContextSqlAdapter,
+    AssetsVideoContextReader,
     get_chunk as get_video_chunk_asset,
     get_frame as get_video_frame_asset,
     list_chunks as list_video_chunks,
@@ -116,8 +115,11 @@ async def get_video_manifest(
     current_user: User = Depends(get_current_user),
 ):
     task = await _visible_video_task_for_item(db, dataset_item_id, current_user)
-    ctx = await _VideoContextSqlAdapter(db).from_dataset_item(
-        dataset_item_id=dataset_item_id, task_id=task.id, project_id=task.project_id
+    ctx = await AssetsVideoContextReader(db).from_dataset_item(
+        dataset_item_id=dataset_item_id,
+        actor_id=current_user.id,
+        task_id=task.id,
+        project_id=task.project_id,
     )
     return await build_video_manifest_v2(db, ctx, str(request.base_url))
 
@@ -129,8 +131,11 @@ async def get_video_segments(
     current_user: User = Depends(get_current_user),
 ):
     task = await _visible_video_task_for_item(db, dataset_item_id, current_user)
-    ctx = await _VideoContextSqlAdapter(db).from_dataset_item(
-        dataset_item_id=dataset_item_id, task_id=task.id, project_id=task.project_id
+    ctx = await AssetsVideoContextReader(db).from_dataset_item(
+        dataset_item_id=dataset_item_id,
+        actor_id=current_user.id,
+        task_id=task.id,
+        project_id=task.project_id,
     )
     return await list_video_segments(db, ctx)
 
@@ -148,31 +153,29 @@ async def get_video_frame_timetable(
     current_user: User = Depends(get_current_user),
 ):
     task = await _visible_video_task_for_item(db, dataset_item_id, current_user)
-    ctx = await _VideoContextSqlAdapter(db).from_dataset_item(
-        dataset_item_id=dataset_item_id, task_id=task.id, project_id=task.project_id
+    ctx = await AssetsVideoContextReader(db).from_dataset_item(
+        dataset_item_id=dataset_item_id,
+        actor_id=current_user.id,
+        task_id=task.id,
+        project_id=task.project_id,
     )
     if not ctx.metadata.fps or not ctx.metadata.frame_count:
         raise HTTPException(status_code=503, detail="Video metadata not ready")
 
-    has_timetable = (
-        await db.execute(
-            select(func.count(VideoFrameIndex.id)).where(
-                VideoFrameIndex.dataset_item_id == dataset_item_id
+    try:
+        async with media_gateway(db) as gateway:
+            frames = await gateway.read_all_timetable(
+                TimetableRequest(
+                    actor_id=current_user.id,
+                    dataset_item_id=dataset_item_id,
+                    task_id=task.id,
+                    from_frame=from_frame,
+                    to_frame=to_frame,
+                )
             )
-        )
-    ).scalar_one() > 0
-    stmt = select(VideoFrameIndex).where(
-        VideoFrameIndex.dataset_item_id == dataset_item_id
-    )
-    if from_frame is not None:
-        stmt = stmt.where(VideoFrameIndex.frame_index >= from_frame)
-    if to_frame is not None:
-        stmt = stmt.where(VideoFrameIndex.frame_index <= to_frame)
-    rows = (
-        (await db.execute(stmt.order_by(VideoFrameIndex.frame_index.asc())))
-        .scalars()
-        .all()
-    )
+    except MediaFailure as exc:
+        raise media_http_error(exc) from None
+    has_timetable = bool(ctx.metadata.frame_timetable_frame_count) or bool(frames)
     body = TaskVideoFrameTimetableResponse(
         task_id=task.id,
         fps=ctx.metadata.fps,
@@ -180,13 +183,13 @@ async def get_video_frame_timetable(
         source="ffprobe" if has_timetable else "estimated",
         frames=[
             VideoFrameTimetableEntry(
-                frame_index=row.frame_index,
-                pts_ms=row.pts_ms,
-                is_keyframe=row.is_keyframe,
-                pict_type=row.pict_type,
-                byte_offset=row.byte_offset,
+                frame_index=frame.frame_index,
+                pts_ms=frame.pts_ms,
+                is_keyframe=frame.is_keyframe,
+                pict_type=frame.pict_type,
+                byte_offset=frame.byte_offset,
             )
-            for row in rows
+            for frame in frames
         ],
     )
     response.headers["Cache-Control"] = "private, max-age=3600"
@@ -204,15 +207,15 @@ async def get_video_chunks(
     to_frame: int | None = Query(default=None, ge=0),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
-    media_dispatcher: MediaJobDispatcher = Depends(get_media_job_dispatcher),
 ):
     task = await _visible_video_task_for_item(db, dataset_item_id, current_user)
-    ctx = await _VideoContextSqlAdapter(db).from_dataset_item(
-        dataset_item_id=dataset_item_id, task_id=task.id, project_id=task.project_id
+    ctx = await AssetsVideoContextReader(db).from_dataset_item(
+        dataset_item_id=dataset_item_id,
+        actor_id=current_user.id,
+        task_id=task.id,
+        project_id=task.project_id,
     )
-    return await list_video_chunks(
-        db, ctx, from_frame, to_frame, dispatcher=media_dispatcher
-    )
+    return await list_video_chunks(db, ctx, from_frame, to_frame)
 
 
 @router.get(
@@ -232,13 +235,15 @@ async def get_video_chunk(
     response: Response,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
-    media_dispatcher: MediaJobDispatcher = Depends(get_media_job_dispatcher),
 ):
     task = await _visible_video_task_for_item(db, dataset_item_id, current_user)
-    ctx = await _VideoContextSqlAdapter(db).from_dataset_item(
-        dataset_item_id=dataset_item_id, task_id=task.id, project_id=task.project_id
+    ctx = await AssetsVideoContextReader(db).from_dataset_item(
+        dataset_item_id=dataset_item_id,
+        actor_id=current_user.id,
+        task_id=task.id,
+        project_id=task.project_id,
     )
-    body = await get_video_chunk_asset(db, ctx, chunk_id, dispatcher=media_dispatcher)
+    body = await get_video_chunk_asset(db, ctx, chunk_id)
     if body.status == "pending":
         response.status_code = 202
         response.headers["Retry-After"] = str(body.retry_after or 3)
@@ -256,26 +261,34 @@ async def get_video_chunk_samples(
     current_user: User = Depends(get_current_user),
 ) -> VideoChunkSamplesResponse:
     task = await _visible_video_task_for_item(db, dataset_item_id, current_user)
-    await _VideoContextSqlAdapter(db).from_dataset_item(
-        dataset_item_id=dataset_item_id, task_id=task.id, project_id=task.project_id
+    await AssetsVideoContextReader(db).from_dataset_item(
+        dataset_item_id=dataset_item_id,
+        actor_id=current_user.id,
+        task_id=task.id,
+        project_id=task.project_id,
     )
-    row = await db.scalar(
-        select(VideoChunk).where(
-            VideoChunk.dataset_item_id == dataset_item_id,
-            VideoChunk.chunk_id == chunk_id,
-        )
-    )
-    if row is None or not row.diagnostics or "samples" not in row.diagnostics:
-        raise HTTPException(status_code=404, detail="samples_not_available")
-    d = row.diagnostics
+    try:
+        async with media_gateway(db) as gateway:
+            document = await gateway.read_samples_document(
+                SamplesRequest(
+                    actor_id=current_user.id,
+                    dataset_item_id=dataset_item_id,
+                    task_id=task.id,
+                    chunk_id=chunk_id,
+                )
+            )
+    except MediaFailure as exc:
+        raise media_http_error(exc) from None
     return VideoChunkSamplesResponse(
         dataset_item_id=dataset_item_id,
         chunk_id=chunk_id,
-        codec_string=d.get("codec_string", "avc1.4d001e"),
-        description=d.get("description"),
-        width=d.get("width", 0),
-        height=d.get("height", 0),
-        samples=[VideoChunkSampleOut(**s) for s in d["samples"]],
+        codec_string=document.codec_string,
+        description=document.description,
+        width=document.width,
+        height=document.height,
+        samples=[
+            VideoChunkSampleOut.model_validate(sample) for sample in document.samples
+        ],
     )
 
 
@@ -298,15 +311,15 @@ async def get_video_frame(
     w: int = Query(default=512, ge=1, le=4096),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
-    media_dispatcher: MediaJobDispatcher = Depends(get_media_job_dispatcher),
 ):
     task = await _visible_video_task_for_item(db, dataset_item_id, current_user)
-    ctx = await _VideoContextSqlAdapter(db).from_dataset_item(
-        dataset_item_id=dataset_item_id, task_id=task.id, project_id=task.project_id
+    ctx = await AssetsVideoContextReader(db).from_dataset_item(
+        dataset_item_id=dataset_item_id,
+        actor_id=current_user.id,
+        task_id=task.id,
+        project_id=task.project_id,
     )
-    body = await get_video_frame_asset(
-        db, ctx, frame_index, w, format, dispatcher=media_dispatcher
-    )
+    body = await get_video_frame_asset(db, ctx, frame_index, w, format)
     if body.status == "pending":
         response.status_code = 202
         response.headers["Retry-After"] = str(body.retry_after or 3)
@@ -325,11 +338,13 @@ async def prefetch_video_frame_assets(
     payload: VideoFramePrefetchRequest,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
-    media_dispatcher: MediaJobDispatcher = Depends(get_media_job_dispatcher),
 ):
     task = await _visible_video_task_for_item(db, dataset_item_id, current_user)
-    ctx = await _VideoContextSqlAdapter(db).from_dataset_item(
-        dataset_item_id=dataset_item_id, task_id=task.id, project_id=task.project_id
+    ctx = await AssetsVideoContextReader(db).from_dataset_item(
+        dataset_item_id=dataset_item_id,
+        actor_id=current_user.id,
+        task_id=task.id,
+        project_id=task.project_id,
     )
     return await prefetch_video_frames(
         db,
@@ -337,7 +352,6 @@ async def prefetch_video_frame_assets(
         payload.frame_indices,
         payload.width,
         payload.format,
-        dispatcher=media_dispatcher,
     )
 
 
@@ -350,11 +364,13 @@ async def retry_video_frame_assets(
     payload: VideoFrameRetryRequest,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
-    media_dispatcher: MediaJobDispatcher = Depends(get_media_job_dispatcher),
 ):
     task = await _visible_video_task_for_item(db, dataset_item_id, current_user)
-    ctx = await _VideoContextSqlAdapter(db).from_dataset_item(
-        dataset_item_id=dataset_item_id, task_id=task.id, project_id=task.project_id
+    ctx = await AssetsVideoContextReader(db).from_dataset_item(
+        dataset_item_id=dataset_item_id,
+        actor_id=current_user.id,
+        task_id=task.id,
+        project_id=task.project_id,
     )
     return await retry_video_frames(
         db,
@@ -362,7 +378,6 @@ async def retry_video_frame_assets(
         payload.frame_indices,
         payload.width,
         payload.format,
-        dispatcher=media_dispatcher,
         force=payload.force,
     )
 

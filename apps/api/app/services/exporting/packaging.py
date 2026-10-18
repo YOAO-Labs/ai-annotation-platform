@@ -36,6 +36,7 @@ from typing import Any, AsyncIterator
 import numpy as np
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from aap_assets_media.contract import InternalSourceRequest
 
 from app.db.models.annotation import Annotation
 from app.db.models.project import Project
@@ -99,6 +100,7 @@ from aap_workspace_contract import (
 from app.services.assets_spatial import AssetsSpatialGateway
 from app.services.labeling_scene import read_spatial_item_facts
 from app.services.storage import storage_service
+from app.services.assets_media import media_gateway
 from app.services.mask_formats.catalog import registry as mask_format_registry
 from app.services.mask_formats.image_export import (
     write_binary_png_export,
@@ -1913,13 +1915,6 @@ def _video_seq_name(task: Task, item: SpatialItem | None) -> str:
     return _label_rel(task, item)
 
 
-def _video_meta(item: SpatialItem | None) -> dict:
-    if not item:
-        return {}
-    v = (item.metadata or {}).get("video")
-    return v if isinstance(v, dict) else {}
-
-
 async def _build_video_export_zip(
     svc: ExportService,
     project,
@@ -2056,13 +2051,32 @@ async def _build_video_export_zip(
                     dataset_items.get(t.dataset_item_id) if t.dataset_item_id else None
                 )
                 seq = _video_seq_name(t, item)
-                vmeta = _video_meta(item)
+                if item is not None and t.dataset_item_id is not None:
+                    async with media_gateway(svc.db) as gateway:
+                        source_reference = await gateway.internal_source_reference(
+                            InternalSourceRequest(dataset_item_id=item.id),
+                            expires_in=PRESIGN_EXPIRES_SECONDS,
+                        )
+                    media_source = source_reference.source
+                else:
+                    source_reference = None
+                    media_source = None
+                source_is_current = media_source is not None and (
+                    not media_source.source_drifted
+                    and media_source.materialized_generation
+                    == media_source.source_generation
+                )
+                vmeta = media_source.video_metadata if source_is_current else {}
                 source_fps = vmeta.get("fps")
                 img_w = int(
-                    (item.width if item else None) or vmeta.get("width") or FALLBACK_W
+                    (media_source.width if media_source else None)
+                    or vmeta.get("width")
+                    or FALLBACK_W
                 )
                 img_h = int(
-                    (item.height if item else None) or vmeta.get("height") or FALLBACK_H
+                    (media_source.height if media_source else None)
+                    or vmeta.get("height")
+                    or FALLBACK_H
                 )
                 step = derive_step(source_fps, sampling)
 
@@ -2365,15 +2379,29 @@ async def _build_video_export_zip(
                 # manifest 视频条目（含网格帧号供 fetch_frames.py 抽帧）。
                 dataset_name = _dataset_name_for_task(t, item)
                 video_source = video_source_contract(
-                    project, t, item, vmeta, video_scope
+                    project,
+                    t,
+                    item,
+                    vmeta,
+                    video_scope,
+                    source_file_path=(
+                        media_source.file_path if media_source is not None else None
+                    ),
+                    source_content_hash=(
+                        media_source.content_hash if media_source is not None else None
+                    ),
                 )
                 video_rel = relative_path_from_file_path(
                     video_source["source_key"], dataset_name
                 )
-                presigned = storage_service.generate_download_url(
-                    video_source["source_key"],
-                    expires_in=PRESIGN_EXPIRES_SECONDS,
-                    bucket=storage_service.datasets_bucket,
+                presigned = (
+                    source_reference.original_url
+                    if source_reference is not None
+                    else storage_service.generate_download_url(
+                        video_source["source_key"],
+                        expires_in=PRESIGN_EXPIRES_SECONDS,
+                        bucket=storage_service.bucket,
+                    )
                 )
                 frame_output_dirs: list[str] = []
                 if has_mot or has_kitti:

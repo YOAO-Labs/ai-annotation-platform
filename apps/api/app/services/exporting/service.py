@@ -177,14 +177,6 @@ def _bbox_geometry(annotation: Annotation) -> dict | None:
     return geometry
 
 
-def _video_metadata(item: SpatialItem | None) -> dict:
-    if not item:
-        return {}
-    metadata = item.metadata or {}
-    video = metadata.get("video")
-    return video if isinstance(video, dict) else {}
-
-
 def _clean_video_single_frame_geometry(geometry: dict) -> dict:
     """单帧视频几何 → video_json 行。与 track 侧 ``clean_keyframe`` 对称：
     按存在的形状键保留 —— polygon/polyline 出 ``points``，bbox 出 ``bbox``。
@@ -313,6 +305,17 @@ class ExportService:
     ) -> None:
         self.db = db
         self.task_ids = task_ids
+
+    async def _video_source(self, dataset_item_id: uuid.UUID):
+        from aap_assets_media.contract import InternalSourceRequest
+
+        from app.services.assets_media import media_gateway
+
+        async with media_gateway(self.db) as gateway:
+            return await gateway.call(
+                "resolve_internal_media_source",
+                InternalSourceRequest(dataset_item_id=dataset_item_id),
+            )
 
     async def _load_data(
         self,
@@ -596,7 +599,17 @@ class ExportService:
                 if task.dataset_item_id
                 else None
             )
-            video = _video_metadata(item)
+            media_source = (
+                await self._video_source(task.dataset_item_id)
+                if task.dataset_item_id is not None and task.file_type == "video"
+                else None
+            )
+            source_is_current = media_source is not None and (
+                not media_source.source_drifted
+                and media_source.materialized_generation
+                == media_source.source_generation
+            )
+            video = media_source.video_metadata if source_is_current else {}
             video_metadata_by_task[task.id] = video
             exported_tasks.append(
                 {
@@ -609,7 +622,19 @@ class ExportService:
                     "batch_id": str(task.batch_id) if task.batch_id else None,
                     "video_metadata": video,
                     "source": video_source_contract(
-                        project, task, item, video, video_scope
+                        project,
+                        task,
+                        item,
+                        video,
+                        video_scope,
+                        source_file_path=(
+                            media_source.file_path if media_source is not None else None
+                        ),
+                        source_content_hash=(
+                            media_source.content_hash
+                            if media_source is not None
+                            else None
+                        ),
                     ),
                     "order": index,
                 }
@@ -1236,9 +1261,33 @@ class ExportService:
                 item = (
                     dataset_items.get(t.dataset_item_id) if t.dataset_item_id else None
                 )
-                vmeta = _video_metadata(item)
+                media_source = (
+                    await self._video_source(t.dataset_item_id)
+                    if t.dataset_item_id is not None
+                    else None
+                )
+                source_is_current = media_source is not None and (
+                    not media_source.source_drifted
+                    and media_source.materialized_generation
+                    == media_source.source_generation
+                )
+                vmeta = media_source.video_metadata if source_is_current else {}
                 video_block = {
-                    **video_source_contract(project, t, item, vmeta, video_scope),
+                    **video_source_contract(
+                        project,
+                        t,
+                        item,
+                        vmeta,
+                        video_scope,
+                        source_file_path=(
+                            media_source.file_path if media_source is not None else None
+                        ),
+                        source_content_hash=(
+                            media_source.content_hash
+                            if media_source is not None
+                            else None
+                        ),
+                    ),
                     "fps": vmeta.get("fps"),
                     "frame_count": vmeta.get("frame_count"),
                     "duration_ms": vmeta.get("duration_ms"),

@@ -3,9 +3,11 @@ import logging
 import uuid
 from collections.abc import Iterable
 from datetime import datetime, timezone
+from typing import Any
 from fastapi import Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from aap_assets_media.contract import MediaFailure, ReadSourceRequest
 
 from app.db.enums import UserRole
 from app.db.models.user import User
@@ -28,10 +30,46 @@ from app.services.workspace_contract import (
 from app.services.project_access import resolve_project_access
 from app.services.storage import storage_service
 from app.db.models.project_member import ProjectMember
-from app.services.assets_media_summary import SqlAlchemyTaskMediaSummaryReader
+from app.services.assets_media_summary import AssetsTaskMediaSummaryReader
 from app.services.assets_media_summary_contract import TaskMediaSummary
+from app.services.assets_media import media_gateway
 
 logger = logging.getLogger(__name__)
+
+
+async def _linked_source_references(
+    db: AsyncSession,
+    tasks: list[Task],
+    *,
+    actor_id: uuid.UUID,
+) -> dict[uuid.UUID, Any]:
+    """Resolve linked source URLs through Assets; standalone Tasks keep StorageService."""
+    selected = [task for task in tasks if task.dataset_item_id is not None]
+    if not selected:
+        return {}
+    requests = [
+        ReadSourceRequest(
+            actor_id=actor_id,
+            dataset_item_id=task.dataset_item_id,
+            task_id=task.id,
+        )
+        for task in selected
+    ]
+    try:
+        async with media_gateway(db) as gateway:
+            references = await gateway.source_references(requests, raw_only=True)
+    except MediaFailure:
+        return {task.id: None for task in selected}
+    if len(references) != len(selected) or any(
+        reference.source.dataset_item_id != task.dataset_item_id
+        for task, reference in zip(selected, references, strict=False)
+    ):
+        return {task.id: None for task in selected}
+    return {
+        task.id: reference for task, reference in zip(selected, references, strict=True)
+    }
+
+
 VIDEO_MANIFEST_URL_EXPIRES_IN = 3600
 
 _ANNOTATORS = (
@@ -242,6 +280,8 @@ def _task_with_url(
     video_metadata: dict | None = None,
     image_pyramid: ImagePyramidSummary | None = None,
     briefs: dict | None = None,
+    owner_source_reference: Any = None,
+    owner_source_reference_loaded: bool = False,
 ) -> TaskOut:
     """v0.8.8 · 由手写 dict 改为 ``TaskOut.model_validate`` + 动态字段注入。
 
@@ -255,18 +295,66 @@ def _task_with_url(
     * ``assignee`` / ``reviewer`` (UserBrief) —— 调用方批量解析后传入
       ``briefs={str(user_id): UserBrief}``
     """
+    owner_source = (
+        owner_source_reference.source if owner_source_reference is not None else None
+    )
+    owner_source_current = False
     bucket = (
         storage_service.datasets_bucket
         if task.dataset_item_id or task.file_type == "point_cloud"
         else storage_service.bucket
     )
-    try:
-        file_url = storage_service.generate_download_url(task.file_path, bucket=bucket)
-    except Exception:
-        file_url = None
+    if owner_source_reference_loaded:
+        file_url = (
+            owner_source_reference.original_url
+            if owner_source is not None and not owner_source.source_drifted
+            else None
+        )
+        if owner_source is not None:
+            if owner_source.file_type == "video":
+                owner_source_current = (
+                    not owner_source.source_drifted
+                    and owner_source.materialized_generation
+                    == owner_source.source_generation
+                )
+                video_metadata = (
+                    owner_source.video_metadata if owner_source_current else None
+                )
+                if owner_source_current:
+                    width = owner_source.width or width
+                    height = owner_source.height or height
+                else:
+                    width = None
+                    height = None
+            else:
+                video_metadata = None
+        else:
+            video_metadata = None
+    else:
+        try:
+            file_url = storage_service.generate_download_url(
+                task.file_path, bucket=bucket
+            )
+        except Exception:
+            file_url = None
 
     thumbnail_url: str | None = None
-    if thumbnail_path:
+    if owner_source_reference_loaded:
+        if owner_source is not None and owner_source.file_type == "video":
+            thumbnail_url = (
+                owner_source_reference.poster_url if owner_source_current else None
+            )
+        elif owner_source is not None and thumbnail_path:
+            thumb_bucket = storage_service.bucket_for_cache_key(
+                thumbnail_path, default=bucket
+            )
+            try:
+                thumbnail_url = storage_service.generate_download_url(
+                    thumbnail_path, bucket=thumb_bucket
+                )
+            except Exception:
+                pass
+    elif thumbnail_path:
         # v0.10.17 · thumbnails/* 走 media-cache 桶,其它(如旧路径)按 helper 默认走 datasets
         thumb_bucket = storage_service.bucket_for_cache_key(
             thumbnail_path, default=bucket
@@ -301,7 +389,7 @@ async def _attach_dimensions(
     task: Task,
 ) -> TaskMediaSummary:
     if task.dataset_item_id:
-        summary = await SqlAlchemyTaskMediaSummaryReader(db).one(task.dataset_item_id)
+        summary = await AssetsTaskMediaSummaryReader(db).one(task.dataset_item_id)
         if summary is not None:
             return summary
     return None, None, task.thumbnail_path, task.blurhash, None
@@ -310,7 +398,7 @@ async def _attach_dimensions(
 async def _video_frame_count(db: AsyncSession, task: Task) -> int | None:
     if not task.dataset_item_id:
         return None
-    return await SqlAlchemyTaskMediaSummaryReader(db).video_frame_count(
+    return await AssetsTaskMediaSummaryReader(db).video_frame_count(
         task.dataset_item_id
     )
 
@@ -323,7 +411,7 @@ async def _attach_dimensions_batch(
 
     item_ids = [t.dataset_item_id for t in tasks if t.dataset_item_id]
     if item_ids:
-        item_data = await SqlAlchemyTaskMediaSummaryReader(db).many(tuple(item_ids))
+        item_data = await AssetsTaskMediaSummaryReader(db).many(tuple(item_ids))
         for t in tasks:
             if t.dataset_item_id:
                 result[t.id] = item_data.get(

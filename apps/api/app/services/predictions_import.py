@@ -632,10 +632,13 @@ def _entry_to_ls_shapes(
 async def _source_video_frame_count(db: AsyncSession, task: Any) -> int:
     if task.file_type != "video" or task.dataset_item_id is None:
         raise ValueError("video prediction requires a video task and dataset item")
-    item = await db.get(DatasetItem, task.dataset_item_id)
-    if item is None or item.file_type != "video":
+    from app.services.assets_media_summary import AssetsTaskMediaSummaryReader
+
+    video = await AssetsTaskMediaSummaryReader(db).current_video_metadata(
+        task.dataset_item_id
+    )
+    if video is None:
         raise ValueError("video prediction requires a video task and dataset item")
-    video = (item.metadata_ or {}).get("video")
     raw = video.get("frame_count") if isinstance(video, dict) else None
     if isinstance(raw, bool):
         raw = None

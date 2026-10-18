@@ -14,7 +14,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.annotation import Annotation
 from app.db.models.async_job import AsyncJob, AsyncJobKind
-from app.db.models.dataset import DatasetItem
 from app.db.models.mask_qc import MaskQCIssue, MaskQCRun
 from app.db.models.project import Project
 from app.db.models.task import Task
@@ -262,14 +261,18 @@ async def _task_frame_counts(
         return {}
     rows = (
         await db.execute(
-            select(Task.id, DatasetItem.metadata_)
-            .outerjoin(DatasetItem, DatasetItem.id == Task.dataset_item_id)
-            .where(Task.id.in_(task_ids))
+            select(Task.id, Task.dataset_item_id).where(Task.id.in_(task_ids))
         )
     ).all()
+    item_ids = tuple(item_id for _task_id, item_id in rows if item_id is not None)
+    from app.services.assets_media_summary import AssetsTaskMediaSummaryReader
+
+    summaries = await AssetsTaskMediaSummaryReader(db).current_video_metadata_many(
+        item_ids
+    )
     counts: dict[uuid.UUID, int] = {}
-    for task_id, metadata in rows:
-        video = metadata.get("video") if isinstance(metadata, dict) else None
+    for task_id, item_id in rows:
+        video = summaries.get(item_id) if item_id is not None else None
         value = video.get("frame_count") if isinstance(video, dict) else None
         if isinstance(value, int) and value > 0:
             counts[task_id] = value

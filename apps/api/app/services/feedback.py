@@ -69,6 +69,7 @@ class FeedbackService:
             )
             if not inherits_anchor:
                 await self._validate_video_context(
+                    actor_id=author_id,
                     anchor_type=anchor_type,
                     project_id=project_id,
                     task_id=task_id,
@@ -100,6 +101,7 @@ class FeedbackService:
     async def _validate_video_context(
         self,
         *,
+        actor_id: uuid.UUID,
         anchor_type: str,
         project_id: uuid.UUID,
         task_id: uuid.UUID | None,
@@ -157,9 +159,10 @@ class FeedbackService:
                 )
             # annotation_version is the captured version, not an optimistic-lock precondition.
 
-        from app.services.video_frame_service import _VideoContextSqlAdapter
+        from app.services.video_frame_service import AssetsVideoContextReader
 
-        media = await _VideoContextSqlAdapter(self.db).from_task(
+        media = await AssetsVideoContextReader(self.db).from_task(
+            actor_id=actor_id,
             task_id=task.id,
             project_id=task.project_id,
             file_type=task.file_type,

@@ -34,7 +34,7 @@ from app.services.video_collaboration import (
     segment_work_bounds_for_task,
 )
 from app.services.video_context import derive_step
-from app.services.video_frame_service import _VideoContextSqlAdapter
+from app.services.video_frame_service import AssetsVideoContextReader
 from app.services.video_tracks import resolve_track_at_frame
 from app.vendor.trackeval_metrics import evaluate_sequence
 
@@ -68,6 +68,7 @@ def geometry_family(geometry: dict) -> str | None:
 async def _boundary(
     db: AsyncSession,
     *,
+    actor_id: uuid.UUID,
     task: Task,
     left_segment_id: uuid.UUID,
     right_segment_id: uuid.UUID,
@@ -111,7 +112,8 @@ async def _boundary(
     start, end = max(left_start, right_start), min(left_end, right_end)
     if video_metadata is None:
         video_metadata = (
-            await _VideoContextSqlAdapter(db).from_task(
+            await AssetsVideoContextReader(db).from_task(
+                actor_id=actor_id,
                 task_id=task.id,
                 project_id=task.project_id,
                 file_type=task.file_type,
@@ -173,6 +175,7 @@ async def create_quality_run(
 ) -> tuple[VideoTrackQualityRun, AsyncJob | None, bool]:
     left, right, frames = await _boundary(
         db,
+        actor_id=actor_id,
         task=task,
         left_segment_id=left_segment_id,
         right_segment_id=right_segment_id,
@@ -536,7 +539,7 @@ async def evaluate_run(
         if geometry_family(row.geometry) in {"bbox", "polygon", "mask"}
     ]
     frames = [int(value) for value in (run.metrics or {}).get("sampling_frames") or []]
-    ctx = await _VideoContextSqlAdapter(db).from_task(
+    ctx = await AssetsVideoContextReader(db).from_task_summary(
         task_id=task.id,
         project_id=task.project_id,
         file_type=task.file_type,

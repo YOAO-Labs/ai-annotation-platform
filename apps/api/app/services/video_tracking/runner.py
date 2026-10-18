@@ -18,7 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.db.models.annotation import Annotation
-from app.db.models.dataset import DatasetItem, VideoSegment
+from app.db.models.dataset import VideoSegment
 from app.db.models.mask_qc import MaskQCIssue
 from app.db.models.mask_review_scope import MaskReviewScope
 from app.db.models.project import Project
@@ -2502,9 +2502,13 @@ async def run_tracker_job(
         task = await db.get(Task, job.task_id)
         if task is None:
             raise ValueError("Task not found")
-        item = await db.get(DatasetItem, job.dataset_item_id)
-        if item is None:
-            raise ValueError("Dataset item not found")
+        from app.services.assets_media_summary import AssetsTaskMediaSummaryReader
+
+        source_video = await AssetsTaskMediaSummaryReader(db).current_video_metadata(
+            job.dataset_item_id
+        )
+        if source_video is None:
+            raise ValueError("Video metadata not ready")
         is_correction = job.job_kind == VideoTrackerJobKind.CORRECTION.value
         correction_seeds = (
             await _correction_seed(db, job, annotation)
@@ -2563,7 +2567,7 @@ async def run_tracker_job(
 
         # 采样网格步长：只回填网格帧（见 apply_tracker_results）。
         project = await db.get(Project, task.project_id)
-        source_fps = ((item.metadata_ or {}).get("video") or {}).get("fps")
+        source_fps = source_video.get("fps")
         grid_step = derive_step(
             source_fps, (project.video_sampling or {}) if project else {}
         )
@@ -2660,9 +2664,9 @@ async def run_tracker_job(
         task_data = {
             "id": str(task.id),
             "file_path": resolve_task_url(task),
-            "dataset_item_id": str(item.id),
-            "file_name": item.file_name,
-            "file_type": item.file_type,
+            "dataset_item_id": str(task.dataset_item_id),
+            "file_name": task.file_name,
+            "file_type": task.file_type,
         }
 
         # Cross-window continuation: window 1 seeds from the original keyframe,

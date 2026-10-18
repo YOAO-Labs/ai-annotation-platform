@@ -80,6 +80,7 @@ async def preflight_mask_format_export(
     body: MaskFormatExportPreflightRequest,
     project: Project = Depends(require_project_visible),
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
     _access: ProjectAccess = Depends(
         require_project_capability(ProjectCapability.EXPORT_ANNOTATIONS.value)
     ),
@@ -89,6 +90,7 @@ async def preflight_mask_format_export(
     try:
         video_scope = await normalize_video_export_scope(
             db,
+            actor_id=current_user.id,
             project=project,
             request=body.scope,
         )

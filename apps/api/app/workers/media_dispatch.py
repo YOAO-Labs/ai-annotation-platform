@@ -1,10 +1,8 @@
-"""Celery producer adapter for the media-job execution port."""
+"""Celery producer adapter for image and task thumbnail jobs."""
 
 from __future__ import annotations
 
 from uuid import UUID
-
-from app.services.media_job_dispatch import VideoFrameRequest
 
 
 class CeleryMediaJobDispatcher:
@@ -14,11 +12,6 @@ class CeleryMediaJobDispatcher:
         from app.workers.media import generate_thumbnail
 
         generate_thumbnail.delay(str(item_id))
-
-    def dispatch_video_metadata(self, item_id: UUID) -> None:
-        from app.workers.media import generate_video_metadata
-
-        generate_video_metadata.delay(str(item_id))
 
     def dispatch_task_thumbnail(self, task_id: UUID) -> None:
         from app.workers.media import generate_task_thumbnail
@@ -30,15 +23,3 @@ class CeleryMediaJobDispatcher:
 
         result = backfill_tasks.delay(str(project_id))
         return str(result.id)
-
-    def dispatch_video_chunks(self, item_id: UUID, chunk_ids: list[int]) -> None:
-        from app.workers.media import ensure_video_chunks
-
-        ensure_video_chunks.delay(str(item_id), chunk_ids)
-
-    def dispatch_video_frames(
-        self, item_id: UUID, requests: list[VideoFrameRequest]
-    ) -> None:
-        from app.workers.media import extract_video_frames
-
-        extract_video_frames.delay(str(item_id), requests)

@@ -25,7 +25,8 @@ from app.services.video_tracking.runner import (
     discard_tracker_job,
     run_tracker_job,
 )
-from app.services.video_frame_service import _VideoContextSqlAdapter
+from app.services.video_context import VideoContext
+from app.schemas.task import VideoMetadata
 
 
 class _TrackerJobDispatcher:
@@ -37,11 +38,19 @@ _TRACKER_JOB_DISPATCHER = _TrackerJobDispatcher()
 
 
 async def _video_context(db, task):
-    return await _VideoContextSqlAdapter(db).from_task(
+    item = await db.get(DatasetItem, task.dataset_item_id)
+    return VideoContext(
+        metadata=VideoMetadata.model_validate(
+            (item.metadata_ or {}).get("video") or {}
+        ),
+        dataset_item_id=item.id,
+        source_file_path=item.file_path,
+        thumbnail_path=item.thumbnail_path,
+        source_width=item.width,
+        source_height=item.height,
         task_id=task.id,
         project_id=task.project_id,
-        file_type=task.file_type,
-        dataset_item_id=task.dataset_item_id,
+        actor_id=task.assignee_id or uuid.UUID(int=1),
     )
 
 

@@ -32,7 +32,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.services import task_access
 from app.config import settings
 from app.db.models.annotation import Annotation
-from app.db.models.dataset import DatasetItem
 from app.db.models.raster_mask_upload import RasterMaskUpload
 from app.db.models.project import Project
 from app.db.models.task import Task
@@ -322,12 +321,21 @@ async def upload_task_mask_content(
         if requested_storage not in (None, "identity", RLE_STORAGE_GZIP):
             raise ValueError("storage_encoding must be 'identity' or 'gzip'")
         size = payload.get("size")
-        item = (
-            await db.get(DatasetItem, task.dataset_item_id)
-            if task.dataset_item_id is not None
-            else None
-        )
-        source_file_type = item.file_type if item is not None else task.file_type
+        source_summary = None
+        if task.dataset_item_id is not None:
+            from app.services.assets_media_summary import AssetsTaskMediaSummaryReader
+
+            summary_reader = AssetsTaskMediaSummaryReader(db)
+            if task.file_type == "video":
+                video_summary = await summary_reader.current_video_summary(
+                    task.dataset_item_id
+                )
+                if video_summary is not None:
+                    width, height, video = video_summary
+                    source_summary = (width, height, None, None, video)
+            else:
+                source_summary = await summary_reader.one(task.dataset_item_id)
+        source_file_type = task.file_type
         if source_file_type != "video":
             project = await db.get(Project, task.project_id)
             assert_raster_mask_write_enabled(project)
@@ -367,11 +375,10 @@ async def upload_task_mask_content(
                     max_dimension=max_dimension,
                     max_pixels=max_pixels,
                 )
-        if item is not None:
-            video = (item.metadata_ or {}).get("video")
-            video = video if isinstance(video, dict) else {}
-            width = item.width or video.get("width")
-            height = item.height or video.get("height")
+        if source_summary is not None:
+            video = source_summary[4] or {}
+            width = source_summary[0] or video.get("width")
+            height = source_summary[1] or video.get("height")
             if width and height and size != [int(height), int(width)]:
                 raise ValueError(
                     f"mask size must match source media [{height}, {width}]"

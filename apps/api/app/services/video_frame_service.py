@@ -1,83 +1,63 @@
+"""API-side video media composition over the independent Assets media owner."""
+
 from __future__ import annotations
 
-import io
 import logging
 import uuid
-from collections import OrderedDict
 from contextlib import suppress
-from datetime import datetime, timedelta, timezone
+from dataclasses import dataclass
 from typing import Any, Literal
 
-from botocore.exceptions import BotoCoreError, ClientError
 from fastapi import HTTPException
-from sqlalchemy import select
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.config import settings
-from app.db.models.dataset import (
-    DatasetItem,
-    VideoChunk,
-    VideoFrameCache,
-    VideoFrameIndex,
+from aap_assets_media.contract import (
+    AssetsRequest,
+    ChunkSelection,
+    FrameSelection,
+    InternalSourceRequest,
+    MediaAsset,
+    MediaFailure,
+    MediaPreferences,
+    MediaSource,
+    ReadSourceRequest,
+    UsageRequest,
 )
+
+from app.config import settings
 from app.observability.metrics import (
     VIDEO_CHUNK_REQUESTS_TOTAL,
     VIDEO_FRAME_CACHE_TOTAL,
 )
 from app.schemas.task import VideoMetadata
 from app.schemas.video_frame_service import (
+    VideoChunkDiagnostics,
     VideoChunkOut,
     VideoChunksResponse,
     VideoFrameOut,
     VideoFramePrefetchResponse,
     VideoManifestV2Response,
 )
-from app.services.media_job_dispatch import MediaJobDispatcher, VideoFrameRequest
-from app.services.storage import storage_service
-from app.services.system_settings_service import SystemSettingsService
+from app.services.assets_media import media_gateway, media_http_error
 from app.services import video_context
 from app.services.video_context_contract import VideoContextReader
 
-
 FrameFormat = Literal["webp", "jpeg"]
-_FRAME_ARRAY_CACHE: OrderedDict[tuple[uuid.UUID, int, int, str], Any] = OrderedDict()
-PENDING_FRAME_REQUEUE_AFTER = timedelta(seconds=30)
+_ASSET_PAGE_SIZE = 500
 log = logging.getLogger(__name__)
 
 
-def _now() -> datetime:
-    return datetime.now(timezone.utc)
-
-
-def _video_meta(item: DatasetItem) -> VideoMetadata:
-    raw = (item.metadata_ or {}).get("video") or {}
-    return VideoMetadata.model_validate(raw)
-
-
-def _ensure_video_item(item: DatasetItem | None) -> DatasetItem:
-    if not item or item.file_type != "video":
-        raise HTTPException(status_code=404, detail="Video not found")
-    return item
+@dataclass(frozen=True)
+class _AssetReferences:
+    source: MediaSource
+    assets: list[MediaAsset]
+    video_url: str | None
+    expires_in: int
 
 
 def _metadata_ready(metadata: VideoMetadata) -> None:
     if not metadata.fps or not metadata.frame_count:
         raise HTTPException(status_code=503, detail="Video metadata not ready")
-
-
-def reset_chunk_retry_state(row: VideoChunk) -> None:
-    """Reset generated fields without changing the chunk's locator or payload."""
-    row.status = "pending"
-    row.error = None
-    row.generation_mode = None
-    row.diagnostics = {}
-
-
-def reset_frame_retry_state(row: VideoFrameCache) -> None:
-    """Reset a cached frame failure while preserving its locator and payload."""
-    row.status = "pending"
-    row.error = None
 
 
 def _safe_frame_range(
@@ -103,57 +83,37 @@ def _last_chunk_id(metadata: VideoMetadata) -> int:
     return last_frame // size
 
 
-def _chunk_bounds(chunk_id: int, metadata: VideoMetadata) -> tuple[int, int]:
-    _metadata_ready(metadata)
-    size = max(1, settings.video_chunk_size_frames)
-    start = chunk_id * size
-    end = min(int(metadata.frame_count or 1) - 1, start + size - 1)
-    return start, end
-
-
-def _estimated_pts_ms(frame_index: int, metadata: VideoMetadata) -> int | None:
-    if not metadata.fps:
-        return None
-    return int(round((frame_index / metadata.fps) * 1000))
-
-
-def _source_key(source_file_path: str, metadata: VideoMetadata) -> str:
-    return metadata.playback_path or source_file_path
-
-
-def _asset_url(key: str) -> str:
-    try:
-        return storage_service.generate_download_url(
-            key,
-            expires_in=3600,
-            bucket=storage_service.bucket_for_cache_key(key),
-        )
-    except (BotoCoreError, ClientError) as exc:
-        raise HTTPException(
-            status_code=503, detail="Video storage unavailable"
-        ) from exc
-
-
-def _video_context_from_item(
-    item: DatasetItem,
+def _video_context_from_source(
+    source: MediaSource,
     *,
+    actor_id: uuid.UUID,
+    source_reference: Any,
     task_id: uuid.UUID | None,
     project_id: uuid.UUID | None,
 ) -> video_context.VideoContext:
+    is_current = (
+        not source.source_drifted
+        and source.materialized_generation == source.source_generation
+    )
     return video_context.VideoContext(
-        metadata=_video_meta(item),
-        dataset_item_id=item.id,
-        source_file_path=item.file_path,
-        thumbnail_path=item.thumbnail_path,
-        source_width=item.width,
-        source_height=item.height,
+        metadata=VideoMetadata.model_validate(
+            source.video_metadata if is_current else {}
+        ),
+        dataset_item_id=source.dataset_item_id,
+        source_file_path=source.file_path,
+        thumbnail_path=source.thumbnail_path,
+        source_width=source.width,
+        source_height=source.height,
         task_id=task_id,
         project_id=project_id,
+        actor_id=actor_id,
+        source_reference=source_reference,
+        source_snapshot=source.source_snapshot,
     )
 
 
-class _VideoContextSqlAdapter(VideoContextReader):
-    """Bind the value reader to the caller's existing database session."""
+class AssetsVideoContextReader(VideoContextReader):
+    """Read video source state from Assets; retain only known Task facts locally."""
 
     def __init__(self, db: AsyncSession) -> None:
         self._db = db
@@ -161,6 +121,7 @@ class _VideoContextSqlAdapter(VideoContextReader):
     async def from_task(
         self,
         *,
+        actor_id: uuid.UUID,
         task_id: uuid.UUID,
         project_id: uuid.UUID,
         file_type: str,
@@ -168,178 +129,261 @@ class _VideoContextSqlAdapter(VideoContextReader):
     ) -> video_context.VideoContext:
         if file_type != "video" or not dataset_item_id:
             raise HTTPException(status_code=400, detail="Task is not a video task")
-        item = _ensure_video_item(await self._db.get(DatasetItem, dataset_item_id))
-        return _video_context_from_item(item, task_id=task_id, project_id=project_id)
+        return await self.from_dataset_item(
+            actor_id=actor_id,
+            dataset_item_id=dataset_item_id,
+            task_id=task_id,
+            project_id=project_id,
+        )
 
     async def from_dataset_item(
         self,
         *,
+        actor_id: uuid.UUID,
         dataset_item_id: uuid.UUID,
         task_id: uuid.UUID | None = None,
         project_id: uuid.UUID | None = None,
     ) -> video_context.VideoContext:
-        item = _ensure_video_item(await self._db.get(DatasetItem, dataset_item_id))
-        return _video_context_from_item(item, task_id=task_id, project_id=project_id)
+        try:
+            async with media_gateway(self._db) as gateway:
+                reference = await gateway.source_reference(
+                    ReadSourceRequest(
+                        actor_id=actor_id,
+                        dataset_item_id=dataset_item_id,
+                        task_id=task_id,
+                    )
+                )
+        except MediaFailure as exc:
+            raise media_http_error(exc) from None
+        if reference.source.file_type != "video":
+            raise HTTPException(status_code=404, detail="Video not found")
+        return _video_context_from_source(
+            reference.source,
+            actor_id=actor_id,
+            source_reference=reference,
+            task_id=task_id,
+            project_id=project_id,
+        )
 
-
-async def pts_ms_for_frame(
-    db: AsyncSession,
-    dataset_item_id: uuid.UUID,
-    frame_index: int,
-    metadata: VideoMetadata,
-) -> int | None:
-    exact_pts = (
-        select(VideoFrameIndex.pts_ms)
-        .where(
-            VideoFrameIndex.dataset_item_id == dataset_item_id,
-            VideoFrameIndex.frame_index == frame_index,
-        )
-        .limit(1)
-        .scalar_subquery()
-    )
-    previous_frame = (
-        select(VideoFrameIndex.frame_index)
-        .where(
-            VideoFrameIndex.dataset_item_id == dataset_item_id,
-            VideoFrameIndex.frame_index < frame_index,
-        )
-        .order_by(VideoFrameIndex.frame_index.desc())
-        .limit(1)
-        .scalar_subquery()
-    )
-    previous_pts = (
-        select(VideoFrameIndex.pts_ms)
-        .where(
-            VideoFrameIndex.dataset_item_id == dataset_item_id,
-            VideoFrameIndex.frame_index < frame_index,
-        )
-        .order_by(VideoFrameIndex.frame_index.desc())
-        .limit(1)
-        .scalar_subquery()
-    )
-    next_frame = (
-        select(VideoFrameIndex.frame_index)
-        .where(
-            VideoFrameIndex.dataset_item_id == dataset_item_id,
-            VideoFrameIndex.frame_index > frame_index,
-        )
-        .order_by(VideoFrameIndex.frame_index.asc())
-        .limit(1)
-        .scalar_subquery()
-    )
-    next_pts = (
-        select(VideoFrameIndex.pts_ms)
-        .where(
-            VideoFrameIndex.dataset_item_id == dataset_item_id,
-            VideoFrameIndex.frame_index > frame_index,
-        )
-        .order_by(VideoFrameIndex.frame_index.asc())
-        .limit(1)
-        .scalar_subquery()
-    )
-    row = (
-        await db.execute(
-            select(
-                exact_pts.label("exact_pts"),
-                previous_frame.label("previous_frame"),
-                previous_pts.label("previous_pts"),
-                next_frame.label("next_frame"),
-                next_pts.label("next_pts"),
+    async def from_task_summary(
+        self,
+        *,
+        actor_id: uuid.UUID | None = None,
+        task_id: uuid.UUID,
+        project_id: uuid.UUID,
+        file_type: str,
+        dataset_item_id: uuid.UUID | None,
+    ) -> video_context.VideoContext:
+        """Trusted accepted work reads metadata only; it never asks for a URL."""
+        if file_type != "video" or not dataset_item_id:
+            raise HTTPException(status_code=400, detail="Task is not a video task")
+        if actor_id is not None:
+            try:
+                async with media_gateway(self._db) as gateway:
+                    source = await gateway.call(
+                        "read_media_source",
+                        ReadSourceRequest(
+                            actor_id=actor_id,
+                            dataset_item_id=dataset_item_id,
+                            task_id=task_id,
+                        ),
+                    )
+            except MediaFailure as exc:
+                raise media_http_error(exc) from None
+            current = (
+                not source.source_drifted
+                and source.materialized_generation == source.source_generation
             )
+            return video_context.VideoContext(
+                metadata=VideoMetadata.model_validate(
+                    source.video_metadata if current else {}
+                ),
+                dataset_item_id=dataset_item_id,
+                source_file_path=source.file_path,
+                thumbnail_path=source.thumbnail_path,
+                source_width=source.width,
+                source_height=source.height,
+                task_id=task_id,
+                project_id=project_id,
+                actor_id=actor_id,
+                source_snapshot=source.source_snapshot,
+            )
+
+        try:
+            async with media_gateway(self._db) as gateway:
+                source = await gateway.call(
+                    "resolve_internal_media_source",
+                    InternalSourceRequest(dataset_item_id=dataset_item_id),
+                )
+        except MediaFailure as exc:
+            raise media_http_error(exc) from None
+        if source.dataset_item_id != dataset_item_id or source.file_type != "video":
+            raise HTTPException(status_code=404, detail="Video not found")
+        current = (
+            not source.source_drifted
+            and source.materialized_generation == source.source_generation
         )
-    ).one()
-    if row.exact_pts is not None:
-        return int(row.exact_pts)
-
-    anchors = [
-        (int(anchor_frame), int(anchor_pts))
-        for anchor_frame, anchor_pts in (
-            (row.previous_frame, row.previous_pts),
-            (row.next_frame, row.next_pts),
+        return video_context.VideoContext(
+            metadata=VideoMetadata.model_validate(
+                source.video_metadata if current else {}
+            ),
+            dataset_item_id=dataset_item_id,
+            source_file_path=source.file_path,
+            thumbnail_path=source.thumbnail_path,
+            source_width=source.width,
+            source_height=source.height,
+            task_id=task_id,
+            project_id=project_id,
+            source_snapshot=source.source_snapshot,
         )
-        if anchor_frame is not None and anchor_pts is not None
-    ]
-    return resolve_pts_ms_sparse(frame_index, anchors, metadata.fps, stride=1)
 
 
-async def _ensure_chunk_rows(
-    db: AsyncSession, ctx: video_context.VideoContext, chunk_ids: list[int]
-) -> tuple[list[VideoChunk], set[int]]:
-    """Return rows and IDs inserted here, excluding concurrent insert winners."""
-    existing = {
-        row.chunk_id: row
-        for row in (
-            await db.execute(
-                select(VideoChunk).where(
-                    VideoChunk.dataset_item_id == ctx.dataset_item_id,
-                    VideoChunk.chunk_id.in_(chunk_ids),
+def _actor_id(ctx: video_context.VideoContext) -> uuid.UUID:
+    if ctx.actor_id is None:
+        raise HTTPException(
+            status_code=500, detail="Video actor context is unavailable"
+        )
+    return ctx.actor_id
+
+
+def _selection_locators(selection: FrameSelection | ChunkSelection) -> list[int]:
+    return (
+        selection.frame_indices
+        if isinstance(selection, FrameSelection)
+        else selection.chunk_ids
+    )
+
+
+def _source_snapshot(source: MediaSource) -> tuple[Any, ...]:
+    return (
+        source.dataset_item_id,
+        source.source_generation,
+        source.source_snapshot,
+        source.timetable_revision,
+        source.materialized_generation,
+        source.source_drifted,
+        source.object_identity,
+        source.file_path,
+        source.video_metadata,
+    )
+
+
+async def _asset_references(
+    db: AsyncSession,
+    ctx: video_context.VideoContext,
+    selection: FrameSelection | ChunkSelection,
+) -> _AssetReferences:
+    async with media_gateway(db) as gateway:
+        return await _asset_references_with_gateway(ctx, selection, gateway)
+
+
+async def _asset_references_with_gateway(ctx, selection, gateway):
+    locators = _selection_locators(selection)
+    batches = (
+        [
+            locators[offset : offset + _ASSET_PAGE_SIZE]
+            for offset in range(0, len(locators), _ASSET_PAGE_SIZE)
+        ]
+        if locators
+        else [[]]
+    )
+    source: MediaSource | None = None
+    video_url: str | None = None
+    expires_in = 3600
+    assets: list[MediaAsset] = []
+    seen: set[int] = set()
+    try:
+        for batch in batches:
+            page_selection = selection.model_copy(
+                update={
+                    "frame_indices"
+                    if isinstance(selection, FrameSelection)
+                    else "chunk_ids": batch
+                }
+            )
+            references = await gateway.assets_reference(
+                AssetsRequest(
+                    actor_id=_actor_id(ctx),
+                    dataset_item_id=ctx.dataset_item_id,
+                    task_id=ctx.task_id,
+                    selection=page_selection.model_copy(
+                        update={"expected_source_snapshot": ctx.source_snapshot}
+                    ),
                 )
             )
+            page_source = references.state.source
+            if source is None:
+                source = page_source
+                video_url = references.video_url
+                expires_in = references.expires_in
+            elif _source_snapshot(source) != _source_snapshot(page_source):
+                raise MediaFailure("source_changed")
+            page_assets = references.state.assets
+            page_locators = [
+                asset.frame_index
+                if isinstance(selection, FrameSelection)
+                else asset.chunk_id
+                for asset in page_assets
+            ]
+            if any(locator is None for locator in page_locators):
+                raise MediaFailure("invalid_response")
+            page_ids = [int(locator) for locator in page_locators]
+            if len(set(page_ids)) != len(page_ids) or seen.intersection(page_ids):
+                raise MediaFailure("invalid_response")
+            if locators and not selection.failed_only and set(page_ids) != set(batch):
+                raise MediaFailure("invalid_response")
+            seen.update(page_ids)
+            assets.extend(page_assets)
+    except MediaFailure as exc:
+        raise media_http_error(exc) from None
+
+    if source is None:
+        raise HTTPException(
+            status_code=503, detail="Video media references unavailable"
         )
-        .scalars()
-        .all()
-    }
-    rows: list[VideoChunk] = []
-    created_chunk_ids: set[int] = set()
-    for chunk_id in chunk_ids:
-        row = existing.get(chunk_id)
-        if row is None:
-            start, end = _chunk_bounds(chunk_id, ctx.metadata)
-            start_pts = await pts_ms_for_frame(
-                db, ctx.dataset_item_id, start, ctx.metadata
-            )
-            end_pts = await pts_ms_for_frame(db, ctx.dataset_item_id, end, ctx.metadata)
-            # 并发安全: list_chunks 主请求 + warmup + 并发 scrub 可能同时为同一 chunk_id
-            # insert, 撞 uq_video_chunks_item_chunk。用 SAVEPOINT 包 INSERT, 冲突时只回滚该
-            # savepoint (不破坏本批已建的其它 chunk), 再 select 拿别的请求插入的行。
-            try:
-                async with db.begin_nested():
-                    row = VideoChunk(
-                        dataset_item_id=ctx.dataset_item_id,
-                        chunk_id=chunk_id,
-                        start_frame=start,
-                        end_frame=end,
-                        start_pts_ms=start_pts,
-                        end_pts_ms=end_pts,
-                        status="pending",
-                    )
-                    db.add(row)
-                    await db.flush()
-                created_chunk_ids.add(chunk_id)
-            except IntegrityError:
-                row = (
-                    await db.execute(
-                        select(VideoChunk).where(
-                            VideoChunk.dataset_item_id == ctx.dataset_item_id,
-                            VideoChunk.chunk_id == chunk_id,
-                        )
-                    )
-                ).scalar_one()
-        rows.append(row)
-    await db.flush()
-    return rows, created_chunk_ids
+    if locators and not selection.failed_only and seen != set(locators):
+        raise HTTPException(
+            status_code=503, detail="Video media references unavailable"
+        )
+    return _AssetReferences(source, assets, video_url, expires_in)
 
 
-def _chunk_out(row: VideoChunk) -> VideoChunkOut:
-    status = row.status if row.status in {"pending", "ready", "failed"} else "pending"
-    url = _asset_url(row.storage_key) if status == "ready" and row.storage_key else None
-    generation_mode = (
-        row.generation_mode
-        if row.generation_mode in {"smart_copy", "transcode"}
+def _chunk_out(asset: MediaAsset) -> VideoChunkOut:
+    status = "pending" if asset.status in {"pending", "running"} else asset.status
+    VIDEO_CHUNK_REQUESTS_TOTAL.labels(status=status).inc()
+    diagnostics = (
+        VideoChunkDiagnostics.model_validate(asset.diagnostics)
+        if asset.diagnostics
         else None
     )
-    VIDEO_CHUNK_REQUESTS_TOTAL.labels(status=status).inc()
     return VideoChunkOut(
-        chunk_id=row.chunk_id,
-        start_frame=row.start_frame,
-        end_frame=row.end_frame,
+        chunk_id=asset.chunk_id,
+        start_frame=asset.start_frame,
+        end_frame=asset.end_frame,
         status=status,
-        url=url,
-        byte_size=row.byte_size,
-        generation_mode=generation_mode,
-        diagnostics=row.diagnostics or None,
+        url=asset.url if status == "ready" else None,
+        byte_size=asset.byte_size,
+        generation_mode=asset.generation_mode,
+        diagnostics=diagnostics,
         retry_after=3 if status == "pending" else None,
-        error=row.error if status == "failed" else None,
+        error=asset.error if status == "failed" else None,
+    )
+
+
+def _frame_out(asset: MediaAsset) -> VideoFrameOut:
+    status = "pending" if asset.status in {"pending", "running"} else asset.status
+    format_: FrameFormat = "jpeg" if asset.format == "jpeg" else "webp"
+    VIDEO_FRAME_CACHE_TOTAL.labels(
+        result="hit" if status == "ready" else "miss", format=format_
+    ).inc()
+    return VideoFrameOut(
+        frame_index=asset.frame_index,
+        width=asset.width,
+        format=format_,
+        status=status,
+        url=asset.url if status == "ready" else None,
+        retry_after=3 if status == "pending" else None,
+        error=asset.error if status == "failed" else None,
     )
 
 
@@ -347,40 +391,32 @@ async def _warmup_neighbor_chunks(
     db: AsyncSession,
     ctx: video_context.VideoContext,
     requested_chunk_ids: list[int],
-    *,
-    dispatcher: MediaJobDispatcher,
 ) -> None:
-    """对热点 frame range 的相邻 (向后) chunk 做 look-ahead 预解码 (计划 §1.6)。
-
-    保守降级: 只对「还没 ready 且没在 pending 进行中」的相邻 chunk 投递, 不重复
-    投递、不阻塞主请求。warmup 失败/被关闭时静默跳过, 不影响主流程。
-    """
     try:
-        look_ahead = await SystemSettingsService.get(db, "video_chunk_warmup_lookahead")
+        async with media_gateway(db) as gateway:
+            preferences: MediaPreferences = await gateway.call(
+                "read_media_preferences", UsageRequest()
+            )
+            candidates = warmup_chunk_ids(
+                requested_chunk_ids,
+                _last_chunk_id(ctx.metadata),
+                int(preferences.warmup_lookahead or 0),
+            )
+            if not candidates:
+                return
+            await _asset_references_with_gateway(
+                ctx,
+                ChunkSelection(
+                    chunk_ids=candidates,
+                    chunk_size_frames=max(1, settings.video_chunk_size_frames),
+                ),
+                gateway,
+            )
+        await db.commit()
     except Exception:  # noqa: BLE001
-        # Warmup is an optional optimization.  A settings DB outage must not
-        # turn the primary video chunk response into a playback failure.
         with suppress(Exception):
             await db.rollback()
-        log.exception("video chunk warmup setting unavailable; skipping warmup")
-        return
-
-    candidates = warmup_chunk_ids(
-        requested_chunk_ids,
-        _last_chunk_id(ctx.metadata),
-        look_ahead,
-    )
-    if not candidates:
-        return
-    rows, created_chunk_ids = await _ensure_chunk_rows(db, ctx, candidates)
-    to_warm = [
-        row.chunk_id
-        for row in rows
-        if row.chunk_id in created_chunk_ids or row.status not in {"ready", "pending"}
-    ]
-    await db.commit()
-    if to_warm:
-        dispatcher.dispatch_video_chunks(ctx.dataset_item_id, to_warm)
+        log.exception("video chunk warmup failed; primary chunk response is retained")
 
 
 async def list_chunks(
@@ -388,31 +424,26 @@ async def list_chunks(
     ctx: video_context.VideoContext,
     from_frame: int | None,
     to_frame: int | None,
-    *,
-    dispatcher: MediaJobDispatcher,
 ) -> VideoChunksResponse:
     start, end = _safe_frame_range(ctx.metadata, from_frame, to_frame)
     requested_ids = _chunk_ids_for_range(start, end)
-    rows, _ = await _ensure_chunk_rows(db, ctx, requested_ids)
-    missing = [r.chunk_id for r in rows if r.status != "ready"]
-    now = _now()
-    for row in rows:
-        row.last_accessed_at = now
-    await db.commit()
-
-    if missing:
-        dispatcher.dispatch_video_chunks(ctx.dataset_item_id, missing)
-
-    # Freeze the primary response before optional I/O: a failed setting read
-    # rolls back its transaction and expires ORM objects in this session.
+    references = await _asset_references(
+        db,
+        ctx,
+        ChunkSelection(
+            chunk_ids=requested_ids,
+            chunk_size_frames=max(1, settings.video_chunk_size_frames),
+        ),
+    )
     response = VideoChunksResponse(
         dataset_item_id=ctx.dataset_item_id,
         task_id=ctx.task_id,
         chunk_size_frames=settings.video_chunk_size_frames,
-        fallback_video_url=_asset_url(_source_key(ctx.source_file_path, ctx.metadata)),
-        chunks=[_chunk_out(row) for row in rows],
+        fallback_video_url=references.video_url,
+        chunks=[_chunk_out(asset) for asset in references.assets],
     )
-    await _warmup_neighbor_chunks(db, ctx, requested_ids, dispatcher=dispatcher)
+    await db.commit()
+    await _warmup_neighbor_chunks(db, ctx, requested_ids)
     return response
 
 
@@ -420,93 +451,22 @@ async def get_chunk(
     db: AsyncSession,
     ctx: video_context.VideoContext,
     chunk_id: int,
-    *,
-    dispatcher: MediaJobDispatcher,
 ) -> VideoChunkOut:
     _metadata_ready(ctx.metadata)
-    row = (
-        await db.execute(
-            select(VideoChunk).where(
-                VideoChunk.dataset_item_id == ctx.dataset_item_id,
-                VideoChunk.chunk_id == chunk_id,
-            )
-        )
-    ).scalar_one_or_none()
-    if row is None:
-        rows, _ = await _ensure_chunk_rows(db, ctx, [chunk_id])
-        row = rows[0]
-    row.last_accessed_at = _now()
+    references = await _asset_references(
+        db,
+        ctx,
+        ChunkSelection(
+            chunk_ids=[chunk_id],
+            chunk_size_frames=max(1, settings.video_chunk_size_frames),
+        ),
+    )
+    if not references.assets:
+        raise HTTPException(status_code=404, detail="Video chunk not found")
+    response = _chunk_out(references.assets[0])
     await db.commit()
-    if row.status != "ready":
-        dispatcher.dispatch_video_chunks(ctx.dataset_item_id, [chunk_id])
-    response = _chunk_out(row)
-    await _warmup_neighbor_chunks(db, ctx, [chunk_id], dispatcher=dispatcher)
+    await _warmup_neighbor_chunks(db, ctx, [chunk_id])
     return response
-
-
-async def _ensure_frame_row(
-    db: AsyncSession,
-    ctx: video_context.VideoContext,
-    frame_index: int,
-    width: int,
-    format_: FrameFormat,
-) -> tuple[VideoFrameCache, bool, bool]:
-    _safe_frame_range(ctx.metadata, frame_index, frame_index)
-    stmt = select(VideoFrameCache).where(
-        VideoFrameCache.dataset_item_id == ctx.dataset_item_id,
-        VideoFrameCache.frame_index == frame_index,
-        VideoFrameCache.width == width,
-        VideoFrameCache.format == format_,
-    )
-    row = (await db.execute(stmt)).scalar_one_or_none()
-    created = False
-    now = _now()
-    stale_pending = (
-        row is not None
-        and row.status == "pending"
-        and row.updated_at is not None
-        and now - row.updated_at > PENDING_FRAME_REQUEUE_AFTER
-    )
-    if row is None:
-        # 并发安全: timeline scrub 时单帧 GET 与 prefetch 窗口可能同时为同一
-        # (item, frame, width, format) 走到这里, select 都返回 None。用 SAVEPOINT 包住
-        # INSERT, 撞 uq_video_frame_cache_item_frame_width_format 时只回滚该 savepoint
-        # (不破坏 prefetch 批量里已 flush 的其它帧), 再 select 拿别的请求插入的行。
-        try:
-            async with db.begin_nested():
-                row = VideoFrameCache(
-                    dataset_item_id=ctx.dataset_item_id,
-                    frame_index=frame_index,
-                    width=width,
-                    format=format_,
-                    status="pending",
-                )
-                db.add(row)
-                await db.flush()
-            created = True
-        except IntegrityError:
-            row = (await db.execute(stmt)).scalar_one()
-    row.last_accessed_at = now
-    await db.flush()
-    return row, created, stale_pending
-
-
-def _frame_out(row: VideoFrameCache) -> VideoFrameOut:
-    status = row.status if row.status in {"pending", "ready", "failed"} else "pending"
-    result = "hit" if status == "ready" else "miss"
-    VIDEO_FRAME_CACHE_TOTAL.labels(result=result, format=row.format).inc()
-    format_: FrameFormat = "jpeg" if row.format == "jpeg" else "webp"
-    return VideoFrameOut(
-        frame_index=row.frame_index,
-        width=row.width,
-        format=format_,
-        status=status,
-        url=_asset_url(row.storage_key)
-        if status == "ready" and row.storage_key
-        else None,
-        retry_after=3 if status == "pending" else None,
-        error=row.error if status == "failed" else None,
-    )
 
 
 async def get_frame(
@@ -515,20 +475,18 @@ async def get_frame(
     frame_index: int,
     width: int,
     format_: FrameFormat,
-    *,
-    dispatcher: MediaJobDispatcher,
 ) -> VideoFrameOut:
-    row, created, stale_pending = await _ensure_frame_row(
-        db, ctx, frame_index, width, format_
+    _safe_frame_range(ctx.metadata, frame_index, frame_index)
+    references = await _asset_references(
+        db,
+        ctx,
+        FrameSelection(frame_indices=[frame_index], width=width, format=format_),
     )
-    should_enqueue = created or stale_pending or row.status == "failed"
+    if not references.assets:
+        raise HTTPException(status_code=404, detail="Video frame not found")
+    response = _frame_out(references.assets[0])
     await db.commit()
-    if should_enqueue:
-        dispatcher.dispatch_video_frames(
-            ctx.dataset_item_id,
-            [{"frame_index": frame_index, "width": width, "format": format_}],
-        )
-    return _frame_out(row)
+    return response
 
 
 async def prefetch_frames(
@@ -537,26 +495,20 @@ async def prefetch_frames(
     frame_indices: list[int],
     width: int,
     format_: FrameFormat,
-    *,
-    dispatcher: MediaJobDispatcher,
 ) -> VideoFramePrefetchResponse:
-    ensured = [
-        await _ensure_frame_row(db, ctx, frame_index, width, format_)
-        for frame_index in sorted(set(frame_indices))
-    ]
-    rows = [row for row, _, _ in ensured]
-    missing: list[VideoFrameRequest] = [
-        {"frame_index": row.frame_index, "width": row.width, "format": row.format}
-        for row, created, stale_pending in ensured
-        if created or stale_pending or row.status == "failed"
-    ]
+    normalized = sorted(set(frame_indices))
+    for frame_index in normalized:
+        _safe_frame_range(ctx.metadata, frame_index, frame_index)
+    references = await _asset_references(
+        db,
+        ctx,
+        FrameSelection(frame_indices=normalized, width=width, format=format_),
+    )
     await db.commit()
-    if missing:
-        dispatcher.dispatch_video_frames(ctx.dataset_item_id, missing)
     return VideoFramePrefetchResponse(
         dataset_item_id=ctx.dataset_item_id,
         task_id=ctx.task_id,
-        frames=[_frame_out(row) for row in rows],
+        frames=[_frame_out(asset) for asset in references.assets],
     )
 
 
@@ -567,74 +519,30 @@ async def retry_frames(
     width: int,
     format_: FrameFormat,
     *,
-    dispatcher: MediaJobDispatcher,
     force: bool = False,
+    task_annotation_retry: bool = False,
 ) -> VideoFramePrefetchResponse:
     normalized = sorted(set(frame_indices))
     if normalized:
-        if force:
-            rows = [
-                (await _ensure_frame_row(db, ctx, frame_index, width, format_))[0]
-                for frame_index in normalized
-            ]
-        else:
-            rows = (
-                (
-                    await db.execute(
-                        select(VideoFrameCache)
-                        .where(
-                            VideoFrameCache.dataset_item_id == ctx.dataset_item_id,
-                            VideoFrameCache.frame_index.in_(normalized),
-                            VideoFrameCache.width == width,
-                            VideoFrameCache.format == format_,
-                            VideoFrameCache.status == "failed",
-                        )
-                        .order_by(VideoFrameCache.frame_index.asc())
-                    )
-                )
-                .scalars()
-                .all()
-            )
-    else:
-        rows = (
-            (
-                await db.execute(
-                    select(VideoFrameCache)
-                    .where(
-                        VideoFrameCache.dataset_item_id == ctx.dataset_item_id,
-                        VideoFrameCache.width == width,
-                        VideoFrameCache.format == format_,
-                        VideoFrameCache.status == "failed",
-                    )
-                    .order_by(VideoFrameCache.frame_index.asc())
-                    .limit(500)
-                )
-            )
-            .scalars()
-            .all()
-        )
-
-    now = _now()
-    requests: list[VideoFrameRequest] = []
-    for row in rows:
-        row.status = "pending"
-        row.error = None
-        row.last_accessed_at = now
-        if force:
-            row.storage_key = None
-            row.byte_size = None
-        requests.append(
-            {"frame_index": row.frame_index, "width": row.width, "format": row.format}
-        )
+        for frame_index in normalized:
+            _safe_frame_range(ctx.metadata, frame_index, frame_index)
+    references = await _asset_references(
+        db,
+        ctx,
+        FrameSelection(
+            frame_indices=normalized,
+            width=width,
+            format=format_,
+            force=force,
+            failed_only=not force,
+            intent="task_frame_retry" if task_annotation_retry else "access",
+        ),
+    )
     await db.commit()
-
-    if requests:
-        dispatcher.dispatch_video_frames(ctx.dataset_item_id, requests)
-
     return VideoFramePrefetchResponse(
         dataset_item_id=ctx.dataset_item_id,
         task_id=ctx.task_id,
-        frames=[_frame_out(row) for row in rows],
+        frames=[_frame_out(asset) for asset in references.assets],
     )
 
 
@@ -642,6 +550,20 @@ async def manifest_v2(
     db: AsyncSession, ctx: video_context.VideoContext, base_url: str
 ) -> VideoManifestV2Response:
     _metadata_ready(ctx.metadata)
+    reference = ctx.source_reference
+    if reference is None:
+        try:
+            async with media_gateway(db) as gateway:
+                reference = await gateway.source_reference(
+                    ReadSourceRequest(
+                        actor_id=_actor_id(ctx),
+                        dataset_item_id=ctx.dataset_item_id,
+                        task_id=ctx.task_id,
+                    )
+                )
+        except MediaFailure as exc:
+            raise media_http_error(exc) from None
+
     from app.services.video_segment_service import ensure_segments, segment_out
     from app.db.models.project import Project
     from app.services.video_collaboration import collaboration_config
@@ -662,12 +584,11 @@ async def manifest_v2(
         timetable_url = f"{service_base}/frame-timetable"
         frame_base = f"{service_base}/frames"
 
-    poster_key = ctx.metadata.poster_frame_path or ctx.thumbnail_path
     return VideoManifestV2Response(
         task_id=ctx.task_id,
         dataset_item_id=ctx.dataset_item_id,
-        video_url=_asset_url(_source_key(ctx.source_file_path, ctx.metadata)),
-        poster_url=_asset_url(poster_key) if poster_key else None,
+        video_url=reference.video_url,
+        poster_url=reference.poster_url,
         fps=ctx.metadata.fps,
         frame_count=ctx.metadata.frame_count,
         duration_ms=ctx.metadata.duration_ms,
@@ -689,75 +610,8 @@ async def manifest_v2(
     )
 
 
-def cache_key_for_frame(
-    dataset_item_id: uuid.UUID, frame_index: int, width: int, format_: str
-) -> str:
-    return f"videos/{dataset_item_id}/frames/{frame_index}_{width}.{format_}"
-
-
-def cache_key_for_chunk(dataset_item_id: uuid.UUID, chunk_id: int) -> str:
-    return f"videos/{dataset_item_id}/chunks/{chunk_id}.mp4"
-
-
-def source_key_for_item(item: DatasetItem) -> str:
-    """ffmpeg 处理(抽帧 / 抽 chunk / 时间表探测)用的源 key —— 永远是**原始视频**。
-
-    原始视频在 datasets_bucket。不要返回 `playback_path`(浏览器播放用的 h264 转码版,
-    存在 media_cache_bucket): 用它会(1)与 worker 的 datasets_bucket 不匹配 → HeadObject
-    404 抽帧全失败;(2)转码重编码后帧数 / 时序可能与原视频不一致 → 破坏 D2「frame_index
-    永远对齐原视频帧号」。playback_path 只用于浏览器 <video> 播放 URL(见 _source_key)。
-    """
-    return item.file_path
-
-
-def metadata_for_item(item: DatasetItem) -> VideoMetadata:
-    return _video_meta(item)
-
-
-def put_frame_array_cache(
-    dataset_item_id: uuid.UUID, frame_index: int, width: int, format_: str, array: Any
-) -> None:
-    key = (dataset_item_id, frame_index, width, format_)
-    _FRAME_ARRAY_CACHE[key] = array
-    _FRAME_ARRAY_CACHE.move_to_end(key)
-    while len(_FRAME_ARRAY_CACHE) > max(0, settings.video_frame_memory_cache_items):
-        _FRAME_ARRAY_CACHE.popitem(last=False)
-
-
-def get_frame_array_cache(
-    dataset_item_id: uuid.UUID, frame_index: int, width: int, format_: str
-) -> Any | None:
-    key = (dataset_item_id, frame_index, width, format_)
-    array = _FRAME_ARRAY_CACHE.get(key)
-    if array is not None:
-        _FRAME_ARRAY_CACHE.move_to_end(key)
-    return array
-
-
-def image_bytes_to_array(data: bytes) -> Any:
-    from PIL import Image
-    import numpy as np
-
-    with Image.open(io.BytesIO(data)) as img:
-        return np.asarray(img.convert("RGB"))
-
-
-# ── v0.10.29 · 长视频 sparse timetable helper (计划 §1.2, 纯函数) ─────────
-#
-# 超长视频不必给每帧都存一行 VideoFrameIndex(frame_index, pts_ms)。改成 sparse:
-# 只持久化「锚点帧」(stride 网格上的真值 pts_ms), 中间帧的 pts_ms 由相邻锚点线性
-# 插值得到; 落在锚点范围外则退化为 fps 估算 (沿用 _estimated_pts_ms 的语义)。
-#
-# 对外契约不变 (决策 D2): frame_index 永远是源视频帧号; pts_ms_for_frame 命中
-# DB 真值优先, miss 时落到 fps 估算。本 helper 只是给「无 DB 全帧表」的 sparse
-# 写入路径提供一个可单测的纯函数。锚点本身仍存进 VideoFrameIndex (无需新表)。
-
-
 def derive_anchor_frames(frame_count: int, stride: int) -> list[int]:
-    """sparse 锚点帧网格: [0, stride, 2*stride, ...] 且 < frame_count, 末帧也补上。
-
-    末帧补锚点是为了让插值有右边界, 避免视频尾部全靠外推。
-    """
+    """Return sparse timetable grid anchors, including the last source frame."""
     if frame_count <= 0:
         return []
     stride = max(1, int(stride))
@@ -771,19 +625,15 @@ def derive_anchor_frames(frame_count: int, stride: int) -> list[int]:
 def select_sparse_anchor_rows(
     rows: list[dict[str, Any]], stride: int
 ) -> list[dict[str, Any]]:
-    """从全帧 timetable 行里挑出要持久化的 sparse 锚点子集 (按 frame_index)。
-
-    锚点 = derive_anchor_frames(frame_count, stride) 网格上的帧 ∪ 所有关键帧。
-    保留关键帧是为了 chunk smart-copy 的 keyframe 对齐判定 (依赖 is_keyframe) 不退化。
-    rows 需含 frame_index / is_keyframe 字段; 返回保持原顺序的子集。
-    stride<=1 时退化为全帧 (返回原列表), 即不做 sparse。
-    """
+    """Keep stride-grid and keyframe timetable rows without changing their order."""
     stride = max(1, int(stride))
     if stride == 1 or not rows:
         return rows
-    frame_count = max(r["frame_index"] for r in rows) + 1
-    anchor_set = set(derive_anchor_frames(frame_count, stride))
-    return [r for r in rows if r["frame_index"] in anchor_set or r.get("is_keyframe")]
+    frame_count = max(row["frame_index"] for row in rows) + 1
+    anchors = set(derive_anchor_frames(frame_count, stride))
+    return [
+        row for row in rows if row["frame_index"] in anchors or row.get("is_keyframe")
+    ]
 
 
 def resolve_pts_ms_sparse(
@@ -792,55 +642,40 @@ def resolve_pts_ms_sparse(
     fps: float | None,
     stride: int,
 ) -> int | None:
-    """由 sparse 锚点解析任意源帧号的 pts_ms。
-
-    - anchors: 已按 frame_index 升序排列的 (frame_index, pts_ms) 列表 (锚点真值)。
-    - 命中锚点 → 直接返回真值。
-    - 落在两个相邻锚点之间 → 按 frame_index 线性插值。
-    - 落在锚点范围外 (或 anchors 为空) → 用最近锚点 + fps 外推; 无锚点无 fps → None。
-
-    stride 仅作语义占位 (与 derive_anchor_frames 共享步长概念), 解析本身不依赖它。
-    """
+    """Resolve exact, interpolated, or FPS-extrapolated PTS from sparse anchors."""
     _ = stride
     if not anchors:
         if not fps:
             return None
         return int(round((frame_index / fps) * 1000))
 
-    first_f, first_pts = anchors[0]
-    last_f, last_pts = anchors[-1]
-
-    # 范围外: 从最近端锚点按 fps 外推
-    if frame_index <= first_f:
-        if frame_index == first_f:
+    first_frame, first_pts = anchors[0]
+    last_frame, last_pts = anchors[-1]
+    if frame_index <= first_frame:
+        if frame_index == first_frame:
             return first_pts
         if not fps:
             return None
-        return int(round(first_pts + ((frame_index - first_f) / fps) * 1000))
-    if frame_index >= last_f:
-        if frame_index == last_f:
+        return int(round(first_pts + ((frame_index - first_frame) / fps) * 1000))
+    if frame_index >= last_frame:
+        if frame_index == last_frame:
             return last_pts
         if not fps:
             return None
-        return int(round(last_pts + ((frame_index - last_f) / fps) * 1000))
+        return int(round(last_pts + ((frame_index - last_frame) / fps) * 1000))
 
-    # 范围内: 找到 bracketing 锚点 (lo < frame_index <= hi) 做线性插值
-    lo_f, lo_pts = first_f, first_pts
-    for f, pts in anchors:
-        if f == frame_index:
-            return pts
-        if f > frame_index:
-            hi_f, hi_pts = f, pts
-            span = hi_f - lo_f
+    lower_frame, lower_pts = first_frame, first_pts
+    for upper_frame, upper_pts in anchors:
+        if upper_frame == frame_index:
+            return upper_pts
+        if upper_frame > frame_index:
+            span = upper_frame - lower_frame
             if span <= 0:
-                return lo_pts
-            ratio = (frame_index - lo_f) / span
-            return int(round(lo_pts + ratio * (hi_pts - lo_pts)))
-        lo_f, lo_pts = f, pts
+                return lower_pts
+            ratio = (frame_index - lower_frame) / span
+            return int(round(lower_pts + ratio * (upper_pts - lower_pts)))
+        lower_frame, lower_pts = upper_frame, upper_pts
     return last_pts
-
-
-# ── v0.10.29 · chunk warmup look-ahead 选择 (计划 §1.6, 纯函数) ───────────
 
 
 def warmup_chunk_ids(
@@ -848,52 +683,13 @@ def warmup_chunk_ids(
     last_chunk_id: int,
     look_ahead: int,
 ) -> list[int]:
-    """请求命中某些 chunk 时, 计算应预解码的相邻 (向后) chunk id。
-
-    - 只向后看 (逐帧导航多为向前推进): 取 max(requested)+1 .. +look_ahead。
-    - 不超过 last_chunk_id (视频末尾 chunk), 不与 requested 重叠。
-    - look_ahead<=0 或无请求 → 空列表 (warmup 完全降级)。
-    """
+    """Select adjacent forward chunks without overlap or past-the-end requests."""
     if look_ahead <= 0 or not requested_chunk_ids:
         return []
     frontier = max(requested_chunk_ids)
     requested = set(requested_chunk_ids)
-    out: list[int] = []
-    for cid in range(frontier + 1, frontier + 1 + look_ahead):
-        if cid > last_chunk_id:
-            break
-        if cid not in requested:
-            out.append(cid)
-    return out
-
-
-async def get_frame_array(
-    db: AsyncSession,
-    dataset_item_id: uuid.UUID,
-    frame_index: int,
-    width: int = 512,
-    format_: FrameFormat = "webp",
-) -> Any:
-    cached = get_frame_array_cache(dataset_item_id, frame_index, width, format_)
-    if cached is not None:
-        return cached
-    row = (
-        await db.execute(
-            select(VideoFrameCache).where(
-                VideoFrameCache.dataset_item_id == dataset_item_id,
-                VideoFrameCache.frame_index == frame_index,
-                VideoFrameCache.width == width,
-                VideoFrameCache.format == format_,
-                VideoFrameCache.status == "ready",
-            )
-        )
-    ).scalar_one_or_none()
-    if row is None or not row.storage_key:
-        raise RuntimeError("video frame is not cached")
-    resp = storage_service.client.get_object(
-        Bucket=storage_service.bucket_for_cache_key(row.storage_key),
-        Key=row.storage_key,
-    )
-    array = image_bytes_to_array(resp["Body"].read())
-    put_frame_array_cache(dataset_item_id, frame_index, width, format_, array)
-    return array
+    return [
+        chunk_id
+        for chunk_id in range(frontier + 1, frontier + 1 + look_ahead)
+        if chunk_id <= last_chunk_id and chunk_id not in requested
+    ]

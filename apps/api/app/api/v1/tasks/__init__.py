@@ -23,6 +23,7 @@ from app.api.v1.tasks import list as task_list
 from app.api.v1.tasks._shared import (
     _attach_dimensions_batch,
     _attach_image_pyramids_batch,
+    _linked_source_references,
     _task_with_url,
 )
 
@@ -52,5 +53,6 @@ __all__ = [
     "router",
     "_attach_dimensions_batch",
     "_attach_image_pyramids_batch",
+    "_linked_source_references",
     "_task_with_url",
 ]

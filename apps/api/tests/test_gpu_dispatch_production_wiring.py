@@ -288,7 +288,7 @@ async def test_frame_segment_builds_authority_from_its_own_session_factory(
         "app.services.ml_routing.client.RoutedMLBackendClient", FakeClient
     )
     monkeypatch.setattr(
-        "app.services.video_frame_service._VideoContextSqlAdapter.from_task",
+        "app.services.video_frame_service.AssetsVideoContextReader.from_task",
         build_frame_context,
     )
     monkeypatch.setattr(
@@ -407,7 +407,7 @@ async def test_frame_segment_aggregates_gpu_arbiter_failures(monkeypatch) -> Non
         "app.services.ml_routing.client.RoutedMLBackendClient", RejectedClient
     )
     monkeypatch.setattr(
-        "app.services.video_frame_service._VideoContextSqlAdapter.from_task",
+        "app.services.video_frame_service.AssetsVideoContextReader.from_task",
         build_frame_context,
     )
     monkeypatch.setattr(frame_preannotate, "_job_cancelled", not_cancelled)

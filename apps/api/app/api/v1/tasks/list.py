@@ -39,6 +39,7 @@ from app.api.v1.tasks._shared import (
     _attach_dimensions,
     _attach_dimensions_batch,
     _attach_image_pyramids_batch,
+    _linked_source_references,
     _SEQ_NULL_SENTINEL,
 )
 
@@ -149,6 +150,7 @@ async def list_tasks(
     is_first_page = cursor is None and offset == 0
     total = ((await db.execute(count_q)).scalar() or 0) if is_first_page else None
     dims = await _attach_dimensions_batch(db, tasks)
+    source_references = await _linked_source_references(db, tasks, actor_id=user.id)
     pyramids = await _attach_image_pyramids_batch(
         bind_image_pyramid_api(db), tasks, dims
     )
@@ -171,6 +173,8 @@ async def list_tasks(
                 *dims.get(t.id, (None, None, None, None, None)),
                 image_pyramid=pyramids.get(t.id),
                 briefs=briefs,
+                owner_source_reference=source_references.get(t.id),
+                owner_source_reference_loaded=t.dataset_item_id is not None,
             )
             for t in tasks
         ],
@@ -205,6 +209,9 @@ async def next_task(
         return None
     await db.commit()
     w, h, thumb, bh, video_metadata = await _attach_dimensions(db, task)
+    source_references = await _linked_source_references(
+        db, [task], actor_id=current_user.id
+    )
     dimensions = {task.id: (w, h, thumb, bh, video_metadata)}
     pyramids = await _attach_image_pyramids_batch(
         bind_image_pyramid_api(db), [task], dimensions
@@ -219,6 +226,8 @@ async def next_task(
         video_metadata,
         image_pyramid=pyramids.get(task.id),
         briefs=briefs,
+        owner_source_reference=source_references.get(task.id),
+        owner_source_reference_loaded=task.dataset_item_id is not None,
     )
 
 
@@ -231,6 +240,9 @@ async def get_task(
     task = await _load_task_or_404(db, task_id)
     await task_access.assert_task_visible(db, task, current_user.id)
     w, h, thumb, bh, video_metadata = await _attach_dimensions(db, task)
+    source_references = await _linked_source_references(
+        db, [task], actor_id=current_user.id
+    )
     dimensions = {task.id: (w, h, thumb, bh, video_metadata)}
     pyramids = await _attach_image_pyramids_batch(
         bind_image_pyramid_api(db), [task], dimensions
@@ -245,6 +257,8 @@ async def get_task(
         video_metadata,
         image_pyramid=pyramids.get(task.id),
         briefs=briefs,
+        owner_source_reference=source_references.get(task.id),
+        owner_source_reference_loaded=task.dataset_item_id is not None,
     )
 
 

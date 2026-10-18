@@ -1,13 +1,9 @@
 import base64
 import struct
 
-from app.schemas.task import VideoMetadata
 from aap_media_probe.probe import parse_ffprobe_packet_samples
-from app.workers import media
-from app.workers.media import (
+from app.workers.media_codec import (
     _avc_codec_string,
-    _chunk_source_codec,
-    _extract_chunk_samples,
     _extract_decoder_config,
     _find_mp4_box_payload,
     _hevc_codec_string,
@@ -162,53 +158,3 @@ def test_extract_decoder_config_missing(tmp_path):
     assert _extract_decoder_config(p) == (None, None)
     # 文件不存在 → 静默 (None, None)。
     assert _extract_decoder_config(tmp_path / "nope.mp4") == (None, None)
-
-
-def test_extract_chunk_samples_includes_description(monkeypatch, tmp_path):
-    sample = {
-        "frame_index": 0,
-        "pts_ms": 0,
-        "duration_ms": 33,
-        "is_keyframe": True,
-        "size_bytes": 100,
-        "offset_in_chunk": 0,
-    }
-    monkeypatch.setattr(media, "probe_chunk_samples", lambda *a, **k: [sample])
-    monkeypatch.setattr(
-        media, "_extract_decoder_config", lambda _p: ("avc1.64000c", "Zm9v")
-    )
-    out = _extract_chunk_samples(
-        tmp_path / "c.mp4", 0, VideoMetadata(width=1920, height=1080), "h264"
-    )
-    assert out["codec_string"] == "avc1.64000c"
-    assert out["description"] == "Zm9v"
-    assert out["width"] == 1920 and out["height"] == 1080
-    assert out["samples"] == [sample]
-
-
-def test_extract_chunk_samples_falls_back_codec_without_config(monkeypatch, tmp_path):
-    monkeypatch.setattr(
-        media, "probe_chunk_samples", lambda *a, **k: [{"frame_index": 0}]
-    )
-    monkeypatch.setattr(media, "_extract_decoder_config", lambda _p: (None, None))
-    # 无 avcC/hvcC → 退回旧启发式 codec_string, 且不带 description。
-    out = _extract_chunk_samples(tmp_path / "c.mp4", 0, VideoMetadata(), "hevc")
-    assert out["codec_string"] == "hev1.1.6.L93.B0"
-    assert "description" not in out
-
-
-def test_extract_chunk_samples_empty_when_no_packets(monkeypatch, tmp_path):
-    monkeypatch.setattr(media, "probe_chunk_samples", lambda *a, **k: [])
-    assert _extract_chunk_samples(tmp_path / "c.mp4", 0, VideoMetadata(), "h264") == {}
-
-
-def test_chunk_codec_uses_original_stream_when_playback_is_transcoded():
-    hevc = VideoMetadata(
-        codec="hevc", playback_path="playback/video.mp4", playback_codec="h264"
-    )
-    vp9 = VideoMetadata(
-        codec="vp9", playback_path="playback/video.mp4", playback_codec="h264"
-    )
-
-    assert _chunk_source_codec(hevc) == "hevc"
-    assert _chunk_source_codec(vp9) == "vp9"

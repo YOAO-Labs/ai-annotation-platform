@@ -15,7 +15,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.db.models.annotation import Annotation
-from app.db.models.dataset import DatasetItem
 from app.db.models.project import Project
 from app.db.models.task import Task
 from app.schemas.mask_format import MaskFormatPlan, MaskFormatPlanItem
@@ -158,13 +157,14 @@ async def _video_dimensions(
 ) -> tuple[int, int, int | None] | None:
     if task is None or task.dataset_item_id is None:
         return None
-    item = await db.get(DatasetItem, task.dataset_item_id)
-    if item is None:
+    from app.services.assets_media_summary import AssetsTaskMediaSummaryReader
+
+    summary = await AssetsTaskMediaSummaryReader(db).current_video_summary(
+        task.dataset_item_id
+    )
+    if summary is None:
         return None
-    metadata = item.metadata_ if isinstance(item.metadata_, dict) else {}
-    video = metadata.get("video") if isinstance(metadata.get("video"), dict) else {}
-    width = item.width or video.get("width")
-    height = item.height or video.get("height")
+    width, height, video = summary
     if not width or not height:
         return None
     frame_count = video.get("frame_count")

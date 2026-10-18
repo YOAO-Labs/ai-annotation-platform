@@ -228,14 +228,22 @@ async def test_frame_execution_uses_existing_session_and_dispatches_facts(
         for task, frame_count in zip(tasks, frame_counts, strict=True)
     }
 
-    async def build_context(reader, *, task_id, project_id, file_type, dataset_item_id):
+    async def build_context(
+        reader,
+        *,
+        actor_id=None,
+        task_id,
+        project_id,
+        file_type,
+        dataset_item_id,
+    ):
         assert reader._db is db_session
         context_reads.append(task_id)
         frame_count = frame_count_by_task[task_id]
         return SimpleNamespace(metadata=SimpleNamespace(frame_count=frame_count))
 
     monkeypatch.setattr(
-        "app.services.video_frame_service._VideoContextSqlAdapter.from_task",
+        "app.services.video_frame_service.AssetsVideoContextReader.from_task_summary",
         build_context,
     )
 

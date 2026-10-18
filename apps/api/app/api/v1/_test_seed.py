@@ -567,20 +567,12 @@ async def _cleanup_e2e_fixtures(
             {"pids": fixture_project_ids},
         )
 
-    # WebCodecs seed 的 video_chunks 随 dataset_item CASCADE,这里显式双保险,
-    # 确保 E2E 反复 seed 不残留旧 chunk 行。owned scope 只匹配自己的 dataset。
     if owned is None:
         dataset_selector = "display_id LIKE 'DS-E2E-%'"
         dataset_params: dict = {}
     else:
         dataset_selector = "display_id = ANY(:owned_dataset_display_ids)"
         dataset_params = {"owned_dataset_display_ids": owned.all_dataset_display_ids}
-    await _try_delete(
-        "DELETE FROM video_chunks WHERE dataset_item_id IN ("
-        " SELECT id FROM dataset_items WHERE dataset_id IN ("
-        f"   SELECT id FROM datasets WHERE {dataset_selector}))",
-        dataset_params,
-    )
 
     # reset 中创建的图像 dataset 不由 project_datasets 反向级联删除；
     # 必须在删 E2E 用户前显式清理，避免 datasets.created_by 拦住用户删除。
@@ -2313,11 +2305,11 @@ async def seed_video_webcodecs(
     """Seed a deterministic H.264 WebCodecs fixture for precise-frame E2E.
 
     Generates a small machine-readable H.264 clip (numpy → ffmpeg), probes it with
-    the same ffprobe / avcC pipeline the worker uses, and writes dataset item +
-    task + source frame timetable + production-shaped VideoChunk diagnostics. Short correctness fixtures use
-    one chunk; Issue fixtures follow the manifest chunk size, while qualification
-    fixtures use ready 60-frame chunks. ``chunk_status``
-    lets specs exercise the pending → ready contract without a media Celery worker.
+    the same ffprobe / avcC pipeline the worker uses, then stages the source timetable
+    and publishes fixture chunks through the Assets media worker capabilities. Short
+    correctness fixtures use one chunk; Issue fixtures follow the manifest chunk size,
+    while qualification fixtures use ready 60-frame chunks. ``chunk_status`` lets specs
+    exercise the pending → ready contract without a media Celery worker.
     """
     from tempfile import mkdtemp
     from uuid import UUID
@@ -2334,9 +2326,10 @@ async def seed_video_webcodecs(
         generate_fixture,
         generate_qualification_fixture,
     )
-    from app.db.models.dataset import DatasetItem, VideoChunk, VideoFrameIndex
+    from app.db.models.dataset import DatasetItem
     from app.db.models.task import Task
     from app.db.models.task_batch import TaskBatch
+    from app.services.assets_media_fixtures import seed_video_fixture_media
     from app.services.storage import storage_service
 
     valid_fixtures = (
@@ -2420,13 +2413,6 @@ async def seed_video_webcodecs(
     )
     db.add(item)
     await db.flush()
-    # Keep native presentation evidence independent of intentionally damaged chunk metadata.
-    db.add_all(
-        [
-            VideoFrameIndex(dataset_item_id=item.id, **entry)
-            for entry in meta["frame_timetable"]
-        ]
-    )
     task = Task(
         project_id=project_id,
         batch_id=batch.id,
@@ -2439,66 +2425,18 @@ async def seed_video_webcodecs(
     )
     db.add(task)
     await db.flush()
-    if "chunks" in meta:
-        for chunk_meta in meta["chunks"]:
-            chunk_key = (
-                f"e2e/video/webcodecs/{fixture}/chunk-{chunk_meta['chunk_id']:04d}.mp4"
-            )
-            chunk_bytes = chunk_meta["bytes"]
-            await asyncio.to_thread(
-                storage_service.client.put_object,
-                Bucket=storage_service.datasets_bucket,
-                Key=chunk_key,
-                Body=chunk_bytes,
-                ContentType="video/mp4",
-            )
-            db.add(
-                VideoChunk(
-                    dataset_item_id=item.id,
-                    chunk_id=chunk_meta["chunk_id"],
-                    start_frame=chunk_meta["start_frame"],
-                    end_frame=chunk_meta["end_frame"],
-                    start_pts_ms=chunk_meta["start_pts_ms"],
-                    end_pts_ms=chunk_meta["end_pts_ms"],
-                    storage_key=chunk_key,
-                    byte_size=len(chunk_bytes),
-                    generation_mode=chunk_meta["generation_mode"],
-                    status="ready" if qualification else payload.chunk_status,
-                    diagnostics={
-                        "samples": chunk_meta["samples"],
-                        "codec_string": chunk_meta["codec_string"],
-                        "description": chunk_meta["description"],
-                        "width": meta["width"],
-                        "height": meta["height"],
-                        "source_codec": "h264",
-                        "output_codec": "h264",
-                    },
-                )
-            )
-    else:
-        db.add(
-            VideoChunk(
-                dataset_item_id=item.id,
-                chunk_id=0,
-                start_frame=0,
-                end_frame=meta["frame_count"] - 1,
-                start_pts_ms=0,
-                end_pts_ms=duration_ms,
-                storage_key=source_key,
-                byte_size=len(mp4_bytes),
-                generation_mode="transcode",
-                status=payload.chunk_status,
-                diagnostics={
-                    "samples": meta["samples"],
-                    "codec_string": meta["codec_string"],
-                    "description": meta["description"],
-                    "width": meta["width"],
-                    "height": meta["height"],
-                    "source_codec": "h264",
-                    "output_codec": "h264",
-                },
-            )
-        )
+    chunk_size_frames = (
+        QUALIFICATION_CHUNK_SIZE_FRAMES
+        if qualification
+        else int(meta.get("chunk_size_frames", meta["frame_count"]))
+    )
+    await seed_video_fixture_media(
+        db,
+        dataset_item_id=item.id,
+        meta=meta,
+        chunk_size_frames=chunk_size_frames,
+        ready=qualification or payload.chunk_status == "ready",
+    )
     batch.total_tasks = int(batch.total_tasks or 0) + 1
     await db.flush()
     await db.commit()
@@ -2506,11 +2444,7 @@ async def seed_video_webcodecs(
         task_id=str(task.id),
         dataset_item_id=str(item.id),
         chunk_id=0,
-        chunk_size_frames=(
-            QUALIFICATION_CHUNK_SIZE_FRAMES
-            if qualification
-            else meta.get("chunk_size_frames", meta["frame_count"])
-        ),
+        chunk_size_frames=chunk_size_frames,
         frame_expectations=(
             {} if qualification else frame_expectations(fixture, meta["samples"])
         ),
@@ -2599,26 +2533,70 @@ async def seed_video_webcodecs_transition(
     payload: SeedVideoWebCodecsTransitionRequest,
     db: AsyncSession = Depends(get_db),
 ) -> SeedVideoWebCodecsTransitionResponse:
-    """Deterministically flip a seeded chunk pending → ready (no Celery worker needed)."""
+    """Publish one deterministic seeded chunk through the Assets media owner."""
+    from tempfile import mkdtemp
     from uuid import UUID
+    import shutil
 
-    from sqlalchemy import select
+    from app.api.v1._test_seed_webcodecs import (
+        FIXTURE_SPECS,
+        QUALIFICATION_CHUNK_SIZE_FRAMES,
+        QUALIFICATION_FIXTURE_SPECS,
+        apply_metadata_mutation,
+        generate_fixture,
+        generate_qualification_fixture,
+    )
+    from app.db.models.dataset import DatasetItem
+    from app.services.assets_media_fixtures import transition_video_fixture_chunk_ready
 
-    from app.db.models.dataset import VideoChunk
+    item = await db.get(DatasetItem, UUID(payload.dataset_item_id))
+    if item is None or item.file_type != "video" or not item.file_name.endswith(".mp4"):
+        raise HTTPException(status_code=404, detail="chunk_not_found")
+    fixture = item.file_name[:-4]
+    valid_fixtures = (
+        set(FIXTURE_SPECS)
+        | set(QUALIFICATION_FIXTURE_SPECS)
+        | {"unsupported-config", "malformed-samples"}
+    )
+    if fixture not in valid_fixtures:
+        raise HTTPException(status_code=404, detail="chunk_not_found")
+    if item.file_path != f"e2e/video/webcodecs/{fixture}/source.mp4":
+        raise HTTPException(status_code=404, detail="chunk_not_found")
 
-    row = (
-        await db.execute(
-            select(VideoChunk).where(
-                VideoChunk.dataset_item_id == UUID(payload.dataset_item_id),
-                VideoChunk.chunk_id == payload.chunk_id,
+    tmp = mkdtemp(prefix="webcodecs-transition-")
+    try:
+        qualification = fixture in QUALIFICATION_FIXTURE_SPECS
+        meta = (
+            await asyncio.to_thread(generate_qualification_fixture, fixture, tmp)
+            if qualification
+            else await asyncio.to_thread(
+                generate_fixture,
+                fixture,
+                tmp,
+                chunk_size_frames=settings.video_chunk_size_frames,
             )
         )
-    ).scalar_one_or_none()
-    if row is None:
-        raise HTTPException(status_code=404, detail="chunk_not_found")
-    row.status = "ready"
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+    if not qualification:
+        meta = apply_metadata_mutation(fixture, meta)
+    chunk_size_frames = (
+        QUALIFICATION_CHUNK_SIZE_FRAMES
+        if qualification
+        else int(meta.get("chunk_size_frames", meta["frame_count"]))
+    )
+    try:
+        status = await transition_video_fixture_chunk_ready(
+            db,
+            dataset_item_id=item.id,
+            meta=meta,
+            chunk_id=payload.chunk_id,
+            chunk_size_frames=chunk_size_frames,
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="chunk_not_found") from exc
     await db.commit()
-    return SeedVideoWebCodecsTransitionResponse(status=row.status)
+    return SeedVideoWebCodecsTransitionResponse(status=status)
 
 
 class SeedTrackerReviewRequest(BaseModel):

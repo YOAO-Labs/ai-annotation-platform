@@ -8,6 +8,7 @@ import uuid
 
 from aap_assets_source.import_delivery_contract import DatasetImportDelivery
 from aap_assets_source.ingest_contract import IngestDeliveryLease
+from aap_assets_media.contract import MetadataSpec, ScheduleWorkRequest
 
 from app.services.dataset_import_delivery import (
     claim_dataset_import_delivery,
@@ -19,6 +20,7 @@ from app.services.dataset_source_ingest_delivery import (
     complete_dataset_source_ingest_delivery,
 )
 from app.services.media_job_dispatch import MediaJobDispatcher
+from app.services.assets_media import media_gateway
 from app.services.notification import NotificationService
 from app.workers._db import task_session
 from app.workers.celery_app import celery_app
@@ -50,7 +52,15 @@ async def _deliver_one(
         if delivery.kind == "thumbnail":
             dispatcher.dispatch_thumbnail(delivery.target_id)
         else:
-            dispatcher.dispatch_video_metadata(delivery.target_id)
+            async with media_gateway(db) as media:
+                await media.call(
+                    "schedule_video_media",
+                    ScheduleWorkRequest(
+                        operation_id=delivery.delivery_id,
+                        dataset_item_id=delivery.target_id,
+                        spec=MetadataSpec(),
+                    ),
+                )
     else:
         published = await NotificationService(db).publish_by_id(delivery.target_id)
         await db.commit()
@@ -83,7 +93,15 @@ async def _deliver_source_ingest_one(
         if delivery.kind == "thumbnail":
             dispatcher.dispatch_thumbnail(delivery.target_id)
         else:
-            dispatcher.dispatch_video_metadata(delivery.target_id)
+            async with media_gateway(db) as media:
+                await media.call(
+                    "schedule_video_media",
+                    ScheduleWorkRequest(
+                        operation_id=delivery.id,
+                        dataset_item_id=delivery.target_id,
+                        spec=MetadataSpec(),
+                    ),
+                )
     await complete_dataset_source_ingest_delivery(
         db, delivery_id=delivery.id, lease_token=delivery.lease_token
     )

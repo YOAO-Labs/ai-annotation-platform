@@ -295,9 +295,6 @@ async def test_read_scope_rejects_every_dataset_mutation_without_work(
             "thumbnails",
             "task_thumbnails",
             "task_thumbnail_backfills",
-            "video_metadata",
-            "video_chunks",
-            "video_frames",
         )
     }
     for method, path in write_endpoints:

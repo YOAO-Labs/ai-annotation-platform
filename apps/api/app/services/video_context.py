@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
+from typing import Any
 
 from app.schemas.task import VideoMetadata
 
@@ -18,6 +19,9 @@ class VideoContext:
     source_height: int | None
     task_id: uuid.UUID | None
     project_id: uuid.UUID | None
+    actor_id: uuid.UUID | None = None
+    source_reference: Any | None = None
+    source_snapshot: str | None = None
 
 
 def derive_step(source_fps: float | None, sampling: dict) -> int:

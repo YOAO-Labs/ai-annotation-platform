@@ -1210,6 +1210,7 @@ async def export_batch(
     try:
         video_scope = await normalize_video_export_scope(
             db,
+            actor_id=actor.id,
             project=project,
             request=body.scope if body else None,
             batch_id=batch_id,

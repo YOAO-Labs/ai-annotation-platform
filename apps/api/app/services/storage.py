@@ -427,11 +427,12 @@ class StorageService:
 
     # v0.10.17 · 派生媒体缓存按 key 前缀路由到 media-cache 桶。
     # 老数据若仍在 datasets 桶,运维可用 mc mirror 一次性搬迁,期间无下行兼容
-    # (派生缓存可重生)。前缀清单与 workers/media.py / video_frame_service.py 写侧保持一致。
+    # (派生缓存可重生)。前缀清单覆盖现有缩略图、点云金字塔和 Assets media key。
     MEDIA_CACHE_PREFIXES: tuple[str, ...] = (
         "thumbnails/",
         "videos/",
         "playback/",
+        "media-assets/",
         "image-pyramids/",
     )
 

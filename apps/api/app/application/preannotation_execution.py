@@ -938,12 +938,14 @@ async def _execute_preannotation(
         if execution_unit == "frame":
             if frame_dispatcher is None:
                 raise RuntimeError("frame execution requires a frame dispatcher")
-            from app.services.video_frame_service import _VideoContextSqlAdapter
+            from app.services.video_frame_service import AssetsVideoContextReader
 
             task_frame_counts: list[TaskFrameCount] = []
             for frame_task in tasks:
                 try:
-                    frame_context = await _VideoContextSqlAdapter(db).from_task(
+                    frame_context = await AssetsVideoContextReader(
+                        db
+                    ).from_task_summary(
                         task_id=frame_task.id,
                         project_id=frame_task.project_id,
                         file_type=frame_task.file_type,

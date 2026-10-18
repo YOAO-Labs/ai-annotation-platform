@@ -15,9 +15,8 @@
         finalize_frame_job.s(job_id, ...),                             # 段全绿后聚合收尾
     )
 
-- **阶段 A** ``extract_frames_task``: 每视频**一次**下载源视频 + 抽全部计划帧 → ``VideoFrameCache``
-  (跨视频并行, 走 media 队列)。消除 v0.21.7「每段各下一次整段视频」的重复下载。
-- **阶段 B 段任务** ``predict_video_segment``: **只读**缓存帧 URL (不再下载) → 逐帧 stage-0 predict →
+- **阶段 A** ``extract_frames_task``: 向 Assets media owner 请求计划帧, owner 负责校验源并发布 attempt-scoped frame assets。
+- **阶段 B 段任务** ``predict_video_segment``: **只读** owner 返回的缓存帧 URL (不再下载) → 逐帧 stage-0 predict →
   ``to_video_bbox_result`` → 落库; 段级幂等 (跳已落库帧, 断点续跑) + cancel 检查 + 每帧框数上限;
   Redis ``INCR`` 已完成帧计数 → SSE 进度 + ``async_job.progress_pct`` (跑中 DB 列表实时进度)。
 - **finalize** ``finalize_frame_job``: 汇总各段 stats → async_job 收尾 + SSE completed。
@@ -180,9 +179,8 @@ async def dispatch_frame_preannotate(
 
     _init_progress(job_id, total_frames)
 
-    # 两阶段 fan-out (v0.21.8): 阶段 A 每视频抽帧一次 (跨视频并行, 走 media 队列), 全绿后回调
-    # 派阶段 B 预测 chord。消除 v0.21.7「每段各下一次整段视频」(N 段 = N 次下载) 的重复下载——
-    # 段任务 (阶段 B) 此时只读 VideoFrameCache, 零下载。
+    # 两阶段 fan-out: 阶段 A 让 Assets owner 准备帧引用, 全绿后回调派阶段 B 预测 chord。
+    # 一个 gateway 会话复用 owner 本地执行器的源缓存; 段任务只读取 owner 签发的帧 URL。
     extract_sigs = [
         extract_frames_task.s(
             task_id,
@@ -224,9 +222,9 @@ def extract_frames_task(
     *,
     job_id: str | None = None,
 ) -> dict:
-    """阶段 A: 一个视频抽全部计划帧 → VideoFrameCache (下载源视频一次)。
+    """阶段 A: 请求 Assets media owner 准备一个视频的计划帧。
 
-    v0.21.8: 从段任务里拆出、每视频一次, 消除段级重复下载。阶段 B 段任务只读缓存。
+    阶段 B 通过 owner 的 attempt/source-generation fences 读取就绪帧, 不写 legacy cache 表。
     返回 ``{task_id, requested, extracted}``。
     """
     return asyncio.run(_run_extract(task_id, list(frame_indices), job_id=job_id))
@@ -242,7 +240,6 @@ async def _run_extract(
     )
 
     from app.db.models.task import Task
-    from app.services.video_frame_service import _VideoContextSqlAdapter
 
     stats = {"task_id": task_id, "requested": len(frame_indices), "extracted": 0}
     engine = create_async_engine(settings.database_url, echo=False)
@@ -252,18 +249,18 @@ async def _run_extract(
     try:
         async with SessionLocal() as db:
             task = await db.get(Task, uuid.UUID(task_id))
-            if task is None:
+            if (
+                task is None
+                or task.file_type != "video"
+                or task.dataset_item_id is None
+            ):
                 return stats
             # job 已取消 → 不抽 (阶段 B 段任务也会各自 no-op)。
             if job_id and await _job_cancelled(db, job_id):
                 return stats
-            ctx = await _VideoContextSqlAdapter(db).from_task(
-                task_id=task.id,
-                project_id=task.project_id,
-                file_type=task.file_type,
-                dataset_item_id=task.dataset_item_id,
+            urls = await _extract_frames_for_video(
+                db, task.dataset_item_id, frame_indices, job_id=job_id
             )
-            urls = await _extract_frames_for_video(db, ctx, frame_indices)
             stats["extracted"] = len(urls)
     finally:
         await engine.dispose()
@@ -284,10 +281,10 @@ def launch_predict_phase(
     segments: list[dict],
     celery_root_task_id: str | None = None,
 ) -> None:
-    """阶段 A (抽帧) chord 回调: 全绿后派阶段 B 预测 chord。
+    """阶段 A (owner frame preparation) chord 回调: 全绿后派阶段 B 预测 chord。
 
-    段任务此时只读 VideoFrameCache (帧已抽好), 不再下载。``extract_results`` 仅作 chord 同步屏障,
-    个别视频抽帧失败不阻断——其段任务读缓存未命中会各自记 failed。
+    段任务读取 owner 的 attempt-scoped frame assets。``extract_results`` 仅作 chord 同步屏障,
+    个别视频准备失败不阻断——对应段任务读不到就绪帧时各自记 failed。
     """
     from celery import chord, group
 
@@ -397,7 +394,6 @@ async def _run_segment(
     )
     from app.services.ml_routing.client import RoutedMLBackendClient
     from app.services.prediction import PredictionService, to_video_bbox_result
-    from app.services.video_frame_service import _VideoContextSqlAdapter
     from app.services.prediction_context import build_predict_context
     from app.services.labeling_write_scope import (
         LabelingWriteScope,
@@ -474,6 +470,9 @@ async def _run_segment(
             done_frames = await _existing_frame_indices(db, write_scope.task_id)
 
             for index, fi in enumerate(frame_indices):
+                if await _job_cancelled(db, job_id):
+                    stats["skipped"] += len(frame_indices) - index
+                    break
                 if fi in done_frames:
                     stats["skipped"] += 1
                     pending_write = None
@@ -495,13 +494,16 @@ async def _run_segment(
                                 ).pool_id_for_registry(backend.id)
                             except Exception:
                                 source_pool_id = None
-                            ctx = await _VideoContextSqlAdapter(db).from_task(
-                                task_id=task.id,
-                                project_id=task.project_id,
-                                file_type=task.file_type,
-                                dataset_item_id=task.dataset_item_id,
+                            frame_urls = (
+                                await _read_frame_urls(
+                                    db,
+                                    task.dataset_item_id,
+                                    frame_indices,
+                                    job_id=job_id,
+                                )
+                                if task.dataset_item_id is not None
+                                else {}
                             )
-                            frame_urls = await _read_frame_urls(db, ctx, frame_indices)
                             context = build_predict_context(
                                 prompt=None,
                                 output_mode="box",
@@ -687,50 +689,57 @@ async def _existing_frame_indices(db, task_uuid: uuid.UUID) -> set[int]:
 
 
 async def _extract_frames_for_video(
-    db, ctx, frame_indices: list[int]
+    db,
+    dataset_item_id: uuid.UUID,
+    frame_indices: list[int],
+    *,
+    job_id: str | None,
 ) -> dict[int, str]:
-    """阶段 A: 抽这些帧 → VideoFrameCache (下载源视频一次), 返回 {frame_index: url}。
-
-    先 ``_ensure_frame_row`` 建行, 再 ``_extract_video_frames`` (下载一次 + 逐帧落存储),
-    最后回读 URL。已 ready 帧命中缓存不重抽 (断点续跑一次下载即可)。
-    """
-    from app.services.video_frame_service import _ensure_frame_row
-    from app.workers.media import _extract_video_frames
-
-    for fi in frame_indices:
-        await _ensure_frame_row(db, ctx, fi, _FRAME_WIDTH, _FRAME_FORMAT)
-    await db.commit()
-
-    requests = [
-        {"frame_index": fi, "width": _FRAME_WIDTH, "format": _FRAME_FORMAT}
-        for fi in frame_indices
-    ]
-    await _extract_video_frames(str(ctx.dataset_item_id), requests)
-    return await _read_frame_urls(db, ctx, frame_indices)
+    """Phase A asks Assets for each internal frame; Assets owns extraction and cache."""
+    return await _read_frame_urls(db, dataset_item_id, frame_indices, job_id=job_id)
 
 
-async def _read_frame_urls(db, ctx, frame_indices: list[int]) -> dict[int, str]:
-    """只读 VideoFrameCache 取已抽好帧的 URL (阶段 B 段任务用, 不下载/不抽)。
+async def _read_frame_urls(
+    db,
+    dataset_item_id: uuid.UUID,
+    frame_indices: list[int],
+    *,
+    job_id: str | None = None,
+) -> dict[int, str]:
+    """Resolve complete owner-generated frame URLs, fencing cancellation per read."""
+    from aap_assets_media.contract import InternalFrameRequest, MediaFailure
 
-    帧未 ready (阶段 A 漏抽/失败) → 不入返回 map, 调用方记 failed, **不回退下载**。
-    """
-    from sqlalchemy import select
-
-    from app.db.models.dataset import VideoFrameCache
-    from app.services.video_frame_service import _asset_url
+    from app.services.assets_media import media_gateway
 
     urls: dict[int, str] = {}
-    rows = await db.execute(
-        select(VideoFrameCache).where(
-            VideoFrameCache.dataset_item_id == ctx.dataset_item_id,
-            VideoFrameCache.frame_index.in_(frame_indices),
-            VideoFrameCache.width == _FRAME_WIDTH,
-            VideoFrameCache.format == _FRAME_FORMAT,
-        )
-    )
-    for row in rows.scalars().all():
-        if row.status == "ready" and row.storage_key:
-            urls[row.frame_index] = _asset_url(row.storage_key)
+    async with media_gateway(db) as gateway:
+        for frame_index in sorted(set(frame_indices)):
+            if job_id and await _job_cancelled(db, job_id):
+                break
+            try:
+                references = await gateway.ensure_internal_frame(
+                    InternalFrameRequest(
+                        dataset_item_id=dataset_item_id,
+                        frame_index=frame_index,
+                        width=_FRAME_WIDTH,
+                        format=_FRAME_FORMAT,
+                    )
+                )
+            except MediaFailure:
+                continue
+            asset = next(
+                (
+                    candidate
+                    for candidate in references.state.assets
+                    if candidate.kind == "frame"
+                    and candidate.frame_index == frame_index
+                    and candidate.width == _FRAME_WIDTH
+                    and candidate.format == _FRAME_FORMAT
+                ),
+                None,
+            )
+            if asset is not None and asset.status == "ready" and asset.url:
+                urls[frame_index] = asset.url
     return urls
 
 

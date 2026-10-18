@@ -84,6 +84,7 @@ celery_app.conf.update(
         "app.workers.media.backfill_tasks": {"queue": "media"},
         "app.workers.media.ensure_video_chunks": {"queue": "media"},
         "app.workers.media.extract_video_frames": {"queue": "media"},
+        "app.workers.media.execute_video_media": {"queue": "media"},
         "app.workers.media.cleanup_video_frame_assets": {"queue": "media"},
         "app.workers.image_pyramid.generate_image_pyramid": {"queue": "image-pyramid"},
         "app.workers.image_pyramid.reconcile_image_pyramids": {"queue": "cleanup"},
@@ -244,6 +245,13 @@ celery_app.conf.update(
         "cleanup-video-frame-assets": {
             "task": "app.workers.media.cleanup_video_frame_assets",
             "schedule": crontab(hour=2, minute=30),
+        },
+        # Recover pending local owner jobs when a worker dies before lease expiry;
+        # remote owner mode makes this generic drain a no-op.
+        "execute-video-media-recovery": {
+            "task": "app.workers.media.execute_video_media",
+            "schedule": timedelta(seconds=60),
+            "options": {"expires": 55},
         },
         "reconcile-image-pyramids": {
             "task": "app.workers.image_pyramid.reconcile_image_pyramids",

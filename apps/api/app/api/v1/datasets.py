@@ -1,4 +1,11 @@
 import uuid
+from aap_assets_media.contract import (
+    BackfillSelection,
+    BackfillSpec,
+    MediaFailure,
+    MetadataSpec,
+    RequestWorkRequest,
+)
 
 from fastapi import (
     APIRouter,
@@ -79,6 +86,7 @@ from app.services.assets_source import (
     AssetsSourceGateway,
     encode_ingest_public_result,
 )
+from app.services.assets_media import media_gateway, media_http_error
 from app.services.assets_import import DatasetImportCapabilities
 from app.services.media_job_dispatch import MediaJobDispatcher
 from app.services.storage import storage_service
@@ -571,7 +579,20 @@ async def upload_complete(
     if outcome.file_type == "image":
         media_dispatcher.dispatch_thumbnail(item_id)
     elif outcome.file_type == "video":
-        media_dispatcher.dispatch_video_metadata(item_id)
+        try:
+            async with media_gateway(db) as media:
+                await media.call(
+                    "request_video_media",
+                    RequestWorkRequest(
+                        operation_id=request.operation_id,
+                        actor_id=current_user.id,
+                        dataset_item_id=item_id,
+                        spec=MetadataSpec(),
+                    ),
+                )
+            await db.commit()
+        except MediaFailure as exc:
+            raise media_http_error(exc) from None
     return {"status": "ok", **outcome.result.model_dump(mode="json")}
 
 
@@ -761,9 +782,26 @@ async def backfill_media_endpoint(
     if not ds:
         raise HTTPException(status_code=404, detail="Dataset not found")
 
+    try:
+        async with media_gateway(db) as media:
+            await media.call(
+                "request_video_media",
+                RequestWorkRequest(
+                    operation_id=uuid.uuid4(),
+                    actor_id=current_user.id,
+                    dataset_item_id=None,
+                    spec=BackfillSpec(
+                        selection=BackfillSelection(dataset_id=dataset_id)
+                    ),
+                ),
+            )
+        await db.commit()
+    except MediaFailure as exc:
+        raise media_http_error(exc) from None
+
     from app.workers.media import backfill_media
 
-    backfill_media.delay(str(dataset_id))
+    backfill_media.delay(str(dataset_id), schedule_video=False)
     return {"status": "queued", "dataset_id": str(dataset_id)}
 
 

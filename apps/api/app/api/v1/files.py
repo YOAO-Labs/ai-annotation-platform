@@ -16,6 +16,8 @@ from app.application.task_workflow_errors import TaskWorkflowError
 from app.services import task_access
 from app.services.media_job_dispatch import MediaJobDispatcher
 from app.services.storage import storage_service
+from app.services.assets_media import media_gateway, media_http_error
+from aap_assets_media.contract import MediaFailure, ReadSourceRequest
 
 router = APIRouter()
 
@@ -78,6 +80,26 @@ async def get_file_url(
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
     await task_access.assert_task_visible(db, task, current_user.id)
+
+    if task.dataset_item_id is not None:
+        try:
+            async with media_gateway(db) as gateway:
+                reference = await gateway.raw_source_reference(
+                    ReadSourceRequest(
+                        actor_id=current_user.id,
+                        dataset_item_id=task.dataset_item_id,
+                        task_id=task.id,
+                    )
+                )
+        except MediaFailure as exc:
+            raise media_http_error(exc) from None
+        if reference.source.source_drifted:
+            raise HTTPException(
+                status_code=409, detail="Source changed; refresh the task."
+            )
+        return TaskFileUrlResponse(
+            url=reference.original_url, expires_in=reference.expires_in
+        )
 
     url = storage_service.generate_download_url(task.file_path)
     return TaskFileUrlResponse(url=url, expires_in=3600)

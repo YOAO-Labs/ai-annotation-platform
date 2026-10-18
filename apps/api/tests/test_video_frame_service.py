@@ -25,9 +25,10 @@ from app.cli.video import rebuild_timetable as timetable_cli
 from app.services.system_settings_service import SystemSettingsService
 from tests.factory import build_tool_bindings
 from app.services.video_frame_service import (
-    _VideoContextSqlAdapter,
     list_chunks,
 )
+from app.services.video_context import VideoContext
+from app.schemas.task import VideoMetadata
 
 
 async def _make_video_task(db_session, owner_id):
@@ -82,61 +83,39 @@ async def _make_video_task(db_session, owner_id):
 
 
 async def _context_for_task(db, task):
-    return await _VideoContextSqlAdapter(db).from_task(
+    item = await db.get(DatasetItem, task.dataset_item_id)
+    return VideoContext(
+        metadata=VideoMetadata.model_validate(
+            (item.metadata_ or {}).get("video") or {}
+        ),
+        dataset_item_id=item.id,
+        source_file_path=item.file_path,
+        thumbnail_path=item.thumbnail_path,
+        source_width=item.width,
+        source_height=item.height,
         task_id=task.id,
         project_id=task.project_id,
-        file_type=task.file_type,
-        dataset_item_id=task.dataset_item_id,
+        actor_id=task.assignee_id or uuid.UUID(int=1),
     )
 
 
 async def _context_for_item(db, dataset_item_id, task=None):
-    return await _VideoContextSqlAdapter(db).from_dataset_item(
-        dataset_item_id=dataset_item_id,
+    item = await db.get(DatasetItem, dataset_item_id)
+    return VideoContext(
+        metadata=VideoMetadata.model_validate(
+            (item.metadata_ or {}).get("video") or {}
+        ),
+        dataset_item_id=item.id,
+        source_file_path=item.file_path,
+        thumbnail_path=item.thumbnail_path,
+        source_width=item.width,
+        source_height=item.height,
         task_id=task.id if task is not None else None,
         project_id=task.project_id if task is not None else None,
+        actor_id=(task.assignee_id or uuid.UUID(int=1))
+        if task is not None
+        else uuid.UUID(int=1),
     )
-
-
-async def test_video_context_reader_uses_one_item_read_and_keeps_stored_dimensions(
-    db_session, test_engine, super_admin
-):
-    from sqlalchemy import event
-
-    user, _ = super_admin
-    task, item = await _make_video_task(db_session, user.id)
-    item.width, item.height = 640, 360
-    item.metadata_ = {
-        **item.metadata_,
-        "video": {**item.metadata_["video"], "width": 1920, "height": 1080},
-    }
-    await db_session.flush()
-    task_facts = {
-        "task_id": task.id,
-        "project_id": task.project_id,
-        "file_type": task.file_type,
-        "dataset_item_id": task.dataset_item_id,
-    }
-    db_session.expunge(task)
-    db_session.expunge(item)
-    statements = []
-
-    def capture_statement(_conn, _cursor, statement, *_args):
-        statements.append(statement.lower())
-
-    event.listen(test_engine.sync_engine, "before_cursor_execute", capture_statement)
-    try:
-        ctx = await _VideoContextSqlAdapter(db_session).from_task(**task_facts)
-    finally:
-        event.remove(
-            test_engine.sync_engine, "before_cursor_execute", capture_statement
-        )
-
-    assert len(statements) == 1
-    assert "dataset_items" in statements[0]
-    assert "tasks" not in statements[0]
-    assert ctx.source_width == 640 and ctx.source_height == 360
-    assert ctx.metadata.width == 1920 and ctx.metadata.height == 1080
 
 
 async def test_video_manifest_v2_exposes_service_urls(
@@ -455,14 +434,9 @@ async def test_segment_task_binding_mismatch_fails_before_database_access(
 
 
 async def test_video_context_values_survive_rollback_without_lazy_loads(
-    db_session, test_engine, super_admin, monkeypatch
+    db_session, test_engine, super_admin
 ):
     from sqlalchemy import event
-
-    from app.services.video_frame_service import (
-        _source_key,
-    )
-    from app.workers import frame_preannotate
 
     user, _ = super_admin
     task, item = await _make_video_task(db_session, user.id)
@@ -470,29 +444,8 @@ async def test_video_context_values_survive_rollback_without_lazy_loads(
     expected_item_id = item.id
     expected_task_id = task.id
     expected_project_id = task.project_id
-    db_session.add_all(
-        [
-            VideoFrameCache(
-                dataset_item_id=item.id,
-                frame_index=index,
-                width=frame_preannotate._FRAME_WIDTH,
-                format=frame_preannotate._FRAME_FORMAT,
-                status="ready" if index == 0 else "pending",
-                storage_key=f"videos/frames/{index}.webp" if index == 0 else None,
-            )
-            for index in (0, 1)
-        ]
-    )
     await db_session.commit()
     await db_session.execute(select(1))
-    monkeypatch.setattr(
-        "app.services.video_frame_service.storage_service.generate_download_url",
-        lambda key, **_kwargs: f"http://storage.local/{key}",
-    )
-
-    # Metadata is a scalar-only Pydantic snapshot, not a view into the JSONB dict.
-    item.metadata_["video"]["fps"] = 60
-    assert ctx.metadata.fps == 30
 
     await db_session.rollback()
     await db_session.connection()
@@ -509,14 +462,11 @@ async def test_video_context_values_survive_rollback_without_lazy_loads(
         assert ctx.source_file_path == "videos/clip.mp4"
         assert ctx.thumbnail_path == "posters/clip.webp"
         assert ctx.metadata.fps == 30
-        assert _source_key(ctx.source_file_path, ctx.metadata) == "playback/clip.mp4"
         assert statements == []
-        urls = await frame_preannotate._read_frame_urls(db_session, ctx, [0, 1])
-        assert urls == {0: "http://storage.local/videos/frames/0.webp"}
     finally:
         event.remove(test_engine.sync_engine, "before_cursor_execute", count_statement)
 
-    assert len(statements) == 1
+    assert statements == []
 
 
 async def test_taskless_video_context_keeps_taskless_segment_behavior(

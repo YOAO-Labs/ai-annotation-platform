@@ -3,7 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 import logging
 import uuid
-from typing import Any, Mapping, Sequence
 
 from fastapi import HTTPException
 from sqlalchemy import select, func, delete, text
@@ -13,7 +12,6 @@ from app.db.models.dataset import (
     Dataset,
     DatasetItem,
     ProjectDataset,
-    VideoFrameIndex,
 )
 from aap_assets_catalog.spatial_contract import (
     ProvenanceEntry,
@@ -371,95 +369,6 @@ class DatasetService:
         if item is not None:
             item.thumbnail_path = thumbnail_path
             item.blurhash = blurhash
-
-    async def replace_video_frame_index(
-        self,
-        item_id: uuid.UUID,
-        frame_timetable: Sequence[Mapping[str, Any]],
-    ) -> None:
-        await self.db.execute(
-            delete(VideoFrameIndex).where(VideoFrameIndex.dataset_item_id == item_id)
-        )
-        self.db.add_all(
-            [
-                VideoFrameIndex(
-                    dataset_item_id=item_id,
-                    frame_index=entry["frame_index"],
-                    pts_ms=entry["pts_ms"],
-                    is_keyframe=entry["is_keyframe"],
-                    pict_type=entry.get("pict_type"),
-                    byte_offset=entry.get("byte_offset"),
-                )
-                for entry in frame_timetable
-            ]
-        )
-
-    async def replace_video_frame_timetable(
-        self,
-        item: DatasetItem,
-        frame_timetable: Sequence[Mapping[str, Any]],
-        *,
-        total_frames: int,
-    ) -> None:
-        await self.replace_video_frame_index(item.id, frame_timetable)
-        metadata = dict(item.metadata_ or {})
-        video_metadata = dict(metadata.get("video") or {})
-        video_metadata["frame_timetable_frame_count"] = total_frames
-        video_metadata.pop("frame_timetable_error", None)
-        metadata["video"] = video_metadata
-        item.metadata_ = metadata
-
-    async def record_video_frame_timetable_error(
-        self, item_id: uuid.UUID, error: str
-    ) -> None:
-        item = await self.db.get(DatasetItem, item_id)
-        if item is None:
-            return
-        metadata = dict(item.metadata_ or {})
-        video_metadata = dict(metadata.get("video") or {})
-        video_metadata["frame_timetable_error"] = error
-        metadata["video"] = video_metadata
-        item.metadata_ = metadata
-
-    async def set_video_dimensions(
-        self,
-        item_id: uuid.UUID,
-        *,
-        width: Any | None,
-        height: Any | None,
-    ) -> None:
-        item = await self.db.get(DatasetItem, item_id)
-        if item is None:
-            return
-        if width is not None:
-            item.width = int(width)
-        if height is not None:
-            item.height = int(height)
-
-    async def record_video_probe_error(
-        self, item_id: uuid.UUID, video_metadata: Mapping[str, Any]
-    ) -> None:
-        item = await self.db.get(DatasetItem, item_id)
-        if item is not None:
-            metadata = dict(item.metadata_ or {})
-            metadata["video"] = dict(video_metadata)
-            item.metadata_ = metadata
-
-    async def save_video_materialization(
-        self,
-        item_id: uuid.UUID,
-        video_metadata: Mapping[str, Any],
-        *,
-        thumbnail_path: str | None,
-    ) -> None:
-        item = await self.db.get(DatasetItem, item_id)
-        if item is None:
-            return
-        metadata = dict(item.metadata_ or {})
-        metadata["video"] = dict(video_metadata)
-        item.metadata_ = metadata
-        if thumbnail_path is not None:
-            item.thumbnail_path = thumbnail_path
 
     # ── Project linking ─────────────────────────────────────────────────────
 
