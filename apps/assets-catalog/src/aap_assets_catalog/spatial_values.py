@@ -23,7 +23,7 @@ AxisFrame = Literal["iso", "source"]
 
 
 class SensorCalibration(BaseModel):
-    """v0.13.1 · 相机标定。extrinsic row-major 4x4 外参(16), intrinsic row-major
+    """相机标定。extrinsic row-major 4x4 外参(16), intrinsic row-major
     3x3 内参(9), rect 为 KITTI 可选矫正矩阵 4x4(16)。存进 DatasetItem.metadata_
     的 "calibration" key。投影: extrinsic·[x,y,z,1] → xyz → intrinsic·xyz → 透视除法。"""
 

@@ -40,8 +40,8 @@ _UPDATE_CALIBRATION = text(
     "CAST(:operation_id AS uuid), CAST(:actor_id AS uuid), "
     "CAST(:task_id AS uuid), CAST(:camera_role AS text), "
     "CAST(:expected_revision AS integer), CAST(:expected_digest AS text), "
-    "CAST(:calibration AS jsonb), CAST(:current_canonical_document AS text), "
-    "CAST(:canonical_document AS text), CAST(:source_snapshot AS jsonb), "
+    "CAST(:calibration AS jsonb), CAST(:canonical_document AS text), "
+    "CAST(:current_canonical_document AS text), CAST(:source_snapshot AS jsonb), "
     "CAST(:audit_context AS jsonb))"
 )
 _RECORD_PROVENANCE = text(

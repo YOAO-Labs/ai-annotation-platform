@@ -142,9 +142,8 @@
     }
   ],
   "$defs": {
-    "SensorCalibration": {
+    "WireCalibration": {
       "additionalProperties": false,
-      "description": "v0.13.1 · 相机标定。extrinsic row-major 4x4 外参(16), intrinsic row-major\n3x3 内参(9), rect 为 KITTI 可选矫正矩阵 4x4(16)。存进 DatasetItem.metadata_\n的 \"calibration\" key。投影: extrinsic·[x,y,z,1] → xyz → intrinsic·xyz → 透视除法。",
       "properties": {
         "extrinsic": {
           "items": {
@@ -183,7 +182,7 @@
         }
       },
       "required": ["extrinsic", "intrinsic"],
-      "title": "SensorCalibration",
+      "title": "WireCalibration",
       "type": "object"
     },
     "ApplyCalibrationRequest": {
@@ -219,7 +218,7 @@
           "type": "string"
         },
         "calibration": {
-          "$ref": "#/$defs/SensorCalibration"
+          "$ref": "#/$defs/WireCalibration"
         },
         "audit_context": {
           "additionalProperties": true,
@@ -452,7 +451,7 @@
           "type": "integer"
         },
         "calibration": {
-          "$ref": "#/$defs/SensorCalibration"
+          "$ref": "#/$defs/WireCalibration"
         }
       },
       "required": [
@@ -762,7 +761,7 @@
           "type": "integer"
         },
         "calibration": {
-          "$ref": "#/$defs/SensorCalibration"
+          "$ref": "#/$defs/WireCalibration"
         },
         "digest": {
           "pattern": "^[0-9a-f]{64}$",
@@ -1920,7 +1919,8 @@
       "title": "PoseMutationResult",
       "type": "object"
     },
-    "FramePose": {
+    "WireFramePose": {
+      "additionalProperties": false,
       "properties": {
         "frame_index": {
           "minimum": 0,
@@ -1964,7 +1964,7 @@
         }
       },
       "required": ["frame_index", "ego_translation", "ego_rotation"],
-      "title": "FramePose",
+      "title": "WireFramePose",
       "type": "object"
     },
     "PosePage": {
@@ -2025,7 +2025,7 @@
         },
         "poses": {
           "items": {
-            "$ref": "#/$defs/FramePose"
+            "$ref": "#/$defs/WireFramePose"
           },
           "title": "Poses",
           "type": "array"
@@ -2513,7 +2513,7 @@
           "type": "string"
         },
         "calibration": {
-          "$ref": "#/$defs/SensorCalibration"
+          "$ref": "#/$defs/WireCalibration"
         },
         "digest": {
           "pattern": "^[0-9a-f]{64}$",
@@ -2805,7 +2805,7 @@
           "type": "string"
         },
         "calibration": {
-          "$ref": "#/$defs/SensorCalibration"
+          "$ref": "#/$defs/WireCalibration"
         },
         "audit_context": {
           "additionalProperties": true,
@@ -2840,7 +2840,7 @@
         },
         "poses": {
           "items": {
-            "$ref": "#/$defs/FramePose"
+            "$ref": "#/$defs/WireFramePose"
           },
           "title": "Poses",
           "type": "array"
@@ -2854,6 +2854,7 @@
   "x-native-capabilities": {
     "guard_spatial_actor": {
       "signature": "aap_assets_v1.guard_spatial_actor(uuid,text)",
+      "arguments": ["actor_id", "access"],
       "request": {
         "$ref": "#/$defs/GuardSpatialActorRequest"
       },
@@ -2863,6 +2864,7 @@
     },
     "list_spatial_scenes": {
       "signature": "aap_assets_v1.list_spatial_scenes(uuid,uuid,timestamp with time zone,uuid,integer)",
+      "arguments": ["actor_id", "dataset_id", "after_created_at", "after_scene_id", "page_size"],
       "request": {
         "$ref": "#/$defs/ListScenesRequest"
       },
@@ -2872,6 +2874,7 @@
     },
     "get_spatial_scene": {
       "signature": "aap_assets_v1.get_spatial_scene(uuid,uuid)",
+      "arguments": ["actor_id", "scene_id"],
       "request": {
         "$ref": "#/$defs/GetSceneRequest"
       },
@@ -2881,6 +2884,13 @@
     },
     "read_spatial_layout": {
       "signature": "aap_assets_v1.read_spatial_layout(uuid,uuid,uuid,uuid,integer)",
+      "arguments": [
+        "actor_id",
+        "dataset_id",
+        "creation_operation_id",
+        "after_item_id",
+        "page_size"
+      ],
       "request": {
         "$ref": "#/$defs/ReadLayoutRequest"
       },
@@ -2890,6 +2900,7 @@
     },
     "read_spatial_items": {
       "signature": "aap_assets_v1.read_spatial_items(uuid,uuid[],uuid,integer)",
+      "arguments": ["dataset_id", "item_ids", "after_item_id", "page_size"],
       "request": {
         "$ref": "#/$defs/ReadItemsRequest"
       },
@@ -2899,6 +2910,7 @@
     },
     "read_spatial_poses": {
       "signature": "aap_assets_v1.read_spatial_poses(uuid,uuid,integer,integer)",
+      "arguments": ["actor_id", "scene_id", "after_frame_index", "page_size"],
       "request": {
         "$ref": "#/$defs/ReadPosesRequest"
       },
@@ -2908,6 +2920,13 @@
     },
     "read_spatial_calibrations": {
       "signature": "aap_assets_v1.read_spatial_calibrations(uuid[],boolean,uuid,integer,integer)",
+      "arguments": [
+        "dataset_item_ids",
+        "include_history",
+        "after_item_id",
+        "after_revision",
+        "page_size"
+      ],
       "request": {
         "$ref": "#/$defs/ReadCalibrationsRequest"
       },
@@ -2917,6 +2936,13 @@
     },
     "lock_spatial_calibration_facts": {
       "signature": "aap_assets_v1.lock_spatial_calibration_facts(uuid,uuid,text,uuid,jsonb)",
+      "arguments": [
+        "actor_id",
+        "task_id",
+        "camera_role",
+        "dataset_item_id",
+        "expected_source_snapshot"
+      ],
       "request": {
         "$ref": "#/$defs/LockCalibrationFactsRequest"
       },
@@ -2926,6 +2952,7 @@
     },
     "mutate_spatial_scene": {
       "signature": "aap_assets_v1.mutate_spatial_scene(uuid,uuid,uuid,jsonb,jsonb)",
+      "arguments": ["operation_id", "actor_id", "scene_id", "patch", "audit_context"],
       "request": {
         "$ref": "#/$defs/MutateSceneRequest"
       },
@@ -2935,6 +2962,15 @@
     },
     "apply_spatial_layout": {
       "signature": "aap_assets_v1.apply_spatial_layout(uuid,uuid,uuid,text,boolean,jsonb,jsonb)",
+      "arguments": [
+        "operation_id",
+        "actor_id",
+        "dataset_id",
+        "mode",
+        "dry_run",
+        "plan",
+        "snapshot"
+      ],
       "request": {
         "$ref": "#/$defs/ApplyLayoutRequest"
       },
@@ -2944,6 +2980,7 @@
     },
     "upsert_spatial_poses": {
       "signature": "aap_assets_v1.upsert_spatial_poses(uuid,uuid,jsonb)",
+      "arguments": ["operation_id", "scene_id", "poses"],
       "request": {
         "$ref": "#/$defs/UpsertPosesRequest"
       },
@@ -2953,6 +2990,15 @@
     },
     "create_spatial_scene": {
       "signature": "aap_assets_v1.create_spatial_scene(uuid,uuid,uuid,text,text,jsonb,uuid)",
+      "arguments": [
+        "operation_id",
+        "scene_id",
+        "dataset_id",
+        "name",
+        "source_format",
+        "source_metadata",
+        "created_by"
+      ],
       "request": {
         "$ref": "#/$defs/CreateSceneRequest"
       },
@@ -2962,6 +3008,7 @@
     },
     "assign_spatial_items": {
       "signature": "aap_assets_v1.assign_spatial_items(uuid,uuid,jsonb)",
+      "arguments": ["operation_id", "dataset_id", "assignments"],
       "request": {
         "$ref": "#/$defs/AssignItemsRequest"
       },
@@ -2971,6 +3018,7 @@
     },
     "set_spatial_scene_source": {
       "signature": "aap_assets_v1.set_spatial_scene_source(uuid,uuid,text,jsonb)",
+      "arguments": ["operation_id", "scene_id", "source_format", "source_metadata"],
       "request": {
         "$ref": "#/$defs/SetSceneSourceRequest"
       },
@@ -2980,6 +3028,19 @@
     },
     "update_spatial_calibration": {
       "signature": "aap_assets_v1.update_spatial_calibration(uuid,uuid,uuid,text,integer,text,jsonb,text,text,jsonb,jsonb)",
+      "arguments": [
+        "operation_id",
+        "actor_id",
+        "task_id",
+        "camera_role",
+        "expected_revision",
+        "expected_digest",
+        "calibration",
+        "canonical_document",
+        "current_canonical_document",
+        "source_snapshot",
+        "audit_context"
+      ],
       "request": {
         "$ref": "#/$defs/ApplyCalibrationRequest"
       },
@@ -2989,6 +3050,7 @@
     },
     "read_pointcloud_preparation": {
       "signature": "aap_assets_v1.read_pointcloud_preparation(uuid,uuid,integer)",
+      "arguments": ["creation_operation_id", "after_item_id", "page_size"],
       "request": {
         "$ref": "#/$defs/ReadPreparationRequest"
       },
@@ -2998,6 +3060,7 @@
     },
     "apply_pointcloud_preparation": {
       "signature": "aap_assets_v1.apply_pointcloud_preparation(uuid,jsonb,jsonb,jsonb)",
+      "arguments": ["creation_operation_id", "snapshot", "calibration_updates", "frame_plan"],
       "request": {
         "$ref": "#/$defs/ApplyPreparationRequest"
       },
@@ -3007,6 +3070,7 @@
     },
     "read_spatial_camera_target": {
       "signature": "aap_assets_v1.read_spatial_camera_target(uuid,uuid,text)",
+      "arguments": ["actor_id", "task_id", "camera_role"],
       "request": {
         "$ref": "#/$defs/ReadCameraTargetRequest"
       },
@@ -3016,6 +3080,7 @@
     },
     "record_spatial_calibration_provenance": {
       "signature": "aap_assets_v1.record_spatial_calibration_provenance(uuid,uuid,jsonb)",
+      "arguments": ["operation_id", "dataset_id", "entries"],
       "request": {
         "$ref": "#/$defs/RecordCalibrationProvenanceRequest"
       },

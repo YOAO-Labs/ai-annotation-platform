@@ -7,6 +7,7 @@ from pydantic import ValidationError
 
 from aap_assets_catalog.spatial_contract import (
     SPATIAL_NATIVE_SIGNATURES,
+    SPATIAL_NATIVE_ARGUMENTS,
     SPATIAL_SCHEMA,
     CalibrationRecord,
     GuardSpatialActorRequest,
@@ -15,6 +16,8 @@ from aap_assets_catalog.spatial_contract import (
     ScenePatch,
     SpatialActorResult,
     SpatialFailure,
+    WireCalibration,
+    WireFramePose,
     canonical_calibration_document,
     decode_spatial_reply,
     normalize_calibration_record,
@@ -118,6 +121,11 @@ def test_distributable_schema_matches_wire_models_and_exact_native_surface():
     assert len(SPATIAL_NATIVE_SIGNATURES) == 19
     assert set(expected["x-native-capabilities"]) == set(SPATIAL_NATIVE_SIGNATURES)
     assert expected["$defs"]["ScenePatch"]["additionalProperties"] is False
+    for name, signature in SPATIAL_NATIVE_SIGNATURES.items():
+        assert len(signature.split(",")) == len(SPATIAL_NATIVE_ARGUMENTS[name])
+        assert expected["x-native-capabilities"][name]["arguments"] == list(
+            SPATIAL_NATIVE_ARGUMENTS[name]
+        )
 
 
 @pytest.mark.parametrize(
@@ -126,7 +134,7 @@ def test_distributable_schema_matches_wire_models_and_exact_native_surface():
 def test_page_rejects_reordered_repeated_or_nonadvancing_trajectory(
     indices, next_index
 ):
-    with pytest.raises(ValidationError):
+    with pytest.raises(ValidationError, match="page|cursor|order"):
         PosePage(
             actor_id=None,
             scene_id=uuid4(),
@@ -139,10 +147,41 @@ def test_page_rejects_reordered_repeated_or_nonadvancing_trajectory(
                 {
                     "frame_index": frame,
                     "timestamp_us": -10,
-                    "translation": [0, 0, 0],
-                    "rotation": [1, 0, 0, 0],
+                    "ego_translation": [0, 0, 0],
+                    "ego_rotation": [1, 0, 0, 0],
                     "source_metadata": {},
                 }
                 for frame in indices
             ],
         )
+
+
+def test_wire_pose_accepts_legacy_field_names_but_rejects_extra_or_coerced_facts():
+    pose = {
+        "frame_index": 0,
+        "timestamp_us": -10,
+        "ego_translation": [0, 0, 0],
+        "ego_rotation": [1, 0, 0, 0],
+        "source_metadata": {"vendor": "kept"},
+    }
+    page = PosePage(
+        actor_id=None,
+        scene_id=uuid4(),
+        after_frame_index=None,
+        next_frame_index=None,
+        snapshot_digest="0" * 64,
+        total=1,
+        complete=True,
+        poses=[pose],
+    )
+    assert page.poses[0].timestamp_us == -10
+    assert page.poses[0].source_metadata == {"vendor": "kept"}
+    for altered in (
+        {**pose, "unknown": True},
+        {**pose, "frame_index": "0"},
+        {**pose, "timestamp_us": True},
+    ):
+        with pytest.raises(ValidationError):
+            WireFramePose.model_validate(altered)
+    with pytest.raises(ValidationError):
+        WireCalibration(extrinsic=["0"] * 16, intrinsic=[1] * 9)

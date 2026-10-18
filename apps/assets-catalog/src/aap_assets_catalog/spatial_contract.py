@@ -82,6 +82,26 @@ class _Value(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, allow_inf_nan=False)
 
 
+class WireFramePose(FramePose):
+    model_config = ConfigDict(
+        extra="forbid",
+        strict=True,
+        frozen=True,
+        allow_inf_nan=False,
+        from_attributes=True,
+    )
+
+
+class WireCalibration(SensorCalibration):
+    model_config = ConfigDict(
+        extra="forbid",
+        strict=True,
+        frozen=True,
+        allow_inf_nan=False,
+        from_attributes=True,
+    )
+
+
 class SpatialScene(_Value):
     id: UUID
     display_id: StrictStr
@@ -282,7 +302,7 @@ class PosePage(_Value):
     snapshot_digest: Digest
     total: Count
     complete: StrictBool
-    poses: list[FramePose]
+    poses: list[WireFramePose]
 
     @model_validator(mode="after")
     def check_page(self):
@@ -330,7 +350,7 @@ class CalibrationRecord(_Value):
 class CalibrationState(_Value):
     dataset_item_id: UUID
     revision: Revision
-    calibration: SensorCalibration
+    calibration: WireCalibration
     digest: Digest
     created_at: datetime | None
     source_snapshot: dict[str, Any]
@@ -500,7 +520,7 @@ class LayoutMutationResult(_Value):
 class UpsertPosesRequest(_Value):
     operation_id: UUID
     scene_id: UUID
-    poses: list[FramePose]
+    poses: list[WireFramePose]
 
 
 class PoseMutationResult(_Value):
@@ -558,7 +578,7 @@ class UpdateCalibrationRequest(_Value):
     camera_role: StrictStr
     expected_revision: Revision
     expected_digest: Digest
-    calibration: SensorCalibration
+    calibration: WireCalibration
     audit_context: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -578,7 +598,7 @@ class CalibrationMutationResult(_Value):
 
 class ProvenanceEntry(_Value):
     dataset_item_id: UUID
-    calibration: SensorCalibration
+    calibration: WireCalibration
     digest: Digest
     canonical_document: StrictStr
     source_snapshot: dict[str, Any]
@@ -617,7 +637,7 @@ class CalibrationImportUpdate(_Value):
     source_snapshot: dict[str, Any]
     source_etag: StrictStr
     source_size: Count
-    calibration: SensorCalibration
+    calibration: WireCalibration
 
 
 class ApplyPreparationRequest(_Value):
@@ -733,6 +753,100 @@ SPATIAL_NATIVE_SIGNATURES = {
     "apply_pointcloud_preparation": "uuid,jsonb,jsonb,jsonb",
     "read_spatial_camera_target": "uuid,uuid,text",
     "record_spatial_calibration_provenance": "uuid,uuid,jsonb",
+}
+
+SPATIAL_NATIVE_ARGUMENTS = {
+    "guard_spatial_actor": ("actor_id", "access"),
+    "list_spatial_scenes": (
+        "actor_id",
+        "dataset_id",
+        "after_created_at",
+        "after_scene_id",
+        "page_size",
+    ),
+    "get_spatial_scene": ("actor_id", "scene_id"),
+    "read_spatial_layout": (
+        "actor_id",
+        "dataset_id",
+        "creation_operation_id",
+        "after_item_id",
+        "page_size",
+    ),
+    "read_spatial_items": ("dataset_id", "item_ids", "after_item_id", "page_size"),
+    "read_spatial_poses": ("actor_id", "scene_id", "after_frame_index", "page_size"),
+    "read_spatial_calibrations": (
+        "dataset_item_ids",
+        "include_history",
+        "after_item_id",
+        "after_revision",
+        "page_size",
+    ),
+    "lock_spatial_calibration_facts": (
+        "actor_id",
+        "task_id",
+        "camera_role",
+        "dataset_item_id",
+        "expected_source_snapshot",
+    ),
+    "mutate_spatial_scene": (
+        "operation_id",
+        "actor_id",
+        "scene_id",
+        "patch",
+        "audit_context",
+    ),
+    "apply_spatial_layout": (
+        "operation_id",
+        "actor_id",
+        "dataset_id",
+        "mode",
+        "dry_run",
+        "plan",
+        "snapshot",
+    ),
+    "upsert_spatial_poses": ("operation_id", "scene_id", "poses"),
+    "create_spatial_scene": (
+        "operation_id",
+        "scene_id",
+        "dataset_id",
+        "name",
+        "source_format",
+        "source_metadata",
+        "created_by",
+    ),
+    "assign_spatial_items": ("operation_id", "dataset_id", "assignments"),
+    "set_spatial_scene_source": (
+        "operation_id",
+        "scene_id",
+        "source_format",
+        "source_metadata",
+    ),
+    "update_spatial_calibration": (
+        "operation_id",
+        "actor_id",
+        "task_id",
+        "camera_role",
+        "expected_revision",
+        "expected_digest",
+        "calibration",
+        "canonical_document",
+        "current_canonical_document",
+        "source_snapshot",
+        "audit_context",
+    ),
+    "read_pointcloud_preparation": (
+        "creation_operation_id",
+        "after_item_id",
+        "page_size",
+    ),
+    "apply_pointcloud_preparation": (
+        "creation_operation_id",
+        "snapshot",
+        "calibration_updates",
+        "frame_plan",
+    ),
+    "read_spatial_camera_target": ("actor_id", "task_id", "camera_role"),
+    "record_spatial_calibration_provenance": ("operation_id", "dataset_id", "entries"),
 }
 
 SPATIAL_OPERATIONS = {
@@ -875,6 +989,7 @@ def spatial_json_schema() -> dict[str, Any]:
         "x-native-capabilities": {
             name: {
                 "signature": f"aap_assets_v1.{name}({SPATIAL_NATIVE_SIGNATURES[name]})",
+                "arguments": list(SPATIAL_NATIVE_ARGUMENTS[name]),
                 "request": {"$ref": f"#/$defs/{request.__name__}"},
                 "response": {"$ref": f"#/$defs/{result.__name__}"},
             }
