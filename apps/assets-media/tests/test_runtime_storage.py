@@ -194,6 +194,39 @@ def test_upload_head_sign_and_delete_stay_in_fixed_cache_bucket(tmp_path: Path):
         asyncio.run(storage.upload_cache(path, "videos/legacy.mp4"))
 
 
+def test_source_signing_keeps_s3_seven_day_limit():
+    storage, client = _storage()
+    url = asyncio.run(storage.sign_source("dataset/clip.mp4", 604800))
+    assert "/datasets/dataset/clip.mp4" in url
+    assert "expires=604800" in url
+    with pytest.raises(MediaFailure, match="invalid_request"):
+        asyncio.run(storage.sign_source("dataset/clip.mp4", 604801))
+    cache_key = f"media-assets/{uuid4()}/g1/a{uuid4()}/poster.webp"
+    with pytest.raises(MediaFailure, match="invalid_request"):
+        asyncio.run(storage.sign_cache(cache_key, 3601))
+
+
+def test_legacy_frame_chunk_reads_and_keyset_deletion_are_exact():
+    client = _FakeS3()
+    storage, _ = _storage(client)
+    dataset_item_id = uuid4()
+    frame_key = f"videos/{dataset_item_id}/frames/12_512.webp"
+    chunk_key = f"videos/{dataset_item_id}/chunks/3.mp4"
+    playback_key = f"playback/{dataset_item_id}.mp4"
+    client.objects[("media-cache", frame_key)] = b"frame"
+    client.objects[("media-cache", chunk_key)] = b"chunk"
+    client.objects[("media-cache", playback_key)] = b"playback"
+
+    assert asyncio.run(storage.head_cache(frame_key)).byte_size == 5
+    assert "/media-cache/" in asyncio.run(storage.sign_cache(playback_key))
+    assert asyncio.run(storage.delete_cache_keys([frame_key, chunk_key])) == 2
+    with pytest.raises(MediaFailure, match="invalid_request"):
+        asyncio.run(storage.delete_cache_keys([playback_key]))
+    with pytest.raises(MediaFailure, match="invalid_request"):
+        asyncio.run(storage.delete_cache_prefix(f"videos/{dataset_item_id}/"))
+    assert ("media-cache", playback_key) in client.objects
+
+
 def test_missing_cache_object_is_none_and_prefix_delete_pages(tmp_path: Path):
     client = _FakeS3()
     storage, _ = _storage(client)

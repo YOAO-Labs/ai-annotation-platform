@@ -11,6 +11,7 @@ from aap_assets_media.contract import (
     ClaimRequest,
     InvalidateRequest,
     Invalidation,
+    InternalSourceRequest,
     MediaFailure,
     ReadSourceRequest,
     RequestWorkRequest,
@@ -103,6 +104,18 @@ def test_json_arguments_are_serialized_under_frozen_function_signature():
     assert parameters[1] is None
     assert '"kind": "video_backfill"' in parameters[2]
     assert parameters[3] is False
+
+
+def test_optional_jsonb_none_is_bound_as_sql_null():
+    request = InternalSourceRequest(dataset_item_id=uuid4())
+    statement, parameters = prepare_native_call(
+        "resolve_internal_media_source", request
+    )
+    assert statement == (
+        "SELECT aap_assets_v1.resolve_internal_media_source("
+        "$1::uuid, $2::text, $3::jsonb)"
+    )
+    assert parameters == (request.dataset_item_id, None, None)
 
 
 @pytest.mark.asyncio

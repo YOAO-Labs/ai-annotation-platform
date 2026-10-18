@@ -20,6 +20,11 @@ _CACHE_KEY = re.compile(
     rf"^media-assets/{_UUID}/g[1-9][0-9]*/a{_UUID}/(?:poster\.webp|playback\.mp4|frame\.(?:webp|jpeg)|chunk\.mp4)$"
 )
 _CACHE_PREFIX = re.compile(rf"^media-assets/{_UUID}/g[1-9][0-9]*/a{_UUID}/$")
+_LEGACY_FRAME_KEY = re.compile(
+    rf"^videos/{_UUID}/frames/(?:0|[1-9][0-9]*)_[1-9][0-9]*\.(?:webp|jpeg)$"
+)
+_LEGACY_CHUNK_KEY = re.compile(rf"^videos/{_UUID}/chunks/(?:0|[1-9][0-9]*)\.mp4$")
+_LEGACY_PLAYBACK_KEY = re.compile(rf"^playback/{_UUID}\.mp4$")
 _CHUNK_BYTES = 1024 * 1024
 
 
@@ -152,7 +157,7 @@ class S3MediaStorage:
             raise _storage_error(exc) from None
 
     async def head_cache(self, key: str) -> ObjectIdentity | None:
-        _validate_cache_key(key)
+        _validate_cache_read_key(key)
         try:
             response = await asyncio.to_thread(
                 self._client.head_object,
@@ -205,7 +210,7 @@ class S3MediaStorage:
         if len(keys) > 500 or len(set(keys)) != len(keys):
             raise MediaFailure("resource_budget_exceeded")
         for key in keys:
-            _validate_cache_key(key)
+            _validate_cache_delete_key(key)
         if not keys:
             return 0
         return await asyncio.to_thread(self._delete_cache_keys, keys)
@@ -276,16 +281,16 @@ class S3MediaStorage:
             self._signer.generate_presigned_url,
             "get_object",
             Params={"Bucket": self.datasets_bucket, "Key": key},
-            ExpiresIn=_valid_expiry(expires_in),
+            ExpiresIn=_valid_expiry(expires_in, maximum=604800),
         )
 
     async def sign_cache(self, key: str, expires_in: int = 3600) -> str:
-        _validate_cache_key(key)
+        _validate_cache_read_key(key)
         return await asyncio.to_thread(
             self._signer.generate_presigned_url,
             "get_object",
             Params={"Bucket": self.cache_bucket, "Key": key},
-            ExpiresIn=_valid_expiry(expires_in),
+            ExpiresIn=_valid_expiry(expires_in, maximum=3600),
         )
 
 
@@ -296,6 +301,25 @@ def _validate_key(key: str) -> None:
 
 def _validate_cache_key(key: str) -> None:
     if not isinstance(key, str) or not _CACHE_KEY.fullmatch(key):
+        raise MediaFailure("invalid_request")
+
+
+def _validate_cache_read_key(key: str) -> None:
+    if not isinstance(key, str) or not (
+        _CACHE_KEY.fullmatch(key)
+        or _LEGACY_FRAME_KEY.fullmatch(key)
+        or _LEGACY_CHUNK_KEY.fullmatch(key)
+        or _LEGACY_PLAYBACK_KEY.fullmatch(key)
+    ):
+        raise MediaFailure("invalid_request")
+
+
+def _validate_cache_delete_key(key: str) -> None:
+    if not isinstance(key, str) or not (
+        _CACHE_KEY.fullmatch(key)
+        or _LEGACY_FRAME_KEY.fullmatch(key)
+        or _LEGACY_CHUNK_KEY.fullmatch(key)
+    ):
         raise MediaFailure("invalid_request")
 
 
@@ -328,8 +352,8 @@ def _if_match(etag: str) -> str:
     return f'"{value}"'
 
 
-def _valid_expiry(expires_in: int) -> int:
-    if type(expires_in) is not int or not 1 <= expires_in <= 3600:
+def _valid_expiry(expires_in: int, *, maximum: int) -> int:
+    if type(expires_in) is not int or not 1 <= expires_in <= maximum:
         raise MediaFailure("invalid_request")
     return expires_in
 
