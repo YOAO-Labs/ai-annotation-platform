@@ -1,6 +1,20 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "aap-dataset-source-ingest/v1",
+  "x-scan-command": {
+    "digest_algorithm": "SHA-256",
+    "utf8_input": "aap-dataset-source-ingest/v1:scan",
+    "request_digest": "f5f47f290df98f65d1879eb9896f8bc6e16b4b0c805a834cca38c44a44faf065"
+  },
+  "x-postgresql-functions": [
+    "aap_assets_v1.begin_dataset_ingest(uuid,uuid,uuid,jsonb)",
+    "aap_assets_v1.prepare_dataset_ingest_batch(uuid,uuid,uuid,uuid,jsonb)",
+    "aap_assets_v1.complete_dataset_ingest_batch(uuid,uuid,uuid,uuid,jsonb)",
+    "aap_assets_v1.read_dataset_ingest_layout(uuid,uuid,uuid,uuid,integer)",
+    "aap_assets_v1.finish_dataset_ingest(uuid,uuid,uuid,jsonb)",
+    "aap_assets_v1.claim_dataset_source_ingest_delivery(uuid,integer)",
+    "aap_assets_v1.complete_dataset_source_ingest_delivery(uuid,uuid)"
+  ],
   "x-native-envelope": {
     "schema": "aap-dataset-source-ingest/v1",
     "strict_boolean_ok": true,
@@ -319,7 +333,26 @@
       },
       "required": ["kind", "request_digest", "total_in_zip", "planned_entries"],
       "title": "IngestDescriptor",
-      "type": "object"
+      "type": "object",
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "scan"
+              }
+            },
+            "required": ["kind"]
+          },
+          "then": {
+            "properties": {
+              "request_digest": {
+                "const": "f5f47f290df98f65d1879eb9896f8bc6e16b4b0c805a834cca38c44a44faf065"
+              }
+            }
+          }
+        }
+      ]
     },
     "IngestEntryCompletion": {
       "additionalProperties": false,
@@ -1152,7 +1185,26 @@
         "scene_inference_notes"
       ],
       "title": "IngestReceipt",
-      "type": "object"
+      "type": "object",
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "scan"
+              }
+            },
+            "required": ["kind"]
+          },
+          "then": {
+            "properties": {
+              "request_digest": {
+                "const": "f5f47f290df98f65d1879eb9896f8bc6e16b4b0c805a834cca38c44a44faf065"
+              }
+            }
+          }
+        }
+      ]
     },
     "IngestSceneMetadata": {
       "additionalProperties": false,

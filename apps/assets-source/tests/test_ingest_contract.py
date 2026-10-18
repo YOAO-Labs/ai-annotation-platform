@@ -10,6 +10,7 @@ from pydantic import ValidationError
 
 from aap_assets_source.ingest_contract import (
     INGEST_SCHEMA,
+    SCAN_REQUEST_DIGEST,
     IngestBatchPlan,
     IngestContext,
     IngestDescriptor,
@@ -31,7 +32,7 @@ def _receipt(kind="zip"):
     return IngestReceipt(
         **_scope(),
         kind=kind,
-        request_digest="a" * 64,
+        request_digest=SCAN_REQUEST_DIGEST if kind == "scan" else "a" * 64,
         added=1,
         deduped=0,
         skipped=0,

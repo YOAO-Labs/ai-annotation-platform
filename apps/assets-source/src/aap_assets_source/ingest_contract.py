@@ -26,6 +26,7 @@ INGEST_BATCH_SIZE = 200
 ZIP_MAX_BYTES = 200 * 1024 * 1024
 ZIP_MAX_FILES = 5000
 ZIP_ENTRY_MAX_BYTES = 100 * 1024 * 1024
+SCAN_REQUEST_DIGEST = "f5f47f290df98f65d1879eb9896f8bc6e16b4b0c805a834cca38c44a44faf065"
 
 IngestKind = Literal["zip", "scan"]
 IngestFileType = Literal["image", "video", "point_cloud", "other"]
@@ -118,6 +119,8 @@ class IngestDescriptor(_Value):
     @model_validator(mode="after")
     def check_descriptor(self) -> IngestDescriptor:
         if self.kind == "scan":
+            if self.request_digest != SCAN_REQUEST_DIGEST:
+                raise ValueError("Scan command digest does not match the protocol")
             if (
                 self.total_in_zip is not None
                 or self.planned_entries is not None
@@ -175,6 +178,8 @@ class IngestReceipt(IngestScope):
                 raise ValueError("ZIP receipt must include all entry errors")
         elif self.total_in_zip is not None or self.scene_inference_notes:
             raise ValueError("Scan receipt cannot report ZIP scene processing")
+        if self.kind == "scan" and self.request_digest != SCAN_REQUEST_DIGEST:
+            raise ValueError("Scan receipt does not match the protocol command")
         return self
 
     def public_result(self) -> dict[str, Any]:
@@ -564,6 +569,15 @@ def ingest_json_schema() -> dict[str, Any]:
     )
     _, schema = models_json_schema([(model, "validation") for model in models])
     definitions = schema["$defs"]
+    for model in ("IngestDescriptor", "IngestReceipt"):
+        definitions[model]["allOf"] = [
+            {
+                "if": {"properties": {"kind": {"const": "scan"}}, "required": ["kind"]},
+                "then": {
+                    "properties": {"request_digest": {"const": SCAN_REQUEST_DIGEST}}
+                },
+            }
+        ]
     reply_types = (
         "IngestContext",
         "IngestBatchPlan",
@@ -613,6 +627,20 @@ def ingest_json_schema() -> dict[str, Any]:
     return {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "title": INGEST_SCHEMA,
+        "x-scan-command": {
+            "digest_algorithm": "SHA-256",
+            "utf8_input": "aap-dataset-source-ingest/v1:scan",
+            "request_digest": SCAN_REQUEST_DIGEST,
+        },
+        "x-postgresql-functions": [
+            "aap_assets_v1.begin_dataset_ingest(uuid,uuid,uuid,jsonb)",
+            "aap_assets_v1.prepare_dataset_ingest_batch(uuid,uuid,uuid,uuid,jsonb)",
+            "aap_assets_v1.complete_dataset_ingest_batch(uuid,uuid,uuid,uuid,jsonb)",
+            "aap_assets_v1.read_dataset_ingest_layout(uuid,uuid,uuid,uuid,integer)",
+            "aap_assets_v1.finish_dataset_ingest(uuid,uuid,uuid,jsonb)",
+            "aap_assets_v1.claim_dataset_source_ingest_delivery(uuid,integer)",
+            "aap_assets_v1.complete_dataset_source_ingest_delivery(uuid,uuid)",
+        ],
         "x-native-envelope": {
             "schema": INGEST_SCHEMA,
             "strict_boolean_ok": True,
