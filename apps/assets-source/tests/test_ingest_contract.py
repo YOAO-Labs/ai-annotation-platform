@@ -13,6 +13,7 @@ from aap_assets_source.ingest_contract import (
     IngestBatchPlan,
     IngestContext,
     IngestDescriptor,
+    IngestDeliveryAcknowledged,
     IngestFailure,
     IngestLayoutPage,
     IngestProgress,
@@ -208,3 +209,9 @@ def test_published_schema_is_generated_from_the_same_wire_values():
         / "src/aap_assets_source/ingest_contract.schema.json"
     )
     assert json.loads(path.read_text()) == ingest_json_schema()
+
+
+@pytest.mark.parametrize("value", [1, 0, False, "true", None])
+def test_acknowledgement_requires_an_actual_delivered_boolean(value):
+    with pytest.raises(ValidationError):
+        IngestDeliveryAcknowledged(id=uuid4(), lease_token=uuid4(), delivered=value)

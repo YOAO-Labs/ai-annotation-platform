@@ -450,6 +450,13 @@ class IngestDeliveryAcknowledged(_Value):
     lease_token: UUID
     delivered: Literal[True]
 
+    @field_validator("delivered", mode="before")
+    @classmethod
+    def require_delivered_boolean(cls, value: object) -> bool:
+        if value is not True:
+            raise ValueError("Delivery acknowledgement must be the boolean true")
+        return True
+
 
 class IngestDataPort(Protocol):
     """Five owner capabilities bound to the caller's one outer transaction."""
