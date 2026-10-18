@@ -107,3 +107,33 @@ def test_host_guard_normalizes_and_rejects_hard_blocked_addresses(monkeypatch) -
         lambda *args, **kwargs: [(None, None, None, None, ("8.8.8.8", 0))],
     )
     assert_host_allowed("media.example.test", [".example.test"])
+
+
+def test_sftp_connection_failure_closes_partial_client(monkeypatch) -> None:
+    import paramiko
+
+    class _FailingClient:
+        closed = False
+
+        def load_system_host_keys(self):
+            return None
+
+        def set_missing_host_key_policy(self, _policy):
+            return None
+
+        def connect(self, **_kwargs):
+            raise OSError("connection failed")
+
+        def close(self):
+            self.closed = True
+
+    client = _FailingClient()
+    monkeypatch.setattr(paramiko, "SSHClient", lambda: client)
+    from aap_assets_source.connectors.sftp import SftpSource
+
+    with pytest.raises(OSError, match="connection failed"):
+        SftpSource(
+            {"host": "source.example.test", "username": "user"},
+            {"password": "secret"},
+        )
+    assert client.closed

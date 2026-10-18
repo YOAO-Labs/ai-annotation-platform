@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from .host_guard import assert_host_allowed
+from .host_guard import assert_host_allowed, normalize_allowlist
 from .s3 import S3CompatibleSource, validate_s3_source_path
 from .sftp import SftpSource, validate_sftp_source_path
 
@@ -63,15 +63,17 @@ def build_source_adapter(
     *,
     source_path: str | None = None,
     known_hosts_file: str | None = None,
+    sftp_timeout_seconds: float = 10,
     require_conditional_reads: bool = False,
     s3_client: Any | None = None,
     sftp_client: Any | None = None,
 ) -> S3CompatibleSource | SftpSource:
     """Validate host, path, and credentials immediately before opening a source."""
-    assert_host_allowed(target_host(kind, config), allowlist)
+    normalized_allowlist = normalize_allowlist(allowlist)
     if source_path is not None:
         validate_source_path(kind, config, source_path)
     validate_secret(kind, secret, config)
+    assert_host_allowed(target_host(kind, config), normalized_allowlist)
     if kind == "s3":
         return S3CompatibleSource(
             config,
@@ -84,6 +86,7 @@ def build_source_adapter(
             config,
             secret,
             known_hosts_file=known_hosts_file,
+            timeout_seconds=sftp_timeout_seconds,
             client=sftp_client,
         )
     raise ValueError("unsupported storage connector")

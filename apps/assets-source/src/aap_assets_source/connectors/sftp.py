@@ -83,12 +83,19 @@ def load_sftp_private_key(secret: dict):
 
 
 def _identity(attrs: Any) -> tuple[int, int, int, int | None, int | None]:
+    def optional_int(name: str) -> int | None:
+        value = getattr(attrs, name, None)
+        return int(value) if value is not None else None
+
+    size = optional_int("st_size")
+    mtime = optional_int("st_mtime")
+    mode = optional_int("st_mode")
     return (
-        int(getattr(attrs, "st_size", -1)),
-        int(getattr(attrs, "st_mtime", 0)),
-        int(getattr(attrs, "st_mode", 0)),
-        getattr(attrs, "st_uid", None),
-        getattr(attrs, "st_gid", None),
+        size if size is not None else -1,
+        mtime if mtime is not None else 0,
+        mode if mode is not None else 0,
+        optional_int("st_uid"),
+        optional_int("st_gid"),
     )
 
 
@@ -150,45 +157,60 @@ class SftpSource(SourceAdapter):
         secret: dict,
         *,
         known_hosts_file: str | None = None,
+        timeout_seconds: float = 10,
         client: Any | None = None,
     ) -> None:
         import paramiko
 
         self.base_path = _clean_remote(str(config.get("base_path") or "."))
-        self._client = client or paramiko.SSHClient()
-        if known_hosts_file:
-            self._client.load_host_keys(known_hosts_file)
-        else:
-            self._client.load_system_host_keys()
-        self._client.set_missing_host_key_policy(paramiko.RejectPolicy())
-        pkey = load_sftp_private_key(secret)
-        self._client.connect(
-            hostname=str(config["host"]),
-            port=int(config.get("port", 22)),
-            username=str(config["username"]),
-            password=secret.get("password") if pkey is None else None,
-            pkey=pkey,
-            timeout=10,
-            banner_timeout=10,
-            auth_timeout=10,
-            allow_agent=False,
-            look_for_keys=False,
-        )
-        self._sftp = self._client.open_sftp()
-        channel = self._sftp.get_channel()
-        if channel is not None:
-            channel.settimeout(10)
+        self._client = client if client is not None else paramiko.SSHClient()
+        self._timeout_seconds = timeout_seconds
+        self._sftp: Any | None = None
+        try:
+            if known_hosts_file:
+                self._client.load_host_keys(known_hosts_file)
+            else:
+                self._client.load_system_host_keys()
+            self._client.set_missing_host_key_policy(paramiko.RejectPolicy())
+            pkey = load_sftp_private_key(secret)
+            self._client.connect(
+                hostname=str(config["host"]),
+                port=int(config.get("port", 22)),
+                username=str(config["username"]),
+                password=secret.get("password") if pkey is None else None,
+                pkey=pkey,
+                timeout=timeout_seconds,
+                banner_timeout=timeout_seconds,
+                auth_timeout=timeout_seconds,
+                allow_agent=False,
+                look_for_keys=False,
+            )
+            self._sftp = self._client.open_sftp()
+            channel = self._sftp.get_channel()
+            if channel is not None:
+                channel.settimeout(timeout_seconds)
 
-        configured_root = self.base_path
-        root_candidate = (
-            configured_root
-            if configured_root.startswith("/")
-            else _clean_remote(self._sftp.normalize(configured_root))
-        )
-        self._root_realpath = self._canonical_path(root_candidate, root_init=True)
-        root_attrs = self._sftp.lstat(self._root_realpath)
-        if not stat.S_ISDIR(root_attrs.st_mode or 0):
-            raise SourcePathError("SFTP base_path 必须是目录")
+            configured_root = self.base_path
+            root_candidate = (
+                configured_root
+                if configured_root.startswith("/")
+                else _clean_remote(self._sftp.normalize(configured_root))
+            )
+            self._root_realpath = self._canonical_path(root_candidate, root_init=True)
+            root_attrs = self._sftp.lstat(self._root_realpath)
+            if not stat.S_ISDIR(root_attrs.st_mode or 0):
+                raise SourcePathError("SFTP base_path 必须是目录")
+        except Exception:
+            if self._sftp is not None:
+                try:
+                    self._sftp.close()
+                except Exception:
+                    pass
+            try:
+                self._client.close()
+            except Exception:
+                pass
+            raise
 
     def _canonical_path(self, path: str, *, root_init: bool = False) -> str:
         candidate = _clean_remote(path)
@@ -315,7 +337,8 @@ class SftpSource(SourceAdapter):
 
     def close(self) -> None:
         try:
-            self._sftp.close()
+            if self._sftp is not None:
+                self._sftp.close()
         finally:
             self._client.close()
 
