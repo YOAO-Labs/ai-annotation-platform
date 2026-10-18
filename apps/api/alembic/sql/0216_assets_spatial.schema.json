@@ -56,6 +56,9 @@
               "$ref": "#/$defs/LayoutPage"
             },
             {
+              "$ref": "#/$defs/LayoutReceiptResult"
+            },
+            {
               "$ref": "#/$defs/PoseMutationResult"
             },
             {
@@ -1740,6 +1743,57 @@
       "title": "LayoutPage",
       "type": "object"
     },
+    "LayoutReceiptResult": {
+      "additionalProperties": false,
+      "properties": {
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "actor_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Actor Id"
+        },
+        "dataset_id": {
+          "format": "uuid",
+          "title": "Dataset Id",
+          "type": "string"
+        },
+        "mode": {
+          "default": "auto",
+          "enum": ["single", "per_subdirectory", "auto"],
+          "title": "Mode",
+          "type": "string"
+        },
+        "dry_run": {
+          "default": false,
+          "title": "Dry Run",
+          "type": "boolean"
+        },
+        "result": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LayoutMutationResult"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": ["operation_id", "actor_id", "dataset_id", "result"],
+      "title": "LayoutReceiptResult",
+      "type": "object"
+    },
     "SceneCursor": {
       "additionalProperties": false,
       "properties": {
@@ -3161,6 +3215,16 @@
         "$ref": "#/$defs/LayoutMutationResult"
       }
     },
+    "read_spatial_layout_receipt": {
+      "signature": "aap_assets_v1.read_spatial_layout_receipt(uuid,uuid,uuid,text,boolean)",
+      "arguments": ["operation_id", "actor_id", "dataset_id", "mode", "dry_run"],
+      "request": {
+        "$ref": "#/$defs/BackfillScenesRequest"
+      },
+      "response": {
+        "$ref": "#/$defs/LayoutReceiptResult"
+      }
+    },
     "upsert_spatial_poses": {
       "signature": "aap_assets_v1.upsert_spatial_poses(uuid,uuid,jsonb)",
       "arguments": ["operation_id", "scene_id", "poses"],
@@ -3381,6 +3445,16 @@
       },
       "response": {
         "$ref": "#/$defs/LayoutMutationResult"
+      }
+    },
+    "read_spatial_layout_receipt": {
+      "method": "POST",
+      "path": "/v1/spatial/read_spatial_layout_receipt",
+      "request": {
+        "$ref": "#/$defs/BackfillScenesRequest"
+      },
+      "response": {
+        "$ref": "#/$defs/LayoutReceiptResult"
       }
     },
     "upsert_spatial_poses": {

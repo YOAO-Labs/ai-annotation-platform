@@ -79,10 +79,11 @@ class _BackfillNative:
         self.items = sorted(items, key=lambda item: str(item.id))
         self.calls = []
         self.apply_request = None
+        self.receipt = None
 
-    async def guard_spatial_actor(self, request):
-        self.calls.append(("guard", request))
-        return spatial.SpatialActorResult(**request.model_dump())
+    async def read_spatial_layout_receipt(self, request):
+        self.calls.append(("receipt", request))
+        return spatial.LayoutReceiptResult(**request.model_dump(), result=self.receipt)
 
     async def read_spatial_layout(self, request):
         self.calls.append(("layout", request))
@@ -106,7 +107,7 @@ class _BackfillNative:
     async def apply_spatial_layout(self, request):
         self.calls.append(("apply", request))
         self.apply_request = request
-        return spatial.LayoutMutationResult(
+        self.receipt = spatial.LayoutMutationResult(
             operation_id=request.operation_id,
             actor_id=request.actor_id,
             dataset_id=request.dataset_id,
@@ -116,6 +117,7 @@ class _BackfillNative:
             dry_run=request.dry_run,
             notes=request.plan.notes,
         )
+        return self.receipt
 
 
 @pytest.mark.asyncio
@@ -140,7 +142,7 @@ async def test_backfill_collects_all_pages_and_uses_operation_stable_scene_ids()
     )
 
     assert [name for name, _request in native.calls] == [
-        "guard",
+        "receipt",
         "layout",
         "layout",
         "apply",
@@ -153,6 +155,33 @@ async def test_backfill_collects_all_pages_and_uses_operation_stable_scene_ids()
     assert result.created_scenes == 1
     assert result.assigned_items == 2
     assert {row.scene_id for row in request.plan.assignments} == {planned_scene.id}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("dry_run", [False, True])
+async def test_backfill_replays_before_planning_changed_over_limit_layout(dry_run):
+    dataset_id = uuid4()
+    native = _BackfillNative(
+        dataset_id,
+        [_item(dataset_id, path="0001.jpg", file_type="image")],
+    )
+    workflow = SpatialWorkflow(native, object())
+    request = spatial.BackfillScenesRequest(
+        operation_id=uuid4(),
+        actor_id=uuid4(),
+        dataset_id=dataset_id,
+        mode="auto",
+        dry_run=dry_run,
+    )
+    original = await workflow.backfill_scenes(request)
+    native.items = [
+        _item(dataset_id, path=f"group-{index}/0001.jpg", file_type="image")
+        for index in range(101)
+    ]
+    native.calls.clear()
+
+    assert await workflow.backfill_scenes(request) == original
+    assert [name for name, _ in native.calls] == ["receipt"]
 
 
 class _AxisNative:

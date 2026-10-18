@@ -534,6 +534,18 @@ class LayoutMutationResult(_Value):
     notes: list[StrictStr]
 
 
+class LayoutReceiptResult(BackfillScenesRequest):
+    result: LayoutMutationResult | None
+
+    @model_validator(mode="after")
+    def check_receipt_scope(self):
+        if self.result is not None:
+            for name in ("operation_id", "actor_id", "dataset_id", "dry_run"):
+                if getattr(self, name) != getattr(self.result, name):
+                    raise ValueError(f"Layout receipt escaped {name}")
+        return self
+
+
 class UpsertPosesRequest(_Value):
     operation_id: UUID
     scene_id: UUID
@@ -772,6 +784,7 @@ SPATIAL_NATIVE_SIGNATURES = {
     "read_spatial_calibrations": "uuid[],boolean,uuid,integer,integer",
     "lock_spatial_calibration_facts": "uuid,uuid,text,uuid,jsonb",
     "mutate_spatial_scene": "uuid,uuid,uuid,jsonb,jsonb",
+    "read_spatial_layout_receipt": "uuid,uuid,uuid,text,boolean",
     "apply_spatial_layout": "uuid,uuid,uuid,text,boolean,jsonb,jsonb",
     "upsert_spatial_poses": "uuid,uuid,jsonb",
     "create_spatial_scene": "uuid,uuid,uuid,text,text,jsonb,uuid",
@@ -834,6 +847,13 @@ SPATIAL_NATIVE_ARGUMENTS = {
         "plan",
         "snapshot",
     ),
+    "read_spatial_layout_receipt": (
+        "operation_id",
+        "actor_id",
+        "dataset_id",
+        "mode",
+        "dry_run",
+    ),
     "upsert_spatial_poses": ("operation_id", "scene_id", "poses"),
     "create_spatial_scene": (
         "operation_id",
@@ -891,6 +911,7 @@ SPATIAL_OPERATIONS = {
     "lock_spatial_calibration_facts": (LockCalibrationFactsRequest, CalibrationRecord),
     "mutate_spatial_scene": (MutateSceneRequest, SceneMutationResult),
     "apply_spatial_layout": (ApplyLayoutRequest, LayoutMutationResult),
+    "read_spatial_layout_receipt": (BackfillScenesRequest, LayoutReceiptResult),
     "upsert_spatial_poses": (UpsertPosesRequest, PoseMutationResult),
     "create_spatial_scene": (CreateSceneRequest, SceneMutationResult),
     "assign_spatial_items": (AssignItemsRequest, AssignmentMutationResult),
@@ -926,6 +947,7 @@ def require_spatial_scope(request: BaseModel, result: BaseModel) -> None:
         "after_item_id",
         "after_frame_index",
         "dry_run",
+        "mode",
         "access",
         "axis_convention",
     ):

@@ -11,7 +11,7 @@ Scene, frame assignment, pose and calibration persistence still mixed Assets row
 
 ## Decision
 
-Use the existing Assets Catalog runtime and configuration for spatial operations. Publish `aap-assets-spatial/v1`, with the same strict values distributed as a package schema and a native SQL schema. Migration 0216 adds one immutable Assets receipt table, `dataset_spatial_operations`, without live-resource foreign keys. The Catalog LOGIN executes its seven existing capabilities and twenty spatial capabilities; it receives no direct relation privileges or foreign schema access. Source keeps its existing fourteen capabilities.
+Use the existing Assets Catalog runtime and configuration for spatial operations. Publish `aap-assets-spatial/v1`, with the same strict values distributed as a package schema and a native SQL schema. Migration 0216 adds one immutable Assets receipt table, `dataset_spatial_operations`, without live-resource foreign keys. The Catalog LOGIN executes its seven existing capabilities and twenty-one spatial capabilities; it receives no direct relation privileges or foreign schema access. Source keeps its existing fourteen capabilities.
 
 Move the pure calibration, pose, coordinate-system and axis-inference values into `aap_assets_catalog`. Reuse the Source frame/scene planner. Keep Task, camera-link, annotation and track composition with Labeling, consuming detached Assets facts rather than Assets ORM models.
 
@@ -30,6 +30,8 @@ Preserve the post-task nuScenes calibration provenance write through a narrow ow
 ## Consequences
 
 The public REST response shapes, Scene patch null behavior, manager policies and calibration CAS remain compatible. Optional UUID idempotency keys recover uncertain public mutation responses. Native result and response-byte validation happen before commit.
+
+Backfill reads its stable-intent receipt after checking current manager authority and before planning the current layout. A changed or over-limit layout cannot invalidate an already committed result. Item pages carry only the Scenes referenced by that page; the independent Scene listing includes empty Scenes. Full-scope snapshot digests remain unchanged across these page projections.
 
 Catalog performs fixed-bucket, read-only calibration object access in addition to URL signing. A separately configured connection origin can differ from the browser-facing signing origin. No source write, delete, list or caller-supplied URL is added. Services and grants must be upgraded together because the role preflight requires the exact current capability set.
 

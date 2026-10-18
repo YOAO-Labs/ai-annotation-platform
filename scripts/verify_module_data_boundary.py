@@ -808,6 +808,7 @@ def _install_and_rollback_frozen_sql(
         "SELECT aap_assets_v1.lock_spatial_calibration_facts(NULL::uuid,NULL::uuid,NULL::text,NULL::uuid,NULL::jsonb);\n"
         "SELECT aap_assets_v1.mutate_spatial_scene(NULL::uuid,NULL::uuid,NULL::uuid,NULL::jsonb,NULL::jsonb);\n"
         "SELECT aap_assets_v1.apply_spatial_layout(NULL::uuid,NULL::uuid,NULL::uuid,NULL::text,NULL::boolean,NULL::jsonb,NULL::jsonb);\n"
+        "SELECT aap_assets_v1.read_spatial_layout_receipt(NULL::uuid,NULL::uuid,NULL::uuid,NULL::text,NULL::boolean);\n"
         "SELECT aap_assets_v1.upsert_spatial_poses(NULL::uuid,NULL::uuid,NULL::jsonb);\n"
         "SELECT aap_assets_v1.create_spatial_scene(NULL::uuid,NULL::uuid,NULL::uuid,NULL::text,NULL::text,NULL::jsonb,NULL::uuid);\n"
         "SELECT aap_assets_v1.assign_spatial_items(NULL::uuid,NULL::uuid,NULL::jsonb);\n"

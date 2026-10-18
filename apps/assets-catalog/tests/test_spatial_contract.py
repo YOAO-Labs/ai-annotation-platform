@@ -11,6 +11,7 @@ from aap_assets_catalog.spatial_contract import (
     SPATIAL_SCHEMA,
     CalibrationRecord,
     GuardSpatialActorRequest,
+    LayoutReceiptResult,
     ReadItemsRequest,
     PosePage,
     ScenePatch,
@@ -118,7 +119,7 @@ def test_distributable_schema_matches_wire_models_and_exact_native_surface():
     expected = spatial_json_schema()
     packaged = files("aap_assets_catalog").joinpath("spatial_contract.schema.json")
     assert json.loads(packaged.read_text()) == expected
-    assert len(SPATIAL_NATIVE_SIGNATURES) == 20
+    assert len(SPATIAL_NATIVE_SIGNATURES) == 21
     assert set(expected["x-native-capabilities"]) == set(SPATIAL_NATIVE_SIGNATURES)
     assert expected["$defs"]["ScenePatch"]["additionalProperties"] is False
     for name, signature in SPATIAL_NATIVE_SIGNATURES.items():
@@ -126,6 +127,22 @@ def test_distributable_schema_matches_wire_models_and_exact_native_surface():
         assert expected["x-native-capabilities"][name]["arguments"] == list(
             SPATIAL_NATIVE_ARGUMENTS[name]
         )
+
+
+@pytest.mark.parametrize("field", ["operation_id", "actor_id", "dataset_id", "dry_run"])
+def test_layout_receipt_rejects_a_result_from_another_scope(field):
+    scope = {
+        "operation_id": uuid4(),
+        "actor_id": uuid4(),
+        "dataset_id": uuid4(),
+        "mode": "auto",
+        "dry_run": False,
+    }
+    result = {key: value for key, value in scope.items() if key != "mode"}
+    result.update(created_scenes=0, assigned_items=0, skipped_items=1, notes=[])
+    result[field] = True if field == "dry_run" else uuid4()
+    with pytest.raises(ValidationError, match="Layout receipt escaped"):
+        LayoutReceiptResult(**scope, result=result)
 
 
 @pytest.mark.parametrize(

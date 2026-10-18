@@ -879,6 +879,7 @@ GRANT EXECUTE ON FUNCTION
     aap_assets_v1.lock_spatial_calibration_facts(uuid,uuid,text,uuid,jsonb),
     aap_assets_v1.mutate_spatial_scene(uuid,uuid,uuid,jsonb,jsonb),
     aap_assets_v1.apply_spatial_layout(uuid,uuid,uuid,text,boolean,jsonb,jsonb),
+    aap_assets_v1.read_spatial_layout_receipt(uuid,uuid,uuid,text,boolean),
     aap_assets_v1.upsert_spatial_poses(uuid,uuid,jsonb),
     aap_assets_v1.create_spatial_scene(uuid,uuid,uuid,text,text,jsonb,uuid),
     aap_assets_v1.assign_spatial_items(uuid,uuid,jsonb),

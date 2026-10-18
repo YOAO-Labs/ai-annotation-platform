@@ -19,6 +19,9 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from aap_assets_catalog.spatial_contract import (
+    ItemFactsPage,
+    LayoutMutationResult,
+    LayoutPage,
     PosePage,
     PreparationMutationResult,
     decode_spatial_reply,
@@ -169,6 +172,34 @@ async def test_spatial_container_complete_reads_replay_and_accepted_source_prepa
             owner.add(scene)
             await owner.flush()
             scene_id = scene.id
+            paged_dataset = Dataset(
+                id=uuid4(),
+                display_id=f"D-SP-P-{identity[:10]}",
+                name=f"spatial-pages-{identity}",
+                data_type="point_cloud",
+                file_count=1050,
+                created_by=actor_id,
+            )
+            owner.add(paged_dataset)
+            await owner.flush()
+            paged_dataset_id = paged_dataset.id
+            await owner.execute(
+                text("""
+                    WITH scenes AS (
+                        INSERT INTO scenes
+                            (id,display_id,dataset_id,name,source_metadata,created_by)
+                        SELECT gen_random_uuid(),'SP-'||gen_random_uuid()::text,
+                            CAST(:dataset AS uuid),'paged-'||i,
+                            jsonb_build_object('opaque',repeat('x',17000)),CAST(:actor AS uuid)
+                        FROM generate_series(0,1049) i RETURNING id
+                    )
+                    INSERT INTO dataset_items
+                        (id,dataset_id,file_name,file_path,file_type,scene_id,frame_index)
+                    SELECT id,CAST(:dataset AS uuid),id::text||'.pcd',
+                        'paged/'||id::text||'.pcd','point_cloud',id,0 FROM scenes
+                """),
+                {"dataset": paged_dataset_id, "actor": actor_id},
+            )
             await owner.execute(
                 text("""
                 INSERT INTO scene_frame_poses
@@ -341,6 +372,62 @@ async def test_spatial_container_complete_reads_replay_and_accepted_source_prepa
                         break
                     cursor = page.next_frame_index
                 assert count == 1050 and pages == 6
+                scene_page_evidence = {}
+                for operation, response_model in (
+                    ("read_spatial_layout", LayoutPage),
+                    ("read_spatial_items", ItemFactsPage),
+                ):
+                    cursor, digest, count, page_count, byte_count = None, None, 0, 0, 0
+                    while True:
+                        command = {
+                            "dataset_id": str(paged_dataset_id),
+                            "after_item_id": cursor,
+                            "page_size": 200,
+                        }
+                        if operation == "read_spatial_layout":
+                            command["actor_id"] = str(actor_id)
+                        response = await direct.post(
+                            f"/v1/spatial/{operation}",
+                            headers=private_headers,
+                            json=command,
+                        )
+                        assert response.status_code == 200
+                        assert len(response.content) < 16 * 1024 * 1024
+                        page = decode_spatial_reply(response.json(), response_model)
+                        assert page.total == 1050
+                        assert digest is None or page.snapshot_digest == digest
+                        assert {entry.id for entry in page.scenes} == {
+                            item.scene_id for item in page.items
+                        }
+                        digest = page.snapshot_digest
+                        count += len(page.items)
+                        page_count += 1
+                        byte_count += len(response.content)
+                        if page.complete:
+                            break
+                        cursor = str(page.next_item_id)
+                    assert count == 1050 and page_count == 6
+                    assert byte_count > 16 * 1024 * 1024
+                    scene_page_evidence[operation] = {
+                        "count": count,
+                        "pages": page_count,
+                        "bytes": byte_count,
+                    }
+                backfilled = await direct.post(
+                    "/v1/spatial/backfill_scenes",
+                    headers=private_headers,
+                    json={
+                        "operation_id": str(uuid4()),
+                        "actor_id": str(actor_id),
+                        "dataset_id": str(paged_dataset_id),
+                        "dry_run": True,
+                    },
+                )
+                assert backfilled.status_code == 200
+                layout_result = decode_spatial_reply(
+                    backfilled.json(), LayoutMutationResult
+                )
+                assert layout_result.created_scenes == 0 and layout_result.dry_run
 
             headers = {"Authorization": f"Bearer {token}"}
             async with httpx.AsyncClient(
@@ -510,6 +597,7 @@ async def test_spatial_container_complete_reads_replay_and_accepted_source_prepa
                 "pages": pages,
                 "public_trajectory_bytes": trajectory_bytes,
                 "public_trajectory_seconds": trajectory_seconds,
+                "scene_pages": scene_page_evidence,
                 "catalog_cpus": 0.5,
                 "catalog_memory_limit_bytes": 256 * 1024 * 1024,
                 "catalog_memory_peak_bytes": peak,

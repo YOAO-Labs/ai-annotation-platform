@@ -16,7 +16,7 @@ Scene PATCH、场景回填和标定 PATCH 可附带 UUID `Idempotency-Key`。响
 
 ## 内部合同
 
-协议为 `aap-assets-spatial/v1`。完整字段、错误码和二十项原生签名位于：
+协议为 `aap-assets-spatial/v1`。完整字段、错误码和二十一项原生签名位于：
 
 - `apps/assets-catalog/src/aap_assets_catalog/spatial_contract.schema.json`
 - `apps/api/alembic/sql/0216_assets_spatial.schema.json`
@@ -39,6 +39,8 @@ Scene PATCH、场景回填和标定 PATCH 可附带 UUID `Idempotency-Key`。响
 
 Scene、布局、位姿和标定写入与不可变操作回执共同提交。标定更新还在同一事务内追加历史修订、合并当前元数据并记录审计；任一步失败均回滚。分配 Item 时重新检查目标 Dataset 与 Scene 归属，来源或布局快照变化返回冲突。
 
+布局重放通过 `read_spatial_layout_receipt` 先检查当前管理权限并读取原结果，命中后不再根据后来变化的素材重新规划。布局和 Item 分页只携带本页素材引用的 Scene；完整 Scene 清单使用独立的 Scene 分页读取。
+
 后台点云准备沿用首次受理的执行权，逐次检查关联代次、操作和 Job 状态。原发起者停用或失去项目管理权不撤回已受理操作；解绑或显式取消会阻止后续未提交结果。读取标定文件时使用固定 datasets 桶、有限字节读取及 S3 条件版本校验，完成外部读取后才获取最终 Source 写锁并重新检查状态。人工修订不会被导入结果覆盖。
 
 关系型过滤、计数与排序使用 Assets 发布的 `spatial_item_references` 和 `spatial_scene_references` 两个只读投影，避免复制完整素材元数据。校准缺失统计保留 JSONB 键存在判断，不把非法但存在的旧值改成缺失。
@@ -49,7 +51,7 @@ nuScenes 导入的标定 provenance 只填充缺失摘要，保留已有摘要�
 
 ## 部署与回退
 
-先暂停受影响写入，应用 0216，重跑 module-data owner 和 Catalog 专用授权，再升级目录镜像并检查 `/ready`，最后切换网关。Catalog LOGIN 精确执行 27 项能力，不获得表、序列或其他 owner schema 权限；Source LOGIN 保持 14 项。旧镜像的权限预检不接受新的角色清单，需要协调升级。
+先暂停受影响写入，应用 0216，重跑 module-data owner 和 Catalog 专用授权，再升级目录镜像并检查 `/ready`，最后切换网关。Catalog LOGIN 精确执行 28 项能力，不获得表、序列或其他 owner schema 权限；Source LOGIN 保持 14 项。旧镜像的权限预检不接受新的角色清单，需要协调升级。
 
 `ASSETS_CATALOG_S3_PUBLIC_ENDPOINT` 用于浏览器签名；`ASSETS_CATALOG_S3_ENDPOINT` 可指定服务连接 S3 的固定 origin，省略时沿用公开 origin。两者不来自业务请求。专属 S3 身份只读既有允许范围，不增加 List、Put 或 Delete。
 

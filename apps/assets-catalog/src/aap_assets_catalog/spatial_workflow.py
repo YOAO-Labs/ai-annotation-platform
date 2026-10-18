@@ -82,6 +82,10 @@ class SpatialNativeBinding(Protocol):
         self, request: spatial.ApplyLayoutRequest
     ) -> spatial.LayoutMutationResult: ...
 
+    async def read_spatial_layout_receipt(
+        self, request: spatial.BackfillScenesRequest
+    ) -> spatial.LayoutReceiptResult: ...
+
     async def upsert_spatial_poses(
         self, request: spatial.UpsertPosesRequest
     ) -> spatial.PoseMutationResult: ...
@@ -497,14 +501,11 @@ class SpatialWorkflow:
         *,
         native: SpatialNativeBinding | None = None,
     ) -> spatial.LayoutMutationResult:
-        if request.actor_id is not None:
-            await self.invoke_native(
-                "guard_spatial_actor",
-                spatial.GuardSpatialActorRequest(
-                    actor_id=request.actor_id, access="manager_write"
-                ),
-                native=native,
-            )
+        prior = await self.invoke_native(
+            "read_spatial_layout_receipt", request, native=native
+        )
+        if prior.result is not None:
+            return prior.result
         layout = await self._read_layout(
             spatial.ReadLayoutRequest(
                 actor_id=request.actor_id,

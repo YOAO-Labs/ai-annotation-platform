@@ -17,7 +17,7 @@ current manager role in the write transaction. User API-key scopes and public
 HTTP errors remain the gateway's responsibility.
 
 The PostgreSQL login is checked on startup. It must have only `EXECUTE` on the
-27 catalog, association and spatial functions, no table/column/sequence grants, no other owner-schema
+28 catalog, association and spatial functions, no table/column/sequence grants, no other owner-schema
 access, no role memberships, and no database or schema creation rights. A
 failed or broadened login prevents startup.
 
@@ -75,7 +75,7 @@ Compose network.
 
 ## Spatial operations
 
-The packaged `spatial_contract.schema.json` freezes twenty native capabilities
+The packaged `spatial_contract.schema.json` freezes twenty-one native capabilities
 and four owner workflows. HTTP operations use `POST /v1/spatial/<native_name>`;
 whole workflows are `backfill_scenes`, `sniff_axis`, `prepare_pointcloud` and `update_calibration`.
 Bounded pages bind scope, cursor, complete native snapshot and total; consumers
@@ -97,5 +97,5 @@ same SQL connection; normal remote errors never switch to local writes.
 
 Upgrade SQL authorities before the main spatial artifact, reapply owner and
 Catalog grants, then restart the service. Exact-role preflight requires the
-current 27-function surface. This is a spatial slice, not full Assets or
+current 28-function surface. This is a spatial slice, not full Assets or
 production/language-replacement qualification.

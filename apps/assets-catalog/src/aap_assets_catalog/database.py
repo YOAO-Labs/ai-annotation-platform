@@ -113,6 +113,11 @@ SELECT aap_assets_v1.apply_spatial_layout(
     $1::uuid, $2::uuid, $3::uuid, $4::text, $5::boolean, $6::jsonb, $7::jsonb
 )
 """
+READ_SPATIAL_LAYOUT_RECEIPT_SQL = """
+SELECT aap_assets_v1.read_spatial_layout_receipt(
+    $1::uuid, $2::uuid, $3::uuid, $4::text, $5::boolean
+)
+"""
 UPSERT_SPATIAL_POSES_SQL = """
 SELECT aap_assets_v1.upsert_spatial_poses($1::uuid, $2::uuid, $3::jsonb)
 """
@@ -628,6 +633,20 @@ class CatalogDatabase:
             request.dry_run,
             request.plan.model_dump(mode="json"),
             request.snapshot,
+        )
+
+    async def read_spatial_layout_receipt(
+        self, request: spatial.BackfillScenesRequest
+    ) -> spatial.LayoutReceiptResult:
+        return await self._spatial_call(
+            "read_spatial_layout_receipt",
+            READ_SPATIAL_LAYOUT_RECEIPT_SQL,
+            request,
+            request.operation_id,
+            request.actor_id,
+            request.dataset_id,
+            request.mode,
+            request.dry_run,
         )
 
     async def upsert_spatial_poses(
