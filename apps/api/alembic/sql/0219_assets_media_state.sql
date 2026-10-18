@@ -981,6 +981,7 @@ END;
 $function$;
 -- aap-statement-break
 REVOKE ALL ON FUNCTION aap_assets_v1._media_reconcile_source(uuid, text, jsonb, text) FROM PUBLIC;
+-- aap-statement-break
 CREATE FUNCTION aap_assets_v1._media_frame_json(p_row public.video_frame_cache)
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -1409,6 +1410,7 @@ END;
 $function$;
 -- aap-statement-break
 REVOKE ALL ON FUNCTION aap_assets_v1._media_enqueue(uuid, uuid, uuid, jsonb, boolean) FROM PUBLIC;
+-- aap-statement-break
 CREATE FUNCTION aap_assets_v1._media_write_operation(
     p_operation_id uuid,
     p_actor_id uuid,
