@@ -22,9 +22,9 @@ import zipfile
 import numpy as np
 import pytest
 from PIL import Image
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 
-from app.db.models.dataset import Dataset, DatasetItem, ProjectDataset
+from app.db.models.dataset import Dataset, DatasetItem, ProjectDataset, Scene
 from app.db.models.project import Project
 from app.db.models.scene_pose import SceneFramePose
 from app.db.models.task_batch import TaskBatch
@@ -427,9 +427,24 @@ def _write_fake_nuscenes(
 
 
 async def test_nuscenes_task_creation_rolls_back_with_import_transaction(
-    tmp_path, db_session, super_admin, monkeypatch
+    tmp_path, test_engine, monkeypatch
 ):
-    owner, _ = super_admin
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+    from tests.factory import create_user
+
+    suffix = uuid.uuid4().hex[:6].upper()
+    dataset_display_id = f"DS-NU-{suffix}"
+    project_display_id = f"P-NU-{suffix}"
+    maker = async_sessionmaker(test_engine, expire_on_commit=False)
+    async with maker.begin() as setup:
+        owner = await create_user(
+            setup,
+            "super_admin",
+            f"nuscenes-rollback-{suffix.lower()}@example.test",
+            "nuScenes rollback test",
+        )
+        owner_id = owner.id
+
     root = tmp_path / "nuscenes-transaction"
     _write_fake_nuscenes(root, scenes=1, samples_per=1)
     fake_client = _FakeS3Client()
@@ -441,34 +456,181 @@ async def test_nuscenes_task_creation_rolls_back_with_import_transaction(
     monkeypatch.setattr(
         DatasetService, "record_nuscenes_calibration_digests", fail_after_task_creation
     )
-    with pytest.raises(RuntimeError):
-        await import_nuscenes(
-            db_session,
-            nuscenes_root=root,
-            scene_names=["scene-0000"],
-            dataset_name="nu-transaction-rollback",
-            owner_id=owner.id,
-            dataset_display_id="DS-NU-ROLLBACK",
-            project_display_id="P-NU-ROLLBACK",
+    caller = maker()
+    transaction = await caller.begin()
+    dataset_id = None
+    project_id = None
+    scene_ids: list[uuid.UUID] = []
+    try:
+        with pytest.raises(RuntimeError, match="injected calibration digest failure"):
+            await import_nuscenes(
+                caller,
+                nuscenes_root=root,
+                scene_names=["scene-0000"],
+                dataset_name=f"nu-transaction-rollback-{suffix.lower()}",
+                owner_id=owner_id,
+                dataset_display_id=dataset_display_id,
+                project_display_id=project_display_id,
+            )
+
+        dataset_id = await caller.scalar(
+            select(Dataset.id).where(Dataset.display_id == dataset_display_id)
+        )
+        project_id = await caller.scalar(
+            select(Project.id).where(Project.display_id == project_display_id)
+        )
+        if dataset_id is not None:
+            scene_ids = list(
+                (
+                    await caller.scalars(
+                        select(Scene.id).where(Scene.dataset_id == dataset_id)
+                    )
+                ).all()
+            )
+        assert dataset_id is not None and project_id is not None
+        from app.db.models.task import Task
+
+        assert (
+            await caller.scalar(
+                select(func.count())
+                .select_from(Task)
+                .where(Task.project_id == project_id)
+            )
+            == 1
+        )
+        assert len(scene_ids) == 1
+        assert transaction.is_active, "import_nuscenes committed the caller transaction"
+        await transaction.rollback()
+
+        async with test_engine.connect() as observer:
+            counts = (
+                await observer.execute(
+                    text(
+                        "SELECT "
+                        "(SELECT count(*) FROM public.datasets WHERE id=:dataset_id), "
+                        "(SELECT count(*) FROM public.projects WHERE id=:project_id), "
+                        "(SELECT count(*) FROM public.dataset_items WHERE dataset_id=:dataset_id), "
+                        "(SELECT count(*) FROM public.scenes WHERE dataset_id=:dataset_id), "
+                        "(SELECT count(*) FROM public.tasks WHERE project_id=:project_id), "
+                        "(SELECT count(*) FROM public.task_creation_operations WHERE dataset_id=:dataset_id), "
+                        "(SELECT count(*) FROM public.project_datasets "
+                        "WHERE dataset_id=:dataset_id AND project_id=:project_id), "
+                        "(SELECT count(*) FROM public.audit_logs WHERE actor_id=:owner_id), "
+                        "(SELECT count(*) FROM public.dataset_spatial_operations "
+                        "WHERE scope->>'dataset_id'=:dataset_id_text "
+                        "OR scope->>'scene_id'=ANY(CAST(:scene_ids AS text[])))"
+                    ),
+                    {
+                        "dataset_id": dataset_id,
+                        "project_id": project_id,
+                        "owner_id": owner_id,
+                        "dataset_id_text": str(dataset_id),
+                        "scene_ids": [str(scene_id) for scene_id in scene_ids],
+                    },
+                )
+            ).one()
+            assert counts == (0, 0, 0, 0, 0, 0, 0, 0, 0)
+    finally:
+        if transaction.is_active:
+            await transaction.rollback()
+        await caller.close()
+        await _cleanup_nuscenes_rollback_rows(
+            test_engine,
+            dataset_display_id=dataset_display_id,
+            project_display_id=project_display_id,
+            dataset_id=dataset_id,
+            project_id=project_id,
+            scene_ids=scene_ids,
+            owner_id=owner_id,
         )
 
-    await db_session.rollback()
-    assert (
-        await db_session.scalar(
-            select(func.count())
-            .select_from(Dataset)
-            .where(Dataset.display_id == "DS-NU-ROLLBACK")
+
+async def _cleanup_nuscenes_rollback_rows(
+    test_engine,
+    *,
+    dataset_display_id: str,
+    project_display_id: str,
+    dataset_id: uuid.UUID | None,
+    project_id: uuid.UUID | None,
+    scene_ids: list[uuid.UUID],
+    owner_id: uuid.UUID,
+) -> None:
+    async with test_engine.begin() as cleanup:
+        if project_id is None:
+            project_id = await cleanup.scalar(
+                text("SELECT id FROM public.projects WHERE display_id=:display_id"),
+                {"display_id": project_display_id},
+            )
+        if dataset_id is None:
+            dataset_id = await cleanup.scalar(
+                text("SELECT id FROM public.datasets WHERE display_id=:display_id"),
+                {"display_id": dataset_display_id},
+            )
+        if dataset_id is not None and not scene_ids:
+            scene_ids = list(
+                (
+                    await cleanup.scalars(
+                        text(
+                            "SELECT id FROM public.scenes WHERE dataset_id=:dataset_id"
+                        ),
+                        {"dataset_id": dataset_id},
+                    )
+                ).all()
+            )
+        if project_id is not None:
+            await cleanup.execute(
+                text(
+                    "DELETE FROM public.task_dataset_item_links "
+                    "WHERE task_id IN (SELECT id FROM public.tasks WHERE project_id=:project_id)"
+                ),
+                {"project_id": project_id},
+            )
+            await cleanup.execute(
+                text("DELETE FROM public.tasks WHERE project_id=:project_id"),
+                {"project_id": project_id},
+            )
+        if dataset_id is not None:
+            await cleanup.execute(
+                text(
+                    "DELETE FROM public.task_creation_operations "
+                    "WHERE dataset_id=:dataset_id"
+                ),
+                {"dataset_id": dataset_id},
+            )
+            await cleanup.execute(
+                text(
+                    "DELETE FROM public.dataset_spatial_operations "
+                    "WHERE scope->>'dataset_id'=:dataset_id_text "
+                    "OR scope->>'scene_id'=ANY(CAST(:scene_ids AS text[]))"
+                ),
+                {
+                    "dataset_id_text": str(dataset_id),
+                    "scene_ids": [str(scene_id) for scene_id in scene_ids],
+                },
+            )
+            await cleanup.execute(
+                text(
+                    "DELETE FROM public.project_datasets WHERE dataset_id=:dataset_id"
+                ),
+                {"dataset_id": dataset_id},
+            )
+            await cleanup.execute(
+                text("DELETE FROM public.datasets WHERE id=:dataset_id"),
+                {"dataset_id": dataset_id},
+            )
+        if project_id is not None:
+            await cleanup.execute(
+                text("DELETE FROM public.projects WHERE id=:project_id"),
+                {"project_id": project_id},
+            )
+        await cleanup.execute(
+            text("DELETE FROM public.audit_logs WHERE actor_id=:actor_id"),
+            {"actor_id": owner_id},
         )
-        == 0
-    )
-    assert (
-        await db_session.scalar(
-            select(func.count())
-            .select_from(Project)
-            .where(Project.display_id == "P-NU-ROLLBACK")
+        await cleanup.execute(
+            text("DELETE FROM public.users WHERE id=:actor_id"),
+            {"actor_id": owner_id},
         )
-        == 0
-    )
 
 
 async def test_legacy_seed_objects_are_deleted_only_after_caller_commit(
@@ -694,10 +856,13 @@ async def test_import_nuscenes_two_scenes(
     assert preflight.issues == []
 
     first_camera = camera_items[0]
-    original_camera_metadata = first_camera.metadata_
+    first_camera_orm = await db_session.get(DatasetItem, first_camera.id)
+    assert first_camera_orm is not None
+    original_camera_metadata = dict(first_camera_orm.metadata_ or {})
+    assert first_camera.metadata == original_camera_metadata
     invalid_source = dict(original_camera_metadata["nuscenes_export"])
     invalid_source["source_sha256"] = "z" * 64
-    first_camera.metadata_ = {
+    first_camera_orm.metadata_ = {
         **original_camera_metadata,
         "nuscenes_export": invalid_source,
     }
@@ -712,7 +877,7 @@ async def test_import_nuscenes_two_scenes(
     assert "nuscenes_source_asset_contract_missing" in {
         issue.code for issue in invalid_sha_preflight.issues
     }
-    first_camera.metadata_ = original_camera_metadata
+    first_camera_orm.metadata_ = original_camera_metadata
     await db_session.flush()
 
     digest_before_pose_change = await _nuscenes_scope_digest(
@@ -1080,6 +1245,7 @@ async def test_existing_ascii_scene_is_upgraded_in_place(
         ReadItemsRequest(dataset_id=dataset.id), same_session_native=True
     )
     item = next(row for row in item_facts.items if row.file_type == "point_cloud")
+    item_orm = next(row for row in dataset_items if row.id == item.id)
     current_root = dataset.metadata_["source"]["storage_root"]
     legacy_root = "nu-lite-upgrade"
     for (bucket, key), payload in list(fake_client.objects.items()):
@@ -1123,9 +1289,9 @@ async def test_existing_ascii_scene_is_upgraded_in_place(
         b"WIDTH 3\nHEIGHT 1\nVIEWPOINT 0 0 0 1 0 0 0\nPOINTS 3\nDATA ascii\n"
         b"1 2 3\n4 5 6\n7 8 9\n"
     )
-    fake_client.objects[(storage_service.datasets_bucket, item.file_path)] = legacy
-    item.file_size = len(legacy)
-    item.content_hash = hashlib.sha256(legacy).hexdigest()
+    fake_client.objects[(storage_service.datasets_bucket, item_orm.file_path)] = legacy
+    item_orm.file_size = len(legacy)
+    item_orm.content_hash = hashlib.sha256(legacy).hexdigest()
     metadata = dict(dataset.metadata_ or {})
     source = dict(metadata["source"])
     source.pop("pcd_encoding", None)
@@ -1143,7 +1309,9 @@ async def test_existing_ascii_scene_is_upgraded_in_place(
         owner_id=user.id,
     )
 
-    upgraded = fake_client.objects[(storage_service.datasets_bucket, item.file_path)]
+    upgraded = fake_client.objects[
+        (storage_service.datasets_bucket, item_orm.file_path)
+    ]
     assert second["scenes"] == [
         {
             "name": "scene-0000",
@@ -1153,8 +1321,9 @@ async def test_existing_ascii_scene_is_upgraded_in_place(
         }
     ]
     assert b"DATA binary\n" in upgraded[:200]
-    assert item.file_size == len(upgraded)
-    assert item.content_hash == hashlib.sha256(upgraded).hexdigest()
+    await db_session.refresh(item_orm)
+    assert item_orm.file_size == len(upgraded)
+    assert item_orm.content_hash == hashlib.sha256(upgraded).hexdigest()
     assert dataset.metadata_["source"]["pcd_encoding"] == "binary_xyz_f32"
     assert dataset.metadata_["source"]["storage_layout"] == "legacy_name"
 

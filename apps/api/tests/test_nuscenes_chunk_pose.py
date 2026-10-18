@@ -1,11 +1,7 @@
-"""nuScenes 导出 chunk 级 pose 查询优化的回归测试。
+"""nuScenes export checks exact, bounded pose-pair requests per task chunk.
 
-覆盖 v0.24 的两个行为:
-- ``_primary_lidar_item`` 的主点云解析规则(优先 primary_lidar link,回退
-  ``task.dataset_item_id``),与导出循环的 primary_item 保持一致;
-- ``_build_lidar_export_zip`` 的 nuscenes pose 查询按 chunk 内主点云的
-  (scene, frame) 精确对过滤——大 scene 跨多个 1000-task chunk 时不再逐
-  chunk 全量拉 scene pose,且只命中所需 pose 行。
+The test covers primary-item resolution and verifies pair scope at the public
+Assets spatial gateway boundary instead of depending on its former ORM query.
 """
 
 from __future__ import annotations
@@ -25,6 +21,7 @@ from app.db.models.dataset import Dataset, DatasetItem, Scene
 from app.db.models.scene_pose import SceneFramePose
 from app.db.models.task import Task
 from app.db.models.task_batch import TaskBatch
+from app.services.assets_spatial import AssetsSpatialGateway
 from app.services.exporting.packaging import (
     ExportService,
     _build_lidar_export_zip,
@@ -319,25 +316,16 @@ async def test_nuscenes_chunk_pose_query_is_pair_filtered(
     # chunk 之外无预加载:生产路径在 _build_lidar_export_zip 内按 chunk 加载
     svc = ExportService(db_session)
 
-    probes: list[list[tuple]] = []
-    original_execute = db_session.execute
+    probes: list[list[tuple[uuid.UUID, int]]] = []
+    original_read_pairs = AssetsSpatialGateway.read_spatial_pose_pairs
 
-    async def probing_execute(statement, *args, **kwargs):
-        result = await original_execute(statement, *args, **kwargs)
-        try:
-            entity = statement.column_descriptions[0]["entity"]
-            if entity is SceneFramePose:
-                clause = statement.whereclause
-                value = clause.right.value if clause is not None else None
-                if isinstance(value, list):
-                    pairs = [tuple(entry) for entry in value]
-                    if pairs:
-                        probes.append(pairs)
-        except Exception:
-            pass
-        return result
+    async def probing_read_pairs(gateway, request):
+        probes.append([(pair.scene_id, pair.frame_index) for pair in request.pairs])
+        return await original_read_pairs(gateway, request)
 
-    monkeypatch.setattr(db_session, "execute", probing_execute)
+    monkeypatch.setattr(
+        AssetsSpatialGateway, "read_spatial_pose_pairs", probing_read_pairs
+    )
     monkeypatch.setattr(
         "app.services.exporting.packaging._read_dataset_object",
         lambda key: pcd_bytes,
@@ -372,8 +360,8 @@ async def test_nuscenes_chunk_pose_query_is_pair_filtered(
         if os.path.exists(tmp_path):
             os.unlink(tmp_path)
 
-    # 每个 chunk 各做一次 pose 查询,且只带本 chunk 的 (scene, frame) 精确对;
-    # 若退回按 scene 全量拉取,任一 probe 会同时含 frame 0 和 frame 1。
+    # Spy at the public owner boundary: each chunk must request only its exact
+    # (scene, frame) pair, with no scene-wide pose stream fetched and filtered later.
     assert probes == [
         [(scene.id, 0)],
         [(scene.id, 1)],
