@@ -68,6 +68,16 @@ BEGIN
             MESSAGE = 'Assets catalog identity failure contract mismatch';
     END IF;
 
+    IF pg_catalog.jsonb_typeof(v_actor -> 'data') IS DISTINCT FROM 'object'
+       OR ((v_actor -> 'data') - ARRAY['actor_id', 'platform_role']) <> '{}'::jsonb
+       OR pg_catalog.jsonb_typeof(v_actor #> '{data,actor_id}') IS DISTINCT FROM 'string'
+       OR v_actor #>> '{data,actor_id}' IS DISTINCT FROM p_actor_id::text
+       OR pg_catalog.jsonb_typeof(v_actor #> '{data,platform_role}') IS DISTINCT FROM 'string' THEN
+        RAISE EXCEPTION USING
+            ERRCODE = '22023',
+            MESSAGE = 'Assets catalog identity facts mismatch';
+    END IF;
+
     v_role := v_actor #>> '{data,platform_role}';
     IF p_write THEN
         IF v_role IS NULL OR v_role NOT IN (

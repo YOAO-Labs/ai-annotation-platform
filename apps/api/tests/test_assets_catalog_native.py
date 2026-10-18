@@ -768,6 +768,94 @@ async def test_catalog_writes_require_active_global_manager_even_on_replay(db_se
     _error(replay, "account_not_active")
 
 
+async def test_catalog_rejects_malformed_identity_facts_and_allows_unknown_read_role(
+    db_session,
+):
+    database = await db_session.scalar(text("SELECT current_database()"))
+    if not database or not database.endswith("_test"):
+        pytest.fail("refusing to replace the identity function outside the test DB")
+
+    actor_id = uuid.uuid4()
+
+    async def replace_identity_reply(reply: dict) -> None:
+        encoded = json.dumps(reply, separators=(",", ":"))
+        await db_session.execute(
+            text(
+                "CREATE OR REPLACE FUNCTION aap_identity_v1.lock_active_actor("
+                "p_actor_id uuid) RETURNS jsonb LANGUAGE sql VOLATILE "
+                "PARALLEL UNSAFE SECURITY DEFINER "
+                "SET search_path = pg_catalog, pg_temp "
+                f"AS $identity_test$ SELECT '{encoded}'::jsonb $identity_test$"
+            )
+        )
+
+    malformed_replies = (
+        {
+            "schema": "aap-active-actor/v1",
+            "ok": True,
+            "data": "not-an-object",
+        },
+        {
+            "schema": "aap-active-actor/v1",
+            "ok": True,
+            "data": {
+                "actor_id": str(uuid.uuid4()),
+                "platform_role": "super_admin",
+            },
+        },
+        {
+            "schema": "aap-active-actor/v1",
+            "ok": True,
+            "data": {"actor_id": str(actor_id), "platform_role": 17},
+        },
+        {
+            "schema": "aap-active-actor/v1",
+            "ok": True,
+            "data": {
+                "actor_id": str(actor_id),
+                "platform_role": "super_admin",
+                "unexpected": True,
+            },
+        },
+    )
+    for identity_reply in malformed_replies:
+        savepoint = await db_session.begin_nested()
+        try:
+            await replace_identity_reply(identity_reply)
+            with pytest.raises(DBAPIError) as error:
+                await _call(
+                    db_session,
+                    _GET,
+                    {"actor_id": actor_id, "dataset_id": uuid.uuid4()},
+                )
+            sqlstate = getattr(error.value.orig, "sqlstate", None) or getattr(
+                error.value.orig, "pgcode", None
+            )
+            assert sqlstate == "22023"
+        finally:
+            await savepoint.rollback()
+
+    savepoint = await db_session.begin_nested()
+    try:
+        await replace_identity_reply(
+            {
+                "schema": "aap-active-actor/v1",
+                "ok": True,
+                "data": {"actor_id": str(actor_id), "platform_role": "future_role"},
+            }
+        )
+        read_reply = await _call(
+            db_session,
+            _GET,
+            {"actor_id": actor_id, "dataset_id": uuid.uuid4()},
+        )
+        _error(read_reply, "dataset_missing")
+        write_reply = await _create_request(db_session, actor_id, uuid.uuid4())
+        _error(write_reply, "invalid_account_role")
+    finally:
+        await savepoint.rollback()
+
+
 async def test_catalog_update_nowait_contention_returns_without_receipt(test_engine):
     actor_id = uuid.uuid4()
     dataset_id = uuid.uuid4()
