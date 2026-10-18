@@ -25,6 +25,7 @@ from app.services.annotation_conversion import (
     AnnotationConversionService,
 )
 from app.services.raster_mask_storage import build_rle_reference
+from tests.media_owner_fixtures import media_owner as media_owner
 
 
 MASK_RLE = {
@@ -38,7 +39,7 @@ def _headers(token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
 
 
-async def _seed_task(db, owner_id: uuid.UUID, *, video: bool = False):
+async def _seed_task(db, owner_id: uuid.UUID, *, media_owner=None, video: bool = False):
     suffix = uuid.uuid4().hex[:8]
     dataset = Dataset(
         display_id=f"DS-CV-{suffix}",
@@ -63,6 +64,9 @@ async def _seed_task(db, owner_id: uuid.UUID, *, video: bool = False):
     )
     db.add(item)
     await db.flush()
+    if video:
+        assert media_owner is not None
+        await media_owner.seed_video_item(item, owner_id)
     project = Project(
         display_id=f"P-CV-{suffix}",
         name=f"conversion-{suffix}",
@@ -602,10 +606,10 @@ async def test_execute_rejects_conversion_report_drift_before_storage(
 
 
 async def test_video_polygon_track_materializes_held_frame_only_when_explicit(
-    httpx_client, db_session, super_admin, monkeypatch
+    httpx_client, db_session, media_owner, super_admin, monkeypatch
 ):
     user, token = super_admin
-    task = await _seed_task(db_session, user.id, video=True)
+    task = await _seed_task(db_session, user.id, media_owner=media_owner, video=True)
     source = await _seed_annotation(
         db_session,
         task,
@@ -671,10 +675,10 @@ async def test_video_polygon_track_materializes_held_frame_only_when_explicit(
 
 
 async def test_video_mask_replace_with_bbox_suppresses_only_current_frame(
-    httpx_client, db_session, super_admin, monkeypatch
+    httpx_client, db_session, media_owner, super_admin, monkeypatch
 ):
     user, token = super_admin
-    task = await _seed_task(db_session, user.id, video=True)
+    task = await _seed_task(db_session, user.id, media_owner=media_owner, video=True)
     reference = build_rle_reference(MASK_RLE)
     source = await _seed_annotation(
         db_session,
@@ -843,10 +847,10 @@ async def test_conversion_rejects_annotation_and_task_locks_before_storage(
 
 
 async def test_video_single_polygon_and_track_keyframes_convert_to_masks(
-    httpx_client, db_session, super_admin, monkeypatch
+    httpx_client, db_session, media_owner, super_admin, monkeypatch
 ):
     user, token = super_admin
-    task = await _seed_task(db_session, user.id, video=True)
+    task = await _seed_task(db_session, user.id, media_owner=media_owner, video=True)
     single = await _seed_annotation(
         db_session,
         task,
@@ -958,11 +962,11 @@ async def test_empty_polygon_conversion_returns_validation_error_before_storage(
 
 
 async def test_video_segment_lease_is_checked_before_mask_storage(
-    db_session, super_admin, reviewer, monkeypatch
+    db_session, media_owner, super_admin, reviewer, monkeypatch
 ):
     owner, _ = super_admin
     actor, _ = reviewer
-    task = await _seed_task(db_session, owner.id, video=True)
+    task = await _seed_task(db_session, owner.id, media_owner=media_owner, video=True)
     source = await _seed_annotation(
         db_session,
         task,

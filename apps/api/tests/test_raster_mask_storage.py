@@ -23,6 +23,16 @@ def _storage(*, exists: bool = False):
     return storage
 
 
+def _patch_video_summary(monkeypatch, *, width: int, height: int, frame_count: int):
+    async def current_video_summary(_reader, _dataset_item_id):
+        return width, height, {"frame_count": frame_count}
+
+    monkeypatch.setattr(
+        "app.services.assets_media_summary.AssetsTaskMediaSummaryReader.current_video_summary",
+        current_video_summary,
+    )
+
+
 async def test_store_coco_rle_uses_content_addressed_key_and_put_if_absent():
     storage = _storage()
     reference = await store_coco_rle(
@@ -99,7 +109,8 @@ async def test_reference_locks_are_sorted_deduplicated_and_verified(monkeypatch)
 
 
 @pytest.mark.asyncio
-async def test_mask_geometry_context_matches_video_size_and_frame_count():
+async def test_mask_geometry_context_matches_video_size_and_frame_count(monkeypatch):
+    _patch_video_summary(monkeypatch, width=1920, height=1080, frame_count=10)
     db = SimpleNamespace(
         get=AsyncMock(
             return_value=SimpleNamespace(
@@ -131,7 +142,8 @@ async def test_mask_geometry_context_matches_video_size_and_frame_count():
 
 
 @pytest.mark.asyncio
-async def test_single_frame_video_mask_matches_video_size_and_frame_count():
+async def test_single_frame_video_mask_matches_video_size_and_frame_count(monkeypatch):
+    _patch_video_summary(monkeypatch, width=1920, height=1080, frame_count=10)
     db = SimpleNamespace(
         get=AsyncMock(
             return_value=SimpleNamespace(
@@ -161,7 +173,9 @@ async def test_single_frame_video_mask_matches_video_size_and_frame_count():
 
 
 @pytest.mark.asyncio
-async def test_mask_geometry_context_separates_image_8k_from_video_4k_limit():
+async def test_mask_geometry_context_separates_image_8k_from_video_4k_limit(
+    monkeypatch,
+):
     image_db = SimpleNamespace(
         get=AsyncMock(
             return_value=SimpleNamespace(
@@ -179,6 +193,7 @@ async def test_mask_geometry_context_separates_image_8k_from_video_4k_limit():
         {"type": "raster_mask", "mask": {"size": [8192, 8192]}},
     )
 
+    _patch_video_summary(monkeypatch, width=4097, height=1, frame_count=1)
     video_db = SimpleNamespace(
         get=AsyncMock(
             return_value=SimpleNamespace(

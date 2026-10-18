@@ -16,6 +16,7 @@ from app.db.models.video_tracker_job import VideoTrackerJob
 from app.services.raster_mask_storage import build_rle_reference
 from app.services.mask_qc.execution import _region_bbox_xyxy
 from app.utils.raster_mask_rle import encode_coco_rle
+from tests.media_owner_fixtures import media_owner as media_owner
 
 
 def _bearer(token: str) -> dict[str, str]:
@@ -208,7 +209,7 @@ async def test_compare_reports_expired_previous_version(
 
 @pytest.mark.asyncio
 async def test_neighbor_compare_excludes_the_current_held_keyframe(
-    httpx_client, super_admin, db_session, monkeypatch
+    httpx_client, super_admin, db_session, media_owner, monkeypatch
 ):
     user, token = super_admin
     project, task, annotation, first, second, *_refs = await _seed_image_compare(
@@ -225,6 +226,7 @@ async def test_neighbor_compare_excludes_the_current_held_keyframe(
     item.file_type = "video"
     item.metadata_ = {"video": {"frame_count": 20}}
     task.file_type = "video"
+    await media_owner.seed_video_item(item, user.id)
     annotation.version = 1
     annotation.geometry = {
         "type": "video_track_mask",
@@ -269,7 +271,7 @@ async def test_neighbor_compare_excludes_the_current_held_keyframe(
 
 @pytest.mark.asyncio
 async def test_tracker_compare_requires_exact_job_revision_and_candidate_digest(
-    httpx_client, super_admin, db_session, monkeypatch
+    httpx_client, super_admin, db_session, media_owner, monkeypatch
 ):
     user, token = super_admin
     project, task, annotation, baseline, candidate, *_refs = await _seed_image_compare(
@@ -295,6 +297,7 @@ async def test_tracker_compare_requires_exact_job_revision_and_candidate_digest(
     )
     db_session.add(item)
     await db_session.flush()
+    await media_owner.seed_video_item(item, user.id)
     task.file_type = "video"
     task.dataset_item_id = item.id
     annotation.version = 1

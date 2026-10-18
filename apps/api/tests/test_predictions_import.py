@@ -46,6 +46,7 @@ from app.services.predictions_import import (
 from app.services.raster_mask_storage import build_rle_reference
 from app.utils.raster_mask_rle import encode_coco_rle
 from tests.factory import create_membership
+from tests.media_owner_fixtures import media_owner as media_owner
 
 pytestmark = pytest.mark.asyncio
 
@@ -106,6 +107,7 @@ async def _seed_video_project_task(
     owner_id: uuid.UUID,
     *,
     frame_count: int | None = 12,
+    media_owner=None,
 ) -> tuple[Project, Task]:
     short = uuid.uuid4().hex[:6]
     project = Project(
@@ -147,6 +149,8 @@ async def _seed_video_project_task(
     )
     db.add(item)
     await db.flush()
+    if media_owner is not None:
+        await media_owner.seed_video_item(item, owner_id)
     task = Task(
         id=uuid.uuid4(),
         project_id=project.id,
@@ -562,10 +566,13 @@ async def test_import_aap_json_keypoint(
 async def test_import_aap_json_video_predictions_dry_run_and_accept(
     super_admin,
     db_session: AsyncSession,
+    media_owner,
     monkeypatch: pytest.MonkeyPatch,
 ):
     user, _ = super_admin
-    project, task = await _seed_video_project_task(db_session, user.id)
+    project, task = await _seed_video_project_task(
+        db_session, user.id, media_owner=media_owner
+    )
     rle = encode_coco_rle([0, 1, 1, 0, 0, 1, 0, 0], 4, 2)
     reference = build_rle_reference(rle)
     geometries = {
@@ -748,9 +755,12 @@ async def test_import_aap_json_video_predictions_dry_run_and_accept(
 async def test_import_aap_json_video_prediction_contract_errors(
     super_admin,
     db_session: AsyncSession,
+    media_owner,
 ):
     user, _ = super_admin
-    project, task = await _seed_video_project_task(db_session, user.id)
+    project, task = await _seed_video_project_task(
+        db_session, user.id, media_owner=media_owner
+    )
     payload = _aap_envelope(
         [
             {
@@ -831,9 +841,20 @@ async def test_import_aap_json_video_prediction_contract_errors(
 async def test_import_aap_json_video_prediction_requires_video_context(
     super_admin,
     db_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
 ):
     user, _ = super_admin
-    project, task = await _seed_video_project_task(db_session, user.id)
+    project, task = await _seed_video_project_task(
+        db_session, user.id, frame_count=None
+    )
+
+    async def current_video_metadata_without_frame_count(_reader, _dataset_item_id):
+        return {"width": 4, "height": 2}
+
+    monkeypatch.setattr(
+        "app.services.assets_media_summary.AssetsTaskMediaSummaryReader.current_video_metadata",
+        current_video_metadata_without_frame_count,
+    )
     prediction = {
         "geometry": {
             "type": "video_bbox",
@@ -914,10 +935,13 @@ async def test_prediction_video_mask_content_is_task_scoped_and_frame_resolved(
     httpx_client: httpx.AsyncClient,
     super_admin,
     db_session: AsyncSession,
+    media_owner,
     monkeypatch: pytest.MonkeyPatch,
 ):
     user, token = super_admin
-    project, task = await _seed_video_project_task(db_session, user.id)
+    project, task = await _seed_video_project_task(
+        db_session, user.id, media_owner=media_owner
+    )
     rle = encode_coco_rle([0, 1, 1, 0, 0, 1, 0, 0], 4, 2)
     reference = build_rle_reference(rle)
     load = AsyncMock(return_value=rle)
