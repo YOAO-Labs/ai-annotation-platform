@@ -1,0 +1,32 @@
+[project]
+name = "aap-assets-catalog"
+version = "0.1.0"
+description = "Standalone Assets catalog control-plane runtime and frozen contract"
+requires-python = ">=3.11"
+dependencies = ["pydantic>=2.10.0"]
+
+[project.optional-dependencies]
+server = [
+    "asyncpg>=0.30.0",
+    "boto3>=1.43.77",
+    "fastapi>=0.115.0",
+    "uvicorn>=0.34.0",
+]
+
+[dependency-groups]
+dev = [
+    "httpx>=0.27.0",
+    "pytest>=8.3.0",
+    "ruff==0.15.22",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
