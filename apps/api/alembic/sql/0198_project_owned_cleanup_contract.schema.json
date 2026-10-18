@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:aap:contract:project-owned-cleanup:v1",
+  "title": "Project-owned cleanup capabilities v1",
+  "description": "Language-neutral signatures and result shapes for same-transaction project cleanup. SQL functions never commit.",
+  "x-postgresql-functions": [
+    "aap_assets_v1.delete_project_owned_records(uuid)",
+    "aap_inference_v1.clear_project_ml_backend_pool(uuid)",
+    "aap_inference_v1.clear_project_pipelines(uuid)",
+    "aap_insights_v1.clear_project_task_views(uuid)",
+    "aap_diagnostics_v1.detach_project_references(uuid)",
+    "aap_export_v1.clear_project_export_artifacts(uuid)",
+    "aap_jobs_v1.detach_project_references(uuid)"
+  ],
+  "x-postgresql-dependencies": ["aap_labeling_v1.project_task_references(uuid)"],
+  "oneOf": [{ "$ref": "#/$defs/taskReferencesCall" }, { "$ref": "#/$defs/cleanupCall" }],
+  "$defs": {
+    "uuid": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "projectArguments": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["p_project_id"],
+      "properties": {
+        "p_project_id": { "$ref": "#/$defs/uuid" }
+      }
+    },
+    "taskReferencesCall": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["function", "arguments", "result"],
+      "properties": {
+        "function": {
+          "const": "aap_labeling_v1.project_task_references(uuid)"
+        },
+        "arguments": { "$ref": "#/$defs/projectArguments" },
+        "result": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/uuid" },
+          "uniqueItems": true
+        }
+      }
+    },
+    "cleanupCall": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["function", "arguments", "result"],
+      "properties": {
+        "function": {
+          "enum": [
+            "aap_assets_v1.delete_project_owned_records(uuid)",
+            "aap_inference_v1.clear_project_ml_backend_pool(uuid)",
+            "aap_inference_v1.clear_project_pipelines(uuid)",
+            "aap_insights_v1.clear_project_task_views(uuid)",
+            "aap_diagnostics_v1.detach_project_references(uuid)",
+            "aap_export_v1.clear_project_export_artifacts(uuid)",
+            "aap_jobs_v1.detach_project_references(uuid)"
+          ]
+        },
+        "arguments": { "$ref": "#/$defs/projectArguments" },
+        "result": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    }
+  }
+}
