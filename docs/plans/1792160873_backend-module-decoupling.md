@@ -1707,3 +1707,4 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
 - 本片不迁移关联写入、导入、来源发布、媒体派生及其余模块运行时。共享 PostgreSQL 与主 API 迁移期宽权限仍存在；全模块独立部署与语言替换目标保持进行中。Go 实验不进入真实环境。
 - 本轮全量隔离验收 660 项通过、零跳过；真实独立目录容器、SQL 最小角色、API scope/默认值、服务中断/重启、本地远程切换和语句快照并发均通过。冻结 SQL 独立安装/外层回滚与完整迁移四阶段验证通过，临时 PostgreSQL、Redis、九个桶、两组 S3 身份、容器和镜像均按归属清理。早先迁移/夹具/浮点不一致结果保留，以本次完整结果替换，不重复计数。
 - 纯共享/目录包 51 项、SDK 73 项、架构 293 项通过；架构另有 119 个不适用的冷加载参数跳过。固定 Ruff、锁文件、TypeScript、OpenAPI/SDK 目录生成、文档构建和 API 镜像冷导入 119 表通过。证据 `.worktree/assets-associations-verification.json` 及同前缀 JSON/JUnit/log。
+- 已本地合入主 checkout，日常数据库 0211→0212；无测试账号或目录回执写入。常驻 LaunchAgent 经核验后暂停、同步依赖和迁移，再使用原配置恢复。公开 OpenAPI 与当前快照一致（485 paths、873 schemas）；源码内容不变的热重载约 8.762 秒恢复。DB/Redis/MinIO 均 200，日常 Celery 未启动，`/health` 与 `/health/celery` 保持既有 503。证据 `.worktree/assets-associations-main-runtime.json`。未 push、发布或运行远程 CI。
