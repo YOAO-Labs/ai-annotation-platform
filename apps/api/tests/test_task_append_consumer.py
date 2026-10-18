@@ -12,6 +12,7 @@ import pytest
 from pydantic import ValidationError
 from sqlalchemy import delete, event, func, insert, inspect, select, text
 from sqlalchemy.ext.asyncio import async_sessionmaker
+from starlette.responses import Response
 
 from app.application.dataset_deletion import delete_dataset, unlink_dataset_from_project
 from app.application.dataset_task_creation import DatasetTaskCreationWorkflow
@@ -544,6 +545,7 @@ async def test_upload_completion_locks_parent_before_item_updates_and_delete(
     test_engine, append_state, monkeypatch
 ):
     from app.api.v1.datasets import upload_complete
+    from app.services.assets_source import _LegacyUploadData
     from app.services.storage import storage_service
 
     state = append_state
@@ -551,15 +553,16 @@ async def test_upload_completion_locks_parent_before_item_updates_and_delete(
         await db.execute(
             delete(ProjectDataset).where(ProjectDataset.dataset_id == state.dataset_id)
         )
-    item_written, resume_upload = asyncio.Event(), asyncio.Event()
+    upload_locked, resume_upload = asyncio.Event(), asyncio.Event()
 
-    async def pause_after_item_write(service, dataset_id, content_hash):
-        await service.db.flush()
-        item_written.set()
+    complete_legacy_upload = _LegacyUploadData.complete
+
+    async def pause_before_legacy_complete(service, request):
+        upload_locked.set()
         await resume_upload.wait()
-        return None
+        return await complete_legacy_upload(service, request)
 
-    monkeypatch.setattr(DatasetService, "find_by_hash", pause_after_item_write)
+    monkeypatch.setattr(_LegacyUploadData, "complete", pause_before_legacy_complete)
     monkeypatch.setattr(
         storage_service,
         "verify_upload",
@@ -576,14 +579,16 @@ async def test_upload_completion_locks_parent_before_item_updates_and_delete(
             upload_complete(
                 state.dataset_id,
                 state.item_id,
+                Response(),
                 db=uploader,
                 current_user=SimpleNamespace(id=state.owner_id),
                 media_dispatcher=dispatcher,
+                idempotency_key=uuid4(),
             )
         )
         deletion = None
         try:
-            await asyncio.wait_for(item_written.wait(), timeout=5)
+            await asyncio.wait_for(upload_locked.wait(), timeout=5)
             deletion = asyncio.create_task(
                 delete_dataset(
                     deleter,

@@ -58142,6 +58142,23 @@
               "title": "Item Id",
               "type": "string"
             }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
+            }
           }
         ],
         "responses": {
@@ -58151,7 +58168,16 @@
                 "schema": {}
               }
             },
-            "description": "Successful Response"
+            "description": "Successful Response",
+            "headers": {
+              "Idempotency-Key": {
+                "description": "Reuse this UUID to replay upload completion.",
+                "schema": {
+                  "format": "uuid",
+                  "type": "string"
+                }
+              }
+            }
           },
           "422": {
             "content": {
@@ -58188,6 +58214,23 @@
               "title": "Dataset Id",
               "type": "string"
             }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
+            }
           }
         ],
         "requestBody": {
@@ -58209,7 +58252,16 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "Successful Response",
+            "headers": {
+              "Idempotency-Key": {
+                "description": "Reuse this UUID to replay upload initialization.",
+                "schema": {
+                  "format": "uuid",
+                  "type": "string"
+                }
+              }
+            }
           },
           "422": {
             "content": {

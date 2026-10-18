@@ -17,6 +17,11 @@ from fastapi import (
 )
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from aap_assets_source.contract import (
+    SourceDeletionRequest,
+    UploadCompleteRequest,
+    UploadInitRequest,
+)
 from aap_assets_catalog import (
     CreateDatasetRequest,
     DatasetPatch,
@@ -60,12 +65,11 @@ from app.services.dataset import (
 )
 from app.services.assets_catalog import AssetsCatalogGateway
 from app.application.dataset_task_creation import DatasetTaskCreationWorkflow
-from app.application.dataset_upload import DatasetUploadWorkflow
 from app.application.dataset_deletion import (
-    delete_dataset as delete_dataset_workflow,
     unlink_dataset_from_project,
     preview_dataset_unlink,
 )
+from app.services.assets_source import AssetsSourceGateway
 from app.services.media_job_dispatch import MediaJobDispatcher
 from app.services.mask_formats.safe_archive import (
     ArchiveLimits,
@@ -279,15 +283,17 @@ async def delete_dataset(
     current_user: User = Depends(require_roles(*_MANAGERS)),
     idempotency_key: uuid.UUID | None = Header(default=None, alias="Idempotency-Key"),
 ):
-    receipt = await delete_dataset_workflow(
-        db,
-        dataset_id,
-        actor_id=current_user.id,
-        cleanup_bucket=storage_service.media_cache_bucket,
-        operation_id=idempotency_key,
-        audit_context=_deletion_audit_context(request),
+    gateway = AssetsSourceGateway(db)
+    receipt = await gateway.delete_source(
+        SourceDeletionRequest(
+            operation_id=idempotency_key or uuid.uuid4(),
+            actor_id=current_user.id,
+            dataset_id=dataset_id,
+            audit_context=_deletion_audit_context(request),
+        )
     )
-    await db.commit()
+    if not gateway.is_remote:
+        await db.commit()
     response.headers["Idempotency-Key"] = str(receipt.operation_id)
 
 
@@ -425,48 +431,79 @@ async def import_from_connection(
     "/{dataset_id}/items/upload-init",
     response_model=DatasetUploadInitResponse,
     dependencies=[Depends(require_scopes("datasets:write"))],
+    responses={
+        200: {
+            "headers": {
+                "Idempotency-Key": {
+                    "description": "Reuse this UUID to replay upload initialization.",
+                    "schema": {"type": "string", "format": "uuid"},
+                }
+            }
+        }
+    },
 )
 async def upload_init(
     dataset_id: uuid.UUID,
     data: DatasetUploadInitRequest,
+    response: Response,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    idempotency_key: uuid.UUID | None = Header(default=None, alias="Idempotency-Key"),
 ):
-    workflow = DatasetUploadWorkflow(db, storage_service)
-    intent = await workflow.reserve(
-        actor_id=current_user.id,
-        dataset_id=dataset_id,
-        file_name=data.file_name,
-        content_type=data.content_type,
+    gateway = AssetsSourceGateway(db)
+    result = await gateway.init_upload(
+        UploadInitRequest(
+            item_id=idempotency_key or uuid.uuid4(),
+            actor_id=current_user.id,
+            dataset_id=dataset_id,
+            file_name=data.file_name,
+            content_type=data.content_type,
+        )
     )
-    upload_url = storage_service.generate_upload_url(
-        intent.staging_key,
-        intent.content_type,
-        bucket=storage_service.import_bucket,
-    )
-    await db.commit()
+    if not gateway.is_remote:
+        await db.commit()
+    response.headers["Idempotency-Key"] = str(result.item_id)
     return DatasetUploadInitResponse(
-        item_id=intent.item_id, upload_url=upload_url, expires_in=900
+        item_id=result.item_id,
+        upload_url=result.upload_url,
+        expires_in=result.expires_in,
     )
 
 
 @router.post(
     "/{dataset_id}/items/upload-complete/{item_id}",
     dependencies=[Depends(require_scopes("datasets:write"))],
+    responses={
+        200: {
+            "headers": {
+                "Idempotency-Key": {
+                    "description": "Reuse this UUID to replay upload completion.",
+                    "schema": {"type": "string", "format": "uuid"},
+                }
+            }
+        }
+    },
 )
 async def upload_complete(
     dataset_id: uuid.UUID,
     item_id: uuid.UUID,
+    response: Response,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
     media_dispatcher: MediaJobDispatcher = Depends(get_media_job_dispatcher),
+    idempotency_key: uuid.UUID | None = Header(default=None, alias="Idempotency-Key"),
 ):
-    outcome = await DatasetUploadWorkflow(db, storage_service).complete(
+    request = UploadCompleteRequest(
+        operation_id=idempotency_key or uuid.uuid4(),
         actor_id=current_user.id,
         dataset_id=dataset_id,
         item_id=item_id,
     )
-    await db.commit()
+    gateway = AssetsSourceGateway(db)
+    outcome = await gateway.complete_upload(request)
+    if not gateway.is_remote:
+        await db.commit()
+    response.headers["Idempotency-Key"] = str(request.operation_id)
     if outcome.duplicate_of is not None:
         raise HTTPException(
             409,
@@ -940,16 +977,18 @@ async def delete_item(
     current_user: User = Depends(require_roles(*_MANAGERS)),
     idempotency_key: uuid.UUID | None = Header(default=None, alias="Idempotency-Key"),
 ):
-    receipt = await delete_dataset_workflow(
-        db,
-        dataset_id,
-        item_id=item_id,
-        actor_id=current_user.id,
-        cleanup_bucket=storage_service.media_cache_bucket,
-        operation_id=idempotency_key,
-        audit_context=_deletion_audit_context(request),
+    gateway = AssetsSourceGateway(db)
+    receipt = await gateway.delete_source(
+        SourceDeletionRequest(
+            operation_id=idempotency_key or uuid.uuid4(),
+            actor_id=current_user.id,
+            dataset_id=dataset_id,
+            item_id=item_id,
+            audit_context=_deletion_audit_context(request),
+        )
     )
-    await db.commit()
+    if not gateway.is_remote:
+        await db.commit()
     response.headers["Idempotency-Key"] = str(receipt.operation_id)
 
 
