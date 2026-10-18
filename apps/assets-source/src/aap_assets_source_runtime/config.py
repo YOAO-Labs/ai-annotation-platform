@@ -13,6 +13,7 @@ from typing import Mapping
 from urllib.parse import urlsplit, urlunsplit
 
 from cryptography.fernet import Fernet
+from aap_assets_images.policy import ImagePolicy, image_policy_from_environment
 
 from aap_assets_source.connectors.host_guard import (
     ConnectorAllowlistInvalid,
@@ -228,6 +229,7 @@ class SourceConfig:
     sql_timeout_seconds: float
     s3_connect_timeout_seconds: float
     s3_read_timeout_seconds: float
+    image_policy: ImagePolicy = field(default_factory=ImagePolicy)
     upload_url_expires_seconds: int = 900
     image_header_bytes: int = 256 * 1024
 
@@ -284,6 +286,11 @@ def load_config(environment: Mapping[str, str] | None = None) -> SourceConfig:
             "ASSETS_SOURCE_POOL_MIN_SIZE must not exceed POOL_MAX_SIZE"
         )
 
+    try:
+        image_policy = image_policy_from_environment(source)
+    except ValueError:
+        raise ConfigurationError("IMAGE_PYRAMID_* settings are invalid") from None
+
     return SourceConfig(
         database_url=database_url,
         driver_database_url=driver_database_url,
@@ -317,4 +324,5 @@ def load_config(environment: Mapping[str, str] | None = None) -> SourceConfig:
         s3_read_timeout_seconds=_positive_float(
             source, "ASSETS_SOURCE_S3_READ_TIMEOUT_SECONDS", "10", maximum=120
         ),
+        image_policy=image_policy,
     )

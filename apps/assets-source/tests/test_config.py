@@ -36,6 +36,20 @@ def test_config_uses_bounded_defaults_and_media_cache_cleanup_target() -> None:
     assert config.sftp_known_hosts_file is None
     assert config.upload_url_expires_seconds == 900
     assert config.image_header_bytes == 256 * 1024
+    assert not config.image_policy.auto_generate_pyramids
+
+
+def test_source_config_captures_explicit_image_policy_environment():
+    config = load_config(
+        {
+            **_environment(),
+            "IMAGE_PYRAMID_AUTO_GENERATE": "true",
+            "IMAGE_PYRAMID_PROFILE_VERSION": "pyramid-test",
+        }
+    )
+
+    assert config.image_policy.auto_generate_pyramids
+    assert config.image_policy.profile_version == "pyramid-test"
 
 
 def test_generic_api_and_aws_environment_values_are_never_fallbacks() -> None:

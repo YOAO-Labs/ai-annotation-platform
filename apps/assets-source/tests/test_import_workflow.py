@@ -22,6 +22,7 @@ from aap_assets_source.import_contract import (
     ImportSourceObject,
     ImportState,
 )
+from aap_assets_images.contract import ImageFailure, ObjectIdentity
 from aap_assets_source_import.database import EXPECTED_IMPORT_FUNCTIONS
 from aap_assets_source_import.__main__ import _handle_failure
 from aap_assets_source_import.storage import SourceReadError
@@ -308,13 +309,15 @@ class _RejectedSourceData:
         self.next_publications: list = []
         self.completions: list = []
         self.busy_once = True
+        self.image_admission = _ImageAdmission()
+        self.entry = None
 
     async def next_entry(self, _job_id, _lease_token, publication_id):
         self.next_publications.append(publication_id)
         if len(self.next_publications) == 1:
             raise ImportFailure("invalid_source_object")
         item_id = uuid4()
-        return ImportEntry(
+        self.entry = ImportEntry(
             job_id=self.state.job_id,
             lease_token=self.state.lease_token,
             index=self.state.cursor,
@@ -330,6 +333,7 @@ class _RejectedSourceData:
                 relpath="batch/valid.jpg", size=3, mtime=None, etag="listed-etag"
             ),
         )
+        return self.entry
 
     async def complete_entry(
         self, _job_id, _lease_token, index, publication_id, completion
@@ -373,6 +377,49 @@ class _TransactionRecorder:
             raise
         else:
             self.commits += 1
+
+
+@pytest.mark.asyncio
+async def test_image_admission_failure_rolls_back_item_settlement_and_cursor():
+    state = _state(stage="importing")
+    entry = _valid_entry(state)
+    events = []
+
+    class _Data:
+        image_admission = None
+
+        async def complete_entry(self, *_arguments):
+            events.append("complete_entry")
+            return state.model_copy(update={"cursor": 1, "added": 1})
+
+    class _ImageAdmission:
+        async def admit_dataset_item(self, **_request):
+            events.append("image_admission")
+            raise ImageFailure("source_changed")
+
+    data = _Data()
+    data.image_admission = _ImageAdmission()
+    database = _TransactionRecorder(data)
+    workflow = ImportWorkflow(database, object(), object())
+    keeper = LeaseKeeper(database, object(), state, asyncio.Event())
+
+    with pytest.raises(ImportFailure, match="source_changed"):
+        await workflow._complete_with_retry(
+            state,
+            entry,
+            ImportEntryCompletion(
+                status="copied",
+                file_size=1,
+                content_hash=hashlib.md5(b"x", usedforsecurity=False).hexdigest(),
+            ),
+            keeper,
+            object_identity=ObjectIdentity(etag="final", byte_size=1),
+        )
+
+    assert database.commits == 0
+    assert database.rollbacks == 1
+    assert state.cursor == 0
+    assert events == ["complete_entry", "image_admission"]
 
 
 class _WrongScopeNextData:
@@ -479,6 +526,18 @@ class _ValidOnlyStorage:
         before_io()
         on_bytes(3)
         return 3, hashlib.md5(b"img", usedforsecurity=False).hexdigest(), None
+
+    async def head_image_identity(self, _key, *, expected_size):
+        return ObjectIdentity(etag='"published"', byte_size=expected_size)
+
+
+class _ImageAdmission:
+    def __init__(self):
+        self.calls = []
+
+    async def admit_dataset_item(self, **request):
+        self.calls.append(request)
+        return None
 
 
 class _BudgetData:
@@ -696,6 +755,10 @@ async def test_unrepresentable_source_name_is_recorded_and_next_file_is_copied(
     assert data.state.cursor == 2
     assert data.state.error_count == 1
     assert data.state.added == 1
+    assert len(data.image_admission.calls) == 1
+    assert data.entry is not None
+    assert data.image_admission.calls[0]["item_id"] == data.entry.item_id
+    assert data.image_admission.calls[0]["publication_id"] == data.entry.publication_id
 
 
 @pytest.mark.asyncio
@@ -798,7 +861,7 @@ async def test_wrong_scope_failure_finish_reply_rolls_back_before_commit() -> No
     assert database.rollbacks == 1
 
 
-def test_database_role_is_limited_to_the_frozen_seven_capabilities() -> None:
+def test_database_role_is_limited_to_the_frozen_nine_capabilities() -> None:
     assert EXPECTED_IMPORT_FUNCTIONS == {
         "claim_dataset_import(uuid,integer,uuid)",
         "heartbeat_dataset_import(uuid,uuid,integer)",
@@ -807,6 +870,8 @@ def test_database_role_is_limited_to_the_frozen_seven_capabilities() -> None:
         "next_dataset_import_entry(uuid,uuid,uuid)",
         "complete_dataset_import_entry(uuid,uuid,bigint,uuid,jsonb)",
         "finish_dataset_import(uuid,uuid,text)",
+        "resolve_internal_image_source(text,uuid,text,jsonb)",
+        "schedule_image_media(uuid,text,uuid,jsonb,boolean)",
     }
 
 

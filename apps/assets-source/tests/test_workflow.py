@@ -3,6 +3,7 @@ from __future__ import annotations
 from uuid import uuid4
 
 import pytest
+from aap_assets_images import contract as image_contract
 
 from aap_assets_source.contract import (
     SourceFailure,
@@ -72,6 +73,10 @@ class _LegacyUploads:
         self.events.append("legacy_lock")
         return self.state
 
+    async def read(self, request: LegacyUploadLockRequest):
+        self.events.append("legacy_read")
+        return self.state
+
     async def complete(self, request: LegacyUploadCompletion):
         self.events.append("legacy_complete")
         return self.completed
@@ -138,11 +143,51 @@ def _workflow(events):
     legacy = _LegacyUploads(events)
     deletions = _Deletions()
     storage = _Storage(events)
+
+    class _ImageAdmission:
+        def __init__(self):
+            self.calls = []
+
+        async def read_dataset_item(self, item_id):
+            events.append("image_read")
+            assert legacy.state is not None
+            return image_contract.ImageSource(
+                owner={"kind": "dataset_item", "id": item_id},
+                task_id=None,
+                project_id=None,
+                dataset_id=legacy.state.dataset_id,
+                item_id=item_id,
+                source_generation=1,
+                source_snapshot="a" * 64,
+                object_identity=None,
+                source_drifted=False,
+                upload_ready=True,
+                file_path=legacy.state.file_path,
+                file_name=legacy.state.file_path.rsplit("/", 1)[-1],
+                file_type="image",
+                bucket_kind="datasets",
+                file_size=None,
+                content_hash=None,
+                width=legacy.state.width,
+                height=legacy.state.height,
+                thumbnail_path=None,
+                blurhash=None,
+                thumbnail_source_generation=None,
+                thumbnail_error=None,
+            )
+
+        async def admit_dataset_item(self, **request):
+            self.calls.append(request)
+            events.append("image_admit")
+            return None
+
+    image_admission = _ImageAdmission()
     workflow = UploadWorkflow(
         upload_data=uploads,
         legacy_upload_data=legacy,
         deletion_data=deletions,
         storage=storage,
+        image_admission=image_admission,
         cleanup_bucket="media-cache",
     )
     return workflow, uploads, legacy, deletions, storage
@@ -317,8 +362,16 @@ async def test_modern_upload_copies_conditionally_before_native_acceptance() -> 
         "find_duplicate",
         "dimensions_staging",
         "copy",
+        "head_legacy",
         "complete",
+        "image_admit",
     ]
+    assert len(workflow._image_admission.calls) == 1
+    admission = workflow._image_admission.calls[0]
+    assert admission["item_id"] == item_id
+    assert admission["publication_id"] == intent.publication_id
+    assert admission["file_path"] == intent.file_path
+    assert admission["object_identity"].etag == '"0123456789abcdef0123456789abcdef"'
 
 
 @pytest.mark.asyncio
@@ -347,7 +400,7 @@ async def test_completed_legacy_operation_replays_without_rechecking_storage() -
     assert result.result == DatasetUploadCompletedResult(
         item_id=item_id, linked_tasks=1
     )
-    assert events == ["lock", "legacy_lock"]
+    assert events == ["lock", "legacy_read"]
 
 
 @pytest.mark.asyncio
@@ -375,7 +428,89 @@ async def test_legacy_missing_source_does_not_mutate_or_delete_placeholder() -> 
     result = await workflow.complete_upload(request)
 
     assert result.result is None and result.duplicate_of is None
-    assert events == ["lock", "legacy_lock", "head_legacy"]
+    assert events == ["lock", "legacy_read", "image_read", "head_legacy"]
+
+
+@pytest.mark.asyncio
+async def test_legacy_image_is_headed_and_dimensioned_before_item_lock():
+    actor_id, dataset_id, item_id = uuid4(), uuid4(), uuid4()
+    request = _complete_request(actor_id, dataset_id, item_id)
+    events = []
+    workflow, uploads, legacy, _deletions, storage = _workflow(events)
+    uploads.lock_error = DatasetUploadFailure("upload_missing")
+    legacy.state = LegacyUploadState(
+        operation_id=request.operation_id,
+        actor_id=actor_id,
+        dataset_id=dataset_id,
+        item_id=item_id,
+        file_path="historical/source.png",
+        file_type="image",
+        width=None,
+        height=None,
+        state="pending",
+        result=None,
+        duplicate_of=None,
+    )
+    legacy.completed = legacy.state.model_copy(
+        update={
+            "state": "completed",
+            "result": DatasetUploadCompletedResult(item_id=item_id, linked_tasks=0),
+        }
+    )
+
+    result = await workflow.complete_upload(request)
+
+    assert result.result == legacy.completed.result
+    assert events == [
+        "lock",
+        "legacy_read",
+        "image_read",
+        "head_legacy",
+        "dimensions_legacy",
+        "legacy_lock",
+        "image_read",
+        "legacy_complete",
+        "image_admit",
+    ]
+    assert workflow._image_admission.calls[0]["object_identity"].byte_size == 10
+
+
+@pytest.mark.asyncio
+async def test_pending_nonimage_legacy_upload_keeps_lock_then_head_compatibility():
+    actor_id, dataset_id, item_id = uuid4(), uuid4(), uuid4()
+    request = _complete_request(actor_id, dataset_id, item_id)
+    events = []
+    workflow, uploads, legacy, _deletions, _storage = _workflow(events)
+    uploads.lock_error = DatasetUploadFailure("upload_missing")
+    legacy.state = LegacyUploadState(
+        operation_id=request.operation_id,
+        actor_id=actor_id,
+        dataset_id=dataset_id,
+        item_id=item_id,
+        file_path="historical/clip.mp4",
+        file_type="video",
+        width=None,
+        height=None,
+        state="pending",
+        result=None,
+        duplicate_of=None,
+    )
+    legacy.completed = legacy.state.model_copy(
+        update={
+            "state": "completed",
+            "result": DatasetUploadCompletedResult(item_id=item_id, linked_tasks=0),
+        }
+    )
+
+    await workflow.complete_upload(request)
+
+    assert events == [
+        "lock",
+        "legacy_read",
+        "legacy_lock",
+        "head_legacy",
+        "legacy_complete",
+    ]
 
 
 @pytest.mark.asyncio

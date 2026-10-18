@@ -242,7 +242,7 @@ async def test_scope_mismatch_and_wrong_legacy_receipt_rollback() -> None:
     assert connection.transaction_events == ["begin", "rollback"]
 
 
-def test_role_preflight_is_exactly_twenty_three_source_functions_and_rejects_extra_access() -> (
+def test_role_preflight_is_exactly_twenty_six_source_functions_and_rejects_extra_access() -> (
     None
 ):
     expected = {
@@ -260,6 +260,9 @@ def test_role_preflight_is_exactly_twenty_three_source_functions_and_rejects_ext
         "complete_dataset_ingest_batch(uuid,uuid,uuid,uuid,jsonb)",
         "read_dataset_ingest_layout(uuid,uuid,uuid,uuid,integer)",
         "finish_dataset_ingest(uuid,uuid,uuid,jsonb)",
+        "resolve_internal_image_source(text,uuid,text,jsonb)",
+        "schedule_image_media(uuid,text,uuid,jsonb,boolean)",
+        "read_legacy_dataset_upload(uuid,uuid,uuid,uuid)",
     }
     expected |= {
         f"{name}({signature})"
@@ -274,7 +277,7 @@ def test_role_preflight_is_exactly_twenty_three_source_functions_and_rejects_ext
     assert "array_agg(function_oid ORDER BY function_oid)" in ROLE_PREFLIGHT_SQL
     assert "oidvectortypes" not in ROLE_PREFLIGHT_SQL
     assert "namespace.nspname <> 'aap_assets_v1'" in ROLE_PREFLIGHT_SQL
-    assert len(EXPECTED_ASSET_SOURCE_FUNCTIONS) == 23
+    assert len(EXPECTED_ASSET_SOURCE_FUNCTIONS) == 26
     for signature in EXPECTED_ASSET_SOURCE_FUNCTIONS:
         assert f"('{signature}'::text)" in ROLE_PREFLIGHT_SQL
 
@@ -578,6 +581,7 @@ async def test_legacy_lock_and_complete_use_exact_native_argument_order() -> Non
     connection = _Connection(None)
     connection.replies = [
         {"schema": "aap-legacy-dataset-upload/v1", "ok": True, "data": pending},
+        {"schema": "aap-legacy-dataset-upload/v1", "ok": True, "data": pending},
         {"schema": "aap-legacy-dataset-upload/v1", "ok": True, "data": completed},
     ]
     data = NativeLegacyUploadData(connection, 16_777_216)
@@ -599,17 +603,25 @@ async def test_legacy_lock_and_complete_use_exact_native_argument_order() -> Non
         height=480,
     )
 
+    assert (await data.read(lock_request)).state == "pending"
     assert (await data.lock(lock_request)).state == "pending"
     assert (await data.complete(completion)).state == "completed"
-    assert "lock_legacy_dataset_upload" in connection.calls[0][0]
+    assert "read_legacy_dataset_upload" in connection.calls[0][0]
     assert connection.calls[0][1] == (
         operation_id,
         actor_id,
         dataset_id,
         item_id,
     )
-    assert "complete_legacy_dataset_upload" in connection.calls[1][0]
+    assert "lock_legacy_dataset_upload" in connection.calls[1][0]
     assert connection.calls[1][1] == (
+        operation_id,
+        actor_id,
+        dataset_id,
+        item_id,
+    )
+    assert "complete_legacy_dataset_upload" in connection.calls[2][0]
+    assert connection.calls[2][1] == (
         operation_id,
         actor_id,
         dataset_id,

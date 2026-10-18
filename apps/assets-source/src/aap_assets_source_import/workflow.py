@@ -37,6 +37,7 @@ from aap_assets_source.import_contract import (
     ImportSourceObject,
     ImportState,
 )
+from aap_assets_images.contract import ImageFailure, ObjectIdentity
 
 from .config import ImportConfig
 from .database import ImportDatabase
@@ -336,12 +337,13 @@ class ImportWorkflow:
                 raise ImportFailure("invalid_response")
             file_type = _infer_file_type(entry.file_name)
             stream_bytes = 0
+            object_identity: ObjectIdentity | None = None
             if file_type != entry.file_type:
                 completion = ImportEntryCompletion(
                     status="error", error_code="invalid_source_object"
                 )
             else:
-                completion, stream_bytes = await self._transfer_entry(
+                completion, stream_bytes, object_identity = await self._transfer_entry(
                     entry,
                     adapter,
                     keeper,
@@ -352,9 +354,21 @@ class ImportWorkflow:
                         - attempted_bytes,
                     ),
                 )
+            if (
+                entry.file_type == "image"
+                and completion.status == "copied"
+                and object_identity is None
+            ):
+                raise ImportFailure("invalid_response")
 
             previous_committed_bytes = state.committed_bytes
-            state = await self._complete_with_retry(state, entry, completion, keeper)
+            state = await self._complete_with_retry(
+                state,
+                entry,
+                completion,
+                keeper,
+                object_identity=object_identity,
+            )
             if stream_bytes and state.committed_bytes == previous_committed_bytes:
                 # Failed reads are not persisted in committed_bytes. Track their
                 # consumed source bytes only until this worker lease is reclaimed.
@@ -369,7 +383,7 @@ class ImportWorkflow:
         keeper: LeaseKeeper,
         *,
         byte_budget: int,
-    ) -> tuple[ImportEntryCompletion, int]:
+    ) -> tuple[ImportEntryCompletion, int, ObjectIdentity | None]:
         attempted = 0
 
         def count_bytes(amount: int) -> None:
@@ -390,6 +404,13 @@ class ImportWorkflow:
                 before_io=keeper.check,
                 on_bytes=count_bytes,
             )
+            object_identity = None
+            if entry.file_type == "image":
+                keeper.check()
+                object_identity = await self._storage.head_image_identity(
+                    entry.file_path, expected_size=size
+                )
+                keeper.check()
             return (
                 ImportEntryCompletion(
                     status="copied",
@@ -399,17 +420,18 @@ class ImportWorkflow:
                     height=dimensions[1] if dimensions else None,
                 ),
                 attempted,
+                object_identity,
             )
         except SourceChangedError:
-            return _item_error("source_changed"), attempted
+            return _item_error("source_changed"), attempted, None
         except SourceNotFoundError:
-            return _item_error("source_not_found"), attempted
+            return _item_error("source_not_found"), attempted, None
         except SourcePathError:
-            return _item_error("invalid_source_object"), attempted
+            return _item_error("invalid_source_object"), attempted, None
         except SourceReadError:
-            return _item_error("source_read_failed"), attempted
+            return _item_error("source_read_failed"), attempted, None
         except DestinationWriteError:
-            return _item_error("destination_write_failed"), attempted
+            return _item_error("destination_write_failed"), attempted, None
         except (WorkerStopping, LeaseUnavailable, ImportFailure):
             raise
         except Exception as exc:
@@ -418,7 +440,7 @@ class ImportWorkflow:
                 entry.job_id,
                 type(exc).__name__,
             )
-            return _item_error("source_read_failed"), attempted
+            return _item_error("source_read_failed"), attempted, None
         finally:
             if stream is not None:
                 with suppress(Exception):
@@ -430,6 +452,8 @@ class ImportWorkflow:
         entry: ImportEntry,
         completion: ImportEntryCompletion,
         keeper: LeaseKeeper,
+        *,
+        object_identity: ObjectIdentity | None = None,
     ) -> ImportState:
         return await self._settle_entry_with_retry(
             state,
@@ -437,6 +461,8 @@ class ImportWorkflow:
             entry.publication_id,
             completion,
             keeper,
+            entry=entry,
+            object_identity=object_identity,
         )
 
     async def _complete_pending_error_with_retry(
@@ -453,6 +479,8 @@ class ImportWorkflow:
             publication_id,
             completion,
             keeper,
+            entry=None,
+            object_identity=None,
         )
 
     async def _settle_entry_with_retry(
@@ -462,6 +490,9 @@ class ImportWorkflow:
         publication_id: UUID,
         completion: ImportEntryCompletion,
         keeper: LeaseKeeper,
+        *,
+        entry: ImportEntry | None,
+        object_identity: ObjectIdentity | None,
     ) -> ImportState:
         assert state.lease_token is not None
         for attempt in range(5):
@@ -478,6 +509,25 @@ class ImportWorkflow:
                     if completed.cursor != index + 1:
                         raise ImportFailure("invalid_response")
                     _require_same_scope(state, completed)
+                    if (
+                        entry is not None
+                        and entry.file_type == "image"
+                        and completion.status == "copied"
+                        and object_identity is not None
+                        and completed.added == state.added + 1
+                    ):
+                        try:
+                            await data.image_admission.admit_dataset_item(
+                                item_id=entry.item_id,
+                                publication_id=entry.publication_id,
+                                file_path=entry.file_path,
+                                file_size=completion.file_size,
+                                content_hash=completion.content_hash,
+                                object_identity=object_identity,
+                                missing_is_skipped=True,
+                            )
+                        except ImageFailure as exc:
+                            raise _as_import_image_failure(exc) from None
                 return completed
             except ImportFailure as exc:
                 if exc.code not in _CHUNKED_PART_ERROR_CODES:
@@ -663,3 +713,21 @@ def _transient_database_error(exc: Exception) -> bool:
     if sqlstate in _TRANSIENT_SQLSTATES:
         return True
     return isinstance(exc, (ConnectionError, TimeoutError, OSError))
+
+
+def _as_import_image_failure(exc: ImageFailure) -> ImportFailure:
+    if exc.code in {"storage_unavailable", "source_unavailable"}:
+        return ImportFailure("storage_unavailable")
+    if exc.code in {
+        "source_changed",
+        "source_missing",
+        "source_not_ready",
+        "owner_changed",
+        "dependency_changed",
+    }:
+        return ImportFailure("source_changed")
+    if exc.code in {"account_busy", "dataset_busy", "operation_conflict"}:
+        return ImportFailure(exc.code)
+    if exc.code == "source_busy":
+        return ImportFailure("dataset_busy")
+    return ImportFailure("invalid_response")

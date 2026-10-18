@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import json
 import math
 import os
@@ -12,6 +12,7 @@ from typing import Mapping
 from urllib.parse import urlsplit, urlunsplit
 
 from cryptography.fernet import Fernet
+from aap_assets_images.policy import ImagePolicy, image_policy_from_environment
 
 from aap_assets_source.connectors.host_guard import (
     ConnectorAllowlistInvalid,
@@ -185,6 +186,7 @@ class ImportConfig:
     sftp_timeout_seconds: float
     part_bytes: int = 8 * 1024 * 1024
     image_header_bytes: int = 256 * 1024
+    image_policy: ImagePolicy = field(default_factory=ImagePolicy)
 
 
 def load_config(environment: Mapping[str, str] | None = None) -> ImportConfig:
@@ -232,6 +234,11 @@ def load_config(environment: Mapping[str, str] | None = None) -> ImportConfig:
             "ASSETS_IMPORT_POOL_MIN_SIZE must not exceed POOL_MAX_SIZE"
         )
 
+    try:
+        image_policy = image_policy_from_environment(source)
+    except ValueError:
+        raise ConfigurationError("IMAGE_PYRAMID_* settings are invalid") from None
+
     return ImportConfig(
         database_url=database_url,
         driver_database_url=driver_database_url,
@@ -265,4 +272,5 @@ def load_config(environment: Mapping[str, str] | None = None) -> ImportConfig:
         sftp_timeout_seconds=_positive_float(
             source, "ASSETS_IMPORT_SFTP_TIMEOUT_SECONDS", "10", maximum=120
         ),
+        image_policy=image_policy,
     )

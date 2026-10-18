@@ -1,4 +1,4 @@
-"""asyncpg bindings for the twenty-three public Assets source capabilities."""
+"""asyncpg bindings for the public Assets source capabilities."""
 
 from __future__ import annotations
 
@@ -73,6 +73,7 @@ from aap_assets_source.upload_contract import (
     DatasetUploadIntent,
     decode_dataset_upload_reply,
 )
+from .image_admission import AsyncpgImageAdmissionData
 
 EXPECTED_ASSET_SOURCE_FUNCTIONS = frozenset(
     {
@@ -90,6 +91,9 @@ EXPECTED_ASSET_SOURCE_FUNCTIONS = frozenset(
         "complete_dataset_ingest_batch(uuid,uuid,uuid,uuid,jsonb)",
         "read_dataset_ingest_layout(uuid,uuid,uuid,uuid,integer)",
         "finish_dataset_ingest(uuid,uuid,uuid,jsonb)",
+        "resolve_internal_image_source(text,uuid,text,jsonb)",
+        "schedule_image_media(uuid,text,uuid,jsonb,boolean)",
+        "read_legacy_dataset_upload(uuid,uuid,uuid,uuid)",
     }
     | {
         f"{name}({signature})"
@@ -258,6 +262,7 @@ class SourceDataPorts:
     deletions: NativeDeletionData
     ingest: NativeIngestData
     connections: NativeConnectionsData
+    images: AsyncpgImageAdmissionData
 
 
 class _NativeData:
@@ -627,6 +632,22 @@ class NativeUploadData(_NativeData):
 
 
 class NativeLegacyUploadData(_NativeData):
+    async def read(self, request: LegacyUploadLockRequest) -> LegacyUploadState:
+        result = await self._call(
+            "SELECT aap_assets_v1.read_legacy_dataset_upload("
+            "$1::uuid, $2::uuid, $3::uuid, $4::uuid)",
+            (
+                request.operation_id,
+                request.actor_id,
+                request.dataset_id,
+                request.item_id,
+            ),
+            decode_legacy_upload_reply,
+            (DatasetUploadFailure,),
+        )
+        self._require_scope(result, request)
+        return result
+
     async def lock(self, request: LegacyUploadLockRequest) -> LegacyUploadState:
         result = await self._call(
             "SELECT aap_assets_v1.lock_legacy_dataset_upload("
@@ -913,6 +934,9 @@ class SourceDatabase:
                         connection, self._config.max_response_bytes
                     ),
                     connections=NativeConnectionsData(
+                        connection, self._config.max_response_bytes
+                    ),
+                    images=AsyncpgImageAdmissionData(
                         connection, self._config.max_response_bytes
                     ),
                 )

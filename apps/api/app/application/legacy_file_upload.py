@@ -1,11 +1,17 @@
 from __future__ import annotations
 
+import asyncio
 import uuid
 from dataclasses import dataclass
 
 from fastapi import HTTPException
 
 from sqlalchemy.ext.asyncio import AsyncSession
+from aap_assets_images.contract import ImageFailure
+from aap_assets_source_runtime.image_admission import (
+    ImageAdmission,
+    object_identity_from_head,
+)
 
 from app.application.task_workflow_errors import TaskWorkflowError
 from app.application.task_workflow_locks import lock_current_task_target
@@ -29,6 +35,7 @@ from app.services.workspace_contract import (
     ProjectWritePolicyRequest,
 )
 from app.services.storage import StorageService
+from app.services.assets_images import image_gateway, image_policy
 
 
 class UploadTaskNotFoundError(Exception):
@@ -141,8 +148,15 @@ class LegacyFileUploadWorkflow:
         access = await self._manager_access(actor_id, target.project_id, lock=False)
         if target.status != "uploading":
             raise UploadTaskNotUploadingError
-        if not self.storage.verify_upload(target.file_path):
+        metadata = await asyncio.to_thread(self.storage.verify_upload, target.file_path)
+        if not metadata:
             raise UploadObjectMissingError
+        object_identity = None
+        if target.file_type == "image":
+            try:
+                object_identity = object_identity_from_head(metadata)
+            except ImageFailure as exc:
+                raise TaskWorkflowError(409, {"reason": "source_changed"}) from exc
 
         # Storage I/O holds no authority/resource row locks. Reacquire current
         # authority and the fresh task before committing the captured source.
@@ -154,7 +168,16 @@ class LegacyFileUploadWorkflow:
                 status_code=403, detail="仅项目负责人或超级管理员可执行"
             )
         try:
-            await self.labeling_tasks.mark_uploading_task_pending(target)
+            if task.status != "uploading":
+                raise LabelingUploadTaskNotUploading
+            if (
+                task.project_id != target.project_id
+                or task.batch_id != target.batch_id
+                or task.file_path != target.file_path
+                or task.file_type != target.file_type
+            ):
+                raise LabelingUploadTargetChanged
+            task.status = "pending"
         except LabelingUploadTaskNotFound as exc:
             raise UploadTaskNotFoundError from exc
         except LabelingUploadTaskNotUploading as exc:
@@ -162,7 +185,46 @@ class LegacyFileUploadWorkflow:
         except LabelingUploadTargetChanged as exc:
             raise TaskWorkflowError(409, {"reason": "task_target_changed"}) from exc
         if task.file_type == "image":
-            dispatcher.dispatch_task_thumbnail(task.id)
+            if object_identity is None:
+                raise TaskWorkflowError(502, {"reason": "invalid_image_identity"})
+            try:
+                await ImageAdmission(
+                    image_gateway(self.db, caller_transaction=True), image_policy()
+                ).admit_task(
+                    task_id=task.id,
+                    source_generation=task.media_source_generation,
+                    file_path=task.file_path,
+                    object_identity=object_identity,
+                )
+            except ImageFailure as exc:
+                if exc.code in {
+                    "source_changed",
+                    "source_missing",
+                    "source_not_ready",
+                    "asset_missing",
+                    "not_image",
+                    "owner_changed",
+                    "dependency_changed",
+                    "operation_conflict",
+                }:
+                    raise TaskWorkflowError(
+                        409, {"reason": "task_target_changed"}
+                    ) from exc
+                if exc.code in {
+                    "task_busy",
+                    "source_busy",
+                    "account_busy",
+                    "operation_busy",
+                }:
+                    raise TaskWorkflowError(409, {"reason": exc.code}) from exc
+                if exc.code == "storage_unavailable":
+                    raise TaskWorkflowError(
+                        503, {"reason": "storage_unavailable"}
+                    ) from exc
+                raise TaskWorkflowError(
+                    502, {"reason": "image_admission_failed"}
+                ) from exc
+        await self.db.commit()
         return UploadCompleteResult(
             scope=LegacyFileUploadScope(actor_id, task.project_id, task.id)
         )

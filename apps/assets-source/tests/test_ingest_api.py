@@ -341,7 +341,11 @@ async def test_disconnect_after_body_cancels_ingest_and_rolls_back(kind) -> None
 
     database = _TransactionDatabase(
         SimpleNamespace(
-            ingest=data, uploads=object(), legacy_uploads=object(), deletions=object()
+            ingest=data,
+            uploads=object(),
+            legacy_uploads=object(),
+            deletions=object(),
+            images=object(),
         )
     )
     runtime = SourceRuntime(

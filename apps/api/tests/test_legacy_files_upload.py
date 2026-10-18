@@ -5,12 +5,14 @@ import uuid
 import pytest
 
 from fastapi import HTTPException
+from aap_assets_images.contract import ImageFailure
 from sqlalchemy import event, func, select, update
 
 from app.application.legacy_file_upload import (
     LegacyFileUploadWorkflow,
     UploadTaskNotUploadingError,
 )
+from app.application.task_workflow_errors import TaskWorkflowError
 from app.db.models.project import Project
 from app.db.models.task import Task
 from app.db.models.user import User
@@ -18,6 +20,16 @@ from app.services.storage import storage_service
 from tests.factory import build_tool_bindings, create_membership
 
 pytestmark = pytest.mark.asyncio
+
+
+class _ImageAdmission:
+    calls = []
+
+    def __init__(self, *_args):
+        pass
+
+    async def admit_task(self, **request):
+        self.calls.append(request)
 
 
 def _bearer(token: str) -> dict[str, str]:
@@ -80,11 +92,20 @@ async def test_verified_upload_becomes_pending(
     httpx_client, super_admin, db_session, monkeypatch
 ):
     user, token = super_admin
+    _ImageAdmission.calls = []
+    monkeypatch.setattr(
+        "app.application.legacy_file_upload.ImageAdmission", _ImageAdmission
+    )
+    monkeypatch.setattr(
+        "app.application.legacy_file_upload.image_gateway",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr("app.application.legacy_file_upload.image_policy", lambda: None)
     project = await _make_project(db_session, user.id)
     monkeypatch.setattr(
         storage_service,
         "verify_upload",
-        lambda key: {"ContentLength": 12},
+        lambda key: {"ContentLength": 12, "ETag": '"task-source"'},
     )
     monkeypatch.setattr(
         storage_service,
@@ -110,6 +131,65 @@ async def test_verified_upload_becomes_pending(
     assert completed.status_code == 200, completed.text
     task = await db_session.get(Task, task_id)
     assert task is not None and task.status == "pending"
+    assert len(_ImageAdmission.calls) == 1
+    assert _ImageAdmission.calls[0]["task_id"] == task_id
+    assert _ImageAdmission.calls[0]["file_path"] == task.file_path
+    assert _ImageAdmission.calls[0]["object_identity"].etag == '"task-source"'
+
+
+async def test_image_admission_failure_rolls_back_task_pending_transition(
+    db_session, project_admin, monkeypatch, media_dispatcher
+):
+    owner, _ = project_admin
+    project = await _make_project(db_session, owner.id)
+    task = Task(
+        project_id=project.id,
+        display_id=f"T-FILE-{uuid.uuid4().hex[:8]}",
+        file_name="source.jpg",
+        file_path=f"{project.id}/source.jpg",
+        file_type="image",
+        status="uploading",
+    )
+    db_session.add(task)
+    await db_session.flush()
+    monkeypatch.setattr(
+        storage_service,
+        "verify_upload",
+        lambda key: {"ContentLength": 12, "ETag": '"task-source"'},
+    )
+
+    class _RejectAdmission:
+        def __init__(self, *_args):
+            pass
+
+        async def admit_task(self, **_request):
+            assert task.status == "pending"
+            assert db_session.in_transaction()
+            raise ImageFailure("source_changed")
+
+    monkeypatch.setattr(
+        "app.application.legacy_file_upload.ImageAdmission", _RejectAdmission
+    )
+    monkeypatch.setattr(
+        "app.application.legacy_file_upload.image_gateway",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr("app.application.legacy_file_upload.image_policy", lambda: None)
+
+    with pytest.raises(TaskWorkflowError) as error:
+        await LegacyFileUploadWorkflow(
+            db_session, storage=storage_service
+        ).complete_upload(
+            actor_id=owner.id,
+            task_id=task.id,
+            dispatcher=media_dispatcher,
+        )
+
+    assert error.value.status_code == 409
+    await db_session.rollback()
+    await db_session.refresh(task)
+    assert task.status == "uploading"
+    assert media_dispatcher.task_thumbnails == []
 
 
 async def test_upload_complete_preserves_status_and_missing_object_errors(
@@ -207,7 +287,9 @@ async def test_outsider_cannot_issue_uploads_finalize_or_read_foreign_media(
     db_session.add(task)
     await db_session.flush()
     monkeypatch.setattr(
-        storage_service, "verify_upload", lambda key: {"ContentLength": 12}
+        storage_service,
+        "verify_upload",
+        lambda key: {"ContentLength": 12, "ETag": '"task-source"'},
     )
     monkeypatch.setattr(
         storage_service,
@@ -387,7 +469,7 @@ async def test_upload_completion_rejects_source_changed_after_storage_verificati
 
     def verify_upload(key):
         boundary["verified"] = True
-        return {"ContentLength": 12}
+        return {"ContentLength": 12, "ETag": '"task-source"'}
 
     def change_source(connection, cursor, statement, parameters, context, executemany):
         if boundary["verified"] and not boundary["changed"]:

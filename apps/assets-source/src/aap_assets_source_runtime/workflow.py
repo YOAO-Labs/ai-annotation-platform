@@ -37,6 +37,9 @@ from aap_assets_source.upload_contract import (
     DatasetUploadFailure,
     DatasetUploadIntent,
 )
+from aap_assets_images.contract import ImageFailure, ObjectIdentity
+
+from .image_admission import ImageAdmissionPort, object_identity_from_head
 
 
 class SourceDeletionDataPort(Protocol):
@@ -79,12 +82,14 @@ class UploadWorkflow:
         legacy_upload_data: LegacyUploadDataPort,
         deletion_data: SourceDeletionDataPort,
         storage: SourceStoragePort,
+        image_admission: ImageAdmissionPort,
         cleanup_bucket: str,
     ) -> None:
         self._upload_data = upload_data
         self._legacy_upload_data = legacy_upload_data
         self._deletion_data = deletion_data
         self._storage = storage
+        self._image_admission = image_admission
         self._cleanup_bucket = cleanup_bucket
 
     async def init_upload(self, request: UploadInitRequest) -> UploadInitResult:
@@ -197,6 +202,7 @@ class UploadWorkflow:
             raise SourceFailure("invalid_response")
 
         width = height = None
+        object_identity: ObjectIdentity | None = None
         if duplicate.duplicate_of is None:
             if intent.file_type == "image":
                 dimensions = await self._storage.read_staging_image_dimensions(
@@ -208,6 +214,16 @@ class UploadWorkflow:
             await self._storage.publish_dataset_upload(
                 intent.staging_key, intent.file_path, etag=etag
             )
+            if intent.file_type == "image":
+                published = await self._storage.verify_legacy_source(intent.file_path)
+                if published is None:
+                    raise SourceFailure("source_changed")
+                try:
+                    object_identity = object_identity_from_head(
+                        published, expected_size=file_size
+                    )
+                except ImageFailure as exc:
+                    raise _as_source_image_failure(exc) from None
 
         try:
             completion = DatasetUploadCompletion(
@@ -242,6 +258,17 @@ class UploadWorkflow:
             )
         if not isinstance(accepted.result, DatasetUploadCompletedResult):
             raise SourceFailure("invalid_response")
+        if intent.file_type == "image":
+            if object_identity is None or intent.file_path is None:
+                raise SourceFailure("invalid_response")
+            await self._admit_image(
+                item_id=request.item_id,
+                operation_id=intent.publication_id,
+                file_path=intent.file_path,
+                file_size=file_size,
+                content_hash=content_hash,
+                object_identity=object_identity,
+            )
         return self._outcome(request, intent.file_type, result=accepted.result)
 
     async def _complete_legacy_upload(
@@ -253,6 +280,68 @@ class UploadWorkflow:
             dataset_id=request.dataset_id,
             item_id=request.item_id,
         )
+        try:
+            state = await self._legacy_upload_data.read(lock_request)
+        except DatasetUploadFailure as exc:
+            raise SourceFailure(exc.code) from exc
+        self._check_legacy_scope(state, request)
+        if state.state == "completed":
+            if state.result is None:
+                raise SourceFailure("invalid_response")
+            return self._outcome(request, state.file_type, result=state.result)
+        if state.state == "duplicate":
+            return self._outcome(
+                request, state.file_type, duplicate_of=state.duplicate_of
+            )
+        expected_file_path = state.file_path
+        expected_file_type = state.file_type
+
+        object_identity = None
+        image_source = None
+        width = height = None
+        if state.file_type == "image":
+            try:
+                image_source = await self._image_admission.read_dataset_item(
+                    request.item_id
+                )
+            except ImageFailure as exc:
+                raise _as_source_image_failure(exc) from None
+            if (
+                image_source.file_path != state.file_path
+                or image_source.owner.id != request.item_id
+            ):
+                raise SourceFailure("source_changed")
+            object_identity = image_source.object_identity
+            if object_identity is None:
+                metadata = await self._storage.verify_legacy_source(state.file_path)
+                if metadata is None:
+                    return self._outcome(request, state.file_type)
+                file_size, _etag, head_content_hash = self._upload_metadata(metadata)
+                try:
+                    object_identity = object_identity_from_head(
+                        metadata, expected_size=file_size
+                    )
+                except ImageFailure as exc:
+                    raise _as_source_image_failure(exc) from None
+                content_hash = head_content_hash or image_source.content_hash
+            else:
+                file_size = (
+                    image_source.file_size
+                    if image_source.file_size is not None
+                    else object_identity.byte_size
+                )
+                if file_size != object_identity.byte_size:
+                    raise SourceFailure("source_changed")
+                content_hash = image_source.content_hash
+            width, height = image_source.width, image_source.height
+            if width is None or height is None:
+                width = height = None
+                dimensions = await self._storage.read_legacy_image_dimensions(
+                    state.file_path, if_match=object_identity.etag
+                )
+                if dimensions is not None:
+                    width, height = dimensions
+
         try:
             state = await self._legacy_upload_data.lock(lock_request)
         except DatasetUploadFailure as exc:
@@ -266,18 +355,37 @@ class UploadWorkflow:
             return self._outcome(
                 request, state.file_type, duplicate_of=state.duplicate_of
             )
-
-        metadata = await self._storage.verify_legacy_source(state.file_path)
-        if metadata is None:
-            return self._outcome(request, state.file_type)
-        file_size, _etag, content_hash = self._upload_metadata(metadata)
-        width = height = None
-        if state.file_type == "image" and (state.width is None or state.height is None):
-            dimensions = await self._storage.read_legacy_image_dimensions(
-                state.file_path, if_match=_etag
-            )
-            if dimensions is not None:
-                width, height = dimensions
+        if (state.file_path, state.file_type) != (
+            expected_file_path,
+            expected_file_type,
+        ):
+            raise SourceFailure("source_changed")
+        if state.file_type != "image":
+            metadata = await self._storage.verify_legacy_source(state.file_path)
+            if metadata is None:
+                return self._outcome(request, state.file_type)
+            file_size, _etag, content_hash = self._upload_metadata(metadata)
+        if image_source is not None:
+            try:
+                locked_source = await self._image_admission.read_dataset_item(
+                    request.item_id
+                )
+            except ImageFailure as exc:
+                raise _as_source_image_failure(exc) from None
+            if (
+                locked_source.file_path != image_source.file_path
+                or locked_source.source_snapshot != image_source.source_snapshot
+                or locked_source.file_size != image_source.file_size
+                or locked_source.content_hash != image_source.content_hash
+                or locked_source.width != image_source.width
+                or locked_source.height != image_source.height
+                or locked_source.source_generation != image_source.source_generation
+                or (
+                    locked_source.object_identity != image_source.object_identity
+                    and locked_source.object_identity != object_identity
+                )
+            ):
+                raise SourceFailure("source_changed")
 
         try:
             completion = LegacyUploadCompletion(
@@ -304,7 +412,40 @@ class UploadWorkflow:
             )
         if completed.state != "completed" or completed.result is None:
             raise SourceFailure("invalid_response")
+        if completed.file_type == "image":
+            if object_identity is None:
+                raise SourceFailure("invalid_response")
+            await self._admit_image(
+                item_id=request.item_id,
+                operation_id=request.operation_id,
+                file_path=completed.file_path,
+                file_size=file_size,
+                content_hash=content_hash,
+                object_identity=object_identity,
+            )
         return self._outcome(request, completed.file_type, result=completed.result)
+
+    async def _admit_image(
+        self,
+        *,
+        item_id: UUID,
+        operation_id: UUID,
+        file_path: str,
+        file_size: int,
+        content_hash: str | None,
+        object_identity: ObjectIdentity,
+    ) -> None:
+        try:
+            await self._image_admission.admit_dataset_item(
+                item_id=item_id,
+                publication_id=operation_id,
+                file_path=file_path,
+                file_size=file_size,
+                content_hash=content_hash,
+                object_identity=object_identity,
+            )
+        except ImageFailure as exc:
+            raise _as_source_image_failure(exc) from None
 
     async def delete_source(
         self, request: SourceDeletionRequest
@@ -412,3 +553,26 @@ class UploadWorkflow:
             else None
         )
         return size, etag, content_hash
+
+
+def _as_source_image_failure(exc: ImageFailure) -> SourceFailure:
+    if exc.code == "asset_missing":
+        return SourceFailure("item_missing")
+    if exc.code in {
+        "source_missing",
+        "source_not_ready",
+        "not_image",
+        "owner_changed",
+        "dependency_changed",
+    }:
+        return SourceFailure("source_changed")
+    if exc.code in {
+        "account_busy",
+        "dataset_busy",
+        "source_busy",
+        "operation_conflict",
+        "source_changed",
+        "storage_unavailable",
+    }:
+        return SourceFailure(exc.code)
+    return SourceFailure("invalid_response")

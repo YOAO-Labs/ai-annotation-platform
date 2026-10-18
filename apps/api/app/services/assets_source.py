@@ -39,12 +39,14 @@ from aap_assets_source.ingest_contract import (
     require_ingest_scope,
 )
 from aap_assets_source.upload_contract import DatasetUploadFailure
+from aap_assets_source_runtime.image_admission import ImageAdmission
 from app.config import settings
 from app.db.models.dataset import Dataset, DatasetItem, ProjectDataset, Scene
 from app.db.models.project import Project
 from app.db.models.task_batch import TaskBatch
 from app.services.dataset_source_deletion_data import DatasetSourceDeletionData
 from app.services.dataset_upload_data import DatasetUploadData
+from app.services.assets_images import image_gateway, image_policy
 from app.services.storage import StorageService, storage_service
 
 _RESULT = TypeVar("_RESULT", bound=BaseModel)
@@ -354,6 +356,24 @@ class _LocalStoragePort:
 class _LegacyUploadData:
     def __init__(self, db: AsyncSession) -> None:
         self._db = db
+
+    async def read(self, request: LegacyUploadLockRequest) -> LegacyUploadState:
+        payload = await self._db.scalar(
+            text(
+                "SELECT aap_assets_v1.read_legacy_dataset_upload("
+                "CAST(:operation AS uuid), CAST(:actor AS uuid), "
+                "CAST(:dataset AS uuid), CAST(:item AS uuid))"
+            ),
+            {
+                "operation": request.operation_id,
+                "actor": request.actor_id,
+                "dataset": request.dataset_id,
+                "item": request.item_id,
+            },
+        )
+        state = self._decode(payload)
+        self._check_scope(state, request)
+        return state
 
     async def lock(self, request: LegacyUploadLockRequest) -> LegacyUploadState:
         payload = await self._db.scalar(
@@ -691,6 +711,9 @@ class AssetsSourceGateway:
             legacy_upload_data=_LegacyUploadData(self._db),
             deletion_data=DatasetSourceDeletionData(self._db),
             storage=_LocalStoragePort(self._storage),
+            image_admission=ImageAdmission(
+                image_gateway(self._db, caller_transaction=True), image_policy()
+            ),
             cleanup_bucket=self._cleanup_bucket,
         )
 
@@ -703,6 +726,9 @@ class AssetsSourceGateway:
         return IngestWorkflow(
             data=DatasetSourceIngestData(self._db),
             storage=IngestStorage(self._storage.client, self._storage.datasets_bucket),
+            image_admission=ImageAdmission(
+                image_gateway(self._db, caller_transaction=True), image_policy()
+            ),
         )
 
     def _invalidate_upload_counters(self, dataset_id) -> None:

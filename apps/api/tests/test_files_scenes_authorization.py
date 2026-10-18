@@ -18,6 +18,14 @@ from tests.factory import create_membership, create_project, create_task, create
 pytestmark = pytest.mark.asyncio
 
 
+class _ImageAdmission:
+    def __init__(self, *_args):
+        pass
+
+    async def admit_task(self, **_request):
+        return None
+
+
 def _headers(user) -> dict[str, str]:
     token = create_access_token(subject=str(user.id), role=user.role)
     return {"Authorization": f"Bearer {token}"}
@@ -103,6 +111,14 @@ async def test_file_upload_complete_denies_member_before_verify_or_write(
     db_session, httpx_client, super_admin, monkeypatch, media_dispatcher
 ):
     owner, owner_token = super_admin
+    monkeypatch.setattr(
+        "app.application.legacy_file_upload.ImageAdmission", _ImageAdmission
+    )
+    monkeypatch.setattr(
+        "app.application.legacy_file_upload.image_gateway",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr("app.application.legacy_file_upload.image_policy", lambda: None)
     project = await create_project(db_session, owner_id=owner.id)
     employee = await create_user(
         db_session, "employee", f"file-complete-{uuid.uuid4()}@test.local", "Reviewer"
@@ -119,7 +135,8 @@ async def test_file_upload_complete_denies_member_before_verify_or_write(
     monkeypatch.setattr(
         "app.api.v1.files.storage_service.verify_upload",
         lambda *args, **kwargs: (
-            verified.append((args, kwargs)) or {"ContentLength": 10}
+            verified.append((args, kwargs))
+            or {"ContentLength": 10, "ETag": '"task-source"'}
         ),
     )
     denied = await httpx_client.post(
@@ -141,7 +158,7 @@ async def test_file_upload_complete_denies_member_before_verify_or_write(
     assert len(verified) == 1
     await db_session.refresh(task)
     assert task.status == "pending"
-    assert media_dispatcher.task_thumbnails == [task.id]
+    assert media_dispatcher.task_thumbnails == []
 
 
 async def test_file_url_uses_assigned_task_visibility(

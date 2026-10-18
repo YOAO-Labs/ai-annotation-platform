@@ -301,8 +301,13 @@ async def test_local_gateway_composes_the_shared_runtime_workflow(monkeypatch):
     gateway = AssetsSourceGateway(
         AsyncMock(), storage=SimpleNamespace(media_cache_bucket="source-cache")
     )
+    db = gateway._db
 
-    assert isinstance(gateway._local_workflow(), UploadWorkflow)
+    workflow = gateway._local_workflow()
+    assert isinstance(workflow, UploadWorkflow)
+    assert workflow._image_admission._native.caller_transaction is True
+    assert workflow._image_admission._native.provider.db is db
+    assert workflow._image_admission._native.provider.commit is False
     assert not gateway.is_remote
 
 
@@ -331,6 +336,9 @@ async def test_local_ingest_uses_shared_workflow_sql_port_and_explicit_bucket(
     assert isinstance(workflow._storage, IngestStorage)
     assert workflow._storage._client is client
     assert workflow._storage.datasets_bucket == "source-datasets"
+    assert workflow._image_admission._native.caller_transaction is True
+    assert workflow._image_admission._native.provider.db is db
+    assert workflow._image_admission._native.provider.commit is False
     db.scalar.assert_not_awaited()
 
 
@@ -365,6 +373,17 @@ async def test_legacy_local_binding_uses_frozen_scope_and_metadata_arguments():
         dataset_id=DATASET,
         item_id=ITEM,
     )
+
+    state = await port.read(lock)
+    sql, params = db.scalar.await_args.args
+    assert "read_legacy_dataset_upload" in str(sql)
+    assert params == {
+        "operation": OPERATION,
+        "actor": ACTOR,
+        "dataset": DATASET,
+        "item": ITEM,
+    }
+    assert state.state == "pending"
 
     state = await port.lock(lock)
     sql, params = db.scalar.await_args.args

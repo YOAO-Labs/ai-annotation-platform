@@ -7,6 +7,7 @@ from threading import Event
 
 from PIL import Image
 import pytest
+from aap_assets_images.contract import ObjectIdentity
 
 from aap_assets_source.ingest_contract import IngestFailure
 from aap_assets_source_runtime.ingest_storage import (
@@ -15,7 +16,7 @@ from aap_assets_source_runtime.ingest_storage import (
     run_in_thread,
 )
 from aap_assets_source_runtime.ingest_workflow import IngestWorkflow
-from test_ingest_workflow import _Data, _command
+from test_ingest_workflow import _Data, _ImageAdmission, _command
 
 
 class _Paginator:
@@ -89,7 +90,9 @@ async def test_scan_streams_more_than_one_s3_page_and_never_copies_objects() -> 
     )
     storage = IngestStorage(s3, "datasets")
 
-    receipt = await IngestWorkflow(data=_Data(), storage=storage).scan(_command())
+    receipt = await IngestWorkflow(
+        data=_Data(), storage=storage, image_admission=_ImageAdmission()
+    ).scan(_command())
 
     assert receipt.added == 1001
     assert receipt.linked_tasks == 1001
@@ -126,9 +129,36 @@ async def test_legacy_image_observation_is_conditional_and_uses_valid_md5_etag()
         == hashlib.md5(image_bytes, usedforsecurity=False).hexdigest()
     )
     assert (facts.width, facts.height) == (19, 7)
+    assert facts.object_identity == ObjectIdentity(
+        etag=etag, byte_size=len(image_bytes)
+    )
     assert s3.calls[0][1]["IfMatch"] == etag
     assert s3.calls[1][1]["Range"] == "bytes=0-262143"
     assert s3.calls[1][1]["IfMatch"] == etag
+
+
+@pytest.mark.asyncio
+async def test_zip_image_publisher_heads_the_final_object_for_sidecar_identity():
+    image_stream = BytesIO()
+    Image.new("RGB", (13, 9), color="blue").save(image_stream, format="PNG")
+    image_bytes = image_stream.getvalue()
+    s3 = _S3(size=len(image_bytes), etag='"published-final"')
+
+    facts = await IngestStorage(s3, "datasets").publish(
+        BytesIO(image_bytes),
+        key="dataset-sources/00000000-0000-0000-0000-000000000001/"
+        "00000000-0000-0000-0000-000000000002/"
+        "00000000-0000-0000-0000-000000000003/photo.png",
+        content_type="image/png",
+        expected_size=len(image_bytes),
+        expected_hash=hashlib.md5(image_bytes, usedforsecurity=False).hexdigest(),
+        image=True,
+    )
+
+    assert facts.object_identity == ObjectIdentity(
+        etag='"published-final"', byte_size=len(image_bytes)
+    )
+    assert [call[0] for call in s3.calls] == ["put", "head"]
 
 
 @pytest.mark.asyncio

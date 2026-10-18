@@ -28,6 +28,20 @@ def test_import_config_uses_isolated_settings_and_bounded_defaults() -> None:
     assert config.poll_seconds == 2
     assert config.part_bytes == 8 * 1024 * 1024
     assert config.image_header_bytes == 256 * 1024
+    assert not config.image_policy.auto_generate_pyramids
+
+
+def test_import_config_captures_explicit_image_policy_environment():
+    config = load_config(
+        {
+            **_environment(),
+            "IMAGE_PYRAMID_AUTO_GENERATE": "true",
+            "IMAGE_PYRAMID_PROFILE_VERSION": "pyramid-import-test",
+        }
+    )
+
+    assert config.image_policy.auto_generate_pyramids
+    assert config.image_policy.profile_version == "pyramid-import-test"
 
 
 def test_api_and_ambient_aws_settings_are_not_importer_fallbacks() -> None:

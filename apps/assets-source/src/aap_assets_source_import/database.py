@@ -1,4 +1,4 @@
-"""asyncpg-only bindings for the seven Assets Dataset import capabilities."""
+"""asyncpg-only bindings for Dataset import and image admission capabilities."""
 
 from __future__ import annotations
 
@@ -9,6 +9,7 @@ from uuid import UUID
 
 import asyncpg
 from pydantic import BaseModel
+from aap_assets_images.policy import ImagePolicy
 
 from aap_assets_source.import_contract import (
     ImportConnection,
@@ -18,6 +19,10 @@ from aap_assets_source.import_contract import (
     ImportSourceObject,
     ImportState,
     decode_import_reply,
+)
+from aap_assets_source_runtime.image_admission import (
+    AsyncpgImageAdmissionData,
+    ImageAdmission,
 )
 
 from .config import ImportConfig
@@ -32,6 +37,8 @@ EXPECTED_IMPORT_FUNCTIONS = frozenset(
         "next_dataset_import_entry(uuid,uuid,uuid)",
         "complete_dataset_import_entry(uuid,uuid,bigint,uuid,jsonb)",
         "finish_dataset_import(uuid,uuid,text)",
+        "resolve_internal_image_source(text,uuid,text,jsonb)",
+        "schedule_image_media(uuid,text,uuid,jsonb,boolean)",
     }
 )
 
@@ -44,7 +51,9 @@ WITH expected(signature) AS (
         ('save_dataset_import_manifest(uuid,uuid,jsonb)'::text),
         ('next_dataset_import_entry(uuid,uuid,uuid)'::text),
         ('complete_dataset_import_entry(uuid,uuid,bigint,uuid,jsonb)'::text),
-        ('finish_dataset_import(uuid,uuid,text)'::text)
+        ('finish_dataset_import(uuid,uuid,text)'::text),
+        ('resolve_internal_image_source(text,uuid,text,jsonb)'::text),
+        ('schedule_image_media(uuid,text,uuid,jsonb,boolean)'::text)
 ),
 expected_oids AS (
     SELECT
@@ -190,9 +199,17 @@ class DataContractError(RuntimeError):
 class ImportData:
     """One transaction over a single LOGIN database connection."""
 
-    def __init__(self, connection: asyncpg.Connection, max_reply_bytes: int) -> None:
+    def __init__(
+        self,
+        connection: asyncpg.Connection,
+        max_reply_bytes: int,
+        image_policy: ImagePolicy,
+    ) -> None:
         self._connection = connection
         self._max_reply_bytes = max_reply_bytes
+        self.image_admission = ImageAdmission(
+            AsyncpgImageAdmissionData(connection, max_reply_bytes), image_policy
+        )
 
     async def claim(
         self, token: UUID, lease_seconds: int, requested_job: UUID | None = None
@@ -404,7 +421,11 @@ class ImportDatabase:
             timeout=self._config.pool_timeout_seconds
         ) as connection:
             async with connection.transaction():
-                yield ImportData(connection, max_reply_bytes=16 * 1024 * 1024)
+                yield ImportData(
+                    connection,
+                    max_reply_bytes=16 * 1024 * 1024,
+                    image_policy=self._config.image_policy,
+                )
 
     async def ready(self) -> bool:
         async with self._pool.acquire(

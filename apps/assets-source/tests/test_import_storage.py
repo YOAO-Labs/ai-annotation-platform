@@ -28,6 +28,8 @@ class _Destination:
         self.aborted = False
         self.created = False
         self.empty = None
+        self.head_result = None
+        self.head_calls = []
 
     def create_multipart_upload(self, **kwargs):
         self.created = True
@@ -45,6 +47,12 @@ class _Destination:
 
     def put_object(self, **kwargs):
         self.empty = kwargs
+
+    def head_object(self, **kwargs):
+        self.head_calls.append(kwargs)
+        if self.head_result is None:
+            raise AssertionError("unexpected HEAD")
+        return self.head_result
 
 
 def _config():
@@ -172,3 +180,37 @@ async def test_empty_source_uses_bounded_put_object_without_multipart() -> None:
     assert client.empty["Bucket"] == "datasets"
     assert client.empty["Body"] == b""
     assert not client.created
+
+
+@pytest.mark.asyncio
+async def test_published_image_identity_is_captured_from_final_object_head() -> None:
+    client = _Destination()
+    client.head_result = {
+        "ContentLength": 4,
+        "ETag": '"published-etag"',
+        "VersionId": "v1",
+    }
+    storage = DestinationStorage(_config(), client=client)
+
+    identity = await storage.head_image_identity(
+        "dataset-sources/opaque/item/photo.jpg", expected_size=4
+    )
+
+    assert identity.model_dump(mode="json") == {
+        "etag": '"published-etag"',
+        "byte_size": 4,
+        "version_id": "v1",
+    }
+    assert client.head_calls == [
+        {"Bucket": "datasets", "Key": "dataset-sources/opaque/item/photo.jpg"}
+    ]
+
+
+@pytest.mark.asyncio
+async def test_published_image_identity_rejects_changed_destination_size() -> None:
+    client = _Destination()
+    client.head_result = {"ContentLength": 5, "ETag": '"etag"'}
+    storage = DestinationStorage(_config(), client=client)
+
+    with pytest.raises(SourceChangedError):
+        await storage.head_image_identity("path/photo.jpg", expected_size=4)

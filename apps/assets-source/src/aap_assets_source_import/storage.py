@@ -8,6 +8,8 @@ import mimetypes
 from typing import Any, BinaryIO, Callable
 
 from aap_assets_source.import_contract import ImportEntry
+from aap_assets_source_runtime.image_admission import object_identity_from_head
+from aap_assets_images.contract import ImageFailure, ObjectIdentity
 from aap_assets_source.connectors import (
     SourceChangedError,
     SourceNotFoundError,
@@ -185,6 +187,30 @@ class DestinationStorage:
                     )
                 except Exception:
                     pass
+
+    async def head_image_identity(
+        self, key: str, *, expected_size: int
+    ) -> ObjectIdentity:
+        """Capture identity only after the final immutable destination object exists."""
+        try:
+            head = await asyncio.wait_for(
+                asyncio.to_thread(
+                    self._client.head_object,
+                    Bucket=self.bucket,
+                    Key=key,
+                ),
+                timeout=self._io_timeout,
+            )
+        except Exception as exc:
+            raise DestinationWriteError(
+                "published image could not be verified"
+            ) from exc
+        try:
+            return object_identity_from_head(head, expected_size=expected_size)
+        except ImageFailure as exc:
+            if exc.code == "source_changed":
+                raise SourceChangedError("published image size changed") from None
+            raise DestinationWriteError("published image identity is invalid") from None
 
 
 def _create_client(config: ImportConfig) -> Any:

@@ -11,8 +11,10 @@ import re
 from typing import Any, AsyncIterator, BinaryIO
 
 from botocore.exceptions import ClientError
+from aap_assets_images.contract import ImageFailure, ObjectIdentity
 
 from aap_assets_source.ingest_contract import IngestEntryErrorCode, IngestFailure
+from .image_admission import object_identity_from_head
 
 logger = logging.getLogger("aap_assets_source_runtime.ingest_storage")
 
@@ -44,6 +46,7 @@ class IngestStorageFacts:
     content_hash: str | None
     width: int | None
     height: int | None
+    object_identity: ObjectIdentity | None = None
 
 
 async def run_in_thread(function, /, *args, **kwargs):
@@ -139,10 +142,25 @@ class IngestStorage:
             raise IngestEntryFailure("source_changed")
 
         content_hash = _md5_etag(etag)
+        object_identity = None
+        if image:
+            try:
+                object_identity = object_identity_from_head(
+                    head, expected_size=observed_size
+                )
+            except ImageFailure as exc:
+                code = (
+                    "source_changed"
+                    if exc.code == "source_changed"
+                    else "source_read_failed"
+                )
+                raise IngestEntryFailure(code) from None
         width = height = None
         if image and observed_size:
             width, height = self._image_dimensions(key, head_etag or etag)
-        return IngestStorageFacts(observed_size, content_hash, width, height)
+        return IngestStorageFacts(
+            observed_size, content_hash, width, height, object_identity
+        )
 
     def _image_dimensions(
         self, key: str, etag: str | None
@@ -291,7 +309,27 @@ class IngestStorage:
             raise IngestEntryFailure("storage_write_failed") from None
 
         width, height = _dimensions(bytes(header)) if image else (None, None)
-        return IngestStorageFacts(total, digest, width, height)
+        object_identity = None
+        if image:
+            try:
+                head = self._client.head_object(
+                    Bucket=self.datasets_bucket,
+                    Key=key,
+                )
+                object_identity = object_identity_from_head(head, expected_size=total)
+            except ImageFailure as exc:
+                code = (
+                    "source_changed"
+                    if exc.code == "source_changed"
+                    else "storage_write_failed"
+                )
+                raise IngestEntryFailure(code) from None
+            except Exception as exc:  # noqa: BLE001 - do not expose storage SDK details.
+                logger.warning(
+                    "Published image verification failed (%s)", type(exc).__name__
+                )
+                raise IngestEntryFailure("storage_write_failed") from None
+        return IngestStorageFacts(total, digest, width, height, object_identity)
 
     def _upload_part(
         self, key: str, upload_id: str | None, part_number: int, body: bytes

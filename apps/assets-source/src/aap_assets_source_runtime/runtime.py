@@ -42,6 +42,7 @@ from .storage import SourceStorage
 from .workflow import UploadWorkflow
 from .ingest_storage import IngestStorage
 from .ingest_workflow import IngestWorkflow
+from .image_admission import ImageAdmission
 
 _Result = TypeVar("_Result", bound=BaseModel)
 _SOURCE_SCHEMA = "aap-assets-source/v1"
@@ -150,6 +151,7 @@ class SourceRuntime:
             legacy_upload_data=ports.legacy_uploads,
             deletion_data=ports.deletions,
             storage=self._storage,
+            image_admission=ImageAdmission(ports.images, self._config.image_policy),
             cleanup_bucket=self._config.cleanup_bucket,
         )
 
@@ -157,6 +159,7 @@ class SourceRuntime:
         return IngestWorkflow(
             data=ports.ingest,
             storage=IngestStorage(self._storage.client, self._storage.datasets_bucket),
+            image_admission=ImageAdmission(ports.images, self._config.image_policy),
         )
 
     async def _run(

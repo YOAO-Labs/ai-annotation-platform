@@ -101,6 +101,7 @@ def _runtime(config, request, intent, *, url="https://storage.example.test/signe
         uploads=_UploadData(intent),
         legacy_uploads=object(),
         deletions=object(),
+        images=object(),
     )
     database = _Database(ports)
     runtime = SourceRuntime(config, database, _Storage(url))
@@ -146,6 +147,7 @@ async def test_business_error_is_validated_before_rollback_and_keeps_stable_code
         uploads=_UploadData(intent, DatasetUploadFailure("account_not_active")),
         legacy_uploads=object(),
         deletions=object(),
+        images=object(),
     )
     database = _Database(ports)
     runtime = SourceRuntime(

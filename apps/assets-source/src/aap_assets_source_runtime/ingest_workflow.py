@@ -26,6 +26,7 @@ from aap_assets_source.ingest_contract import (
     ZIP_MAX_CENTRAL_DIRECTORY_ENTRIES,
     ZIP_MAX_FILES,
     IngestCommand,
+    IngestBatchPlan,
     IngestDescriptor,
     IngestEntryCompletion,
     IngestFailure,
@@ -43,6 +44,7 @@ from aap_assets_source.ingest_contract import (
     IngestDataPort,
     require_ingest_scope,
 )
+from aap_assets_images.contract import ImageFailure
 
 from .ingest_storage import (
     IngestEntryFailure,
@@ -50,6 +52,7 @@ from .ingest_storage import (
     IngestStorageFacts,
     run_in_thread,
 )
+from .image_admission import ImageAdmissionPort
 
 _READ_BYTES = 8 * 1024 * 1024
 _SCAN_IMAGE_EXTENSIONS = frozenset(
@@ -70,9 +73,16 @@ _ERROR_MESSAGES = {
 class IngestWorkflow:
     """Run all source work through the supplied five-capability data port."""
 
-    def __init__(self, *, data: IngestDataPort, storage: IngestStorage) -> None:
+    def __init__(
+        self,
+        *,
+        data: IngestDataPort,
+        storage: IngestStorage,
+        image_admission: ImageAdmissionPort,
+    ) -> None:
         self._data = data
         self._storage = storage
+        self._image_admission = image_admission
 
     async def upload_zip(
         self, command: IngestCommand, source: BinaryIO
@@ -135,6 +145,7 @@ class IngestWorkflow:
                 _validate_plan(command, batch_id, proposals, plan, cursor, progress)
 
                 completions: list[IngestEntryCompletion] = []
+                image_facts: dict[UUID, IngestStorageFacts] = {}
                 for archive_entry, proposal, planned in zip(
                     archive_batch, proposals, plan.entries, strict=True
                 ):
@@ -176,11 +187,14 @@ class IngestWorkflow:
                         )
                     else:
                         completions.append(_ready_completion(planned, facts))
+                        if proposal.file_type == "image":
+                            image_facts[planned.entry_id] = facts
 
                 settled = await self._data.complete_batch(
                     command, batch_id, completions
                 )
                 _validate_completion(command, batch_id, plan, completions, settled)
+                await self._admit_batch_images(plan, completions, image_facts)
                 progress = settled.progress
                 cursor += len(proposals)
 
@@ -276,6 +290,7 @@ class IngestWorkflow:
         plan = await self._data.prepare_batch(command, batch_id, proposals)
         _validate_plan(command, batch_id, proposals, plan, cursor, progress)
         completions: list[IngestEntryCompletion] = []
+        image_facts: dict[UUID, IngestStorageFacts] = {}
         for proposal, planned, (key, etag, size) in zip(
             proposals, plan.entries, listed, strict=True
         ):
@@ -298,9 +313,52 @@ class IngestWorkflow:
                 completions.append(_failed_completion(planned, exc.code))
             else:
                 completions.append(_ready_completion(planned, facts))
+                if proposal.file_type == "image":
+                    image_facts[planned.entry_id] = facts
         settled = await self._data.complete_batch(command, batch_id, completions)
         _validate_completion(command, batch_id, plan, completions, settled)
+        await self._admit_batch_images(plan, completions, image_facts)
         return settled.progress
+
+    async def _admit_batch_images(
+        self,
+        plan: IngestBatchPlan,
+        completions: list[IngestEntryCompletion],
+        facts_by_entry: dict[UUID, IngestStorageFacts],
+    ) -> None:
+        ready_ids = {
+            completion.entry_id
+            for completion in completions
+            if completion.status == "ready"
+        }
+        for planned in plan.entries:
+            if (
+                planned.status != "pending"
+                or planned.file_type != "image"
+                or planned.entry_id not in ready_ids
+            ):
+                continue
+            facts = facts_by_entry.get(planned.entry_id)
+            if (
+                facts is None
+                or facts.object_identity is None
+                or planned.item_id is None
+                or planned.file_path is None
+                or planned.publication_id is None
+            ):
+                raise IngestFailure("invalid_response")
+            try:
+                await self._image_admission.admit_dataset_item(
+                    item_id=planned.item_id,
+                    publication_id=planned.publication_id,
+                    file_path=planned.file_path,
+                    file_size=facts.file_size,
+                    content_hash=facts.content_hash,
+                    object_identity=facts.object_identity,
+                    missing_is_skipped=True,
+                )
+            except ImageFailure as exc:
+                raise _as_ingest_image_failure(exc) from None
 
     async def _scene_layout(
         self,
@@ -742,6 +800,29 @@ def _ready_completion(
         height=facts.height,
         error_code=None,
     )
+
+
+def _as_ingest_image_failure(exc: ImageFailure) -> IngestFailure:
+    if exc.code in {"storage_unavailable", "source_unavailable"}:
+        return IngestFailure("storage_unavailable")
+    if exc.code in {
+        "account_busy",
+        "dataset_busy",
+        "source_busy",
+        "operation_conflict",
+    }:
+        return IngestFailure(exc.code)
+    if exc.code in {
+        "source_changed",
+        "source_missing",
+        "source_not_ready",
+        "owner_changed",
+        "dependency_changed",
+    }:
+        return IngestFailure("operation_conflict")
+    if exc.code == "resource_budget_exceeded":
+        return IngestFailure("resource_budget_exceeded")
+    return IngestFailure("invalid_response")
 
 
 def _failed_completion(planned: IngestPlannedEntry, code) -> IngestEntryCompletion:

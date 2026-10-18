@@ -37,6 +37,8 @@ from aap_assets_source_runtime.ingest_workflow import IngestWorkflow
 from aap_assets_source_runtime.runtime import SourceRuntime
 from aap_assets_source_runtime.ingest_workflow import _validate_context
 from aap_assets_source_runtime.database import NativeIngestData
+from aap_assets_images.contract import ObjectIdentity
+from aap_assets_images.policy import ImagePolicy
 
 
 def _command() -> IngestCommand:
@@ -60,7 +62,9 @@ async def test_zip_directory_record_budget_is_checked_before_any_data_write():
         archive.writestr("frame.bin", b"point cloud")
     target.seek(0)
     with pytest.raises(IngestFailure, match="resource_budget_exceeded") as error:
-        await IngestWorkflow(data=data, storage=None).upload_zip(_command(), target)
+        await IngestWorkflow(
+            data=data, storage=None, image_admission=_ImageAdmission()
+        ).upload_zip(_command(), target)
     assert error.value.detail.budget == "max_central_directory_entries"
     assert data.calls == []
 
@@ -267,6 +271,15 @@ class _Data:
         )
 
 
+class _ImageAdmission:
+    def __init__(self):
+        self.calls = []
+
+    async def admit_dataset_item(self, **request):
+        self.calls.append(request)
+        return None
+
+
 class _Storage:
     def __init__(self, *, fail_after_publish: bool = False) -> None:
         self.fail_after_publish = fail_after_publish
@@ -290,7 +303,15 @@ class _Storage:
         assert len(content) == expected_size
         assert digest == expected_hash
         return IngestStorageFacts(
-            file_size=len(content), content_hash=digest, width=None, height=None
+            file_size=len(content),
+            content_hash=digest,
+            width=None,
+            height=None,
+            object_identity=(
+                ObjectIdentity(etag=f'"{digest}"', byte_size=len(content))
+                if image
+                else None
+            ),
         )
 
 
@@ -315,9 +336,9 @@ async def test_zip_skips_hidden_and_unsafe_paths_and_uses_mime_and_immutable_tar
         )
     )
 
-    receipt = await IngestWorkflow(data=data, storage=storage).upload_zip(
-        command, source
-    )
+    receipt = await IngestWorkflow(
+        data=data, storage=storage, image_admission=_ImageAdmission()
+    ).upload_zip(command, source)
 
     assert data.descriptor.total_in_zip == 3
     assert data.descriptor.planned_entries == 1
@@ -348,9 +369,9 @@ async def test_uncertain_publication_settles_per_file_without_deleting_object() 
     command = _command()
     data = _Data()
     storage = _Storage(fail_after_publish=True)
-    receipt = await IngestWorkflow(data=data, storage=storage).upload_zip(
-        command, BytesIO(_zip_bytes({"nested/photo.png": b"image bytes"}))
-    )
+    receipt = await IngestWorkflow(
+        data=data, storage=storage, image_admission=_ImageAdmission()
+    ).upload_zip(command, BytesIO(_zip_bytes({"nested/photo.png": b"image bytes"})))
 
     assert receipt.added == 0
     assert receipt.error_count == 1
@@ -364,7 +385,9 @@ async def test_uncertain_publication_settles_per_file_without_deleting_object() 
 async def test_pending_same_hash_zip_entries_follow_the_native_plan() -> None:
     data = _Data()
     storage = _Storage()
-    receipt = await IngestWorkflow(data=data, storage=storage).upload_zip(
+    receipt = await IngestWorkflow(
+        data=data, storage=storage, image_admission=_ImageAdmission()
+    ).upload_zip(
         _command(),
         BytesIO(_zip_bytes({"first.bin": b"same", "nested/second.bin": b"same"})),
     )
@@ -406,10 +429,14 @@ async def test_wrong_scope_prepare_reply_rolls_back_before_any_s3_publication() 
     client = _UnusedS3()
     database = _TransactionDatabase(
         SimpleNamespace(
-            ingest=data, uploads=object(), legacy_uploads=object(), deletions=object()
+            ingest=data,
+            uploads=object(),
+            legacy_uploads=object(),
+            deletions=object(),
+            images=object(),
         )
     )
-    config = SimpleNamespace(max_response_bytes=16_777_216)
+    config = SimpleNamespace(max_response_bytes=16_777_216, image_policy=ImagePolicy())
     storage = SimpleNamespace(client=client, datasets_bucket="datasets")
     runtime = SourceRuntime(config, database, storage)
 
@@ -441,10 +468,11 @@ async def test_malformed_native_begin_reply_rolls_back_before_any_s3_publication
             uploads=object(),
             legacy_uploads=object(),
             deletions=object(),
+            images=object(),
         )
     )
     runtime = SourceRuntime(
-        SimpleNamespace(max_response_bytes=16_777_216),
+        SimpleNamespace(max_response_bytes=16_777_216, image_policy=ImagePolicy()),
         database,
         SimpleNamespace(client=client, datasets_bucket="datasets"),
     )
@@ -467,10 +495,14 @@ async def test_encoded_response_budget_failure_rolls_back_after_publication() ->
     client = _UnusedS3()
     database = _TransactionDatabase(
         SimpleNamespace(
-            ingest=data, uploads=object(), legacy_uploads=object(), deletions=object()
+            ingest=data,
+            uploads=object(),
+            legacy_uploads=object(),
+            deletions=object(),
+            images=object(),
         )
     )
-    config = SimpleNamespace(max_response_bytes=128)
+    config = SimpleNamespace(max_response_bytes=128, image_policy=ImagePolicy())
     runtime = SourceRuntime(
         config, database, SimpleNamespace(client=client, datasets_bucket="datasets")
     )
