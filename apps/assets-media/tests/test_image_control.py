@@ -581,6 +581,106 @@ async def test_verified_current_thumbnail_and_original_are_signed_with_source_re
 
 
 @pytest.mark.asyncio
+async def test_read_only_dataset_reader_verifies_thumbnail_attempt_internally():
+    owner = c.ImageOwner(kind="dataset_item", id=uuid4())
+    job_id, lease_token = uuid4(), uuid4()
+    generation = 3
+    key = f"image-assets/{job_id}/g{generation}/a{lease_token}/thumbnail.webp"
+    current = source(owner=owner, thumbnail_path=key, thumbnail_current=True)
+    policy = ImagePolicy()
+    work_status = c.ImageWorkStatus(
+        work=c.ImageWorkReference(
+            job_id=job_id,
+            generation=generation,
+            owner=owner,
+            source_generation=current.source_generation,
+            kind="thumbnail",
+            status="ready",
+        ),
+        spec=c.ThumbnailWorkSpec(
+            expected_source_snapshot=current.source_snapshot, policy=policy
+        ),
+        progress={},
+        error_code=None,
+        error_detail=None,
+        lease_expires_at=None,
+    )
+    calls = []
+
+    class ReadOnlyDatabase:
+        async def call(self, operation, request):
+            calls.append((operation, request))
+            if operation in {"read_image_source", "observe_image_source"}:
+                return current
+            if operation == "read_internal_image_work":
+                assert request.job_id == job_id
+                return work_status
+            pytest.fail(f"unexpected operation {operation}")
+
+    storage = FakeStorage(cache_keys=[key])
+    request = c.ReadImageSourceRequest(actor_id=uuid4(), dataset_item_id=owner.id)
+    result = await ImageControl(ReadOnlyDatabase(), storage, policy).source_reference(
+        request
+    )
+
+    assert result.original_url.endswith(current.file_path)
+    assert result.thumbnail_url.endswith(key + "?expires=3600")
+    assert any(operation == "read_internal_image_work" for operation, _ in calls)
+    assert not any(operation == "read_image_work" for operation, _ in calls)
+    assert not hasattr(result, "progress")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("owner", "source_generation", "work_kind", "spec_snapshot"),
+    [
+        (c.ImageOwner(kind="dataset_item", id=uuid4()), 1, "thumbnail", "a" * 64),
+        (None, 2, "thumbnail", "a" * 64),
+        (None, 1, "pyramid", "a" * 64),
+        (None, 1, "thumbnail", "b" * 64),
+    ],
+)
+async def test_read_only_thumbnail_verification_rejects_unrelated_work(
+    owner, source_generation, work_kind, spec_snapshot
+):
+    current_owner = c.ImageOwner(kind="dataset_item", id=uuid4())
+    job_id, lease_token = uuid4(), uuid4()
+    key = f"image-assets/{job_id}/g3/a{lease_token}/thumbnail.webp"
+    current = source(owner=current_owner, thumbnail_path=key, thumbnail_current=True)
+    work_status = c.ImageWorkStatus(
+        work=c.ImageWorkReference(
+            job_id=job_id,
+            generation=3,
+            owner=owner or current_owner,
+            source_generation=source_generation,
+            kind=work_kind,
+            status="ready",
+        ),
+        spec=c.ThumbnailWorkSpec(
+            expected_source_snapshot=spec_snapshot, policy=ImagePolicy()
+        ),
+        progress={"private": "must not escape"},
+        error_code=None,
+        error_detail=None,
+        lease_expires_at=None,
+    )
+
+    class ReadOnlyDatabase:
+        async def call(self, operation, _request):
+            if operation in {"read_image_source", "observe_image_source"}:
+                return current
+            assert operation == "read_internal_image_work"
+            return work_status
+
+    with pytest.raises(c.ImageFailure, match="invalid_response"):
+        await ImageControl(
+            ReadOnlyDatabase(), FakeStorage(cache_keys=[key])
+        ).source_reference(
+            c.ReadImageSourceRequest(actor_id=uuid4(), dataset_item_id=current_owner.id)
+        )
+
+
+@pytest.mark.asyncio
 async def test_task_pyramid_thumbnail_reference_preserves_legacy_3600s_lifetime():
     owner = c.ImageOwner(kind="task", id=uuid4())
     base = source(owner=owner)
@@ -668,6 +768,98 @@ async def test_missing_thumbnail_is_invalidated_and_repair_operation_is_replay_s
     assert accepted[0].expected_source_snapshot == current.source_snapshot
     assert accepted[0].force is False
     assert storage.signed_cache == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure_code", ["permission_denied", "operation_busy"])
+async def test_optional_thumbnail_warmup_denial_keeps_authorized_original(
+    failure_code,
+):
+    owner = c.ImageOwner(kind="dataset_item", id=uuid4())
+    current = source(owner=owner)
+    calls = []
+
+    class ReaderDatabase:
+        async def call(self, operation, _request):
+            calls.append(operation)
+            if operation in {"read_image_source", "observe_image_source"}:
+                return current
+            if operation == "prepare_image_media":
+                raise c.ImageFailure(failure_code)
+            pytest.fail(f"unexpected operation {operation}")
+
+    storage = FakeStorage()
+    result = await ImageControl(ReaderDatabase(), storage).source_reference(
+        c.ReadImageSourceRequest(actor_id=uuid4(), dataset_item_id=owner.id)
+    )
+
+    assert result.original_url.endswith(current.file_path)
+    assert result.thumbnail_url is None
+    assert calls[-2:] == ["read_image_source", "observe_image_source"]
+    assert calls.count("prepare_image_media") == 1
+    assert storage.signed_source == [(current, 3600)]
+    assert storage.signed_cache == []
+
+
+@pytest.mark.asyncio
+async def test_optional_thumbnail_invalidation_denial_keeps_authorized_original():
+    owner = c.ImageOwner(kind="dataset_item", id=uuid4())
+    current = source(
+        owner=owner,
+        thumbnail_path=f"thumbnails/{owner.id}.webp",
+        thumbnail_current=True,
+    )
+    calls = []
+
+    class ReaderDatabase:
+        async def call(self, operation, _request):
+            calls.append(operation)
+            if operation in {"read_image_source", "observe_image_source"}:
+                return current
+            if operation == "invalidate_image_media":
+                raise c.ImageFailure("permission_denied")
+            pytest.fail(f"unexpected operation {operation}")
+
+    storage = FakeStorage()
+    result = await ImageControl(ReaderDatabase(), storage).source_reference(
+        c.ReadImageSourceRequest(actor_id=uuid4(), dataset_item_id=owner.id)
+    )
+
+    assert result.original_url.endswith(current.file_path)
+    assert result.thumbnail_url is None
+    assert calls[-2:] == ["read_image_source", "observe_image_source"]
+    assert calls.count("invalidate_image_media") == 1
+    assert storage.signed_source == [(current, 3600)]
+    assert storage.signed_cache == []
+
+
+@pytest.mark.asyncio
+async def test_source_reference_still_rechecks_actor_after_best_effort_denial():
+    owner = c.ImageOwner(kind="dataset_item", id=uuid4())
+    current = source(owner=owner)
+    source_reads = 0
+
+    class RevokedActorDatabase:
+        async def call(self, operation, _request):
+            nonlocal source_reads
+            if operation == "read_image_source":
+                source_reads += 1
+                if source_reads == 3:
+                    raise c.ImageFailure("account_not_active")
+                return current
+            if operation == "observe_image_source":
+                return current
+            if operation == "prepare_image_media":
+                raise c.ImageFailure("permission_denied")
+            pytest.fail(f"unexpected operation {operation}")
+
+    storage = FakeStorage()
+    with pytest.raises(c.ImageFailure, match="account_not_active"):
+        await ImageControl(RevokedActorDatabase(), storage).source_reference(
+            c.ReadImageSourceRequest(actor_id=uuid4(), dataset_item_id=owner.id)
+        )
+
+    assert storage.signed_source == [(current, 3600)]
 
 
 @pytest.mark.asyncio
@@ -876,12 +1068,77 @@ async def test_stale_pyramid_thumbnail_pointer_obeys_optional_dispatch_policy():
     ).source_reference(request)
 
     assert result.thumbnail_url is None
-    assert len(admitted) == 1
-    assert admitted[0].purpose == "thumbnail"
+    assert admitted == []
     assert not any(
         operation == "prepare_image_media" and request.purpose == "pyramid"
         for operation, request in calls
     )
+
+
+@pytest.mark.asyncio
+async def test_known_large_source_with_auto_generation_disabled_queues_no_thumbnail():
+    owner = c.ImageOwner(kind="dataset_item", id=uuid4())
+    base = source(owner=owner)
+    current = c.ImageSource.model_validate(
+        {**base.model_dump(), "width": 100, "height": 100}
+    )
+    policy = ImagePolicy(
+        optional_pixels=10_000,
+        required_pixels=20_000,
+        auto_generate_pyramids=False,
+    )
+    calls = []
+
+    class LargeImageDatabase:
+        async def call(self, operation, _request):
+            calls.append(operation)
+            if operation in {"read_image_source", "observe_image_source"}:
+                return current
+            pytest.fail(f"unexpected operation {operation}")
+
+    storage = FakeStorage()
+    result = await ImageControl(LargeImageDatabase(), storage, policy).source_reference(
+        c.ReadImageSourceRequest(actor_id=uuid4(), dataset_item_id=owner.id)
+    )
+
+    assert result.original_url.endswith(current.file_path)
+    assert result.thumbnail_url is None
+    assert "prepare_image_media" not in calls
+    assert storage.signed_source == [(current, 3600)]
+
+
+@pytest.mark.asyncio
+async def test_known_eligible_large_source_queues_pyramid_not_thumbnail():
+    owner = c.ImageOwner(kind="dataset_item", id=uuid4())
+    base = source(owner=owner)
+    current = c.ImageSource.model_validate(
+        {**base.model_dump(), "width": 100, "height": 100}
+    )
+    policy = ImagePolicy(
+        optional_pixels=10_000,
+        required_pixels=20_000,
+        auto_generate_pyramids=True,
+    )
+    admitted = []
+
+    class LargeImageDatabase:
+        async def call(self, operation, request):
+            if operation in {"read_image_source", "observe_image_source"}:
+                return current
+            assert operation == "prepare_image_media"
+            admitted.append(request)
+            return accepted_for(request, current)
+
+    result = await ImageControl(
+        LargeImageDatabase(), FakeStorage(), policy
+    ).source_reference(
+        c.ReadImageSourceRequest(actor_id=uuid4(), dataset_item_id=owner.id)
+    )
+
+    assert result.original_url.endswith(current.file_path)
+    assert result.thumbnail_url is None
+    assert len(admitted) == 1
+    assert admitted[0].purpose == "pyramid"
 
 
 @pytest.mark.asyncio

@@ -445,6 +445,16 @@ class ImageControl:
         )
         return await self.prepare_image_media(request)
 
+    async def _best_effort_repair(self, operation: Awaitable[object]) -> bool:
+        """Derived references must not deny an otherwise authorized source read."""
+        try:
+            await operation
+            return True
+        except c.ImageFailure as exc:
+            if exc.code in {"permission_denied", "operation_busy"}:
+                return False
+            raise
+
     async def _invalidate(
         self,
         source: c.ImageSource,
@@ -767,15 +777,18 @@ class ImageControl:
         ):
             match = _IMAGE_THUMBNAIL_KEY.fullmatch(key)
             if match is not None:
-                await self._verify_thumbnail_attempt(source, request, match)
+                await self._verify_thumbnail_attempt(source, match)
             if await self._head_cache(key) is None:
-                await self._invalidate(
-                    source,
-                    request,
-                    c.ImageInvalidation(
-                        source_snapshot=source.source_snapshot, kind="thumbnail"
+                if not await self._best_effort_repair(
+                    self._invalidate(
+                        source,
+                        request,
+                        c.ImageInvalidation(
+                            source_snapshot=source.source_snapshot, kind="thumbnail"
+                        ),
                     ),
-                )
+                ):
+                    return None
                 await self._prepare_small_thumbnail(source, request, key)
                 return None
             return await self._sign_cache(key, self.source_url_expiry)
@@ -788,31 +801,41 @@ class ImageControl:
                 or state.pyramid.source_snapshot != source.source_snapshot
             ):
                 if source.width is None or source.height is None:
-                    await self._prepare_repair(source, request, "dimensions", key)
+                    await self._best_effort_repair(
+                        self._prepare_repair(source, request, "dimensions", key)
+                    )
                 elif self._pyramid_dispatch_eligible(source):
-                    await self._prepare_repair(source, request, "pyramid", key)
+                    await self._best_effort_repair(
+                        self._repair_pyramid(source, request, key)
+                    )
                 else:
                     await self._prepare_small_thumbnail(source, request, key)
                 return None
             _manifest, prefix = await self._read_ready_manifest(state.pyramid)
             if key != prefix + "/overview.webp" or await self._head_cache(key) is None:
-                await self._invalidate_generation(
-                    source, request, state.pyramid, "overview"
+                if not await self._best_effort_repair(
+                    self._invalidate_generation(
+                        source, request, state.pyramid, "overview"
+                    )
+                ):
+                    return None
+                await self._best_effort_repair(
+                    self._repair_pyramid(source, request, key)
                 )
-                await self._repair_pyramid(source, request, key)
                 return None
             return await self._sign_cache(key, self.source_url_expiry)
         raise c.ImageFailure("invalid_response")
 
-    async def _verify_thumbnail_attempt(self, source, selector, match) -> None:
+    async def _verify_thumbnail_attempt(self, source, match) -> None:
         job_id = UUID(match.group("job"))
         generation = int(match.group("generation"))
         status = await self._native_call(
-            "read_image_work",
-            c.ReadImageWorkRequest(actor_id=selector.actor_id, job_id=job_id),
+            "read_internal_image_work",
+            c.ReadInternalImageWorkRequest(job_id=job_id),
         )
         if (
-            status.work.status != "ready"
+            status.work.job_id != job_id
+            or status.work.status != "ready"
             or status.work.generation != generation
             or status.work.owner != source.owner
             or status.work.kind != "thumbnail"
@@ -826,7 +849,16 @@ class ImageControl:
         self, source: c.ImageSource, selector: c.ImageSourceSelector, target: str
     ) -> None:
         if source.width is None or source.height is None:
-            await self._prepare_repair(source, selector, "dimensions", "dimensions")
+            await self._best_effort_repair(
+                self._prepare_repair(source, selector, "dimensions", "dimensions")
+            )
+            return
+        if self._pyramid_dispatch_eligible(source):
+            await self._best_effort_repair(
+                self._repair_pyramid(source, selector, target)
+            )
+            return
+        if self.policy.pyramid_eligible(source.width, source.height):
             return
         size = (
             source.object_identity.byte_size
@@ -835,7 +867,9 @@ class ImageControl:
         )
         if size is None or size > self.policy.thumbnail_max_source_bytes:
             return
-        await self._prepare_repair(source, selector, "thumbnail", target)
+        await self._best_effort_repair(
+            self._prepare_repair(source, selector, "thumbnail", target)
+        )
 
     async def _read_generation(
         self,
