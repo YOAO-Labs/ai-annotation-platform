@@ -341,6 +341,172 @@ async def test_optional_pyramid_dispatch_uses_control_policy_and_captured_spec()
 
 
 @pytest.mark.asyncio
+async def test_configured_profile_selects_missing_lineage_instead_of_old_ready():
+    owner = c.ImageOwner(kind="dataset_item", id=uuid4())
+    current = source(owner=owner)
+    old_ready, _old_raw, _old_prefix = pyramid_projection(current)
+    old_ready = c.ImageGenerationRead(
+        source=current,
+        pyramid=old_ready.pyramid.model_copy(
+            update={"profile_version": "pyramid-legacy"}
+        ),
+    )
+    new_missing, _new_raw, _new_prefix = pyramid_projection(current, status="missing")
+    configured_profile = "pyramid-current"
+    new_missing = c.ImageGenerationRead(
+        source=current,
+        pyramid=new_missing.pyramid.model_copy(
+            update={"profile_version": configured_profile}
+        ),
+    )
+    policy = ImagePolicy(profile_version=configured_profile)
+    states = {"pyramid-legacy": old_ready, configured_profile: new_missing}
+
+    class ProfileDatabase:
+        async def call(self, operation, request):
+            if operation in {"read_image_source", "observe_image_source"}:
+                return current
+            assert operation == "read_image_generation"
+            assert request.profile_version == configured_profile
+            return states[request.profile_version]
+
+    storage = FakeStorage()
+    control = ImageControl(ProfileDatabase(), storage, policy)
+    result = await control.generation_reference(
+        ImageGenerationReferenceRequest(
+            actor_id=uuid4(), dataset_item_id=owner.id, expires_in=60
+        )
+    )
+    direct = await control.call(
+        "read_image_generation",
+        c.ReadImageGenerationRequest(actor_id=uuid4(), dataset_item_id=owner.id),
+    )
+
+    assert old_ready.pyramid.status == "ready"
+    assert result.pyramid.profile_version == configured_profile
+    assert result.pyramid.status == "missing"
+    assert result.overview_url is None
+    assert direct.pyramid.profile_version == configured_profile
+    assert storage.signed_cache == []
+
+
+@pytest.mark.asyncio
+async def test_explicit_old_profile_returns_only_its_ready_generation():
+    owner = c.ImageOwner(kind="dataset_item", id=uuid4())
+    current = source(owner=owner)
+    state, raw, prefix = pyramid_projection(current)
+    selected_profile = "pyramid-legacy"
+    old_state = c.ImageGenerationRead(
+        source=current,
+        pyramid=state.pyramid.model_copy(update={"profile_version": selected_profile}),
+    )
+
+    class ProfileDatabase:
+        async def call(self, operation, request):
+            if operation in {"read_image_source", "observe_image_source"}:
+                return current
+            assert operation == "read_image_generation"
+            assert request.profile_version == selected_profile
+            return old_state
+
+    storage = FakeStorage(
+        cache_keys=[f"{prefix}/overview.webp"],
+        cache_bytes={old_state.pyramid.manifest_key: raw},
+    )
+    result = await ImageControl(
+        ProfileDatabase(), storage, ImagePolicy(profile_version="pyramid-current")
+    ).generation_reference(
+        ImageGenerationReferenceRequest(
+            actor_id=uuid4(),
+            dataset_item_id=owner.id,
+            profile_version=selected_profile,
+            expires_in=60,
+        )
+    )
+
+    assert result.pyramid.profile_version == selected_profile
+    assert result.pyramid.status == "ready"
+    assert result.overview_url.endswith(f"{prefix}/overview.webp?expires=60")
+
+
+@pytest.mark.asyncio
+async def test_explicit_old_profile_rejects_native_current_profile_before_signing():
+    owner = c.ImageOwner(kind="dataset_item", id=uuid4())
+    current = source(owner=owner)
+    current_state, _raw, _prefix = pyramid_projection(current)
+
+    class SubstitutingProfileDatabase:
+        async def call(self, operation, request):
+            if operation in {"read_image_source", "observe_image_source"}:
+                return current
+            assert operation == "read_image_generation"
+            assert request.profile_version == "pyramid-legacy"
+            return current_state
+
+    storage = FakeStorage()
+    with pytest.raises(c.ImageFailure, match="invalid_response"):
+        await ImageControl(
+            SubstitutingProfileDatabase(),
+            storage,
+            ImagePolicy(profile_version="pyramid-current"),
+        ).generation_reference(
+            ImageGenerationReferenceRequest(
+                actor_id=uuid4(),
+                dataset_item_id=owner.id,
+                profile_version="pyramid-legacy",
+                expires_in=60,
+            )
+        )
+
+    assert storage.signed_cache == []
+    assert storage.read_cache_calls == []
+
+
+@pytest.mark.asyncio
+async def test_control_reads_summaries_from_configured_profile():
+    owner = c.ImageOwner(kind="dataset_item", id=uuid4())
+    current = source(owner=owner)
+    configured_profile = "pyramid-current"
+    requested = c.ReadImageSummariesRequest(
+        actor_id=uuid4(),
+        selectors=[c.ImageSourceSelector(dataset_item_id=owner.id)],
+    )
+    response = c.ImageSummaries(
+        items=[
+            c.ImageSummaryItem(
+                selector=requested.selectors[0],
+                source=current,
+                thumbnail_current=current.thumbnail_current,
+                pyramid=c.ImagePyramidSummary(
+                    profile_version=configured_profile,
+                    status="missing",
+                    required=False,
+                    generation=None,
+                    building_generation=None,
+                    building_status=None,
+                    width=None,
+                    height=None,
+                    format=None,
+                ),
+            )
+        ]
+    )
+
+    class SummaryDatabase:
+        async def call(self, operation, request):
+            assert operation == "read_image_summaries"
+            assert request.profile_version == configured_profile
+            return response
+
+    result = await ImageControl(
+        SummaryDatabase(),
+        FakeStorage(),
+        ImagePolicy(profile_version=configured_profile),
+    ).call("read_image_summaries", requested)
+    assert result.items[0].pyramid.profile_version == configured_profile
+
+
+@pytest.mark.asyncio
 async def test_generation_reference_uses_latest_dimensions_without_auto_dispatch():
     owner = c.ImageOwner(kind="dataset_item", id=uuid4())
     base = source(owner=owner)
@@ -394,9 +560,45 @@ async def test_verified_current_thumbnail_and_original_are_signed_with_source_re
     result = await ImageControl(ReadDatabase(), storage).source_reference(actor)
     assert result.source == current
     assert result.original_url.endswith("datasets/source/image.png")
-    assert result.thumbnail_url.endswith(key + "?expires=900")
-    assert storage.signed_source == [(current, 900)]
+    assert result.expires_in == 3600
+    assert result.thumbnail_url.endswith(key + "?expires=3600")
+    assert storage.signed_source == [(current, 3600)]
+    assert storage.signed_cache == [(key, 3600)]
     assert storage.head_source_calls == [current, current]
+
+
+@pytest.mark.asyncio
+async def test_task_pyramid_thumbnail_reference_preserves_legacy_3600s_lifetime():
+    owner = c.ImageOwner(kind="task", id=uuid4())
+    base = source(owner=owner)
+    state, raw, prefix = pyramid_projection(base)
+    key = state.pyramid.overview_key
+    current = c.ImageSource.model_validate(
+        {
+            **base.model_dump(),
+            "thumbnail_path": key,
+            "thumbnail_source_generation": base.source_generation,
+        }
+    )
+
+    class TaskThumbnailDatabase:
+        async def call(self, operation, request):
+            if operation in {"read_image_source", "observe_image_source"}:
+                return current
+            assert operation == "read_image_generation"
+            return state
+
+    storage = FakeStorage(
+        cache_keys=[key], cache_bytes={state.pyramid.manifest_key: raw}
+    )
+    result = await ImageControl(TaskThumbnailDatabase(), storage).source_reference(
+        c.ReadImageSourceRequest(actor_id=uuid4(), task_id=owner.id)
+    )
+
+    assert result.expires_in == 3600
+    assert result.thumbnail_url.endswith(f"{prefix}/overview.webp?expires=3600")
+    assert storage.signed_source == [(current, 3600)]
+    assert storage.signed_cache == [(key, 3600)]
 
 
 @pytest.mark.asyncio
@@ -619,6 +821,7 @@ async def test_missing_overview_is_invalidated_and_repaired_without_blind_signin
     assert result.pyramid.status == "stale"
     assert invalidated and invalidated[0].kind == "overview"
     assert invalidated[0].generation == state.pyramid.generation
+    assert invalidated[0].profile_version == state.pyramid.profile_version
     assert admitted and admitted[0].purpose == "pyramid"
     assert storage.signed_cache == []
 
@@ -666,6 +869,56 @@ async def test_stale_pyramid_thumbnail_pointer_obeys_optional_dispatch_policy():
         operation == "prepare_image_media" and request.purpose == "pyramid"
         for operation, request in calls
     )
+
+
+@pytest.mark.asyncio
+async def test_old_profile_thumbnail_pointer_is_not_signed_without_current_lineage():
+    owner = c.ImageOwner(kind="dataset_item", id=uuid4())
+    base = source(owner=owner)
+    old_state, _old_raw, _old_prefix = pyramid_projection(base)
+    old_key = old_state.pyramid.overview_key
+    current = c.ImageSource.model_validate(
+        {
+            **base.model_dump(),
+            "thumbnail_path": old_key,
+            "thumbnail_source_generation": base.source_generation,
+        }
+    )
+    new_state, _new_raw, _new_prefix = pyramid_projection(current, status="missing")
+    configured_profile = "pyramid-current"
+    new_state = c.ImageGenerationRead(
+        source=current,
+        pyramid=new_state.pyramid.model_copy(
+            update={"profile_version": configured_profile}
+        ),
+    )
+    admitted = []
+
+    class ProfileDatabase:
+        async def call(self, operation, request):
+            if operation in {"read_image_source", "observe_image_source"}:
+                return current
+            if operation == "read_image_generation":
+                assert request.profile_version == configured_profile
+                return new_state
+            assert operation == "prepare_image_media"
+            admitted.append(request)
+            return accepted_for(request, current)
+
+    storage = FakeStorage(cache_keys=[old_key])
+    result = await ImageControl(
+        ProfileDatabase(),
+        storage,
+        ImagePolicy(profile_version=configured_profile),
+    ).source_reference(
+        c.ReadImageSourceRequest(actor_id=uuid4(), dataset_item_id=owner.id)
+    )
+
+    assert old_state.pyramid.status == "ready"
+    assert result.thumbnail_url is None
+    assert old_key not in storage.head_cache_calls
+    assert storage.signed_cache == []
+    assert admitted and admitted[0].purpose == "thumbnail"
 
 
 @pytest.mark.asyncio
@@ -822,6 +1075,11 @@ async def test_asset_reference_constructs_tile_key_from_manifest_attempt_prefix(
     owner = c.ImageOwner(kind="dataset_item", id=uuid4())
     current = source(owner=owner)
     state, raw, prefix = pyramid_projection(current)
+    selected_profile = "pyramid-legacy"
+    state = c.ImageGenerationRead(
+        source=current,
+        pyramid=state.pyramid.model_copy(update={"profile_version": selected_profile}),
+    )
     key = f"{prefix}/tiles/0/0/0.webp"
 
     class TileDatabase:
@@ -829,6 +1087,7 @@ async def test_asset_reference_constructs_tile_key_from_manifest_attempt_prefix(
             if operation in {"read_image_source", "observe_image_source"}:
                 return current
             assert operation == "read_image_generation"
+            assert request.profile_version == selected_profile
             return state
 
     storage = FakeStorage(
@@ -838,10 +1097,12 @@ async def test_asset_reference_constructs_tile_key_from_manifest_attempt_prefix(
         actor_id=uuid4(),
         dataset_item_id=owner.id,
         expected_source_snapshot=current.source_snapshot,
+        profile_version=selected_profile,
         items=[{"kind": "tile", "generation": 2, "level": 0, "x": 0, "y": 0}],
     )
     result = await ImageControl(TileDatabase(), storage).asset_references(request)
     assert len(result.items) == 1
+    assert result.profile_version == selected_profile
     assert storage.head_cache_calls == [key]
     assert storage.signed_cache == [(key, 900)]
     assert result.items[0].url.endswith(key + "?expires=900")

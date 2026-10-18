@@ -10,6 +10,12 @@ from fastapi import FastAPI
 from aap_assets_images import contract as c
 from aap_assets_images.client import ImageClient
 from aap_assets_images.transport import (
+    ImageAssetReference,
+    ImageAssetReferences,
+    ImageAssetReferencesRequest,
+    ImageGenerationReference,
+    ImageGenerationReferenceRequest,
+    ImagePyramidSummary,
     ImageSourceReference,
     ImageSourceReferences,
     ImageSourceReferencesRequest,
@@ -166,6 +172,85 @@ async def test_schedule_client_preserves_dimensions_preview_intent(reply_preview
     else:
         with pytest.raises(c.ImageFailure, match="invalid_response"):
             await client.call("schedule_image_media", request)
+
+
+@pytest.mark.asyncio
+async def test_reference_client_rejects_explicit_profile_substitution():
+    current = source()
+    actor_id = uuid4()
+    profile = "pyramid-legacy"
+    generation_request = ImageGenerationReferenceRequest(
+        actor_id=actor_id,
+        dataset_item_id=current.item_id,
+        profile_version=profile,
+        expires_in=60,
+    )
+    generation_response = ImageGenerationReference(
+        source=current,
+        pyramid=ImagePyramidSummary(
+            profile_version="pyramid-current",
+            status="missing",
+            required=False,
+            generation=None,
+            building_generation=None,
+            building_status=None,
+            width=None,
+            height=None,
+            format=None,
+        ),
+        pyramid_source_generation=None,
+        pyramid_source_snapshot=None,
+        manifest=None,
+        overview_url=None,
+        expires_in=60,
+    )
+    asset_request = ImageAssetReferencesRequest(
+        actor_id=actor_id,
+        dataset_item_id=current.item_id,
+        profile_version=profile,
+        items=[{"kind": "overview", "generation": 3}],
+    )
+    asset_response = ImageAssetReferences(
+        source=current,
+        generation=3,
+        profile_version="pyramid-current",
+        expires_in=900,
+        items=[
+            ImageAssetReference(
+                kind="overview",
+                generation=3,
+                level=None,
+                x=None,
+                y=None,
+                url="https://image.local/overview.webp",
+            )
+        ],
+    )
+
+    async def reply(request):
+        response = (
+            generation_response
+            if request.url.path.endswith("generation-reference")
+            else asset_response
+        )
+        return httpx.Response(
+            200,
+            content=c.json_bytes(
+                {
+                    "schema": c.IMAGE_SCHEMA,
+                    "ok": True,
+                    "data": response.model_dump(mode="json", by_alias=True),
+                }
+            ),
+        )
+
+    client = ImageClient(
+        "http://image.local", "i" * 40, transport=httpx.MockTransport(reply)
+    )
+    with pytest.raises(c.ImageFailure, match="invalid_response"):
+        await client.generation_reference(generation_request)
+    with pytest.raises(c.ImageFailure, match="invalid_response"):
+        await client.asset_references(asset_request)
 
 
 @pytest.mark.asyncio

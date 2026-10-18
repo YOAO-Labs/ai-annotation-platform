@@ -80,7 +80,7 @@ class ImageControl:
 
     @property
     def source_url_expiry(self) -> int:
-        return min(self.policy.url_expiry_seconds, 604800)
+        return 3600
 
     @property
     def asset_url_expiry(self) -> int:
@@ -136,7 +136,17 @@ class ImageControl:
             return await self.retry_image_media(request)
         if operation == "schedule_image_media":
             return await self.schedule_image_media(request)
-        result = await self._native_call(operation, request)
+        native_request = request
+        if (
+            isinstance(
+                request, (c.ReadImageSummariesRequest, c.ReadImageGenerationRequest)
+            )
+            and request.profile_version is None
+        ):
+            native_request = request.model_copy(
+                update={"profile_version": self.policy.profile_version}
+            )
+        result = await self._native_call(operation, native_request)
         if isinstance(result, c.ImageSummaries):
             return c.ImageSummaries(
                 items=[
@@ -307,9 +317,13 @@ class ImageControl:
             )
         return c.PyramidWorkSpec(expected_source_snapshot=snapshot, policy=self.policy)
 
-    def _pyramid_dispatch_eligible(self, source: c.ImageSource) -> bool:
-        return self.policy.auto_generate_pyramids and self.policy.pyramid_eligible(
-            source.width, source.height
+    def _pyramid_dispatch_eligible(
+        self, source: c.ImageSource, profile_version: str | None = None
+    ) -> bool:
+        return (
+            (profile_version is None or profile_version == self.policy.profile_version)
+            and self.policy.auto_generate_pyramids
+            and self.policy.pyramid_eligible(source.width, source.height)
         )
 
     def _repair_operation_id(
@@ -554,7 +568,7 @@ class ImageControl:
             await self._prepare_repair(source, request, "dimensions", "dimensions")
             state = await self._read_generation(request, source)
             source = state.source
-        if self._pyramid_dispatch_eligible(source) and (
+        if self._pyramid_dispatch_eligible(source, request.profile_version) and (
             state.pyramid.status in {"missing", "not_available", "stale"}
         ):
             await self._prepare_repair(source, request, "pyramid", "pyramid")
@@ -722,6 +736,7 @@ class ImageControl:
             result = ImageAssetReferences(
                 source=current,
                 generation=generation,
+                profile_version=final_state.pyramid.profile_version,
                 expires_in=self.asset_url_expiry,
                 items=result_items,
             )
@@ -826,6 +841,9 @@ class ImageControl:
             task_id=selector.task_id,
             dataset_item_id=selector.dataset_item_id,
             generation=generation,
+            profile_version=(
+                getattr(request, "profile_version", None) or self.policy.profile_version
+            ),
         )
         result = await self._native_call("read_image_generation", native_request)
         if not self._same_source(source, result.source):
@@ -916,6 +934,7 @@ class ImageControl:
                 source_snapshot=source.source_snapshot,
                 kind=kind,
                 generation=pyramid.generation,
+                profile_version=pyramid.profile_version,
                 **coordinates,
             ),
         )
@@ -923,4 +942,10 @@ class ImageControl:
     async def _repair_pyramid(
         self, source: c.ImageSource, selector: c.ImageSourceSelector, target: str
     ) -> None:
+        selected_profile = getattr(selector, "profile_version", None)
+        if (
+            selected_profile is not None
+            and selected_profile != self.policy.profile_version
+        ):
+            return
         await self._prepare_repair(source, selector, "pyramid", target)

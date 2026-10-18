@@ -7,7 +7,11 @@ import pytest
 from fastapi import FastAPI
 
 from aap_assets_images import contract as c
-from aap_assets_images.transport import ImageSourceReference
+from aap_assets_images.transport import (
+    ImageGenerationReference,
+    ImagePyramidSummary,
+    ImageSourceReference,
+)
 from aap_assets_images_runtime.api import error_status, install_image_routes
 
 
@@ -175,6 +179,53 @@ async def test_reference_scope_failure_is_not_returned_as_a_success():
         )
     assert response.status_code == 502
     assert response.json()["ok"] is False
+    assert response.json()["error"]["code"] == "invalid_response"
+
+
+@pytest.mark.asyncio
+async def test_api_rejects_generation_reply_from_another_profile():
+    current = source()
+
+    class ProfileControl(FakeControl):
+        async def generation_reference(self, request):
+            assert request.profile_version == "pyramid-legacy"
+            return ImageGenerationReference(
+                source=current,
+                pyramid=ImagePyramidSummary(
+                    profile_version="pyramid-current",
+                    status="missing",
+                    required=False,
+                    generation=None,
+                    building_generation=None,
+                    building_status=None,
+                    width=None,
+                    height=None,
+                    format=None,
+                ),
+                pyramid_source_generation=None,
+                pyramid_source_snapshot=None,
+                manifest=None,
+                overview_url=None,
+                expires_in=60,
+            )
+
+    token = "i" * 40
+    app = make_app(ProfileControl(current), token)
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://media.local"
+    ) as client:
+        response = await client.post(
+            "/v1/images/generation-reference",
+            json={
+                "actor_id": str(uuid4()),
+                "dataset_item_id": str(current.item_id),
+                "profile_version": "pyramid-legacy",
+                "expires_in": 60,
+            },
+            headers={"Authorization": "Bearer " + token},
+        )
+
+    assert response.status_code == 502
     assert response.json()["error"]["code"] == "invalid_response"
 
 
