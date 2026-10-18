@@ -1,5 +1,5 @@
--- Run with psql as the migration owner after each migration. All changes are
--- confined to the explicitly selected database and application role.
+-- Run with psql as the migration owner after the application migration head is
+-- installed. All changes are confined to the selected database and runtime role.
 -- psql -v expected_database=annotation_production -v application_role=anno_prod_app
 --       -v migration_role=anno_prod_owner -f lan-production-grants.sql
 \set ON_ERROR_STOP on
@@ -36,11 +36,24 @@ REVOKE CREATE ON SCHEMA public FROM PUBLIC;
 GRANT USAGE, CREATE ON SCHEMA public TO :"application_role";
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO :"application_role";
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO :"application_role";
-GRANT USAGE ON SCHEMA aap_workspace_v1, aap_assets_v1, aap_labeling_v1 TO :"application_role";
+GRANT USAGE ON SCHEMA aap_workspace_v1, aap_assets_v1, aap_labeling_v1,
+    aap_jobs_v1 TO :"application_role";
 GRANT EXECUTE ON FUNCTION aap_workspace_v1.lock_project_reference(uuid),
+    aap_workspace_v1.lock_project_manager(uuid, uuid),
     aap_assets_v1.lock_dataset_reference(uuid),
     aap_assets_v1.lock_current_association(uuid, uuid),
-    aap_labeling_v1.append_dataset_items(uuid, uuid[], uuid)
+    aap_assets_v1.associate_project(uuid, uuid, uuid),
+    aap_labeling_v1.append_dataset_items(uuid, uuid[], uuid),
+    aap_labeling_v1.accept_dataset_task_creation(uuid, uuid, uuid, uuid, uuid, uuid, text, integer),
+    aap_labeling_v1.prepare_dataset_task_creation(uuid, jsonb),
+    aap_labeling_v1.read_dataset_task_creation(uuid),
+    aap_labeling_v1.advance_dataset_task_creation(uuid, integer),
+    aap_jobs_v1.create_task_creation_job(uuid, uuid, uuid, uuid, uuid),
+    aap_jobs_v1.find_task_creation_job(uuid, uuid, uuid, uuid),
+    aap_jobs_v1.claim_task_creation_job(uuid, text),
+    aap_jobs_v1.finish_task_creation_job(uuid, uuid),
+    aap_jobs_v1.fail_task_creation_job(uuid, uuid, text),
+    aap_jobs_v1.cancel_task_creation_job(uuid, uuid)
     TO :"application_role";
 ALTER DEFAULT PRIVILEGES FOR ROLE :"migration_role" IN SCHEMA public
     GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO :"application_role";

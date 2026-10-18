@@ -397,11 +397,23 @@ class LocalResources:
                     f"GRANT USAGE ON SCHEMA public TO {role}",
                     f"GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO {role}",
                     f"GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO {role}",
-                    f"GRANT USAGE ON SCHEMA aap_workspace_v1, aap_assets_v1, aap_labeling_v1 TO {role}",
+                    f"GRANT USAGE ON SCHEMA aap_workspace_v1, aap_assets_v1, aap_labeling_v1, aap_jobs_v1 TO {role}",
                     f"GRANT EXECUTE ON FUNCTION aap_workspace_v1.lock_project_reference(uuid), "
+                    "aap_workspace_v1.lock_project_manager(uuid, uuid), "
                     "aap_assets_v1.lock_dataset_reference(uuid), "
                     "aap_assets_v1.lock_current_association(uuid, uuid), "
-                    f"aap_labeling_v1.append_dataset_items(uuid, uuid[], uuid) TO {role}",
+                    "aap_assets_v1.associate_project(uuid, uuid, uuid), "
+                    "aap_labeling_v1.append_dataset_items(uuid, uuid[], uuid), "
+                    "aap_labeling_v1.accept_dataset_task_creation(uuid, uuid, uuid, uuid, uuid, uuid, text, integer), "
+                    "aap_labeling_v1.prepare_dataset_task_creation(uuid, jsonb), "
+                    "aap_labeling_v1.read_dataset_task_creation(uuid), "
+                    "aap_labeling_v1.advance_dataset_task_creation(uuid, integer), "
+                    "aap_jobs_v1.create_task_creation_job(uuid, uuid, uuid, uuid, uuid), "
+                    "aap_jobs_v1.find_task_creation_job(uuid, uuid, uuid, uuid), "
+                    "aap_jobs_v1.claim_task_creation_job(uuid, text), "
+                    "aap_jobs_v1.finish_task_creation_job(uuid, uuid), "
+                    "aap_jobs_v1.fail_task_creation_job(uuid, uuid, text), "
+                    f"aap_jobs_v1.cancel_task_creation_job(uuid, uuid) TO {role}",
                 ):
                     await connection.exec_driver_sql(sql)
         finally:

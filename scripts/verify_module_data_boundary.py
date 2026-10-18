@@ -31,11 +31,41 @@ CONTAINER_LABEL = "org.aap.acceptance"
 CONTAINER_LABEL_VALUE = "module-data-boundary"
 CONTAINER_ID_LABEL = "org.aap.acceptance-id"
 POSTGRES_IMAGE = "postgres:16-alpine"
-MODULE_ROLES = ("workspace_code", "assets_code", "labeling_code", "append_client")
+MODULE_ROLES = (
+    "identity_code",
+    "workspace_code",
+    "assets_code",
+    "labeling_code",
+    "jobs_code",
+    "append_client",
+)
+SQL_ARTIFACTS = (
+    "0190_workspace_data_contract.sql",
+    "0191_dataset_task_append_contract.sql",
+    "0192_creation_authority.sql",
+    "0193_task_creation_jobs.sql",
+    "0194_initial_task_creation.sql",
+)
+SCHEMA_ARTIFACTS = (
+    "0191_task_append.schema.json",
+    "0192_creation_authority.schema.json",
+    "0193_task_creation_jobs.schema.json",
+    "0194_task_creation.schema.json",
+)
 TEST_FILES = (
     "tests/test_workspace_data_contract.py",
     "tests/test_task_append_data_contract.py",
     "tests/test_task_append_consumer.py",
+    "tests/test_creation_authority_contract.py",
+    "tests/test_task_creation_job_contract.py",
+    "tests/test_initial_task_creation_contract.py",
+    "tests/test_task_creation_bindings.py",
+    "tests/test_task_creation_runtime.py",
+    "tests/test_task_creation_handoff.py",
+    "tests/test_pointcloud_box3d_annotation.py",
+    "tests/test_pointcloud_import.py",
+    "tests/test_pointcloud_manifest.py",
+    "tests/test_pointcloud_scene_e2e.py",
     "tests/test_module_data_roles.py",
     "tests/test_datasets_upload_zip.py",
     "tests/test_dataset_import.py",
@@ -228,11 +258,15 @@ def _create_module_roles(
         password=owner_password,
         database=database,
         sql=(
+            "CREATE ROLE identity_code NOLOGIN NOSUPERUSER NOCREATEDB "
+            "NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS;\n"
             "CREATE ROLE workspace_code NOLOGIN NOSUPERUSER NOCREATEDB "
             "NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS;\n"
             "CREATE ROLE assets_code NOLOGIN NOSUPERUSER NOCREATEDB "
             "NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS;\n"
             "CREATE ROLE labeling_code NOLOGIN NOSUPERUSER NOCREATEDB "
+            "NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS;\n"
+            "CREATE ROLE jobs_code NOLOGIN NOSUPERUSER NOCREATEDB "
             "NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS;\n"
             "CREATE ROLE append_client LOGIN "
             f"PASSWORD '{append_password}' NOSUPERUSER NOCREATEDB NOCREATEROLE "
@@ -263,7 +297,7 @@ def _install_and_rollback_frozen_sql(
     container_identity: str,
     database: str,
     owner_password: str,
-    artifacts: tuple[Path, Path],
+    artifacts: tuple[Path, ...],
 ) -> None:
     install_sql = "\n".join(path.read_text(encoding="utf-8") for path in artifacts)
     sql = (
@@ -271,6 +305,21 @@ def _install_and_rollback_frozen_sql(
         "BEGIN;\n"
         "SELECT 1 / (current_database() = :'expected_database')::integer;\n"
         f"{install_sql}\n"
+        "SELECT aap_identity_v1.lock_active_actor(NULL::uuid);\n"
+        "SELECT aap_workspace_v1.lock_project_manager(NULL::uuid, NULL::uuid);\n"
+        "SELECT aap_assets_v1.associate_project(NULL::uuid, NULL::uuid, NULL::uuid);\n"
+        "SELECT aap_assets_v1.lock_task_creation_items(NULL::uuid, NULL::uuid[]);\n"
+        "SELECT aap_jobs_v1.create_task_creation_job(NULL::uuid, NULL::uuid, NULL::uuid, NULL::uuid, NULL::uuid);\n"
+        "SELECT aap_jobs_v1.find_task_creation_job(NULL::uuid, NULL::uuid, NULL::uuid, NULL::uuid);\n"
+        "SELECT aap_jobs_v1.claim_task_creation_job(NULL::uuid, NULL::text);\n"
+        "SELECT aap_jobs_v1.lock_task_creation_job(NULL::uuid, NULL::uuid, NULL::uuid, NULL::uuid, NULL::uuid, NULL::uuid);\n"
+        "SELECT aap_jobs_v1.finish_task_creation_job(NULL::uuid, NULL::uuid);\n"
+        "SELECT aap_jobs_v1.fail_task_creation_job(NULL::uuid, NULL::uuid, NULL::text);\n"
+        "SELECT aap_jobs_v1.cancel_task_creation_job(NULL::uuid, NULL::uuid);\n"
+        "SELECT aap_labeling_v1.accept_dataset_task_creation(NULL::uuid, NULL::uuid, NULL::uuid, NULL::uuid, NULL::uuid, NULL::uuid, NULL::text, NULL::integer);\n"
+        "SELECT aap_labeling_v1.prepare_dataset_task_creation(NULL::uuid, NULL::jsonb);\n"
+        "SELECT aap_labeling_v1.read_dataset_task_creation(NULL::uuid);\n"
+        "SELECT aap_labeling_v1.advance_dataset_task_creation(NULL::uuid, NULL::integer);\n"
         "SELECT aap_labeling_v1.append_dataset_items("
         ":'dataset_id'::uuid, ARRAY[]::uuid[], :'operation_id'::uuid);\n"
         "ROLLBACK;\n"
@@ -289,17 +338,42 @@ def _install_and_rollback_frozen_sql(
             "operation_id": str(uuid4()),
         },
     )
-    receipts = []
+    responses: dict[str, list[dict]] = {}
     for line in output.splitlines():
         try:
             value = json.loads(line)
         except json.JSONDecodeError:
             continue
-        if isinstance(value, dict) and value.get("schema") == "aap-task-append/v1":
-            receipts.append(value)
-    if len(receipts) != 1 or receipts[0].get("created") != 0:
+        if isinstance(value, dict) and isinstance(value.get("schema"), str):
+            responses.setdefault(value["schema"], []).append(value)
+    append_receipts = responses.get("aap-task-append/v1", [])
+    if len(append_receipts) != 1 or append_receipts[0].get("created") != 0:
         raise RuntimeError(
             "native frozen-SQL append probe returned an unexpected receipt"
+        )
+
+    expected_errors = {
+        "aap-active-actor/v1": "account_not_active",
+        "aap-project-manager/v1": "account_not_active",
+        "aap-dataset-association/v1": "account_not_active",
+        "aap-task-creation-items/v1": "invalid_request",
+        "aap-task-creation-job-command/v1": "invalid_request",
+        "aap-task-creation-job-discovery/v1": "invalid_request",
+        "aap-task-creation-job-claim/v1": "invalid_request",
+        "aap-task-creation-job/v1": "invalid_request",
+        "aap-task-creation-job-finish/v1": "invalid_request",
+        "aap-task-creation/v1": "invalid_request",
+    }
+    if any(
+        not any(
+            response.get("ok") is False
+            and response.get("error", {}).get("code") == code
+            for response in responses.get(schema, [])
+        )
+        for schema, code in expected_errors.items()
+    ):
+        raise RuntimeError(
+            "native frozen-SQL contract probes returned unexpected errors"
         )
 
     rollback_state = _psql(
@@ -311,10 +385,14 @@ def _install_and_rollback_frozen_sql(
         database=database,
         sql=(
             "SELECT current_database() = :'expected_database' "
+            "AND to_regnamespace('aap_identity_v1') IS NULL "
             "AND to_regnamespace('aap_workspace_v1') IS NULL "
             "AND to_regnamespace('aap_assets_v1') IS NULL "
             "AND to_regnamespace('aap_labeling_v1') IS NULL "
-            "AND to_regclass('public.task_append_operations') IS NULL;\n"
+            "AND to_regnamespace('aap_jobs_v1') IS NULL "
+            "AND to_regclass('public.task_append_operations') IS NULL "
+            "AND to_regclass('public.task_creation_operations') IS NULL "
+            "AND to_regclass('public.task_creation_chunks') IS NULL;\n"
         ),
         variables={"expected_database": database},
     )
@@ -344,6 +422,10 @@ def main(argv: list[str] | None = None) -> int:
         "container_image": POSTGRES_IMAGE,
         "container_labels": {
             CONTAINER_LABEL: CONTAINER_LABEL_VALUE,
+        },
+        "contract_artifacts": {
+            "sql": list(SQL_ARTIFACTS),
+            "schemas": list(SCHEMA_ARTIFACTS),
         },
         "database": None,
         "roles": list(MODULE_ROLES),
@@ -377,14 +459,29 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         grants_path = ROOT / "infra/docker/module-data-grants.sql"
-        artifacts = (
-            ROOT / "apps/api/alembic/sql/0190_workspace_data_contract.sql",
-            ROOT / "apps/api/alembic/sql/0191_dataset_task_append_contract.sql",
+        artifacts = tuple(
+            ROOT / "apps/api/alembic/sql" / name for name in SQL_ARTIFACTS
         )
-        if not grants_path.is_file() or any(not path.is_file() for path in artifacts):
+        schema_paths = tuple(
+            ROOT / "apps/api/alembic/sql" / name for name in SCHEMA_ARTIFACTS
+        )
+        if (
+            not grants_path.is_file()
+            or any(not path.is_file() for path in artifacts)
+            or any(not path.is_file() for path in schema_paths)
+        ):
             raise RuntimeError(
-                "module-data SQL artifacts are missing from this checkout"
+                "module-data SQL/schema artifacts are missing from this checkout"
             )
+        for path in schema_paths:
+            contract = json.loads(path.read_text(encoding="utf-8"))
+            if (
+                contract.get("$schema")
+                != "https://json-schema.org/draft/2020-12/schema"
+                or not isinstance(contract.get("$id"), str)
+                or not isinstance(contract.get("$defs"), dict)
+            ):
+                raise RuntimeError(f"invalid frozen module-data schema: {path.name}")
         grant_sql = grants_path.read_text(encoding="utf-8")
 
         from sqlalchemy.engine import URL
@@ -475,6 +572,8 @@ def main(argv: list[str] | None = None) -> int:
         database = resources["database"]
         evidence["database"] = database
         _, heads = migration_graph(ROOT)
+        if heads != ["0194"]:
+            raise RuntimeError("module-data acceptance requires migration head 0194")
         evidence["migrations"]["head_before_downgrade"] = heads[0]
         phase = "downgrade-to-0189"
         _container_details(
@@ -541,9 +640,11 @@ def main(argv: list[str] | None = None) -> int:
             variables={
                 "expected_database": database,
                 "migration_role": "owner",
+                "identity_owner": "identity_code",
                 "workspace_owner": "workspace_code",
                 "assets_owner": "assets_code",
                 "labeling_owner": "labeling_code",
+                "jobs_owner": "jobs_code",
                 "workflow_role": "append_client",
             },
         )
