@@ -236,6 +236,10 @@ class Settings(BaseSettings):
     assets_source_url: str = ""
     assets_source_token: str = Field(default="", repr=False)
     assets_source_timeout_seconds: float = Field(default=300, gt=0, le=3600)
+    # Empty selects the same native media workflow in this process.
+    assets_media_url: str = ""
+    assets_media_token: str = Field(default="", repr=False)
+    assets_media_timeout_seconds: float = Field(default=30, gt=0, le=3600)
 
     # 超大图不可变 tile pyramid。服务端可先发布 schema/API；自动入队默认关闭，
     # 待容量验收后再由部署显式打开。所有 byte/pixel/tile 限额均在 worker 实际生成前后复核。

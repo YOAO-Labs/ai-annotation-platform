@@ -1,0 +1,94 @@
+services:
+  assets-media-control:
+    build:
+      context: .
+      dockerfile: apps/assets-media/Dockerfile
+      target: control
+    environment:
+      ASSETS_MEDIA_CONTROL_DATABASE_URL_FILE: /run/secrets/media_control_database_url
+      ASSETS_MEDIA_TOKEN_FILE: /run/secrets/media_token
+      ASSETS_MEDIA_S3_ACCESS_KEY_FILE: /run/secrets/media_control_s3_access_key
+      ASSETS_MEDIA_S3_SECRET_KEY_FILE: /run/secrets/media_control_s3_secret_key
+      ASSETS_MEDIA_S3_ENDPOINT: ${ASSETS_MEDIA_S3_ENDPOINT:?Set the internal S3 origin}
+      ASSETS_MEDIA_S3_PUBLIC_ENDPOINT: ${ASSETS_MEDIA_S3_PUBLIC_ENDPOINT:?Set the browser-reachable S3 origin}
+      ASSETS_MEDIA_S3_REGION: ${ASSETS_MEDIA_S3_REGION:-us-east-1}
+      ASSETS_MEDIA_DATASETS_BUCKET: ${ASSETS_MEDIA_DATASETS_BUCKET:?Set the datasets bucket}
+      ASSETS_MEDIA_CACHE_BUCKET: ${ASSETS_MEDIA_CACHE_BUCKET:?Set the media-cache bucket}
+      ASSETS_MEDIA_HOST: 0.0.0.0
+      ASSETS_MEDIA_PORT: 8768
+      ASSETS_MEDIA_POOL_MIN_SIZE: ${ASSETS_MEDIA_POOL_MIN_SIZE:-1}
+      ASSETS_MEDIA_POOL_MAX_SIZE: ${ASSETS_MEDIA_POOL_MAX_SIZE:-8}
+      ASSETS_MEDIA_POOL_TIMEOUT_SECONDS: ${ASSETS_MEDIA_POOL_TIMEOUT_SECONDS:-2}
+      ASSETS_MEDIA_SQL_TIMEOUT_SECONDS: ${ASSETS_MEDIA_SQL_TIMEOUT_SECONDS:-5}
+    secrets:
+      - media_control_database_url
+      - media_token
+      - media_control_s3_access_key
+      - media_control_s3_secret_key
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    expose:
+      - "8768"
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    cpus: 0.5
+    mem_limit: 512m
+    restart: unless-stopped
+    stop_grace_period: 30s
+
+  assets-media-worker:
+    build:
+      context: .
+      dockerfile: apps/assets-media/Dockerfile
+      target: worker
+    environment:
+      ASSETS_MEDIA_WORKER_DATABASE_URL_FILE: /run/secrets/media_worker_database_url
+      ASSETS_MEDIA_S3_ACCESS_KEY_FILE: /run/secrets/media_worker_s3_access_key
+      ASSETS_MEDIA_S3_SECRET_KEY_FILE: /run/secrets/media_worker_s3_secret_key
+      ASSETS_MEDIA_S3_ENDPOINT: ${ASSETS_MEDIA_S3_ENDPOINT:?Set the internal S3 origin}
+      ASSETS_MEDIA_S3_PUBLIC_ENDPOINT: ${ASSETS_MEDIA_S3_PUBLIC_ENDPOINT:?Set the browser-reachable S3 origin}
+      ASSETS_MEDIA_S3_REGION: ${ASSETS_MEDIA_S3_REGION:-us-east-1}
+      ASSETS_MEDIA_DATASETS_BUCKET: ${ASSETS_MEDIA_DATASETS_BUCKET:?Set the datasets bucket}
+      ASSETS_MEDIA_CACHE_BUCKET: ${ASSETS_MEDIA_CACHE_BUCKET:?Set the media-cache bucket}
+      ASSETS_MEDIA_POLL_SECONDS: ${ASSETS_MEDIA_POLL_SECONDS:-5}
+      ASSETS_MEDIA_LEASE_SECONDS: ${ASSETS_MEDIA_LEASE_SECONDS:-1200}
+      ASSETS_MEDIA_FRAME_TTL_DAYS: ${ASSETS_MEDIA_FRAME_TTL_DAYS:-14}
+      ASSETS_MEDIA_CHUNK_TTL_DAYS: ${ASSETS_MEDIA_CHUNK_TTL_DAYS:-30}
+    secrets:
+      - media_worker_database_url
+      - media_worker_s3_access_key
+      - media_worker_s3_secret_key
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    cpus: 2
+    mem_limit: 2g
+    restart: unless-stopped
+    stop_grace_period: 60s
+
+secrets:
+  media_control_database_url:
+    file: ${ASSETS_MEDIA_CONTROL_DATABASE_URL_FILE:-./.secrets/assets-media-control-database-url}
+  media_worker_database_url:
+    file: ${ASSETS_MEDIA_WORKER_DATABASE_URL_FILE:-./.secrets/assets-media-worker-database-url}
+  media_token:
+    file: ${ASSETS_MEDIA_TOKEN_FILE:-./.secrets/assets-media-token}
+  media_control_s3_access_key:
+    file: ${ASSETS_MEDIA_CONTROL_S3_ACCESS_KEY_FILE:-./.secrets/assets-media-control-s3-access-key}
+  media_control_s3_secret_key:
+    file: ${ASSETS_MEDIA_CONTROL_S3_SECRET_KEY_FILE:-./.secrets/assets-media-control-s3-secret-key}
+  media_worker_s3_access_key:
+    file: ${ASSETS_MEDIA_WORKER_S3_ACCESS_KEY_FILE:-./.secrets/assets-media-worker-s3-access-key}
+  media_worker_s3_secret_key:
+    file: ${ASSETS_MEDIA_WORKER_S3_SECRET_KEY_FILE:-./.secrets/assets-media-worker-s3-secret-key}

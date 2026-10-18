@@ -1054,3 +1054,36 @@ psql -v expected_database=annotation_test -v migration_role=owner \
 登记操作继续使用调用方同一 SQL 事务；nuScenes 导入可将 Dataset/Item、Scene、标定、工作区关联和 Labeling 任务共同提交或回滚。条目按输入顺序以至多 500 项分批追加或更新。重导读取通过排序游标返回稳定快照；单页最多 500 项，记录 JSON 上限 15 MiB，完整响应上限 16 MiB，单次请求上限 8 MiB。调用方校验页序、总数和快照摘要后再使用数据；source snapshot 是不透明 CAS 值，更新时由 Assets 重新校验并只合并请求字段。
 
 SQL 回滚不会撤销对象存储 I/O。图片上传和 nuScenes 文件写入/覆盖若发生在数据库提交前，失败后对象字节仍保留；不得以回滚成功推断对象已删除。更多函数、快照与事务字段见[同库数据接口](docs-site/api/guides/module-data.md#可信导入器数据集与素材登记)及 [ADR-0104](docs/adr/0104-operator-source-registration.md)。该边界继续依赖现有本地导入脚本和共享 PostgreSQL，不代表完整 Assets、CLI 或导入器可独立部署。
+
+## 视频媒体的独立控制与执行
+
+`apps/assets-media` 定义 `aap-assets-media/v1` 数据与 HTTP 契约。控制进程负责来源观察、引用签名、受理、状态与分页读取；独立执行进程领取持久作业，完成元信息、时间表、海报、播放副本、帧、分块、回填及派生缓存清理。图片缩略图、金字塔和一般 Blob 管理仍沿用各自现有路径。该切片正在隔离工作区实施与验证；协议和单元测试不代表整个 Assets 模块已经独立可部署。Go 实验不进入这些默认运行路径。
+
+迁移到 `0219` 后，沿用 module-data 初始化流程，为现有 Assets NOLOGIN owner 创建分离的 `asset_media_control_client` 和 `asset_media_worker_client` LOGIN。先应用 owner 与既有 Catalog/Source/importer/operator grants，再由 migration role 安装媒体授权：
+
+```bash
+psql -v expected_database=annotation_test -v migration_role=owner \
+  -v assets_owner=assets_code \
+  -v asset_media_control_role=asset_media_control_client \
+  -v asset_media_worker_role=asset_media_worker_client \
+  -f infra/docker/assets-media-grants.sql
+```
+
+控制 LOGIN 只有 17 个控制/受信任系统函数，执行 LOGIN 只有 10 个领取、租约、发布和维护函数。二者都没有表、列、sequence、外部 owner schema、成员继承或 CREATE/TEMP 权限；初始化必须处理 PUBLIC 的 TEMP。来源身份、Task 可见性及任务级帧重试的标注写权限由 owner 能力组合验证，不把布尔权限结果当作授权。已受理的后台工作按来源代次、作业状态和显式取消继续执行，不在每块重新检查最初发起者的角色。
+
+为两个进程准备不同的数据库和 S3 身份。源桶只需对象 HEAD/GET，不能写或删除原素材；控制身份对缓存只需 HEAD/GET，执行身份另需 `media-assets/*` 的 Put/Get/List/Delete 及精确旧视频缓存清理，不授予桶管理。S3 不单独定义 HEAD 动作，相应权限由 GetObject 提供。浏览器可达的 `ASSETS_MEDIA_S3_PUBLIC_ENDPOINT` 必须与内部请求地址分开配置；不改写已签名主机名。
+
+可选 `docker-compose.assets-media.yml` 不被默认 Compose 引用。准备其中列出的独立 secret 文件，使容器用户 10005 能读取，再显式启动两个服务；该文件只暴露内部 8768，不绑定宿主端口，不连接 Celery/Redis。宿主联调入口为：
+
+```bash
+uv run --project apps/assets-media --extra runtime --extra server python -m aap_assets_media_runtime
+uv run --project apps/assets-media --extra runtime python -m aap_assets_media_runtime.worker
+```
+
+每个进程只接收自己的专用环境。必填的 DSN、token、S3 凭据可用对应 `_FILE`，直接值与文件变量不能同时存在，空值不作为回退来源。控制进程使用 `ASSETS_MEDIA_CONTROL_DATABASE_URL`，执行进程使用 `ASSETS_MEDIA_WORKER_DATABASE_URL`；S3 endpoint、region、两个桶和身份由 `ASSETS_MEDIA_*` 显式提供。API 设置 `ASSETS_MEDIA_URL` 和同一 token 后选择远程控制，任何远程配置或调用失败都不回退本地；留空使用同一工作流的本地 SQL/对象装配和薄 Celery 执行适配。
+
+原生请求/完整回复上限为 8/16 MiB，记录页为 15 MiB/500 条；完整时间表和 packet 样本可以跨页。客户端验证顺序、总数、游标、来源和摘要，来源引用批量读取也按回复预算拆分。控制默认池为 1..8、取连接 2 秒、SQL 5 秒、S3 连接/读取 2/10 秒；执行默认轮询 5 秒、租约 1200 秒及定期续租，S3 连接/读取为 10/120 秒。帧和分块的空闲保留为 14/30 天，海报使用独立持久对象，不参与普通帧淘汰。Compose 的控制 512 MiB/0.5 CPU 和执行 2 GiB/2 CPU 是可选本地预算，不是生产容量证明；解码、完整索引及临时文件仍随视频大小增长。
+
+切换前先排空或停止旧视频消费者；旧进程不会因迁移自动获得新写入栅栏。领取事务在下载、FFmpeg 或上传前提交，输出在不可变 attempt 目录，迟到执行者不能替换当前投影。首次观察绑定对象身份；后续外部覆盖使来源漂移并拒绝发布，需由 Source 登记所有者核对。旧视频缓存从未验证代次开始按需重建，原素材、标注和学习证据保持保留。清理先在 SQL 中脱离引用并持久登记垃圾，再删除对象并确认。
+
+控制 `/health/live` 只证明进程可响应，`/health/ready` 和执行器 `--healthcheck` 验证精确 SQL 身份；它们不能替代实际对象权限、解码和发布验收。数据 schema 与 HTTP OpenAPI 分别随包发布为 `protocol.schema.json`、`openapi.snapshot.json`。完整切片状态与本地证据记录在[后端解耦计划](docs/plans/1792160873_backend-module-decoupling.md)和 [ADR-0105](docs/adr/0105-independent-video-media-owner.md)。

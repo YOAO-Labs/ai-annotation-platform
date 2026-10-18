@@ -4,7 +4,7 @@ version = "0.26.1"
 requires-python = ">=3.11"
 dependencies = [
     "aap-assets-catalog",
-    "aap-assets-media[client]",
+    "aap-assets-media[client,runtime]",
     "aap-assets-cleanup",
     "aap-assets-source",
     "aap-audit-contract",
