@@ -44,7 +44,7 @@ METHOD_NOTES: dict[str, dict[str, Any]] = {
     },
     "files.backfill_thumbnails": {
         "constraints": [
-            "Requires legitimate project owner/super_admin. Returns queued and a Celery task ID, not a generic AsyncJob ID or completion proof. No automatic POST retry."
+            "Requires project manager authority. Returns a durable image-thumbnail job receipt (operation_id, job_id, status, accepted_before), not a Celery task ID or per-item progress. Reuse the Idempotency-Key after a lost response; no automatic POST retry or implicit wait."
         ],
     },
     "scenes.list": {
@@ -989,12 +989,12 @@ for _namespace, _methods, _note in [
     (
         "datasets",
         "backfill_dimensions",
-        "Platform manager, batch 1..200. No cursor/order: failed width-null items remain eligible and may starve later rows. remaining_hint means a full batch was selected; processed=0 with failed>0 is not completion. SDK never loops automatically.",
+        "Platform manager. Returns a durable dimensions-job receipt, not processed counts or per-item progress. The legacy batch query is accepted but ignored; the owner scans in bounded pages. Reuse the Idempotency-Key after a lost response; no automatic POST retry or implicit wait.",
     ),
     (
         "datasets",
         "backfill_media",
-        "Platform manager. Returns queued without an AsyncJob ID; worker attempts dimensions and media for items missing thumbnails, not every dimension-null item. No implicit wait or completion claim.",
+        "Platform manager. Returns a durable image-thumbnail job receipt while retaining the dataset video-metadata backfill path; the receipt is not per-item progress. Reuse the Idempotency-Key after a lost response; no automatic POST retry or implicit wait.",
     ),
     (
         "datasets",

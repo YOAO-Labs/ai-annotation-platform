@@ -68,6 +68,27 @@ with Client(base_url="http://localhost:8000", api_key="ak_...") as client:
     client.exports.download(job, "./export.zip")
 ```
 
+### 持久媒体回填
+
+图片尺寸、缩略图和项目任务缩略图回填返回可回放的作业回执，而不是已处理条数或 Celery task ID。需要在响应丢失后重试时，先生成并保存 UUID 幂等键，重试时复用同一个值；省略该参数时 SDK 会为本次调用生成新键。`operation_id`、`job_id` 与 `status` 是回执字段；`pending` 表示作业已接受，不表示处理完成，SDK 和 CLI 都不会等待作业。尺寸回填的 `batch` 参数只为旧调用保留，服务端现在忽略它并自行有界分页。
+
+```python
+from uuid import uuid4
+
+from ai_annotation import Client
+
+# 假设 dataset 是上方快速入门中创建的数据集。
+with Client(base_url="http://localhost:8000", api_key="ak_...") as client:
+    key = uuid4()
+    receipt = client.datasets.backfill_dimensions(
+        dataset.id, idempotency_key=key
+    )
+    print(receipt.operation_id, receipt.job_id, receipt.status)
+    # 响应不确定时，复用 key 调用同一操作。
+```
+
+`client.datasets.backfill_media()` 返回图片缩略图作业回执，同时保留数据集视频元信息回填入口；`client.files.backfill_thumbnails(project.id)` 返回项目任务缩略图作业回执。
+
 错误统一抛 `ai_annotation.errors` 下的异常(`AuthenticationError` / `NotFoundError` / `JobFailedError` 等);响应模型 `extra="allow"`,容忍服务端新增字段。
 
 ### 项目角色与成员

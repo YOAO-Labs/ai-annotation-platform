@@ -44778,6 +44778,13 @@
           "annotation": "int",
           "required": false,
           "default": 50
+        },
+        {
+          "name": "idempotency_key",
+          "kind": "keyword_only",
+          "annotation": "IdLike | None",
+          "required": false,
+          "default": null
         }
       ],
       "return_type": "DatasetBackfillDimensionsResult",
@@ -44792,7 +44799,7 @@
       "calls": [],
       "external_http": false,
       "constraints": [
-        "Platform manager, batch 1..200. No cursor/order: failed width-null items remain eligible and may starve later rows. remaining_hint means a full batch was selected; processed=0 with failed>0 is not completion. SDK never loops automatically."
+        "Platform manager. Returns a durable dimensions-job receipt, not processed counts or per-item progress. The legacy batch query is accepted but ignored; the owner scans in bounded pages. Reuse the Idempotency-Key after a lost response; no automatic POST retry or implicit wait."
       ],
       "cli_aliases": [
         "datasets.backfill-dimensions"
@@ -44810,6 +44817,13 @@
           "annotation": "IdLike",
           "required": true,
           "default": null
+        },
+        {
+          "name": "idempotency_key",
+          "kind": "keyword_only",
+          "annotation": "IdLike | None",
+          "required": false,
+          "default": null
         }
       ],
       "return_type": "DatasetBackfillMediaResult",
@@ -44824,7 +44838,7 @@
       "calls": [],
       "external_http": false,
       "constraints": [
-        "Platform manager. Returns queued without an AsyncJob ID; worker attempts dimensions and media for items missing thumbnails, not every dimension-null item. No implicit wait or completion claim."
+        "Platform manager. Returns a durable image-thumbnail job receipt while retaining the dataset video-metadata backfill path; the receipt is not per-item progress. Reuse the Idempotency-Key after a lost response; no automatic POST retry or implicit wait."
       ],
       "cli_aliases": [
         "datasets.backfill-media"
@@ -46338,6 +46352,13 @@
           "annotation": "IdLike",
           "required": true,
           "default": null
+        },
+        {
+          "name": "idempotency_key",
+          "kind": "keyword_only",
+          "annotation": "IdLike | None",
+          "required": false,
+          "default": null
         }
       ],
       "return_type": "ThumbnailBackfill",
@@ -46352,7 +46373,7 @@
       "calls": [],
       "external_http": false,
       "constraints": [
-        "Requires legitimate project owner/super_admin. Returns queued and a Celery task ID, not a generic AsyncJob ID or completion proof. No automatic POST retry."
+        "Requires project manager authority. Returns a durable image-thumbnail job receipt (operation_id, job_id, status, accepted_before), not a Celery task ID or per-item progress. Reuse the Idempotency-Key after a lost response; no automatic POST retry or implicit wait."
       ],
       "cli_aliases": [
         "files.backfill-thumbnails"
@@ -68253,7 +68274,7 @@
           "required": false,
           "default": 50,
           "type": "int",
-          "description": "每次处理条数"
+          "description": "已弃用兼容参数；服务端忽略并自行有界分页"
         },
         {
           "name": "yes",
@@ -68266,6 +68287,17 @@
           "default": false,
           "type": "bool",
           "description": "确认回填尺寸"
+        },
+        {
+          "name": "idempotency_key",
+          "kind": "option",
+          "options": [
+            "--idempotency-key"
+          ],
+          "required": false,
+          "default": null,
+          "type": "str | None",
+          "description": "稳定 UUID；响应不确定时重试请复用原值"
         },
         {
           "name": "json_output",
@@ -68308,6 +68340,17 @@
           "default": false,
           "type": "bool",
           "description": "确认排队媒体回填"
+        },
+        {
+          "name": "idempotency_key",
+          "kind": "option",
+          "options": [
+            "--idempotency-key"
+          ],
+          "required": false,
+          "default": null,
+          "type": "str | None",
+          "description": "稳定 UUID；响应不确定时重试请复用原值"
         },
         {
           "name": "json_output",
@@ -69680,6 +69723,17 @@
           "default": false,
           "type": "bool",
           "description": "确认排队回填任务"
+        },
+        {
+          "name": "idempotency_key",
+          "kind": "option",
+          "options": [
+            "--idempotency-key"
+          ],
+          "required": false,
+          "default": null,
+          "type": "str | None",
+          "description": "稳定 UUID；响应不确定时重试请复用原值"
         },
         {
           "name": "json_output",

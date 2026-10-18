@@ -435,20 +435,45 @@ def sniff_axis(
     print_learning_result(result, json_output)
 
 
+def _normalize_idempotency_key(value: str | None) -> str | None:
+    if value is None:
+        return None
+    try:
+        return str(UUID(value))
+    except ValueError as exc:
+        raise typer.BadParameter("--idempotency-key 必须是 UUID") from exc
+
+
 @app.command("backfill-dimensions")
 def backfill_dimensions(
     dataset_id: str = typer.Argument(..., help="数据集 ID"),
-    batch: int = typer.Option(50, "--batch", min=1, max=200, help="每次处理条数"),
+    batch: int = typer.Option(
+        50,
+        "--batch",
+        min=1,
+        max=200,
+        help="已弃用兼容参数；服务端忽略并自行有界分页",
+    ),
     yes: bool = typer.Option(False, "--yes", "-y", help="确认回填尺寸"),
+    idempotency_key: str | None = typer.Option(
+        None,
+        "--idempotency-key",
+        help="稳定 UUID；响应不确定时重试请复用原值",
+    ),
     json_output: bool = typer.Option(False, "--json", help="输出裸 JSON"),
 ) -> None:
-    """回填一个尺寸批次；remaining_hint 是满批提示，不是游标，失败项可能重复。"""
+    """接受持久尺寸回填作业并返回可回放回执。"""
+    idempotency_key = _normalize_idempotency_key(idempotency_key)
     with cli_errors(json_output):
         confirm_destructive("确认回填数据集图像尺寸?", yes, json_output)
         with get_client(json_output) as client:
-            result = client.datasets.backfill_dimensions(dataset_id, batch=batch)
+            result = client.datasets.backfill_dimensions(
+                dataset_id,
+                batch=batch,
+                idempotency_key=idempotency_key,
+            )
     print_learning_result(result, json_output)
-    if result.failed:
+    if result.status in {"failed", "canceled"}:
         raise typer.Exit(1)
 
 
@@ -456,14 +481,24 @@ def backfill_dimensions(
 def backfill_media(
     dataset_id: str = typer.Argument(..., help="数据集 ID"),
     yes: bool = typer.Option(False, "--yes", "-y", help="确认排队媒体回填"),
+    idempotency_key: str | None = typer.Option(
+        None,
+        "--idempotency-key",
+        help="稳定 UUID；响应不确定时重试请复用原值",
+    ),
     json_output: bool = typer.Option(False, "--json", help="输出裸 JSON"),
 ) -> None:
-    """排队回填数据集缩略图与视频元数据。"""
+    """接受持久图片缩略图作业，并保留视频元数据回填。"""
+    idempotency_key = _normalize_idempotency_key(idempotency_key)
     with cli_errors(json_output):
         confirm_destructive("确认排队数据集媒体回填?", yes, json_output)
         with get_client(json_output) as client:
-            result = client.datasets.backfill_media(dataset_id)
+            result = client.datasets.backfill_media(
+                dataset_id, idempotency_key=idempotency_key
+            )
     print_learning_result(result, json_output)
+    if result.status in {"failed", "canceled"}:
+        raise typer.Exit(1)
 
 
 @app.command("backfill-scenes")

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from pathlib import Path
+from uuid import UUID
+
 import typer
 
 from ai_annotation.cli._output import (
@@ -95,15 +97,34 @@ def upload_content(
     print_learning_result(payload, json_output)
 
 
+def _normalize_idempotency_key(value: str | None) -> str | None:
+    if value is None:
+        return None
+    try:
+        return str(UUID(value))
+    except ValueError as exc:
+        raise typer.BadParameter("--idempotency-key 必须是 UUID") from exc
+
+
 @app.command("backfill-thumbnails")
 def backfill_thumbnails(
     project_id: str = typer.Argument(..., help="项目 UUID"),
     yes: bool = typer.Option(False, "--yes", "-y", help="确认排队回填任务"),
+    idempotency_key: str | None = typer.Option(
+        None,
+        "--idempotency-key",
+        help="稳定 UUID；响应不确定时重试请复用原值",
+    ),
     json_output: bool = typer.Option(False, "--json", help="输出裸 JSON"),
 ) -> None:
-    """为项目排队回填缩略图。"""
+    """接受项目任务缩略图回填作业并返回可回放回执。"""
+    idempotency_key = _normalize_idempotency_key(idempotency_key)
     confirm_destructive(f"确认回填项目 {project_id} 的缩略图?", yes, json_output)
     with cli_errors(json_output):
         with get_client(json_output) as client:
-            result = client.files.backfill_thumbnails(project_id)
+            result = client.files.backfill_thumbnails(
+                project_id, idempotency_key=idempotency_key
+            )
     print_learning_result(result, json_output)
+    if result.status in {"failed", "canceled"}:
+        raise typer.Exit(1)

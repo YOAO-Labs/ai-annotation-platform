@@ -704,23 +704,56 @@ def test_link_project_async(client, respx_mock):
 
 
 def test_dataset_operation_routes_and_typed_responses(client, respx_mock):
+    operation_id = str(uuid4())
+    dimensions_job_id = str(uuid4())
+    accepted_before = "2026-10-18T12:34:56Z"
+    dimension_key = str(uuid4())
     dimensions = respx_mock.post(f"{API}/datasets/{DS_ID}/backfill-dimensions").mock(
         return_value=httpx.Response(
-            200, json={"processed": 10, "failed": 1, "remaining_hint": True}
+            202,
+            json={
+                "dataset_id": DS_ID,
+                "operation_id": operation_id,
+                "job_id": dimensions_job_id,
+                "purpose": "dimensions",
+                "status": "pending",
+                "accepted_before": accepted_before,
+            },
         )
     )
-    result = client.datasets.backfill_dimensions(DS_ID, batch=25)
-    assert result.processed == 10
-    assert result.failed == 1
-    assert result.remaining_hint is True
-    assert dimensions.calls.last.request.url.params["batch"] == "25"
-
-    media = respx_mock.post(f"{API}/datasets/{DS_ID}/backfill-media").mock(
-        return_value=httpx.Response(200, json={"status": "queued", "dataset_id": DS_ID})
+    result = client.datasets.backfill_dimensions(
+        DS_ID, batch=25, idempotency_key=dimension_key
     )
-    assert client.datasets.backfill_media(DS_ID).status == "queued"
-    assert media.called
+    assert result.job_id == UUID(dimensions_job_id)
+    assert result.operation_id == UUID(operation_id)
+    assert result.purpose == "dimensions"
+    assert result.status == "pending"
+    assert result.accepted_before.isoformat() == "2026-10-18T12:34:56+00:00"
+    assert dimensions.calls.last.request.url.params["batch"] == "25"
+    assert dimensions.calls.last.request.headers["Idempotency-Key"] == dimension_key
 
+    media_operation_id = str(uuid4())
+    media_job_id = str(uuid4())
+    media = respx_mock.post(f"{API}/datasets/{DS_ID}/backfill-media").mock(
+        return_value=httpx.Response(
+            202,
+            json={
+                "dataset_id": DS_ID,
+                "operation_id": media_operation_id,
+                "job_id": media_job_id,
+                "purpose": "thumbnail",
+                "status": "running",
+                "accepted_before": accepted_before,
+            },
+        )
+    )
+    media_result = client.datasets.backfill_media(DS_ID)
+    assert media_result.job_id == UUID(media_job_id)
+    assert media_result.operation_id == UUID(media_operation_id)
+    assert media_result.purpose == "thumbnail"
+    assert media_result.status == "running"
+    generated_key = media.calls.last.request.headers["Idempotency-Key"]
+    assert str(UUID(generated_key)) == generated_key
     scenes = respx_mock.post(f"{API}/datasets/{DS_ID}/scenes/backfill").mock(
         return_value=httpx.Response(
             200,
@@ -800,3 +833,32 @@ def test_dataset_operation_routes_and_typed_responses(client, respx_mock):
     assert sniff_result.per_camera[0].score == 0.9
     assert sniff_result.future_extension == "preserved"
     assert sniff.called
+
+
+def test_dataset_media_backfill_reuses_key_after_lost_response(client, respx_mock):
+    retry_key = str(uuid4())
+    retry_job_id = str(uuid4())
+    retry_route = respx_mock.post(f"{API}/datasets/{DS_ID}/backfill-media").mock(
+        side_effect=[
+            httpx.ReadTimeout("response lost after acceptance"),
+            httpx.Response(
+                202,
+                json={
+                    "dataset_id": DS_ID,
+                    "operation_id": retry_key,
+                    "job_id": retry_job_id,
+                    "purpose": "thumbnail",
+                    "status": "pending",
+                    "accepted_before": "2026-10-18T12:34:56Z",
+                },
+            ),
+        ]
+    )
+    with pytest.raises(httpx.ReadTimeout):
+        client.datasets.backfill_media(DS_ID, idempotency_key=retry_key)
+    replay = client.datasets.backfill_media(DS_ID, idempotency_key=retry_key)
+    assert replay.job_id == UUID(retry_job_id)
+    assert [call.request.headers["Idempotency-Key"] for call in retry_route.calls] == [
+        retry_key,
+        retry_key,
+    ]

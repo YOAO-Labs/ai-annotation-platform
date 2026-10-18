@@ -1,7 +1,7 @@
 """Files and scenes SDK route, query, and serialization contracts."""
 
 import json
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import httpx
 import pytest
@@ -63,18 +63,41 @@ def test_file_write_and_read_routes_keep_their_exact_envelopes(client, respx_moc
             json={"url": "https://storage.test/get?signature=xyz", "expires_in": 3600},
         )
     )
+    operation_id = str(uuid4())
+    job_id = str(uuid4())
+    accepted_before = "2026-10-18T12:34:56Z"
     backfill = respx_mock.post(
         f"{API}/files/projects/{PROJECT_ID}/backfill-thumbnails"
     ).mock(
         return_value=httpx.Response(
-            200, json={"status": "queued", "celery_task_id": "celery-1"}
+            202,
+            json={
+                "project_id": PROJECT_ID,
+                "operation_id": operation_id,
+                "job_id": job_id,
+                "purpose": "thumbnail",
+                "status": "pending",
+                "accepted_before": accepted_before,
+            },
         )
     )
     files = Files(client._http)
+    backfill_key = str(uuid4())
 
     assert files.upload_complete(TASK_ID).status == "ok"
     assert files.file_url(TASK_ID).expires_in == 3600
-    assert files.backfill_thumbnails(PROJECT_ID).celery_task_id == "celery-1"
+    receipt = files.backfill_thumbnails(PROJECT_ID, idempotency_key=backfill_key)
+    assert receipt.project_id == UUID(PROJECT_ID)
+    assert receipt.operation_id == UUID(operation_id)
+    assert receipt.job_id == UUID(job_id)
+    assert receipt.purpose == "thumbnail"
+    assert receipt.status == "pending"
+    assert receipt.accepted_before.isoformat() == "2026-10-18T12:34:56+00:00"
+    assert backfill.calls.last.request.headers["Idempotency-Key"] == backfill_key
+    generated_receipt = files.backfill_thumbnails(PROJECT_ID)
+    assert generated_receipt.job_id == UUID(job_id)
+    generated_key = backfill.calls.last.request.headers["Idempotency-Key"]
+    assert str(UUID(generated_key)) == generated_key
     assert complete.called and file_url.called and backfill.called
 
 

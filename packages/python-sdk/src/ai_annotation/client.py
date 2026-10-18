@@ -476,23 +476,34 @@ class Datasets:
         )
 
     def backfill_dimensions(
-        self, dataset_id: IdLike, batch: int = 50
+        self,
+        dataset_id: IdLike,
+        batch: int = 50,
+        *,
+        idempotency_key: IdLike | None = None,
     ) -> DatasetBackfillDimensionsResult:
-        """Process one image-dimension batch.
+        """Accept a durable image-dimensions job and return its receipt.
 
-        ``remaining_hint`` only says the selected batch was full, not where a
-        cursor should resume. Failed rows remain eligible on later calls, so
-        inspect ``failed`` and do not treat ``processed == 0`` as completion.
+        ``batch`` remains for compatibility but the server ignores it and scans
+        in bounded pages. Pass a saved UUID to replay after a lost response.
         """
         response = self._http.request(
             "POST",
             f"/datasets/{dataset_id}/backfill-dimensions",
             params={"batch": batch},
+            headers=_dataset_idempotency_header(idempotency_key),
         )
         return DatasetBackfillDimensionsResult.model_validate(response.json())
 
-    def backfill_media(self, dataset_id: IdLike) -> DatasetBackfillMediaResult:
-        response = self._http.request("POST", f"/datasets/{dataset_id}/backfill-media")
+    def backfill_media(
+        self, dataset_id: IdLike, *, idempotency_key: IdLike | None = None
+    ) -> DatasetBackfillMediaResult:
+        """Accept an image-thumbnail job and retain the dataset's video backfill."""
+        response = self._http.request(
+            "POST",
+            f"/datasets/{dataset_id}/backfill-media",
+            headers=_dataset_idempotency_header(idempotency_key),
+        )
         return DatasetBackfillMediaResult.model_validate(response.json())
 
     def backfill_scenes(

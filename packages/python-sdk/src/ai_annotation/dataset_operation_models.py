@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Literal
 from uuid import UUID
 
@@ -54,15 +55,23 @@ class DatasetUploadCompleteResult(_DatasetOperationResponse):
     linked_tasks: int = Field(ge=0)
 
 
-class DatasetBackfillDimensionsResult(_DatasetOperationResponse):
-    processed: int
-    failed: int
-    remaining_hint: bool
+_ImageBackfillStatus = Literal["pending", "running", "ready", "failed", "canceled"]
 
 
-class DatasetBackfillMediaResult(_DatasetOperationResponse):
-    status: str
+class _DatasetImageBackfillResult(_DatasetOperationResponse):
     dataset_id: UUID
+    operation_id: UUID
+    job_id: UUID
+    status: _ImageBackfillStatus
+    accepted_before: datetime
+
+
+class DatasetBackfillDimensionsResult(_DatasetImageBackfillResult):
+    purpose: Literal["dimensions"]
+
+
+class DatasetBackfillMediaResult(_DatasetImageBackfillResult):
+    purpose: Literal["thumbnail"]
 
 
 class DatasetBackfillScenesResult(_DatasetOperationResponse):

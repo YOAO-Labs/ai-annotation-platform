@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 from pathlib import Path
-from uuid import UUID
+from uuid import UUID, uuid4
 
-from ai_annotation._http import HttpTransport
+from ai_annotation._http import HttpTransport, _idempotency_headers
 from ai_annotation.file_models import (
     FileUploadComplete,
     FileUploadInit,
@@ -50,8 +50,15 @@ class Files:
         resp = self._http.request("GET", f"/files/tasks/{task_id}/file-url")
         return TaskFileUrl.model_validate(resp.json())
 
-    def backfill_thumbnails(self, project_id: IdLike) -> ThumbnailBackfill:
+    def backfill_thumbnails(
+        self, project_id: IdLike, *, idempotency_key: IdLike | None = None
+    ) -> ThumbnailBackfill:
+        """Accept a project thumbnail job; a saved UUID replays its receipt."""
         resp = self._http.request(
-            "POST", f"/files/projects/{project_id}/backfill-thumbnails"
+            "POST",
+            f"/files/projects/{project_id}/backfill-thumbnails",
+            headers=_idempotency_headers(
+                uuid4() if idempotency_key is None else idempotency_key
+            ),
         )
         return ThumbnailBackfill.model_validate(resp.json())

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import datetime
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict
@@ -40,5 +42,9 @@ class TaskFileUrl(_AAPModel):
 
 
 class ThumbnailBackfill(_AAPModel):
-    status: str
-    celery_task_id: str
+    project_id: UUID
+    operation_id: UUID
+    job_id: UUID
+    purpose: Literal["thumbnail"]
+    status: Literal["pending", "running", "ready", "failed", "canceled"]
+    accepted_before: datetime

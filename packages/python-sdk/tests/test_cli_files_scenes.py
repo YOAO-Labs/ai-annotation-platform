@@ -9,7 +9,7 @@ from typer.testing import CliRunner
 
 from ai_annotation.cli import files as files_cli
 from ai_annotation.cli import scenes as scenes_cli
-from ai_annotation.file_models import FileUploadInit
+from ai_annotation.file_models import FileUploadInit, ThumbnailBackfill
 from ai_annotation.scene_models import Scene, SceneTrajectory
 
 PROJECT_ID, TASK_ID, DATASET_ID, SCENE_ID = [str(uuid4()) for _ in range(4)]
@@ -98,6 +98,93 @@ def test_thumbnail_backfill_json_refusal_does_not_open_client(monkeypatch):
     assert result.exit_code == 2
     assert "--yes" in result.output
     assert client_requests == []
+
+
+def test_thumbnail_backfill_json_prints_accepted_job(monkeypatch):
+    operation_id, job_id, idempotency_key = (str(uuid4()) for _ in range(3))
+    receipt = ThumbnailBackfill(
+        project_id=PROJECT_ID,
+        operation_id=operation_id,
+        job_id=job_id,
+        purpose="thumbnail",
+        status="pending",
+        accepted_before="2026-10-18T12:34:56Z",
+    )
+    received = []
+    files = SimpleNamespace(
+        backfill_thumbnails=lambda project_id, *, idempotency_key=None: (
+            received.append((project_id, idempotency_key)) or receipt
+        )
+    )
+    monkeypatch.setattr(
+        files_cli,
+        "get_client",
+        lambda *_args: nullcontext(SimpleNamespace(files=files)),
+    )
+
+    result = runner.invoke(
+        files_cli.app,
+        [
+            "backfill-thumbnails",
+            PROJECT_ID,
+            "--yes",
+            "--idempotency-key",
+            idempotency_key,
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert received == [(PROJECT_ID, idempotency_key)]
+    assert json.loads(result.stdout) == receipt.model_dump(mode="json")
+
+
+def test_thumbnail_backfill_invalid_key_does_not_open_client(monkeypatch):
+    client_requests = []
+    monkeypatch.setattr(
+        files_cli, "get_client", lambda *_args: client_requests.append("opened")
+    )
+
+    result = runner.invoke(
+        files_cli.app,
+        [
+            "backfill-thumbnails",
+            PROJECT_ID,
+            "--yes",
+            "--idempotency-key",
+            "invalid",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 2
+    assert "UUID" in result.output
+    assert client_requests == []
+
+
+def test_failed_thumbnail_backfill_replay_prints_receipt_and_exits_one(monkeypatch):
+    receipt = ThumbnailBackfill(
+        project_id=PROJECT_ID,
+        operation_id=uuid4(),
+        job_id=uuid4(),
+        purpose="thumbnail",
+        status="failed",
+        accepted_before="2026-10-18T12:34:56Z",
+    )
+    files = SimpleNamespace(backfill_thumbnails=lambda *_args, **_kwargs: receipt)
+    monkeypatch.setattr(
+        files_cli,
+        "get_client",
+        lambda *_args: nullcontext(SimpleNamespace(files=files)),
+    )
+
+    result = runner.invoke(
+        files_cli.app,
+        ["backfill-thumbnails", PROJECT_ID, "--yes", "--json"],
+    )
+
+    assert result.exit_code == 1
+    assert json.loads(result.stdout) == receipt.model_dump(mode="json")
 
 
 def test_scene_list_prints_bare_json_array(monkeypatch):
