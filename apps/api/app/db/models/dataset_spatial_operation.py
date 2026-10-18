@@ -22,7 +22,7 @@ class DatasetSpatialOperation(Base):
             "action IN ("
             "'scene.patch', 'layout.apply', 'pose.upsert', 'scene.create', "
             "'items.assign', 'scene.source.set', 'calibration.update', "
-            "'pointcloud.prepare', 'calibration.provenance'"
+            "'pointcloud.prepare', 'calibration.provenance', 'dataset.axis.set'"
             ")",
             name="ck_dataset_spatial_operations_action",
         ),

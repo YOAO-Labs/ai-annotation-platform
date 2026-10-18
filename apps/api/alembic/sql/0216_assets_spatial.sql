@@ -11,7 +11,7 @@ CREATE TABLE public.dataset_spatial_operations (
         action IN (
             'scene.patch', 'layout.apply', 'pose.upsert', 'scene.create',
             'items.assign', 'scene.source.set', 'calibration.update',
-            'pointcloud.prepare', 'calibration.provenance'
+            'pointcloud.prepare', 'calibration.provenance', 'dataset.axis.set'
         )
     )
 );
@@ -2773,3 +2773,77 @@ END;
 $function$;
 -- aap-statement-break
 REVOKE ALL ON FUNCTION aap_assets_v1.record_spatial_calibration_provenance(uuid, uuid, jsonb) FROM PUBLIC;
+-- aap-statement-break
+CREATE FUNCTION aap_assets_v1.set_spatial_dataset_axis(
+    p_operation_id uuid,
+    p_dataset_id uuid,
+    p_axis_convention text
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+VOLATILE
+PARALLEL UNSAFE
+SECURITY DEFINER
+SET search_path = pg_catalog, pg_temp
+AS $function$
+DECLARE
+    v_receipt jsonb;
+    v_dataset public.datasets%ROWTYPE;
+    v_result jsonb;
+BEGIN
+    IF p_operation_id IS NULL OR p_dataset_id IS NULL
+       OR (p_axis_convention IS NOT NULL AND p_axis_convention NOT IN (
+           'iso_8855', 'ros_rep103', 'kitti_camera', 'opencv_camera',
+           'apollo', 'y_forward', 'sustechpoints_demo', 'raw'
+       )) THEN
+        RETURN aap_assets_v1._spatial_failure('invalid_request');
+    END IF;
+    v_receipt := aap_assets_v1._read_spatial_receipt(
+        p_operation_id, NULL, 'dataset.axis.set',
+        jsonb_build_object('dataset_id', p_dataset_id),
+        jsonb_build_object('axis_convention', p_axis_convention)
+    );
+    IF v_receipt IS NOT NULL THEN RETURN v_receipt; END IF;
+    BEGIN
+        SELECT dataset.* INTO v_dataset
+        FROM public.datasets AS dataset
+        WHERE dataset.id = p_dataset_id
+        FOR UPDATE NOWAIT;
+    EXCEPTION WHEN lock_not_available OR serialization_failure OR deadlock_detected THEN
+        RETURN aap_assets_v1._spatial_failure('dataset_busy');
+    END;
+    IF NOT FOUND THEN RETURN aap_assets_v1._spatial_failure('dataset_missing'); END IF;
+    IF pg_catalog.jsonb_typeof(v_dataset.metadata) IS DISTINCT FROM 'object' THEN
+        RETURN aap_assets_v1._spatial_failure('invalid_response');
+    END IF;
+
+    IF p_axis_convention IS NULL THEN
+        IF v_dataset.metadata ? 'axis_convention' THEN
+            UPDATE public.datasets AS dataset SET
+                metadata = COALESCE(dataset.metadata, '{}'::jsonb) - 'axis_convention',
+                updated_at = now()
+            WHERE dataset.id = p_dataset_id;
+        END IF;
+    ELSIF jsonb_typeof(v_dataset.metadata -> 'axis_convention') IS DISTINCT FROM 'string'
+       OR v_dataset.metadata ->> 'axis_convention' IS DISTINCT FROM p_axis_convention THEN
+        UPDATE public.datasets AS dataset SET
+            metadata = COALESCE(dataset.metadata, '{}'::jsonb)
+                || jsonb_build_object('axis_convention', p_axis_convention),
+            updated_at = now()
+        WHERE dataset.id = p_dataset_id;
+    END IF;
+
+    v_result := aap_assets_v1._spatial_success(jsonb_build_object(
+        'operation_id', p_operation_id,
+        'dataset_id', p_dataset_id,
+        'axis_convention', p_axis_convention
+    ));
+    RETURN aap_assets_v1._write_spatial_receipt(
+        p_operation_id, NULL, 'dataset.axis.set',
+        jsonb_build_object('dataset_id', p_dataset_id),
+        jsonb_build_object('axis_convention', p_axis_convention), v_result
+    );
+END;
+$function$;
+-- aap-statement-break
+REVOKE ALL ON FUNCTION aap_assets_v1.set_spatial_dataset_axis(uuid, uuid, text) FROM PUBLIC;
