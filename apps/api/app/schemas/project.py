@@ -330,7 +330,7 @@ class ProjectOut(BaseModel):
     def _derive_flat_class_views(self) -> "ProjectOut":
         # v0.10.22 · classes / classes_config / attribute_schema 无 DB 列,
         # 从 tool_bindings 派生扁平投影供前端 / 导出消费.
-        from app.services.project import (
+        from aap_workspace_contract import (
             derive_attribute_schema,
             derive_classes_config,
             derive_classes_list,

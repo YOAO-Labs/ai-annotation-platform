@@ -1,6 +1,6 @@
-"""v0.10.22 · tool_bindings service helper 单测.
+"""tool_bindings helper tests.
 
-覆盖 services/project.py 的 derive_* (读时派生投影) /
+覆盖 aap_workspace_contract.projections 的 derive_* (读时派生投影) /
 services/project_workspace.py 的配置归一化与工具单位查询 /
 services/prediction.py 的 derive_tool_unit_from_ls_type / derive_tool_unit_from_result.
 
@@ -16,7 +16,7 @@ from app.services.prediction import (
     derive_tool_unit_from_ls_type,
     derive_tool_unit_from_result,
 )
-from app.services.project import (
+from aap_workspace_contract import (
     derive_attribute_schema,
     derive_classes_config,
     derive_classes_list,

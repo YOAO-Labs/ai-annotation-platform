@@ -13,7 +13,7 @@ from app.services.active_learning_references import guard_source
 from app.services.annotation import AnnotationService
 from app.services.bug_report import BugReportService
 from app.services.labeling_tasks import LabelingTaskService
-from app.services.project import derive_attribute_keys, derive_classes_list
+from aap_workspace_contract import derive_attribute_keys, derive_classes_list
 
 _ORPHAN_TASK_IDS_SQL = """
     SELECT id FROM tasks WHERE project_id = :pid AND id NOT IN (

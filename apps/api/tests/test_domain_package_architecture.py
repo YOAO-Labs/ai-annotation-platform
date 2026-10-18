@@ -63,6 +63,7 @@ REMOVED_MODULES = (
     "app.services.gpu_rollout_control",
     "app.workers.roi",
     "app.services.project_delete",
+    "app.services.project",
 )
 
 _LEGACY_CALL_REFERENCE_ALLOWLIST: dict[tuple[str, str, str], str] = {}

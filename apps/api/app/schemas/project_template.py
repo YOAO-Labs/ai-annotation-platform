@@ -152,7 +152,7 @@ class ProjectTemplateOut(BaseModel):
     @model_validator(mode="after")
     def _derive_flat_class_views(self) -> "ProjectTemplateOut":
         # v0.10.22 · 从 tool_bindings 派生扁平投影 (无 DB 列).
-        from app.services.project import (
+        from aap_workspace_contract import (
             derive_attribute_schema,
             derive_classes_config,
             derive_classes_list,

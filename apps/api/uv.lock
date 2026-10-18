@@ -121,6 +121,21 @@ dependencies = [
 requires-dist = [{ name = "aap-task-contract", editable = "../_shared/task_contract" }]
 
 [[package]]
+name = "aap-workspace-contract"
+version = "0.1.0"
+source = { editable = "../_shared/workspace_contract" }
+dependencies = [
+    { name = "pydantic" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "pydantic", specifier = ">=2.10.0" },
+    { name = "pytest", marker = "extra == 'test'", specifier = ">=8.3.0" },
+]
+provides-extras = ["test"]
+
+[[package]]
 name = "alembic"
 version = "1.18.4"
 source = { registry = "https://pypi.org/simple" }
@@ -157,6 +172,7 @@ dependencies = [
     { name = "aap-protocol-v2" },
     { name = "aap-task-contract" },
     { name = "aap-training-contract" },
+    { name = "aap-workspace-contract" },
     { name = "alembic" },
     { name = "asyncpg" },
     { name = "blurhash-python" },
@@ -204,6 +220,7 @@ requires-dist = [
     { name = "aap-protocol-v2", editable = "../_shared/protocol_v2" },
     { name = "aap-task-contract", editable = "../_shared/task_contract" },
     { name = "aap-training-contract", editable = "../_shared/training_contract" },
+    { name = "aap-workspace-contract", editable = "../_shared/workspace_contract" },
     { name = "alembic", specifier = ">=1.14.0" },
     { name = "asyncpg", specifier = ">=0.30.0" },
     { name = "blurhash-python", specifier = ">=1.2.0" },

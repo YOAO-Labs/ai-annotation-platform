@@ -8,6 +8,7 @@ dependencies = [
     "aap-media-probe",
     "aap-task-contract",
     "aap-training-contract",
+    "aap-workspace-contract",
     "aap-protocol-v2",
     "fastapi>=0.115.0",
     "uvicorn[standard]>=0.32.0",
@@ -51,6 +52,7 @@ aap-assets-cleanup = { path = "../assets-cleanup", editable = true }
 aap-media-probe = { path = "../media-probe", editable = true }
 aap-task-contract = { path = "../_shared/task_contract", editable = true }
 aap-training-contract = { path = "../_shared/training_contract", editable = true }
+aap-workspace-contract = { path = "../_shared/workspace_contract", editable = true }
 aap-protocol-v2 = { path = "../_shared/protocol_v2", editable = true }
 
 [tool.uv]

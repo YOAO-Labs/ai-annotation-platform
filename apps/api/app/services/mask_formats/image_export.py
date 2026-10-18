@@ -16,7 +16,7 @@ from app.services.mask_formats.image_codecs import (
     indexed_png_bytes,
     mask_to_yolo_polygons,
 )
-from app.services.project import derive_classes_list
+from aap_workspace_contract import derive_classes_list
 from app.services.raster_mask_storage import load_coco_rle
 from app.utils.raster_mask_rle import decode_coco_rle, validate_coco_rle
 

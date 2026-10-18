@@ -49,7 +49,7 @@ from app.services.labeling_prediction_contract import (
 )
 from app.services.labeling_write_scope import capture_labeling_write_scope
 from app.services.mask_formats.image_codecs import normalize_coco_segmentation_rle
-from app.services.project import derive_classes_list
+from aap_workspace_contract import derive_classes_list
 from app.services.task_matcher import (
     normalize_file_stem_path,
     resolve_task,

@@ -24,7 +24,7 @@ from app.schemas.export import (
     LidarExportPreflightResponse,
 )
 from app.services.axis_convention import R_NORM
-from app.services.project import derive_classes_list
+from aap_workspace_contract import derive_classes_list
 from app.services.sensor_calibration import resolve_calibration_states
 from app.services.storage import storage_service
 

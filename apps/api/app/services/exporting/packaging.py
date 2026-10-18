@@ -86,7 +86,7 @@ from app.services.exporting.video_mask_formats import (
     exact_mask_frames,
     object_manifest,
 )
-from app.services.project import (
+from aap_workspace_contract import (
     derive_attribute_schema,
     derive_classes_list,
 )

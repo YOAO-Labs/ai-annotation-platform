@@ -618,7 +618,7 @@ async def get_project_readiness(
     a pending or failed worker without treating a partially created project as
     ready.
     """
-    from app.services.project import derive_classes_list
+    from aap_workspace_contract import derive_classes_list
 
     dataset_ids = list(
         (

@@ -269,7 +269,7 @@ class ToolClassEntry(BaseModel):
         pattern=r"^[a-zA-Z0-9 ,_\-]+$",
     )
     # v0.17.15 · 跨工具单位颜色/alias 软关联 (ADR-0026 附录). 指向另一 unit 的类;
-    # 本类 color/alias 为空时, 读时派生层 (services.project.resolve_class_visual)
+    # 本类 color/alias 为空时, 由 aap_workspace_contract.resolve_class_visual 派生。
     # 沿此链继承目标值. 仅显示层继承 —— 不改存储 / 不改标注归属 / 不进导出, 强隔离不变.
     alias_to: ClassRef | None = None
 

@@ -28,7 +28,7 @@ from app.db.models.prediction import Prediction
 from app.db.models.project import Project
 from app.db.models.scene_track import SceneTrack, SceneTrackInterval
 from app.db.models.task import Task
-from app.services.project import (
+from aap_workspace_contract import (
     derive_attribute_keys,
     derive_attribute_schema,
     derive_classes_config,
