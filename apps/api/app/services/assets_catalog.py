@@ -35,8 +35,11 @@ from aap_assets_catalog.associations_contract import (
     ProjectDatasetsResult,
     decode_associations_reply,
 )
+from aap_assets_media.contract import ReadSourceRequest
+
 from app.config import settings
 from app.services.storage import storage_service
+from app.services.video_poster_references import video_poster_urls
 
 _MAX_REQUEST_BYTES = 1 * 1024 * 1024
 _MAX_RESPONSE_BYTES = 16 * 1024 * 1024
@@ -227,7 +230,45 @@ class AssetsCatalogGateway:
             raise self._invalid_scope()
         if not remote:
             reply = reply.model_copy(
-                update={"items": [self._sign_item(item) for item in reply.items]}
+                update={
+                    "items": [
+                        self._sign_item(
+                            item, include_thumbnail=item.file_type != "video"
+                        )
+                        for item in reply.items
+                    ]
+                }
+            )
+        video_items = [item for item in reply.items if item.file_type == "video"]
+        if video_items:
+            poster_urls = await video_poster_urls(
+                self.db,
+                [
+                    ReadSourceRequest(
+                        actor_id=request.actor_id,
+                        dataset_item_id=item.id,
+                    )
+                    for item in video_items
+                ],
+            )
+            posters_by_id = {
+                item.id: poster_url
+                for item, poster_url in zip(video_items, poster_urls, strict=True)
+            }
+            reply = reply.model_copy(
+                update={
+                    "items": [
+                        item.model_copy(
+                            update={
+                                "thumbnail_url": posters_by_id[item.id],
+                                "blurhash": None,
+                            }
+                        )
+                        if item.file_type == "video"
+                        else item
+                        for item in reply.items
+                    ]
+                }
             )
         return reply
 
@@ -420,7 +461,7 @@ class AssetsCatalogGateway:
         )
 
     @staticmethod
-    def _sign_item(item: CatalogItem) -> CatalogItem:
+    def _sign_item(item: CatalogItem, *, include_thumbnail: bool = True) -> CatalogItem:
         updates: dict[str, str | None] = {"file_url": None, "thumbnail_url": None}
         try:
             updates["file_url"] = storage_service.generate_download_url(
@@ -428,7 +469,7 @@ class AssetsCatalogGateway:
             )
         except Exception:
             pass
-        if item.thumbnail_path:
+        if include_thumbnail and item.thumbnail_path:
             try:
                 bucket = storage_service.bucket_for_cache_key(
                     item.thumbnail_path, default=storage_service.datasets_bucket

@@ -15,6 +15,7 @@ from app.db.models.task import Task
 from app.db.models.dataset import DatasetItem
 from app.db.models.annotation import Annotation
 from app.db.models.task_batch import TaskBatch
+from aap_assets_media.contract import ReadSourceRequest
 from app.db.models.task_event import TaskEvent
 from app.db.enums import UserRole, TaskStatus, ProjectRole
 from app.schemas.dashboard import (
@@ -32,6 +33,7 @@ from app.services.project_aggregates import (
     task_project_scope,
 )
 from app.services.user_brief import resolve_briefs_with_project_role
+from app.services.video_poster_references import video_poster_urls
 from app.services.dashboard_stats import (
     _class_distribution,
     _first_pass_yield,
@@ -475,11 +477,20 @@ async def my_batches(
     # 缩略图口径与 tasks/_shared.py 一致：dataset 导入的任务缩略图存在 DatasetItem 上，
     # Task.thumbnail_path 为空，故需 LEFT JOIN + COALESCE，否则数据集任务永远拿不到封面。
     cover_map: dict = {}
+    video_cover_requests: list[ReadSourceRequest] = []
     if batch_ids:
         eff_thumb = func.coalesce(DatasetItem.thumbnail_path, Task.thumbnail_path)
         eff_blur = func.coalesce(DatasetItem.blurhash, Task.blurhash)
         cover_rows = await db.execute(
-            select(Task.batch_id, eff_thumb, eff_blur)
+            select(
+                Task.batch_id,
+                Task.id,
+                Task.dataset_item_id,
+                Task.file_type,
+                DatasetItem.file_type,
+                eff_thumb,
+                eff_blur,
+            )
             .outerjoin(DatasetItem, DatasetItem.id == Task.dataset_item_id)
             .where(
                 Task.batch_id.in_(batch_ids),
@@ -488,7 +499,36 @@ async def my_batches(
             .order_by(Task.batch_id, Task.created_at.asc())
             .distinct(Task.batch_id)
         )
-        cover_map = {row[0]: (row[1], row[2]) for row in cover_rows.all()}
+        for (
+            batch_id,
+            task_id,
+            item_id,
+            task_type,
+            item_type,
+            path,
+            blurhash,
+        ) in cover_rows.all():
+            cover_map[batch_id] = (
+                task_id,
+                item_id,
+                task_type,
+                item_type,
+                path,
+                blurhash,
+            )
+            if item_id is not None and (task_type == "video" or item_type == "video"):
+                video_cover_requests.append(
+                    ReadSourceRequest(
+                        actor_id=current_user.id,
+                        dataset_item_id=item_id,
+                        task_id=task_id,
+                    )
+                )
+    video_posters = await video_poster_urls(db, video_cover_requests)
+    video_posters_by_task = {
+        request.task_id: poster_url
+        for request, poster_url in zip(video_cover_requests, video_posters, strict=True)
+    }
 
     # v0.7.2 · 单值语义 — 一 batch 一审核员
     project_user_map: dict = {}
@@ -504,9 +544,19 @@ async def my_batches(
         per_proj = briefs_by_project.get(b.project_id, {})
         reviewer = per_proj.get(str(b.reviewer_id)) if b.reviewer_id else None
         in_progress_tasks = in_progress_map.get(b.id, 0)
-        cover_path, cover_blurhash = cover_map.get(b.id, (None, None))
+        cover = cover_map.get(b.id)
         thumbnail_url: str | None = None
-        if cover_path:
+        cover_blurhash: str | None = None
+        if cover is not None:
+            task_id, item_id, task_type, item_type, cover_path, cover_blurhash = cover
+        else:
+            task_id = item_id = None
+            task_type = item_type = None
+            cover_path = None
+        if item_id is not None and (task_type == "video" or item_type == "video"):
+            thumbnail_url = video_posters_by_task.get(task_id)
+            cover_blurhash = None
+        elif cover_path:
             thumb_bucket = storage_service.bucket_for_cache_key(
                 cover_path, default=storage_service.bucket
             )

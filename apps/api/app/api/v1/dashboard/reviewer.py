@@ -2,6 +2,7 @@ from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, and_, or_
+from aap_assets_media.contract import ReadSourceRequest
 from app.deps import (
     get_db,
     require_roles,
@@ -28,6 +29,7 @@ from app.schemas.dashboard import (
     ReviewerMiniStats,
 )
 from app.services.user_brief import resolve_briefs_with_project_role
+from app.services.video_poster_references import video_poster_urls
 
 router = APIRouter()
 
@@ -229,12 +231,21 @@ async def reviewer_dashboard(
     # 缩略图口径与 tasks/_shared.py 一致：dataset 导入的任务缩略图存在 DatasetItem 上，
     # Task.thumbnail_path 为空，故需 LEFT JOIN + COALESCE。
     cover_map: dict = {}
+    video_cover_requests: list[ReadSourceRequest] = []
     cover_batch_ids = [b.id for b, _ in batch_rows]
     if cover_batch_ids:
         eff_thumb = func.coalesce(DatasetItem.thumbnail_path, Task.thumbnail_path)
         eff_blur = func.coalesce(DatasetItem.blurhash, Task.blurhash)
         cover_rows = await db.execute(
-            select(Task.batch_id, eff_thumb, eff_blur)
+            select(
+                Task.batch_id,
+                Task.id,
+                Task.dataset_item_id,
+                Task.file_type,
+                DatasetItem.file_type,
+                eff_thumb,
+                eff_blur,
+            )
             .outerjoin(DatasetItem, DatasetItem.id == Task.dataset_item_id)
             .where(
                 Task.batch_id.in_(cover_batch_ids),
@@ -243,15 +254,54 @@ async def reviewer_dashboard(
             .order_by(Task.batch_id, Task.created_at.asc())
             .distinct(Task.batch_id)
         )
-        cover_map = {row[0]: (row[1], row[2]) for row in cover_rows.all()}
+        for (
+            batch_id,
+            task_id,
+            item_id,
+            task_type,
+            item_type,
+            path,
+            blurhash,
+        ) in cover_rows.all():
+            cover_map[batch_id] = (
+                task_id,
+                item_id,
+                task_type,
+                item_type,
+                path,
+                blurhash,
+            )
+            if item_id is not None and (task_type == "video" or item_type == "video"):
+                video_cover_requests.append(
+                    ReadSourceRequest(
+                        actor_id=current_user.id,
+                        dataset_item_id=item_id,
+                        task_id=task_id,
+                    )
+                )
+    video_posters = await video_poster_urls(db, video_cover_requests)
+    video_posters_by_task = {
+        request.task_id: poster_url
+        for request, poster_url in zip(video_cover_requests, video_posters, strict=True)
+    }
 
     reviewing_batches = []
     for b, pname in batch_rows:
         per_proj = briefs_by_project.get(b.project_id, {})
         annotator = per_proj.get(str(b.annotator_id)) if b.annotator_id else None
-        cover_path, cover_blurhash = cover_map.get(b.id, (None, None))
+        cover = cover_map.get(b.id)
         thumbnail_url: str | None = None
-        if cover_path:
+        cover_blurhash: str | None = None
+        if cover is not None:
+            task_id, item_id, task_type, item_type, cover_path, cover_blurhash = cover
+        else:
+            task_id = item_id = None
+            task_type = item_type = None
+            cover_path = None
+        if item_id is not None and (task_type == "video" or item_type == "video"):
+            thumbnail_url = video_posters_by_task.get(task_id)
+            cover_blurhash = None
+        elif cover_path:
             thumb_bucket = storage_service.bucket_for_cache_key(
                 cover_path, default=storage_service.bucket
             )

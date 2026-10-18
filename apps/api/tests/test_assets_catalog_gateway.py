@@ -14,11 +14,14 @@ from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from aap_assets_catalog import (
+    CatalogItem,
     CreateDatasetRequest,
     DatasetPatch,
     DatasetMutationResult,
     GetDatasetRequest,
+    ItemPage,
     ListDatasetsRequest,
+    ListItemsRequest,
     UpdateDatasetRequest,
 )
 from app.services import assets_catalog
@@ -397,3 +400,102 @@ async def test_create_route_uses_authenticated_actor_and_echoes_selected_key(
 class MockGateway:
     def __init__(self, result: DatasetMutationResult):
         self.create = AsyncMock(return_value=result)
+
+
+def _catalog_item(
+    *, item_id: uuid.UUID, dataset_id: uuid.UUID, file_type: str, thumbnail_url: str
+) -> CatalogItem:
+    return CatalogItem(
+        id=item_id,
+        dataset_id=dataset_id,
+        file_name=f"{item_id}.{'mp4' if file_type == 'video' else 'jpg'}",
+        file_path=f"source/{item_id}",
+        file_type=file_type,
+        file_size=1,
+        content_hash=None,
+        width=16,
+        height=9,
+        metadata={},
+        file_url="upstream:file",
+        thumbnail_url=thumbnail_url,
+        blurhash="stale-blurhash" if file_type == "video" else "image-blurhash",
+        created_at=datetime.now(UTC),
+        thumbnail_path=f"media-assets/old/{item_id}.webp",
+    )
+
+
+@pytest.mark.parametrize("remote", [False, True])
+@pytest.mark.asyncio
+async def test_catalog_video_thumbnails_always_use_owner_reference(monkeypatch, remote):
+    actor_id, dataset_id = uuid.uuid4(), uuid.uuid4()
+    video_ids = [uuid.uuid4(), uuid.uuid4()]
+    image_id = uuid.uuid4()
+    page = ItemPage(
+        dataset_id=dataset_id,
+        items=[
+            _catalog_item(
+                item_id=video_ids[0],
+                dataset_id=dataset_id,
+                file_type="video",
+                thumbnail_url="upstream:stale-video-poster",
+            ),
+            _catalog_item(
+                item_id=image_id,
+                dataset_id=dataset_id,
+                file_type="image",
+                thumbnail_url="upstream:image-poster",
+            ),
+            _catalog_item(
+                item_id=video_ids[1],
+                dataset_id=dataset_id,
+                file_type="video",
+                thumbnail_url="upstream:other-stale-poster",
+            ),
+        ],
+        total=3,
+        limit=50,
+        offset=0,
+    )
+    db = AsyncMock(spec=AsyncSession)
+    gateway = assets_catalog.AssetsCatalogGateway(db)
+
+    async def fake_call(*_args):
+        return page, remote
+
+    monkeypatch.setattr(gateway, "_call", fake_call)
+    signed = []
+
+    def sign(key, *, bucket):
+        signed.append(key)
+        return f"signed:{key}"
+
+    monkeypatch.setattr(assets_catalog.storage_service, "generate_download_url", sign)
+    requests = []
+
+    async def owner_posters(_db, source_requests):
+        requests.extend(source_requests)
+        return ["browser:verified-poster", None]
+
+    monkeypatch.setattr(assets_catalog, "video_poster_urls", owner_posters)
+
+    result = await gateway.items(
+        ListItemsRequest(actor_id=actor_id, dataset_id=dataset_id)
+    )
+
+    assert [request.dataset_item_id for request in requests] == video_ids
+    assert all(
+        request.actor_id == actor_id and request.task_id is None for request in requests
+    )
+    assert result.items[0].thumbnail_url == "browser:verified-poster"
+    assert result.items[0].blurhash is None
+    assert result.items[1].thumbnail_url == (
+        "upstream:image-poster"
+        if remote
+        else f"signed:media-assets/old/{image_id}.webp"
+    )
+    assert result.items[1].blurhash == "image-blurhash"
+    assert result.items[2].thumbnail_url is None
+    assert result.items[2].blurhash is None
+    if not remote:
+        assert f"media-assets/old/{video_ids[0]}.webp" not in signed
+        assert f"media-assets/old/{video_ids[1]}.webp" not in signed
