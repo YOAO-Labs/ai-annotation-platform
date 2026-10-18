@@ -52,6 +52,10 @@ _CATALOG_FUNCTIONS = (
     "aap_assets_v1.create_catalog_dataset(uuid,uuid,jsonb)",
     "aap_assets_v1.update_catalog_dataset(uuid,uuid,uuid,jsonb)",
 )
+_CATALOG_LOGIN_FUNCTIONS = _CATALOG_FUNCTIONS + (
+    "aap_assets_v1.list_dataset_projects(uuid,uuid)",
+    "aap_assets_v1.list_project_datasets(uuid,uuid)",
+)
 
 
 def _ok(reply: dict, expected_data: str | None = None) -> dict:
@@ -945,7 +949,7 @@ async def test_catalog_update_nowait_contention_returns_without_receipt(test_eng
     not _ROLE_ACCEPTANCE,
     reason="requires the disposable module-data boundary verifier",
 )
-async def test_catalog_login_is_limited_to_the_five_catalog_capabilities():
+async def test_catalog_login_is_limited_to_the_seven_catalog_capabilities():
     raw_url = os.environ.get(_CATALOG_URL)
     if not raw_url:
         pytest.fail(f"the module-data verifier did not provide {_CATALOG_URL}")
@@ -973,7 +977,7 @@ async def test_catalog_login_is_limited_to_the_five_catalog_capabilities():
                     "SELECT has_schema_privilege(current_user, 'aap_assets_v1', 'CREATE')"
                 )
             )
-            for signature in _CATALOG_FUNCTIONS:
+            for signature in _CATALOG_LOGIN_FUNCTIONS:
                 assert await catalog.scalar(
                     text(
                         "SELECT has_function_privilege(current_user, :signature, 'EXECUTE')"
@@ -990,13 +994,31 @@ async def test_catalog_login_is_limited_to_the_five_catalog_capabilities():
                 text(
                     "SELECT proc.oid::regprocedure::text "
                     "FROM pg_catalog.pg_proc AS proc "
-                    "WHERE proc.pronamespace = 'aap_assets_v1'::regnamespace "
+                    "JOIN pg_catalog.pg_namespace AS namespace "
+                    "ON namespace.oid = proc.pronamespace "
+                    "WHERE namespace.nspname ~ '^aap_[a-z0-9_]+_v1$' "
                     "AND pg_catalog.has_function_privilege(current_user, proc.oid, 'EXECUTE')"
                 )
             )
             assert {row[0].replace(", ", ",") for row in allowed} == {
-                signature.replace(", ", ",") for signature in _CATALOG_FUNCTIONS
+                signature.replace(", ", ",") for signature in _CATALOG_LOGIN_FUNCTIONS
             }
+            for schema in (
+                "aap_identity_v1",
+                "aap_workspace_v1",
+                "aap_labeling_v1",
+                "aap_jobs_v1",
+                "aap_learning_v1",
+                "aap_inference_v1",
+                "aap_insights_v1",
+                "aap_diagnostics_v1",
+                "aap_export_v1",
+                "aap_audit_v1",
+            ):
+                assert not await catalog.scalar(
+                    text("SELECT has_schema_privilege(current_user, :schema, 'USAGE')"),
+                    {"schema": schema},
+                )
             assert not await catalog.scalar(
                 text(
                     "SELECT has_table_privilege(current_user, 'public.datasets', 'SELECT')"
@@ -1008,6 +1030,25 @@ async def test_catalog_login_is_limited_to_the_five_catalog_capabilities():
                     "'public.dataset_catalog_operations', 'SELECT')"
                 )
             )
+            for relation in (
+                "public.users",
+                "public.projects",
+                "public.project_members",
+                "public.tasks",
+                "public.project_datasets",
+                "public.dataset_items",
+            ):
+                assert not await catalog.scalar(
+                    text(
+                        "SELECT EXISTS ("
+                        "SELECT 1 FROM pg_catalog.pg_class AS relation "
+                        "WHERE relation.oid = pg_catalog.to_regclass(:relation) "
+                        "AND (pg_catalog.has_table_privilege(current_user, relation.oid, 'SELECT') "
+                        "OR pg_catalog.has_any_column_privilege(current_user, relation.oid, 'SELECT'))"
+                        ")"
+                    ),
+                    {"relation": relation},
+                )
             assert not await catalog.scalar(
                 text(
                     "SELECT has_sequence_privilege(current_user, "

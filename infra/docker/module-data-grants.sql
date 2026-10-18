@@ -114,6 +114,17 @@ GRANT SELECT (id, role, is_active, email), UPDATE (id)
     ON public.users TO :"identity_owner";
 GRANT SELECT (id, owner_id, data_type, scene_mode, display_id, name), UPDATE (id),
     DELETE ON public.projects TO :"workspace_owner";
+GRANT SELECT (
+    id, organization_id, display_id, name, type_label, type_key, data_type,
+    owner_id, status, ai_enabled, tool_bindings, label_config, sampling,
+    maximum_annotations, show_overlap_first, iou_dedup_threshold, box_threshold,
+    text_threshold, ai_interactive_enabled, raster_mask_native_editing_enabled,
+    mask_qc_config, point_cloud_quality_config, rendering_config, video_sampling,
+    video_collaboration, scene_mode, prefer_same_scene_continuation,
+    scene_continuation_window_min, default_variants, preannotate_pipeline,
+    annotation_guide, guide_assets, model_version, task_lock_ttl_seconds, due_date,
+    created_at, updated_at
+) ON public.projects TO :"workspace_owner";
 GRANT SELECT (project_id, user_id, role), UPDATE (id), DELETE
     ON public.project_members TO :"workspace_owner";
 GRANT SELECT (source_project_id), UPDATE (source_project_id)
@@ -138,9 +149,11 @@ BEGIN
 END $$;
 
 -- Assets owns catalog/source rows and their exact upload/source-deletion receipts.
-GRANT SELECT (id, data_type, name, file_count), UPDATE (id, file_count, updated_at), DELETE
+GRANT SELECT (id, display_id, data_type, name, file_count),
+    UPDATE (id, file_count, updated_at), DELETE
     ON public.datasets TO :"assets_owner";
-GRANT SELECT (id, project_id, dataset_id), INSERT (id, project_id, dataset_id),
+GRANT SELECT (id, project_id, dataset_id, created_at),
+    INSERT (id, project_id, dataset_id),
     UPDATE (id) ON public.project_datasets TO :"assets_owner";
 GRANT DELETE ON public.project_datasets TO :"assets_owner";
 GRANT SELECT (id, dataset_id), UPDATE (id), DELETE
@@ -169,6 +182,54 @@ GRANT SELECT (
 ), INSERT (operation_id, asset_id, bucket, prefix, not_before),
     UPDATE (completed_at)
     ON public.asset_storage_deletions TO :"assets_owner";
+
+-- Cross-owner reads use versioned projections, never private foreign-table grants.
+DO $$
+DECLARE
+    denied record;
+BEGIN
+    FOR denied IN
+        SELECT * FROM (VALUES
+            (current_setting('aap.assets_owner'), 'public.users'),
+            (current_setting('aap.assets_owner'), 'public.projects'),
+            (current_setting('aap.assets_owner'), 'public.project_members'),
+            (current_setting('aap.assets_owner'), 'public.tasks'),
+            (current_setting('aap.assets_owner'), 'public.task_batches'),
+            (current_setting('aap.assets_owner'), 'public.task_dataset_item_links'),
+            (current_setting('aap.assets_owner'), 'public.annotations'),
+            (current_setting('aap.labeling_owner'), 'public.users'),
+            (current_setting('aap.labeling_owner'), 'public.project_members'),
+            (current_setting('aap.labeling_owner'), 'public.datasets'),
+            (current_setting('aap.labeling_owner'), 'public.dataset_items'),
+            (current_setting('aap.labeling_owner'), 'public.project_datasets'),
+            (current_setting('aap.workspace_owner'), 'public.users'),
+            (current_setting('aap.workspace_owner'), 'public.datasets'),
+            (current_setting('aap.workspace_owner'), 'public.dataset_items'),
+            (current_setting('aap.workspace_owner'), 'public.project_datasets'),
+            (current_setting('aap.workspace_owner'), 'public.tasks')
+        ) AS relation_scope(role_name, relation_name)
+    LOOP
+        IF has_table_privilege(
+               denied.role_name, denied.relation_name,
+               'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER'
+           )
+           OR has_any_column_privilege(
+               denied.role_name, denied.relation_name, 'SELECT'
+           )
+           OR has_any_column_privilege(
+               denied.role_name, denied.relation_name, 'INSERT'
+           )
+           OR has_any_column_privilege(
+               denied.role_name, denied.relation_name, 'UPDATE'
+           )
+           OR has_any_column_privilege(
+               denied.role_name, denied.relation_name, 'REFERENCES'
+           ) THEN
+            RAISE EXCEPTION 'Owner % has direct foreign-table access to %',
+                denied.role_name, denied.relation_name;
+        END IF;
+    END LOOP;
+END $$;
 
 -- Labeling owns all task creation mutations, counter writes, and receipts.
 GRANT SELECT (id, project_id, dataset_item_id, batch_id, status), UPDATE (id), DELETE
@@ -221,7 +282,9 @@ GRANT INSERT (
     total_predictions, reviewer_is_override, first_review_eligible,
     annotation_contributor_ids, reopened_count, batch_id, version
 ) ON public.tasks TO :"labeling_owner";
-GRANT SELECT (id, total_tasks), UPDATE (
+GRANT SELECT (
+    id, total_tasks, completed_tasks, review_tasks, in_progress_tasks, batch_summary
+), UPDATE (
     total_tasks, completed_tasks, review_tasks, in_progress_tasks,
     batch_summary, updated_at
 )
@@ -303,9 +366,14 @@ GRANT USAGE ON SCHEMA aap_audit_v1
 
 GRANT EXECUTE ON FUNCTION aap_identity_v1.lock_active_actor(uuid)
     TO :"workspace_owner", :"assets_owner";
+GRANT EXECUTE ON FUNCTION aap_identity_v1.read_actor_facts(uuid)
+    TO :"workspace_owner", :"assets_owner";
 GRANT EXECUTE ON FUNCTION aap_identity_v1.lock_audit_actor(uuid)
     TO :"audit_owner";
 GRANT EXECUTE ON FUNCTION aap_workspace_v1.lock_project_reference(uuid)
+    TO :"assets_owner";
+GRANT SELECT ON aap_workspace_v1.project_catalog_configs TO :"assets_owner";
+GRANT EXECUTE ON FUNCTION aap_workspace_v1.read_project_visibility(uuid, uuid)
     TO :"assets_owner";
 GRANT EXECUTE ON FUNCTION aap_workspace_v1.lock_project_manager(uuid, uuid)
     TO :"assets_owner", :"labeling_owner", :"jobs_owner", :"workflow_role";
@@ -323,6 +391,10 @@ GRANT EXECUTE ON FUNCTION aap_assets_v1.lock_current_association(uuid, uuid),
     TO :"workspace_owner";
 GRANT EXECUTE ON FUNCTION aap_assets_v1.lock_scene_source_references(uuid[])
     TO :"labeling_owner", :"workflow_role";
+GRANT SELECT ON aap_assets_v1.project_dataset_item_sources TO :"labeling_owner";
+GRANT SELECT ON aap_labeling_v1.project_catalog_counters TO :"assets_owner";
+GRANT EXECUTE ON FUNCTION aap_labeling_v1.project_dataset_task_counts(uuid)
+    TO :"assets_owner";
 GRANT EXECUTE ON FUNCTION aap_assets_v1.associate_project(uuid, uuid, uuid)
     TO :"workflow_role";
 GRANT EXECUTE ON FUNCTION aap_assets_v1.delete_project_owned_records(uuid)
@@ -438,10 +510,15 @@ GRANT EXECUTE ON FUNCTION aap_workspace_v1.delete_project(uuid, uuid, uuid, json
 GRANT CREATE ON SCHEMA aap_identity_v1 TO :"identity_owner";
 ALTER FUNCTION aap_identity_v1.lock_active_actor(uuid) OWNER TO :"identity_owner";
 ALTER FUNCTION aap_identity_v1.lock_audit_actor(uuid) OWNER TO :"identity_owner";
+ALTER FUNCTION aap_identity_v1.read_actor_facts(uuid) OWNER TO :"identity_owner";
 REVOKE CREATE ON SCHEMA aap_identity_v1 FROM :"identity_owner";
 
 GRANT CREATE ON SCHEMA aap_workspace_v1 TO :"workspace_owner";
 ALTER FUNCTION aap_workspace_v1.lock_project_reference(uuid) OWNER TO :"workspace_owner";
+ALTER FUNCTION aap_workspace_v1._project_read_failure(text)
+    OWNER TO :"workspace_owner";
+ALTER FUNCTION aap_workspace_v1.read_project_visibility(uuid, uuid)
+    OWNER TO :"workspace_owner";
 ALTER FUNCTION aap_workspace_v1.lock_project_manager(uuid, uuid) OWNER TO :"workspace_owner";
 ALTER FUNCTION aap_workspace_v1._project_delete_failure(text) OWNER TO :"workspace_owner";
 ALTER FUNCTION aap_workspace_v1.delete_project(uuid, uuid, uuid, jsonb)
@@ -452,9 +529,17 @@ ALTER FUNCTION aap_workspace_v1.preview_dataset_unlink(uuid, uuid, uuid)
     OWNER TO :"workspace_owner";
 ALTER FUNCTION aap_workspace_v1.unlink_dataset(uuid, uuid, uuid, uuid, text, jsonb)
     OWNER TO :"workspace_owner";
+ALTER VIEW aap_workspace_v1.project_catalog_configs OWNER TO :"workspace_owner";
 REVOKE CREATE ON SCHEMA aap_workspace_v1 FROM :"workspace_owner";
 
 GRANT CREATE ON SCHEMA aap_assets_v1 TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1._association_read_failure(text)
+    OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1.list_dataset_projects(uuid, uuid)
+    OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1.list_project_datasets(uuid, uuid)
+    OWNER TO :"assets_owner";
+ALTER VIEW aap_assets_v1.project_dataset_item_sources OWNER TO :"assets_owner";
 ALTER FUNCTION aap_assets_v1.lock_dataset_reference(uuid) OWNER TO :"assets_owner";
 ALTER FUNCTION aap_assets_v1.lock_current_association(uuid, uuid) OWNER TO :"assets_owner";
 ALTER FUNCTION aap_assets_v1.lock_append_sources(uuid, uuid[]) OWNER TO :"assets_owner";
@@ -550,6 +635,9 @@ ALTER FUNCTION aap_labeling_v1.guard_dataset_source_deletion(uuid, uuid)
     OWNER TO :"labeling_owner";
 ALTER FUNCTION aap_labeling_v1.detach_deleted_dataset_attribution(uuid)
     OWNER TO :"labeling_owner";
+ALTER FUNCTION aap_labeling_v1.project_dataset_task_counts(uuid)
+    OWNER TO :"labeling_owner";
+ALTER VIEW aap_labeling_v1.project_catalog_counters OWNER TO :"labeling_owner";
 REVOKE CREATE ON SCHEMA aap_labeling_v1 FROM :"labeling_owner";
 
 GRANT CREATE ON SCHEMA aap_jobs_v1 TO :"jobs_owner";

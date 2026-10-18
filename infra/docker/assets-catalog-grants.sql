@@ -119,7 +119,7 @@ GRANT SELECT (
 )
     ON public.dataset_catalog_operations TO :"assets_owner";
 
--- Function owners are NOLOGIN; the runtime only receives the five public calls.
+-- Function owners are NOLOGIN; the runtime only receives seven public calls.
 GRANT CREATE ON SCHEMA aap_assets_v1 TO :"assets_owner";
 ALTER FUNCTION aap_assets_v1._catalog_failure(text) OWNER TO :"assets_owner";
 ALTER FUNCTION aap_assets_v1._catalog_actor(uuid, boolean) OWNER TO :"assets_owner";
@@ -142,7 +142,9 @@ GRANT EXECUTE ON FUNCTION aap_assets_v1.list_catalog_datasets(
 ), aap_assets_v1.get_catalog_dataset(uuid, uuid),
     aap_assets_v1.list_catalog_items(uuid, uuid, integer, bigint),
     aap_assets_v1.create_catalog_dataset(uuid, uuid, jsonb),
-    aap_assets_v1.update_catalog_dataset(uuid, uuid, uuid, jsonb)
+    aap_assets_v1.update_catalog_dataset(uuid, uuid, uuid, jsonb),
+    aap_assets_v1.list_dataset_projects(uuid, uuid),
+    aap_assets_v1.list_project_datasets(uuid, uuid)
     TO :"asset_catalog_role";
 
 -- Fail closed if the runtime role can access anything beyond the exact protocol.
@@ -167,6 +169,12 @@ DECLARE
         )::oid,
         pg_catalog.to_regprocedure(
             'aap_assets_v1.update_catalog_dataset(uuid,uuid,uuid,jsonb)'
+        )::oid,
+        pg_catalog.to_regprocedure(
+            'aap_assets_v1.list_dataset_projects(uuid,uuid)'
+        )::oid,
+        pg_catalog.to_regprocedure(
+            'aap_assets_v1.list_project_datasets(uuid,uuid)'
         )::oid
     ];
 BEGIN
