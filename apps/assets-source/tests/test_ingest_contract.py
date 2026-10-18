@@ -17,6 +17,8 @@ from aap_assets_source.ingest_contract import (
     IngestDeliveryAcknowledged,
     IngestFailure,
     IngestLayoutPage,
+    IngestLayoutItem,
+    IngestPlannedScene,
     IngestProgress,
     IngestReceipt,
     decode_ingest_reply,
@@ -216,3 +218,24 @@ def test_published_schema_is_generated_from_the_same_wire_values():
 def test_acknowledgement_requires_an_actual_delivered_boolean(value):
     with pytest.raises(ValidationError):
         IngestDeliveryAcknowledged(id=uuid4(), lease_token=uuid4(), delivered=value)
+
+
+def test_read_snapshots_preserve_legacy_types_and_empty_dataset_scene_names():
+    item = IngestLayoutItem(
+        id=uuid4(),
+        file_name="a.pcd",
+        file_path="old/lidar/a.pcd",
+        file_type="legacy-custom",
+        scene_id=None,
+        frame_index=-1,
+        logical_path=None,
+    )
+    assert item.file_type == "legacy-custom"
+    assert item.frame_index == -1
+    scene = IngestPlannedScene(
+        id=uuid4(),
+        name="",
+        source_format="inferred",
+        source_metadata={"mode": "single", "group_key": "_single"},
+    )
+    assert scene.name == ""

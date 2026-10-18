@@ -657,7 +657,7 @@
           "type": "string"
         },
         "file_type": {
-          "enum": ["image", "video", "point_cloud", "other"],
+          "maxLength": 20,
           "title": "File Type",
           "type": "string"
         },
@@ -677,7 +677,7 @@
           "anyOf": [
             {
               "maximum": 2147483647,
-              "minimum": 0,
+              "minimum": -2147483648,
               "type": "integer"
             },
             {
@@ -988,7 +988,6 @@
         },
         "name": {
           "maxLength": 255,
-          "minLength": 1,
           "title": "Name",
           "type": "string"
         },

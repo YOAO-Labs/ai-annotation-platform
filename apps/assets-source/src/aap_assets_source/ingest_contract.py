@@ -348,9 +348,11 @@ class IngestLayoutItem(_Value):
     id: UUID
     file_name: StrictStr
     file_path: StrictStr
-    file_type: IngestFileType
+    file_type: Annotated[str, Field(strict=True, max_length=20)]
     scene_id: UUID | None
-    frame_index: Count | None
+    frame_index: (
+        Annotated[int, Field(strict=True, ge=-2147483648, le=2147483647)] | None
+    )
     logical_path: PathText | None
 
 
@@ -381,7 +383,7 @@ class IngestSceneMetadata(_Value):
 
 class IngestPlannedScene(_Value):
     id: UUID
-    name: Annotated[str, Field(strict=True, min_length=1, max_length=255)]
+    name: Annotated[str, Field(strict=True, max_length=255)]
     source_format: Literal["inferred"]
     source_metadata: IngestSceneMetadata
 
