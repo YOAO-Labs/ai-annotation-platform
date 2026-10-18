@@ -81,15 +81,25 @@ def test_archive_bounds_central_directory_before_zipfile_materializes_entries(
 
 
 def test_central_directory_preflight_handles_zip64(monkeypatch):
-    monkeypatch.setattr(zipfile, "ZIP64_LIMIT", 1)
-    payload = io.BytesIO()
-    with zipfile.ZipFile(payload, "w", compression=zipfile.ZIP_STORED) as archive:
-        archive.writestr("large-enough-for-zip64.bin", b"zip64 payload")
+    monkeypatch.setattr(zipfile, "ZIP_FILECOUNT_LIMIT", 1)
+    zip64_payload = io.BytesIO()
+    with zipfile.ZipFile(zip64_payload, "w", compression=zipfile.ZIP_STORED) as archive:
+        archive.writestr("one.txt", b"one")
+        archive.writestr("two.txt", b"two")
+    zip64_payload = zip64_payload.getvalue()
+    end_record = zipfile._EndRecData(io.BytesIO(zip64_payload))
+    assert end_record[zipfile._ECD_SIGNATURE] == zipfile.stringEndArchive64
 
-    with SafeZipArchive(io.BytesIO(payload.getvalue()), ArchiveLimits()) as archive:
-        assert [entry.normalized_path for entry in archive.entries] == [
-            "large-enough-for-zip64.bin"
-        ]
+    regular_payload = _zip_bytes(["regular.txt"])
+    for payload, expected in (
+        (zip64_payload, ["one.txt", "two.txt"]),
+        (b"MZ-self-extracting-stub" + zip64_payload, ["one.txt", "two.txt"]),
+        (b"MZ-self-extracting-stub" + regular_payload, ["regular.txt"]),
+    ):
+        with zipfile.ZipFile(io.BytesIO(payload)) as standard_archive:
+            assert standard_archive.namelist() == expected
+        with SafeZipArchive(io.BytesIO(payload), ArchiveLimits()) as archive:
+            assert [entry.normalized_path for entry in archive.entries] == expected
 
 
 def test_skip_unsafe_paths_records_raw_names_and_excludes_members():

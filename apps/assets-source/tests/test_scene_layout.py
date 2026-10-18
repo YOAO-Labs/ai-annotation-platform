@@ -82,6 +82,23 @@ def test_physical_publication_paths_use_the_logical_scene_suffix():
     assert {assignment.frame_index for assignment in plan.assignments} == {0}
 
 
+def test_logical_and_legacy_paths_strip_the_dataset_name_only_once():
+    dataset_id = uuid.uuid4()
+    item_id = uuid.uuid4()
+    publication_id = uuid.uuid4()
+    legacy = _item("demo/demo/scene1/lidar/a.pcd", file_type="point_cloud")
+    modern = _item(
+        f"dataset-sources/{dataset_id}/{item_id}/{publication_id}/"
+        "demo/scene1/lidar/a.pcd",
+        file_type="point_cloud",
+    )
+
+    legacy_plan = plan_scenes(SceneLayoutInput("demo", (legacy,), mode="auto"))
+    modern_plan = plan_scenes(SceneLayoutInput("demo", (modern,), mode="auto"))
+    assert legacy_plan.scenes[0].name == "demo"
+    assert modern_plan.scenes[0].name == "demo"
+
+
 def test_legacy_name_prefix_and_per_subdirectory_layout_are_preserved():
     first = _item("legacy-ds/scene_10/frame_00010.jpg")
     second = _item("legacy-ds/scene_10/frame_00002.jpg")

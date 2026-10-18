@@ -86,8 +86,16 @@ def _split_into_scene_groups(
 ) -> dict[str, list[PreparedDatasetItem]]:
     by_scene: dict[str, list[PreparedDatasetItem]] = {}
     for item in items:
-        parts = PurePosixPath(logical_asset_path(item)).parts
-        start = 1 if parts and parts[0] == dataset_name else 0
+        path = logical_asset_path(item)
+        parts = PurePosixPath(path).parts
+        start = (
+            1
+            if item.logical_path is None
+            and path == item.file_path
+            and parts
+            and parts[0] == dataset_name
+            else 0
+        )
         rest = parts[start:]
         if len(rest) < 2:
             by_scene.setdefault(_ROOT_GROUP_KEY, []).append(item)
