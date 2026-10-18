@@ -10,7 +10,7 @@ last_reviewed: 2026-10-18
 这些接口供可信后端进程使用，不是终端用户 REST API。调用方仍负责身份认证和用例准入；
 初始操作接受时还会在数据库内校验当前项目管理权。持有函数执行权限不等于获得任意用户的项目管理权限。
 
-实现与冻结合同位于 `apps/api/alembic/sql/0190*` 至 `0210*`。接口通过 PostgreSQL
+实现与冻结合同位于 `apps/api/alembic/sql/0190*` 至 `0212*`。接口通过 PostgreSQL
 协议调用，使用调用方同一连接的外层事务，不接收 Python Session、ORM 或任意 SQL。
 安装、独立角色及本地验收命令见仓库 `DEV.md`；数据所有权见
 [ADR-0092](/dev/adr/0092-transactional-module-data-capabilities)。
@@ -271,3 +271,11 @@ PUT 只签发到 import 桶 `dataset-uploads/{item}/source`。`lock_dataset_uplo
 未完成责任。进程显式配置 cleanup DSN 和 S3 专用凭据，只允许一个桶中 `image-pyramids/*` 的
 ListBucket/DeleteObject，不继承 API、Redis 或 Celery 配置。配置、独立镜像和本地 Compose 入口见
 仓库 `DEV.md`、`apps/assets-cleanup/README.md` 与 [ADR-0096](/dev/adr/0096-assets-source-deletion-and-cleanup)。
+
+## 目录与关联读取
+
+目录五项读写命令及两个关联查询由独立 Assets 工件提供；公开网关保留 JWT/API key 的认证与各路由既有 scope，原生操作再检查当前身份。配置、幂等写入、响应预算和故障切换见[独立素材目录](/api/guides/assets-catalog)。
+
+`list_dataset_projects(actor,dataset)` 和 `list_project_datasets(actor,project)` 返回冻结 `aap-assets-associations/v1`，完整结构见 `0212_asset_association_reads.schema.json`。两者均为 STABLE 读取，按最外层 SELECT 的同一个 MVCC 快照组合身份、关联、配置与计数，不调用写入围栏或持有行锁。快照开始后的撤权和解绑不改变已开始读取的结果，下一条 READ COMMITTED 语句读取新状态。
+
+Identity 只提供 actor UUID、平台角色和活跃状态；Workspace 提供原始项目配置及当前可见性；Labeling 提供持久项目计数和按直接来源分组的任务数；Assets 持有目录、条目与关联。Owner 间只授予版本化投影/函数权限，不授予其他 owner 私有表。目录 LOGIN 仅执行七个公开 Assets 操作，不能读取这些投影。

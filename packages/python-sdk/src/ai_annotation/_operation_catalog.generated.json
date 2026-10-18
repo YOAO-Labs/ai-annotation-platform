@@ -9891,7 +9891,7 @@
       "path": "/api/v1/projects/{project_id}/datasets",
       "operation_id": "list_project_datasets_api_v1_projects__project_id__datasets_get",
       "summary": "List Project Datasets",
-      "description": "列出本项目已关联的所有数据集（含基础元数据 + task 数）。",
+      "description": "List linked datasets after the Assets owner rechecks current project visibility.",
       "tags": [
         "projects"
       ],
@@ -9916,7 +9916,18 @@
       ],
       "responses": {
         "200": {
-          "description": "Successful Response"
+          "description": "Successful Response",
+          "content": {
+            "application/json": {
+              "schema": {
+                "title": "Response List Project Datasets Api V1 Projects  Project Id  Datasets Get",
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/ProjectDatasetSummary"
+                }
+              }
+            }
+          }
         },
         "422": {
           "description": "Validation Error",

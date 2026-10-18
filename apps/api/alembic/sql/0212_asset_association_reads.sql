@@ -124,6 +124,7 @@ END;
 $function$;
 -- aap-statement-break
 REVOKE ALL ON FUNCTION aap_workspace_v1.read_project_visibility(uuid, uuid) FROM PUBLIC;
+-- aap-statement-break
 CREATE VIEW aap_workspace_v1.project_catalog_configs
 WITH (security_barrier = true)
 AS
@@ -145,9 +146,9 @@ SELECT
         'sampling', project.sampling,
         'maximum_annotations', project.maximum_annotations,
         'show_overlap_first', project.show_overlap_first,
-        'iou_dedup_threshold', project.iou_dedup_threshold,
-        'box_threshold', project.box_threshold,
-        'text_threshold', project.text_threshold,
+        'iou_dedup_threshold', project.iou_dedup_threshold::double precision,
+        'box_threshold', project.box_threshold::double precision,
+        'text_threshold', project.text_threshold::double precision,
         'ai_interactive_enabled', project.ai_interactive_enabled,
         'raster_mask_native_editing_enabled', project.raster_mask_native_editing_enabled,
         'mask_qc_config', project.mask_qc_config,

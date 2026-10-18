@@ -463,7 +463,7 @@ writer 配置要求 lease 严格长于其 hard time limit。旧 cleanup Celery t
 
 ## 独立 Assets 目录服务
 
-`apps/assets-catalog` 提供目录列表、详情、文件分页和公开创建/更新。数据集关联、建题、
+`apps/assets-catalog` 提供目录列表、详情、文件分页、公开创建/更新及数据集与项目的双向关联列表。数据集关联写入、建题、
 导入、上传和来源删除继续使用自己的既有事务合同；不要把需要保留调用方锁的内部
 `DatasetService` 操作替换为 HTTP。完整范围见[目录协议](docs-site/api/guides/assets-catalog.md)。
 
@@ -477,7 +477,7 @@ psql -v expected_database=annotation_test -v migration_role=owner \
 ```
 
 这里的数据库和连接参数应换成明确选择的环境；不要把日常 API 的宽权限账号当作目录
-LOGIN。该 LOGIN 只可执行五个目录函数，不可读取表、序列或其他 owner schema。启动时的
+LOGIN。该 LOGIN 只可执行七个目录/关联函数，不可读取表、序列或其他 owner schema。启动时的
 权限检查会拒绝过宽身份。迁移期主 API 仍保持既有角色，未因此获得整体隔离资格。
 
 目录服务使用独立的四个 secret：数据库 URL、Bearer token、S3 access key、S3 secret key。
@@ -503,7 +503,7 @@ docker compose -p aap-assets-catalog-dev -f docker-compose.assets-catalog.yml ex
 远程不可用时返回错误，不切换成本地写入；HTTP 各 I/O 阶段默认 5 秒，上限 60 秒。
 内部请求/响应预算分别为 1/16 MiB，超出明确失败，不截断数据。
 
-先升级 SQL/授权、确认目录 `/health` 和 `/ready`，再切换网关配置。创建和更新使用保存的
+先将 SQL 升至 0212 并重跑 owner/目录授权，升级目录镜像，确认 `/health` 和 `/ready` 后再切换网关配置。旧目录镜像的五项权限预检不接受新的七项角色，需协调本次升级。创建和更新使用保存的
 UUID `Idempotency-Key`，结果不确定时以原内容和原键重放；回执保留原快照，重复创建不会
 生成第二个数据集。回退服务实现可先清空网关 URL、重启网关并保留兼容 SQL 和回执，
 再停止同一 `-p` / `-f` 的独立项目。若要回退迁移，必须先停止目录写入并处理仍需确认的

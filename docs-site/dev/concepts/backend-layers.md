@@ -218,7 +218,7 @@ Task 列表/详情、Data Manager、视频清单/时间表及轨迹转换的素�
 
 版本化离职流程按账号→项目→目标/接收人成员→批次→任务→编辑 advisory→编辑锁读取稳定快照，再核对预览摘要与接收资格。传统停用/删除、自助注销和版本化离职仍保留各自语义，不合并为通用删除；Redis 凭据代际仍在 SQL 提交前推进，不把两者宣称为分布式原子事务。恢复不会重建旧密钥或退回已交接工作。
 
-`application/project_class_rename.py` 组合 `services/project_workspace.py` 的类别绑定修改与 `AnnotationService.rename_class_name()` 的存量迁移；只由 HTTP 提交。当前管理权威锁之后取得项目排他围栏，与标注写入的 KEY SHARE 互斥，再刷新配置。工具参数只限制绑定，标注仍按项目/名称整体迁移，版本、预测与 alias 规则不变。项目配置与 ProjectTemplate 行命令也归 `services/project_workspace.py`；`application/project_workspace_configuration.py` 在请求事务内复核当前 actor、项目与模板权威，组合模板/源项目字段、项目 kind 与协作校验及 backend 启用/主绑定，HTTP 保留 commit 和响应。项目内嵌已保存流水线调用 `services/pipeline_template.py::validate_saved_pipeline` 校验结构；命名流水线的 backend 启用交叉校验仍由 `application/project_pipeline.py::apply_saved_pipeline` 持有。`services/project_template.py` 保留可见性/scope/payload helper，`services/project.py` 仅提供 tool_bindings 读投影。
+`application/project_class_rename.py` 组合 `services/project_workspace.py` 的类别绑定修改与 `AnnotationService.rename_class_name()` 的存量迁移；只由 HTTP 提交。当前管理权威锁之后取得项目排他围栏，与标注写入的 KEY SHARE 互斥，再刷新配置。工具参数只限制绑定，标注仍按项目/名称整体迁移，版本、预测与 alias 规则不变。项目配置与 ProjectTemplate 行命令也归 `services/project_workspace.py`；`application/project_workspace_configuration.py` 在请求事务内复核当前 actor、项目与模板权威，组合模板/源项目字段、项目 kind 与协作校验及 backend 启用/主绑定，HTTP 保留 commit 和响应。项目内嵌已保存流水线调用 `services/pipeline_template.py::validate_saved_pipeline` 校验结构；命名流水线的 backend 启用交叉校验仍由 `application/project_pipeline.py::apply_saved_pipeline` 持有。`services/project_template.py` 保留可见性/scope/payload helper，`apps/_shared/workspace_contract` 的公开纯函数提供 tool_bindings 读投影，API、模板、导出和应用调用方直接使用该合同。
 
 点云评估晋升也由 `WorkspaceConfigurationWorkflow.promote_point_cloud_quality_evaluation` 组合：HTTP 先复核当前 `project.manage` 权威，工作流保留阻塞式项目 `FOR UPDATE` 与评估项目归属检查，不复用普通配置 PATCH 的 NOWAIT 锁。quality 的 `prepare_evaluation_promotion` 持有已晋升、gate、基线 revision＋digest 校验及下一配置修订；workspace 的 `set_point_cloud_quality_config` 只写项目配置，quality 的 `record_evaluation_promotion` 只写评估晋升元数据。原 flush、审计和 HTTP commit 仍在同一调用者事务内，所有者命令不另行提交；本地 ORM 参数不是跨进程契约。
 
@@ -428,3 +428,9 @@ Mask QC 与点云质检问题的人工状态转移分别由 `services/mask_qc/se
 真正提取某个模块时，先选定该模块与目标语言，明确批量读事实、标识、错误码、权限上下文、幂等/attempt/generation 和 Blob 身份，再证明强事务保持本地、随同迁移或已有明确的新一致性设计。之后才实现网络适配器，并验证真实新进程的提交、失败、重启、在途兼容与回退；不得把 Python 端口或已声明的 Celery 名称直接当成跨语言交付。
 
 现有独立训练执行器继续使用原 HTTP 协议。训练的六个操作与 CPU 增强预览的四个操作均有明确成功响应模型：包含 claim 的分配/空闲、heartbeat 的停止要求、按名称上传授权及完成/恢复回执，保留 optional 字段缺失及显式 null，并允许响应扩展。预览的冻结规格与来源 URL 分开，取消后恢复分配仅返回停止要求和空 URL 表；通用取消响应固定作业 ID 与 `cancelled | cancel_requested`。这些 schema 补全不改变租约、attempt fence、当前授权或取消终态，也不把执行器私有能力纳入普通 SDK。
+
+## 关联读取的公开边界
+
+Dataset→Project 和 Project→Dataset 列表通过 `aap-assets-associations/v1` 与 Assets catalog 通信。Workspace 的纯配置快照及类别/属性投影位于 `apps/_shared/workspace_contract`；消费者不再导入旧 `app.services.project`。API 只在公开响应边界应用 `ProjectOut` 的派生字段和默认值。
+
+查询由 Assets 在同一个数据库语句快照内组合 Identity 身份事实、Workspace 配置/可见性、Labeling 持久计数及直接来源任务聚合。不存在逐行 HTTP 扇出，也不借助其他 owner 的私有表权限。该切片继续依赖共享 PostgreSQL；其余未提取操作仍需按[模块部署台账](/dev/concepts/module-deployment)推进。

@@ -30468,6 +30468,60 @@
         "title": "ProjectCreate",
         "type": "object"
       },
+      "ProjectDatasetSummary": {
+        "additionalProperties": false,
+        "properties": {
+          "data_type": {
+            "title": "Data Type",
+            "type": "string"
+          },
+          "display_id": {
+            "title": "Display Id",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "items_count": {
+            "minimum": 0.0,
+            "title": "Items Count",
+            "type": "integer"
+          },
+          "linked_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Linked At"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "tasks_in_project": {
+            "minimum": 0.0,
+            "title": "Tasks In Project",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "display_id",
+          "name",
+          "data_type",
+          "linked_at",
+          "items_count",
+          "tasks_in_project"
+        ],
+        "title": "ProjectDatasetSummary",
+        "type": "object"
+      },
       "ProjectDistributeBatches": {
         "description": "v0.7.2 · 项目级 batch 分派：在所选 annotator / reviewer 间圆周分派 batch。\n每个 batch 落到 1 个 annotator + 1 个 reviewer。",
         "properties": {
@@ -66698,7 +66752,7 @@
     },
     "/api/v1/projects/{project_id}/datasets": {
       "get": {
-        "description": "列出本项目已关联的所有数据集（含基础元数据 + task 数）。",
+        "description": "List linked datasets after the Assets owner rechecks current project visibility.",
         "operationId": "list_project_datasets_api_v1_projects__project_id__datasets_get",
         "parameters": [
           {
@@ -66716,7 +66770,13 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ProjectDatasetSummary"
+                  },
+                  "title": "Response List Project Datasets Api V1 Projects  Project Id  Datasets Get",
+                  "type": "array"
+                }
               }
             },
             "description": "Successful Response"

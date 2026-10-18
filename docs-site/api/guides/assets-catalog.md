@@ -9,7 +9,7 @@ last_reviewed: 2026-10-18
 
 `apps/assets-catalog` 提供数据集目录查询、创建和更新。它有自己的 Python 依赖、锁文件、镜像、受限 PostgreSQL 身份和只读 S3 身份，不导入主 API、ORM、Celery 或 Redis。公开 REST 仍通过主 API 完成 JWT/API key 与 scope 检查；仅可信网关可以调用内部服务。
 
-该工件覆盖五项操作。关联项目、建题、导入、上传、来源删除与派生处理继续使用各自已有的事务或执行边界；不能据此将整个 Assets 模块标为可独立部署。目录 SQL 仍依赖共享 PostgreSQL。
+该工件覆盖五项目录操作和两项关联读取。关联写入、建题、导入、上传、来源删除与派生处理继续使用各自已有的事务或执行边界；完整 Assets 模块尚未独立部署。目录 SQL 仍依赖共享 PostgreSQL。
 
 ## 公开 REST
 
@@ -49,7 +49,7 @@ SDK 的 `client.datasets.create(..., idempotency_key=key)` 与 `update(..., idem
 
 原生入口位于 `aap_assets_v1`：`list_catalog_datasets`、`get_catalog_dataset`、`list_catalog_items`、`create_catalog_dataset`、`update_catalog_dataset`。冻结 SQL 和 JSON Schema 位于 `apps/api/alembic/sql/0211_dataset_catalog.*`。写入和 `dataset_catalog_operations` 回执共用一项调用方事务；函数不自行提交，不执行 S3 或 broker 操作。
 
-先完成常规模块 owner 授权，再运行 `infra/docker/assets-catalog-grants.sql`。目录 LOGIN 只能执行五项公开能力；不能读取业务表、序列或 Identity/Workspace/Labeling schema。Assets 函数 owner 通过 Identity 当前账号合同检查权限，只读自己的目录、素材、场景和关联表。当前主 API 仍使用迁移期宽权限角色。
+先完成常规模块 owner 授权，再运行 `infra/docker/assets-catalog-grants.sql`。目录 LOGIN 只能执行七项公开能力；不能读取业务表、视图、序列或 Identity/Workspace/Labeling schema。Assets 函数 owner 通过 Identity 当前账号合同检查权限，并通过 Workspace/Labeling 的版本化只读投影组合关联结果。当前主 API 仍使用迁移期宽权限角色。
 
 目录 S3 身份仅需 `GetObject`：一个 datasets 桶的历史及新来源路径，以及固定 media-cache 桶中的 `thumbnails/`、`videos/`、`playback/`、`image-pyramids/`。不授予列桶、写入、删除或桶管理权限。公开签名 origin 显式配置；不能从请求指定 bucket、endpoint 或任意 key。服务本身不下载对象。
 
@@ -60,3 +60,24 @@ SDK 的 `client.datasets.create(..., idempotency_key=key)` 与 `update(..., idem
 目录服务的数据库 URL、token、S3 access key 和 secret key 均使用专属变量或对应 `_FILE`，不读取主 API 的通用数据库/AWS 凭据。独立 Compose 默认不向宿主公开端口；网关需能到达该服务的内部网络。部署命令与回退次序见仓库 `DEV.md`。
 
 回退服务实现可保留兼容 SQL 和回执；如要回退迁移，先停止所有目录写入并保存尚需重放的操作。删除回执表会失去不确定提交的确认能力，不能直接按空库迁移测试推断在途回退安全。当前回执没有自动清理。
+
+## 关联读取
+
+两个读取使用独立的 `aap-assets-associations/v1` envelope；成功仍仅含 `schema,ok:true,data`，失败仅含 `schema,ok:false,error:{code}`。请求只接受两个 UUID，网关从已认证账号取得 `actor_id`。
+
+| 公开 REST                                    | 内部 POST                      | 成功 `data`           |
+| -------------------------------------------- | ------------------------------ | --------------------- |
+| `GET /api/v1/datasets/{dataset_id}/projects` | `/v1/catalog/dataset-projects` | `dataset_id,projects` |
+| `GET /api/v1/projects/{project_id}/datasets` | `/v1/catalog/project-datasets` | `project_id,datasets` |
+
+素材库侧沿用 `datasets:read`：活跃账号可以查看关联项目，不额外套用项目成员过滤；数据集缺失或没有关联都返回空列表。项目侧沿用当前项目可见性，不额外要求 `datasets:read`；缺失或不可见均为 404，停用账号为 401，无效账号角色、无效成员职责或不兼容的 viewer 职责为 403。可见项目没有关联时返回空列表。
+
+项目列表保留原 `ProjectOut` 行为：配置由 Workspace 提供，任务计数和 `batch_summary` 使用 Labeling 已保存的投影。类别、类别配置和属性 schema 由公开 `aap_workspace_contract` 函数派生。关联列表不增加负责人姓名/头像、成员数量、当前成员职责、模型实例或 AI 完成量查询；这些字段沿用原来的 null/0/空值。
+
+项目关联的数据集每行仅含 `id,display_id,name,data_type,linked_at,items_count,tasks_in_project`。条目计数包含全部素材；任务计数只包括路径项目下通过 `Task.dataset_item_id` 直接引用素材的 Task，不按状态过滤，不回退 secondary 或旧 `primary_lidar` 链接。时间使用 UTC ISO 字符串和 `+00:00`，结果按关联时间倒序并以关联 UUID 消除同时间歧义。
+
+原生入口为 `aap_assets_v1.list_dataset_projects(uuid,uuid)` 与 `list_project_datasets(uuid,uuid)`；SQL 和冻结 schema 位于 `0212_asset_association_reads.*`。Identity 提供最小账号事实，Workspace 提供配置/当前可见性，Labeling 通过 Assets 的来源投影做整组计数；消费者不读取其他 owner 的私有表，也不传输大批素材 UUID。一次顶层 SQL 语句的快照同时决定权限、关联、配置和计数；正在执行的读取按该快照完成，后续请求看到已提交的撤权或关联代次变化。
+
+新业务错误码为 `invalid_request,account_not_active,invalid_account_role,project_missing,invalid_project_role,incompatible_project_role`。错误 schema、错父级或重复 UUID 会明确失败，不返回部分列表。两个读取沿用同一传输预算、服务停服失败和本地/远程选择规则。
+
+从旧的五项目录服务升级时，先应用 0212 与两份角色授权，再更新目录镜像并通过就绪检查，最后更新网关。旧镜像的启动权限检查会拒绝七项执行权；需要协调升级，不应把它当作可混用的滚动版本。

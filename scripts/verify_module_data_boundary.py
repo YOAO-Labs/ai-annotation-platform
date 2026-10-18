@@ -71,6 +71,7 @@ SQL_ARTIFACTS = (
     "0209_dataset_source_deletion.sql",
     "0210_asset_storage_cleanup.sql",
     "0211_dataset_catalog.sql",
+    "0212_asset_association_reads.sql",
 )
 SCHEMA_ARTIFACTS = (
     "0191_task_append.schema.json",
@@ -92,6 +93,7 @@ SCHEMA_ARTIFACTS = (
     "0209_dataset_source_deletion.schema.json",
     "0210_asset_storage_cleanup.schema.json",
     "0211_dataset_catalog.schema.json",
+    "0212_asset_association_reads.schema.json",
 )
 TEST_FILES = (
     "tests/test_workspace_data_contract.py",
@@ -144,10 +146,14 @@ TEST_FILES = (
     "tests/test_asset_storage_cleanup_runtime.py",
     "tests/test_assets_catalog_native.py",
     "tests/test_assets_catalog_runtime.py",
+    "tests/test_asset_association_reads.py",
+    "tests/test_asset_association_runtime.py",
+    "tests/test_assets_associations_gateway.py",
     "tests/test_dataset_api_scopes.py",
     "tests/test_datasets_list_has_scenes.py",
     "tests/test_dataset_axis_convention.py",
     "tests/test_media_materialization.py",
+    "tests/test_tool_bindings_helpers.py",
     "tests/test_worker_signals.py",
     "tests/test_security_headers.py",
     "tests/test_create_tasks_worker.py",
@@ -624,6 +630,8 @@ def _install_and_rollback_frozen_sql(
         "SELECT aap_assets_v1.list_catalog_items(NULL::uuid,NULL::uuid,50,0::bigint);\n"
         "SELECT aap_assets_v1.create_catalog_dataset(NULL::uuid,NULL::uuid,NULL::jsonb);\n"
         "SELECT aap_assets_v1.update_catalog_dataset(NULL::uuid,NULL::uuid,NULL::uuid,NULL::jsonb);\n"
+        "SELECT aap_assets_v1.list_dataset_projects(NULL::uuid,NULL::uuid);\n"
+        "SELECT aap_assets_v1.list_project_datasets(NULL::uuid,NULL::uuid);\n"
         "SELECT aap_learning_v1.lock_project_deletion(:'project_id'::uuid);\n"
         "SELECT aap_learning_v1.guard_project_deletion(:'project_id'::uuid);\n"
         "SELECT aap_assets_v1.delete_project_owned_records(:'project_id'::uuid);\n"
@@ -688,6 +696,7 @@ def _install_and_rollback_frozen_sql(
         "aap-dataset-source-delete/v1": "invalid_request",
         "aap-dataset-upload/v1": "invalid_request",
         "aap-assets-catalog/v1": "invalid_request",
+        "aap-assets-associations/v1": "invalid_request",
     }
     if any(
         not any(
@@ -935,8 +944,8 @@ def main(argv: list[str] | None = None) -> int:
         database = resources["database"]
         evidence["database"] = database
         _, heads = migration_graph(ROOT)
-        if heads != ["0211"]:
-            raise RuntimeError("module-data acceptance requires migration head 0211")
+        if heads != ["0212"]:
+            raise RuntimeError("module-data acceptance requires migration head 0212")
         evidence["migrations"]["head_before_downgrade"] = heads[0]
         phase = "downgrade-to-0189"
         _container_details(

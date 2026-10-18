@@ -1697,3 +1697,13 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
 - 常驻 API 按已验证的 LaunchAgent/PID/cwd 停止并恢复，锁定依赖同步通过。补齐 API 锁文件中 path 包的 pytest-asyncio 开发元数据，解析版本不变；主解释器额外通过独立包 37 项测试。
 - 实时 OpenAPI 与快照完全相同（485 paths / 872 schemas），DB/Redis/MinIO 均为 200；源码内容不变的热重载在 8.763 秒内更换实际服务子进程。日常 Celery 未启动，整体/Celery 健康保留原 503。
 - 目录与清理独立进程只在隔离资源上验收，不向真实环境部署。证据 `.worktree/assets-catalog-main-runtime.json`、`.worktree/assets-catalog-verification.json`；无 push、发布或远程 CI/生产容量声明，总目标继续进行。
+
+## Independent association reads and public Workspace projection
+
+- Dataset→Project 与 Project→Dataset 两个真实公开路由已切到 Assets catalog；读取配置时不再依赖 Project 私有 ORM，纯 Workspace 配置快照及类别/属性 helper 已迁到独立 `aap-workspace-contract` 包，旧 `app.services.project` 已删除。
+- 原生 0212 使用 Identity 活跃身份事实、Workspace 原始配置/当前可见性、Labeling 持久计数和直接 Task 来源聚合。各 owner 只授予版本化函数/视图权限，目录 LOGIN 执行清单为七项，不获得关系、外部 schema 或角色成员权限。无新增表，总计仍 119 张，Assets 17 张。
+- Dataset 侧仍按全局素材库读取且缺失 Dataset 返回空数组；Project 侧保留现有当前成员可见性、不新增 Dataset scope。响应保留 ProjectOut 默认值/类别投影、直接来源 Task 计数及 UTC `+00:00` 时间字符串。PostgreSQL real 阈值先提升 double precision 再编码，保持旧 asyncpg/Python 的实际浮点值。
+- 所有授权、关联、配置和计数在同一语句快照内读取，不持有阻止撤权或解绑的行锁。真实并发测试允许另一事务在读取中完成解绑重绑、增加素材/Task、移除成员并停用账号；原读取保持一致旧快照，下一条 READ COMMITTED 语句看到新状态并拒绝旧账号。
+- 本片不迁移关联写入、导入、来源发布、媒体派生及其余模块运行时。共享 PostgreSQL 与主 API 迁移期宽权限仍存在；全模块独立部署与语言替换目标保持进行中。Go 实验不进入真实环境。
+- 本轮全量隔离验收 660 项通过、零跳过；真实独立目录容器、SQL 最小角色、API scope/默认值、服务中断/重启、本地远程切换和语句快照并发均通过。冻结 SQL 独立安装/外层回滚与完整迁移四阶段验证通过，临时 PostgreSQL、Redis、九个桶、两组 S3 身份、容器和镜像均按归属清理。早先迁移/夹具/浮点不一致结果保留，以本次完整结果替换，不重复计数。
+- 纯共享/目录包 51 项、SDK 73 项、架构 293 项通过；架构另有 119 个不适用的冷加载参数跳过。固定 Ruff、锁文件、TypeScript、OpenAPI/SDK 目录生成、文档构建和 API 镜像冷导入 119 表通过。证据 `.worktree/assets-associations-verification.json` 及同前缀 JSON/JUnit/log。

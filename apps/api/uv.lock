@@ -17,11 +17,13 @@ name = "aap-assets-catalog"
 version = "0.1.0"
 source = { editable = "../assets-catalog" }
 dependencies = [
+    { name = "aap-workspace-contract" },
     { name = "pydantic" },
 ]
 
 [package.metadata]
 requires-dist = [
+    { name = "aap-workspace-contract", editable = "../_shared/workspace_contract" },
     { name = "asyncpg", marker = "extra == 'server'", specifier = ">=0.30.0" },
     { name = "boto3", marker = "extra == 'server'", specifier = ">=1.43.77" },
     { name = "fastapi", marker = "extra == 'server'", specifier = ">=0.115.0" },

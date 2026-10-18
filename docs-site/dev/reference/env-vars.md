@@ -202,7 +202,7 @@ last_reviewed: 2026-10-18
 | `MEDIA_PROBE_TIMEOUT_SECONDS` | `90` | HTTP 各 I/O 阶段超时秒数，包含上传／等待／读取；ffprobe 自身仍有独立的 30 秒上限。 |
 | `MEDIA_PROBE_MAX_FILE_BYTES` | `1073741824` | 独立探测服务单次文件输入上限（字节），仅由 apps/media-probe 读取。 |
 | `MEDIA_PROBE_HOST_PORT` | `8092` | docker-compose.modules.yml 的宿主回环端口，仅供显式本地独立部署。 |
-| `ASSETS_CATALOG_URL` | `—` | 独立 Assets 目录服务：留空时五项目录操作使用同一原生 SQL 合同；显式选远程后不自动回退。 |
+| `ASSETS_CATALOG_URL` | `—` | 独立 Assets 目录服务：留空时七项目录/关联操作使用同一原生 SQL 合同；显式选远程后不自动回退。 |
 | `ASSETS_CATALOG_TIMEOUT_SECONDS` | `5` | 网关 HTTP 各 I/O 阶段超时；范围 (0,60] 秒。 |
 | `ASSETS_CATALOG_TOKEN` | `—` | API 网关与目录服务共享专用 Bearer secret，至少 32 个非空白 ASCII 字符。 |
 | `ASSETS_CATALOG_TOKEN_FILE` | `—` | 独立目录服务的 secret 文件入口；主 API 网关使用上面的实际 token 值。 |

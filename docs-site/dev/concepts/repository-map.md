@@ -28,9 +28,11 @@ last_reviewed: 2026-10-17
 | ML 协议         | `apps/_shared/protocol_v2`                                                                  | 五个 backend 共用的 schema 与受控词表                                                            |
 | 任务契约        | `apps/_shared/task_contract`                                                                | 纯 Python 统一视觉操作名（detect/segment/classify 等）与别名映射                                 |
 | 训练参数契约    | `apps/_shared/training_contract`                                                            | 纯 Python 原生框架字段快照、catalog 依赖校验、预算与回流契约                                     |
+| 项目只读契约    | `apps/_shared/workspace_contract`                                                           | 纯 Project 配置快照、类别与属性投影；不依赖提供方 ORM、API 或运行时                              |
+| 独立素材目录    | `apps/assets-catalog`                                                                       | 七项目录与关联读取操作；受限 SQL LOGIN、只读 S3 身份与独立镜像                                   |
 | 训练执行器      | `apps/training-executor`                                                                    | 独立拉取式执行器，文件锁独占 GPU，管理原生训练子进程与脱敏日志                                   |
 | 素材探测服务    | `apps/media-probe`                                                                          | 独立元数据/帧时间表/packet 探测与 HTTP/NDJSON 合同；不取得数据库或对象存储访问权                 |
-| 事务数据能力    | `apps/api/alembic/sql/0190*` 至 `0200*`                                                     | 当前授权、关联、Jobs 和 Labeling 初始/追加建题；冻结 SQL/JSON 合同，保留同库外层事务             |
+| 事务数据能力    | `apps/api/alembic/sql/0190*` 至 `0212*`                                                     | 授权、建题、删除、解绑、上传、目录及关联读取；冻结 SQL/JSON 合同，同库事务与语句快照             |
 | ML backend      | `apps/{grounded-sam2,sam3,yolo,rapidocr,onnxtools}-backend`                                 | 各自的池包装 / 观测 / 生命周期                                                                   |
 
 ## 2. 授权真值（唯一来源）

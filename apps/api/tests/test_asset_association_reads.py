@@ -41,11 +41,13 @@ _CATALOG_FUNCTIONS = {
 }
 
 
-def _success(reply: dict, result_key: str) -> dict:
+def _success(reply: dict, result_key: str) -> list[dict]:
     assert set(reply) == {"schema", "ok", "data"}
     assert reply["schema"] == "aap-assets-associations/v1"
     assert reply["ok"] is True
-    assert set(reply["data"]) == {result_key}
+    parent_key = "dataset_id" if result_key == "projects" else "project_id"
+    assert set(reply["data"]) == {parent_key, result_key}
+    assert str(uuid.UUID(reply["data"][parent_key])) == reply["data"][parent_key]
     return reply["data"][result_key]
 
 
