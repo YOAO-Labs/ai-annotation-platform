@@ -71,6 +71,10 @@ class AsyncJob(Base):
         ForeignKey("projects.id", ondelete="SET NULL"),
         nullable=True,
     )
+    # The database trigger preserves authorization scope after project deletion.
+    retained_project_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), nullable=True
+    )
     user_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("users.id", ondelete="SET NULL"),

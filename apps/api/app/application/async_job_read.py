@@ -26,16 +26,23 @@ def _build_async_job_query(
     search: str | None,
 ):
     """Build the one scoped async-job relation used by page and count queries."""
-    query = select(AsyncJob)
+    project_scope_id = func.coalesce(AsyncJob.project_id, AsyncJob.retained_project_id)
+    project_exists = (
+        select(Project.id)
+        .where(Project.id == project_scope_id)
+        .correlate(AsyncJob)
+        .exists()
+    )
+    query = select(AsyncJob).where(or_(project_scope_id.is_(None), project_exists))
 
     if current_user.role != PlatformRole.SUPER_ADMIN.value:
         # Resolve membership in SQL so page and count scopes need no per-job read.
         project_scope = project_scope_clause(
-            current_user, AsyncJob.project_id, project_roles=()
+            current_user, project_scope_id, project_roles=()
         )
         export_scope = project_scope_clause(
             current_user,
-            AsyncJob.project_id,
+            project_scope_id,
             project_roles=(ProjectRole.REVIEWER.value,),
         )
         query = query.where(
@@ -43,13 +50,13 @@ def _build_async_job_query(
             or_(
                 and_(
                     AsyncJob.kind != async_job_access.EXPORT_JOB_KIND,
-                    AsyncJob.project_id.is_(None),
+                    project_scope_id.is_(None),
                 ),
                 project_scope,
             ),
             or_(
                 AsyncJob.kind != async_job_access.EXPORT_JOB_KIND,
-                and_(AsyncJob.project_id.is_not(None), export_scope),
+                and_(project_scope_id.is_not(None), export_scope),
             ),
         )
     if status:
@@ -57,7 +64,7 @@ def _build_async_job_query(
     if kind:
         query = query.where(AsyncJob.kind.in_(kind))
     if project_id:
-        query = query.where(AsyncJob.project_id == project_id)
+        query = query.where(project_scope_id == project_id)
 
     search_text = search.strip() if search else ""
     if search_text:
@@ -81,13 +88,16 @@ async def _to_async_job_out(
     project_cache: dict[uuid.UUID, Project | None] | None = None,
 ) -> AsyncJobOut:
     project: Project | None = None
-    if job.project_id is not None:
+    project_scope_id = job.project_id or job.retained_project_id
+    if project_scope_id is not None:
         if project_cache is None:
-            project = await db.get(Project, job.project_id)
+            project = await db.get(Project, project_scope_id)
         else:
-            if job.project_id not in project_cache:
-                project_cache[job.project_id] = await db.get(Project, job.project_id)
-            project = project_cache[job.project_id]
+            if project_scope_id not in project_cache:
+                project_cache[project_scope_id] = await db.get(
+                    Project, project_scope_id
+                )
+            project = project_cache[project_scope_id]
 
     payload_project_display_id = None
     if isinstance(job.payload, dict):
@@ -97,6 +107,7 @@ async def _to_async_job_out(
 
     return AsyncJobOut.model_validate(job).model_copy(
         update={
+            "project_id": project_scope_id,
             "project_display_id": (
                 project.display_id if project else payload_project_display_id
             ),
@@ -138,6 +149,7 @@ class SqlAsyncJobReadAdapter:
             stmt.order_by(AsyncJob.created_at.desc(), AsyncJob.id.desc())
             .offset(offset)
             .limit(limit)
+            .execution_options(populate_existing=True)
         )
         rows = (await self._db.execute(stmt)).scalars().all()
         total = (await self._db.execute(count_stmt)).scalar_one()
@@ -153,7 +165,7 @@ class SqlAsyncJobReadAdapter:
     async def get_job(
         self, *, job_id: uuid.UUID, actor_id: uuid.UUID
     ) -> AsyncJobOut | None:
-        job = await self._db.get(AsyncJob, job_id)
+        job = await self._db.get(AsyncJob, job_id, populate_existing=True)
         if job is None:
             return None
         if not await async_job_access._can_access_job(

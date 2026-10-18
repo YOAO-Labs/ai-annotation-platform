@@ -70,7 +70,12 @@ _ACTUAL_TARGET_TYPES = ("export", "async_job")
 
 def _job_project_text_expr():
     return (
-        select(func.cast(AsyncJob.project_id, String))
+        select(
+            func.cast(
+                func.coalesce(AsyncJob.project_id, AsyncJob.retained_project_id),
+                String,
+            )
+        )
         .where(AsyncJob.id == Notification.target_id)
         .correlate(Notification)
         .scalar_subquery()
@@ -116,10 +121,10 @@ def _effective_project_text_expr():
 def _is_restricted_expr():
     """A notification is project-restricted when it names or targets a project.
 
-    Export targets are always restricted.  An async-job target is restricted
+    Export targets are always restricted. An async-job target is restricted
     when its real job is project-scoped, and fails closed (restricted with a
-    NULL project) when that job row is missing.  An existing system job with
-    ``project_id IS NULL`` stays global.
+    NULL project) when that job row is missing. An existing global job with
+    neither project scope stays global.
     """
 
     payload_project = Notification.payload["project_id"].astext
@@ -286,10 +291,9 @@ class NotificationService:
     ) -> list[tuple[bool, uuid.UUID | None, bool]]:
         """Resolve ``(restricted, project_id, export_required)`` per notification.
 
-        ``payload.project_id`` is preferred; export/async-job targets resolve the
-        owning ``AsyncJob`` in one batched query.  A missing/malformed restricted
-        target resolves to ``None`` and therefore fails closed, while a job with
-        no project (explicit system/global work) is preserved as global.
+        Export/async-job targets resolve the owning ``AsyncJob`` in one batched
+        query; other targets use ``payload.project_id``. A missing or malformed
+        restricted target fails closed, while an unscoped job remains global.
         """
 
         job_ids = {
@@ -298,9 +302,11 @@ class NotificationService:
         jobs: dict[uuid.UUID, tuple[uuid.UUID | None, str | None]] = {}
         if job_ids:
             job_rows = await self.db.execute(
-                select(AsyncJob.id, AsyncJob.project_id, AsyncJob.kind).where(
-                    AsyncJob.id.in_(job_ids)
-                )
+                select(
+                    AsyncJob.id,
+                    func.coalesce(AsyncJob.project_id, AsyncJob.retained_project_id),
+                    AsyncJob.kind,
+                ).where(AsyncJob.id.in_(job_ids))
             )
             jobs = {jid: (pid, kind) for jid, pid, kind in job_rows.all()}
 
