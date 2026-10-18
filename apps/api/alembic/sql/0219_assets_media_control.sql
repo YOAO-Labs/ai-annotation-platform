@@ -2574,3 +2574,179 @@ $function$;
 REVOKE ALL ON FUNCTION aap_assets_v1.ensure_video_media(uuid, uuid, uuid, jsonb)
     FROM PUBLIC;
 -- aap-statement-break
+
+CREATE FUNCTION aap_assets_v1.read_video_media_totals(p_item_ids uuid[])
+RETURNS jsonb
+LANGUAGE plpgsql
+STABLE
+PARALLEL UNSAFE
+SECURITY DEFINER
+SET search_path = pg_catalog, pg_temp
+AS $function$
+DECLARE
+    v_request_bytes integer;
+    v_duration_total numeric := 0;
+    v_frame_total numeric := 0;
+    v_matched_items bigint := 0;
+    v_invalid_metadata boolean := false;
+    v_reply jsonb;
+BEGIN
+    IF p_item_ids IS NULL THEN
+        RETURN aap_assets_v1._media_reply(NULL, 'invalid_request');
+    END IF;
+    IF pg_catalog.cardinality(p_item_ids) > 200000
+       OR (
+           pg_catalog.cardinality(p_item_ids) > 0
+           AND pg_catalog.array_ndims(p_item_ids) IS DISTINCT FROM 1
+       )
+       OR EXISTS (
+           SELECT 1
+           FROM pg_catalog.unnest(p_item_ids) AS requested(item_id)
+           WHERE requested.item_id IS NULL
+       ) THEN
+        RETURN aap_assets_v1._media_reply(NULL, 'invalid_request');
+    END IF;
+    v_request_bytes := pg_catalog.octet_length(
+        pg_catalog.jsonb_build_object(
+            'item_ids', pg_catalog.to_jsonb(p_item_ids)
+        )::text
+    );
+    IF v_request_bytes > 8388608 THEN
+        RETURN aap_assets_v1._media_reply(NULL, 'resource_budget_exceeded');
+    END IF;
+
+    WITH requested AS (
+        SELECT requested.item_id, pg_catalog.count(*)::bigint AS weight
+        FROM pg_catalog.unnest(p_item_ids) AS requested(item_id)
+        GROUP BY requested.item_id
+    ),
+    resolved AS (
+        SELECT item.id AS matched_item_id,
+               requested.weight,
+               CASE
+                   WHEN item.file_type = 'video'
+                    AND (
+                        item.media_source_drifted IS DISTINCT FROM false
+                        OR item.media_materialized_generation
+                           IS DISTINCT FROM item.media_source_generation
+                    ) THEN NULL
+                   WHEN pg_catalog.jsonb_typeof(item.metadata -> 'video') = 'object'
+                       THEN item.metadata #>> '{video,duration_ms}'
+                   ELSE NULL
+               END AS duration_text,
+               CASE
+                   WHEN item.file_type = 'video'
+                    AND (
+                        item.media_source_drifted IS DISTINCT FROM false
+                        OR item.media_materialized_generation
+                           IS DISTINCT FROM item.media_source_generation
+                    ) THEN NULL
+                   WHEN pg_catalog.jsonb_typeof(item.metadata -> 'video') = 'object'
+                       THEN item.metadata #>> '{video,frame_count}'
+                   ELSE NULL
+               END AS frame_count_text
+        FROM requested
+        LEFT JOIN public.dataset_items AS item
+            ON item.id = requested.item_id
+    ),
+    parsed AS (
+        SELECT resolved.*,
+               CASE
+                   WHEN resolved.duration_text IS NULL THEN 0::numeric
+                   WHEN resolved.duration_text ~ '^[[:space:]]*[+-]?[0-9]+[[:space:]]*$'
+                       THEN pg_catalog.regexp_replace(
+                           resolved.duration_text,
+                           '^[[:space:]]+|[[:space:]]+$',
+                           '',
+                           'g'
+                       )::numeric
+                   ELSE NULL::numeric
+               END AS duration_value,
+               CASE
+                   WHEN resolved.frame_count_text IS NULL THEN 0::numeric
+                   WHEN resolved.frame_count_text ~ '^[[:space:]]*[+-]?[0-9]+[[:space:]]*$'
+                       THEN pg_catalog.regexp_replace(
+                           resolved.frame_count_text,
+                           '^[[:space:]]+|[[:space:]]+$',
+                           '',
+                           'g'
+                       )::numeric
+                   ELSE NULL::numeric
+               END AS frame_count_value
+        FROM resolved
+    )
+    SELECT COALESCE(
+               pg_catalog.sum(parsed.weight)
+                   FILTER (WHERE parsed.matched_item_id IS NOT NULL),
+               0
+           )::bigint,
+           COALESCE(
+               pg_catalog.sum(
+                   CASE
+                       WHEN parsed.matched_item_id IS NOT NULL
+                        AND parsed.duration_value BETWEEN 0 AND 9223372036854775807
+                           THEN parsed.duration_value * parsed.weight::numeric
+                       ELSE 0::numeric
+                   END
+               ),
+               0
+           ),
+           COALESCE(
+               pg_catalog.sum(
+                   CASE
+                       WHEN parsed.matched_item_id IS NOT NULL
+                        AND parsed.frame_count_value BETWEEN 0 AND 9223372036854775807
+                           THEN parsed.frame_count_value * parsed.weight::numeric
+                       ELSE 0::numeric
+                   END
+               ),
+               0
+           ),
+           COALESCE(
+               pg_catalog.bool_or(
+                   parsed.matched_item_id IS NOT NULL
+                   AND parsed.duration_text IS NOT NULL
+                   AND (
+                       parsed.duration_value IS NULL
+                       OR parsed.duration_value < 0
+                       OR parsed.duration_value > 9223372036854775807
+                   )
+                   OR parsed.matched_item_id IS NOT NULL
+                   AND parsed.frame_count_text IS NOT NULL
+                   AND (
+                       parsed.frame_count_value IS NULL
+                       OR parsed.frame_count_value < 0
+                       OR parsed.frame_count_value > 9223372036854775807
+                   )
+               ),
+               false
+           )
+    INTO v_matched_items, v_duration_total, v_frame_total, v_invalid_metadata
+    FROM parsed;
+    IF v_invalid_metadata
+       OR v_duration_total > 9223372036854775807
+       OR v_frame_total > 9223372036854775807 THEN
+        RETURN aap_assets_v1._media_reply(NULL, 'invalid_response');
+    END IF;
+
+    v_reply := aap_assets_v1._media_reply(
+        pg_catalog.jsonb_build_object(
+            'frame_count', v_frame_total::bigint,
+            'duration_ms', v_duration_total::bigint,
+            'matched_items', v_matched_items
+        ),
+        NULL
+    );
+    IF pg_catalog.octet_length(v_reply::text) > 16777216 THEN
+        RETURN aap_assets_v1._media_reply(NULL, 'resource_budget_exceeded');
+    END IF;
+    RETURN v_reply;
+EXCEPTION
+    WHEN invalid_text_representation OR numeric_value_out_of_range THEN
+        RETURN aap_assets_v1._media_reply(NULL, 'invalid_response');
+END;
+$function$;
+-- aap-statement-break
+REVOKE ALL ON FUNCTION aap_assets_v1.read_video_media_totals(uuid[])
+    FROM PUBLIC;
+-- aap-statement-break

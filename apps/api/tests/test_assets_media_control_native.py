@@ -22,6 +22,9 @@ _READ_SOURCE = text(
 _READ_SUMMARIES = text(
     "SELECT aap_assets_v1.read_media_summaries(CAST(:items AS uuid[]))"
 )
+_READ_VIDEO_TOTALS = text(
+    "SELECT aap_assets_v1.read_video_media_totals(CAST(:items AS uuid[]))"
+)
 _ENSURE = text(
     "SELECT aap_assets_v1.ensure_video_media("
     "CAST(:actor AS uuid), CAST(:item AS uuid), CAST(:task AS uuid), "
@@ -483,3 +486,107 @@ async def test_video_failure_page_requires_manager_and_returns_current_errors(
     assert page["data"]["total"] == 2
     assert {row["asset_type"] for row in page["data"]["items"]} == {"probe", "frame"}
     assert {row["dataset_item_id"] for row in page["data"]["items"]} == {str(item_id)}
+
+
+async def test_video_media_totals_weight_duplicates_and_exclude_unready_videos(
+    db_session,
+):
+    actor_id = await _seed_actor(db_session)
+    _, ready_video_id = await _seed_item(
+        db_session,
+        actor_id=actor_id,
+        file_type="video",
+        name="totals-ready-video",
+        metadata={"video": {"duration_ms": 100, "frame_count": 8}},
+    )
+    _, unready_video_id = await _seed_item(
+        db_session,
+        actor_id=actor_id,
+        file_type="video",
+        name="totals-unready-video",
+        metadata={"video": {"duration_ms": 900, "frame_count": 90}},
+    )
+    _, drifted_video_id = await _seed_item(
+        db_session,
+        actor_id=actor_id,
+        file_type="video",
+        name="totals-drifted-video",
+        metadata={"video": {"duration_ms": 800, "frame_count": 80}},
+    )
+    _, legacy_image_id = await _seed_item(
+        db_session,
+        actor_id=actor_id,
+        file_type="image",
+        name="totals-legacy-image",
+        metadata={"video": {"duration_ms": "7", "frame_count": 3}},
+    )
+    _, nullable_image_id = await _seed_item(
+        db_session,
+        actor_id=actor_id,
+        file_type="image",
+        name="totals-nullable-image",
+        metadata={"video": {"duration_ms": None}},
+    )
+    await db_session.execute(
+        text(
+            "UPDATE public.dataset_items "
+            "SET media_materialized_generation=media_source_generation "
+            "WHERE id=:item"
+        ),
+        {"item": ready_video_id},
+    )
+    await db_session.execute(
+        text(
+            "UPDATE public.dataset_items "
+            "SET media_materialized_generation=media_source_generation, "
+            "media_source_drifted=true WHERE id=:item"
+        ),
+        {"item": drifted_video_id},
+    )
+
+    reply = _object(
+        await db_session.scalar(
+            _READ_VIDEO_TOTALS,
+            {
+                "items": [
+                    ready_video_id,
+                    ready_video_id,
+                    unready_video_id,
+                    drifted_video_id,
+                    legacy_image_id,
+                    nullable_image_id,
+                    uuid4(),
+                ]
+            },
+        )
+    )
+
+    assert reply == {
+        "schema": "aap-assets-media/v1",
+        "ok": True,
+        "data": {"frame_count": 19, "duration_ms": 207, "matched_items": 6},
+    }
+
+
+async def test_video_media_totals_reject_invalid_known_numeric_metadata(db_session):
+    actor_id = await _seed_actor(db_session)
+    _, item_id = await _seed_item(
+        db_session,
+        actor_id=actor_id,
+        file_type="video",
+        name="totals-invalid-metadata",
+        metadata={"video": {"duration_ms": "not-an-integer", "frame_count": 1}},
+    )
+    await db_session.execute(
+        text(
+            "UPDATE public.dataset_items "
+            "SET media_materialized_generation=media_source_generation "
+            "WHERE id=:item"
+        ),
+        {"item": item_id},
+    )
+
+    _error(
+        await db_session.scalar(_READ_VIDEO_TOTALS, {"items": [item_id]}),
+        "invalid_response",
+    )
