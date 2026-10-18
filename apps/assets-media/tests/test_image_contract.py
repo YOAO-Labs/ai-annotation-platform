@@ -263,6 +263,150 @@ def test_actor_acceptance_captures_the_exact_image_policy():
         )
 
 
+def test_schedule_accepts_server_captured_backfill_cutoff_and_rejects_source_substitution():
+    operation_id = uuid4()
+    owner_id = uuid4()
+    selection = c.ImageBackfillSelection(
+        owner_kind="dataset_item",
+        owner_ids=[owner_id],
+        purpose="pyramid",
+        accepted_before=None,
+    )
+    requested_spec = c.ImageBackfillSpec(selection=selection)
+    request = c.ScheduleImageMediaRequest(
+        operation_id=operation_id,
+        owner_kind=None,
+        owner_id=None,
+        spec=requested_spec,
+        force=False,
+    )
+    cutoff = datetime.now(timezone.utc)
+    accepted_spec = c.ImageBackfillSpec(
+        selection=selection.model_copy(update={"accepted_before": cutoff}),
+        policy=requested_spec.policy,
+    )
+    accepted = c.AcceptedImageWork(
+        operation_id=operation_id,
+        source=None,
+        work=c.ImageWorkReference(
+            job_id=uuid4(),
+            generation=1,
+            owner=None,
+            source_generation=0,
+            kind="image_backfill",
+            status="pending",
+        ),
+        spec=accepted_spec,
+    )
+    c.require_scope(request, accepted)
+    assert accepted.spec.selection.accepted_before == cutoff
+
+    owner = c.ImageOwner(kind="dataset_item", id=owner_id)
+    current_source = image_source(owner=owner, item_id=owner_id)
+    source_request = c.ScheduleImageMediaRequest(
+        operation_id=uuid4(),
+        owner_kind=owner.kind,
+        owner_id=owner.id,
+        spec=c.DimensionsWorkSpec(expected_source_snapshot="a" * 64),
+        force=False,
+    )
+    substituted_source = c.ImageSource.model_validate(
+        {**current_source.model_dump(), "source_snapshot": "b" * 64}
+    )
+    source_accepted = c.AcceptedImageWork(
+        operation_id=source_request.operation_id,
+        source=substituted_source,
+        work=c.ImageWorkReference(
+            job_id=uuid4(),
+            generation=1,
+            owner=owner,
+            source_generation=substituted_source.source_generation,
+            kind="dimensions",
+            status="pending",
+        ),
+        spec=source_request.spec,
+    )
+    with pytest.raises(ValueError, match="ready source"):
+        c.require_scope(source_request, source_accepted)
+
+
+def test_internal_image_work_status_must_match_requested_job():
+    job_id = uuid4()
+    owner = c.ImageOwner(kind="dataset_item", id=uuid4())
+    current_source = image_source(owner=owner, item_id=owner.id)
+    status = c.ImageWorkStatus(
+        work=c.ImageWorkReference(
+            job_id=job_id,
+            generation=1,
+            owner=owner,
+            source_generation=current_source.source_generation,
+            kind="thumbnail",
+            status="pending",
+        ),
+        spec=c.ThumbnailWorkSpec(
+            expected_source_snapshot=current_source.source_snapshot
+        ),
+        progress={},
+        error_code=None,
+        error_detail=None,
+        lease_expires_at=None,
+    )
+    c.require_scope(c.ReadInternalImageWorkRequest(job_id=job_id), status)
+    with pytest.raises(ValueError, match="substituted another job"):
+        c.require_scope(c.ReadInternalImageWorkRequest(job_id=uuid4()), status)
+
+
+def test_legacy_stale_pyramid_generation_roundtrips_without_fake_source_facts():
+    legacy = c.ImagePyramidGeneration(
+        asset_id=uuid4(),
+        status="stale",
+        required=False,
+        generation=4,
+        building_generation=None,
+        building_status=None,
+        source_generation=None,
+        source_snapshot=None,
+        width=None,
+        height=None,
+        format=None,
+        manifest=None,
+        manifest_key=None,
+        manifest_digest=None,
+        overview_key=None,
+        overview_digest=None,
+        tile_count=0,
+        retained_bytes=0,
+    )
+    assert legacy.generation == 4
+    assert legacy.source_generation is None and legacy.source_snapshot is None
+    roundtripped = c.ImagePyramidGeneration.model_validate(
+        legacy.model_dump(mode="json")
+    )
+    assert roundtripped == legacy
+    assert roundtripped.summary().generation == 4
+    with pytest.raises(ValidationError, match="ready pyramid generation"):
+        c.ImagePyramidGeneration(
+            asset_id=legacy.asset_id,
+            status="ready",
+            required=False,
+            generation=4,
+            building_generation=None,
+            building_status=None,
+            source_generation=None,
+            source_snapshot=None,
+            width=None,
+            height=None,
+            format=None,
+            manifest=None,
+            manifest_key=None,
+            manifest_digest=None,
+            overview_key=None,
+            overview_digest=None,
+            tile_count=0,
+            retained_bytes=0,
+        )
+
+
 def test_image_worker_leases_accept_captured_policy_over_one_hour():
     policy = ImagePolicy(lease_seconds=3601)
     worker = uuid4()

@@ -433,10 +433,12 @@ class ImagePyramidGeneration(Value):
             self.overview_digest != self.manifest.overview.content_digest
         ):
             raise ValueError("pyramid overview digest disagrees with its manifest")
-        if (self.generation is None) != (self.source_generation is None) or (
-            self.generation is None
-        ) != (self.source_snapshot is None):
-            raise ValueError("pyramid source facts must match its generation")
+        if (self.source_generation is None) != (self.source_snapshot is None):
+            raise ValueError("pyramid source facts must be paired")
+        if self.generation is None and (
+            self.source_generation is not None or self.source_snapshot is not None
+        ):
+            raise ValueError("pyramid source facts require a generation")
         return self
 
     def summary(self) -> ImagePyramidSummary:
@@ -1433,10 +1435,14 @@ def require_scope(request: BaseModel, result: BaseModel) -> None:
     if isinstance(request, ScheduleImageMediaRequest) and isinstance(
         result, AcceptedImageWork
     ):
-        if result.operation_id != request.operation_id or result.spec != request.spec:
-            raise ValueError("scheduled image work changed its accepted operation")
+        if result.operation_id != request.operation_id:
+            raise ValueError("scheduled image work changed its operation ID")
         if request.owner_kind is None:
-            if result.source is not None or result.work.owner is not None:
+            if (
+                result.source is not None
+                or result.work.owner is not None
+                or result.work.kind != "image_backfill"
+            ):
                 raise ValueError("scheduled image backfill acquired one source")
         elif (
             result.source is None
@@ -1444,8 +1450,12 @@ def require_scope(request: BaseModel, result: BaseModel) -> None:
             != ImageOwner(kind=request.owner_kind, id=request.owner_id)
             or result.work.owner != result.source.owner
             or result.work.source_generation != result.source.source_generation
+            or not result.source.upload_ready
+            or result.source.source_drifted
+            or result.source.object_identity is None
+            or result.source.source_snapshot != request.spec.expected_source_snapshot
         ):
-            raise ValueError("scheduled image work changed its owner")
+            raise ValueError("scheduled image work changed its ready source")
         expected_spec = request.spec.model_dump(mode="json")
         accepted_spec = result.spec.model_dump(mode="json")
         if isinstance(request.spec, ImageBackfillSpec):
@@ -1455,11 +1465,11 @@ def require_scope(request: BaseModel, result: BaseModel) -> None:
                 expected_spec["selection"]["accepted_before"] = accepted_spec[
                     "selection"
                 ]["accepted_before"]
-        if expected_spec != accepted_spec:
+        if expected_spec != accepted_spec or result.work.kind != result.spec.kind:
             raise ValueError("scheduled image work changed its accepted spec")
-    if isinstance(request, ReadImageWorkRequest) and isinstance(
-        result, ImageWorkStatus
-    ):
+    if isinstance(
+        request, (ReadImageWorkRequest, ReadInternalImageWorkRequest)
+    ) and isinstance(result, ImageWorkStatus):
         if result.work.job_id != request.job_id:
             raise ValueError("image work status substituted another job")
     if (
