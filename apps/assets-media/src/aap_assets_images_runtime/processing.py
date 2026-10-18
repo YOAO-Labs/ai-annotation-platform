@@ -18,6 +18,7 @@ import shutil
 import sys
 import time
 from typing import Any
+import warnings
 
 from aap_assets_images.policy import ImagePolicy
 from aap_assets_images.geometry import (
@@ -53,6 +54,14 @@ class ThumbnailResult:
     height: int
     webp_bytes: bytes
     blurhash: str
+    source_bytes: int
+    source_sha256: str
+
+
+@dataclass(frozen=True, slots=True)
+class ImageDimensionsResult:
+    width: int
+    height: int
     source_bytes: int
     source_sha256: str
 
@@ -116,6 +125,63 @@ def image_dimensions_from_bytes(data: bytes) -> tuple[int, int] | None:
         return None
 
 
+def build_image_dimensions(
+    source: Path,
+    *,
+    policy: ImagePolicy,
+    expected_dimensions: tuple[int, int] | None = None,
+    expected_source_sha256: str | None = None,
+    deadline: float | None = None,
+) -> ImageDimensionsResult:
+    """Read logical dimensions without loading pixels, for a bounded local child."""
+    source = Path(source)
+    _check_deadline(deadline)
+    try:
+        source_bytes = source.stat().st_size
+    except OSError as exc:
+        raise ImageProcessingError("source_missing") from exc
+    if source_bytes <= 0:
+        raise ImageProcessingError("source_missing")
+    if source_bytes > min(
+        policy.thumbnail_max_source_bytes,
+        policy.max_source_bytes,
+        policy.max_temp_bytes,
+    ):
+        raise ImageProcessingError("resource_limit")
+    source_sha256 = _sha256_hex_file(source, deadline=deadline)
+    if expected_source_sha256 is not None:
+        if _SHA256_RE.fullmatch(expected_source_sha256) is None:
+            raise ImageProcessingError("invalid_request")
+        if source_sha256 != expected_source_sha256:
+            raise ImageProcessingError("source_changed")
+
+    try:
+        from PIL import Image
+
+        max_image_pixels = Image.MAX_IMAGE_PIXELS
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", Image.DecompressionBombWarning)
+            Image.MAX_IMAGE_PIXELS = None
+            try:
+                with Image.open(source) as image:
+                    width, height = _logical_dimensions(image)
+            finally:
+                Image.MAX_IMAGE_PIXELS = max_image_pixels
+    except Exception as exc:  # noqa: BLE001 - metadata-only Pillow errors vary
+        raise ImageProcessingError("decode_failed") from exc
+    if width <= 0 or height <= 0:
+        raise ImageProcessingError("unsupported_dimensions")
+    if expected_dimensions is not None and expected_dimensions != (width, height):
+        raise ImageProcessingError("dimension_mismatch")
+    _check_deadline(deadline)
+    return ImageDimensionsResult(
+        width=width,
+        height=height,
+        source_bytes=source_bytes,
+        source_sha256=source_sha256,
+    )
+
+
 def build_thumbnail(
     source: Path,
     *,
@@ -147,12 +213,20 @@ def build_thumbnail(
         import blurhash as bh
 
         with Image.open(source) as raw:
-            image = ImageOps.exif_transpose(raw).convert("RGB")
-            width, height = (int(image.width), int(image.height))
+            width, height = _logical_dimensions(raw)
+            if width > policy.max_dimension or height > policy.max_dimension:
+                raise ImageProcessingError("unsupported_dimensions")
+            if width * height > policy.max_pixels:
+                raise ImageProcessingError("unsupported_dimensions")
+            if policy.pyramid_eligible(width, height):
+                raise ImageProcessingError("not_eligible")
             if expected_dimensions is not None and expected_dimensions != (
                 width,
                 height,
             ):
+                raise ImageProcessingError("dimension_mismatch")
+            image = ImageOps.exif_transpose(raw).convert("RGB")
+            if (int(image.width), int(image.height)) != (width, height):
                 raise ImageProcessingError("dimension_mismatch")
             max_side = 256
             scale = min(max_side / width, max_side / height)
@@ -492,6 +566,27 @@ def run_child(request: Any) -> dict[str, Any]:
         "policy",
         "deadline",
     }
+    if action == "dimensions":
+        body = _require_exact_keys(request, common)
+        try:
+            policy = ImagePolicy.model_validate(body["policy"])
+        except Exception as exc:  # noqa: BLE001 - strict local request boundary
+            raise ImageProcessingError("invalid_request") from exc
+        result = build_image_dimensions(
+            _absolute_path(body["source_path"]),
+            policy=policy,
+            expected_dimensions=_expected_dimensions(body["expected_dimensions"]),
+            expected_source_sha256=_source_sha256(body["source_sha256"]),
+            deadline=_child_deadline(body["deadline"]),
+        )
+        return {
+            "schema": CHILD_RESULT_SCHEMA,
+            "action": "dimensions",
+            "width": result.width,
+            "height": result.height,
+            "source_bytes": result.source_bytes,
+            "source_sha256": result.source_sha256,
+        }
     if action == "thumbnail":
         body = _require_exact_keys(request, common | {"output_path"})
         output_path = _absolute_path(body["output_path"])

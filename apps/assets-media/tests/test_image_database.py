@@ -112,7 +112,7 @@ def _worker_requests():
     manifest = ImagePyramidManifest(
         **{
             "schema": "aap-image-pyramid/v1",
-            "generation": 1,
+            "generation": 17,
             "sourceFingerprint": "sha256:" + "a" * 64,
             "normalizationVersion": "exif-autorotate-srgb-v1",
             "width": 1,
@@ -137,7 +137,7 @@ def _worker_requests():
             },
         }
     )
-    prefix = f"image-pyramids/{uuid4()}/g1/a{lease_token}/"
+    prefix = f"image-pyramids/{uuid4()}/g17/a{lease_token}/"
     pyramid = PyramidResult(
         source_identity=identity,
         source_sha256="a" * 64,
@@ -290,6 +290,56 @@ async def test_asyncpg_binding_commits_only_after_typed_reply_and_scope_validati
     assert isinstance(result, ClaimedImageWork)
     assert result.claim is None
     assert pool.connection.transactions == ["commit"]
+
+
+@pytest.mark.asyncio
+async def test_finish_binding_accepts_pyramid_generation_independent_of_job_generation():
+    request = _worker_requests()["finish_image_media"]
+    assert request.generation == 1
+    assert request.result.manifest.generation == 17
+    pool = _Pool(
+        _ok(
+            {
+                "job_id": request.job_id,
+                "generation": request.generation,
+                "outcome": "published",
+            }
+        )
+    )
+
+    result = await AsyncpgImageDatabase(pool).call("finish_image_media", request)
+
+    assert result.job_id == request.job_id
+    assert pool.connection.transactions == ["commit"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("bad_path", ["wrong_generation", "wrong_lease"])
+async def test_finish_binding_rejects_pyramid_prefix_outside_manifest_and_lease(
+    bad_path,
+):
+    request = _worker_requests()["finish_image_media"]
+    result = request.result
+    if bad_path == "wrong_generation":
+        bad_prefix = result.manifest_artifact.key.replace("/g17/", "/g1/")
+    else:
+        bad_prefix = result.manifest_artifact.key.replace(
+            f"/a{request.lease_token}/", f"/a{uuid4()}/"
+        )
+    bad_result = result.model_copy(
+        update={
+            "manifest_artifact": result.manifest_artifact.model_copy(
+                update={"key": bad_prefix}
+            )
+        }
+    )
+    request = request.model_copy(update={"result": bad_result})
+    pool = _Pool(_ok({}))
+
+    with pytest.raises(ImageFailure, match="invalid_request"):
+        await AsyncpgImageDatabase(pool).call("finish_image_media", request)
+
+    assert pool.acquisitions == 0
 
 
 @pytest.mark.asyncio

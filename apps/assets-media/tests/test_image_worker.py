@@ -28,6 +28,7 @@ from aap_assets_images.contract import (
     ImageSource,
     ImageWorkOutcome,
     ObjectIdentity,
+    PyramidWorkSpec,
     ThumbnailWorkSpec,
 )
 from aap_assets_images.policy import ImagePolicy
@@ -39,6 +40,14 @@ from aap_assets_images_runtime.worker import ImageExecutor, _run_child
 def _png_bytes(size=(4, 2)) -> bytes:
     output = io.BytesIO()
     Image.new("RGB", size, (50, 100, 150)).save(output, format="PNG")
+    return output.getvalue()
+
+
+def _jpeg_with_large_icc(size=(4, 2), *, icc_bytes=300 * 1024) -> bytes:
+    output = io.BytesIO()
+    Image.new("RGB", size, (50, 100, 150)).save(
+        output, format="JPEG", quality=85, icc_profile=b"i" * icc_bytes
+    )
     return output.getvalue()
 
 
@@ -158,6 +167,8 @@ class _FakeStorage:
         self.source_bytes = source_bytes
         self.header = header if header is not None else source_bytes
         self.heads = list(heads or [])
+        self.headers = []
+        self.downloads = []
         self.uploads = []
         self.sources = []
         self.orphans = []
@@ -167,9 +178,14 @@ class _FakeStorage:
         return self.heads.pop(0) if self.heads else source.object_identity
 
     async def read_source_header(self, source):
-        return SourceHeader(identity=source.object_identity, data=self.header)
+        self.headers.append(source)
+        return SourceHeader(
+            identity=source.object_identity,
+            data=self.header[: 256 * 1024],
+        )
 
     async def download_source(self, source, destination):
+        self.downloads.append(source)
         destination.write_bytes(self.source_bytes)
         return DownloadedSource(
             identity=source.object_identity,
@@ -305,6 +321,106 @@ async def test_dimensions_worker_fails_instead_of_publishing_after_source_change
 
 
 @pytest.mark.asyncio
+async def test_dimensions_worker_rejects_header_that_disagrees_with_known_source_facts():
+    data = _png_bytes((4, 2))
+    source = _source(data, width=6, height=2)
+    claim = _claim(
+        source,
+        DimensionsWorkSpec(
+            expected_source_snapshot=source.source_snapshot,
+            policy=_policy(),
+        ),
+    )
+    database = _FakeDatabase(claim)
+    storage = _FakeStorage(data)
+
+    result = await ImageExecutor(database, storage).execute_once()
+
+    assert result.outcome == "failed"
+    assert database.calls[-1][0] == "fail_image_media"
+    assert database.calls[-1][1].error_code == "dimension_mismatch"
+
+
+@pytest.mark.asyncio
+async def test_dimensions_worker_rejects_unknown_header_over_source_cap_without_download():
+    data = b"not-an-image"
+    source = _source(data)
+    oversized = source.model_copy(
+        update={
+            "object_identity": source.object_identity.model_copy(
+                update={"byte_size": 536_870_913}
+            ),
+            "file_size": 536_870_913,
+        }
+    )
+    claim = _claim(
+        oversized,
+        DimensionsWorkSpec(
+            expected_source_snapshot=oversized.source_snapshot,
+            policy=_policy(),
+        ),
+    )
+    database = _FakeDatabase(claim)
+    storage = _FakeStorage(data)
+
+    result = await ImageExecutor(database, storage).execute_once()
+
+    assert result.outcome == "failed"
+    assert storage.headers == [oversized]
+    assert storage.downloads == []
+    assert database.calls[-1][1].error_code == "resource_limit"
+
+
+@pytest.mark.asyncio
+async def test_dimensions_worker_probes_small_image_with_large_icc_header():
+    data = _jpeg_with_large_icc()
+    source = _source(data)
+    claim = _claim(
+        source,
+        DimensionsWorkSpec(
+            expected_source_snapshot=source.source_snapshot,
+            generate_preview=True,
+            policy=_policy(),
+        ),
+    )
+    database = _FakeDatabase(claim)
+    storage = _FakeStorage(data)
+
+    result = await ImageExecutor(database, storage).execute_once()
+
+    assert result.outcome == "published"
+    assert len(storage.headers) == 1
+    assert len(storage.downloads) == 1
+    finish = database.calls[-1][1]
+    assert (finish.result.width, finish.result.height) == (4, 2)
+    assert finish.result.source_sha256 == hashlib.sha256(data).hexdigest()
+
+
+@pytest.mark.asyncio
+async def test_thumbnail_worker_probes_small_image_with_large_icc_header():
+    data = _jpeg_with_large_icc()
+    source = _source(data)
+    claim = _claim(
+        source,
+        ThumbnailWorkSpec(
+            expected_source_snapshot=source.source_snapshot,
+            policy=_policy(),
+        ),
+    )
+    database = _FakeDatabase(claim)
+    storage = _FakeStorage(data)
+
+    result = await ImageExecutor(database, storage).execute_once()
+
+    assert result.outcome == "published"
+    assert len(storage.headers) == 1
+    assert len(storage.downloads) == 1
+    assert [name for name, _request in database.calls][-1] == "finish_image_media"
+    assert len(storage.uploads) == 1
+    assert storage.uploads[0][0].endswith("/thumbnail.webp")
+
+
+@pytest.mark.asyncio
 async def test_finish_retries_only_explicit_lock_contention_with_same_result_and_lease(
     monkeypatch,
 ):
@@ -361,6 +477,127 @@ async def test_thumbnail_worker_runs_killable_child_and_publishes_attempt_scoped
     finish = database.calls[-1][1]
     assert finish.result.blurhash
     assert finish.result.width == 4 and finish.result.height == 2
+
+
+@pytest.mark.asyncio
+async def test_thumbnail_pipeline_rejects_pyramid_eligible_image_before_full_download():
+    data = _png_bytes((4096, 4096))
+    source = _source(data)
+    claim = _claim(
+        source,
+        ThumbnailWorkSpec(
+            expected_source_snapshot=source.source_snapshot,
+            policy=_policy(),
+        ),
+    )
+    database = _FakeDatabase(claim)
+    storage = _FakeStorage(data)
+
+    result = await ImageExecutor(database, storage).execute_once()
+
+    assert result.outcome == "failed"
+    assert storage.headers == [source]
+    assert storage.downloads == []
+    assert storage.uploads == []
+    assert database.calls[-1][1].error_code == "not_eligible"
+
+
+@pytest.mark.asyncio
+async def test_thumbnail_pipeline_rejects_registered_dimension_mismatch_before_download():
+    data = _png_bytes((4, 2))
+    source = _source(data, width=6, height=2)
+    claim = _claim(
+        source,
+        ThumbnailWorkSpec(
+            expected_source_snapshot=source.source_snapshot,
+            policy=_policy(),
+        ),
+    )
+    database = _FakeDatabase(claim)
+    storage = _FakeStorage(data)
+
+    result = await ImageExecutor(database, storage).execute_once()
+
+    assert result.outcome == "failed"
+    assert storage.headers == [source]
+    assert storage.downloads == []
+    assert database.calls[-1][1].error_code == "dimension_mismatch"
+
+
+@pytest.mark.asyncio
+async def test_thumbnail_pipeline_rejects_oversized_source_before_any_object_read():
+    data = _png_bytes()
+    source = _source(data)
+    oversized = source.model_copy(
+        update={
+            "object_identity": source.object_identity.model_copy(
+                update={"byte_size": 536_870_913}
+            ),
+            "file_size": 536_870_913,
+        }
+    )
+    claim = _claim(
+        oversized,
+        ThumbnailWorkSpec(
+            expected_source_snapshot=oversized.source_snapshot,
+            policy=_policy(),
+        ),
+    )
+    database = _FakeDatabase(claim)
+    storage = _FakeStorage(data)
+
+    result = await ImageExecutor(database, storage).execute_once()
+
+    assert result.outcome == "failed"
+    assert storage.headers == []
+    assert storage.downloads == []
+    assert database.calls[-1][1].error_code == "resource_limit"
+
+
+@pytest.mark.asyncio
+async def test_pyramid_worker_executes_real_libvips_child_and_publishes_every_artifact(
+    tmp_path,
+):
+    try:
+        import pyvips
+
+        pyvips.version(0)
+    except Exception as exc:
+        pytest.skip(f"libvips loader is unavailable: {type(exc).__name__}")
+
+    from PIL import ImageCms
+
+    data = _png_bytes((2, 2))
+    source = _source(data)
+    claim = _claim(
+        source,
+        PyramidWorkSpec(
+            expected_source_snapshot=source.source_snapshot,
+            policy=_policy(),
+        ),
+    )
+    profile = tmp_path / "srgb.icc"
+    profile.write_bytes(
+        ImageCms.ImageCmsProfile(ImageCms.createProfile("sRGB")).tobytes()
+    )
+    database = _FakeDatabase(claim)
+    storage = _FakeStorage(data)
+
+    result = await ImageExecutor(database, storage, srgb_profile=profile).execute_once()
+
+    assert result.outcome == "published"
+    finish = database.calls[-1][1]
+    pyramid = finish.result
+    assert pyramid.manifest.schema_ == "aap-image-pyramid/v1"
+    assert pyramid.source_sha256 == hashlib.sha256(data).hexdigest()
+    assert pyramid.tile_count == sum(
+        level.columns * level.rows for level in pyramid.manifest.levels
+    )
+    assert {key for key, _data, _artifact in storage.uploads} == {
+        pyramid.manifest_artifact.key,
+        pyramid.overview_artifact.key,
+        *(tile.artifact.key for tile in pyramid.tile_artifacts),
+    }
 
 
 @pytest.mark.asyncio

@@ -78,16 +78,16 @@ def _validate_finish_request(request: FinishImageMediaRequest) -> None:
         if result.artifact.key != expected:
             raise ImageFailure("invalid_request")
         return
+    pyramid_generation = result.manifest.generation
     match = re.fullmatch(
-        rf"image-pyramids/({_UUID_PATTERN})/g{generation}/a{token}/",
+        rf"image-pyramids/({_UUID_PATTERN})/g{pyramid_generation}/a{token}/",
         result.manifest_artifact.key.removesuffix("manifest.json"),
     )
     if match is None:
         raise ImageFailure("invalid_request")
     prefix = match.group(0)
     if (
-        result.manifest.generation != generation
-        or result.manifest_artifact.key != prefix + "manifest.json"
+        result.manifest_artifact.key != prefix + "manifest.json"
         or result.overview_artifact.key != prefix + "overview.webp"
         or any(
             tile.artifact.key != prefix + f"tiles/{tile.level}/{tile.x}/{tile.y}.webp"

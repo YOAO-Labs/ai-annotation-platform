@@ -5,9 +5,11 @@ import io
 import json
 import os
 from pathlib import Path
+import struct
 import subprocess
 import sys
 import time
+import zlib
 
 from PIL import Image, ImageCms, ImageOps
 import pytest
@@ -46,6 +48,21 @@ def _image_bytes(size: tuple[int, int], mode: str = "RGB") -> bytes:
     output = io.BytesIO()
     image.save(output, format="PNG")
     return output.getvalue()
+
+
+def _png_with_declared_size(width: int, height: int) -> bytes:
+    original = _image_bytes((1, 1))
+    ihdr = bytearray(original[16:29])
+    ihdr[:8] = struct.pack(">II", width, height)
+    crc = zlib.crc32(b"IHDR" + ihdr) & 0xFFFFFFFF
+    return (
+        original[:8]
+        + struct.pack(">I", 13)
+        + b"IHDR"
+        + ihdr
+        + struct.pack(">I", crc)
+        + original[33:]
+    )
 
 
 def _legacy_thumbnail(source_path) -> tuple[bytes, str]:
@@ -199,6 +216,56 @@ def test_thumbnail_obeys_the_captured_source_byte_budget(tmp_path):
     with pytest.raises(ImageProcessingError) as captured:
         build_thumbnail(source_path, policy=policy)
     assert captured.value.code == "resource_limit"
+
+
+def test_thumbnail_rejects_eligible_dimensions_before_pixel_decode(
+    tmp_path, monkeypatch
+):
+    source_path = tmp_path / "large-declared.png"
+    source_path.write_bytes(_png_with_declared_size(4096, 4096))
+
+    def no_pixel_decode(_image, *args, **kwargs):
+        raise AssertionError("pyramid-eligible image reached pixel decode")
+
+    monkeypatch.setattr(Image.Image, "load", no_pixel_decode)
+    with pytest.raises(ImageProcessingError, match="not_eligible"):
+        build_thumbnail(source_path, policy=ImagePolicy())
+
+
+def test_metadata_only_child_reads_huge_dimensions_without_loading_pixels(
+    tmp_path, monkeypatch
+):
+    source_path = tmp_path / "huge-declared.png"
+    source_bytes = _png_with_declared_size(100_000, 100_000)
+    source_path.write_bytes(source_bytes)
+    policy = ImagePolicy()
+    image_limit = Image.MAX_IMAGE_PIXELS
+
+    def no_pixel_decode(_image, *args, **kwargs):
+        raise AssertionError("metadata-only action decoded pixels")
+
+    monkeypatch.setattr(Image.Image, "load", no_pixel_decode)
+    result = run_child(
+        {
+            "schema": CHILD_REQUEST_SCHEMA,
+            "action": "dimensions",
+            "source_path": str(source_path),
+            "source_sha256": hashlib.sha256(source_bytes).hexdigest(),
+            "expected_dimensions": None,
+            "policy": policy.model_dump(mode="json"),
+            "deadline": time.monotonic() + 10,
+        }
+    )
+
+    assert result == {
+        "schema": CHILD_RESULT_SCHEMA,
+        "action": "dimensions",
+        "width": 100_000,
+        "height": 100_000,
+        "source_bytes": len(source_bytes),
+        "source_sha256": hashlib.sha256(source_bytes).hexdigest(),
+    }
+    assert Image.MAX_IMAGE_PIXELS == image_limit
 
 
 def test_pyramid_tile_verifier_rejects_missing_corrupt_and_extra_tiles(tmp_path):

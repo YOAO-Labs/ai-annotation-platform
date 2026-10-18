@@ -43,6 +43,7 @@ from aap_assets_images.contract import (
     ImageTileArtifact,
     ImageWorkOutcome,
     ImageWorkResult,
+    ObjectIdentity,
     PyramidResult,
     PyramidWorkSpec,
     ReconcileImageMediaRequest,
@@ -66,7 +67,7 @@ from aap_assets_images_runtime.processing import (
 from .config import ImageWorkerConfig, load_config
 from .database import AsyncpgImageDatabase, ImageDatabase
 from .health import check_capabilities
-from .storage import ImageStorage, S3ImageStorage
+from .storage import DownloadedSource, ImageStorage, S3ImageStorage
 
 _BACKFILL_CALL_LIMIT = 1_000_000
 _FINISH_RETRY_LIMIT = 5
@@ -85,6 +86,7 @@ _CHILD_ERROR_CODES = frozenset(
     {
         "invalid_request",
         "invalid_response",
+        "not_eligible",
         "source_missing",
         "source_changed",
         "unsupported_dimensions",
@@ -107,6 +109,7 @@ _TERMINAL_FAILURES = frozenset(
         "source_changed",
         "source_not_ready",
         "not_image",
+        "not_eligible",
         "resource_budget_exceeded",
         "unsupported_dimensions",
         "resource_limit",
@@ -336,19 +339,38 @@ class ImageExecutor:
             if header.identity != source.object_identity:
                 raise ImageFailure("source_changed")
             dimensions = image_dimensions_from_bytes(header.data[:IMAGE_HEADER_BYTES])
-            if dimensions is None:
-                raise ImageFailure("decode_failed")
-            width, height = dimensions
-            if width > 2_147_483_647 or height > 2_147_483_647:
-                raise ImageFailure("unsupported_dimensions")
-            result: ImageWorkResult = DimensionsResult(
-                source_identity=header.identity,
-                width=width,
-                height=height,
-            )
-            if await self.storage.head_source(source) != source.object_identity:
-                raise ImageFailure("source_changed")
-            return result
+            if dimensions is not None:
+                self._validate_known_dimensions(source, dimensions)
+                if await self.storage.head_source(source) != source.object_identity:
+                    raise ImageFailure("source_changed")
+                return DimensionsResult(
+                    source_identity=header.identity,
+                    width=dimensions[0],
+                    height=dimensions[1],
+                )
+            self._validate_metadata_probe_size(claim, source.object_identity)
+            with tempfile.TemporaryDirectory(
+                prefix="aap-image-dimensions-"
+            ) as temporary:
+                workspace = Path(temporary)
+                workspace.chmod(0o700)
+                source_path = workspace / _source_filename(source.file_name)
+                download = await self._download_source(claim, source_path, heartbeat)
+                output_dir = workspace / "output"
+                output_dir.mkdir(mode=0o700)
+                dimensions = await self._probe_full_dimensions(
+                    claim, source_path, output_dir, download.sha256, heartbeat
+                )
+                self._validate_known_dimensions(source, dimensions)
+                heartbeat.check()
+                if await self.storage.head_source(source) != source.object_identity:
+                    raise ImageFailure("source_changed")
+                return DimensionsResult(
+                    source_identity=source.object_identity,
+                    source_sha256=download.sha256,
+                    width=dimensions[0],
+                    height=dimensions[1],
+                )
 
         if isinstance(claim.spec, ThumbnailWorkSpec):
             source_byte_limit = min(
@@ -368,27 +390,40 @@ class ImageExecutor:
         ):
             raise ImageFailure("resource_limit")
 
+        thumbnail_dimensions: tuple[int, int] | None = None
+        if isinstance(claim.spec, ThumbnailWorkSpec):
+            header = await self.storage.read_source_header(source)
+            heartbeat.check()
+            if header.identity != identity:
+                raise ImageFailure("source_changed")
+            thumbnail_dimensions = image_dimensions_from_bytes(
+                header.data[:IMAGE_HEADER_BYTES]
+            )
+            if thumbnail_dimensions is not None:
+                self._validate_thumbnail_dimensions(claim, thumbnail_dimensions)
+                self._validate_known_dimensions(source, thumbnail_dimensions)
+
         with tempfile.TemporaryDirectory(prefix="aap-image-job-") as temporary:
             workspace = Path(temporary)
             workspace.chmod(0o700)
             source_path = workspace / _source_filename(source.file_name)
-            download = await self.storage.download_source(source, source_path)
+            download = await self._download_source(claim, source_path, heartbeat)
             heartbeat.check()
-            if (
-                download.identity != identity
-                or download.byte_size != identity.byte_size
-                or source.file_size is not None
-                and download.byte_size != source.file_size
-            ):
-                raise ImageFailure("source_changed")
             output_dir = workspace / "output"
             output_dir.mkdir(mode=0o700)
             if isinstance(claim.spec, ThumbnailWorkSpec):
+                if thumbnail_dimensions is None:
+                    thumbnail_dimensions = await self._probe_full_dimensions(
+                        claim, source_path, output_dir, download.sha256, heartbeat
+                    )
+                    self._validate_thumbnail_dimensions(claim, thumbnail_dimensions)
+                    self._validate_known_dimensions(source, thumbnail_dimensions)
                 result = await self._thumbnail(
                     claim,
                     source_path,
                     output_dir,
                     download.sha256,
+                    thumbnail_dimensions,
                     heartbeat,
                 )
             else:
@@ -411,16 +446,120 @@ class ImageExecutor:
                 raise ImageFailure("source_changed")
             return result
 
-    async def _thumbnail(
+    async def _download_source(
+        self, claim: ImageClaim, destination: Path, heartbeat: _LeaseHeartbeat
+    ) -> DownloadedSource:
+        source = claim.source
+        if source is None or source.object_identity is None:
+            raise ImageFailure("invalid_response")
+        downloaded = await self.storage.download_source(source, destination)
+        heartbeat.check()
+        if (
+            downloaded.identity != source.object_identity
+            or downloaded.byte_size != source.object_identity.byte_size
+            or source.file_size is not None
+            and downloaded.byte_size != source.file_size
+            or not _is_sha256(downloaded.sha256)
+        ):
+            raise ImageFailure("source_changed")
+        return downloaded
+
+    def _validate_metadata_probe_size(
+        self, claim: ImageClaim, identity: ObjectIdentity
+    ) -> None:
+        limit = min(
+            claim.spec.policy.thumbnail_max_source_bytes,
+            claim.spec.policy.max_source_bytes,
+            claim.spec.policy.max_temp_bytes,
+        )
+        if identity.byte_size <= 0:
+            raise ImageFailure("source_missing")
+        if identity.byte_size > limit:
+            raise ImageFailure("resource_limit")
+
+    @staticmethod
+    def _validate_known_dimensions(
+        source: ImageSource, dimensions: tuple[int, int]
+    ) -> None:
+        if any(value <= 0 or value > 2_147_483_647 for value in dimensions):
+            raise ImageFailure("unsupported_dimensions")
+        known = _known_dimensions(source)
+        if known is not None and tuple(known) != dimensions:
+            raise ImageFailure("dimension_mismatch")
+
+    @staticmethod
+    def _validate_thumbnail_dimensions(
+        claim: ImageClaim, dimensions: tuple[int, int]
+    ) -> None:
+        policy = claim.spec.policy
+        width, height = dimensions
+        if width > policy.max_dimension or height > policy.max_dimension:
+            raise ImageFailure("unsupported_dimensions")
+        if width * height > policy.max_pixels:
+            raise ImageFailure("unsupported_dimensions")
+        if policy.pyramid_eligible(width, height):
+            raise ImageFailure("not_eligible")
+
+    async def _probe_full_dimensions(
         self,
         claim: ImageClaim,
         source_path: Path,
         output_dir: Path,
         source_sha256: str,
         heartbeat: _LeaseHeartbeat,
+    ) -> tuple[int, int]:
+        assert claim.source is not None
+        body = await _run_child(
+            {
+                "schema": CHILD_REQUEST_SCHEMA,
+                "action": "dimensions",
+                "source_path": str(source_path),
+                "source_sha256": source_sha256,
+                "expected_dimensions": _known_dimensions(claim.source),
+                "policy": claim.spec.policy.model_dump(mode="json"),
+                "deadline": heartbeat.deadline,
+            },
+            workspace=source_path.parent,
+            output_dir=output_dir,
+            policy=claim.spec.policy,
+            heartbeat=heartbeat,
+        )
+        if (
+            set(body)
+            != {
+                "schema",
+                "action",
+                "width",
+                "height",
+                "source_bytes",
+                "source_sha256",
+            }
+            or body.get("schema") != CHILD_RESULT_SCHEMA
+            or body.get("action") != "dimensions"
+        ):
+            raise ImageFailure("invalid_response")
+        width, height = _positive_int(body["width"]), _positive_int(body["height"])
+        if (
+            type(body["source_bytes"]) is not int
+            or body["source_bytes"] != claim.source.object_identity.byte_size
+            or body["source_sha256"] != source_sha256
+        ):
+            raise ImageFailure("invalid_response")
+        return width, height
+
+    async def _thumbnail(
+        self,
+        claim: ImageClaim,
+        source_path: Path,
+        output_dir: Path,
+        source_sha256: str,
+        expected_dimensions: tuple[int, int] | None,
+        heartbeat: _LeaseHeartbeat,
     ) -> ThumbnailResult:
         assert isinstance(claim.spec, ThumbnailWorkSpec)
         assert claim.source is not None and claim.output_prefix is not None
+        if expected_dimensions is None:
+            raise ImageFailure("invalid_response")
         output_path = output_dir / "thumbnail.webp"
         body = await _run_child(
             {
@@ -428,7 +567,7 @@ class ImageExecutor:
                 "action": "thumbnail",
                 "source_path": str(source_path),
                 "source_sha256": source_sha256,
-                "expected_dimensions": _known_dimensions(claim.source),
+                "expected_dimensions": list(expected_dimensions),
                 "policy": claim.spec.policy.model_dump(mode="json"),
                 "deadline": heartbeat.deadline,
                 "output_path": str(output_path),
@@ -458,7 +597,7 @@ class ImageExecutor:
             raise ImageFailure("invalid_response")
         width = _positive_int(body["width"])
         height = _positive_int(body["height"])
-        if _known_dimensions(claim.source) not in (None, (width, height)):
+        if expected_dimensions != (width, height):
             raise ImageFailure("dimension_mismatch")
         if (
             type(body["source_bytes"]) is not int
