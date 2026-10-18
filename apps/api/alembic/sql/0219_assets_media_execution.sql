@@ -1039,7 +1039,7 @@ BEGIN
                OR pg_catalog.char_length(
                     p_result -> 'metadata_patch' ->> 'frame_timetable_error'
                ) NOT BETWEEN 1 AND 2000
-               OR (p_result -> 'metadata_patch' - ARRAY['frame_timetable_error'])
+               OR ((p_result -> 'metadata_patch') - ARRAY['frame_timetable_error'])
                     IS DISTINCT FROM '{}'::jsonb
                OR EXISTS (
                     SELECT 1
@@ -1608,7 +1608,7 @@ BEGIN
     IF v_has_frame THEN
         UPDATE public.video_frame_cache AS cache
         SET status = CASE WHEN v_frame.storage_key IS NOT NULL THEN 'ready' ELSE 'failed' END,
-            error = CASE WHEN v_frame.storage_key IS NOT NULL THEN NULL ELSE p_error_detail END,
+            error = p_error_detail,
             updated_at = pg_catalog.clock_timestamp()
         WHERE cache.id = v_frame.id
           AND cache.source_generation = v_job.source_generation
@@ -1616,7 +1616,7 @@ BEGIN
     ELSIF v_has_chunk THEN
         UPDATE public.video_chunks AS chunk
         SET status = CASE WHEN v_chunk.storage_key IS NOT NULL THEN 'ready' ELSE 'failed' END,
-            error = CASE WHEN v_chunk.storage_key IS NOT NULL THEN NULL ELSE p_error_detail END,
+            error = p_error_detail,
             updated_at = pg_catalog.clock_timestamp()
         WHERE chunk.id = v_chunk.id
           AND chunk.source_generation = v_job.source_generation

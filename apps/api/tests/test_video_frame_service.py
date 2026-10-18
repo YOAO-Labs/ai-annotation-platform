@@ -1614,18 +1614,15 @@ async def test_rebuild_timetable_cli_records_failure_after_rollback(
     user, _ = super_admin
     _, failed = await _make_video_task(db_session, user.id)
     _, following = await _make_video_task(db_session, user.id)
-    following.created_at = failed.created_at + timedelta(seconds=1)
+    failed.created_at = following.created_at - timedelta(seconds=1)
     binding = db_session.info["media_owner_test_binding"]
-    valid_bytes = binding.storage.sources[following.file_path]
     for item in (failed, following):
         updated_video = dict(item.metadata_["video"])
         updated_video["frame_count"] = 4
         item.metadata_ = {**item.metadata_, "video": updated_video}
-    failed.file_path = "missing.mp4"
-    following.file_path = "valid.mp4"
+    binding.storage.sources.pop(failed.file_path)
     original_video = dict(failed.metadata_["video"])
     failed_id, following_id = str(failed.id), str(following.id)
-    binding.storage.register_source("valid.mp4", valid_bytes)
     await db_session.flush()
     db_session.add(
         VideoFrameIndex(
@@ -1651,7 +1648,7 @@ async def test_rebuild_timetable_cli_records_failure_after_rollback(
 
         job = await db_session.get(AssetMediaJob, job_id)
         item = await db_session.get(DatasetItem, job.dataset_item_id)
-        if item.file_path == "missing.mp4":
+        if item.id == failed.id:
             await binding.run_timetable(job_id, error="source unavailable")
         else:
             await binding.run_timetable(job_id, frame_rows=rows)

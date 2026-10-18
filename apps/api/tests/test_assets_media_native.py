@@ -14,6 +14,8 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 from aap_assets_media.contract import GarbageBatch, MediaClaim, MediaSource
 from app.db.models.asset_media import AssetMediaJob
 from app.db.models.dataset import DatasetItem
+from app.db.models.task import Task
+from tests.factory import create_project
 from tests.test_assets_catalog_native import _seed_actor, _seed_dataset
 
 pytestmark = pytest.mark.asyncio
@@ -69,6 +71,7 @@ _RESOLVE_INTERNAL_SOURCE = text(
 
 
 def _data(reply: dict) -> dict:
+    assert reply.get("ok") is True, reply.get("error")
     assert set(reply) == {"schema", "ok", "data"}
     assert reply["schema"] == "aap-assets-media/v1"
     assert reply["ok"] is True
@@ -103,6 +106,22 @@ async def _seed_video(
     )
     await db_session.flush()
     return item_id
+
+
+async def _seed_visible_video_task(db_session, *, actor_id, item_id):
+    project = await create_project(db_session, owner_id=actor_id)
+    db_session.add(
+        Task(
+            project_id=project.id,
+            dataset_item_id=item_id,
+            display_id=f"T-MEDIA-{uuid.uuid4().hex[:12]}",
+            file_name="video.mp4",
+            file_path=f"source/{item_id}.mp4",
+            file_type="video",
+            status="pending",
+        )
+    )
+    await db_session.flush()
 
 
 async def _seed_job(
@@ -519,6 +538,7 @@ async def test_full_timetable_staging_and_500_row_reads_are_atomic_and_stable(
         dataset_id=dataset_id,
         video_metadata={"frame_count": total, "fps": 30.0},
     )
+    await _seed_visible_video_task(db_session, actor_id=actor_id, item_id=item_id)
     await db_session.execute(
         text(
             "UPDATE public.dataset_items SET media_materialized_generation=1,"
@@ -834,8 +854,9 @@ async def test_failed_attempt_late_fail_reopens_prefix_sweep(db_session):
 
 
 @pytest.mark.parametrize("kind", ["frame", "chunk"])
+@pytest.mark.parametrize("has_output", [False, True])
 async def test_worker_failure_marks_current_projection_for_failed_only_and_listing(
-    db_session, kind
+    db_session, kind, has_output
 ):
     actor_id = await _seed_actor(db_session)
     dataset_id = await _seed_dataset(db_session, actor_id=actor_id, data_type="video")
@@ -845,6 +866,7 @@ async def test_worker_failure_marks_current_projection_for_failed_only_and_listi
         dataset_id=dataset_id,
         video_metadata={"frame_count": 4, "fps": 30.0},
     )
+    await _seed_visible_video_task(db_session, actor_id=actor_id, item_id=item_id)
     await db_session.execute(
         text(
             "UPDATE public.dataset_items "
@@ -866,7 +888,13 @@ async def test_worker_failure_marks_current_projection_for_failed_only_and_listi
         {"slot": _asset_slot(kind, 0), "job": job_id},
     )
     await _insert_media_projection(
-        db_session, item_id=item_id, kind=kind, index=0, status="pending"
+        db_session,
+        item_id=item_id,
+        kind=kind,
+        index=0,
+        status="pending",
+        storage_key="media-assets/previous-ready-output" if has_output else None,
+        byte_size=100 if has_output else None,
     )
     claim = await _claim(db_session, job_id=job_id, kind=kind)
 
@@ -895,7 +923,17 @@ async def test_worker_failure_marks_current_projection_for_failed_only_and_listi
             {"item": item_id},
         )
     ).one()
-    assert tuple(projection) == ("failed", "decode failed")
+    assert tuple(projection) == (
+        "ready" if has_output else "failed",
+        "decode failed",
+    )
+
+    failures = _data(await db_session.scalar(_FAILURES, {"actor_id": actor_id}))[
+        "items"
+    ]
+    assert len(failures) == 1
+    assert failures[0]["asset_type"] == kind
+    assert failures[0]["error"] == "decode failed"
 
     selection = (
         {
@@ -926,15 +964,177 @@ async def test_worker_failure_marks_current_projection_for_failed_only_and_listi
         )
     )["assets"]
     assert len(assets) == 1
-    assert assets[0]["status"] == "failed"
-    assert assets[0]["error"] == "decode failed"
+    assert assets[0]["status"] == "pending"
+    assert assets[0]["error"] is None
+
+    retried = (
+        await db_session.execute(
+            text(
+                "SELECT generation,status,lease_token FROM public.asset_media_jobs "
+                "WHERE job_id=:job"
+            ),
+            {"job": job_id},
+        )
+    ).one()
+    assert tuple(retried) == (claim.generation + 1, "pending", None)
+    assert (
+        _data(
+            await db_session.scalar(
+                _ENSURE,
+                {
+                    "actor_id": actor_id,
+                    "item_id": item_id,
+                    "selection": json.dumps(selection),
+                },
+            )
+        )["assets"]
+        == []
+    )
+    assert (
+        await db_session.scalar(
+            text("SELECT generation FROM public.asset_media_jobs WHERE job_id=:job"),
+            {"job": job_id},
+        )
+        == retried.generation
+    )
 
     failures = _data(await db_session.scalar(_FAILURES, {"actor_id": actor_id}))[
         "items"
     ]
-    assert len(failures) == 1
-    assert failures[0]["asset_type"] == kind
-    assert failures[0]["error"] == "decode failed"
+    assert failures == []
+
+    retry_claim = await _claim(db_session, job_id=job_id, kind=kind)
+    assert retry_claim.generation == retried.generation
+    assert (
+        _data(
+            await db_session.scalar(
+                _FAIL,
+                {
+                    "job_id": job_id,
+                    "generation": retry_claim.generation,
+                    "lease_token": retry_claim.lease_token,
+                    "error_code": "decode_error",
+                    "error_detail": "retry failed",
+                },
+            )
+        )["outcome"]
+        == "failed"
+    )
+    projection_table = "video_frame_cache" if kind == "frame" else "video_chunks"
+    projection_id = "frame_index" if kind == "frame" else "chunk_id"
+    projection = (
+        await db_session.execute(
+            text(
+                f"SELECT status,error,storage_key FROM public.{projection_table} "
+                f"WHERE dataset_item_id=:item AND {projection_id}=0"
+            ),
+            {"item": item_id},
+        )
+    ).one()
+    assert tuple(projection) == (
+        "ready" if has_output else "failed",
+        "retry failed",
+        "media-assets/previous-ready-output" if has_output else None,
+    )
+    assert (
+        _data(await db_session.scalar(_FAILURES, {"actor_id": actor_id}))["items"][0][
+            "error"
+        ]
+        == "retry failed"
+    )
+
+
+@pytest.mark.parametrize("kind", ["frame", "chunk"])
+async def test_concurrent_failed_only_retry_does_not_supersede_accepted_retry(
+    test_engine, kind
+):
+    maker = async_sessionmaker(test_engine, expire_on_commit=False)
+    actor_id = dataset_id = item_id = project_id = None
+    try:
+        async with maker.begin() as owner:
+            actor_id = await _seed_actor(owner)
+            dataset_id = await _seed_dataset(
+                owner, actor_id=actor_id, data_type="video"
+            )
+            item_id = await _seed_video(
+                owner,
+                actor_id=actor_id,
+                dataset_id=dataset_id,
+                video_metadata={"frame_count": 4, "fps": 30.0},
+            )
+            await _seed_visible_video_task(owner, actor_id=actor_id, item_id=item_id)
+            project_id = await owner.scalar(
+                text("SELECT project_id FROM public.tasks WHERE dataset_item_id=:item"),
+                {"item": item_id},
+            )
+            await owner.execute(
+                text(
+                    "UPDATE public.dataset_items SET media_materialized_generation=1 "
+                    "WHERE id=:item"
+                ),
+                {"item": item_id},
+            )
+            await _insert_media_projection(
+                owner,
+                item_id=item_id,
+                kind=kind,
+                index=0,
+                status="failed",
+                error="decode failed",
+            )
+
+        selection = (
+            {"kind": "frames", "frame_indices": [0], "width": 512, "format": "webp"}
+            if kind == "frame"
+            else {"kind": "chunks", "chunk_ids": [0], "chunk_size_frames": 2}
+        )
+        params = {
+            "actor_id": actor_id,
+            "item_id": item_id,
+            "selection": json.dumps({**selection, "force": False, "failed_only": True}),
+        }
+        async with test_engine.connect() as first, test_engine.connect() as second:
+            accepted = _data(await first.scalar(_ENSURE, params))["assets"][0]
+            competing = await asyncio.wait_for(second.scalar(_ENSURE, params), 3)
+            assert competing["ok"] is False
+            assert competing["error"]["code"] == "source_busy"
+            await second.rollback()
+            await first.commit()
+            assert _data(await second.scalar(_ENSURE, params))["assets"] == []
+            job = (
+                await second.execute(
+                    text(
+                        "SELECT generation,status FROM public.asset_media_jobs "
+                        "WHERE job_id=CAST(:job AS uuid)"
+                    ),
+                    {"job": accepted["job_id"]},
+                )
+            ).one()
+            assert tuple(job) == (accepted["generation"], "pending")
+            await second.rollback()
+    finally:
+        async with test_engine.begin() as cleanup:
+            if item_id is not None:
+                for table in (
+                    "video_frame_cache",
+                    "video_chunks",
+                    "asset_media_jobs",
+                    "tasks",
+                ):
+                    await cleanup.execute(
+                        text(f"DELETE FROM public.{table} WHERE dataset_item_id=:item"),
+                        {"item": item_id},
+                    )
+            for table, key in (
+                ("projects", project_id),
+                ("dataset_items", item_id),
+                ("datasets", dataset_id),
+                ("users", actor_id),
+            ):
+                if key is not None:
+                    await cleanup.execute(
+                        text(f"DELETE FROM public.{table} WHERE id=:id"), {"id": key}
+                    )
 
 
 @pytest.mark.parametrize("kind", ["frame", "chunk"])
@@ -999,7 +1199,7 @@ async def test_worker_failure_preserves_ready_old_output_and_newer_source_projec
             {"item": item_id},
         )
     ).one()
-    assert tuple(preserved) == ("ready", None, old_key, 1)
+    assert tuple(preserved) == ("ready", "refresh failed", old_key, 1)
 
     changed_item_id = await _seed_video(
         db_session,

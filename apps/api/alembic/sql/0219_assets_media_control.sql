@@ -1169,11 +1169,11 @@ BEGIN
         UNION
         SELECT chunk.dataset_item_id
         FROM public.video_chunks AS chunk
-        WHERE chunk.status = 'failed'
+        WHERE (chunk.status = 'failed' OR chunk.error IS NOT NULL)
         UNION
         SELECT frame.dataset_item_id
         FROM public.video_frame_cache AS frame
-        WHERE frame.status = 'failed'
+        WHERE (frame.status = 'failed' OR frame.error IS NOT NULL)
     ) AS failed;
     v_context := aap_labeling_v1.read_media_failure_context(p_actor_id, v_item_ids);
     IF v_context IS NULL
@@ -1252,7 +1252,7 @@ BEGIN
         FROM public.video_chunks AS chunk
         JOIN public.dataset_items AS item ON item.id = chunk.dataset_item_id
         JOIN context_items AS context ON context.dataset_item_id = item.id
-        WHERE item.file_type = 'video' AND chunk.status = 'failed'
+        WHERE item.file_type = 'video' AND (chunk.status = 'failed' OR chunk.error IS NOT NULL)
         UNION ALL
         SELECT
             'frame:' || frame.id::text,
@@ -1272,7 +1272,7 @@ BEGIN
         FROM public.video_frame_cache AS frame
         JOIN public.dataset_items AS item ON item.id = frame.dataset_item_id
         JOIN context_items AS context ON context.dataset_item_id = item.id
-        WHERE item.file_type = 'video' AND frame.status = 'failed'
+        WHERE item.file_type = 'video' AND (frame.status = 'failed' OR frame.error IS NOT NULL)
     )
     SELECT
         count(*)::bigint,
@@ -2255,6 +2255,7 @@ DECLARE
     v_frame public.video_frame_cache%ROWTYPE;
     v_chunk public.video_chunks%ROWTYPE;
     v_exists boolean;
+    v_refresh boolean;
     v_expected_snapshot text;
 BEGIN
     IF p_actor_id IS NULL OR p_dataset_item_id IS NULL
@@ -2336,6 +2337,10 @@ BEGIN
     ELSE
         RETURN aap_assets_v1._media_reply(NULL, 'invalid_request');
     END IF;
+    IF v_force AND v_failed_only THEN
+        RETURN aap_assets_v1._media_reply(NULL, 'invalid_request');
+    END IF;
+    v_refresh := v_force OR v_failed_only;
     IF v_intent = 'task_frame_retry' THEN
         v_access := aap_assets_v1._media_lock_task_annotation_write(
             p_actor_id, p_task_id, p_dataset_item_id
@@ -2357,9 +2362,20 @@ BEGIN
        AND v_access_data ->> 'file_type' IS DISTINCT FROM 'video' THEN
         RETURN aap_assets_v1._media_reply(NULL, 'task_not_visible');
     END IF;
-    SELECT item.* INTO v_item
-    FROM public.dataset_items AS item
-    WHERE item.id = p_dataset_item_id;
+    IF v_refresh THEN
+        BEGIN
+            SELECT item.* INTO v_item
+            FROM public.dataset_items AS item
+            WHERE item.id = p_dataset_item_id
+            FOR UPDATE NOWAIT;
+        EXCEPTION WHEN lock_not_available OR serialization_failure OR deadlock_detected THEN
+            RETURN aap_assets_v1._media_reply(NULL, 'source_busy');
+        END;
+    ELSE
+        SELECT item.* INTO v_item
+        FROM public.dataset_items AS item
+        WHERE item.id = p_dataset_item_id;
+    END IF;
     IF NOT FOUND OR v_item.file_type IS DISTINCT FROM 'video' THEN
         RETURN aap_assets_v1._media_reply(NULL, 'source_missing');
     END IF;
@@ -2378,7 +2394,7 @@ BEGIN
             SELECT frame.frame_index
             FROM public.video_frame_cache AS frame
             WHERE frame.dataset_item_id = p_dataset_item_id
-              AND frame.status = 'failed'
+              AND (frame.status = 'failed' OR frame.error IS NOT NULL)
               AND frame.width = v_width
               AND frame.format = v_format
             GROUP BY frame.frame_index
@@ -2425,7 +2441,7 @@ BEGIN
                   AND frame.width = v_width
                   AND frame.format = v_format;
                 v_exists := FOUND;
-                IF v_failed_only AND (NOT v_exists OR v_frame.status IS DISTINCT FROM 'failed') THEN
+                IF v_failed_only AND (NOT v_exists OR (v_frame.status IS DISTINCT FROM 'failed' AND v_frame.error IS NULL)) THEN
                     CONTINUE;
                 END IF;
                 v_old_key := CASE WHEN v_exists THEN v_frame.storage_key ELSE NULL END;
@@ -2448,10 +2464,10 @@ BEGIN
                           OR public.video_frame_cache.timetable_revision <> EXCLUDED.timetable_revision
                         THEN NULL ELSE public.video_frame_cache.byte_size END,
                     status = CASE
-                        WHEN v_force OR public.video_frame_cache.source_generation <> EXCLUDED.source_generation
+                        WHEN v_refresh OR public.video_frame_cache.source_generation <> EXCLUDED.source_generation
                           OR public.video_frame_cache.timetable_revision <> EXCLUDED.timetable_revision
                         THEN 'pending' ELSE public.video_frame_cache.status END,
-                    error = CASE WHEN v_force OR public.video_frame_cache.source_generation <> EXCLUDED.source_generation
+                    error = CASE WHEN v_refresh OR public.video_frame_cache.source_generation <> EXCLUDED.source_generation
                                   OR public.video_frame_cache.timetable_revision <> EXCLUDED.timetable_revision
                                  THEN NULL ELSE public.video_frame_cache.error END,
                     source_generation = EXCLUDED.source_generation,
@@ -2466,7 +2482,7 @@ BEGIN
                     'kind', 'frame', 'frame_index', v_index, 'width', v_width,
                     'format', v_format, 'expected_source_snapshot', v_source_snapshot
                 );
-                v_reply := aap_assets_v1._media_enqueue(NULL, p_actor_id, p_dataset_item_id, v_spec, v_force);
+                v_reply := aap_assets_v1._media_enqueue(NULL, p_actor_id, p_dataset_item_id, v_spec, v_refresh);
                 IF v_reply IS NULL OR v_reply -> 'ok' IS DISTINCT FROM 'true'::jsonb THEN
                     v_error_code := COALESCE(v_reply #>> '{error,code}', 'invalid_response');
                     RAISE EXCEPTION 'media enqueue rejected';
@@ -2498,7 +2514,7 @@ BEGIN
                 FROM public.video_chunks AS chunk
                 WHERE chunk.dataset_item_id = p_dataset_item_id AND chunk.chunk_id = v_index;
                 v_exists := FOUND;
-                IF v_failed_only AND (NOT v_exists OR v_chunk.status IS DISTINCT FROM 'failed') THEN
+                IF v_failed_only AND (NOT v_exists OR (v_chunk.status IS DISTINCT FROM 'failed' AND v_chunk.error IS NULL)) THEN
                     CONTINUE;
                 END IF;
                 v_old_key := CASE WHEN v_exists THEN v_chunk.storage_key ELSE NULL END;
@@ -2528,12 +2544,12 @@ BEGIN
                           OR public.video_chunks.timetable_revision <> EXCLUDED.timetable_revision
                         THEN NULL ELSE public.video_chunks.byte_size END,
                     status = CASE
-                        WHEN v_force OR public.video_chunks.start_frame <> EXCLUDED.start_frame
+                        WHEN v_refresh OR public.video_chunks.start_frame <> EXCLUDED.start_frame
                           OR public.video_chunks.end_frame <> EXCLUDED.end_frame
                           OR public.video_chunks.source_generation <> EXCLUDED.source_generation
                           OR public.video_chunks.timetable_revision <> EXCLUDED.timetable_revision
                         THEN 'pending' ELSE public.video_chunks.status END,
-                    error = CASE WHEN v_force OR public.video_chunks.start_frame <> EXCLUDED.start_frame
+                    error = CASE WHEN v_refresh OR public.video_chunks.start_frame <> EXCLUDED.start_frame
                                   OR public.video_chunks.end_frame <> EXCLUDED.end_frame
                                   OR public.video_chunks.source_generation <> EXCLUDED.source_generation
                                   OR public.video_chunks.timetable_revision <> EXCLUDED.timetable_revision
@@ -2553,7 +2569,7 @@ BEGIN
                     'kind', 'chunk', 'chunk_id', v_index, 'chunk_size_frames', v_chunk_size,
                     'expected_source_snapshot', v_source_snapshot
                 );
-                v_reply := aap_assets_v1._media_enqueue(NULL, p_actor_id, p_dataset_item_id, v_spec, v_force);
+                v_reply := aap_assets_v1._media_enqueue(NULL, p_actor_id, p_dataset_item_id, v_spec, v_refresh);
                 IF v_reply IS NULL OR v_reply -> 'ok' IS DISTINCT FROM 'true'::jsonb THEN
                     v_error_code := COALESCE(v_reply #>> '{error,code}', 'invalid_response');
                     RAISE EXCEPTION 'media enqueue rejected';

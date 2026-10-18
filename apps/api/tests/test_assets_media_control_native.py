@@ -555,7 +555,8 @@ async def test_task_frame_retry_accepts_failed_only_and_forced_selection_shapes(
     assert failed_only["ok"] is True
     assert len(failed_only["data"]["assets"]) == 1
     first_asset = failed_only["data"]["assets"][0]
-    assert first_asset["status"] == "failed"
+    assert first_asset["status"] == "pending"
+    assert first_asset["error"] is None
     assert first_asset["job_id"] is not None
     assert first_asset["generation"] == 1
 

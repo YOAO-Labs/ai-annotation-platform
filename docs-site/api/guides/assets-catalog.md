@@ -41,7 +41,7 @@ SDK 的 `client.datasets.create(..., idempotency_key=key)` 与 `update(..., idem
 
 成功分支仅含 `schema,ok:true,data`；业务失败仅含 `schema,ok:false,error:{code}`。未知 schema、额外字段、错误分支或范围不符均拒绝。业务错误为 `invalid_request`、`account_not_active`、`account_busy`、`invalid_account_role`、`catalog_manager_required`、`dataset_missing`、`source_busy`、`operation_conflict` 和 `reserved_namespace`。网关将其映射为公开 401/403/404/409/422；不返回 SQL 错误或存储凭据。
 
-分页 `limit` 为 1–200，`offset` 为非负 PostgreSQL bigint。列表按 `created_at DESC,id DESC` 排序；计数、分页及统计来自同一 SQL 语句快照。名称查询保留 ILIKE 通配符语义，三种点云名称 `lidar/point_cloud/pointcloud` 使用同一筛选族。文件元数据保留未知 JSON 字段；内部 `thumbnail_path` 只用于签名，公开响应不返回它。签名失败仍返回 null，不把文件查询变为对象下载。
+分页 `limit` 为 1–200，`offset` 为非负 PostgreSQL bigint。列表按 `created_at DESC,id DESC` 排序；计数、分页及统计来自同一 SQL 语句快照。名称查询保留 ILIKE 通配符语义，三种点云名称 `lidar/point_cloud/pointcloud` 使用同一筛选族。文件元数据保留未知 JSON 字段；内部 `thumbnail_path` 只用于签名，公开响应不返回它。签名失败仍返回 null，不把文件查询变为对象下载。 视频的原始文件与封面地址由公开网关向媒体所有者核验后提供，目录服务本身不签发视频 URL。元信息尚未准备时可返回已核验的原始地址，封面留空；来源漂移或核验失败时不沿用旧链接。
 
 网关内部请求上限 1 MiB，响应上限 16 MiB；超出时明确失败，不截断或自动回退。HTTP 各 I/O 阶段默认超时 5 秒，可通过 `ASSETS_CATALOG_TIMEOUT_SECONDS` 在 60 秒内调整。这些传输预算不构成大库、超大元数据或生产容量资格。
 

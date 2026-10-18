@@ -279,6 +279,8 @@ async def get_video_chunk_samples(
             )
     except MediaFailure as exc:
         raise media_http_error(exc) from None
+    if not document.samples:
+        raise HTTPException(status_code=404, detail="samples_not_available")
     return VideoChunkSamplesResponse(
         dataset_item_id=dataset_item_id,
         chunk_id=chunk_id,

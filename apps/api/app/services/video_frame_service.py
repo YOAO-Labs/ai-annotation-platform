@@ -404,7 +404,7 @@ async def _warmup_neighbor_chunks(
             )
             if not candidates:
                 return
-            await _asset_references_with_gateway(
+            references = await _asset_references_with_gateway(
                 ctx,
                 ChunkSelection(
                     chunk_ids=candidates,
@@ -412,6 +412,21 @@ async def _warmup_neighbor_chunks(
                 ),
                 gateway,
             )
+            failed_ids = [
+                asset.chunk_id
+                for asset in references.assets
+                if asset.status == "failed"
+            ]
+            if failed_ids:
+                await _asset_references_with_gateway(
+                    ctx,
+                    ChunkSelection(
+                        chunk_ids=failed_ids,
+                        chunk_size_frames=max(1, settings.video_chunk_size_frames),
+                        failed_only=True,
+                    ),
+                    gateway,
+                )
         await db.commit()
     except Exception:  # noqa: BLE001
         with suppress(Exception):
