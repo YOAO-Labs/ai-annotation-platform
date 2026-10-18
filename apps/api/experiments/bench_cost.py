@@ -48,7 +48,7 @@ def go_build_env():
     }
 
 
-def make_rows():
+def make_rows(count: int = ROWS):
     roles = (
         "annotator",
         "reviewer",
@@ -69,7 +69,7 @@ def make_rows():
             status_family=statuses[i % len(statuses)],
             event_count=10_000_000_000_000_000 + i % 97,
         )
-        for i in range(ROWS)
+        for i in range(count)
     ]
 
 

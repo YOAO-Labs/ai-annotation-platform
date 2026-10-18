@@ -317,6 +317,22 @@ pnpm dev:api
 `uv sync --extra test` 安装，不要在本地手工拼装依赖列表。迁移完成后启动脚本会清空
 owner 连接，运行进程不保留 DDL 凭据。
 
+新增本地 editable 包或同步 Python 依赖后，要重启 Uvicorn 的父进程。源码热重载的
+子进程会继承旧父进程的 `sys.path`，因此新解释器已经能导入的包仍可能在常驻 API
+中报 `ModuleNotFoundError`。先按锁文件同步当前 checkout 的环境，再重启实际拥有
+API 的服务；单独触碰源码不能刷新父进程的导入路径。
+
+macOS 已安装 `local.ai-annotation-platform.api` LaunchAgent 时，先核对其
+`WorkingDirectory` 与 `ProgramArguments` 确实指向当前主 checkout，再执行：
+
+```bash
+launchctl kickstart -k "gui/$(id -u)/local.ai-annotation-platform.api"
+```
+
+该服务若调用 `pnpm dev:api`，重启会先执行上述数据库迁移步骤。完成后检查
+`/health/db`、`/health/redis` 和 `/health/minio`，再触发一次源码热重载确认新子进程
+仍可启动。独立工作树的 API 继续由 `pnpm dev:worktree` 管理。
+
 > `--timeout-graceful-shutdown 3`：代码改动触发 `--reload` 时，若有浏览器标签页还连着
 > WebSocket（工作台 / AI 预标页），uvicorn 默认会无限等待这些连接结束，卡在
 > `Waiting for background tasks to complete`，新代码迟迟不生效。设 3s 上限后到点强制

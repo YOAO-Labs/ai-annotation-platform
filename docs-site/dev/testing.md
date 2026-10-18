@@ -1,9 +1,8 @@
 ---
 audience: [dev]
 type: reference
-since: v0.1.0
 status: stable
-last_reviewed: 2026-07-23
+last_reviewed: 2026-10-18
 ---
 
 # 测试指南
@@ -89,6 +88,36 @@ async def test_create_project(httpx_client, project_admin):
     body = res.json()
     assert body["name"] == "demo"
 ```
+
+### 本地执行器交接与负载观测
+
+`test_training_executor_handoff.py` 默认跳过；显式启用后会启动当前 API 的独立
+Uvicorn、两个受控 executor 进程，并通过新数据库连接核对实际提交。它覆盖领取／完成
+响应丢失、竞争、撤权、取消、父进程 SIGKILL、继承 flock、恢复和提交回滚。硬件身份与
+微小 CPU child 是夹具，原 Supervisor 的 journal、fence 和收据逻辑继续运行。
+
+peer 需要执行器已声明的 `psutil`。若 API 测试环境没有该包，可将这一依赖单独安装到
+本次验收的临时目录，避免改变 API 依赖图。先按工作树指南初始化自有 test 模式，再从
+仓库根运行：
+
+```bash
+uv pip install --python apps/api/.venv/bin/python \
+  --target .worktree/training-handoff-deps --no-deps psutil==7.0.0
+pnpm dev:worktree -- exec --mode test -- sh -c \
+  'cd apps/api && AAP_TRAINING_EXECUTOR_HANDOFF_ACCEPTANCE=1 PYTHONPATH=../../.worktree/training-handoff-deps .venv/bin/python -m pytest tests/test_training_executor_handoff.py -q --junitxml=/tmp/aap-training-handoff.xml'
+```
+
+验收只使用 launcher 验证过的一次性 `_test` 数据库及隔离存储；不要指向日常开发库。
+API 持有数据库连接，peer 只接收执行器 API 凭据。测试记录的资源发现 executor 字段
+是轮询投影；实际执行权还需核对 attempt 的 executor／boot、lease attempt ID 和 token
+fence。测试清理自己创建的进程与行；恢复路径实际上传的 manifest 不会随 SQL 删除而
+回滚，验收后须通过 launcher 清理自有 test 模式资源和本次临时依赖目录。
+
+同文件还记录单个资源、1/2/4/8 客户端的 heartbeat 控制面延迟，原始样本保存在 JUnit
+suite properties。它不包含模型／GPU、训练完成吞吐或生产 SLO。Go 的独立容器与
+10k/50k 并发观测另见 `apps/api/experiments/bench_concurrency.py` 和
+`apps/audit-summary/EXPERIMENT_COST.md`；大请求超额并发仍有传输错误，报告保留非零
+退出码，不能把它算作生产容量通过。
 
 ### OpenAPI 契约测试
 

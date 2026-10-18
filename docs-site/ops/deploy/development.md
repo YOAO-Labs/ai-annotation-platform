@@ -1,9 +1,8 @@
 ---
 audience: [dev, ops]
 type: how-to
-since: v0.15.17
 status: stable
-last_reviewed: 2026-07-29
+last_reviewed: 2026-10-18
 ---
 
 # 开发部署（本地）
@@ -58,12 +57,19 @@ uv run alembic upgrade head
 
 ```bash
 pnpm dev:api
-# 等价于 cd apps/api && uv run uvicorn app.main:app --reload --port 8000
+# 先执行数据库迁移，再启动当前 checkout 的 Uvicorn 热重载进程
 ```
 
 `--reload` 监听 `apps/api/**` 改动自动重启。`ENVIRONMENT` 默认 `development`，使用本地
 CORS 策略（见[运行环境形态](/dev/concepts/runtime-environments)）。测试 seed 路由默认不挂载；
 仅 Playwright 专用进程会对隔离测试库显式设置 `E2E_SEED_ENABLED=true`。
+
+安装或更新 editable 共享包后，必须重启 Uvicorn 父进程；已有父进程会把旧
+`sys.path` 交给热重载子进程。若新解释器能导入包、常驻 API 却报缺包，先核对服务
+工作目录和虚拟环境，再重启拥有该 API 的服务，而非反复触碰源码。macOS 使用
+LaunchAgent 的主 checkout 可按仓库根 `DEV.md` 的启动说明核对 label 并重启；
+独立工作树继续使用自己的 launcher。检查三个基础服务健康端点，
+并再执行一次热重载，确认新子进程可以正常启动。
 
 ### 2.4 起 Web（宿主机，HMR）
 
@@ -105,7 +111,7 @@ uv run python -m scripts.bootstrap_admin
 | 新增 alembic 迁移                    | `uv run alembic upgrade head`（worker 改码同样 restart）                    |
 | `apps/web/src/**`                    | HMR 自动                                                                    |
 | `.env` 运行期变量                    | 重启对应进程 / `docker compose up -d` 重建容器                              |
-| `pyproject.toml` / `uv.lock`         | `uv sync`；worker 容器需 `docker compose build`                             |
+| `pyproject.toml` / `uv.lock`         | 按锁文件同步环境并重启 API 父进程；worker 容器需重新构建                    |
 | `package.json` / `pnpm-lock.yaml`    | `pnpm install`                                                              |
 
 ---

@@ -28,6 +28,8 @@ flowchart LR
 
 `apps/audit-summary` 保留实验 OpenAPI、精确计数及进程恢复验证。它只由单独 Compose profile、显式实验测试或手动 workflow 启动，不进入默认／生产部署，也不改变公开 API 错误合同。其它领域的本地事务尚未变成跨语言协议。
 
+本地验收分别验证隔离容器、既有作业执行权和负载曲线。训练交接使用真实 TCP API、独立数据库 observer 与两个受控 Supervisor 进程，SQL 写入仍由 API 持有；原生模型/GPU 与无中断训练升级不在该证据内。Go 的两名额保护和正常请求有本地证据，但默认 HTTPX 大上传在超载时可能得到连接读取错误，未通过稳定的可重试 503 资格；数据与复现入口见 `apps/audit-summary/EXPERIMENT_COST.md` 和[测试指南](../testing#本地执行器交接与负载观测)。
+
 ## 路由（api/v1）
 
 - 薄壳：解析参数、调权限、调服务、序列化响应

@@ -54,6 +54,12 @@ Go 的 `/openapi.json` 是实验 wire 契约真值。`POST /v1/audit/monthly-sum
 
 只读实验的重复请求、丢响应及重启不产生业务写入。先前启动的本机开发 Go 容器已停止并移除，没有生产部署。未来是否采用，需要单独评估收益、运行成本和故障影响，并获得维护者新的实施指令。
 
+### 本地追加验收
+
+- 独立实验容器在 loopback、非 root、无业务挂载／凭据及 2 CPU / 512 MiB 的单独预算下完成 health、wire 与 golden 验证；正常 API 保持 Python。新增真实慢上传测试直接验证两名额占用、可重试 503、health 和取消释放。
+- 维护者选择先验证既有作业的执行权交接。真实 TCP API、独立 PostgreSQL observer 与两个受控 Supervisor 进程验证重放、竞争、撤权／取消、硬退出后继承 flock、恢复、下一任务领取和提交回滚。API 仍是业务 SQL 写入者，受控 CPU child 不代表原生 GPU／训练资格或跨版本写入所有者迁移。
+- 本地 Go 矩阵有 280 个精确成功、134 个真实 503 和 186 个 HTTPX ReadError；大上传超载的退避响应未通过。cgroup 高水位和零 OOM 不会抹去传输失败，也不构成生产容量资格。完整数据在 `apps/audit-summary/EXPERIMENT_COST.md`，此结果保持“不采用 Go 归并”的决定。
+
 ## Consequences
 
 - 实验验证了 Go 进程无需加载 Python、FastAPI、Celery 或 ORM；先前的真实 API 验证属于实验记录，不代表生产采用。

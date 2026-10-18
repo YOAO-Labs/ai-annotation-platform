@@ -130,3 +130,84 @@ async def test_go_peer_lost_response_inflight_shutdown_restart_and_exact_replay(
         await query()
     with _peer(summary_binary, address):
         assert (await query()).model_dump(mode="json") == result.model_dump(mode="json")
+
+
+async def test_go_peer_real_upload_saturation_cancellation_and_slot_release(
+    summary_binary,
+):
+    request = json.loads((_MODULE / "testdata/mixed.request.json").read_text())
+    expected = json.loads((_MODULE / "testdata/mixed.response.json").read_text())
+    probe = {
+        "month": request["month"],
+        "materialized_through": request["materialized_through"],
+        "rows": [],
+    }
+    body = json.dumps(request, separators=(",", ":")).encode()
+
+    with _peer(summary_binary) as (process, address):
+        host, port_text = address.rsplit(":", 1)
+        slow_uploads = []
+
+        async def hold_slot():
+            reader, writer = await asyncio.wait_for(
+                asyncio.open_connection(host, int(port_text)), timeout=5
+            )
+            slow_uploads.append((reader, writer))
+            writer.write(
+                b"POST /v1/audit/monthly-summary HTTP/1.1\r\n"
+                + f"Host: {host}\r\n".encode()
+                + b"Content-Type: application/json\r\n"
+                + b"Expect: 100-continue\r\n"
+                + b"Content-Length: 1048576\r\n\r\n"
+            )
+            await asyncio.wait_for(writer.drain(), timeout=5)
+            status = await asyncio.wait_for(reader.readline(), timeout=5)
+            assert status == b"HTTP/1.1 100 Continue\r\n", status
+            while await asyncio.wait_for(reader.readline(), timeout=5) != b"\r\n":
+                pass
+            return reader, writer
+
+        async with httpx.AsyncClient(
+            timeout=httpx.Timeout(5), trust_env=False
+        ) as client:
+            try:
+                for _ in range(2):
+                    await hold_slot()
+
+                overload = await client.post(
+                    f"http://{address}/v1/audit/monthly-summary", json=probe
+                )
+                assert overload.status_code == 503
+                assert overload.json()["code"] == "service_overloaded"
+                assert overload.json()["retryable"] is True
+
+                health = await client.get(f"http://{address}/health")
+                assert health.status_code == 200
+                assert health.json() == {"service": "audit-summary", "protocol": 1}
+
+                slow_uploads[0][1].close()
+                await asyncio.wait_for(slow_uploads[0][1].wait_closed(), timeout=5)
+                loop = asyncio.get_running_loop()
+                deadline = loop.time() + 10
+                while True:
+                    recovered = await client.post(
+                        f"http://{address}/v1/audit/monthly-summary",
+                        content=body,
+                        headers={"Content-Type": "application/json"},
+                    )
+                    if recovered.status_code != 503:
+                        break
+                    assert recovered.json()["code"] == "service_overloaded"
+                    assert recovered.json()["retryable"] is True
+                    if loop.time() >= deadline:
+                        break
+                    await asyncio.sleep(0.01)
+                assert recovered.status_code == 200, recovered.text
+                assert recovered.json() == expected
+            finally:
+                for _, writer in slow_uploads:
+                    writer.close()
+                await asyncio.gather(
+                    *(writer.wait_closed() for _, writer in slow_uploads),
+                    return_exceptions=True,
+                )

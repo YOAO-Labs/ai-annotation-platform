@@ -38,3 +38,30 @@ The benchmark builds with a small allowlist of Go build/cache environment values
 ```sh
 PYTHONPATH=apps/api /path/to/api-venv/bin/python apps/api/experiments/bench_cost.py
 ```
+
+## Local container concurrency qualification
+
+The separate experiment Compose project was built and run on the same development machine with a task-only limit of two CPUs and 512 MiB. It ran as `65532:65532`, exposed only loopback port 8091, and had no business credentials or volume mounts. Health, the served OpenAPI, and the mixed golden response matched exactly. The normal API continued using its local Python reducer.
+
+`bench_concurrency.py` sent 20 synchronized bursts for every row-count/client-concurrency pair: 600 requests in 44.667 seconds. Payloads were pre-encoded outside timing; latency includes HTTP, server processing, Python response decoding and oracle validation. Each successful response matched the Python oracle. Percentiles use nearest rank. Client concurrency is offered load, not a promise that all requests simultaneously hold server slots.
+
+| Rows   | Request bytes | Clients | Accepted | HTTP 503 | Transport errors | Success p95 ms | Accepted/s |
+| ------ | ------------- | ------- | -------- | -------- | ---------------- | -------------- | ---------- |
+| 10,000 | 1,456,306     | 1       | 20       | 0        | 0                | 49.558         | 21.929     |
+| 10,000 | 1,456,306     | 2       | 40       | 0        | 0                | 59.731         | 34.246     |
+| 10,000 | 1,456,306     | 4       | 40       | 33       | 7                | 71.128         | 8.704      |
+| 10,000 | 1,456,306     | 8       | 40       | 101      | 19               | 79.467         | 5.230      |
+| 50,000 | 7,281,306     | 1       | 20       | 0        | 0                | 210.816        | 4.896      |
+| 50,000 | 7,281,306     | 2       | 40       | 0        | 0                | 261.231        | 7.787      |
+| 50,000 | 7,281,306     | 4       | 40       | 0        | 40               | 293.155        | 3.844      |
+| 50,000 | 7,281,306     | 8       | 40       | 0        | 120              | 293.689        | 3.759      |
+
+The Linux cgroup lifetime memory high-water was 170,659,840 bytes (162.75 MiB), including the service, normal health checks and a temporary read-only probe. Memory limit events and OOM kills were zero; swap usage was zero. CPU accounting increased by 37.055 seconds, with 21 throttled periods and 50.679 ms of throttling. This is an actual cgroup high-water reading, distinct from the earlier sampled RSS. It does not qualify two concurrent requests at the full 64 MiB protocol ceiling: the largest tested payload was 7,281,306 bytes.
+
+Qualification is limited. All 120 requests at one or two clients succeeded, but excess clients produced 134 observable retryable 503 responses and 186 HTTPX `ReadError` failures. These failures remain errors in the report and make the full over-capacity matrix exit nonzero. No resource exhaustion or incorrect summary was observed.
+
+The transport failure was also reproduced without Docker. A separate socket probe that read the response before finishing its upload received a retryable 503 with `Connection: close`, while three full-body HTTPX uploads under the same held-slot condition failed after about 509–513 ms. This is consistent with Go HTTP/1.1 closing large unread request bodies after its 500 ms RST-avoidance delay while HTTPX sends the body before reading the response. It does not prove that every failed request received a complete 503 on the wire. The real slow-upload regression uses `Expect: 100-continue` to prove slot admission, 503 rejection, health availability and cancellation release without guessing delays.
+
+The configured two-slot protection and successful path have local evidence; reliable large-upload overload responses are **not qualified** for the default HTTPX client. No production cardinality, target SLO, WAN, TLS/proxy path, database, GPU or production capacity is inferred. Go remains an unadopted experiment.
+
+Raw observations are retained in `.worktree/local-audit-concurrency.json`, `.worktree/local-audit-concurrency-resources.json`, `.worktree/local-audit-overload-repro.json` and `.worktree/local-audit-standalone-repro.json` in the validating checkout.
