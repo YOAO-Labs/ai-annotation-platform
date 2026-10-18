@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime
 from typing import Annotated, Any, Literal, Protocol, TypeVar
 from uuid import UUID
 
@@ -15,6 +16,7 @@ from pydantic import (
     StrictInt,
     StrictStr,
     ValidationError,
+    field_validator,
     model_validator,
 )
 
@@ -433,10 +435,20 @@ class IngestDeliveryLease(_Value):
     kind: Literal["thumbnail", "video_metadata"]
     target_id: UUID
     lease_token: UUID
+    lease_expires_at: datetime
+
+    @field_validator("lease_expires_at")
+    @classmethod
+    def require_timezone(cls, value: datetime) -> datetime:
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError("Delivery lease expiry must be timezone-aware")
+        return value
 
 
 class IngestDeliveryAcknowledged(_Value):
     id: UUID
+    lease_token: UUID
+    delivered: Literal[True]
 
 
 class IngestDataPort(Protocol):

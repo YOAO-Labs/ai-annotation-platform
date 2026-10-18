@@ -200,9 +200,19 @@
           "format": "uuid",
           "title": "Id",
           "type": "string"
+        },
+        "lease_token": {
+          "format": "uuid",
+          "title": "Lease Token",
+          "type": "string"
+        },
+        "delivered": {
+          "const": true,
+          "title": "Delivered",
+          "type": "boolean"
         }
       },
-      "required": ["id"],
+      "required": ["id", "lease_token", "delivered"],
       "title": "IngestDeliveryAcknowledged",
       "type": "object"
     },
@@ -233,9 +243,14 @@
           "format": "uuid",
           "title": "Lease Token",
           "type": "string"
+        },
+        "lease_expires_at": {
+          "format": "date-time",
+          "title": "Lease Expires At",
+          "type": "string"
         }
       },
-      "required": ["id", "operation_id", "kind", "target_id", "lease_token"],
+      "required": ["id", "operation_id", "kind", "target_id", "lease_token", "lease_expires_at"],
       "title": "IngestDeliveryLease",
       "type": "object"
     },
