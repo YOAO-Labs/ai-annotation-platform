@@ -1,0 +1,62 @@
+services:
+  assets-catalog:
+    build:
+      context: .
+      dockerfile: apps/assets-catalog/Dockerfile
+    environment:
+      ASSETS_CATALOG_DATABASE_URL_FILE: /run/secrets/assets_catalog_database_url
+      ASSETS_CATALOG_TOKEN_FILE: /run/secrets/assets_catalog_token
+      ASSETS_CATALOG_S3_ACCESS_KEY_FILE: /run/secrets/assets_catalog_s3_access_key
+      ASSETS_CATALOG_S3_SECRET_KEY_FILE: /run/secrets/assets_catalog_s3_secret_key
+      ASSETS_CATALOG_S3_PUBLIC_ENDPOINT: ${ASSETS_CATALOG_S3_PUBLIC_ENDPOINT:?Set the browser-reachable S3 origin}
+      ASSETS_CATALOG_S3_REGION: ${ASSETS_CATALOG_S3_REGION:-us-east-1}
+      ASSETS_CATALOG_DATASETS_BUCKET: ${ASSETS_CATALOG_DATASETS_BUCKET:?Set the datasets bucket}
+      ASSETS_CATALOG_MEDIA_CACHE_BUCKET: ${ASSETS_CATALOG_MEDIA_CACHE_BUCKET:?Set the media-cache bucket}
+      ASSETS_CATALOG_HOST: 0.0.0.0
+      ASSETS_CATALOG_PORT: 8766
+      ASSETS_CATALOG_MAX_REQUEST_BYTES: ${ASSETS_CATALOG_MAX_REQUEST_BYTES:-1048576}
+      ASSETS_CATALOG_MAX_RESPONSE_BYTES: ${ASSETS_CATALOG_MAX_RESPONSE_BYTES:-16777216}
+      ASSETS_CATALOG_POOL_MIN_SIZE: ${ASSETS_CATALOG_POOL_MIN_SIZE:-1}
+      ASSETS_CATALOG_POOL_MAX_SIZE: ${ASSETS_CATALOG_POOL_MAX_SIZE:-8}
+      ASSETS_CATALOG_POOL_TIMEOUT_SECONDS: ${ASSETS_CATALOG_POOL_TIMEOUT_SECONDS:-2}
+      ASSETS_CATALOG_SQL_TIMEOUT_SECONDS: ${ASSETS_CATALOG_SQL_TIMEOUT_SECONDS:-5}
+    secrets:
+      - assets_catalog_database_url
+      - assets_catalog_token
+      - assets_catalog_s3_access_key
+      - assets_catalog_s3_secret_key
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    expose:
+      - "8766"
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    cpus: 0.5
+    mem_limit: 256m
+    restart: unless-stopped
+    stop_grace_period: 30s
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8766/ready', timeout=2)"
+      interval: 30s
+      timeout: 3s
+      start_period: 30s
+      retries: 3
+
+secrets:
+  assets_catalog_database_url:
+    file: ${ASSETS_CATALOG_DATABASE_URL_FILE:-./.secrets/assets-catalog-database-url}
+  assets_catalog_token:
+    file: ${ASSETS_CATALOG_TOKEN_FILE:-./.secrets/assets-catalog-token}
+  assets_catalog_s3_access_key:
+    file: ${ASSETS_CATALOG_S3_ACCESS_KEY_FILE:-./.secrets/assets-catalog-s3-access-key}
+  assets_catalog_s3_secret_key:
+    file: ${ASSETS_CATALOG_S3_SECRET_KEY_FILE:-./.secrets/assets-catalog-s3-secret-key}
