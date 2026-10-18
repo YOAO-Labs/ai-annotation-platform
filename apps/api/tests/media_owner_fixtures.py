@@ -12,6 +12,7 @@ import hashlib
 from typing import Any
 from uuid import UUID, uuid4
 
+import pytest
 from aap_assets_media import contract as c
 from app.db.models.asset_media import AssetMediaJob
 from app.db.models.dataset import Dataset, DatasetItem
@@ -496,3 +497,26 @@ class MediaOwnerTestBinding:
                     AssetMediaJob.dataset_item_id.in_(self.item_ids)
                 )
             )
+
+
+@pytest.fixture
+async def media_owner(db_session, media_dispatcher, monkeypatch):
+    """Bind explicit consumer tests to same-SAVEPOINT Assets facts and fake S3."""
+    from app.services import assets_media
+
+    binding = MediaOwnerTestBinding(db_session, media_dispatcher)
+    monkeypatch.setattr(
+        assets_media,
+        "_IndependentMediaDatabase",
+        lambda: assets_media.SqlAlchemyMediaDatabase(db_session, commit=False),
+    )
+    monkeypatch.setattr(
+        assets_media, "media_storage", lambda **_kwargs: binding.storage
+    )
+    monkeypatch.setattr(assets_media, "_wake", binding.wake)
+    db_session.info["media_owner_test_binding"] = binding
+    try:
+        yield binding
+    finally:
+        await binding.remove_seeded_jobs()
+        db_session.info.pop("media_owner_test_binding", None)
