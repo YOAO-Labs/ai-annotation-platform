@@ -256,6 +256,7 @@ WorkSpec = Annotated[
 class FrameSelection(Value):
     kind: Literal["frames"] = "frames"
     intent: Literal["access", "task_frame_retry"] = "access"
+    expected_source_snapshot: Digest | None = None
     frame_indices: Annotated[list[Index], Field(max_length=BATCH_SIZE)]
     width: Annotated[StrictInt, Field(ge=1, le=4096)] = 512
     format: FrameFormat = "webp"
@@ -273,6 +274,7 @@ class FrameSelection(Value):
 
 class ChunkSelection(Value):
     kind: Literal["chunks"] = "chunks"
+    expected_source_snapshot: Digest | None = None
     chunk_ids: Annotated[list[Index], Field(max_length=BATCH_SIZE)]
     chunk_size_frames: Annotated[StrictInt, Field(ge=1, le=1_000_000)] = 60
     force: StrictBool = False
@@ -367,7 +369,7 @@ class RequestWorkRequest(Value):
 
 
 class ScheduleWorkRequest(Value):
-    operation_id: UUID
+    operation_id: UUID | None
     dataset_item_id: UUID | None
     spec: WorkSpec
     force: StrictBool = False
@@ -389,7 +391,7 @@ class WorkReference(Value):
 
 
 class AcceptedWork(Value):
-    operation_id: UUID
+    operation_id: UUID | None
     source: MediaSource | None
     work: WorkReference
     spec: WorkSpec
@@ -1105,6 +1107,10 @@ def require_scope(request: BaseModel, result: BaseModel) -> None:
             raise ValueError("internal frame result escaped its locator")
         if isinstance(request, AssetsRequest):
             selection = request.selection
+            if selection.expected_source_snapshot is not None and (
+                selection.expected_source_snapshot != result.source.source_snapshot
+            ):
+                raise ValueError("media assets substituted a source snapshot")
             if isinstance(selection, FrameSelection):
                 requested = set(selection.frame_indices)
                 if any(

@@ -390,6 +390,19 @@
           "title": "Kind",
           "type": "string"
         },
+        "expected_source_snapshot": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Expected Source Snapshot"
+        },
         "chunk_ids": {
           "items": {
             "maximum": 2147483647,
@@ -436,6 +449,19 @@
           "enum": ["access", "task_frame_retry"],
           "title": "Intent",
           "type": "string"
+        },
+        "expected_source_snapshot": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Expected Source Snapshot"
         },
         "frame_indices": {
           "items": {
@@ -1203,9 +1229,16 @@
       "additionalProperties": false,
       "properties": {
         "operation_id": {
-          "format": "uuid",
-          "title": "Operation Id",
-          "type": "string"
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Operation Id"
         },
         "source": {
           "anyOf": [
@@ -1259,9 +1292,16 @@
       "additionalProperties": false,
       "properties": {
         "operation_id": {
-          "format": "uuid",
-          "title": "Operation Id",
-          "type": "string"
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Operation Id"
         },
         "dataset_item_id": {
           "anyOf": [
