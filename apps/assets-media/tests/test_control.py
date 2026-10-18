@@ -265,3 +265,42 @@ async def test_missing_cache_cas_cannot_mix_a_new_source_with_old_urls():
         await MediaControl(Database(), Storage()).source_reference(
             c.ReadSourceRequest(actor_id=uuid4(), dataset_item_id=s.dataset_item_id)
         )
+
+
+@pytest.mark.asyncio
+async def test_internal_source_is_checked_again_after_implicit_frame_admission():
+    s = source()
+    replacement = s.model_copy(
+        update={"source_snapshot": "b" * 64, "source_generation": 2}
+    )
+
+    class Database:
+        reads = 0
+
+        async def call(self, name, request):
+            if name == "resolve_internal_media_source":
+                return s
+            if name == "read_internal_video_frame":
+                self.reads += 1
+                return c.MediaAssets(
+                    source=s if self.reads == 1 else replacement, assets=[]
+                )
+            assert name == "schedule_video_media"
+            return c.AcceptedWork(
+                operation_id=None,
+                source=s,
+                spec=request.spec,
+                work=c.WorkReference(
+                    job_id=uuid4(),
+                    generation=1,
+                    dataset_item_id=s.dataset_item_id,
+                    source_generation=1,
+                    kind="frame",
+                    status="pending",
+                ),
+            )
+
+    with pytest.raises(c.MediaFailure, match="source_changed"):
+        await MediaControl(Database(), Storage()).internal_frame_reference(
+            c.InternalFrameRequest(dataset_item_id=s.dataset_item_id, frame_index=0)
+        )

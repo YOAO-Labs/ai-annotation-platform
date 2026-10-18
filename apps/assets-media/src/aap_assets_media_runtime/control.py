@@ -25,6 +25,14 @@ _NEW_CACHE = re.compile(
 )
 
 
+def _require_observed(expected: c.MediaSource, current: c.MediaSource) -> None:
+    if current.source_drifted or (
+        current.source_snapshot != expected.source_snapshot
+        or current.source_generation != expected.source_generation
+    ):
+        raise c.MediaFailure("source_changed")
+
+
 def cache_key(source: c.MediaSource, key: str) -> str:
     """Only sign/delete derived namespaces; raw sources never become cache keys."""
     legacy = f"videos/{source.dataset_item_id}/"
@@ -245,6 +253,7 @@ class MediaControl:
         )
         request = request.model_copy(update={"selection": selection})
         state = await self.call("ensure_video_media", request)
+        _require_observed(source, state.source)
         missing = []
         for asset in state.assets:
             if asset.status == "ready":
@@ -266,12 +275,15 @@ class MediaControl:
                 "ensure_video_media",
                 request.model_copy(update={"selection": selection}),
             )
+        _require_observed(source, state.source)
         state = await self._sign_assets(state)
         links = await self._source_links(source_request, state.source)
         if links.source.source_snapshot != state.source.source_snapshot:
             raise c.MediaFailure("source_changed")
         return MediaReferences(
-            state=state, video_url=links.video_url, expires_in=self.expires_in
+            state=state.model_copy(update={"source": links.source}),
+            video_url=links.video_url,
+            expires_in=self.expires_in,
         )
 
     @staticmethod
@@ -310,11 +322,7 @@ class MediaControl:
         )
         state = await self.call("read_internal_video_frame", request)
         source = state.source
-        if source.source_drifted or (
-            source.source_snapshot != observed.source.source_snapshot
-            or source.source_generation != observed.source.source_generation
-        ):
-            raise c.MediaFailure("source_changed")
+        _require_observed(observed.source, source)
         if source.materialized_generation != source.source_generation:
             await self._metadata(source)
             state = state.model_copy(update={"assets": []})
@@ -341,7 +349,9 @@ class MediaControl:
                     ),
                 )
                 state = await self.call("read_internal_video_frame", request)
+            _require_observed(observed.source, state.source)
             state = await self._sign_assets(state)
+        _require_observed(observed.source, state.source)
         return MediaReferences(
             state=state,
             video_url=observed.original_url,
