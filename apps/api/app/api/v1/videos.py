@@ -287,7 +287,8 @@ async def get_video_chunk_samples(
         width=document.width,
         height=document.height,
         samples=[
-            VideoChunkSampleOut.model_validate(sample) for sample in document.samples
+            VideoChunkSampleOut.model_validate(sample.model_dump())
+            for sample in document.samples
         ],
     )
 

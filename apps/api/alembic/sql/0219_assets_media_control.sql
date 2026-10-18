@@ -525,7 +525,7 @@ BEGIN
        OR v_preferences ->> 'schema' IS DISTINCT FROM 'aap-settings-video-media-preferences/v1'
        OR v_preferences -> 'ok' IS DISTINCT FROM 'true'::jsonb
        OR pg_catalog.jsonb_typeof(v_preferences -> 'data') IS DISTINCT FROM 'object'
-       OR (v_preferences -> 'data' - 'warmup_lookahead') IS DISTINCT FROM '{}'::jsonb
+       OR ((v_preferences -> 'data') - 'warmup_lookahead') IS DISTINCT FROM '{}'::jsonb
        OR NOT (v_preferences -> 'data' ? 'warmup_lookahead')
        OR (
             pg_catalog.jsonb_typeof(v_preferences #> '{data,warmup_lookahead}') = 'number'

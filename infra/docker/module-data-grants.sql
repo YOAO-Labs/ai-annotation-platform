@@ -399,7 +399,7 @@ GRANT UPDATE (
 ) ON public.async_jobs TO :"jobs_owner";
 
 -- Settings and Notifications retain their own relation permissions.
-GRANT SELECT (key, value_json) ON public.system_settings TO :"settings_owner";
+GRANT SELECT (key, value_type, value_json) ON public.system_settings TO :"settings_owner";
 -- SHARE table locking fences an absent connector policy row from a concurrent insert.
 GRANT UPDATE ON public.system_settings TO :"settings_owner";
 GRANT SELECT, INSERT ON public.notifications TO :"notifications_owner";

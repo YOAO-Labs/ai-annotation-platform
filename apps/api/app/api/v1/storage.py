@@ -120,7 +120,10 @@ async def list_video_asset_failures(
     except MediaFailure as exc:
         raise media_http_error(exc) from None
     return VideoAssetFailuresResponse(
-        items=[VideoAssetFailureItem.model_validate(item) for item in page.items],
+        items=[
+            VideoAssetFailureItem.model_validate(item.model_dump())
+            for item in page.items
+        ],
         total=page.total,
         limit=page.limit,
         offset=page.offset,

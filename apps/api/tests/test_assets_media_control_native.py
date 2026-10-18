@@ -99,6 +99,32 @@ async def _seed_item(
     return dataset_id, item_id
 
 
+async def test_media_preferences_preserve_missing_zero_and_current_settings(db_session):
+    from aap_assets_media.contract import MediaFailure, UsageRequest
+    from app.db.models.system_setting import SystemSetting
+    from app.services.assets_media import SqlAlchemyMediaDatabase
+
+    binding = SqlAlchemyMediaDatabase(db_session, commit=False)
+    missing = await binding.call("read_media_preferences", UsageRequest())
+    assert missing.warmup_lookahead is None
+    setting = SystemSetting(
+        key="video_chunk_warmup_lookahead", value_type="int", value_json=2
+    )
+    db_session.add(setting)
+    await db_session.flush()
+    current = await binding.call("read_media_preferences", UsageRequest())
+    assert current.warmup_lookahead == 2
+    setting.value_json = 0
+    await db_session.flush()
+    disabled = await binding.call("read_media_preferences", UsageRequest())
+    assert disabled.warmup_lookahead == 0
+    setting.value_type = "str"
+    setting.value_json = "2"
+    await db_session.flush()
+    with pytest.raises(MediaFailure, match="invalid_response"):
+        await binding.call("read_media_preferences", UsageRequest())
+
+
 async def test_nonempty_timetable_and_backfill_pages_preserve_cursor_and_digest(
     db_session,
 ):
