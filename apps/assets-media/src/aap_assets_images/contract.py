@@ -752,7 +752,7 @@ class ImageUsage(Value):
 class ClaimImageMediaRequest(Value):
     worker_id: UUID
     job_id: UUID | None = None
-    lease_seconds: Annotated[StrictInt, Field(ge=30, le=3600)] = 1200
+    lease_seconds: Annotated[StrictInt, Field(ge=30, le=2_147_483_647)] = 1200
     kinds: Annotated[list[WorkKind], Field(min_length=1, max_length=4)] = Field(
         default_factory=lambda: ["dimensions", "thumbnail", "pyramid", "image_backfill"]
     )
@@ -834,7 +834,7 @@ class ImageLeaseRequest(Value):
 
 
 class HeartbeatImageMediaRequest(ImageLeaseRequest):
-    lease_seconds: Annotated[StrictInt, Field(ge=30, le=3600)] = 1200
+    lease_seconds: Annotated[StrictInt, Field(ge=30, le=2_147_483_647)] = 1200
 
 
 class ImageLeaseState(Value):

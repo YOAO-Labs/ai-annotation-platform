@@ -263,6 +263,31 @@ def test_actor_acceptance_captures_the_exact_image_policy():
         )
 
 
+def test_image_worker_leases_accept_captured_policy_over_one_hour():
+    policy = ImagePolicy(lease_seconds=3601)
+    worker = uuid4()
+    job = uuid4()
+    lease = uuid4()
+    claim = c.ClaimImageMediaRequest(
+        worker_id=worker, job_id=job, lease_seconds=policy.lease_seconds
+    )
+    heartbeat = c.HeartbeatImageMediaRequest(
+        job_id=job, generation=1, lease_token=lease, lease_seconds=policy.lease_seconds
+    )
+    assert claim.lease_seconds == heartbeat.lease_seconds == 3601
+    with pytest.raises(ValidationError):
+        c.ClaimImageMediaRequest(worker_id=worker, lease_seconds=2_147_483_648)
+    with pytest.raises(ValidationError):
+        c.HeartbeatImageMediaRequest(
+            job_id=job,
+            generation=1,
+            lease_token=lease,
+            lease_seconds=2_147_483_648,
+        )
+    with pytest.raises(ValidationError):
+        c.ClaimImageGarbageRequest(worker_id=worker, lease_seconds=3601)
+
+
 def test_pyramid_claim_and_result_are_bound_to_generation_grid_and_attempt_prefix():
     owner = c.ImageOwner(kind="dataset_item", id=uuid4())
     source = image_source(owner=owner, item_id=owner.id)

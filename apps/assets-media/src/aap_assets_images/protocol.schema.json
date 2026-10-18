@@ -254,7 +254,7 @@
         },
         "lease_seconds": {
           "default": 1200,
-          "maximum": 3600,
+          "maximum": 2147483647,
           "minimum": 30,
           "title": "Lease Seconds",
           "type": "integer"
@@ -526,7 +526,7 @@
         },
         "lease_seconds": {
           "default": 1200,
-          "maximum": 3600,
+          "maximum": 2147483647,
           "minimum": 30,
           "title": "Lease Seconds",
           "type": "integer"
