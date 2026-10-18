@@ -318,3 +318,12 @@ def test_packaged_schema_tracks_public_import_models_and_failure_codes():
             assert definitions[name] == value
     assert definitions["ImportFailureCode"]["enum"] == list(ImportFailureCode.__args__)
     assert "reply" in definitions
+
+
+def test_failure_envelope_cannot_omit_its_error_value():
+    with pytest.raises(ImportFailure) as failure:
+        decode_import_reply(
+            {"schema": "aap-dataset-import/v1", "ok": False, "error": None},
+            ImportAcceptance,
+        )
+    assert failure.value.code == "invalid_response"

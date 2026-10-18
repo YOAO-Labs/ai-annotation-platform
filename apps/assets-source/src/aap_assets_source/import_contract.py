@@ -483,7 +483,11 @@ class _ImportReply(_Value):
         if self.ok:
             if "data" not in self.model_fields_set or "error" in self.model_fields_set:
                 raise ValueError("Successful import reply must contain only data")
-        elif "error" not in self.model_fields_set or "data" in self.model_fields_set:
+        elif (
+            self.error is None
+            or "error" not in self.model_fields_set
+            or "data" in self.model_fields_set
+        ):
             raise ValueError("Failed import reply must contain only its stable error")
         return self
 
