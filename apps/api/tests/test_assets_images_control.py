@@ -8,6 +8,12 @@ from uuid import uuid4
 import pytest
 from sqlalchemy import text
 
+from aap_assets_images.geometry import (
+    build_manifest,
+    canonical_manifest_bytes,
+    sha256_digest,
+)
+from aap_assets_images.policy import ImagePolicy
 from app.db.models.dataset import DatasetItem
 from app.db.models.image_pyramid import ImagePyramidAsset, ImagePyramidGeneration
 from tests.test_assets_catalog_native import _seed_actor, _seed_dataset
@@ -438,6 +444,247 @@ async def test_pyramid_reads_select_the_requested_profile(db_session):
         ),
         "asset_missing",
     )
+
+
+async def test_ready_pyramid_stales_when_registered_dimensions_change(db_session):
+    actor_id = await _seed_actor(db_session)
+    _, item_id = await _seed_image_item(
+        db_session, actor_id=actor_id, width=320, height=200
+    )
+    source = _data(await _read(db_session, actor_id, item_id))
+    identity = {"etag": "registered-pyramid-dims", "byte_size": 2048}
+    bound = _data(
+        await _observe(db_session, actor_id, source, identity, item_id=item_id)
+    )
+    asset_id = uuid4()
+    asset = ImagePyramidAsset(
+        id=asset_id,
+        dataset_item_id=item_id,
+        profile_version="pyramid-v1",
+        active_generation=1,
+    )
+    db_session.add(asset)
+    await db_session.flush()
+
+    policy = ImagePolicy()
+    source_fingerprint = "sha256:" + "a" * 64
+    overview_digest = "sha256:" + "b" * 64
+    manifest = build_manifest(
+        generation=1,
+        source_fingerprint=source_fingerprint,
+        width=320,
+        height=200,
+        overview_width=160,
+        overview_height=100,
+        overview_digest=overview_digest,
+        policy=policy,
+    )
+    attempt_prefix = f"image-pyramids/{asset_id}/g1/a{uuid4()}/"
+    generation = ImagePyramidGeneration(
+        asset_id=asset_id,
+        generation=1,
+        source_generation=bound["source_generation"],
+        source_snapshot=bound["source_snapshot"],
+        output_prefix=attempt_prefix,
+        manifest=manifest,
+        policy=policy.model_dump(mode="json"),
+        source_identity="etag:registered-pyramid-dims:bytes:2048",
+        source_fingerprint=source_fingerprint,
+        status="ready",
+        width=320,
+        height=200,
+        format="webp",
+        normalization_version=policy.normalization_version,
+        manifest_key=attempt_prefix + "manifest.json",
+        manifest_digest=sha256_digest(canonical_manifest_bytes(manifest)),
+        overview_key=attempt_prefix + "overview.webp",
+        overview_width=160,
+        overview_height=100,
+        overview_digest=overview_digest,
+        tile_count=sum(
+            level["columns"] * level["rows"] for level in manifest["levels"]
+        ),
+        retained_bytes=1,
+    )
+    db_session.add(generation)
+    await db_session.flush()
+
+    ready = _data(
+        await db_session.scalar(
+            _READ_GENERATION,
+            {
+                "actor_id": actor_id,
+                "task_id": None,
+                "item_id": item_id,
+                "generation": 1,
+                "profile_version": "pyramid-v1",
+            },
+        )
+    )
+    assert ready["pyramid"]["status"] == "ready"
+    await db_session.execute(
+        text("UPDATE public.dataset_items SET width=640 WHERE id=:item_id"),
+        {"item_id": item_id},
+    )
+    current = _data(await _read(db_session, actor_id, item_id))
+    assert current["source_snapshot"] == bound["source_snapshot"]
+    assert current["width"] == 640
+
+    stale = _data(
+        await db_session.scalar(
+            _READ_GENERATION,
+            {
+                "actor_id": actor_id,
+                "task_id": None,
+                "item_id": item_id,
+                "generation": 1,
+                "profile_version": "pyramid-v1",
+            },
+        )
+    )["pyramid"]
+    assert stale["status"] == "stale"
+    assert stale["manifest_key"] is None
+    assert stale["overview_key"] is None
+
+    summary = _data(
+        await db_session.scalar(
+            _READ_SUMMARIES,
+            {
+                "actor_id": actor_id,
+                "selectors": json.dumps(
+                    [{"task_id": None, "dataset_item_id": str(item_id)}]
+                ),
+                "profile_version": "pyramid-v1",
+            },
+        )
+    )["items"][0]["pyramid"]
+    assert summary["status"] == "stale"
+
+
+async def test_unknown_dimensions_project_only_current_accepted_dimension_work(
+    db_session,
+):
+    actor_id = await _seed_actor(db_session)
+    _, item_id = await _seed_image_item(
+        db_session, actor_id=actor_id, width=None, height=None
+    )
+    source = _data(await _read(db_session, actor_id, item_id))
+    source = _data(
+        await _observe(
+            db_session,
+            actor_id,
+            source,
+            {"etag": "dimension-liveness", "byte_size": 2048},
+            item_id=item_id,
+        )
+    )
+    dimension_spec = {
+        "kind": "dimensions",
+        "expected_source_snapshot": source["source_snapshot"],
+        "policy": ImagePolicy().model_dump(mode="json"),
+    }
+    accepted = _data(
+        await db_session.scalar(
+            _SCHEDULE,
+            {
+                "operation_id": uuid4(),
+                "owner_kind": "dataset_item",
+                "owner_id": item_id,
+                "spec": json.dumps(dimension_spec),
+                "force": False,
+            },
+        )
+    )
+    job_id = accepted["work"]["job_id"]
+
+    stale_spec = {
+        **dimension_spec,
+        "expected_source_snapshot": "b" * 64,
+    }
+    await db_session.execute(
+        text(
+            "INSERT INTO public.asset_image_jobs "
+            "(job_id,kind,owner_kind,owner_id,slot_key,generation,spec,status,"
+            "source_generation,source_snapshot,source_facts,progress,attempt_count,"
+            "accepted_at,updated_at) "
+            "VALUES (:job_id,'dimensions','dataset_item',:item_id,'dimensions:stale',1,"
+            "CAST(:spec AS jsonb),'failed',:source_generation,:source_snapshot,"
+            "CAST(:source_facts AS jsonb),'{}'::jsonb,0,clock_timestamp(),"
+            "clock_timestamp()+interval '1 second')"
+        ),
+        {
+            "job_id": uuid4(),
+            "item_id": item_id,
+            "spec": json.dumps(stale_spec),
+            "source_generation": source["source_generation"],
+            "source_snapshot": "b" * 64,
+            "source_facts": json.dumps(source),
+        },
+    )
+
+    async def read_projection():
+        return _data(
+            await db_session.scalar(
+                _READ_GENERATION,
+                {
+                    "actor_id": actor_id,
+                    "task_id": None,
+                    "item_id": item_id,
+                    "generation": None,
+                    "profile_version": "pyramid-v1",
+                },
+            )
+        )["pyramid"]
+
+    pending = await read_projection()
+    assert pending["status"] == "pending"
+    assert pending["building_status"] == "pending"
+    assert pending["generation"] is None
+
+    await db_session.execute(
+        text(
+            "UPDATE public.asset_image_jobs SET status='running', lease_owner=:worker, "
+            "lease_token=:token, lease_expires_at=clock_timestamp()+interval '5 minutes', "
+            "attempt_count=1 WHERE job_id=:job_id"
+        ),
+        {"worker": uuid4(), "token": uuid4(), "job_id": job_id},
+    )
+    running = await read_projection()
+    assert running["status"] == "building"
+    assert running["building_status"] == "building"
+    assert running["retry_after_ms"] == 2000
+
+    await db_session.execute(
+        text(
+            "UPDATE public.asset_image_jobs SET status='failed', error_code='decode_failed', "
+            "lease_owner=NULL, lease_token=NULL, lease_expires_at=NULL, "
+            "completed_at=clock_timestamp(), updated_at=clock_timestamp() WHERE job_id=:job_id"
+        ),
+        {"job_id": job_id},
+    )
+    failed = await read_projection()
+    assert failed["status"] == "failed"
+    assert failed["error_code"] == "decode_failed"
+    assert failed["retryable"] is False
+
+    await db_session.execute(
+        text("UPDATE public.dataset_items SET width=320,height=200 WHERE id=:item_id"),
+        {"item_id": item_id},
+    )
+    resolved = await read_projection()
+    assert resolved["status"] == "not_available"
+    assert (resolved["width"], resolved["height"]) == (320, 200)
+
+    await db_session.execute(
+        text(
+            "UPDATE public.dataset_items SET width=8000,height=8000 WHERE id=:item_id"
+        ),
+        {"item_id": item_id},
+    )
+    eligible = await read_projection()
+    assert eligible["status"] == "missing"
+    assert eligible["required"] is True
+    assert eligible["retryable"] is True
 
 
 async def test_task_source_reads_newest_current_ready_image_dimensions(db_session):

@@ -181,6 +181,59 @@ def pyramid_projection(current, *, status="ready", generation=2, attempt=None):
     return state, raw, base
 
 
+def retained_thumbnail_work_status(
+    current,
+    key,
+    *,
+    job_id,
+    generation,
+    refresh_generation,
+    status,
+    publication_source=None,
+):
+    publication_source = publication_source or current
+    policy = ImagePolicy()
+    publication_spec = c.ThumbnailWorkSpec(
+        expected_source_snapshot=publication_source.source_snapshot, policy=policy
+    )
+    result = c.ThumbnailResult(
+        source_identity=publication_source.object_identity,
+        source_sha256="a" * 64,
+        width=publication_source.width,
+        height=publication_source.height,
+        blurhash="LEHV6nWB2yk8pyo0adR*.7kCMdnj",
+        artifact=c.Artifact(key=key, byte_size=64, sha256="b" * 64),
+    )
+    publication = {
+        "schema": "aap-image-thumbnail-publication/v1",
+        "job_id": str(job_id),
+        "generation": generation,
+        "owner": publication_source.owner.model_dump(mode="json"),
+        "source_generation": publication_source.source_generation,
+        "source_snapshot": publication_source.source_snapshot,
+        "source_identity": publication_source.object_identity.model_dump(mode="json"),
+        "spec": publication_spec.model_dump(mode="json"),
+        "result": result.model_dump(mode="json"),
+    }
+    return c.ImageWorkStatus(
+        work=c.ImageWorkReference(
+            job_id=job_id,
+            generation=refresh_generation,
+            owner=current.owner,
+            source_generation=current.source_generation,
+            kind="thumbnail",
+            status=status,
+        ),
+        spec=c.ThumbnailWorkSpec(
+            expected_source_snapshot=current.source_snapshot, policy=policy
+        ),
+        progress={"retained_publication": publication},
+        error_code=None,
+        error_detail=None,
+        lease_expires_at=None,
+    )
+
+
 @pytest.mark.asyncio
 async def test_source_drift_is_observed_before_any_url_is_signed():
     current = source()
@@ -198,6 +251,56 @@ async def test_source_drift_is_observed_before_any_url_is_signed():
         await ImageControl(DriftDatabase(), storage).source_reference(request)
     assert storage.signed_source == []
     assert storage.signed_cache == []
+
+
+@pytest.mark.asyncio
+async def test_actor_source_first_read_can_bind_an_unregistered_identity():
+    unbound = source().model_copy(update={"object_identity": None})
+    identity = c.ObjectIdentity(etag="first-observation", byte_size=128)
+    bound = unbound.model_copy(update={"object_identity": identity})
+    reads = 0
+
+    class BindingDatabase:
+        async def call(self, operation, request):
+            nonlocal reads
+            if operation == "read_image_source":
+                reads += 1
+                return unbound if reads == 1 else bound
+            assert operation == "observe_image_source"
+            return bound
+
+    storage = FakeStorage(source_identity=identity)
+    result = await ImageControl(BindingDatabase(), storage).source_reference(
+        c.ReadImageSourceRequest(actor_id=uuid4(), dataset_item_id=unbound.item_id)
+    )
+    assert result.source == bound
+    assert storage.signed_source == [(bound, 3600)]
+
+
+@pytest.mark.asyncio
+async def test_internal_source_first_read_can_bind_an_unregistered_identity():
+    owner = c.ImageOwner(kind="dataset_item", id=uuid4())
+    unbound = source(owner=owner).model_copy(update={"object_identity": None})
+    identity = c.ObjectIdentity(etag="first-internal-observation", byte_size=128)
+    bound = unbound.model_copy(update={"object_identity": identity})
+    reads = 0
+
+    class BindingDatabase:
+        async def call(self, operation, request):
+            nonlocal reads
+            assert operation == "resolve_internal_image_source"
+            reads += 1
+            return unbound if reads == 1 else bound
+
+    storage = FakeStorage(source_identity=identity)
+    result = await ImageControl(BindingDatabase(), storage).internal_source_reference(
+        InternalImageSourceReferenceRequest(
+            source=c.InternalImageSourceRequest(owner=owner)
+        )
+    )
+    assert result.source == bound
+    assert result.actor_id is None
+    assert storage.signed_source == [(bound, 3600)]
 
 
 @pytest.mark.asyncio
@@ -231,6 +334,112 @@ async def test_source_change_after_signing_is_committed_before_response_is_rejec
             c.ReadImageSourceRequest(actor_id=uuid4(), dataset_item_id=current.item_id)
         )
     assert len(storage.signed_source) == 1
+
+
+@pytest.mark.asyncio
+async def test_registered_dimension_change_during_reference_blocks_the_reply():
+    owner = c.ImageOwner(kind="dataset_item", id=uuid4())
+    key = f"thumbnails/{owner.id}.webp"
+    current = source(owner=owner, thumbnail_path=key, thumbnail_current=True)
+    changed = current.model_copy(update={"width": current.width + 1})
+    observed = 0
+
+    class ChangingDatabase:
+        async def call(self, operation, request):
+            nonlocal observed
+            if operation == "read_image_source":
+                return current
+            assert operation == "observe_image_source"
+            observed += 1
+            return current if observed == 1 else changed
+
+    storage = FakeStorage(cache_keys=[key])
+    with pytest.raises(c.ImageFailure, match="source_changed"):
+        await ImageControl(ChangingDatabase(), storage).source_reference(
+            c.ReadImageSourceRequest(actor_id=uuid4(), dataset_item_id=owner.id)
+        )
+    assert storage.signed_source == [(current, 3600)]
+    assert storage.signed_cache == [(key, 3600)]
+
+
+@pytest.mark.asyncio
+async def test_stale_pyramid_from_registered_dimensions_returns_no_overview_url():
+    owner = c.ImageOwner(kind="dataset_item", id=uuid4())
+    current = source(owner=owner).model_copy(update={"width": 3})
+    state, _raw, _prefix = pyramid_projection(current, status="stale", generation=2)
+
+    class StalePyramidDatabase:
+        async def call(self, operation, request):
+            if operation in {"read_image_source", "observe_image_source"}:
+                return current
+            assert operation == "read_image_generation"
+            return state
+
+    storage = FakeStorage(cache_keys=[state.pyramid.overview_key])
+    result = await ImageControl(StalePyramidDatabase(), storage).generation_reference(
+        ImageGenerationReferenceRequest(actor_id=uuid4(), dataset_item_id=owner.id)
+    )
+    assert result.pyramid.status == "stale"
+    assert result.manifest is None
+    assert result.overview_url is None
+    assert storage.signed_cache == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure_code", ["permission_denied", "operation_busy"])
+async def test_unknown_dimensions_warmup_denial_keeps_generation_read_available(
+    failure_code,
+):
+    owner = c.ImageOwner(kind="dataset_item", id=uuid4())
+    current = source(owner=owner).model_copy(update={"width": None, "height": None})
+    state = c.ImageGenerationRead(
+        source=current,
+        pyramid=c.ImagePyramidGeneration(
+            asset_id=None,
+            status="not_available",
+            required=False,
+            generation=None,
+            building_generation=None,
+            building_status=None,
+            source_generation=None,
+            source_snapshot=None,
+            width=None,
+            height=None,
+            format=None,
+            manifest=None,
+            manifest_key=None,
+            manifest_digest=None,
+            overview_key=None,
+            overview_digest=None,
+            tile_count=0,
+            retained_bytes=0,
+        ),
+    )
+    calls = []
+
+    class UnknownDimensionsDatabase:
+        async def call(self, operation, request):
+            calls.append(operation)
+            if operation in {"read_image_source", "observe_image_source"}:
+                return current
+            if operation == "read_image_generation":
+                return state
+            if operation == "prepare_image_media":
+                raise c.ImageFailure(failure_code)
+            pytest.fail(f"unexpected operation {operation}")
+
+    storage = FakeStorage()
+    result = await ImageControl(
+        UnknownDimensionsDatabase(), storage
+    ).generation_reference(
+        ImageGenerationReferenceRequest(actor_id=uuid4(), dataset_item_id=owner.id)
+    )
+    assert result.source.width is None and result.source.height is None
+    assert result.pyramid.status == "not_available"
+    assert result.overview_url is None
+    assert calls.count("prepare_image_media") == 1
+    assert calls.count("read_image_generation") == 2
+    assert storage.signed_cache == []
 
 
 @pytest.mark.asyncio
@@ -628,6 +837,78 @@ async def test_read_only_dataset_reader_verifies_thumbnail_attempt_internally():
     assert any(operation == "read_internal_image_work" for operation, _ in calls)
     assert not any(operation == "read_image_work" for operation, _ in calls)
     assert not hasattr(result, "progress")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("refresh_status", ["pending", "running", "failed", "canceled"])
+async def test_retained_thumbnail_is_signed_only_for_the_exact_current_source(
+    refresh_status,
+):
+    owner = c.ImageOwner(kind="dataset_item", id=uuid4())
+    job_id = uuid4()
+    old_generation = 3
+    key = f"image-assets/{job_id}/g{old_generation}/a{uuid4()}/thumbnail.webp"
+    current = source(owner=owner, thumbnail_path=key, thumbnail_current=True)
+    work_status = retained_thumbnail_work_status(
+        current,
+        key,
+        job_id=job_id,
+        generation=old_generation,
+        refresh_generation=old_generation + 1,
+        status=refresh_status,
+    )
+
+    class RetainedDatabase:
+        async def call(self, operation, request):
+            if operation in {"read_image_source", "observe_image_source"}:
+                return current
+            assert operation == "read_internal_image_work"
+            assert request.job_id == job_id
+            return work_status
+
+    storage = FakeStorage(cache_keys=[key])
+    result = await ImageControl(RetainedDatabase(), storage).source_reference(
+        c.ReadImageSourceRequest(actor_id=uuid4(), dataset_item_id=owner.id)
+    )
+
+    assert result.thumbnail_url.endswith(key + "?expires=3600")
+    assert storage.head_source_calls == [current, current]
+    assert storage.head_cache_calls == [key]
+    assert storage.signed_cache == [(key, 3600)]
+
+
+@pytest.mark.asyncio
+async def test_retained_thumbnail_from_a_changed_source_is_never_headed_or_signed():
+    owner = c.ImageOwner(kind="dataset_item", id=uuid4())
+    job_id = uuid4()
+    old_generation = 1
+    key = f"image-assets/{job_id}/g{old_generation}/a{uuid4()}/thumbnail.webp"
+    original = source(owner=owner, thumbnail_path=key, thumbnail_current=True)
+    changed = original.model_copy(update={"source_snapshot": "c" * 64})
+    work_status = retained_thumbnail_work_status(
+        changed,
+        key,
+        job_id=job_id,
+        generation=old_generation,
+        refresh_generation=old_generation + 1,
+        status="failed",
+        publication_source=original,
+    )
+
+    class ChangedSourceDatabase:
+        async def call(self, operation, request):
+            if operation in {"read_image_source", "observe_image_source"}:
+                return changed
+            assert operation == "read_internal_image_work"
+            return work_status
+
+    storage = FakeStorage(cache_keys=[key])
+    with pytest.raises(c.ImageFailure, match="source_changed"):
+        await ImageControl(ChangedSourceDatabase(), storage).source_reference(
+            c.ReadImageSourceRequest(actor_id=uuid4(), dataset_item_id=owner.id)
+        )
+    assert storage.head_cache_calls == []
+    assert storage.signed_cache == []
 
 
 @pytest.mark.asyncio

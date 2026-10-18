@@ -70,6 +70,16 @@ _READ_GENERATION = text(
     "CAST(:task_id AS uuid), CAST(:item_id AS uuid), "
     "CAST(:generation AS integer), CAST(:profile_version AS text))"
 )
+_READ_INTERNAL_WORK = text(
+    "SELECT aap_assets_v1.read_internal_image_work(CAST(:job_id AS uuid))"
+)
+_READ_WORK = text(
+    "SELECT aap_assets_v1.read_image_work(CAST(:actor_id AS uuid), CAST(:job_id AS uuid))"
+)
+_CANCEL = text(
+    "SELECT aap_assets_v1.cancel_image_media(CAST(:operation_id AS uuid), "
+    "CAST(:actor_id AS uuid), CAST(:job_id AS uuid))"
+)
 
 
 def _reply(value):
@@ -454,6 +464,176 @@ async def test_source_generation_change_fences_a_claimed_thumbnail(db_session):
     assert job is not None and job.status == "canceled"
 
 
+async def test_thumbnail_provenance_survives_refresh_failure_then_clears_on_new_publish(
+    db_session,
+):
+    actor_id = await _seed_actor(db_session)
+    dataset_id = await _seed_dataset(db_session, actor_id=actor_id)
+    item_id = await _seed_image(
+        db_session, actor_id=actor_id, dataset_id=dataset_id, width=320, height=200
+    )
+    source = await _source(db_session, item_id)
+    spec = _spec("thumbnail", source)
+    job_id, _ = await _enqueue(db_session, source, spec)
+
+    first_claim = await _claim(db_session, job_id=job_id, kind="thumbnail")
+    first_key = first_claim["output_prefix"] + "thumbnail.webp"
+    first_result = _worker_result(
+        "thumbnail",
+        source,
+        source_sha256="a" * 64,
+        width=320,
+        height=200,
+        blurhash="LEHV6nWB2yk8pyo0adR*.7kCMdnj",
+        artifact={"key": first_key, "byte_size": 12, "sha256": "b" * 64},
+    )
+    first_finish = _data(
+        _reply(
+            await db_session.scalar(
+                _FINISH,
+                {
+                    "job_id": job_id,
+                    "generation": first_claim["generation"],
+                    "lease_token": first_claim["lease_token"],
+                    "result": json.dumps(first_result),
+                },
+            )
+        )
+    )
+    assert first_finish["outcome"] == "published"
+    published_source = await _source(db_session, item_id)
+    assert published_source["thumbnail_path"] == first_key
+
+    refresh_id, _ = await _enqueue(db_session, published_source, spec, force=True)
+    assert refresh_id == job_id
+    job = await db_session.get(AssetImageJob, job_id)
+    assert job is not None
+    await db_session.refresh(job)
+    retained = job.progress["retained_publication"]
+    assert retained["job_id"] == str(job_id)
+    assert retained["generation"] == first_claim["generation"]
+    assert retained["source_generation"] == published_source["source_generation"]
+    assert retained["source_snapshot"] == published_source["source_snapshot"]
+    assert retained["result"]["artifact"]["key"] == first_key
+
+    refresh_claim = await _claim(db_session, job_id=job_id, kind="thumbnail")
+    job = await db_session.get(AssetImageJob, job_id)
+    assert job is not None
+    await db_session.refresh(job)
+    assert job.progress["retained_publication"] == retained
+    failed = _data(
+        _reply(
+            await db_session.scalar(
+                _FAIL,
+                {
+                    "job_id": job_id,
+                    "generation": refresh_claim["generation"],
+                    "lease_token": refresh_claim["lease_token"],
+                    "error_code": "decode_failed",
+                    "error_detail": "refresh failed after the prior thumbnail was published",
+                },
+            )
+        )
+    )
+    assert failed["outcome"] == "failed"
+    status = _data(
+        _reply(await db_session.scalar(_READ_INTERNAL_WORK, {"job_id": job_id}))
+    )
+    assert status["work"]["status"] == "failed"
+    assert status["progress"]["retained_publication"] == retained
+    assert (await _source(db_session, item_id))["thumbnail_path"] == first_key
+    public_status = _data(
+        _reply(
+            await db_session.scalar(
+                _READ_WORK, {"actor_id": actor_id, "job_id": job_id}
+            )
+        )
+    )
+    assert "retained_publication" not in public_status["progress"]
+
+    cancel_id, _ = await _enqueue(db_session, published_source, spec, force=True)
+    assert cancel_id == job_id
+    cancel_claim = await _claim(db_session, job_id=job_id, kind="thumbnail")
+    canceled = _data(
+        _reply(
+            await db_session.scalar(
+                _CANCEL,
+                {"operation_id": uuid.uuid4(), "actor_id": actor_id, "job_id": job_id},
+            )
+        )
+    )
+    assert canceled["canceled"] is True
+    status = _data(
+        _reply(await db_session.scalar(_READ_INTERNAL_WORK, {"job_id": job_id}))
+    )
+    assert status["work"]["generation"] == cancel_claim["generation"]
+    assert status["work"]["status"] == "canceled"
+    assert status["progress"]["retained_publication"] == retained
+    assert (await _source(db_session, item_id))["thumbnail_path"] == first_key
+
+    await db_session.execute(
+        text(
+            "UPDATE public.dataset_items SET file_path='images/renamed.png' WHERE id=:item_id"
+        ),
+        {"item_id": item_id},
+    )
+    changed_source = await _source(db_session, item_id)
+    assert changed_source["source_snapshot"] != published_source["source_snapshot"]
+    changed_id, _ = await _enqueue(
+        db_session,
+        changed_source,
+        _spec("thumbnail", changed_source),
+        force=True,
+    )
+    assert changed_id == job_id
+    job = await db_session.get(AssetImageJob, job_id)
+    assert job is not None
+    await db_session.refresh(job)
+    assert job.progress == {}
+
+    final_claim = await _claim(db_session, job_id=job_id, kind="thumbnail")
+    final_key = final_claim["output_prefix"] + "thumbnail.webp"
+    final_result = _worker_result(
+        "thumbnail",
+        changed_source,
+        source_sha256="c" * 64,
+        width=320,
+        height=200,
+        blurhash="LEHV6nWB2yk8pyo0adR*.7kCMdnj",
+        artifact={"key": final_key, "byte_size": 12, "sha256": "d" * 64},
+    )
+    final_finish = _data(
+        _reply(
+            await db_session.scalar(
+                _FINISH,
+                {
+                    "job_id": job_id,
+                    "generation": final_claim["generation"],
+                    "lease_token": final_claim["lease_token"],
+                    "result": json.dumps(final_result),
+                },
+            )
+        )
+    )
+    assert final_finish["outcome"] == "published"
+    final_source = await _source(db_session, item_id)
+    assert final_source["thumbnail_path"] == final_key
+    job = await db_session.get(AssetImageJob, job_id)
+    assert job is not None
+    await db_session.refresh(job)
+    assert "retained_publication" not in job.progress
+    assert (
+        await db_session.scalar(
+            text(
+                "SELECT count(*) FROM public.asset_image_garbage "
+                "WHERE prefix=:prefix AND reason='attempt_abandoned'"
+            ),
+            {"prefix": first_claim["output_prefix"]},
+        )
+        == 1
+    )
+
+
 async def test_pyramid_finish_validates_the_complete_grid_and_publishes_atomically(
     db_session,
 ):
@@ -598,6 +778,31 @@ async def test_pyramid_finish_validates_the_complete_grid_and_publishes_atomical
         )
     )
     assert projection["pyramid"]["status"] == "ready"
+
+    await db_session.execute(
+        text("UPDATE public.dataset_items SET width=2,height=1 WHERE id=:item_id"),
+        {"item_id": item_id},
+    )
+    current_source = await _source(db_session, item_id)
+    assert current_source["source_snapshot"] == source["source_snapshot"]
+    stale_projection = _data(
+        _reply(
+            await db_session.scalar(
+                _READ_GENERATION,
+                {
+                    "actor_id": actor_id,
+                    "task_id": None,
+                    "item_id": item_id,
+                    "generation": public_generation,
+                    "profile_version": "pyramid-v1",
+                },
+            )
+        )
+    )
+    assert stale_projection["pyramid"]["status"] == "stale"
+    assert stale_projection["pyramid"]["manifest_key"] is None
+    assert stale_projection["pyramid"]["overview_key"] is None
+    source = current_source
 
     refresh_id, _ = await _enqueue(
         db_session, source, _spec("pyramid", source, policy=policy), force=True

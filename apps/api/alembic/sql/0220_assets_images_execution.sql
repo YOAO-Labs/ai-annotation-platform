@@ -572,8 +572,15 @@ BEGIN
         SET status = 'running', lease_owner = p_worker_id,
             lease_token = v_token, lease_expires_at = v_expires,
             output_prefix = v_prefix, attempt_count = job.attempt_count + 1,
-            progress = CASE WHEN job.kind = 'image_backfill'
-                THEN job.progress - 'pending_batch' ELSE '{}'::jsonb END,
+            progress = CASE
+                WHEN job.kind = 'image_backfill' THEN job.progress - 'pending_batch'
+                WHEN job.kind = 'thumbnail'
+                 AND pg_catalog.jsonb_typeof(job.progress -> 'retained_publication') = 'object'
+                    THEN pg_catalog.jsonb_build_object(
+                        'retained_publication', job.progress -> 'retained_publication'
+                    )
+                ELSE '{}'::jsonb
+            END,
             last_lease_token = NULL, last_outcome = NULL,
             completed_at = NULL, updated_at = pg_catalog.clock_timestamp()
         WHERE job.job_id = v_job.job_id
@@ -1533,6 +1540,8 @@ BEGIN
     END IF;
     UPDATE public.asset_image_jobs AS job
     SET status = 'ready', result = p_result,
+        progress = CASE WHEN v_result_kind = 'thumbnail'
+            THEN job.progress - 'retained_publication' ELSE job.progress END,
         error_code = NULL, error_detail = NULL,
         lease_owner = NULL, lease_token = NULL, lease_expires_at = NULL,
         last_lease_token = p_lease_token, last_outcome = 'published',

@@ -1054,13 +1054,17 @@ DECLARE
     v_source_drifted boolean;
     v_upload_ready boolean;
     v_profile_version text;
+    v_registered_width integer;
+    v_registered_height integer;
     v_width integer;
     v_height integer;
     v_asset public.image_pyramid_assets%ROWTYPE;
     v_generation public.image_pyramid_generations%ROWTYPE;
     v_building public.image_pyramid_generations%ROWTYPE;
+    v_dimension_job public.asset_image_jobs%ROWTYPE;
     v_policy jsonb;
     v_status text;
+    v_building_status text;
     v_required boolean := false;
     v_retryable boolean := false;
     v_retry_after bigint;
@@ -1094,10 +1098,12 @@ BEGIN
         v_source_snapshot := p_source ->> 'source_snapshot';
         v_source_drifted := (p_source ->> 'source_drifted')::boolean;
         v_upload_ready := (p_source ->> 'upload_ready')::boolean;
-        v_width := CASE WHEN p_source -> 'width' = 'null'::jsonb THEN NULL
+        v_registered_width := CASE WHEN p_source -> 'width' = 'null'::jsonb THEN NULL
             ELSE (p_source ->> 'width')::integer END;
-        v_height := CASE WHEN p_source -> 'height' = 'null'::jsonb THEN NULL
+        v_registered_height := CASE WHEN p_source -> 'height' = 'null'::jsonb THEN NULL
             ELSE (p_source ->> 'height')::integer END;
+        v_width := v_registered_width;
+        v_height := v_registered_height;
     EXCEPTION WHEN invalid_text_representation OR numeric_value_out_of_range THEN
         RETURN NULL;
     END;
@@ -1124,16 +1130,63 @@ BEGIN
                 THEN 'missing'
             ELSE 'not_available'
         END;
+        v_retryable := v_status = 'missing';
         v_required := v_width IS NOT NULL AND v_height IS NOT NULL
             AND v_width::numeric * v_height::numeric >= (v_policy ->> 'required_pixels')::numeric;
+        IF (v_width IS NULL OR v_height IS NULL)
+           AND NOT v_source_drifted AND v_upload_ready
+           AND p_source -> 'object_identity' <> 'null'::jsonb THEN
+            SELECT job.* INTO v_dimension_job
+            FROM public.asset_image_jobs AS job
+            WHERE job.owner_kind = v_owner_kind
+              AND job.owner_id = v_owner_id
+              AND job.kind = 'dimensions'
+              AND job.slot_key IN ('dimensions', 'dimensions:preview')
+              AND job.status IN ('pending', 'running', 'failed')
+              AND job.source_generation = v_source_generation
+              AND job.source_snapshot = v_source_snapshot
+              AND job.source_facts #>> '{owner,kind}' = v_owner_kind
+              AND job.source_facts #>> '{owner,id}' = v_owner_id::text
+              AND job.spec ->> 'kind' = 'dimensions'
+              AND job.spec ->> 'expected_source_snapshot' = v_source_snapshot
+              AND job.source_facts ->> 'source_generation' = v_source_generation::text
+              AND job.source_facts ->> 'source_snapshot' = v_source_snapshot
+              AND job.source_facts -> 'source_drifted' = 'false'::jsonb
+              AND job.source_facts -> 'upload_ready' = 'true'::jsonb
+              AND aap_assets_v1._media_object_identity_valid(
+                    job.source_facts -> 'object_identity'
+              )
+              AND aap_assets_v1._image_normalize_identity(
+                    job.source_facts -> 'object_identity'
+              ) = aap_assets_v1._image_normalize_identity(
+                    p_source -> 'object_identity'
+              )
+            ORDER BY job.updated_at DESC, job.job_id DESC
+            LIMIT 1;
+            IF FOUND THEN
+                IF v_dimension_job.status = 'pending' THEN
+                    v_status := 'pending';
+                    v_building_status := 'pending';
+                    v_retry_after := 2000;
+                ELSIF v_dimension_job.status = 'running' THEN
+                    v_status := 'building';
+                    v_building_status := 'building';
+                    v_retry_after := 2000;
+                ELSE
+                    v_status := 'failed';
+                    v_error_code := v_dimension_job.error_code;
+                END IF;
+            END IF;
+        END IF;
         RETURN pg_catalog.jsonb_build_object(
             'asset_id', NULL, 'status', v_status, 'required', v_required,
             'profile_version', v_profile_version,
-            'generation', NULL, 'building_generation', NULL, 'building_status', NULL,
+            'generation', NULL, 'building_generation', NULL,
+            'building_status', v_building_status,
             'source_generation', NULL, 'source_snapshot', NULL,
             'width', v_width, 'height', v_height, 'tile_size', 512,
-            'format', NULL, 'retryable', v_status = 'missing', 'retry_after_ms', NULL,
-            'error_code', NULL, 'manifest', NULL, 'manifest_key', NULL,
+            'format', NULL, 'retryable', v_retryable, 'retry_after_ms', v_retry_after,
+            'error_code', v_error_code, 'manifest', NULL, 'manifest_key', NULL,
             'manifest_digest', NULL, 'overview_key', NULL, 'overview_digest', NULL,
             'tile_count', 0, 'retained_bytes', 0
         );
@@ -1184,6 +1237,8 @@ BEGIN
         AND v_generation.source_identity = aap_assets_v1._image_exec_legacy_identity(
             p_source -> 'object_identity'
         )
+        AND (v_registered_width IS NULL OR v_generation.width = v_registered_width)
+        AND (v_registered_height IS NULL OR v_generation.height = v_registered_height)
         AND NOT v_source_drifted AND v_upload_ready
         AND p_source -> 'object_identity' <> 'null'::jsonb, false);
     IF v_status = 'ready' AND NOT v_current THEN
@@ -1397,6 +1452,7 @@ DECLARE
     v_reuse boolean := false;
     v_attempt_prefix text;
     v_data jsonb;
+    v_retained_publication jsonb;
     v_existing boolean := false;
 BEGIN
     IF p_force IS NULL THEN RETURN aap_assets_v1._image_reply(NULL, 'invalid_request'); END IF;
@@ -1531,6 +1587,97 @@ BEGIN
         IF v_job.status IN ('pending', 'running') THEN
             RETURN aap_assets_v1._image_reply(NULL, 'operation_conflict');
         END IF;
+        IF v_kind = 'thumbnail' THEN
+            IF v_job.status = 'ready' THEN
+                IF v_job.kind = 'thumbnail'
+                   AND v_job.owner_kind = v_owner_kind
+                   AND v_job.owner_id = v_owner_id
+                   AND v_job.source_generation = v_source_generation
+                   AND v_job.source_snapshot = v_source_snapshot
+                   AND v_job.spec ->> 'kind' = 'thumbnail'
+                   AND v_job.spec ->> 'expected_source_snapshot' = v_source_snapshot
+                   AND v_job.result ->> 'kind' = 'thumbnail'
+                   AND v_job.output_prefix IS NOT NULL
+                   AND v_job.result #>> '{artifact,key}' = v_job.output_prefix || 'thumbnail.webp'
+                   AND p_source -> 'thumbnail_path' = v_job.result #> '{artifact,key}'
+                   AND p_source -> 'thumbnail_source_generation' = p_source -> 'source_generation'
+                   AND aap_assets_v1._media_object_identity_valid(
+                        v_job.source_facts -> 'object_identity'
+                   )
+                   AND aap_assets_v1._image_exec_identity_equal(
+                        v_job.source_facts -> 'object_identity', p_source -> 'object_identity'
+                   )
+                   AND aap_assets_v1._image_exec_identity_equal(
+                        v_job.result -> 'source_identity', p_source -> 'object_identity'
+                   ) THEN
+                    v_retained_publication := pg_catalog.jsonb_build_object(
+                        'schema', 'aap-image-thumbnail-publication/v1',
+                        'job_id', v_job.job_id,
+                        'generation', v_job.generation,
+                        'owner', pg_catalog.jsonb_build_object(
+                            'kind', v_job.owner_kind, 'id', v_job.owner_id
+                        ),
+                        'source_generation', v_job.source_generation,
+                        'source_snapshot', v_job.source_snapshot,
+                        'source_identity', aap_assets_v1._image_normalize_identity(
+                            v_job.source_facts -> 'object_identity'
+                        ),
+                        'spec', v_job.spec,
+                        'result', v_job.result
+                    );
+                END IF;
+            ELSIF v_job.status IN ('failed', 'canceled') THEN
+                v_retained_publication := v_job.progress -> 'retained_publication';
+                IF pg_catalog.jsonb_typeof(v_retained_publication) IS DISTINCT FROM 'object'
+                   OR (v_retained_publication - ARRAY[
+                        'schema', 'job_id', 'generation', 'owner', 'source_generation',
+                        'source_snapshot', 'source_identity', 'spec', 'result'
+                   ]) IS DISTINCT FROM '{}'::jsonb
+                   OR NOT (v_retained_publication ?& ARRAY[
+                        'schema', 'job_id', 'generation', 'owner', 'source_generation',
+                        'source_snapshot', 'source_identity', 'spec', 'result'
+                   ])
+                   OR v_retained_publication ->> 'schema'
+                        IS DISTINCT FROM 'aap-image-thumbnail-publication/v1'
+                   OR v_retained_publication ->> 'job_id' IS DISTINCT FROM v_job.job_id::text
+                   OR COALESCE(v_retained_publication ->> 'generation', '') !~ '^[1-9][0-9]*$'
+                   OR (v_retained_publication #>> '{owner,kind}') IS DISTINCT FROM v_owner_kind
+                   OR (v_retained_publication #>> '{owner,id}') IS DISTINCT FROM v_owner_id::text
+                   OR v_job.source_generation IS DISTINCT FROM v_source_generation
+                   OR v_job.source_snapshot IS DISTINCT FROM v_source_snapshot
+                   OR v_retained_publication ->> 'source_generation'
+                        IS DISTINCT FROM v_source_generation::text
+                   OR v_retained_publication ->> 'source_snapshot'
+                        IS DISTINCT FROM v_source_snapshot
+                   OR NOT aap_assets_v1._media_object_identity_valid(
+                        v_retained_publication -> 'source_identity'
+                   )
+                   OR NOT aap_assets_v1._image_exec_identity_equal(
+                        v_retained_publication -> 'source_identity', p_source -> 'object_identity'
+                   )
+                   OR aap_assets_v1._image_spec(v_retained_publication -> 'spec')
+                        IS DISTINCT FROM v_retained_publication -> 'spec'
+                   OR v_retained_publication #>> '{spec,kind}' IS DISTINCT FROM 'thumbnail'
+                   OR v_retained_publication #>> '{spec,expected_source_snapshot}'
+                        IS DISTINCT FROM v_source_snapshot
+                   OR pg_catalog.jsonb_typeof(v_retained_publication -> 'result')
+                        IS DISTINCT FROM 'object'
+                   OR v_retained_publication #>> '{result,kind}' IS DISTINCT FROM 'thumbnail'
+                   OR v_retained_publication #>> '{result,artifact,key}'
+                        IS DISTINCT FROM p_source ->> 'thumbnail_path'
+                   OR p_source -> 'thumbnail_source_generation'
+                        IS DISTINCT FROM p_source -> 'source_generation'
+                   OR NOT aap_assets_v1._media_object_identity_valid(
+                        v_retained_publication #> '{result,source_identity}'
+                   )
+                   OR NOT aap_assets_v1._image_exec_identity_equal(
+                        v_retained_publication #> '{result,source_identity}',
+                        p_source -> 'object_identity'
+                   ) THEN
+                    v_retained_publication := NULL;
+                END IF;
+            END IF;
+        END IF;
         IF v_job.generation = 9223372036854775807 THEN
             RETURN aap_assets_v1._image_reply(NULL, 'resource_budget_exceeded');
         END IF;
@@ -1589,7 +1736,10 @@ BEGIN
             source_snapshot = v_source_snapshot,
             source_facts = p_source,
             actor_id = p_actor_id,
-            progress = '{}'::jsonb,
+            progress = CASE WHEN v_retained_publication IS NULL THEN '{}'::jsonb
+                ELSE pg_catalog.jsonb_build_object(
+                    'retained_publication', v_retained_publication
+                ) END,
             result = NULL,
             error_code = NULL,
             error_detail = NULL,
@@ -3310,6 +3460,10 @@ BEGIN
               AND generation.source_identity = aap_assets_v1._image_exec_legacy_identity(
                     v_source -> 'object_identity'
               )
+              AND (v_source -> 'width' = 'null'::jsonb
+                   OR generation.width = (v_source ->> 'width')::integer)
+              AND (v_source -> 'height' = 'null'::jsonb
+                   OR generation.height = (v_source ->> 'height')::integer)
             FOR UPDATE OF asset, generation NOWAIT;
             IF NOT FOUND THEN
                 RETURN aap_assets_v1._image_reply(NULL, 'asset_missing');

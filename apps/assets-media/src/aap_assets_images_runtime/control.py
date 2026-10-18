@@ -9,10 +9,10 @@ import json
 import logging
 import re
 from collections.abc import Awaitable, Callable
-from typing import Protocol
+from typing import Literal, Protocol
 from uuid import NAMESPACE_URL, UUID, uuid5
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, model_validator
 
 from aap_assets_images import contract as c
 from aap_assets_images.geometry import canonical_manifest_bytes, sha256_digest
@@ -45,6 +45,29 @@ _PYRAMID_MANIFEST_KEY = re.compile(
     rf"(?:/a{_UUID})?)/manifest\.json$"
 )
 _MANIFEST_MAX_BYTES = 1024 * 1024
+
+
+class _RetainedThumbnailPublication(c.Value):
+    """Private durable proof for a still-current published thumbnail."""
+
+    schema_tag: Literal["aap-image-thumbnail-publication/v1"] = Field(alias="schema")
+    job_id: UUID
+    generation: c.Revision
+    owner: c.ImageOwner
+    source_generation: c.Revision
+    source_snapshot: c.Digest
+    source_identity: c.ObjectIdentity
+    spec: c.ThumbnailWorkSpec
+    result: c.ThumbnailResult
+
+    @model_validator(mode="after")
+    def publication_matches_scope(self):
+        if (
+            self.spec.expected_source_snapshot != self.source_snapshot
+            or self.result.source_identity != self.source_identity
+        ):
+            raise ValueError("retained thumbnail publication escaped its source")
+        return self
 
 
 class ImageDatabase(Protocol):
@@ -217,8 +240,21 @@ class ImageControl:
             and actual.object_identity == expected.object_identity
             and actual.file_path == expected.file_path
             and actual.bucket_kind == expected.bucket_kind
+            and actual.width == expected.width
+            and actual.height == expected.height
             and not actual.source_drifted
         )
+
+    @classmethod
+    def _same_observed_source(
+        cls,
+        expected: c.ImageSource,
+        actual: c.ImageSource,
+        identity: c.ObjectIdentity,
+    ) -> bool:
+        if expected.object_identity is None:
+            expected = expected.model_copy(update={"object_identity": identity})
+        return cls._same_source(expected, actual)
 
     async def _observe_actor(
         self,
@@ -249,7 +285,9 @@ class ImageControl:
                 object_identity=identity,
             ),
         )
-        if observed.source_drifted or not self._same_source(source, observed):
+        if observed.source_drifted or not self._same_observed_source(
+            source, observed, identity
+        ):
             raise c.ImageFailure("source_changed")
         if observed.object_identity != identity:
             raise c.ImageFailure("source_changed")
@@ -284,7 +322,9 @@ class ImageControl:
                 object_identity=identity,
             ),
         )
-        if observed.source_drifted or not self._same_source(source, observed):
+        if observed.source_drifted or not self._same_observed_source(
+            source, observed, identity
+        ):
             raise c.ImageFailure("source_changed")
         if observed.object_identity != identity:
             raise c.ImageFailure("source_changed")
@@ -584,7 +624,9 @@ class ImageControl:
         state = await self._read_generation(request, source)
         source = state.source
         if source.width is None or source.height is None:
-            await self._prepare_repair(source, request, "dimensions", "dimensions")
+            await self._best_effort_repair(
+                self._prepare_repair(source, request, "dimensions", "dimensions")
+            )
             state = await self._read_generation(request, source)
             source = state.source
         if self._pyramid_dispatch_eligible(source, request.profile_version) and (
@@ -835,14 +877,48 @@ class ImageControl:
         )
         if (
             status.work.job_id != job_id
-            or status.work.status != "ready"
-            or status.work.generation != generation
             or status.work.owner != source.owner
             or status.work.kind != "thumbnail"
+        ):
+            raise c.ImageFailure("invalid_response")
+        if status.work.generation == generation and status.work.status == "ready":
+            if status.work.source_generation != source.source_generation:
+                raise c.ImageFailure("source_changed")
+            if (
+                not isinstance(status.spec, c.ThumbnailWorkSpec)
+                or status.spec.expected_source_snapshot != source.source_snapshot
+            ):
+                raise c.ImageFailure("source_changed")
+            return
+
+        if (
+            status.work.generation <= generation
+            or status.work.status not in {"pending", "running", "failed", "canceled"}
             or status.work.source_generation != source.source_generation
             or not isinstance(status.spec, c.ThumbnailWorkSpec)
-            or status.spec.expected_source_snapshot != source.source_snapshot
         ):
+            raise c.ImageFailure("invalid_response")
+        if status.spec.expected_source_snapshot != source.source_snapshot:
+            raise c.ImageFailure("source_changed")
+        try:
+            publication = _RetainedThumbnailPublication.model_validate(
+                status.progress.get("retained_publication")
+            )
+        except (TypeError, ValueError, AttributeError):
+            raise c.ImageFailure("invalid_response") from None
+        if (
+            publication.job_id != job_id
+            or publication.generation != generation
+            or publication.owner != source.owner
+        ):
+            raise c.ImageFailure("invalid_response")
+        if (
+            publication.source_generation != source.source_generation
+            or publication.source_snapshot != source.source_snapshot
+            or publication.source_identity != source.object_identity
+        ):
+            raise c.ImageFailure("source_changed")
+        if publication.result.artifact.key != match.string:
             raise c.ImageFailure("invalid_response")
 
     async def _prepare_small_thumbnail(

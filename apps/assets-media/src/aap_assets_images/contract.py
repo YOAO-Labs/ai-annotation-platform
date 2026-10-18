@@ -673,6 +673,7 @@ class ImageWorkStatusRequest(Value):
 class ImageWorkStatus(Value):
     work: ImageWorkReference
     spec: ImageWorkSpec
+    # Internal thumbnail reads may carry a source-bound publication proof here; public progress strips it.
     progress: JsonObject
     error_code: Annotated[StrictStr, Field(max_length=64)] | None
     error_detail: Annotated[StrictStr, Field(max_length=2000)] | None
