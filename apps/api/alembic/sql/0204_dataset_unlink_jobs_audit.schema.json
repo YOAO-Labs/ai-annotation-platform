@@ -1,0 +1,141 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:aap:contract:dataset-unlink-jobs-audit:v1",
+  "title": "Dataset unlink Jobs and Audit owner capabilities v1",
+  "oneOf": [
+    { "$ref": "#/$defs/cancelDatasetTaskCreationRequest" },
+    { "$ref": "#/$defs/cancelDatasetTaskCreationResult" },
+    { "$ref": "#/$defs/validRequestContextRequest" },
+    { "$ref": "#/$defs/recordDatasetUnlinkRequest" },
+    { "$ref": "#/$defs/recordDatasetUnlinkResult" }
+  ],
+  "$defs": {
+    "uuid": { "type": "string", "format": "uuid" },
+    "nonnegativeBigint": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9223372036854775807
+    },
+    "auditContext": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "method": {
+          "anyOf": [{ "type": "string", "maxLength": 8 }, { "type": "null" }]
+        },
+        "path": {
+          "anyOf": [{ "type": "string", "maxLength": 256 }, { "type": "null" }]
+        },
+        "ip": {
+          "anyOf": [{ "type": "string", "maxLength": 64 }, { "type": "null" }]
+        },
+        "request_id": {
+          "anyOf": [{ "type": "string", "maxLength": 36 }, { "type": "null" }]
+        }
+      }
+    },
+    "cancelDatasetTaskCreationRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "dataset_id": { "$ref": "#/$defs/uuid" },
+        "project_id": { "$ref": "#/$defs/uuid" },
+        "association_id": { "$ref": "#/$defs/uuid" }
+      },
+      "required": ["dataset_id", "project_id", "association_id"]
+    },
+    "cancelDatasetTaskCreationResult": {
+      "$ref": "#/$defs/nonnegativeBigint"
+    },
+    "validRequestContextRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "context": {
+          "anyOf": [{ "$ref": "#/$defs/auditContext" }, { "type": "null" }],
+          "description": "SQL NULL is accepted; JSON null is rejected by the database function."
+        }
+      },
+      "required": ["context"]
+    },
+    "recordDatasetUnlinkRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "operation_id": { "$ref": "#/$defs/uuid" },
+        "actor_id": { "$ref": "#/$defs/uuid" },
+        "dataset_id": { "$ref": "#/$defs/uuid" },
+        "project_id": { "$ref": "#/$defs/uuid" },
+        "deleted_tasks": { "$ref": "#/$defs/nonnegativeBigint" },
+        "deleted_annotations": { "$ref": "#/$defs/nonnegativeBigint" },
+        "deleted_batch_ids": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/uuid" }
+        },
+        "context": {
+          "anyOf": [{ "$ref": "#/$defs/auditContext" }, { "type": "null" }],
+          "description": "SQL NULL is accepted; JSON null is rejected by the database function."
+        }
+      },
+      "required": [
+        "operation_id",
+        "actor_id",
+        "dataset_id",
+        "project_id",
+        "deleted_tasks",
+        "deleted_annotations",
+        "deleted_batch_ids",
+        "context"
+      ]
+    },
+    "recordDatasetUnlinkResult": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9223372036854775807
+    },
+    "datasetUnlinkAuditDetail": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "operation_id": { "$ref": "#/$defs/uuid" },
+        "project_id": { "$ref": "#/$defs/uuid" },
+        "deleted_tasks": { "$ref": "#/$defs/nonnegativeBigint" },
+        "deleted_annotations": { "$ref": "#/$defs/nonnegativeBigint" },
+        "deleted_batches": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2147483647
+        },
+        "deleted_batch_ids": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/uuid" }
+        },
+        "soft": { "const": false }
+      },
+      "required": [
+        "operation_id",
+        "project_id",
+        "deleted_tasks",
+        "deleted_annotations",
+        "deleted_batches",
+        "deleted_batch_ids",
+        "soft"
+      ]
+    }
+  },
+  "x-audit-log-entry": {
+    "action": "dataset.unlink",
+    "target_type": "dataset",
+    "status_code": 200,
+    "detail": { "$ref": "#/$defs/datasetUnlinkAuditDetail" }
+  },
+  "x-postgresql-functions": [
+    "aap_jobs_v1.cancel_dataset_task_creation(uuid, uuid, uuid)",
+    "aap_audit_v1.valid_request_context(jsonb)",
+    "aap_audit_v1.record_dataset_unlink(uuid, uuid, uuid, uuid, bigint, bigint, uuid[], jsonb)"
+  ],
+  "x-postgresql-dependencies": [
+    "aap_jobs_v1._task_creation_job_payload_valid(uuid, jsonb)",
+    "aap_identity_v1.lock_audit_actor(uuid)"
+  ]
+}
