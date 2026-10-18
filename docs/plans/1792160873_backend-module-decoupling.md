@@ -1615,15 +1615,15 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
 
 前序列出的 Python 进程内切片和本地运行恢复已经完成。本计划当前目标仍是让所有列出的业务与支撑模块独立部署并可按模块更换语言，不能把前序成果算作该目标完成。下表区分已有证据与仍需实际交付的边界：
 
-| 项目             | 已有证据                                                                                                                                                   | 当前未完成项                                                                                                                               |
-| ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| 内部模块边界     | 多个准入、建题、标注命令、快照读取、派发、作业访问和训练执行端口已完成进程内迁移与行为回归。                                                               | 所有模块仍需冻结完整 wire operation/schema、独立运行时和数据权限；进程内端口不满足独立部署门槛。                                           |
-| 入口与所有权清单 | 已核对主 API 485 paths/568 operations、6 WS、54 个 first-party Celery task、独立 executor、29 个运维脚本和 110 张 ORM 表；所有权/存储/事务台账有正式文档。 | 每个模块还需将其所有入口绑定到同一公开合同，完成所有消费者迁移。                                                                           |
-| 运行单元         | 五个 ML backend 与 training executor 已可单独运行；executor 的真实租约/交接验收已通过。                                                                    | 这些只证明 inference/learning 子能力。identity、workspace、assets、labeling、insights 和 supporting 仍没有各自完整的可部署工件与凭据边界。 |
-| 数据所有权       | 表、字段、对象前缀和部分跨域写路径已登记；之前未发现超出登记项的可执行跨所有者业务表写入。                                                                 | API/worker 仍共享 SQLAlchemy、PostgreSQL、外键及广泛凭据；需为独立运行时落实表权限/迁移职责，消费方不直接查改其他 owner。                  |
-| 强事务与撤权     | 原标注/审核/分派/成员撤销/审计/通知及多阶段外部 I/O 顺序已经按旧行为保留并验收。                                                                           | 这些本地锁和 AsyncSession 不能跨服务使用。需要逐路径选择单一事务 owner 或可靠交接协议，并验证断网、重复、迟到及恢复。                      |
-| 首个资产能力     | 三个探测操作已有独立 Python 工件、流式协议、公开客户端、真实媒体及 Node 第二语言替换验收。                                                                 | assets 其余操作、长视频/大规模资源预算及跨域写入事务尚未完成；本片不代表整个模块通过。                                                     |
-| Go 月报实验      | 独立 Go 容器、协议 golden 与本地负载观察已记录；正常月报仍运行 Python。                                                                                    | Go 明确是一次多语言架构实验，不是目标模块、语言选择或容量门槛；其超载失败不阻塞或证明全模块目标。                                          |
+| 项目             | 已有证据                                                                                                                                                      | 当前未完成项                                                                                                                               |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| 内部模块边界     | 多个准入、建题、标注命令、快照读取、派发、作业访问、项目删除与项目数据集解绑已包含冻结 SQL owner 命令和进程内客户端。                                         | 所有模块仍需冻结完整 wire operation/schema、独立运行时和数据权限；进程内端口及同库命令不满足独立部署门槛。                                 |
+| 入口与所有权清单 | 已核对主 API 485 paths/568 operations、6 WS、54 个 first-party Celery task、独立 executor、29 个运维脚本和 116 张 ORM 表；数据集路由有 20 项（6 读、14 写）。 | 所有入口仍需绑定到完整公开合同并完成消费者迁移；数据集解绑只覆盖预览/解绑用例，不代表其余数据集路由已迁移。                                |
+| 运行单元         | 五个 ML backend 与 training executor 已可单独运行；executor 的真实租约/交接验收已通过。                                                                       | 这些只证明 inference/learning 子能力。identity、workspace、assets、labeling、insights 和 supporting 仍没有各自完整的可部署工件与凭据边界。 |
+| 数据所有权       | 表、字段、对象前缀及 0201–0205 的项目解绑 owner 合同已登记；Workspace receipt 和 Assets storage-deletion outbox 纳入表权限清单。                              | API/worker 仍共享 SQLAlchemy、PostgreSQL、外键及宽凭据；独立运行时仍需逐项验证表权限、迁移职责和数据访问边界。                             |
+| 强事务与撤权     | 项目删除与项目数据集解绑分别由 Workspace 原生命令协调 owner 写入、保留检查、Audit 和回执；外部对象清理只在事务提交后派发。                                    | 其他本地锁、AsyncSession 与派发时序仍不能跨服务使用；需逐路径选择事务 owner 或可靠交接协议，并验证断网、重复、迟到及恢复。                 |
+| 首个资产能力     | 视频探测已有独立 Python 工件/Node 替换证据；项目解绑增加 Assets 代次检查、任务金字塔 outbox 和受限清理函数。                                                  | Assets 其余操作、整库 Dataset/Item 删除、长视频/大规模资源预算及完整模块部署资格仍未完成。                                                 |
+| Go 月报实验      | 独立 Go 容器、协议 golden 与本地负载观察已记录；正常月报仍运行 Python。                                                                                       | Go 明确是一次多语言架构实验，不是目标模块、语言选择或容量门槛；其超载失败不阻塞或证明全模块目标。                                          |
 
 全模块独立部署和语言替换仍是当前目标。之前列出的内部解耦工作已完成，但这与独立运行单元、语言中立契约及替换验收是不同交付。Go 实验只作参考，不要求上线或通过其负载验收；生产 SLO、真实 GPU/模型资格及发布授权另行验证。
 
@@ -1648,4 +1648,13 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
 - 真实独立 PostgreSQL 与十一个 NOLOGIN owner、受限 LOGIN 的整合回归为 432 passed、零跳过，覆盖 owner 清理、学习保留、当前权限、忙锁回滚、外层回滚/提交失败、冻结回执与审计、旧孤立作业持久终态、作业/通知范围、原生 psql 重放和既有建题 Celery/peer 交接。迁移回退、全部冻结 SQL 独立安装/回滚及正常升级通过，临时容器、数据库、Redis 与九个桶均已清理；证据在 `.worktree/project-deletion-qualified.json` 与对应 JUnit。
 - 架构守卫 278 passed、113 个 lazy-root 不适用跳过；严格删除绑定另 11 项通过（已包含在 432 项整合回归中，不重复累计）。环境脚本 42 项通过，44 个变更 Python 文件的固定 Ruff、OpenAPI 快照与最终文档构建（13.55 秒）通过；最终只读复核没有新增具体问题。
 - 主 checkout 本地提交并升级开发库 0195→0200，确认项目删除回执表和作业范围触发器可用；只读事务核对无效命令响应，回滚后新删除回执与保留作业范围均为零，没有播种测试数据。原 LaunchAgent 重启后再次触碰未改内容的源码，实际服务子进程 62433→63084，热重载与健康复核共 5.198 秒。DB/Redis/MinIO 均为 200，公开 OpenAPI 的 485 paths/872 schemas 与快照一致。日常 Celery 仍未启动，因此总健康及 Celery 端点保留原 503；真实隔离 worker 已在上述套件中验证并清理。证据 `.worktree/project-deletion-main-runtime.json`；不授予生产容量、模型/GPU 或远程 CI 资格。
-- 后续仍需处理素材解绑与整库素材删除的当前授权/引用围栏、身份生命周期中的级联路径，以及完整模块运行工件、凭据和其余公开协议。总目标保持进行中；Go 仍仅为实验。决策见 [ADR-0094](../adr/0094-transactional-project-deletion.md)。
+- 项目删除是同库 owner 事务能力，不代表全模块独立部署；Go 仍仅为实验。项目范围语义见 [ADR-0094](../adr/0094-transactional-project-deletion.md)。
+
+### 项目数据集解绑：Workspace 原生事务与派生清理 outbox
+
+- `api/v1/datasets.py` 继续保留数据集路由表面（20 条路由，6 个读取含 POST sniff、14 个写入）。本片只将预览和“取消项目关联”写入迁入 Workspace 原生合同；素材导入、关联建题、整库 Dataset/Item 删除等路径仍是各自现有用例，不因新增命令而视为已独立化。
+- `application/dataset_deletion.py` 构造严格 `DatasetUnlinkCommand` 并通过 `services/dataset_unlink_data.py` 调用冻结 SQL：0201 Learning 检查主动学习来源保留，0202 Labeling 固定主来源选择、反馈/谱系围栏、任务删除和计数投影，0203 Assets 按 exact association generation 移除关联并写任务金字塔 outbox、Diagnostics 只解除被删 Task 的缺陷引用，0204 Jobs 按 Dataset/Project/关联代次取消有效冻结 v1 `create_tasks` pending/running 作业并记录固定 Audit，0205 Workspace 负责当前身份/管理权、独占 Project 围栏、协调顺序、不可变回执和公开预览/解绑命令。
+- API 仍执行原 `datasets:read`/`datasets:write` scope 与项目负责人预检，并在一次调用事务中绑定命令、提交 Audit 和回执。可选 `Idempotency-Key` 是 UUID，成功响应回传；SDK 调用方和 Web 确认窗在重试时沿用原 key。REST 保持既有五字段响应。Native receipt 可重放同一 actor/dataset/project/bucket 请求；REST 的项目负责人预检仍先于 native receipt 读取。
+- Native 命令只在调用方事务中写 PostgreSQL，不调用 S3 或 broker；提交后 `MediaJobDispatcher` 尝试派发精确任务金字塔前缀，五分钟周期 Celery worker 补做未完成 outbox 项。Assets 凭据只需 `pending_storage_deletions` 与 `complete_storage_deletion` 两个 SECURITY DEFINER 函数，不直接读写 outbox；workflow LOGIN 不可领取或确认清理。原始 Dataset、DatasetItem、共享来源金字塔与文件保留。
+- 这一阶段的对象映射共 116 张 ORM 表（Workspace 5、Assets 14）。Owner 安装目标仍是 11 个 NOLOGIN 代码角色和两个独立 LOGIN（workflow 与 Assets cleanup）；旧主 API / worker 角色在迁移期仍保留宽权限。共享 PostgreSQL 的冻结 SQL 和角色授权为同库边界，不等于一套完整的独立 Assets/Labeling 服务。
+- 整库 Dataset 与 DatasetItem 删除的当前权限、外部引用检查和所有者事务仍待后续迁移；用户现有 whole-delete 操作继续走旧本地路径。全模块独立运行单元、完整 wire contracts、凭据隔离与跨语言替换目标保持进行中，本节不声称相关运行验收已完成。

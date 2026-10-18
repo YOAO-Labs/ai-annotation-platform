@@ -72,7 +72,9 @@ HTTP 硬取消保留原授权、锁和通知顺序；Celery 信号适配器负�
 
 存量图片尺寸回填也复用该素材命令：仍按 dataset、`file_type='image'` 与 `width IS NULL` 限量选行，不额外要求 height 为空、不新增排序或数据集可见性规则。读取失败计入 failed，已存在 width 的行即使缺 height 也不处理；`remaining_hint` 只表示本批是否填满，不是总剩余数。全部成功尺寸仍由 HTTP 在循环后一次提交，命令不 flush 或 commit。
 
-`application/dataset_deletion.py` 组合素材删除及项目解绑，`application/project_deletion.py` 组合保留引用检查和项目跨域删除。素材关联、标注聚合、反馈、缺陷引用、学习保留和项目行分别由原领域所有者写入；原单事务、锁序和检查顺序不拆成 RPC。解绑仍只清理原有限子集，未找到关联时返回 `None`，调用方须回滚此前写入；无源任务继续使用数据库反连接子查询，不把全量 ID 带入所有删除语句。计数重算归 `LabelingTaskService`，解绑与无源清理保持各自原有字段集；素材派生金字塔前缀仅在数据库提交后清理，原图不因该操作删除。
+`application/dataset_deletion.py` 保留素材删除、项目解绑的 HTTP 装配和无源任务清理。项目解绑现在通过严格的 `DatasetUnlinkCommand` / `DatasetUnlinkReceipt` 和 `DatasetUnlinkData` 调用 `aap_workspace_v1.unlink_dataset`；`preview_dataset_unlink` 与执行共享 Labeling 来源选择。Workspace 在同一 PostgreSQL 调用方事务中复核当前账号/管理权和关联代次，调用 Learning/Labeling 保留检查、Diagnostics 引用解除、Assets 派生清理 outbox、Jobs 精确代次取消、Labeling 删除与项目/批次计数、Assets 关联移除和 Audit，最后写入不可变 Workspace 回执。任何 owner 失败或调用方回滚都撤销整条业务写入；SQL 函数本身不提交，也不执行 broker/S3 操作。
+
+HTTP 仍执行原 `datasets:read` / `datasets:write` scope 与项目负责人预检，Workspace 原生命令再检查当前身份和管理权；可选 UUID `Idempotency-Key` 对应回执身份并在成功响应回传，SDK/Web 重试沿用原 key。事务提交后，`MediaJobDispatcher` 尝试派发任务专属图片金字塔清理，五分钟周期 worker 是补偿路径；清理校验记录 bucket 并仅移除精确任务派生前缀。Dataset、DatasetItem、原始上传文件及共享来源金字塔仍保留。整库 Dataset/Item 删除尚未迁入该合同。
 
 `application/project_task_cleanup.py::cleanup_annotation_orphans` 组合当前项目管理权、配置和 `AnnotationService`。执行命令先按账号 → 项目取得当前管理权，再取得项目排他锁并刷新 `tool_bindings`；`AnnotationService` 持有孤儿筛选 / 修剪、贡献证据及任务统计 DML，按批次 → 任务 → 标注排序锁定并刷新目标身份。权限撤销、项目转移或目标改向不会沿用旧快照，NOWAIT 忙锁返回冲突。默认 dry-run 只读且不写审计；真实修改与 HTTP 审计同事务提交，保留标注来源、几何、`_` 系统元数据，不执行对象存储删除。该服务所有者不反向依赖应用层。
 
@@ -82,7 +84,7 @@ HTTP 硬取消保留原授权、锁和通知顺序；Celery 信号适配器负�
 
 运维 CLI 仅保留参数/环境读取、事务提交和报告：`application/bootstrap_admin.py` 组合 `IdentityCommandService.create_bootstrap_super_admin` 与 `AuditService.log`，既有邮箱不更新也不重复审计；`application/task_dataset_backfill.py` 承担版本扫描/核查并委托 `project_task_dataset.ensure_membership`，CLI 保持只读模式与逐批提交。`application/video_timetable_rebuild.py` 组合源对象读取、ffprobe 与稀疏锚点选择，`DatasetService` 写索引、总帧数及失败字段；CLI 按视频逐项提交，dry-run 不写数据库。批次开始前保存选择项 UUID；失败 rollback 后显式刷新后续 ORM 行，避免从已过期状态触发隐式 I/O，正常路径不增加逐项刷新。ffprobe 的唯一实现位于 `apps/media-probe/src/aap_media_probe/probe.py`；`services/media_probe.py` 负责本地/HTTP 装配，调用方不从 worker 汇总模块导入。
 
-`application/dataset_deletion.py` 组合素材删除及项目解绑，`application/project_deletion.py` 组合保留引用检查和项目跨域删除，`application/project_task_cleanup.py` 组合无源任务清理。素材关联、标注聚合、反馈、缺陷引用、学习保留和项目行分别由原领域所有者写入；原单事务、锁序和检查顺序不拆成 RPC。解绑仍只清理原有限子集，未找到关联时返回 `None`，调用方须回滚此前写入；无源任务继续使用数据库反连接子查询，不把全量 ID 带入所有删除语句。计数重算归 `LabelingTaskService`，解绑与无源清理保持各自原有字段集。素材的派生金字塔前缀只在数据库提交后清理，原图不因该操作删除。
+`DatasetService` 继续本地持有素材上传、入库与整库 Dataset/Item 删除；它们仍使用现有服务/ORM 路径，不属于项目解绑的原生 Workspace 合同。`application/project_task_cleanup.py` 的无源任务清理也保留既有本地组合。共享 PostgreSQL 的冻结 SQL 说明了选定写入边界，不代表 Assets、Labeling 或 Workspace 已成为可独立部署服务。
 
 `application/task_lifecycle.py`、`task_review.py` 和 `task_submission.py` 组合标注生命周期、贡献证据、首次审核事实、反馈镜像、计数、审计、持久通知及质检。Task 状态和对应 Project 计数写入归 `LabelingTaskService`；原路由共享提交函数已删除，单题与批次入口直接消费同一工作流。`AuditOriginContext` 仅保存 method/path/IP，不把 FastAPI 请求对象传入用例；其他审计调用方仍保留原请求适配。
 

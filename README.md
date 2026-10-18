@@ -138,6 +138,8 @@ Ultralytics YOLO11 的配置页可生成原生增强预览，对照冻结原图�
 
 项目管理的列表与卡片支持服务端分页，默认每页 20 个，搜索、筛选和页码可通过链接恢复。分页接口为 [`GET /api/v1/projects/query`](./docs-site/api/guides/projects.md#列表与分页)，原项目数组接口继续供 SDK 与项目选择器使用。
 
+取消数据集与项目的关联前可预览将清理的任务、标注和空批次；数据集与原始文件保留。详见[数据集导入导出指南](./docs-site/user-guide/datasets/index.md)。
+
 项目成员可在工作台阅读[标注指引](./docs-site/user-guide/projects/index.md#编写标注指引)及示例图；指引编辑和图片上传、删除由项目负责人或超级管理员管理。
 图片完成登记前重新核对当前管理权限；项目转移或账号停用后的旧请求不能继续登记，写入争用返回冲突。读取与存储失败语义见[项目 API](./docs-site/api/guides/projects.md#标注指引图片)。
 

@@ -384,7 +384,7 @@ unset MEDIA_PROBE_URL MEDIA_PROBE_TOKEN
 UUID、素材 UUID 数组与唯一操作 UUID，返回 `aap-task-append/v1` JSON。函数与来源素材
 写入共享调用方事务，不内部提交。调用端可以使用任何 PostgreSQL 驱动；不可读取其他
 模块私有表来代替公开接口。SQL 和 JSON Schema 位于 `apps/api/alembic/sql/0190*`、
-`0191*` 至 `0200*`，迁移链安装同一份冻结 SQL。初始建题另有当前管理权、
+`0191*` 至 `0205*`，迁移链安装同一份冻结 SQL。初始建题另有当前管理权、
 关联创建、Jobs 生命周期和持久化计划/分块回执合同，参数及恢复规则见
 [同库事务数据接口](docs-site/api/guides/module-data.md)。
 
@@ -393,8 +393,13 @@ UUID、素材 UUID 数组与唯一操作 UUID，返回 `aap-task-append/v1` JSON
 不允许改绑项目；旧的范围缺失作业不会从 payload 补造授权。详见
 [ADR-0094](docs/adr/0094-transactional-project-deletion.md)。
 
+项目取消数据集关联也使用 Workspace 原生命令：当前账号/项目管理权、关联代次、学习和标注引用检查、任务删除与计数、Audit、Workspace 回执及 Assets 的派生金字塔清理计划在调用方同一事务中提交或回滚。Jobs 只取消匹配当前 dataset/project/association 代次的冻结 `create_tasks` 作业；任务源文件与共享来源金字塔保留。数据库事务提交后才派发 S3 清理，Celery 的周期任务会重试未完成回执。API 的 `Idempotency-Key` 可选 UUID，成功时回传；SDK/Web 重试应复用原 key。
+
 独立数据接口使用 Identity、Workspace、Assets、Jobs、Labeling、Learning、Inference、
-Insights、Diagnostics、Export、Audit 十一个无登录函数 owner，调用端使用独立登录角色。
+Insights、Diagnostics、Export、Audit 十一个无登录函数 owner，以及 `append_client` 与
+`asset_cleanup_client` 两个独立登录角色。后者只可使用 `aap_assets_v1` 并执行
+`pending_storage_deletions(uuid, integer)` 和 `complete_storage_deletion(uuid, uuid)`；
+`append_client` 不可调用这两个清理函数。
 `infra/docker/module-data-grants.sql` 只向显式数据库中的既有角色授权，不创建角色或
 修改密码。部署操作者先提供角色及迁移者向其转交函数的权限，再运行：
 
@@ -406,16 +411,20 @@ psql -v expected_database=annotation_test -v migration_role=owner \
   -v inference_owner=inference_code -v insights_owner=insights_code \
   -v diagnostics_owner=diagnostics_code -v export_owner=export_code \
   -v audit_owner=audit_code -v workflow_role=append_client \
+  -v asset_cleanup_role=asset_cleanup_client \
   -f infra/docker/module-data-grants.sql
 ```
 
 连接参数由操作者在本地显式配置。该脚本拒绝带管理权限、继承 owner 或能直接读写
-业务表的调用角色；不会自动缩减现有主 API 的宽权限账号。现有主 API/worker 迁移期
-仍使用原运行角色，分离迁移账号时需在迁移后执行原环境授权流程以获取新接口执行权。
+业务表的调用角色；不会自动缩减现有主 API 的宽权限账号。独立的清理 worker 使用其
+进程 `DATABASE_URL` 以 `asset_cleanup_client` 连接；API/普通 workflow 不得领取或确认
+清理 outbox。现有主 API/worker 迁移期仍使用原运行角色，分离迁移账号时需在迁移后
+执行原环境授权流程以获取新接口执行权。
 
 本地验收使用专属 PostgreSQL 容器、test mode 数据库、Redis 与九个隔离桶，不创建或
 修改日常 PostgreSQL 的角色。运行命令及参数见
-`scripts/verify_module_data_boundary.py --help`；记录该命令的 JUnit 与 JSON 结果。
+`scripts/verify_module_data_boundary.py --help`；模块验收还需提供
+`AAP_MODULE_DATA_ASSET_CLEANUP_URL`；记录该命令的 JUnit 与 JSON 结果。
 它不验证生产容量，也不提供完整 assets/labeling 模块的独立部署资格。具体事务约束
 见 [ADR-0092](docs/adr/0092-transactional-module-data-capabilities.md)。
 
