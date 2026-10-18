@@ -1,7 +1,7 @@
-"""v0.13.1 · 点云 scene 建任务 + 标定写入 service 测试。
+"""Point-cloud task creation and calibration preparation regressions.
 
-不真连 MinIO：attach_calibration 通过 monkeypatch storage_service.client.get_object
-返回伪 body。其余直接构造 ORM 行 + db_session fixture。
+Source calibration reads use a fake fixed-bucket HEAD/If-Match GET client; all
+preparation and task creation goes through the accepted creation workflow.
 """
 
 from __future__ import annotations
@@ -15,10 +15,10 @@ import pytest
 
 from app.db.models.dataset import Dataset, DatasetItem, ProjectDataset, Scene
 from aap_assets_source.frame_layout import PreparedDatasetItem, group_frames
-from app.services import pointcloud_import
 from app.application.dataset_task_creation import DatasetTaskCreationWorkflow
 from app.services.storage import storage_service
 from app.services.task_dataset_link import get_linked_items
+from aap_assets_catalog.spatial_values import SensorCalibration
 from tests.factory import create_project
 
 
@@ -293,11 +293,9 @@ async def test_build_tasks_idempotent(db_session, super_admin):
 
 
 async def test_lidar_replay_commits_calibration_without_new_tasks(
-    db_session, super_admin, monkeypatch
+    db_session, project_admin, monkeypatch
 ):
-    from sqlalchemy import select
-
-    user, _ = super_admin
+    user, _ = project_admin
     ds = await _seed_dataset(db_session, user.id)
     project = await _seed_lidar_project(db_session, user.id, dataset_id=ds.id)
     seeded = await _seed_scene(db_session, ds, ["000970"], ["front"])
@@ -313,28 +311,34 @@ async def test_lidar_replay_commits_calibration_without_new_tasks(
         "extrinsic": [value + 1 for value in range(16)],
         "intrinsic": [value + 1 for value in range(9)],
     }
-    monkeypatch.setattr(
-        pointcloud_import, "_read_calibration", lambda _key: first_calibration
+    first_expected = SensorCalibration.model_validate(first_calibration).model_dump(
+        mode="json"
+    )
+    updated_expected = SensorCalibration.model_validate(updated_calibration).model_dump(
+        mode="json"
     )
     workflow = DatasetTaskCreationWorkflow(db_session)
+    _patch_get_object(monkeypatch, first_calibration)
     first = await workflow.create_tasks_for_linked_dataset(
         dataset_id=ds.id, project_id=project.id, actor_id=user.id
     )
     assert first == {"created": 1, "total": 1}
+    cam_item = seeded["000970"]["cameras"]["front"]
+    await db_session.refresh(cam_item)
+    assert cam_item.metadata_["calibration"] == first_expected
 
-    monkeypatch.setattr(
-        pointcloud_import, "_read_calibration", lambda _key: updated_calibration
-    )
+    _patch_get_object(monkeypatch, updated_calibration)
     replay = await workflow.create_tasks_for_linked_dataset(
         dataset_id=ds.id, project_id=project.id, actor_id=user.id
     )
     assert replay == {"created": 0, "total": 0}
+    await db_session.refresh(cam_item)
+    assert cam_item.metadata_["calibration"] == updated_expected
 
     await db_session.rollback()
-    persisted = await db_session.scalar(
-        select(DatasetItem.metadata_).where(DatasetItem.id == cam_item_id)
-    )
-    assert persisted["calibration"] == updated_calibration
+    await db_session.refresh(cam_item)
+    assert cam_item.id == cam_item_id
+    assert cam_item.metadata_["calibration"] == updated_expected
 
 
 async def test_build_tasks_missing_camera_tolerated(db_session, super_admin):
@@ -446,13 +450,12 @@ def _patch_get_object(monkeypatch, payload: dict):
     etag = f'"{hashlib.md5(body, usedforsecurity=False).hexdigest()}"'
 
     def fake_get_object(*, Bucket, Key, IfMatch=None):  # noqa: N803 (boto3 kwarg names)
+        assert IfMatch == etag
         return {"Body": io.BytesIO(body), "ContentLength": len(body), "ETag": etag}
 
     def fake_head_object(*, Bucket, Key, IfMatch=None):  # noqa: N803
         return {"ContentLength": len(body), "ETag": etag}
 
-    monkeypatch.setattr(storage_service.client, "get_object", fake_get_object)
-    monkeypatch.setattr(storage_service.client, "head_object", fake_head_object)
     monkeypatch.setattr(
         storage_service.spatial_source_client, "get_object", fake_get_object
     )
@@ -461,9 +464,12 @@ def _patch_get_object(monkeypatch, payload: dict):
     )
 
 
-async def test_attach_calibration_writes_metadata(db_session, super_admin, monkeypatch):
-    user, _ = super_admin
+async def test_accepted_pointcloud_creation_writes_calibration_metadata(
+    db_session, project_admin, monkeypatch
+):
+    user, _ = project_admin
     ds = await _seed_dataset(db_session, user.id)
+    project = await _seed_lidar_project(db_session, user.id, dataset_id=ds.id)
     seeded = await _seed_scene(db_session, ds, ["000970", "000971"], ["front"])
     _add_item(db_session, ds.id, f"{ds.name}/calib/camera/front.json", "other")
     await db_session.flush()
@@ -471,23 +477,31 @@ async def test_attach_calibration_writes_metadata(db_session, super_admin, monke
     calib = {
         "extrinsic": list(range(16)),
         "intrinsic": list(range(9)),
-        # rect 是 KITTI 4x4 矫正矩阵（长度 16）。v0.13.2 起 attach_calibration 经
-        # SensorCalibration 全字段校验，非法长度的 rect 会让整份标定被拒（warning 跳过）。
+        # rect is the optional KITTI correction matrix. Invalid matrix lengths
+        # make the complete source calibration invalid and are skipped by preparation.
         "rect": [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1],
     }
     _patch_get_object(monkeypatch, calib)
 
-    written = await pointcloud_import.attach_calibration(db_session, dataset_id=ds.id)
-    # front 相机 2 帧 → 写 2 个 DatasetItem。
-    assert written == 2
+    result = await DatasetTaskCreationWorkflow(
+        db_session
+    ).create_tasks_for_linked_dataset(
+        dataset_id=ds.id, project_id=project.id, actor_id=user.id
+    )
+    assert result == {"created": 2, "total": 2}
+    expected = SensorCalibration.model_validate(calib).model_dump(mode="json")
     for frame in seeded.values():
         cam_item = frame["cameras"]["front"]
-        assert cam_item.metadata_["calibration"] == calib
+        await db_session.refresh(cam_item)
+        assert cam_item.metadata_["calibration"] == expected
 
 
-async def test_attach_calibration_invalid_skipped(db_session, super_admin, monkeypatch):
-    user, _ = super_admin
+async def test_accepted_pointcloud_creation_skips_invalid_calibration(
+    db_session, project_admin, monkeypatch
+):
+    user, _ = project_admin
     ds = await _seed_dataset(db_session, user.id)
+    project = await _seed_lidar_project(db_session, user.id, dataset_id=ds.id)
     seeded = await _seed_scene(db_session, ds, ["000970"], ["front"])
     _add_item(db_session, ds.id, f"{ds.name}/calib/camera/front.json", "other")
     await db_session.flush()
@@ -497,7 +511,12 @@ async def test_attach_calibration_invalid_skipped(db_session, super_admin, monke
         monkeypatch, {"extrinsic": [1, 2, 3], "intrinsic": list(range(9))}
     )
 
-    written = await pointcloud_import.attach_calibration(db_session, dataset_id=ds.id)
-    assert written == 0
+    result = await DatasetTaskCreationWorkflow(
+        db_session
+    ).create_tasks_for_linked_dataset(
+        dataset_id=ds.id, project_id=project.id, actor_id=user.id
+    )
+    assert result == {"created": 1, "total": 1}
     cam_item = seeded["000970"]["cameras"]["front"]
+    await db_session.refresh(cam_item)
     assert "calibration" not in (cam_item.metadata_ or {})
