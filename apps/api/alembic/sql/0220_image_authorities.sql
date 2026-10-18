@@ -243,7 +243,7 @@ BEGIN
             SELECT task.* INTO v_task
             FROM public.tasks AS task
             WHERE task.id = p_task_id
-            FOR SHARE NOWAIT;
+            FOR UPDATE NOWAIT;
         EXCEPTION
             WHEN lock_not_available OR serialization_failure OR deadlock_detected THEN
                 RETURN aap_labeling_v1._image_source_reply(NULL, 'source_busy');
@@ -657,4 +657,259 @@ END;
 $function$;
 -- aap-statement-break
 REVOKE ALL ON FUNCTION aap_labeling_v1.image_thumbnail_references(text)
+    FROM PUBLIC;
+-- aap-statement-break
+
+CREATE FUNCTION aap_labeling_v1.scan_image_task_sources(
+    p_selection jsonb,
+    p_after_id uuid,
+    p_page_size integer
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+STABLE
+PARALLEL UNSAFE
+SECURITY DEFINER
+SET search_path = pg_catalog, pg_temp
+AS $function$
+DECLARE
+    v_owner_ids uuid[];
+    v_project_id uuid;
+    v_all_owners boolean;
+    v_cutoff timestamptz;
+    v_total bigint;
+    v_digest text;
+    v_items jsonb;
+    v_more boolean;
+    v_next_id uuid;
+BEGIN
+    IF pg_catalog.jsonb_typeof(p_selection) IS DISTINCT FROM 'object'
+       OR (p_selection - ARRAY[
+            'owner_kind', 'dataset_id', 'project_id', 'owner_ids',
+            'all_owners', 'purpose', 'only_missing', 'accepted_before'
+       ]) IS DISTINCT FROM '{}'::jsonb
+       OR NOT (p_selection ?& ARRAY[
+            'owner_kind', 'dataset_id', 'project_id', 'owner_ids',
+            'all_owners', 'purpose', 'only_missing', 'accepted_before'
+       ])
+       OR p_selection ->> 'owner_kind' IS DISTINCT FROM 'task'
+       OR p_selection -> 'dataset_id' <> 'null'::jsonb
+       OR pg_catalog.jsonb_typeof(p_selection -> 'project_id') NOT IN ('string', 'null')
+       OR pg_catalog.jsonb_typeof(p_selection -> 'owner_ids') IS DISTINCT FROM 'array'
+       OR pg_catalog.jsonb_array_length(p_selection -> 'owner_ids') > 500
+       OR pg_catalog.jsonb_typeof(p_selection -> 'all_owners') IS DISTINCT FROM 'boolean'
+       OR pg_catalog.jsonb_typeof(p_selection -> 'only_missing') IS DISTINCT FROM 'boolean'
+       OR pg_catalog.jsonb_typeof(p_selection -> 'purpose') IS DISTINCT FROM 'string'
+       OR p_selection ->> 'purpose' NOT IN ('dimensions', 'thumbnail', 'pyramid')
+       OR pg_catalog.jsonb_typeof(p_selection -> 'accepted_before') IS DISTINCT FROM 'string'
+       OR p_selection ->> 'accepted_before' !~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T.*(Z|[+-][0-9]{2}:[0-9]{2})$'
+       OR p_page_size IS NULL OR p_page_size NOT BETWEEN 1 AND 500 THEN
+        RETURN aap_labeling_v1._image_source_reply(NULL, 'invalid_request');
+    END IF;
+    IF EXISTS (
+        SELECT 1 FROM pg_catalog.jsonb_array_elements(p_selection -> 'owner_ids') AS entry(value)
+        WHERE pg_catalog.jsonb_typeof(entry.value) IS DISTINCT FROM 'string'
+           OR entry.value #>> '{}' !~ '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+    ) OR (
+        SELECT pg_catalog.count(DISTINCT (entry.value #>> '{}')::uuid)
+        FROM pg_catalog.jsonb_array_elements(p_selection -> 'owner_ids') AS entry(value)
+    ) <> pg_catalog.jsonb_array_length(p_selection -> 'owner_ids') THEN
+        RETURN aap_labeling_v1._image_source_reply(NULL, 'invalid_request');
+    END IF;
+    IF ((p_selection -> 'project_id' <> 'null'::jsonb)::integer
+        + (pg_catalog.jsonb_array_length(p_selection -> 'owner_ids') > 0)::integer
+        + (p_selection ->> 'all_owners')::boolean::integer) <> 1 THEN
+        RETURN aap_labeling_v1._image_source_reply(NULL, 'invalid_request');
+    END IF;
+    BEGIN
+        v_cutoff := (p_selection ->> 'accepted_before')::timestamptz;
+        IF p_selection -> 'project_id' <> 'null'::jsonb THEN
+            v_project_id := (p_selection ->> 'project_id')::uuid;
+        END IF;
+        SELECT COALESCE(pg_catalog.array_agg((entry.value #>> '{}')::uuid), ARRAY[]::uuid[])
+        INTO v_owner_ids
+        FROM pg_catalog.jsonb_array_elements(p_selection -> 'owner_ids') AS entry(value);
+    EXCEPTION WHEN invalid_text_representation OR invalid_datetime_format OR datetime_field_overflow THEN
+        RETURN aap_labeling_v1._image_source_reply(NULL, 'invalid_request');
+    END;
+    v_all_owners := (p_selection ->> 'all_owners')::boolean;
+    IF pg_catalog.cardinality(v_owner_ids) > 0 AND EXISTS (
+        SELECT 1 FROM pg_catalog.unnest(v_owner_ids) AS requested(task_id)
+        WHERE NOT EXISTS (
+            SELECT 1 FROM public.tasks AS task
+            WHERE task.id = requested.task_id
+              AND task.file_type = 'image'
+              AND task.dataset_item_id IS NULL
+              AND task.status IS NOT NULL
+              AND task.status <> 'uploading'
+              AND task.created_at <= v_cutoff
+        )
+    ) THEN
+        RETURN aap_labeling_v1._image_source_reply(NULL, 'source_missing');
+    END IF;
+    WITH candidates AS MATERIALIZED (
+        SELECT task.id,
+               aap_labeling_v1._image_source_snapshot(task) AS source_snapshot
+        FROM public.tasks AS task
+        WHERE task.file_type = 'image'
+          AND task.dataset_item_id IS NULL
+          AND task.status IS NOT NULL
+          AND task.status <> 'uploading'
+          AND task.created_at <= v_cutoff
+          AND (
+              (v_project_id IS NOT NULL AND task.project_id = v_project_id)
+              OR (pg_catalog.cardinality(v_owner_ids) > 0 AND task.id = ANY(v_owner_ids))
+              OR v_all_owners
+          )
+    ), snapshot AS (
+        SELECT pg_catalog.count(*)::bigint AS total,
+               pg_catalog.encode(pg_catalog.sha256(pg_catalog.convert_to(
+                   COALESCE(pg_catalog.jsonb_agg(
+                       pg_catalog.jsonb_build_object(
+                           'task_id', candidates.id,
+                           'source_snapshot', candidates.source_snapshot
+                       ) ORDER BY candidates.id
+                   ), '[]'::jsonb)::text,
+                   'UTF8'
+               )), 'hex') AS snapshot_digest
+        FROM candidates
+    ), ranked AS (
+        SELECT task.*,
+               pg_catalog.row_number() OVER (ORDER BY task.id) AS row_number
+        FROM public.tasks AS task
+        JOIN candidates ON candidates.id = task.id
+        WHERE p_after_id IS NULL OR task.id > p_after_id
+    ), page AS (
+        SELECT ranked.*
+        FROM ranked
+        WHERE ranked.row_number <= p_page_size + 1
+    )
+    SELECT snapshot.total,
+           snapshot.snapshot_digest,
+           COALESCE(pg_catalog.jsonb_agg(
+               pg_catalog.jsonb_build_object(
+                   'task_id', page.id,
+                   'project_id', page.project_id,
+                   'dataset_item_id', page.dataset_item_id,
+                   'file_type', page.file_type,
+                   'file_path', page.file_path,
+                   'file_name', page.file_name,
+                   'created_at', page.created_at,
+                   'source_generation', page.media_source_generation,
+                   'source_snapshot', aap_labeling_v1._image_source_snapshot(page),
+                   'object_identity', page.media_object_identity,
+                   'source_drifted', page.media_source_drifted,
+                   'upload_ready', true,
+                   'thumbnail_path', page.thumbnail_path,
+                   'blurhash', page.blurhash,
+                   'thumbnail_source_generation', CASE
+                       WHEN page.thumbnail_path IS NOT NULL
+                        AND aap_labeling_v1._image_thumbnail_key_valid(page.thumbnail_path)
+                        AND page.media_object_identity IS NOT NULL
+                        AND NOT page.media_source_drifted
+                           THEN page.media_source_generation
+                       ELSE NULL END
+               ) ORDER BY page.id
+           ) FILTER (WHERE page.row_number <= p_page_size), '[]'::jsonb),
+           COALESCE(pg_catalog.bool_or(page.row_number > p_page_size), false),
+           pg_catalog.max(page.id) FILTER (WHERE page.row_number = p_page_size)
+    INTO v_total, v_digest, v_items, v_more, v_next_id
+    FROM snapshot
+    LEFT JOIN page ON true;
+    RETURN aap_labeling_v1._image_source_reply(
+        pg_catalog.jsonb_build_object(
+            'items', v_items,
+            'snapshot_digest', v_digest,
+            'total', v_total,
+            'accepted_before', v_cutoff,
+            'after_id', p_after_id,
+            'next_id', CASE WHEN v_more THEN v_next_id END,
+            'complete', NOT v_more
+        ),
+        NULL
+    );
+EXCEPTION WHEN invalid_text_representation OR numeric_value_out_of_range
+    OR invalid_datetime_format OR datetime_field_overflow THEN
+    RETURN aap_labeling_v1._image_source_reply(NULL, 'invalid_request');
+WHEN OTHERS THEN
+    RETURN aap_labeling_v1._image_source_reply(NULL, 'invalid_response');
+END;
+$function$;
+-- aap-statement-break
+REVOKE ALL ON FUNCTION aap_labeling_v1.scan_image_task_sources(jsonb, uuid, integer)
+    FROM PUBLIC;
+-- aap-statement-break
+
+CREATE FUNCTION aap_labeling_v1.invalidate_task_image_thumbnail(
+    p_task_id uuid,
+    p_expected_snapshot text,
+    p_expected_key text
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+VOLATILE
+PARALLEL UNSAFE
+SECURITY DEFINER
+SET search_path = pg_catalog, pg_temp
+AS $function$
+DECLARE
+    v_task public.tasks%ROWTYPE;
+BEGIN
+    IF p_task_id IS NULL
+       OR p_expected_snapshot IS NULL
+       OR p_expected_snapshot !~ '^[0-9a-f]{64}$'
+       OR p_expected_key IS NULL
+       OR NOT aap_labeling_v1._image_thumbnail_key_valid(p_expected_key) THEN
+        RETURN pg_catalog.jsonb_build_object(
+            'schema', 'aap-labeling-image-thumbnail/v1',
+            'ok', false,
+            'error', pg_catalog.jsonb_build_object('code', 'invalid_request')
+        );
+    END IF;
+    BEGIN
+        SELECT task.* INTO v_task
+        FROM public.tasks AS task
+        WHERE task.id = p_task_id
+        FOR UPDATE NOWAIT;
+    EXCEPTION WHEN lock_not_available OR serialization_failure OR deadlock_detected THEN
+        RETURN pg_catalog.jsonb_build_object(
+            'schema', 'aap-labeling-image-thumbnail/v1',
+            'ok', false,
+            'error', pg_catalog.jsonb_build_object('code', 'source_busy')
+        );
+    END;
+    IF NOT FOUND THEN
+        RETURN pg_catalog.jsonb_build_object(
+            'schema', 'aap-labeling-image-thumbnail/v1',
+            'ok', true,
+            'data', pg_catalog.jsonb_build_object('task_id', p_task_id, 'applied', false)
+        );
+    END IF;
+    IF v_task.file_type IS DISTINCT FROM 'image'
+       OR v_task.dataset_item_id IS NOT NULL
+       OR v_task.status IS NULL OR v_task.status = 'uploading'
+       OR v_task.media_source_drifted
+       OR v_task.media_object_identity IS NULL
+       OR aap_labeling_v1._image_source_snapshot(v_task) IS DISTINCT FROM p_expected_snapshot
+       OR v_task.thumbnail_path IS DISTINCT FROM p_expected_key THEN
+        RETURN pg_catalog.jsonb_build_object(
+            'schema', 'aap-labeling-image-thumbnail/v1',
+            'ok', true,
+            'data', pg_catalog.jsonb_build_object('task_id', p_task_id, 'applied', false)
+        );
+    END IF;
+    UPDATE public.tasks AS task
+    SET thumbnail_path = NULL,
+        blurhash = NULL,
+        updated_at = pg_catalog.clock_timestamp()
+    WHERE task.id = p_task_id;
+    RETURN pg_catalog.jsonb_build_object(
+        'schema', 'aap-labeling-image-thumbnail/v1',
+        'ok', true,
+        'data', pg_catalog.jsonb_build_object('task_id', p_task_id, 'applied', true)
+    );
+END;
+$function$;
+-- aap-statement-break
+REVOKE ALL ON FUNCTION aap_labeling_v1.invalidate_task_image_thumbnail(uuid, text, text)
     FROM PUBLIC;

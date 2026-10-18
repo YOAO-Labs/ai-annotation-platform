@@ -35,6 +35,14 @@ _PUBLISH = text(
 _REFERENCES = text(
     "SELECT aap_labeling_v1.image_thumbnail_references(CAST(:prefix AS text))"
 )
+_SCAN_TASKS = text(
+    "SELECT aap_labeling_v1.scan_image_task_sources(CAST(:selection AS jsonb), "
+    "CAST(:after_id AS uuid), CAST(:page_size AS integer))"
+)
+_INVALIDATE_THUMBNAIL = text(
+    "SELECT aap_labeling_v1.invalidate_task_image_thumbnail("
+    "CAST(:task_id AS uuid), CAST(:expected_snapshot AS text), CAST(:expected_key AS text))"
+)
 
 
 def _object(value: object) -> dict:
@@ -506,3 +514,157 @@ async def test_thumbnail_output_and_cleanup_scopes_are_narrow(db_session):
     _error(invalid_key, "invalid_request", "aap-labeling-image-thumbnail/v1")
     assert task.thumbnail_path == key
     assert task.blurhash is None
+
+
+async def test_task_backfill_scope_has_stable_source_snapshot_and_paging(db_session):
+    actor_id = await _seed_actor(db_session)
+    project = await create_project(db_session, owner_id=actor_id)
+    tasks = [
+        Task(
+            project_id=project.id,
+            display_id=f"T-IMG-SCAN-{index}-{uuid4().hex[:8]}",
+            file_name=f"scan-{index}.png",
+            file_path=f"image-source/scan-{uuid4()}.png",
+            file_type="image",
+            status="pending",
+            assignee_id=actor_id,
+        )
+        for index in range(2)
+    ]
+    uploading = Task(
+        project_id=project.id,
+        display_id=f"T-IMG-UP-{uuid4().hex[:8]}",
+        file_name="uploading.png",
+        file_path=f"image-source/uploading-{uuid4()}.png",
+        file_type="image",
+        status="uploading",
+        assignee_id=actor_id,
+    )
+    db_session.add_all([*tasks, uploading])
+    await db_session.flush()
+    tasks.sort(key=lambda task: task.id.int)
+
+    source = _data(await _read(db_session, tasks[0].id))
+    identity = {"etag": "backfill-source", "byte_size": 2048}
+    bound = _data(
+        await _observe(db_session, tasks[0].id, source["source_snapshot"], identity)
+    )
+    key = f"image-assets/{uuid4()}/g1/a{uuid4()}/thumbnail.webp"
+    assert (
+        _data(
+            await _publish(
+                db_session,
+                tasks[0].id,
+                snapshot=bound["source_snapshot"],
+                generation=bound["source_generation"],
+                key=key,
+                blurhash="fresh",
+            ),
+            "aap-labeling-image-thumbnail/v1",
+        )["applied"]
+        is True
+    )
+
+    cutoff = await db_session.scalar(text("SELECT clock_timestamp()"))
+    selection = {
+        "owner_kind": "task",
+        "dataset_id": None,
+        "project_id": str(project.id),
+        "owner_ids": [],
+        "all_owners": False,
+        "purpose": "thumbnail",
+        "only_missing": True,
+        "accepted_before": cutoff.isoformat(),
+    }
+
+    async def scan(after_id=None):
+        return _object(
+            await db_session.scalar(
+                _SCAN_TASKS,
+                {
+                    "selection": json.dumps(selection),
+                    "after_id": after_id,
+                    "page_size": 1,
+                },
+            )
+        )
+
+    first = _data(await scan(), "aap-labeling-image-backfill/v1")
+    assert first["total"] == 2
+    assert first["complete"] is False
+    assert first["items"][0]["task_id"] == str(tasks[0].id)
+    assert first["items"][0]["thumbnail_path"] == key
+    assert first["next_id"] == str(tasks[0].id)
+
+    second = _data(await scan(first["next_id"]), "aap-labeling-image-backfill/v1")
+    assert second["complete"] is True
+    assert second["items"][0]["task_id"] == str(tasks[1].id)
+    assert second["next_id"] is None
+    assert (first["snapshot_digest"], first["total"], first["accepted_before"]) == (
+        second["snapshot_digest"],
+        second["total"],
+        second["accepted_before"],
+    )
+
+
+async def test_task_thumbnail_invalidation_is_snapshot_and_key_cas(db_session):
+    actor_id = await _seed_actor(db_session)
+    task = await _seed_image_task(db_session, actor_id=actor_id)
+    source = _data(await _read(db_session, task.id))
+    bound = _data(
+        await _observe(
+            db_session,
+            task.id,
+            source["source_snapshot"],
+            {"etag": "invalidate-source", "byte_size": 1024},
+        )
+    )
+    key = f"image-assets/{uuid4()}/g1/a{uuid4()}/thumbnail.webp"
+    assert (
+        _data(
+            await _publish(
+                db_session,
+                task.id,
+                snapshot=bound["source_snapshot"],
+                generation=bound["source_generation"],
+                key=key,
+                blurhash="keep-until-invalidation",
+            ),
+            "aap-labeling-image-thumbnail/v1",
+        )["applied"]
+        is True
+    )
+
+    invalidated = _object(
+        await db_session.scalar(
+            _INVALIDATE_THUMBNAIL,
+            {
+                "task_id": task.id,
+                "expected_snapshot": bound["source_snapshot"],
+                "expected_key": key,
+            },
+        )
+    )
+    assert _data(invalidated, "aap-labeling-image-thumbnail/v1") == {
+        "task_id": str(task.id),
+        "applied": True,
+    }
+    await db_session.refresh(task)
+    assert task.thumbnail_path is None and task.blurhash is None
+    assert task.media_source_generation == bound["source_generation"]
+    assert (
+        _data(await _read(db_session, task.id))["source_snapshot"]
+        == bound["source_snapshot"]
+    )
+
+    stale = _object(
+        await db_session.scalar(
+            _INVALIDATE_THUMBNAIL,
+            {
+                "task_id": task.id,
+                "expected_snapshot": bound["source_snapshot"],
+                "expected_key": key,
+            },
+        )
+    )
+    assert _data(stale, "aap-labeling-image-thumbnail/v1")["applied"] is False
