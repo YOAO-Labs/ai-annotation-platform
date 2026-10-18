@@ -3,7 +3,7 @@ title: 点云联合标注数据模型
 audience: [developer]
 type: reference
 status: stable
-last_reviewed: 2026-08-27
+last_reviewed: 2026-10-18
 ---
 
 # 点云联合标注 · 后端数据模型
@@ -90,7 +90,7 @@ flowchart TD
     Workflow --> Calibration["pointcloud_import.attach_calibration"]
     Calibration --> Commit["标定独立提交"]
     Commit --> Prepare["prepare_pointcloud_frames：缺场景时推断 single"]
-    Prepare --> Group["dataset_frame_grouping：按 scene / stem 分组"]
+    Prepare --> Group["aap_assets_source.frame_layout：按 scene / stem 分组"]
     Group --> Labeling["LabelingTaskService.create_initial_pointcloud"]
     Labeling --> Writes["Task / 主点云与相机关联 / 项目任务数"]
     Writes --> Chunk["按原块大小提交与上报进度"]

@@ -472,7 +472,7 @@ last_reviewed: 2026-10-18
 | `ASSETS_SOURCE_URL` | `—` | 网关：空 URL 保持本地模式；显式远程失败不会回退。 |
 | `ASSETS_SOURCE_TOKEN` | `—` | — |
 | `ASSETS_SOURCE_TIMEOUT_SECONDS` | `300` | — |
-| `ASSETS_SOURCE_DATABASE_URL` | `—` | 独立进程：显式专用 DSN/token/S3 凭据，不能使用日常 API 宽凭据。 source LOGIN 只执行九项来源函数，无业务关系/其他 owner schema 权限。 |
+| `ASSETS_SOURCE_DATABASE_URL` | `—` | 独立进程：显式专用 DSN/token/S3 凭据，不能使用日常 API 宽凭据。 0215 后 source LOGIN 精确执行 14 项来源函数；媒体 delivery claim/ack 留给 API maintenance relay。 不授予业务关系、序列或其他 owner schema 的直接访问权限。 |
 | `ASSETS_SOURCE_DATABASE_URL_FILE` | `—` | — |
 | `ASSETS_SOURCE_TOKEN_FILE` | `—` | — |
 | `ASSETS_SOURCE_S3_ACCESS_KEY` | `—` | — |

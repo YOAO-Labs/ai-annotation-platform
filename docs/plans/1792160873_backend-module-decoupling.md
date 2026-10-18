@@ -1,6 +1,6 @@
 # 后端业务模块解耦与跨语言替换设计
 
-> Status: 进行中。当前目标覆盖 identity、workspace、assets、labeling、inference、learning、insights、jobs、audit、notifications 及运行装配。前序 Python 进程内切片、常驻 API 恢复和既有训练作业执行权交接已完成。assets 视频探测三个操作已提供独立 Python 工件、流式合同及真实调用端的 Node 替换验收；这只完成一个子能力，其余模块与强事务提取继续推进。Go 月报保持独立实验，其可用性和容量不作为本目标门槛。当前各模块缺口见[模块部署与语言替换状态](../../docs-site/dev/concepts/module-deployment.md)。
+> Status: 进行中。当前目标覆盖 identity、workspace、assets、labeling、inference、learning、insights、jobs、audit、notifications 及运行装配。前序 Python 进程内切片、常驻 API 恢复和既有训练作业执行权交接已完成。assets 视频探测三个操作已提供独立 Python 工件、流式合同及真实调用端的 Node 替换验收；同步 ZIP 与旧前缀扫描已纳入既有 Assets Source 工件及 0215 原生合同，隔离运行资格待单独记录。Assets CRUD、标定、派生媒体、脚本和其余模块提取继续推进。Go 月报保持独立实验，其可用性和容量不作为本目标门槛。当前各模块缺口见[模块部署与语言替换状态](../../docs-site/dev/concepts/module-deployment.md)。
 >
 > 创建日期：2026-10-16。
 >
@@ -368,7 +368,7 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
 
 ### 素材准备与标注建题写入所有权
 
-- 已实施切片：`application/dataset_task_creation.py` 组合管理关联、请求时同步/排队选择、素材准备与建题；`labeling_tasks` 持有初始泛型/点云任务、媒体关联、进度和项目任务数增量。资产服务保留入库、去重、尺寸、素材行/文件数、标定与帧准备；边界使用不可变 `dataset_task_facts`，场景推断和点云准备共用 `dataset_frame_grouping`。API 上传完成/ZIP/扫描/关联、两个 worker、六个种子/导入脚本及测试全部迁移，旧建题函数和方法删除，无兼容导出。
+- 已实施切片：`application/dataset_task_creation.py` 组合管理关联、请求时同步/排队选择、素材准备与建题；`labeling_tasks` 持有初始泛型/点云任务、媒体关联、进度和项目任务数增量。资产服务保留入库、去重、尺寸、素材行/文件数、标定与帧准备；边界使用不可变 `dataset_task_facts`，场景推断和点云准备共用纯帧分组能力。API 上传完成/ZIP/扫描/关联、两个 worker、六个种子/导入脚本及测试全部迁移，旧建题函数和方法删除，无兼容导出。
 - 保真：保留初始默认 5000 项及调用方指定的分块提交、泛型零任务不提交、追加只 flush、点云标定前置独立提交及无新任务重放、现有关联立即返回、请求时阈值和 queued 分支、逐文件导入提交/错误与提交后媒体派发。没有添加锁、唯一约束、upsert、SAVEPOINT 或新准入；解绑/删除仍在原资产/API 路径，不宣称整个模块已解耦。
 - 集成风险修正：抽取草稿将泛型单语句 `NOT EXISTS` 改成全量 ID 的 `IN` 查询，实跑 33,000 项复现 asyncpg 32,767 参数上限。集成保留原单语句只读投影和排序，不引入额外预查询或全量既有素材物化；修正后真实创建 33,000 项、项目计数一致、重放新增 0，并保留大数据量行为回归。投影仍绑定本地数据库，不是远程查询契约。
 - 门禁与回归：五个新/收敛所有者加入反向依赖和 SCC 检查，事实模块只依赖标准库，分组只允许事实与角色词表。21 个完整相关文件首次 299 passed、1 failed、42 skipped；新标定重放回归在 rollback 后读取过期 ORM 主键导致 MissingGreenlet，冻结主键后该项 1 passed，累计 300 个不同用例通过。空数据集改用真实调用方事务回滚证明，不保留 commit mock 次数断言。Ruff、OpenAPI 快照与旧调用 AST 检查通过；全服务 AST 图为 240 个模块、三个剩余 SCC，点云/场景反向环已消除。
@@ -1718,3 +1718,11 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
 - 共享/来源包 71 项、SDK 80 项、Web 27 项通过；架构 287 项通过，另 117 个不适用冷加载参数跳过。迁移四阶段及冻结 SQL 独立安装/回滚通过，四个受限 LOGIN、三组 S3 身份及隔离 PostgreSQL/Redis/桶/容器已清理。锁文件、Ruff、TypeScript、文档、wheel 和 API 镜像冷导入 120 表通过。证据归档使用 assets-source-controls 前缀，保留早先来源删除切片记录。
 - 全模块目标仍进行中：其他导入/扫描/连接器、媒体派生与完整 Blob、身份/成员生命周期、各模块完整操作/凭据/运行工件尚未完成。API 仍负责提交后媒体派发，共享 PostgreSQL 与迁移期宽权限保留；未登记来源拷贝目前不自动回收。Go 保持隔离实验，无 push、发布、远程 CI 或生产容量声明。
 - 已本地合入主 checkout，日常库 0212→0213；旧上传回执与测试账号均为零。核验原 LaunchAgent/PID/cwd 后暂停、同步锁定依赖与迁移，再按原配置恢复；公开 OpenAPI 匹配当前快照（485 paths、873 schemas），源码内容不变的热重载约 8.773 秒。DB/Redis/MinIO 200；日常 Celery 未启动，`/health` 与 `/health/celery` 保持既有 503。证据 `.worktree/assets-source-controls-main-runtime.json`、`.worktree/assets-source-controls-verification.json`。
+
+## Assets synchronous ZIP and legacy bucket scan
+
+- Existing public synchronous ZIP and scan operations now use the existing Assets Source workflow and 0215 native contract. ZIP retains authenticated `datasets:write` access without a manager-only restriction; scan retains the current `super_admin` / `project_admin` manager set plus the same scope.
+- ZIP writes only immutable `dataset-sources/{dataset}/{item}/{publication}/{logical_relpath}` objects and records the logical relative path in `metadata.source_ingest`. Scan lists only the exact legacy `{Dataset.name}/` prefix in the configured datasets bucket; it does not adopt modern publications or infer Scenes.
+- Item writes, Dataset counts, Labeling append receipts, ZIP Scene/frame updates, operation receipts and media delivery intents share one outer transaction. Completed requests retain their first receipt for the original actor, Dataset, operation kind and request identity. Raw source objects are never overwritten or deleted.
+- The source LOGIN surface grows from nine existing functions to 14 with five ingest capabilities. The two media delivery claim/ack functions belong to the API maintenance relay. No new runtime environment variables are required.
+- Root owns isolated database, source-runtime and normal-consumer acceptance evidence. This plan records no new acceptance counts or production qualification. The larger goal remains active with other Assets CRUD, calibration, derived media, scripts and all remaining modules still to be extracted and qualified.

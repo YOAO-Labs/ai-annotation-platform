@@ -2,7 +2,7 @@
 audience: [dev]
 type: reference
 status: stable
-last_reviewed: 2026-10-17
+last_reviewed: 2026-10-18
 ---
 
 # 仓库地图：模块归属与调用链
@@ -30,11 +30,11 @@ last_reviewed: 2026-10-17
 | 训练参数契约    | `apps/_shared/training_contract`                                                            | 纯 Python 原生框架字段快照、catalog 依赖校验、预算与回流契约                                     |
 | 项目只读契约    | `apps/_shared/workspace_contract`                                                           | 纯 Project 配置快照、类别与属性投影；不依赖提供方 ORM、API 或运行时                              |
 | 独立素材目录    | `apps/assets-catalog`                                                                       | 七项目录与关联读取操作；受限 SQL LOGIN、只读 S3 身份与独立镜像                                   |
-| 独立素材来源    | `apps/assets-source`                                                                        | 单文件上传/发布、来源删除与持久连接器导入；纯合同、独立 SQL/S3 身份及运行时                      |
+| 独立素材来源    | `apps/assets-source`                                                                        | 单文件上传/发布、来源删除、同步 ZIP/旧前缀扫描与持久连接器导入；纯合同、独立 SQL/S3 身份及运行时 |
 | 审计请求契约    | `apps/_shared/audit_contract`                                                               | 冻结请求上下文字段，不依赖 API 或 ORM                                                            |
 | 训练执行器      | `apps/training-executor`                                                                    | 独立拉取式执行器，文件锁独占 GPU，管理原生训练子进程与脱敏日志                                   |
 | 素材探测服务    | `apps/media-probe`                                                                          | 独立元数据/帧时间表/packet 探测与 HTTP/NDJSON 合同；不取得数据库或对象存储访问权                 |
-| 事务数据能力    | `apps/api/alembic/sql/0190*` 至 `0213*`                                                     | 授权、建题、删除、解绑、上传、目录及关联读取；冻结 SQL/JSON 合同，同库事务与语句快照             |
+| 事务数据能力    | `apps/api/alembic/sql/0190*` 至 `0215*`                                                     | 授权、建题、删除、解绑、上传、目录、关联读取及 ZIP/扫描；冻结 SQL/JSON 合同，同库事务与语句快照  |
 | ML backend      | `apps/{grounded-sam2,sam3,yolo,rapidocr,onnxtools}-backend`                                 | 各自的池包装 / 观测 / 生命周期                                                                   |
 
 ## 2. 授权真值（唯一来源）
@@ -153,14 +153,15 @@ last_reviewed: 2026-10-17
    单框/整批跨帧传播和区间插值由 `app/application/annotation_cross_frame.py` 绑定原 Session/source Task/actor/access，消费纯 `AnnotationCrossFramePort`；后台逐帧作业另用只返回数量、从不提交的 `CrossFrameBatchStager`，保留原源版本、取消、逐目标回滚与提交。两者复用私有 SQL/位姿/几何步骤。
    素材关联/初始建题和入库后的追加建题经 `app/application/dataset_task_creation.py`；
    `services/dataset` 持有素材事实，`services/labeling_tasks` 持有建题、媒体关联与项目任务数增量，
-   素材/帧传递使用 `services/dataset_task_facts`，共享分组在 `services/dataset_frame_grouping`。
+   素材/帧传递使用 `services/dataset_task_facts`，纯帧分组与 Scene 规划由
+   `apps/assets-source/src/aap_assets_source/frame_layout.py` 和 `scene_layout.py` 提供。
    `services/labeling_task_creation_contract` 与 `task_creation_contract` 定义初始/追加建题端口和严格值绑定；`LabelingTaskService` 消费冻结 SQL/JSON 能力，实际写入仅由 Labeling SQL 持有。初始操作保存许可、来源计划、游标和块回执；Jobs 客户端只调用其 owner 的生命周期能力。
    assets 关联结果与建题应用结果只返回 `link_id` 等标量，不向入口交付 `ProjectDataset` ORM。
    分块提交、追加 flush-only 和标定前置提交不同，不能合并成一种事务。
    单文件来源发布由公开 Source 工作流和原生命令持有，HTTP 保留认证/scope。旧无 intent 条目不补造上传者，完成元数据、Labeling append 与 Assets 回执共同提交。
    项目删除由 `application/project_deletion.py` 和严格 `services/project_deletion_contract.py` / `project_deletion_data.py` 绑定 Workspace 原生事务命令；各 owner 清理、学习保留、审计与删除回执共同提交，原始素材保留。Jobs 的 `retained_project_id` 固定删除后的访问范围，不从 payload 推断权限。
    `api/v1/datasets.py` 的 20 个 HTTP 路由（6 个读取，含 POST sniff；14 个写入）仍由同一 API 入口装配。项目解绑通过 Workspace 的 `DatasetUnlinkCommand` / `Receipt`，公开来源删除通过 Assets 的 `DatasetSourceDeletionCommand` / `Receipt` 调用原生协调命令。当前身份/权限、关联代次、Learning/Labeling 保留、Jobs 检查/取消、计数、Audit、owner 清理及不可变回执在同一调用方连接提交。`Idempotency-Key` 是可选 UUID，REST 回传它，SDK/Web 对同一操作复用原 key。
-   项目解绑保留 Dataset、Item、原始文件和共享来源金字塔；来源删除保护关联证据，只排队 item-owned 金字塔。上传初始化仅保留 intent 并签发 staging PUT，完成时以 ETag 条件拷贝后原子登记 Item、追加 Task 和保存回执。独立 `apps/assets-cleanup` 用两个公开 SQL 能力和 prefix 受限 S3 身份轮询已提交责任；不依赖 API、ORM、Celery 或 Redis，也不在业务事务内删除对象。目录列表、详情、文件分页、创建/更新由独立 `apps/assets-catalog` 与同一原生 SQL 合同提供，创建/更新保留不可变回执，两项关联读取使用同一语句快照。连接器导入由独立进程消费持久清单/游标/租约，原子登记素材、任务与派发意图；其他 CRUD、ZIP、扫描、派生写入和无源任务清理仍待逐项提取，不能据此声称整个 Assets/Labeling 模块独立部署。
+   项目解绑保留 Dataset、Item、原始文件和共享来源金字塔；来源删除保护关联证据，只排队 item-owned 金字塔。上传初始化仅保留 intent 并签发 staging PUT，完成时以 ETag 条件拷贝后原子登记 Item、追加 Task 和保存回执。独立 `apps/assets-cleanup` 用两个公开 SQL 能力和 prefix 受限 S3 身份轮询已提交责任；不依赖 API、ORM、Celery 或 Redis，也不在业务事务内删除对象。目录列表、详情、文件分页、创建/更新由独立 `apps/assets-catalog` 与同一原生 SQL 合同提供，创建/更新保留不可变回执，两项关联读取使用同一语句快照。同步 ZIP/旧前缀扫描由既有 `apps/assets-source` 工作流与 0215 Assets 原生合同执行；ZIP publication 保留不可变来源，Item、Labeling append、计数、Scene/frame 结果和派发意图在同一事务提交。连接器导入由独立进程消费持久清单/游标/租约，原子登记素材、任务与派发意图；其他 CRUD、标定、派生写入和无源任务清理仍待逐项提取，不能据此声称整个 Assets/Labeling 模块独立部署。
    生命周期、审核及单题/整批送审经 `application/task_lifecycle.py`、`task_review.py`、
    `task_submission.py`；状态/部分项目计数写入归 `LabelingTaskService`，证据归
    `annotation_evidence`，应用组合反馈、审计和通知。整批默认 200 题分块提交，

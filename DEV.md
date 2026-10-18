@@ -973,9 +973,9 @@ nuScenes mini 到 `~/.cache/ai-annotation-platform/nuscenes-mini`（约 4 GB，�
 
 ## 独立 Assets 来源服务
 
-`apps/assets-source` 执行单文件上传初始化、条件发布完成及 Dataset/Item 删除。公开 API 保留认证、`datasets:write` 和提交后的媒体派发；来源服务不连接 Redis/Celery。协议与重放见[来源控制](docs-site/api/guides/assets-source.md)。
+`apps/assets-source` 执行单文件上传初始化、条件发布完成、Dataset/Item 删除、同步 ZIP 入库和旧对象桶扫描。公开 API 保留认证、scope、ZIP/扫描各自既有角色规则和同步响应；来源服务不连接 Redis/Celery。协议与重放见[来源控制](docs-site/api/guides/assets-source.md)。
 
-先迁移至 0213、完成 module-data owner 授权，再为独立 `asset_source_client` LOGIN 应用：
+先将迁移应用至 0215、完成 module-data owner 授权，再为独立 `asset_source_client` LOGIN 应用：
 
 ```bash
 psql -v expected_database=annotation_test -v migration_role=owner \
@@ -983,9 +983,11 @@ psql -v expected_database=annotation_test -v migration_role=owner \
   -f infra/docker/assets-source-grants.sql
 ```
 
-数据库名和连接参数应指向明确选择的环境。该角色只能执行九项来源函数，不读业务关系、序列或其他 owner schema，不授予角色成员资格。不要把日常宽权限 API 账号用于此服务。
+数据库名和连接参数应指向明确选择的环境。0215 后该角色只能执行 14 项来源函数，即既有九项加五项批量入库能力；不读业务关系、序列或其他 owner schema，不授予角色成员资格。两项批量媒体派发 claim/ack 能力只给 API maintenance relay，不授予 Source LOGIN。不要把日常宽权限 API 账号用于此服务。
 
-服务显式配置专用 DSN、token、S3 access/secret；可用 `.env.example` 的 `_FILE` 变量。secret 必须能被用户 10003 读取。S3 仅授予 import 的 `dataset-uploads/*` Get/Put、datasets 历史来源 Get 和 `dataset-sources/*` Put，不能授予 Delete、List 或桶管理；cache 桶只用于 SQL outbox。内部 I/O endpoint 与浏览器签名 endpoint 分开，均从服务配置取得。
+服务显式配置专用 DSN、token、S3 access/secret；可用 `.env.example` 的 `_FILE` 变量。secret 必须能被用户 10003 读取。S3 授予 import 桶 `dataset-uploads/*` Get/Put、datasets 桶历史来源的条件读取和该配置桶自身的 ListBucket，以及 `dataset-sources/*` Put/multipart Abort。不要授予来源 Delete、其他桶 List 或桶管理；cache 桶只用于 SQL outbox。内部 I/O endpoint 与浏览器签名 endpoint 分开，均从服务配置取得。ZIP 的 200 MiB 压缩/展开预算与 JSON 请求体预算独立，不需要新增环境变量。
+
+0215 SQL 工件升级时先安装 `0215_dataset_source_ingest.sql`，再安装 `0215_dataset_source_ingest_delivery.sql`；迁移包装器回退时按相反顺序移除。每个独立 Source 进程同时只接收一个 ZIP 请求，Compose 限制内存为 512 MiB、`/tmp` 为 256 MiB。ZIP 新对象只写 `dataset-sources/{dataset}/{item}/{publication}/{logical_relpath}`，扫描只读取原生能力返回的精确 Dataset 前缀。回滚不删除对象存储中的原始字节。
 
 准备固定桶与 origin 后显式运行独立项目：
 
@@ -996,9 +998,9 @@ docker compose -p aap-assets-source-dev -f docker-compose.assets-source.yml exec
 
 该项目不进入默认 Compose，默认只 expose 内部 8767。宿主联调可使用 `uv run --project apps/assets-source --extra server python -m aap_assets_source_runtime`，传入专用环境，再将网关指向实际可达地址。网关 `ASSETS_SOURCE_URL` 留空为本地模式，设置后还需同一 token；刷新 API 生效。默认网关超时 300 秒，上限 3600 秒；服务默认池 1..8、取得连接 2 秒、SQL 5 秒、S3 连接/读取 2/10 秒、请求/响应 1/16 MiB。就绪检查验证 SQL 身份，实际对象权限由业务调用及本地验收验证。
 
-复制后退出或 SQL 回滚可能留下未登记来源拷贝；目前保留这些字节，尚无自动回收。重试保持原 Item/操作 UUID，并使用新 publication 代次，不能通过删除原始文件或旧条目恢复。默认派生媒体派发仍由 API 在发布提交后执行，发布结果不代表媒体已完成。
+复制后进程退出或 SQL 回滚可能留下未登记来源拷贝；目前保留这些字节，尚无自动回收。单文件上传重试保持原 Item/操作 UUID，并使用新 publication 代次，不能通过删除原始文件或旧条目恢复。ZIP/扫描在一个外层 SQL 事务中提交素材、Labeling append、计数、ZIP Scene/frame 变更、收据和媒体派发意图。媒体派发由 API maintenance relay 领取，交付回执只表示 broker 接受，不代表媒体已完成。
 
-回退时可先清空网关 URL、刷新 API 并保留 SQL/回执，再停止同一 `-p`/`-f` 独立项目。回退迁移须先停止写入并处理未确认请求，删除回执会失去重放依据。完整 Assets 的导入、扫描、媒体与 Blob 边界仍在推进；此服务不提供全模块或生产容量资格。
+回退时可先清空网关 URL、刷新 API 并保留 SQL/回执，再停止同一 `-p`/`-f` 独立项目。回退迁移须先停止写入并处理活动操作及待确认媒体派发；0215 会拒绝降级仍在准备的已提交操作或待派发记录。允许降级时会移除完成收据，原幂等键将不再有可重放结果。完整 Assets 的 CRUD、标定、派生媒体和 Blob 边界仍在推进；此服务不提供全模块或生产容量资格。
 
 ## 独立连接器导入执行器
 

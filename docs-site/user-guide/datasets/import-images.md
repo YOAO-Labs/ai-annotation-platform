@@ -3,7 +3,7 @@ audience: [project_admin, super_admin]
 type: how-to
 since: v0.1.0
 status: stable
-last_reviewed: 2026-06-10
+last_reviewed: 2026-10-18
 ---
 
 # 图像数据集导入
@@ -22,7 +22,7 @@ last_reviewed: 2026-06-10
 进入顶部菜单「数据集」,在数据集列表里点「上传」(已有数据集在展开行点「上传」继续追加文件),打开导入向导。新建数据集时,第一步「选择来源」里选多文件、ZIP 包或连接器并配置来源;第二步「基本信息」里填写数据集名称、说明并选择数据类型(本页选图像)。已有数据集继续上传时直接从来源步开始,不经过新建信息步。
 
 - **多文件** — 浏览器里直接选 / 拖入若干图片文件。
-- **ZIP 包 (≤200MB)** — 上传一个 ZIP,后端解压并保留子目录结构。
+- **ZIP 包（≤200 MB）**：上传一个 ZIP，后端安全解压并保留逻辑子目录结构。ZIP 入库由独立 Assets Source 执行。
 - **连接器导入** — 从已配好的 S3 / OSS / SFTP 连接器按路径 + 通配符批量拉取。
 
 ![图像数据集导入向导](../images/datasets/import-images-wizard.png)
@@ -42,7 +42,9 @@ last_reviewed: 2026-06-10
 
 ### 目录结构:顶层即图片,或保留子目录
 
-ZIP 上传**保留 ZIP 内的子目录结构**,相对路径原样落到 item 的 `file_path`(对象存储 key 形如 `<dataset_name>/<相对路径>`)。两种布局都行:
+ZIP 上传保留 ZIP 内的逻辑子目录结构，用于文件布局和 Scene 推断。Item 的 `file_name` 仍为 ZIP 内 basename；对象存储使用独立的不可变 publication key `dataset-sources/{dataset_id}/{item_id}/{publication_id}/{logical_relpath}`，不会覆盖旧来源。逻辑路径保存在 `metadata.source_ingest.relpath`，不再使用可能冲突的 `<dataset_name>/<相对路径>` key。
+
+直接调用 ZIP 或扫描 API 时，可以发送 UUID `Idempotency-Key`。响应头会回传该键。遇到网络结果不确定时，使用原键和相同请求重试，服务会返回第一次完成的结果。ZIP 请求身份包含原始 ZIP 字节的 SHA-256；更换文件后不能复用原键。Web、SDK 和 CLI 会为这些调用保留请求键，客户端不应另行自动重试。
 
 顶层平铺:
 
@@ -67,17 +69,20 @@ animals.zip
     └── 010.png
 ```
 
-解压时自动跳过:macOS 元数据目录 `__MACOSX/`、任意以 `.` 开头的隐藏文件(如 `.DS_Store`);拒绝绝对路径和含 `..` 的路径(zip-slip 防护)。这些被跳过的条目计入响应里的 `skipped`。
+解压时自动跳过 macOS 元数据目录（`__MACOSX/`）和以 `.` 开头的隐藏路径。绝对路径、`..` 路径、符号链接和不可表示的路径不会被解压或写入对象存储，并计入 `skipped`。隐藏文件仍计入 `total_in_zip`。安全校验或完整事务失败时，ZIP 不会把已完成的 Item 或计数留在数据库中，也不会删除对象存储里的旧来源或新 publication 字节。
 
 ### 上限
 
-| 限制项       | 值       |
-| ------------ | -------- |
-| 整个 ZIP 包  | ≤ 200 MB |
-| 单个文件     | ≤ 100 MB |
-| ZIP 内条目数 | ≤ 5000   |
+| 限制项             |        值 |
+| ------------------ | --------: |
+| 压缩 ZIP 总大小    | ≤ 200 MiB |
+| 展开后文件总大小   | ≤ 200 MiB |
+| 单个文件           | ≤ 100 MiB |
+| 文件条目数         |   ≤ 5,000 |
+| ZIP 中央目录条目数 |  ≤ 10,000 |
+| 压缩比             |   ≤ 100:1 |
 
-超过整包上限返回 `413`,超过条目数也返回 `413`;单文件超限不阻断整包,该文件计入 `errors`(其余照常入库)。需要更大批量(数万文件 / 几百 GB)走**连接器导入**。
+压缩包、展开总量、条目数或压缩比超过上限时，整次请求失败。单文件超过 100 MiB 时只将该文件记为 `errors`，其余合法文件仍可入库。需要更大批量（数万文件或几百 GB）时，请使用**连接器导入**。
 
 ### 去重:按内容,不按文件名
 
@@ -95,7 +100,7 @@ animals.zip
 {
   "added": 142, // 新入库的文件数
   "deduped": 6, // 内容重复、被跳过的文件数
-  "skipped": 2, // 隐藏文件 / __MACOSX 等被规范化跳过的数
+  "skipped": 2, // 隐藏文件、__MACOSX 和不安全路径等跳过数
   "errors": [
     // 逐条失败明细
     { "name": "huge.tiff", "error": "超过单文件 100MB 上限" }
@@ -106,7 +111,7 @@ animals.zip
 }
 ```
 
-判断成功:`added` 是真正入库数;`total_in_zip = added + deduped + skipped + errors.length`。`errors` 非空时逐条看 `name` / `error` 定位(常见是单文件超 100MB)。`scene_inference_notes` 只在识别 scene 时有内容(时序 / 多场景目录),纯图像平铺导入通常为空。
+判断成功时，`added` 是真正入库的数量。`total_in_zip` 统计安全解析出的非目录文件条目，包含隐藏条目，但不包含被安全检查拒绝的路径。`skipped` 还会计入这些被拒绝的路径，因此两者不一定能直接相加还原 ZIP 条目数。`errors` 非空时，逐条查看 `name` 和 `error` 定位问题（常见情况是单文件超过 100 MiB）。`scene_inference_notes` 只在 ZIP 执行 Scene 推断时有内容；已有 Scene 或已有场景分配时不会重新推断。
 
 ## 方式 C · 连接器导入(大批量)
 
@@ -125,9 +130,9 @@ animals.zip
 
 超级管理员可在「设置 → 系统设置 → 数据导入」查看部署有效值并保存覆盖。作业受理时固定预算，枚举超限会**整体失败，不产生本次部分导入**；修改设置不会改变已排队或重试作业的预算。连接器的创建、主机白名单、密钥加密等配置见 [数据源连接器](./storage-connections)。
 
-## 方式 D · 扫描导入(命令行 / 已有对象)
+## 方式 D · 扫描导入（管理员 API / 已有对象）
 
-如果文件已经在对象存储里(例如外部流程直接写进了桶),对该数据集触发 `POST /api/v1/datasets/{id}/items/scan`,后端按数据集名前缀扫描对象、为缺失的文件补建 item。适合「对象先到、item 后补」的场景,日常 UI 导入用不到。
+如果历史文件已直接写入 datasets 对象桶，`super_admin` 或 `project_admin` 可在 `datasets:write` scope 下调用 `POST /api/v1/datasets/{id}/items/scan`，为缺少 DatasetItem 的对象补建记录。结果不确定时，可选的 UUID `Idempotency-Key` 必须保持不变。该接口只扫描固定桶中精确的 `{Dataset.name}/` 前缀，按对象分页读取，跳过已经登记的路径，不复制或删除来源，也不推断 Scene。它不会把 `dataset-sources/` 下的 ZIP publication 当作 legacy 对象。`dataset-sources`、`dataset-uploads` 和受保护的 nuScenes namespace 不能作为扫描前缀。扫描返回 `{status, new_items, linked_tasks}`，不会创建异步连接器作业，日常 UI 导入也用不到。
 
 ## 支持的图片格式
 
@@ -138,7 +143,7 @@ ZIP / 多文件路径不维护一份硬编码扩展名白名单,而是按 MIME �
 数据集**关联到项目后**,每个数据条目自动生成一个 task(初始状态 `pending`),进入该项目工作台待标注。两种触发时机:
 
 - **首次关联**(`link`):按条目数决定快慢路径——条目数 ≤ `TASK_CREATE_SYNC_THRESHOLD`(默认 **2000**)在关联请求里**同步**建 task;**超过**阈值改为**后台异步**建 task,关联界面显示进度条,**建完之前这批任务在工作台还看不到**。
-- **关联后继续追加**:已关联的数据集再上传文件、上传 ZIP、扫描导入或连接器导入,**新增文件同步建 task**,无需先取消关联再重新关联。
+- **关联后继续追加**：已关联的数据集再上传文件、上传 ZIP、扫描导入或连接器导入，**新增文件同步建 task**，无需先取消关联再重新关联。ZIP 与扫描都由既有 Assets Source 同步事务完成素材追加、Labeling append 和计数；ZIP 还会原子保存 Scene/frame 更新及媒体派发意图。
 
 同步追加会核对当前关联，并与解绑依次处理。同一素材在同一项目下不会因并发追加重复建任务；解绑先完成时，本次追加不再为该项目建任务，素材仍保留在数据集中。
 

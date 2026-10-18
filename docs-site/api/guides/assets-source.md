@@ -7,20 +7,22 @@ last_reviewed: 2026-10-18
 
 # 独立素材来源控制
 
-`apps/assets-source` 持有单文件上传初始化、发布完成及 Dataset/Item 删除的实际 SQL/S3 执行。公开 API 继续认证 JWT/API key、检查 `datasets:write` 并保持原响应；显式远程配置失败会报错，不回退到本地。未配置远程地址时使用同一公开工作流与原生能力。
+`apps/assets-source` 是既有 Assets 来源控制运行时，持有单文件上传初始化、发布完成、Dataset/Item 删除、同步 ZIP 入库和旧对象桶扫描的实际 SQL/S3 执行。公开 API 继续认证 JWT/API key、检查各入口既有 scope 与角色并保持同步响应；显式远程配置失败会报错，不回退到本地。未配置远程地址时使用同一公开工作流与原生能力。
 
 ## 接口与身份
 
-| 公开 REST                                                     | 内部 POST                    | 结果                                                     |
-| ------------------------------------------------------------- | ---------------------------- | -------------------------------------------------------- |
-| `POST /datasets/{dataset_id}/items/upload-init`               | `/v1/source/upload-init`     | `item_id,upload_url,expires_in`                          |
-| `POST /datasets/{dataset_id}/items/upload-complete/{item_id}` | `/v1/source/upload-complete` | 成功为 `status,item_id,linked_tasks`；缺失 400、重复 409 |
-| `DELETE /datasets/{dataset_id}`                               | `/v1/source/delete`          | 204 空响应                                               |
-| `DELETE /datasets/{dataset_id}/items/{item_id}`               | `/v1/source/delete`          | 204 空响应                                               |
+| 公开 REST                                                     | 内部 POST                    | 结果                                                                           |
+| ------------------------------------------------------------- | ---------------------------- | ------------------------------------------------------------------------------ |
+| `POST /datasets/{dataset_id}/items/upload-init`               | `/v1/source/upload-init`     | `item_id,upload_url,expires_in`                                                |
+| `POST /datasets/{dataset_id}/items/upload-complete/{item_id}` | `/v1/source/upload-complete` | 成功为 `status,item_id,linked_tasks`；缺失 400、重复 409                       |
+| `DELETE /datasets/{dataset_id}`                               | `/v1/source/delete`          | 204 空响应                                                                     |
+| `DELETE /datasets/{dataset_id}/items/{item_id}`               | `/v1/source/delete`          | 204 空响应                                                                     |
+| `POST /datasets/{dataset_id}/items/upload-zip`                | `/v1/source/upload-zip`      | `added,deduped,skipped,errors,total_in_zip,linked_tasks,scene_inference_notes` |
+| `POST /datasets/{dataset_id}/items/scan`                      | `/v1/source/scan`            | `status,new_items,linked_tasks`                                                |
 
-内部请求使用可信网关 bearer，账号 UUID 从公开 API 的当前认证结果取得；原生能力再次检查当前活跃账号、上传归属或全局素材库管理权。来源服务不读取 API 的 JWT、Redis 或 Celery 配置。普通上传仍允许当前支持的活跃账号角色；来源删除仍仅允许全局素材库管理员。引用中的来源返回 409，须先在对应项目或功能中解除引用。
+内部请求使用可信网关 bearer，账号 UUID 从公开 API 的当前认证结果取得；原生能力再次检查当前活跃账号、上传归属或全局素材库管理权。来源服务不读取 API 的 JWT、Redis 或 Celery 配置。普通上传和 ZIP 入库允许符合现有策略的活跃账号；ZIP 只要求 `datasets:write`，不要求素材库管理员。来源删除仍仅允许全局素材库管理员。扫描保留现有 `super_admin`、`project_admin` 管理员集合并要求 `datasets:write`。引用中的来源返回 409，须先在对应项目或功能中解除引用。
 
-内部信封固定为 `aap-assets-source/v1`：成功仅含 `schema,ok:true,data`，失败仅含 `schema,ok:false,error:{code}`。完整 JSON Schema 随纯合同 wheel 分发，位于 `apps/assets-source/src/aap_assets_source/protocol.schema.json`。调用方检查 actor、父子与操作 UUID，未知版本、字段、错误或错误 scope 明确失败，不接受部分结果。请求/响应默认上限为 1/16 MiB，超限在事务提交前拒绝。
+普通来源操作使用 `aap-assets-source/v1` 信封：成功仅含 `schema,ok:true,data`，失败仅含 `schema,ok:false,error:{code}`。批量导入使用独立的 `aap-dataset-source-ingest/v1` 数据合同。完整 JSON Schema 随纯合同 wheel 分发，位于 `apps/assets-source/src/aap_assets_source/protocol.schema.json`。调用方检查 actor、父子与操作 UUID，未知版本、字段、错误或错误 scope 明确失败，不接受部分结果。JSON 请求/响应默认上限为 1/16 MiB；ZIP 使用单独的归档预算。
 
 ## 上传与重放
 
@@ -32,11 +34,25 @@ last_reviewed: 2026-10-18
 
 旧无 intent 条目没有可证明的历史上传者；当前活跃账号按原规则完成它，不补造归属。服务只读旧字节，使用原生旧上传锁和完成能力保存元数据、任务及 Assets 自己的回执。缺失/重复不清除旧行或对象。重放还检查父子存在及当前来源路径/类型，不能将历史结果应用到替换后的来源。
 
+## 同步 ZIP 与桶扫描
+
+现有公开路由 `POST /datasets/{dataset_id}/items/upload-zip` 和 `POST /datasets/{dataset_id}/items/scan` 仍同步执行，响应字段保持兼容。网关接受可选 UUID `Idempotency-Key`，并在成功响应中回传该请求头。ZIP 的操作身份绑定原始归档 SHA-256；扫描绑定固定的扫描命令指纹。以同一键重试不确定响应时返回第一次完成的收据。复用键但更换 actor、Dataset、操作类型或 ZIP 字节会冲突。调用方不要对 POST 进行隐式自动重试，应保存原键后按需重放。
+
+ZIP 要求当前活跃账号和 `datasets:write`，不要求管理员角色。压缩包和展开数据各不超过 200 MiB，最多 5,000 个文件条目、每个条目最多 100 MiB、压缩比不超过 100:1，中央目录最多 10,000 条。隐藏/macOS 文件和不安全路径沿用旧规则；普通文件保留 MIME 类型推断、内容哈希去重、逐文件错误、basename `file_name` 及逻辑子目录布局。
+
+ZIP 将新字节写入不可变 key：`dataset-sources/{dataset_id}/{item_id}/{publication_id}/{logical_relpath}`。Item 元数据在 `metadata.source_ingest` 保存操作 UUID 和逻辑相对路径。重复请求和失败回滚都不会覆盖或删除旧来源。ZIP 场景推断只在已有文件新增且数据集尚无 Scene、无既有场景分配时执行，并基于所有历史与新增 Item 规划。若 `is_temporal` 为真但没有可接受的 Scene，整个 SQL 事务回滚，已复制的原始字节仍保留。
+
+每个 Source 进程只接收一个 ZIP 请求并在数据库事务开始前将已认证的请求流 spool 到临时文件。独立 Compose 资源上限为 512 MiB 内存和 256 MiB `/tmp`。保留的可信 nuScenes namespace 仍受写入保护；扫描还会拒绝以 `dataset-sources` 或 `dataset-uploads` 为首段的 legacy prefix，不改变 Dataset 名称目录的通用规则。
+
+扫描保留管理员权限，只枚举固定 datasets 桶中当前 Dataset 的精确 `{Dataset.name}/` legacy 前缀，按 S3 页流式读取，不设新增的文件数/字节截断上限。它跳过已登记路径，只为缺失路径登记 Item，保留旧扩展名类型判断与子目录文件名；只有单段 ETag 是有效 MD5 时才将其作为内容哈希提示。扫描不复制或删除对象，也不推断 Scene，不会把 `dataset-sources/` 下的现代 publication 当成 legacy 对象或越过当前 Dataset 前缀。
+
+每次操作的 Item 写入、Dataset 计数、Labeling append 回执、ZIP Scene/frame 变更、最终收据和媒体派发意图在同一个外层 PostgreSQL 事务中提交。Scene 名称或 UUID 冲突会使整个操作失败回滚，不能把回滚前的正向计数作为成功响应返回。对象存储无法参加数据库回滚，因此事务失败后已写入的 ZIP publication 字节会保留，不做原始来源清理。媒体 outbox 由 API maintenance relay 领取和确认；其两个 SQL 能力不授予 Source LOGIN，也不代表媒体计算已完成。
+
 ## 事务与存储权限
 
-服务使用专用 execute-only LOGIN，仅执行五项现代上传、两项删除和两项旧上传能力；不能直接读写业务表、序列、其他 owner schema 或继承角色。原生 SQL 安装与 owner 授权见[同库数据接口](/api/guides/module-data)。来源删除的 Audit、回执和派生清理 outbox 与业务删除在同一事务；原始字节始终保留。
+0215 后，服务使用专用 execute-only LOGIN 执行现有九项来源能力和五项批量入库能力，共 14 项；不能直接读写业务表、序列、其他 owner schema 或继承角色。两项媒体派发 claim/ack 能力只由 API maintenance relay 使用。原生 SQL 安装与 owner 授权见[同库数据接口](/api/guides/module-data)。来源删除的 Audit、回执和派生清理 outbox 与业务删除在同一事务；原始字节始终保留。
 
-S3 身份只拥有 import 桶 `dataset-uploads/*` 的 Get/Put、datasets 桶历史来源的 Get，以及 `dataset-sources/*` 的 Put。它不能删除对象、列桶或管理桶，也不写 media-cache。内部 I/O endpoint 与浏览器签名 endpoint 分别显式配置，签名后不改 Host。服务不读取请求提供的任意 URL、bucket 或对象 key。
+S3 身份只拥有 import 桶 `dataset-uploads/*` 的 Get/Put、datasets 桶历史来源读取与该桶自身的 ListBucket，以及 `dataset-sources/*` 的 Put 和 multipart Abort。扫描只对原生能力返回的 Dataset 前缀执行条件 HEAD/GET。它不能删除对象、列其它桶或管理桶，也不写 media-cache。内部 I/O endpoint 与浏览器签名 endpoint 分别显式配置，签名后不改 Host。服务不读取请求提供的任意 URL、bucket 或对象 key。
 
 单次调用在验证完整结果及响应字节预算后才提交。复制与 PostgreSQL 不能共同回滚：复制后进程退出或 SQL 失败可能保留未登记的原始拷贝，重试使用新的 publication 代次，旧拷贝不自动删除。原始拷贝和未完成 intent 暂无自动回收，需要计入存储容量。
 
@@ -44,7 +60,7 @@ S3 身份只拥有 import 桶 `dataset-uploads/*` 的 Get/Put、datasets 桶历�
 
 ## 运行与回退
 
-先应用 0213、运行 module-data owner 授权与 `infra/docker/assets-source-grants.sql`，再为非 root 用户 10003 准备专用 secret、固定桶和 S3 origin。独立启动配置见仓库 `DEV.md`、`docker-compose.assets-source.yml` 及服务 README。先确认服务 `/health` 与 `/ready`，再设置网关 `ASSETS_SOURCE_URL`、`ASSETS_SOURCE_TOKEN` 并刷新 API。网关 I/O 超时默认 300 秒，上限 3600 秒；独立服务的池、SQL、S3 连接/读取和消息预算均可独立限制。
+先应用至 0215 的迁移、module-data owner 授权与 `infra/docker/assets-source-grants.sql`，再为非 root 用户 10003 准备专用 secret、固定桶和 S3 origin。独立启动配置见仓库 `DEV.md`、`docker-compose.assets-source.yml` 及服务 README。先确认服务 `/health` 与 `/ready`，再设置网关 `ASSETS_SOURCE_URL`、`ASSETS_SOURCE_TOKEN` 并刷新 API。网关 I/O 超时默认 300 秒，上限 3600 秒；独立服务的池、SQL、S3 连接/读取和消息预算均可独立限制。0215 的 SQL 工件先安装 core，再安装 delivery；降级会移除完成收据并丢失同键重放结果，故应先停止来源写入并排空活动操作和待派发媒体记录。
 
 回退到本地模式可清空网关 URL 并刷新 API，保留兼容的 SQL 与完成回执，再停止指定独立 Compose 项目。回退迁移前须停止来源写入并处理仍需确认的操作；空库迁移往返不证明删除在途回执安全。Go 仍是隔离实验，不进入本服务或真实环境。
 
@@ -60,4 +76,4 @@ S3 身份只拥有 import 桶 `dataset-uploads/*` 的 Get/Put、datasets 桶历�
 
 S3 源读取核对枚举的 ETag；SFTP 使用已知主机指纹、目录围栏和读取前后身份校验。取消可能无法立即中止外部阻塞调用，但旧结果不能越过 SQL 围栏登记。已提交条目保留；未知或重复的未引用原始拷贝暂不回收。
 
-媒体和通知沿用既有执行方，持久 outbox 由 API maintenance relay 领取并在派发成功后确认。队列投递可能重复；确认代表 broker 接受，不代表媒体计算完成。此能力不迁移 ZIP、扫描、连接器管理和媒体执行本身，也不等同完整 Assets 可独立部署。部署及旧作业排空规则见 `DEV.md` 与 [ADR-0100](/dev/adr/0100-durable-connector-import)。
+媒体和通知沿用既有执行方，持久 outbox 由 API maintenance relay 领取并在派发成功后确认。队列投递可能重复；确认代表 broker 接受，不代表媒体计算完成。此能力不迁移连接器管理和媒体执行本身，也不等同完整 Assets 可独立部署。部署及旧作业排空规则见 `DEV.md`、[ADR-0100](/dev/adr/0100-durable-connector-import) 与 [ADR-0101](/dev/adr/0101-assets-synchronous-zip-and-scan)。

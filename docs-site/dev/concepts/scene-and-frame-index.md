@@ -3,7 +3,7 @@ title: Scene 与帧索引
 audience: [developer]
 type: explanation
 status: stable
-last_reviewed: 2026-07-11
+last_reviewed: 2026-10-18
 ---
 
 # Scene + frame_index（跨 task 帧序列地基）
@@ -143,7 +143,7 @@ scene API 提供列表/单条读取及部分元数据 PATCH；create 由 importe
 
 ### frame_index 赋值(点云 / 多模态)
 
-1. 将素材转换为不可变 `PreparedDatasetItem`，调用 `dataset_frame_grouping.group_frames(items)`，取得 `{frame_stem: GroupedFrame}` 与相机标定事实；场景推断不再导入点云建题模块。
+1. 将素材转换为不可变 `PreparedDatasetItem`，由 `aap_assets_source.frame_layout.group_frames(items)` 取得 `{frame_stem: GroupedFrame}` 与相机标定事实；`aap_assets_source.scene_layout.plan_scenes` 纯函数负责场景和帧索引规划，不依赖 API、ORM 或 SQLAlchemy。
 2. frame_stem 自然排序("000001" < "000010")后 lidar 取 0..N-1。
 3. 同帧 cam item 共享 lidar 的 frame_index。
 4. calib_items 仅写 scene_id,frame_index=NULL。
@@ -151,6 +151,8 @@ scene API 提供列表/单条读取及部分元数据 PATCH；create 由 importe
 ### frame_index 赋值(非点云)
 
 `file_name` 自然排序,所有 items 取 0..N-1。
+
+ZIP 使用 `metadata.source_ingest.relpath` 作为逻辑路径，因此不可变 `dataset-sources/{dataset}/{item}/{publication}/{logical_relpath}` publication 不会把 UUID 段误认成 Scene 名。ZIP 仅在没有任何 Scene 且没有既有 Scene 分配时，对全部历史与新增 Item 一起规划。旧前缀桶扫描只登记 Item，不运行 Scene 推断。
 
 ### 边界
 

@@ -2,7 +2,7 @@
 audience: [dev]
 type: explanation
 status: stable
-last_reviewed: 2026-10-17
+last_reviewed: 2026-10-18
 ---
 
 # 存储连接器（Storage Connections）
@@ -124,7 +124,7 @@ flowchart TD
 
 取消原子设置终态，保留已提交的部分。外部调用可能稍后才返回，但旧租约或终态结果不能登记新素材，因此取消后释放来源删除围栏不会产生迟到写入。S3 使用 ETag 条件读取；SFTP 使用已知主机指纹和目录/源身份检查。原始及不确定拷贝不自动删除。
 
-媒体和实时通知继续使用既有执行方。持久派发记录可恢复提交到队列前后的中断；broker 消息可能重复，派发确认不代表媒体计算完成。ZIP、扫描、连接器管理及其他 Assets 能力仍有独立迁移工作，见 [ADR-0100](/dev/adr/0100-durable-connector-import)。
+媒体和实时通知继续使用既有执行方。持久派发记录可恢复提交到队列前后的中断；broker 消息可能重复，派发确认不代表媒体计算完成。同步 ZIP 与旧前缀扫描现在也由既有 `apps/assets-source` 工作流执行；连接器管理、媒体派生执行和其他 Assets 能力仍有独立迁移工作，见 [ADR-0100](/dev/adr/0100-durable-connector-import)、[ADR-0101](/dev/adr/0101-assets-synchronous-zip-and-scan) 与[来源控制](/api/guides/assets-source)。
 
 请求参数：
 

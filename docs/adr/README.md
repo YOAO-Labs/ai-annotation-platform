@@ -144,3 +144,4 @@
 - [0098](0098-association-read-projections.md) — Same-snapshot owner projections for independent association reads
 - [0099](0099-independent-assets-source-controls.md) — Independent source publication, legacy completion and deletion
 - [0100](0100-durable-connector-import.md) — Durable connector import execution and publication
+- [0101](0101-assets-synchronous-zip-and-scan.md) — Synchronous ZIP and legacy bucket scan in Assets Source

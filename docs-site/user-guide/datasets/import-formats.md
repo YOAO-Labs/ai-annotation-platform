@@ -2,7 +2,7 @@
 audience: [project_admin, super_admin]
 type: how-to
 status: stable
-last_reviewed: 2026-10-17
+last_reviewed: 2026-10-18
 ---
 
 # 点云 / 多模态数据集导入格式
@@ -13,7 +13,7 @@ last_reviewed: 2026-10-17
 
 ## 平台原生目录约定
 
-一个点云 / 多模态 scene 的目录结构(storage key 前缀是 `<dataset_name>/`):
+一个点云或多模态 Scene 的 ZIP 逻辑目录结构如下。下面的路径表示 ZIP 内的逻辑相对路径，不是对象存储 key。ZIP publication 使用独立的 UUID 对象 key；对象桶扫描只读取旧版 `<dataset_name>/` 前缀，不会自动发现这些 publication。
 
 ```
 <dataset_name>/lidar/<frame>.pcd               # 点云帧(file_type=point_cloud)
@@ -21,10 +21,10 @@ last_reviewed: 2026-10-17
 <dataset_name>/calib/camera/<cam>.json          # 每相机一份标定(对该相机所有帧通用)
 ```
 
-- **帧 id = 文件名 stem**(去扩展名),如 `000970`。lidar 与各相机的同一帧必须用**相同的文件名 stem**,平台据此把它们归到一帧(`group_frames`)。
+- **帧 ID = 文件名 stem**（去掉扩展名），例如 `000970`。lidar 和各相机的同一帧必须使用**相同的文件名 stem**，平台按此将它们归为一帧。
 - **相机名 = `camera/` 后那一段**,如 `front` / `left` / `CAM_FRONT`。
 - `calib/camera/<cam>.json` 对该相机的所有帧通用。
-- v0.14.3 起,角色目录也识别常见别名:`lidar_point_cloud_*` / `velodyne` / `points` 视作 lidar,`camera_image_*` / `image` / `cam` 视作 camera,`calibration` 视作 calib。别名只用于路径角色识别,不会改变入库后的 scene / task 契约。
+- 角色目录还识别常见别名：`lidar_point_cloud_*`、`velodyne` 和 `points` 视为 lidar，`camera_image_*`、`image` 和 `cam` 视为 camera，`calibration` 视为 calib。别名只用于路径角色识别，不改变入库后的 Scene/Task 合同。
 
 真实例子(SUSTechPOINTS 示例 scene):
 
@@ -66,13 +66,14 @@ nu-mini-multi/                              # dataset(storage key 前缀)
             └── CAM_FRONT.json
 ```
 
-> 帧 stem 用 `<scene_name>_<6 位序号>`(如 `scene-0061_000000`)而非裸序号:`group_frames` 以**文件名 stem 作帧键**,多 scene 若都用 `000000` 会跨 scene 撞键、漏建 task,加 scene 前缀保证全局唯一。这正是上面 nuScenes 转换脚本对帧命名的处理方式。
+> 帧 stem 使用 `<scene_name>_<6 位序号>`（例如 `scene-0061_000000`），不要只用序号。帧分组以**文件名 stem 作帧键**。多个 Scene 都使用 `000000` 时会发生跨 Scene 键冲突并漏建 Task，所以要把 Scene 名加到帧名前面。nuScenes 转换脚本也按这个规则命名。
 
 scene 边界与 `frame_index` 的概念详见 [Scene + frame_index 跨 task 帧序列地基](/dev/concepts/scene-and-frame-index)。要点:
 
-- 上传 / 入库完成后,**每个 dataset 自动至少有 1 个 scene**(角色目录布局 → 单 scene,名取 dataset 名)。
+- ZIP 导入新增 Item 后，**只有在数据集没有 Scene 且没有既有 Scene 分配时才自动推断 Scene**（角色目录布局对应一个 Scene，名称取 Dataset 名）。推断会同时读取数据集的历史 Item 和本次 ZIP 新增 Item。
 - **一个 dataset 可以装多个 scene**;scene 边界由 importer / 目录布局决定。
 - scene 内 `frame_index` 决定跨帧导航(`Shift+→` 延续、邻帧框叠加)的顺序;跨 scene 不串(scene-A 末帧的"下一帧"为空,不会跳到 scene-B 首帧)。
+- 对象桶扫描只补建 DatasetItem，不推断或断言 Scene。因此扫描不会让原本没有 Scene 的数据集自动变成时序数据集。
 - 管理员也可通过认证 API 客户端调用 `PATCH /api/v1/scenes/{id}` 修正 scene 名称或来源字段；成功响应在事务提交后返回，后续 `GET` 可读取已保存结果。同一 dataset 内重名返回 `409` 且不应用本次其他字段更改；省略字段或传 `null` 表示不修改，`source_metadata: {}` 则清空该字段。
 
 > ⚠️ **不要**把 `lidar` / `camera` / `calib` / `image` / `video` 用作顶层 scene 目录名——它们是角色目录的保留名,会让多 scene 启发式误判为单 scene。
@@ -81,7 +82,7 @@ scene 边界与 `frame_index` 的概念详见 [Scene + frame_index 跨 task 帧�
 
 入库后**含有 scene 的数据集**即"时序数据集",可在数据集列表用 `GET /api/v1/datasets?has_scenes=true` 筛出。该状态由 scene 行实时派生(`has_scenes`),不需要手动维护。
 
-数据集导入向导的「基本信息」步提供「声明为时序数据集（scene）」开关,也可经导入脚本 / API 设置(字段 `is_temporal`)。这是一道导入期"早失败"护栏:声明为时序却没有识别出任何 scene 时,导入直接失败并提示检查目录结构,避免一个本该分 scene 的数据集静默变成零 scene。nuScenes 转换脚本会自动声明 `is_temporal`,并创建一个已开启 scene 模式的配套项目。
+数据集导入向导的「基本信息」步骤提供「声明为时序数据集（Scene）」开关，也可通过导入脚本或 API 字段 `is_temporal` 设置。ZIP 导入会用这项声明做早失败检查：只有 ZIP 会自动推断 Scene；如果请求无法得到可接受的 Scene，数据库事务会回滚并提示检查目录结构。扫描只补建 Item，不推断或断言 Scene。nuScenes 转换脚本会自动设置 `is_temporal` 并创建已开启 Scene 模式的配套项目。
 
 **与 scene 模式项目的关联规则**(对称硬门,API 与界面一致):
 
@@ -100,12 +101,13 @@ scene 模式项目的开启与用法见 [项目管理 · scene 模式项目](/us
 <!-- TODO(v0.14.18) IMAGE_CHECKLIST: images/datasets/import-wizard-3d-type.png — 导入向导「基本信息」步选「3D 点云」+ 勾「声明为时序数据集」;红框:数据类型选择、时序开关、axis_convention 选择器。[manual] -->
 
 - **默认一个 ZIP = 一个 scene**,除非顶层有多个非角色子目录(见上)。
-- 上传上限沿用现有 200MB 整包 / 5000 文件 / 100MB 单文件;nuScenes 单 scene(~80MB)够用,多 scene 请走转换脚本而非向导。整包超 200MB 直接 `413`,错误信息指向本页和转换脚本路线。
+- 直接调用 ZIP API 时，可以发送 UUID `Idempotency-Key`。遇到网络结果不确定时，使用同一 key 和同一 ZIP 重试，服务会回放第一次完成的结果。更换 ZIP 字节后必须生成新 key。响应会回传 `Idempotency-Key` 请求头。
+- ZIP 上限为压缩和展开后的数据各 200 MiB，最多 5,000 个文件条目，单文件不超过 100 MiB，压缩比不超过 100:1，中央目录最多 10,000 条。nuScenes 单 Scene（约 80 MB）通常适合向导。更大的多 Scene 包请使用转换脚本。压缩/展开预算、文件数或压缩比超限会拒绝整包；单文件超限只记录该文件错误。
 - 顶层目录如果混用了保留角色名和 scene 名,响应的 `scene_inference_notes` 会提示冲突原因。
-- 自动跳过 macOS 元数据(`__MACOSX/`)与隐藏文件(`.DS_Store` 等),计入 `skipped` 计数。
+- 系统自动跳过 macOS 元数据（`__MACOSX/`）和隐藏文件（例如 `.DS_Store`）。绝对路径、`..` 等不安全路径也计入 `skipped`，但不会出现在逐文件错误列表里。
 - 跨子目录同名文件(如 `camera/front/000970.jpg` 与 `camera/left/000970.jpg`)按 **content_hash**(文件字节 MD5)去重,同名不冲突——同帧号跨相机是合法的;字节完全相同的重复文件计入 `deduped`。
 
-`POST /api/v1/datasets/{id}/upload-zip` 的成功响应(`200`)形如:
+`POST /api/v1/datasets/{id}/items/upload-zip` 的成功响应（`200`）形如：
 
 ```json
 {
@@ -119,8 +121,9 @@ scene 模式项目的开启与用法见 [项目管理 · scene 模式项目](/us
 }
 ```
 
-- `added`:新入库的 DatasetItem 数;`deduped`:按 content_hash 命中已有内容被跳过的数;`skipped`:被规则跳过(隐藏文件 / zip-slip 等)的数(一个整数计数,不是文件名列表)。
-- `errors`:逐条 `{ "name": <ZIP 内路径>, "error": <原因> }`,如单文件超 100MB、解压失败、对象存储写入失败;不阻断其余文件入库。
+- `added`：新入库的 DatasetItem 数；`deduped`：按 `content_hash` 命中已有内容而跳过的数量；`skipped`：因规则跳过的数量，例如隐藏文件或不安全路径。该字段只返回整数，不返回文件名列表。
+- `total_in_zip` 统计安全解析出的非目录文件条目，包含隐藏条目，但不包含被安全规则拒绝的路径。因此，`skipped` 可能还会计入没有包含在 `total_in_zip` 中的不安全路径。
+- `errors` 逐条返回 `{ "name": <ZIP 内路径>, "error": <原因> }`。例如单文件超过 100 MiB、解压失败或对象存储写入失败。文件级错误不会阻断其余合法文件入库。
 - `linked_tasks`:为新 item 创建并关联到 scene 模式项目的 task 数。
 - `scene_inference_notes`:scene 推断说明,逐条多以 `[scene_name]` 前缀标注属于哪个 scene。一切正常的单 scene 上传通常只会有 calib 项「`N calib items left frame_index=NULL`」这类提示(标定是 scene 级、不参与帧序),甚至为空。顶层同时含保留角色目录与 scene 目录时,这里会出现冲突提示,例如:
 
@@ -128,7 +131,7 @@ scene 模式项目的开启与用法见 [项目管理 · scene 模式项目](/us
   ZIP 顶层同时包含保留角色目录 (lidar) 与 scene 目录 (scene-0061); 多 scene 顶层目录不要使用 lidar/camera/calib/image/video 等角色名。
   ```
 
-> ⚠️ 若数据集已声明为时序(`is_temporal`)却没推断出任何 scene,上传整体回滚并返回 `422`(已写入对象存储的对象会被显式清理),提示检查目录结构——这是导入期「早失败」护栏,而非静默零 scene。
+> 警告：如果数据集已声明为时序（`is_temporal`），但 ZIP 完成后没有可接受的 Scene，整个 ZIP 操作会回滚并返回 `422`，提示检查目录结构。原始来源不会被删除；数据库回滚也不会撤销已经写入的新 publication 字节。
 
 ### B. 命令行脚本入库
 
