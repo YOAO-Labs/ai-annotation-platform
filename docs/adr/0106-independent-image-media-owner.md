@@ -10,8 +10,9 @@ Video execution has an independent Assets Media runtime. Image thumbnails, image
 dimensions and the complete pyramid workflow still use API ORM, storage and
 Celery. Their public Python port does not cover acceptance or execution. Current
 thumbnail keys are mutable; pyramid publication checks a lease token but not its
-expiry or current source binding. Task unlink can expose a prefix to deletion
-before its writer stops, and project deletion does not durably queue those
+expiry or current source binding. Task unlink already delays prefix deletion
+until known writer leases expire, but completed deletion records do not retain
+responsibility for late writes. Project deletion does not durably queue those
 prefixes. These paths must move with image reads and technical projections.
 
 DatasetItem dimensions are registered source facts as well as probe results.
@@ -87,6 +88,13 @@ changes mark drift and prevent implicit adoption. Reads and downloads use
 captured ETag/version/size and final identity checks. No business/source row lock
 spans object I/O. Accepted work survives initiating-account disable or role loss;
 explicit cancellation and changes to its owning source fence later publication.
+
+Backfill acceptance freezes its selection and cutoff. Its worker first receives
+a bounded source page and batch token, then observes objects outside SQL locks.
+An observation commit compares that page's source snapshots, binds identities
+and admits child jobs atomically. The cursor advances with a retained batch
+receipt so a lost response cannot skip or duplicate source admission. Storage
+outages defer this phase; they do not turn into missing-source skips.
 
 Each accepted operation captures `ImagePolicy`, including the existing resource
 and eligibility thresholds. Small thumbnails retain EXIF transpose, RGB,

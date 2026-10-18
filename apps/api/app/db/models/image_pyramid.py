@@ -16,7 +16,7 @@ from sqlalchemy import (
     func,
     text,
 )
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -32,12 +32,10 @@ class ImagePyramidAsset(Base):
     )
     dataset_item_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("dataset_items.id", ondelete="CASCADE"),
         nullable=True,
     )
     task_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("tasks.id", ondelete="CASCADE"),
         nullable=True,
     )
     profile_version: Mapped[str] = mapped_column(String(64), nullable=False)
@@ -86,6 +84,13 @@ class ImagePyramidGeneration(Base):
         nullable=False,
     )
     generation: Mapped[int] = mapped_column(Integer, nullable=False)
+    job_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    job_generation: Mapped[int | None] = mapped_column(BigInteger)
+    source_generation: Mapped[int | None] = mapped_column(BigInteger)
+    source_snapshot: Mapped[str | None] = mapped_column(String(64))
+    output_prefix: Mapped[str | None] = mapped_column(String(1024))
+    manifest: Mapped[dict | None] = mapped_column(JSONB)
+    policy: Mapped[dict | None] = mapped_column(JSONB)
     source_identity: Mapped[str] = mapped_column(String(255), nullable=False)
     source_fingerprint: Mapped[str | None] = mapped_column(String(80), nullable=True)
     status: Mapped[str] = mapped_column(String(16), nullable=False)

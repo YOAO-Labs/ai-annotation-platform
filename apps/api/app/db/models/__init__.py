@@ -153,6 +153,11 @@ from app.db.models.asset_media import (
     AssetMediaOperation,
     AssetMediaTimetableStaging,
 )
+from app.db.models.asset_image import (
+    AssetImageGarbage,
+    AssetImageJob,
+    AssetImageOperation,
+)
 
 __all__ = [
     "TrainedModelVersion",
@@ -261,6 +266,9 @@ __all__ = [
     "AssetMediaOperation",
     "AssetMediaTimetableStaging",
     "AssetMediaGarbage",
+    "AssetImageJob",
+    "AssetImageOperation",
+    "AssetImageGarbage",
 ]
 
 from app.db.models.learning_policy import LearningPolicy, LearningTrigger
