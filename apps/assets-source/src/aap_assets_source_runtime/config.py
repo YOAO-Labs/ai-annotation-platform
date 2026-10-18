@@ -2,14 +2,22 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import ipaddress
+import json
 import math
 import os
 from pathlib import Path
 import re
 from typing import Mapping
 from urllib.parse import urlsplit, urlunsplit
+
+from cryptography.fernet import Fernet
+
+from aap_assets_source.connectors.host_guard import (
+    ConnectorAllowlistInvalid,
+    normalize_allowlist,
+)
 
 
 class ConfigurationError(ValueError):
@@ -42,6 +50,72 @@ def _required_secret(environment: Mapping[str, str], name: str) -> str:
     if not value or not value.strip():
         raise ConfigurationError(f"Configured secret {name} is empty")
     return value
+
+
+def _optional_secret(environment: Mapping[str, str], name: str) -> str:
+    file_name = f"{name}_FILE"
+    direct = environment.get(name)
+    secret_file = environment.get(file_name)
+    direct_value = direct.strip() if direct is not None else ""
+    file_value = secret_file.strip() if secret_file is not None else ""
+    if direct_value and file_value:
+        raise ConfigurationError(f"Set only one of {name} and {file_name}")
+    if direct_value:
+        return direct_value
+    if not file_value:
+        return ""
+    try:
+        value = Path(file_value).read_text(encoding="utf-8").strip()
+    except OSError as exc:
+        raise ConfigurationError(
+            f"Cannot read configured secret file {file_name}"
+        ) from exc
+    return value
+
+
+def _connector_encryption_key(environment: Mapping[str, str]) -> str:
+    value = _optional_secret(environment, "ASSETS_SOURCE_CONNECTOR_ENCRYPTION_KEY")
+    if not value:
+        return ""
+    try:
+        Fernet(value.encode("ascii"))
+    except (ValueError, TypeError, UnicodeEncodeError) as exc:
+        raise ConfigurationError(
+            "ASSETS_SOURCE_CONNECTOR_ENCRYPTION_KEY is invalid"
+        ) from exc
+    return value
+
+
+def _connector_host_allowlist(environment: Mapping[str, str]) -> tuple[str, ...]:
+    raw = environment.get("ASSETS_SOURCE_CONNECTOR_HOST_ALLOWLIST", "[]")
+    try:
+        values = json.loads(raw)
+    except (json.JSONDecodeError, TypeError) as exc:
+        raise ConfigurationError(
+            "ASSETS_SOURCE_CONNECTOR_HOST_ALLOWLIST must be a JSON string array"
+        ) from exc
+    if not isinstance(values, list) or any(type(value) is not str for value in values):
+        raise ConfigurationError(
+            "ASSETS_SOURCE_CONNECTOR_HOST_ALLOWLIST must be a JSON string array"
+        )
+    try:
+        return tuple(normalize_allowlist(values))
+    except ConnectorAllowlistInvalid as exc:
+        raise ConfigurationError(
+            "ASSETS_SOURCE_CONNECTOR_HOST_ALLOWLIST contains an invalid entry"
+        ) from exc
+
+
+def _known_hosts_file(environment: Mapping[str, str]) -> str | None:
+    value = environment.get("ASSETS_SOURCE_SFTP_KNOWN_HOSTS_FILE", "").strip()
+    if not value:
+        return None
+    path = Path(value)
+    if not path.is_file() or not os.access(path, os.R_OK):
+        raise ConfigurationError(
+            "ASSETS_SOURCE_SFTP_KNOWN_HOSTS_FILE must name a readable file"
+        )
+    return str(path)
 
 
 def _postgres_dsn(environment: Mapping[str, str]) -> tuple[str, str]:
@@ -138,6 +212,9 @@ class SourceConfig:
     s3_region: str
     s3_access_key: str
     s3_secret_key: str
+    connector_encryption_key: str = field(repr=False)
+    connector_host_allowlist: tuple[str, ...]
+    sftp_known_hosts_file: str | None
     datasets_bucket: str
     import_bucket: str
     media_cache_bucket: str
@@ -216,6 +293,9 @@ def load_config(environment: Mapping[str, str] | None = None) -> SourceConfig:
         s3_region=region,
         s3_access_key=_required_secret(source, "ASSETS_SOURCE_S3_ACCESS_KEY"),
         s3_secret_key=_required_secret(source, "ASSETS_SOURCE_S3_SECRET_KEY"),
+        connector_encryption_key=_connector_encryption_key(source),
+        connector_host_allowlist=_connector_host_allowlist(source),
+        sftp_known_hosts_file=_known_hosts_file(source),
         datasets_bucket=_bucket(source, "ASSETS_SOURCE_DATASETS_BUCKET"),
         import_bucket=_bucket(source, "ASSETS_SOURCE_IMPORT_BUCKET"),
         media_cache_bucket=_bucket(source, "ASSETS_SOURCE_MEDIA_CACHE_BUCKET"),

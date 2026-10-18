@@ -6,12 +6,33 @@ from uuid import uuid4
 import pytest
 
 from aap_assets_source.contract import SourceFailure, UploadInitRequest
+from aap_assets_source.connections_contract import (
+    CONNECTION_NATIVE_ARGUMENTS,
+    CONNECTION_NATIVE_OPERATIONS,
+    CONNECTION_NATIVE_SIGNATURES,
+    CaptureConnectionRequest,
+    ConnectionFailure,
+    ConnectionPolicyRequest,
+    ConnectionProbeResult,
+    ConnectionReceiptRequest,
+    CreateConnectionIntent,
+    CreateConnectionNativeRequest,
+    DeleteConnectionRequest,
+    EmptyConnectionIntent,
+    ListConnectionsRequest,
+    NativeConnectionsPage,
+    ReadConnectionRequest,
+    RecordConnectionTestRequest,
+    UpdateConnectionIntent,
+    UpdateConnectionNativeRequest,
+)
 from aap_assets_source.deletion_contract import DatasetSourceDeletionCommand
 from aap_assets_source_runtime.config import load_config
 from aap_assets_source_runtime.database import (
     EXPECTED_ASSET_SOURCE_FUNCTIONS,
     NativeDeletionData,
     NativeLegacyUploadData,
+    NativeConnectionsData,
     ROLE_PREFLIGHT_SQL,
     SourceDatabase,
 )
@@ -221,10 +242,10 @@ async def test_scope_mismatch_and_wrong_legacy_receipt_rollback() -> None:
     assert connection.transaction_events == ["begin", "rollback"]
 
 
-def test_role_preflight_is_exactly_fourteen_source_functions_and_rejects_role_links() -> (
+def test_role_preflight_is_exactly_twenty_three_source_functions_and_rejects_extra_access() -> (
     None
 ):
-    assert EXPECTED_ASSET_SOURCE_FUNCTIONS == {
+    expected = {
         "reserve_dataset_upload(uuid,uuid,uuid,text,text)",
         "lock_dataset_upload(uuid,uuid,uuid)",
         "find_dataset_upload_duplicate(uuid,uuid,uuid,text)",
@@ -240,13 +261,289 @@ def test_role_preflight_is_exactly_fourteen_source_functions_and_rejects_role_li
         "read_dataset_ingest_layout(uuid,uuid,uuid,uuid,integer)",
         "finish_dataset_ingest(uuid,uuid,uuid,jsonb)",
     }
+    expected |= {
+        f"{name}({signature})"
+        for name, signature in CONNECTION_NATIVE_SIGNATURES.items()
+    }
+    assert EXPECTED_ASSET_SOURCE_FUNCTIONS == expected
     assert "membership.member = login_role.oid" in ROLE_PREFLIGHT_SQL
     assert "membership.roleid = login_role.oid" in ROLE_PREFLIGHT_SQL
     assert "runtime_privileges.no_table_privileges" in ROLE_PREFLIGHT_SQL
     assert "runtime_privileges.no_sequence_privileges" in ROLE_PREFLIGHT_SQL
-    assert len(EXPECTED_ASSET_SOURCE_FUNCTIONS) == 14
+    assert "aap_assets_v1.' || expected.signature" in ROLE_PREFLIGHT_SQL
+    assert "array_agg(function_oid ORDER BY function_oid)" in ROLE_PREFLIGHT_SQL
+    assert "oidvectortypes" not in ROLE_PREFLIGHT_SQL
+    assert "namespace.nspname <> 'aap_assets_v1'" in ROLE_PREFLIGHT_SQL
+    assert len(EXPECTED_ASSET_SOURCE_FUNCTIONS) == 23
     for signature in EXPECTED_ASSET_SOURCE_FUNCTIONS:
         assert f"('{signature}'::text)" in ROLE_PREFLIGHT_SQL
+
+
+@pytest.mark.asyncio
+async def test_all_nine_connection_capabilities_use_frozen_name_types_and_argument_order() -> (
+    None
+):
+    actor_id, connection_id, operation_id = uuid4(), uuid4(), uuid4()
+    digest = "a" * 64
+    create_intent = CreateConnectionIntent(
+        name="test connection",
+        kind="s3",
+        config={"endpoint": "https://storage.example.test", "bucket": "media"},
+        scope="owner",
+        secret_digest=digest,
+    )
+    update_intent = UpdateConnectionIntent(name=None, config=None, secret_digest=None)
+    probe = ConnectionProbeResult(
+        ok=False, message="连接失败: TimeoutError", sample_count=None
+    )
+    requests_and_args = [
+        (
+            "list_storage_connections",
+            ListConnectionsRequest(actor_id=actor_id, page_size=37),
+            (actor_id, None, None, 37),
+        ),
+        (
+            "read_storage_connection",
+            ReadConnectionRequest(actor_id=actor_id, connection_id=connection_id),
+            (actor_id, connection_id),
+        ),
+        (
+            "read_storage_connection_policy",
+            ConnectionPolicyRequest(
+                actor_id=actor_id, fallback_allowlist=["host.test"]
+            ),
+            (actor_id, ["host.test"]),
+        ),
+        (
+            "capture_storage_connection",
+            CaptureConnectionRequest(
+                actor_id=actor_id,
+                connection_id=connection_id,
+                access="use",
+            ),
+            (actor_id, connection_id, "use"),
+        ),
+        (
+            "read_storage_connection_receipt",
+            ConnectionReceiptRequest(
+                operation_id=operation_id,
+                actor_id=actor_id,
+                action="test",
+                connection_id=connection_id,
+                intent=EmptyConnectionIntent(),
+            ),
+            (
+                operation_id,
+                actor_id,
+                "test",
+                connection_id,
+                EmptyConnectionIntent().model_dump(mode="json"),
+            ),
+        ),
+        (
+            "create_storage_connection",
+            CreateConnectionNativeRequest(
+                operation_id=operation_id,
+                actor_id=actor_id,
+                intent=create_intent,
+                config=create_intent.config,
+                secret_enc="encrypted-secret",
+                policy_digest=digest,
+                fallback_allowlist=["host.test"],
+            ),
+            (
+                operation_id,
+                actor_id,
+                create_intent.model_dump(mode="json"),
+                create_intent.config,
+                "encrypted-secret",
+                digest,
+                ["host.test"],
+                CreateConnectionNativeRequest(
+                    operation_id=operation_id,
+                    actor_id=actor_id,
+                    intent=create_intent,
+                    config=create_intent.config,
+                    secret_enc="encrypted-secret",
+                    policy_digest=digest,
+                    fallback_allowlist=["host.test"],
+                ).audit_context.model_dump(mode="json"),
+            ),
+        ),
+        (
+            "update_storage_connection",
+            UpdateConnectionNativeRequest(
+                operation_id=operation_id,
+                actor_id=actor_id,
+                connection_id=connection_id,
+                intent=update_intent,
+                config={"endpoint": "https://storage.example.test", "bucket": "media"},
+                secret_enc=None,
+                source_snapshot=digest,
+                policy_digest=None,
+                fallback_allowlist=["host.test"],
+            ),
+            (
+                operation_id,
+                actor_id,
+                connection_id,
+                update_intent.model_dump(mode="json"),
+                {"endpoint": "https://storage.example.test", "bucket": "media"},
+                None,
+                digest,
+                None,
+                ["host.test"],
+                UpdateConnectionNativeRequest(
+                    operation_id=operation_id,
+                    actor_id=actor_id,
+                    connection_id=connection_id,
+                    intent=update_intent,
+                    config={
+                        "endpoint": "https://storage.example.test",
+                        "bucket": "media",
+                    },
+                    secret_enc=None,
+                    source_snapshot=digest,
+                    policy_digest=None,
+                    fallback_allowlist=["host.test"],
+                ).audit_context.model_dump(mode="json"),
+            ),
+        ),
+        (
+            "delete_storage_connection",
+            DeleteConnectionRequest(
+                operation_id=operation_id,
+                actor_id=actor_id,
+                connection_id=connection_id,
+            ),
+            (
+                operation_id,
+                actor_id,
+                connection_id,
+                DeleteConnectionRequest(
+                    operation_id=operation_id,
+                    actor_id=actor_id,
+                    connection_id=connection_id,
+                ).audit_context.model_dump(mode="json"),
+            ),
+        ),
+        (
+            "record_storage_connection_test",
+            RecordConnectionTestRequest(
+                operation_id=operation_id,
+                actor_id=actor_id,
+                connection_id=connection_id,
+                source_snapshot=digest,
+                policy_digest=digest,
+                fallback_allowlist=["host.test"],
+                result=probe,
+            ),
+            (
+                operation_id,
+                actor_id,
+                connection_id,
+                digest,
+                digest,
+                ["host.test"],
+                probe.model_dump(mode="json"),
+                RecordConnectionTestRequest(
+                    operation_id=operation_id,
+                    actor_id=actor_id,
+                    connection_id=connection_id,
+                    source_snapshot=digest,
+                    policy_digest=digest,
+                    fallback_allowlist=["host.test"],
+                    result=probe,
+                ).audit_context.model_dump(mode="json"),
+            ),
+        ),
+    ]
+    failure = ConnectionFailure("connection_missing").payload()
+    connection = _Connection(failure)
+    native = NativeConnectionsData(connection, 16_777_216)
+
+    for operation, request, expected_arguments in requests_and_args:
+        method = getattr(native, operation)
+        with pytest.raises(ConnectionFailure) as error:
+            await method(request)
+        assert error.value.code == "connection_missing"
+        expected_types = CONNECTION_NATIVE_SIGNATURES[operation].split(",")
+        placeholders = ", ".join(
+            f"${index}::{type_name}"
+            for index, type_name in enumerate(expected_types, start=1)
+        )
+        assert connection.calls[-1] == (
+            f"SELECT aap_assets_v1.{operation}({placeholders})",
+            expected_arguments,
+        )
+        assert len(expected_arguments) == len(CONNECTION_NATIVE_ARGUMENTS[operation])
+        assert type(request) is CONNECTION_NATIVE_OPERATIONS[operation][0]
+    assert len(connection.calls) == 9
+
+
+@pytest.mark.asyncio
+async def test_connection_namespace_scope_and_response_budget_fail_closed() -> None:
+    actor_id = uuid4()
+    wrong_namespace = _Connection(
+        {
+            "schema": "aap-assets-source/v1",
+            "ok": False,
+            "error": {"code": "connection_missing"},
+        }
+    )
+    native = NativeConnectionsData(wrong_namespace, 16_777_216)
+    request = ListConnectionsRequest(actor_id=actor_id)
+    with pytest.raises(ConnectionFailure) as error:
+        await native.list_storage_connections(request)
+    assert error.value.code == "invalid_response"
+
+    wrong_scope = NativeConnectionsPage(
+        actor_id=uuid4(),
+        after=None,
+        next_cursor=None,
+        snapshot_digest="a" * 64,
+        total=0,
+        complete=True,
+        connections=[],
+    ).model_dump(mode="json")
+    scope_connection = _Connection(
+        {"schema": "aap-assets-connections/v1", "ok": True, "data": wrong_scope}
+    )
+    with pytest.raises(ConnectionFailure) as error:
+        await NativeConnectionsData(
+            scope_connection, 16_777_216
+        ).list_storage_connections(request)
+    assert error.value.code == "invalid_response"
+
+    large_page = {
+        "schema": "aap-assets-connections/v1",
+        "ok": True,
+        "data": {
+            **wrong_scope,
+            "actor_id": str(actor_id),
+            "snapshot_digest": "a" * 64,
+            "connections": [],
+        },
+    }
+    budget_connection = _Connection(large_page)
+    database = SourceDatabase(_Pool(budget_connection), _config(max_response_bytes=32))
+    with pytest.raises(ConnectionFailure) as error:
+        async with database.transaction() as ports:
+            await ports.connections.list_storage_connections(request)
+    assert error.value.code == "invalid_response"
+    assert budget_connection.transaction_events == ["begin", "rollback"]
+
+
+@pytest.mark.asyncio
+async def test_unlisted_native_connection_operation_never_executes_sql() -> None:
+    connection = _Connection(ConnectionFailure("invalid_request").payload())
+    native = NativeConnectionsData(connection, 16_777_216)
+    with pytest.raises(ConnectionFailure) as error:
+        await native._call_connection(
+            "arbitrary_sql_function", None, (), NativeConnectionsPage
+        )
+    assert error.value.code == "invalid_request"
+    assert connection.calls == []
 
 
 @pytest.mark.asyncio

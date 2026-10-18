@@ -44,9 +44,11 @@ importer = [
     { name = "pillow" },
 ]
 server = [
+    { name = "anyio" },
     { name = "asyncpg" },
     { name = "boto3" },
     { name = "fastapi" },
+    { name = "paramiko" },
     { name = "pillow" },
     { name = "uvicorn" },
 ]
@@ -61,6 +63,7 @@ test = [
 requires-dist = [
     { name = "aap-assets-cleanup", editable = "../assets-cleanup" },
     { name = "aap-audit-contract", editable = "../_shared/audit_contract" },
+    { name = "anyio", marker = "extra == 'server'", specifier = ">=4.7.0" },
     { name = "asyncpg", marker = "extra == 'importer'", specifier = ">=0.30.0" },
     { name = "asyncpg", marker = "extra == 'server'", specifier = ">=0.30.0" },
     { name = "boto3", marker = "extra == 'importer'", specifier = ">=1.43.77" },
@@ -69,6 +72,7 @@ requires-dist = [
     { name = "fastapi", marker = "extra == 'server'", specifier = ">=0.115.0" },
     { name = "httpx", marker = "extra == 'test'", specifier = ">=0.27.0" },
     { name = "paramiko", marker = "extra == 'importer'", specifier = ">=3.4.0" },
+    { name = "paramiko", marker = "extra == 'server'", specifier = ">=3.4.0" },
     { name = "pillow", marker = "extra == 'importer'", specifier = ">=10.0.0" },
     { name = "pillow", marker = "extra == 'server'", specifier = ">=10.0.0" },
     { name = "pydantic", specifier = ">=2.10.0" },

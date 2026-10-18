@@ -32,12 +32,27 @@ from aap_assets_source.ingest_contract import (
     IngestReceipt,
     decode_ingest_reply,
 )
+from aap_assets_source.connections_contract import (
+    CONNECTION_OPERATIONS,
+    ConnectionFailure,
+    ConnectionProbeReceipt,
+    CreateConnectionRequest,
+    DeleteConnectionRequest,
+    ListConnectionsRequest,
+    ReadConnectionRequest,
+    TestConnectionRequest,
+    UpdateConnectionRequest,
+    decode_connection_reply,
+)
 from .runtime import SourceRuntime
 
 logger = logging.getLogger("aap_assets_source_runtime")
 _SOURCE_SCHEMA = "aap-assets-source/v1"
 _ZIP_UPLOAD_PATH = "/v1/source/upload-zip"
 _ZIP_SPOOL_MEMORY_BYTES = 8 * 1024 * 1024
+_CONNECTION_PATHS = frozenset(
+    f"/v1/connections/{name}" for name in CONNECTION_OPERATIONS
+)
 
 
 class BoundedHttpBodyMiddleware:
@@ -243,6 +258,18 @@ def _ingest_failure_response(code: str) -> JSONResponse:
     return JSONResponse(status_code=200, content=payload)
 
 
+def _connection_failure_response(code: str) -> JSONResponse:
+    payload = ConnectionFailure(code).payload()
+    try:
+        decode_connection_reply(payload, ConnectionProbeReceipt)
+    except ConnectionFailure as exc:
+        if exc.code != code:
+            raise RuntimeError("Invalid connection failure response") from None
+    else:
+        raise RuntimeError("Connection failure response decoded as success")
+    return JSONResponse(status_code=200, content=payload)
+
+
 async def _run_until_disconnect(request: Request, operation):
     operation_task = asyncio.create_task(operation)
     disconnect_task = asyncio.create_task(_wait_for_disconnect(request))
@@ -336,6 +363,8 @@ def create_app(
     async def request_validation_handler(
         request: Request, _exc: RequestValidationError
     ) -> JSONResponse:
+        if request.url.path in _CONNECTION_PATHS:
+            return _connection_failure_response("invalid_request")
         if request.url.path in {_ZIP_UPLOAD_PATH, "/v1/source/scan"}:
             return _ingest_failure_response("invalid_request")
         return _failure_response("invalid_request")
@@ -438,6 +467,48 @@ def create_app(
         )
         if payload is None:
             return Response(status_code=status.HTTP_204_NO_CONTENT)
+        return Response(content=payload, media_type="application/json")
+
+    @app.post("/v1/connections/list", dependencies=[Depends(_require_gateway)])
+    async def list_connections(
+        request: Request, body: ListConnectionsRequest
+    ) -> Response:
+        payload = await request.app.state.runtime.manage_connection("list", body)
+        return Response(content=payload, media_type="application/json")
+
+    @app.post("/v1/connections/read", dependencies=[Depends(_require_gateway)])
+    async def read_connection(
+        request: Request, body: ReadConnectionRequest
+    ) -> Response:
+        payload = await request.app.state.runtime.manage_connection("read", body)
+        return Response(content=payload, media_type="application/json")
+
+    @app.post("/v1/connections/create", dependencies=[Depends(_require_gateway)])
+    async def create_connection(
+        request: Request, body: CreateConnectionRequest
+    ) -> Response:
+        payload = await request.app.state.runtime.manage_connection("create", body)
+        return Response(content=payload, media_type="application/json")
+
+    @app.post("/v1/connections/update", dependencies=[Depends(_require_gateway)])
+    async def update_connection(
+        request: Request, body: UpdateConnectionRequest
+    ) -> Response:
+        payload = await request.app.state.runtime.manage_connection("update", body)
+        return Response(content=payload, media_type="application/json")
+
+    @app.post("/v1/connections/delete", dependencies=[Depends(_require_gateway)])
+    async def delete_connection(
+        request: Request, body: DeleteConnectionRequest
+    ) -> Response:
+        payload = await request.app.state.runtime.manage_connection("delete", body)
+        return Response(content=payload, media_type="application/json")
+
+    @app.post("/v1/connections/test", dependencies=[Depends(_require_gateway)])
+    async def test_connection(
+        request: Request, body: TestConnectionRequest
+    ) -> Response:
+        payload = await request.app.state.runtime.manage_connection("test", body)
         return Response(content=payload, media_type="application/json")
 
     return app

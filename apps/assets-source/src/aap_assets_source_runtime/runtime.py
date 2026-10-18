@@ -6,9 +6,20 @@ import json
 from collections.abc import Awaitable, Callable
 from typing import BinaryIO, TypeVar
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from .config import SourceConfig
+from aap_assets_source.connections_contract import (
+    CONNECTION_OPERATIONS,
+    CONNECTIONS_SCHEMA,
+    ConnectionFailure,
+    decode_connection_reply,
+    require_connection_scope,
+)
+from aap_assets_source.connections_workflow import (
+    ConnectionsOptions,
+    ConnectionsWorkflow,
+)
 from aap_assets_source.contract import (
     SourceDeletionRequest,
     SourceFailure,
@@ -91,6 +102,41 @@ class SourceRuntime:
             return await self._ingest_workflow(ports).scan(command)
 
         return await self._run_ingest(operation)
+
+    async def manage_connection(self, operation_name: str, request: BaseModel) -> bytes:
+        try:
+            request_type, result_type = CONNECTION_OPERATIONS[operation_name]
+        except KeyError:
+            raise ConnectionFailure("invalid_request") from None
+        if type(request) is not request_type:
+            raise ConnectionFailure("invalid_request")
+
+        async def operation(ports: SourceDataPorts) -> BaseModel:
+            workflow = ConnectionsWorkflow(
+                native=ports.connections,
+                options=ConnectionsOptions(
+                    encryption_key=self._config.connector_encryption_key,
+                    fallback_allowlist=self._config.connector_host_allowlist,
+                    known_hosts_file=self._config.sftp_known_hosts_file,
+                ),
+            )
+            result = await workflow.invoke(operation_name, request)
+            if type(result) is not result_type:
+                raise ConnectionFailure("invalid_response")
+            return result
+
+        try:
+            async with self._database.transaction() as ports:
+                try:
+                    result = await operation(ports)
+                    body = self._encode_connection_success(request, result, result_type)
+                except ConnectionFailure as exc:
+                    raise _ExpectedFailure(
+                        self._encode_connection_failure(exc, result_type)
+                    ) from exc
+            return body
+        except _ExpectedFailure as exc:
+            return exc.body
 
     async def ready(self) -> bool:
         return await self._database.ready()
@@ -224,4 +270,56 @@ class SourceRuntime:
             raise IngestFailure("invalid_response") from None
         if len(body) > self._config.max_response_bytes:
             raise IngestFailure("service_unavailable")
+        return body
+
+    def _encode_connection_success(
+        self,
+        request: BaseModel,
+        result: BaseModel,
+        result_type: type[BaseModel],
+    ) -> bytes:
+        payload = {
+            "schema": CONNECTIONS_SCHEMA,
+            "ok": True,
+            "data": result.model_dump(mode="json"),
+        }
+        try:
+            decoded = decode_connection_reply(payload, result_type)
+            require_connection_scope(request, decoded)
+        except ConnectionFailure:
+            raise
+        except (TypeError, ValueError, ValidationError):
+            raise ConnectionFailure("invalid_response") from None
+        if decoded != result:
+            raise ConnectionFailure("invalid_response")
+        return self._serialize_connection(payload)
+
+    def _encode_connection_failure(
+        self, failure: ConnectionFailure, result_type: type[BaseModel]
+    ) -> bytes:
+        try:
+            payload = failure.payload()
+            try:
+                decode_connection_reply(payload, result_type)
+            except ConnectionFailure as decoded:
+                if (decoded.code, decoded.message) != (failure.code, failure.message):
+                    raise ConnectionFailure("invalid_response") from None
+            else:
+                raise ConnectionFailure("invalid_response")
+        except (TypeError, ValueError):
+            payload = ConnectionFailure("invalid_response").payload()
+        return self._serialize_connection(payload)
+
+    def _serialize_connection(self, payload: dict) -> bytes:
+        try:
+            body = json.dumps(
+                payload,
+                ensure_ascii=False,
+                separators=(",", ":"),
+                allow_nan=False,
+            ).encode("utf-8")
+        except (TypeError, ValueError):
+            raise ConnectionFailure("invalid_response") from None
+        if len(body) > self._config.max_response_bytes:
+            raise ConnectionFailure("resource_budget_exceeded")
         return body

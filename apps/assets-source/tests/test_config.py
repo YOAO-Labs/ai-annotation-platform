@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pytest
+from cryptography.fernet import Fernet
 
 from aap_assets_source_runtime.config import ConfigurationError, load_config
 
@@ -30,6 +31,9 @@ def test_config_uses_bounded_defaults_and_media_cache_cleanup_target() -> None:
     assert config.max_response_bytes == 16_777_216
     assert (config.pool_min_size, config.pool_max_size) == (1, 8)
     assert config.cleanup_bucket == "media-cache"
+    assert config.connector_encryption_key == ""
+    assert config.connector_host_allowlist == ()
+    assert config.sftp_known_hosts_file is None
     assert config.upload_url_expires_seconds == 900
     assert config.image_header_bytes == 256 * 1024
 
@@ -65,6 +69,107 @@ def test_secrets_accept_file_input_and_reject_direct_and_file_together(
             {
                 **_environment(),
                 "ASSETS_SOURCE_TOKEN_FILE": str(token_file),
+            }
+        )
+
+
+def test_connector_key_is_optional_and_accepts_explicit_direct_or_file_input(
+    tmp_path,
+) -> None:
+    key = Fernet.generate_key().decode("ascii")
+    direct_config = load_config(
+        {**_environment(), "ASSETS_SOURCE_CONNECTOR_ENCRYPTION_KEY": key}
+    )
+    assert direct_config.connector_encryption_key == key
+    assert key not in repr(direct_config)
+
+    key_file = tmp_path / "connector-key"
+    key_file.write_text(f"{key}\n", encoding="utf-8")
+    assert (
+        load_config(
+            {
+                **_environment(),
+                "ASSETS_SOURCE_CONNECTOR_ENCRYPTION_KEY_FILE": str(key_file),
+            }
+        ).connector_encryption_key
+        == key
+    )
+
+    with pytest.raises(ConfigurationError, match="Set only one"):
+        load_config(
+            {
+                **_environment(),
+                "ASSETS_SOURCE_CONNECTOR_ENCRYPTION_KEY": key,
+                "ASSETS_SOURCE_CONNECTOR_ENCRYPTION_KEY_FILE": str(key_file),
+            }
+        )
+
+    with pytest.raises(ConfigurationError, match="Cannot read configured secret file"):
+        load_config(
+            {
+                **_environment(),
+                "ASSETS_SOURCE_CONNECTOR_ENCRYPTION_KEY_FILE": str(
+                    tmp_path / "missing-connector-key"
+                ),
+            }
+        )
+
+
+def test_connector_settings_never_fall_back_to_api_or_importer_environment() -> None:
+    config = load_config(
+        {
+            **_environment(),
+            "CONNECTOR_ENCRYPTION_KEY": Fernet.generate_key().decode("ascii"),
+            "CONNECTOR_HOST_ALLOWLIST": '["api-only.example.test"]',
+        }
+    )
+    assert config.connector_encryption_key == ""
+    assert config.connector_host_allowlist == ()
+
+
+def test_connector_config_is_strict_and_does_not_echo_secrets(tmp_path) -> None:
+    invalid_key = "not-a-fernet-key-sensitive"
+    with pytest.raises(ConfigurationError, match="is invalid") as key_error:
+        load_config(
+            {
+                **_environment(),
+                "ASSETS_SOURCE_CONNECTOR_ENCRYPTION_KEY": invalid_key,
+            }
+        )
+    assert invalid_key not in str(key_error.value)
+
+    with pytest.raises(ConfigurationError, match="JSON string array"):
+        load_config(
+            {
+                **_environment(),
+                "ASSETS_SOURCE_CONNECTOR_HOST_ALLOWLIST": '{"host":"x"}',
+            }
+        )
+    with pytest.raises(ConfigurationError, match="invalid entry"):
+        load_config(
+            {
+                **_environment(),
+                "ASSETS_SOURCE_CONNECTOR_HOST_ALLOWLIST": '["https://host.test"]',
+            }
+        )
+
+    known_hosts = tmp_path / "known_hosts"
+    known_hosts.write_text("example.test ssh-ed25519 key\n", encoding="utf-8")
+    config = load_config(
+        {
+            **_environment(),
+            "ASSETS_SOURCE_CONNECTOR_HOST_ALLOWLIST": '[".example.test", "192.0.2.0/24"]',
+            "ASSETS_SOURCE_SFTP_KNOWN_HOSTS_FILE": str(known_hosts),
+        }
+    )
+    assert config.connector_host_allowlist == (".example.test", "192.0.2.0/24")
+    assert config.sftp_known_hosts_file == str(known_hosts)
+
+    with pytest.raises(ConfigurationError, match="readable file"):
+        load_config(
+            {
+                **_environment(),
+                "ASSETS_SOURCE_SFTP_KNOWN_HOSTS_FILE": str(tmp_path / "missing"),
             }
         )
 

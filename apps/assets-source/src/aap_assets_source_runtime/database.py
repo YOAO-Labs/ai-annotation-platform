@@ -1,4 +1,4 @@
-"""asyncpg bindings for the fourteen public Assets source capabilities."""
+"""asyncpg bindings for the twenty-three public Assets source capabilities."""
 
 from __future__ import annotations
 
@@ -12,6 +12,30 @@ import asyncpg
 from pydantic import BaseModel, ValidationError
 
 from .config import SourceConfig
+from aap_assets_source.connections_contract import (
+    CONNECTION_NATIVE_ARGUMENTS,
+    CONNECTION_NATIVE_OPERATIONS,
+    CONNECTION_NATIVE_SIGNATURES,
+    CaptureConnectionRequest,
+    ConnectionCapture,
+    ConnectionFailure,
+    ConnectionPolicy,
+    ConnectionPolicyRequest,
+    ConnectionProbeReceipt,
+    ConnectionReceiptLookup,
+    ConnectionReceiptRequest,
+    CreateConnectionNativeRequest,
+    DeleteConnectionRequest,
+    ListConnectionsRequest,
+    NativeConnectionMutation,
+    NativeConnectionRead,
+    NativeConnectionsPage,
+    ReadConnectionRequest,
+    RecordConnectionTestRequest,
+    UpdateConnectionNativeRequest,
+    decode_connection_reply,
+    require_connection_scope,
+)
 from aap_assets_source.contract import SourceFailure, UploadInitRequest
 from aap_assets_source.ingest_contract import (
     IngestBatchPlan,
@@ -67,25 +91,20 @@ EXPECTED_ASSET_SOURCE_FUNCTIONS = frozenset(
         "read_dataset_ingest_layout(uuid,uuid,uuid,uuid,integer)",
         "finish_dataset_ingest(uuid,uuid,uuid,jsonb)",
     }
+    | {
+        f"{name}({signature})"
+        for name, signature in CONNECTION_NATIVE_SIGNATURES.items()
+    }
+)
+
+_EXPECTED_FUNCTION_VALUES = ",\n        ".join(
+    f"('{signature}'::text)" for signature in sorted(EXPECTED_ASSET_SOURCE_FUNCTIONS)
 )
 
 ROLE_PREFLIGHT_SQL = """
 WITH expected(signature) AS (
     VALUES
-        ('reserve_dataset_upload(uuid,uuid,uuid,text,text)'::text),
-        ('lock_dataset_upload(uuid,uuid,uuid)'::text),
-        ('find_dataset_upload_duplicate(uuid,uuid,uuid,text)'::text),
-        ('complete_dataset_upload(uuid,uuid,uuid,uuid,bigint,text,integer,integer)'::text),
-        ('discard_dataset_upload(uuid,uuid,uuid,text)'::text),
-        ('delete_dataset(uuid,uuid,uuid,text,jsonb)'::text),
-        ('delete_dataset_item(uuid,uuid,uuid,uuid,text,jsonb)'::text),
-        ('lock_legacy_dataset_upload(uuid,uuid,uuid,uuid)'::text),
-        ('complete_legacy_dataset_upload(uuid,uuid,uuid,uuid,text,bigint,text,integer,integer)'::text),
-        ('begin_dataset_ingest(uuid,uuid,uuid,jsonb)'::text),
-        ('prepare_dataset_ingest_batch(uuid,uuid,uuid,uuid,jsonb)'::text),
-        ('complete_dataset_ingest_batch(uuid,uuid,uuid,uuid,jsonb)'::text),
-        ('read_dataset_ingest_layout(uuid,uuid,uuid,uuid,integer)'::text),
-        ('finish_dataset_ingest(uuid,uuid,uuid,jsonb)'::text)
+        {expected_functions}
 ),
 target_login AS (
     SELECT role_row.*
@@ -93,19 +112,13 @@ target_login AS (
     WHERE role_row.rolname = current_user
 ),
 expected_oids AS (
-    SELECT
-        expected.signature,
-        pg_catalog.to_regprocedure(
-            'aap_assets_v1.' || expected.signature
-        )::oid AS function_oid
+    SELECT pg_catalog.to_regprocedure(
+        'aap_assets_v1.' || expected.signature
+    )::oid AS function_oid
     FROM expected
 ),
 accessible_assets_functions AS (
-    SELECT
-        proc.proname || '('
-            || pg_catalog.replace(
-                pg_catalog.oidvectortypes(proc.proargtypes), ' ', ''
-            ) || ')' AS signature
+    SELECT proc.oid AS function_oid
     FROM pg_catalog.pg_proc AS proc
     JOIN pg_catalog.pg_namespace AS namespace
       ON namespace.oid = proc.pronamespace
@@ -191,7 +204,9 @@ SELECT
     AND NOT EXISTS (
         SELECT 1
         FROM pg_catalog.pg_namespace AS namespace
-        WHERE namespace.nspname ~ '^aap_[a-z0-9_]+_v1$'
+        WHERE namespace.nspname NOT IN ('pg_catalog', 'information_schema')
+          AND namespace.nspname NOT LIKE 'pg_toast%'
+          AND namespace.nspname NOT LIKE 'pg_temp_%'
           AND namespace.nspname <> 'aap_assets_v1'
           AND pg_catalog.has_schema_privilege(
               current_user, namespace.oid, 'USAGE'
@@ -215,18 +230,18 @@ SELECT
            )
     )
     AND (
-        SELECT pg_catalog.array_agg(signature ORDER BY signature)
+        SELECT pg_catalog.array_agg(function_oid ORDER BY function_oid)
         FROM accessible_assets_functions
     ) = (
-        SELECT pg_catalog.array_agg(signature ORDER BY signature)
-        FROM expected
+        SELECT pg_catalog.array_agg(function_oid ORDER BY function_oid)
+        FROM expected_oids
     )
     AND runtime_privileges.no_table_privileges
     AND runtime_privileges.no_column_privileges
     AND runtime_privileges.no_sequence_privileges AS is_scoped
 FROM target_login AS login_role
 CROSS JOIN runtime_privileges
-"""
+""".replace("{expected_functions}", _EXPECTED_FUNCTION_VALUES)
 
 _Result = TypeVar("_Result", bound=BaseModel)
 _NativeDecoder = Callable[[object], _Result]
@@ -244,6 +259,7 @@ class SourceDataPorts:
     legacy_uploads: NativeLegacyUploadData
     deletions: NativeDeletionData
     ingest: NativeIngestData
+    connections: NativeConnectionsData
 
 
 class _NativeData:
@@ -294,6 +310,190 @@ class _NativeData:
         except (TypeError, ValueError):
             raise SourceFailure("invalid_response") from None
         return payload
+
+
+class NativeConnectionsData(_NativeData):
+    """Bindings for the nine Assets-owned connection capabilities."""
+
+    async def list_storage_connections(
+        self, request: ListConnectionsRequest
+    ) -> NativeConnectionsPage:
+        after = request.after
+        return await self._call_connection(
+            "list_storage_connections",
+            request,
+            (
+                request.actor_id,
+                after.created_at if after is not None else None,
+                after.id if after is not None else None,
+                request.page_size,
+            ),
+            NativeConnectionsPage,
+        )
+
+    async def read_storage_connection(
+        self, request: ReadConnectionRequest
+    ) -> NativeConnectionRead:
+        return await self._call_connection(
+            "read_storage_connection",
+            request,
+            (request.actor_id, request.connection_id),
+            NativeConnectionRead,
+        )
+
+    async def read_storage_connection_policy(
+        self, request: ConnectionPolicyRequest
+    ) -> ConnectionPolicy:
+        return await self._call_connection(
+            "read_storage_connection_policy",
+            request,
+            (
+                request.actor_id,
+                request.fallback_allowlist,
+            ),
+            ConnectionPolicy,
+        )
+
+    async def capture_storage_connection(
+        self, request: CaptureConnectionRequest
+    ) -> ConnectionCapture:
+        return await self._call_connection(
+            "capture_storage_connection",
+            request,
+            (
+                request.actor_id,
+                request.connection_id,
+                request.access,
+            ),
+            ConnectionCapture,
+        )
+
+    async def read_storage_connection_receipt(
+        self, request: ConnectionReceiptRequest
+    ) -> ConnectionReceiptLookup:
+        return await self._call_connection(
+            "read_storage_connection_receipt",
+            request,
+            (
+                request.operation_id,
+                request.actor_id,
+                request.action,
+                request.connection_id,
+                request.intent.model_dump(mode="json"),
+            ),
+            ConnectionReceiptLookup,
+        )
+
+    async def create_storage_connection(
+        self, request: CreateConnectionNativeRequest
+    ) -> NativeConnectionMutation:
+        return await self._call_connection(
+            "create_storage_connection",
+            request,
+            (
+                request.operation_id,
+                request.actor_id,
+                request.intent.model_dump(mode="json"),
+                request.config,
+                request.secret_enc,
+                request.policy_digest,
+                request.fallback_allowlist,
+                request.audit_context.model_dump(mode="json"),
+            ),
+            NativeConnectionMutation,
+        )
+
+    async def update_storage_connection(
+        self, request: UpdateConnectionNativeRequest
+    ) -> NativeConnectionMutation:
+        return await self._call_connection(
+            "update_storage_connection",
+            request,
+            (
+                request.operation_id,
+                request.actor_id,
+                request.connection_id,
+                request.intent.model_dump(mode="json"),
+                request.config,
+                request.secret_enc,
+                request.source_snapshot,
+                request.policy_digest,
+                request.fallback_allowlist,
+                request.audit_context.model_dump(mode="json"),
+            ),
+            NativeConnectionMutation,
+        )
+
+    async def delete_storage_connection(
+        self, request: DeleteConnectionRequest
+    ) -> NativeConnectionMutation:
+        return await self._call_connection(
+            "delete_storage_connection",
+            request,
+            (
+                request.operation_id,
+                request.actor_id,
+                request.connection_id,
+                request.audit_context.model_dump(mode="json"),
+            ),
+            NativeConnectionMutation,
+        )
+
+    async def record_storage_connection_test(
+        self, request: RecordConnectionTestRequest
+    ) -> ConnectionProbeReceipt:
+        return await self._call_connection(
+            "record_storage_connection_test",
+            request,
+            (
+                request.operation_id,
+                request.actor_id,
+                request.connection_id,
+                request.source_snapshot,
+                request.policy_digest,
+                request.fallback_allowlist,
+                request.result.model_dump(mode="json"),
+                request.audit_context.model_dump(mode="json"),
+            ),
+            ConnectionProbeReceipt,
+        )
+
+    async def _call_connection(
+        self,
+        operation: str,
+        request: BaseModel,
+        arguments: tuple[Any, ...],
+        result_type: type[_Result],
+    ) -> _Result:
+        try:
+            request_type, expected_result_type = CONNECTION_NATIVE_OPERATIONS[operation]
+            if type(request) is not request_type:
+                raise ConnectionFailure("invalid_request")
+            if result_type is not expected_result_type or len(arguments) != len(
+                CONNECTION_NATIVE_ARGUMENTS[operation]
+            ):
+                raise ConnectionFailure("invalid_response")
+            signature = CONNECTION_NATIVE_SIGNATURES[operation]
+        except (KeyError, TypeError):
+            raise ConnectionFailure("invalid_request") from None
+
+        placeholders = ", ".join(
+            f"${index}::{type_name}"
+            for index, type_name in enumerate(signature.split(","), start=1)
+        )
+        statement = f"SELECT aap_assets_v1.{operation}({placeholders})"
+        raw = await self._connection.fetchval(statement, *arguments)
+        try:
+            payload = self._parse_payload(raw)
+            result = decode_connection_reply(payload, result_type)
+            require_connection_scope(request, result)
+        except ConnectionFailure:
+            raise
+        except SourceFailure:
+            raise ConnectionFailure("invalid_response") from None
+        except (TypeError, ValueError, ValidationError):
+            raise ConnectionFailure("invalid_response") from None
+        return result
 
 
 class NativeUploadData(_NativeData):
@@ -712,6 +912,9 @@ class SourceDatabase:
                         connection, self._config.max_response_bytes
                     ),
                     ingest=NativeIngestData(
+                        connection, self._config.max_response_bytes
+                    ),
+                    connections=NativeConnectionsData(
                         connection, self._config.max_response_bytes
                     ),
                 )
