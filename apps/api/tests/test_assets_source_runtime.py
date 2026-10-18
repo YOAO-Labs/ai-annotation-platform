@@ -73,10 +73,14 @@ def _start_source(image, identity, environment, suffix=""):
         "no-new-privileges:true",
         "--pids-limit",
         "64",
+        "--memory",
+        "512m",
+        "--cpus",
+        "0.5",
         "--health-interval",
         "1s",
         "--tmpfs",
-        "/tmp:rw,noexec,nosuid,size=16m",
+        "/tmp:rw,noexec,nosuid,size=256m",
         "--env-file",
         str(environment),
         image,
@@ -239,6 +243,19 @@ async def _source_stack(test_engine, app_module, monkeypatch):
             async with world.maker.begin() as owner:
                 datasets = [world.dataset_id, *extras]
                 for table in (
+                    "dataset_source_ingest_deliveries",
+                    "dataset_source_ingest_entries",
+                ):
+                    await owner.execute(
+                        text(
+                            f"DELETE FROM public.{table} WHERE operation_id IN "
+                            "(SELECT operation_id FROM public.dataset_source_ingest_operations "
+                            "WHERE dataset_id=ANY(CAST(:ids AS uuid[])))"
+                        ),
+                        {"ids": datasets},
+                    )
+                for table in (
+                    "dataset_source_ingest_operations",
                     "dataset_legacy_upload_operations",
                     "dataset_source_deletion_operations",
                     "task_append_operations",
@@ -520,7 +537,7 @@ async def test_independent_source_publication_legacy_replay_deletion_and_switchi
             lambda: scoped.put_object(
                 Bucket=storage.datasets_bucket, Key=legacy_key, Body=b"overwrite"
             ),
-            lambda: scoped.list_objects_v2(Bucket=storage.datasets_bucket),
+            lambda: scoped.list_objects_v2(Bucket=storage.import_bucket),
             lambda: scoped.get_object(
                 Bucket=storage.media_cache_bucket, Key="image-pyramids/forbidden"
             ),
@@ -528,6 +545,12 @@ async def test_independent_source_publication_legacy_replay_deletion_and_switchi
             with pytest.raises(ClientError) as error:
                 command()
             assert error.value.response["ResponseMetadata"]["HTTPStatusCode"] == 403
+        assert (
+            scoped.list_objects_v2(Bucket=storage.datasets_bucket, MaxKeys=1)[
+                "ResponseMetadata"
+            ]["HTTPStatusCode"]
+            == 200
+        )
         scoped.close()
         bad_values = {
             **stack.values,

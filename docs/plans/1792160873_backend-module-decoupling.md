@@ -1,6 +1,6 @@
 # 后端业务模块解耦与跨语言替换设计
 
-> Status: 进行中。当前目标覆盖 identity、workspace、assets、labeling、inference、learning、insights、jobs、audit、notifications 及运行装配。前序 Python 进程内切片、常驻 API 恢复和既有训练作业执行权交接已完成。assets 视频探测三个操作已提供独立 Python 工件、流式合同及真实调用端的 Node 替换验收；同步 ZIP 与旧前缀扫描已纳入既有 Assets Source 工件及 0215 原生合同，隔离运行资格待单独记录。Assets CRUD、标定、派生媒体、脚本和其余模块提取继续推进。Go 月报保持独立实验，其可用性和容量不作为本目标门槛。当前各模块缺口见[模块部署与语言替换状态](../../docs-site/dev/concepts/module-deployment.md)。
+> Status: 进行中。当前目标覆盖 identity、workspace、assets、labeling、inference、learning、insights、jobs、audit、notifications 及运行装配。前序 Python 进程内切片、常驻 API 恢复和既有训练作业执行权交接已完成。assets 视频探测三个操作已提供独立 Python 工件、流式合同及真实调用端的 Node 替换验收；同步 ZIP 与旧前缀扫描已纳入既有 Assets Source 工件及 0215 原生合同，并通过真实隔离服务、受限角色与故障恢复验收。Assets CRUD、标定、派生媒体、脚本和其余模块提取继续推进。Go 月报保持独立实验，其可用性和容量不作为本目标门槛。当前各模块缺口见[模块部署与语言替换状态](../../docs-site/dev/concepts/module-deployment.md)。
 >
 > 创建日期：2026-10-16。
 >
@@ -1725,4 +1725,5 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
 - ZIP writes only immutable `dataset-sources/{dataset}/{item}/{publication}/{logical_relpath}` objects and records the logical relative path in `metadata.source_ingest`. Scan lists only the exact legacy `{Dataset.name}/` prefix in the configured datasets bucket; it does not adopt modern publications or infer Scenes.
 - Item writes, Dataset counts, Labeling append receipts, ZIP Scene/frame updates, operation receipts and media delivery intents share one outer transaction. Completed requests retain their first receipt for the original actor, Dataset, operation kind and request identity. Raw source objects are never overwritten or deleted.
 - The source LOGIN surface grows from nine existing functions to 14 with five ingest capabilities. The two media delivery claim/ack functions belong to the API maintenance relay. No new runtime environment variables are required.
-- Root owns isolated database, source-runtime and normal-consumer acceptance evidence. This plan records no new acceptance counts or production qualification. The larger goal remains active with other Assets CRUD, calibration, derived media, scripts and all remaining modules still to be extracted and qualified.
+- Local integration and follow-up results cover 775 distinct passing cases without business skips. The standalone package passes 221 cases, SDK/CLI and catalog checks 96, and focused Web checks 32. Real Source HTTP/SQL/S3 cases cover lost-response replay, process loss, whole-operation rollback, immutable object retention, media outbox retry, historical scene inputs, 1,003-object pagination and the declared 512 MiB/256 MiB resource profile. Frozen SQL install/rollback and all four migration phases pass.
+- The larger goal remains active with other Assets CRUD, calibration, derived media, scripts and all remaining modules still to be extracted and qualified. These local slice results do not establish production capacity or full module deployment.

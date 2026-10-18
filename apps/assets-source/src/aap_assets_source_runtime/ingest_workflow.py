@@ -23,6 +23,7 @@ from aap_assets_source.ingest_contract import (
     SCAN_REQUEST_DIGEST,
     ZIP_ENTRY_MAX_BYTES,
     ZIP_MAX_BYTES,
+    ZIP_MAX_CENTRAL_DIRECTORY_ENTRIES,
     ZIP_MAX_FILES,
     IngestCommand,
     IngestDescriptor,
@@ -85,7 +86,7 @@ class IngestWorkflow:
                     max_entry_bytes=ZIP_ENTRY_MAX_BYTES,
                     max_total_bytes=ZIP_MAX_BYTES,
                     max_compression_ratio=100,
-                    max_central_directory_entries=10_000,
+                    max_central_directory_entries=ZIP_MAX_CENTRAL_DIRECTORY_ENTRIES,
                 ),
                 skip_unsafe_paths=True,
             )

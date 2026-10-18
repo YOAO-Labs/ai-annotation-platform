@@ -491,10 +491,18 @@ AS $function$
             item.scene_id, item.frame_index,
             CASE
                 WHEN pg_catalog.jsonb_typeof(
+                    item.metadata -> 'source_ingest' -> 'operation_id'
+                ) = 'string'
+                AND pg_catalog.replace(pg_catalog.btrim(pg_catalog.replace(
+                    pg_catalog.replace(item.metadata -> 'source_ingest' ->> 'operation_id',
+                        'urn:', ''), 'uuid:', ''), '{}'), '-', '')
+                    ~* '^[0-9a-f]{32}$'
+                AND pg_catalog.jsonb_typeof(
                     item.metadata -> 'source_ingest' -> 'relpath'
-                ) = 'string' AND pg_catalog.char_length(
+                ) = 'string'
+                AND aap_assets_v1._dataset_source_ingest_relative_path_valid(
                     item.metadata -> 'source_ingest' ->> 'relpath'
-                ) BETWEEN 1 AND 4096
+                )
                     THEN item.metadata -> 'source_ingest' ->> 'relpath'
                 ELSE NULL
             END AS logical_path
@@ -1609,10 +1617,18 @@ BEGIN
             item.scene_id, item.frame_index,
             CASE
                 WHEN pg_catalog.jsonb_typeof(
+                    item.metadata -> 'source_ingest' -> 'operation_id'
+                ) = 'string'
+                AND pg_catalog.replace(pg_catalog.btrim(pg_catalog.replace(
+                    pg_catalog.replace(item.metadata -> 'source_ingest' ->> 'operation_id',
+                        'urn:', ''), 'uuid:', ''), '{}'), '-', '')
+                    ~* '^[0-9a-f]{32}$'
+                AND pg_catalog.jsonb_typeof(
                     item.metadata -> 'source_ingest' -> 'relpath'
-                ) = 'string' AND pg_catalog.char_length(
+                ) = 'string'
+                AND aap_assets_v1._dataset_source_ingest_relative_path_valid(
                     item.metadata -> 'source_ingest' ->> 'relpath'
-                ) BETWEEN 1 AND 4096
+                )
                     THEN item.metadata -> 'source_ingest' ->> 'relpath'
                 ELSE NULL
             END AS logical_path,

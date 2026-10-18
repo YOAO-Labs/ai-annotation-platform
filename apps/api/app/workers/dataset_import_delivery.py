@@ -1,4 +1,4 @@
-"""Retry connector-import delivery handoffs after their business commit."""
+"""Retry Assets import delivery handoffs after their business commit."""
 
 from __future__ import annotations
 
@@ -7,11 +7,16 @@ import logging
 import uuid
 
 from aap_assets_source.import_delivery_contract import DatasetImportDelivery
+from aap_assets_source.ingest_contract import IngestDeliveryLease
 
 from app.services.dataset_import_delivery import (
     claim_dataset_import_delivery,
     complete_dataset_import_delivery,
     dataset_import_delivery_target_is_current,
+)
+from app.services.dataset_source_ingest_delivery import (
+    claim_dataset_source_ingest_delivery,
+    complete_dataset_source_ingest_delivery,
 )
 from app.services.media_job_dispatch import MediaJobDispatcher
 from app.services.notification import NotificationService
@@ -67,15 +72,45 @@ async def _deliver_one(
     return "delivered"
 
 
+async def _deliver_source_ingest_one(
+    db,
+    delivery: IngestDeliveryLease,
+    dispatcher: MediaJobDispatcher,
+) -> str:
+    is_current = await dataset_import_delivery_target_is_current(db, delivery)
+    await db.commit()
+    if is_current:
+        if delivery.kind == "thumbnail":
+            dispatcher.dispatch_thumbnail(delivery.target_id)
+        else:
+            dispatcher.dispatch_video_metadata(delivery.target_id)
+    await complete_dataset_source_ingest_delivery(
+        db, delivery_id=delivery.id, lease_token=delivery.lease_token
+    )
+    await db.commit()
+    return "delivered" if is_current else "stale"
+
+
 async def _relay_pending() -> dict[str, int]:
     totals = {"claimed": 0, "delivered": 0, "stale": 0, "deferred": 0}
     dispatcher = CeleryMediaJobDispatcher()
+    queues = (
+        (claim_dataset_import_delivery, _deliver_one),
+        (claim_dataset_source_ingest_delivery, _deliver_source_ingest_one),
+    )
+    drained = set()
+    turn = 0
 
     async with task_session() as db:
-        for _ in range(MAX_DELIVERIES_PER_RUN):
+        while totals["claimed"] < MAX_DELIVERIES_PER_RUN and len(drained) < len(queues):
+            index = turn % len(queues)
+            turn += 1
+            if index in drained:
+                continue
+            claim, deliver = queues[index]
             lease_token = uuid.uuid4()
             try:
-                delivery = await claim_dataset_import_delivery(
+                delivery = await claim(
                     db,
                     lease_token=lease_token,
                     lease_seconds=DELIVERY_LEASE_SECONDS,
@@ -83,20 +118,24 @@ async def _relay_pending() -> dict[str, int]:
                 await db.commit()
             except Exception:
                 await db.rollback()
-                log.exception("dataset import delivery claim failed")
-                break
+                log.exception("dataset import delivery claim failed queue=%s", index)
+                drained.add(index)
+                continue
             if delivery is None:
-                break
+                drained.add(index)
+                continue
 
             totals["claimed"] += 1
             try:
-                outcome = await _deliver_one(db, delivery, dispatcher)
+                outcome = await deliver(db, delivery, dispatcher)
             except Exception:
                 await db.rollback()
                 totals["deferred"] += 1
                 log.exception(
                     "dataset import delivery deferred delivery_id=%s kind=%s target_id=%s",
-                    delivery.delivery_id,
+                    delivery.id
+                    if isinstance(delivery, IngestDeliveryLease)
+                    else delivery.delivery_id,
                     delivery.kind,
                     delivery.target_id,
                 )

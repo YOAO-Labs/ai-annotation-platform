@@ -326,9 +326,9 @@ async def test_upload_zip_zipslip_rejected(
     body = resp.json()
     # 正常文件入库
     assert body["added"] == 1, body
-    # Unsafe and hidden entries are skipped and excluded from total_in_zip.
+    # Unsafe entries are excluded; safe hidden entries still count in total_in_zip.
     assert body["skipped"] == 2, body
-    assert body["total_in_zip"] == 1, body
+    assert body["total_in_zip"] == 2, body
 
     rows = (
         (

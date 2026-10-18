@@ -987,7 +987,7 @@ psql -v expected_database=annotation_test -v migration_role=owner \
 
 服务显式配置专用 DSN、token、S3 access/secret；可用 `.env.example` 的 `_FILE` 变量。secret 必须能被用户 10003 读取。S3 授予 import 桶 `dataset-uploads/*` Get/Put、datasets 桶历史来源的条件读取和该配置桶自身的 ListBucket，以及 `dataset-sources/*` Put/multipart Abort。不要授予来源 Delete、其他桶 List 或桶管理；cache 桶只用于 SQL outbox。内部 I/O endpoint 与浏览器签名 endpoint 分开，均从服务配置取得。ZIP 的 200 MiB 压缩/展开预算与 JSON 请求体预算独立，不需要新增环境变量。
 
-0215 SQL 工件升级时先安装 `0215_dataset_source_ingest.sql`，再安装 `0215_dataset_source_ingest_delivery.sql`；迁移包装器回退时按相反顺序移除。每个独立 Source 进程同时只接收一个 ZIP 请求，Compose 限制内存为 512 MiB、`/tmp` 为 256 MiB。ZIP 新对象只写 `dataset-sources/{dataset}/{item}/{publication}/{logical_relpath}`，扫描只读取原生能力返回的精确 Dataset 前缀。回滚不删除对象存储中的原始字节。
+0215 SQL 工件升级时先安装 `0215_dataset_source_ingest.sql`，再安装 `0215_dataset_source_ingest_delivery.sql`；降级由迁移包装器按依赖移除函数和表。每个独立 Source 进程同时只接收一个 ZIP 请求，Compose 限制内存为 512 MiB、`/tmp` 为 256 MiB。公开网关另为 multipart 边界和头部保留 64 KiB，流式拒绝超出包体预算的上传；文件本身仍最多 200 MiB。ZIP 新对象只写 `dataset-sources/{dataset}/{item}/{publication}/{logical_relpath}`，扫描只读取原生能力返回的精确 Dataset 前缀。回滚不删除对象存储中的原始字节。
 
 准备固定桶与 origin 后显式运行独立项目：
 

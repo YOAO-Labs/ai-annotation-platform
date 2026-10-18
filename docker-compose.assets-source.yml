@@ -35,13 +35,13 @@ services:
       - "8767"
     read_only: true
     tmpfs:
-      - /tmp
+      - /tmp:rw,noexec,nosuid,size=256m
     cap_drop:
       - ALL
     security_opt:
       - no-new-privileges:true
     cpus: 0.5
-    mem_limit: 256m
+    mem_limit: 512m
     restart: unless-stopped
     stop_grace_period: 30s
     healthcheck:

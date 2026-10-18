@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from types import SimpleNamespace
 from uuid import UUID, uuid4
 from unittest.mock import AsyncMock
@@ -16,6 +17,7 @@ from aap_assets_source.ingest_contract import (
     IngestDescriptor,
     IngestFailure,
     IngestProgress,
+    ingest_json_schema,
 )
 from app.services.assets_source_ingest import DatasetSourceIngestData
 
@@ -45,6 +47,13 @@ def _descriptor() -> IngestDescriptor:
         total_in_zip=None,
         planned_entries=None,
     )
+
+
+async def test_native_frozen_schema_matches_the_public_ingest_contract():
+    artifact = (
+        Path(__file__).parents[1] / "alembic/sql/0215_dataset_source_ingest.schema.json"
+    )
+    assert json.loads(artifact.read_text()) == ingest_json_schema()
 
 
 async def test_begin_calls_owner_function_with_strict_descriptor_and_scope():

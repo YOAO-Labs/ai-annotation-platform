@@ -38,6 +38,9 @@ CURRENT_COMPAT_FACADES: tuple[str, ...] = ()
 
 # Retired modules must not return through first-party imports or dynamic calls.
 REMOVED_MODULES = (
+    "app.services.mask_formats.safe_archive",
+    "app.services.role_patterns",
+    "app.services.dataset_frame_grouping",
     "app.services.sources",
     "app.workers.dataset_import",
     "app.services.data_manager",
@@ -366,6 +369,14 @@ DOMAIN_PACKAGES = (
     ),
     DomainSpec(
         package="dataset_upload_data",
+        legacy_facades=(),
+    ),
+    DomainSpec(
+        package="assets_source_ingest",
+        legacy_facades=(),
+    ),
+    DomainSpec(
+        package="dataset_source_ingest_delivery",
         legacy_facades=(),
     ),
     DomainSpec(

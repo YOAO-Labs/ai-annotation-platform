@@ -13,6 +13,7 @@ from aap_assets_source.import_delivery_contract import (
     decode_dataset_import_delivery_claim,
     decode_dataset_import_delivery_completion,
 )
+from aap_assets_source.ingest_contract import IngestDeliveryLease
 
 _CLAIM = text(
     "SELECT aap_assets_v1.claim_dataset_import_delivery(:lease_token, :lease_seconds)"
@@ -38,7 +39,7 @@ async def claim_dataset_import_delivery(
 
 
 async def dataset_import_delivery_target_is_current(
-    db: AsyncSession, delivery: DatasetImportDelivery
+    db: AsyncSession, delivery: DatasetImportDelivery | IngestDeliveryLease
 ) -> bool:
     if delivery.kind == "notification":
         raise ValueError("notification targets use NotificationService.publish_by_id")

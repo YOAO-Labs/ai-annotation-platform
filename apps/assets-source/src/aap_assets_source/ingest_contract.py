@@ -25,6 +25,7 @@ INGEST_DELIVERY_SCHEMA = "aap-dataset-source-ingest-delivery/v1"
 INGEST_BATCH_SIZE = 200
 ZIP_MAX_BYTES = 200 * 1024 * 1024
 ZIP_MAX_FILES = 5000
+ZIP_MAX_CENTRAL_DIRECTORY_ENTRIES = 10_000
 ZIP_ENTRY_MAX_BYTES = 100 * 1024 * 1024
 SCAN_REQUEST_DIGEST = "f5f47f290df98f65d1879eb9896f8bc6e16b4b0c805a834cca38c44a44faf065"
 
@@ -628,7 +629,16 @@ def ingest_json_schema() -> dict[str, Any]:
             alternatives.append({"$ref": "#/$defs/" + definition})
     return {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "urn:aap:dataset-source-ingest:v1",
         "title": INGEST_SCHEMA,
+        "x-zip-admission": {
+            "raw_max_bytes": ZIP_MAX_BYTES,
+            "expanded_max_bytes": ZIP_MAX_BYTES,
+            "entry_max_bytes": ZIP_ENTRY_MAX_BYTES,
+            "file_max_count": ZIP_MAX_FILES,
+            "central_directory_max_count": ZIP_MAX_CENTRAL_DIRECTORY_ENTRIES,
+            "max_compression_ratio": 100,
+        },
         "x-scan-command": {
             "digest_algorithm": "SHA-256",
             "utf8_input": "aap-dataset-source-ingest/v1:scan",

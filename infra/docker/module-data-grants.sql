@@ -161,12 +161,15 @@ GRANT SELECT (id, project_id, dataset_id, created_at),
     INSERT (id, project_id, dataset_id),
     UPDATE (id) ON public.project_datasets TO :"assets_owner";
 GRANT DELETE ON public.project_datasets TO :"assets_owner";
-GRANT SELECT (id, dataset_id), UPDATE (id), DELETE
+GRANT SELECT (id, dataset_id, name, source_format, source_metadata, created_by),
+    INSERT (id, display_id, dataset_id, name, source_format, source_metadata, created_by),
+    UPDATE (id), DELETE
     ON public.scenes TO :"assets_owner";
+GRANT USAGE ON SEQUENCE public.display_seq_scenes TO :"assets_owner";
 GRANT SELECT, INSERT (
     id, dataset_id, file_name, file_path, file_type, file_size,
     content_hash, width, height, metadata
-), UPDATE (id, file_size, content_hash, width, height), DELETE
+), UPDATE (id, file_size, content_hash, width, height, scene_id, frame_index, updated_at), DELETE
     ON public.dataset_items TO :"assets_owner";
 GRANT SELECT (operation_id, actor_id, dataset_id, item_id, request, result, created_at),
     INSERT (operation_id, actor_id, dataset_id, item_id, request, result)
@@ -186,6 +189,9 @@ GRANT SELECT (id, name, kind, config, secret_enc, scope, created_by, updated_at,
 GRANT SELECT (is_temporal) ON public.datasets TO :"assets_owner";
 GRANT SELECT, INSERT, UPDATE ON public.dataset_import_operations,
     public.dataset_import_entries, public.dataset_import_deliveries TO :"assets_owner";
+GRANT SELECT, INSERT, UPDATE ON public.dataset_source_ingest_operations,
+    public.dataset_source_ingest_entries, public.dataset_source_ingest_deliveries
+    TO :"assets_owner";
 GRANT SELECT (id, task_id, dataset_item_id), UPDATE (id), DELETE
     ON public.image_pyramid_assets TO :"assets_owner";
 GRANT SELECT (asset_id, generation, status, lease_expires_at), UPDATE (generation)
@@ -552,6 +558,17 @@ GRANT EXECUTE ON FUNCTION aap_assets_v1.delete_dataset(
         uuid, uuid, uuid, uuid, bigint, text, integer, integer
     ), aap_assets_v1.discard_dataset_upload(uuid, uuid, uuid, text)
     TO :"workflow_role";
+GRANT EXECUTE ON FUNCTION aap_assets_v1.begin_dataset_ingest(uuid,uuid,uuid,jsonb),
+    aap_assets_v1.prepare_dataset_ingest_batch(uuid,uuid,uuid,uuid,jsonb),
+    aap_assets_v1.complete_dataset_ingest_batch(uuid,uuid,uuid,uuid,jsonb),
+    aap_assets_v1.read_dataset_ingest_layout(uuid,uuid,uuid,uuid,integer),
+    aap_assets_v1.finish_dataset_ingest(uuid,uuid,uuid,jsonb)
+    TO :"workflow_role";
+GRANT EXECUTE ON FUNCTION
+    aap_assets_v1.claim_dataset_source_ingest_delivery(uuid,integer),
+    aap_assets_v1.complete_dataset_source_ingest_delivery(uuid,uuid),
+    aap_assets_v1.dataset_import_delivery_target_is_current(text,uuid)
+    TO :"workflow_role";
 GRANT EXECUTE ON FUNCTION aap_workspace_v1.preview_dataset_unlink(uuid, uuid, uuid),
     aap_workspace_v1.unlink_dataset(uuid, uuid, uuid, uuid, text, jsonb)
     TO :"workflow_role";
@@ -793,6 +810,8 @@ BEGIN
         ) AS scopes(schema_name,owner_key) ON scopes.schema_name=ns.nspname
         WHERE proc.prokind='f'
           AND (proc.proname LIKE '%dataset_import%'
+               OR proc.proname LIKE '%dataset_ingest%'
+               OR proc.proname LIKE '%source_ingest%'
                OR ns.nspname IN ('aap_settings_v1','aap_notifications_v1'))
     LOOP
         EXECUTE pg_catalog.format('ALTER FUNCTION %s OWNER TO %I',
@@ -818,6 +837,8 @@ BEGIN
         'public.audit_logs', 'public.datasets', 'public.scenes',
         'public.dataset_import_operations','public.dataset_import_entries',
         'public.dataset_import_deliveries','public.notifications',
+        'public.dataset_source_ingest_operations',
+        'public.dataset_source_ingest_entries', 'public.dataset_source_ingest_deliveries',
         'public.notification_preferences','public.system_settings',
         'public.dataset_items', 'public.project_datasets',
         'public.storage_connections', 'public.image_pyramid_assets',

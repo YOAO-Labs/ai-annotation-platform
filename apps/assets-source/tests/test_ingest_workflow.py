@@ -13,6 +13,7 @@ import zipfile
 import pytest
 
 from aap_assets_source.ingest_contract import (
+    ZIP_MAX_CENTRAL_DIRECTORY_ENTRIES,
     IngestBatchPlan,
     IngestBatchResult,
     IngestCommand,
@@ -48,6 +49,20 @@ def _zip_bytes(entries: dict[str, bytes]) -> bytes:
         for name, content in entries.items():
             archive.writestr(name, content)
     return target.getvalue()
+
+
+async def test_zip_directory_record_budget_is_checked_before_any_data_write():
+    data = _Data()
+    target = BytesIO()
+    with zipfile.ZipFile(target, "w") as archive:
+        for index in range(ZIP_MAX_CENTRAL_DIRECTORY_ENTRIES):
+            archive.writestr(f"directory-{index}/", b"")
+        archive.writestr("frame.bin", b"point cloud")
+    target.seek(0)
+    with pytest.raises(IngestFailure, match="resource_budget_exceeded") as error:
+        await IngestWorkflow(data=data, storage=None).upload_zip(_command(), target)
+    assert error.value.detail.budget == "max_central_directory_entries"
+    assert data.calls == []
 
 
 class _Data:

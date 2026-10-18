@@ -102,7 +102,7 @@ END $$;
 REVOKE ALL ON SCHEMA aap_assets_v1 FROM :"asset_source_role";
 GRANT USAGE ON SCHEMA aap_assets_v1 TO :"asset_source_role";
 
--- The runtime can execute only the nine source-control capabilities.
+-- The runtime can execute only the fourteen source-control capabilities.
 GRANT EXECUTE ON FUNCTION aap_assets_v1.reserve_dataset_upload(uuid,uuid,uuid,text,text),
     aap_assets_v1.lock_dataset_upload(uuid,uuid,uuid),
     aap_assets_v1.find_dataset_upload_duplicate(uuid,uuid,uuid,text),
@@ -111,7 +111,12 @@ GRANT EXECUTE ON FUNCTION aap_assets_v1.reserve_dataset_upload(uuid,uuid,uuid,te
     aap_assets_v1.delete_dataset(uuid,uuid,uuid,text,jsonb),
     aap_assets_v1.delete_dataset_item(uuid,uuid,uuid,uuid,text,jsonb),
     aap_assets_v1.lock_legacy_dataset_upload(uuid,uuid,uuid,uuid),
-    aap_assets_v1.complete_legacy_dataset_upload(uuid,uuid,uuid,uuid,text,bigint,text,integer,integer)
+    aap_assets_v1.complete_legacy_dataset_upload(uuid,uuid,uuid,uuid,text,bigint,text,integer,integer),
+    aap_assets_v1.begin_dataset_ingest(uuid,uuid,uuid,jsonb),
+    aap_assets_v1.prepare_dataset_ingest_batch(uuid,uuid,uuid,uuid,jsonb),
+    aap_assets_v1.complete_dataset_ingest_batch(uuid,uuid,uuid,uuid,jsonb),
+    aap_assets_v1.read_dataset_ingest_layout(uuid,uuid,uuid,uuid,integer),
+    aap_assets_v1.finish_dataset_ingest(uuid,uuid,uuid,jsonb)
     TO :"asset_source_role";
 
 -- Fail closed if the runtime role can access anything beyond the exact protocol.
@@ -130,7 +135,12 @@ DECLARE
         pg_catalog.to_regprocedure('aap_assets_v1.delete_dataset(uuid,uuid,uuid,text,jsonb)')::oid,
         pg_catalog.to_regprocedure('aap_assets_v1.delete_dataset_item(uuid,uuid,uuid,uuid,text,jsonb)')::oid,
         pg_catalog.to_regprocedure('aap_assets_v1.lock_legacy_dataset_upload(uuid,uuid,uuid,uuid)')::oid,
-        pg_catalog.to_regprocedure('aap_assets_v1.complete_legacy_dataset_upload(uuid,uuid,uuid,uuid,text,bigint,text,integer,integer)')::oid
+        pg_catalog.to_regprocedure('aap_assets_v1.complete_legacy_dataset_upload(uuid,uuid,uuid,uuid,text,bigint,text,integer,integer)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.begin_dataset_ingest(uuid,uuid,uuid,jsonb)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.prepare_dataset_ingest_batch(uuid,uuid,uuid,uuid,jsonb)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.complete_dataset_ingest_batch(uuid,uuid,uuid,uuid,jsonb)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.read_dataset_ingest_layout(uuid,uuid,uuid,uuid,integer)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.finish_dataset_ingest(uuid,uuid,uuid,jsonb)')::oid
     ];
 BEGIN
     IF EXISTS (

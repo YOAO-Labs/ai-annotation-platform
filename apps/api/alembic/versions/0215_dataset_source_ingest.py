@@ -16,8 +16,8 @@ branch_labels = depends_on = None
 _SQL_DIR = Path(__file__).resolve().parents[1] / "sql"
 _STATEMENT_SEPARATOR = "-- aap-statement-break"
 _UPGRADE_ARTIFACTS = (
-    "0215_dataset_source_ingest_delivery.sql",
     "0215_dataset_source_ingest.sql",
+    "0215_dataset_source_ingest_delivery.sql",
 )
 
 

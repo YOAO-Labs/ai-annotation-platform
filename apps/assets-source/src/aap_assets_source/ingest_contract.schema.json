@@ -1,6 +1,15 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:aap:dataset-source-ingest:v1",
   "title": "aap-dataset-source-ingest/v1",
+  "x-zip-admission": {
+    "raw_max_bytes": 209715200,
+    "expanded_max_bytes": 209715200,
+    "entry_max_bytes": 104857600,
+    "file_max_count": 5000,
+    "central_directory_max_count": 10000,
+    "max_compression_ratio": 100
+  },
   "x-scan-command": {
     "digest_algorithm": "SHA-256",
     "utf8_input": "aap-dataset-source-ingest/v1:scan",

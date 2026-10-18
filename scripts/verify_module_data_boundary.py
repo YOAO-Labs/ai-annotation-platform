@@ -80,6 +80,8 @@ SQL_ARTIFACTS = (
     "0214_dataset_import_delivery.sql",
     "0214_dataset_import_support.sql",
     "0214_dataset_import_core.sql",
+    "0215_dataset_source_ingest.sql",
+    "0215_dataset_source_ingest_delivery.sql",
 )
 SCHEMA_ARTIFACTS = (
     "0191_task_append.schema.json",
@@ -105,6 +107,7 @@ SCHEMA_ARTIFACTS = (
     "0213_assets_source_runtime.schema.json",
     "0214_dataset_import.schema.json",
     "0214_dataset_import_delivery.schema.json",
+    "0215_dataset_source_ingest.schema.json",
 )
 TEST_FILES = (
     "tests/test_workspace_data_contract.py",
@@ -135,6 +138,12 @@ TEST_FILES = (
     "tests/test_pointcloud_scene_e2e.py",
     "tests/test_module_data_roles.py",
     "tests/test_datasets_upload_zip.py",
+    "tests/test_scene_inference.py",
+    "tests/test_mask_formats_m6.py",
+    "tests/test_assets_source_ingest.py",
+    "tests/test_dataset_source_ingest_native.py",
+    "tests/test_dataset_source_ingest_runtime.py",
+    "tests/test_dataset_source_ingest_delivery.py",
     "tests/test_dataset_import.py",
     "tests/test_dataset_import_native.py",
     "tests/test_dataset_import_migration.py",
@@ -426,7 +435,12 @@ def _create_source_storage_scope(scope: dict) -> None:
             },
             {
                 "Effect": "Allow",
-                "Action": ["s3:PutObject"],
+                "Action": ["s3:ListBucket"],
+                "Resource": [f"arn:aws:s3:::{scope['datasets_bucket']}"],
+            },
+            {
+                "Effect": "Allow",
+                "Action": ["s3:PutObject", "s3:AbortMultipartUpload"],
                 "Resource": [
                     f"arn:aws:s3:::{scope['datasets_bucket']}/dataset-sources/*"
                 ],
@@ -771,6 +785,8 @@ def _install_and_rollback_frozen_sql(
         "SELECT aap_assets_v1.list_project_datasets(NULL::uuid,NULL::uuid);\n"
         "SELECT aap_assets_v1.lock_legacy_dataset_upload(NULL::uuid,NULL::uuid,NULL::uuid,NULL::uuid);\n"
         "SELECT aap_assets_v1.complete_legacy_dataset_upload(NULL::uuid,NULL::uuid,NULL::uuid,NULL::uuid,NULL::text,NULL::bigint,NULL::text,NULL::integer,NULL::integer);\n"
+        "SELECT aap_assets_v1.begin_dataset_ingest(NULL::uuid,NULL::uuid,NULL::uuid,NULL::jsonb);\n"
+        "SELECT aap_assets_v1.claim_dataset_source_ingest_delivery(NULL::uuid,NULL::integer);\n"
         "SELECT aap_learning_v1.lock_project_deletion(:'project_id'::uuid);\n"
         "SELECT aap_learning_v1.guard_project_deletion(:'project_id'::uuid);\n"
         "SELECT aap_assets_v1.delete_project_owned_records(:'project_id'::uuid);\n"
@@ -837,6 +853,8 @@ def _install_and_rollback_frozen_sql(
         "aap-assets-catalog/v1": "invalid_request",
         "aap-assets-associations/v1": "invalid_request",
         "aap-legacy-dataset-upload/v1": "invalid_request",
+        "aap-dataset-source-ingest/v1": "invalid_request",
+        "aap-dataset-source-ingest-delivery/v1": "invalid_request",
     }
     if any(
         not any(
@@ -896,6 +914,9 @@ def _install_and_rollback_frozen_sql(
             "AND to_regclass('public.dataset_import_operations') IS NULL "
             "AND to_regclass('public.dataset_import_entries') IS NULL "
             "AND to_regclass('public.dataset_import_deliveries') IS NULL "
+            "AND to_regclass('public.dataset_source_ingest_operations') IS NULL "
+            "AND to_regclass('public.dataset_source_ingest_entries') IS NULL "
+            "AND to_regclass('public.dataset_source_ingest_deliveries') IS NULL "
             "AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_attribute "
             "WHERE attrelid = 'public.async_jobs'::pg_catalog.regclass "
             "AND attname = 'retained_project_id' AND NOT attisdropped) "
@@ -1104,8 +1125,8 @@ def main(argv: list[str] | None = None) -> int:
         database = resources["database"]
         evidence["database"] = database
         _, heads = migration_graph(ROOT)
-        if heads != ["0214"]:
-            raise RuntimeError("module-data acceptance requires migration head 0214")
+        if heads != ["0215"]:
+            raise RuntimeError("module-data acceptance requires migration head 0215")
         evidence["migrations"]["head_before_downgrade"] = heads[0]
         phase = "downgrade-to-0189"
         _container_details(

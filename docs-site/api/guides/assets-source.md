@@ -36,13 +36,13 @@ last_reviewed: 2026-10-18
 
 ## 同步 ZIP 与桶扫描
 
-现有公开路由 `POST /datasets/{dataset_id}/items/upload-zip` 和 `POST /datasets/{dataset_id}/items/scan` 仍同步执行，响应字段保持兼容。网关接受可选 UUID `Idempotency-Key`，并在成功响应中回传该请求头。ZIP 的操作身份绑定原始归档 SHA-256；扫描绑定固定的扫描命令指纹。以同一键重试不确定响应时返回第一次完成的收据。复用键但更换 actor、Dataset、操作类型或 ZIP 字节会冲突。调用方不要对 POST 进行隐式自动重试，应保存原键后按需重放。
+现有公开路由 `POST /datasets/{dataset_id}/items/upload-zip` 和 `POST /datasets/{dataset_id}/items/scan` 仍同步执行，响应字段保持兼容。网关接受可选 UUID `Idempotency-Key`，并在成功响应中回传该请求头。ZIP 的操作身份绑定原始归档 SHA-256；扫描绑定固定的扫描命令指纹。以同一键重试不确定响应时返回第一次完成的收据。复用键但更换 actor、Dataset、操作类型或 ZIP 字节会冲突。调用方不要对 POST 进行隐式自动重试，应保存原键后按需重放。语言无关数据、错误和归档预算冻结在包内 `ingest_contract.schema.json`，与原生 SQL 的同名 schema 工件保持一致。
 
 ZIP 要求当前活跃账号和 `datasets:write`，不要求管理员角色。压缩包和展开数据各不超过 200 MiB，最多 5,000 个文件条目、每个条目最多 100 MiB、压缩比不超过 100:1，中央目录最多 10,000 条。隐藏/macOS 文件和不安全路径沿用旧规则；普通文件保留 MIME 类型推断、内容哈希去重、逐文件错误、basename `file_name` 及逻辑子目录布局。
 
 ZIP 将新字节写入不可变 key：`dataset-sources/{dataset_id}/{item_id}/{publication_id}/{logical_relpath}`。Item 元数据在 `metadata.source_ingest` 保存操作 UUID 和逻辑相对路径。重复请求和失败回滚都不会覆盖或删除旧来源。ZIP 场景推断只在已有文件新增且数据集尚无 Scene、无既有场景分配时执行，并基于所有历史与新增 Item 规划。若 `is_temporal` 为真但没有可接受的 Scene，整个 SQL 事务回滚，已复制的原始字节仍保留。
 
-每个 Source 进程只接收一个 ZIP 请求并在数据库事务开始前将已认证的请求流 spool 到临时文件。独立 Compose 资源上限为 512 MiB 内存和 256 MiB `/tmp`。保留的可信 nuScenes namespace 仍受写入保护；扫描还会拒绝以 `dataset-sources` 或 `dataset-uploads` 为首段的 legacy prefix，不改变 Dataset 名称目录的通用规则。
+每个 Source 进程只接收一个 ZIP 请求并在数据库事务开始前将已认证的请求流 spool 到临时文件。公开网关按实际流量限制 multipart 包体，为边界和头部另留 64 KiB；断连或异常会关闭解析器的临时文件。独立 Compose 资源上限为 512 MiB 内存和 256 MiB `/tmp`。保留的可信 nuScenes namespace 仍受写入保护；扫描还会拒绝以 `dataset-sources` 或 `dataset-uploads` 为首段的 legacy prefix，不改变 Dataset 名称目录的通用规则。
 
 扫描保留管理员权限，只枚举固定 datasets 桶中当前 Dataset 的精确 `{Dataset.name}/` legacy 前缀，按 S3 页流式读取，不设新增的文件数/字节截断上限。它跳过已登记路径，只为缺失路径登记 Item，保留旧扩展名类型判断与子目录文件名；只有单段 ETag 是有效 MD5 时才将其作为内容哈希提示。扫描不复制或删除对象，也不推断 Scene，不会把 `dataset-sources/` 下的现代 publication 当成 legacy 对象或越过当前 Dataset 前缀。
 
