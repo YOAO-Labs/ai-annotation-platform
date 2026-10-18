@@ -91,13 +91,6 @@ async def _cleanup_fixture(
         )
         await owner.execute(
             text(
-                "DELETE FROM public.audit_logs WHERE request_id IN "
-                "(:operation_a, :operation_b)"
-            ),
-            {"operation_a": str(operation_a), "operation_b": str(operation_b)},
-        )
-        await owner.execute(
-            text(
                 "DELETE FROM public.sensor_calibration_revisions "
                 "WHERE dataset_item_id=:item_id"
             ),
@@ -124,7 +117,11 @@ async def _cleanup_fixture(
             {"project_id": fixture["project"].id},
         )
         await owner.execute(
-            text("DELETE FROM public.users WHERE id=:actor_id"),
+            # The verifier drops the owned database with immutable audit evidence.
+            text(
+                "DELETE FROM public.users WHERE id=:actor_id "
+                "AND NOT EXISTS (SELECT 1 FROM public.audit_logs WHERE actor_id=:actor_id)"
+            ),
             {"actor_id": fixture["actor_id"]},
         )
 

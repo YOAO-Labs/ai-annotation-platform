@@ -77,7 +77,12 @@ async def _cleanup_spatial_fixture(engine, actor_id, operation_id):
             ("DELETE FROM projects WHERE owner_id=:actor", {"actor": actor_id}),
             ("DELETE FROM async_jobs WHERE user_id=:actor", {"actor": actor_id}),
             ("DELETE FROM datasets WHERE created_by=:actor", {"actor": actor_id}),
-            ("DELETE FROM users WHERE id=:actor", {"actor": actor_id}),
+            # Retain actors referenced by immutable audit evidence until database teardown.
+            (
+                "DELETE FROM users WHERE id=:actor AND NOT EXISTS "
+                "(SELECT 1 FROM audit_logs WHERE actor_id=:actor)",
+                {"actor": actor_id},
+            ),
         ):
             await owner.execute(text(statement), parameters)
 
@@ -197,6 +202,9 @@ async def test_spatial_container_complete_reads_replay_and_accepted_source_prepa
                 file_type="other",
             )
             owner.add_all((camera, calibration))
+            preparation_dataset = await owner.get(Dataset, preparation.dataset_id)
+            assert preparation_dataset is not None
+            preparation_dataset.file_count += 2
             await owner.flush()
             camera_id, calibration_key = camera.id, calibration.file_path
             job_id = await _add_job(owner, preparation, operation_id)
