@@ -14,12 +14,31 @@ services:
       ASSETS_MEDIA_S3_REGION: ${ASSETS_MEDIA_S3_REGION:-us-east-1}
       ASSETS_MEDIA_DATASETS_BUCKET: ${ASSETS_MEDIA_DATASETS_BUCKET:?Set the datasets bucket}
       ASSETS_MEDIA_CACHE_BUCKET: ${ASSETS_MEDIA_CACHE_BUCKET:?Set the media-cache bucket}
+      ASSETS_IMAGES_LEGACY_BUCKET: ${ASSETS_IMAGES_LEGACY_BUCKET:-${MINIO_BUCKET:-${MINIO_BUCKET_ANNOTATIONS:-annotations}}}
       ASSETS_MEDIA_HOST: 0.0.0.0
       ASSETS_MEDIA_PORT: 8768
       ASSETS_MEDIA_POOL_MIN_SIZE: ${ASSETS_MEDIA_POOL_MIN_SIZE:-1}
       ASSETS_MEDIA_POOL_MAX_SIZE: ${ASSETS_MEDIA_POOL_MAX_SIZE:-8}
       ASSETS_MEDIA_POOL_TIMEOUT_SECONDS: ${ASSETS_MEDIA_POOL_TIMEOUT_SECONDS:-2}
       ASSETS_MEDIA_SQL_TIMEOUT_SECONDS: ${ASSETS_MEDIA_SQL_TIMEOUT_SECONDS:-5}
+      IMAGE_PYRAMID_AUTO_GENERATE: ${IMAGE_PYRAMID_AUTO_GENERATE:-false}
+      IMAGE_PYRAMID_PROFILE_VERSION: ${IMAGE_PYRAMID_PROFILE_VERSION:-pyramid-v1}
+      IMAGE_PYRAMID_NORMALIZATION_VERSION: ${IMAGE_PYRAMID_NORMALIZATION_VERSION:-exif-autorotate-srgb-v1}
+      IMAGE_PYRAMID_OPTIONAL_PIXELS: ${IMAGE_PYRAMID_OPTIONAL_PIXELS:-16777216}
+      IMAGE_PYRAMID_REQUIRED_PIXELS: ${IMAGE_PYRAMID_REQUIRED_PIXELS:-50000000}
+      IMAGE_PYRAMID_MAX_PIXELS: ${IMAGE_PYRAMID_MAX_PIXELS:-300000000}
+      IMAGE_PYRAMID_MAX_DIMENSION: ${IMAGE_PYRAMID_MAX_DIMENSION:-32768}
+      IMAGE_PYRAMID_MAX_TILES: ${IMAGE_PYRAMID_MAX_TILES:-20000}
+      IMAGE_PYRAMID_MAX_SOURCE_BYTES: ${IMAGE_PYRAMID_MAX_SOURCE_BYTES:-8589934592}
+      IMAGE_PYRAMID_MAX_DERIVED_BYTES: ${IMAGE_PYRAMID_MAX_DERIVED_BYTES:-8589934592}
+      IMAGE_PYRAMID_MAX_TEMP_BYTES: ${IMAGE_PYRAMID_MAX_TEMP_BYTES:-12884901888}
+      IMAGE_PYRAMID_JOB_TIMEOUT_SECONDS: ${IMAGE_PYRAMID_JOB_TIMEOUT_SECONDS:-1800}
+      IMAGE_PYRAMID_LEASE_SECONDS: ${IMAGE_PYRAMID_LEASE_SECONDS:-2100}
+      IMAGE_PYRAMID_RETRY_COOLDOWN_SECONDS: ${IMAGE_PYRAMID_RETRY_COOLDOWN_SECONDS:-300}
+      IMAGE_PYRAMID_GC_GRACE_HOURS: ${IMAGE_PYRAMID_GC_GRACE_HOURS:-24}
+      IMAGE_PYRAMID_URL_EXPIRY_SECONDS: ${IMAGE_PYRAMID_URL_EXPIRY_SECONDS:-900}
+      IMAGE_PYRAMID_ASSET_URL_BATCH_MAX: ${IMAGE_PYRAMID_ASSET_URL_BATCH_MAX:-128}
+      IMAGE_PYRAMID_VIPS_CONCURRENCY: ${IMAGE_PYRAMID_VIPS_CONCURRENCY:-4}
     secrets:
       - media_control_database_url
       - media_token
@@ -80,6 +99,52 @@ services:
     restart: unless-stopped
     stop_grace_period: 60s
 
+  assets-images-worker:
+    build:
+      context: .
+      dockerfile: apps/assets-media/Dockerfile
+      target: image-worker
+    environment:
+      ASSETS_IMAGES_DATABASE_URL_FILE: /run/secrets/images_database_url
+      ASSETS_MEDIA_S3_ACCESS_KEY_FILE: /run/secrets/images_s3_access_key
+      ASSETS_MEDIA_S3_SECRET_KEY_FILE: /run/secrets/images_s3_secret_key
+      ASSETS_MEDIA_S3_ENDPOINT: ${ASSETS_MEDIA_S3_ENDPOINT:?Set the internal S3 origin}
+      ASSETS_MEDIA_S3_PUBLIC_ENDPOINT: ${ASSETS_MEDIA_S3_PUBLIC_ENDPOINT:?Set the browser-reachable S3 origin}
+      ASSETS_MEDIA_S3_REGION: ${ASSETS_MEDIA_S3_REGION:-us-east-1}
+      ASSETS_MEDIA_DATASETS_BUCKET: ${ASSETS_MEDIA_DATASETS_BUCKET:?Set the datasets bucket}
+      ASSETS_MEDIA_CACHE_BUCKET: ${ASSETS_MEDIA_CACHE_BUCKET:?Set the media-cache bucket}
+      ASSETS_IMAGES_LEGACY_BUCKET: ${ASSETS_IMAGES_LEGACY_BUCKET:-${MINIO_BUCKET:-${MINIO_BUCKET_ANNOTATIONS:-annotations}}}
+      ASSETS_IMAGES_POLL_SECONDS: ${ASSETS_IMAGES_POLL_SECONDS:-5}
+      ASSETS_IMAGES_SRGB_PROFILE: ${ASSETS_IMAGES_SRGB_PROFILE:-${IMAGE_PYRAMID_SRGB_PROFILE:-/usr/share/color/icc/sRGB.icc}}
+    secrets:
+      - images_database_url
+      - images_s3_access_key
+      - images_s3_secret_key
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    read_only: true
+    tmpfs:
+      - /tmp:size=12g,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    cpus: 4
+    mem_limit: 16g
+    restart: unless-stopped
+    stop_grace_period: 120s
+    healthcheck:
+      test: ["CMD", "python", "-m", "aap_assets_images_runtime.worker", "--healthcheck"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+
 secrets:
   media_control_database_url:
     file: ${ASSETS_MEDIA_CONTROL_DATABASE_URL_FILE:-./.secrets/assets-media-control-database-url}
@@ -95,3 +160,9 @@ secrets:
     file: ${ASSETS_MEDIA_WORKER_S3_ACCESS_KEY_FILE:-./.secrets/assets-media-worker-s3-access-key}
   media_worker_s3_secret_key:
     file: ${ASSETS_MEDIA_WORKER_S3_SECRET_KEY_FILE:-./.secrets/assets-media-worker-s3-secret-key}
+  images_database_url:
+    file: ${ASSETS_IMAGES_DATABASE_URL_FILE:-./.secrets/assets-images-database-url}
+  images_s3_access_key:
+    file: ${ASSETS_IMAGES_S3_ACCESS_KEY_FILE:-./.secrets/assets-images-s3-access-key}
+  images_s3_secret_key:
+    file: ${ASSETS_IMAGES_S3_SECRET_KEY_FILE:-./.secrets/assets-images-s3-secret-key}

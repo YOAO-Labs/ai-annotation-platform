@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import inspect
 import json
 import logging
 import re
@@ -77,6 +78,14 @@ class ImageControl:
         self.storage = storage
         self.policy = policy or ImagePolicy()
         self.wakeup = wakeup
+
+    async def close(self) -> None:
+        close = getattr(self.storage, "close", None)
+        if not callable(close):
+            return
+        result = close()
+        if inspect.isawaitable(result):
+            await result
 
     @property
     def source_url_expiry(self) -> int:

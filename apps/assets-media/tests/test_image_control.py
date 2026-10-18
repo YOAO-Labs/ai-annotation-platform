@@ -115,6 +115,19 @@ class FakeStorage:
         return f"https://image.local/cache/{key}?expires={expires_in}"
 
 
+@pytest.mark.asyncio
+async def test_image_control_closes_optional_async_storage_client():
+    class CloseableStorage:
+        closed = False
+
+        async def close(self):
+            self.closed = True
+
+    storage = CloseableStorage()
+    await ImageControl(None, storage).close()
+    assert storage.closed
+
+
 class Database:
     def __init__(self, handler):
         self.handler = handler

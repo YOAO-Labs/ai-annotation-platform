@@ -159,11 +159,11 @@ def load_storage_config(
     endpoint = _origin(values, "ASSETS_MEDIA_S3_ENDPOINT")
     legacy_name = "ASSETS_IMAGES_LEGACY_BUCKET"
     legacy_value = values.get(legacy_name)
-    if legacy_value is None:
+    if legacy_value is None or not legacy_value.strip():
         # Preserve the deployed annotation bucket only when its existing setting is
         # explicitly present in the process environment.
         legacy_value = values.get("MINIO_BUCKET")
-    if legacy_value is None:
+    if legacy_value is None or not legacy_value.strip():
         legacy_value = values.get("MINIO_BUCKET_ANNOTATIONS")
     if legacy_value is None or not legacy_value.strip():
         raise ConfigurationError(f"Missing required setting {legacy_name}")
@@ -197,10 +197,13 @@ def load_config(environment: Mapping[str, str] | None = None) -> ImageWorkerConf
     poll_seconds = _positive_float(
         values, "ASSETS_IMAGES_POLL_SECONDS", "5", maximum=3600
     )
-    profile_value = values.get(
-        "ASSETS_IMAGES_SRGB_PROFILE",
-        values.get("IMAGE_PYRAMID_SRGB_PROFILE", "/usr/share/color/icc/sRGB.icc"),
-    ).strip()
+    profile_value = values.get("ASSETS_IMAGES_SRGB_PROFILE", "").strip()
+    if not profile_value:
+        profile_value = values.get(
+            "IMAGE_PYRAMID_SRGB_PROFILE", "/usr/share/color/icc/sRGB.icc"
+        ).strip()
+    if not profile_value:
+        profile_value = "/usr/share/color/icc/sRGB.icc"
     if not profile_value:
         raise ConfigurationError("ASSETS_IMAGES_SRGB_PROFILE must not be empty")
     profile = Path(profile_value)
