@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import uuid
 from uuid import UUID
 
@@ -19,7 +20,7 @@ from aap_assets_catalog.spatial_contract import (
 )
 from aap_assets_catalog.spatial_values import SensorCalibration, calibration_digest
 from app.db.models.audit_log import AuditLog
-from app.db.models.dataset import DatasetItem
+from app.db.models.dataset import DatasetItem, SensorCalibrationRevision
 from app.db.models.project import Project
 from app.db.models.task import Task
 from app.db.models.task_dataset_item_link import TaskDatasetItemLink
@@ -478,6 +479,96 @@ async def test_project_owner_cannot_update_camera_shared_with_another_project(
     assert authorized.state.revision == 2
     assert await _audit_count(db_session, item.id) == 1
     assert await _receipt_count(db_session, authorized_operation) == 1
+
+
+async def test_historical_digest_survives_jsonb_negative_zero_normalization(
+    db_session,
+) -> None:
+    fixture = await _seed_camera_fixture(db_session)
+    item_id = fixture["dataset_item_id"]
+    original = _calibration(scale=-0.0)
+    original_document = canonical_calibration_document(original)
+    original_digest = calibration_digest(original)
+    assert "-0.0" in original_document
+
+    # PostgreSQL JSONB normalizes -0.0 to 0.0, while the append-only digest
+    # records the exact canonical input document that existed before storage.
+    await db_session.execute(
+        text(
+            "UPDATE public.dataset_items SET metadata = jsonb_set("
+            "metadata, '{calibration}', CAST(:calibration AS jsonb)) WHERE id=:id"
+        ),
+        {
+            "id": item_id,
+            "calibration": json.dumps(original.model_dump(mode="json")),
+        },
+    )
+    stored_calibration = await db_session.scalar(
+        text("SELECT metadata->'calibration' FROM public.dataset_items WHERE id=:id"),
+        {"id": item_id},
+    )
+    assert stored_calibration["intrinsic"][0] == 0.0
+    assert math.copysign(1.0, stored_calibration["intrinsic"][0]) == 1.0
+
+    db_session.add(
+        SensorCalibrationRevision(
+            dataset_item_id=item_id,
+            revision=1,
+            digest=original_digest,
+            calibration=stored_calibration,
+            created_by=fixture["actor_id"],
+        )
+    )
+    await db_session.flush()
+
+    historical = (await _calibration_page(db_session, [item_id])).records[0]
+    assert historical.revision == 1
+    assert historical.digest == original_digest
+    state = normalize_calibration_record(historical)
+    assert state.digest == original_digest
+    assert state.calibration.intrinsic[0] == 0.0
+    assert math.copysign(1.0, state.calibration.intrinsic[0]) == 1.0
+
+    updated = _calibration(scale=2.0)
+    operation_id = uuid.uuid4()
+    reply = await _call(
+        db_session,
+        _UPDATE_CALIBRATION,
+        _update_values(
+            operation_id=operation_id,
+            actor_id=fixture["actor_id"],
+            task_id=fixture["task_id"],
+            calibration=updated,
+            expected_revision=state.revision,
+            expected_digest=state.digest,
+            current_canonical_document=canonical_calibration_document(
+                state.calibration
+            ),
+            source_snapshot=historical.source_snapshot,
+        ),
+    )
+    mutation = _spatial_result(reply, CalibrationMutationResult)
+    assert mutation.state.revision == 2
+    assert mutation.state.digest == calibration_digest(updated)
+    assert await _audit_count(db_session, item_id) == 1
+    assert await _receipt_count(db_session, operation_id) == 1
+
+    revisions = (
+        await db_session.execute(
+            text(
+                "SELECT revision, digest, calibration "
+                "FROM public.sensor_calibration_revisions "
+                "WHERE dataset_item_id=:id ORDER BY revision"
+            ),
+            {"id": item_id},
+        )
+    ).all()
+    assert len(revisions) == 2
+    assert revisions[0].revision == 1
+    assert revisions[0].digest == original_digest
+    assert revisions[0].calibration["intrinsic"][0] == 0.0
+    assert revisions[1].revision == 2
+    assert revisions[1].digest == calibration_digest(updated)
 
 
 async def test_provenance_setdefault_preserves_metadata_and_fences_source_snapshots(
