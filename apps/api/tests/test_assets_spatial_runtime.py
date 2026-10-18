@@ -188,7 +188,7 @@ async def test_spatial_container_complete_reads_replay_and_accepted_source_prepa
                     WITH scenes AS (
                         INSERT INTO scenes
                             (id,display_id,dataset_id,name,source_metadata,created_by)
-                        SELECT gen_random_uuid(),'SP-'||gen_random_uuid()::text,
+                        SELECT gen_random_uuid(),'SCN-'||nextval('public.display_seq_scenes')::text,
                             CAST(:dataset AS uuid),'paged-'||i,
                             jsonb_build_object('opaque',repeat('x',17000)),CAST(:actor AS uuid)
                         FROM generate_series(0,1049) i RETURNING id
