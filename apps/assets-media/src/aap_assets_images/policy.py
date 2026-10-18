@@ -32,6 +32,7 @@ class ImagePolicy(BaseModel):
     max_pixels: Positive = 300_000_000
     max_dimension: IndexLimit = 32_768
     max_tiles: IndexLimit = 20_000
+    thumbnail_max_source_bytes: Literal[536_870_912] = 536_870_912
     max_source_bytes: Positive = 8 * 1024**3
     max_derived_bytes: Positive = 8 * 1024**3
     max_temp_bytes: Positive = 12 * 1024**3

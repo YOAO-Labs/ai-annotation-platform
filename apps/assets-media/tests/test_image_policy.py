@@ -9,6 +9,7 @@ from aap_assets_images.policy import ImagePolicy
 def test_policy_preserves_existing_image_thresholds_and_boundaries():
     policy = ImagePolicy()
     assert not policy.auto_generate_pyramids
+    assert policy.thumbnail_max_source_bytes == 512 * 1024**2
     assert not policy.pyramid_eligible(None, 4096)
     assert not policy.pyramid_required(10_000, 0)
     assert not policy.pyramid_eligible(4095, 4096)
@@ -24,6 +25,7 @@ def test_policy_preserves_existing_image_thresholds_and_boundaries():
         {"required_pixels": 1},
         {"max_pixels": 1},
         {"max_source_bytes": 0},
+        {"thumbnail_max_source_bytes": 1024},
         {"job_timeout_seconds": 1_800, "lease_seconds": 1_860},
         {"normalization_version": "unknown"},
     ],
