@@ -337,7 +337,6 @@ def require_operator_scope(request: BaseModel, result: BaseModel) -> None:
             if (
                 result.action != "ensure_nuscenes_dataset"
                 or result.dataset.display_id != request.spec.display_id
-                or result.dataset.data_type != "point_cloud"
                 or not result.dataset.is_temporal
                 or result.storage_root is None
                 or result.needs_pcd_upgrade is None
