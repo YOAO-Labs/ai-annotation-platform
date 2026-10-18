@@ -975,7 +975,7 @@ nuScenes mini 到 `~/.cache/ai-annotation-platform/nuscenes-mini`（约 4 GB，�
 
 `apps/assets-source` 的现有 HTTP runtime 执行单文件上传初始化、条件发布完成、Dataset/Item 删除、同步 ZIP 入库和旧对象桶扫描，也承载六项连接管理操作：列表、读取、创建、更新、删除和连通性测试。公开 API 保留认证、scope、ZIP/扫描各自既有角色规则和同步响应；来源服务不连接 Redis/Celery。连接操作继续使用现有 API 路由和 Source runtime，不另加一个连接服务。协议与重放见[来源控制](docs-site/api/guides/assets-source.md)。
 
-先将迁移应用至当前 head `0217`、完成 module-data owner 授权，再为独立 `asset_source_client` LOGIN 应用：
+先将迁移应用至当前 head `0218`、完成 module-data owner 授权，再为独立 `asset_source_client` LOGIN 应用：
 
 ```bash
 psql -v expected_database=annotation_test -v migration_role=owner \
@@ -989,7 +989,7 @@ psql -v expected_database=annotation_test -v migration_role=owner \
 
 连接管理凭据使用可选 `ASSETS_SOURCE_CONNECTOR_ENCRYPTION_KEY` 或 `_FILE`，值与本地 API/导入执行器的 `CONNECTOR_ENCRYPTION_KEY` 相同。该 key 留空时 Source 仍可启动；创建凭据或需要解密既有密文的操作会返回配置错误，单纯改名或空 patch 不需要 key。`ASSETS_SOURCE_CONNECTOR_HOST_ALLOWLIST` 是 JSON 字符串数组回退值，数据库 `system_settings.connector_host_allowlist` 覆盖它；`ASSETS_SOURCE_SFTP_KNOWN_HOSTS_FILE` 可指定只读的可信 SFTP 主机文件。空白回退列表拒绝连接器网络目标。DNS 和探测在锁外完成，最终提交只短暂共享锁定 Settings 表并复核策略。API 的 `ASSETS_SOURCE_URL` 留空时用本地 Source 工作流；一旦配置远程 URL，远程错误不会回退到本地。
 
-Assets 当前由 26 张映射表组成；全仓 ORM 所有权台账共 128 张表。连接操作写入新的 `storage_connection_operations` 不可变回执表，该表没有指向实时连接的外键。连接删除保留已接受的导入快照；后续导入仍要重新读取当前连接。
+Assets 当前由 27 张映射表组成；全仓 ORM 所有权台账共 129 张表。连接操作写入新的 `storage_connection_operations` 不可变回执表，该表没有指向实时连接的外键。连接删除保留已接受的导入快照；后续导入仍要重新读取当前连接。
 
 0215 SQL 工件升级时先安装 `0215_dataset_source_ingest.sql`，再安装 `0215_dataset_source_ingest_delivery.sql`；降级由迁移包装器按依赖移除函数和表。每个独立 Source 进程同时只接收一个 ZIP 请求，Compose 限制内存为 512 MiB、`/tmp` 为 256 MiB。公开网关另为 multipart 边界和头部保留 64 KiB，流式拒绝超出包体预算的上传；文件本身仍最多 200 MiB。ZIP 新对象只写 `dataset-sources/{dataset}/{item}/{publication}/{logical_relpath}`，扫描只读取原生能力返回的精确 Dataset 前缀。回滚不删除对象存储中的原始字节。
 
@@ -1036,3 +1036,21 @@ docker compose -p aap-assets-import-dev -f docker-compose.assets-import.yml exec
 媒体和通知由维护队列每 10 秒中继持久派发记录，仍需现有媒体消费者和 Redis；中继确认代表派发被接受，不代表媒体计算完成。部署后应刷新受影响的维护 worker/beat 并检查任务 `app.workers.dataset_import_delivery.relay_dataset_import_deliveries` 注册及 maintenance 路由。
 
 可停止上述独立项目后重启接替，无需更换操作 UUID；过期租约会被重新领取，已提交条目不重复建题，未提交复制使用新 publication 路径。显式取消阻止迟到提交。回退先暂停新的受理并排空/取消当前操作、处理待派发记录，再停止该项目；降级迁移会拒绝活动作业或未确认派发，删除回执会失去重放依据。未登记来源拷贝保留，当前没有自动回收，也不自动恢复已移除的 Celery 导入器。
+
+## 可信本地导入器的 Dataset 与 Item 写入
+
+`apps/api/scripts/import_images.py` 和 `apps/api/scripts/import_nuscenes_scene.py` 通过 `AssetsOperatorGateway` 调用 Assets 的六项受信任 SQL 能力。它们使用 API 本地装配已有数据库连接和对象存储设置；该路径不经过 `ASSETS_SOURCE_URL` 或 Source HTTP，不创建新的独立服务，也没有 HTTP 回退。公开 nuScenes 数据集资格检查及 actor 先于 Dataset 的锁定顺序保持原样；本地图片脚本沿用现有 owner 选择，owner UUID 表示数据归属，不替代 operator 凭据的执行权限，也不增加管理员角色门槛。
+
+迁移应用至 head `0218` 后，按既有 module-data 初始化流程创建 Assets NOLOGIN owner 及独立 `asset_operator_client` LOGIN。先应用完整的 `infra/docker/module-data-grants.sql` owner 授权，再应用 `infra/docker/assets-catalog-grants.sql`（供现有 nuScenes Catalog 资格查询使用），随后应用既有 Source 和导入角色 grants，最后由 migration role 安装 operator 精确授权：
+
+```bash
+psql -v expected_database=annotation_test -v migration_role=owner \
+  -v assets_owner=assets_code -v asset_operator_role=asset_operator_client \
+  -f infra/docker/assets-operator-grants.sql
+```
+
+`asset_operator_client` 必须与 migration role 和 `assets_code` owner 分离，作为 LOGIN 使用且不继承其他角色。它只能执行 `aap_assets_v1` 中六项 operator 函数，不直接读写表、不访问其他 owner schema；`dataset_operator_operations` 保存不可变操作回执且没有 live Dataset/Item 外键。不要把 Source 的 23 项、Catalog 的 29 项或导入执行器的 7 项能力授给该角色。
+
+登记操作继续使用调用方同一 SQL 事务；nuScenes 导入可将 Dataset/Item、Scene、标定、工作区关联和 Labeling 任务共同提交或回滚。条目按输入顺序以至多 500 项分批追加或更新。重导读取通过排序游标返回稳定快照；单页最多 500 项，记录 JSON 上限 15 MiB，完整响应上限 16 MiB，单次请求上限 8 MiB。调用方校验页序、总数和快照摘要后再使用数据；source snapshot 是不透明 CAS 值，更新时由 Assets 重新校验并只合并请求字段。
+
+SQL 回滚不会撤销对象存储 I/O。图片上传和 nuScenes 文件写入/覆盖若发生在数据库提交前，失败后对象字节仍保留；不得以回滚成功推断对象已删除。更多函数、快照与事务字段见[同库数据接口](docs-site/api/guides/module-data.md#可信导入器数据集与素材登记)及 [ADR-0104](docs/adr/0104-operator-source-registration.md)。该边界继续依赖现有本地导入脚本和共享 PostgreSQL，不代表完整 Assets、CLI 或导入器可独立部署。

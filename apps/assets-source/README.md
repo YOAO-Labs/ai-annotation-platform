@@ -57,6 +57,27 @@ Source LOGIN. The connection import worker has its own login limited to seven
 import capabilities; the Catalog login remains separate with twenty-nine
 capabilities.
 
+The local image and nuScenes importer scripts use a separate trusted
+`asset_operator_client` login for six Assets Dataset/Item registration
+functions. This is not part of the Source runtime or its 23-function login:
+the importer scripts call the native SQL contract on their caller-owned
+transaction and do not use the Source HTTP API or fall back through
+`ASSETS_SOURCE_URL`. The operator login has no direct table privileges and no
+other owner-schema access. Existing owner UUIDs record attribution; possession
+of this operator credential supplies the SQL execution authority. Import
+scripts retain their current validation and ownership selection.
+
+Item registration is ordered and split into batches of at most 500 entries.
+Request bodies are limited to 8 MiB; reads return bounded pages of at most 500
+items and 15 MiB of item JSON, within a 16 MiB response. Re-import updates use
+opaque source snapshots as compare-and-set values and merge only the
+requested nuScenes metadata, dimensions, size, or hash facts. Database
+nuScenes imports still include the caller's spatial and Labeling writes, but
+object-store uploads and overwrites are external I/O: SQL rollback leaves
+those bytes in place. The protocol and grants are documented in the
+[same-database module data guide](../../docs-site/api/guides/module-data.md)
+and [ADR-0104](../../docs/adr/0104-operator-source-registration.md).
+
 Connection list/read responses contain public facts and `secret_set`, never
 ciphertext. A capture operation returns an encrypted-secret snapshot to the
 trusted provider. Create, update, delete, and test results are recorded with

@@ -146,6 +146,8 @@ Ultralytics YOLO11 的配置页可生成原生增强预览，对照冻结原图�
 
 单文件上传初始化、发布完成、来源删除、同步 ZIP 入库、旧对象桶扫描和连接器管理均由 Assets Source 工作流处理；本地模式复用同一工作流，配置独立服务后走内部 API，远程错误不会回退到本地。公开路由和响应保持不变，连接器列表仍返回全部可见项，内部使用有界分页读取。创建、更新、删除和测试支持可选 UUID `Idempotency-Key`，成功响应会回传该键；见[独立来源控制](./docs-site/api/guides/assets-source.md)与[存储连接器 API](./docs-site/api/guides/storage-connections.md)。连接器导入使用受理时保存的配置和加密凭据快照，删除连接器不会删除已受理作业的快照；执行进程保存枚举结果和逐文件进度，支持崩溃恢复及取消围栏。
 
+本地图片与 nuScenes 导入脚本通过独立的可信 Assets operator SQL 能力登记 Dataset 和 DatasetItem；nuScenes 路径还在同一调用方事务中组合标定、场景、工作区和任务写入。operator 凭据是执行授权，既有 owner UUID 只用于归属标记。该能力不是 Source HTTP runtime，也不改变导入脚本的对象存储回滚边界。见[同库数据接口](./docs-site/api/guides/module-data.md#可信导入器数据集与素材登记)和 [ADR-0104](./docs/adr/0104-operator-source-registration.md)。
+
 项目成员可在工作台阅读[标注指引](./docs-site/user-guide/projects/index.md#编写标注指引)及示例图；指引编辑和图片上传、删除由项目负责人或超级管理员管理。
 图片完成登记前重新核对当前管理权限；项目转移或账号停用后的旧请求不能继续登记，写入争用返回冲突。读取与存储失败语义见[项目 API](./docs-site/api/guides/projects.md#标注指引图片)。
 

@@ -10,7 +10,7 @@ last_reviewed: 2026-10-19
 这些接口供可信后端进程使用，不是终端用户 REST API。调用方仍负责身份认证和用例准入；
 初始操作接受时还会在数据库内校验当前项目管理权。持有函数执行权限不等于获得任意用户的项目管理权限。
 
-实现与冻结合同位于 `apps/api/alembic/sql/0190*` 至 `0217*`。接口通过 PostgreSQL
+实现与冻结合同位于 `apps/api/alembic/sql/0190*` 至 `0218*`。接口通过 PostgreSQL
 协议调用，使用调用方同一连接的外层事务，不接收 Python Session、ORM 或任意 SQL。
 安装、独立角色及本地验收命令见仓库 `DEV.md`；数据所有权见
 [ADR-0092](/dev/adr/0092-transactional-module-data-capabilities)。
@@ -327,6 +327,23 @@ ZIP 的 `read_dataset_ingest_layout` 以 UUID keyset 分页返回至多 500 个 
 六个公开 REST 操作通过内部 `POST /v1/connections/{list,read,create,update,delete,test}` 调用 Source 工作流。API 网关保留 JWT/API key、公开角色和响应；本地模式复用同一工作流与调用方 SQL 连接，远程模式由 Source 持有事务，远程故障不回退到本地。列表在内部按有界页面读取并校验完整快照，公开响应仍是完整列表。
 
 Source 在 `public.storage_connection_operations` 中保存不可变幂等回执，并与连接器变化和审计共同提交。create、update、delete、test 接受 `operation_id`，通过 API 的可选 UUID `Idempotency-Key` 传入；重放要求相同 actor、操作、资源和用户意图。create 令 `connection_id=operation_id`。历史兼容 `project_id` 不参与新记录归属，owner 连接器使用 `created_by`，其创建者即使降为 employee/viewer 仍可管理，global 连接器仅超级管理员可管理。Source 通过公开身份能力检查当前角色，不依赖调用方传入角色布尔值。
+
+## 可信导入器数据集与素材登记
+
+0218 为现有本地图片与 nuScenes 导入器发布独立的 `aap-assets-operator/v1` SQL 合同。它与 Source 的 23 项、Catalog 的 29 项和连接器导入执行器的 7 项 LOGIN 能力分开；专用 `asset_operator_client` LOGIN 被授予下面六项 Assets 函数。持有该 operator 凭据即获得此路径的受信任执行权限，owner UUID 只保留既有归属标记。图片导入沿用已有 owner 选择且没有新增 manager 门槛；nuScenes 保留既有 Catalog 资格检查和先锁 actor、再锁 Dataset 的顺序。函数不接收调用者传来的角色布尔值。
+
+| 原生能力                           | SQL 参数签名               | 用途                                                                |
+| ---------------------------------- | -------------------------- | ------------------------------------------------------------------- |
+| `create_operator_image_dataset`    | `(uuid, uuid, text, text)` | 使用稳定操作身份创建图片 Dataset 并回传当前 Dataset 事实            |
+| `ensure_operator_nuscenes_dataset` | `(uuid, uuid, jsonb)`      | 保留已有 Dataset 的名称、类型与创建者，返回 nuScenes 来源和升级事实 |
+| `append_operator_items`            | `(uuid, uuid, jsonb)`      | 按请求顺序追加最多 500 个新 Item，并原子更新 file_count             |
+| `patch_operator_items`             | `(uuid, uuid, jsonb)`      | 比较不透明来源快照，合并请求的 nuScenes metadata、尺寸、大小或哈希  |
+| `recount_operator_items`           | `(uuid, uuid)`             | 从 Assets 当前 Item 集重算 Dataset 的 file_count                    |
+| `read_operator_items`              | `(uuid, uuid, integer)`    | 按 Item UUID 游标返回有序 Item 页和稳定快照摘要                     |
+
+每个写能力都接收操作 UUID；重放必须匹配原操作和请求。`dataset_operator_operations` 存储不可变回执且没有 live Dataset/Item 外键。批量追加/更新最多 500 项，请求 JSON 最多 8 MiB。读取每页最多 500 项，Item 记录 JSON 最多 15 MiB，完整响应最多 16 MiB；调用方跨页核对稳定摘要、总数、顺序、游标和完成标记，因此完整读取不受单页上限截断。source snapshot 是 opaque CAS 值，由 Assets 持有并在 patch 时重验；更新保留 Scene/frame、标定和无关 metadata，只改请求字段，尺寸只在目标相机尺寸不完整时成对回填。
+
+本地导入器通过 `AssetsOperatorGateway` 将这些函数绑定到自己的 SQL Session；nuScenes 路径与既有 Labeling、Workspace 和空间写入共用外层事务，函数不自行提交。它们不是 Source HTTP 工作流，没有 `ASSETS_SOURCE_URL` 远程选择或错误回退。对象存储上传、nuScenes 文件写入及必要的既有对象覆盖不属于 SQL 事务，回滚保留原始字节。专用 operator LOGIN 不读业务表，也不继承其他角色。完整边界与部署顺序见仓库 `DEV.md` 和 [ADR-0104](/dev/adr/0104-operator-source-registration)；SQL schema 在 `apps/api/alembic/sql/0218_assets_operator.schema.json`。
 
 ## 持久连接器导入
 
