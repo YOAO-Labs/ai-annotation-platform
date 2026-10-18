@@ -10,10 +10,18 @@ from typing import Any
 from pydantic import ValidationError
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from fastapi import HTTPException
+
+from aap_assets_images import contract as image_contract
+from aap_assets_images.policy import ImagePolicy
+from aap_assets_images.transport import (
+    ImageAssetReferencesRequest,
+    ImageGenerationReferenceRequest,
+    ImageTileRequest,
+)
 
 from app.db.models.annotation import Annotation
 from app.db.models.dataset import Dataset, DatasetItem, ProjectDataset
-from app.db.models.image_pyramid import ImagePyramidAsset, ImagePyramidGeneration
 from app.db.models.prediction import Prediction
 from app.db.models.project import Project
 from app.db.models.project_member import ProjectMember
@@ -40,7 +48,9 @@ from app.services.screenshot_seed_spec import (
 )
 from app.services.storage import storage_service
 from app.services.assets_spatial import AssetsSpatialGateway
+from app.services.assets_images import image_gateway, image_policy
 from app.services.labeling_scene import read_spatial_item_facts
+from app.services.project_access import resolve_project_access
 
 
 SCHEMA_VERSION = 1
@@ -114,6 +124,151 @@ def _storage_object_digest(file_path: str) -> str:
     finally:
         body.close()
     return digest.hexdigest()
+
+
+async def _resolve_large_image_seed_actor(
+    db: AsyncSession, project: Project, issues: list[str]
+) -> uuid.UUID | None:
+    actor_id = project.owner_id
+    if actor_id is None:
+        issues.append(f"{project.display_id}: project owner is missing")
+        return None
+    try:
+        access = await resolve_project_access(db, actor_id=actor_id, project=project)
+    except HTTPException:
+        issues.append(
+            f"{project.display_id}: project owner is not an active eligible manager"
+        )
+        return None
+    if (
+        project.owner_id != actor_id
+        or not access.is_manager
+        or access.user_id != actor_id
+        or access.project_id != project.id
+    ):
+        issues.append(
+            f"{project.display_id}: project owner is not an active eligible manager"
+        )
+        return None
+    return actor_id
+
+
+async def _ready_large_image_pyramid(
+    gateway,
+    *,
+    actor_id: uuid.UUID,
+    item: DatasetItem,
+    policy: ImagePolicy,
+) -> bool:
+    """Require the current owner projection and verified manifest/asset references."""
+    request = image_contract.ReadImageGenerationRequest(
+        actor_id=actor_id,
+        dataset_item_id=item.id,
+        profile_version=policy.profile_version,
+    )
+    try:
+        state = await gateway.call("read_image_generation", request)
+        source = state.source
+        pyramid = state.pyramid
+        if (
+            source.owner.kind != "dataset_item"
+            or source.owner.id != item.id
+            or source.task_id is not None
+            or source.item_id != item.id
+            or source.dataset_id != item.dataset_id
+            or source.file_path != item.file_path
+            or source.file_name != item.file_name
+            or source.file_type != "image"
+            or source.bucket_kind != "datasets"
+            or source.file_size != item.file_size
+            or source.content_hash != item.content_hash
+            or source.width != item.width
+            or source.height != item.height
+            or source.source_generation != item.media_source_generation
+            or item.media_source_drifted
+            or not source.upload_ready
+            or source.source_drifted
+            or pyramid.profile_version != policy.profile_version
+            or pyramid.status != "ready"
+            or pyramid.generation is None
+            or pyramid.source_generation != source.source_generation
+            or pyramid.source_snapshot != source.source_snapshot
+            or pyramid.width != item.width
+            or pyramid.height != item.height
+            or pyramid.manifest is None
+            or pyramid.manifest.generation != pyramid.generation
+        ):
+            return False
+
+        reference = await gateway.generation_reference(
+            ImageGenerationReferenceRequest(
+                actor_id=actor_id,
+                dataset_item_id=item.id,
+                generation=pyramid.generation,
+                profile_version=policy.profile_version,
+                expected_source_snapshot=source.source_snapshot,
+            )
+        )
+        manifest = reference.manifest
+        if (
+            reference.source.owner != source.owner
+            or reference.source.source_generation != source.source_generation
+            or reference.source.source_snapshot != source.source_snapshot
+            or reference.source.file_path != item.file_path
+            or reference.source.source_drifted
+            or not reference.source.upload_ready
+            or reference.pyramid.profile_version != policy.profile_version
+            or reference.pyramid.status != "ready"
+            or reference.pyramid.generation != pyramid.generation
+            or reference.pyramid_source_generation != source.source_generation
+            or reference.pyramid_source_snapshot != source.source_snapshot
+            or manifest is None
+            or manifest != pyramid.manifest
+            or manifest.width != item.width
+            or manifest.height != item.height
+            or reference.overview_url is None
+        ):
+            return False
+        manifest_tile_count = sum(
+            level.columns * level.rows for level in manifest.levels
+        )
+        if manifest_tile_count <= 0 or manifest_tile_count != pyramid.tile_count:
+            return False
+
+        assets = await gateway.asset_references(
+            ImageAssetReferencesRequest(
+                actor_id=actor_id,
+                dataset_item_id=item.id,
+                expected_source_snapshot=source.source_snapshot,
+                profile_version=policy.profile_version,
+                items=[
+                    ImageTileRequest(
+                        kind="tile",
+                        generation=pyramid.generation,
+                        level=0,
+                        x=0,
+                        y=0,
+                    )
+                ],
+            )
+        )
+        return (
+            assets.source.owner == source.owner
+            and assets.source.source_generation == source.source_generation
+            and assets.source.source_snapshot == source.source_snapshot
+            and not assets.source.source_drifted
+            and assets.source.upload_ready
+            and assets.generation == pyramid.generation
+            and assets.profile_version == policy.profile_version
+            and len(assets.items) == 1
+            and assets.items[0].kind == "tile"
+            and assets.items[0].generation == pyramid.generation
+            and (assets.items[0].level, assets.items[0].x, assets.items[0].y)
+            == (0, 0, 0)
+            and bool(assets.items[0].url)
+        )
+    except image_contract.ImageFailure:
+        return False
 
 
 async def _resolve_backend(
@@ -565,6 +720,11 @@ async def _resolve_optional_large_image_project(
 
     project, dataset = projects[0], datasets[0]
     prefix = LARGE_IMAGE_PROJECT_DISPLAY_ID
+    actor_id = await _resolve_large_image_seed_actor(db, project, issues)
+    if actor_id is None:
+        return None
+    gateway = image_gateway()
+    policy = image_policy()
     links = list(
         (
             await db.execute(
@@ -635,26 +795,8 @@ async def _resolve_optional_large_image_project(
         task = task_rows[0]
         resolved_task_ids.add(task.id)
 
-        generation = await db.scalar(
-            select(ImagePyramidGeneration)
-            .join(
-                ImagePyramidAsset,
-                ImagePyramidAsset.id == ImagePyramidGeneration.asset_id,
-            )
-            .where(
-                ImagePyramidAsset.dataset_item_id == item.id,
-                ImagePyramidAsset.active_generation
-                == ImagePyramidGeneration.generation,
-            )
-        )
-        if (
-            generation is None
-            or generation.status != "ready"
-            or generation.width != item.width
-            or generation.height != item.height
-            or not generation.manifest_key
-            or not generation.overview_key
-            or not generation.tile_count
+        if not await _ready_large_image_pyramid(
+            gateway, actor_id=actor_id, item=item, policy=policy
         ):
             issues.append(f"{prefix}: fixture {fixture_id} pyramid is not ready")
             continue

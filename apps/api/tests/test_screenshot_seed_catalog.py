@@ -3,14 +3,19 @@ from __future__ import annotations
 import hashlib
 import uuid
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 
 import pytest
 from fastapi import HTTPException
 from sqlalchemy import select
 
+from aap_assets_images import contract as image_contract
+from aap_assets_images.geometry import build_manifest
+from aap_assets_images.policy import ImagePolicy
+from aap_assets_images.transport import ImageTileRequest
+
 from app.db.models.annotation import Annotation
 from app.db.models.dataset import Dataset, DatasetItem, ProjectDataset
-from app.db.models.image_pyramid import ImagePyramidAsset, ImagePyramidGeneration
 from app.db.models.ml_backend_registry import MLBackendRegistry, ProjectMLBackendPool
 from app.db.models.prediction import Prediction, PredictionMeta
 from app.db.models.project import Project
@@ -25,6 +30,7 @@ from app.services.screenshot_seed_spec import (
     SEED_REVISION,
 )
 from app.services.storage import storage_service
+from app.services import screenshot_seed_catalog
 from app.services.annotation_evidence import assert_review_evidence_current
 from app.services.data_management.views import TaskViewService
 from scripts.seed_screenshot_profile import (
@@ -41,6 +47,37 @@ from scripts.seed_screenshot_profile import (
 
 pytestmark = pytest.mark.asyncio
 FIXED_TIME = datetime(2026, 7, 1, tzinfo=UTC)
+
+
+async def test_large_image_seed_actor_rechecks_current_project_owner(monkeypatch):
+    original_owner = uuid.uuid4()
+    current_owner = uuid.uuid4()
+    project = SimpleNamespace(
+        id=uuid.uuid4(), owner_id=original_owner, display_id="P-LARGE-IMG"
+    )
+    access = SimpleNamespace(
+        user_id=original_owner,
+        project_id=project.id,
+        is_manager=True,
+    )
+
+    async def resolve_access(db, *, actor_id, project):
+        assert actor_id == original_owner
+        project.owner_id = current_owner
+        return access
+
+    monkeypatch.setattr(
+        screenshot_seed_catalog, "resolve_project_access", resolve_access
+    )
+    issues: list[str] = []
+
+    assert (
+        await screenshot_seed_catalog._resolve_large_image_seed_actor(
+            object(), project, issues
+        )
+        is None
+    )
+    assert issues == ["P-LARGE-IMG: project owner is not an active eligible manager"]
 
 
 @pytest.fixture(autouse=True)
@@ -459,7 +496,7 @@ async def test_catalog_ignores_soft_deleted_annotations(httpx_client, db_session
 
 
 async def test_catalog_includes_ready_optional_large_image_fixture(
-    httpx_client, db_session
+    httpx_client, db_session, monkeypatch
 ):
     projects, _ = await _ready_profile(db_session)
     owner = projects["pointcloud_demo"].owner_id
@@ -513,34 +550,114 @@ async def test_catalog_includes_ready_optional_large_image_fixture(
         file_path=item.file_path,
         file_type="image",
     )
-    asset = ImagePyramidAsset(
-        id=uuid.uuid4(),
-        dataset_item_id=item.id,
-        profile_version="v1",
-        active_generation=1,
-    )
-    db_session.add_all([task, asset])
+    db_session.add(task)
     await db_session.flush()
-    db_session.add(
-        ImagePyramidGeneration(
-            asset_id=asset.id,
+
+    image_policy = ImagePolicy()
+    source_snapshot = "a" * 64
+    owner_projection = SimpleNamespace(kind="dataset_item", id=item.id)
+    source = SimpleNamespace(
+        owner=owner_projection,
+        task_id=None,
+        project_id=project.id,
+        dataset_id=dataset.id,
+        item_id=item.id,
+        source_snapshot=source_snapshot,
+        file_path=item.file_path,
+        file_name=item.file_name,
+        file_type="image",
+        bucket_kind="datasets",
+        file_size=item.file_size,
+        content_hash=item.content_hash,
+        width=item.width,
+        height=item.height,
+        source_generation=item.media_source_generation,
+        source_drifted=False,
+        upload_ready=True,
+    )
+    manifest = image_contract.ImagePyramidManifest.model_validate(
+        build_manifest(
             generation=1,
-            source_identity="etag:test:bytes:130764157",
-            source_fingerprint="f" * 64,
-            status="ready",
+            source_fingerprint="sha256:" + "f" * 64,
             width=item.width,
             height=item.height,
-            max_level=15,
-            normalization_version="v1",
-            manifest_key="image-pyramids/a/1/manifest.json",
-            overview_key="image-pyramids/a/1/overview.webp",
             overview_width=2048,
             overview_height=1186,
-            tile_count=694,
-            retained_bytes=1234,
+            overview_digest="sha256:" + "e" * 64,
+            policy=image_policy,
         )
     )
-    await db_session.flush()
+    tile_count = sum(level.columns * level.rows for level in manifest.levels)
+    pyramid = SimpleNamespace(
+        profile_version=image_policy.profile_version,
+        status="ready",
+        generation=1,
+        source_generation=1,
+        source_snapshot=source_snapshot,
+        width=item.width,
+        height=item.height,
+        manifest=manifest,
+        tile_count=tile_count,
+    )
+
+    class FakeImageGateway:
+        async def call(self, operation, request):
+            assert operation == "read_image_generation"
+            assert request.actor_id == owner
+            assert request.dataset_item_id == item.id
+            assert request.profile_version == image_policy.profile_version
+            return SimpleNamespace(source=source, pyramid=pyramid)
+
+        async def generation_reference(self, request):
+            assert request.actor_id == owner
+            assert request.dataset_item_id == item.id
+            assert request.generation == pyramid.generation
+            assert request.expected_source_snapshot == source_snapshot
+            return SimpleNamespace(
+                source=source,
+                pyramid=SimpleNamespace(
+                    profile_version=image_policy.profile_version,
+                    status="ready",
+                    generation=pyramid.generation,
+                ),
+                pyramid_source_generation=source.source_generation,
+                pyramid_source_snapshot=source_snapshot,
+                manifest=manifest,
+                overview_url="https://assets.example/overview",
+            )
+
+        async def asset_references(self, request):
+            assert request.actor_id == owner
+            assert request.dataset_item_id == item.id
+            assert request.expected_source_snapshot == source_snapshot
+            assert request.items == [
+                ImageTileRequest(
+                    kind="tile", generation=pyramid.generation, level=0, x=0, y=0
+                )
+            ]
+            return SimpleNamespace(
+                source=source,
+                generation=pyramid.generation,
+                profile_version=image_policy.profile_version,
+                items=[
+                    SimpleNamespace(
+                        kind="tile",
+                        generation=pyramid.generation,
+                        level=0,
+                        x=0,
+                        y=0,
+                        url="https://assets.example/tile",
+                    )
+                ],
+            )
+
+    monkeypatch.setattr(
+        "app.services.screenshot_seed_catalog.image_gateway",
+        lambda: FakeImageGateway(),
+    )
+    monkeypatch.setattr(
+        "app.services.screenshot_seed_catalog.image_policy", lambda: image_policy
+    )
 
     response = await httpx_client.get(
         "/api/v1/__test/seed/catalog", params={"profile": "screenshots"}
