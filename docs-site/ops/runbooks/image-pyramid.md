@@ -3,190 +3,116 @@ title: 图片金字塔运行手册
 audience: [ops]
 type: how-to
 status: stable
-last_reviewed: 2026-07-31
+last_reviewed: 2026-10-19
 ---
 
 # 图片金字塔运行手册
 
-本手册用于部署、回填和诊断超大图金字塔。自动生成默认关闭；API、数据库和专用 Worker 可以先上线，再按
-容量证据启用。
+图片控制与视频媒体共用 `apps/assets-media`；图片工作由独立轮询 Worker 执行，派生对象由既有 Assets 清理进程删除。自动生成默认关闭。仓库包含可选部署配置；此文不代表已部署到主环境/生产环境，也不构成生产容量验收。
 
-## 部署检查
+## 运行边界与授权
 
-应用镜像必须包含 libvips、pyvips 和可用的 sRGB ICC profile。代码、Python 依赖或 Dockerfile 有变化时
-需要重建：
+| 身份                                        | 数据库能力                                       | 对象存储范围                                           |
+| ------------------------------------------- | ------------------------------------------------ | ------------------------------------------------------ |
+| API/共享控制端 `asset_media_control_client` | 共享控制 32 项（视频 18、图片 14），仅函数执行权 | HEAD/GET 注册源图和缓存、签发读取 URL；不写源、不清理  |
+| 图片 Worker `asset_image_worker_client`     | 图片执行 6 项函数                                | 只读 datasets/历史 Task 源图；只在派生前缀读写；不删源 |
+| 清理端 `asset_cleanup_client`               | 4 项清理函数（原 outbox 与图片垃圾领取/确认）    | 对缓存桶派生前缀列举、删除；不读写源对象               |
 
-```bash
-docker compose build celery-worker-image-pyramid
-docker compose up -d celery-worker-image-pyramid celery-worker celery-beat
-```
+这些 LOGIN 不直接访问应用表或其他 owner schema，也不继承迁移/owner 角色。Task 可见性由控制端与 Labeling owner 能力确认。已受理作业捕获来源身份与策略，发起者后来被禁用不会撤销执行权；来源变化和明确取消仍会阻止迟到发布。
 
-先执行数据库迁移，再确认专用 Worker 只消费 `image-pyramid` 队列且并发为 1：
+## 部署与权限
 
-```bash
-docker exec <api-container> alembic upgrade head
-docker compose ps celery-worker-image-pyramid
-docker compose logs --tail=100 celery-worker-image-pyramid
-```
+先将数据库迁移到包含图片能力的当前 head（迁移 `0220`），按既有 module-data 流程安装 owner 辅助授权，再应用共享媒体授权 `infra/docker/assets-media-grants.sql` 和图片 Worker 授权 `infra/docker/assets-image-grants.sql`。创建独立 NOLOGIN Assets owner、control/worker LOGIN；迁移身份单独使用。cleanup 的四项能力沿用 module-data 授权流程。
 
-容器内快速检查：
+`docker-compose.assets-media.yml` 不属于默认 Compose。按部署环境准备独立 DSN、token 与 S3 secret 文件，确认容器 UID 10005 可读；API 通过 `ASSETS_MEDIA_URL` 和对应 token 接入控制端。独立 Worker 使用 `ASSETS_IMAGES_DATABASE_URL_FILE`、`ASSETS_IMAGES_S3_ACCESS_KEY_FILE`、`ASSETS_IMAGES_S3_SECRET_KEY_FILE`。控制、Worker、清理身份不可共用高权限凭据。
 
-```bash
-docker compose exec celery-worker-image-pyramid \
-  python -c "import pyvips; print(pyvips.version(0), pyvips.version(1), pyvips.version(2))"
-docker compose exec celery-worker-image-pyramid \
-  test -r /usr/share/color/icc/sRGB.icc
-```
+S3 权限应限定为：
 
-## 关键配置
+- 控制端对已登记源图和缓存对象 HEAD/GET，并签发短期读取 URL；不写缓存或删除对象。
+- 图片 Worker 对源桶只读；对 `image-assets/*`、`image-pyramids/*` 派生前缀读写和校验，并在 `image-pyramids/*` 受限列举以做协调；不写/删源对象。
+- 清理身份只对缓存桶中由数据库签发的图片派生 prefix 做 List/Delete；不授予 Get/Put、源桶访问或桶管理。
 
-| 配置                                   |        默认值 | 作用                          |
-| -------------------------------------- | ------------: | ----------------------------- |
-| `IMAGE_PYRAMID_AUTO_GENERATE`          |       `false` | 上传/缩略图流程是否自动入队   |
-| `IMAGE_PYRAMID_OPTIONAL_PIXELS`        |    `16777216` | 允许生成的最低像素数          |
-| `IMAGE_PYRAMID_REQUIRED_PIXELS`        |    `50000000` | 客户端必须走 tile 的像素门    |
-| `IMAGE_PYRAMID_MAX_PIXELS`             |   `300000000` | 最大解码像素                  |
-| `IMAGE_PYRAMID_MAX_DIMENSION`          |       `32768` | 任一边最大尺寸                |
-| `IMAGE_PYRAMID_MAX_TILES`              |       `20000` | 单代次最大 tile 数            |
-| `IMAGE_PYRAMID_MAX_SOURCE_BYTES`       |  `8589934592` | 最大压缩源字节                |
-| `IMAGE_PYRAMID_MAX_DERIVED_BYTES`      |  `8589934592` | 最大持久派生字节              |
-| `IMAGE_PYRAMID_MAX_TEMP_BYTES`         | `12884901888` | source 与生成目录临时空间上限 |
-| `IMAGE_PYRAMID_JOB_TIMEOUT_SECONDS`    |        `1800` | Worker soft timeout           |
-| `IMAGE_PYRAMID_LEASE_SECONDS`          |        `2100` | generation lease              |
-| `IMAGE_PYRAMID_URL_EXPIRY_SECONDS`     |         `900` | overview/tile URL 有效期      |
-| `IMAGE_PYRAMID_RETRY_COOLDOWN_SECONDS` |         `300` | 失败后重试冷却                |
-| `IMAGE_PYRAMID_VIPS_CONCURRENCY`       |           `4` | 单 job libvips 并发           |
-| `VITE_EXPERIMENTAL_LARGE_IMAGE_TILES`  |        `true` | 前端是否选择 ready pyramid    |
+共享控制端与图片 Worker 的 endpoint、region、桶配置要一致；API 通过共享控制端 URL/token 接入。公共 S3 endpoint 必须对浏览器可达，不要改写签名 URL。历史 Task 图像桶通过 `ASSETS_IMAGES_LEGACY_BUCKET` 指定，开发环境可回退至既有 `MINIO_BUCKET` / `MINIO_BUCKET_ANNOTATIONS`。
 
-`profile_version` 或 `normalization_version` 变更会产生新资产身份/输出合同，不能只改一台 Worker。所有 API、
-media Worker 和 image-pyramid Worker 必须使用一致值。
+## 启动与健康检查
 
-`VITE_EXPERIMENTAL_LARGE_IMAGE_TILES` 是 Vite build-time 开关，修改后必须重建 Web 镜像。它与
-`IMAGE_PYRAMID_AUTO_GENERATE` 独立：前者只控制浏览器选择，后者只控制新资产是否自动入队。
-
-## 安全启用与回填
-
-先保持自动生成关闭，用 dry-run 估算 DatasetItem 数量：
+图片执行使用 `apps/assets-media/Dockerfile` 的 `image-worker` target，不消费 Celery 队列，也不依赖 Redis/beat。`ASSETS_IMAGES_POLL_SECONDS` 默认 5 秒；Worker 启动时以及此后约每日运行一次有界协调。使用默认栈与 overlay 一起启动：
 
 ```bash
-cd apps/api
-PYTHONPATH=. uv run python scripts/backfill_image_pyramids.py \
-  --owner-kind dataset_item --dry-run --limit 100
+docker compose -f docker-compose.yml -f docker-compose.assets-media.yml build assets-media-control assets-images-worker
+docker compose -f docker-compose.yml -f docker-compose.assets-media.yml up -d assets-media-control assets-images-worker
+docker compose -f docker-compose.yml -f docker-compose.assets-media.yml ps
+docker compose -f docker-compose.yml -f docker-compose.assets-media.yml logs --tail=100 assets-images-worker
+docker compose -f docker-compose.yml -f docker-compose.assets-media.yml exec assets-images-worker python -m aap_assets_images_runtime.worker --healthcheck
+docker compose -f docker-compose.yml -f docker-compose.assets-cleanup.yml up -d --build assets-cleanup
 ```
 
-按 cursor 小批量入队：
+API 必须能经私有网络访问 `http://assets-media-control:8768`。overlay 只在容器网络 expose 8768，不发布宿主端口。图片 Worker 的可选 Compose 限制为 4 CPU、16 GiB 内存和 12 GiB 临时盘；这是本地配置，不代表生产容量。控制端 `GET /health/live` 表示进程可响应，`GET /health/ready` 检查 SQL 能力；Worker `--healthcheck` 检查配置、数据库连接与六项精确权限。它们都不验证实际 S3 IAM、图片解码或发布。小批量验收应至少走通源 HEAD/GET、Job、manifest/asset URL、对象身份校验和 cleanup 精确删除；使用专用环境和素材，不据此声称生产验收。
+
+宿主直接运行入口：
 
 ```bash
-PYTHONPATH=. uv run python scripts/backfill_image_pyramids.py \
-  --owner-kind dataset_item --cursor <uuid> --limit 100
+uv run --project apps/assets-media --extra runtime --extra server python -m aap_assets_media_runtime
+uv run --project apps/assets-media --extra runtime python -m aap_assets_images_runtime.worker
 ```
 
-legacy direct Task 没有持久化尺寸，必须显式选择；Worker 会先 probe，再应用硬上限：
+API 配置 `ASSETS_MEDIA_URL` 后使用远程共享控制；远程配置/请求失败不回退本地。地址留空时，当前开发兼容路径仍可本地装配控制和轻量 Celery 唤醒；要验证独立边界，确认 API 走远程控制且作业由 `assets-images-worker` 执行。
 
-```bash
-PYTHONPATH=. uv run python scripts/backfill_image_pyramids.py \
-  --owner-kind task --dry-run --limit 100
-```
+## 策略与 profile
 
-浏览器 E2E、性能基准和文档截图可按需下载固定的现实大图 seed；原图写入 gitignored 的
-`test-results/image-seeds/`，下载后必须通过固定字节数与 SHA-256：
+| 设置                                                                |                    默认值 | 说明                             |
+| ------------------------------------------------------------------- | ------------------------: | -------------------------------- |
+| `IMAGE_PYRAMID_AUTO_GENERATE`                                       |                   `false` | 新图自动受理开关                 |
+| `IMAGE_PYRAMID_PROFILE_VERSION`                                     |              `pyramid-v1` | 读取的金字塔 profile/lineage     |
+| `IMAGE_PYRAMID_NORMALIZATION_VERSION`                               | `exif-autorotate-srgb-v1` | EXIF 与 sRGB 归一化规则          |
+| `IMAGE_PYRAMID_OPTIONAL_PIXELS` / `IMAGE_PYRAMID_REQUIRED_PIXELS`   |   16,777,216 / 50,000,000 | 可选/必须使用金字塔的像素门槛    |
+| `IMAGE_PYRAMID_MAX_PIXELS` / `IMAGE_PYRAMID_MAX_DIMENSION`          |      300,000,000 / 32,768 | 解码像素和单边硬上限             |
+| `IMAGE_PYRAMID_MAX_TILES`                                           |                    20,000 | 单代 tile 上限                   |
+| `IMAGE_PYRAMID_MAX_SOURCE_BYTES`                                    |                     8 GiB | 最大压缩源大小                   |
+| `IMAGE_PYRAMID_MAX_DERIVED_BYTES` / `IMAGE_PYRAMID_MAX_TEMP_BYTES`  |                8 / 12 GiB | 派生字节与临时空间上限           |
+| `IMAGE_PYRAMID_JOB_TIMEOUT_SECONDS` / `IMAGE_PYRAMID_LEASE_SECONDS` |          1,800 / 2,100 秒 | 租约必须大于超时并留出硬终止余量 |
+| `IMAGE_PYRAMID_RETRY_COOLDOWN_SECONDS`                              |                    300 秒 | 失败后的重试冷却                 |
+| `IMAGE_PYRAMID_GC_GRACE_HOURS`                                      |                   24 小时 | 代次失活后的默认保留期           |
+| `IMAGE_PYRAMID_URL_EXPIRY_SECONDS`                                  |                    900 秒 | 派生读取 URL 有效期              |
+| `IMAGE_PYRAMID_VIPS_CONCURRENCY`                                    |                         4 | 单 Worker libvips 并发           |
+| `ASSETS_IMAGES_SRGB_PROFILE`                                        |             镜像 ICC 文件 | Worker 可覆盖的绝对路径          |
 
-```bash
-pnpm --filter @anno/web image:seeds -- --list
-pnpm --filter @anno/web image:seeds
-pnpm --filter @anno/web image:seeds -- --verify-only
-```
+作业受理时固定策略。API 与共享控制的 profile 必须一致；切换 profile/normalization version 前规划新输出线与回填范围，不要只改一台服务。`VITE_EXPERIMENTAL_LARGE_IMAGE_TILES` 是 Web 构建时开关，改动后需重建 Web；它不控制自动受理。
 
-清单包含高熵 RGB PNG、接近硬上限的超宽 JPEG 和 optional 边界的超高 RGBA 竖图。每项记录 NASA
-官方来源页、原始下载地址、署名和媒体使用政策；自动化输出不得暗示 NASA 或合作机构背书。
+## 有界回填、状态与重试
 
-当前开发栈可把已校验原图导入固定项目/数据集，并显式等待专用 Worker 生成完成：
+脚本先做有界 source 扫描，再受理持久 backfill Job；S3 观察和子作业入队由 Worker 完成。先 dry-run，再用小批次。`dataset_item` 可用 dataset id；`task` 仅指没有 DatasetItem 关联的历史 Task，不能带 dataset id。跨游标分页时固定带时区 cutoff：
 
 ```bash
 cd apps/api
-PYTHONPATH=. uv run python scripts/seed_large_images.py \
-  --enqueue-pyramids --wait-seconds 1800
+PYTHONPATH=. uv run python scripts/backfill_image_pyramids.py --owner-kind dataset_item --dataset-id <dataset-uuid> --dry-run --limit 100
+PYTHONPATH=. uv run python scripts/backfill_image_pyramids.py --owner-kind dataset_item --dataset-id <dataset-uuid> --limit 100 --accepted-before 2026-10-19T00:00:00Z
+PYTHONPATH=. uv run python scripts/backfill_image_pyramids.py --owner-kind dataset_item --dataset-id <dataset-uuid> --cursor <next-cursor-uuid> --limit 100 --accepted-before 2026-10-19T00:00:00Z
+PYTHONPATH=. uv run python scripts/backfill_image_pyramids.py --owner-kind task --dry-run --limit 100
 ```
 
-命令幂等创建 `P-LARGE-IMG` / `DS-LARGE-IMG` 与逐图 Task。它不会开启全局
-`IMAGE_PYRAMID_AUTO_GENERATE`，只为本次选中的 eligible 夹具入队；重复运行复用同源 active
-generation。可用重复的 `--id <fixture-id>` 缩小范围。production 环境会拒绝执行。
+每个页面使用新的 `--operation-id`；原生 `asset_image_operations` 保存不可变受理回执，重复相同操作意图会返回首次结果。保存输出的 `accepted_before`、`operation_id`、`job_id` 和 `next_cursor`。脚本每次都会重新扫描候选项；不要只用相同 CLI 参数盲目重跑已受理页面，回执只重放同一冻结 owner 选择。已受理范围不因操作者角色变化而重新解释；来源删除、代次变化或明确取消会阻止该源迟到发布。
 
-观察连续任务的 RSS、临时盘、失败率和队列积压稳定后，才把
-`IMAGE_PYRAMID_AUTO_GENERATE=true` 注入 API/media Worker 与专用 Worker，并重建或重启对应服务。
+Task 接口为 `GET /api/v1/tasks/{task_id}/image-pyramid`（manifest/状态）、`POST /api/v1/tasks/{task_id}/image-pyramid/asset-urls`（overview/manifest/tile URL）和 `POST /api/v1/tasks/{task_id}/image-pyramid/retry`。重试返回 202；提供 UUID `Idempotency-Key`，丢失响应时用同 key 重放。先读 manifest 的 `status`、`retryable`、`retry_after_ms` 和 `error_code`。`already_ready` 不需重试；`retry_cooldown` 按服务等待时间处理；`source_not_ready` 检查上传/登记完成状态；`source_changed`/`source_missing` 检查源注册和对象身份后再发起新作业。尺寸/资源/解码/色彩错误先检查输入与策略。`lease_lost`、`operation_busy`、`storage_unavailable` 可等待 Worker 恢复和租约重领，避免快速创建新的操作 ID。
 
-## 观测与告警
+## 观测与排障
 
-重点指标：
+当前 API 侧 Prometheus 指标只有与图片有关的 `image_pyramid_api_requests_total{operation,outcome}`（manifest/asset URL/retry 结果）和 `image_pyramid_asset_url_items_total{kind}`（签发 URL 条目）。独立 Worker 不再发布旧版的生成总数、阶段耗时、解码像素、tile、临时盘、派生字节或 GC 指标，不要配置基于这些旧名称的告警。
 
-- `image_pyramid_generations_total{outcome,error_code}`：成功与稳定故障码；
-- `image_pyramid_phase_duration_seconds{phase,outcome}`：下载、生成、校验和上传耗时；
-- `image_pyramid_source_bytes`、`image_pyramid_decoded_pixels`、`image_pyramid_tile_count`；
-- `image_pyramid_derived_bytes`、`image_pyramid_temp_bytes`、`image_pyramid_asset_bytes`；
-- `image_pyramid_api_requests_total{operation,outcome}`；
-- `image_pyramid_gc_total{outcome}`。
+原生 `read_image_usage` 返回 `source_bytes`、`thumbnail_bytes`、`pyramid_bytes`、`pending`、`running`、`failed` 和 `garbage_pending`。通过受限共享控制端查看：
 
-建议告警：
+```bash
+curl --fail --silent --show-error -H 'Authorization: Bearer '"$ASSETS_MEDIA_TOKEN" -H 'Content-Type: application/json' -d '{}' "$ASSETS_MEDIA_URL/v1/images/commands/read_image_usage"
+```
 
-- `failed` 比例持续升高；
-- `lease_expired`、`timeout` 或 `resource_limit` 突增；
-- `object_missing`/`inconsistent_ready` 非零；
-- 队列持续增长且 Worker 无 ready 结果；
-- Worker RSS 接近 `--max-memory-per-child` 或临时卷接近容量上限。
+`source_bytes` 是已登记 DatasetItem 源大小合计，不含直接历史 Task 源图；`thumbnail_bytes` 是 ready thumbnail Job 记录的派生字节；`pyramid_bytes` 是 active ready 金字塔代次保留字节；pending、running 和 failed 计数跨所有图片作业，`garbage_pending` 为未完成清理责任数。这些是 SQL owner 读数，不等于 S3 账单或全桶盘点。
 
-浏览器 BUG 反馈会附带 `Large Image Tile Diagnostics`，其中包括 current level、visible/desired tile、
-queue/fetch/decode 状态、cache hit/eviction、requested/decoded/reserved/retained/budget bytes、
-ImageBitmap/HTML image/ObjectURL 存量、abort、stale commit、签发批次数、URL 刷新和目标细节
-coverage。该快照不包含签名 URL、storage key 或文件名。排查长会话时应确认停止交互后
-retained/live/request 进入平台档位内 plateau，离开任务后 reserved/retained/live 全部归零。
+Worker 日志使用稳定错误码，不应记录来源凭据、签名 URL 或原始文件。遇错检查 profile、登录角色、endpoint/bucket、ICC 路径和容器 RSS/临时盘。`upload_verification_failed` 或 `inconsistent_ready` 应核对缓存对象身份与可达性，不要手工伪造 ready 状态。浏览器 Large Image Tile Diagnostics 用于排查客户端请求/解码/覆盖范围；Workbench Raster Resource Diagnostics 是浏览器内存账本，不是 Worker 队列、服务器字节或 GPU 物理指标。
 
-同一份 BUG 反馈还会附带 `Workbench Raster Resource Diagnostics`。它是浏览器页签内、当前 Task 的逻辑
-账本，不是服务端或物理 GPU 指标。按以下顺序排查：
+## 保留、清理与回滚
 
-1. `invariantOk=true`，且 `chargedBytes == committedBytes + reservedBytes <= hardBudgetBytes`；
-2. `owners` 与 `categories` 的 committed/reserved 合计分别等于全局值；
-3. `pressureReason=foreground-operation` 时背景 prefetch 应暂停，operation 结束后按当前 generation 恢复；
-4. hidden 达阈值后 `hiddenSheds` 增加、reconstructible bytes 下降，dirty edit/history 仍留在 P0；
-5. BFCache 往返后 generation 增加，旧 promise 只增加 stale/abort 计数，coverage 能恢复；
-6. 真正离开任务后 coordinator、tile、Mask render/edit/history、Worker/GPU owner 全部归零。
+ready 代次的 URL 签发使用非阻塞来源/垃圾栅栏检查；同一代次每 10 分钟最多更新一次访问时间，并延长该代次保留截止。退休代次按其捕获的 `gc_grace_hours`（默认 24 小时）等待回收。清理已持有租约或已完成删除后，不再签发新 URL；旧签名链接仍有短期有效期。
 
-低、标准、高档位的全局 hard budget 分别为 192/384/768 MiB，hidden freeze 为 10/15/30 秒。
-档位来自浏览器 `navigator.deviceMemory`，字段缺失时使用标准档；production 没有环境变量可以绕过 hard
-invariant。若持续出现 denial，先核对 owner 是否漏 release、是否把同一 buffer 重复计费，以及视口/Mask
-ROI 是否过大，不要通过无限调高预算掩盖泄漏。
+图片 Worker 只登记派生前缀，不直接删对象。既有 `assets-cleanup` 领取事务提交后才做 S3 删除并确认；失败会保留责任。整 asset 与 attempt prefix tombstone 保留并每 5 分钟重扫，以清除迟到写入。`garbage_pending` 持续非零时检查 cleanup 健康、数据库租约和精确 S3 Delete/List 权限。禁止对活跃 `image-pyramids/*` 配整桶/固定 TTL 生命周期，禁止清理身份访问源桶。
 
-资源 pressure 与 tile 故障的口径不同：前者通常保持 overview/coverage，只短暂显示清晰度恢复；后者会在
-tile diagnostics 增加 error、签名刷新或 decode failure。Mask operation 被总预算拒绝时，用户现有编辑和
-history 不变，可缩小可见区域或先保存再重试。
-
-## 故障码处理
-
-| 错误码                                  | 含义                                   | 处理                                             |
-| --------------------------------------- | -------------------------------------- | ------------------------------------------------ |
-| `source_missing` / `source_unavailable` | 源对象不存在或无法读取                 | 先修复 source/MinIO，不要盲目重试                |
-| `source_changed`                        | 生成期间或读取时源身份变化             | 确认替换完成后重试新 generation                  |
-| `unsupported_dimensions`                | 尺寸或像素超过硬门                     | 保留原路径或调整产品限制，不能只放大内存         |
-| `resource_limit`                        | source、tile、derived 或 temp 预算超限 | 检查输入和容量证据后再调整单项上限               |
-| `decode_failed`                         | 损坏或 loader 不支持                   | 校验源文件格式                                   |
-| `multi_page_unsupported`                | 多页输入                               | 先显式抽取目标页再入库                           |
-| `dimension_mismatch`                    | DB 逻辑尺寸与规范化输出不一致          | 不自动迁移已有标注；人工核查 EXIF/历史数据       |
-| `color_profile_unavailable`             | sRGB profile 缺失                      | 修复镜像或配置路径                               |
-| `upload_verification_failed`            | 上传对象集合/大小不一致                | 检查 MinIO、网络与凭据                           |
-| `object_missing` / `inconsistent_ready` | ready 资产不完整                       | API 会停止签发；检查 lifecycle 和 reconciliation |
-| `lease_expired` / `lease_lost`          | Worker 超时、重启或竞争                | 检查 Worker 健康，等待 reconciliation 后重试     |
-
-## GC 与回滚
-
-Celery beat 每日触发 reconciliation，分批处理过期 lease、失败/旧 ready generation 和孤儿对象前缀；
-已清理对象前缀的失败 generation 会同步删除数据库记录，使后续批次能够继续推进。
-不要给 `image-pyramids/` 单独配置固定天数 lifecycle，否则会留下 ready 数据库行指向缺失对象。
-
-紧急回滚时：
-
-1. 设 `IMAGE_PYRAMID_AUTO_GENERATE=false` 并重启 API/media Worker；
-2. 如需停止客户端选择，设 `VITE_EXPERIMENTAL_LARGE_IMAGE_TILES=false` 并重建 Web 镜像；
-3. 停止专用 Worker，保留数据库表和 ready 对象；
-4. required 大图会显示当前产品限制与安全预览，不会自动退回无界整图解码；
-5. 不通过批量删除 ready 对象回滚。
-
-保留状态后可以修复 Worker 并显式 retry，无需重新上传 source。
+紧急回退：关闭 `IMAGE_PYRAMID_AUTO_GENERATE` 并停止显式重试/回填；需要暂停浏览器选择时，将 `VITE_EXPERIMENTAL_LARGE_IMAGE_TILES` 设为 `false` 并重建 Web；停止 `assets-images-worker`，保留共享控制与清理职责。保留 Job、操作回执、ready 对象及未确认垃圾，等待在途租约排空/到期。不要直接删除图片表或批量删对象；降级迁移会拒绝丢弃仍有作业、回执或清理责任的状态。

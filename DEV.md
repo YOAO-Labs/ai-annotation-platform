@@ -396,10 +396,9 @@ UUID、素材 UUID 数组与唯一操作 UUID，返回 `aap-task-append/v1` JSON
 项目取消数据集关联也使用 Workspace 原生命令：当前账号/项目管理权、关联代次、学习和标注引用检查、任务删除与计数、Audit、Workspace 回执及 Assets 的派生金字塔清理计划在调用方同一事务中提交或回滚。Jobs 只取消匹配当前 dataset/project/association 代次的冻结 `create_tasks` 作业；任务源文件与共享来源金字塔保留。公开 Dataset/Item 删除使用 Assets 协调命令，保留关联任务、标注与学习证据，活动导入返回冲突。两种删除都只写持久 outbox，由独立清理进程轮询；API 不派发清理 Celery 消息。API 的 `Idempotency-Key` 可选 UUID，成功时回传；SDK/Web 重试应复用原 key。允许的跨域客户端可读取该响应头；production 自定义 `CORS_ALLOW_HEADERS` 时需包含 `Idempotency-Key`。
 
 独立数据接口使用 Identity、Workspace、Assets、Jobs、Labeling、Learning、Inference、
-Insights、Diagnostics、Export、Audit 十一个无登录函数 owner，以及 `append_client` 与
-`asset_cleanup_client` 两个独立登录角色。后者只可使用 `aap_assets_v1` 并执行
-`pending_storage_deletions_v2(text, timestamptz, uuid, uuid, integer)` 和 `complete_storage_deletion(uuid, uuid)`；
-`append_client` 不可调用这两个清理函数。
+Insights、Diagnostics、Export、Audit 十一个无登录函数 owner；另有两个独立登录角色
+`append_client` 和 `asset_cleanup_client`。后者只可使用 `aap_assets_v1` 的四项清理函数：
+既有 storage outbox 的领取/确认，以及图片垃圾的领取/确认；`append_client` 不可调用这些清理函数。
 `infra/docker/module-data-grants.sql` 只向显式数据库中的既有角色授权，不创建角色或
 修改密码。部署操作者先提供角色及迁移者向其转交函数的权限，再运行：
 
@@ -425,8 +424,8 @@ psql -v expected_database=annotation_test -v migration_role=owner \
 
 显式本地部署清理进程前，准备三个仅供此服务读取的 secret 文件：普通 PostgreSQL URL
 （`postgresql://`，受限 cleanup LOGIN）、专用 S3 access key 和 secret key。S3 身份只允许
-对选定 media-cache 桶的 `image-pyramids/*` 执行带 prefix 条件的 `ListBucket` 与
-`DeleteObject`，不能读/写对象或操作其他桶。容器用户为 10001，secret 文件必须允许该
+对选定 media-cache 桶的 `image-assets/*` 和 `image-pyramids/*` 执行带 prefix 条件的
+`ListBucket` 与 `DeleteObject`，不能读/写对象或操作其他桶。容器用户为 10001，secret 文件必须允许该
 用户读取；不要把 API 的宽权限账号写入这些文件。设置 `.env.example` 的三个
 `ASSET_CLEANUP_*_FILE` 宿主路径、`ASSET_CLEANUP_BUCKET` 和容器可达的
 `ASSET_CLEANUP_S3_ENDPOINT` 后运行：
@@ -755,8 +754,8 @@ CI 检查名称统一使用 `领域 职责`，例如 `Backend tests`、`Frontend
 
 完整测试指南见 [docs-site/dev/testing.md](docs-site/dev/testing.md)。
 
-真实超大图回归使用固定来源、字节数和 SHA-256 的开发夹具。基础服务和专用
-`image-pyramid` Worker 启动后，可下载、入库并等待生成完成：
+真实超大图回归使用固定来源、字节数和 SHA-256 的开发夹具。API、共享媒体控制端与
+`assets-images-worker` 启动后，可下载、入库并等待生成完成；共享控制端和图片 Worker 使用同一测试数据库及缓存桶，API 的 `ASSETS_MEDIA_URL` 指向共享控制端：
 
 ```bash
 pnpm --filter @anno/web image:seeds
@@ -826,8 +825,8 @@ stub 地址默认复用 `ML_BACKEND_STORAGE_HOST` 的主机部分并使用 `9100
 point、interactive box 与 exemplar，视频要求交互 tracker，OCR 要求整图输入及文本属性输出。
 任一能力、连接、启用关联或主绑定缺失都会退出非零。
 
-录制超大图渐进细节前，还需要把固定 Cosmic Cliffs 夹具导入同一截图数据库，并让专用
-`image-pyramid` Worker 使用该数据库生成到 ready。只有这个可选项目存在时，catalog 才会返回
+录制超大图渐进细节前，还需要把固定 Cosmic Cliffs 夹具导入同一截图数据库，并确认共享媒体控制端与
+`assets-images-worker` 都使用该截图数据库和对象存储，且截图 API 的 `ASSETS_MEDIA_URL` 指向共享控制端。只有这个可选项目存在时，catalog 才会返回
 `large_image_demo`；其他截图与流程不依赖它。
 
 ```bash
@@ -837,7 +836,7 @@ DATABASE_URL="$SCREENSHOT_DATABASE_URL" PYTHONPATH=. uv run python scripts/seed_
   --id nasa-cosmic-cliffs --enqueue-pyramids --wait-seconds 1800
 ```
 
-Worker 与上述命令必须使用同一 `SCREENSHOT_DATABASE_URL`；开发库 Worker 不会为截图库回写生成状态。
+图片 Worker 与截图 API/控制端必须使用同一 `SCREENSHOT_DATABASE_URL`；开发库 Worker 不会为截图库回写生成状态。
 
 ### 触发
 
@@ -1057,7 +1056,7 @@ SQL 回滚不会撤销对象存储 I/O。图片上传和 nuScenes 文件写入/�
 
 ## 视频媒体的独立控制与执行
 
-`apps/assets-media` 定义 `aap-assets-media/v1` 数据与 HTTP 契约。控制进程负责来源观察、引用签名、受理、状态与分页读取；独立执行进程领取持久作业，完成元信息、时间表、海报、播放副本、帧、分块、回填及派生缓存清理。控制与执行已通过隔离本地进程和受限容器联调。图片缩略图、金字塔和一般 Blob 管理仍沿用各自现有路径，整个 Assets 模块的独立部署仍需完成这些边界。Go 实验不进入这些默认运行路径。
+`apps/assets-media` 定义 `aap-assets-media/v1` 与 `aap-assets-images/v1` 契约。视频与图片共用控制进程；视频和图片分别由独立 Worker 执行，图片通过固定 SQL 能力与来源/派生对象身份完成受理、发布和清理。视频控制/执行已通过隔离本地进程和受限容器联调；图片的可选运行方式与验证边界见下文及[图片金字塔运行手册](docs-site/ops/runbooks/image-pyramid.md)。Go 实验不进入这些默认运行路径。
 
 迁移到 `0219` 后，沿用 module-data 初始化流程，为现有 Assets NOLOGIN owner 创建分离的 `asset_media_control_client` 和 `asset_media_worker_client` LOGIN。先应用 owner 与既有 Catalog/Source/importer/operator grants，再由 migration role 安装媒体授权：
 
@@ -1069,7 +1068,7 @@ psql -v expected_database=annotation_test -v migration_role=owner \
   -f infra/docker/assets-media-grants.sql
 ```
 
-控制 LOGIN 只有 18 个控制/受信任系统函数，执行 LOGIN 只有 10 个领取、租约、发布和维护函数。二者都没有表、列、sequence、外部 owner schema、成员继承或 CREATE/TEMP 权限；初始化必须处理 PUBLIC 的 TEMP。来源身份、Task 可见性及任务级帧重试的标注写权限由 owner 能力组合验证，不把布尔权限结果当作授权。已受理的后台工作按来源代次、作业状态和显式取消继续执行，不在每块重新检查最初发起者的角色。
+共享控制 LOGIN 有 32 项能力（视频 18、图片 14），视频 Worker 有 10 项，独立图片 Worker 有 6 项；图片清理复用既有清理 LOGIN，其授权面为 4 项清理函数。各 LOGIN 都没有表、列、sequence、外部 owner schema、成员继承或 CREATE/TEMP 权限；初始化必须处理 PUBLIC 的 TEMP。来源身份、Task 可见性及任务级帧重试的标注写权限由 owner 能力组合验证，不把布尔权限结果当作授权。已受理的后台工作按来源代次、作业状态和显式取消继续执行，不在每块重新检查最初发起者的角色。
 
 为两个进程准备不同的数据库和 S3 身份。源桶只需对象 HEAD/GET，不能写或删除原素材；控制身份对缓存只需 HEAD/GET，执行身份另需 `media-assets/*` 的 Put/Get/List/Delete 及精确旧视频缓存清理，不授予桶管理。S3 不单独定义 HEAD 动作，相应权限由 GetObject 提供。浏览器可达的 `ASSETS_MEDIA_S3_PUBLIC_ENDPOINT` 必须与内部请求地址分开配置；不改写已签名主机名。
 
@@ -1089,3 +1088,28 @@ uv run --project apps/assets-media --extra runtime python -m aap_assets_media_ru
 执行进程也保留 `MEDIA_PROBE_URL`、`MEDIA_PROBE_TOKEN` 和 `MEDIA_PROBE_TIMEOUT_SECONDS` 的选择；可选 Compose 显式转发这三项。宿主独立进程可用 `MEDIA_PROBE_TOKEN_FILE` 替代 token 实际值，二者只传其一；Compose 使用文件时需在自己的 override 中挂载并设置该入口。
 
 控制 `/health/live` 只证明进程可响应，`/health/ready` 和执行器 `--healthcheck` 验证精确 SQL 身份；它们不能替代实际对象权限、解码和发布验收。数据 schema 与 HTTP OpenAPI 分别随包发布为 `protocol.schema.json`、`openapi.snapshot.json`。完整切片状态与本地证据记录在[后端解耦计划](docs/plans/1792160873_backend-module-decoupling.md)和 [ADR-0105](docs/adr/0105-independent-video-media-owner.md)。
+
+## 图片金字塔的独立控制与执行
+
+图片金字塔现由 `apps/assets-media` 中的共享媒体控制进程和专用图片 Worker 承担。共享控制端同时承载视频与图片契约，`asset_media_control_client` 共 32 项 SQL 能力（视频 18、图片 14）；视频 Worker 使用 10 项，图片 Worker 使用独立的 `asset_image_worker_client` 和 6 项。图片处理使用 Pillow 与受资源上限约束的 libvips 子进程，不依赖 Celery 执行队列。图片垃圾由既有 `assets-cleanup` 进程处理，`asset_cleanup_client` 仅获 4 项清理能力。
+
+API 设置 `ASSETS_MEDIA_URL` 和相同的 `ASSETS_MEDIA_TOKEN` 后，将图片控制请求发到共享控制进程；一旦配置远程地址，连接或请求失败不会退回本地。地址留空时，当前开发兼容路径仍在 API 进程内装配本地控制，并保留轻量 Celery 唤醒适配；这条路径不代表独立控制/执行部署。默认 Compose 不启动媒体 overlay，也不表示图片 Worker 已部署到主环境或生产环境。
+
+图片 schema 属于迁移 `0220`。按既有 module-data 与媒体授权顺序安装 owner/辅助能力、`infra/docker/assets-media-grants.sql` 和 `infra/docker/assets-image-grants.sql`。图片 Worker 只能执行自己的 6 项函数，不能直接访问表或其他 owner schema；清理 LOGIN 只能领取/确认 owner 发出的删除责任。所有 SQL LOGIN 必须与迁移角色和 NOLOGIN owner 分离。
+
+可选 `docker-compose.assets-media.yml` 增加共享控制、视频 Worker 和图片 Worker；需要把它与默认服务文件组合，并只启动所需服务：
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.assets-media.yml build assets-media-control assets-images-worker
+docker compose -f docker-compose.yml -f docker-compose.assets-media.yml up -d assets-media-control assets-images-worker
+docker compose -f docker-compose.yml -f docker-compose.assets-media.yml logs --tail=100 assets-media-control assets-images-worker
+docker compose -f docker-compose.yml -f docker-compose.assets-media.yml exec assets-images-worker python -m aap_assets_images_runtime.worker --healthcheck
+```
+
+将 API 与控制进程接入同一受限网络，并配置 API 的控制 URL/token。overlay 不发布宿主端口；控制端仅在内部网络监听 8768。容器以 UID 10005 运行。镜像的 `image-worker` target 安装 libvips 和 ICC 文件；独立 Worker 的默认本地预算为 4 CPU、16 GiB 内存和 12 GiB 临时盘，这些是 Compose 资源限制，不是生产容量证明。回收派生对象时，另按现有部署方式运行 `docker-compose.assets-cleanup.yml` 中的 `assets-cleanup`，不要把删除权限交给控制端或图片 Worker。
+
+源桶和历史 Task 桶只需读取原图。共享控制凭据可 HEAD/GET 来源与缓存并签发受限读取 URL，不写源、不删除对象；图片 Worker 只读源对象，并在缓存桶的 `image-assets/*`、`image-pyramids/*` 前缀写入不可变派生输出，孤儿扫描的列举范围限制在金字塔前缀，不写/删原图。清理身份仅能列举并删除这两个派生前缀下由数据库签发的精确 key/prefix；不得配置整桶生命周期删除这些前缀，不能把原图桶作为清理桶。Secrets 使用各 overlay 对应的独立数据库/S3 文件，不能共享高权限应用或迁移身份。
+
+自动受理默认关闭；`IMAGE_PYRAMID_PROFILE_VERSION` 默认为 `pyramid-v1`，API 与共享控制端必须使用相同 profile。作业受理时固定 normalization/profile policy，修改 profile 应作为新输出线规划，而不是只切换一台服务。Worker 的 `ASSETS_IMAGES_SRGB_PROFILE`（默认镜像内 `/usr/share/color/icc/sRGB.icc`）必须是可读绝对路径。`VITE_EXPERIMENTAL_LARGE_IMAGE_TILES` 是 Web 构建开关，与自动受理无关，改动后需重建 Web。
+
+Worker `--healthcheck` 仅验证配置、连接及精确 SQL 能力，不证明源/缓存 IAM、解码和发布成功。共享控制的 `/health/ready` 也不能替代 S3 验收。详细启动、profile、重试、回填和保留步骤见[图片金字塔运行手册](docs-site/ops/runbooks/image-pyramid.md)。
