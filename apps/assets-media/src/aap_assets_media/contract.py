@@ -173,6 +173,16 @@ class MediaSummaries(Value):
     items: Annotated[list[MediaSummary], Field(max_length=BATCH_SIZE)]
 
 
+class VideoTotalsRequest(Value):
+    item_ids: Annotated[list[UUID], Field(max_length=200_000)]
+
+
+class VideoTotals(Value):
+    frame_count: Count
+    duration_ms: Count
+    matched_items: Count
+
+
 class FrameEntry(Value):
     frame_index: Index
     pts_ms: StrictInt
@@ -823,6 +833,9 @@ OPERATIONS = {
     "read_media_summaries": NativeOperation(
         SummaryRequest, MediaSummaries, ("item_ids",), ("uuid[]",), "control"
     ),
+    "read_video_media_totals": NativeOperation(
+        VideoTotalsRequest, VideoTotals, ("item_ids",), ("uuid[]",), "control"
+    ),
     "ensure_video_media": NativeOperation(
         AssetsRequest,
         MediaAssets,
@@ -1065,6 +1078,9 @@ def decode_reply(raw: Any, result_type: type[_Result]) -> _Result:
 
 
 def require_scope(request: BaseModel, result: BaseModel) -> None:
+    if isinstance(request, VideoTotalsRequest) and isinstance(result, VideoTotals):
+        if result.matched_items > len(request.item_ids):
+            raise ValueError("video aggregate exceeded requested source rows")
     if isinstance(request, SummaryRequest) and isinstance(result, MediaSummaries):
         ids = [item.dataset_item_id for item in result.items]
         if len(ids) != len(set(ids)) or not set(ids).issubset(request.item_ids):

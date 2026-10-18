@@ -393,6 +393,49 @@
       "title": "MediaSummaries",
       "type": "object"
     },
+    "VideoTotalsRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "item_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "maxItems": 200000,
+          "title": "Item Ids",
+          "type": "array"
+        }
+      },
+      "required": ["item_ids"],
+      "title": "VideoTotalsRequest",
+      "type": "object"
+    },
+    "VideoTotals": {
+      "additionalProperties": false,
+      "properties": {
+        "frame_count": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Frame Count",
+          "type": "integer"
+        },
+        "duration_ms": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Duration Ms",
+          "type": "integer"
+        },
+        "matched_items": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Matched Items",
+          "type": "integer"
+        }
+      },
+      "required": ["frame_count", "duration_ms", "matched_items"],
+      "title": "VideoTotals",
+      "type": "object"
+    },
     "ChunkSelection": {
       "additionalProperties": false,
       "properties": {
@@ -3544,6 +3587,13 @@
       "arguments": ["item_ids"],
       "request": "SummaryRequest",
       "result": "MediaSummaries",
+      "role": "control"
+    },
+    "read_video_media_totals": {
+      "signature": "aap_assets_v1.read_video_media_totals(uuid[])",
+      "arguments": ["item_ids"],
+      "request": "VideoTotalsRequest",
+      "result": "VideoTotals",
       "role": "control"
     },
     "ensure_video_media": {

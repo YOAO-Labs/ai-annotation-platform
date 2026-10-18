@@ -88,11 +88,11 @@ def test_installed_schema_names_roles_and_types_are_frozen():
         Path(__file__).parents[1] / "src/aap_assets_media/protocol.schema.json"
     )
     assert json.loads(schema_path.read_text()) == contract_document()
-    assert len(OPERATIONS) == 27
+    assert len(OPERATIONS) == 28
     assert {
         role: sum(op.role == role for op in OPERATIONS.values())
         for role in ("control", "system", "worker")
-    } == {"control": 12, "system": 5, "worker": 10}
+    } == {"control": 13, "system": 5, "worker": 10}
     for operation in OPERATIONS.values():
         assert set(operation.arguments) <= operation.request.model_fields.keys()
         assert len(operation.arguments) == len(operation.sql_types)
