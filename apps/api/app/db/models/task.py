@@ -4,6 +4,7 @@ from datetime import datetime
 from sqlalchemy import (
     String,
     Boolean,
+    BigInteger,
     Integer,
     Float,
     DateTime,
@@ -61,6 +62,13 @@ class Task(Base):
     file_name: Mapped[str] = mapped_column(String(500), nullable=False)
     file_path: Mapped[str] = mapped_column(String(1000), nullable=False)
     file_type: Mapped[str] = mapped_column(String(20), default="image")
+    media_source_generation: Mapped[int] = mapped_column(
+        BigInteger, nullable=False, default=1, server_default="1"
+    )
+    media_object_identity: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    media_source_drifted: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
     tags: Mapped[list] = mapped_column(JSONB, default=list)
     status: Mapped[str] = mapped_column(String(30), default="pending", index=True)
     assignee_id: Mapped[uuid.UUID | None] = mapped_column(
