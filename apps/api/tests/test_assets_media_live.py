@@ -107,6 +107,9 @@ def _runtime_environment(
         "ASSETS_MEDIA_S3_READ_TIMEOUT_SECONDS": "10",
         "ASSETS_MEDIA_S3_MAX_ATTEMPTS": "1",
     }
+    for name in ("LD_LIBRARY_PATH", "DYLD_LIBRARY_PATH", "DYLD_FALLBACK_LIBRARY_PATH"):
+        if os.environ.get(name):
+            environment[name] = os.environ[name]
     if role == "control":
         assert token is not None and port is not None
         if legacy_bucket is None:

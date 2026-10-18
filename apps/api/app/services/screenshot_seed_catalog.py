@@ -410,9 +410,22 @@ async def _resolve_dataset_and_tasks(
         if spec.data_type == "lidar"
         and item.file_path.startswith(f"{spec.storage_prefix}camera/")
     ]
-    calibration_records = await AssetsSpatialGateway(db).read_calibrations(
-        camera_item_ids
-    )
+    spatial = AssetsSpatialGateway(db)
+    try:
+        calibration_records = await spatial.read_calibrations(camera_item_ids)
+    except HTTPException as exc:
+        if exc.status_code != 422 or exc.detail != "camera_calibration_missing":
+            raise
+        calibration_records = []
+        for camera_id in camera_item_ids:
+            try:
+                calibration_records.extend(await spatial.read_calibrations([camera_id]))
+            except HTTPException as missing:
+                if (
+                    missing.status_code != 422
+                    or missing.detail != "camera_calibration_missing"
+                ):
+                    raise
     calibrations_by_item = {
         record.dataset_item_id: record for record in calibration_records
     }
@@ -444,7 +457,7 @@ async def _resolve_dataset_and_tasks(
                 if record.error is not None:
                     raise ValueError(record.error)
                 SensorCalibration.model_validate(record.calibration)
-            except ValidationError:
+            except (ValidationError, KeyError, ValueError):
                 issues.append(
                     f"{spec.dataset_display_id}: camera {item.file_path} has no valid calibration"
                 )

@@ -260,9 +260,9 @@ Mask QC 与点云质检问题的人工状态转移分别由 `services/mask_qc/se
 
 传统直接任务上传由 `application/legacy_file_upload.py::LegacyFileUploadWorkflow` 组合当前管理权限、存储验证与 Labeling 写入。`LabelingTaskService` 持有上传任务创建、不可变 `LabelingUploadTarget` 读取及完成状态提交；来源快照只携带 UUID、批次、对象键、类型和状态。存储 I/O 前的管理检查不持有行锁，完成后复用 `application/task_workflow_locks.lock_current_task_target` 重新取权并锁定当前目标，再核对来源绑定。图像完成在任务状态事务中绑定源身份并接受持久 Image 作业；项目缩略图回填也由同一 Workflow 保留当前管理权检查并接受 owner 任务。原图地址复用完整任务可见性；没有把 UUID/DTO 当权限票据。
 
-`services/media_materialization.py::MediaMaterializationWriter` 只保留图片尺寸、图片/Task 缩略图与错误写入。视频元数据、时间表、海报、播放副本、帧和分块由 `apps/assets-media` 的独立控制与执行进程持有，通过 `aap-assets-media/v1` 和原生 SQL 受理、领取、续租、暂存及发布。调用方不再通过 `DatasetService` 写视频投影；来源、作业代次、租约和时间表依赖在最终发布时共同核验。图片金字塔仍在其既有 generation/lease 路径，并通过 Labeling owner 投影 Task overview；该图片路径尚未提取为独立服务。
+`apps/assets-media` 持有视频和图片的独立控制与执行进程，分别使用 `aap-assets-media/v1` 和 `aap-assets-images/v1`。视频元数据、时间表、海报、播放副本、帧和分块，以及图片尺寸、缩略图、金字塔和回填，都通过原生能力受理、领取、续租和发布。DatasetItem 投影由 Assets 持有；direct Task 的来源与缩略图投影通过 Labeling 窄能力读取和写入。最终发布同时核验来源、作业代次与未过期租约；旧图片结果写端口和 ORM writer 已移除。
 
-`image_pyramid_contract.ImagePyramidApiPort` 统一交付批量任务摘要、manifest、签名 URL 与重试计划，只传已加载 Task 的四个源标量和原请求模型，返回原响应及 304/派发所需值。`application/image_pyramid.py` 绑定原 Session，SQL owner 私下持有 Asset/Generation；批量摘要保留原两次集合读取，不重新查询 Task。API 保留任务授权、缓存响应和实际队列派发；源/派生对象检查、URL 准备及代次失效由所有者承接。私有 `_touch_generation_access` 保持 ready 响应对应的访问时间写入、严格十分钟节流及原提交点；304 提前返回，不触达。该元数据不属于 AsyncJob 或 Task 缩略图投影。
+`image_pyramid_contract.ImagePyramidApiPort` 将批量摘要、manifest、签名 URL 与重试回执投影为公开 REST 响应。API 传当前 actor、Task ID 和类型，来源、尺寸、Asset/Generation 与对象签名由 Image owner 负责，不由调用方复制私有来源字段。Task、Catalog 与数据集图片列表通过有界批量引用协议读取地址；个别来源失效可以隔离，服务故障不会放大成逐图重试。显式读取在 owner 内核验来源、签名保留期与清理租约，并按十分钟节流触达访问时间；随后 API 才计算 ETag。尺寸未知时，只在匹配的探测作业 pending/running 期间轮询；终态错误停止轮询，获得尺寸后重新判断客户端解码预算。
 
 视频追踪经纯端口 `video_tracking.dispatch.VideoTrackerJobDispatcher` 派发，只传作业 UUID 并返回执行 ID。HTTP 的 `deps.get_video_tracker_job_dispatcher()` 或 Mask 修复 worker 入口装配 `workers/video_tracker_dispatch.py`；领域 `jobs` 不再导入 Celery 或持有任务注册名。原 `gpu` 队列、单个字符串 UUID 参数、执行 ID 提交和失败补偿不变；仅仍为 queued 的行才被补偿为失败，`fail_closed` 保留 503，发布后数据库失败仍不能证明消息未入队。
 

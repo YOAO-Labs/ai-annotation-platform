@@ -333,7 +333,10 @@ export const tasksApi = {
     apiClient.get<TaskMaskCapabilitiesResponse>(`/tasks/${id}/mask-capabilities`, init),
 
   getImagePyramid: (id: string, init?: RequestInit) =>
-    apiClient.silentGet<ImagePyramidResponse>(`/tasks/${id}/image-pyramid`, init),
+    apiClient.silentGet<ImagePyramidResponse>(`/tasks/${id}/image-pyramid`, {
+      ...init,
+      cache: "no-store",
+    }),
 
   getImagePyramidAssetUrls: (id: string, items: ImagePyramidAssetRequest[], init?: RequestInit) =>
     apiClient.post<ImagePyramidAssetUrlsResponse>(
@@ -342,8 +345,14 @@ export const tasksApi = {
       init,
     ),
 
-  retryImagePyramid: (id: string) =>
-    apiClient.post<ImagePyramidRetryResponse>(`/tasks/${id}/image-pyramid/retry`, {}),
+  retryImagePyramid: (id: string, options?: { idempotencyKey?: string }) =>
+    apiClient.post<ImagePyramidRetryResponse>(
+      `/tasks/${id}/image-pyramid/retry`,
+      {},
+      {
+        headers: { "Idempotency-Key": options?.idempotencyKey ?? crypto.randomUUID() },
+      },
+    ),
 
   getVideoManifest: (id: string, init?: RequestInit) =>
     apiClient.get<TaskVideoManifestResponse>(`/tasks/${id}/video/manifest`, init),

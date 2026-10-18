@@ -116,9 +116,19 @@ export function useScanDatasetItems(datasetId: string) {
 
 export function useBackfillDimensions(datasetId: string) {
   const qc = useQueryClient();
+  const actorId = useAuthStore((state) => state.user?.id ?? null);
+  const attemptRef = useRef<{ scope: string; key: string } | null>(null);
   return useMutation({
-    mutationFn: (batch?: number) => datasetsApi.backfillDimensions(datasetId, batch ?? 50),
-    onSuccess: () => {
+    mutationFn: (batch?: number) => {
+      const scope = JSON.stringify([actorId, datasetId]);
+      const key =
+        attemptRef.current?.scope === scope ? attemptRef.current.key : crypto.randomUUID();
+      attemptRef.current = { scope, key };
+      return datasetsApi.backfillDimensions(datasetId, batch ?? 50, { idempotencyKey: key });
+    },
+    retry: false,
+    onSuccess: (result) => {
+      if (attemptRef.current?.key === result.operation_id) attemptRef.current = null;
       qc.invalidateQueries({ queryKey: ["dataset-items", datasetId] });
     },
   });
@@ -126,9 +136,19 @@ export function useBackfillDimensions(datasetId: string) {
 
 export function useBackfillMedia(datasetId: string) {
   const qc = useQueryClient();
+  const actorId = useAuthStore((state) => state.user?.id ?? null);
+  const attemptRef = useRef<{ scope: string; key: string } | null>(null);
   return useMutation({
-    mutationFn: () => datasetsApi.backfillMedia(datasetId),
-    onSuccess: () => {
+    mutationFn: () => {
+      const scope = JSON.stringify([actorId, datasetId]);
+      const key =
+        attemptRef.current?.scope === scope ? attemptRef.current.key : crypto.randomUUID();
+      attemptRef.current = { scope, key };
+      return datasetsApi.backfillMedia(datasetId, { idempotencyKey: key });
+    },
+    retry: false,
+    onSuccess: (result) => {
+      if (attemptRef.current?.key === result.operation_id) attemptRef.current = null;
       qc.invalidateQueries({ queryKey: ["dataset-items", datasetId] });
     },
   });

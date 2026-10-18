@@ -80,6 +80,9 @@ def asset_urls(
 @app.command("retry")
 def retry(
     task_id: str = typer.Argument(..., help="Task UUID"),
+    idempotency_key: str | None = typer.Option(
+        None, "--idempotency-key", help="Reuse this UUID after a lost response"
+    ),
     yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation"),
     json_output: bool = typer.Option(False, "--json", help="Output raw JSON"),
 ) -> None:
@@ -89,12 +92,14 @@ def retry(
     )
     with cli_errors(json_output):
         with get_client(json_output) as client:
-            result = client.image_pyramids.retry(task_id)
+            result = client.image_pyramids.retry(
+                task_id, idempotency_key=idempotency_key
+            )
     data = result.model_dump(mode="json", by_alias=True)
     if json_output:
         print_json(data)
     else:
         console.print(
-            f"status={result.status} celery_task_id={result.celery_task_id}; "
+            f"status={result.status} job_id={result.job_id}; "
             "read the manifest to observe generation status."
         )

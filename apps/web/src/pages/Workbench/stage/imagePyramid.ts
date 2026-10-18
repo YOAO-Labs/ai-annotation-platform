@@ -1,13 +1,20 @@
 import type { Viewport } from "../state/useViewportTransform";
 
 export interface ImagePyramidSummary {
-  status: "pending" | "building" | "ready" | "failed";
-  generation: number;
+  status: ImagePyramidResponse["status"];
+  generation: number | null;
   width: number | null;
   height: number | null;
   tile_size: number;
   format: string | null;
   required: boolean;
+  source_snapshot?: string | null;
+  profile_version?: string | null;
+  building_generation?: number | null;
+  building_status?: "pending" | "building" | null;
+  retryable?: boolean;
+  retry_after_ms?: number | null;
+  error_code?: string | null;
 }
 
 export interface ImagePyramidLevel {
@@ -49,6 +56,10 @@ export interface ImagePyramidResponse {
     | "stale"
     | "inconsistent";
   required: boolean;
+  source_snapshot?: string | null;
+  profile_version?: string | null;
+  width?: number | null;
+  height?: number | null;
   retryable: boolean;
   retry_after_ms: number | null;
   generation: number | null;

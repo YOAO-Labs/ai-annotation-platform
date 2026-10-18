@@ -220,9 +220,27 @@ TEST_FILES = (
     "tests/test_assets_images_sources.py",
     "tests/test_assets_images_control.py",
     "tests/test_assets_images_execution.py",
+    "tests/test_assets_images_retention.py",
+    "tests/test_image_cleanup_native.py",
+    "tests/test_image_thumbnail_publication.py",
+    "tests/test_image_pyramid.py",
+    "tests/test_image_backfill_maintenance.py",
+    "tests/test_image_worker_compatibility.py",
+    "tests/test_media_celery_loops.py",
+    "tests/test_assets_images_api_bridge.py",
+    "tests/test_assets_images_live.py",
+    "tests/test_assets_images_containers.py",
     "tests/test_assets_images_migration_contract.py",
+    "tests/test_assets_images_migration_guards.py",
+    "tests/test_screenshot_seed_catalog.py",
+    "tests/test_task_views.py",
+    "tests/test_task_views_filter.py",
+    "tests/test_tasks_drill_filters.py",
+    "tests/test_tasks_list_sequence_order.py",
+    "tests/test_assets_catalog_gateway.py",
     "tests/test_assets_media_peer.py",
     "tests/test_assets_media_live.py",
+    "tests/test_assets_media_containers.py",
     "tests/test_assets_spatial_gateway.py",
     "tests/test_assets_spatial_runtime.py",
     "tests/test_assets_catalog_runtime.py",
@@ -232,7 +250,6 @@ TEST_FILES = (
     "tests/test_dataset_api_scopes.py",
     "tests/test_datasets_list_has_scenes.py",
     "tests/test_dataset_axis_convention.py",
-    "tests/test_media_materialization.py",
     "tests/test_tool_bindings_helpers.py",
     "tests/test_worker_signals.py",
     "tests/test_security_headers.py",
@@ -1282,6 +1299,11 @@ def main(argv: list[str] | None = None) -> int:
     ).resolve()
 
     try:
+        missing_tests = [
+            name for name in TEST_FILES if not (ROOT / "apps/api" / name).is_file()
+        ]
+        if missing_tests:
+            raise RuntimeError(f"Missing module-data acceptance cases: {missing_tests}")
         grants_path = ROOT / "infra/docker/module-data-grants.sql"
         catalog_grants_path = ROOT / "infra/docker/assets-catalog-grants.sql"
         source_grants_path = ROOT / "infra/docker/assets-source-grants.sql"
@@ -1422,8 +1444,8 @@ def main(argv: list[str] | None = None) -> int:
         database = resources["database"]
         evidence["database"] = database
         _, heads = migration_graph(ROOT)
-        if heads != ["0219"]:
-            raise RuntimeError("module-data acceptance requires migration head 0219")
+        if heads != ["0220"]:
+            raise RuntimeError("module-data acceptance requires migration head 0220")
         evidence["migrations"]["head_before_downgrade"] = heads[0]
         phase = "downgrade-to-0189"
         _container_details(

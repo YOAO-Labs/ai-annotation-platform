@@ -417,7 +417,9 @@ async def test_stale_pyramid_from_registered_dimensions_returns_no_overview_url(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("failure_code", ["permission_denied", "operation_busy"])
+@pytest.mark.parametrize(
+    "failure_code", ["permission_denied", "operation_busy", "operation_conflict"]
+)
 async def test_unknown_dimensions_warmup_denial_keeps_generation_read_available(
     failure_code,
 ):

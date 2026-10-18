@@ -1,7 +1,9 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { tasksApi } from "@/api/tasks";
+import { ApiError } from "@/api/client";
 import type { TaskResponse } from "@/types";
+import { useAuthStore } from "@/stores/authStore";
 import {
   imageTileDeviceBudget,
   parseImagePyramidManifest,
@@ -13,17 +15,33 @@ import {
 export const LARGE_IMAGE_TILES_ENABLED =
   import.meta.env.VITE_EXPERIMENTAL_LARGE_IMAGE_TILES !== "false";
 
-function singleSource(task: TaskResponse, identity: string): WorkbenchImageSource | null {
+function singleSource(
+  task: TaskResponse,
+  identity: string,
+  width = task.image_width,
+  height = task.image_height,
+): WorkbenchImageSource | null {
   if (!task.file_url) return null;
   return {
     kind: "single",
     identity,
     url: task.file_url,
-    width: task.image_width ?? undefined,
-    height: task.image_height ?? undefined,
+    width: width ?? undefined,
+    height: height ?? undefined,
     thumbnailUrl: task.thumbnail_url ?? undefined,
     blurhash: task.blurhash ?? undefined,
   };
+}
+
+function imageReferenceMatchesTask(task: TaskResponse, response: ImagePyramidResponse): boolean {
+  const summary = task.image_pyramid;
+  return (
+    response.task_id === task.id &&
+    (summary?.source_snapshot ?? null) === (response.source_snapshot ?? null) &&
+    (summary?.profile_version ?? null) === (response.profile_version ?? null) &&
+    (summary?.width == null || !("width" in response) || summary.width === response.width) &&
+    (summary?.height == null || !("height" in response) || summary.height === response.height)
+  );
 }
 
 export function resolveWorkbenchImageSource(
@@ -36,12 +54,26 @@ export function resolveWorkbenchImageSource(
   } = {},
 ): WorkbenchImageSource | null {
   if (!task || task.file_type !== "image") return null;
-  const identity = options.mediaIdentity ?? task.dataset_item_id ?? task.id;
+  const mediaKey = options.mediaIdentity ?? task.dataset_item_id ?? task.id;
   const summary = task.image_pyramid;
   const enabled = options.enabled ?? LARGE_IMAGE_TILES_ENABLED;
-  if (!summary) return singleSource(task, identity);
-  const width = summary.width ?? task.image_width ?? 0;
-  const height = summary.height ?? task.image_height ?? 0;
+  if (!summary) return singleSource(task, mediaKey);
+  const identity = summary.source_snapshot
+    ? `${mediaKey}/source/${summary.source_snapshot}`
+    : mediaKey;
+  const pyramidIdentity = `${identity}/pyramid${summary.profile_version ? `/${summary.profile_version}` : ""}`;
+  const matches = !response || imageReferenceMatchesTask(task, response);
+  const currentResponse = matches ? response : undefined;
+  const width =
+    currentResponse && "width" in currentResponse
+      ? (currentResponse.width ?? 0)
+      : (summary.width ?? task.image_width ?? 0);
+  const height =
+    currentResponse && "height" in currentResponse
+      ? (currentResponse.height ?? 0)
+      : (summary.height ?? task.image_height ?? 0);
+  const required = currentResponse?.required ?? summary.required;
+  const generation = currentResponse ? currentResponse.generation : summary.generation;
   const maxSingleDecodedBytes = options.maxSingleDecodedBytes ?? 128 * 1024 * 1024;
   const singleAllowed = singleImageFitsDecodedBudget(width, height, maxSingleDecodedBytes);
   const fallbackState = (
@@ -51,7 +83,7 @@ export function resolveWorkbenchImageSource(
   ): WorkbenchImageSource => ({
     kind,
     taskId: task.id,
-    identity: `${identity}/pyramid/${summary.generation}`,
+    identity: `${pyramidIdentity}/${generation ?? "missing"}`,
     width,
     height,
     thumbnailUrl: task.thumbnail_url ?? undefined,
@@ -60,78 +92,90 @@ export function resolveWorkbenchImageSource(
     errorCode,
   });
 
+  if (!matches) return fallbackState("pyramid-failed", false, "source_changed");
+
   if (!enabled) {
-    return summary.required
+    return required
       ? fallbackState("pyramid-failed", false, "client_gate_disabled")
       : singleAllowed
-        ? singleSource(task, identity)
+        ? singleSource(task, identity, width, height)
         : fallbackState("pyramid-failed", false, "single_decode_budget_exceeded");
   }
 
-  if (response?.status === "ready" && response.manifest && response.generation != null) {
+  if (
+    currentResponse?.status === "ready" &&
+    currentResponse.manifest &&
+    currentResponse.generation != null
+  ) {
     try {
-      const manifest = parseImagePyramidManifest(response.manifest);
+      const manifest = parseImagePyramidManifest(currentResponse.manifest);
       if (
-        manifest.generation !== response.generation ||
-        (summary.width != null && manifest.width !== summary.width) ||
-        (summary.height != null && manifest.height !== summary.height)
+        manifest.generation !== currentResponse.generation ||
+        (width > 0 && manifest.width !== width) ||
+        (height > 0 && manifest.height !== height)
       ) {
         throw new Error("image pyramid identity mismatch");
       }
       return {
         kind: "pyramid",
         taskId: task.id,
-        identity: `${identity}/pyramid/${manifest.generation}/${manifest.sourceFingerprint}`,
+        identity: `${pyramidIdentity}/${manifest.generation}/${manifest.sourceFingerprint}`,
         generation: manifest.generation,
         manifest,
-        overviewUrl: response.overview?.url,
+        overviewUrl: currentResponse.overview?.url,
         thumbnailUrl: task.thumbnail_url ?? undefined,
         blurhash: task.blurhash ?? undefined,
       };
     } catch {
-      return summary.required
+      return required
         ? fallbackState("pyramid-failed", true, "invalid_manifest")
         : singleAllowed
-          ? singleSource(task, identity)
+          ? singleSource(task, identity, width, height)
           : fallbackState("pyramid-failed", true, "invalid_manifest");
     }
   }
 
-  if (response?.status === "pending" || response?.status === "building") {
-    return response.required || summary.required
+  if (currentResponse?.status === "pending" || currentResponse?.status === "building") {
+    return required
       ? fallbackState("pyramid-pending", false)
       : singleAllowed
-        ? singleSource(task, identity)
+        ? singleSource(task, identity, width, height)
         : fallbackState("pyramid-pending", false);
   }
 
   const responseFailed =
-    response &&
-    ["failed", "stale", "inconsistent", "missing", "not_available"].includes(response.status);
-  if (responseFailed || summary.status === "failed") {
-    return summary.required
+    currentResponse &&
+    ["failed", "stale", "inconsistent", "missing", "not_available"].includes(
+      currentResponse.status,
+    );
+  if (
+    responseFailed ||
+    ["failed", "stale", "inconsistent", "missing", "not_available"].includes(summary.status)
+  ) {
+    return required
       ? fallbackState(
           "pyramid-failed",
-          response?.retryable ?? true,
-          response?.error_code ?? "pyramid_unavailable",
+          currentResponse?.retryable ?? summary.retryable ?? true,
+          currentResponse?.error_code ?? summary.error_code ?? "pyramid_unavailable",
         )
       : singleAllowed
-        ? singleSource(task, identity)
+        ? singleSource(task, identity, width, height)
         : fallbackState(
             "pyramid-failed",
-            response?.retryable ?? true,
-            response?.error_code ?? "single_decode_budget_exceeded",
+            currentResponse?.retryable ?? summary.retryable ?? true,
+            currentResponse?.error_code ?? summary.error_code ?? "single_decode_budget_exceeded",
           );
   }
 
-  if (summary.status === "ready" || summary.status === "pending" || summary.status === "building") {
-    return summary.required || summary.status === "ready"
+  const status = currentResponse?.status ?? summary.status;
+  if (status === "ready" || status === "pending" || status === "building") {
+    return required || status === "ready"
       ? fallbackState("pyramid-pending", false)
       : singleAllowed
-        ? singleSource(task, identity)
+        ? singleSource(task, identity, width, height)
         : fallbackState("pyramid-pending", false);
   }
-  return singleSource(task, identity);
+  return singleSource(task, identity, width, height);
 }
 
 export function workbenchImagePreviewUrl(source: WorkbenchImageSource | null): string | null {
@@ -150,13 +194,43 @@ export function useWorkbenchImageSource(
   retry: (() => Promise<void>) | undefined;
 } {
   const queryClient = useQueryClient();
-  const [retryWindow, setRetryWindow] = useState<{ taskId: string; untilMs: number } | null>(null);
+  const actorId = useAuthStore((state) => state.user?.id ?? null);
+  const [retryWindow, setRetryWindow] = useState<{ scope: string; untilMs: number } | null>(null);
+  const retryAttempt = useRef<{ scope: string; key: string } | null>(null);
   const summary = task?.image_pyramid;
+  const scope = JSON.stringify([
+    actorId,
+    task?.id,
+    summary?.source_snapshot,
+    summary?.profile_version,
+  ]);
   const queryKey = useMemo(
-    () => ["image-pyramid", task?.id, summary?.generation] as const,
-    [summary?.generation, task?.id],
+    () =>
+      [
+        "image-pyramid",
+        actorId,
+        task?.id,
+        summary?.source_snapshot,
+        summary?.profile_version,
+        summary?.generation,
+        summary?.width,
+        summary?.height,
+        summary?.status,
+        summary?.required,
+      ] as const,
+    [
+      actorId,
+      task?.id,
+      summary?.source_snapshot,
+      summary?.profile_version,
+      summary?.generation,
+      summary?.width,
+      summary?.height,
+      summary?.status,
+      summary?.required,
+    ],
   );
-  const retryUntilMs = retryWindow && retryWindow.taskId === task?.id ? retryWindow.untilMs : 0;
+  const retryUntilMs = retryWindow?.scope === scope ? retryWindow.untilMs : 0;
   const maxSingleDecodedBytes = useMemo(() => {
     if (typeof navigator === "undefined") return imageTileDeviceBudget(null).retainedBytes;
     const value = (navigator as Navigator & { deviceMemory?: unknown }).deviceMemory;
@@ -178,6 +252,28 @@ export function useWorkbenchImageSource(
     },
     retry: 1,
   });
+  const referenceChanged = !!task && !!query.data && !imageReferenceMatchesTask(task, query.data);
+  const needsTaskMedia =
+    !!task &&
+    query.data?.width != null &&
+    query.data.height != null &&
+    (!task.file_url ||
+      task.image_width !== query.data.width ||
+      task.image_height !== query.data.height);
+  useEffect(() => {
+    if ((!referenceChanged && !needsTaskMedia) || !task?.id) return;
+    void queryClient.invalidateQueries({ queryKey: ["task", task.id] });
+    void queryClient.invalidateQueries({ queryKey: ["tasks"] });
+  }, [
+    queryClient,
+    task?.id,
+    referenceChanged,
+    needsTaskMedia,
+    query.data?.source_snapshot,
+    query.data?.profile_version,
+    query.data?.width,
+    query.data?.height,
+  ]);
   const source = useMemo(
     () =>
       resolveWorkbenchImageSource(task, query.data, {
@@ -192,12 +288,36 @@ export function useWorkbenchImageSource(
   }, [refetch, shouldQuery]);
   const retry = useCallback(async () => {
     if (!task?.id) return;
-    const result = await tasksApi.retryImagePyramid(task.id);
-    setRetryWindow({ taskId: task.id, untilMs: Date.now() + 30_000 });
+    const key =
+      retryAttempt.current?.scope === scope ? retryAttempt.current.key : crypto.randomUUID();
+    retryAttempt.current = { scope, key };
+    let result;
+    try {
+      result = await tasksApi.retryImagePyramid(task.id, { idempotencyKey: key });
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 409) {
+        const current = await refetch();
+        await Promise.all([
+          queryClient.invalidateQueries({ queryKey: ["task", task.id] }),
+          queryClient.invalidateQueries({ queryKey: ["tasks"] }),
+        ]);
+        if (current.data?.status === "ready" && imageReferenceMatchesTask(task, current.data)) {
+          if (retryAttempt.current?.key === key) retryAttempt.current = null;
+          return;
+        }
+      }
+      throw error;
+    }
+    if (retryAttempt.current?.key === key) retryAttempt.current = null;
+    setRetryWindow({ scope, untilMs: Date.now() + 30_000 });
     queryClient.setQueryData<ImagePyramidResponse>(queryKey, (current) => ({
       task_id: task.id,
       status: result.status === "building" ? "building" : "pending",
       required: current?.required ?? summary?.required ?? true,
+      source_snapshot: summary?.source_snapshot ?? null,
+      profile_version: summary?.profile_version ?? null,
+      width: current?.width ?? summary?.width ?? null,
+      height: current?.height ?? summary?.height ?? null,
       retryable: false,
       retry_after_ms: 1_000,
       generation: current?.generation ?? summary?.generation ?? null,
@@ -211,7 +331,7 @@ export function useWorkbenchImageSource(
       queryClient.invalidateQueries({ queryKey: ["task", task.id] }),
       queryClient.invalidateQueries({ queryKey: ["tasks"] }),
     ]);
-  }, [queryClient, queryKey, summary?.generation, summary?.required, task?.id]);
+  }, [queryClient, queryKey, refetch, scope, summary, task]);
   return {
     source,
     refresh,

@@ -201,6 +201,7 @@ class _DropFirstImageResponse(httpx.AsyncBaseTransport):
         await response.aclose()
         if (
             not self.dropped
+            and response.is_success
             and request.method == "POST"
             and request.url.path == "/v1/images/commands/prepare_image_media"
         ):
@@ -633,8 +634,7 @@ def _write_processing_gate(directory: Path, *, backend: str) -> tuple[Path, Path
 import sys as _sys
 import time as _time
 from pathlib import Path as _Path
-_spec = getattr(_sys.modules.get('__main__'), '__spec__', None)
-if getattr(_spec, 'name', None) == 'aap_assets_images_runtime.processing':
+if 'aap_assets_images_runtime.processing' in _sys.orig_argv:
     {imports}
     _original = {target}
     def _gated(*args, **kwargs):
@@ -851,6 +851,22 @@ async def test_independent_image_worker_publishes_thumbnail_after_response_loss_
             assert receipt_count == 1
             assert receipt_job_id == accepted["work"]["job_id"]
             assert same_owner_job_count == 1
+
+            async with runtime.owner_sessions.begin() as owner:
+                second_actor = await _seed_actor(owner, role="super_admin")
+            runtime.track_actor(second_actor)
+            for reader in (actor_id, actor_id, second_actor, second_actor):
+                response = await _post(
+                    runtime.control_client,
+                    runtime.control_token,
+                    "/v1/images/source-reference",
+                    {"actor_id": str(reader), "dataset_item_id": str(item_id)},
+                )
+                assert response.status_code == 200
+                reference = response.json()["data"]
+                assert reference["actor_id"] == str(reader)
+                assert reference["original_url"]
+                assert reference["thumbnail_url"] is None
 
             async with runtime.test_engine.begin() as owner:
                 await owner.execute(

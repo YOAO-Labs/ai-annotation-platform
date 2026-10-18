@@ -8,6 +8,8 @@ from uuid import UUID, uuid4
 import pytest
 from fastapi import HTTPException
 
+from aap_assets_images.contract import ImageOwner, ImageSource
+from aap_assets_images.transport import ImageSourceReference
 from aap_assets_media.contract import (
     AcceptedWork,
     AssetsRequest,
@@ -220,7 +222,7 @@ async def test_worker_drain_reuses_one_executor_and_schedules_continuation(monke
     executor = FakeExecutor()
 
     @asynccontextmanager
-    async def session():
+    async def session(**_kwargs):
         context_events.append("enter")
         yield executor
         context_events.append("exit")
@@ -252,7 +254,7 @@ async def test_worker_drain_stops_on_empty_claim_without_continuation(monkeypatc
             return False
 
     @asynccontextmanager
-    async def session():
+    async def session(**_kwargs):
         yield FakeExecutor()
 
     monkeypatch.setattr(media_workers, "media_execution_session", session)
@@ -387,7 +389,10 @@ async def test_linked_task_file_url_returns_conflict_for_drifted_source(monkeypa
 @pytest.mark.asyncio
 async def test_task_list_uses_batched_raw_source_references(monkeypatch):
     actor_id, dataset_id = uuid4(), uuid4()
-    tasks = [SimpleNamespace(id=uuid4(), dataset_item_id=uuid4()) for _ in range(2)]
+    tasks = [
+        SimpleNamespace(id=uuid4(), dataset_item_id=uuid4(), file_type="video")
+        for _ in range(2)
+    ]
     references = [
         SourceReference(
             source=_source(task.dataset_item_id, dataset_id),
@@ -540,7 +545,7 @@ def test_task_out_withholds_file_url_for_drifted_owner_source():
     assert result.video_metadata is None
 
 
-def test_linked_image_task_keeps_thumbnail_while_source_url_comes_from_owner(
+def test_linked_image_task_uses_only_current_image_owner_urls(
     monkeypatch,
 ):
     task_id, item_id, project_id = uuid4(), uuid4(), uuid4()
@@ -555,18 +560,35 @@ def test_linked_image_task_keeps_thumbnail_while_source_url_comes_from_owner(
         status="pending",
         created_at=datetime.now(UTC),
     )
-    source = _source(item_id, uuid4()).model_copy(
-        update={
-            "file_name": "source.jpg",
-            "file_path": "datasets/source.jpg",
-            "file_type": "image",
-        }
+    source = ImageSource(
+        owner=ImageOwner(kind="dataset_item", id=item_id),
+        task_id=task_id,
+        project_id=project_id,
+        dataset_id=uuid4(),
+        item_id=item_id,
+        source_generation=1,
+        source_snapshot="a" * 64,
+        object_identity=None,
+        source_drifted=False,
+        upload_ready=True,
+        file_name="source.jpg",
+        file_path="datasets/source.jpg",
+        file_type="image",
+        bucket_kind="datasets",
+        file_size=None,
+        content_hash=None,
+        width=32,
+        height=24,
+        thumbnail_path="images/current/thumbnail.webp",
+        blurhash="current",
+        thumbnail_source_generation=1,
+        thumbnail_error=None,
     )
-    reference = SourceReference(
+    reference = ImageSourceReference(
+        actor_id=uuid4(),
         source=source,
         original_url="https://assets.test/original.jpg?sig=owner",
-        video_url="https://assets.test/original.jpg?sig=owner",
-        poster_url=None,
+        thumbnail_url="https://assets.test/current-thumbnail.webp?sig=owner",
         expires_in=1800,
     )
     signed = []
@@ -590,8 +612,9 @@ def test_linked_image_task_keeps_thumbnail_while_source_url_comes_from_owner(
     )
 
     assert result.file_url == reference.original_url
-    assert result.thumbnail_url == "https://cache.test/poster"
-    assert signed == [("media-assets/owner/g1/a1/poster.webp", "media-cache")]
+    assert result.thumbnail_url == reference.thumbnail_url
+    assert result.blurhash == "current"
+    assert signed == []
 
 
 @pytest.mark.asyncio

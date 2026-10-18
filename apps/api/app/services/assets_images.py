@@ -11,7 +11,12 @@ from uuid import UUID, uuid4
 from pydantic import BaseModel
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import (
+    AsyncConnection,
+    AsyncEngine,
+    AsyncSession,
+    async_sessionmaker,
+)
 
 from aap_assets_images import contract as c
 from aap_assets_images.policy import ImagePolicy
@@ -88,9 +93,16 @@ class SqlAlchemyImageDatabase:
             if self.commit:
                 await self.db.rollback()
             raise
-        except SQLAlchemyError:
+        except SQLAlchemyError as exc:
             if self.commit:
                 await self.db.rollback()
+            cause = getattr(exc, "orig", exc)
+            _LOGGER.warning(
+                "Image native call failed operation=%s database_error=%s sqlstate=%s",
+                operation,
+                type(cause).__name__,
+                getattr(cause, "sqlstate", None),
+            )
             raise c.ImageFailure("storage_unavailable") from None
         except (TypeError, ValueError, KeyError, AttributeError, RecursionError):
             if self.commit:
@@ -99,10 +111,13 @@ class SqlAlchemyImageDatabase:
 
 
 class _IndependentImageDatabase:
+    def __init__(self, session_factory=None):
+        self.session_factory = session_factory
+
     async def call(self, operation: str, request: BaseModel) -> BaseModel:
         from app.db.base import async_session
 
-        async with async_session() as db:
+        async with (self.session_factory or async_session)() as db:
             return await SqlAlchemyImageDatabase(db).call(operation, request)
 
 
@@ -163,6 +178,9 @@ class ImageGateway:
         return self
 
     async def __aexit__(self, *args):
+        close = getattr(self.provider, "close", None)
+        if close is not None:
+            await close()
         return None
 
 
@@ -184,8 +202,16 @@ def image_gateway(db: AsyncSession | None = None, *, caller_transaction: bool = 
     else:
         from aap_assets_images_runtime.control import ImageControl
 
+        bind = getattr(db, "bind", None)
+        if isinstance(bind, AsyncConnection):
+            bind = bind.engine
+        factory = (
+            async_sessionmaker(bind, expire_on_commit=False)
+            if isinstance(bind, AsyncEngine)
+            else None
+        )
         provider = ImageControl(
-            _IndependentImageDatabase(),
+            _IndependentImageDatabase(factory),
             image_storage(control=True),
             policy=image_policy(),
             wakeup=_wake,
@@ -193,31 +219,31 @@ def image_gateway(db: AsyncSession | None = None, *, caller_transaction: bool = 
     return ImageGateway(provider)
 
 
-def image_executor():
+def image_executor(*, session_factory=None):
     from aap_assets_images_runtime.worker import ImageExecutor
 
     return ImageExecutor(
-        _IndependentImageDatabase(),
+        _IndependentImageDatabase(session_factory),
         image_storage(),
         worker_id=uuid4(),
         srgb_profile=settings.image_pyramid_srgb_profile,
     )
 
 
-async def run_image_job(job_id: UUID | None = None) -> bool:
+async def run_image_job(job_id: UUID | None = None, *, session_factory=None) -> bool:
     if settings.assets_media_url:
         return False
-    executor = image_executor()
+    executor = image_executor(session_factory=session_factory)
     try:
         return await executor.execute_once(job_id=job_id) is not None
     finally:
         await executor.close()
 
 
-async def maintain_images():
+async def maintain_images(*, session_factory=None):
     if settings.assets_media_url:
         return None
-    executor = image_executor()
+    executor = image_executor(session_factory=session_factory)
     try:
         return await executor.reconcile_once()
     finally:

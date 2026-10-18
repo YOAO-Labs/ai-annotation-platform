@@ -298,11 +298,10 @@ function DatasetDetail({ ds }: { ds: DatasetResponse }) {
                       size="sm"
                       onClick={() => {
                         backfillMutation.mutate(undefined, {
-                          onSuccess: (res) => {
+                          onSuccess: () => {
                             pushToast({
-                              msg:
-                                `回填完成 · 处理 ${res.processed} / 失败 ${res.failed}` +
-                                (res.remaining_hint ? "，仍有未处理项，可再次点击" : ""),
+                              msg: "已提交尺寸回填任务",
+                              sub: "后台处理，稍后刷新文件列表可查看结果",
                             });
                           },
                           onError: (err: unknown) => {
@@ -314,7 +313,7 @@ function DatasetDetail({ ds }: { ds: DatasetResponse }) {
                       title="对缺失 width/height 的图片执行维度回填"
                     >
                       <Icon name="refresh" size={12} />{" "}
-                      {backfillMutation.isPending ? "回填中..." : "回填维度"}
+                      {backfillMutation.isPending ? "提交中..." : "回填维度"}
                     </Button>
                   )}
                   {isVideoDataset && (

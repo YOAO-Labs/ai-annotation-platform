@@ -1,19 +1,16 @@
 # ADR-0106: Independent image materialization and source-bound delivery
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-10-19
 - Deciders: implementation team
 
 ## Context
 
-Video execution has an independent Assets Media runtime. Image thumbnails, image
-dimensions and the complete pyramid workflow still use API ORM, storage and
-Celery. Their public Python port does not cover acceptance or execution. Current
-thumbnail keys are mutable; pyramid publication checks a lease token but not its
-expiry or current source binding. Task unlink already delays prefix deletion
-until known writer leases expire, but completed deletion records do not retain
-responsibility for late writes. Project deletion does not durably queue those
-prefixes. These paths must move with image reads and technical projections.
+Video execution already had an independent Assets Media runtime when this
+extraction began. Image thumbnails, dimensions and pyramids used API ORM, storage
+and Celery; the Python port omitted acceptance and execution. Mutable thumbnail
+keys, incomplete publication fences and missing retained cleanup responsibilities
+required image reads, technical projections and execution to move together.
 
 DatasetItem dimensions are registered source facts as well as probe results.
 Useful imported dimensions must not disappear merely because no thumbnail has
@@ -154,10 +151,23 @@ independent images and resource limits. Run all database-backed checks only in
 verified owned disposable environments. Do not infer production capacity from
 small fixtures.
 
-The current UI can skip a manifest read when a required large image has no
-summary and then fall back to the original image. Its resolution is being
-confirmed separately while independent backend work proceeds; it is not counted
-as a passed browser gate.
+The Workbench reads missing and pending image state even before a generation
+exists. Required pyramids never select the original; unknown dimensions retain a
+safe preview until metadata completes or fails. Actor, Task, source snapshot,
+profile and dimensions scope cached references and pixels. Completed metadata
+refreshes a Task whose original URL was previously unavailable. Browser checks
+confirmed no original request for a missing required pyramid, automatic small
+image recovery, and a terminal safe preview for invalid image bytes.
+
+Local qualification passed restricted native authority, real independent
+HTTP/S3/Pillow/libvips processes, lease takeover, source replacement, retained
+cleanup, container limits, clean wheels and API/SDK/UI contracts. The image
+container used 2 CPUs and 2 GiB for thumbnails and a 1024-square pyramid, with
+128,532,480 bytes of observed peak cgroup memory. These are local fixture results;
+large-image sustained concurrency and production capacity remain unqualified.
+The compatibility Celery path uses a fresh task engine across successive event
+loops and continues accepted work until its pool is idle. Migration refusal
+checks preserve unresolved legacy writers and retained source evidence.
 
 This decision does not complete Assets or the whole-module goal. No default Go,
 production rollout, push or release is implied.

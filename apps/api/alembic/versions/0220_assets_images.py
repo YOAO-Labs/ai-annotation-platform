@@ -71,7 +71,7 @@ def _statements(filename: str) -> list[str]:
 
 def _run_artifact(filename: str) -> None:
     for statement in _statements(filename):
-        op.execute(sa.text(statement))
+        op.execute(sa.text(statement.replace(":", r"\:")))
 
 
 def upgrade() -> None:
@@ -249,4 +249,4 @@ def downgrade() -> None:
     )
 
     for statement in _restore_statements():
-        op.execute(sa.text(statement))
+        op.execute(sa.text(statement.replace(":", r"\:")))

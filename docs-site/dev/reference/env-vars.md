@@ -83,10 +83,10 @@ last_reviewed: 2026-10-19
 
 | 变量 | 默认值 | 说明 |
 |---|---|---|
-| `IMAGE_PYRAMID_AUTO_GENERATE` | `false` | 默认只发布 schema/API，不在上传时自动生成；容量验收后再显式开启。 |
+| `IMAGE_PYRAMID_AUTO_GENERATE` | `false` | 默认关闭自动金字塔受理；尺寸和缩略图仍自动处理。容量验收后再显式开启金字塔。 |
 | `IMAGE_PYRAMID_PROFILE_VERSION` | `pyramid-v1` | — |
 | `IMAGE_PYRAMID_NORMALIZATION_VERSION` | `exif-autorotate-srgb-v1` | — |
-| `IMAGE_PYRAMID_OPTIONAL_PIXELS` | `16777216` | 16MP 起可选生成，50MP 起客户端必须使用（客户端切换在后续版本）。 |
+| `IMAGE_PYRAMID_OPTIONAL_PIXELS` | `16777216` | 16MP 起可选生成，50MP 起客户端必须使用金字塔；缺失时保留安全预览。 |
 | `IMAGE_PYRAMID_REQUIRED_PIXELS` | `50000000` | — |
 | `IMAGE_PYRAMID_MAX_PIXELS` | `300000000` | — |
 | `IMAGE_PYRAMID_MAX_DIMENSION` | `32768` | — |
@@ -474,7 +474,7 @@ last_reviewed: 2026-10-19
 | `ASSETS_SOURCE_URL` | `—` | 网关：URL 留空时用本地 Source 工作流；设置 URL 后所有操作都走远程，失败不会回退。 |
 | `ASSETS_SOURCE_TOKEN` | `—` | — |
 | `ASSETS_SOURCE_TIMEOUT_SECONDS` | `300` | — |
-| `ASSETS_SOURCE_DATABASE_URL` | `—` | 独立进程：显式专用 DSN/token/S3 凭据，不能使用日常 API 宽凭据。 Source LOGIN 精确执行 26 项 Assets 能力（14 项来源/入库 + 9 项连接管理 + 3 项图片来源/作业受理）；Catalog 29 项、导入 LOGIN 9 项各自独立。不授予业务关系、序列或其他 owner schema 的直接访问权限。 |
+| `ASSETS_SOURCE_DATABASE_URL` | `—` | 独立进程：显式专用 DSN/token/S3 凭据，不能使用日常 API 宽凭据。 Source LOGIN 精确执行 23 项 Assets 能力（14 项来源/入库 + 9 项连接管理）；Catalog 29 项、导入 LOGIN 7 项各自独立。 不授予业务关系、序列或其他 owner schema 的直接访问权限。 |
 | `ASSETS_SOURCE_DATABASE_URL_FILE` | `—` | — |
 | `ASSETS_SOURCE_TOKEN_FILE` | `—` | — |
 | `ASSETS_SOURCE_S3_ACCESS_KEY` | `—` | — |
@@ -506,7 +506,7 @@ last_reviewed: 2026-10-19
 
 | 变量 | 默认值 | 说明 |
 |---|---|---|
-| `ASSETS_IMPORT_DATABASE_URL` | `—` | 使用专用九函数 LOGIN 和只写来源前缀的对象身份，无 API/Celery/Redis 配置。 |
+| `ASSETS_IMPORT_DATABASE_URL` | `—` | 使用专用七函数 LOGIN 和只写来源前缀的对象身份，无 API/Celery/Redis 配置。 |
 | `ASSETS_IMPORT_DATABASE_URL_FILE` | `—` | — |
 | `ASSETS_IMPORT_S3_ACCESS_KEY` | `—` | — |
 | `ASSETS_IMPORT_S3_ACCESS_KEY_FILE` | `—` | — |
@@ -528,7 +528,7 @@ last_reviewed: 2026-10-19
 | `ASSETS_IMPORT_S3_READ_TIMEOUT_SECONDS` | `120` | — |
 | `ASSETS_IMPORT_SFTP_TIMEOUT_SECONDS` | `10` | — |
 
-## 独立视频媒体控制/执行器：仅显式选择，默认本地组合，不进入默认 Compose。
+## 独立图片/视频媒体控制与执行器：仅显式选择，默认本地组合，不进入默认 Compose。
 
 | 变量 | 默认值 | 说明 |
 |---|---|---|
@@ -566,3 +566,15 @@ last_reviewed: 2026-10-19
 | `ASSETS_MEDIA_S3_CONNECT_TIMEOUT_SECONDS` | `10` | 控制进程默认 2/10 秒；执行进程默认 10/120 秒。留给所选进程显式覆盖。 |
 | `ASSETS_MEDIA_S3_READ_TIMEOUT_SECONDS` | `120` | — |
 | `ASSETS_MEDIA_S3_MAX_ATTEMPTS` | `2` | — |
+
+## 独立图片执行器：单独的六函数 LOGIN，与视频执行器分离。
+
+| 变量 | 默认值 | 说明 |
+|---|---|---|
+| `ASSETS_IMAGES_DATABASE_URL` | `—` | DSN 与 _FILE 二选一；可选 Compose 将以下宿主凭据路径映射到进程内 ASSETS_MEDIA_S3_*_FILE。 |
+| `ASSETS_IMAGES_DATABASE_URL_FILE` | `—` | — |
+| `ASSETS_IMAGES_S3_ACCESS_KEY_FILE` | `—` | — |
+| `ASSETS_IMAGES_S3_SECRET_KEY_FILE` | `—` | — |
+| `ASSETS_IMAGES_POLL_SECONDS` | `5` | — |
+| `ASSETS_IMAGES_LEGACY_BUCKET` | `—` | 留空依次使用 MINIO_BUCKET / MINIO_BUCKET_ANNOTATIONS；独立进程必须显式选定历史 Task 桶。 |
+| `ASSETS_IMAGES_SRGB_PROFILE` | `—` | 留空使用 IMAGE_PYRAMID_SRGB_PROFILE，再使用镜像内的 ICC 文件。 |

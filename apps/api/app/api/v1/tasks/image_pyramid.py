@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.tasks._shared import _image_pyramid_task_source, _load_task_or_404
@@ -20,7 +20,6 @@ from app.schemas.image_pyramid import (
 )
 from app.services import task_access
 from app.services.image_pyramid_contract import ImagePyramidFailure
-from app.workers.image_pyramid import enqueue_image_pyramid
 
 router = APIRouter()
 
@@ -40,7 +39,7 @@ async def get_image_pyramid(
     task = await _load_task_or_404(db, task_id)
     await task_access.assert_task_visible(db, task, current_user.id)
     response.headers["Cache-Control"] = "private, no-store"
-    image_pyramid = bind_image_pyramid_api(db)
+    image_pyramid = bind_image_pyramid_api(db, actor_id=current_user.id)
     try:
         result = await image_pyramid.manifest(
             _image_pyramid_task_source(task),
@@ -57,12 +56,6 @@ async def get_image_pyramid(
             headers=exc.headers,
         ) from exc
 
-    if result.dispatch is not None:
-        enqueue_image_pyramid(
-            result.dispatch.owner_kind,
-            result.dispatch.owner_id,
-            force=result.dispatch.force,
-        )
     IMAGE_PYRAMID_API_REQUESTS_TOTAL.labels(
         operation="manifest", outcome=result.outcome
     ).inc()
@@ -104,7 +97,7 @@ async def create_image_pyramid_asset_urls(
         )
     task = await _load_task_or_404(db, task_id)
     await task_access.assert_task_visible(db, task, current_user.id)
-    image_pyramid = bind_image_pyramid_api(db)
+    image_pyramid = bind_image_pyramid_api(db, actor_id=current_user.id)
     try:
         result = await image_pyramid.asset_urls(
             _image_pyramid_task_source(task), payload
@@ -135,14 +128,18 @@ async def create_image_pyramid_asset_urls(
 async def retry_image_pyramid(
     task_id: uuid.UUID,
     request: Request,
+    idempotency_key: uuid.UUID | None = Header(default=None, alias="Idempotency-Key"),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     task = await _load_task_or_404(db, task_id)
     await task_access.assert_task_visible(db, task, current_user.id)
-    image_pyramid = bind_image_pyramid_api(db)
+    image_pyramid = bind_image_pyramid_api(db, actor_id=current_user.id)
     try:
-        plan = await image_pyramid.retry(_image_pyramid_task_source(task))
+        plan = await image_pyramid.retry(
+            _image_pyramid_task_source(task),
+            operation_id=idempotency_key or uuid.uuid4(),
+        )
     except ImagePyramidFailure as exc:
         raise HTTPException(
             status_code=exc.status_code,
@@ -150,17 +147,11 @@ async def retry_image_pyramid(
             headers=exc.headers,
         ) from exc
 
-    celery_task_id = None
-    if plan.status == "queued":
-        assert plan.owner_kind is not None and plan.owner_id is not None
-        celery_task_id = enqueue_image_pyramid(
-            plan.owner_kind, plan.owner_id, force=True
-        )
-        IMAGE_PYRAMID_API_REQUESTS_TOTAL.labels(
-            operation="retry", outcome="queued"
-        ).inc()
+    IMAGE_PYRAMID_API_REQUESTS_TOTAL.labels(
+        operation="retry", outcome=plan.status
+    ).inc()
     return ImagePyramidRetryResponse(
         task_id=task.id,
         status=plan.status,
-        celery_task_id=celery_task_id,
+        job_id=plan.job_id,
     )

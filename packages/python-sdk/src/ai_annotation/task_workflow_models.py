@@ -154,6 +154,10 @@ class ImagePyramidResponse(_TaskWorkflowResponse):
         "inconsistent",
     ]
     required: bool
+    source_snapshot: str | None = None
+    profile_version: str | None = None
+    width: int | None = None
+    height: int | None = None
     retryable: bool = False
     retry_after_ms: int | None = None
     generation: int | None = None
@@ -207,6 +211,7 @@ class ImagePyramidRetryResult(_TaskWorkflowResponse):
     task_id: UUID
     status: Literal["queued", "pending", "building"]
     celery_task_id: str | None = None
+    job_id: UUID | None = None
 
 
 class CrossFrameJobCreateRequest(_TaskWorkflowRequest):

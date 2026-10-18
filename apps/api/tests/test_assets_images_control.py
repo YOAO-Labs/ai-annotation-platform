@@ -125,6 +125,89 @@ async def _seed_image_item(db_session, *, actor_id, width=5000, height=5000):
     return dataset_id, item_id
 
 
+async def test_shared_image_read_repairs_do_not_collide_across_actors_or_policy(
+    db_session,
+):
+    from aap_assets_images.contract import ObjectIdentity, ReadImageSourceRequest
+    from aap_assets_images_runtime.control import ImageControl
+    from app.services.assets_images import SqlAlchemyImageDatabase
+
+    class SourceStorage:
+        async def head_source(self, source):
+            return source.object_identity or ObjectIdentity(
+                etag="registered", byte_size=2048
+            )
+
+        async def head_cache(self, _key):
+            return None
+
+        async def sign_source(self, source, expires_in=3600):
+            return f"https://images.test/{source.file_path}"
+
+    first_actor, second_actor = (
+        await _seed_actor(db_session),
+        await _seed_actor(db_session),
+    )
+    _, item_id = await _seed_image_item(
+        db_session, actor_id=first_actor, width=32, height=24
+    )
+    policy = ImagePolicy()
+    owner = ImageControl(
+        SqlAlchemyImageDatabase(db_session, commit=False),
+        SourceStorage(),
+        policy=policy,
+    )
+    for actor in (first_actor, first_actor, second_actor, second_actor):
+        result = await owner.source_reference(
+            ReadImageSourceRequest(actor_id=actor, dataset_item_id=item_id)
+        )
+        assert result.original_url.startswith("https://images.test/")
+        assert result.thumbnail_url is None
+    assert (
+        await db_session.scalar(
+            text("SELECT count(*) FROM public.asset_image_operations")
+        )
+        == 2
+    )
+    assert (
+        await db_session.scalar(
+            text("SELECT count(*) FROM public.asset_image_jobs WHERE owner_id=:id"),
+            {"id": item_id},
+        )
+        == 1
+    )
+
+    # A changed captured policy must defer behind the old accepted work, while
+    # its distinct receipt remains replayable after that work terminates.
+    changed = ImageControl(
+        SqlAlchemyImageDatabase(db_session, commit=False),
+        SourceStorage(),
+        policy=policy.model_copy(update={"profile_version": "profile-next"}),
+    )
+    request = ReadImageSourceRequest(actor_id=first_actor, dataset_item_id=item_id)
+    assert (await changed.source_reference(request)).original_url
+    assert (
+        await db_session.scalar(
+            text("SELECT count(*) FROM public.asset_image_operations")
+        )
+        == 2
+    )
+    await db_session.execute(
+        text(
+            "UPDATE public.asset_image_jobs SET status='failed',completed_at=clock_timestamp() WHERE owner_id=:id"
+        ),
+        {"id": item_id},
+    )
+    assert (await changed.source_reference(request)).original_url
+    assert (await changed.source_reference(request)).original_url
+    assert (
+        await db_session.scalar(
+            text("SELECT count(*) FROM public.asset_image_operations")
+        )
+        == 3
+    )
+
+
 async def _read(db_session, actor_id, item_id, *, task_id=None):
     return _object(
         await db_session.scalar(

@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from uuid import UUID
+from uuid import UUID, uuid4
 
-from ai_annotation._http import HttpTransport
+from ai_annotation._http import HttpTransport, _idempotency_headers
 from ai_annotation.task_workflow_models import (
     ImagePyramidAssetUrlsRequest,
     ImagePyramidAssetUrlsResponse,
@@ -33,7 +33,15 @@ class ImagePyramids:
         )
         return ImagePyramidAssetUrlsResponse.model_validate(resp.json())
 
-    def retry(self, task_id: IdLike) -> ImagePyramidRetryResult:
-        """Request generation once; the returned Celery ID is not an AsyncJob ID."""
-        resp = self._http.request("POST", f"/tasks/{task_id}/image-pyramid/retry")
+    def retry(
+        self, task_id: IdLike, *, idempotency_key: IdLike | None = None
+    ) -> ImagePyramidRetryResult:
+        """Accept image work once; retain the key when repeating a lost response."""
+        resp = self._http.request(
+            "POST",
+            f"/tasks/{task_id}/image-pyramid/retry",
+            headers=_idempotency_headers(
+                uuid4() if idempotency_key is None else idempotency_key
+            ),
+        )
         return ImagePyramidRetryResult.model_validate(resp.json())

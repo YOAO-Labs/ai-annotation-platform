@@ -80,6 +80,8 @@ REMOVED_MODULES = (
     "app.services.dataset_upload_contract",
     "app.services.dataset_source_deletion_contract",
     "app.services.storage_connection",
+    "app.services.media_materialization",
+    "app.workers.media_materialization",
     *_SPATIAL_RETIRED_MODULES,
 )
 
@@ -402,7 +404,9 @@ DOMAIN_PACKAGES = (
     ),
     DomainSpec(package="labeling_assignment", legacy_facades=()),
     DomainSpec(
-        package="media_materialization", legacy_facades=(), allowed_app_imports=()
+        package="image_source_references",
+        legacy_facades=(),
+        allowed_app_imports=("app.services.assets_images",),
     ),
     DomainSpec(
         package="labeling_write_scope", legacy_facades=(), allowed_app_imports=()

@@ -109,9 +109,7 @@ last_reviewed: 2026-10-19
 - 传统任务文件：`app/application/legacy_file_upload.py` 组合当前管理权威、存储验证与
   `LabelingTaskService`；上传目标是不可变值快照，最终仍重取当前权限和任务锁。
   原图地址用 `task_access.assert_task_visible`，不能只检查项目成员身份。
-- 媒体物化：`services/media_materialization.py::MediaMaterializationWriter` 定义结果写端口，
-  `workers/media_materialization.py` 绑定 assets/labeling 的元信息与帧索引所有者；
-  媒体执行器持有 codec、对象 I/O 和派生帧/分块技术缓存，不代写项目管理权限。
+- 媒体物化：`apps/assets-media` 通过视频与图片的公开协议持有 codec、对象 I/O、作业与派生缓存；独立 worker 通过来源、代次和租约围栏发布结果，direct Task 的投影调用 Labeling 窄能力。旧结果 writer 已移除。
 - 图片金字塔：`api/v1/tasks/image_pyramid.py` 保留 Task 可见性和 REST 缓存语义；`services/image_pyramid.py::AssetsImagePyramidApi` 将列表、manifest、asset URL 与重试组合到 `aap-assets-images/v1`，通过 `services/assets_images.py::ImageGateway` 调用本地原生能力或共享 `apps/assets-media` 控制服务。Assets 持有图片 source/job/receipt/generation 状态；Labeling 提供 direct Task 来源与 Task 缩略图投影，HTTP 不接收 ORM 作为跨模块值。图片 worker 使用独立 image LOGIN 与 lease 驱动执行；源/代次变化、取消和垃圾清理继续受 owner SQL 围栏。
 - 失败预测管理：`app/services/prediction.py::assert_can_manage_failed_prediction`；
   `PredictionService` 持有 dismiss/restore、retry 结果计数与成功删除，路由保留当前

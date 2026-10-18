@@ -77,84 +77,6 @@ VIDEO_FRAME_ASSET_BYTES = Gauge(
     labelnames=("asset_type",),
 )
 
-IMAGE_PYRAMID_GENERATIONS_TOTAL = Counter(
-    "image_pyramid_generations_total",
-    "Immutable image-pyramid generation outcomes",
-    labelnames=("outcome", "error_code"),
-)
-
-IMAGE_PYRAMID_PHASE_DURATION_SECONDS = Histogram(
-    "image_pyramid_phase_duration_seconds",
-    "Image-pyramid worker phase duration in seconds",
-    labelnames=("phase", "outcome"),
-    buckets=(0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60, 120, 300, 900, 1800),
-)
-
-IMAGE_PYRAMID_SOURCE_BYTES = Histogram(
-    "image_pyramid_source_bytes",
-    "Compressed source bytes admitted by image-pyramid jobs",
-    buckets=(
-        1_048_576,
-        8_388_608,
-        33_554_432,
-        134_217_728,
-        536_870_912,
-        2_147_483_648,
-        8_589_934_592,
-    ),
-)
-
-IMAGE_PYRAMID_DECODED_PIXELS = Histogram(
-    "image_pyramid_decoded_pixels",
-    "Logical decoded pixels in completed image-pyramid jobs",
-    buckets=(
-        16_777_216,
-        50_000_000,
-        100_000_000,
-        200_000_000,
-        300_000_000,
-    ),
-)
-
-IMAGE_PYRAMID_TILE_COUNT = Histogram(
-    "image_pyramid_tile_count",
-    "Verified tiles in completed image-pyramid jobs",
-    buckets=(64, 128, 256, 512, 1024, 2048, 4096, 8192, 20_000),
-)
-
-IMAGE_PYRAMID_DERIVED_BYTES = Histogram(
-    "image_pyramid_derived_bytes",
-    "Retained derived bytes in completed image-pyramid jobs",
-    buckets=(
-        1_048_576,
-        8_388_608,
-        33_554_432,
-        134_217_728,
-        536_870_912,
-        2_147_483_648,
-        8_589_934_592,
-    ),
-)
-
-IMAGE_PYRAMID_TEMP_BYTES = Histogram(
-    "image_pyramid_temp_bytes",
-    "Peak accounted source plus generated temporary bytes",
-    buckets=(
-        8_388_608,
-        33_554_432,
-        134_217_728,
-        536_870_912,
-        2_147_483_648,
-        8_589_934_592,
-        12_884_901_888,
-    ),
-)
-
-IMAGE_PYRAMID_ASSET_BYTES = Gauge(
-    "image_pyramid_asset_bytes",
-    "Bytes retained by ready image-pyramid generations",
-)
-
 IMAGE_PYRAMID_API_REQUESTS_TOTAL = Counter(
     "image_pyramid_api_requests_total",
     "Image-pyramid manifest and asset URL API outcomes",
@@ -165,12 +87,6 @@ IMAGE_PYRAMID_ASSET_URL_ITEMS_TOTAL = Counter(
     "image_pyramid_asset_url_items_total",
     "Signed image-pyramid asset URL items",
     labelnames=("kind",),
-)
-
-IMAGE_PYRAMID_GC_TOTAL = Counter(
-    "image_pyramid_gc_total",
-    "Image-pyramid reconciliation outcomes",
-    labelnames=("outcome",),
 )
 
 RASTER_MASK_CONTENT_OPERATIONS_TOTAL = Counter(

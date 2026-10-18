@@ -347,6 +347,27 @@ def test_image_pyramid_preserves_signed_generation_assets_and_celery_receipt(
     assert retry_route.calls.call_count == 1
 
 
+def test_image_retry_reuses_native_work_receipt_key(client, respx_mock):
+    route = respx_mock.post(f"{API}/tasks/{TASK_ID}/image-pyramid/retry").mock(
+        return_value=httpx.Response(
+            202,
+            json={"task_id": TASK_ID, "status": "queued", "job_id": JOB_ID},
+        )
+    )
+    api = ImagePyramids(client._http)
+    for _ in range(2):
+        receipt = api.retry(TASK_ID, idempotency_key=JOB_ID)
+        assert str(receipt.job_id) == JOB_ID
+        assert receipt.celery_task_id is None
+    assert [call.request.headers["Idempotency-Key"] for call in route.calls] == [
+        JOB_ID,
+        JOB_ID,
+    ]
+    with pytest.raises(ValueError, match="idempotency_key"):
+        api.retry(TASK_ID, idempotency_key="invalid")
+    assert len(route.calls) == 2
+
+
 def test_image_pyramid_generation_conflict_is_not_refetched(client, respx_mock):
     stale_route = respx_mock.post(
         f"{API}/tasks/{TASK_ID}/image-pyramid/asset-urls"

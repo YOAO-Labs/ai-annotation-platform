@@ -8,6 +8,7 @@ from fastapi import Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from aap_assets_media.contract import MediaFailure, ReadSourceRequest
+from aap_assets_images.contract import ReadImageSourceRequest
 
 from app.db.enums import UserRole
 from app.db.models.user import User
@@ -19,6 +20,7 @@ from app.schemas.task import (
 from app.schemas.image_pyramid import ImagePyramidSummary
 from app.services.image_pyramid_contract import (
     ImagePyramidApiPort,
+    ImagePyramidFailure,
     ImagePyramidTaskSource,
 )
 from app.deps import get_current_user, get_db
@@ -33,6 +35,7 @@ from app.db.models.project_member import ProjectMember
 from app.services.assets_media_summary import AssetsTaskMediaSummaryReader
 from app.services.assets_media_summary_contract import TaskMediaSummary
 from app.services.assets_media import browser_media_url, media_gateway
+from app.services.image_source_references import image_source_references
 
 logger = logging.getLogger(__name__)
 
@@ -43,10 +46,20 @@ async def _linked_source_references(
     *,
     actor_id: uuid.UUID,
 ) -> dict[uuid.UUID, Any]:
-    """Resolve linked source URLs through Assets; standalone Tasks keep StorageService."""
-    selected = [task for task in tasks if task.dataset_item_id is not None]
+    """Resolve owner references, including direct legacy image Tasks."""
+    images = [task for task in tasks if task.file_type == "image"]
+    image_references = await image_source_references(
+        db,
+        [ReadImageSourceRequest(actor_id=actor_id, task_id=task.id) for task in images],
+    )
+    found = {task.id: ref for task, ref in zip(images, image_references, strict=True)}
+    selected = [
+        task
+        for task in tasks
+        if task.dataset_item_id is not None and task.file_type != "image"
+    ]
     if not selected:
-        return {}
+        return found
     requests = [
         ReadSourceRequest(
             actor_id=actor_id,
@@ -59,13 +72,13 @@ async def _linked_source_references(
         async with media_gateway(db) as gateway:
             references = await gateway.source_references(requests, raw_only=True)
     except MediaFailure:
-        return {task.id: None for task in selected}
+        return found | {task.id: None for task in selected}
     if len(references) != len(selected) or any(
         reference.source.dataset_item_id != task.dataset_item_id
         for task, reference in zip(selected, references, strict=False)
     ):
-        return {task.id: None for task in selected}
-    return {
+        return found | {task.id: None for task in selected}
+    return found | {
         task.id: reference for task, reference in zip(selected, references, strict=True)
     }
 
@@ -328,8 +341,17 @@ def _task_with_url(
                     height = None
             else:
                 video_metadata = None
+                if owner_source.file_type == "image":
+                    width, height = owner_source.width, owner_source.height
+                    blurhash = (
+                        owner_source.blurhash
+                        if owner_source.thumbnail_current
+                        else None
+                    )
         else:
             video_metadata = None
+            if task.file_type == "image":
+                width, height, blurhash = None, None, None
     else:
         try:
             file_url = storage_service.generate_download_url(
@@ -346,6 +368,8 @@ def _task_with_url(
                 if owner_source_current
                 else None
             )
+        elif owner_source is not None and owner_source.file_type == "image":
+            thumbnail_url = browser_media_url(owner_source_reference.thumbnail_url)
         elif owner_source is not None and thumbnail_path:
             thumb_bucket = storage_service.bucket_for_cache_key(
                 thumbnail_path, default=bucket
@@ -430,23 +454,19 @@ async def _attach_dimensions_batch(
 async def _attach_image_pyramids_batch(
     image_pyramid: ImagePyramidApiPort,
     tasks: list[Task],
-    dimensions: dict[
-        uuid.UUID,
-        tuple[int | None, int | None, str | None, str | None, dict | None],
-    ],
 ) -> dict[uuid.UUID, ImagePyramidSummary]:
     sources = tuple(_image_pyramid_task_source(task) for task in tasks)
-    image_dimensions = {
-        task_id: (summary[0], summary[1]) for task_id, summary in dimensions.items()
-    }
-    return await image_pyramid.task_summaries(sources, image_dimensions)
+    try:
+        return await image_pyramid.task_summaries(sources)
+    except ImagePyramidFailure as exc:
+        raise HTTPException(
+            status_code=exc.status_code, detail=exc.detail, headers=exc.headers
+        ) from exc
 
 
 def _image_pyramid_task_source(task: Task) -> ImagePyramidTaskSource:
     """Project only the already-loaded Task fields needed by the media owner."""
     return ImagePyramidTaskSource(
         task_id=task.id,
-        dataset_item_id=task.dataset_item_id,
-        file_path=task.file_path,
         file_type=task.file_type,
     )

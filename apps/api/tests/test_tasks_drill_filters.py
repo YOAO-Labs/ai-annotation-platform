@@ -30,7 +30,7 @@ async def _seed(db: AsyncSession, owner_id: uuid.UUID):
             project_id=p.id,
             display_id=f"T-DF-{uuid.uuid4().hex[:6]}",
             file_name="x.jpg",
-            file_path="/tmp/x.jpg",
+            file_path="images/x.jpg",
             file_type="image",
             tags=[],
             status="completed",

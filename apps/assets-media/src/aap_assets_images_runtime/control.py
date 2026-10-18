@@ -376,13 +376,27 @@ class ImageControl:
         )
 
     def _repair_operation_id(
-        self, source: c.ImageSource, purpose: str, target: str
+        self,
+        source: c.ImageSource,
+        selector: c.ActorImageSourceRequest,
+        purpose: str,
+        target: str,
     ) -> UUID:
         target_digest = hashlib.sha256(target.encode("utf-8")).hexdigest()
+        receipt_scope = hashlib.sha256(
+            c.json_bytes(
+                {
+                    "actor_id": selector.actor_id,
+                    "task_id": selector.task_id,
+                    "dataset_item_id": selector.dataset_item_id,
+                    "policy": self.policy,
+                }
+            )
+        ).hexdigest()
         return uuid5(
             NAMESPACE_URL,
             f"aap-assets-images/v1:{purpose}:{source.owner.kind}:{source.owner.id}:"
-            f"{source.source_snapshot}:{target_digest}",
+            f"{source.source_snapshot}:{target_digest}:{receipt_scope}",
         )
 
     async def prepare_image_media(
@@ -469,12 +483,12 @@ class ImageControl:
     async def _prepare_repair(
         self,
         source: c.ImageSource,
-        selector: c.ImageSourceSelector,
+        selector: c.ActorImageSourceRequest,
         purpose: c.Purpose,
         target: str,
     ) -> c.AcceptedImageWork:
         request = c.PrepareImageMediaRequest(
-            operation_id=self._repair_operation_id(source, purpose, target),
+            operation_id=self._repair_operation_id(source, selector, purpose, target),
             actor_id=selector.actor_id,
             task_id=selector.task_id,
             dataset_item_id=selector.dataset_item_id,
@@ -491,7 +505,11 @@ class ImageControl:
             await operation
             return True
         except c.ImageFailure as exc:
-            if exc.code in {"permission_denied", "operation_busy"}:
+            if exc.code in {
+                "permission_denied",
+                "operation_busy",
+                "operation_conflict",
+            }:
                 return False
             raise
 

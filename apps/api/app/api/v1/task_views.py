@@ -432,7 +432,7 @@ async def query_project_tasks(
     dims = await _attach_dimensions_batch(db, tasks)
     source_references = await _linked_source_references(db, tasks, actor_id=user.id)
     pyramids = await _attach_image_pyramids_batch(
-        bind_image_pyramid_api(db), tasks, dims
+        bind_image_pyramid_api(db, actor_id=user.id), tasks
     )
     user_ids = {t.assignee_id for t in tasks if t.assignee_id} | {
         t.reviewer_id for t in tasks if t.reviewer_id
@@ -453,7 +453,8 @@ async def query_project_tasks(
             image_pyramid=pyramids.get(task.id),
             briefs=briefs,
             owner_source_reference=source_references.get(task.id),
-            owner_source_reference_loaded=task.dataset_item_id is not None,
+            owner_source_reference_loaded=task.dataset_item_id is not None
+            or task.file_type == "image",
         ).model_dump()
         base.update(
             {

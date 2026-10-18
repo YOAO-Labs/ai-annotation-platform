@@ -551,6 +551,13 @@ async def test_thumbnail_provenance_survives_refresh_failure_then_clears_on_new_
     )
     assert "retained_publication" not in public_status["progress"]
 
+    await db_session.execute(
+        text(
+            "UPDATE public.asset_image_jobs SET completed_at=clock_timestamp()-interval '301 seconds', "
+            "updated_at=clock_timestamp()-interval '301 seconds' WHERE job_id=:job_id"
+        ),
+        {"job_id": job_id},
+    )
     cancel_id, _ = await _enqueue(db_session, published_source, spec, force=True)
     assert cancel_id == job_id
     cancel_claim = await _claim(db_session, job_id=job_id, kind="thumbnail")
@@ -579,6 +586,21 @@ async def test_thumbnail_provenance_survives_refresh_failure_then_clears_on_new_
     )
     changed_source = await _source(db_session, item_id)
     assert changed_source["source_snapshot"] != published_source["source_snapshot"]
+    changed_source = _data(
+        _reply(
+            await db_session.scalar(
+                text(
+                    "SELECT aap_assets_v1.resolve_internal_image_source("
+                    "'dataset_item', :item_id, :snapshot, CAST(:identity AS jsonb))"
+                ),
+                {
+                    "item_id": item_id,
+                    "snapshot": changed_source["source_snapshot"],
+                    "identity": json.dumps(_identity()),
+                },
+            )
+        )
+    )
     changed_id, _ = await _enqueue(
         db_session,
         changed_source,

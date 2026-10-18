@@ -7,6 +7,7 @@ import logging
 from uuid import UUID
 
 from app.workers.celery_app import celery_app
+from app.workers._db import task_session_factory
 
 logger = logging.getLogger(__name__)
 
@@ -14,13 +15,19 @@ logger = logging.getLogger(__name__)
 async def _execute_image_media(job_id: str | None) -> bool:
     from app.services.assets_images import run_image_job
 
-    return await run_image_job(UUID(job_id) if job_id else None)
+    async with task_session_factory() as factory:
+        return await run_image_job(
+            UUID(job_id) if job_id else None, session_factory=factory
+        )
 
 
 async def _reconcile_image_media() -> None:
     from app.services.assets_images import maintain_images
 
-    await maintain_images()
+    async with task_session_factory() as factory:
+        result = await maintain_images(session_factory=factory)
+    if result is not None:
+        execute_image_media.delay(None)
 
 
 @celery_app.task(
@@ -32,7 +39,8 @@ async def _reconcile_image_media() -> None:
 def execute_image_media(self, job_id: str | None = None) -> None:
     """Wake one already accepted job, or drain one item from the accepted pool."""
     try:
-        asyncio.run(_execute_image_media(job_id))
+        if asyncio.run(_execute_image_media(job_id)):
+            execute_image_media.delay(None)
     except Exception as exc:  # noqa: BLE001 - celery boundary hides source details
         logger.warning(
             "accepted image job wake deferred (%s)",

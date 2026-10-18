@@ -7,14 +7,33 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field
 
 
+ImagePyramidStatus = Literal[
+    "not_available",
+    "missing",
+    "pending",
+    "building",
+    "ready",
+    "failed",
+    "stale",
+    "inconsistent",
+]
+
+
 class ImagePyramidSummary(BaseModel):
-    status: Literal["pending", "building", "ready", "failed"]
-    generation: int
+    status: ImagePyramidStatus
+    source_snapshot: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    profile_version: str | None = None
+    generation: int | None = None
     width: int | None = None
     height: int | None = None
     tile_size: int = 512
     format: str | None = None
     required: bool
+    building_generation: int | None = None
+    building_status: Literal["pending", "building"] | None = None
+    retryable: bool = False
+    retry_after_ms: int | None = None
+    error_code: str | None = None
 
 
 class ImagePyramidLevel(BaseModel):
@@ -55,17 +74,12 @@ class ImagePyramidOverviewUrl(BaseModel):
 
 class ImagePyramidResponse(BaseModel):
     task_id: UUID
-    status: Literal[
-        "not_available",
-        "missing",
-        "pending",
-        "building",
-        "ready",
-        "failed",
-        "stale",
-        "inconsistent",
-    ]
+    status: ImagePyramidStatus
     required: bool
+    source_snapshot: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    profile_version: str | None = None
+    width: int | None = None
+    height: int | None = None
     retryable: bool = False
     retry_after_ms: int | None = None
     generation: int | None = None
@@ -119,3 +133,4 @@ class ImagePyramidRetryResponse(BaseModel):
     task_id: UUID
     status: Literal["queued", "pending", "building"]
     celery_task_id: str | None = None
+    job_id: UUID | None = None

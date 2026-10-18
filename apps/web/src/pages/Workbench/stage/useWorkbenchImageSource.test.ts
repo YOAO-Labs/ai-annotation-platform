@@ -1,8 +1,9 @@
 import { createElement, type ReactNode } from "react";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-query";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { tasksApi } from "@/api/tasks";
+import { ApiError } from "@/api/client";
 import type { TaskResponse } from "@/types";
 import type { ImagePyramidManifestV1, ImagePyramidResponse } from "./imagePyramid";
 import { resolveWorkbenchImageSource, useWorkbenchImageSource } from "./useWorkbenchImageSource";
@@ -110,6 +111,24 @@ describe("resolveWorkbenchImageSource", () => {
     });
   });
 
+  it("blocks the original while a required pyramid has no generation yet", () => {
+    const missing = task(true, "failed");
+    missing.image_pyramid = {
+      ...missing.image_pyramid!,
+      status: "missing",
+      generation: null,
+      retryable: true,
+    };
+    expect(resolveWorkbenchImageSource(missing, undefined, { enabled: true })).toMatchObject({
+      kind: "pyramid-failed",
+      identity: "item-1/pyramid/missing",
+      retryable: true,
+    });
+    expect(resolveWorkbenchImageSource(missing, undefined, { enabled: true })).not.toHaveProperty(
+      "url",
+    );
+  });
+
   it("does not fall back to an optional original above the decoded-byte budget", () => {
     expect(
       resolveWorkbenchImageSource(task(false, "pending"), undefined, { enabled: true }),
@@ -130,6 +149,209 @@ describe("resolveWorkbenchImageSource", () => {
         { enabled: true },
       ),
     ).toMatchObject({ kind: "pyramid-pending", taskId: "task-1" });
+  });
+
+  it.each(["source", "profile", "dimensions"] as const)(
+    "rejects a cached response after the %s changes",
+    (change) => {
+      const changed = task(true, "failed");
+      changed.file_url = "/new-large.png";
+      changed.image_pyramid = {
+        ...changed.image_pyramid!,
+        source_snapshot: "b".repeat(64),
+        profile_version: "profile-b",
+      };
+      const stale: ImagePyramidResponse = {
+        ...ready,
+        status: change === "dimensions" ? "not_available" : "ready",
+        manifest: change === "dimensions" ? null : ready.manifest,
+        required: change !== "dimensions",
+        source_snapshot: change === "source" ? "a".repeat(64) : "b".repeat(64),
+        profile_version: change === "profile" ? "profile-a" : "profile-b",
+        width: change === "dimensions" ? 32 : 8192,
+        height: change === "dimensions" ? 24 : 8192,
+      };
+      const source = resolveWorkbenchImageSource(changed, stale, { enabled: true });
+      expect(source).toMatchObject({
+        kind: "pyramid-failed",
+        retryable: false,
+        errorCode: "source_changed",
+      });
+      expect(source).not.toHaveProperty("url");
+    },
+  );
+
+  it.each(["source", "profile"] as const)(
+    "discards cached pixels when the same Task changes %s",
+    async (change) => {
+      const initial = task(true, "ready");
+      initial.image_pyramid = {
+        ...initial.image_pyramid!,
+        source_snapshot: "a".repeat(64),
+        profile_version: "profile-a",
+      };
+      const first = { ...ready, source_snapshot: "a".repeat(64), profile_version: "profile-a" };
+      let finish!: (value: ImagePyramidResponse) => void;
+      const get = vi
+        .spyOn(tasksApi, "getImagePyramid")
+        .mockResolvedValueOnce(first)
+        .mockImplementationOnce(
+          () =>
+            new Promise((resolve) => {
+              finish = resolve;
+            }),
+        );
+      const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+      const wrapper = ({ children }: { children: ReactNode }) =>
+        createElement(QueryClientProvider, { client }, children);
+      const { result, rerender, unmount } = renderHook(
+        ({ current }) => useWorkbenchImageSource(current),
+        {
+          initialProps: { current: initial },
+          wrapper,
+        },
+      );
+      await waitFor(() => expect(result.current.source?.kind).toBe("pyramid"));
+      const changed = {
+        ...initial,
+        image_pyramid: {
+          ...initial.image_pyramid!,
+          source_snapshot: change === "source" ? "b".repeat(64) : "a".repeat(64),
+          profile_version: change === "profile" ? "profile-b" : "profile-a",
+        },
+      };
+      rerender({ current: changed });
+      await waitFor(() => expect(get).toHaveBeenCalledTimes(2));
+      expect(result.current.source?.kind).toBe("pyramid-pending");
+      await act(async () => {
+        finish({
+          ...ready,
+          source_snapshot: changed.image_pyramid.source_snapshot,
+          profile_version: changed.image_pyramid.profile_version,
+        });
+      });
+      await waitFor(() => expect(result.current.source?.kind).toBe("pyramid"));
+      expect(result.current.source?.identity).toContain(changed.image_pyramid.source_snapshot);
+      expect(result.current.source?.identity).toContain(changed.image_pyramid.profile_version);
+      unmount();
+      client.clear();
+    },
+  );
+
+  it.each(["small", "failed"] as const)(
+    "polls metadata until %s without needing a Task refetch, then stops",
+    async (outcome) => {
+      const unknown = task(false, "pending");
+      unknown.image_width = null;
+      unknown.image_height = null;
+      unknown.image_pyramid = {
+        ...unknown.image_pyramid!,
+        status: "not_available",
+        generation: null,
+        width: null,
+        height: null,
+        retryable: false,
+      };
+      const pending: ImagePyramidResponse = {
+        ...ready,
+        status: "pending",
+        required: false,
+        generation: null,
+        width: null,
+        height: null,
+        manifest: null,
+        overview: null,
+      };
+      const get = vi
+        .spyOn(tasksApi, "getImagePyramid")
+        .mockResolvedValueOnce(pending)
+        .mockResolvedValue({
+          ...pending,
+          status: outcome === "small" ? "not_available" : "failed",
+          width: outcome === "small" ? 24 : null,
+          height: outcome === "small" ? 16 : null,
+          error_code: outcome === "small" ? null : "decode_failed",
+        });
+      const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+      const wrapper = ({ children }: { children: ReactNode }) =>
+        createElement(QueryClientProvider, { client }, children);
+      const { result, unmount } = renderHook(() => useWorkbenchImageSource(unknown), { wrapper });
+      await waitFor(() => expect(result.current.source?.kind).toBe("pyramid-pending"));
+      await waitFor(
+        () =>
+          expect(result.current.source).toMatchObject(
+            outcome === "small"
+              ? { kind: "single", width: 24, height: 16, url: "/original.png" }
+              : { kind: "pyramid-failed", retryable: false, errorCode: "decode_failed" },
+          ),
+        { timeout: 3_000 },
+      );
+      expect(result.current.retry).toBeUndefined();
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 1_100));
+      });
+      expect(get).toHaveBeenCalledTimes(2);
+      unmount();
+      client.clear();
+    },
+  );
+
+  it("refreshes a Task whose original URL was unavailable before metadata completed", async () => {
+    const unknown = task(false, "pending");
+    unknown.file_url = null;
+    unknown.image_width = null;
+    unknown.image_height = null;
+    unknown.image_pyramid = {
+      ...unknown.image_pyramid!,
+      status: "not_available",
+      generation: null,
+      width: null,
+      height: null,
+    };
+    const resolved = {
+      ...unknown,
+      file_url: "/resolved.png",
+      image_width: 32,
+      image_height: 24,
+      image_pyramid: { ...unknown.image_pyramid, width: 32, height: 24 },
+    };
+    vi.spyOn(tasksApi, "getImagePyramid").mockResolvedValue({
+      ...ready,
+      status: "not_available",
+      required: false,
+      generation: null,
+      width: 32,
+      height: 24,
+      manifest: null,
+      overview: null,
+    });
+    const getTask = vi.fn().mockResolvedValue(resolved);
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const wrapper = ({ children }: { children: ReactNode }) =>
+      createElement(QueryClientProvider, { client }, children);
+    const { result, unmount } = renderHook(
+      () => {
+        const current = useQuery({
+          queryKey: ["task", unknown.id],
+          queryFn: getTask,
+          initialData: unknown,
+          staleTime: Infinity,
+        });
+        return useWorkbenchImageSource(current.data);
+      },
+      { wrapper },
+    );
+    await waitFor(() =>
+      expect(result.current.source).toMatchObject({
+        kind: "single",
+        url: "/resolved.png",
+        width: 32,
+        height: 24,
+      }),
+    );
+    expect(getTask).toHaveBeenCalledTimes(1);
+    unmount();
+    client.clear();
   });
 
   it("refreshes signed overview URLs through a read without rebuilding the pyramid", async () => {
@@ -162,6 +384,37 @@ describe("resolveWorkbenchImageSource", () => {
     client.clear();
   });
 
+  it("recovers when another worker finishes before a retry click", async () => {
+    const get = vi
+      .spyOn(tasksApi, "getImagePyramid")
+      .mockResolvedValueOnce({
+        ...ready,
+        status: "failed",
+        retryable: true,
+        manifest: null,
+        overview: null,
+      })
+      .mockResolvedValue(ready);
+    vi.spyOn(tasksApi, "retryImagePyramid").mockRejectedValue(
+      new ApiError(409, "already ready", { reason: "already_ready" }),
+    );
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const wrapper = ({ children }: { children: ReactNode }) =>
+      createElement(QueryClientProvider, { client }, children);
+    const { result, unmount } = renderHook(() => useWorkbenchImageSource(task(true, "failed")), {
+      wrapper,
+    });
+    await waitFor(() => expect(result.current.retry).toBeDefined());
+    await act(async () => {
+      await result.current.retry?.();
+    });
+    await waitFor(() => expect(result.current.source?.kind).toBe("pyramid"));
+    expect(result.current.retry).toBeUndefined();
+    expect(get).toHaveBeenCalledTimes(2);
+    unmount();
+    client.clear();
+  });
+
   it("optimistically enters pending and polls after an explicit retry", async () => {
     const failedResponse: ImagePyramidResponse = {
       ...ready,
@@ -174,6 +427,7 @@ describe("resolveWorkbenchImageSource", () => {
     vi.spyOn(tasksApi, "getImagePyramid").mockResolvedValue(failedResponse);
     const retry = vi
       .spyOn(tasksApi, "retryImagePyramid")
+      .mockRejectedValueOnce(new Error("response lost"))
       .mockResolvedValue({ task_id: "task-1", status: "queued", celery_task_id: "job-1" });
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false } },
@@ -186,10 +440,15 @@ describe("resolveWorkbenchImageSource", () => {
     await waitFor(() => expect(result.current.source?.kind).toBe("pyramid-failed"));
 
     await act(async () => {
+      await expect(result.current.retry?.()).rejects.toThrow("response lost");
+    });
+    await act(async () => {
       await result.current.retry?.();
     });
 
-    expect(retry).toHaveBeenCalledWith("task-1");
+    const key = retry.mock.calls[0][1]?.idempotencyKey;
+    expect(key).toMatch(/^[0-9a-f-]{36}$/);
+    expect(retry).toHaveBeenNthCalledWith(2, "task-1", { idempotencyKey: key });
     expect(result.current.source).toMatchObject({ kind: "pyramid-pending" });
     queryClient.clear();
   });

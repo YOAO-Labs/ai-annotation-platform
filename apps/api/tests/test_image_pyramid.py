@@ -99,7 +99,7 @@ class _ImagePyramidApiStub:
         self.retry_calls = []
         self.task_id = None
 
-    async def task_summaries(self, tasks, dimensions):
+    async def task_summaries(self, tasks):
         return {}
 
     async def manifest(self, task, *, if_none_match):

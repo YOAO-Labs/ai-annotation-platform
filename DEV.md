@@ -1068,7 +1068,7 @@ psql -v expected_database=annotation_test -v migration_role=owner \
   -f infra/docker/assets-media-grants.sql
 ```
 
-共享控制 LOGIN 有 32 项能力（视频 18、图片 14），视频 Worker 有 10 项，独立图片 Worker 有 6 项；图片清理复用既有清理 LOGIN，其授权面为 4 项清理函数。各 LOGIN 都没有表、列、sequence、外部 owner schema、成员继承或 CREATE/TEMP 权限；初始化必须处理 PUBLIC 的 TEMP。来源身份、Task 可见性及任务级帧重试的标注写权限由 owner 能力组合验证，不把布尔权限结果当作授权。已受理的后台工作按来源代次、作业状态和显式取消继续执行，不在每块重新检查最初发起者的角色。
+0219 的媒体 grants 提供视频控制 18 项和视频 Worker 10 项能力；迁移到 0220 并应用图片 grants 后，共享控制 LOGIN 共 32 项（视频 18、图片 14），独立图片 Worker 有 6 项；图片清理复用既有清理 LOGIN，其授权面为 4 项清理函数。各 LOGIN 都没有表、列、sequence、外部 owner schema、成员继承或 CREATE/TEMP 权限；初始化必须处理 PUBLIC 的 TEMP。来源身份、Task 可见性及任务级帧重试的标注写权限由 owner 能力组合验证，不把布尔权限结果当作授权。已受理的后台工作按来源代次、作业状态和显式取消继续执行，不在每块重新检查最初发起者的角色。
 
 为两个进程准备不同的数据库和 S3 身份。源桶只需对象 HEAD/GET，不能写或删除原素材；控制身份对缓存只需 HEAD/GET，执行身份另需 `media-assets/*` 的 Put/Get/List/Delete 及精确旧视频缓存清理，不授予桶管理。S3 不单独定义 HEAD 动作，相应权限由 GetObject 提供。浏览器可达的 `ASSETS_MEDIA_S3_PUBLIC_ENDPOINT` 必须与内部请求地址分开配置；不改写已签名主机名。
 

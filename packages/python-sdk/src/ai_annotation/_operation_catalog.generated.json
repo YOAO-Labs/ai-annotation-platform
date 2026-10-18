@@ -24998,7 +24998,7 @@
       "path": "/api/v1/datasets/{dataset_id}/backfill-dimensions",
       "operation_id": "backfill_dimensions_api_v1_datasets__dataset_id__backfill_dimensions_post",
       "summary": "Backfill Dimensions",
-      "description": "为存量 image 类型 dataset_items 回填 width/height。\n\n一次最多处理 batch 条（默认 50），多次调用直到 processed == 0 视为完成。",
+      "description": "为存量图像接受有界、可回放的持久宽高回填作业。",
       "tags": [
         "datasets"
       ],
@@ -25024,18 +25024,44 @@
           "name": "batch",
           "in": "query",
           "required": false,
+          "description": "Retained for compatibility; the owner scans in bounded batches.",
           "schema": {
             "title": "Batch",
             "type": "integer",
             "default": 50,
             "minimum": 1,
-            "maximum": 200
+            "maximum": 200,
+            "description": "Retained for compatibility; the owner scans in bounded batches."
+          }
+        },
+        {
+          "name": "Idempotency-Key",
+          "in": "header",
+          "required": false,
+          "schema": {
+            "title": "Idempotency-Key",
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         }
       ],
       "responses": {
-        "200": {
-          "description": "Successful Response"
+        "202": {
+          "description": "Successful Response",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DatasetImageBackfillResponse"
+              }
+            }
+          }
         },
         "422": {
           "description": "Validation Error",
@@ -25055,7 +25081,7 @@
       "path": "/api/v1/datasets/{dataset_id}/backfill-media",
       "operation_id": "backfill_media_endpoint_api_v1_datasets__dataset_id__backfill_media_post",
       "summary": "Backfill Media Endpoint",
-      "description": "异步触发存量图像缩略图 / 视频元数据与 poster 回填。",
+      "description": "接受持久图像缩略图回填，并保留视频元信息回填入口。",
       "tags": [
         "datasets"
       ],
@@ -25076,11 +25102,35 @@
             "type": "string",
             "format": "uuid"
           }
+        },
+        {
+          "name": "Idempotency-Key",
+          "in": "header",
+          "required": false,
+          "schema": {
+            "title": "Idempotency-Key",
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
         }
       ],
       "responses": {
-        "200": {
-          "description": "Successful Response"
+        "202": {
+          "description": "Successful Response",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DatasetImageBackfillResponse"
+              }
+            }
+          }
         },
         "422": {
           "description": "Validation Error",
@@ -25788,11 +25838,35 @@
             "type": "string",
             "format": "uuid"
           }
+        },
+        {
+          "name": "Idempotency-Key",
+          "in": "header",
+          "required": false,
+          "schema": {
+            "title": "Idempotency-Key",
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
         }
       ],
       "responses": {
-        "200": {
-          "description": "Successful Response"
+        "202": {
+          "description": "Successful Response",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TaskImageBackfillResponse"
+              }
+            }
+          }
         },
         "422": {
           "description": "Validation Error",
@@ -35142,6 +35216,23 @@
             "title": "Task Id",
             "type": "string",
             "format": "uuid"
+          }
+        },
+        {
+          "name": "Idempotency-Key",
+          "in": "header",
+          "required": false,
+          "schema": {
+            "title": "Idempotency-Key",
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         }
       ],
@@ -47100,6 +47191,13 @@
           "kind": "positional_or_keyword",
           "annotation": "IdLike",
           "required": true,
+          "default": null
+        },
+        {
+          "name": "idempotency_key",
+          "kind": "keyword_only",
+          "annotation": "IdLike | None",
+          "required": false,
           "default": null
         }
       ],
@@ -70596,6 +70694,17 @@
           "default": null,
           "type": "str",
           "description": "Task UUID"
+        },
+        {
+          "name": "idempotency_key",
+          "kind": "option",
+          "options": [
+            "--idempotency-key"
+          ],
+          "required": false,
+          "default": null,
+          "type": "str | None",
+          "description": "Reuse this UUID after a lost response"
         },
         {
           "name": "yes",

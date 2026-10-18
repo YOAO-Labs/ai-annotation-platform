@@ -202,6 +202,13 @@ async def test_whole_pyramid_claim_waits_for_task_thumbnail_and_ack_replays(
             assert task is not None
             task.thumbnail_path = None
             await session.flush()
+            await session.execute(
+                text(
+                    "UPDATE public.asset_image_garbage "
+                    "SET not_before=clock_timestamp() WHERE garbage_id=:id"
+                ),
+                {"id": garbage_id},
+            )
             claimed = _reply(
                 await session.scalar(
                     text(

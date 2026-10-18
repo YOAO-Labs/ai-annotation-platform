@@ -1,5 +1,5 @@
 import { apiClient } from "./client";
-import type { DatasetOut } from "./generated/types.gen";
+import type { DatasetImageBackfillResponse, DatasetOut } from "./generated/types.gen";
 import type { LidarAxisConvention } from "@/types";
 
 export type DatasetResponse = DatasetOut;
@@ -202,13 +202,17 @@ export const datasetsApi = {
       { headers: { "Idempotency-Key": options.idempotencyKey } },
     ),
 
-  backfillDimensions: (id: string, batch = 50) =>
-    apiClient.post<{ processed: number; failed: number; remaining_hint: boolean }>(
+  backfillDimensions: (id: string, batch = 50, options?: { idempotencyKey?: string }) =>
+    apiClient.post<DatasetImageBackfillResponse>(
       `/datasets/${id}/backfill-dimensions?batch=${batch}`,
+      undefined,
+      { headers: { "Idempotency-Key": options?.idempotencyKey ?? crypto.randomUUID() } },
     ),
 
-  backfillMedia: (id: string) =>
-    apiClient.post<{ status: string; dataset_id: string }>(`/datasets/${id}/backfill-media`),
+  backfillMedia: (id: string, options?: { idempotencyKey?: string }) =>
+    apiClient.post<DatasetImageBackfillResponse>(`/datasets/${id}/backfill-media`, undefined, {
+      headers: { "Idempotency-Key": options?.idempotencyKey ?? crypto.randomUUID() },
+    }),
 
   deleteItem: (id: string, itemId: string, options?: { idempotencyKey?: string }) =>
     apiClient.delete<void>(`/datasets/${id}/items/${itemId}`, undefined, {

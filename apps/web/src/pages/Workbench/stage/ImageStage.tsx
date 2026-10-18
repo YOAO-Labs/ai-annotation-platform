@@ -2082,9 +2082,13 @@ export function ImageStage({
             name={resolvedImageSource.kind === "pyramid-pending" ? "clock" : "warning"}
             size={14}
           />
-          {resolvedImageSource.kind === "pyramid-pending"
-            ? "高清切片生成中，当前显示预览"
-            : "高清切片暂不可用，当前显示安全预览"}
+          {resolvedImageSource.width <= 0 || resolvedImageSource.height <= 0
+            ? resolvedImageSource.kind === "pyramid-pending"
+              ? "正在准备图片，当前显示安全预览"
+              : "图片暂不可用，当前显示安全预览"
+            : resolvedImageSource.kind === "pyramid-pending"
+              ? "高清切片生成中，当前显示预览"
+              : "高清切片暂不可用，当前显示安全预览"}
           {resolvedImageSource.kind === "pyramid-failed" && onRetryImagePyramid && (
             <button
               type="button"

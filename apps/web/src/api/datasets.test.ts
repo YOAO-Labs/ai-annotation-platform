@@ -158,12 +158,18 @@ describe("datasetsApi · endpoint 契约", () => {
     expect(post).toHaveBeenCalledWith("/datasets/d1/items/scan", undefined, {
       headers: { "Idempotency-Key": idempotencyKey },
     });
-    datasetsApi.backfillDimensions("d1");
-    expect(post).toHaveBeenCalledWith("/datasets/d1/backfill-dimensions?batch=50");
-    datasetsApi.backfillDimensions("d1", 200);
-    expect(post).toHaveBeenCalledWith("/datasets/d1/backfill-dimensions?batch=200");
-    datasetsApi.backfillMedia("d1");
-    expect(post).toHaveBeenCalledWith("/datasets/d1/backfill-media");
+    datasetsApi.backfillDimensions("d1", 50, { idempotencyKey });
+    expect(post).toHaveBeenCalledWith("/datasets/d1/backfill-dimensions?batch=50", undefined, {
+      headers: { "Idempotency-Key": idempotencyKey },
+    });
+    datasetsApi.backfillDimensions("d1", 200, { idempotencyKey });
+    expect(post).toHaveBeenCalledWith("/datasets/d1/backfill-dimensions?batch=200", undefined, {
+      headers: { "Idempotency-Key": idempotencyKey },
+    });
+    datasetsApi.backfillMedia("d1", { idempotencyKey });
+    expect(post).toHaveBeenCalledWith("/datasets/d1/backfill-media", undefined, {
+      headers: { "Idempotency-Key": idempotencyKey },
+    });
   });
 
   it("uploadZip sends the saved key on one progress-enabled XHR", async () => {

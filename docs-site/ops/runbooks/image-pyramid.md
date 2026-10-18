@@ -60,22 +60,22 @@ API 配置 `ASSETS_MEDIA_URL` 后使用远程共享控制；远程配置/请求�
 
 ## 策略与 profile
 
-| 设置                                                                |                    默认值 | 说明                             |
-| ------------------------------------------------------------------- | ------------------------: | -------------------------------- |
-| `IMAGE_PYRAMID_AUTO_GENERATE`                                       |                   `false` | 新图自动受理开关                 |
-| `IMAGE_PYRAMID_PROFILE_VERSION`                                     |              `pyramid-v1` | 读取的金字塔 profile/lineage     |
-| `IMAGE_PYRAMID_NORMALIZATION_VERSION`                               | `exif-autorotate-srgb-v1` | EXIF 与 sRGB 归一化规则          |
-| `IMAGE_PYRAMID_OPTIONAL_PIXELS` / `IMAGE_PYRAMID_REQUIRED_PIXELS`   |   16,777,216 / 50,000,000 | 可选/必须使用金字塔的像素门槛    |
-| `IMAGE_PYRAMID_MAX_PIXELS` / `IMAGE_PYRAMID_MAX_DIMENSION`          |      300,000,000 / 32,768 | 解码像素和单边硬上限             |
-| `IMAGE_PYRAMID_MAX_TILES`                                           |                    20,000 | 单代 tile 上限                   |
-| `IMAGE_PYRAMID_MAX_SOURCE_BYTES`                                    |                     8 GiB | 最大压缩源大小                   |
-| `IMAGE_PYRAMID_MAX_DERIVED_BYTES` / `IMAGE_PYRAMID_MAX_TEMP_BYTES`  |                8 / 12 GiB | 派生字节与临时空间上限           |
-| `IMAGE_PYRAMID_JOB_TIMEOUT_SECONDS` / `IMAGE_PYRAMID_LEASE_SECONDS` |          1,800 / 2,100 秒 | 租约必须大于超时并留出硬终止余量 |
-| `IMAGE_PYRAMID_RETRY_COOLDOWN_SECONDS`                              |                    300 秒 | 失败后的重试冷却                 |
-| `IMAGE_PYRAMID_GC_GRACE_HOURS`                                      |                   24 小时 | 代次失活后的默认保留期           |
-| `IMAGE_PYRAMID_URL_EXPIRY_SECONDS`                                  |                    900 秒 | 派生读取 URL 有效期              |
-| `IMAGE_PYRAMID_VIPS_CONCURRENCY`                                    |                         4 | 单 Worker libvips 并发           |
-| `ASSETS_IMAGES_SRGB_PROFILE`                                        |             镜像 ICC 文件 | Worker 可覆盖的绝对路径          |
+| 设置                                                                |                    默认值 | 说明                                       |
+| ------------------------------------------------------------------- | ------------------------: | ------------------------------------------ |
+| `IMAGE_PYRAMID_AUTO_GENERATE`                                       |                   `false` | 新图自动金字塔受理开关；尺寸和缩略图仍受理 |
+| `IMAGE_PYRAMID_PROFILE_VERSION`                                     |              `pyramid-v1` | 读取的金字塔 profile/lineage               |
+| `IMAGE_PYRAMID_NORMALIZATION_VERSION`                               | `exif-autorotate-srgb-v1` | EXIF 与 sRGB 归一化规则                    |
+| `IMAGE_PYRAMID_OPTIONAL_PIXELS` / `IMAGE_PYRAMID_REQUIRED_PIXELS`   |   16,777,216 / 50,000,000 | 可选/必须使用金字塔的像素门槛              |
+| `IMAGE_PYRAMID_MAX_PIXELS` / `IMAGE_PYRAMID_MAX_DIMENSION`          |      300,000,000 / 32,768 | 解码像素和单边硬上限                       |
+| `IMAGE_PYRAMID_MAX_TILES`                                           |                    20,000 | 单代 tile 上限                             |
+| `IMAGE_PYRAMID_MAX_SOURCE_BYTES`                                    |                     8 GiB | 最大压缩源大小                             |
+| `IMAGE_PYRAMID_MAX_DERIVED_BYTES` / `IMAGE_PYRAMID_MAX_TEMP_BYTES`  |                8 / 12 GiB | 派生字节与临时空间上限                     |
+| `IMAGE_PYRAMID_JOB_TIMEOUT_SECONDS` / `IMAGE_PYRAMID_LEASE_SECONDS` |          1,800 / 2,100 秒 | 租约必须大于超时并留出硬终止余量           |
+| `IMAGE_PYRAMID_RETRY_COOLDOWN_SECONDS`                              |                    300 秒 | 失败后的重试冷却                           |
+| `IMAGE_PYRAMID_GC_GRACE_HOURS`                                      |                   24 小时 | 代次失活后的默认保留期                     |
+| `IMAGE_PYRAMID_URL_EXPIRY_SECONDS`                                  |                    900 秒 | 派生读取 URL 有效期                        |
+| `IMAGE_PYRAMID_VIPS_CONCURRENCY`                                    |                         4 | 单 Worker libvips 并发                     |
+| `ASSETS_IMAGES_SRGB_PROFILE`                                        |             镜像 ICC 文件 | Worker 可覆盖的绝对路径                    |
 
 作业受理时固定策略。API 与共享控制的 profile 必须一致；切换 profile/normalization version 前规划新输出线与回填范围，不要只改一台服务。`VITE_EXPERIMENTAL_LARGE_IMAGE_TILES` 是 Web 构建时开关，改动后需重建 Web；它不控制自动受理。
 
@@ -115,4 +115,4 @@ ready 代次的 URL 签发使用非阻塞来源/垃圾栅栏检查；同一代�
 
 图片 Worker 只登记派生前缀，不直接删对象。既有 `assets-cleanup` 领取事务提交后才做 S3 删除并确认；失败会保留责任。整 asset 与 attempt prefix tombstone 保留并每 5 分钟重扫，以清除迟到写入。`garbage_pending` 持续非零时检查 cleanup 健康、数据库租约和精确 S3 Delete/List 权限。禁止对活跃 `image-pyramids/*` 配整桶/固定 TTL 生命周期，禁止清理身份访问源桶。
 
-紧急回退：关闭 `IMAGE_PYRAMID_AUTO_GENERATE` 并停止显式重试/回填；需要暂停浏览器选择时，将 `VITE_EXPERIMENTAL_LARGE_IMAGE_TILES` 设为 `false` 并重建 Web；停止 `assets-images-worker`，保留共享控制与清理职责。保留 Job、操作回执、ready 对象及未确认垃圾，等待在途租约排空/到期。不要直接删除图片表或批量删对象；降级迁移会拒绝丢弃仍有作业、回执或清理责任的状态。
+紧急回退：关闭 `IMAGE_PYRAMID_AUTO_GENERATE` 以暂停自动金字塔受理，并停止显式重试/回填；尺寸和缩略图仍会受理。若需暂停全部新图片工作，还应暂停上传/导入生产者。需要暂停浏览器选择时，将 `VITE_EXPERIMENTAL_LARGE_IMAGE_TILES` 设为 `false` 并重建 Web；停止 `assets-images-worker`，保留共享控制与清理职责。保留 Job、操作回执、ready 对象及未确认垃圾，等待在途租约排空/到期。不要直接删除图片表或批量删对象；降级迁移会拒绝丢弃仍有作业、回执或清理责任的状态。

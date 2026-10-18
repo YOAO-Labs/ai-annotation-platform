@@ -17273,6 +17273,17 @@
             ],
             "title": "Generation"
           },
+          "height": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Height"
+          },
           "manifest": {
             "anyOf": [
               {
@@ -17292,6 +17303,17 @@
                 "type": "null"
               }
             ]
+          },
+          "profile_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Profile Version"
           },
           "required": {
             "title": "Required",
@@ -17313,6 +17335,18 @@
             "title": "Retryable",
             "type": "boolean"
           },
+          "source_snapshot": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Snapshot"
+          },
           "status": {
             "enum": [
               "not_available",
@@ -17331,6 +17365,17 @@
             "format": "uuid",
             "title": "Task Id",
             "type": "string"
+          },
+          "width": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Width"
           }
         },
         "required": [
@@ -17353,6 +17398,18 @@
               }
             ],
             "title": "Celery Task Id"
+          },
+          "job_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Job Id"
           },
           "status": {
             "enum": [
@@ -17378,6 +17435,43 @@
       },
       "ImagePyramidSummary": {
         "properties": {
+          "building_generation": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Building Generation"
+          },
+          "building_status": {
+            "anyOf": [
+              {
+                "enum": [
+                  "pending",
+                  "building"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Building Status"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
           "format": {
             "anyOf": [
               {
@@ -17390,8 +17484,15 @@
             "title": "Format"
           },
           "generation": {
-            "title": "Generation",
-            "type": "integer"
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Generation"
           },
           "height": {
             "anyOf": [
@@ -17404,16 +17505,59 @@
             ],
             "title": "Height"
           },
+          "profile_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Profile Version"
+          },
           "required": {
             "title": "Required",
             "type": "boolean"
           },
+          "retry_after_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retry After Ms"
+          },
+          "retryable": {
+            "default": false,
+            "title": "Retryable",
+            "type": "boolean"
+          },
+          "source_snapshot": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Snapshot"
+          },
           "status": {
             "enum": [
+              "not_available",
+              "missing",
               "pending",
               "building",
               "ready",
-              "failed"
+              "failed",
+              "stale",
+              "inconsistent"
             ],
             "title": "Status",
             "type": "string"
@@ -17437,7 +17581,6 @@
         },
         "required": [
           "status",
-          "generation",
           "required"
         ],
         "title": "ImagePyramidSummary",
@@ -80976,6 +81119,23 @@
               "format": "uuid",
               "title": "Task Id",
               "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
             }
           }
         ],

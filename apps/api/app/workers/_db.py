@@ -18,11 +18,17 @@ from app.config import settings
 
 
 @asynccontextmanager
-async def task_session() -> AsyncIterator[AsyncSession]:
+async def task_session_factory() -> AsyncIterator[async_sessionmaker[AsyncSession]]:
     engine = create_async_engine(settings.database_url, echo=False)
     factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
     try:
-        async with factory() as session:
-            yield session
+        yield factory
     finally:
         await engine.dispose()
+
+
+@asynccontextmanager
+async def task_session() -> AsyncIterator[AsyncSession]:
+    async with task_session_factory() as factory:
+        async with factory() as session:
+            yield session

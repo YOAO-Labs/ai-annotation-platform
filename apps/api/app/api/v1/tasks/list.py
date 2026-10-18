@@ -152,7 +152,7 @@ async def list_tasks(
     dims = await _attach_dimensions_batch(db, tasks)
     source_references = await _linked_source_references(db, tasks, actor_id=user.id)
     pyramids = await _attach_image_pyramids_batch(
-        bind_image_pyramid_api(db), tasks, dims
+        bind_image_pyramid_api(db, actor_id=user.id), tasks
     )
     # v0.7.2 · 一次 IN 查询解析所有 assignee_id / reviewer_id → UserBrief
     user_ids = {t.assignee_id for t in tasks if t.assignee_id} | {
@@ -174,7 +174,8 @@ async def list_tasks(
                 image_pyramid=pyramids.get(t.id),
                 briefs=briefs,
                 owner_source_reference=source_references.get(t.id),
-                owner_source_reference_loaded=t.dataset_item_id is not None,
+                owner_source_reference_loaded=t.dataset_item_id is not None
+                or t.file_type == "image",
             )
             for t in tasks
         ],
@@ -212,9 +213,8 @@ async def next_task(
     source_references = await _linked_source_references(
         db, [task], actor_id=current_user.id
     )
-    dimensions = {task.id: (w, h, thumb, bh, video_metadata)}
     pyramids = await _attach_image_pyramids_batch(
-        bind_image_pyramid_api(db), [task], dimensions
+        bind_image_pyramid_api(db, actor_id=current_user.id), [task]
     )
     briefs = await resolve_briefs(db, [task.assignee_id, task.reviewer_id])
     return _task_with_url(
@@ -227,7 +227,8 @@ async def next_task(
         image_pyramid=pyramids.get(task.id),
         briefs=briefs,
         owner_source_reference=source_references.get(task.id),
-        owner_source_reference_loaded=task.dataset_item_id is not None,
+        owner_source_reference_loaded=task.dataset_item_id is not None
+        or task.file_type == "image",
     )
 
 
@@ -243,9 +244,8 @@ async def get_task(
     source_references = await _linked_source_references(
         db, [task], actor_id=current_user.id
     )
-    dimensions = {task.id: (w, h, thumb, bh, video_metadata)}
     pyramids = await _attach_image_pyramids_batch(
-        bind_image_pyramid_api(db), [task], dimensions
+        bind_image_pyramid_api(db, actor_id=current_user.id), [task]
     )
     briefs = await resolve_briefs(db, [task.assignee_id, task.reviewer_id])
     return _task_with_url(
@@ -258,7 +258,8 @@ async def get_task(
         image_pyramid=pyramids.get(task.id),
         briefs=briefs,
         owner_source_reference=source_references.get(task.id),
-        owner_source_reference_loaded=task.dataset_item_id is not None,
+        owner_source_reference_loaded=task.dataset_item_id is not None
+        or task.file_type == "image",
     )
 
 

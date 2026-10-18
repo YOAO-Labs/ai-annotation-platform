@@ -793,7 +793,7 @@ async def test_catalog_rejects_multicamera_media_without_calibration(
 
     response = await httpx_client.get("/api/v1/__test/seed/catalog")
 
-    assert response.status_code == 409
+    assert response.status_code == 409, response.json()
     assert any(
         "camera pc-multicam-dev/camera/back_right/000000.jpg has no valid calibration"
         in issue

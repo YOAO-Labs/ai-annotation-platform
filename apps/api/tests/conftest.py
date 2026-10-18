@@ -26,6 +26,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -160,12 +161,29 @@ async def test_engine(test_db_url: str, apply_migrations):
 
 
 @pytest.fixture
-async def db_session(test_engine):
+async def db_session(test_engine, monkeypatch):
     """Per-test 数据库 session（SAVEPOINT 隔离）。"""
     conn = await test_engine.connect()
     trans = await conn.begin()
     maker = async_sessionmaker(conn, class_=AsyncSession, expire_on_commit=False)
     session = maker()
+
+    # API fixtures are uncommitted savepoints. Keep native calls on that
+    # connection; independent-process acceptance uses committed worlds instead.
+    from app.services.assets_images import (
+        SqlAlchemyImageDatabase,
+        _IndependentImageDatabase,
+    )
+
+    image_calls = asyncio.Lock()
+
+    async def image_call(_adapter, operation, request):
+        async with image_calls:
+            return await SqlAlchemyImageDatabase(session, commit=False).call(
+                operation, request
+            )
+
+    monkeypatch.setattr(_IndependentImageDatabase, "call", image_call)
 
     await conn.begin_nested()
     try:

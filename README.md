@@ -142,6 +142,8 @@ Ultralytics YOLO11 的配置页可生成原生增强预览，对照冻结原图�
 
 素材上传完成校验后才进入数据集与项目建题；重复完成不会覆盖已接受的原始文件。删除素材或数据集会保护仍被项目和学习历史引用的内容，只在提交后由独立进程重试清理派生金字塔。原始文件保留。
 
+图片尺寸、缩略图和超大图金字塔使用同一媒体控制服务及独立图片执行进程；中断后可接管已受理作业。重试支持 UUID 幂等键和持久作业 ID，必需的高清切片缺失时工作台保留安全预览。接口见[图片与视频媒体](docs-site/api/guides/assets-media.md)，部署见[图片运行手册](docs-site/ops/runbooks/image-pyramid.md)。
+
 目录的列表、详情、文件分页、创建/更新及数据集与项目的双向关联列表可显式交由独立 Assets 服务处理；默认本地模式使用相同 SQL 合同。创建和更新可附带 UUID `Idempotency-Key`，响应中断后复用该键确认原结果。协议与权限见[独立素材目录](./docs-site/api/guides/assets-catalog.md)。Scene、位姿、标定与点云素材准备复用同一工件，保留标定 CAS、同事务审计和导入回滚；见[空间素材协议](./docs-site/api/guides/assets-spatial.md)。
 
 单文件上传初始化、发布完成、来源删除、同步 ZIP 入库、旧对象桶扫描和连接器管理均由 Assets Source 工作流处理；本地模式复用同一工作流，配置独立服务后走内部 API，远程错误不会回退到本地。公开路由和响应保持不变，连接器列表仍返回全部可见项，内部使用有界分页读取。创建、更新、删除和测试支持可选 UUID `Idempotency-Key`，成功响应会回传该键；见[独立来源控制](./docs-site/api/guides/assets-source.md)与[存储连接器 API](./docs-site/api/guides/storage-connections.md)。连接器导入使用受理时保存的配置和加密凭据快照，删除连接器不会删除已受理作业的快照；执行进程保存枚举结果和逐文件进度，支持崩溃恢复及取消围栏。

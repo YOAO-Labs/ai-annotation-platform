@@ -268,7 +268,7 @@ async def test_explicit_ready_generation_access_is_rate_limited_and_extends_rete
     await db_session.execute(
         text(
             "UPDATE public.asset_image_garbage AS garbage "
-            "SET not_before=:last_access+interval '24 hours' "
+            "SET not_before=CAST(:last_access AS timestamptz)+interval '24 hours' "
             "FROM public.image_pyramid_generations AS generation "
             "WHERE garbage.prefix=:prefix AND generation.asset_id=:asset_id "
             "AND generation.generation=1"
@@ -463,6 +463,13 @@ async def test_explicit_read_rejects_generation_with_claimed_garbage(
     }
     prefix = prefixes[garbage_scope]
     if garbage_scope == "generation":
+        await db_session.execute(
+            text(
+                "INSERT INTO public.asset_image_garbage(prefix,reason,not_before) "
+                "VALUES (:prefix,'generation_retired',clock_timestamp()-interval '1 second')"
+            ),
+            {"prefix": prefix},
+        )
         claimed = await _claim_garbage(db_session)
         assert len(claimed["items"]) == 1
         assert claimed["items"][0]["prefix"] == prefix
