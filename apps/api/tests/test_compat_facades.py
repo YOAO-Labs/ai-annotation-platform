@@ -1,22 +1,9 @@
-"""Compatibility facade tests for the v0.23.0 service-domain modularization.
+"""Compatibility and retirement guards for service-domain APIs.
 
-Every legacy module that becomes a compatibility facade must preserve the public
-object identity and re-export contract declared in the plan (§4.3): ``old is new``
-must hold for each independently frozen symbol/source mapping, and the facade must
-not wrap or shadow.
-
-This module defines a data-driven framework. Each facade lands one entry in
-``FACADE_SPECS`` once it exists; the tests then:
-
-1. Assert every declared facade module is importable.
-2. Assert every independently declared implementation module is importable.
-3. Assert the facade ``__all__`` exactly matches the frozen 123-symbol manifest.
-4. Assert identity equality for each frozen symbol and exact implementation source.
-5. Spawn **cold** subprocesses to import in both orders (old→new and new→old) and
-   confirm no import-time error and that identity still holds (guards against
-   ``sys.modules`` caching hiding a split-brain object).
-6. Spawn separate cold processes that import each real API/worker/service consumer
-   directly, without preloading either facade or implementation modules.
+``FACADE_SPECS`` records any compatibility facade that remains. Each facade must
+preserve public symbol identity and explicit import behavior. ``REMOVED_MODULE_SPECS``
+records retired modules, canonical implementation modules, and real consumers; cold
+subprocesses verify those replacements still import without the retired module loaded.
 """
 
 from __future__ import annotations
@@ -66,7 +53,7 @@ def _exports(module: str, *names: str) -> ExportGroup:
 
 FACADE_SPECS: tuple[FacadeSpec, ...] = ()
 
-# Modules physically deleted in v0.23.2. Each entry records the old facade path,
+# Modules physically removed. Each entry records the old facade path,
 # the replacement modules (positive controls), and the frozen symbols that must
 # NO LONGER be importable from the old path. The negative-import tests below
 # verify every removed module is truly gone.
@@ -670,11 +657,109 @@ REMOVED_MODULE_SPECS: tuple[FacadeSpec, ...] = (
             "scripts.seed_screenshot_profile",
         ),
     ),
+    FacadeSpec(
+        facade_module="app.services.scene",
+        public_module="app.services.assets_spatial",
+        exports=(
+            _exports(
+                "app.services.assets_spatial",
+                "AssetsSpatialGateway",
+                "AssetsSpatialGatewayError",
+            ),
+            _exports(
+                "app.services.assets_spatial_views",
+                "spatial_item_references",
+                "spatial_scene_references",
+            ),
+            _exports(
+                "app.services.labeling_scene",
+                "TaskSceneFrame",
+                "SceneTimelineTask",
+                "SceneTimelineWindow",
+                "SceneFrameIndexInconsistent",
+                "SceneTimelineAnnotationSummary",
+                "resolve_primary_item_id",
+                "resolve_task_scene_frames",
+                "get_scene_frame_task_map",
+                "get_scene_timeline_window",
+                "get_scene_timeline_annotation_summaries",
+                "get_neighbors_for_task",
+            ),
+        ),
+        consumer_modules=(
+            "app.api.v1.scenes",
+            "app.api.v1.tasks.scene_timeline",
+            "app.services.data_management.views",
+            "app.services.batch",
+        ),
+    ),
+    FacadeSpec(
+        facade_module="app.services.scene_pose",
+        public_module="app.services.assets_spatial",
+        exports=(
+            _exports("app.services.assets_spatial", "AssetsSpatialGateway"),
+            _exports("aap_assets_catalog.spatial_values", "FramePose"),
+        ),
+        consumer_modules=(
+            "app.api.v1.scenes",
+            "app.services.assets_point_cloud_manifest",
+            "scripts.backfill_frame_poses",
+        ),
+    ),
+    FacadeSpec(
+        facade_module="app.services.scene_inference",
+        public_module="app.services.assets_spatial",
+        exports=(
+            _exports("app.services.assets_spatial", "AssetsSpatialGateway"),
+            _exports("aap_assets_catalog.spatial_workflow", "SpatialWorkflow"),
+            _exports("aap_assets_source.scene_layout", "plan_scenes"),
+        ),
+        consumer_modules=(
+            "app.api.v1.datasets",
+            "app.services.pointcloud_import",
+            "scripts.backfill_scenes",
+        ),
+    ),
+    FacadeSpec(
+        facade_module="app.services.sensor_calibration",
+        public_module="app.services.assets_spatial",
+        exports=(
+            _exports("app.services.assets_spatial", "AssetsSpatialGateway"),
+            _exports(
+                "aap_assets_catalog.spatial_values",
+                "SensorCalibration",
+                "calibration_digest",
+            ),
+            _exports(
+                "aap_assets_catalog.spatial_contract", "normalize_calibration_record"
+            ),
+        ),
+        consumer_modules=(
+            "app.api.v1.tasks.multicamera_annotations",
+            "app.services.multicamera_annotation",
+            "app.services.point_cloud_quality.service",
+        ),
+    ),
+    FacadeSpec(
+        facade_module="app.services.axis_sniffer",
+        public_module="app.services.assets_spatial",
+        exports=(
+            _exports("app.services.assets_spatial", "AssetsSpatialGateway"),
+            _exports(
+                "aap_assets_catalog.axis_sniff",
+                "AxisObservation",
+                "AxisSniffResult",
+                "sniff_axis_convention",
+            ),
+            _exports("aap_assets_catalog.spatial_values", "SensorCalibration"),
+        ),
+        consumer_modules=("app.api.v1.datasets", "app.services.assets_spatial"),
+    ),
 )
 
 _EXPECTED_FACADES: set[str] = set()
 
-# All 23 legacy facade modules have been physically deleted (v0.23.2).
+# Every module in REMOVED_MODULE_SPECS has been physically deleted.
 # FACADE_SPECS is empty; the positive facade tests are inert. The
 # REMOVED_MODULE_SPECS negative tests below are the permanent guard.
 
@@ -940,7 +1025,7 @@ def test_facade_no_import_star(spec: FacadeSpec) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Negative guards for physically removed modules (v0.23.2).
+# Negative guards for physically removed modules.
 # ---------------------------------------------------------------------------
 
 _REMOVED_FACADES = {spec.facade_module for spec in REMOVED_MODULE_SPECS}

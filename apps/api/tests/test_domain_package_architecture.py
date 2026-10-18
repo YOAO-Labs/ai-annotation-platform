@@ -37,6 +37,14 @@ _REPO_ROOT = Path(__file__).resolve().parents[3]
 CURRENT_COMPAT_FACADES: tuple[str, ...] = ()
 
 # Retired modules must not return through first-party imports or dynamic calls.
+_SPATIAL_RETIRED_MODULES = (
+    "app.services.scene",
+    "app.services.scene_pose",
+    "app.services.scene_inference",
+    "app.services.sensor_calibration",
+    "app.services.axis_sniffer",
+)
+
 REMOVED_MODULES = (
     "app.services.mask_formats.safe_archive",
     "app.services.role_patterns",
@@ -71,6 +79,7 @@ REMOVED_MODULES = (
     "app.services.project",
     "app.services.dataset_upload_contract",
     "app.services.dataset_source_deletion_contract",
+    *_SPATIAL_RETIRED_MODULES,
 )
 
 _LEGACY_CALL_REFERENCE_ALLOWLIST: dict[tuple[str, str, str], str] = {}
@@ -404,7 +413,20 @@ DOMAIN_PACKAGES = (
         allowed_app_imports=(),
     ),
     DomainSpec(package="pointcloud_import", legacy_facades=()),
-    DomainSpec(package="scene_inference", legacy_facades=()),
+    DomainSpec(package="assets_spatial", legacy_facades=_SPATIAL_RETIRED_MODULES),
+    DomainSpec(package="assets_spatial_views", legacy_facades=_SPATIAL_RETIRED_MODULES),
+    DomainSpec(
+        package="labeling_scene",
+        legacy_facades=_SPATIAL_RETIRED_MODULES,
+        allowed_app_imports=(
+            "app.db.models.annotation",
+            "app.db.models.dataset",
+            "app.db.models.task",
+            "app.db.models.task_dataset_item_link",
+            "app.schemas.scene",
+            "app.services.assets_spatial",
+        ),
+    ),
     DomainSpec(
         package="prediction_context",
         legacy_facades=(),

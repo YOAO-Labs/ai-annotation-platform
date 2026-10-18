@@ -891,6 +891,158 @@
       ],
       "consumer_modules": ["app.api.v1.datasets", "app.workers.dataset_import_delivery"],
       "frozen_symbols": ["run_dataset_import"]
+    },
+    {
+      "facade_module": "app.services.scene",
+      "public_module": "app.services.assets_spatial",
+      "exports": [
+        {
+          "module": "app.services.assets_spatial",
+          "names": ["AssetsSpatialGateway", "AssetsSpatialGatewayError"]
+        },
+        {
+          "module": "app.services.assets_spatial_views",
+          "names": ["spatial_item_references", "spatial_scene_references"]
+        },
+        {
+          "module": "app.services.labeling_scene",
+          "names": [
+            "TaskSceneFrame",
+            "SceneTimelineTask",
+            "SceneTimelineWindow",
+            "SceneFrameIndexInconsistent",
+            "SceneTimelineAnnotationSummary",
+            "resolve_primary_item_id",
+            "resolve_task_scene_frames",
+            "get_scene_frame_task_map",
+            "get_scene_timeline_window",
+            "get_scene_timeline_annotation_summaries",
+            "get_neighbors_for_task"
+          ]
+        }
+      ],
+      "consumer_modules": [
+        "app.api.v1.scenes",
+        "app.api.v1.tasks.scene_timeline",
+        "app.services.data_management.views",
+        "app.services.batch"
+      ],
+      "frozen_symbols": [
+        "TaskSceneFrame",
+        "SceneTimelineTask",
+        "SceneTimelineWindow",
+        "SceneTimelineAnnotationSummary",
+        "SceneNameConflict",
+        "SceneFrameIndexInconsistent",
+        "lock_scene_source_references",
+        "create_scene",
+        "update_source_metadata",
+        "assign_items_to_scene",
+        "list_for_dataset",
+        "get_scene",
+        "update_scene_fields",
+        "resolve_primary_item_id",
+        "resolve_task_scene_frames",
+        "get_scene_frame_task_map",
+        "get_scene_timeline_window",
+        "get_scene_timeline_annotation_summaries",
+        "get_neighbors_for_task"
+      ]
+    },
+    {
+      "facade_module": "app.services.scene_pose",
+      "public_module": "app.services.assets_spatial",
+      "exports": [
+        {
+          "module": "app.services.assets_spatial",
+          "names": ["AssetsSpatialGateway"]
+        },
+        {
+          "module": "aap_assets_catalog.spatial_values",
+          "names": ["FramePose"]
+        }
+      ],
+      "consumer_modules": [
+        "app.api.v1.scenes",
+        "app.services.assets_point_cloud_manifest",
+        "scripts.backfill_frame_poses"
+      ],
+      "frozen_symbols": ["upsert_frame_poses", "get_trajectory", "get_frame_pose"]
+    },
+    {
+      "facade_module": "app.services.scene_inference",
+      "public_module": "app.services.assets_spatial",
+      "exports": [
+        {
+          "module": "app.services.assets_spatial",
+          "names": ["AssetsSpatialGateway"]
+        },
+        {
+          "module": "aap_assets_catalog.spatial_workflow",
+          "names": ["SpatialWorkflow"]
+        },
+        {
+          "module": "aap_assets_source.scene_layout",
+          "names": ["plan_scenes"]
+        }
+      ],
+      "consumer_modules": [
+        "app.api.v1.datasets",
+        "app.services.pointcloud_import",
+        "scripts.backfill_scenes"
+      ],
+      "frozen_symbols": ["infer_and_apply"]
+    },
+    {
+      "facade_module": "app.services.sensor_calibration",
+      "public_module": "app.services.assets_spatial",
+      "exports": [
+        {
+          "module": "app.services.assets_spatial",
+          "names": ["AssetsSpatialGateway"]
+        },
+        {
+          "module": "aap_assets_catalog.spatial_values",
+          "names": ["SensorCalibration", "calibration_digest"]
+        },
+        {
+          "module": "aap_assets_catalog.spatial_contract",
+          "names": ["normalize_calibration_record"]
+        }
+      ],
+      "consumer_modules": [
+        "app.api.v1.tasks.multicamera_annotations",
+        "app.services.multicamera_annotation",
+        "app.services.point_cloud_quality.service"
+      ],
+      "frozen_symbols": [
+        "SensorCalibrationError",
+        "SensorCalibrationState",
+        "resolve_calibration_state",
+        "resolve_calibration_states",
+        "list_calibration_revisions",
+        "update_calibration"
+      ]
+    },
+    {
+      "facade_module": "app.services.axis_sniffer",
+      "public_module": "app.services.assets_spatial",
+      "exports": [
+        {
+          "module": "app.services.assets_spatial",
+          "names": ["AssetsSpatialGateway"]
+        },
+        {
+          "module": "aap_assets_catalog.axis_sniff",
+          "names": ["AxisObservation", "AxisSniffResult", "sniff_axis_convention"]
+        },
+        {
+          "module": "aap_assets_catalog.spatial_values",
+          "names": ["SensorCalibration"]
+        }
+      ],
+      "consumer_modules": ["app.api.v1.datasets", "app.services.assets_spatial"],
+      "frozen_symbols": ["AxisSniffResult", "AxisSnifferService"]
     }
   ]
 }
