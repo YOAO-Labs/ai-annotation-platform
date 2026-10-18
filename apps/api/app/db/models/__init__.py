@@ -11,6 +11,7 @@ from app.db.models.dataset_source_deletion_operation import (
     DatasetSourceDeletionOperation,
 )
 from app.db.models.dataset_catalog_operation import DatasetCatalogOperation
+from app.db.models.dataset_spatial_operation import DatasetSpatialOperation
 from app.db.models.dataset_import import DatasetImportEntry, DatasetImportOperation
 from app.db.models.dataset_import_delivery import DatasetImportDelivery
 from app.db.models.dataset_source_ingest import (
@@ -265,6 +266,7 @@ __all__ += ["ProjectDeletionOperation"]
 __all__ += ["DatasetUnlinkOperation", "AssetStorageDeletion"]
 __all__ += ["DatasetSourceDeletionOperation"]
 __all__ += ["DatasetCatalogOperation"]
+__all__ += ["DatasetSpatialOperation"]
 __all__ += ["DatasetImportEntry", "DatasetImportOperation"]
 __all__ += ["DatasetImportDelivery"]
 __all__ += [
