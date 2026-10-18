@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 import gzip
 from hashlib import sha256
 from io import BytesIO
+import logging
 from uuid import uuid4
 
 import httpx
@@ -235,6 +236,16 @@ class _S3Transport(httpx.AsyncBaseTransport):
         return httpx.Response(status, headers={"x-amz-error-code": code})
 
 
+class _CaptureS3Transport(_S3Transport):
+    def __init__(self, s3):
+        super().__init__(s3)
+        self.request_urls = []
+
+    async def handle_async_request(self, request):
+        self.request_urls.append(request.url)
+        return await super().handle_async_request(request)
+
+
 class _BlockingBody(httpx.AsyncByteStream):
     def __init__(self):
         self.started = asyncio.Event()
@@ -375,6 +386,54 @@ def _source(data, *, legacy=False, content_hash=None, etag="source-etag"):
         thumbnail_source_generation=None,
         thumbnail_error=None,
     )
+
+
+@pytest.mark.asyncio
+async def test_httpx_redacts_only_sigv4_query_logs_without_changing_request(caplog):
+    source_bytes = b"source bytes"
+    source = _source(source_bytes)
+    client = _S3()
+    client.set_object("datasets", source.file_path, source_bytes)
+    original_presign = client.generate_presigned_url
+    signed_query = (
+        "X-Amz-Algorithm=AWS4-HMAC-SHA256"
+        "&X-Amz-Credential=FakeCredential%2F20261019%2Fus-east-1%2Fs3%2Faws4_request"
+        "&X-Amz-Date=20261019T000000Z"
+        "&X-Amz-Expires=300"
+        "&X-Amz-SignedHeaders=host"
+        "&X-Amz-Security-Token=FakeSessionToken"
+        "&X-Amz-Signature=FakeSignature"
+    )
+
+    def signed_url(operation, *, Params, ExpiresIn):
+        base = original_presign(operation, Params=Params, ExpiresIn=ExpiresIn)
+        return f"{base}?{signed_query}"
+
+    client.generate_presigned_url = signed_url
+    transport = _CaptureS3Transport(client)
+    http_client = httpx.AsyncClient(transport=transport)
+    _HTTP_CLIENTS.append(http_client)
+    storage, _config = _storage(client, _Signer(), http_client)
+
+    with caplog.at_level(logging.INFO, logger="httpx"):
+        await storage.head_source(source)
+        logging.getLogger("httpx").info(
+            'HTTP Request: %s %s "%s %d %s"',
+            "GET",
+            httpx.URL("https://unrelated.example/object?ordinary=value"),
+            "HTTP/1.1",
+            200,
+            "OK",
+        )
+
+    assert len(transport.request_urls) == 1
+    assert transport.request_urls[0].query == signed_query.encode("ascii")
+    assert "FakeCredential" not in caplog.text
+    assert "FakeSessionToken" not in caplog.text
+    assert "FakeSignature" not in caplog.text
+    assert "HEAD http://s3.internal/signed/0?redacted" in caplog.text
+    assert '"HTTP/1.1 200 OK"' in caplog.text
+    assert "ordinary=value" in caplog.text
 
 
 @pytest.mark.asyncio

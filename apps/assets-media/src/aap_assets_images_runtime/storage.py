@@ -7,9 +7,11 @@ from contextlib import suppress
 from dataclasses import dataclass
 from datetime import datetime
 import hashlib
+import logging
 from pathlib import Path
 import re
 from typing import AsyncIterator, Protocol
+from urllib.parse import parse_qsl
 
 import httpx
 
@@ -46,6 +48,43 @@ _IMAGE_GENERATION_KEY = re.compile(
 )
 _HASH_CHUNK_BYTES = 1024 * 1024
 _S3_LIST_PAGE_SIZE = 1000
+_HTTPX_REQUEST_LOG_FORMAT = 'HTTP Request: %s %s "%s %d %s"'
+
+
+def _has_sigv4_query(url: httpx.URL) -> bool:
+    query = {
+        key.lower(): value
+        for key, value in parse_qsl(url.query.decode("ascii", errors="ignore"))
+    }
+    return (
+        query.get("x-amz-algorithm") == "AWS4-HMAC-SHA256"
+        and "x-amz-credential" in query
+        and "x-amz-signature" in query
+    )
+
+
+class _RedactSigV4HttpxLogFilter(logging.Filter):
+    """Hide presigned query credentials from HTTPX's request INFO record."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if record.msg != _HTTPX_REQUEST_LOG_FORMAT:
+            return True
+        if not isinstance(record.args, tuple) or len(record.args) != 5:
+            return True
+        url = record.args[1]
+        if not isinstance(url, httpx.URL) or not _has_sigv4_query(url):
+            return True
+        redacted_url = url.copy_with(query=b"redacted")
+        record.args = (*record.args[:1], redacted_url, *record.args[2:])
+        return True
+
+
+_HTTPX_LOGGER = logging.getLogger("httpx")
+if not any(
+    isinstance(logger_filter, _RedactSigV4HttpxLogFilter)
+    for logger_filter in _HTTPX_LOGGER.filters
+):
+    _HTTPX_LOGGER.addFilter(_RedactSigV4HttpxLogFilter())
 
 
 @dataclass(frozen=True, slots=True)
@@ -165,6 +204,7 @@ class S3ImageStorage:
                     pool=self.config.connect_timeout,
                 ),
                 follow_redirects=False,
+                trust_env=False,
             )
         return self._http_client
 
