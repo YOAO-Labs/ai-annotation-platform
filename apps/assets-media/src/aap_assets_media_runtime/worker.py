@@ -10,6 +10,7 @@ from dataclasses import dataclass
 import hashlib
 from pathlib import Path
 import re
+import stat
 import tempfile
 from typing import AsyncIterator, Sequence
 from uuid import UUID, uuid4
@@ -53,11 +54,22 @@ _LOGGER = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
+class _FileFingerprint:
+    device: int
+    inode: int
+    mode: int
+    size: int
+    mtime_ns: int
+    ctime_ns: int
+
+
+@dataclass(frozen=True, slots=True)
 class VerifiedSource:
     source: MediaSource
     identity: ObjectIdentity
     path: Path
     sha256: str
+    fingerprint: _FileFingerprint
 
 
 class VerifiedSourceCache:
@@ -78,6 +90,7 @@ class VerifiedSourceCache:
         self._path: Path | None = None
         self._identity: ObjectIdentity | None = None
         self._digest: str | None = None
+        self._fingerprint: _FileFingerprint | None = None
         self._closed = False
 
     @asynccontextmanager
@@ -88,12 +101,19 @@ class VerifiedSourceCache:
             if self._closed:
                 raise RuntimeError("verified source cache is closed")
             if source.source_drifted:
+                self._invalidate()
                 raise MediaFailure("source_changed")
-            identity = await storage.head_source(source.file_path)
+            try:
+                identity = await storage.head_source(source.file_path)
+            except MediaFailure as exc:
+                if exc.code in {"object_missing", "source_changed"}:
+                    self._invalidate()
+                raise
             if (
                 source.object_identity is not None
                 and identity != source.object_identity
             ):
+                self._invalidate()
                 raise MediaFailure("source_changed")
             key = (
                 source.dataset_item_id,
@@ -115,10 +135,14 @@ class VerifiedSourceCache:
                 )
                 try:
                     await storage.download_source(observed_source, path)
-                    size, digest, md5 = _source_digests(
-                        path, need_md5=_declares_md5(source.content_hash)
+                    path.chmod(stat.S_IRUSR)
+                    size, digest, md5 = await _source_digests_async(
+                        path,
+                        need_md5=_declares_md5(source.content_hash),
                     )
-                    if source.file_size is not None and size != source.file_size:
+                    if size != identity.byte_size or (
+                        source.file_size is not None and size != source.file_size
+                    ):
                         raise MediaFailure("source_changed")
                     if not _matches_declared_content_hash(
                         source.content_hash, digest, md5
@@ -126,6 +150,7 @@ class VerifiedSourceCache:
                         raise MediaFailure("source_changed")
                     if await storage.head_source(source.file_path) != identity:
                         raise MediaFailure("source_changed")
+                    fingerprint = _file_fingerprint(path)
                 except BaseException:
                     path.unlink(missing_ok=True)
                     raise
@@ -133,23 +158,48 @@ class VerifiedSourceCache:
                 self._path = path
                 self._identity = identity
                 self._digest = digest
+                self._fingerprint = fingerprint
             else:
                 assert self._path is not None
                 assert self._identity is not None
                 assert self._digest is not None
-                size, digest, _ = _source_digests(self._path)
-                if size != self._identity.byte_size or digest != self._digest:
+                assert self._fingerprint is not None
+                try:
+                    current_fingerprint = _file_fingerprint(self._path)
+                except MediaFailure:
+                    self._invalidate()
+                    raise
+                if current_fingerprint != self._fingerprint:
+                    self._invalidate()
+                    raise MediaFailure("source_changed")
+                if self._fingerprint.size != self._identity.byte_size:
                     self._invalidate()
                     raise MediaFailure("source_changed")
             assert self._path is not None
             assert self._identity is not None
             assert self._digest is not None
-            yield VerifiedSource(source, self._identity, self._path, self._digest)
+            assert self._fingerprint is not None
+            yield VerifiedSource(
+                source,
+                self._identity,
+                self._path,
+                self._digest,
+                self._fingerprint,
+            )
 
     async def verify_current(
         self, verified: VerifiedSource, storage: MediaStorage
     ) -> None:
         if await storage.head_source(verified.source.file_path) != verified.identity:
+            self._invalidate()
+            raise MediaFailure("source_changed")
+        try:
+            current_fingerprint = _file_fingerprint(verified.path)
+        except MediaFailure:
+            self._invalidate()
+            raise
+        if current_fingerprint != verified.fingerprint:
+            self._invalidate()
             raise MediaFailure("source_changed")
 
     async def close(self) -> None:
@@ -169,6 +219,7 @@ class VerifiedSourceCache:
         self._path = None
         self._identity = None
         self._digest = None
+        self._fingerprint = None
 
 
 class _LeaseHeartbeat:
@@ -486,6 +537,37 @@ class MediaExecutor:
 def _source_suffix(file_name: str) -> str:
     suffix = Path(file_name).suffix.lower()
     return suffix if re.fullmatch(r"\.[a-z0-9]{1,10}", suffix) else ".bin"
+
+
+def _file_fingerprint(path: Path) -> _FileFingerprint:
+    try:
+        observed = path.stat(follow_symlinks=False)
+    except OSError:
+        raise MediaFailure("source_changed") from None
+    if not stat.S_ISREG(observed.st_mode):
+        raise MediaFailure("source_changed")
+    return _FileFingerprint(
+        device=observed.st_dev,
+        inode=observed.st_ino,
+        mode=observed.st_mode,
+        size=observed.st_size,
+        mtime_ns=observed.st_mtime_ns,
+        ctime_ns=observed.st_ctime_ns,
+    )
+
+
+async def _source_digests_async(
+    path: Path, *, need_md5: bool
+) -> tuple[int, str, str | None]:
+    task = asyncio.create_task(
+        asyncio.to_thread(_source_digests, path, need_md5=need_md5)
+    )
+    try:
+        return await asyncio.shield(task)
+    except asyncio.CancelledError:
+        with suppress(BaseException):
+            await task
+        raise
 
 
 def _source_digests(

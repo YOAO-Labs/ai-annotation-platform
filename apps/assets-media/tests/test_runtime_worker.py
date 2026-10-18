@@ -3,7 +3,9 @@ from __future__ import annotations
 import hashlib
 from pathlib import Path
 import shutil
+import stat
 import subprocess
+import threading
 from uuid import uuid4
 
 import pytest
@@ -111,24 +113,57 @@ def _source(storage: _Storage, *, generation: int = 1, content_hash=None):
 
 @pytest.mark.asyncio
 async def test_verified_source_cache_reuses_one_download_and_rechecks_identity(
-    tmp_path,
+    tmp_path, monkeypatch
 ):
+    import aap_assets_media_runtime.worker as worker
+
+    storage = _Storage()
+    cache = VerifiedSourceCache(directory=tmp_path)
+    md5 = hashlib.md5(storage.body, usedforsecurity=False).hexdigest()
+    source = _source(storage, content_hash=md5)
+    digest_calls = []
+    digest = worker._source_digests
+
+    def count_digest(path, *, need_md5=False):
+        digest_calls.append((threading.get_ident(), need_md5))
+        return digest(path, need_md5=need_md5)
+
+    monkeypatch.setattr(worker, "_source_digests", count_digest)
+
+    main_thread = threading.get_ident()
+    verified = None
+    for _ in range(12):
+        async with cache.lease(source, storage) as lease:
+            verified = lease
+            assert lease.path.read_bytes() == storage.body
+            assert lease.path.stat().st_mode & stat.S_IWUSR == 0
+    assert verified is not None
+    await cache.verify_current(verified, storage)
+
+    assert len(digest_calls) == 1
+    assert digest_calls[0][0] != main_thread
+    assert digest_calls[0][1] is True
+    assert storage.downloads == 1
+    assert storage.heads == 14
+    await cache.close()
+    assert not list(tmp_path.iterdir())
+
+
+@pytest.mark.asyncio
+async def test_verified_source_cache_detects_cached_file_mutation(tmp_path):
     storage = _Storage()
     cache = VerifiedSourceCache(directory=tmp_path)
     source = _source(storage)
 
-    async with cache.lease(source, storage) as first:
-        first_bytes = first.path.read_bytes()
-    async with cache.lease(source, storage) as second:
-        second_bytes = second.path.read_bytes()
-        await cache.verify_current(second, storage)
+    async with cache.lease(source, storage) as verified:
+        verified.path.chmod(stat.S_IRUSR | stat.S_IWUSR)
+        verified.path.write_bytes(b"tampered!!!")
 
-    assert first_bytes == storage.body
-    assert second_bytes == storage.body
-    assert storage.downloads == 1
-    assert storage.heads == 4
-    await cache.close()
+    with pytest.raises(MediaFailure, match="source_changed"):
+        async with cache.lease(source, storage):
+            pass
     assert not list(tmp_path.iterdir())
+    await cache.close()
 
 
 @pytest.mark.asyncio
