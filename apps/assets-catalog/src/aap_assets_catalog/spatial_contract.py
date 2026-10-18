@@ -574,6 +574,26 @@ class CalibrationMutationResult(_Value):
     state: CalibrationState
 
 
+class ProvenanceEntry(_Value):
+    dataset_item_id: UUID
+    calibration: SensorCalibration
+    digest: Digest
+    canonical_document: StrictStr
+    source_snapshot: dict[str, Any]
+
+
+class RecordCalibrationProvenanceRequest(_Value):
+    operation_id: UUID
+    dataset_id: UUID
+    entries: list[ProvenanceEntry]
+
+
+class ProvenanceMutationResult(_Value):
+    operation_id: UUID
+    dataset_id: UUID
+    recorded_items: Count
+
+
 class ReadPreparationRequest(_Value):
     creation_operation_id: UUID
     after_item_id: UUID | None = None
@@ -706,6 +726,7 @@ SPATIAL_NATIVE_SIGNATURES = {
     "read_pointcloud_preparation": "uuid,uuid,integer",
     "apply_pointcloud_preparation": "uuid,jsonb,jsonb,jsonb",
     "read_spatial_camera_target": "uuid,uuid,text",
+    "record_spatial_calibration_provenance": "uuid,uuid,jsonb",
 }
 
 SPATIAL_OPERATIONS = {
@@ -730,6 +751,10 @@ SPATIAL_OPERATIONS = {
         PreparationMutationResult,
     ),
     "read_spatial_camera_target": (ReadCameraTargetRequest, CameraTargetResult),
+    "record_spatial_calibration_provenance": (
+        RecordCalibrationProvenanceRequest,
+        ProvenanceMutationResult,
+    ),
 }
 
 
@@ -751,8 +776,20 @@ def require_spatial_scope(request: BaseModel, result: BaseModel) -> None:
         "dry_run",
     ):
         if name in type(request).model_fields and name in type(result).model_fields:
+            if (
+                isinstance(request, CreateSceneRequest)
+                and name == "scene_id"
+                and request.scene_id is None
+            ):
+                continue
             if getattr(request, name) != getattr(result, name):
                 raise ValueError(f"Assets spatial reply escaped {name}")
+    if (
+        isinstance(result, (SceneResult, SceneMutationResult))
+        and "dataset_id" in type(request).model_fields
+    ):
+        if result.scene.dataset_id != request.dataset_id:
+            raise ValueError("Assets spatial Scene escaped dataset_id")
     for name in ("item_ids", "dataset_item_ids"):
         if name in type(request).model_fields and name in type(result).model_fields:
             left, right = getattr(request, name), getattr(result, name)

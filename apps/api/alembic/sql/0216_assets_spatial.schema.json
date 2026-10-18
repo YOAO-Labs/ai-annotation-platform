@@ -65,6 +65,9 @@
               "$ref": "#/$defs/PreparationPage"
             },
             {
+              "$ref": "#/$defs/ProvenanceMutationResult"
+            },
+            {
               "$ref": "#/$defs/SceneMutationResult"
             },
             {
@@ -2209,6 +2212,29 @@
       "title": "PreparationPage",
       "type": "object"
     },
+    "ProvenanceMutationResult": {
+      "additionalProperties": false,
+      "properties": {
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "dataset_id": {
+          "format": "uuid",
+          "title": "Dataset Id",
+          "type": "string"
+        },
+        "recorded_items": {
+          "minimum": 0,
+          "title": "Recorded Items",
+          "type": "integer"
+        }
+      },
+      "required": ["operation_id", "dataset_id", "recorded_items"],
+      "title": "ProvenanceMutationResult",
+      "type": "object"
+    },
     "ReadCalibrationsRequest": {
       "additionalProperties": false,
       "properties": {
@@ -2463,6 +2489,67 @@
       },
       "required": ["creation_operation_id"],
       "title": "ReadPreparationRequest",
+      "type": "object"
+    },
+    "ProvenanceEntry": {
+      "additionalProperties": false,
+      "properties": {
+        "dataset_item_id": {
+          "format": "uuid",
+          "title": "Dataset Item Id",
+          "type": "string"
+        },
+        "calibration": {
+          "$ref": "#/$defs/SensorCalibration"
+        },
+        "digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Digest",
+          "type": "string"
+        },
+        "canonical_document": {
+          "title": "Canonical Document",
+          "type": "string"
+        },
+        "source_snapshot": {
+          "additionalProperties": true,
+          "title": "Source Snapshot",
+          "type": "object"
+        }
+      },
+      "required": [
+        "dataset_item_id",
+        "calibration",
+        "digest",
+        "canonical_document",
+        "source_snapshot"
+      ],
+      "title": "ProvenanceEntry",
+      "type": "object"
+    },
+    "RecordCalibrationProvenanceRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "dataset_id": {
+          "format": "uuid",
+          "title": "Dataset Id",
+          "type": "string"
+        },
+        "entries": {
+          "items": {
+            "$ref": "#/$defs/ProvenanceEntry"
+          },
+          "title": "Entries",
+          "type": "array"
+        }
+      },
+      "required": ["operation_id", "dataset_id", "entries"],
+      "title": "RecordCalibrationProvenanceRequest",
       "type": "object"
     },
     "SceneMutationResult": {
@@ -2912,6 +2999,15 @@
       },
       "response": {
         "$ref": "#/$defs/CameraTargetResult"
+      }
+    },
+    "record_spatial_calibration_provenance": {
+      "signature": "aap_assets_v1.record_spatial_calibration_provenance(uuid,uuid,jsonb)",
+      "request": {
+        "$ref": "#/$defs/RecordCalibrationProvenanceRequest"
+      },
+      "response": {
+        "$ref": "#/$defs/ProvenanceMutationResult"
       }
     }
   },
