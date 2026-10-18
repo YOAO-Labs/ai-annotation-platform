@@ -1,0 +1,861 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:aap:assets-operator:v1",
+  "title": "aap-assets-operator/v1",
+  "$defs": {
+    "AppendOperatorItemsRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "dataset_id": {
+          "format": "uuid",
+          "title": "Dataset Id",
+          "type": "string"
+        },
+        "entries": {
+          "items": {
+            "$ref": "#/$defs/OperatorSourceEntry"
+          },
+          "maxItems": 500,
+          "minItems": 1,
+          "title": "Entries",
+          "type": "array"
+        }
+      },
+      "required": ["operation_id", "dataset_id", "entries"],
+      "title": "AppendOperatorItemsRequest",
+      "type": "object"
+    },
+    "CreateOperatorImageDatasetRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "created_by": {
+          "format": "uuid",
+          "title": "Created By",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 255,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "description": {
+          "title": "Description",
+          "type": "string"
+        }
+      },
+      "required": ["operation_id", "created_by", "name", "description"],
+      "title": "CreateOperatorImageDatasetRequest",
+      "type": "object"
+    },
+    "EnsureOperatorNuScenesDatasetRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "owner_id": {
+          "format": "uuid",
+          "title": "Owner Id",
+          "type": "string"
+        },
+        "spec": {
+          "$ref": "#/$defs/NuScenesDatasetSpec"
+        }
+      },
+      "required": ["operation_id", "owner_id", "spec"],
+      "title": "EnsureOperatorNuScenesDatasetRequest",
+      "type": "object"
+    },
+    "JsonValue": {},
+    "NuScenesDatasetSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "display_id": {
+          "maxLength": 20,
+          "minLength": 1,
+          "title": "Display Id",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 255,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "version": {
+          "minLength": 1,
+          "title": "Version",
+          "type": "string"
+        },
+        "scene_names": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 10000,
+          "title": "Scene Names",
+          "type": "array"
+        },
+        "axis_convention": {
+          "enum": ["iso_8855", "apollo"],
+          "title": "Axis Convention",
+          "type": "string"
+        },
+        "frame": {
+          "enum": ["sensor", "ego"],
+          "title": "Frame",
+          "type": "string"
+        },
+        "pcd_encoding": {
+          "minLength": 1,
+          "title": "Pcd Encoding",
+          "type": "string"
+        }
+      },
+      "required": [
+        "display_id",
+        "name",
+        "version",
+        "scene_names",
+        "axis_convention",
+        "frame",
+        "pcd_encoding"
+      ],
+      "title": "NuScenesDatasetSpec",
+      "type": "object"
+    },
+    "OperatorCountResult": {
+      "additionalProperties": false,
+      "properties": {
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "dataset_id": {
+          "format": "uuid",
+          "title": "Dataset Id",
+          "type": "string"
+        },
+        "action": {
+          "const": "recount_items",
+          "title": "Action",
+          "type": "string"
+        },
+        "file_count": {
+          "minimum": 0,
+          "title": "File Count",
+          "type": "integer"
+        }
+      },
+      "required": ["operation_id", "dataset_id", "action", "file_count"],
+      "title": "OperatorCountResult",
+      "type": "object"
+    },
+    "OperatorDataset": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "display_id": {
+          "title": "Display Id",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Description"
+        },
+        "data_type": {
+          "title": "Data Type",
+          "type": "string"
+        },
+        "is_temporal": {
+          "title": "Is Temporal",
+          "type": "boolean"
+        },
+        "file_count": {
+          "minimum": 0,
+          "title": "File Count",
+          "type": "integer"
+        },
+        "created_by": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Created By"
+        },
+        "metadata": {
+          "additionalProperties": {
+            "$ref": "#/$defs/JsonValue"
+          },
+          "title": "Metadata",
+          "type": "object"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "updated_at": {
+          "format": "date-time",
+          "title": "Updated At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "display_id",
+        "name",
+        "description",
+        "data_type",
+        "is_temporal",
+        "file_count",
+        "created_by",
+        "metadata",
+        "created_at",
+        "updated_at"
+      ],
+      "title": "OperatorDataset",
+      "type": "object"
+    },
+    "OperatorDatasetMutation": {
+      "additionalProperties": false,
+      "properties": {
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "dataset_id": {
+          "format": "uuid",
+          "title": "Dataset Id",
+          "type": "string"
+        },
+        "action": {
+          "enum": ["create_image_dataset", "ensure_nuscenes_dataset"],
+          "title": "Action",
+          "type": "string"
+        },
+        "dataset": {
+          "$ref": "#/$defs/OperatorDataset"
+        },
+        "storage_root": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Storage Root"
+        },
+        "needs_pcd_upgrade": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Needs Pcd Upgrade"
+        }
+      },
+      "required": [
+        "operation_id",
+        "dataset_id",
+        "action",
+        "dataset",
+        "storage_root",
+        "needs_pcd_upgrade"
+      ],
+      "title": "OperatorDatasetMutation",
+      "type": "object"
+    },
+    "OperatorDimensions": {
+      "additionalProperties": false,
+      "properties": {
+        "width": {
+          "maximum": 2147483647,
+          "minimum": 1,
+          "title": "Width",
+          "type": "integer"
+        },
+        "height": {
+          "maximum": 2147483647,
+          "minimum": 1,
+          "title": "Height",
+          "type": "integer"
+        }
+      },
+      "required": ["width", "height"],
+      "title": "OperatorDimensions",
+      "type": "object"
+    },
+    "OperatorItem": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "dataset_id": {
+          "format": "uuid",
+          "title": "Dataset Id",
+          "type": "string"
+        },
+        "file_name": {
+          "title": "File Name",
+          "type": "string"
+        },
+        "file_path": {
+          "title": "File Path",
+          "type": "string"
+        },
+        "file_type": {
+          "title": "File Type",
+          "type": "string"
+        },
+        "file_size": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "File Size"
+        },
+        "content_hash": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Content Hash"
+        },
+        "width": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Width"
+        },
+        "height": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Height"
+        },
+        "metadata": {
+          "additionalProperties": {
+            "$ref": "#/$defs/JsonValue"
+          },
+          "title": "Metadata",
+          "type": "object"
+        },
+        "scene_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Scene Id"
+        },
+        "frame_index": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Frame Index"
+        },
+        "source_snapshot": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Source Snapshot",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "dataset_id",
+        "file_name",
+        "file_path",
+        "file_type",
+        "file_size",
+        "content_hash",
+        "width",
+        "height",
+        "metadata",
+        "scene_id",
+        "frame_index",
+        "source_snapshot"
+      ],
+      "title": "OperatorItem",
+      "type": "object"
+    },
+    "OperatorItemsMutation": {
+      "additionalProperties": false,
+      "properties": {
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "dataset_id": {
+          "format": "uuid",
+          "title": "Dataset Id",
+          "type": "string"
+        },
+        "action": {
+          "enum": ["append_items", "patch_items"],
+          "title": "Action",
+          "type": "string"
+        },
+        "items": {
+          "items": {
+            "$ref": "#/$defs/OperatorItem"
+          },
+          "title": "Items",
+          "type": "array"
+        },
+        "file_count": {
+          "minimum": 0,
+          "title": "File Count",
+          "type": "integer"
+        },
+        "dimensions_backfilled": {
+          "minimum": 0,
+          "title": "Dimensions Backfilled",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "operation_id",
+        "dataset_id",
+        "action",
+        "items",
+        "file_count",
+        "dimensions_backfilled"
+      ],
+      "title": "OperatorItemsMutation",
+      "type": "object"
+    },
+    "OperatorItemsPage": {
+      "additionalProperties": false,
+      "properties": {
+        "dataset_id": {
+          "format": "uuid",
+          "title": "Dataset Id",
+          "type": "string"
+        },
+        "after_item_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "After Item Id"
+        },
+        "next_item_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Next Item Id"
+        },
+        "snapshot_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Snapshot Digest",
+          "type": "string"
+        },
+        "total": {
+          "minimum": 0,
+          "title": "Total",
+          "type": "integer"
+        },
+        "complete": {
+          "title": "Complete",
+          "type": "boolean"
+        },
+        "items": {
+          "items": {
+            "$ref": "#/$defs/OperatorItem"
+          },
+          "title": "Items",
+          "type": "array"
+        }
+      },
+      "required": [
+        "dataset_id",
+        "after_item_id",
+        "next_item_id",
+        "snapshot_digest",
+        "total",
+        "complete",
+        "items"
+      ],
+      "title": "OperatorItemsPage",
+      "type": "object"
+    },
+    "OperatorSourceEntry": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "file_name": {
+          "maxLength": 500,
+          "minLength": 1,
+          "title": "File Name",
+          "type": "string"
+        },
+        "file_path": {
+          "maxLength": 1000,
+          "minLength": 1,
+          "title": "File Path",
+          "type": "string"
+        },
+        "file_type": {
+          "maxLength": 20,
+          "minLength": 1,
+          "title": "File Type",
+          "type": "string"
+        },
+        "file_size": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "File Size"
+        },
+        "content_hash": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Content Hash"
+        },
+        "width": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Width"
+        },
+        "height": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Height"
+        },
+        "metadata": {
+          "additionalProperties": {
+            "$ref": "#/$defs/JsonValue"
+          },
+          "title": "Metadata",
+          "type": "object"
+        }
+      },
+      "required": ["id", "file_name", "file_path", "file_type"],
+      "title": "OperatorSourceEntry",
+      "type": "object"
+    },
+    "OperatorSourcePatch": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "source_snapshot": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Source Snapshot",
+          "type": "string"
+        },
+        "nuscenes_export": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "$ref": "#/$defs/JsonValue"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Nuscenes Export"
+        },
+        "dimensions": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/OperatorDimensions"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "file_size": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "File Size"
+        },
+        "content_hash": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Content Hash"
+        }
+      },
+      "required": ["id", "source_snapshot"],
+      "title": "OperatorSourcePatch",
+      "type": "object"
+    },
+    "PatchOperatorItemsRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "dataset_id": {
+          "format": "uuid",
+          "title": "Dataset Id",
+          "type": "string"
+        },
+        "entries": {
+          "items": {
+            "$ref": "#/$defs/OperatorSourcePatch"
+          },
+          "maxItems": 500,
+          "minItems": 1,
+          "title": "Entries",
+          "type": "array"
+        }
+      },
+      "required": ["operation_id", "dataset_id", "entries"],
+      "title": "PatchOperatorItemsRequest",
+      "type": "object"
+    },
+    "ReadOperatorItemsRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "dataset_id": {
+          "format": "uuid",
+          "title": "Dataset Id",
+          "type": "string"
+        },
+        "after_item_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "After Item Id"
+        },
+        "page_size": {
+          "default": 200,
+          "maximum": 500,
+          "minimum": 1,
+          "title": "Page Size",
+          "type": "integer"
+        }
+      },
+      "required": ["dataset_id"],
+      "title": "ReadOperatorItemsRequest",
+      "type": "object"
+    },
+    "RecountOperatorItemsRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "dataset_id": {
+          "format": "uuid",
+          "title": "Dataset Id",
+          "type": "string"
+        }
+      },
+      "required": ["operation_id", "dataset_id"],
+      "title": "RecountOperatorItemsRequest",
+      "type": "object"
+    }
+  },
+  "x-trust": "Dedicated operator SQL credentials authorize these operations; owner IDs are attribution, not caller permission flags.",
+  "x-budgets": {
+    "request_bytes": 8388608,
+    "reply_bytes": 16777216,
+    "page_record_bytes": 15728640,
+    "batch_entries": 500
+  },
+  "x-failure-codes": [
+    "axis_conflict",
+    "dataset_missing",
+    "invalid_request",
+    "invalid_response",
+    "item_missing",
+    "operation_busy",
+    "operation_conflict",
+    "resource_budget_exceeded",
+    "source_changed",
+    "storage_root_conflict",
+    "storage_unavailable",
+    "user_missing"
+  ],
+  "x-native": {
+    "create_operator_image_dataset": {
+      "signature": "aap_assets_v1.create_operator_image_dataset(uuid,uuid,text,text)",
+      "arguments": ["operation_id", "created_by", "name", "description"],
+      "request": "CreateOperatorImageDatasetRequest",
+      "result": "OperatorDatasetMutation"
+    },
+    "ensure_operator_nuscenes_dataset": {
+      "signature": "aap_assets_v1.ensure_operator_nuscenes_dataset(uuid,uuid,jsonb)",
+      "arguments": ["operation_id", "owner_id", "spec"],
+      "request": "EnsureOperatorNuScenesDatasetRequest",
+      "result": "OperatorDatasetMutation"
+    },
+    "append_operator_items": {
+      "signature": "aap_assets_v1.append_operator_items(uuid,uuid,jsonb)",
+      "arguments": ["operation_id", "dataset_id", "entries"],
+      "request": "AppendOperatorItemsRequest",
+      "result": "OperatorItemsMutation"
+    },
+    "patch_operator_items": {
+      "signature": "aap_assets_v1.patch_operator_items(uuid,uuid,jsonb)",
+      "arguments": ["operation_id", "dataset_id", "entries"],
+      "request": "PatchOperatorItemsRequest",
+      "result": "OperatorItemsMutation"
+    },
+    "recount_operator_items": {
+      "signature": "aap_assets_v1.recount_operator_items(uuid,uuid)",
+      "arguments": ["operation_id", "dataset_id"],
+      "request": "RecountOperatorItemsRequest",
+      "result": "OperatorCountResult"
+    },
+    "read_operator_items": {
+      "signature": "aap_assets_v1.read_operator_items(uuid,uuid,integer)",
+      "arguments": ["dataset_id", "after_item_id", "page_size"],
+      "request": "ReadOperatorItemsRequest",
+      "result": "OperatorItemsPage"
+    }
+  }
+}

@@ -43,6 +43,7 @@ aap-assets-cleanup = { path = "../assets-cleanup", editable = true }
 
 [tool.setuptools.package-data]
 aap_assets_source = [
+    "operator_contract.schema.json",
     "connections_contract.schema.json",
     "import_contract.schema.json",
     "ingest_contract.schema.json",

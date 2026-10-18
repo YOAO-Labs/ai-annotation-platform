@@ -148,3 +148,4 @@
 
 - [0102](0102-assets-spatial-state.md) — Assets spatial state and transactional native composition
 - [0103](0103-assets-connection-administration.md) — Assets storage connection administration and replay
+- [0104](0104-operator-source-registration.md) — Operator source registration through native Assets capabilities
