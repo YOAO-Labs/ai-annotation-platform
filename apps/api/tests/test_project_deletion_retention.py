@@ -309,6 +309,7 @@ async def test_guard_catches_cross_project_active_learning_task_references(
             authorization={},
         )
     )
+    await db_session.flush()
     if reference_kind == "member":
         db_session.add(
             ActiveLearningPoolMember(round_id=round_id, task_id=target_task.id)
