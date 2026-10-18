@@ -1,0 +1,5408 @@
+{
+  "components": {
+    "schemas": {
+      "AcceptedImageWork": {
+        "additionalProperties": false,
+        "properties": {
+          "operation_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Operation Id"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ImageSource"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "spec": {
+            "discriminator": {
+              "mapping": {
+                "dimensions": "#/components/schemas/DimensionsWorkSpec",
+                "image_backfill": "#/components/schemas/ImageBackfillSpec",
+                "pyramid": "#/components/schemas/PyramidWorkSpec",
+                "thumbnail": "#/components/schemas/ThumbnailWorkSpec"
+              },
+              "propertyName": "kind"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/DimensionsWorkSpec"
+              },
+              {
+                "$ref": "#/components/schemas/ThumbnailWorkSpec"
+              },
+              {
+                "$ref": "#/components/schemas/PyramidWorkSpec"
+              },
+              {
+                "$ref": "#/components/schemas/ImageBackfillSpec"
+              }
+            ],
+            "title": "Spec"
+          },
+          "work": {
+            "$ref": "#/components/schemas/ImageWorkReference"
+          }
+        },
+        "required": [
+          "operation_id",
+          "source",
+          "work",
+          "spec"
+        ],
+        "title": "AcceptedImageWork",
+        "type": "object"
+      },
+      "ActorImageSourceRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "actor_id": {
+            "format": "uuid",
+            "title": "Actor Id",
+            "type": "string"
+          },
+          "dataset_item_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Dataset Item Id"
+          },
+          "task_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Task Id"
+          }
+        },
+        "required": [
+          "actor_id"
+        ],
+        "title": "ActorImageSourceRequest",
+        "type": "object"
+      },
+      "CancelImageMediaRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "actor_id": {
+            "format": "uuid",
+            "title": "Actor Id",
+            "type": "string"
+          },
+          "job_id": {
+            "format": "uuid",
+            "title": "Job Id",
+            "type": "string"
+          },
+          "operation_id": {
+            "format": "uuid",
+            "title": "Operation Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "operation_id",
+          "actor_id",
+          "job_id"
+        ],
+        "title": "CancelImageMediaRequest",
+        "type": "object"
+      },
+      "CancelImageMediaResult": {
+        "additionalProperties": false,
+        "properties": {
+          "canceled": {
+            "title": "Canceled",
+            "type": "boolean"
+          },
+          "job_id": {
+            "format": "uuid",
+            "title": "Job Id",
+            "type": "string"
+          },
+          "operation_id": {
+            "format": "uuid",
+            "title": "Operation Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "operation_id",
+          "job_id",
+          "canceled"
+        ],
+        "title": "CancelImageMediaResult",
+        "type": "object"
+      },
+      "DimensionsWorkSpec": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_source_snapshot": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Expected Source Snapshot",
+            "type": "string"
+          },
+          "kind": {
+            "const": "dimensions",
+            "default": "dimensions",
+            "title": "Kind",
+            "type": "string"
+          },
+          "policy": {
+            "$ref": "#/components/schemas/ImagePolicy"
+          }
+        },
+        "required": [
+          "expected_source_snapshot"
+        ],
+        "title": "DimensionsWorkSpec",
+        "type": "object"
+      },
+      "ImageAssetReference": {
+        "additionalProperties": false,
+        "properties": {
+          "generation": {
+            "maximum": 2147483647,
+            "minimum": 1,
+            "title": "Generation",
+            "type": "integer"
+          },
+          "kind": {
+            "enum": [
+              "overview",
+              "tile"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "level": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Level"
+          },
+          "url": {
+            "title": "Url",
+            "type": "string"
+          },
+          "x": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "X"
+          },
+          "y": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Y"
+          }
+        },
+        "required": [
+          "kind",
+          "generation",
+          "level",
+          "x",
+          "y",
+          "url"
+        ],
+        "title": "ImageAssetReference",
+        "type": "object"
+      },
+      "ImageAssetReferences": {
+        "additionalProperties": false,
+        "properties": {
+          "expires_in": {
+            "maximum": 86400,
+            "minimum": 1,
+            "title": "Expires In",
+            "type": "integer"
+          },
+          "generation": {
+            "maximum": 2147483647,
+            "minimum": 1,
+            "title": "Generation",
+            "type": "integer"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ImageAssetReference"
+            },
+            "maxItems": 128,
+            "title": "Items",
+            "type": "array"
+          },
+          "source": {
+            "$ref": "#/components/schemas/ImageSource"
+          }
+        },
+        "required": [
+          "source",
+          "generation",
+          "expires_in",
+          "items"
+        ],
+        "title": "ImageAssetReferences",
+        "type": "object"
+      },
+      "ImageAssetReferencesRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "actor_id": {
+            "format": "uuid",
+            "title": "Actor Id",
+            "type": "string"
+          },
+          "dataset_item_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Dataset Item Id"
+          },
+          "expected_source_snapshot": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Expected Source Snapshot"
+          },
+          "items": {
+            "items": {
+              "discriminator": {
+                "mapping": {
+                  "overview": "#/components/schemas/ImageOverviewRequest",
+                  "tile": "#/components/schemas/ImageTileRequest"
+                },
+                "propertyName": "kind"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/ImageOverviewRequest"
+                },
+                {
+                  "$ref": "#/components/schemas/ImageTileRequest"
+                }
+              ]
+            },
+            "maxItems": 128,
+            "minItems": 1,
+            "title": "Items",
+            "type": "array"
+          },
+          "task_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Task Id"
+          }
+        },
+        "required": [
+          "actor_id",
+          "items"
+        ],
+        "title": "ImageAssetReferencesRequest",
+        "type": "object"
+      },
+      "ImageBackfillPage": {
+        "additionalProperties": false,
+        "properties": {
+          "accepted_before": {
+            "format": "date-time",
+            "title": "Accepted Before",
+            "type": "string"
+          },
+          "after_owner_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "After Owner Id"
+          },
+          "after_owner_kind": {
+            "anyOf": [
+              {
+                "enum": [
+                  "dataset_item",
+                  "task"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "After Owner Kind"
+          },
+          "complete": {
+            "title": "Complete",
+            "type": "boolean"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ImageSource"
+            },
+            "maxItems": 500,
+            "title": "Items",
+            "type": "array"
+          },
+          "next_owner_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Owner Id"
+          },
+          "next_owner_kind": {
+            "anyOf": [
+              {
+                "enum": [
+                  "dataset_item",
+                  "task"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Owner Kind"
+          },
+          "snapshot_digest": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Snapshot Digest",
+            "type": "string"
+          },
+          "total": {
+            "maximum": 9223372036854775807,
+            "minimum": 0,
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "snapshot_digest",
+          "total",
+          "accepted_before",
+          "after_owner_kind",
+          "after_owner_id",
+          "next_owner_kind",
+          "next_owner_id",
+          "complete"
+        ],
+        "title": "ImageBackfillPage",
+        "type": "object"
+      },
+      "ImageBackfillSelection": {
+        "additionalProperties": false,
+        "properties": {
+          "accepted_before": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Accepted Before"
+          },
+          "all_owners": {
+            "default": false,
+            "title": "All Owners",
+            "type": "boolean"
+          },
+          "dataset_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Dataset Id"
+          },
+          "only_missing": {
+            "default": true,
+            "title": "Only Missing",
+            "type": "boolean"
+          },
+          "owner_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "maxItems": 500,
+            "title": "Owner Ids",
+            "type": "array"
+          },
+          "owner_kind": {
+            "enum": [
+              "dataset_item",
+              "task"
+            ],
+            "title": "Owner Kind",
+            "type": "string"
+          },
+          "project_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Project Id"
+          },
+          "purpose": {
+            "enum": [
+              "dimensions",
+              "thumbnail",
+              "pyramid"
+            ],
+            "title": "Purpose",
+            "type": "string"
+          }
+        },
+        "required": [
+          "owner_kind",
+          "purpose"
+        ],
+        "title": "ImageBackfillSelection",
+        "type": "object"
+      },
+      "ImageBackfillSpec": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "const": "image_backfill",
+            "default": "image_backfill",
+            "title": "Kind",
+            "type": "string"
+          },
+          "policy": {
+            "$ref": "#/components/schemas/ImagePolicy"
+          },
+          "selection": {
+            "$ref": "#/components/schemas/ImageBackfillSelection"
+          }
+        },
+        "required": [
+          "selection"
+        ],
+        "title": "ImageBackfillSpec",
+        "type": "object"
+      },
+      "ImageGenerationRead": {
+        "additionalProperties": false,
+        "properties": {
+          "pyramid": {
+            "$ref": "#/components/schemas/ImagePyramidGeneration"
+          },
+          "source": {
+            "$ref": "#/components/schemas/ImageSource"
+          }
+        },
+        "required": [
+          "source",
+          "pyramid"
+        ],
+        "title": "ImageGenerationRead",
+        "type": "object"
+      },
+      "ImageGenerationReference": {
+        "additionalProperties": false,
+        "properties": {
+          "expires_in": {
+            "maximum": 604800,
+            "minimum": 1,
+            "title": "Expires In",
+            "type": "integer"
+          },
+          "manifest": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ImagePyramidManifest"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "overview_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Overview Url"
+          },
+          "pyramid": {
+            "$ref": "#/components/schemas/ImagePyramidSummary"
+          },
+          "pyramid_source_generation": {
+            "anyOf": [
+              {
+                "maximum": 9223372036854775807,
+                "minimum": 1,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pyramid Source Generation"
+          },
+          "pyramid_source_snapshot": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pyramid Source Snapshot"
+          },
+          "source": {
+            "$ref": "#/components/schemas/ImageSource"
+          }
+        },
+        "required": [
+          "source",
+          "pyramid",
+          "pyramid_source_generation",
+          "pyramid_source_snapshot",
+          "manifest",
+          "overview_url",
+          "expires_in"
+        ],
+        "title": "ImageGenerationReference",
+        "type": "object"
+      },
+      "ImageGenerationReferenceRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "actor_id": {
+            "format": "uuid",
+            "title": "Actor Id",
+            "type": "string"
+          },
+          "dataset_item_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Dataset Item Id"
+          },
+          "expected_source_snapshot": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Expected Source Snapshot"
+          },
+          "expires_in": {
+            "default": 3600,
+            "maximum": 604800,
+            "minimum": 1,
+            "title": "Expires In",
+            "type": "integer"
+          },
+          "generation": {
+            "anyOf": [
+              {
+                "maximum": 2147483647,
+                "minimum": 1,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Generation"
+          },
+          "task_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Task Id"
+          }
+        },
+        "required": [
+          "actor_id"
+        ],
+        "title": "ImageGenerationReferenceRequest",
+        "type": "object"
+      },
+      "ImageInvalidation": {
+        "additionalProperties": false,
+        "properties": {
+          "generation": {
+            "anyOf": [
+              {
+                "maximum": 2147483647,
+                "minimum": 1,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Generation"
+          },
+          "kind": {
+            "enum": [
+              "thumbnail",
+              "overview",
+              "manifest",
+              "tile"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "level": {
+            "anyOf": [
+              {
+                "maximum": 2147483647,
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Level"
+          },
+          "source_snapshot": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Source Snapshot",
+            "type": "string"
+          },
+          "x": {
+            "anyOf": [
+              {
+                "maximum": 2147483647,
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "X"
+          },
+          "y": {
+            "anyOf": [
+              {
+                "maximum": 2147483647,
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Y"
+          }
+        },
+        "required": [
+          "source_snapshot",
+          "kind"
+        ],
+        "title": "ImageInvalidation",
+        "type": "object"
+      },
+      "ImageOverviewRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "generation": {
+            "maximum": 2147483647,
+            "minimum": 1,
+            "title": "Generation",
+            "type": "integer"
+          },
+          "kind": {
+            "const": "overview",
+            "default": "overview",
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "generation"
+        ],
+        "title": "ImageOverviewRequest",
+        "type": "object"
+      },
+      "ImageOwner": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "dataset_item",
+              "task"
+            ],
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "id"
+        ],
+        "title": "ImageOwner",
+        "type": "object"
+      },
+      "ImagePolicy": {
+        "additionalProperties": false,
+        "description": "Keep existing output semantics and freeze resource limits per operation.",
+        "properties": {
+          "asset_url_batch_max": {
+            "default": 128,
+            "exclusiveMinimum": 0,
+            "maximum": 2147483647,
+            "title": "Asset Url Batch Max",
+            "type": "integer"
+          },
+          "auto_generate_pyramids": {
+            "default": false,
+            "title": "Auto Generate Pyramids",
+            "type": "boolean"
+          },
+          "gc_grace_hours": {
+            "default": 24,
+            "maximum": 2147483647,
+            "minimum": 0,
+            "title": "Gc Grace Hours",
+            "type": "integer"
+          },
+          "job_timeout_seconds": {
+            "default": 1800,
+            "exclusiveMinimum": 0,
+            "maximum": 2147483647,
+            "title": "Job Timeout Seconds",
+            "type": "integer"
+          },
+          "lease_seconds": {
+            "default": 2100,
+            "exclusiveMinimum": 0,
+            "maximum": 2147483647,
+            "title": "Lease Seconds",
+            "type": "integer"
+          },
+          "max_derived_bytes": {
+            "default": 8589934592,
+            "exclusiveMinimum": 0,
+            "maximum": 9223372036854775807,
+            "title": "Max Derived Bytes",
+            "type": "integer"
+          },
+          "max_dimension": {
+            "default": 32768,
+            "exclusiveMinimum": 0,
+            "maximum": 2147483647,
+            "title": "Max Dimension",
+            "type": "integer"
+          },
+          "max_pixels": {
+            "default": 300000000,
+            "exclusiveMinimum": 0,
+            "maximum": 9223372036854775807,
+            "title": "Max Pixels",
+            "type": "integer"
+          },
+          "max_source_bytes": {
+            "default": 8589934592,
+            "exclusiveMinimum": 0,
+            "maximum": 9223372036854775807,
+            "title": "Max Source Bytes",
+            "type": "integer"
+          },
+          "max_temp_bytes": {
+            "default": 12884901888,
+            "exclusiveMinimum": 0,
+            "maximum": 9223372036854775807,
+            "title": "Max Temp Bytes",
+            "type": "integer"
+          },
+          "max_tiles": {
+            "default": 20000,
+            "exclusiveMinimum": 0,
+            "maximum": 2147483647,
+            "title": "Max Tiles",
+            "type": "integer"
+          },
+          "normalization_version": {
+            "const": "exif-autorotate-srgb-v1",
+            "default": "exif-autorotate-srgb-v1",
+            "title": "Normalization Version",
+            "type": "string"
+          },
+          "optional_pixels": {
+            "default": 16777216,
+            "exclusiveMinimum": 0,
+            "maximum": 9223372036854775807,
+            "title": "Optional Pixels",
+            "type": "integer"
+          },
+          "profile_version": {
+            "default": "pyramid-v1",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Profile Version",
+            "type": "string"
+          },
+          "required_pixels": {
+            "default": 50000000,
+            "exclusiveMinimum": 0,
+            "maximum": 9223372036854775807,
+            "title": "Required Pixels",
+            "type": "integer"
+          },
+          "retry_cooldown_seconds": {
+            "default": 300,
+            "maximum": 2147483647,
+            "minimum": 0,
+            "title": "Retry Cooldown Seconds",
+            "type": "integer"
+          },
+          "thumbnail_max_source_bytes": {
+            "const": 536870912,
+            "default": 536870912,
+            "title": "Thumbnail Max Source Bytes",
+            "type": "integer"
+          },
+          "url_expiry_seconds": {
+            "default": 900,
+            "exclusiveMinimum": 0,
+            "maximum": 2147483647,
+            "title": "Url Expiry Seconds",
+            "type": "integer"
+          },
+          "vips_concurrency": {
+            "default": 4,
+            "exclusiveMinimum": 0,
+            "maximum": 2147483647,
+            "title": "Vips Concurrency",
+            "type": "integer"
+          }
+        },
+        "title": "ImagePolicy",
+        "type": "object"
+      },
+      "ImagePyramidGeneration": {
+        "additionalProperties": false,
+        "description": "Trusted native projection. Object keys never leave the control boundary.",
+        "properties": {
+          "asset_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Asset Id"
+          },
+          "building_generation": {
+            "anyOf": [
+              {
+                "maximum": 2147483647,
+                "minimum": 1,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Building Generation"
+          },
+          "building_status": {
+            "anyOf": [
+              {
+                "enum": [
+                  "pending",
+                  "building"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Building Status"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Error Code"
+          },
+          "format": {
+            "anyOf": [
+              {
+                "const": "webp",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Format"
+          },
+          "generation": {
+            "anyOf": [
+              {
+                "maximum": 2147483647,
+                "minimum": 1,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Generation"
+          },
+          "height": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0,
+                "maximum": 2147483647,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Height"
+          },
+          "manifest": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ImagePyramidManifest"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "manifest_digest": {
+            "anyOf": [
+              {
+                "pattern": "^sha256:[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Manifest Digest"
+          },
+          "manifest_key": {
+            "anyOf": [
+              {
+                "maxLength": 2048,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Manifest Key"
+          },
+          "overview_digest": {
+            "anyOf": [
+              {
+                "pattern": "^sha256:[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Overview Digest"
+          },
+          "overview_key": {
+            "anyOf": [
+              {
+                "maxLength": 2048,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Overview Key"
+          },
+          "required": {
+            "title": "Required",
+            "type": "boolean"
+          },
+          "retained_bytes": {
+            "maximum": 9223372036854775807,
+            "minimum": 0,
+            "title": "Retained Bytes",
+            "type": "integer"
+          },
+          "retry_after_ms": {
+            "anyOf": [
+              {
+                "maximum": 9223372036854775807,
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Retry After Ms"
+          },
+          "retryable": {
+            "default": false,
+            "title": "Retryable",
+            "type": "boolean"
+          },
+          "source_generation": {
+            "anyOf": [
+              {
+                "maximum": 9223372036854775807,
+                "minimum": 1,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Source Generation"
+          },
+          "source_snapshot": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Source Snapshot"
+          },
+          "status": {
+            "enum": [
+              "not_available",
+              "missing",
+              "pending",
+              "building",
+              "ready",
+              "failed",
+              "stale",
+              "inconsistent"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "tile_count": {
+            "maximum": 9223372036854775807,
+            "minimum": 0,
+            "title": "Tile Count",
+            "type": "integer"
+          },
+          "tile_size": {
+            "const": 512,
+            "default": 512,
+            "title": "Tile Size",
+            "type": "integer"
+          },
+          "width": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0,
+                "maximum": 2147483647,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Width"
+          }
+        },
+        "required": [
+          "asset_id",
+          "status",
+          "required",
+          "generation",
+          "building_generation",
+          "building_status",
+          "width",
+          "height",
+          "format",
+          "manifest",
+          "manifest_key",
+          "manifest_digest",
+          "overview_key",
+          "overview_digest",
+          "tile_count",
+          "retained_bytes"
+        ],
+        "title": "ImagePyramidGeneration",
+        "type": "object"
+      },
+      "ImagePyramidLevel": {
+        "additionalProperties": false,
+        "properties": {
+          "columns": {
+            "exclusiveMinimum": 0,
+            "maximum": 2147483647,
+            "title": "Columns",
+            "type": "integer"
+          },
+          "height": {
+            "exclusiveMinimum": 0,
+            "maximum": 2147483647,
+            "title": "Height",
+            "type": "integer"
+          },
+          "level": {
+            "maximum": 2147483647,
+            "minimum": 0,
+            "title": "Level",
+            "type": "integer"
+          },
+          "rows": {
+            "exclusiveMinimum": 0,
+            "maximum": 2147483647,
+            "title": "Rows",
+            "type": "integer"
+          },
+          "scaleFactor": {
+            "exclusiveMinimum": 0,
+            "maximum": 2147483647,
+            "title": "Scalefactor",
+            "type": "integer"
+          },
+          "width": {
+            "exclusiveMinimum": 0,
+            "maximum": 2147483647,
+            "title": "Width",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "level",
+          "scaleFactor",
+          "width",
+          "height",
+          "columns",
+          "rows"
+        ],
+        "title": "ImagePyramidLevel",
+        "type": "object"
+      },
+      "ImagePyramidManifest": {
+        "additionalProperties": false,
+        "properties": {
+          "format": {
+            "const": "webp",
+            "title": "Format",
+            "type": "string"
+          },
+          "generation": {
+            "maximum": 2147483647,
+            "minimum": 1,
+            "title": "Generation",
+            "type": "integer"
+          },
+          "height": {
+            "exclusiveMinimum": 0,
+            "maximum": 2147483647,
+            "title": "Height",
+            "type": "integer"
+          },
+          "levels": {
+            "items": {
+              "$ref": "#/components/schemas/ImagePyramidLevel"
+            },
+            "maxItems": 32,
+            "minItems": 1,
+            "title": "Levels",
+            "type": "array"
+          },
+          "normalizationVersion": {
+            "const": "exif-autorotate-srgb-v1",
+            "title": "Normalizationversion",
+            "type": "string"
+          },
+          "overlap": {
+            "const": 1,
+            "title": "Overlap",
+            "type": "integer"
+          },
+          "overview": {
+            "$ref": "#/components/schemas/ImagePyramidOverview"
+          },
+          "schema": {
+            "const": "aap-image-pyramid/v1",
+            "title": "Schema",
+            "type": "string"
+          },
+          "sourceFingerprint": {
+            "pattern": "^sha256:[0-9a-f]{64}$",
+            "title": "Sourcefingerprint",
+            "type": "string"
+          },
+          "tileSize": {
+            "const": 512,
+            "title": "Tilesize",
+            "type": "integer"
+          },
+          "width": {
+            "exclusiveMinimum": 0,
+            "maximum": 2147483647,
+            "title": "Width",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "schema",
+          "generation",
+          "sourceFingerprint",
+          "normalizationVersion",
+          "width",
+          "height",
+          "tileSize",
+          "overlap",
+          "format",
+          "levels",
+          "overview"
+        ],
+        "title": "ImagePyramidManifest",
+        "type": "object"
+      },
+      "ImagePyramidOverview": {
+        "additionalProperties": false,
+        "properties": {
+          "contentDigest": {
+            "pattern": "^sha256:[0-9a-f]{64}$",
+            "title": "Contentdigest",
+            "type": "string"
+          },
+          "height": {
+            "exclusiveMinimum": 0,
+            "maximum": 2147483647,
+            "title": "Height",
+            "type": "integer"
+          },
+          "width": {
+            "exclusiveMinimum": 0,
+            "maximum": 2147483647,
+            "title": "Width",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "width",
+          "height",
+          "contentDigest"
+        ],
+        "title": "ImagePyramidOverview",
+        "type": "object"
+      },
+      "ImagePyramidSummary": {
+        "additionalProperties": false,
+        "properties": {
+          "building_generation": {
+            "anyOf": [
+              {
+                "maximum": 2147483647,
+                "minimum": 1,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Building Generation"
+          },
+          "building_status": {
+            "anyOf": [
+              {
+                "enum": [
+                  "pending",
+                  "building"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Building Status"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Error Code"
+          },
+          "format": {
+            "anyOf": [
+              {
+                "const": "webp",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Format"
+          },
+          "generation": {
+            "anyOf": [
+              {
+                "maximum": 2147483647,
+                "minimum": 1,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Generation"
+          },
+          "height": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0,
+                "maximum": 2147483647,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Height"
+          },
+          "required": {
+            "title": "Required",
+            "type": "boolean"
+          },
+          "retry_after_ms": {
+            "anyOf": [
+              {
+                "maximum": 9223372036854775807,
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Retry After Ms"
+          },
+          "retryable": {
+            "default": false,
+            "title": "Retryable",
+            "type": "boolean"
+          },
+          "status": {
+            "enum": [
+              "not_available",
+              "missing",
+              "pending",
+              "building",
+              "ready",
+              "failed",
+              "stale",
+              "inconsistent"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "tile_size": {
+            "const": 512,
+            "default": 512,
+            "title": "Tile Size",
+            "type": "integer"
+          },
+          "width": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0,
+                "maximum": 2147483647,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Width"
+          }
+        },
+        "required": [
+          "status",
+          "required",
+          "generation",
+          "building_generation",
+          "building_status",
+          "width",
+          "height",
+          "format"
+        ],
+        "title": "ImagePyramidSummary",
+        "type": "object"
+      },
+      "ImageSource": {
+        "additionalProperties": false,
+        "description": "Current source facts plus separate freshness facts for derived media.",
+        "properties": {
+          "blurhash": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Blurhash"
+          },
+          "bucket_kind": {
+            "enum": [
+              "datasets",
+              "legacy"
+            ],
+            "title": "Bucket Kind",
+            "type": "string"
+          },
+          "content_hash": {
+            "anyOf": [
+              {
+                "maxLength": 255,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Content Hash"
+          },
+          "dataset_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dataset Id"
+          },
+          "file_name": {
+            "maxLength": 512,
+            "minLength": 1,
+            "title": "File Name",
+            "type": "string"
+          },
+          "file_path": {
+            "maxLength": 1024,
+            "minLength": 1,
+            "title": "File Path",
+            "type": "string"
+          },
+          "file_size": {
+            "anyOf": [
+              {
+                "maximum": 9223372036854775807,
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "File Size"
+          },
+          "file_type": {
+            "const": "image",
+            "title": "File Type",
+            "type": "string"
+          },
+          "height": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0,
+                "maximum": 2147483647,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Height"
+          },
+          "item_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Item Id"
+          },
+          "object_identity": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ObjectIdentity"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "owner": {
+            "$ref": "#/components/schemas/ImageOwner"
+          },
+          "project_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project Id"
+          },
+          "source_drifted": {
+            "title": "Source Drifted",
+            "type": "boolean"
+          },
+          "source_generation": {
+            "maximum": 9223372036854775807,
+            "minimum": 1,
+            "title": "Source Generation",
+            "type": "integer"
+          },
+          "source_snapshot": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Source Snapshot",
+            "type": "string"
+          },
+          "task_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Task Id"
+          },
+          "thumbnail_error": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Thumbnail Error"
+          },
+          "thumbnail_path": {
+            "anyOf": [
+              {
+                "maxLength": 1024,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Thumbnail Path"
+          },
+          "thumbnail_source_generation": {
+            "anyOf": [
+              {
+                "maximum": 9223372036854775807,
+                "minimum": 1,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Thumbnail Source Generation"
+          },
+          "upload_ready": {
+            "title": "Upload Ready",
+            "type": "boolean"
+          },
+          "width": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0,
+                "maximum": 2147483647,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Width"
+          }
+        },
+        "required": [
+          "owner",
+          "task_id",
+          "project_id",
+          "dataset_id",
+          "item_id",
+          "source_generation",
+          "source_snapshot",
+          "object_identity",
+          "source_drifted",
+          "upload_ready",
+          "file_path",
+          "file_name",
+          "file_type",
+          "bucket_kind",
+          "file_size",
+          "content_hash",
+          "width",
+          "height",
+          "thumbnail_path",
+          "blurhash",
+          "thumbnail_source_generation",
+          "thumbnail_error"
+        ],
+        "title": "ImageSource",
+        "type": "object"
+      },
+      "ImageSourceReference": {
+        "additionalProperties": false,
+        "properties": {
+          "actor_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Actor Id"
+          },
+          "expires_in": {
+            "maximum": 604800,
+            "minimum": 1,
+            "title": "Expires In",
+            "type": "integer"
+          },
+          "original_url": {
+            "title": "Original Url",
+            "type": "string"
+          },
+          "source": {
+            "$ref": "#/components/schemas/ImageSource"
+          },
+          "thumbnail_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Thumbnail Url"
+          }
+        },
+        "required": [
+          "source",
+          "original_url",
+          "thumbnail_url",
+          "expires_in"
+        ],
+        "title": "ImageSourceReference",
+        "type": "object"
+      },
+      "ImageSourceReferences": {
+        "additionalProperties": false,
+        "properties": {
+          "references": {
+            "items": {
+              "$ref": "#/components/schemas/ImageSourceReference"
+            },
+            "maxItems": 500,
+            "title": "References",
+            "type": "array"
+          }
+        },
+        "required": [
+          "references"
+        ],
+        "title": "ImageSourceReferences",
+        "type": "object"
+      },
+      "ImageSourceReferencesRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "raw_only": {
+            "default": false,
+            "title": "Raw Only",
+            "type": "boolean"
+          },
+          "requests": {
+            "items": {
+              "$ref": "#/components/schemas/ActorImageSourceRequest"
+            },
+            "maxItems": 500,
+            "title": "Requests",
+            "type": "array"
+          }
+        },
+        "required": [
+          "requests"
+        ],
+        "title": "ImageSourceReferencesRequest",
+        "type": "object"
+      },
+      "ImageSourceSelector": {
+        "additionalProperties": false,
+        "properties": {
+          "dataset_item_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Dataset Item Id"
+          },
+          "task_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Task Id"
+          }
+        },
+        "title": "ImageSourceSelector",
+        "type": "object"
+      },
+      "ImageSummaries": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ImageSummaryItem"
+            },
+            "maxItems": 500,
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "ImageSummaries",
+        "type": "object"
+      },
+      "ImageSummaryItem": {
+        "additionalProperties": false,
+        "properties": {
+          "pyramid": {
+            "$ref": "#/components/schemas/ImagePyramidSummary"
+          },
+          "selector": {
+            "$ref": "#/components/schemas/ImageSourceSelector"
+          },
+          "source": {
+            "$ref": "#/components/schemas/ImageSource"
+          },
+          "thumbnail_current": {
+            "title": "Thumbnail Current",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "selector",
+          "source",
+          "thumbnail_current",
+          "pyramid"
+        ],
+        "title": "ImageSummaryItem",
+        "type": "object"
+      },
+      "ImageTileRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "generation": {
+            "maximum": 2147483647,
+            "minimum": 1,
+            "title": "Generation",
+            "type": "integer"
+          },
+          "kind": {
+            "const": "tile",
+            "default": "tile",
+            "title": "Kind",
+            "type": "string"
+          },
+          "level": {
+            "maximum": 31,
+            "minimum": 0,
+            "title": "Level",
+            "type": "integer"
+          },
+          "x": {
+            "maximum": 65535,
+            "minimum": 0,
+            "title": "X",
+            "type": "integer"
+          },
+          "y": {
+            "maximum": 65535,
+            "minimum": 0,
+            "title": "Y",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "generation",
+          "level",
+          "x",
+          "y"
+        ],
+        "title": "ImageTileRequest",
+        "type": "object"
+      },
+      "ImageUsage": {
+        "additionalProperties": false,
+        "properties": {
+          "failed": {
+            "maximum": 9223372036854775807,
+            "minimum": 0,
+            "title": "Failed",
+            "type": "integer"
+          },
+          "garbage_pending": {
+            "maximum": 9223372036854775807,
+            "minimum": 0,
+            "title": "Garbage Pending",
+            "type": "integer"
+          },
+          "pending": {
+            "maximum": 9223372036854775807,
+            "minimum": 0,
+            "title": "Pending",
+            "type": "integer"
+          },
+          "pyramid_bytes": {
+            "maximum": 9223372036854775807,
+            "minimum": 0,
+            "title": "Pyramid Bytes",
+            "type": "integer"
+          },
+          "running": {
+            "maximum": 9223372036854775807,
+            "minimum": 0,
+            "title": "Running",
+            "type": "integer"
+          },
+          "source_bytes": {
+            "maximum": 9223372036854775807,
+            "minimum": 0,
+            "title": "Source Bytes",
+            "type": "integer"
+          },
+          "thumbnail_bytes": {
+            "maximum": 9223372036854775807,
+            "minimum": 0,
+            "title": "Thumbnail Bytes",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "source_bytes",
+          "thumbnail_bytes",
+          "pyramid_bytes",
+          "pending",
+          "running",
+          "failed",
+          "garbage_pending"
+        ],
+        "title": "ImageUsage",
+        "type": "object"
+      },
+      "ImageUsageRequest": {
+        "additionalProperties": false,
+        "properties": {},
+        "title": "ImageUsageRequest",
+        "type": "object"
+      },
+      "ImageWorkReference": {
+        "additionalProperties": false,
+        "properties": {
+          "generation": {
+            "maximum": 9223372036854775807,
+            "minimum": 1,
+            "title": "Generation",
+            "type": "integer"
+          },
+          "job_id": {
+            "format": "uuid",
+            "title": "Job Id",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "dimensions",
+              "thumbnail",
+              "pyramid",
+              "image_backfill"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "owner": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ImageOwner"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "source_generation": {
+            "maximum": 9223372036854775807,
+            "minimum": 0,
+            "title": "Source Generation",
+            "type": "integer"
+          },
+          "status": {
+            "enum": [
+              "pending",
+              "running",
+              "ready",
+              "failed",
+              "canceled"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "job_id",
+          "generation",
+          "owner",
+          "source_generation",
+          "kind",
+          "status"
+        ],
+        "title": "ImageWorkReference",
+        "type": "object"
+      },
+      "ImageWorkStatus": {
+        "additionalProperties": false,
+        "properties": {
+          "error_code": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "error_detail": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Detail"
+          },
+          "lease_expires_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lease Expires At"
+          },
+          "progress": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonValue"
+            },
+            "title": "Progress",
+            "type": "object"
+          },
+          "spec": {
+            "discriminator": {
+              "mapping": {
+                "dimensions": "#/components/schemas/DimensionsWorkSpec",
+                "image_backfill": "#/components/schemas/ImageBackfillSpec",
+                "pyramid": "#/components/schemas/PyramidWorkSpec",
+                "thumbnail": "#/components/schemas/ThumbnailWorkSpec"
+              },
+              "propertyName": "kind"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/DimensionsWorkSpec"
+              },
+              {
+                "$ref": "#/components/schemas/ThumbnailWorkSpec"
+              },
+              {
+                "$ref": "#/components/schemas/PyramidWorkSpec"
+              },
+              {
+                "$ref": "#/components/schemas/ImageBackfillSpec"
+              }
+            ],
+            "title": "Spec"
+          },
+          "work": {
+            "$ref": "#/components/schemas/ImageWorkReference"
+          }
+        },
+        "required": [
+          "work",
+          "spec",
+          "progress",
+          "error_code",
+          "error_detail",
+          "lease_expires_at"
+        ],
+        "title": "ImageWorkStatus",
+        "type": "object"
+      },
+      "InternalImageSourceReferenceRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "expires_in": {
+            "default": 3600,
+            "maximum": 604800,
+            "minimum": 1,
+            "title": "Expires In",
+            "type": "integer"
+          },
+          "source": {
+            "$ref": "#/components/schemas/InternalImageSourceRequest"
+          }
+        },
+        "required": [
+          "source"
+        ],
+        "title": "InternalImageSourceReferenceRequest",
+        "type": "object"
+      },
+      "InternalImageSourceRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_source_snapshot": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Expected Source Snapshot"
+          },
+          "object_identity": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ObjectIdentity"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "owner": {
+            "$ref": "#/components/schemas/ImageOwner"
+          }
+        },
+        "required": [
+          "owner"
+        ],
+        "title": "InternalImageSourceRequest",
+        "type": "object"
+      },
+      "InvalidateImageMediaRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "actor_id": {
+            "format": "uuid",
+            "title": "Actor Id",
+            "type": "string"
+          },
+          "dataset_item_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Dataset Item Id"
+          },
+          "invalidation": {
+            "$ref": "#/components/schemas/ImageInvalidation"
+          },
+          "task_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Task Id"
+          }
+        },
+        "required": [
+          "actor_id",
+          "invalidation"
+        ],
+        "title": "InvalidateImageMediaRequest",
+        "type": "object"
+      },
+      "InvalidationResult": {
+        "additionalProperties": false,
+        "properties": {
+          "changed": {
+            "title": "Changed",
+            "type": "boolean"
+          },
+          "source": {
+            "$ref": "#/components/schemas/ImageSource"
+          }
+        },
+        "required": [
+          "source",
+          "changed"
+        ],
+        "title": "InvalidationResult",
+        "type": "object"
+      },
+      "JsonValue": {},
+      "ObjectIdentity": {
+        "additionalProperties": false,
+        "properties": {
+          "byte_size": {
+            "maximum": 9223372036854775807,
+            "minimum": 0,
+            "title": "Byte Size",
+            "type": "integer"
+          },
+          "etag": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Etag",
+            "type": "string"
+          },
+          "version_id": {
+            "anyOf": [
+              {
+                "maxLength": 255,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Version Id"
+          }
+        },
+        "required": [
+          "etag",
+          "byte_size"
+        ],
+        "title": "ObjectIdentity",
+        "type": "object"
+      },
+      "ObserveImageSourceRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "actor_id": {
+            "format": "uuid",
+            "title": "Actor Id",
+            "type": "string"
+          },
+          "dataset_item_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Dataset Item Id"
+          },
+          "object_identity": {
+            "$ref": "#/components/schemas/ObjectIdentity"
+          },
+          "source_snapshot": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Source Snapshot",
+            "type": "string"
+          },
+          "task_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Task Id"
+          }
+        },
+        "required": [
+          "actor_id",
+          "source_snapshot",
+          "object_identity"
+        ],
+        "title": "ObserveImageSourceRequest",
+        "type": "object"
+      },
+      "PrepareImageMediaRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "actor_id": {
+            "format": "uuid",
+            "title": "Actor Id",
+            "type": "string"
+          },
+          "dataset_item_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Dataset Item Id"
+          },
+          "expected_source_snapshot": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Expected Source Snapshot"
+          },
+          "force": {
+            "default": false,
+            "title": "Force",
+            "type": "boolean"
+          },
+          "operation_id": {
+            "format": "uuid",
+            "title": "Operation Id",
+            "type": "string"
+          },
+          "policy": {
+            "$ref": "#/components/schemas/ImagePolicy"
+          },
+          "purpose": {
+            "enum": [
+              "dimensions",
+              "thumbnail",
+              "pyramid"
+            ],
+            "title": "Purpose",
+            "type": "string"
+          },
+          "task_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Task Id"
+          }
+        },
+        "required": [
+          "actor_id",
+          "operation_id",
+          "purpose"
+        ],
+        "title": "PrepareImageMediaRequest",
+        "type": "object"
+      },
+      "PyramidWorkSpec": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_source_snapshot": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Expected Source Snapshot",
+            "type": "string"
+          },
+          "kind": {
+            "const": "pyramid",
+            "default": "pyramid",
+            "title": "Kind",
+            "type": "string"
+          },
+          "policy": {
+            "$ref": "#/components/schemas/ImagePolicy"
+          }
+        },
+        "required": [
+          "expected_source_snapshot"
+        ],
+        "title": "PyramidWorkSpec",
+        "type": "object"
+      },
+      "ReadImageGenerationRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "actor_id": {
+            "format": "uuid",
+            "title": "Actor Id",
+            "type": "string"
+          },
+          "dataset_item_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Dataset Item Id"
+          },
+          "generation": {
+            "anyOf": [
+              {
+                "maximum": 2147483647,
+                "minimum": 1,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Generation"
+          },
+          "task_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Task Id"
+          }
+        },
+        "required": [
+          "actor_id"
+        ],
+        "title": "ReadImageGenerationRequest",
+        "type": "object"
+      },
+      "ReadImageSourceRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "actor_id": {
+            "format": "uuid",
+            "title": "Actor Id",
+            "type": "string"
+          },
+          "dataset_item_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Dataset Item Id"
+          },
+          "task_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Task Id"
+          }
+        },
+        "required": [
+          "actor_id"
+        ],
+        "title": "ReadImageSourceRequest",
+        "type": "object"
+      },
+      "ReadImageSummariesRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "actor_id": {
+            "format": "uuid",
+            "title": "Actor Id",
+            "type": "string"
+          },
+          "selectors": {
+            "items": {
+              "$ref": "#/components/schemas/ImageSourceSelector"
+            },
+            "maxItems": 500,
+            "title": "Selectors",
+            "type": "array"
+          }
+        },
+        "required": [
+          "actor_id",
+          "selectors"
+        ],
+        "title": "ReadImageSummariesRequest",
+        "type": "object"
+      },
+      "ReadImageWorkRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "actor_id": {
+            "format": "uuid",
+            "title": "Actor Id",
+            "type": "string"
+          },
+          "job_id": {
+            "format": "uuid",
+            "title": "Job Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "actor_id",
+          "job_id"
+        ],
+        "title": "ReadImageWorkRequest",
+        "type": "object"
+      },
+      "ReadInternalImageWorkRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "job_id": {
+            "format": "uuid",
+            "title": "Job Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "job_id"
+        ],
+        "title": "ReadInternalImageWorkRequest",
+        "type": "object"
+      },
+      "ResolveInternalImageSourceRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_source_snapshot": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Expected Source Snapshot"
+          },
+          "object_identity": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ObjectIdentity"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "owner_id": {
+            "format": "uuid",
+            "title": "Owner Id",
+            "type": "string"
+          },
+          "owner_kind": {
+            "enum": [
+              "dataset_item",
+              "task"
+            ],
+            "title": "Owner Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "owner_kind",
+          "owner_id"
+        ],
+        "title": "ResolveInternalImageSourceRequest",
+        "type": "object"
+      },
+      "RetryImageMediaRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "actor_id": {
+            "format": "uuid",
+            "title": "Actor Id",
+            "type": "string"
+          },
+          "dataset_item_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Dataset Item Id"
+          },
+          "expected_source_snapshot": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Expected Source Snapshot"
+          },
+          "force": {
+            "default": false,
+            "title": "Force",
+            "type": "boolean"
+          },
+          "operation_id": {
+            "format": "uuid",
+            "title": "Operation Id",
+            "type": "string"
+          },
+          "policy": {
+            "$ref": "#/components/schemas/ImagePolicy"
+          },
+          "purpose": {
+            "enum": [
+              "dimensions",
+              "thumbnail",
+              "pyramid"
+            ],
+            "title": "Purpose",
+            "type": "string"
+          },
+          "task_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Task Id"
+          }
+        },
+        "required": [
+          "actor_id",
+          "operation_id",
+          "purpose"
+        ],
+        "title": "RetryImageMediaRequest",
+        "type": "object"
+      },
+      "ScanImageBackfillRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "after_owner_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "After Owner Id"
+          },
+          "after_owner_kind": {
+            "anyOf": [
+              {
+                "enum": [
+                  "dataset_item",
+                  "task"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "After Owner Kind"
+          },
+          "page_size": {
+            "default": 500,
+            "maximum": 500,
+            "minimum": 1,
+            "title": "Page Size",
+            "type": "integer"
+          },
+          "selection": {
+            "$ref": "#/components/schemas/ImageBackfillSelection"
+          }
+        },
+        "required": [
+          "selection"
+        ],
+        "title": "ScanImageBackfillRequest",
+        "type": "object"
+      },
+      "ScheduleImageMediaRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "force": {
+            "default": false,
+            "title": "Force",
+            "type": "boolean"
+          },
+          "operation_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Operation Id"
+          },
+          "owner_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Owner Id"
+          },
+          "owner_kind": {
+            "anyOf": [
+              {
+                "enum": [
+                  "dataset_item",
+                  "task"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Owner Kind"
+          },
+          "spec": {
+            "discriminator": {
+              "mapping": {
+                "dimensions": "#/components/schemas/DimensionsWorkSpec",
+                "image_backfill": "#/components/schemas/ImageBackfillSpec",
+                "pyramid": "#/components/schemas/PyramidWorkSpec",
+                "thumbnail": "#/components/schemas/ThumbnailWorkSpec"
+              },
+              "propertyName": "kind"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/DimensionsWorkSpec"
+              },
+              {
+                "$ref": "#/components/schemas/ThumbnailWorkSpec"
+              },
+              {
+                "$ref": "#/components/schemas/PyramidWorkSpec"
+              },
+              {
+                "$ref": "#/components/schemas/ImageBackfillSpec"
+              }
+            ],
+            "title": "Spec"
+          }
+        },
+        "required": [
+          "operation_id",
+          "owner_kind",
+          "owner_id",
+          "spec"
+        ],
+        "title": "ScheduleImageMediaRequest",
+        "type": "object"
+      },
+      "ThumbnailWorkSpec": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_source_snapshot": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Expected Source Snapshot",
+            "type": "string"
+          },
+          "kind": {
+            "const": "thumbnail",
+            "default": "thumbnail",
+            "title": "Kind",
+            "type": "string"
+          },
+          "policy": {
+            "$ref": "#/components/schemas/ImagePolicy"
+          }
+        },
+        "required": [
+          "expected_source_snapshot"
+        ],
+        "title": "ThumbnailWorkSpec",
+        "type": "object"
+      }
+    },
+    "securitySchemes": {
+      "serviceToken": {
+        "scheme": "bearer",
+        "type": "http"
+      }
+    }
+  },
+  "info": {
+    "title": "Assets image control",
+    "version": "1"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/v1/images/asset-references": {
+      "post": {
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ImageAssetReferencesRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/ImageAssetReferences"
+                    },
+                    "ok": {
+                      "const": true
+                    },
+                    "schema": {
+                      "const": "aap-assets-images/v1"
+                    }
+                  },
+                  "required": [
+                    "schema",
+                    "ok",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Accepted image owner result"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "invalid_request",
+                            "invalid_response",
+                            "storage_unavailable",
+                            "account_not_active",
+                            "account_busy",
+                            "invalid_account_role",
+                            "source_missing",
+                            "source_changed",
+                            "source_busy",
+                            "source_not_ready",
+                            "task_not_visible",
+                            "task_busy",
+                            "permission_denied",
+                            "not_image",
+                            "asset_missing",
+                            "operation_conflict",
+                            "operation_busy",
+                            "lease_lost",
+                            "dependency_changed",
+                            "resource_budget_exceeded",
+                            "object_missing",
+                            "owner_changed",
+                            "unsupported_dimensions",
+                            "resource_limit",
+                            "invalid_coordinate",
+                            "timeout",
+                            "source_unavailable",
+                            "color_profile_unavailable",
+                            "multi_page_unsupported",
+                            "dimension_mismatch",
+                            "generator_unavailable",
+                            "decode_failed",
+                            "encode_failed",
+                            "tile_grid_mismatch",
+                            "upload_verification_failed",
+                            "inconsistent_ready"
+                          ],
+                          "title": "Code",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code"
+                      ],
+                      "title": "_Error",
+                      "type": "object"
+                    },
+                    "ok": {
+                      "const": false
+                    },
+                    "schema": {
+                      "const": "aap-assets-images/v1"
+                    }
+                  },
+                  "required": [
+                    "schema",
+                    "ok",
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Image contract failure"
+          }
+        }
+      }
+    },
+    "/v1/images/commands/cancel_image_media": {
+      "post": {
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CancelImageMediaRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/CancelImageMediaResult"
+                    },
+                    "ok": {
+                      "const": true
+                    },
+                    "schema": {
+                      "const": "aap-assets-images/v1"
+                    }
+                  },
+                  "required": [
+                    "schema",
+                    "ok",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Accepted image owner result"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "invalid_request",
+                            "invalid_response",
+                            "storage_unavailable",
+                            "account_not_active",
+                            "account_busy",
+                            "invalid_account_role",
+                            "source_missing",
+                            "source_changed",
+                            "source_busy",
+                            "source_not_ready",
+                            "task_not_visible",
+                            "task_busy",
+                            "permission_denied",
+                            "not_image",
+                            "asset_missing",
+                            "operation_conflict",
+                            "operation_busy",
+                            "lease_lost",
+                            "dependency_changed",
+                            "resource_budget_exceeded",
+                            "object_missing",
+                            "owner_changed",
+                            "unsupported_dimensions",
+                            "resource_limit",
+                            "invalid_coordinate",
+                            "timeout",
+                            "source_unavailable",
+                            "color_profile_unavailable",
+                            "multi_page_unsupported",
+                            "dimension_mismatch",
+                            "generator_unavailable",
+                            "decode_failed",
+                            "encode_failed",
+                            "tile_grid_mismatch",
+                            "upload_verification_failed",
+                            "inconsistent_ready"
+                          ],
+                          "title": "Code",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code"
+                      ],
+                      "title": "_Error",
+                      "type": "object"
+                    },
+                    "ok": {
+                      "const": false
+                    },
+                    "schema": {
+                      "const": "aap-assets-images/v1"
+                    }
+                  },
+                  "required": [
+                    "schema",
+                    "ok",
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Image contract failure"
+          }
+        }
+      }
+    },
+    "/v1/images/commands/invalidate_image_media": {
+      "post": {
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InvalidateImageMediaRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/InvalidationResult"
+                    },
+                    "ok": {
+                      "const": true
+                    },
+                    "schema": {
+                      "const": "aap-assets-images/v1"
+                    }
+                  },
+                  "required": [
+                    "schema",
+                    "ok",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Accepted image owner result"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "invalid_request",
+                            "invalid_response",
+                            "storage_unavailable",
+                            "account_not_active",
+                            "account_busy",
+                            "invalid_account_role",
+                            "source_missing",
+                            "source_changed",
+                            "source_busy",
+                            "source_not_ready",
+                            "task_not_visible",
+                            "task_busy",
+                            "permission_denied",
+                            "not_image",
+                            "asset_missing",
+                            "operation_conflict",
+                            "operation_busy",
+                            "lease_lost",
+                            "dependency_changed",
+                            "resource_budget_exceeded",
+                            "object_missing",
+                            "owner_changed",
+                            "unsupported_dimensions",
+                            "resource_limit",
+                            "invalid_coordinate",
+                            "timeout",
+                            "source_unavailable",
+                            "color_profile_unavailable",
+                            "multi_page_unsupported",
+                            "dimension_mismatch",
+                            "generator_unavailable",
+                            "decode_failed",
+                            "encode_failed",
+                            "tile_grid_mismatch",
+                            "upload_verification_failed",
+                            "inconsistent_ready"
+                          ],
+                          "title": "Code",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code"
+                      ],
+                      "title": "_Error",
+                      "type": "object"
+                    },
+                    "ok": {
+                      "const": false
+                    },
+                    "schema": {
+                      "const": "aap-assets-images/v1"
+                    }
+                  },
+                  "required": [
+                    "schema",
+                    "ok",
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Image contract failure"
+          }
+        }
+      }
+    },
+    "/v1/images/commands/observe_image_source": {
+      "post": {
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ObserveImageSourceRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/ImageSource"
+                    },
+                    "ok": {
+                      "const": true
+                    },
+                    "schema": {
+                      "const": "aap-assets-images/v1"
+                    }
+                  },
+                  "required": [
+                    "schema",
+                    "ok",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Accepted image owner result"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "invalid_request",
+                            "invalid_response",
+                            "storage_unavailable",
+                            "account_not_active",
+                            "account_busy",
+                            "invalid_account_role",
+                            "source_missing",
+                            "source_changed",
+                            "source_busy",
+                            "source_not_ready",
+                            "task_not_visible",
+                            "task_busy",
+                            "permission_denied",
+                            "not_image",
+                            "asset_missing",
+                            "operation_conflict",
+                            "operation_busy",
+                            "lease_lost",
+                            "dependency_changed",
+                            "resource_budget_exceeded",
+                            "object_missing",
+                            "owner_changed",
+                            "unsupported_dimensions",
+                            "resource_limit",
+                            "invalid_coordinate",
+                            "timeout",
+                            "source_unavailable",
+                            "color_profile_unavailable",
+                            "multi_page_unsupported",
+                            "dimension_mismatch",
+                            "generator_unavailable",
+                            "decode_failed",
+                            "encode_failed",
+                            "tile_grid_mismatch",
+                            "upload_verification_failed",
+                            "inconsistent_ready"
+                          ],
+                          "title": "Code",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code"
+                      ],
+                      "title": "_Error",
+                      "type": "object"
+                    },
+                    "ok": {
+                      "const": false
+                    },
+                    "schema": {
+                      "const": "aap-assets-images/v1"
+                    }
+                  },
+                  "required": [
+                    "schema",
+                    "ok",
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Image contract failure"
+          }
+        }
+      }
+    },
+    "/v1/images/commands/prepare_image_media": {
+      "post": {
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PrepareImageMediaRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/AcceptedImageWork"
+                    },
+                    "ok": {
+                      "const": true
+                    },
+                    "schema": {
+                      "const": "aap-assets-images/v1"
+                    }
+                  },
+                  "required": [
+                    "schema",
+                    "ok",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Accepted image owner result"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "invalid_request",
+                            "invalid_response",
+                            "storage_unavailable",
+                            "account_not_active",
+                            "account_busy",
+                            "invalid_account_role",
+                            "source_missing",
+                            "source_changed",
+                            "source_busy",
+                            "source_not_ready",
+                            "task_not_visible",
+                            "task_busy",
+                            "permission_denied",
+                            "not_image",
+                            "asset_missing",
+                            "operation_conflict",
+                            "operation_busy",
+                            "lease_lost",
+                            "dependency_changed",
+                            "resource_budget_exceeded",
+                            "object_missing",
+                            "owner_changed",
+                            "unsupported_dimensions",
+                            "resource_limit",
+                            "invalid_coordinate",
+                            "timeout",
+                            "source_unavailable",
+                            "color_profile_unavailable",
+                            "multi_page_unsupported",
+                            "dimension_mismatch",
+                            "generator_unavailable",
+                            "decode_failed",
+                            "encode_failed",
+                            "tile_grid_mismatch",
+                            "upload_verification_failed",
+                            "inconsistent_ready"
+                          ],
+                          "title": "Code",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code"
+                      ],
+                      "title": "_Error",
+                      "type": "object"
+                    },
+                    "ok": {
+                      "const": false
+                    },
+                    "schema": {
+                      "const": "aap-assets-images/v1"
+                    }
+                  },
+                  "required": [
+                    "schema",
+                    "ok",
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Image contract failure"
+          }
+        }
+      }
+    },
+    "/v1/images/commands/read_image_generation": {
+      "post": {
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReadImageGenerationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/ImageGenerationRead"
+                    },
+                    "ok": {
+                      "const": true
+                    },
+                    "schema": {
+                      "const": "aap-assets-images/v1"
+                    }
+                  },
+                  "required": [
+                    "schema",
+                    "ok",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Accepted image owner result"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "invalid_request",
+                            "invalid_response",
+                            "storage_unavailable",
+                            "account_not_active",
+                            "account_busy",
+                            "invalid_account_role",
+                            "source_missing",
+                            "source_changed",
+                            "source_busy",
+                            "source_not_ready",
+                            "task_not_visible",
+                            "task_busy",
+                            "permission_denied",
+                            "not_image",
+                            "asset_missing",
+                            "operation_conflict",
+                            "operation_busy",
+                            "lease_lost",
+                            "dependency_changed",
+                            "resource_budget_exceeded",
+                            "object_missing",
+                            "owner_changed",
+                            "unsupported_dimensions",
+                            "resource_limit",
+                            "invalid_coordinate",
+                            "timeout",
+                            "source_unavailable",
+                            "color_profile_unavailable",
+                            "multi_page_unsupported",
+                            "dimension_mismatch",
+                            "generator_unavailable",
+                            "decode_failed",
+                            "encode_failed",
+                            "tile_grid_mismatch",
+                            "upload_verification_failed",
+                            "inconsistent_ready"
+                          ],
+                          "title": "Code",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code"
+                      ],
+                      "title": "_Error",
+                      "type": "object"
+                    },
+                    "ok": {
+                      "const": false
+                    },
+                    "schema": {
+                      "const": "aap-assets-images/v1"
+                    }
+                  },
+                  "required": [
+                    "schema",
+                    "ok",
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Image contract failure"
+          }
+        }
+      }
+    },
+    "/v1/images/commands/read_image_source": {
+      "post": {
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReadImageSourceRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/ImageSource"
+                    },
+                    "ok": {
+                      "const": true
+                    },
+                    "schema": {
+                      "const": "aap-assets-images/v1"
+                    }
+                  },
+                  "required": [
+                    "schema",
+                    "ok",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Accepted image owner result"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "invalid_request",
+                            "invalid_response",
+                            "storage_unavailable",
+                            "account_not_active",
+                            "account_busy",
+                            "invalid_account_role",
+                            "source_missing",
+                            "source_changed",
+                            "source_busy",
+                            "source_not_ready",
+                            "task_not_visible",
+                            "task_busy",
+                            "permission_denied",
+                            "not_image",
+                            "asset_missing",
+                            "operation_conflict",
+                            "operation_busy",
+                            "lease_lost",
+                            "dependency_changed",
+                            "resource_budget_exceeded",
+                            "object_missing",
+                            "owner_changed",
+                            "unsupported_dimensions",
+                            "resource_limit",
+                            "invalid_coordinate",
+                            "timeout",
+                            "source_unavailable",
+                            "color_profile_unavailable",
+                            "multi_page_unsupported",
+                            "dimension_mismatch",
+                            "generator_unavailable",
+                            "decode_failed",
+                            "encode_failed",
+                            "tile_grid_mismatch",
+                            "upload_verification_failed",
+                            "inconsistent_ready"
+                          ],
+                          "title": "Code",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code"
+                      ],
+                      "title": "_Error",
+                      "type": "object"
+                    },
+                    "ok": {
+                      "const": false
+                    },
+                    "schema": {
+                      "const": "aap-assets-images/v1"
+                    }
+                  },
+                  "required": [
+                    "schema",
+                    "ok",
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Image contract failure"
+          }
+        }
+      }
+    },
+    "/v1/images/commands/read_image_summaries": {
+      "post": {
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReadImageSummariesRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/ImageSummaries"
+                    },
+                    "ok": {
+                      "const": true
+                    },
+                    "schema": {
+                      "const": "aap-assets-images/v1"
+                    }
+                  },
+                  "required": [
+                    "schema",
+                    "ok",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Accepted image owner result"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "invalid_request",
+                            "invalid_response",
+                            "storage_unavailable",
+                            "account_not_active",
+                            "account_busy",
+                            "invalid_account_role",
+                            "source_missing",
+                            "source_changed",
+                            "source_busy",
+                            "source_not_ready",
+                            "task_not_visible",
+                            "task_busy",
+                            "permission_denied",
+                            "not_image",
+                            "asset_missing",
+                            "operation_conflict",
+                            "operation_busy",
+                            "lease_lost",
+                            "dependency_changed",
+                            "resource_budget_exceeded",
+                            "object_missing",
+                            "owner_changed",
+                            "unsupported_dimensions",
+                            "resource_limit",
+                            "invalid_coordinate",
+                            "timeout",
+                            "source_unavailable",
+                            "color_profile_unavailable",
+                            "multi_page_unsupported",
+                            "dimension_mismatch",
+                            "generator_unavailable",
+                            "decode_failed",
+                            "encode_failed",
+                            "tile_grid_mismatch",
+                            "upload_verification_failed",
+                            "inconsistent_ready"
+                          ],
+                          "title": "Code",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code"
+                      ],
+                      "title": "_Error",
+                      "type": "object"
+                    },
+                    "ok": {
+                      "const": false
+                    },
+                    "schema": {
+                      "const": "aap-assets-images/v1"
+                    }
+                  },
+                  "required": [
+                    "schema",
+                    "ok",
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Image contract failure"
+          }
+        }
+      }
+    },
+    "/v1/images/commands/read_image_usage": {
+      "post": {
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ImageUsageRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/ImageUsage"
+                    },
+                    "ok": {
+                      "const": true
+                    },
+                    "schema": {
+                      "const": "aap-assets-images/v1"
+                    }
+                  },
+                  "required": [
+                    "schema",
+                    "ok",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Accepted image owner result"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "invalid_request",
+                            "invalid_response",
+                            "storage_unavailable",
+                            "account_not_active",
+                            "account_busy",
+                            "invalid_account_role",
+                            "source_missing",
+                            "source_changed",
+                            "source_busy",
+                            "source_not_ready",
+                            "task_not_visible",
+                            "task_busy",
+                            "permission_denied",
+                            "not_image",
+                            "asset_missing",
+                            "operation_conflict",
+                            "operation_busy",
+                            "lease_lost",
+                            "dependency_changed",
+                            "resource_budget_exceeded",
+                            "object_missing",
+                            "owner_changed",
+                            "unsupported_dimensions",
+                            "resource_limit",
+                            "invalid_coordinate",
+                            "timeout",
+                            "source_unavailable",
+                            "color_profile_unavailable",
+                            "multi_page_unsupported",
+                            "dimension_mismatch",
+                            "generator_unavailable",
+                            "decode_failed",
+                            "encode_failed",
+                            "tile_grid_mismatch",
+                            "upload_verification_failed",
+                            "inconsistent_ready"
+                          ],
+                          "title": "Code",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code"
+                      ],
+                      "title": "_Error",
+                      "type": "object"
+                    },
+                    "ok": {
+                      "const": false
+                    },
+                    "schema": {
+                      "const": "aap-assets-images/v1"
+                    }
+                  },
+                  "required": [
+                    "schema",
+                    "ok",
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Image contract failure"
+          }
+        }
+      }
+    },
+    "/v1/images/commands/read_image_work": {
+      "post": {
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReadImageWorkRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/ImageWorkStatus"
+                    },
+                    "ok": {
+                      "const": true
+                    },
+                    "schema": {
+                      "const": "aap-assets-images/v1"
+                    }
+                  },
+                  "required": [
+                    "schema",
+                    "ok",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Accepted image owner result"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "invalid_request",
+                            "invalid_response",
+                            "storage_unavailable",
+                            "account_not_active",
+                            "account_busy",
+                            "invalid_account_role",
+                            "source_missing",
+                            "source_changed",
+                            "source_busy",
+                            "source_not_ready",
+                            "task_not_visible",
+                            "task_busy",
+                            "permission_denied",
+                            "not_image",
+                            "asset_missing",
+                            "operation_conflict",
+                            "operation_busy",
+                            "lease_lost",
+                            "dependency_changed",
+                            "resource_budget_exceeded",
+                            "object_missing",
+                            "owner_changed",
+                            "unsupported_dimensions",
+                            "resource_limit",
+                            "invalid_coordinate",
+                            "timeout",
+                            "source_unavailable",
+                            "color_profile_unavailable",
+                            "multi_page_unsupported",
+                            "dimension_mismatch",
+                            "generator_unavailable",
+                            "decode_failed",
+                            "encode_failed",
+                            "tile_grid_mismatch",
+                            "upload_verification_failed",
+                            "inconsistent_ready"
+                          ],
+                          "title": "Code",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code"
+                      ],
+                      "title": "_Error",
+                      "type": "object"
+                    },
+                    "ok": {
+                      "const": false
+                    },
+                    "schema": {
+                      "const": "aap-assets-images/v1"
+                    }
+                  },
+                  "required": [
+                    "schema",
+                    "ok",
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Image contract failure"
+          }
+        }
+      }
+    },
+    "/v1/images/commands/read_internal_image_work": {
+      "post": {
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReadInternalImageWorkRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/ImageWorkStatus"
+                    },
+                    "ok": {
+                      "const": true
+                    },
+                    "schema": {
+                      "const": "aap-assets-images/v1"
+                    }
+                  },
+                  "required": [
+                    "schema",
+                    "ok",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Accepted image owner result"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "invalid_request",
+                            "invalid_response",
+                            "storage_unavailable",
+                            "account_not_active",
+                            "account_busy",
+                            "invalid_account_role",
+                            "source_missing",
+                            "source_changed",
+                            "source_busy",
+                            "source_not_ready",
+                            "task_not_visible",
+                            "task_busy",
+                            "permission_denied",
+                            "not_image",
+                            "asset_missing",
+                            "operation_conflict",
+                            "operation_busy",
+                            "lease_lost",
+                            "dependency_changed",
+                            "resource_budget_exceeded",
+                            "object_missing",
+                            "owner_changed",
+                            "unsupported_dimensions",
+                            "resource_limit",
+                            "invalid_coordinate",
+                            "timeout",
+                            "source_unavailable",
+                            "color_profile_unavailable",
+                            "multi_page_unsupported",
+                            "dimension_mismatch",
+                            "generator_unavailable",
+                            "decode_failed",
+                            "encode_failed",
+                            "tile_grid_mismatch",
+                            "upload_verification_failed",
+                            "inconsistent_ready"
+                          ],
+                          "title": "Code",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code"
+                      ],
+                      "title": "_Error",
+                      "type": "object"
+                    },
+                    "ok": {
+                      "const": false
+                    },
+                    "schema": {
+                      "const": "aap-assets-images/v1"
+                    }
+                  },
+                  "required": [
+                    "schema",
+                    "ok",
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Image contract failure"
+          }
+        }
+      }
+    },
+    "/v1/images/commands/resolve_internal_image_source": {
+      "post": {
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResolveInternalImageSourceRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/ImageSource"
+                    },
+                    "ok": {
+                      "const": true
+                    },
+                    "schema": {
+                      "const": "aap-assets-images/v1"
+                    }
+                  },
+                  "required": [
+                    "schema",
+                    "ok",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Accepted image owner result"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "invalid_request",
+                            "invalid_response",
+                            "storage_unavailable",
+                            "account_not_active",
+                            "account_busy",
+                            "invalid_account_role",
+                            "source_missing",
+                            "source_changed",
+                            "source_busy",
+                            "source_not_ready",
+                            "task_not_visible",
+                            "task_busy",
+                            "permission_denied",
+                            "not_image",
+                            "asset_missing",
+                            "operation_conflict",
+                            "operation_busy",
+                            "lease_lost",
+                            "dependency_changed",
+                            "resource_budget_exceeded",
+                            "object_missing",
+                            "owner_changed",
+                            "unsupported_dimensions",
+                            "resource_limit",
+                            "invalid_coordinate",
+                            "timeout",
+                            "source_unavailable",
+                            "color_profile_unavailable",
+                            "multi_page_unsupported",
+                            "dimension_mismatch",
+                            "generator_unavailable",
+                            "decode_failed",
+                            "encode_failed",
+                            "tile_grid_mismatch",
+                            "upload_verification_failed",
+                            "inconsistent_ready"
+                          ],
+                          "title": "Code",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code"
+                      ],
+                      "title": "_Error",
+                      "type": "object"
+                    },
+                    "ok": {
+                      "const": false
+                    },
+                    "schema": {
+                      "const": "aap-assets-images/v1"
+                    }
+                  },
+                  "required": [
+                    "schema",
+                    "ok",
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Image contract failure"
+          }
+        }
+      }
+    },
+    "/v1/images/commands/retry_image_media": {
+      "post": {
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RetryImageMediaRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/AcceptedImageWork"
+                    },
+                    "ok": {
+                      "const": true
+                    },
+                    "schema": {
+                      "const": "aap-assets-images/v1"
+                    }
+                  },
+                  "required": [
+                    "schema",
+                    "ok",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Accepted image owner result"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "invalid_request",
+                            "invalid_response",
+                            "storage_unavailable",
+                            "account_not_active",
+                            "account_busy",
+                            "invalid_account_role",
+                            "source_missing",
+                            "source_changed",
+                            "source_busy",
+                            "source_not_ready",
+                            "task_not_visible",
+                            "task_busy",
+                            "permission_denied",
+                            "not_image",
+                            "asset_missing",
+                            "operation_conflict",
+                            "operation_busy",
+                            "lease_lost",
+                            "dependency_changed",
+                            "resource_budget_exceeded",
+                            "object_missing",
+                            "owner_changed",
+                            "unsupported_dimensions",
+                            "resource_limit",
+                            "invalid_coordinate",
+                            "timeout",
+                            "source_unavailable",
+                            "color_profile_unavailable",
+                            "multi_page_unsupported",
+                            "dimension_mismatch",
+                            "generator_unavailable",
+                            "decode_failed",
+                            "encode_failed",
+                            "tile_grid_mismatch",
+                            "upload_verification_failed",
+                            "inconsistent_ready"
+                          ],
+                          "title": "Code",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code"
+                      ],
+                      "title": "_Error",
+                      "type": "object"
+                    },
+                    "ok": {
+                      "const": false
+                    },
+                    "schema": {
+                      "const": "aap-assets-images/v1"
+                    }
+                  },
+                  "required": [
+                    "schema",
+                    "ok",
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Image contract failure"
+          }
+        }
+      }
+    },
+    "/v1/images/commands/scan_image_backfill": {
+      "post": {
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScanImageBackfillRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/ImageBackfillPage"
+                    },
+                    "ok": {
+                      "const": true
+                    },
+                    "schema": {
+                      "const": "aap-assets-images/v1"
+                    }
+                  },
+                  "required": [
+                    "schema",
+                    "ok",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Accepted image owner result"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "invalid_request",
+                            "invalid_response",
+                            "storage_unavailable",
+                            "account_not_active",
+                            "account_busy",
+                            "invalid_account_role",
+                            "source_missing",
+                            "source_changed",
+                            "source_busy",
+                            "source_not_ready",
+                            "task_not_visible",
+                            "task_busy",
+                            "permission_denied",
+                            "not_image",
+                            "asset_missing",
+                            "operation_conflict",
+                            "operation_busy",
+                            "lease_lost",
+                            "dependency_changed",
+                            "resource_budget_exceeded",
+                            "object_missing",
+                            "owner_changed",
+                            "unsupported_dimensions",
+                            "resource_limit",
+                            "invalid_coordinate",
+                            "timeout",
+                            "source_unavailable",
+                            "color_profile_unavailable",
+                            "multi_page_unsupported",
+                            "dimension_mismatch",
+                            "generator_unavailable",
+                            "decode_failed",
+                            "encode_failed",
+                            "tile_grid_mismatch",
+                            "upload_verification_failed",
+                            "inconsistent_ready"
+                          ],
+                          "title": "Code",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code"
+                      ],
+                      "title": "_Error",
+                      "type": "object"
+                    },
+                    "ok": {
+                      "const": false
+                    },
+                    "schema": {
+                      "const": "aap-assets-images/v1"
+                    }
+                  },
+                  "required": [
+                    "schema",
+                    "ok",
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Image contract failure"
+          }
+        }
+      }
+    },
+    "/v1/images/commands/schedule_image_media": {
+      "post": {
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScheduleImageMediaRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/AcceptedImageWork"
+                    },
+                    "ok": {
+                      "const": true
+                    },
+                    "schema": {
+                      "const": "aap-assets-images/v1"
+                    }
+                  },
+                  "required": [
+                    "schema",
+                    "ok",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Accepted image owner result"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "invalid_request",
+                            "invalid_response",
+                            "storage_unavailable",
+                            "account_not_active",
+                            "account_busy",
+                            "invalid_account_role",
+                            "source_missing",
+                            "source_changed",
+                            "source_busy",
+                            "source_not_ready",
+                            "task_not_visible",
+                            "task_busy",
+                            "permission_denied",
+                            "not_image",
+                            "asset_missing",
+                            "operation_conflict",
+                            "operation_busy",
+                            "lease_lost",
+                            "dependency_changed",
+                            "resource_budget_exceeded",
+                            "object_missing",
+                            "owner_changed",
+                            "unsupported_dimensions",
+                            "resource_limit",
+                            "invalid_coordinate",
+                            "timeout",
+                            "source_unavailable",
+                            "color_profile_unavailable",
+                            "multi_page_unsupported",
+                            "dimension_mismatch",
+                            "generator_unavailable",
+                            "decode_failed",
+                            "encode_failed",
+                            "tile_grid_mismatch",
+                            "upload_verification_failed",
+                            "inconsistent_ready"
+                          ],
+                          "title": "Code",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code"
+                      ],
+                      "title": "_Error",
+                      "type": "object"
+                    },
+                    "ok": {
+                      "const": false
+                    },
+                    "schema": {
+                      "const": "aap-assets-images/v1"
+                    }
+                  },
+                  "required": [
+                    "schema",
+                    "ok",
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Image contract failure"
+          }
+        }
+      }
+    },
+    "/v1/images/generation-reference": {
+      "post": {
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ImageGenerationReferenceRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/ImageGenerationReference"
+                    },
+                    "ok": {
+                      "const": true
+                    },
+                    "schema": {
+                      "const": "aap-assets-images/v1"
+                    }
+                  },
+                  "required": [
+                    "schema",
+                    "ok",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Accepted image owner result"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "invalid_request",
+                            "invalid_response",
+                            "storage_unavailable",
+                            "account_not_active",
+                            "account_busy",
+                            "invalid_account_role",
+                            "source_missing",
+                            "source_changed",
+                            "source_busy",
+                            "source_not_ready",
+                            "task_not_visible",
+                            "task_busy",
+                            "permission_denied",
+                            "not_image",
+                            "asset_missing",
+                            "operation_conflict",
+                            "operation_busy",
+                            "lease_lost",
+                            "dependency_changed",
+                            "resource_budget_exceeded",
+                            "object_missing",
+                            "owner_changed",
+                            "unsupported_dimensions",
+                            "resource_limit",
+                            "invalid_coordinate",
+                            "timeout",
+                            "source_unavailable",
+                            "color_profile_unavailable",
+                            "multi_page_unsupported",
+                            "dimension_mismatch",
+                            "generator_unavailable",
+                            "decode_failed",
+                            "encode_failed",
+                            "tile_grid_mismatch",
+                            "upload_verification_failed",
+                            "inconsistent_ready"
+                          ],
+                          "title": "Code",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code"
+                      ],
+                      "title": "_Error",
+                      "type": "object"
+                    },
+                    "ok": {
+                      "const": false
+                    },
+                    "schema": {
+                      "const": "aap-assets-images/v1"
+                    }
+                  },
+                  "required": [
+                    "schema",
+                    "ok",
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Image contract failure"
+          }
+        }
+      }
+    },
+    "/v1/images/internal-source-reference": {
+      "post": {
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InternalImageSourceReferenceRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/ImageSourceReference"
+                    },
+                    "ok": {
+                      "const": true
+                    },
+                    "schema": {
+                      "const": "aap-assets-images/v1"
+                    }
+                  },
+                  "required": [
+                    "schema",
+                    "ok",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Accepted image owner result"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "invalid_request",
+                            "invalid_response",
+                            "storage_unavailable",
+                            "account_not_active",
+                            "account_busy",
+                            "invalid_account_role",
+                            "source_missing",
+                            "source_changed",
+                            "source_busy",
+                            "source_not_ready",
+                            "task_not_visible",
+                            "task_busy",
+                            "permission_denied",
+                            "not_image",
+                            "asset_missing",
+                            "operation_conflict",
+                            "operation_busy",
+                            "lease_lost",
+                            "dependency_changed",
+                            "resource_budget_exceeded",
+                            "object_missing",
+                            "owner_changed",
+                            "unsupported_dimensions",
+                            "resource_limit",
+                            "invalid_coordinate",
+                            "timeout",
+                            "source_unavailable",
+                            "color_profile_unavailable",
+                            "multi_page_unsupported",
+                            "dimension_mismatch",
+                            "generator_unavailable",
+                            "decode_failed",
+                            "encode_failed",
+                            "tile_grid_mismatch",
+                            "upload_verification_failed",
+                            "inconsistent_ready"
+                          ],
+                          "title": "Code",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code"
+                      ],
+                      "title": "_Error",
+                      "type": "object"
+                    },
+                    "ok": {
+                      "const": false
+                    },
+                    "schema": {
+                      "const": "aap-assets-images/v1"
+                    }
+                  },
+                  "required": [
+                    "schema",
+                    "ok",
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Image contract failure"
+          }
+        }
+      }
+    },
+    "/v1/images/raw-source-reference": {
+      "post": {
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReadImageSourceRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/ImageSourceReference"
+                    },
+                    "ok": {
+                      "const": true
+                    },
+                    "schema": {
+                      "const": "aap-assets-images/v1"
+                    }
+                  },
+                  "required": [
+                    "schema",
+                    "ok",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Accepted image owner result"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "invalid_request",
+                            "invalid_response",
+                            "storage_unavailable",
+                            "account_not_active",
+                            "account_busy",
+                            "invalid_account_role",
+                            "source_missing",
+                            "source_changed",
+                            "source_busy",
+                            "source_not_ready",
+                            "task_not_visible",
+                            "task_busy",
+                            "permission_denied",
+                            "not_image",
+                            "asset_missing",
+                            "operation_conflict",
+                            "operation_busy",
+                            "lease_lost",
+                            "dependency_changed",
+                            "resource_budget_exceeded",
+                            "object_missing",
+                            "owner_changed",
+                            "unsupported_dimensions",
+                            "resource_limit",
+                            "invalid_coordinate",
+                            "timeout",
+                            "source_unavailable",
+                            "color_profile_unavailable",
+                            "multi_page_unsupported",
+                            "dimension_mismatch",
+                            "generator_unavailable",
+                            "decode_failed",
+                            "encode_failed",
+                            "tile_grid_mismatch",
+                            "upload_verification_failed",
+                            "inconsistent_ready"
+                          ],
+                          "title": "Code",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code"
+                      ],
+                      "title": "_Error",
+                      "type": "object"
+                    },
+                    "ok": {
+                      "const": false
+                    },
+                    "schema": {
+                      "const": "aap-assets-images/v1"
+                    }
+                  },
+                  "required": [
+                    "schema",
+                    "ok",
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Image contract failure"
+          }
+        }
+      }
+    },
+    "/v1/images/source-reference": {
+      "post": {
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReadImageSourceRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/ImageSourceReference"
+                    },
+                    "ok": {
+                      "const": true
+                    },
+                    "schema": {
+                      "const": "aap-assets-images/v1"
+                    }
+                  },
+                  "required": [
+                    "schema",
+                    "ok",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Accepted image owner result"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "invalid_request",
+                            "invalid_response",
+                            "storage_unavailable",
+                            "account_not_active",
+                            "account_busy",
+                            "invalid_account_role",
+                            "source_missing",
+                            "source_changed",
+                            "source_busy",
+                            "source_not_ready",
+                            "task_not_visible",
+                            "task_busy",
+                            "permission_denied",
+                            "not_image",
+                            "asset_missing",
+                            "operation_conflict",
+                            "operation_busy",
+                            "lease_lost",
+                            "dependency_changed",
+                            "resource_budget_exceeded",
+                            "object_missing",
+                            "owner_changed",
+                            "unsupported_dimensions",
+                            "resource_limit",
+                            "invalid_coordinate",
+                            "timeout",
+                            "source_unavailable",
+                            "color_profile_unavailable",
+                            "multi_page_unsupported",
+                            "dimension_mismatch",
+                            "generator_unavailable",
+                            "decode_failed",
+                            "encode_failed",
+                            "tile_grid_mismatch",
+                            "upload_verification_failed",
+                            "inconsistent_ready"
+                          ],
+                          "title": "Code",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code"
+                      ],
+                      "title": "_Error",
+                      "type": "object"
+                    },
+                    "ok": {
+                      "const": false
+                    },
+                    "schema": {
+                      "const": "aap-assets-images/v1"
+                    }
+                  },
+                  "required": [
+                    "schema",
+                    "ok",
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Image contract failure"
+          }
+        }
+      }
+    },
+    "/v1/images/source-references": {
+      "post": {
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ImageSourceReferencesRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/ImageSourceReferences"
+                    },
+                    "ok": {
+                      "const": true
+                    },
+                    "schema": {
+                      "const": "aap-assets-images/v1"
+                    }
+                  },
+                  "required": [
+                    "schema",
+                    "ok",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Accepted image owner result"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "invalid_request",
+                            "invalid_response",
+                            "storage_unavailable",
+                            "account_not_active",
+                            "account_busy",
+                            "invalid_account_role",
+                            "source_missing",
+                            "source_changed",
+                            "source_busy",
+                            "source_not_ready",
+                            "task_not_visible",
+                            "task_busy",
+                            "permission_denied",
+                            "not_image",
+                            "asset_missing",
+                            "operation_conflict",
+                            "operation_busy",
+                            "lease_lost",
+                            "dependency_changed",
+                            "resource_budget_exceeded",
+                            "object_missing",
+                            "owner_changed",
+                            "unsupported_dimensions",
+                            "resource_limit",
+                            "invalid_coordinate",
+                            "timeout",
+                            "source_unavailable",
+                            "color_profile_unavailable",
+                            "multi_page_unsupported",
+                            "dimension_mismatch",
+                            "generator_unavailable",
+                            "decode_failed",
+                            "encode_failed",
+                            "tile_grid_mismatch",
+                            "upload_verification_failed",
+                            "inconsistent_ready"
+                          ],
+                          "title": "Code",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code"
+                      ],
+                      "title": "_Error",
+                      "type": "object"
+                    },
+                    "ok": {
+                      "const": false
+                    },
+                    "schema": {
+                      "const": "aap-assets-images/v1"
+                    }
+                  },
+                  "required": [
+                    "schema",
+                    "ok",
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Image contract failure"
+          }
+        }
+      }
+    }
+  },
+  "security": [
+    {
+      "serviceToken": []
+    }
+  ],
+  "x-budgets": {
+    "batch_size": 500,
+    "page_bytes": 15728640,
+    "reply_bytes": 16777216,
+    "request_bytes": 8388608,
+    "tile_reference_max": 128
+  },
+  "x-image-schema": "aap-assets-images/v1"
+}

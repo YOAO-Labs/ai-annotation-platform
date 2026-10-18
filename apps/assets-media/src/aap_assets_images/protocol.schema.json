@@ -1,0 +1,3823 @@
+{
+  "$defs": {
+    "AcceptedImageWork": {
+      "additionalProperties": false,
+      "properties": {
+        "operation_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Operation Id"
+        },
+        "source": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ImageSource"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "spec": {
+          "discriminator": {
+            "mapping": {
+              "dimensions": "#/$defs/DimensionsWorkSpec",
+              "image_backfill": "#/$defs/ImageBackfillSpec",
+              "pyramid": "#/$defs/PyramidWorkSpec",
+              "thumbnail": "#/$defs/ThumbnailWorkSpec"
+            },
+            "propertyName": "kind"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/DimensionsWorkSpec"
+            },
+            {
+              "$ref": "#/$defs/ThumbnailWorkSpec"
+            },
+            {
+              "$ref": "#/$defs/PyramidWorkSpec"
+            },
+            {
+              "$ref": "#/$defs/ImageBackfillSpec"
+            }
+          ],
+          "title": "Spec"
+        },
+        "work": {
+          "$ref": "#/$defs/ImageWorkReference"
+        }
+      },
+      "required": [
+        "operation_id",
+        "source",
+        "work",
+        "spec"
+      ],
+      "title": "AcceptedImageWork",
+      "type": "object"
+    },
+    "AdvanceImageBackfillRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "batch_size": {
+          "default": 500,
+          "maximum": 500,
+          "minimum": 1,
+          "title": "Batch Size",
+          "type": "integer"
+        },
+        "generation": {
+          "maximum": 9223372036854775807,
+          "minimum": 1,
+          "title": "Generation",
+          "type": "integer"
+        },
+        "job_id": {
+          "format": "uuid",
+          "title": "Job Id",
+          "type": "string"
+        },
+        "lease_token": {
+          "format": "uuid",
+          "title": "Lease Token",
+          "type": "string"
+        }
+      },
+      "required": [
+        "job_id",
+        "generation",
+        "lease_token"
+      ],
+      "title": "AdvanceImageBackfillRequest",
+      "type": "object"
+    },
+    "Artifact": {
+      "additionalProperties": false,
+      "properties": {
+        "byte_size": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Byte Size",
+          "type": "integer"
+        },
+        "key": {
+          "maxLength": 2048,
+          "minLength": 1,
+          "title": "Key",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "key",
+        "byte_size",
+        "sha256"
+      ],
+      "title": "Artifact",
+      "type": "object"
+    },
+    "CancelImageMediaRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "job_id": {
+          "format": "uuid",
+          "title": "Job Id",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "operation_id",
+        "actor_id",
+        "job_id"
+      ],
+      "title": "CancelImageMediaRequest",
+      "type": "object"
+    },
+    "CancelImageMediaResult": {
+      "additionalProperties": false,
+      "properties": {
+        "canceled": {
+          "title": "Canceled",
+          "type": "boolean"
+        },
+        "job_id": {
+          "format": "uuid",
+          "title": "Job Id",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "operation_id",
+        "job_id",
+        "canceled"
+      ],
+      "title": "CancelImageMediaResult",
+      "type": "object"
+    },
+    "ClaimImageGarbageRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "batch_size": {
+          "default": 20,
+          "maximum": 100,
+          "minimum": 1,
+          "title": "Batch Size",
+          "type": "integer"
+        },
+        "lease_seconds": {
+          "default": 120,
+          "maximum": 3600,
+          "minimum": 30,
+          "title": "Lease Seconds",
+          "type": "integer"
+        },
+        "worker_id": {
+          "format": "uuid",
+          "title": "Worker Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "worker_id"
+      ],
+      "title": "ClaimImageGarbageRequest",
+      "type": "object"
+    },
+    "ClaimImageMediaRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "job_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Job Id"
+        },
+        "kinds": {
+          "items": {
+            "enum": [
+              "dimensions",
+              "thumbnail",
+              "pyramid",
+              "image_backfill"
+            ],
+            "type": "string"
+          },
+          "maxItems": 4,
+          "minItems": 1,
+          "title": "Kinds",
+          "type": "array"
+        },
+        "lease_seconds": {
+          "default": 1200,
+          "maximum": 3600,
+          "minimum": 30,
+          "title": "Lease Seconds",
+          "type": "integer"
+        },
+        "worker_id": {
+          "format": "uuid",
+          "title": "Worker Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "worker_id"
+      ],
+      "title": "ClaimImageMediaRequest",
+      "type": "object"
+    },
+    "ClaimedImageWork": {
+      "additionalProperties": false,
+      "properties": {
+        "claim": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ImageClaim"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "claim"
+      ],
+      "title": "ClaimedImageWork",
+      "type": "object"
+    },
+    "CompleteImageGarbageRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "garbage_id": {
+          "format": "uuid",
+          "title": "Garbage Id",
+          "type": "string"
+        },
+        "lease_token": {
+          "format": "uuid",
+          "title": "Lease Token",
+          "type": "string"
+        }
+      },
+      "required": [
+        "garbage_id",
+        "lease_token"
+      ],
+      "title": "CompleteImageGarbageRequest",
+      "type": "object"
+    },
+    "DimensionsResult": {
+      "additionalProperties": false,
+      "properties": {
+        "height": {
+          "exclusiveMinimum": 0,
+          "maximum": 2147483647,
+          "title": "Height",
+          "type": "integer"
+        },
+        "kind": {
+          "const": "dimensions",
+          "default": "dimensions",
+          "title": "Kind",
+          "type": "string"
+        },
+        "source_identity": {
+          "$ref": "#/$defs/ObjectIdentity"
+        },
+        "source_sha256": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Sha256"
+        },
+        "width": {
+          "exclusiveMinimum": 0,
+          "maximum": 2147483647,
+          "title": "Width",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "source_identity",
+        "width",
+        "height"
+      ],
+      "title": "DimensionsResult",
+      "type": "object"
+    },
+    "DimensionsWorkSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "expected_source_snapshot": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Expected Source Snapshot",
+          "type": "string"
+        },
+        "kind": {
+          "const": "dimensions",
+          "default": "dimensions",
+          "title": "Kind",
+          "type": "string"
+        },
+        "policy": {
+          "$ref": "#/$defs/ImagePolicy"
+        }
+      },
+      "required": [
+        "expected_source_snapshot"
+      ],
+      "title": "DimensionsWorkSpec",
+      "type": "object"
+    },
+    "FailImageMediaRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "error_code": {
+          "enum": [
+            "invalid_request",
+            "invalid_response",
+            "storage_unavailable",
+            "account_not_active",
+            "account_busy",
+            "invalid_account_role",
+            "source_missing",
+            "source_changed",
+            "source_busy",
+            "source_not_ready",
+            "task_not_visible",
+            "task_busy",
+            "permission_denied",
+            "not_image",
+            "asset_missing",
+            "operation_conflict",
+            "operation_busy",
+            "lease_lost",
+            "dependency_changed",
+            "resource_budget_exceeded",
+            "object_missing",
+            "owner_changed",
+            "unsupported_dimensions",
+            "resource_limit",
+            "invalid_coordinate",
+            "timeout",
+            "source_unavailable",
+            "color_profile_unavailable",
+            "multi_page_unsupported",
+            "dimension_mismatch",
+            "generator_unavailable",
+            "decode_failed",
+            "encode_failed",
+            "tile_grid_mismatch",
+            "upload_verification_failed",
+            "inconsistent_ready"
+          ],
+          "title": "Error Code",
+          "type": "string"
+        },
+        "error_detail": {
+          "maxLength": 2000,
+          "title": "Error Detail",
+          "type": "string"
+        },
+        "generation": {
+          "maximum": 9223372036854775807,
+          "minimum": 1,
+          "title": "Generation",
+          "type": "integer"
+        },
+        "job_id": {
+          "format": "uuid",
+          "title": "Job Id",
+          "type": "string"
+        },
+        "lease_token": {
+          "format": "uuid",
+          "title": "Lease Token",
+          "type": "string"
+        }
+      },
+      "required": [
+        "job_id",
+        "generation",
+        "lease_token",
+        "error_code",
+        "error_detail"
+      ],
+      "title": "FailImageMediaRequest",
+      "type": "object"
+    },
+    "FinishImageMediaRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "generation": {
+          "maximum": 9223372036854775807,
+          "minimum": 1,
+          "title": "Generation",
+          "type": "integer"
+        },
+        "job_id": {
+          "format": "uuid",
+          "title": "Job Id",
+          "type": "string"
+        },
+        "lease_token": {
+          "format": "uuid",
+          "title": "Lease Token",
+          "type": "string"
+        },
+        "result": {
+          "discriminator": {
+            "mapping": {
+              "dimensions": "#/$defs/DimensionsResult",
+              "pyramid": "#/$defs/PyramidResult",
+              "thumbnail": "#/$defs/ThumbnailResult"
+            },
+            "propertyName": "kind"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/DimensionsResult"
+            },
+            {
+              "$ref": "#/$defs/ThumbnailResult"
+            },
+            {
+              "$ref": "#/$defs/PyramidResult"
+            }
+          ],
+          "title": "Result"
+        }
+      },
+      "required": [
+        "job_id",
+        "generation",
+        "lease_token",
+        "result"
+      ],
+      "title": "FinishImageMediaRequest",
+      "type": "object"
+    },
+    "HeartbeatImageMediaRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "generation": {
+          "maximum": 9223372036854775807,
+          "minimum": 1,
+          "title": "Generation",
+          "type": "integer"
+        },
+        "job_id": {
+          "format": "uuid",
+          "title": "Job Id",
+          "type": "string"
+        },
+        "lease_seconds": {
+          "default": 1200,
+          "maximum": 3600,
+          "minimum": 30,
+          "title": "Lease Seconds",
+          "type": "integer"
+        },
+        "lease_token": {
+          "format": "uuid",
+          "title": "Lease Token",
+          "type": "string"
+        }
+      },
+      "required": [
+        "job_id",
+        "generation",
+        "lease_token"
+      ],
+      "title": "HeartbeatImageMediaRequest",
+      "type": "object"
+    },
+    "ImageBackfillPage": {
+      "additionalProperties": false,
+      "properties": {
+        "accepted_before": {
+          "format": "date-time",
+          "title": "Accepted Before",
+          "type": "string"
+        },
+        "after_owner_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "After Owner Id"
+        },
+        "after_owner_kind": {
+          "anyOf": [
+            {
+              "enum": [
+                "dataset_item",
+                "task"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "After Owner Kind"
+        },
+        "complete": {
+          "title": "Complete",
+          "type": "boolean"
+        },
+        "items": {
+          "items": {
+            "$ref": "#/$defs/ImageSource"
+          },
+          "maxItems": 500,
+          "title": "Items",
+          "type": "array"
+        },
+        "next_owner_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Next Owner Id"
+        },
+        "next_owner_kind": {
+          "anyOf": [
+            {
+              "enum": [
+                "dataset_item",
+                "task"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Next Owner Kind"
+        },
+        "snapshot_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Snapshot Digest",
+          "type": "string"
+        },
+        "total": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Total",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "items",
+        "snapshot_digest",
+        "total",
+        "accepted_before",
+        "after_owner_kind",
+        "after_owner_id",
+        "next_owner_kind",
+        "next_owner_id",
+        "complete"
+      ],
+      "title": "ImageBackfillPage",
+      "type": "object"
+    },
+    "ImageBackfillProgress": {
+      "additionalProperties": false,
+      "properties": {
+        "complete": {
+          "title": "Complete",
+          "type": "boolean"
+        },
+        "generation": {
+          "maximum": 9223372036854775807,
+          "minimum": 1,
+          "title": "Generation",
+          "type": "integer"
+        },
+        "job_id": {
+          "format": "uuid",
+          "title": "Job Id",
+          "type": "string"
+        },
+        "lease_token": {
+          "format": "uuid",
+          "title": "Lease Token",
+          "type": "string"
+        },
+        "next_owner_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Next Owner Id"
+        },
+        "next_owner_kind": {
+          "anyOf": [
+            {
+              "enum": [
+                "dataset_item",
+                "task"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Next Owner Kind"
+        },
+        "scheduled": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Scheduled",
+          "type": "integer"
+        },
+        "skipped": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Skipped",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "job_id",
+        "generation",
+        "lease_token",
+        "scheduled",
+        "skipped",
+        "complete",
+        "next_owner_kind",
+        "next_owner_id"
+      ],
+      "title": "ImageBackfillProgress",
+      "type": "object"
+    },
+    "ImageBackfillSelection": {
+      "additionalProperties": false,
+      "properties": {
+        "accepted_before": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Accepted Before"
+        },
+        "all_owners": {
+          "default": false,
+          "title": "All Owners",
+          "type": "boolean"
+        },
+        "dataset_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Dataset Id"
+        },
+        "only_missing": {
+          "default": true,
+          "title": "Only Missing",
+          "type": "boolean"
+        },
+        "owner_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "maxItems": 500,
+          "title": "Owner Ids",
+          "type": "array"
+        },
+        "owner_kind": {
+          "enum": [
+            "dataset_item",
+            "task"
+          ],
+          "title": "Owner Kind",
+          "type": "string"
+        },
+        "project_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Project Id"
+        },
+        "purpose": {
+          "enum": [
+            "dimensions",
+            "thumbnail",
+            "pyramid"
+          ],
+          "title": "Purpose",
+          "type": "string"
+        }
+      },
+      "required": [
+        "owner_kind",
+        "purpose"
+      ],
+      "title": "ImageBackfillSelection",
+      "type": "object"
+    },
+    "ImageBackfillSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "image_backfill",
+          "default": "image_backfill",
+          "title": "Kind",
+          "type": "string"
+        },
+        "policy": {
+          "$ref": "#/$defs/ImagePolicy"
+        },
+        "selection": {
+          "$ref": "#/$defs/ImageBackfillSelection"
+        }
+      },
+      "required": [
+        "selection"
+      ],
+      "title": "ImageBackfillSpec",
+      "type": "object"
+    },
+    "ImageClaim": {
+      "additionalProperties": false,
+      "properties": {
+        "generation": {
+          "maximum": 9223372036854775807,
+          "minimum": 1,
+          "title": "Generation",
+          "type": "integer"
+        },
+        "job_id": {
+          "format": "uuid",
+          "title": "Job Id",
+          "type": "string"
+        },
+        "lease_expires_at": {
+          "format": "date-time",
+          "title": "Lease Expires At",
+          "type": "string"
+        },
+        "lease_token": {
+          "format": "uuid",
+          "title": "Lease Token",
+          "type": "string"
+        },
+        "output_prefix": {
+          "anyOf": [
+            {
+              "maxLength": 2048,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Output Prefix"
+        },
+        "owner": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ImageOwner"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "pyramid_asset_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Pyramid Asset Id"
+        },
+        "pyramid_generation": {
+          "anyOf": [
+            {
+              "maximum": 2147483647,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Pyramid Generation"
+        },
+        "source": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ImageSource"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "spec": {
+          "discriminator": {
+            "mapping": {
+              "dimensions": "#/$defs/DimensionsWorkSpec",
+              "image_backfill": "#/$defs/ImageBackfillSpec",
+              "pyramid": "#/$defs/PyramidWorkSpec",
+              "thumbnail": "#/$defs/ThumbnailWorkSpec"
+            },
+            "propertyName": "kind"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/DimensionsWorkSpec"
+            },
+            {
+              "$ref": "#/$defs/ThumbnailWorkSpec"
+            },
+            {
+              "$ref": "#/$defs/PyramidWorkSpec"
+            },
+            {
+              "$ref": "#/$defs/ImageBackfillSpec"
+            }
+          ],
+          "title": "Spec"
+        }
+      },
+      "required": [
+        "job_id",
+        "generation",
+        "lease_token",
+        "lease_expires_at",
+        "owner",
+        "source",
+        "spec",
+        "output_prefix",
+        "pyramid_asset_id",
+        "pyramid_generation"
+      ],
+      "title": "ImageClaim",
+      "type": "object"
+    },
+    "ImageGarbageAck": {
+      "additionalProperties": false,
+      "properties": {
+        "completed": {
+          "title": "Completed",
+          "type": "boolean"
+        },
+        "garbage_id": {
+          "format": "uuid",
+          "title": "Garbage Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "garbage_id",
+        "completed"
+      ],
+      "title": "ImageGarbageAck",
+      "type": "object"
+    },
+    "ImageGarbageBatch": {
+      "additionalProperties": false,
+      "properties": {
+        "items": {
+          "items": {
+            "$ref": "#/$defs/ImageGarbageItem"
+          },
+          "maxItems": 100,
+          "title": "Items",
+          "type": "array"
+        }
+      },
+      "required": [
+        "items"
+      ],
+      "title": "ImageGarbageBatch",
+      "type": "object"
+    },
+    "ImageGarbageItem": {
+      "additionalProperties": false,
+      "properties": {
+        "garbage_id": {
+          "format": "uuid",
+          "title": "Garbage Id",
+          "type": "string"
+        },
+        "lease_token": {
+          "format": "uuid",
+          "title": "Lease Token",
+          "type": "string"
+        },
+        "prefix": {
+          "maxLength": 2048,
+          "minLength": 1,
+          "title": "Prefix",
+          "type": "string"
+        }
+      },
+      "required": [
+        "garbage_id",
+        "lease_token",
+        "prefix"
+      ],
+      "title": "ImageGarbageItem",
+      "type": "object"
+    },
+    "ImageGenerationRead": {
+      "additionalProperties": false,
+      "properties": {
+        "pyramid": {
+          "$ref": "#/$defs/ImagePyramidGeneration"
+        },
+        "source": {
+          "$ref": "#/$defs/ImageSource"
+        }
+      },
+      "required": [
+        "source",
+        "pyramid"
+      ],
+      "title": "ImageGenerationRead",
+      "type": "object"
+    },
+    "ImageInvalidation": {
+      "additionalProperties": false,
+      "properties": {
+        "generation": {
+          "anyOf": [
+            {
+              "maximum": 2147483647,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Generation"
+        },
+        "kind": {
+          "enum": [
+            "thumbnail",
+            "overview",
+            "manifest",
+            "tile"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "level": {
+          "anyOf": [
+            {
+              "maximum": 2147483647,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Level"
+        },
+        "source_snapshot": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Source Snapshot",
+          "type": "string"
+        },
+        "x": {
+          "anyOf": [
+            {
+              "maximum": 2147483647,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "X"
+        },
+        "y": {
+          "anyOf": [
+            {
+              "maximum": 2147483647,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Y"
+        }
+      },
+      "required": [
+        "source_snapshot",
+        "kind"
+      ],
+      "title": "ImageInvalidation",
+      "type": "object"
+    },
+    "ImageLeaseState": {
+      "additionalProperties": false,
+      "properties": {
+        "active": {
+          "title": "Active",
+          "type": "boolean"
+        },
+        "generation": {
+          "maximum": 9223372036854775807,
+          "minimum": 1,
+          "title": "Generation",
+          "type": "integer"
+        },
+        "job_id": {
+          "format": "uuid",
+          "title": "Job Id",
+          "type": "string"
+        },
+        "lease_expires_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Lease Expires At"
+        },
+        "lease_token": {
+          "format": "uuid",
+          "title": "Lease Token",
+          "type": "string"
+        }
+      },
+      "required": [
+        "job_id",
+        "generation",
+        "lease_token",
+        "active",
+        "lease_expires_at"
+      ],
+      "title": "ImageLeaseState",
+      "type": "object"
+    },
+    "ImageOrphanCandidate": {
+      "additionalProperties": false,
+      "properties": {
+        "asset_id": {
+          "format": "uuid",
+          "title": "Asset Id",
+          "type": "string"
+        },
+        "generation": {
+          "maximum": 2147483647,
+          "minimum": 1,
+          "title": "Generation",
+          "type": "integer"
+        },
+        "last_modified": {
+          "format": "date-time",
+          "title": "Last Modified",
+          "type": "string"
+        }
+      },
+      "required": [
+        "asset_id",
+        "generation",
+        "last_modified"
+      ],
+      "title": "ImageOrphanCandidate",
+      "type": "object"
+    },
+    "ImageOwner": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "dataset_item",
+            "task"
+          ],
+          "title": "Kind",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "id"
+      ],
+      "title": "ImageOwner",
+      "type": "object"
+    },
+    "ImagePolicy": {
+      "additionalProperties": false,
+      "description": "Keep existing output semantics and freeze resource limits per operation.",
+      "properties": {
+        "asset_url_batch_max": {
+          "default": 128,
+          "exclusiveMinimum": 0,
+          "maximum": 2147483647,
+          "title": "Asset Url Batch Max",
+          "type": "integer"
+        },
+        "auto_generate_pyramids": {
+          "default": false,
+          "title": "Auto Generate Pyramids",
+          "type": "boolean"
+        },
+        "gc_grace_hours": {
+          "default": 24,
+          "maximum": 2147483647,
+          "minimum": 0,
+          "title": "Gc Grace Hours",
+          "type": "integer"
+        },
+        "job_timeout_seconds": {
+          "default": 1800,
+          "exclusiveMinimum": 0,
+          "maximum": 2147483647,
+          "title": "Job Timeout Seconds",
+          "type": "integer"
+        },
+        "lease_seconds": {
+          "default": 2100,
+          "exclusiveMinimum": 0,
+          "maximum": 2147483647,
+          "title": "Lease Seconds",
+          "type": "integer"
+        },
+        "max_derived_bytes": {
+          "default": 8589934592,
+          "exclusiveMinimum": 0,
+          "maximum": 9223372036854775807,
+          "title": "Max Derived Bytes",
+          "type": "integer"
+        },
+        "max_dimension": {
+          "default": 32768,
+          "exclusiveMinimum": 0,
+          "maximum": 2147483647,
+          "title": "Max Dimension",
+          "type": "integer"
+        },
+        "max_pixels": {
+          "default": 300000000,
+          "exclusiveMinimum": 0,
+          "maximum": 9223372036854775807,
+          "title": "Max Pixels",
+          "type": "integer"
+        },
+        "max_source_bytes": {
+          "default": 8589934592,
+          "exclusiveMinimum": 0,
+          "maximum": 9223372036854775807,
+          "title": "Max Source Bytes",
+          "type": "integer"
+        },
+        "max_temp_bytes": {
+          "default": 12884901888,
+          "exclusiveMinimum": 0,
+          "maximum": 9223372036854775807,
+          "title": "Max Temp Bytes",
+          "type": "integer"
+        },
+        "max_tiles": {
+          "default": 20000,
+          "exclusiveMinimum": 0,
+          "maximum": 2147483647,
+          "title": "Max Tiles",
+          "type": "integer"
+        },
+        "normalization_version": {
+          "const": "exif-autorotate-srgb-v1",
+          "default": "exif-autorotate-srgb-v1",
+          "title": "Normalization Version",
+          "type": "string"
+        },
+        "optional_pixels": {
+          "default": 16777216,
+          "exclusiveMinimum": 0,
+          "maximum": 9223372036854775807,
+          "title": "Optional Pixels",
+          "type": "integer"
+        },
+        "profile_version": {
+          "default": "pyramid-v1",
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Profile Version",
+          "type": "string"
+        },
+        "required_pixels": {
+          "default": 50000000,
+          "exclusiveMinimum": 0,
+          "maximum": 9223372036854775807,
+          "title": "Required Pixels",
+          "type": "integer"
+        },
+        "retry_cooldown_seconds": {
+          "default": 300,
+          "maximum": 2147483647,
+          "minimum": 0,
+          "title": "Retry Cooldown Seconds",
+          "type": "integer"
+        },
+        "thumbnail_max_source_bytes": {
+          "const": 536870912,
+          "default": 536870912,
+          "title": "Thumbnail Max Source Bytes",
+          "type": "integer"
+        },
+        "url_expiry_seconds": {
+          "default": 900,
+          "exclusiveMinimum": 0,
+          "maximum": 2147483647,
+          "title": "Url Expiry Seconds",
+          "type": "integer"
+        },
+        "vips_concurrency": {
+          "default": 4,
+          "exclusiveMinimum": 0,
+          "maximum": 2147483647,
+          "title": "Vips Concurrency",
+          "type": "integer"
+        }
+      },
+      "title": "ImagePolicy",
+      "type": "object"
+    },
+    "ImagePyramidGeneration": {
+      "additionalProperties": false,
+      "description": "Trusted native projection. Object keys never leave the control boundary.",
+      "properties": {
+        "asset_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Asset Id"
+        },
+        "building_generation": {
+          "anyOf": [
+            {
+              "maximum": 2147483647,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Building Generation"
+        },
+        "building_status": {
+          "anyOf": [
+            {
+              "enum": [
+                "pending",
+                "building"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Building Status"
+        },
+        "error_code": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Error Code"
+        },
+        "format": {
+          "anyOf": [
+            {
+              "const": "webp",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Format"
+        },
+        "generation": {
+          "anyOf": [
+            {
+              "maximum": 2147483647,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Generation"
+        },
+        "height": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "maximum": 2147483647,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Height"
+        },
+        "manifest": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ImagePyramidManifest"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "manifest_digest": {
+          "anyOf": [
+            {
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Manifest Digest"
+        },
+        "manifest_key": {
+          "anyOf": [
+            {
+              "maxLength": 2048,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Manifest Key"
+        },
+        "overview_digest": {
+          "anyOf": [
+            {
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Overview Digest"
+        },
+        "overview_key": {
+          "anyOf": [
+            {
+              "maxLength": 2048,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Overview Key"
+        },
+        "required": {
+          "title": "Required",
+          "type": "boolean"
+        },
+        "retained_bytes": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Retained Bytes",
+          "type": "integer"
+        },
+        "retry_after_ms": {
+          "anyOf": [
+            {
+              "maximum": 9223372036854775807,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Retry After Ms"
+        },
+        "retryable": {
+          "default": false,
+          "title": "Retryable",
+          "type": "boolean"
+        },
+        "source_generation": {
+          "anyOf": [
+            {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Generation"
+        },
+        "source_snapshot": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Snapshot"
+        },
+        "status": {
+          "enum": [
+            "not_available",
+            "missing",
+            "pending",
+            "building",
+            "ready",
+            "failed",
+            "stale",
+            "inconsistent"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "tile_count": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Tile Count",
+          "type": "integer"
+        },
+        "tile_size": {
+          "const": 512,
+          "default": 512,
+          "title": "Tile Size",
+          "type": "integer"
+        },
+        "width": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "maximum": 2147483647,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Width"
+        }
+      },
+      "required": [
+        "asset_id",
+        "status",
+        "required",
+        "generation",
+        "building_generation",
+        "building_status",
+        "width",
+        "height",
+        "format",
+        "manifest",
+        "manifest_key",
+        "manifest_digest",
+        "overview_key",
+        "overview_digest",
+        "tile_count",
+        "retained_bytes"
+      ],
+      "title": "ImagePyramidGeneration",
+      "type": "object"
+    },
+    "ImagePyramidLevel": {
+      "additionalProperties": false,
+      "properties": {
+        "columns": {
+          "exclusiveMinimum": 0,
+          "maximum": 2147483647,
+          "title": "Columns",
+          "type": "integer"
+        },
+        "height": {
+          "exclusiveMinimum": 0,
+          "maximum": 2147483647,
+          "title": "Height",
+          "type": "integer"
+        },
+        "level": {
+          "maximum": 2147483647,
+          "minimum": 0,
+          "title": "Level",
+          "type": "integer"
+        },
+        "rows": {
+          "exclusiveMinimum": 0,
+          "maximum": 2147483647,
+          "title": "Rows",
+          "type": "integer"
+        },
+        "scaleFactor": {
+          "exclusiveMinimum": 0,
+          "maximum": 2147483647,
+          "title": "Scalefactor",
+          "type": "integer"
+        },
+        "width": {
+          "exclusiveMinimum": 0,
+          "maximum": 2147483647,
+          "title": "Width",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "level",
+        "scaleFactor",
+        "width",
+        "height",
+        "columns",
+        "rows"
+      ],
+      "title": "ImagePyramidLevel",
+      "type": "object"
+    },
+    "ImagePyramidManifest": {
+      "additionalProperties": false,
+      "properties": {
+        "format": {
+          "const": "webp",
+          "title": "Format",
+          "type": "string"
+        },
+        "generation": {
+          "maximum": 2147483647,
+          "minimum": 1,
+          "title": "Generation",
+          "type": "integer"
+        },
+        "height": {
+          "exclusiveMinimum": 0,
+          "maximum": 2147483647,
+          "title": "Height",
+          "type": "integer"
+        },
+        "levels": {
+          "items": {
+            "$ref": "#/$defs/ImagePyramidLevel"
+          },
+          "maxItems": 32,
+          "minItems": 1,
+          "title": "Levels",
+          "type": "array"
+        },
+        "normalizationVersion": {
+          "const": "exif-autorotate-srgb-v1",
+          "title": "Normalizationversion",
+          "type": "string"
+        },
+        "overlap": {
+          "const": 1,
+          "title": "Overlap",
+          "type": "integer"
+        },
+        "overview": {
+          "$ref": "#/$defs/ImagePyramidOverview"
+        },
+        "schema": {
+          "const": "aap-image-pyramid/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "sourceFingerprint": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "title": "Sourcefingerprint",
+          "type": "string"
+        },
+        "tileSize": {
+          "const": 512,
+          "title": "Tilesize",
+          "type": "integer"
+        },
+        "width": {
+          "exclusiveMinimum": 0,
+          "maximum": 2147483647,
+          "title": "Width",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "schema",
+        "generation",
+        "sourceFingerprint",
+        "normalizationVersion",
+        "width",
+        "height",
+        "tileSize",
+        "overlap",
+        "format",
+        "levels",
+        "overview"
+      ],
+      "title": "ImagePyramidManifest",
+      "type": "object"
+    },
+    "ImagePyramidOverview": {
+      "additionalProperties": false,
+      "properties": {
+        "contentDigest": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "title": "Contentdigest",
+          "type": "string"
+        },
+        "height": {
+          "exclusiveMinimum": 0,
+          "maximum": 2147483647,
+          "title": "Height",
+          "type": "integer"
+        },
+        "width": {
+          "exclusiveMinimum": 0,
+          "maximum": 2147483647,
+          "title": "Width",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "width",
+        "height",
+        "contentDigest"
+      ],
+      "title": "ImagePyramidOverview",
+      "type": "object"
+    },
+    "ImagePyramidSummary": {
+      "additionalProperties": false,
+      "properties": {
+        "building_generation": {
+          "anyOf": [
+            {
+              "maximum": 2147483647,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Building Generation"
+        },
+        "building_status": {
+          "anyOf": [
+            {
+              "enum": [
+                "pending",
+                "building"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Building Status"
+        },
+        "error_code": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Error Code"
+        },
+        "format": {
+          "anyOf": [
+            {
+              "const": "webp",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Format"
+        },
+        "generation": {
+          "anyOf": [
+            {
+              "maximum": 2147483647,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Generation"
+        },
+        "height": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "maximum": 2147483647,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Height"
+        },
+        "required": {
+          "title": "Required",
+          "type": "boolean"
+        },
+        "retry_after_ms": {
+          "anyOf": [
+            {
+              "maximum": 9223372036854775807,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Retry After Ms"
+        },
+        "retryable": {
+          "default": false,
+          "title": "Retryable",
+          "type": "boolean"
+        },
+        "status": {
+          "enum": [
+            "not_available",
+            "missing",
+            "pending",
+            "building",
+            "ready",
+            "failed",
+            "stale",
+            "inconsistent"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "tile_size": {
+          "const": 512,
+          "default": 512,
+          "title": "Tile Size",
+          "type": "integer"
+        },
+        "width": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "maximum": 2147483647,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Width"
+        }
+      },
+      "required": [
+        "status",
+        "required",
+        "generation",
+        "building_generation",
+        "building_status",
+        "width",
+        "height",
+        "format"
+      ],
+      "title": "ImagePyramidSummary",
+      "type": "object"
+    },
+    "ImageReconcileResult": {
+      "additionalProperties": false,
+      "properties": {
+        "canceled_jobs": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Canceled Jobs",
+          "type": "integer"
+        },
+        "expired_jobs": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Expired Jobs",
+          "type": "integer"
+        },
+        "failed_jobs": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Failed Jobs",
+          "type": "integer"
+        },
+        "ignored_candidates": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Ignored Candidates",
+          "type": "integer"
+        },
+        "more": {
+          "title": "More",
+          "type": "boolean"
+        },
+        "queued_orphans": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Queued Orphans",
+          "type": "integer"
+        },
+        "requeued_jobs": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Requeued Jobs",
+          "type": "integer"
+        },
+        "retired_generations": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Retired Generations",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "expired_jobs",
+        "requeued_jobs",
+        "failed_jobs",
+        "canceled_jobs",
+        "retired_generations",
+        "queued_orphans",
+        "ignored_candidates",
+        "more"
+      ],
+      "title": "ImageReconcileResult",
+      "type": "object"
+    },
+    "ImageSource": {
+      "additionalProperties": false,
+      "description": "Current source facts plus separate freshness facts for derived media.",
+      "properties": {
+        "blurhash": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Blurhash"
+        },
+        "bucket_kind": {
+          "enum": [
+            "datasets",
+            "legacy"
+          ],
+          "title": "Bucket Kind",
+          "type": "string"
+        },
+        "content_hash": {
+          "anyOf": [
+            {
+              "maxLength": 255,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Content Hash"
+        },
+        "dataset_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Dataset Id"
+        },
+        "file_name": {
+          "maxLength": 512,
+          "minLength": 1,
+          "title": "File Name",
+          "type": "string"
+        },
+        "file_path": {
+          "maxLength": 1024,
+          "minLength": 1,
+          "title": "File Path",
+          "type": "string"
+        },
+        "file_size": {
+          "anyOf": [
+            {
+              "maximum": 9223372036854775807,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "File Size"
+        },
+        "file_type": {
+          "const": "image",
+          "title": "File Type",
+          "type": "string"
+        },
+        "height": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "maximum": 2147483647,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Height"
+        },
+        "item_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Item Id"
+        },
+        "object_identity": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ObjectIdentity"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "owner": {
+          "$ref": "#/$defs/ImageOwner"
+        },
+        "project_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Project Id"
+        },
+        "source_drifted": {
+          "title": "Source Drifted",
+          "type": "boolean"
+        },
+        "source_generation": {
+          "maximum": 9223372036854775807,
+          "minimum": 1,
+          "title": "Source Generation",
+          "type": "integer"
+        },
+        "source_snapshot": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Source Snapshot",
+          "type": "string"
+        },
+        "task_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Task Id"
+        },
+        "thumbnail_error": {
+          "anyOf": [
+            {
+              "maxLength": 2000,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Thumbnail Error"
+        },
+        "thumbnail_path": {
+          "anyOf": [
+            {
+              "maxLength": 1024,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Thumbnail Path"
+        },
+        "thumbnail_source_generation": {
+          "anyOf": [
+            {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Thumbnail Source Generation"
+        },
+        "upload_ready": {
+          "title": "Upload Ready",
+          "type": "boolean"
+        },
+        "width": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "maximum": 2147483647,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Width"
+        }
+      },
+      "required": [
+        "owner",
+        "task_id",
+        "project_id",
+        "dataset_id",
+        "item_id",
+        "source_generation",
+        "source_snapshot",
+        "object_identity",
+        "source_drifted",
+        "upload_ready",
+        "file_path",
+        "file_name",
+        "file_type",
+        "bucket_kind",
+        "file_size",
+        "content_hash",
+        "width",
+        "height",
+        "thumbnail_path",
+        "blurhash",
+        "thumbnail_source_generation",
+        "thumbnail_error"
+      ],
+      "title": "ImageSource",
+      "type": "object"
+    },
+    "ImageSourceSelector": {
+      "additionalProperties": false,
+      "properties": {
+        "dataset_item_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Dataset Item Id"
+        },
+        "task_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Task Id"
+        }
+      },
+      "title": "ImageSourceSelector",
+      "type": "object"
+    },
+    "ImageSummaries": {
+      "additionalProperties": false,
+      "properties": {
+        "items": {
+          "items": {
+            "$ref": "#/$defs/ImageSummaryItem"
+          },
+          "maxItems": 500,
+          "title": "Items",
+          "type": "array"
+        }
+      },
+      "required": [
+        "items"
+      ],
+      "title": "ImageSummaries",
+      "type": "object"
+    },
+    "ImageSummaryItem": {
+      "additionalProperties": false,
+      "properties": {
+        "pyramid": {
+          "$ref": "#/$defs/ImagePyramidSummary"
+        },
+        "selector": {
+          "$ref": "#/$defs/ImageSourceSelector"
+        },
+        "source": {
+          "$ref": "#/$defs/ImageSource"
+        },
+        "thumbnail_current": {
+          "title": "Thumbnail Current",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "selector",
+        "source",
+        "thumbnail_current",
+        "pyramid"
+      ],
+      "title": "ImageSummaryItem",
+      "type": "object"
+    },
+    "ImageTileArtifact": {
+      "additionalProperties": false,
+      "properties": {
+        "artifact": {
+          "$ref": "#/$defs/Artifact"
+        },
+        "level": {
+          "maximum": 2147483647,
+          "minimum": 0,
+          "title": "Level",
+          "type": "integer"
+        },
+        "x": {
+          "maximum": 2147483647,
+          "minimum": 0,
+          "title": "X",
+          "type": "integer"
+        },
+        "y": {
+          "maximum": 2147483647,
+          "minimum": 0,
+          "title": "Y",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "level",
+        "x",
+        "y",
+        "artifact"
+      ],
+      "title": "ImageTileArtifact",
+      "type": "object"
+    },
+    "ImageUsage": {
+      "additionalProperties": false,
+      "properties": {
+        "failed": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Failed",
+          "type": "integer"
+        },
+        "garbage_pending": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Garbage Pending",
+          "type": "integer"
+        },
+        "pending": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Pending",
+          "type": "integer"
+        },
+        "pyramid_bytes": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Pyramid Bytes",
+          "type": "integer"
+        },
+        "running": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Running",
+          "type": "integer"
+        },
+        "source_bytes": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Source Bytes",
+          "type": "integer"
+        },
+        "thumbnail_bytes": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Thumbnail Bytes",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "source_bytes",
+        "thumbnail_bytes",
+        "pyramid_bytes",
+        "pending",
+        "running",
+        "failed",
+        "garbage_pending"
+      ],
+      "title": "ImageUsage",
+      "type": "object"
+    },
+    "ImageUsageRequest": {
+      "additionalProperties": false,
+      "properties": {},
+      "title": "ImageUsageRequest",
+      "type": "object"
+    },
+    "ImageWorkOutcome": {
+      "additionalProperties": false,
+      "properties": {
+        "generation": {
+          "maximum": 9223372036854775807,
+          "minimum": 1,
+          "title": "Generation",
+          "type": "integer"
+        },
+        "job_id": {
+          "format": "uuid",
+          "title": "Job Id",
+          "type": "string"
+        },
+        "outcome": {
+          "enum": [
+            "published",
+            "replayed",
+            "failed",
+            "lease_lost",
+            "source_changed",
+            "dependency_changed"
+          ],
+          "title": "Outcome",
+          "type": "string"
+        }
+      },
+      "required": [
+        "job_id",
+        "generation",
+        "outcome"
+      ],
+      "title": "ImageWorkOutcome",
+      "type": "object"
+    },
+    "ImageWorkReference": {
+      "additionalProperties": false,
+      "properties": {
+        "generation": {
+          "maximum": 9223372036854775807,
+          "minimum": 1,
+          "title": "Generation",
+          "type": "integer"
+        },
+        "job_id": {
+          "format": "uuid",
+          "title": "Job Id",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "dimensions",
+            "thumbnail",
+            "pyramid",
+            "image_backfill"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "owner": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ImageOwner"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "source_generation": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Source Generation",
+          "type": "integer"
+        },
+        "status": {
+          "enum": [
+            "pending",
+            "running",
+            "ready",
+            "failed",
+            "canceled"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "job_id",
+        "generation",
+        "owner",
+        "source_generation",
+        "kind",
+        "status"
+      ],
+      "title": "ImageWorkReference",
+      "type": "object"
+    },
+    "ImageWorkStatus": {
+      "additionalProperties": false,
+      "properties": {
+        "error_code": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Error Code"
+        },
+        "error_detail": {
+          "anyOf": [
+            {
+              "maxLength": 2000,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Error Detail"
+        },
+        "lease_expires_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Lease Expires At"
+        },
+        "progress": {
+          "additionalProperties": {
+            "$ref": "#/$defs/JsonValue"
+          },
+          "title": "Progress",
+          "type": "object"
+        },
+        "spec": {
+          "discriminator": {
+            "mapping": {
+              "dimensions": "#/$defs/DimensionsWorkSpec",
+              "image_backfill": "#/$defs/ImageBackfillSpec",
+              "pyramid": "#/$defs/PyramidWorkSpec",
+              "thumbnail": "#/$defs/ThumbnailWorkSpec"
+            },
+            "propertyName": "kind"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/DimensionsWorkSpec"
+            },
+            {
+              "$ref": "#/$defs/ThumbnailWorkSpec"
+            },
+            {
+              "$ref": "#/$defs/PyramidWorkSpec"
+            },
+            {
+              "$ref": "#/$defs/ImageBackfillSpec"
+            }
+          ],
+          "title": "Spec"
+        },
+        "work": {
+          "$ref": "#/$defs/ImageWorkReference"
+        }
+      },
+      "required": [
+        "work",
+        "spec",
+        "progress",
+        "error_code",
+        "error_detail",
+        "lease_expires_at"
+      ],
+      "title": "ImageWorkStatus",
+      "type": "object"
+    },
+    "InvalidateImageMediaRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "dataset_item_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Dataset Item Id"
+        },
+        "invalidation": {
+          "$ref": "#/$defs/ImageInvalidation"
+        },
+        "task_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Task Id"
+        }
+      },
+      "required": [
+        "actor_id",
+        "invalidation"
+      ],
+      "title": "InvalidateImageMediaRequest",
+      "type": "object"
+    },
+    "InvalidationResult": {
+      "additionalProperties": false,
+      "properties": {
+        "changed": {
+          "title": "Changed",
+          "type": "boolean"
+        },
+        "source": {
+          "$ref": "#/$defs/ImageSource"
+        }
+      },
+      "required": [
+        "source",
+        "changed"
+      ],
+      "title": "InvalidationResult",
+      "type": "object"
+    },
+    "JsonValue": {},
+    "ObjectIdentity": {
+      "additionalProperties": false,
+      "properties": {
+        "byte_size": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Byte Size",
+          "type": "integer"
+        },
+        "etag": {
+          "maxLength": 255,
+          "minLength": 1,
+          "title": "Etag",
+          "type": "string"
+        },
+        "version_id": {
+          "anyOf": [
+            {
+              "maxLength": 255,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Version Id"
+        }
+      },
+      "required": [
+        "etag",
+        "byte_size"
+      ],
+      "title": "ObjectIdentity",
+      "type": "object"
+    },
+    "ObserveImageSourceRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "dataset_item_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Dataset Item Id"
+        },
+        "object_identity": {
+          "$ref": "#/$defs/ObjectIdentity"
+        },
+        "source_snapshot": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Source Snapshot",
+          "type": "string"
+        },
+        "task_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Task Id"
+        }
+      },
+      "required": [
+        "actor_id",
+        "source_snapshot",
+        "object_identity"
+      ],
+      "title": "ObserveImageSourceRequest",
+      "type": "object"
+    },
+    "PrepareImageMediaRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "dataset_item_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Dataset Item Id"
+        },
+        "expected_source_snapshot": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Expected Source Snapshot"
+        },
+        "force": {
+          "default": false,
+          "title": "Force",
+          "type": "boolean"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "policy": {
+          "$ref": "#/$defs/ImagePolicy"
+        },
+        "purpose": {
+          "enum": [
+            "dimensions",
+            "thumbnail",
+            "pyramid"
+          ],
+          "title": "Purpose",
+          "type": "string"
+        },
+        "task_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Task Id"
+        }
+      },
+      "required": [
+        "actor_id",
+        "operation_id",
+        "purpose"
+      ],
+      "title": "PrepareImageMediaRequest",
+      "type": "object"
+    },
+    "PyramidResult": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "pyramid",
+          "default": "pyramid",
+          "title": "Kind",
+          "type": "string"
+        },
+        "manifest": {
+          "$ref": "#/$defs/ImagePyramidManifest"
+        },
+        "manifest_artifact": {
+          "$ref": "#/$defs/Artifact"
+        },
+        "overview_artifact": {
+          "$ref": "#/$defs/Artifact"
+        },
+        "retained_bytes": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Retained Bytes",
+          "type": "integer"
+        },
+        "source_identity": {
+          "$ref": "#/$defs/ObjectIdentity"
+        },
+        "source_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Source Sha256",
+          "type": "string"
+        },
+        "tile_artifacts": {
+          "items": {
+            "$ref": "#/$defs/ImageTileArtifact"
+          },
+          "maxItems": 20000,
+          "title": "Tile Artifacts",
+          "type": "array"
+        },
+        "tile_count": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Tile Count",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "source_identity",
+        "source_sha256",
+        "manifest",
+        "manifest_artifact",
+        "overview_artifact",
+        "tile_artifacts",
+        "tile_count",
+        "retained_bytes"
+      ],
+      "title": "PyramidResult",
+      "type": "object"
+    },
+    "PyramidWorkSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "expected_source_snapshot": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Expected Source Snapshot",
+          "type": "string"
+        },
+        "kind": {
+          "const": "pyramid",
+          "default": "pyramid",
+          "title": "Kind",
+          "type": "string"
+        },
+        "policy": {
+          "$ref": "#/$defs/ImagePolicy"
+        }
+      },
+      "required": [
+        "expected_source_snapshot"
+      ],
+      "title": "PyramidWorkSpec",
+      "type": "object"
+    },
+    "ReadImageGenerationRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "dataset_item_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Dataset Item Id"
+        },
+        "generation": {
+          "anyOf": [
+            {
+              "maximum": 2147483647,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Generation"
+        },
+        "task_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Task Id"
+        }
+      },
+      "required": [
+        "actor_id"
+      ],
+      "title": "ReadImageGenerationRequest",
+      "type": "object"
+    },
+    "ReadImageSourceRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "dataset_item_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Dataset Item Id"
+        },
+        "task_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Task Id"
+        }
+      },
+      "required": [
+        "actor_id"
+      ],
+      "title": "ReadImageSourceRequest",
+      "type": "object"
+    },
+    "ReadImageSummariesRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "selectors": {
+          "items": {
+            "$ref": "#/$defs/ImageSourceSelector"
+          },
+          "maxItems": 500,
+          "title": "Selectors",
+          "type": "array"
+        }
+      },
+      "required": [
+        "actor_id",
+        "selectors"
+      ],
+      "title": "ReadImageSummariesRequest",
+      "type": "object"
+    },
+    "ReadImageWorkRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "job_id": {
+          "format": "uuid",
+          "title": "Job Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "actor_id",
+        "job_id"
+      ],
+      "title": "ReadImageWorkRequest",
+      "type": "object"
+    },
+    "ReadInternalImageWorkRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "job_id": {
+          "format": "uuid",
+          "title": "Job Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "job_id"
+      ],
+      "title": "ReadInternalImageWorkRequest",
+      "type": "object"
+    },
+    "ReconcileImageMediaRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "batch_size": {
+          "default": 100,
+          "maximum": 500,
+          "minimum": 1,
+          "title": "Batch Size",
+          "type": "integer"
+        },
+        "candidates": {
+          "items": {
+            "$ref": "#/$defs/ImageOrphanCandidate"
+          },
+          "maxItems": 100,
+          "title": "Candidates",
+          "type": "array"
+        }
+      },
+      "title": "ReconcileImageMediaRequest",
+      "type": "object"
+    },
+    "ResolveInternalImageSourceRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "expected_source_snapshot": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Expected Source Snapshot"
+        },
+        "object_identity": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ObjectIdentity"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "owner_id": {
+          "format": "uuid",
+          "title": "Owner Id",
+          "type": "string"
+        },
+        "owner_kind": {
+          "enum": [
+            "dataset_item",
+            "task"
+          ],
+          "title": "Owner Kind",
+          "type": "string"
+        }
+      },
+      "required": [
+        "owner_kind",
+        "owner_id"
+      ],
+      "title": "ResolveInternalImageSourceRequest",
+      "type": "object"
+    },
+    "RetryImageMediaRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "dataset_item_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Dataset Item Id"
+        },
+        "expected_source_snapshot": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Expected Source Snapshot"
+        },
+        "force": {
+          "default": false,
+          "title": "Force",
+          "type": "boolean"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "policy": {
+          "$ref": "#/$defs/ImagePolicy"
+        },
+        "purpose": {
+          "enum": [
+            "dimensions",
+            "thumbnail",
+            "pyramid"
+          ],
+          "title": "Purpose",
+          "type": "string"
+        },
+        "task_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Task Id"
+        }
+      },
+      "required": [
+        "actor_id",
+        "operation_id",
+        "purpose"
+      ],
+      "title": "RetryImageMediaRequest",
+      "type": "object"
+    },
+    "ScanImageBackfillRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "after_owner_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "After Owner Id"
+        },
+        "after_owner_kind": {
+          "anyOf": [
+            {
+              "enum": [
+                "dataset_item",
+                "task"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "After Owner Kind"
+        },
+        "page_size": {
+          "default": 500,
+          "maximum": 500,
+          "minimum": 1,
+          "title": "Page Size",
+          "type": "integer"
+        },
+        "selection": {
+          "$ref": "#/$defs/ImageBackfillSelection"
+        }
+      },
+      "required": [
+        "selection"
+      ],
+      "title": "ScanImageBackfillRequest",
+      "type": "object"
+    },
+    "ScheduleImageMediaRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "force": {
+          "default": false,
+          "title": "Force",
+          "type": "boolean"
+        },
+        "operation_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Operation Id"
+        },
+        "owner_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Owner Id"
+        },
+        "owner_kind": {
+          "anyOf": [
+            {
+              "enum": [
+                "dataset_item",
+                "task"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Owner Kind"
+        },
+        "spec": {
+          "discriminator": {
+            "mapping": {
+              "dimensions": "#/$defs/DimensionsWorkSpec",
+              "image_backfill": "#/$defs/ImageBackfillSpec",
+              "pyramid": "#/$defs/PyramidWorkSpec",
+              "thumbnail": "#/$defs/ThumbnailWorkSpec"
+            },
+            "propertyName": "kind"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/DimensionsWorkSpec"
+            },
+            {
+              "$ref": "#/$defs/ThumbnailWorkSpec"
+            },
+            {
+              "$ref": "#/$defs/PyramidWorkSpec"
+            },
+            {
+              "$ref": "#/$defs/ImageBackfillSpec"
+            }
+          ],
+          "title": "Spec"
+        }
+      },
+      "required": [
+        "operation_id",
+        "owner_kind",
+        "owner_id",
+        "spec"
+      ],
+      "title": "ScheduleImageMediaRequest",
+      "type": "object"
+    },
+    "TaskImageSourceFacts": {
+      "additionalProperties": false,
+      "description": "Exact private source facts returned by the Labeling owner.",
+      "properties": {
+        "blurhash": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Blurhash"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "dataset_item_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Dataset Item Id"
+        },
+        "file_name": {
+          "maxLength": 512,
+          "minLength": 1,
+          "title": "File Name",
+          "type": "string"
+        },
+        "file_path": {
+          "maxLength": 1024,
+          "minLength": 1,
+          "title": "File Path",
+          "type": "string"
+        },
+        "file_type": {
+          "title": "File Type",
+          "type": "string"
+        },
+        "object_identity": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ObjectIdentity"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "project_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Project Id"
+        },
+        "source_drifted": {
+          "title": "Source Drifted",
+          "type": "boolean"
+        },
+        "source_generation": {
+          "maximum": 9223372036854775807,
+          "minimum": 1,
+          "title": "Source Generation",
+          "type": "integer"
+        },
+        "source_snapshot": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Source Snapshot",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "thumbnail_path": {
+          "anyOf": [
+            {
+              "maxLength": 1024,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Thumbnail Path"
+        },
+        "thumbnail_source_generation": {
+          "anyOf": [
+            {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Thumbnail Source Generation"
+        },
+        "upload_ready": {
+          "title": "Upload Ready",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "task_id",
+        "project_id",
+        "dataset_item_id",
+        "file_type",
+        "file_path",
+        "file_name",
+        "created_at",
+        "source_generation",
+        "source_snapshot",
+        "object_identity",
+        "source_drifted",
+        "upload_ready",
+        "thumbnail_path",
+        "blurhash",
+        "thumbnail_source_generation"
+      ],
+      "title": "TaskImageSourceFacts",
+      "type": "object"
+    },
+    "ThumbnailResult": {
+      "additionalProperties": false,
+      "properties": {
+        "artifact": {
+          "$ref": "#/$defs/Artifact"
+        },
+        "blurhash": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Blurhash",
+          "type": "string"
+        },
+        "height": {
+          "exclusiveMinimum": 0,
+          "maximum": 2147483647,
+          "title": "Height",
+          "type": "integer"
+        },
+        "kind": {
+          "const": "thumbnail",
+          "default": "thumbnail",
+          "title": "Kind",
+          "type": "string"
+        },
+        "source_identity": {
+          "$ref": "#/$defs/ObjectIdentity"
+        },
+        "source_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Source Sha256",
+          "type": "string"
+        },
+        "width": {
+          "exclusiveMinimum": 0,
+          "maximum": 2147483647,
+          "title": "Width",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "source_identity",
+        "source_sha256",
+        "width",
+        "height",
+        "blurhash",
+        "artifact"
+      ],
+      "title": "ThumbnailResult",
+      "type": "object"
+    },
+    "ThumbnailWorkSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "expected_source_snapshot": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Expected Source Snapshot",
+          "type": "string"
+        },
+        "kind": {
+          "const": "thumbnail",
+          "default": "thumbnail",
+          "title": "Kind",
+          "type": "string"
+        },
+        "policy": {
+          "$ref": "#/$defs/ImagePolicy"
+        }
+      },
+      "required": [
+        "expected_source_snapshot"
+      ],
+      "title": "ThumbnailWorkSpec",
+      "type": "object"
+    }
+  },
+  "$id": "aap-assets-images/v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "x-budgets": {
+    "batch_size": 500,
+    "page_bytes": 15728640,
+    "reply_bytes": 16777216,
+    "request_bytes": 8388608,
+    "tile_reference_max": 128
+  },
+  "x-native": {
+    "advance_image_backfill": {
+      "arguments": [
+        "job_id",
+        "generation",
+        "lease_token",
+        "batch_size"
+      ],
+      "request": "AdvanceImageBackfillRequest",
+      "result": "ImageBackfillProgress",
+      "role": "worker",
+      "signature": "aap_assets_v1.advance_image_backfill(uuid,bigint,uuid,integer)"
+    },
+    "cancel_image_media": {
+      "arguments": [
+        "operation_id",
+        "actor_id",
+        "job_id"
+      ],
+      "request": "CancelImageMediaRequest",
+      "result": "CancelImageMediaResult",
+      "role": "control",
+      "signature": "aap_assets_v1.cancel_image_media(uuid,uuid,uuid)"
+    },
+    "claim_image_garbage": {
+      "arguments": [
+        "worker_id",
+        "lease_seconds",
+        "batch_size"
+      ],
+      "request": "ClaimImageGarbageRequest",
+      "result": "ImageGarbageBatch",
+      "role": "cleanup",
+      "signature": "aap_assets_v1.claim_image_garbage(uuid,integer,integer)"
+    },
+    "claim_image_media": {
+      "arguments": [
+        "worker_id",
+        "job_id",
+        "lease_seconds",
+        "kinds"
+      ],
+      "request": "ClaimImageMediaRequest",
+      "result": "ClaimedImageWork",
+      "role": "worker",
+      "signature": "aap_assets_v1.claim_image_media(uuid,uuid,integer,text[])"
+    },
+    "complete_image_garbage": {
+      "arguments": [
+        "garbage_id",
+        "lease_token"
+      ],
+      "request": "CompleteImageGarbageRequest",
+      "result": "ImageGarbageAck",
+      "role": "cleanup",
+      "signature": "aap_assets_v1.complete_image_garbage(uuid,uuid)"
+    },
+    "fail_image_media": {
+      "arguments": [
+        "job_id",
+        "generation",
+        "lease_token",
+        "error_code",
+        "error_detail"
+      ],
+      "request": "FailImageMediaRequest",
+      "result": "ImageWorkOutcome",
+      "role": "worker",
+      "signature": "aap_assets_v1.fail_image_media(uuid,bigint,uuid,text,text)"
+    },
+    "finish_image_media": {
+      "arguments": [
+        "job_id",
+        "generation",
+        "lease_token",
+        "result"
+      ],
+      "request": "FinishImageMediaRequest",
+      "result": "ImageWorkOutcome",
+      "role": "worker",
+      "signature": "aap_assets_v1.finish_image_media(uuid,bigint,uuid,jsonb)"
+    },
+    "heartbeat_image_media": {
+      "arguments": [
+        "job_id",
+        "generation",
+        "lease_token",
+        "lease_seconds"
+      ],
+      "request": "HeartbeatImageMediaRequest",
+      "result": "ImageLeaseState",
+      "role": "worker",
+      "signature": "aap_assets_v1.heartbeat_image_media(uuid,bigint,uuid,integer)"
+    },
+    "invalidate_image_media": {
+      "arguments": [
+        "actor_id",
+        "task_id",
+        "dataset_item_id",
+        "invalidation"
+      ],
+      "request": "InvalidateImageMediaRequest",
+      "result": "InvalidationResult",
+      "role": "control",
+      "signature": "aap_assets_v1.invalidate_image_media(uuid,uuid,uuid,jsonb)"
+    },
+    "observe_image_source": {
+      "arguments": [
+        "actor_id",
+        "task_id",
+        "dataset_item_id",
+        "source_snapshot",
+        "object_identity"
+      ],
+      "request": "ObserveImageSourceRequest",
+      "result": "ImageSource",
+      "role": "control",
+      "signature": "aap_assets_v1.observe_image_source(uuid,uuid,uuid,text,jsonb)"
+    },
+    "prepare_image_media": {
+      "arguments": [
+        "operation_id",
+        "actor_id",
+        "task_id",
+        "dataset_item_id",
+        "purpose",
+        "expected_source_snapshot",
+        "policy",
+        "force"
+      ],
+      "request": "PrepareImageMediaRequest",
+      "result": "AcceptedImageWork",
+      "role": "control",
+      "signature": "aap_assets_v1.prepare_image_media(uuid,uuid,uuid,uuid,text,text,jsonb,boolean)"
+    },
+    "read_image_generation": {
+      "arguments": [
+        "actor_id",
+        "task_id",
+        "dataset_item_id",
+        "generation"
+      ],
+      "request": "ReadImageGenerationRequest",
+      "result": "ImageGenerationRead",
+      "role": "control",
+      "signature": "aap_assets_v1.read_image_generation(uuid,uuid,uuid,integer)"
+    },
+    "read_image_source": {
+      "arguments": [
+        "actor_id",
+        "task_id",
+        "dataset_item_id"
+      ],
+      "request": "ReadImageSourceRequest",
+      "result": "ImageSource",
+      "role": "control",
+      "signature": "aap_assets_v1.read_image_source(uuid,uuid,uuid)"
+    },
+    "read_image_summaries": {
+      "arguments": [
+        "actor_id",
+        "selectors"
+      ],
+      "request": "ReadImageSummariesRequest",
+      "result": "ImageSummaries",
+      "role": "control",
+      "signature": "aap_assets_v1.read_image_summaries(uuid,jsonb)"
+    },
+    "read_image_usage": {
+      "arguments": [],
+      "request": "ImageUsageRequest",
+      "result": "ImageUsage",
+      "role": "system",
+      "signature": "aap_assets_v1.read_image_usage()"
+    },
+    "read_image_work": {
+      "arguments": [
+        "actor_id",
+        "job_id"
+      ],
+      "request": "ReadImageWorkRequest",
+      "result": "ImageWorkStatus",
+      "role": "control",
+      "signature": "aap_assets_v1.read_image_work(uuid,uuid)"
+    },
+    "read_internal_image_work": {
+      "arguments": [
+        "job_id"
+      ],
+      "request": "ReadInternalImageWorkRequest",
+      "result": "ImageWorkStatus",
+      "role": "system",
+      "signature": "aap_assets_v1.read_internal_image_work(uuid)"
+    },
+    "reconcile_image_media": {
+      "arguments": [
+        "candidates",
+        "batch_size"
+      ],
+      "request": "ReconcileImageMediaRequest",
+      "result": "ImageReconcileResult",
+      "role": "worker",
+      "signature": "aap_assets_v1.reconcile_image_media(jsonb,integer)"
+    },
+    "resolve_internal_image_source": {
+      "arguments": [
+        "owner_kind",
+        "owner_id",
+        "expected_source_snapshot",
+        "object_identity"
+      ],
+      "request": "ResolveInternalImageSourceRequest",
+      "result": "ImageSource",
+      "role": "system",
+      "signature": "aap_assets_v1.resolve_internal_image_source(text,uuid,text,jsonb)"
+    },
+    "retry_image_media": {
+      "arguments": [
+        "operation_id",
+        "actor_id",
+        "task_id",
+        "dataset_item_id",
+        "purpose",
+        "expected_source_snapshot",
+        "policy",
+        "force"
+      ],
+      "request": "RetryImageMediaRequest",
+      "result": "AcceptedImageWork",
+      "role": "control",
+      "signature": "aap_assets_v1.retry_image_media(uuid,uuid,uuid,uuid,text,text,jsonb,boolean)"
+    },
+    "scan_image_backfill": {
+      "arguments": [
+        "selection",
+        "after_owner_kind",
+        "after_owner_id",
+        "page_size"
+      ],
+      "request": "ScanImageBackfillRequest",
+      "result": "ImageBackfillPage",
+      "role": "system",
+      "signature": "aap_assets_v1.scan_image_backfill(jsonb,text,uuid,integer)"
+    },
+    "schedule_image_media": {
+      "arguments": [
+        "operation_id",
+        "owner_kind",
+        "owner_id",
+        "spec",
+        "force"
+      ],
+      "request": "ScheduleImageMediaRequest",
+      "result": "AcceptedImageWork",
+      "role": "system",
+      "signature": "aap_assets_v1.schedule_image_media(uuid,text,uuid,jsonb,boolean)"
+    }
+  }
+}
