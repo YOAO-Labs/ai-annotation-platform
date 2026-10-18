@@ -362,7 +362,9 @@ async def prepare_screenshot_seed(
                 if file_path:
                     storage_keys.add(file_path)
         if project is not None:
-            await delete_project_transaction(db, project)
+            await delete_project_transaction(
+                db, project.id, actor_id=users[PROJECT_STATE[logical_key]["owner"]].id
+            )
             purged_projects += 1
         if dataset is not None:
             await db.delete(dataset)

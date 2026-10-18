@@ -30,7 +30,7 @@ last_reviewed: 2026-10-17
 | 训练参数契约    | `apps/_shared/training_contract`                                                            | 纯 Python 原生框架字段快照、catalog 依赖校验、预算与回流契约                                     |
 | 训练执行器      | `apps/training-executor`                                                                    | 独立拉取式执行器，文件锁独占 GPU，管理原生训练子进程与脱敏日志                                   |
 | 素材探测服务    | `apps/media-probe`                                                                          | 独立元数据/帧时间表/packet 探测与 HTTP/NDJSON 合同；不取得数据库或对象存储访问权                 |
-| 事务数据能力    | `apps/api/alembic/sql/0190*` 至 `0195*`                                                     | 当前授权、关联、Jobs 和 Labeling 初始/追加建题；冻结 SQL/JSON 合同，保留同库外层事务             |
+| 事务数据能力    | `apps/api/alembic/sql/0190*` 至 `0200*`                                                     | 当前授权、关联、Jobs 和 Labeling 初始/追加建题；冻结 SQL/JSON 合同，保留同库外层事务             |
 | ML backend      | `apps/{grounded-sam2,sam3,yolo,rapidocr,onnxtools}-backend`                                 | 各自的池包装 / 观测 / 生命周期                                                                   |
 
 ## 2. 授权真值（唯一来源）
@@ -154,9 +154,8 @@ last_reviewed: 2026-10-17
    assets 关联结果与建题应用结果只返回 `link_id` 等标量，不向入口交付 `ProjectDataset` ORM。
    分块提交、追加 flush-only 和标定前置提交不同，不能合并成一种事务。
    上传完成的内容观测归 `DatasetService.record_uploaded_item_content`，图片尺寸归其既有 `set_item_dimensions`；HTTP 保留 Head/尺寸读取、去重、占位清理与追加建题的原事务及派发顺序。
-   解绑/素材删除、项目删除和无源任务清理由 `application/dataset_deletion.py`、
-   `project_deletion.py`、`project_task_cleanup.py` 组合领域所有者；
-   保留原本地原子事务、不同清理子集、计数口径和提交后派生存储清理，不是远程删除协议。
+   项目删除由 `application/project_deletion.py` 和严格 `services/project_deletion_contract.py` / `project_deletion_data.py` 绑定 Workspace 原生事务命令；各 owner 清理、学习保留、审计与删除回执共同提交，原始素材保留。Jobs 的 `retained_project_id` 固定删除后的访问范围，不从 payload 推断权限。
+   解绑/素材删除和无源任务清理仍由 `application/dataset_deletion.py`、`project_task_cleanup.py` 组合本地领域所有者；不同清理子集、计数和提交后派生存储清理继续沿用具体用例，尚不是完整的跨语言删除合同。
    生命周期、审核及单题/整批送审经 `application/task_lifecycle.py`、`task_review.py`、
    `task_submission.py`；状态/部分项目计数写入归 `LabelingTaskService`，证据归
    `annotation_evidence`，应用组合反馈、审计和通知。整批默认 200 题分块提交，

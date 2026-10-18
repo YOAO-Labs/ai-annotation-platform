@@ -265,6 +265,7 @@ docker compose --profile monitoring up -d prometheus grafana
 
 数据集的追加与初始分块建题通过版本化 PostgreSQL 数据接口共享外层事务，保留任务、
 计数、进度和回执的共同回滚；初始操作固定接受时的授权与关联代次，支持重启恢复和显式取消。
+项目删除也通过各所有者的原生命令组合，与审计及删除回执共同提交，并保留学习引用与作业访问范围。
 独立受限账号的配置与本地验收见 [DEV.md](./DEV.md#同库事务的数据接口)。
 [所有模块的部署与语言替换状态](./docs-site/dev/concepts/module-deployment.md)
 仍按完整运行工件、协议、权限与事务逐项验收。

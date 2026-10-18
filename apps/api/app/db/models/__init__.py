@@ -4,6 +4,7 @@ from app.db.models.training_study import TrainingStudy, TrainingTrial
 from app.db.models.group import Group
 from app.db.models.organization import Organization, OrganizationMember
 from app.db.models.project import Project
+from app.db.models.project_deletion_operation import ProjectDeletionOperation
 from app.db.models.project_member import ProjectMember
 from app.db.models.project_pipeline import ProjectPipeline
 from app.db.models.project_template import ProjectTemplate
@@ -244,3 +245,5 @@ __all__ += ["TrainingTelemetrySample", "TrainingLogChunk"]
 __all__ += ["ModelDecision"]
 
 __all__ += ["TrainingStudy", "TrainingTrial"]
+
+__all__ += ["ProjectDeletionOperation"]

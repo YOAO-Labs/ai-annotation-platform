@@ -41,18 +41,6 @@ from app.services.trained_model_reference_contract import (
 )
 
 
-async def assert_no_project_models(db, project_id: uuid.UUID) -> None:
-    if await db.scalar(
-        select(TrainedModelVersion.id)
-        .where(TrainedModelVersion.project_id == project_id)
-        .limit(1)
-    ):
-        raise HTTPException(
-            status_code=409,
-            detail="项目包含候选模型或决策历史，来源数据须保留",
-        )
-
-
 def project_classes(project):
     binding = (project.tool_bindings or {}).get("bbox", {})
     values = binding.get("classes", []) if binding.get("enabled") else []

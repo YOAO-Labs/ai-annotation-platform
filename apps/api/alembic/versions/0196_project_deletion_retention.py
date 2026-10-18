@@ -18,8 +18,17 @@ def upgrade() -> None:
     artifact = (
         Path(__file__).resolve().parents[1] / "sql/0196_project_deletion_retention.sql"
     )
-    op.execute(sa.text(artifact.read_text(encoding="utf-8")))
+    for statement in artifact.read_text(encoding="utf-8").split(
+        "-- aap-statement-break"
+    ):
+        if statement.strip():
+            op.execute(sa.text(statement.strip()))
 
 
 def downgrade() -> None:
-    op.execute(sa.text("DROP SCHEMA IF EXISTS aap_learning_v1 CASCADE"))
+    op.execute(
+        "DROP FUNCTION aap_learning_v1.delete_project_owned_records(uuid) RESTRICT"
+    )
+    op.execute("DROP FUNCTION aap_learning_v1.guard_project_deletion(uuid) RESTRICT")
+    op.execute("DROP FUNCTION aap_learning_v1.lock_project_deletion(uuid) RESTRICT")
+    op.execute("DROP SCHEMA aap_learning_v1 RESTRICT")

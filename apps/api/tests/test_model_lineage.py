@@ -543,7 +543,7 @@ async def test_candidate_decisions_protect_source_before_deletion(
         assert response.status_code == 409, response.text
     assert not delete_prefix.called
     with pytest.raises(Exception) as error:
-        await delete_project_transaction(db_session, project)
+        await delete_project_transaction(db_session, project.id, actor_id=owner.id)
     assert error.value.status_code == 409
 
 

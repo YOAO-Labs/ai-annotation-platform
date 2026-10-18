@@ -7,7 +7,7 @@ The legacy model's forgiving display projection must never drive association.
 from __future__ import annotations
 
 from aap_task_contract import VISUAL_TASK_VALUES, normalize_task
-from sqlalchemy import and_, case, delete, func, literal, not_, or_, select
+from sqlalchemy import and_, case, func, literal, not_, or_, select
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import defer
 from training_contract.dataset import (
@@ -429,9 +429,3 @@ async def list_task_datasets(db, project):
         "pending_membership_count": sum(pending.values()),
         "unrecognized_version_count": unrecognized,
     }
-
-
-async def delete_project_streams(db, project_id) -> None:
-    await db.execute(
-        delete(ProjectTaskDataset).where(ProjectTaskDataset.project_id == project_id)
-    )

@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import select, func, text, update
+from sqlalchemy import select, func, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.selectable import FromClause
 
@@ -18,20 +18,6 @@ TERMINAL_STATUSES = {"fixed", "wont_fix", "duplicate"}
 class BugReportService:
     def __init__(self, db: AsyncSession) -> None:
         self.db = db
-
-    async def detach_project_references(self, project_id: uuid.UUID) -> None:
-        params = {"pid": str(project_id)}
-        await self.db.execute(
-            text("UPDATE bug_reports SET project_id = NULL WHERE project_id = :pid"),
-            params,
-        )
-        await self.db.execute(
-            text(
-                "UPDATE bug_reports SET task_id = NULL WHERE task_id IN "
-                "(SELECT id FROM tasks WHERE project_id = :pid)"
-            ),
-            params,
-        )
 
     async def detach_task_references(self, task_ids: FromClause) -> None:
         await self.db.execute(

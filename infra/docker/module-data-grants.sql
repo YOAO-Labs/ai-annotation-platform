@@ -96,7 +96,14 @@ GRANT SELECT (id), INSERT (
     actor_id, actor_email, actor_role, action, target_type, target_id,
     method, path, status_code, ip, request_id, detail_json
 ) ON public.audit_logs TO :"audit_owner";
-GRANT USAGE ON SEQUENCE public.audit_logs_id_seq TO :"audit_owner";
+DO $$
+BEGIN
+    EXECUTE format(
+        'GRANT USAGE ON SEQUENCE %s TO %I',
+        pg_get_serial_sequence('public.audit_logs', 'id'),
+        current_setting('aap.audit_owner')
+    );
+END $$;
 
 -- Assets association and source locks use only the listed source columns.
 GRANT SELECT (id, data_type), UPDATE (id)

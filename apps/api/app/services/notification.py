@@ -562,6 +562,7 @@ class NotificationService:
         if user.role == PlatformRole.SUPER_ADMIN.value:
             actual_target = Notification.target_type.in_(_ACTUAL_TARGET_TYPES)
             valid_global_scope = and_(
+                Notification.target_type == "async_job",
                 _job_project_text_expr().is_(None),
                 _job_kind_expr().in_(GLOBAL_ASYNC_JOB_KINDS),
             )

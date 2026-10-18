@@ -98,6 +98,7 @@ async def test_deleted_and_unresolved_project_job_scopes_stay_restricted(
 
     notifications = NotificationService(db_session)
     notice_ids = {}
+    invalid_export_ids = {}
     for job in (deleted_job, detached_job, surviving_job, global_job, orphan_job):
         for recipient_id in (actor_id, owner_id):
             notice = await notifications.notify(
@@ -109,6 +110,16 @@ async def test_deleted_and_unresolved_project_job_scopes_stay_restricted(
             )
             assert notice is not None
             notice_ids.setdefault(recipient_id, {})[job.id] = notice.id
+    for recipient_id in (actor_id, owner_id):
+        notice = await notifications.notify(
+            user_id=recipient_id,
+            type="export.completed",
+            target_type="export",
+            target_id=global_job_id,
+            payload={"project_id": str(surviving_project_id)},
+        )
+        assert notice is not None
+        invalid_export_ids[recipient_id] = notice.id
 
     # Retained scope is database-owned: callers cannot forge or replace it.
     with pytest.raises(IntegrityError):
@@ -215,6 +226,9 @@ async def test_deleted_and_unresolved_project_job_scopes_stay_restricted(
         rows, total, _ = await notifications.list_for_user(recipient_id)
         assert total == 2
         assert {row.target_id for row in rows} == {surviving_job_id, global_job_id}
+        assert not await notifications.notification_deliverable(
+            invalid_export_ids[recipient_id], recipient_id
+        )
         for hidden_job_id in (deleted_job_id, detached_job_id, orphan_job_id):
             assert not await notifications.notification_deliverable(
                 notice_ids[recipient_id][hidden_job_id], recipient_id

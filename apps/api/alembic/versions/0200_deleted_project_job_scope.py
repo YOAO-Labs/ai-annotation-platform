@@ -40,6 +40,24 @@ def downgrade() -> None:
         raise RuntimeError(
             "Cannot remove retained async-job project scopes without widening access"
         )
+    original = _ARTIFACT.with_name("0193_task_creation_jobs.sql").read_text(
+        encoding="utf-8"
+    )
+    for name in (
+        "claim_task_creation_job",
+        "finish_task_creation_job",
+        "fail_task_creation_job",
+    ):
+        statement = next(
+            part.strip()
+            for part in original.split(_STATEMENT_SEPARATOR)
+            if part.strip().startswith(f"CREATE FUNCTION aap_jobs_v1.{name}(")
+        )
+        op.execute(
+            sa.text(
+                statement.replace("CREATE FUNCTION ", "CREATE OR REPLACE FUNCTION ", 1)
+            )
+        )
     op.execute("DROP TRIGGER async_jobs_retain_project_scope ON public.async_jobs")
     op.execute("DROP FUNCTION aap_jobs_v1.retain_async_job_project_scope() RESTRICT")
     op.execute("ALTER TABLE public.async_jobs DROP COLUMN retained_project_id")

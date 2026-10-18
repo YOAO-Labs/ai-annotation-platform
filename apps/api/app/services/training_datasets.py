@@ -58,18 +58,6 @@ from app.services.training_dataset_cancellation_contract import (
 log = logging.getLogger(__name__)
 
 
-async def assert_no_project_versions(db, project_id: uuid.UUID) -> None:
-    if await db.scalar(
-        select(TrainingDatasetVersion.id)
-        .where(TrainingDatasetVersion.project_id == project_id)
-        .limit(1)
-    ):
-        raise HTTPException(
-            status_code=409,
-            detail="项目包含训练数据版本，请先删除无引用的数据版本",
-        )
-
-
 async def stage_version_deletion(
     db: AsyncSession, version: TrainingDatasetVersion
 ) -> None:

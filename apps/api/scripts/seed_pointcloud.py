@@ -247,7 +247,7 @@ async def _remove_legacy_dev_seed(db, *, owner_id: uuid.UUID) -> list[str]:
             )
         ).scalars()
     )
-    await delete_project_transaction(db, project)
+    await delete_project_transaction(db, project.id, actor_id=owner_id)
     await db.delete(dataset)
     await db.flush()
     return [key for key in storage_keys if key]

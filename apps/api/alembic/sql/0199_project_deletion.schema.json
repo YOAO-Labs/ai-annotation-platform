@@ -1,0 +1,356 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:aap:contract:project-deletion:v1",
+  "title": "Transactional project deletion owner command v1",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/command"
+    },
+    {
+      "$ref": "#/$defs/success"
+    },
+    {
+      "$ref": "#/$defs/failure"
+    },
+    {
+      "$ref": "#/$defs/auditActorRequest"
+    },
+    {
+      "$ref": "#/$defs/auditActorSuccess"
+    },
+    {
+      "$ref": "#/$defs/auditActorFailure"
+    },
+    {
+      "$ref": "#/$defs/auditRecordRequest"
+    },
+    {
+      "$ref": "#/$defs/auditRecordResult"
+    }
+  ],
+  "$defs": {
+    "command": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "operation_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "actor_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "project_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "audit_context": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/auditContext"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": ["operation_id", "actor_id", "project_id", "audit_context"]
+    },
+    "success": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-project-delete/v1"
+        },
+        "ok": {
+          "const": true
+        },
+        "data": {
+          "$ref": "#/$defs/receipt"
+        }
+      },
+      "required": ["schema", "ok", "data"]
+    },
+    "failure": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-project-delete/v1"
+        },
+        "ok": {
+          "const": false
+        },
+        "error": {
+          "$ref": "#/$defs/error"
+        }
+      },
+      "required": ["schema", "ok", "error"]
+    },
+    "receipt": {
+      "additionalProperties": false,
+      "properties": {
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "deleted_tasks": {
+          "minimum": 0,
+          "title": "Deleted Tasks",
+          "type": "integer"
+        },
+        "deleted_annotations": {
+          "minimum": 0,
+          "title": "Deleted Annotations",
+          "type": "integer"
+        },
+        "audit_id": {
+          "exclusiveMinimum": 0,
+          "title": "Audit Id",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "operation_id",
+        "actor_id",
+        "project_id",
+        "deleted_tasks",
+        "deleted_annotations",
+        "audit_id"
+      ],
+      "title": "ProjectDeletionReceipt",
+      "type": "object"
+    },
+    "auditContext": {
+      "additionalProperties": false,
+      "properties": {
+        "method": {
+          "anyOf": [
+            {
+              "maxLength": 8,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Method"
+        },
+        "path": {
+          "anyOf": [
+            {
+              "maxLength": 256,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Path"
+        },
+        "ip": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ip"
+        },
+        "request_id": {
+          "anyOf": [
+            {
+              "maxLength": 36,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Request Id"
+        }
+      },
+      "title": "ProjectDeletionAuditContext",
+      "type": "object"
+    },
+    "error": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "type": "string",
+          "enum": [
+            "account_busy",
+            "account_not_active",
+            "active_learning_reference",
+            "invalid_account_role",
+            "invalid_project_role",
+            "invalid_request",
+            "membership_busy",
+            "membership_incompatible",
+            "operation_conflict",
+            "project_busy",
+            "project_manager_required",
+            "project_missing",
+            "retained_learning_policies",
+            "retained_learning_triggers",
+            "retained_model_decisions",
+            "retained_sample_evaluations",
+            "retained_trained_models",
+            "retained_training_dataset_versions",
+            "retained_training_previews",
+            "retained_training_runs",
+            "retained_training_studies"
+          ]
+        }
+      },
+      "required": ["code"]
+    },
+    "auditActorRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "type": "string",
+          "format": "uuid"
+        }
+      },
+      "required": ["actor_id"]
+    },
+    "auditActorSuccess": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-audit-actor/v1"
+        },
+        "ok": {
+          "const": true
+        },
+        "data": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "actor_id": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "email": {
+              "type": "string"
+            },
+            "platform_role": {
+              "type": "string"
+            }
+          },
+          "required": ["actor_id", "email", "platform_role"]
+        }
+      },
+      "required": ["schema", "ok", "data"]
+    },
+    "auditActorFailure": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-audit-actor/v1"
+        },
+        "ok": {
+          "const": false
+        },
+        "error": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "enum": ["account_busy", "account_not_active", "invalid_account_role"]
+            }
+          },
+          "required": ["code"]
+        }
+      },
+      "required": ["schema", "ok", "error"]
+    },
+    "auditRecordRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "operation_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "actor_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "project_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "display_id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "deleted_tasks": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "deleted_annotations": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "context": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/auditContext"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "operation_id",
+        "actor_id",
+        "project_id",
+        "display_id",
+        "name",
+        "deleted_tasks",
+        "deleted_annotations",
+        "context"
+      ]
+    },
+    "auditRecordResult": {
+      "type": "integer",
+      "exclusiveMinimum": 0
+    }
+  },
+  "x-postgresql-functions": [
+    "aap_workspace_v1.delete_project(uuid, uuid, uuid, jsonb)",
+    "aap_identity_v1.lock_audit_actor(uuid)",
+    "aap_audit_v1.record_project_deletion(uuid, uuid, uuid, text, text, bigint, bigint, jsonb)"
+  ]
+}

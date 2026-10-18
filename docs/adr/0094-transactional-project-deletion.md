@@ -40,7 +40,7 @@ make Workspace or the other participating modules independently deployable.
 4. Workspace coordinates each data owner in one caller transaction. Owners
    delete or detach only their own SQL rows; Labeling removes project Tasks and
    annotations and returns deletion counts. Workspace then removes members,
-   clears template source references, and deletes the Project. Identity calls its private typed `lock_audit_actor` helper to provide
+   clears template source references, and deletes the Project. Audit calls Identity's private typed `lock_audit_actor` helper to obtain
    locked current facts to Audit; only the Audit owner may execute that helper.
    Audit appends the `project.delete` event. Audit, owner changes, and the durable receipt
    commit or roll back together. No owner helper commits or is granted as a

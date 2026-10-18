@@ -338,6 +338,14 @@ DOMAIN_PACKAGES = (
         package="task_creation_contract", legacy_facades=(), allowed_app_imports=()
     ),
     DomainSpec(
+        package="project_deletion_contract", legacy_facades=(), allowed_app_imports=()
+    ),
+    DomainSpec(
+        package="project_deletion_data",
+        legacy_facades=(),
+        allowed_app_imports=("app.services.project_deletion_contract",),
+    ),
+    DomainSpec(
         package="task_creation_jobs",
         legacy_facades=(),
         allowed_app_imports=("app.services.task_creation_contract",),

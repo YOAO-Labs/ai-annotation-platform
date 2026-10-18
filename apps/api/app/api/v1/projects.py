@@ -22,6 +22,7 @@ from sqlalchemy import select, func, or_, and_
 from app.deps import (
     get_db,
     get_current_user,
+    get_current_user_id,
     require_roles,
     require_project_visible,
     require_project_owner,
@@ -820,10 +821,32 @@ async def apply_project_pipeline(
 
 @router.delete("/{project_id}", status_code=204)
 async def delete_project(
+    request: Request,
     project: Project = Depends(require_project_owner),
     db: AsyncSession = Depends(get_db),
+    actor_id: uuid.UUID = Depends(get_current_user_id),
 ):
-    await delete_project_transaction(db, project)
+    from ipaddress import ip_address
+    from app.middleware.request_id import request_id_var
+    from app.services.audit import audit_origin_from_request
+    from app.services.project_deletion_contract import ProjectDeletionAuditContext
+
+    origin = audit_origin_from_request(request)
+    try:
+        ip = str(ip_address(origin.ip)) if origin.ip else None
+    except ValueError:
+        ip = None
+    await delete_project_transaction(
+        db,
+        project.id,
+        actor_id=actor_id,
+        audit_context=ProjectDeletionAuditContext(
+            method=origin.method,
+            path=origin.path,
+            ip=ip,
+            request_id=request_id_var.get()[:36] or None,
+        ),
+    )
     await db.commit()
     return Response(status_code=204)
 

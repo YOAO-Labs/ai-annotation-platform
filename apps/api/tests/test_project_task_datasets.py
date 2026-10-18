@@ -403,12 +403,12 @@ async def test_association_replay_deletion_high_water_and_frozen_bytes(
         and segment_membership.task_dataset_id != stream.id
     )
     with pytest.raises(HTTPException) as blocked:
-        await delete_project_transaction(db_session, project)
+        await delete_project_transaction(db_session, project.id, actor_id=owner.id)
     assert blocked.value.status_code == 409
     await db_session.delete(later)
     await db_session.delete(segmentation)
     await db_session.flush()
-    await delete_project_transaction(db_session, project)
+    await delete_project_transaction(db_session, project.id, actor_id=owner.id)
     assert await db_session.get(Project, project.id) is None
     assert (
         await db_session.scalar(

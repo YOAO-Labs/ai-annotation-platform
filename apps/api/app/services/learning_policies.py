@@ -40,18 +40,6 @@ ACTIVE_TRIGGERS = {"building", "queued", "running"}
 log = logging.getLogger(__name__)
 
 
-async def assert_no_project_policies(db, project_id: uuid.UUID) -> None:
-    if await db.scalar(
-        select(LearningPolicy.id)
-        .where(LearningPolicy.project_id == project_id)
-        .limit(1)
-    ):
-        raise HTTPException(
-            status_code=409,
-            detail="项目包含自动训练策略，请先关闭并移除策略及其依赖",
-        )
-
-
 async def save(
     db,
     project: Project,

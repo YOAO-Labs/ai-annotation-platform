@@ -30,16 +30,6 @@ from app.schemas.model_lineage import LineageNode
 from app.services.training_dataset_bridge import content_digest
 
 
-async def assert_no_project_decisions(db, project_id: uuid.UUID) -> None:
-    if await db.scalar(
-        select(ModelDecision.id).where(ModelDecision.project_id == project_id).limit(1)
-    ):
-        raise HTTPException(
-            status_code=409,
-            detail="项目包含候选模型或决策历史，来源数据须保留",
-        )
-
-
 MODELS = {
     "dataset": Dataset,
     "run": Run,

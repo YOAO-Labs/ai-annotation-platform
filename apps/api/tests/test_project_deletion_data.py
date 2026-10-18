@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import os
+import asyncio
+import subprocess
 import uuid
 
 import pytest
@@ -107,17 +109,20 @@ async def _seed_graph(test_engine, *, other_project: bool = True) -> dict[str, o
             ]
         )
         await session.flush()
+        session.add(
+            Task(
+                id=fixture["other_task_id"],
+                project_id=fixture["other_project_id"],
+                dataset_item_id=fixture["item_id"],
+                display_id=f"TD-{suffix}",
+                file_name="source.jpg",
+                file_path=f"other/{suffix}/source.jpg",
+                file_type="image",
+            )
+        )
+        await session.flush()
         session.add_all(
             [
-                Task(
-                    id=fixture["other_task_id"],
-                    project_id=fixture["other_project_id"],
-                    dataset_item_id=fixture["item_id"],
-                    display_id=f"TD-{suffix}",
-                    file_name="source.jpg",
-                    file_path=f"other/{suffix}/source.jpg",
-                    file_type="image",
-                ),
                 ProjectDataset(
                     id=uuid.uuid4(),
                     project_id=fixture["other_project_id"],
@@ -134,7 +139,7 @@ async def _seed_graph(test_engine, *, other_project: bool = True) -> dict[str, o
                 AnnotationFeedback(
                     id=fixture["feedback_id"],
                     kind="issue",
-                    anchor_type="task",
+                    anchor_type="annotation",
                     project_id=fixture["project_id"],
                     task_id=fixture["task_id"],
                     annotation_id=fixture["annotation_id"],
@@ -144,7 +149,7 @@ async def _seed_graph(test_engine, *, other_project: bool = True) -> dict[str, o
                 AnnotationFeedback(
                     id=fixture["other_feedback_id"],
                     kind="issue",
-                    anchor_type="task",
+                    anchor_type="annotation",
                     project_id=fixture["other_project_id"],
                     task_id=fixture["other_task_id"],
                     annotation_id=fixture["other_annotation_id"],
@@ -176,17 +181,18 @@ async def _cleanup_fixture(test_engine, fixture: dict[str, object]) -> None:
     async with maker.begin() as session:
         operation_ids = fixture.get("operation_ids", [])
         if operation_ids:
+            await session.execute(text("SET LOCAL app.allow_audit_update = 'true'"))
             await session.execute(
                 text(
-                    "DELETE FROM public.project_deletion_operations "
-                    "WHERE operation_id = ANY(CAST(:ids AS uuid[]))"
+                    "DELETE FROM public.audit_logs WHERE action='project.delete' "
+                    "AND detail_json ->> 'operation_id' = ANY(CAST(:ids AS text[]))"
                 ),
                 {"ids": [str(value) for value in operation_ids]},
             )
             await session.execute(
                 text(
-                    "DELETE FROM public.audit_logs WHERE action='project.delete' "
-                    "AND detail_json ->> 'operation_id' = ANY(CAST(:ids AS text[]))"
+                    "DELETE FROM public.project_deletion_operations "
+                    "WHERE operation_id = ANY(CAST(:ids AS uuid[]))"
                 ),
                 {"ids": [str(value) for value in operation_ids]},
             )
@@ -513,7 +519,7 @@ async def test_delete_project_cleans_owner_data_audits_and_replays_frozen_receip
                     await verify.execute(
                         text(
                             "SELECT id, actor_role, action, target_type, target_id, method, "
-                            "status_code, ip::text, detail_json FROM public.audit_logs "
+                            "status_code, host(ip) AS ip, detail_json FROM public.audit_logs "
                             "WHERE action='project.delete' AND detail_json ->> 'operation_id'=:id"
                         ),
                         {"id": str(operation_id)},
@@ -756,7 +762,9 @@ async def test_project_delete_contention_rolls_back_owner_cleanup(test_engine):
         await _cleanup_fixture(test_engine, fixture)
 
 
-async def test_append_client_cannot_call_project_delete_coordinator(test_engine):
+async def test_scoped_client_deletes_only_through_project_delete_coordinator(
+    test_engine,
+):
     role_url = os.environ.get("AAP_MODULE_DATA_APPEND_URL")
     if os.environ.get("AAP_MODULE_DATA_ROLE_ACCEPTANCE") != "1" or not role_url:
         pytest.skip("requires the disposable module-data role verifier")
@@ -781,21 +789,73 @@ async def test_append_client_cannot_call_project_delete_coordinator(test_engine)
     try:
         async with engine.connect() as client:
             assert await client.scalar(text("SELECT current_user")) == "append_client"
-            with pytest.raises(DBAPIError) as denied:
-                await client.execute(
-                    _DELETE_PROJECT,
-                    {
-                        "operation_id": operation_id,
-                        "actor_id": fixture["user_id"],
-                        "project_id": fixture["project_id"],
-                        "audit_context": json.dumps({"method": "DELETE"}),
-                    },
-                )
-            assert _sqlstate(denied.value) == "42501"
-            await client.rollback()
+            for private in (
+                "SELECT id FROM public.projects LIMIT 1",
+                "SELECT aap_labeling_v1.delete_project_owned_records(CAST(:id AS uuid))",
+                "SELECT aap_identity_v1.lock_audit_actor(CAST(:id AS uuid))",
+            ):
+                with pytest.raises(DBAPIError) as denied:
+                    await client.execute(text(private), {"id": fixture["project_id"]})
+                assert _sqlstate(denied.value) == "42501"
+                await client.rollback()
+            result = await _delete(client, fixture, operation_id)
+            assert result["ok"] is True
+            assert result["data"]["deleted_tasks"] == 1
+            assert result["data"]["audit_id"] > 0
+            await client.commit()
+        from tests.test_task_creation_handoff import _inspect_owned_container
+
+        native = await asyncio.to_thread(
+            subprocess.run,
+            [
+                "docker",
+                "exec",
+                "-i",
+                "-e",
+                "PGPASSWORD",
+                _inspect_owned_container(role),
+                "psql",
+                "-X",
+                "-q",
+                "-A",
+                "-t",
+                "-h",
+                "127.0.0.1",
+                "-U",
+                role.username,
+                "-d",
+                role.database,
+                "-v",
+                "ON_ERROR_STOP=1",
+                "-v",
+                f"operation_id={operation_id}",
+                "-v",
+                f"actor_id={fixture['user_id']}",
+                "-v",
+                f"project_id={fixture['project_id']}",
+                "-f",
+                "-",
+            ],
+            input="""\
+BEGIN;
+SELECT current_user || '|' || session_user;
+SELECT aap_workspace_v1.delete_project(
+    :'operation_id'::uuid, :'actor_id'::uuid, :'project_id'::uuid, NULL::jsonb);
+COMMIT;
+""",
+            env={**os.environ, "PGPASSWORD": role.password},
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+        assert native.returncode == 0, "native scoped project-deletion replay failed"
+        identity, frozen = native.stdout.splitlines()
+        assert identity == "append_client|append_client"
+        assert json.loads(frozen) == result
         async with maker() as owner:
-            await _assert_graph_unchanged(owner, fixture)
-            await _assert_no_receipt_or_audit(owner, operation_id)
+            assert all(count == 0 for count in (await _counts(owner, fixture)).values())
+            assert await _delete(owner, fixture, operation_id) == result
     finally:
         await engine.dispose()
         await _cleanup_fixture(test_engine, fixture)

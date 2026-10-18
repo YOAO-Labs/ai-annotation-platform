@@ -1637,3 +1637,14 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
 - 架构守卫 273 passed、111 skipped；跳过均为未声明 lazy-root 规则，业务套件没有跳过。环境脚本单测 42 项通过，固定 Ruff 与 OpenAPI 快照检查通过。
 - 前端类型检查、作业列表 15 项测试、文档构建及提交门禁通过。主 checkout 已应用至 0195，实际 API 的 485 paths/872 schemas 与快照完全一致；源码热重载在约 3.2 秒内更换服务子进程。DB/Redis/MinIO 检查均为 200；日常 Celery 原本未启动，总健康检查相应为 503，本次隔离 worker 已实际验证并清理。主库只运行只读/回滚烟测，未留下建题操作。运行证据保存在 `.worktree/task-creation-main-runtime.json`。
 - 本片只建立选定授权、关联、建题与作业的数据接口；主 API 仍使用宽权限账号，共享 PostgreSQL 仍是前提。项目级删除、完整 owner 凭据/运行工件、对象存储权限和其余模块协议继续推进，总目标保持未完成。Go 月报仍仅为实验。决策见 [ADR-0093](../adr/0093-durable-task-creation-authority.md)。
+
+### 项目删除：各所有者能力、审计与不可变回执
+
+- Workspace 的版本化项目删除命令在当前账号、当前管理权和排他项目锁下协调 Learning 保留检查、Assets/Inference/Insights/Diagnostics/Export/Jobs/Labeling 的私有清理、Workspace 成员/模板引用与项目删除、Audit 写入及不可变回执。调用方同一 PostgreSQL 连接保留最终提交权；任一步失败或提交失败均回滚，不产生对象存储或 broker 副作用。项目删除不删除原始 Dataset、DatasetItem、来源金字塔或对象。
+- `project_deletion_operations` 归 Workspace，使用调用前生成的 operation UUID 和 actor/project 规范请求；相同请求重放冻结回执，换请求复用 UUID 拒绝。审计请求来源不改变业务幂等身份；回执没有项目/账号级联外键，不随业务资源消失。当前映射表为 114 张，Workspace 为 4 张。
+- 学习保留检查覆盖主动学习任务引用、冻结训练版本、实验/参数搜索、策略、候选/决策、评估以及合法的空模型选择/发布记录；不再以删除项目隐式清理这些保留证据。Python 删除旧重复项目清理与保留 helper，真实 HTTP、运维 seed 和直接消费者均显式传 actor UUID，公开 REST 响应保持不变。
+- Jobs 在项目 FK 被置空时保存没有 FK 的权威项目范围，并拒绝 A→B、全局→项目与解绑后重绑。列表、明细及通知依据当前账号/项目权限判断；旧的范围缺失记录不从 payload 推导授权。旧版本化建题作业因范围不明而失败时可以持久化终态，保留已有结果而不恢复执行。
+- 本片的独立安装将 owner 细化到十一个 NOLOGIN 角色；受限 LOGIN 仅能执行选定公开操作，不能读私有表、调用清理 helper 或读取 Identity 的审计私有事实。主 API 仍持有既有宽权限；这些 SQL 合同依赖共享 PostgreSQL，不代表全部模块独立部署。
+- 真实独立 PostgreSQL 与十一个 NOLOGIN owner、受限 LOGIN 的整合回归为 432 passed、零跳过，覆盖 owner 清理、学习保留、当前权限、忙锁回滚、外层回滚/提交失败、冻结回执与审计、旧孤立作业持久终态、作业/通知范围、原生 psql 重放和既有建题 Celery/peer 交接。迁移回退、全部冻结 SQL 独立安装/回滚及正常升级通过，临时容器、数据库、Redis 与九个桶均已清理；证据在 `.worktree/project-deletion-qualified.json` 与对应 JUnit。
+- 架构守卫 278 passed、113 个 lazy-root 不适用跳过；严格删除绑定另 11 项通过（已包含在 432 项整合回归中，不重复累计）。环境脚本 42 项通过，固定 Ruff、OpenAPI 快照与文档构建通过。主 checkout 的本地迁移和 API 运行复核将在整合提交后记录；不授予生产容量、模型/GPU 或远程 CI 资格。
+- 后续仍需处理素材解绑与整库素材删除的当前授权/引用围栏、身份生命周期中的级联路径，以及完整模块运行工件、凭据和其余公开协议。总目标保持进行中；Go 仍仅为实验。决策见 [ADR-0094](../adr/0094-transactional-project-deletion.md)。

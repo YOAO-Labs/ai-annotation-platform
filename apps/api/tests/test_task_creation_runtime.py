@@ -9,6 +9,7 @@ import tempfile
 from pathlib import Path
 from uuid import uuid4
 
+import pytest
 from celery import Celery
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
@@ -16,12 +17,78 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from app.services.dataset import DatasetService
 from app.services.labeling_tasks import LabelingTaskService
 from app.services.task_creation_jobs import TaskCreationJobs
+from app.services.task_creation_contract import TaskCreationFailure
 from tests.test_task_creation_handoff import (
     _append_target,
     _cleanup,
     _seed,
     pytestmark as pytestmark,
 )
+
+
+@pytest.mark.parametrize("initial_status", ["pending", "running", "completed"])
+async def test_old_unscoped_creation_is_terminalized_without_adopting_payload_scope(
+    test_engine, monkeypatch, initial_status
+):
+    from app.config import settings
+    from app.db.models.async_job import AsyncJob
+    from app.workers.create_tasks import _run_create_tasks
+
+    _append_target()
+    fixture = await _seed(test_engine, item_count=1)
+    operation_id = uuid4()
+    retained_result = {"created_tasks": 1, "total": 2}
+    maker = async_sessionmaker(test_engine, expire_on_commit=False)
+    try:
+        async with maker.begin() as owner:
+            # Represents a pre-migration SET NULL row, not a new accepted operation.
+            owner.add(
+                AsyncJob(
+                    id=operation_id,
+                    kind="create_tasks",
+                    project_id=None,
+                    user_id=fixture["actor_id"],
+                    status=initial_status,
+                    result=retained_result,
+                    payload={
+                        "schema": "aap-create-tasks/v1",
+                        "operation_id": str(operation_id),
+                        "actor_id": str(fixture["actor_id"]),
+                        "dataset_id": str(fixture["dataset_id"]),
+                        "project_id": str(fixture["project_id"]),
+                        "association_id": str(fixture["association_id"]),
+                        "mode": "link",
+                    },
+                )
+            )
+        monkeypatch.setattr(
+            settings, "database_url", os.environ["AAP_MODULE_DATA_APPEND_URL"]
+        )
+        for _ in range(2):
+            with pytest.raises(TaskCreationFailure) as rejected:
+                await _run_create_tasks(
+                    job_id=str(operation_id), celery_task_id=str(uuid4())
+                )
+            assert rejected.value.code == "job_scope_mismatch"
+        async with maker() as owner:
+            job = await owner.get(AsyncJob, operation_id)
+            assert job.status == (
+                "completed" if initial_status == "completed" else "failed"
+            )
+            assert job.project_id is job.retained_project_id is None
+            assert job.result == retained_result
+            if initial_status != "completed":
+                assert job.error_message == "task_creation:job_scope_mismatch"
+                assert job.completed_at is not None
+            assert (
+                await owner.scalar(
+                    text("SELECT count(*) FROM public.tasks WHERE project_id=:id"),
+                    {"id": fixture["project_id"]},
+                )
+                == 0
+            )
+    finally:
+        await _cleanup(test_engine, fixture, [operation_id])
 
 
 async def test_real_celery_creation_uses_public_capabilities_and_replays_terminal_job(

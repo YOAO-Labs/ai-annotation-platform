@@ -266,7 +266,8 @@ def test_project_labeling_delete_schema_and_sql_freeze_the_public_contract():
     )
     assert data["additionalProperties"] is False
     assert set(data["required"]) == {"deleted_tasks", "deleted_annotations"}
-    assert task_refs["items"]["additionalProperties"] is False
+    item_name = task_refs["items"]["$ref"].rsplit("/", 1)[-1]
+    assert schema["$defs"][item_name]["additionalProperties"] is False
 
     artifact = _SQL_ARTIFACT.read_text(encoding="utf-8")
     statements = [

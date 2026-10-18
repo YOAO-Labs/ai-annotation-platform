@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 
 from fastapi import HTTPException
 from pydantic import ValidationError
-from sqlalchemy import and_, any_, cast, func, or_, select, text
+from sqlalchemy import and_, any_, cast, func, or_, select
 from sqlalchemy.dialects.postgresql import ARRAY, UUID as PGUUID, array
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
@@ -31,12 +31,6 @@ logger = logging.getLogger(__name__)
 class FeedbackService:
     def __init__(self, db: AsyncSession) -> None:
         self.db = db
-
-    async def delete_project_feedbacks(self, project_id: uuid.UUID) -> None:
-        await self.db.execute(
-            text("DELETE FROM annotation_feedbacks WHERE project_id = :pid"),
-            {"pid": str(project_id)},
-        )
 
     async def create(
         self,

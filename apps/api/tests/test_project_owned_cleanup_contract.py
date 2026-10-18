@@ -83,29 +83,35 @@ async def _seed(test_engine) -> dict[str, uuid.UUID]:
             ]
         )
         await session.flush()
+        session.add(
+            DatasetItem(
+                id=fixture["item_id"],
+                dataset_id=fixture["dataset_id"],
+                file_name="source.jpg",
+                file_path=f"{suffix}/source.jpg",
+                file_type="image",
+                file_size=10,
+            )
+        )
+        await session.flush()
+        session.add(
+            Task(
+                id=fixture["task_id"],
+                project_id=fixture["project_id"],
+                dataset_item_id=fixture["item_id"],
+                display_id=f"TC-{suffix}",
+                file_name="source.jpg",
+                file_path=f"{suffix}/source.jpg",
+                file_type="image",
+            )
+        )
+        await session.flush()
         session.add_all(
             [
-                DatasetItem(
-                    id=fixture["item_id"],
-                    dataset_id=fixture["dataset_id"],
-                    file_name="source.jpg",
-                    file_path=f"{suffix}/source.jpg",
-                    file_type="image",
-                    file_size=10,
-                ),
                 ProjectDataset(
                     id=fixture["association_id"],
                     project_id=fixture["project_id"],
                     dataset_id=fixture["dataset_id"],
-                ),
-                Task(
-                    id=fixture["task_id"],
-                    project_id=fixture["project_id"],
-                    dataset_item_id=fixture["item_id"],
-                    display_id=f"TC-{suffix}",
-                    file_name="source.jpg",
-                    file_path=f"{suffix}/source.jpg",
-                    file_type="image",
                 ),
                 StorageConnection(
                     id=fixture["project_storage_id"],
