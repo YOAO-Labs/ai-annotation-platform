@@ -1,0 +1,3631 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aap-assets-media/v1",
+  "$defs": {
+    "ReadSourceRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "dataset_item_id": {
+          "format": "uuid",
+          "title": "Dataset Item Id",
+          "type": "string"
+        },
+        "task_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Task Id"
+        }
+      },
+      "required": ["actor_id", "dataset_item_id"],
+      "title": "ReadSourceRequest",
+      "type": "object"
+    },
+    "JsonValue": {},
+    "ObjectIdentity": {
+      "additionalProperties": false,
+      "properties": {
+        "etag": {
+          "maxLength": 255,
+          "minLength": 1,
+          "title": "Etag",
+          "type": "string"
+        },
+        "byte_size": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Byte Size",
+          "type": "integer"
+        },
+        "version_id": {
+          "anyOf": [
+            {
+              "maxLength": 255,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Version Id"
+        }
+      },
+      "required": ["etag", "byte_size"],
+      "title": "ObjectIdentity",
+      "type": "object"
+    },
+    "MediaSource": {
+      "additionalProperties": false,
+      "properties": {
+        "dataset_item_id": {
+          "format": "uuid",
+          "title": "Dataset Item Id",
+          "type": "string"
+        },
+        "dataset_id": {
+          "format": "uuid",
+          "title": "Dataset Id",
+          "type": "string"
+        },
+        "source_generation": {
+          "maximum": 9223372036854775807,
+          "minimum": 1,
+          "title": "Source Generation",
+          "type": "integer"
+        },
+        "source_snapshot": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Source Snapshot",
+          "type": "string"
+        },
+        "timetable_revision": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Timetable Revision",
+          "type": "integer"
+        },
+        "materialized_generation": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Materialized Generation",
+          "type": "integer"
+        },
+        "object_identity": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ObjectIdentity"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "source_drifted": {
+          "title": "Source Drifted",
+          "type": "boolean"
+        },
+        "file_name": {
+          "title": "File Name",
+          "type": "string"
+        },
+        "file_path": {
+          "title": "File Path",
+          "type": "string"
+        },
+        "file_type": {
+          "title": "File Type",
+          "type": "string"
+        },
+        "file_size": {
+          "anyOf": [
+            {
+              "maximum": 9223372036854775807,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "File Size"
+        },
+        "content_hash": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Content Hash"
+        },
+        "width": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Width"
+        },
+        "height": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Height"
+        },
+        "thumbnail_path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Thumbnail Path"
+        },
+        "blurhash": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Blurhash"
+        },
+        "video_metadata": {
+          "additionalProperties": {
+            "$ref": "#/$defs/JsonValue"
+          },
+          "title": "Video Metadata",
+          "type": "object"
+        }
+      },
+      "required": [
+        "dataset_item_id",
+        "dataset_id",
+        "source_generation",
+        "source_snapshot",
+        "timetable_revision",
+        "materialized_generation",
+        "object_identity",
+        "source_drifted",
+        "file_name",
+        "file_path",
+        "file_type",
+        "file_size",
+        "content_hash",
+        "width",
+        "height",
+        "thumbnail_path",
+        "blurhash",
+        "video_metadata"
+      ],
+      "title": "MediaSource",
+      "type": "object"
+    },
+    "SummaryRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "item_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "maxItems": 500,
+          "title": "Item Ids",
+          "type": "array"
+        }
+      },
+      "required": ["item_ids"],
+      "title": "SummaryRequest",
+      "type": "object"
+    },
+    "MediaSummary": {
+      "additionalProperties": false,
+      "properties": {
+        "dataset_item_id": {
+          "format": "uuid",
+          "title": "Dataset Item Id",
+          "type": "string"
+        },
+        "width": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Width"
+        },
+        "height": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Height"
+        },
+        "thumbnail_path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Thumbnail Path"
+        },
+        "blurhash": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Blurhash"
+        },
+        "file_type": {
+          "title": "File Type",
+          "type": "string"
+        },
+        "metadata": {
+          "additionalProperties": {
+            "$ref": "#/$defs/JsonValue"
+          },
+          "title": "Metadata",
+          "type": "object"
+        },
+        "source_generation": {
+          "maximum": 9223372036854775807,
+          "minimum": 1,
+          "title": "Source Generation",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "dataset_item_id",
+        "width",
+        "height",
+        "thumbnail_path",
+        "blurhash",
+        "file_type",
+        "metadata",
+        "source_generation"
+      ],
+      "title": "MediaSummary",
+      "type": "object"
+    },
+    "MediaSummaries": {
+      "additionalProperties": false,
+      "properties": {
+        "items": {
+          "items": {
+            "$ref": "#/$defs/MediaSummary"
+          },
+          "maxItems": 500,
+          "title": "Items",
+          "type": "array"
+        }
+      },
+      "required": ["items"],
+      "title": "MediaSummaries",
+      "type": "object"
+    },
+    "ChunkSelection": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "chunks",
+          "default": "chunks",
+          "title": "Kind",
+          "type": "string"
+        },
+        "chunk_ids": {
+          "items": {
+            "maximum": 2147483647,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "maxItems": 500,
+          "title": "Chunk Ids",
+          "type": "array"
+        },
+        "chunk_size_frames": {
+          "default": 60,
+          "maximum": 1000000,
+          "minimum": 1,
+          "title": "Chunk Size Frames",
+          "type": "integer"
+        },
+        "force": {
+          "default": false,
+          "title": "Force",
+          "type": "boolean"
+        },
+        "failed_only": {
+          "default": false,
+          "title": "Failed Only",
+          "type": "boolean"
+        }
+      },
+      "required": ["chunk_ids"],
+      "title": "ChunkSelection",
+      "type": "object"
+    },
+    "FrameSelection": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "frames",
+          "default": "frames",
+          "title": "Kind",
+          "type": "string"
+        },
+        "frame_indices": {
+          "items": {
+            "maximum": 2147483647,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "maxItems": 500,
+          "title": "Frame Indices",
+          "type": "array"
+        },
+        "width": {
+          "default": 512,
+          "maximum": 4096,
+          "minimum": 1,
+          "title": "Width",
+          "type": "integer"
+        },
+        "format": {
+          "default": "webp",
+          "enum": ["webp", "jpeg"],
+          "title": "Format",
+          "type": "string"
+        },
+        "force": {
+          "default": false,
+          "title": "Force",
+          "type": "boolean"
+        },
+        "failed_only": {
+          "default": false,
+          "title": "Failed Only",
+          "type": "boolean"
+        }
+      },
+      "required": ["frame_indices"],
+      "title": "FrameSelection",
+      "type": "object"
+    },
+    "AssetsRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "dataset_item_id": {
+          "format": "uuid",
+          "title": "Dataset Item Id",
+          "type": "string"
+        },
+        "task_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Task Id"
+        },
+        "selection": {
+          "discriminator": {
+            "mapping": {
+              "chunks": "#/$defs/ChunkSelection",
+              "frames": "#/$defs/FrameSelection"
+            },
+            "propertyName": "kind"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/FrameSelection"
+            },
+            {
+              "$ref": "#/$defs/ChunkSelection"
+            }
+          ],
+          "title": "Selection"
+        }
+      },
+      "required": ["actor_id", "dataset_item_id", "selection"],
+      "title": "AssetsRequest",
+      "type": "object"
+    },
+    "MediaAsset": {
+      "additionalProperties": false,
+      "properties": {
+        "row_id": {
+          "format": "uuid",
+          "title": "Row Id",
+          "type": "string"
+        },
+        "dataset_item_id": {
+          "format": "uuid",
+          "title": "Dataset Item Id",
+          "type": "string"
+        },
+        "kind": {
+          "enum": ["frame", "chunk"],
+          "title": "Kind",
+          "type": "string"
+        },
+        "source_generation": {
+          "maximum": 9223372036854775807,
+          "minimum": 1,
+          "title": "Source Generation",
+          "type": "integer"
+        },
+        "timetable_revision": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Timetable Revision",
+          "type": "integer"
+        },
+        "status": {
+          "enum": ["pending", "running", "ready", "failed"],
+          "title": "Status",
+          "type": "string"
+        },
+        "storage_key": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Storage Key"
+        },
+        "byte_size": {
+          "anyOf": [
+            {
+              "maximum": 9223372036854775807,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Byte Size"
+        },
+        "error": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Error"
+        },
+        "job_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Job Id"
+        },
+        "generation": {
+          "default": 0,
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Generation",
+          "type": "integer"
+        },
+        "frame_index": {
+          "anyOf": [
+            {
+              "maximum": 2147483647,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Frame Index"
+        },
+        "width": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Width"
+        },
+        "format": {
+          "anyOf": [
+            {
+              "enum": ["webp", "jpeg"],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Format"
+        },
+        "chunk_id": {
+          "anyOf": [
+            {
+              "maximum": 2147483647,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Chunk Id"
+        },
+        "start_frame": {
+          "anyOf": [
+            {
+              "maximum": 2147483647,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Start Frame"
+        },
+        "end_frame": {
+          "anyOf": [
+            {
+              "maximum": 2147483647,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "End Frame"
+        },
+        "start_pts_ms": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Start Pts Ms"
+        },
+        "end_pts_ms": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "End Pts Ms"
+        },
+        "generation_mode": {
+          "anyOf": [
+            {
+              "enum": ["smart_copy", "transcode"],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Generation Mode"
+        },
+        "diagnostics": {
+          "additionalProperties": {
+            "$ref": "#/$defs/JsonValue"
+          },
+          "title": "Diagnostics",
+          "type": "object"
+        },
+        "updated_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Updated At"
+        },
+        "url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Url"
+        },
+        "expires_in": {
+          "anyOf": [
+            {
+              "maximum": 9223372036854775807,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Expires In"
+        }
+      },
+      "required": [
+        "row_id",
+        "dataset_item_id",
+        "kind",
+        "source_generation",
+        "timetable_revision",
+        "status"
+      ],
+      "title": "MediaAsset",
+      "type": "object"
+    },
+    "MediaAssets": {
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "$ref": "#/$defs/MediaSource"
+        },
+        "assets": {
+          "items": {
+            "$ref": "#/$defs/MediaAsset"
+          },
+          "maxItems": 500,
+          "title": "Assets",
+          "type": "array"
+        }
+      },
+      "required": ["source", "assets"],
+      "title": "MediaAssets",
+      "type": "object"
+    },
+    "ObserveSourceRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "dataset_item_id": {
+          "format": "uuid",
+          "title": "Dataset Item Id",
+          "type": "string"
+        },
+        "task_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Task Id"
+        },
+        "source_snapshot": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Source Snapshot",
+          "type": "string"
+        },
+        "object_identity": {
+          "$ref": "#/$defs/ObjectIdentity"
+        }
+      },
+      "required": ["actor_id", "dataset_item_id", "source_snapshot", "object_identity"],
+      "title": "ObserveSourceRequest",
+      "type": "object"
+    },
+    "BackfillSelection": {
+      "additionalProperties": false,
+      "properties": {
+        "dataset_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Dataset Id"
+        },
+        "dataset_item_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "maxItems": 500,
+          "title": "Dataset Item Ids",
+          "type": "array"
+        },
+        "all_items": {
+          "default": false,
+          "title": "All Items",
+          "type": "boolean"
+        },
+        "only_missing": {
+          "default": true,
+          "title": "Only Missing",
+          "type": "boolean"
+        },
+        "accepted_before": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Accepted Before"
+        }
+      },
+      "title": "BackfillSelection",
+      "type": "object"
+    },
+    "BackfillSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "video_backfill",
+          "default": "video_backfill",
+          "title": "Kind",
+          "type": "string"
+        },
+        "selection": {
+          "$ref": "#/$defs/BackfillSelection"
+        }
+      },
+      "required": ["selection"],
+      "title": "BackfillSpec",
+      "type": "object"
+    },
+    "ChunkSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "chunk",
+          "default": "chunk",
+          "title": "Kind",
+          "type": "string"
+        },
+        "chunk_id": {
+          "maximum": 2147483647,
+          "minimum": 0,
+          "title": "Chunk Id",
+          "type": "integer"
+        },
+        "chunk_size_frames": {
+          "default": 60,
+          "maximum": 1000000,
+          "minimum": 1,
+          "title": "Chunk Size Frames",
+          "type": "integer"
+        },
+        "expected_source_snapshot": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Expected Source Snapshot"
+        }
+      },
+      "required": ["chunk_id"],
+      "title": "ChunkSpec",
+      "type": "object"
+    },
+    "FrameSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "frame",
+          "default": "frame",
+          "title": "Kind",
+          "type": "string"
+        },
+        "frame_index": {
+          "maximum": 2147483647,
+          "minimum": 0,
+          "title": "Frame Index",
+          "type": "integer"
+        },
+        "width": {
+          "default": 512,
+          "maximum": 4096,
+          "minimum": 1,
+          "title": "Width",
+          "type": "integer"
+        },
+        "format": {
+          "default": "webp",
+          "enum": ["webp", "jpeg"],
+          "title": "Format",
+          "type": "string"
+        },
+        "expected_source_snapshot": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Expected Source Snapshot"
+        }
+      },
+      "required": ["frame_index"],
+      "title": "FrameSpec",
+      "type": "object"
+    },
+    "MetadataSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "video_metadata",
+          "default": "video_metadata",
+          "title": "Kind",
+          "type": "string"
+        },
+        "generate_playback": {
+          "default": true,
+          "title": "Generate Playback",
+          "type": "boolean"
+        },
+        "generate_poster": {
+          "default": true,
+          "title": "Generate Poster",
+          "type": "boolean"
+        },
+        "probe_timetable": {
+          "default": true,
+          "title": "Probe Timetable",
+          "type": "boolean"
+        },
+        "expected_source_snapshot": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Expected Source Snapshot"
+        }
+      },
+      "title": "MetadataSpec",
+      "type": "object"
+    },
+    "TimetableSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "video_timetable",
+          "default": "video_timetable",
+          "title": "Kind",
+          "type": "string"
+        },
+        "sparse_stride": {
+          "default": 1,
+          "maximum": 1000000,
+          "minimum": 1,
+          "title": "Sparse Stride",
+          "type": "integer"
+        },
+        "expected_source_snapshot": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Expected Source Snapshot"
+        }
+      },
+      "title": "TimetableSpec",
+      "type": "object"
+    },
+    "RequestWorkRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "dataset_item_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Dataset Item Id"
+        },
+        "spec": {
+          "discriminator": {
+            "mapping": {
+              "chunk": "#/$defs/ChunkSpec",
+              "frame": "#/$defs/FrameSpec",
+              "video_backfill": "#/$defs/BackfillSpec",
+              "video_metadata": "#/$defs/MetadataSpec",
+              "video_timetable": "#/$defs/TimetableSpec"
+            },
+            "propertyName": "kind"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/MetadataSpec"
+            },
+            {
+              "$ref": "#/$defs/TimetableSpec"
+            },
+            {
+              "$ref": "#/$defs/FrameSpec"
+            },
+            {
+              "$ref": "#/$defs/ChunkSpec"
+            },
+            {
+              "$ref": "#/$defs/BackfillSpec"
+            }
+          ],
+          "title": "Spec"
+        },
+        "force": {
+          "default": false,
+          "title": "Force",
+          "type": "boolean"
+        }
+      },
+      "required": ["operation_id", "actor_id", "dataset_item_id", "spec"],
+      "title": "RequestWorkRequest",
+      "type": "object"
+    },
+    "WorkReference": {
+      "additionalProperties": false,
+      "properties": {
+        "job_id": {
+          "format": "uuid",
+          "title": "Job Id",
+          "type": "string"
+        },
+        "generation": {
+          "maximum": 9223372036854775807,
+          "minimum": 1,
+          "title": "Generation",
+          "type": "integer"
+        },
+        "dataset_item_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Dataset Item Id"
+        },
+        "source_generation": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Source Generation",
+          "type": "integer"
+        },
+        "kind": {
+          "enum": ["video_metadata", "video_timetable", "frame", "chunk", "video_backfill"],
+          "title": "Kind",
+          "type": "string"
+        },
+        "status": {
+          "enum": ["pending", "running", "ready", "failed", "canceled"],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "job_id",
+        "generation",
+        "dataset_item_id",
+        "source_generation",
+        "kind",
+        "status"
+      ],
+      "title": "WorkReference",
+      "type": "object"
+    },
+    "AcceptedWork": {
+      "additionalProperties": false,
+      "properties": {
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "source": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MediaSource"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "work": {
+          "$ref": "#/$defs/WorkReference"
+        },
+        "spec": {
+          "discriminator": {
+            "mapping": {
+              "chunk": "#/$defs/ChunkSpec",
+              "frame": "#/$defs/FrameSpec",
+              "video_backfill": "#/$defs/BackfillSpec",
+              "video_metadata": "#/$defs/MetadataSpec",
+              "video_timetable": "#/$defs/TimetableSpec"
+            },
+            "propertyName": "kind"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/MetadataSpec"
+            },
+            {
+              "$ref": "#/$defs/TimetableSpec"
+            },
+            {
+              "$ref": "#/$defs/FrameSpec"
+            },
+            {
+              "$ref": "#/$defs/ChunkSpec"
+            },
+            {
+              "$ref": "#/$defs/BackfillSpec"
+            }
+          ],
+          "title": "Spec"
+        }
+      },
+      "required": ["operation_id", "source", "work", "spec"],
+      "title": "AcceptedWork",
+      "type": "object"
+    },
+    "ScheduleWorkRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "dataset_item_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Dataset Item Id"
+        },
+        "spec": {
+          "discriminator": {
+            "mapping": {
+              "chunk": "#/$defs/ChunkSpec",
+              "frame": "#/$defs/FrameSpec",
+              "video_backfill": "#/$defs/BackfillSpec",
+              "video_metadata": "#/$defs/MetadataSpec",
+              "video_timetable": "#/$defs/TimetableSpec"
+            },
+            "propertyName": "kind"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/MetadataSpec"
+            },
+            {
+              "$ref": "#/$defs/TimetableSpec"
+            },
+            {
+              "$ref": "#/$defs/FrameSpec"
+            },
+            {
+              "$ref": "#/$defs/ChunkSpec"
+            },
+            {
+              "$ref": "#/$defs/BackfillSpec"
+            }
+          ],
+          "title": "Spec"
+        },
+        "force": {
+          "default": false,
+          "title": "Force",
+          "type": "boolean"
+        }
+      },
+      "required": ["operation_id", "dataset_item_id", "spec"],
+      "title": "ScheduleWorkRequest",
+      "type": "object"
+    },
+    "WorkStatusRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "job_id": {
+          "format": "uuid",
+          "title": "Job Id",
+          "type": "string"
+        },
+        "actor_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Actor Id"
+        }
+      },
+      "required": ["job_id"],
+      "title": "WorkStatusRequest",
+      "type": "object"
+    },
+    "WorkStatus": {
+      "additionalProperties": false,
+      "properties": {
+        "work": {
+          "$ref": "#/$defs/WorkReference"
+        },
+        "spec": {
+          "discriminator": {
+            "mapping": {
+              "chunk": "#/$defs/ChunkSpec",
+              "frame": "#/$defs/FrameSpec",
+              "video_backfill": "#/$defs/BackfillSpec",
+              "video_metadata": "#/$defs/MetadataSpec",
+              "video_timetable": "#/$defs/TimetableSpec"
+            },
+            "propertyName": "kind"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/MetadataSpec"
+            },
+            {
+              "$ref": "#/$defs/TimetableSpec"
+            },
+            {
+              "$ref": "#/$defs/FrameSpec"
+            },
+            {
+              "$ref": "#/$defs/ChunkSpec"
+            },
+            {
+              "$ref": "#/$defs/BackfillSpec"
+            }
+          ],
+          "title": "Spec"
+        },
+        "progress": {
+          "additionalProperties": {
+            "$ref": "#/$defs/JsonValue"
+          },
+          "title": "Progress",
+          "type": "object"
+        },
+        "error_code": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Error Code"
+        },
+        "error_detail": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Error Detail"
+        },
+        "lease_expires_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Lease Expires At"
+        }
+      },
+      "required": ["work", "spec", "progress", "error_code", "error_detail", "lease_expires_at"],
+      "title": "WorkStatus",
+      "type": "object"
+    },
+    "TimetableRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "dataset_item_id": {
+          "format": "uuid",
+          "title": "Dataset Item Id",
+          "type": "string"
+        },
+        "task_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Task Id"
+        },
+        "from_frame": {
+          "anyOf": [
+            {
+              "maximum": 2147483647,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "From Frame"
+        },
+        "to_frame": {
+          "anyOf": [
+            {
+              "maximum": 2147483647,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "To Frame"
+        },
+        "after_frame": {
+          "anyOf": [
+            {
+              "maximum": 2147483647,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "After Frame"
+        },
+        "page_size": {
+          "default": 500,
+          "maximum": 500,
+          "minimum": 1,
+          "title": "Page Size",
+          "type": "integer"
+        }
+      },
+      "required": ["actor_id", "dataset_item_id"],
+      "title": "TimetableRequest",
+      "type": "object"
+    },
+    "FrameEntry": {
+      "additionalProperties": false,
+      "properties": {
+        "frame_index": {
+          "maximum": 2147483647,
+          "minimum": 0,
+          "title": "Frame Index",
+          "type": "integer"
+        },
+        "pts_ms": {
+          "title": "Pts Ms",
+          "type": "integer"
+        },
+        "is_keyframe": {
+          "title": "Is Keyframe",
+          "type": "boolean"
+        },
+        "pict_type": {
+          "anyOf": [
+            {
+              "maxLength": 8,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Pict Type"
+        },
+        "byte_offset": {
+          "anyOf": [
+            {
+              "maximum": 9223372036854775807,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Byte Offset"
+        }
+      },
+      "required": ["frame_index", "pts_ms", "is_keyframe"],
+      "title": "FrameEntry",
+      "type": "object"
+    },
+    "TimetablePage": {
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "$ref": "#/$defs/MediaSource"
+        },
+        "snapshot_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Snapshot Digest",
+          "type": "string"
+        },
+        "total": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Total",
+          "type": "integer"
+        },
+        "after_frame": {
+          "anyOf": [
+            {
+              "maximum": 2147483647,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "After Frame"
+        },
+        "next_frame": {
+          "anyOf": [
+            {
+              "maximum": 2147483647,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Next Frame"
+        },
+        "complete": {
+          "title": "Complete",
+          "type": "boolean"
+        },
+        "frames": {
+          "items": {
+            "$ref": "#/$defs/FrameEntry"
+          },
+          "maxItems": 500,
+          "title": "Frames",
+          "type": "array"
+        }
+      },
+      "required": [
+        "source",
+        "snapshot_digest",
+        "total",
+        "after_frame",
+        "next_frame",
+        "complete",
+        "frames"
+      ],
+      "title": "TimetablePage",
+      "type": "object"
+    },
+    "SamplesRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "dataset_item_id": {
+          "format": "uuid",
+          "title": "Dataset Item Id",
+          "type": "string"
+        },
+        "task_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Task Id"
+        },
+        "chunk_id": {
+          "maximum": 2147483647,
+          "minimum": 0,
+          "title": "Chunk Id",
+          "type": "integer"
+        },
+        "after_sample": {
+          "anyOf": [
+            {
+              "maximum": 2147483647,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "After Sample"
+        },
+        "page_size": {
+          "default": 500,
+          "maximum": 500,
+          "minimum": 1,
+          "title": "Page Size",
+          "type": "integer"
+        }
+      },
+      "required": ["actor_id", "dataset_item_id", "chunk_id"],
+      "title": "SamplesRequest",
+      "type": "object"
+    },
+    "PacketSample": {
+      "additionalProperties": false,
+      "properties": {
+        "frame_index": {
+          "maximum": 2147483647,
+          "minimum": 0,
+          "title": "Frame Index",
+          "type": "integer"
+        },
+        "pts_ms": {
+          "title": "Pts Ms",
+          "type": "integer"
+        },
+        "duration_ms": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Duration Ms",
+          "type": "integer"
+        },
+        "is_keyframe": {
+          "title": "Is Keyframe",
+          "type": "boolean"
+        },
+        "size_bytes": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Size Bytes",
+          "type": "integer"
+        },
+        "offset_in_chunk": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Offset In Chunk",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "frame_index",
+        "pts_ms",
+        "duration_ms",
+        "is_keyframe",
+        "size_bytes",
+        "offset_in_chunk"
+      ],
+      "title": "PacketSample",
+      "type": "object"
+    },
+    "SamplesPage": {
+      "additionalProperties": false,
+      "properties": {
+        "dataset_item_id": {
+          "format": "uuid",
+          "title": "Dataset Item Id",
+          "type": "string"
+        },
+        "chunk_id": {
+          "maximum": 2147483647,
+          "minimum": 0,
+          "title": "Chunk Id",
+          "type": "integer"
+        },
+        "source_generation": {
+          "maximum": 9223372036854775807,
+          "minimum": 1,
+          "title": "Source Generation",
+          "type": "integer"
+        },
+        "timetable_revision": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Timetable Revision",
+          "type": "integer"
+        },
+        "snapshot_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Snapshot Digest",
+          "type": "string"
+        },
+        "codec_string": {
+          "title": "Codec String",
+          "type": "string"
+        },
+        "description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Description"
+        },
+        "width": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Width",
+          "type": "integer"
+        },
+        "height": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Height",
+          "type": "integer"
+        },
+        "total": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Total",
+          "type": "integer"
+        },
+        "after_sample": {
+          "anyOf": [
+            {
+              "maximum": 2147483647,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "After Sample"
+        },
+        "next_sample": {
+          "anyOf": [
+            {
+              "maximum": 2147483647,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Next Sample"
+        },
+        "complete": {
+          "title": "Complete",
+          "type": "boolean"
+        },
+        "samples": {
+          "items": {
+            "$ref": "#/$defs/PacketSample"
+          },
+          "maxItems": 500,
+          "title": "Samples",
+          "type": "array"
+        }
+      },
+      "required": [
+        "dataset_item_id",
+        "chunk_id",
+        "source_generation",
+        "timetable_revision",
+        "snapshot_digest",
+        "codec_string",
+        "description",
+        "width",
+        "height",
+        "total",
+        "after_sample",
+        "next_sample",
+        "complete",
+        "samples"
+      ],
+      "title": "SamplesPage",
+      "type": "object"
+    },
+    "FailuresRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "limit": {
+          "default": 50,
+          "maximum": 200,
+          "minimum": 1,
+          "title": "Limit",
+          "type": "integer"
+        },
+        "offset": {
+          "default": 0,
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Offset",
+          "type": "integer"
+        }
+      },
+      "required": ["actor_id"],
+      "title": "FailuresRequest",
+      "type": "object"
+    },
+    "FailureItem": {
+      "additionalProperties": false,
+      "properties": {
+        "asset_key": {
+          "title": "Asset Key",
+          "type": "string"
+        },
+        "asset_type": {
+          "enum": ["probe", "poster", "frame_timetable", "chunk", "frame"],
+          "title": "Asset Type",
+          "type": "string"
+        },
+        "dataset_item_id": {
+          "format": "uuid",
+          "title": "Dataset Item Id",
+          "type": "string"
+        },
+        "file_name": {
+          "title": "File Name",
+          "type": "string"
+        },
+        "error": {
+          "title": "Error",
+          "type": "string"
+        },
+        "task_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Task Id"
+        },
+        "task_display_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Task Display Id"
+        },
+        "project_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Project Id"
+        },
+        "project_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Project Name"
+        },
+        "updated_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Updated At"
+        },
+        "chunk_id": {
+          "anyOf": [
+            {
+              "maximum": 2147483647,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Chunk Id"
+        },
+        "frame_index": {
+          "anyOf": [
+            {
+              "maximum": 2147483647,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Frame Index"
+        },
+        "width": {
+          "anyOf": [
+            {
+              "maximum": 9223372036854775807,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Width"
+        },
+        "format": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Format"
+        }
+      },
+      "required": ["asset_key", "asset_type", "dataset_item_id", "file_name", "error"],
+      "title": "FailureItem",
+      "type": "object"
+    },
+    "FailurePage": {
+      "additionalProperties": false,
+      "properties": {
+        "items": {
+          "items": {
+            "$ref": "#/$defs/FailureItem"
+          },
+          "maxItems": 200,
+          "title": "Items",
+          "type": "array"
+        },
+        "total": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Total",
+          "type": "integer"
+        },
+        "limit": {
+          "maximum": 200,
+          "minimum": 1,
+          "title": "Limit",
+          "type": "integer"
+        },
+        "offset": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Offset",
+          "type": "integer"
+        }
+      },
+      "required": ["items", "total", "limit", "offset"],
+      "title": "FailurePage",
+      "type": "object"
+    },
+    "RetrySpec": {
+      "additionalProperties": false,
+      "properties": {
+        "asset_type": {
+          "enum": ["probe", "poster", "frame_timetable", "chunk", "frame"],
+          "title": "Asset Type",
+          "type": "string"
+        },
+        "dataset_item_id": {
+          "format": "uuid",
+          "title": "Dataset Item Id",
+          "type": "string"
+        },
+        "chunk_id": {
+          "anyOf": [
+            {
+              "maximum": 2147483647,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Chunk Id"
+        },
+        "frame_index": {
+          "anyOf": [
+            {
+              "maximum": 2147483647,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Frame Index"
+        },
+        "width": {
+          "anyOf": [
+            {
+              "maximum": 4096,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Width"
+        },
+        "format": {
+          "anyOf": [
+            {
+              "enum": ["webp", "jpeg"],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Format"
+        }
+      },
+      "required": ["asset_type", "dataset_item_id"],
+      "title": "RetrySpec",
+      "type": "object"
+    },
+    "RetryRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "spec": {
+          "$ref": "#/$defs/RetrySpec"
+        }
+      },
+      "required": ["operation_id", "actor_id", "spec"],
+      "title": "RetryRequest",
+      "type": "object"
+    },
+    "Invalidation": {
+      "additionalProperties": false,
+      "properties": {
+        "source_snapshot": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Source Snapshot",
+          "type": "string"
+        },
+        "expected_key": {
+          "title": "Expected Key",
+          "type": "string"
+        },
+        "kind": {
+          "enum": ["poster", "playback", "frame", "chunk"],
+          "title": "Kind",
+          "type": "string"
+        },
+        "frame_index": {
+          "anyOf": [
+            {
+              "maximum": 2147483647,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Frame Index"
+        },
+        "width": {
+          "anyOf": [
+            {
+              "maximum": 9223372036854775807,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Width"
+        },
+        "format": {
+          "anyOf": [
+            {
+              "enum": ["webp", "jpeg"],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Format"
+        },
+        "chunk_id": {
+          "anyOf": [
+            {
+              "maximum": 2147483647,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Chunk Id"
+        }
+      },
+      "required": ["source_snapshot", "expected_key", "kind"],
+      "title": "Invalidation",
+      "type": "object"
+    },
+    "InvalidateRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "dataset_item_id": {
+          "format": "uuid",
+          "title": "Dataset Item Id",
+          "type": "string"
+        },
+        "task_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Task Id"
+        },
+        "invalidation": {
+          "$ref": "#/$defs/Invalidation"
+        }
+      },
+      "required": ["actor_id", "dataset_item_id", "invalidation"],
+      "title": "InvalidateRequest",
+      "type": "object"
+    },
+    "InvalidationResult": {
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "$ref": "#/$defs/MediaSource"
+        },
+        "changed": {
+          "title": "Changed",
+          "type": "boolean"
+        }
+      },
+      "required": ["source", "changed"],
+      "title": "InvalidationResult",
+      "type": "object"
+    },
+    "ClaimRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "worker_id": {
+          "format": "uuid",
+          "title": "Worker Id",
+          "type": "string"
+        },
+        "job_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Job Id"
+        },
+        "lease_seconds": {
+          "default": 1200,
+          "maximum": 3600,
+          "minimum": 30,
+          "title": "Lease Seconds",
+          "type": "integer"
+        },
+        "kinds": {
+          "items": {
+            "enum": ["video_metadata", "video_timetable", "frame", "chunk", "video_backfill"],
+            "type": "string"
+          },
+          "maxItems": 5,
+          "minItems": 1,
+          "title": "Kinds",
+          "type": "array"
+        }
+      },
+      "required": ["worker_id"],
+      "title": "ClaimRequest",
+      "type": "object"
+    },
+    "MediaClaim": {
+      "additionalProperties": false,
+      "properties": {
+        "job_id": {
+          "format": "uuid",
+          "title": "Job Id",
+          "type": "string"
+        },
+        "generation": {
+          "maximum": 9223372036854775807,
+          "minimum": 1,
+          "title": "Generation",
+          "type": "integer"
+        },
+        "lease_token": {
+          "format": "uuid",
+          "title": "Lease Token",
+          "type": "string"
+        },
+        "lease_expires_at": {
+          "format": "date-time",
+          "title": "Lease Expires At",
+          "type": "string"
+        },
+        "source": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MediaSource"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "spec": {
+          "discriminator": {
+            "mapping": {
+              "chunk": "#/$defs/ChunkSpec",
+              "frame": "#/$defs/FrameSpec",
+              "video_backfill": "#/$defs/BackfillSpec",
+              "video_metadata": "#/$defs/MetadataSpec",
+              "video_timetable": "#/$defs/TimetableSpec"
+            },
+            "propertyName": "kind"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/MetadataSpec"
+            },
+            {
+              "$ref": "#/$defs/TimetableSpec"
+            },
+            {
+              "$ref": "#/$defs/FrameSpec"
+            },
+            {
+              "$ref": "#/$defs/ChunkSpec"
+            },
+            {
+              "$ref": "#/$defs/BackfillSpec"
+            }
+          ],
+          "title": "Spec"
+        },
+        "output_prefix": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Output Prefix"
+        },
+        "timetable_revision": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Timetable Revision",
+          "type": "integer"
+        },
+        "timing": {
+          "$ref": "#/$defs/WorkTiming"
+        }
+      },
+      "required": [
+        "job_id",
+        "generation",
+        "lease_token",
+        "lease_expires_at",
+        "source",
+        "spec",
+        "output_prefix",
+        "timetable_revision",
+        "timing"
+      ],
+      "title": "MediaClaim",
+      "type": "object"
+    },
+    "WorkTiming": {
+      "additionalProperties": false,
+      "properties": {
+        "start_frame": {
+          "anyOf": [
+            {
+              "maximum": 2147483647,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Start Frame"
+        },
+        "end_frame": {
+          "anyOf": [
+            {
+              "maximum": 2147483647,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "End Frame"
+        },
+        "anchors": {
+          "items": {
+            "$ref": "#/$defs/FrameEntry"
+          },
+          "maxItems": 4,
+          "title": "Anchors",
+          "type": "array"
+        },
+        "is_keyframe": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Is Keyframe"
+        }
+      },
+      "title": "WorkTiming",
+      "type": "object"
+    },
+    "ClaimedWork": {
+      "additionalProperties": false,
+      "properties": {
+        "claim": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MediaClaim"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": ["claim"],
+      "title": "ClaimedWork",
+      "type": "object"
+    },
+    "CancelRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "job_id": {
+          "format": "uuid",
+          "title": "Job Id",
+          "type": "string"
+        }
+      },
+      "required": ["operation_id", "actor_id", "job_id"],
+      "title": "CancelRequest",
+      "type": "object"
+    },
+    "CancelResult": {
+      "additionalProperties": false,
+      "properties": {
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "job_id": {
+          "format": "uuid",
+          "title": "Job Id",
+          "type": "string"
+        },
+        "canceled": {
+          "title": "Canceled",
+          "type": "boolean"
+        }
+      },
+      "required": ["operation_id", "job_id", "canceled"],
+      "title": "CancelResult",
+      "type": "object"
+    },
+    "HeartbeatRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "job_id": {
+          "format": "uuid",
+          "title": "Job Id",
+          "type": "string"
+        },
+        "generation": {
+          "maximum": 9223372036854775807,
+          "minimum": 1,
+          "title": "Generation",
+          "type": "integer"
+        },
+        "lease_token": {
+          "format": "uuid",
+          "title": "Lease Token",
+          "type": "string"
+        },
+        "lease_seconds": {
+          "default": 1200,
+          "maximum": 3600,
+          "minimum": 30,
+          "title": "Lease Seconds",
+          "type": "integer"
+        }
+      },
+      "required": ["job_id", "generation", "lease_token"],
+      "title": "HeartbeatRequest",
+      "type": "object"
+    },
+    "LeaseState": {
+      "additionalProperties": false,
+      "properties": {
+        "job_id": {
+          "format": "uuid",
+          "title": "Job Id",
+          "type": "string"
+        },
+        "generation": {
+          "maximum": 9223372036854775807,
+          "minimum": 1,
+          "title": "Generation",
+          "type": "integer"
+        },
+        "lease_token": {
+          "format": "uuid",
+          "title": "Lease Token",
+          "type": "string"
+        },
+        "active": {
+          "title": "Active",
+          "type": "boolean"
+        },
+        "lease_expires_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Lease Expires At"
+        }
+      },
+      "required": ["job_id", "generation", "lease_token", "active", "lease_expires_at"],
+      "title": "LeaseState",
+      "type": "object"
+    },
+    "StageTimetableRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "job_id": {
+          "format": "uuid",
+          "title": "Job Id",
+          "type": "string"
+        },
+        "generation": {
+          "maximum": 9223372036854775807,
+          "minimum": 1,
+          "title": "Generation",
+          "type": "integer"
+        },
+        "lease_token": {
+          "format": "uuid",
+          "title": "Lease Token",
+          "type": "string"
+        },
+        "rows": {
+          "items": {
+            "$ref": "#/$defs/FrameEntry"
+          },
+          "maxItems": 500,
+          "minItems": 1,
+          "title": "Rows",
+          "type": "array"
+        }
+      },
+      "required": ["job_id", "generation", "lease_token", "rows"],
+      "title": "StageTimetableRequest",
+      "type": "object"
+    },
+    "StageResult": {
+      "additionalProperties": false,
+      "properties": {
+        "job_id": {
+          "format": "uuid",
+          "title": "Job Id",
+          "type": "string"
+        },
+        "generation": {
+          "maximum": 9223372036854775807,
+          "minimum": 1,
+          "title": "Generation",
+          "type": "integer"
+        },
+        "lease_token": {
+          "format": "uuid",
+          "title": "Lease Token",
+          "type": "string"
+        },
+        "staged_count": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Staged Count",
+          "type": "integer"
+        }
+      },
+      "required": ["job_id", "generation", "lease_token", "staged_count"],
+      "title": "StageResult",
+      "type": "object"
+    },
+    "Artifact": {
+      "additionalProperties": false,
+      "properties": {
+        "key": {
+          "title": "Key",
+          "type": "string"
+        },
+        "byte_size": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Byte Size",
+          "type": "integer"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        }
+      },
+      "required": ["key", "byte_size", "sha256"],
+      "title": "Artifact",
+      "type": "object"
+    },
+    "ChunkResult": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "chunk",
+          "default": "chunk",
+          "title": "Kind",
+          "type": "string"
+        },
+        "source_identity": {
+          "$ref": "#/$defs/ObjectIdentity"
+        },
+        "source_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Source Sha256",
+          "type": "string"
+        },
+        "artifact": {
+          "$ref": "#/$defs/Artifact"
+        },
+        "generation_mode": {
+          "enum": ["smart_copy", "transcode"],
+          "title": "Generation Mode",
+          "type": "string"
+        },
+        "diagnostics": {
+          "additionalProperties": {
+            "$ref": "#/$defs/JsonValue"
+          },
+          "title": "Diagnostics",
+          "type": "object"
+        },
+        "start_pts_ms": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Start Pts Ms"
+        },
+        "end_pts_ms": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "End Pts Ms"
+        }
+      },
+      "required": [
+        "source_identity",
+        "source_sha256",
+        "artifact",
+        "generation_mode",
+        "diagnostics"
+      ],
+      "title": "ChunkResult",
+      "type": "object"
+    },
+    "FrameResult": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "frame",
+          "default": "frame",
+          "title": "Kind",
+          "type": "string"
+        },
+        "source_identity": {
+          "$ref": "#/$defs/ObjectIdentity"
+        },
+        "source_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Source Sha256",
+          "type": "string"
+        },
+        "artifact": {
+          "$ref": "#/$defs/Artifact"
+        }
+      },
+      "required": ["source_identity", "source_sha256", "artifact"],
+      "title": "FrameResult",
+      "type": "object"
+    },
+    "MetadataResult": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "enum": ["video_metadata", "video_timetable"],
+          "title": "Kind",
+          "type": "string"
+        },
+        "source_identity": {
+          "$ref": "#/$defs/ObjectIdentity"
+        },
+        "source_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Source Sha256",
+          "type": "string"
+        },
+        "metadata_patch": {
+          "additionalProperties": {
+            "$ref": "#/$defs/JsonValue"
+          },
+          "title": "Metadata Patch",
+          "type": "object"
+        },
+        "clear_errors": {
+          "items": {
+            "enum": ["probe_error", "playback_error", "poster_error", "frame_timetable_error"],
+            "type": "string"
+          },
+          "title": "Clear Errors",
+          "type": "array"
+        },
+        "width": {
+          "anyOf": [
+            {
+              "maximum": 9223372036854775807,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Width"
+        },
+        "height": {
+          "anyOf": [
+            {
+              "maximum": 9223372036854775807,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Height"
+        },
+        "timetable_total_frames": {
+          "anyOf": [
+            {
+              "maximum": 9223372036854775807,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Timetable Total Frames"
+        },
+        "timetable_staged_count": {
+          "anyOf": [
+            {
+              "maximum": 9223372036854775807,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Timetable Staged Count"
+        },
+        "poster": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Artifact"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "playback": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Artifact"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": ["kind", "source_identity", "source_sha256", "metadata_patch"],
+      "title": "MetadataResult",
+      "type": "object"
+    },
+    "FinishRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "job_id": {
+          "format": "uuid",
+          "title": "Job Id",
+          "type": "string"
+        },
+        "generation": {
+          "maximum": 9223372036854775807,
+          "minimum": 1,
+          "title": "Generation",
+          "type": "integer"
+        },
+        "lease_token": {
+          "format": "uuid",
+          "title": "Lease Token",
+          "type": "string"
+        },
+        "result": {
+          "discriminator": {
+            "mapping": {
+              "chunk": "#/$defs/ChunkResult",
+              "frame": "#/$defs/FrameResult",
+              "video_metadata": "#/$defs/MetadataResult",
+              "video_timetable": "#/$defs/MetadataResult"
+            },
+            "propertyName": "kind"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/MetadataResult"
+            },
+            {
+              "$ref": "#/$defs/FrameResult"
+            },
+            {
+              "$ref": "#/$defs/ChunkResult"
+            }
+          ],
+          "title": "Result"
+        }
+      },
+      "required": ["job_id", "generation", "lease_token", "result"],
+      "title": "FinishRequest",
+      "type": "object"
+    },
+    "WorkOutcome": {
+      "additionalProperties": false,
+      "properties": {
+        "job_id": {
+          "format": "uuid",
+          "title": "Job Id",
+          "type": "string"
+        },
+        "generation": {
+          "maximum": 9223372036854775807,
+          "minimum": 1,
+          "title": "Generation",
+          "type": "integer"
+        },
+        "outcome": {
+          "enum": [
+            "published",
+            "replayed",
+            "failed",
+            "lease_lost",
+            "source_changed",
+            "dependency_changed"
+          ],
+          "title": "Outcome",
+          "type": "string"
+        }
+      },
+      "required": ["job_id", "generation", "outcome"],
+      "title": "WorkOutcome",
+      "type": "object"
+    },
+    "FailRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "job_id": {
+          "format": "uuid",
+          "title": "Job Id",
+          "type": "string"
+        },
+        "generation": {
+          "maximum": 9223372036854775807,
+          "minimum": 1,
+          "title": "Generation",
+          "type": "integer"
+        },
+        "lease_token": {
+          "format": "uuid",
+          "title": "Lease Token",
+          "type": "string"
+        },
+        "error_code": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Error Code",
+          "type": "string"
+        },
+        "error_detail": {
+          "maxLength": 2000,
+          "title": "Error Detail",
+          "type": "string"
+        }
+      },
+      "required": ["job_id", "generation", "lease_token", "error_code", "error_detail"],
+      "title": "FailRequest",
+      "type": "object"
+    },
+    "ExpireRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "frame_ttl_days": {
+          "default": 14,
+          "maximum": 3650,
+          "minimum": 1,
+          "title": "Frame Ttl Days",
+          "type": "integer"
+        },
+        "chunk_ttl_days": {
+          "default": 30,
+          "maximum": 3650,
+          "minimum": 1,
+          "title": "Chunk Ttl Days",
+          "type": "integer"
+        },
+        "batch_size": {
+          "default": 500,
+          "maximum": 500,
+          "minimum": 1,
+          "title": "Batch Size",
+          "type": "integer"
+        }
+      },
+      "title": "ExpireRequest",
+      "type": "object"
+    },
+    "ExpireResult": {
+      "additionalProperties": false,
+      "properties": {
+        "frames_expired": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Frames Expired",
+          "type": "integer"
+        },
+        "chunks_expired": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Chunks Expired",
+          "type": "integer"
+        },
+        "more": {
+          "title": "More",
+          "type": "boolean"
+        }
+      },
+      "required": ["frames_expired", "chunks_expired", "more"],
+      "title": "ExpireResult",
+      "type": "object"
+    },
+    "ClaimGarbageRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "worker_id": {
+          "format": "uuid",
+          "title": "Worker Id",
+          "type": "string"
+        },
+        "lease_seconds": {
+          "default": 120,
+          "maximum": 3600,
+          "minimum": 30,
+          "title": "Lease Seconds",
+          "type": "integer"
+        },
+        "batch_size": {
+          "default": 20,
+          "maximum": 100,
+          "minimum": 1,
+          "title": "Batch Size",
+          "type": "integer"
+        }
+      },
+      "required": ["worker_id"],
+      "title": "ClaimGarbageRequest",
+      "type": "object"
+    },
+    "GarbageItem": {
+      "additionalProperties": false,
+      "properties": {
+        "garbage_id": {
+          "format": "uuid",
+          "title": "Garbage Id",
+          "type": "string"
+        },
+        "lease_token": {
+          "format": "uuid",
+          "title": "Lease Token",
+          "type": "string"
+        },
+        "prefix": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Prefix"
+        },
+        "keys": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 500,
+          "title": "Keys",
+          "type": "array"
+        }
+      },
+      "required": ["garbage_id", "lease_token", "prefix", "keys"],
+      "title": "GarbageItem",
+      "type": "object"
+    },
+    "GarbageBatch": {
+      "additionalProperties": false,
+      "properties": {
+        "items": {
+          "items": {
+            "$ref": "#/$defs/GarbageItem"
+          },
+          "maxItems": 100,
+          "title": "Items",
+          "type": "array"
+        }
+      },
+      "required": ["items"],
+      "title": "GarbageBatch",
+      "type": "object"
+    },
+    "CompleteGarbageRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "garbage_id": {
+          "format": "uuid",
+          "title": "Garbage Id",
+          "type": "string"
+        },
+        "lease_token": {
+          "format": "uuid",
+          "title": "Lease Token",
+          "type": "string"
+        }
+      },
+      "required": ["garbage_id", "lease_token"],
+      "title": "CompleteGarbageRequest",
+      "type": "object"
+    },
+    "GarbageAck": {
+      "additionalProperties": false,
+      "properties": {
+        "garbage_id": {
+          "format": "uuid",
+          "title": "Garbage Id",
+          "type": "string"
+        },
+        "completed": {
+          "title": "Completed",
+          "type": "boolean"
+        }
+      },
+      "required": ["garbage_id", "completed"],
+      "title": "GarbageAck",
+      "type": "object"
+    },
+    "BackfillRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "selection": {
+          "$ref": "#/$defs/BackfillSelection"
+        },
+        "after_item_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "After Item Id"
+        },
+        "page_size": {
+          "default": 500,
+          "maximum": 500,
+          "minimum": 1,
+          "title": "Page Size",
+          "type": "integer"
+        }
+      },
+      "required": ["selection"],
+      "title": "BackfillRequest",
+      "type": "object"
+    },
+    "BackfillPage": {
+      "additionalProperties": false,
+      "properties": {
+        "items": {
+          "items": {
+            "$ref": "#/$defs/MediaSource"
+          },
+          "maxItems": 500,
+          "title": "Items",
+          "type": "array"
+        },
+        "snapshot_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Snapshot Digest",
+          "type": "string"
+        },
+        "total": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Total",
+          "type": "integer"
+        },
+        "accepted_before": {
+          "format": "date-time",
+          "title": "Accepted Before",
+          "type": "string"
+        },
+        "after_item_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "After Item Id"
+        },
+        "next_item_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Next Item Id"
+        },
+        "complete": {
+          "title": "Complete",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "items",
+        "snapshot_digest",
+        "total",
+        "accepted_before",
+        "after_item_id",
+        "next_item_id",
+        "complete"
+      ],
+      "title": "BackfillPage",
+      "type": "object"
+    },
+    "AdvanceBackfillRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "job_id": {
+          "format": "uuid",
+          "title": "Job Id",
+          "type": "string"
+        },
+        "generation": {
+          "maximum": 9223372036854775807,
+          "minimum": 1,
+          "title": "Generation",
+          "type": "integer"
+        },
+        "lease_token": {
+          "format": "uuid",
+          "title": "Lease Token",
+          "type": "string"
+        },
+        "batch_size": {
+          "default": 500,
+          "maximum": 500,
+          "minimum": 1,
+          "title": "Batch Size",
+          "type": "integer"
+        }
+      },
+      "required": ["job_id", "generation", "lease_token"],
+      "title": "AdvanceBackfillRequest",
+      "type": "object"
+    },
+    "BackfillProgress": {
+      "additionalProperties": false,
+      "properties": {
+        "job_id": {
+          "format": "uuid",
+          "title": "Job Id",
+          "type": "string"
+        },
+        "generation": {
+          "maximum": 9223372036854775807,
+          "minimum": 1,
+          "title": "Generation",
+          "type": "integer"
+        },
+        "lease_token": {
+          "format": "uuid",
+          "title": "Lease Token",
+          "type": "string"
+        },
+        "scheduled": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Scheduled",
+          "type": "integer"
+        },
+        "skipped": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Skipped",
+          "type": "integer"
+        },
+        "complete": {
+          "title": "Complete",
+          "type": "boolean"
+        },
+        "next_item_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Next Item Id"
+        }
+      },
+      "required": [
+        "job_id",
+        "generation",
+        "lease_token",
+        "scheduled",
+        "skipped",
+        "complete",
+        "next_item_id"
+      ],
+      "title": "BackfillProgress",
+      "type": "object"
+    },
+    "InternalFrameRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "dataset_item_id": {
+          "format": "uuid",
+          "title": "Dataset Item Id",
+          "type": "string"
+        },
+        "frame_index": {
+          "maximum": 2147483647,
+          "minimum": 0,
+          "title": "Frame Index",
+          "type": "integer"
+        },
+        "width": {
+          "default": 512,
+          "maximum": 4096,
+          "minimum": 1,
+          "title": "Width",
+          "type": "integer"
+        },
+        "format": {
+          "default": "webp",
+          "enum": ["webp", "jpeg"],
+          "title": "Format",
+          "type": "string"
+        }
+      },
+      "required": ["dataset_item_id", "frame_index"],
+      "title": "InternalFrameRequest",
+      "type": "object"
+    },
+    "UsageRequest": {
+      "additionalProperties": false,
+      "properties": {},
+      "title": "UsageRequest",
+      "type": "object"
+    },
+    "MediaUsage": {
+      "additionalProperties": false,
+      "properties": {
+        "frame_bytes": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Frame Bytes",
+          "type": "integer"
+        },
+        "chunk_bytes": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Chunk Bytes",
+          "type": "integer"
+        },
+        "pending": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Pending",
+          "type": "integer"
+        },
+        "running": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Running",
+          "type": "integer"
+        },
+        "failed": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Failed",
+          "type": "integer"
+        }
+      },
+      "required": ["frame_bytes", "chunk_bytes", "pending", "running", "failed"],
+      "title": "MediaUsage",
+      "type": "object"
+    },
+    "MediaPreferences": {
+      "additionalProperties": false,
+      "properties": {
+        "warmup_lookahead": {
+          "anyOf": [
+            {
+              "maximum": 9223372036854775807,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Warmup Lookahead"
+        }
+      },
+      "required": ["warmup_lookahead"],
+      "title": "MediaPreferences",
+      "type": "object"
+    }
+  },
+  "x-budgets": {
+    "request_bytes": 8388608,
+    "reply_bytes": 16777216,
+    "page_bytes": 15728640,
+    "batch_size": 500
+  },
+  "x-native": {
+    "read_media_source": {
+      "signature": "aap_assets_v1.read_media_source(uuid,uuid,uuid)",
+      "arguments": ["actor_id", "dataset_item_id", "task_id"],
+      "request": "ReadSourceRequest",
+      "result": "MediaSource",
+      "role": "control"
+    },
+    "read_media_summaries": {
+      "signature": "aap_assets_v1.read_media_summaries(uuid[])",
+      "arguments": ["item_ids"],
+      "request": "SummaryRequest",
+      "result": "MediaSummaries",
+      "role": "control"
+    },
+    "ensure_video_media": {
+      "signature": "aap_assets_v1.ensure_video_media(uuid,uuid,uuid,jsonb)",
+      "arguments": ["actor_id", "dataset_item_id", "task_id", "selection"],
+      "request": "AssetsRequest",
+      "result": "MediaAssets",
+      "role": "control"
+    },
+    "observe_media_source": {
+      "signature": "aap_assets_v1.observe_media_source(uuid,uuid,uuid,text,jsonb)",
+      "arguments": ["actor_id", "dataset_item_id", "task_id", "source_snapshot", "object_identity"],
+      "request": "ObserveSourceRequest",
+      "result": "MediaSource",
+      "role": "control"
+    },
+    "request_video_media": {
+      "signature": "aap_assets_v1.request_video_media(uuid,uuid,uuid,jsonb,boolean)",
+      "arguments": ["operation_id", "actor_id", "dataset_item_id", "spec", "force"],
+      "request": "RequestWorkRequest",
+      "result": "AcceptedWork",
+      "role": "control"
+    },
+    "schedule_video_media": {
+      "signature": "aap_assets_v1.schedule_video_media(uuid,uuid,jsonb,boolean)",
+      "arguments": ["operation_id", "dataset_item_id", "spec", "force"],
+      "request": "ScheduleWorkRequest",
+      "result": "AcceptedWork",
+      "role": "system"
+    },
+    "read_video_work": {
+      "signature": "aap_assets_v1.read_video_work(uuid,uuid)",
+      "arguments": ["job_id", "actor_id"],
+      "request": "WorkStatusRequest",
+      "result": "WorkStatus",
+      "role": "system"
+    },
+    "read_video_timetable": {
+      "signature": "aap_assets_v1.read_video_timetable(uuid,uuid,uuid,integer,integer,integer,integer)",
+      "arguments": [
+        "actor_id",
+        "dataset_item_id",
+        "task_id",
+        "from_frame",
+        "to_frame",
+        "after_frame",
+        "page_size"
+      ],
+      "request": "TimetableRequest",
+      "result": "TimetablePage",
+      "role": "control"
+    },
+    "read_video_samples": {
+      "signature": "aap_assets_v1.read_video_samples(uuid,uuid,uuid,integer,integer,integer)",
+      "arguments": [
+        "actor_id",
+        "dataset_item_id",
+        "task_id",
+        "chunk_id",
+        "after_sample",
+        "page_size"
+      ],
+      "request": "SamplesRequest",
+      "result": "SamplesPage",
+      "role": "control"
+    },
+    "read_video_failures": {
+      "signature": "aap_assets_v1.read_video_failures(uuid,integer,bigint)",
+      "arguments": ["actor_id", "limit", "offset"],
+      "request": "FailuresRequest",
+      "result": "FailurePage",
+      "role": "control"
+    },
+    "retry_video_media": {
+      "signature": "aap_assets_v1.retry_video_media(uuid,uuid,jsonb)",
+      "arguments": ["operation_id", "actor_id", "spec"],
+      "request": "RetryRequest",
+      "result": "AcceptedWork",
+      "role": "control"
+    },
+    "invalidate_video_media": {
+      "signature": "aap_assets_v1.invalidate_video_media(uuid,uuid,uuid,jsonb)",
+      "arguments": ["actor_id", "dataset_item_id", "task_id", "invalidation"],
+      "request": "InvalidateRequest",
+      "result": "InvalidationResult",
+      "role": "control"
+    },
+    "claim_video_media": {
+      "signature": "aap_assets_v1.claim_video_media(uuid,uuid,integer,text[])",
+      "arguments": ["worker_id", "job_id", "lease_seconds", "kinds"],
+      "request": "ClaimRequest",
+      "result": "ClaimedWork",
+      "role": "worker"
+    },
+    "cancel_video_media": {
+      "signature": "aap_assets_v1.cancel_video_media(uuid,uuid,uuid)",
+      "arguments": ["operation_id", "actor_id", "job_id"],
+      "request": "CancelRequest",
+      "result": "CancelResult",
+      "role": "control"
+    },
+    "heartbeat_video_media": {
+      "signature": "aap_assets_v1.heartbeat_video_media(uuid,bigint,uuid,integer)",
+      "arguments": ["job_id", "generation", "lease_token", "lease_seconds"],
+      "request": "HeartbeatRequest",
+      "result": "LeaseState",
+      "role": "worker"
+    },
+    "stage_video_timetable": {
+      "signature": "aap_assets_v1.stage_video_timetable(uuid,bigint,uuid,jsonb)",
+      "arguments": ["job_id", "generation", "lease_token", "rows"],
+      "request": "StageTimetableRequest",
+      "result": "StageResult",
+      "role": "worker"
+    },
+    "finish_video_media": {
+      "signature": "aap_assets_v1.finish_video_media(uuid,bigint,uuid,jsonb)",
+      "arguments": ["job_id", "generation", "lease_token", "result"],
+      "request": "FinishRequest",
+      "result": "WorkOutcome",
+      "role": "worker"
+    },
+    "fail_video_media": {
+      "signature": "aap_assets_v1.fail_video_media(uuid,bigint,uuid,text,text)",
+      "arguments": ["job_id", "generation", "lease_token", "error_code", "error_detail"],
+      "request": "FailRequest",
+      "result": "WorkOutcome",
+      "role": "worker"
+    },
+    "expire_video_media": {
+      "signature": "aap_assets_v1.expire_video_media(integer,integer,integer)",
+      "arguments": ["frame_ttl_days", "chunk_ttl_days", "batch_size"],
+      "request": "ExpireRequest",
+      "result": "ExpireResult",
+      "role": "worker"
+    },
+    "claim_video_media_garbage": {
+      "signature": "aap_assets_v1.claim_video_media_garbage(uuid,integer,integer)",
+      "arguments": ["worker_id", "lease_seconds", "batch_size"],
+      "request": "ClaimGarbageRequest",
+      "result": "GarbageBatch",
+      "role": "worker"
+    },
+    "complete_video_media_garbage": {
+      "signature": "aap_assets_v1.complete_video_media_garbage(uuid,uuid)",
+      "arguments": ["garbage_id", "lease_token"],
+      "request": "CompleteGarbageRequest",
+      "result": "GarbageAck",
+      "role": "worker"
+    },
+    "scan_video_backfill": {
+      "signature": "aap_assets_v1.scan_video_backfill(jsonb,uuid,integer)",
+      "arguments": ["selection", "after_item_id", "page_size"],
+      "request": "BackfillRequest",
+      "result": "BackfillPage",
+      "role": "system"
+    },
+    "advance_video_backfill": {
+      "signature": "aap_assets_v1.advance_video_backfill(uuid,bigint,uuid,integer)",
+      "arguments": ["job_id", "generation", "lease_token", "batch_size"],
+      "request": "AdvanceBackfillRequest",
+      "result": "BackfillProgress",
+      "role": "worker"
+    },
+    "read_internal_video_frame": {
+      "signature": "aap_assets_v1.read_internal_video_frame(uuid,integer,integer,text)",
+      "arguments": ["dataset_item_id", "frame_index", "width", "format"],
+      "request": "InternalFrameRequest",
+      "result": "MediaAssets",
+      "role": "system"
+    },
+    "read_video_media_usage": {
+      "signature": "aap_assets_v1.read_video_media_usage()",
+      "arguments": [],
+      "request": "UsageRequest",
+      "result": "MediaUsage",
+      "role": "worker"
+    },
+    "read_media_preferences": {
+      "signature": "aap_assets_v1.read_media_preferences()",
+      "arguments": [],
+      "request": "UsageRequest",
+      "result": "MediaPreferences",
+      "role": "control"
+    }
+  }
+}
