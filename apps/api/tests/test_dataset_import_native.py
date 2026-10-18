@@ -332,9 +332,21 @@ async def _complete(
     index: int,
     publication_id: uuid.UUID,
     *,
-    file_size: int,
-    content_hash: str,
+    file_size: int | None = None,
+    content_hash: str | None = None,
+    error_code: str | None = None,
 ):
+    completion = (
+        {"status": "error", "error_code": error_code}
+        if error_code is not None
+        else {
+            "status": "copied",
+            "file_size": file_size,
+            "content_hash": content_hash,
+            "width": 640,
+            "height": 480,
+        }
+    )
     return await db.scalar(
         _COMPLETE,
         {
@@ -342,15 +354,7 @@ async def _complete(
             "token": token,
             "index": index,
             "publication": publication_id,
-            "completion": json.dumps(
-                {
-                    "status": "copied",
-                    "file_size": file_size,
-                    "content_hash": content_hash,
-                    "width": 640,
-                    "height": 480,
-                }
-            ),
+            "completion": json.dumps(completion),
         },
     )
 
@@ -1255,6 +1259,198 @@ async def test_project_admin_connection_scope_is_fail_closed(import_world):
                 "connection_missing",
             )
             await db.commit()
+
+
+async def test_unpublishable_manifest_entry_advances_once_and_keeps_later_entries(
+    import_world,
+):
+    world = import_world
+    connection_id = await _connection(world)
+    job_id = uuid.uuid4()
+    async with world.maker() as db:
+        _assert_ok(await _accept(db, world, connection_id, job_id=job_id))
+        await db.commit()
+    token = uuid.uuid4()
+    async with world.maker() as db:
+        token, _ = await _claim(db, job_id, token)
+        _assert_ok(
+            await _manifest(
+                db,
+                job_id,
+                token,
+                [_source("中" * 501 + ".jpg", 5), _source("valid.jpg", 4)],
+            )
+        )
+        await db.commit()
+
+    rejected_publication = uuid.uuid4()
+    async with world.maker() as db:
+        rejected, _ = await _next(db, job_id, token, rejected_publication)
+        _assert_error(rejected, "invalid_source_object")
+        state = (
+            await db.execute(
+                text(
+                    "SELECT cursor FROM public.dataset_import_operations "
+                    "WHERE job_id = CAST(:job AS uuid)"
+                ),
+                {"job": job_id},
+            )
+        ).scalar_one()
+        entry = (
+            await db.execute(
+                text(
+                    "SELECT status, publication_id, file_name, file_path "
+                    "FROM public.dataset_import_entries "
+                    "WHERE job_id = CAST(:job AS uuid) AND entry_index = 0"
+                ),
+                {"job": job_id},
+            )
+        ).one()
+        assert state == 0
+        assert tuple(entry) == ("pending", None, None, None)
+        repeated, _ = await _next(db, job_id, token, rejected_publication)
+        _assert_error(repeated, "invalid_source_object")
+        await db.commit()
+
+    async with world.maker() as db:
+        errored = _assert_ok(
+            await _complete(
+                db,
+                job_id,
+                token,
+                0,
+                rejected_publication,
+                error_code="invalid_source_object",
+            )
+        )
+        assert errored["cursor"] == 1 and errored["error_count"] == 1
+        replay = _assert_ok(
+            await _complete(
+                db,
+                job_id,
+                token,
+                0,
+                rejected_publication,
+                error_code="invalid_source_object",
+            )
+        )
+        assert replay["cursor"] == 1 and replay["error_count"] == 1
+        await db.commit()
+
+    valid_publication = uuid.uuid4()
+    async with world.maker() as db:
+        valid_reply, _ = await _next(db, job_id, token, valid_publication)
+        valid_entry = _assert_ok(valid_reply)
+        assert valid_entry["index"] == 1
+        assert valid_entry["file_name"] == "valid.jpg"
+        await db.commit()
+    async with world.maker() as db:
+        finished_state = _assert_ok(
+            await _complete(
+                db,
+                job_id,
+                token,
+                1,
+                valid_publication,
+                file_size=4,
+                content_hash="a" * 32,
+            )
+        )
+        assert finished_state["cursor"] == 2
+        assert finished_state["error_count"] == 1
+        assert finished_state["added"] == 1
+        await db.commit()
+    async with world.maker() as db:
+        state = _assert_ok(await _finish(db, job_id, token))
+        assert state["stage"] == "completed"
+        operation = (
+            await db.execute(
+                text(
+                    "SELECT cursor, error_count, added FROM public.dataset_import_operations "
+                    "WHERE job_id = CAST(:job AS uuid)"
+                ),
+                {"job": job_id},
+            )
+        ).one()
+        entries = (
+            await db.execute(
+                text(
+                    "SELECT status, error_code, publication_id, file_path "
+                    "FROM public.dataset_import_entries "
+                    "WHERE job_id = CAST(:job AS uuid) ORDER BY entry_index"
+                ),
+                {"job": job_id},
+            )
+        ).all()
+        assert tuple(operation) == (2, 1, 1)
+        assert tuple(entries[0]) == ("error", "invalid_source_object", None, None)
+        assert entries[1].status == "added"
+        assert entries[1].file_path == valid_entry["file_path"]
+        await db.commit()
+
+
+async def test_encrypted_connection_secret_size_boundary(import_world):
+    world = import_world
+    connection_id = await _connection(world)
+    secret_49152 = b"d" * 49_152
+    async with world.maker() as db:
+        await db.execute(
+            update(StorageConnection)
+            .where(StorageConnection.id == connection_id)
+            .values(secret_enc=secret_49152)
+        )
+        prepared = _assert_ok(
+            await db.scalar(
+                _PREPARE,
+                {
+                    "actor": world.actor_id,
+                    "dataset": world.dataset_id,
+                    "connection": connection_id,
+                },
+            )
+        )
+        assert prepared["connection_id"] == str(connection_id)
+        job_id = uuid.uuid4()
+        _assert_ok(await _accept(db, world, connection_id, job_id=job_id))
+        await db.commit()
+
+    token = uuid.uuid4()
+    async with world.maker() as db:
+        token, _ = await _claim(db, job_id, token)
+        connection = _assert_ok(await _read_connection(db, job_id, token))
+        encoded = connection["secret_enc"]
+        assert "\n" not in encoded and "\r" not in encoded
+        assert len(encoded) == 65_536
+        assert len(base64.b64decode(encoded, validate=True)) == 49_152
+        await db.commit()
+
+    async with world.maker() as db:
+        await db.execute(
+            update(StorageConnection)
+            .where(StorageConnection.id == connection_id)
+            .values(secret_enc=b"d" * 49_153)
+        )
+        _assert_error(
+            await db.scalar(
+                _PREPARE,
+                {
+                    "actor": world.actor_id,
+                    "dataset": world.dataset_id,
+                    "connection": connection_id,
+                },
+            ),
+            "connection_changed",
+        )
+        _assert_error(
+            await _accept(
+                db,
+                world,
+                connection_id,
+                job_id=uuid.uuid4(),
+            ),
+            "connection_changed",
+        )
+        await db.commit()
 
 
 async def test_temporal_finish_failure_preserves_preexisting_items(import_world):
