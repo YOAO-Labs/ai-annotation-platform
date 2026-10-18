@@ -24,6 +24,7 @@ from aap_assets_images.contract import (
     ReconcileImageMediaRequest,
     ReadImageSourceRequest,
 )
+from aap_assets_media.contract import OPERATIONS as VIDEO_OPERATIONS
 from aap_assets_images_runtime.database import (
     AsyncpgImageDatabase,
     prepare_native_call,
@@ -274,6 +275,34 @@ async def test_capability_preflight_requires_the_exact_six_worker_oids():
     assert await check_capabilities(_HealthPool(connection), role="worker")
     connection.rows = [*rows, {"oid": 999, "prosecdef": True}]
     assert not await check_capabilities(_HealthPool(connection), role="worker")
+
+
+@pytest.mark.asyncio
+async def test_shared_control_preflight_includes_video_and_image_owner_capabilities():
+    operations = [VIDEO_OPERATIONS, OPERATIONS]
+    control_signatures = {
+        "aap_assets_v1." + name + "(" + ", ".join(operation.sql_types) + ")": oid
+        for oid, (name, operation) in enumerate(
+            (
+                (name, operation)
+                for operation_set in operations
+                for name, operation in operation_set.items()
+                if operation.role in {"control", "system"}
+            ),
+            start=100,
+        )
+    }
+    assert len(control_signatures) == 32
+    rows = [{"oid": oid, "prosecdef": True} for oid in control_signatures.values()]
+    connection = _HealthConnection(
+        identity_ok=True,
+        signatures=control_signatures,
+        rows=rows,
+    )
+
+    assert await check_capabilities(_HealthPool(connection), role="control")
+    connection.rows = rows[:-1]
+    assert not await check_capabilities(_HealthPool(connection), role="control")
 
 
 @pytest.mark.asyncio

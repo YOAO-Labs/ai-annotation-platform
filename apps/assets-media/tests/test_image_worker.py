@@ -265,6 +265,23 @@ def test_config_accepts_only_existing_explicit_minio_bucket_mapping():
         )
 
 
+def test_image_worker_profile_falls_back_to_existing_video_setting():
+    values = {
+        "ASSETS_IMAGES_DATABASE_URL": "postgresql://image@db/image",
+        "ASSETS_MEDIA_S3_ENDPOINT": "http://s3.internal",
+        "ASSETS_MEDIA_DATASETS_BUCKET": "datasets",
+        "ASSETS_MEDIA_CACHE_BUCKET": "derived-cache",
+        "ASSETS_MEDIA_S3_ACCESS_KEY": "access",
+        "ASSETS_MEDIA_S3_SECRET_KEY": "secret",
+        "ASSETS_IMAGES_LEGACY_BUCKET": "annotations",
+        "IMAGE_PYRAMID_SRGB_PROFILE": "/srv/legacy/srgb.icc",
+    }
+
+    assert load_config(values).srgb_profile == Path("/srv/legacy/srgb.icc")
+    values["ASSETS_IMAGES_SRGB_PROFILE"] = "/srv/images/srgb.icc"
+    assert load_config(values).srgb_profile == Path("/srv/images/srgb.icc")
+
+
 @pytest.mark.asyncio
 async def test_dimensions_worker_uses_bounded_header_and_finishes_only_after_source_check():
     data = _png_bytes((4, 2))

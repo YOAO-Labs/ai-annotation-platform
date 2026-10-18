@@ -198,7 +198,8 @@ def load_config(environment: Mapping[str, str] | None = None) -> ImageWorkerConf
         values, "ASSETS_IMAGES_POLL_SECONDS", "5", maximum=3600
     )
     profile_value = values.get(
-        "ASSETS_IMAGES_SRGB_PROFILE", "/usr/share/color/icc/sRGB.icc"
+        "ASSETS_IMAGES_SRGB_PROFILE",
+        values.get("IMAGE_PYRAMID_SRGB_PROFILE", "/usr/share/color/icc/sRGB.icc"),
     ).strip()
     if not profile_value:
         raise ConfigurationError("ASSETS_IMAGES_SRGB_PROFILE must not be empty")

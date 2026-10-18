@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
-from aap_assets_images.contract import OPERATIONS
+from aap_assets_images.contract import OPERATIONS as IMAGE_OPERATIONS
+from aap_assets_media.contract import OPERATIONS as VIDEO_OPERATIONS
 
 _ROLE_SQL = """
 SELECT current_user = session_user
   AND NOT (r.rolsuper OR r.rolcreaterole OR r.rolcreatedb OR r.rolreplication OR r.rolbypassrls)
   AND NOT EXISTS (SELECT 1 FROM pg_auth_members WHERE member = r.oid)
   AND NOT has_database_privilege(current_user, current_database(), 'CREATE')
+  AND NOT has_database_privilege(current_user, current_database(), 'TEMP')
   AND NOT EXISTS (
     SELECT 1 FROM pg_namespace n
     WHERE n.nspname !~ '^pg_' AND n.nspname <> 'information_schema'
@@ -24,6 +26,7 @@ SELECT current_user = session_user
         has_table_privilege(current_user,t.oid,'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
         OR has_any_column_privilege(current_user,t.oid,'SELECT,INSERT,UPDATE,REFERENCES')))
         OR (t.relkind='S' AND has_sequence_privilege(current_user,t.oid,'USAGE,SELECT,UPDATE'))))
+FROM pg_roles r WHERE r.rolname=current_user
 """
 
 _FUNCTION_SQL = """
@@ -37,14 +40,17 @@ ORDER BY p.oid
 
 def _expected_signatures(role: str) -> tuple[str, ...]:
     if role == "worker":
+        operation_sets = (IMAGE_OPERATIONS,)
         wanted = {"worker"}
     elif role == "control":
+        operation_sets = (VIDEO_OPERATIONS, IMAGE_OPERATIONS)
         wanted = {"control", "system"}
     else:
         return ()
     return tuple(
         f"aap_assets_v1.{name}({', '.join(operation.sql_types)})"
-        for name, operation in OPERATIONS.items()
+        for operations in operation_sets
+        for name, operation in operations.items()
         if operation.role in wanted
     )
 
