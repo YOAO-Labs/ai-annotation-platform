@@ -156,6 +156,44 @@ async def test_owner_summary_frame_count_gates_stale_videos_and_keeps_legacy_non
 
 
 @pytest.mark.asyncio
+async def test_image_dimensions_survive_stale_derivatives_but_thumbnails_do_not(
+    monkeypatch,
+):
+    current_id, stale_id, drifted_id = (uuid4() for _ in range(3))
+    gateway = _Gateway(
+        {
+            current_id: _summary(current_id, file_type="image"),
+            stale_id: _summary(
+                stale_id,
+                file_type="image",
+                source_generation=2,
+                materialized_generation=1,
+            ),
+            drifted_id: _summary(
+                drifted_id,
+                file_type="image",
+                source_drifted=True,
+            ),
+        }
+    )
+    monkeypatch.setattr(
+        "app.services.assets_media_summary.media_gateway",
+        lambda _db: gateway,
+    )
+    reader = AssetsTaskMediaSummaryReader(object())
+
+    assert await reader.one(current_id) == (
+        640,
+        360,
+        "media-assets/derived/poster.webp",
+        "source-blurhash",
+        None,
+    )
+    assert await reader.one(stale_id) == (640, 360, None, None, None)
+    assert await reader.one(drifted_id) == (640, 360, None, None, None)
+
+
+@pytest.mark.asyncio
 async def test_task_summary_fallbacks_remain_distinct_when_owner_has_no_source(
     monkeypatch,
 ):

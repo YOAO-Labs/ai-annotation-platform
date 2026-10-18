@@ -137,6 +137,15 @@ class DatasetImportFromConnectionResponse(BaseModel):
     job_id: UUID
 
 
+class DatasetImageBackfillResponse(BaseModel):
+    dataset_id: UUID
+    operation_id: UUID
+    job_id: UUID
+    purpose: Literal["dimensions", "thumbnail"]
+    status: Literal["pending", "running", "ready", "failed", "canceled"]
+    accepted_before: datetime
+
+
 class SniffAxisConventionCandidate(BaseModel):
     convention: LidarAxisConvention
     score: float

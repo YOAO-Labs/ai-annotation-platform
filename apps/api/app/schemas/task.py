@@ -85,6 +85,15 @@ class TaskFileUrlResponse(BaseModel):
     expires_in: int
 
 
+class TaskImageBackfillResponse(BaseModel):
+    project_id: UUID
+    operation_id: UUID
+    job_id: UUID
+    purpose: Literal["thumbnail"]
+    status: Literal["pending", "running", "ready", "failed", "canceled"]
+    accepted_before: datetime
+
+
 MaskCapabilityReason = Literal[
     "read_disabled",
     "deployment_disabled",

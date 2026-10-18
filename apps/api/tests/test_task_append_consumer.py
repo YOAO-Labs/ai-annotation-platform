@@ -605,10 +605,6 @@ async def test_upload_completion_locks_parent_before_item_updates_and_delete(
         "verify_upload",
         lambda *args, **kwargs: {"ContentLength": 123, "ETag": "a" * 32},
     )
-    monkeypatch.setattr(
-        storage_service, "read_image_dimensions", lambda *args, **kwargs: None
-    )
-    dispatcher = SimpleNamespace(dispatch_thumbnail=lambda item_id: None)
     async with state.maker() as uploader, state.maker() as deleter:
         upload_pid = await uploader.scalar(text("SELECT pg_backend_pid()"))
         delete_pid = await deleter.scalar(text("SELECT pg_backend_pid()"))
@@ -619,7 +615,6 @@ async def test_upload_completion_locks_parent_before_item_updates_and_delete(
                 Response(),
                 db=uploader,
                 current_user=SimpleNamespace(id=state.owner_id),
-                media_dispatcher=dispatcher,
                 idempotency_key=uuid4(),
             )
         )

@@ -20,8 +20,11 @@ from aap_assets_catalog.spatial_contract import (
     canonical_calibration_document,
     normalize_calibration_record,
 )
+from aap_assets_images.contract import ReadImageSourceRequest
 from app.services.assets_spatial import AssetsSpatialGateway
 from app.services.display_id import next_display_id
+from app.services.assets_media import browser_media_url
+from app.services.image_source_references import image_source_references
 from app.services.assets_spatial_views import spatial_item_references
 from app.services.project_kind import (
     dataset_has_scenes,
@@ -254,6 +257,8 @@ class DatasetService:
         dataset_id: uuid.UUID,
         limit: int = 50,
         offset: int = 0,
+        *,
+        actor_id: uuid.UUID,
     ) -> tuple[list[dict], int]:
         count_q = (
             select(func.count())
@@ -271,29 +276,72 @@ class DatasetService:
         )
         result = await self.db.execute(q)
         items = result.scalars().all()
+        image_items = [item for item in items if item.file_type == "image"]
+        image_references_by_id = {}
+        if image_items:
+            references = await image_source_references(
+                self.db,
+                [
+                    ReadImageSourceRequest(
+                        actor_id=actor_id,
+                        dataset_item_id=item.id,
+                    )
+                    for item in image_items
+                ],
+            )
+            image_references_by_id = {
+                item.id: reference
+                for item, reference in zip(image_items, references, strict=True)
+            }
 
         out = []
         for item in items:
             d = _item_dict(item)
-            try:
-                d["file_url"] = storage_service.generate_download_url(
-                    item.file_path,
-                    bucket=storage_service.datasets_bucket,
+            if item.file_type == "image":
+                reference = image_references_by_id[item.id]
+                source = reference.source if reference is not None else None
+                matches_item = source is not None and (
+                    source.owner.kind == "dataset_item"
+                    and source.owner.id == item.id
+                    and source.item_id == item.id
+                    and source.dataset_id == item.dataset_id
+                    and source.file_path == item.file_path
+                    and source.file_size == item.file_size
+                    and source.content_hash == item.content_hash
                 )
-            except Exception:
-                d["file_url"] = None
-            if item.thumbnail_path:
-                try:
-                    thumbnail_bucket = storage_service.bucket_for_cache_key(
-                        item.thumbnail_path,
-                        default=storage_service.datasets_bucket,
+                d["file_url"] = (
+                    browser_media_url(reference.original_url) if matches_item else None
+                )
+                d["thumbnail_url"] = (
+                    browser_media_url(reference.thumbnail_url) if matches_item else None
+                )
+                d["blurhash"] = None
+                if matches_item:
+                    d["width"] = source.width
+                    d["height"] = source.height
+                    d["blurhash"] = (
+                        source.blurhash if source.thumbnail_current else None
                     )
-                    d["thumbnail_url"] = storage_service.generate_download_url(
-                        item.thumbnail_path,
-                        bucket=thumbnail_bucket,
+            else:
+                try:
+                    d["file_url"] = storage_service.generate_download_url(
+                        item.file_path,
+                        bucket=storage_service.datasets_bucket,
                     )
                 except Exception:
-                    d["thumbnail_url"] = None
+                    d["file_url"] = None
+                if item.thumbnail_path:
+                    try:
+                        thumbnail_bucket = storage_service.bucket_for_cache_key(
+                            item.thumbnail_path,
+                            default=storage_service.datasets_bucket,
+                        )
+                        d["thumbnail_url"] = storage_service.generate_download_url(
+                            item.thumbnail_path,
+                            bucket=thumbnail_bucket,
+                        )
+                    except Exception:
+                        d["thumbnail_url"] = None
             out.append(d)
         return out, total
 

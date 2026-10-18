@@ -3,10 +3,15 @@
 from __future__ import annotations
 
 import uuid
+from datetime import UTC, datetime
 
 import pytest
 from sqlalchemy import func, select
 
+from aap_assets_images.contract import (
+    AcceptedImageWork,
+    ImageWorkReference,
+)
 from app.core.security import create_access_token
 from app.db.models.dataset import Dataset
 from app.db.models.task import Task
@@ -29,6 +34,30 @@ class _ImageAdmission:
 def _headers(user) -> dict[str, str]:
     token = create_access_token(subject=str(user.id), role=user.role)
     return {"Authorization": f"Bearer {token}"}
+
+
+def _accepted_task_backfill(request, *, job_id: uuid.UUID) -> AcceptedImageWork:
+    accepted_before = datetime.now(UTC)
+    spec = request.spec.model_copy(
+        update={
+            "selection": request.spec.selection.model_copy(
+                update={"accepted_before": accepted_before}
+            )
+        }
+    )
+    return AcceptedImageWork(
+        operation_id=request.operation_id,
+        source=None,
+        work=ImageWorkReference(
+            job_id=job_id,
+            generation=1,
+            owner=None,
+            source_generation=0,
+            kind="image_backfill",
+            status="pending",
+        ),
+        spec=spec,
+    )
 
 
 async def _dataset(db_session, creator_id):
@@ -206,12 +235,31 @@ async def test_file_url_uses_assigned_task_visibility(
 
 
 async def test_thumbnail_backfill_requires_project_owner_before_enqueue(
-    db_session, httpx_client, super_admin, media_dispatcher
+    db_session, httpx_client, super_admin, monkeypatch
 ):
     owner, owner_token = super_admin
     project = await create_project(db_session, owner_id=owner.id)
     outsider = await create_user(
         db_session, "employee", f"backfill-{uuid.uuid4()}@test.local", "Outsider"
+    )
+    requests = []
+    job_id = uuid.uuid4()
+
+    class ImageOwner:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def call(self, operation, request):
+            assert operation == "schedule_image_media"
+            requests.append(request)
+            return _accepted_task_backfill(request, job_id=job_id)
+
+    image_owner = ImageOwner()
+    monkeypatch.setattr(
+        "app.application.legacy_file_upload.image_gateway", lambda: image_owner
     )
     denied = await httpx_client.post(
         f"/api/v1/files/projects/{project.id}/backfill-thumbnails",
@@ -219,19 +267,34 @@ async def test_thumbnail_backfill_requires_project_owner_before_enqueue(
     )
 
     assert denied.status_code == 404
-    assert media_dispatcher.task_thumbnail_backfills == []
+    assert requests == []
 
+    operation_id = uuid.uuid4()
     allowed = await httpx_client.post(
         f"/api/v1/files/projects/{project.id}/backfill-thumbnails",
-        headers={"Authorization": f"Bearer {owner_token}"},
+        headers={
+            "Authorization": f"Bearer {owner_token}",
+            "Idempotency-Key": str(operation_id),
+        },
     )
-    assert allowed.status_code == 200, allowed.text
-    assert allowed.json()["status"] == "queued"
-    assert media_dispatcher.task_thumbnail_backfills == [project.id]
+    assert allowed.status_code == 202, allowed.text
+    assert allowed.json()["project_id"] == str(project.id)
+    assert allowed.json()["operation_id"] == str(operation_id)
+    assert allowed.json()["job_id"] == str(job_id)
+    assert allowed.json()["purpose"] == "thumbnail"
+    assert allowed.json()["status"] == "pending"
+    assert allowed.json()["accepted_before"]
+    assert allowed.headers["Idempotency-Key"] == str(operation_id)
+    assert len(requests) == 1
+    assert requests[0].operation_id == operation_id
+    assert requests[0].spec.selection.owner_kind == "task"
+    assert requests[0].spec.selection.project_id == project.id
+    assert requests[0].spec.selection.purpose == "thumbnail"
+    assert requests[0].spec.selection.only_missing is True
 
 
 async def test_files_project_admin_requires_ownership(
-    db_session, httpx_client, monkeypatch, media_dispatcher
+    db_session, httpx_client, monkeypatch
 ):
     owner = await create_user(
         db_session, "project_admin", f"file-owner-{uuid.uuid4()}@test.local", "Owner"
@@ -256,6 +319,13 @@ async def test_files_project_admin_requires_ownership(
     monkeypatch.setattr(
         "app.api.v1.files.storage_service.generate_upload_url", reject_side_effect
     )
+
+    def reject_image_admission():
+        raise AssertionError("unauthorized image admission")
+
+    monkeypatch.setattr(
+        "app.application.legacy_file_upload.image_gateway", reject_image_admission
+    )
     body = {"project_id": str(project.id), "file_name": "frame.jpg"}
     responses = [
         await httpx_client.post(
@@ -274,8 +344,6 @@ async def test_files_project_admin_requires_ownership(
     ]
     assert all(response.status_code == 404 for response in responses)
     assert effects == []
-    assert media_dispatcher.task_thumbnails == []
-    assert media_dispatcher.task_thumbnail_backfills == []
     await db_session.refresh(task)
     assert task.status == "uploading"
 

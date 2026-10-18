@@ -4,8 +4,9 @@
 uploads, deletion, synchronous ZIP ingest, and legacy bucket scanning. Its
 public values live in the Pydantic-only `aap_assets_source`
 package; the server runs from `aap_assets_source_runtime`. The runtime uses
-asyncpg and boto3, and it does not import the API, SQLAlchemy, Celery, Redis,
-or model packages.
+asyncpg and boto3, and consumes the Pydantic-only `aap-assets-media` image
+contracts and policy. It does not import the API, SQLAlchemy, Celery, Redis,
+or ORM model packages.
 
 The same runtime also owns the six storage-connection operations:
 `POST /v1/connections/list`, `read`, `create`, `update`, `delete`, and `test`.
@@ -31,8 +32,11 @@ bounded S3 work, and response serialization. Upload initialization reserves a
 modern intent before signing a short-lived staging PUT. Completion verifies the
 staging object, detects duplicates, reads at most 256 KiB for image dimensions,
 conditionally copies to the frozen publication key, and records native
-completion. Legacy completion reads the already stored source and never copies
-or deletes it. A lost response can be replayed through the existing receipt.
+completion. Image identity binding and durable media admission commit with Item
+registration; legacy Task completion similarly admits work in the task-status
+transaction. Legacy completion reads the already stored source and never
+copies or deletes it. A lost response replays the existing receipt without
+creating a second image job.
 Delete writes its audit receipt and cleanup outbox transactionally; this
 service never deletes source or derived objects. ZIP and scan also commit each
 Item, Dataset count, Labeling append receipt, optional Scene/frame updates,
@@ -43,17 +47,19 @@ logical path in `metadata.source_ingest.relpath`; the workflow never overwrites
 or deletes an existing source. Scan reads only the exact accepted
 `{Dataset.name}/` prefix in the configured datasets bucket and does not adopt
 modern publications or publication objects outside that exact legacy prefix.
-The API maintenance relay delivers committed media intents after the
-transaction, so a lost response can replay the first receipt without
-duplicating Items or source writes.
+The API maintenance relay delivers remaining committed non-image media intents
+after the transaction, so a lost response can replay the first receipt without
+duplicating Items, source writes, or image jobs. Image admission is part of the
+registration transaction.
 
-The Source PostgreSQL login executes exactly twenty-three functions in
-`aap_assets_v1`: fourteen source/ingest capabilities and nine connection
-capabilities. It has no direct relation or sequence privileges, no access to
-other owner schemas, no owner-role membership, and no database/schema creation
-rights. A broadened login prevents startup. The two media-delivery claim/ack
+The Source PostgreSQL login executes exactly twenty-six functions in
+`aap_assets_v1`: fourteen source/ingest capabilities, nine connection
+capabilities, and three image-source/admission capabilities. It has no direct
+relation or sequence privileges, no access to other owner schemas, no
+owner-role membership, and no database/schema creation rights. A broadened
+login prevents startup. The two media-delivery claim/ack
 capabilities are for the API maintenance relay only and are not granted to the
-Source LOGIN. The connection import worker has its own login limited to seven
+Source LOGIN. The connection import worker has its own login limited to nine
 import capabilities; the Catalog login remains separate with twenty-nine
 capabilities.
 
@@ -62,7 +68,7 @@ through six native Assets functions. A separate trusted `asset_operator_client`
 login is published for consumers of those six functions. The complete scripts
 keep their existing composition connection: the six-function login cannot run
 their Identity, Workspace or Labeling steps. This is not part of the Source
-runtime or its 23-function login:
+runtime or its 26-function login:
 the importer scripts call the native SQL contract on their caller-owned
 transaction and do not use the Source HTTP API or fall back through
 `ASSETS_SOURCE_URL`. The operator login has no direct table privileges and no
@@ -192,7 +198,7 @@ docker build -f apps/assets-source/Dockerfile .
 
 `Dockerfile.import` builds a separate worker process, started with
 `python -m aap_assets_source_import`. It uses its own PostgreSQL LOGIN role,
-which must have execute access to exactly the seven Dataset import functions;
+which must have execute access to exactly nine Dataset import functions;
 it exposes no HTTP port. Source S3 reads are conditional on the listed ETag,
 SFTP uses known-host verification and checks the listed file identity, and the
 destination client uses only multipart create, part, complete, abort, and empty

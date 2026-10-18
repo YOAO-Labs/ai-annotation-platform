@@ -1,8 +1,8 @@
 import uuid
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.deps import get_db, get_current_user, get_media_job_dispatcher
+from app.deps import get_db, get_current_user
 from app.db.models.user import User
 from app.db.models.task import Task
 from app.schemas.task import UploadInitRequest, UploadInitResponse, TaskFileUrlResponse
@@ -14,8 +14,8 @@ from app.application.legacy_file_upload import (
 )
 from app.application.task_workflow_errors import TaskWorkflowError
 from app.services import task_access
-from app.services.media_job_dispatch import MediaJobDispatcher
 from app.services.storage import storage_service
+from app.schemas.task import TaskImageBackfillResponse
 from app.services.assets_media import browser_media_url, media_gateway, media_http_error
 from aap_assets_media.contract import MediaFailure, ReadSourceRequest
 
@@ -49,14 +49,12 @@ async def upload_complete(
     task_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
-    media_dispatcher: MediaJobDispatcher = Depends(get_media_job_dispatcher),
 ):
     workflow = LegacyFileUploadWorkflow(db, storage=storage_service)
     try:
         result = await workflow.complete_upload(
             actor_id=current_user.id,
             task_id=task_id,
-            dispatcher=media_dispatcher,
         )
     except UploadTaskNotFoundError:
         raise HTTPException(status_code=404, detail="Task not found")
@@ -106,19 +104,47 @@ async def get_file_url(
     return TaskFileUrlResponse(url=url, expires_in=3600)
 
 
-@router.post("/projects/{project_id}/backfill-thumbnails")
+@router.post(
+    "/projects/{project_id}/backfill-thumbnails",
+    response_model=TaskImageBackfillResponse,
+    status_code=202,
+    responses={
+        202: {
+            "headers": {
+                "Idempotency-Key": {
+                    "description": "Reuse this UUID to replay the accepted image backfill.",
+                    "schema": {"type": "string", "format": "uuid"},
+                }
+            }
+        }
+    },
+)
 async def backfill_project_thumbnails(
     project_id: uuid.UUID,
+    response: Response,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
-    media_dispatcher: MediaJobDispatcher = Depends(get_media_job_dispatcher),
+    idempotency_key: uuid.UUID | None = Header(default=None, alias="Idempotency-Key"),
 ):
-    celery_task_id = await LegacyFileUploadWorkflow(
+    operation_id = idempotency_key or uuid.uuid4()
+    accepted = await LegacyFileUploadWorkflow(
         db, storage=storage_service
-    ).queue_thumbnail_backfill(
-        actor_id=current_user.id, project_id=project_id, dispatcher=media_dispatcher
+    ).accept_thumbnail_backfill(
+        actor_id=current_user.id,
+        project_id=project_id,
+        operation_id=operation_id,
     )
-    return {"status": "queued", "celery_task_id": celery_task_id}
+    if accepted.spec.selection.accepted_before is None:
+        raise HTTPException(status_code=502, detail="Invalid image backfill receipt")
+    response.headers["Idempotency-Key"] = str(operation_id)
+    return TaskImageBackfillResponse(
+        project_id=project_id,
+        operation_id=operation_id,
+        job_id=accepted.work.job_id,
+        purpose="thumbnail",
+        status=accepted.work.status,
+        accepted_before=accepted.spec.selection.accepted_before,
+    )
 
 
 def _infer_file_type(content_type: str) -> str:

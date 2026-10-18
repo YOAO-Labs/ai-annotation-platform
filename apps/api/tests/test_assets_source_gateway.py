@@ -470,7 +470,7 @@ async def test_upload_init_route_reuses_key_or_returns_generated_item_key(monkey
     assert captured[1].item_id != OPERATION
 
 
-async def test_upload_complete_commits_before_media_dispatch_and_echoes_key(
+async def test_upload_complete_commits_without_postcommit_thumbnail_dispatch_and_echoes_key(
     monkeypatch,
 ):
     events = []
@@ -494,10 +494,6 @@ async def test_upload_complete_commits_before_media_dispatch_and_echoes_key(
     db = SimpleNamespace(
         commit=AsyncMock(side_effect=lambda: events.append(("commit", None)))
     )
-    dispatcher = SimpleNamespace(
-        dispatch_thumbnail=lambda item: events.append(("thumbnail", item)),
-        dispatch_video_metadata=lambda item: events.append(("video", item)),
-    )
     response = Response()
     result = await dataset_routes.upload_complete(
         DATASET,
@@ -505,11 +501,10 @@ async def test_upload_complete_commits_before_media_dispatch_and_echoes_key(
         response,
         db,
         SimpleNamespace(id=ACTOR),
-        dispatcher,
         idempotency_key=OPERATION,
     )
 
-    assert [event[0] for event in events] == ["complete", "commit", "thumbnail"]
+    assert [event[0] for event in events] == ["complete", "commit"]
     assert events[0][1].operation_id == OPERATION
     assert response.headers["Idempotency-Key"] == str(OPERATION)
     assert result["linked_tasks"] == 1
@@ -541,9 +536,6 @@ async def test_upload_missing_or_duplicate_disposition_is_committed_before_error
 
     monkeypatch.setattr(dataset_routes, "AssetsSourceGateway", lambda _db: Gateway())
     db = SimpleNamespace(commit=AsyncMock(side_effect=lambda: events.append("commit")))
-    dispatcher = SimpleNamespace(
-        dispatch_thumbnail=AsyncMock(), dispatch_video_metadata=AsyncMock()
-    )
     with pytest.raises(HTTPException) as raised:
         await dataset_routes.upload_complete(
             DATASET,
@@ -551,13 +543,10 @@ async def test_upload_missing_or_duplicate_disposition_is_committed_before_error
             Response(),
             db,
             SimpleNamespace(id=ACTOR),
-            dispatcher,
             idempotency_key=OPERATION,
         )
     assert raised.value.status_code == status_code
     assert events == ["complete", "commit"]
-    dispatcher.dispatch_thumbnail.assert_not_awaited()
-    dispatcher.dispatch_video_metadata.assert_not_awaited()
 
 
 @pytest.mark.parametrize("item_id", [None, ITEM])

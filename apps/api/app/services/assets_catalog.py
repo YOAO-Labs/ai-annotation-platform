@@ -35,9 +35,14 @@ from aap_assets_catalog.associations_contract import (
     ProjectDatasetsResult,
     decode_associations_reply,
 )
+from aap_assets_images.contract import ReadImageSourceRequest
+from aap_assets_images.transport import ImageSourceReference
 from aap_assets_media.contract import ReadSourceRequest
+from aap_assets_media.transport import SourceReference
 
 from app.config import settings
+from app.services.assets_media import browser_media_url
+from app.services.image_source_references import image_source_references
 from app.services.storage import storage_service
 from app.services.video_poster_references import video_source_references
 
@@ -228,11 +233,25 @@ class AssetsCatalogGateway:
             or any(item.dataset_id != request.dataset_id for item in reply.items)
         ):
             raise self._invalid_scope()
-        if not remote:
-            reply = reply.model_copy(
-                update={"items": [self._sign_item(item) for item in reply.items]}
+        image_items = [item for item in reply.items if item.file_type == "image"]
+        image_references_by_id = {}
+        if image_items:
+            references = await image_source_references(
+                self.db,
+                [
+                    ReadImageSourceRequest(
+                        actor_id=request.actor_id,
+                        dataset_item_id=item.id,
+                    )
+                    for item in image_items
+                ],
             )
+            image_references_by_id = {
+                item.id: reference
+                for item, reference in zip(image_items, references, strict=True)
+            }
         video_items = [item for item in reply.items if item.file_type == "video"]
+        video_references_by_id = {}
         if video_items:
             source_references = await video_source_references(
                 self.db,
@@ -244,34 +263,24 @@ class AssetsCatalogGateway:
                     for item in video_items
                 ],
             )
-            references_by_id = {
+            video_references_by_id = {
                 item.id: reference
                 for item, reference in zip(video_items, source_references, strict=True)
             }
-            reply = reply.model_copy(
-                update={
-                    "items": [
-                        item.model_copy(
-                            update={
-                                "file_url": (
-                                    references_by_id[item.id].original_url
-                                    if references_by_id[item.id] is not None
-                                    else None
-                                ),
-                                "thumbnail_url": (
-                                    references_by_id[item.id].poster_url
-                                    if references_by_id[item.id] is not None
-                                    else None
-                                ),
-                                "blurhash": None,
-                            }
-                        )
-                        if item.file_type == "video"
-                        else item
-                        for item in reply.items
-                    ]
-                }
-            )
+        reply = reply.model_copy(
+            update={
+                "items": [
+                    self._image_item(item, image_references_by_id.get(item.id))
+                    if item.file_type == "image"
+                    else self._video_item(item, video_references_by_id.get(item.id))
+                    if item.file_type == "video"
+                    else self._sign_item(item)
+                    if not remote
+                    else item
+                    for item in reply.items
+                ]
+            }
+        )
         return reply
 
     async def create(self, request: CreateDatasetRequest) -> DatasetMutationResult:
@@ -465,7 +474,7 @@ class AssetsCatalogGateway:
     @staticmethod
     def _sign_item(item: CatalogItem) -> CatalogItem:
         updates: dict[str, str | None] = {"file_url": None, "thumbnail_url": None}
-        if item.file_type != "video":
+        if item.file_type not in {"video", "image"}:
             try:
                 updates["file_url"] = storage_service.generate_download_url(
                     item.file_path, bucket=storage_service.datasets_bucket
@@ -483,3 +492,55 @@ class AssetsCatalogGateway:
                 except Exception:
                     pass
         return item.model_copy(update=updates)
+
+    @staticmethod
+    def _image_item(
+        item: CatalogItem, reference: ImageSourceReference | None
+    ) -> CatalogItem:
+        updates: dict[str, object] = {
+            "file_url": None,
+            "thumbnail_url": None,
+            "thumbnail_path": None,
+            "blurhash": None,
+        }
+        if reference is not None:
+            source = reference.source
+            matches_item = (
+                source.owner.kind == "dataset_item"
+                and source.owner.id == item.id
+                and source.item_id == item.id
+                and source.dataset_id == item.dataset_id
+                and source.file_path == item.file_path
+                and source.file_size == item.file_size
+                and source.content_hash == item.content_hash
+            )
+            if matches_item:
+                updates.update(
+                    {
+                        "file_url": browser_media_url(reference.original_url),
+                        "thumbnail_url": browser_media_url(reference.thumbnail_url),
+                        "thumbnail_path": (
+                            source.thumbnail_path if source.thumbnail_current else None
+                        ),
+                        "blurhash": (
+                            source.blurhash if source.thumbnail_current else None
+                        ),
+                        "width": source.width,
+                        "height": source.height,
+                    }
+                )
+        return item.model_copy(update=updates)
+
+    @staticmethod
+    def _video_item(
+        item: CatalogItem, reference: SourceReference | None
+    ) -> CatalogItem:
+        return item.model_copy(
+            update={
+                "file_url": reference.original_url if reference is not None else None,
+                "thumbnail_url": (
+                    reference.poster_url if reference is not None else None
+                ),
+                "blurhash": None,
+            }
+        )

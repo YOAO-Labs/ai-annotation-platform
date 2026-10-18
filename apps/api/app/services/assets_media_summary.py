@@ -24,6 +24,9 @@ def _summary(row: MediaSummary) -> TaskMediaSummary:
     derived_video_facts_current = row.file_type != "video" or (
         not row.source_drifted and row.materialized_generation == row.source_generation
     )
+    thumbnail_current = row.file_type not in {"image", "video"} or (
+        not row.source_drifted and row.materialized_generation == row.source_generation
+    )
     if row.file_type == "video":
         raw = row.metadata or {}
         if isinstance(raw.get("video"), dict):
@@ -32,8 +35,8 @@ def _summary(row: MediaSummary) -> TaskMediaSummary:
     return (
         row.width if derived_video_facts_current else None,
         row.height if derived_video_facts_current else None,
-        row.thumbnail_path if derived_video_facts_current else None,
-        row.blurhash if derived_video_facts_current else None,
+        row.thumbnail_path if thumbnail_current else None,
+        row.blurhash if thumbnail_current else None,
         video_metadata,
     )
 

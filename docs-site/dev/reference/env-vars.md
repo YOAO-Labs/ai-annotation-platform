@@ -474,7 +474,7 @@ last_reviewed: 2026-10-19
 | `ASSETS_SOURCE_URL` | `—` | 网关：URL 留空时用本地 Source 工作流；设置 URL 后所有操作都走远程，失败不会回退。 |
 | `ASSETS_SOURCE_TOKEN` | `—` | — |
 | `ASSETS_SOURCE_TIMEOUT_SECONDS` | `300` | — |
-| `ASSETS_SOURCE_DATABASE_URL` | `—` | 独立进程：显式专用 DSN/token/S3 凭据，不能使用日常 API 宽凭据。 Source LOGIN 精确执行 23 项 Assets 能力（14 项来源/入库 + 9 项连接管理）；Catalog 29 项、导入 LOGIN 7 项各自独立。 不授予业务关系、序列或其他 owner schema 的直接访问权限。 |
+| `ASSETS_SOURCE_DATABASE_URL` | `—` | 独立进程：显式专用 DSN/token/S3 凭据，不能使用日常 API 宽凭据。 Source LOGIN 精确执行 26 项 Assets 能力（14 项来源/入库 + 9 项连接管理 + 3 项图片来源/作业受理）；Catalog 29 项、导入 LOGIN 9 项各自独立。不授予业务关系、序列或其他 owner schema 的直接访问权限。 |
 | `ASSETS_SOURCE_DATABASE_URL_FILE` | `—` | — |
 | `ASSETS_SOURCE_TOKEN_FILE` | `—` | — |
 | `ASSETS_SOURCE_S3_ACCESS_KEY` | `—` | — |
@@ -506,7 +506,7 @@ last_reviewed: 2026-10-19
 
 | 变量 | 默认值 | 说明 |
 |---|---|---|
-| `ASSETS_IMPORT_DATABASE_URL` | `—` | 使用专用七函数 LOGIN 和只写来源前缀的对象身份，无 API/Celery/Redis 配置。 |
+| `ASSETS_IMPORT_DATABASE_URL` | `—` | 使用专用九函数 LOGIN 和只写来源前缀的对象身份，无 API/Celery/Redis 配置。 |
 | `ASSETS_IMPORT_DATABASE_URL_FILE` | `—` | — |
 | `ASSETS_IMPORT_S3_ACCESS_KEY` | `—` | — |
 | `ASSETS_IMPORT_S3_ACCESS_KEY_FILE` | `—` | — |

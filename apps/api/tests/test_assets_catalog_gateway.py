@@ -24,9 +24,18 @@ from aap_assets_catalog import (
     ListItemsRequest,
     UpdateDatasetRequest,
 )
+from aap_assets_images.contract import ImageOwner, ImageSource, ObjectIdentity
+from aap_assets_images.contract import (
+    AcceptedImageWork,
+    ImageBackfillSpec,
+    ImageWorkReference,
+)
+from aap_assets_images.policy import ImagePolicy
+from aap_assets_images.transport import ImageSourceReference
 from aap_assets_media.contract import MediaSource
 from aap_assets_media.transport import SourceReference
 from app.services import assets_catalog
+from app.services.dataset import DatasetService
 from app.api.v1 import datasets as dataset_routes
 from app.schemas.dataset import DatasetCreate, DatasetUpdate
 
@@ -460,6 +469,70 @@ def _video_source_reference(
     )
 
 
+def _image_source_reference(
+    item_id: uuid.UUID,
+    dataset_id: uuid.UUID,
+    *,
+    actor_id: uuid.UUID,
+    file_path: str | None = None,
+    thumbnail_url: str | None = "https://browser.test/verified-image-thumbnail",
+) -> ImageSourceReference:
+    return ImageSourceReference(
+        actor_id=actor_id,
+        source=ImageSource(
+            owner=ImageOwner(kind="dataset_item", id=item_id),
+            task_id=None,
+            project_id=None,
+            dataset_id=dataset_id,
+            item_id=item_id,
+            source_generation=2,
+            source_snapshot="b" * 64,
+            object_identity=ObjectIdentity(etag="source-etag", byte_size=1),
+            source_drifted=False,
+            upload_ready=True,
+            file_path=file_path or f"source/{item_id}",
+            file_name=f"{item_id}.jpg",
+            file_type="image",
+            bucket_kind="datasets",
+            file_size=1,
+            content_hash=None,
+            width=16,
+            height=9,
+            thumbnail_path="media-assets/derived/image.webp",
+            blurhash="verified-image-blurhash",
+            thumbnail_source_generation=2,
+            thumbnail_error=None,
+        ),
+        original_url=f"https://browser.test/image/{item_id}",
+        thumbnail_url=thumbnail_url,
+        expires_in=3600,
+    )
+
+
+def _accepted_backfill(request, *, job_id: uuid.UUID) -> AcceptedImageWork:
+    accepted_before = datetime.now(UTC)
+    spec = request.spec.model_copy(
+        update={
+            "selection": request.spec.selection.model_copy(
+                update={"accepted_before": accepted_before}
+            )
+        }
+    )
+    return AcceptedImageWork(
+        operation_id=request.operation_id,
+        source=None,
+        work=ImageWorkReference(
+            job_id=job_id,
+            generation=1,
+            owner=None,
+            source_generation=0,
+            kind="image_backfill",
+            status="pending",
+        ),
+        spec=spec,
+    )
+
+
 @pytest.mark.parametrize("remote", [False, True])
 @pytest.mark.asyncio
 async def test_catalog_video_links_always_use_owner_reference(monkeypatch, remote):
@@ -529,6 +602,13 @@ async def test_catalog_video_links_always_use_owner_reference(monkeypatch, remot
         ]
 
     monkeypatch.setattr(assets_catalog, "video_source_references", owner_sources)
+    image_requests = []
+
+    async def owner_image_sources(_db, source_requests):
+        image_requests.extend(source_requests)
+        return [_image_source_reference(image_id, dataset_id, actor_id=actor_id)]
+
+    monkeypatch.setattr(assets_catalog, "image_source_references", owner_image_sources)
 
     result = await gateway.items(
         ListItemsRequest(actor_id=actor_id, dataset_id=dataset_id)
@@ -538,18 +618,20 @@ async def test_catalog_video_links_always_use_owner_reference(monkeypatch, remot
     assert all(
         request.actor_id == actor_id and request.task_id is None for request in requests
     )
+    assert len(image_requests) == 1
+    assert image_requests[0].actor_id == actor_id
+    assert image_requests[0].dataset_item_id == image_id
     assert result.items[0].file_url == (f"https://browser.test/source/{video_ids[0]}")
     assert result.items[0].thumbnail_url == "https://browser.test/verified-poster"
     assert result.items[0].blurhash is None
     assert result.items[2].file_url == (f"https://browser.test/source/{video_ids[1]}")
     assert result.items[2].thumbnail_url is None
     assert result.items[2].blurhash is None
+    assert result.items[1].file_url == f"https://browser.test/image/{image_id}"
     assert result.items[1].thumbnail_url == (
-        "upstream:image-poster"
-        if remote
-        else f"signed:media-assets/old/{image_id}.webp"
+        "https://browser.test/verified-image-thumbnail"
     )
-    assert result.items[1].blurhash == "image-blurhash"
+    assert result.items[1].blurhash == "verified-image-blurhash"
     assert result.items[3].file_url is None
     assert result.items[3].thumbnail_url is None
     assert result.items[3].blurhash is None
@@ -560,3 +642,240 @@ async def test_catalog_video_links_always_use_owner_reference(monkeypatch, remot
         assert f"source/{video_ids[0]}" not in signed
         assert f"source/{video_ids[1]}" not in signed
         assert f"source/{video_ids[2]}" not in signed
+
+
+@pytest.mark.parametrize("remote", [False, True])
+@pytest.mark.parametrize("mismatch", [False, True])
+@pytest.mark.asyncio
+async def test_catalog_image_links_withhold_unverified_urls_without_storage_fallback(
+    monkeypatch, remote, mismatch
+):
+    actor_id, dataset_id, item_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+    item = _catalog_item(
+        item_id=item_id,
+        dataset_id=dataset_id,
+        file_type="image",
+        thumbnail_url="upstream:stale-image-thumbnail",
+    )
+    page = ItemPage(
+        dataset_id=dataset_id,
+        items=[item],
+        total=1,
+        limit=50,
+        offset=0,
+    )
+    gateway = assets_catalog.AssetsCatalogGateway(AsyncMock(spec=AsyncSession))
+
+    async def fake_call(*_args):
+        return page, remote
+
+    monkeypatch.setattr(gateway, "_call", fake_call)
+    signed = []
+    monkeypatch.setattr(
+        assets_catalog.storage_service,
+        "generate_download_url",
+        lambda key, *, bucket: signed.append((key, bucket)) or "unsafe:direct-sign",
+    )
+
+    async def missing_image_reference(_db, requests):
+        assert len(requests) == 1
+        assert requests[0].actor_id == actor_id
+        if mismatch:
+            return [
+                _image_source_reference(
+                    item_id,
+                    dataset_id,
+                    actor_id=actor_id,
+                    file_path="source/changed",
+                )
+            ]
+        return [None]
+
+    monkeypatch.setattr(
+        assets_catalog, "image_source_references", missing_image_reference
+    )
+
+    result = await gateway.items(
+        ListItemsRequest(actor_id=actor_id, dataset_id=dataset_id)
+    )
+
+    assert result.items[0].file_url is None
+    assert result.items[0].thumbnail_url is None
+    assert result.items[0].thumbnail_path is None
+    assert result.items[0].blurhash is None
+    assert signed == []
+
+
+@pytest.mark.parametrize("mismatch", [False, True])
+@pytest.mark.asyncio
+async def test_dataset_service_image_links_use_verified_owner_reference(
+    monkeypatch, mismatch
+):
+    actor_id, dataset_id, item_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+    item = SimpleNamespace(
+        id=item_id,
+        dataset_id=dataset_id,
+        file_name="image.jpg",
+        file_path=f"source/{item_id}",
+        file_type="image",
+        file_size=1,
+        content_hash=None,
+        width=12,
+        height=8,
+        blurhash="stale-blurhash",
+        metadata_={},
+        created_at=datetime.now(UTC),
+    )
+    db = AsyncMock(spec=AsyncSession)
+    count_result = SimpleNamespace(scalar=lambda: 1)
+    item_result = SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: [item]))
+    db.execute.side_effect = [count_result, item_result]
+    signed = []
+    monkeypatch.setattr(
+        assets_catalog.storage_service,
+        "generate_download_url",
+        lambda key, *, bucket: signed.append((key, bucket)) or "unsafe:direct-sign",
+    )
+
+    async def owner_references(_db, requests):
+        assert requests[0].actor_id == actor_id
+        return [
+            _image_source_reference(
+                item_id,
+                dataset_id,
+                actor_id=actor_id,
+                file_path="source/changed" if mismatch else item.file_path,
+            )
+        ]
+
+    monkeypatch.setattr(
+        "app.services.dataset.image_source_references", owner_references
+    )
+
+    result, total = await DatasetService(db).list_items(dataset_id, actor_id=actor_id)
+
+    assert total == 1
+    assert signed == []
+    if mismatch:
+        assert result[0]["file_url"] is None
+        assert result[0]["thumbnail_url"] is None
+        assert result[0]["blurhash"] is None
+        assert (result[0]["width"], result[0]["height"]) == (12, 8)
+    else:
+        assert result[0]["file_url"] == f"https://browser.test/image/{item_id}"
+        assert result[0]["thumbnail_url"] == (
+            "https://browser.test/verified-image-thumbnail"
+        )
+        assert result[0]["blurhash"] == "verified-image-blurhash"
+        assert (result[0]["width"], result[0]["height"]) == (16, 9)
+
+
+@pytest.mark.asyncio
+async def test_dimension_backfill_accepts_a_durable_bounded_job(monkeypatch):
+    actor_id, dataset_id, operation_id, job_id = (uuid.uuid4() for _ in range(4))
+    requests = []
+
+    class ImageOwner:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def call(self, operation, request):
+            assert operation == "schedule_image_media"
+            requests.append(request)
+            return _accepted_backfill(request, job_id=job_id)
+
+    monkeypatch.setattr(dataset_routes, "image_gateway", lambda: ImageOwner())
+    monkeypatch.setattr(dataset_routes, "image_policy", ImagePolicy)
+    response = Response()
+    result = await dataset_routes.backfill_dimensions(
+        dataset_id,
+        response,
+        batch=200,
+        current_user=SimpleNamespace(id=actor_id),
+        idempotency_key=operation_id,
+    )
+
+    assert len(requests) == 1
+    request = requests[0]
+    assert request.operation_id == operation_id
+    assert request.owner_kind is request.owner_id is None
+    assert isinstance(request.spec, ImageBackfillSpec)
+    assert request.spec.selection.owner_kind == "dataset_item"
+    assert request.spec.selection.dataset_id == dataset_id
+    assert request.spec.selection.purpose == "dimensions"
+    assert request.spec.selection.only_missing is True
+    assert result.job_id == job_id
+    assert result.operation_id == operation_id
+    assert result.status == "pending"
+    assert result.accepted_before.tzinfo is not None
+    assert response.headers["Idempotency-Key"] == str(operation_id)
+    route = next(
+        route
+        for route in dataset_routes.router.routes
+        if route.endpoint is dataset_routes.backfill_dimensions
+    )
+    assert route.status_code == 202
+
+
+@pytest.mark.asyncio
+async def test_media_backfill_keeps_video_owner_and_accepts_image_owner(monkeypatch):
+    actor_id, dataset_id, operation_id, job_id = (uuid.uuid4() for _ in range(4))
+    image_requests = []
+    video_requests = []
+
+    class ImageOwner:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def call(self, operation, request):
+            assert operation == "schedule_image_media"
+            image_requests.append(request)
+            return _accepted_backfill(request, job_id=job_id)
+
+    class VideoOwner:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def call(self, operation, request):
+            video_requests.append((operation, request))
+
+    monkeypatch.setattr(dataset_routes, "image_gateway", lambda: ImageOwner())
+    monkeypatch.setattr(dataset_routes, "image_policy", ImagePolicy)
+    monkeypatch.setattr(dataset_routes, "media_gateway", lambda: VideoOwner())
+
+    class CatalogGateway:
+        def __init__(self, _db):
+            pass
+
+        async def get(self, request):
+            assert request.actor_id == actor_id
+            assert request.dataset_id == dataset_id
+
+    monkeypatch.setattr(dataset_routes, "AssetsCatalogGateway", CatalogGateway)
+    response = Response()
+    result = await dataset_routes.backfill_media_endpoint(
+        dataset_id,
+        response,
+        db=object(),
+        current_user=SimpleNamespace(id=actor_id),
+        idempotency_key=operation_id,
+    )
+
+    assert len(image_requests) == 1
+    assert image_requests[0].operation_id == operation_id
+    assert image_requests[0].spec.selection.purpose == "thumbnail"
+    assert video_requests[0][0] == "request_video_media"
+    assert video_requests[0][1].operation_id == operation_id
+    assert video_requests[0][1].spec.selection.dataset_id == dataset_id
+    assert result.operation_id == operation_id
+    assert result.job_id == job_id
+    assert response.headers["Idempotency-Key"] == str(operation_id)

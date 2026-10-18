@@ -41,7 +41,9 @@ SDK 的 `client.datasets.create(..., idempotency_key=key)` 与 `update(..., idem
 
 成功分支仅含 `schema,ok:true,data`；业务失败仅含 `schema,ok:false,error:{code}`。未知 schema、额外字段、错误分支或范围不符均拒绝。业务错误为 `invalid_request`、`account_not_active`、`account_busy`、`invalid_account_role`、`catalog_manager_required`、`dataset_missing`、`source_busy`、`operation_conflict` 和 `reserved_namespace`。网关将其映射为公开 401/403/404/409/422；不返回 SQL 错误或存储凭据。
 
-分页 `limit` 为 1–200，`offset` 为非负 PostgreSQL bigint。列表按 `created_at DESC,id DESC` 排序；计数、分页及统计来自同一 SQL 语句快照。名称查询保留 ILIKE 通配符语义，三种点云名称 `lidar/point_cloud/pointcloud` 使用同一筛选族。文件元数据保留未知 JSON 字段；内部 `thumbnail_path` 只用于签名，公开响应不返回它。签名失败仍返回 null，不把文件查询变为对象下载。 视频的原始文件与封面地址由公开网关向媒体所有者核验后提供，目录服务本身不签发视频 URL。元信息尚未准备时可返回已核验的原始地址，封面留空；来源漂移或核验失败时不沿用旧链接。
+分页 `limit` 为 1–200，`offset` 为非负 PostgreSQL bigint。列表按 `created_at DESC,id DESC` 排序；计数、分页及统计来自同一 SQL 语句快照。名称查询保留 ILIKE 通配符语义，三种点云名称 `lidar/point_cloud/pointcloud` 使用同一筛选族。文件元数据保留未知 JSON 字段；内部 `thumbnail_path` 只用于签名，公开响应不返回它。图片原图和缩略图地址由公开网关向 Images owner 核验来源身份后签发；来源缺失、漂移或核验失败时两种 URL 都为 null，不回退到目录快照中的对象 key。尺寸保留当前 owner 投影事实；缩略图和 blurhash 仅在派生代次匹配当前来源时返回。视频原始文件与封面仍由媒体 owner 核验，目录服务本身不签发视频 URL；元信息尚未准备时可返回已核验的原始地址，封面留空，来源漂移或核验失败时不沿用旧链接。
+
+`POST /api/v1/datasets/{dataset_id}/backfill-dimensions` 和 `backfill-media` 接受持久 Image backfill，并返回 `202`、`dataset_id`、`job_id`、`operation_id`、`purpose`、当前作业 `status` 与 owner 确认的 `accepted_before`。可选 UUID `Idempotency-Key` 用于重放同一受理结果。前者只补缺失尺寸；后者接受缩略图回填，并保留独立视频元信息回填。旧 `batch` 查询参数为兼容保留且已弃用；owner 自行按有界批次扫描。
 
 网关内部请求上限 1 MiB，响应上限 16 MiB；超出时明确失败，不截断或自动回退。HTTP 各 I/O 阶段默认超时 5 秒，可通过 `ASSETS_CATALOG_TIMEOUT_SECONDS` 在 60 秒内调整。这些传输预算不构成大库、超大元数据或生产容量资格。
 

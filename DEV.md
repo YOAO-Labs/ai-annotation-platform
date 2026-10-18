@@ -983,7 +983,7 @@ psql -v expected_database=annotation_test -v migration_role=owner \
   -f infra/docker/assets-source-grants.sql
 ```
 
-数据库名和连接参数应指向明确选择的环境。Source LOGIN 精确执行 23 项 `aap_assets_v1` 能力：既有 14 项来源/入库能力与 9 项连接管理能力。它不读业务关系或序列，不使用其他 owner schema，也不授予任何方向的角色成员资格。两项批量媒体派发 claim/ack 能力只给 API maintenance relay。导入执行器仍使用独立的七函数 LOGIN，Catalog LOGIN 仍是 29 项；不要把日常宽权限 API 账号用于这些工件。
+数据库名和连接参数应指向明确选择的环境。Source LOGIN 精确执行 26 项 `aap_assets_v1` 能力：14 项来源/入库、9 项连接管理和 3 项图片来源/作业受理能力。它不读业务关系或序列，不使用其他 owner schema，也不授予任何方向的角色成员资格。两项批量媒体派发 claim/ack 能力只给 API maintenance relay。导入执行器仍使用独立的九函数 LOGIN，Catalog LOGIN 仍是 29 项；不要把日常宽权限 API 账号用于这些工件。
 
 服务显式配置专用 DSN、token、S3 access/secret；可用 `.env.example` 的 `_FILE` 变量。secret 必须能被用户 10003 读取。S3 授予 import 桶 `dataset-uploads/*` Get/Put、datasets 桶历史来源的条件读取和该配置桶自身的 ListBucket，以及 `dataset-sources/*` Put/multipart Abort。不要授予来源 Delete、其他桶 List 或桶管理；cache 桶只用于 SQL outbox。内部 I/O endpoint 与浏览器签名 endpoint 分开，均从服务配置取得。ZIP 的 200 MiB 压缩/展开预算与 JSON 请求体预算独立。
 
@@ -1049,7 +1049,7 @@ psql -v expected_database=annotation_test -v migration_role=owner \
   -f infra/docker/assets-operator-grants.sql
 ```
 
-`asset_operator_client` 必须与 migration role 和 `assets_code` owner 分离，作为 LOGIN 使用且不继承其他角色。它只能执行 `aap_assets_v1` 中六项 operator 函数，不直接读写表、不访问其他 owner schema；`dataset_operator_operations` 保存不可变操作回执且没有 live Dataset/Item 外键。不要把 Source 的 23 项、Catalog 的 29 项或导入执行器的 7 项能力授给该角色。现有脚本继续使用原装配连接；六函数账号供来源能力的独立消费者使用，不能直接运行还包含 Identity、Workspace 或 Labeling 步骤的完整脚本。operator grants 会拒绝数据库 CREATE/TEMP 权限，包含从 PUBLIC 获得的权限；初始化应撤销 PUBLIC 的 TEMP，只对既有确需临时表的角色显式授予。
+`asset_operator_client` 必须与 migration role 和 `assets_code` owner 分离，作为 LOGIN 使用且不继承其他角色。它只能执行 `aap_assets_v1` 中六项 operator 函数，不直接读写表、不访问其他 owner schema；`dataset_operator_operations` 保存不可变操作回执且没有 live Dataset/Item 外键。不要把 Source 的 26 项、Catalog 的 29 项或导入执行器的 9 项能力授给该角色。现有脚本继续使用原装配连接；六函数账号供来源能力的独立消费者使用，不能直接运行还包含 Identity、Workspace 或 Labeling 步骤的完整脚本。operator grants 会拒绝数据库 CREATE/TEMP 权限，包含从 PUBLIC 获得的权限；初始化应撤销 PUBLIC 的 TEMP，只对既有确需临时表的角色显式授予。
 
 登记操作继续使用调用方同一 SQL 事务；nuScenes 导入可将 Dataset/Item、Scene、标定、工作区关联和 Labeling 任务共同提交或回滚。条目按输入顺序以至多 500 项分批追加或更新。重导读取通过排序游标返回稳定快照；单页最多 500 项，记录 JSON 上限 15 MiB，完整响应上限 16 MiB，单次请求上限 8 MiB。调用方校验页序、总数和快照摘要后再使用数据；source snapshot 是不透明 CAS 值，更新时由 Assets 重新校验并只合并请求字段。
 

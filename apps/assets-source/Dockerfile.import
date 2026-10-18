@@ -17,6 +17,8 @@ COPY apps/_shared/audit_contract/pyproject.toml ./apps/_shared/audit_contract/
 COPY apps/_shared/audit_contract/src/ ./apps/_shared/audit_contract/src/
 COPY apps/assets-cleanup/pyproject.toml ./apps/assets-cleanup/
 COPY apps/assets-cleanup/src/ ./apps/assets-cleanup/src/
+COPY apps/assets-media/pyproject.toml ./apps/assets-media/
+COPY apps/assets-media/src/ ./apps/assets-media/src/
 
 WORKDIR /app/apps/assets-source
 RUN uv venv /opt/venv \

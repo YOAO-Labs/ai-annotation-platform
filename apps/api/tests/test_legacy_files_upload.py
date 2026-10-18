@@ -182,7 +182,6 @@ async def test_image_admission_failure_rolls_back_task_pending_transition(
         ).complete_upload(
             actor_id=owner.id,
             task_id=task.id,
-            dispatcher=media_dispatcher,
         )
 
     assert error.value.status_code == 409
@@ -270,7 +269,6 @@ async def test_outsider_cannot_issue_uploads_finalize_or_read_foreign_media(
     super_admin,
     annotator,
     monkeypatch,
-    media_dispatcher,
     operation,
 ):
     owner, _ = super_admin
@@ -296,6 +294,13 @@ async def test_outsider_cannot_issue_uploads_finalize_or_read_foreign_media(
         "generate_download_url",
         lambda key: "https://objects.test/source",
     )
+
+    def reject_image_admission():
+        raise AssertionError("unauthorized image admission")
+
+    monkeypatch.setattr(
+        "app.application.legacy_file_upload.image_gateway", reject_image_admission
+    )
     response = await _file_operation(
         httpx_client, token, project.id, task.id, operation
     )
@@ -308,8 +313,6 @@ async def test_outsider_cannot_issue_uploads_finalize_or_read_foreign_media(
         )
         == 1
     )
-    assert media_dispatcher.task_thumbnails == []
-    assert media_dispatcher.task_thumbnail_backfills == []
 
 
 @pytest.mark.parametrize("operation", ["initialize", "complete", "backfill"])
@@ -319,7 +322,6 @@ async def test_assigned_annotator_cannot_manage_legacy_uploads(
     super_admin,
     annotator,
     monkeypatch,
-    media_dispatcher,
     operation,
 ):
     owner, _ = super_admin
@@ -347,14 +349,19 @@ async def test_assigned_annotator_cannot_manage_legacy_uploads(
     monkeypatch.setattr(
         storage_service, "verify_upload", lambda key: {"ContentLength": 12}
     )
+
+    def reject_image_admission():
+        raise AssertionError("unauthorized image admission")
+
+    monkeypatch.setattr(
+        "app.application.legacy_file_upload.image_gateway", reject_image_admission
+    )
     response = await _file_operation(
         httpx_client, token, project.id, task.id, operation
     )
     assert response.status_code == 403
     await db_session.refresh(task)
     assert task.status == "uploading"
-    assert media_dispatcher.task_thumbnails == []
-    assert media_dispatcher.task_thumbnail_backfills == []
 
 
 async def test_file_url_preserves_non_manager_task_visibility(
@@ -441,7 +448,6 @@ async def test_upload_completion_rechecks_cached_authority_and_task_state(
         ).complete_upload(
             actor_id=owner.id,
             task_id=task.id,
-            dispatcher=media_dispatcher,
         )
     if expected_status is not None:
         assert error.value.status_code == expected_status

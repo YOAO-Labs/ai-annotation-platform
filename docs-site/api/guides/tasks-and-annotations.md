@@ -9,7 +9,7 @@ last_reviewed: 2026-10-18
 
 ## 任务文件与数据集场景
 
-任务文件使用 `POST /files/upload-init` 创建 uploading 占位并取得 PUT URL，上传字节后明确调用 `POST /files/upload-complete/{task_id}`。初始化和完成在存储签名／验证或排队前要求项目负责人或超级管理员；`GET /files/tasks/{task_id}/file-url` 按当前任务可见性签发短期下载 URL，`POST /files/projects/{project_id}/backfill-thumbnails` 要求项目管理权限。完成或 queued 回执不代表缩略图已生成。
+任务文件使用 `POST /files/upload-init` 创建 uploading 占位并取得 PUT URL，上传字节后明确调用 `POST /files/upload-complete/{task_id}`。初始化和完成在存储签名／验证或排队前要求项目负责人或超级管理员；`GET /files/tasks/{task_id}/file-url` 按当前任务可见性签发短期下载 URL，`POST /files/projects/{project_id}/backfill-thumbnails` 要求项目管理权限并接受持久图像作业。上传完成或作业受理回执不代表缩略图已生成。
 
 `GET /scenes?dataset_id=...`、`GET /scenes/{scene_id}` 和 `GET /scenes/{scene_id}/trajectory` 沿用全局数据集目录读取策略，API key 需 `datasets:read`。`PATCH /scenes/{scene_id}` 沿用数据集管理员写策略，限 project_admin/super_admin；显式 null 当前不修改字段，空 source_metadata 对象可清空元数据，没有 revision/CAS。SDK 与 CLI 分步用法见 [文件上传与数据集场景](../../dev/sdk/files-and-scenes)。
 
@@ -21,20 +21,22 @@ last_reviewed: 2026-10-18
 
 这组端点管理项目下直接上传的任务文件，不替代数据集上传与关联建题：
 
-| 端点                                                          | 当前准入                                       | 成功结果                              |
-| ------------------------------------------------------------- | ---------------------------------------------- | ------------------------------------- |
-| `POST /api/v1/files/upload-init`                              | 请求项目的当前管理者                           | `task_id`、`upload_url`、`expires_in` |
-| `POST /api/v1/files/upload-complete/:task_id`                 | 任务所属项目的当前管理者                       | `status: ok`、`task_id`               |
-| `GET /api/v1/files/tasks/:task_id/file-url`                   | 当前任务可见性，非管理者也可读取有权访问的任务 | `url`、`expires_in`                   |
-| `POST /api/v1/files/projects/:project_id/backfill-thumbnails` | 当前项目管理者                                 | `status: queued`、`celery_task_id`    |
+| 端点                                                          | 当前准入                                       | 成功结果                                                                              |
+| ------------------------------------------------------------- | ---------------------------------------------- | ------------------------------------------------------------------------------------- |
+| `POST /api/v1/files/upload-init`                              | 请求项目的当前管理者                           | `task_id`、`upload_url`、`expires_in`                                                 |
+| `POST /api/v1/files/upload-complete/:task_id`                 | 任务所属项目的当前管理者                       | `status: ok`、`task_id`                                                               |
+| `GET /api/v1/files/tasks/:task_id/file-url`                   | 当前任务可见性，非管理者也可读取有权访问的任务 | `url`、`expires_in`                                                                   |
+| `POST /api/v1/files/projects/:project_id/backfill-thumbnails` | 当前项目管理者                                 | `202`、`project_id`、`job_id`、`operation_id`、`purpose`、`status`、`accepted_before` |
 
 初始化请求使用 `project_id`、`file_name` 和 `content_type`；文件类型按 MIME 推断。上传地址只针对本次项目/任务的对象键。客户端按返回地址上传对象，再确认完成；普通项目成员即使被指派该任务，也不能代替项目管理者完成这些管理操作。
+
+项目缩略图回填返回 Image owner 的作业 UUID 与受理截止时间，并通过 `Idempotency-Key` 可选 UUID 重放同一受理结果。作业由 owner 按 Task 来源验证和有界批次执行，不返回 Celery task ID。
 
 完成请求先核对当前管理权限和上传状态，再验证对象存在；存储验证期间不持有账号、项目或任务行锁。最终写入重新取得当前权限、批次和任务围栏，核对项目/批次、对象键、文件类型及 `uploading` 状态，不以先前快照作为权限许可，也不把已推进的任务改回 `pending`。
 
 不可访问的项目或任务返回 `404`，可见但无管理权返回 `403`，停用主体返回 `401`。对授权管理者，任务已不在上传状态或对象缺失返回 `400`；当前行锁繁忙或来源绑定变化返回 `409`。任务原图读取沿用完整任务可见性，不因同属一个项目就允许读取其他人的隐藏任务。
 
-初始化保留先提交任务、再返回签名地址的时点；完成保留先提交状态、再派发图片缩略图的时点。派发失败不会撤销已经提交的完成状态，管理者可使用项目回填入口；没有新增自动补偿、可靠投递或重复确认的幂等保证。权限变化会影响新请求，但不撤销已经签发、尚未按原规则到期的对象 URL。
+初始化保留先提交任务、再返回签名地址的时点；图片完成会在验证对象身份后，于同一数据库事务内提交任务状态、来源身份绑定和持久媒体作业。完成回执表示图像作业已受理，不保证缩略图已经生成；管理者仍可使用项目回填入口。权限变化会影响新请求，但不撤销已经签发、尚未按原规则到期的对象 URL。
 
 ## 拉取下一个任务
 

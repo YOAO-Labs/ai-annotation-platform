@@ -306,11 +306,11 @@ Identity 只提供 actor UUID、平台角色和活跃状态；Workspace 提供�
 
 ZIP 的 `read_dataset_ingest_layout` 以 UUID keyset 分页返回至多 500 个 detached Item，并带有权威 snapshot digest/count；`finish_dataset_ingest` 会在写 Scene 与 frame assignment 前重验快照、计划归属和完整结算状态。扫描不调用这两项布局/Scene 能力。媒体 delivery claim 在派发前保存租约，ack 需校验同一活动 lease token 与当前 delivery target；此 outbox 提供可重试的 at-least-once 派发，不承诺 exactly-once。
 
-完整 native JSON 合同见 `apps/api/alembic/sql/0215_dataset_source_ingest.schema.json`；纯 Python HTTP/wire 合同见 `apps/assets-source/src/aap_assets_source/ingest_contract.schema.json`。迁移按 `0215_dataset_source_ingest.sql` 后 `0215_dataset_source_ingest_delivery.sql` 的顺序安装。这五项入库能力属于 Source LOGIN 当前的 23 项能力；`claim_dataset_source_ingest_delivery` 和 `complete_dataset_source_ingest_delivery` 仅供 API maintenance relay 领取/确认派发，不授予 Source LOGIN。交付收据表示 broker 接受，不表示媒体已执行。
+完整 native JSON 合同见 `apps/api/alembic/sql/0215_dataset_source_ingest.schema.json`；纯 Python HTTP/wire 合同见 `apps/assets-source/src/aap_assets_source/ingest_contract.schema.json`。迁移按 `0215_dataset_source_ingest.sql` 后 `0215_dataset_source_ingest_delivery.sql` 的顺序安装。这五项入库能力属于 Source LOGIN 当前的 26 项能力；`claim_dataset_source_ingest_delivery` 和 `complete_dataset_source_ingest_delivery` 仅供 API maintenance relay 领取/确认派发，不授予 Source LOGIN。图像来源验证与作业受理的三个能力由 Source LOGIN 使用，详见下文。交付收据表示 broker 接受，不表示媒体已执行。
 
 ## 存储连接器管理
 
-0217 为 Assets Source 增加九项连接器原生能力，专用 Source LOGIN 现在共可执行 23 项公开能力。独立连接器导入执行器仍使用独立的七项 LOGIN 能力；它不能接受新的导入授权。两个角色都不能直接读取或写入业务表。
+0217 为 Assets Source 增加九项连接器原生能力。Source LOGIN 当前还包含 `resolve_internal_image_source`、`schedule_image_media` 与 `read_legacy_dataset_upload` 三项图像来源/作业受理能力，共执行 26 项公开能力。独立连接器导入执行器使用九项 LOGIN 能力，其中额外两项用于与图片导入原子组合；它不能接受新的导入授权。两个角色都不能直接读取或写入业务表。
 
 | 原生能力                          | SQL 参数签名                                                       |
 | --------------------------------- | ------------------------------------------------------------------ |
@@ -330,7 +330,7 @@ Source 在 `public.storage_connection_operations` 中保存不可变幂等回执
 
 ## 可信导入器数据集与素材登记
 
-0218 为现有本地图片与 nuScenes 导入器发布独立的 `aap-assets-operator/v1` SQL 合同。它与 Source 的 23 项、Catalog 的 29 项和连接器导入执行器的 7 项 LOGIN 能力分开；专用 `asset_operator_client` LOGIN 被授予下面六项 Assets 函数。持有该 operator 凭据即获得此路径的受信任执行权限，owner UUID 只保留既有归属标记。图片导入沿用已有 owner 选择且没有新增 manager 门槛；nuScenes 保留既有 Catalog 资格检查和先锁 actor、再锁 Dataset 的顺序。函数不接收调用者传来的角色布尔值。
+0218 为现有本地图片与 nuScenes 导入器发布独立的 `aap-assets-operator/v1` SQL 合同。它与 Source 的 26 项、Catalog 的 29 项和连接器导入执行器的 9 项 LOGIN 能力分开；专用 `asset_operator_client` LOGIN 被授予下面六项 Assets 函数。持有该 operator 凭据即获得此路径的受信任执行权限，owner UUID 只保留既有归属标记。图片导入沿用已有 owner 选择且没有新增 manager 门槛；nuScenes 保留既有 Catalog 资格检查和先锁 actor、再锁 Dataset 的顺序。函数不接收调用者传来的角色布尔值。
 
 | 原生能力                           | SQL 参数签名               | 用途                                                                |
 | ---------------------------------- | -------------------------- | ------------------------------------------------------------------- |
@@ -359,6 +359,6 @@ Item、文件数、Labeling append、游标/计数、Jobs 进度和媒体派发�
 
 ## 空间素材状态与同事务组合
 
-场景、帧组织、位姿、标定与 nuScenes 标定 provenance 使用二十项公开原生能力；完整合同见[空间素材协议](./assets-spatial)。Assets 新增不可变 `dataset_spatial_operations`，不保存 live-resource 外键。Catalog LOGIN 共 29 项 execute-only 能力，Source LOGIN 共 23 项。
+场景、帧组织、位姿、标定与 nuScenes 标定 provenance 使用二十项公开原生能力；完整合同见[空间素材协议](./assets-spatial)。Assets 新增不可变 `dataset_spatial_operations`，不保存 live-resource 外键。Catalog LOGIN 共 29 项 execute-only 能力，Source LOGIN 共 26 项。
 
 Assets 只通过 Labeling 当前相机/共享与受理范围、Workspace 当前项目访问和 Audit 事件能力组合跨 owner 状态，不读取其他 owner 私有表。标定更新与审计、回执、历史修订和元数据共同提交；需要同事务的建题导入继续在调用方同一 SQL 连接上组合公开能力。读取标定文件前不增加空间状态行锁，最终应用再检查来源快照和已受理作业/关联代次。普通远程故障不触发本地回退。

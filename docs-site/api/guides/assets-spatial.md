@@ -57,7 +57,7 @@ nuScenes 导入的标定 provenance 只填充缺失摘要，保留已有摘要�
 
 ## 部署与回退
 
-先暂停受影响写入，应用 0216，重跑 module-data owner 和 Catalog 专用授权，再升级目录镜像并检查 `/ready`，最后切换网关。Catalog LOGIN 精确执行 29 项能力，不获得表、序列或其他 owner schema 权限；Source LOGIN 执行 23 项能力。旧镜像的权限预检不接受新的角色清单，需要协调升级。
+先暂停受影响写入，应用 0216，重跑 module-data owner 和 Catalog 专用授权，再升级目录镜像并检查 `/ready`，最后切换网关。Catalog LOGIN 精确执行 29 项能力，不获得表、序列或其他 owner schema 权限；Source LOGIN 执行 26 项能力。旧镜像的权限预检不接受新的角色清单，需要协调升级。
 
 `ASSETS_CATALOG_S3_PUBLIC_ENDPOINT` 用于浏览器签名；`ASSETS_CATALOG_S3_ENDPOINT` 可指定服务连接 S3 的固定 origin，省略时沿用公开 origin。两者不来自业务请求。专属 S3 身份只读既有允许范围，不增加 List、Put 或 Delete。
 

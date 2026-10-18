@@ -60,13 +60,13 @@ ZIP 将新字节写入不可变 key：`dataset-sources/{dataset_id}/{item_id}/{p
 
 ## 事务与存储权限
 
-0215 阶段的专用 execute-only LOGIN 执行九项来源能力和五项批量入库能力，共 14 项；不能直接读写业务表、序列、其他 owner schema 或继承角色。0217 增加九项连接器原生能力后，Source LOGIN 共执行 23 项公开能力。两项媒体派发 claim/ack 能力只由 API maintenance relay 使用。原生 SQL 安装与 owner 授权见[同库数据接口](/api/guides/module-data)。来源删除的 Audit、回执和派生清理 outbox 与业务删除在同一事务；原始字节始终保留。
+Source LOGIN 当前执行 26 项公开能力：来源/入库、连接器以及三个图片来源/作业受理函数。连接导入器使用独立的 9 项 LOGIN 能力；两者均不能直接读写业务表、序列、其他 owner schema 或继承角色。两个媒体派发 claim/ack 能力只由 API maintenance relay 使用。原生 SQL 安装与 owner 授权见[同库数据接口](/api/guides/module-data)。来源删除的 Audit、回执和派生清理 outbox 与业务删除在同一事务；原始字节始终保留。
 
 S3 身份只拥有 import 桶 `dataset-uploads/*` 的 Get/Put、datasets 桶历史来源读取与该桶自身的 ListBucket，以及 `dataset-sources/*` 的 Put 和 multipart Abort。扫描只对原生能力返回的 Dataset 前缀执行条件 HEAD/GET。它不能删除对象、列其它桶或管理桶，也不写 media-cache。内部 I/O endpoint 与浏览器签名 endpoint 分别显式配置，签名后不改 Host。服务不读取请求提供的任意 URL、bucket 或对象 key。
 
 单次调用在验证完整结果及响应字节预算后才提交。复制与 PostgreSQL 不能共同回滚：复制后进程退出或 SQL 失败可能保留未登记的原始拷贝，重试使用新的 publication 代次，旧拷贝不自动删除。原始拷贝和未完成 intent 暂无自动回收，需要计入存储容量。
 
-成功发布后仍由 API 派发缩略图或视频元信息；发布成功不等于媒体已准备完成。现有派发、导入/扫描、媒体派生及完整 Blob 协议继续按各自边界推进。本工件不代表整个 Assets 或其他业务模块已能独立部署；共享 PostgreSQL 仍是前提。
+图像 publication、DatasetItem 注册、来源身份绑定和缩略图/金字塔作业受理在同一个数据库事务内完成；导入器在锁定业务行前验证已发布对象身份，worker 随后按已绑定的身份执行。上传和导入成功表示作业已持久受理，不表示媒体已生成。视频元信息继续由视频媒体 owner 处理。本工件不代表整个 Assets 或其他业务模块已能独立部署；共享 PostgreSQL 仍是前提。
 
 ## 运行与回退
 

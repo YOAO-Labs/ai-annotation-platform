@@ -1,4 +1,5 @@
 import uuid
+from typing import Literal
 from aap_assets_media.contract import (
     BackfillSelection,
     BackfillSpec,
@@ -48,10 +49,16 @@ from aap_assets_catalog import (
     UpdateDatasetRequest,
 )
 from aap_assets_catalog.associations_contract import ListDatasetProjectsRequest
+from aap_assets_images.contract import (
+    AcceptedImageWork,
+    ImageBackfillSelection,
+    ImageBackfillSpec,
+    ImageFailure,
+    ScheduleImageMediaRequest,
+)
 from app.deps import (
     get_db,
     get_current_user,
-    get_media_job_dispatcher,
     require_project_owner,
     require_roles,
     require_scopes,
@@ -66,6 +73,7 @@ from app.schemas.dataset import (
     DatasetOut,
     DatasetListResponse,
     DatasetItemListResponse,
+    DatasetImageBackfillResponse,
     DatasetLinkRequest,
     DatasetUploadInitRequest,
     DatasetUploadInitResponse,
@@ -87,8 +95,8 @@ from app.services.assets_source import (
     encode_ingest_public_result,
 )
 from app.services.assets_media import media_gateway, media_http_error
+from app.services.assets_images import image_gateway, image_policy
 from app.services.assets_import import DatasetImportCapabilities
-from app.services.media_job_dispatch import MediaJobDispatcher
 from app.services.storage import storage_service
 from app.services.system_settings_service import SystemSettingsService
 from aap_audit_contract import ProjectDeletionAuditContext
@@ -99,6 +107,69 @@ _MANAGERS = (UserRole.SUPER_ADMIN, UserRole.PROJECT_ADMIN)
 
 # Allow room for multipart boundaries, per-part headers, and the closing delimiter.
 _ZIP_MULTIPART_OVERHEAD_BYTES = 64 * 1024
+
+
+async def _schedule_image_backfill(
+    *,
+    dataset_id: uuid.UUID,
+    operation_id: uuid.UUID,
+    purpose: Literal["dimensions", "thumbnail"],
+) -> DatasetImageBackfillResponse:
+    spec = ImageBackfillSpec(
+        selection=ImageBackfillSelection(
+            owner_kind="dataset_item",
+            dataset_id=dataset_id,
+            purpose=purpose,
+            only_missing=True,
+        ),
+        policy=image_policy(),
+    )
+    request = ScheduleImageMediaRequest(
+        operation_id=operation_id,
+        owner_kind=None,
+        owner_id=None,
+        spec=spec,
+    )
+    try:
+        async with image_gateway() as owner:
+            accepted = await owner.call("schedule_image_media", request)
+    except ImageFailure as exc:
+        status = {
+            "invalid_request": 422,
+            "permission_denied": 403,
+            "account_not_active": 401,
+            "invalid_account_role": 403,
+            "source_missing": 404,
+            "asset_missing": 404,
+            "owner_changed": 409,
+            "operation_conflict": 409,
+            "operation_busy": 409,
+            "source_busy": 409,
+            "source_changed": 409,
+            "resource_budget_exceeded": 413,
+            "invalid_response": 502,
+            "storage_unavailable": 503,
+        }.get(exc.code, 503)
+        raise HTTPException(status_code=status, detail={"reason": exc.code}) from None
+    if (
+        not isinstance(accepted, AcceptedImageWork)
+        or accepted.operation_id != operation_id
+        or accepted.work.kind != "image_backfill"
+        or accepted.work.owner is not None
+        or not isinstance(accepted.spec, ImageBackfillSpec)
+        or accepted.spec.selection.dataset_id != dataset_id
+        or accepted.spec.selection.purpose != purpose
+        or accepted.spec.selection.accepted_before is None
+    ):
+        raise HTTPException(status_code=502, detail="Invalid image backfill receipt")
+    return DatasetImageBackfillResponse(
+        dataset_id=dataset_id,
+        operation_id=operation_id,
+        job_id=accepted.work.job_id,
+        purpose=purpose,
+        status=accepted.work.status,
+        accepted_before=accepted.spec.selection.accepted_before,
+    )
 
 
 class _ZipMultipartBodyTooLarge(MultiPartException):
@@ -552,7 +623,6 @@ async def upload_complete(
     response: Response,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
-    media_dispatcher: MediaJobDispatcher = Depends(get_media_job_dispatcher),
     idempotency_key: uuid.UUID | None = Header(default=None, alias="Idempotency-Key"),
 ):
     request = UploadCompleteRequest(
@@ -576,9 +646,7 @@ async def upload_complete(
         )
     if outcome.result is None:
         raise HTTPException(400, "File not found in storage")
-    if outcome.file_type == "image":
-        media_dispatcher.dispatch_thumbnail(item_id)
-    elif outcome.file_type == "video":
+    if outcome.file_type == "video":
         try:
             async with media_gateway(db) as media:
                 await media.call(
@@ -721,73 +789,84 @@ async def scan_items(
 
 @router.post(
     "/{dataset_id}/backfill-dimensions",
+    response_model=DatasetImageBackfillResponse,
+    status_code=202,
     dependencies=[Depends(require_scopes("datasets:write"))],
+    responses={
+        202: {
+            "headers": {
+                "Idempotency-Key": {
+                    "description": "Reuse this UUID to replay the accepted image backfill.",
+                    "schema": {"type": "string", "format": "uuid"},
+                }
+            }
+        }
+    },
 )
 async def backfill_dimensions(
     dataset_id: uuid.UUID,
-    batch: int = Query(50, ge=1, le=200),
-    db: AsyncSession = Depends(get_db),
+    response: Response,
+    batch: int = Query(
+        50,
+        ge=1,
+        le=200,
+        deprecated=True,
+        description="Retained for compatibility; the owner scans in bounded batches.",
+    ),
     current_user: User = Depends(require_roles(*_MANAGERS)),
+    idempotency_key: uuid.UUID | None = Header(default=None, alias="Idempotency-Key"),
 ):
-    """为存量 image 类型 dataset_items 回填 width/height。
-
-    一次最多处理 batch 条（默认 50），多次调用直到 processed == 0 视为完成。
-    """
-    from sqlalchemy import select as sa_select
-    from app.db.models.dataset import DatasetItem
-
-    rows = await db.execute(
-        sa_select(DatasetItem)
-        .where(
-            DatasetItem.dataset_id == dataset_id,
-            DatasetItem.file_type == "image",
-            DatasetItem.width.is_(None),
-        )
-        .limit(batch)
+    """为存量图像接受有界、可回放的持久宽高回填作业。"""
+    del current_user, batch
+    operation_id = idempotency_key or uuid.uuid4()
+    result = await _schedule_image_backfill(
+        dataset_id=dataset_id,
+        operation_id=operation_id,
+        purpose="dimensions",
     )
-    items = list(rows.scalars().all())
-    processed = 0
-    failed = 0
-    svc = DatasetService(db)
-    for item in items:
-        dims = storage_service.read_image_dimensions(
-            item.file_path,
-            bucket=storage_service.datasets_bucket,
-        )
-        if dims:
-            await svc.set_item_dimensions(item.id, dims)
-            processed += 1
-        else:
-            failed += 1
-    await db.commit()
-    return {
-        "processed": processed,
-        "failed": failed,
-        "remaining_hint": len(items) == batch,
-    }
+    response.headers["Idempotency-Key"] = str(operation_id)
+    return result
 
 
 @router.post(
     "/{dataset_id}/backfill-media",
+    response_model=DatasetImageBackfillResponse,
+    status_code=202,
     dependencies=[Depends(require_scopes("datasets:write"))],
+    responses={
+        202: {
+            "headers": {
+                "Idempotency-Key": {
+                    "description": "Reuse this UUID to replay the accepted image backfill.",
+                    "schema": {"type": "string", "format": "uuid"},
+                }
+            }
+        }
+    },
 )
 async def backfill_media_endpoint(
     dataset_id: uuid.UUID,
+    response: Response,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles(*_MANAGERS)),
+    idempotency_key: uuid.UUID | None = Header(default=None, alias="Idempotency-Key"),
 ):
-    """异步触发存量图像缩略图 / 视频元数据与 poster 回填。"""
-    svc = DatasetService(db)
-    ds = await svc.get(dataset_id)
-    if not ds:
-        raise HTTPException(status_code=404, detail="Dataset not found")
-
+    """接受持久图像缩略图回填，并保留视频元信息回填入口。"""
+    await AssetsCatalogGateway(db).get(
+        GetDatasetRequest(actor_id=current_user.id, dataset_id=dataset_id)
+    )
+    operation_id = idempotency_key or uuid.uuid4()
+    result = await _schedule_image_backfill(
+        dataset_id=dataset_id,
+        operation_id=operation_id,
+        purpose="thumbnail",
+    )
     try:
-        async with media_gateway(db) as media:
+        async with media_gateway() as media:
             await media.call(
                 "request_video_media",
                 RequestWorkRequest(
-                    operation_id=uuid.uuid4(),
+                    operation_id=operation_id,
                     actor_id=current_user.id,
                     dataset_item_id=None,
                     spec=BackfillSpec(
@@ -795,14 +874,10 @@ async def backfill_media_endpoint(
                     ),
                 ),
             )
-        await db.commit()
     except MediaFailure as exc:
         raise media_http_error(exc) from None
-
-    from app.workers.media import backfill_media
-
-    backfill_media.delay(str(dataset_id), schedule_video=False)
-    return {"status": "queued", "dataset_id": str(dataset_id)}
+    response.headers["Idempotency-Key"] = str(operation_id)
+    return result
 
 
 @router.post(

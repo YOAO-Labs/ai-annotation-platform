@@ -11486,6 +11486,59 @@
         "title": "DatasetCreate",
         "type": "object"
       },
+      "DatasetImageBackfillResponse": {
+        "properties": {
+          "accepted_before": {
+            "format": "date-time",
+            "title": "Accepted Before",
+            "type": "string"
+          },
+          "dataset_id": {
+            "format": "uuid",
+            "title": "Dataset Id",
+            "type": "string"
+          },
+          "job_id": {
+            "format": "uuid",
+            "title": "Job Id",
+            "type": "string"
+          },
+          "operation_id": {
+            "format": "uuid",
+            "title": "Operation Id",
+            "type": "string"
+          },
+          "purpose": {
+            "enum": [
+              "dimensions",
+              "thumbnail"
+            ],
+            "title": "Purpose",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "pending",
+              "running",
+              "ready",
+              "failed",
+              "canceled"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "dataset_id",
+          "operation_id",
+          "job_id",
+          "purpose",
+          "status",
+          "accepted_before"
+        ],
+        "title": "DatasetImageBackfillResponse",
+        "type": "object"
+      },
       "DatasetImportFromConnectionRequest": {
         "properties": {
           "connection_id": {
@@ -39005,6 +39058,56 @@
         "title": "TaskFileUrlResponse",
         "type": "object"
       },
+      "TaskImageBackfillResponse": {
+        "properties": {
+          "accepted_before": {
+            "format": "date-time",
+            "title": "Accepted Before",
+            "type": "string"
+          },
+          "job_id": {
+            "format": "uuid",
+            "title": "Job Id",
+            "type": "string"
+          },
+          "operation_id": {
+            "format": "uuid",
+            "title": "Operation Id",
+            "type": "string"
+          },
+          "project_id": {
+            "format": "uuid",
+            "title": "Project Id",
+            "type": "string"
+          },
+          "purpose": {
+            "const": "thumbnail",
+            "title": "Purpose",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "pending",
+              "running",
+              "ready",
+              "failed",
+              "canceled"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_id",
+          "operation_id",
+          "job_id",
+          "purpose",
+          "status",
+          "accepted_before"
+        ],
+        "title": "TaskImageBackfillResponse",
+        "type": "object"
+      },
       "TaskListResponse": {
         "properties": {
           "items": {
@@ -57827,7 +57930,7 @@
     },
     "/api/v1/datasets/{dataset_id}/backfill-dimensions": {
       "post": {
-        "description": "为存量 image 类型 dataset_items 回填 width/height。\n\n一次最多处理 batch 条（默认 50），多次调用直到 processed == 0 视为完成。",
+        "description": "为存量图像接受有界、可回放的持久宽高回填作业。",
         "operationId": "backfill_dimensions_api_v1_datasets__dataset_id__backfill_dimensions_post",
         "parameters": [
           {
@@ -57841,26 +57944,58 @@
             }
           },
           {
+            "deprecated": true,
+            "description": "Retained for compatibility; the owner scans in bounded batches.",
             "in": "query",
             "name": "batch",
             "required": false,
             "schema": {
               "default": 50,
+              "deprecated": true,
+              "description": "Retained for compatibility; the owner scans in bounded batches.",
               "maximum": 200,
               "minimum": 1,
               "title": "Batch",
               "type": "integer"
             }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
+            }
           }
         ],
         "responses": {
-          "200": {
+          "202": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/DatasetImageBackfillResponse"
+                }
               }
             },
-            "description": "Successful Response"
+            "description": "Successful Response",
+            "headers": {
+              "Idempotency-Key": {
+                "description": "Reuse this UUID to replay the accepted image backfill.",
+                "schema": {
+                  "format": "uuid",
+                  "type": "string"
+                }
+              }
+            }
           },
           "422": {
             "content": {
@@ -57886,7 +58021,7 @@
     },
     "/api/v1/datasets/{dataset_id}/backfill-media": {
       "post": {
-        "description": "异步触发存量图像缩略图 / 视频元数据与 poster 回填。",
+        "description": "接受持久图像缩略图回填，并保留视频元信息回填入口。",
         "operationId": "backfill_media_endpoint_api_v1_datasets__dataset_id__backfill_media_post",
         "parameters": [
           {
@@ -57898,16 +58033,44 @@
               "title": "Dataset Id",
               "type": "string"
             }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
+            }
           }
         ],
         "responses": {
-          "200": {
+          "202": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/DatasetImageBackfillResponse"
+                }
               }
             },
-            "description": "Successful Response"
+            "description": "Successful Response",
+            "headers": {
+              "Idempotency-Key": {
+                "description": "Reuse this UUID to replay the accepted image backfill.",
+                "schema": {
+                  "format": "uuid",
+                  "type": "string"
+                }
+              }
+            }
           },
           "422": {
             "content": {
@@ -59351,16 +59514,44 @@
               "title": "Project Id",
               "type": "string"
             }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
+            }
           }
         ],
         "responses": {
-          "200": {
+          "202": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/TaskImageBackfillResponse"
+                }
               }
             },
-            "description": "Successful Response"
+            "description": "Successful Response",
+            "headers": {
+              "Idempotency-Key": {
+                "description": "Reuse this UUID to replay the accepted image backfill.",
+                "schema": {
+                  "format": "uuid",
+                  "type": "string"
+                }
+              }
+            }
           },
           "422": {
             "content": {

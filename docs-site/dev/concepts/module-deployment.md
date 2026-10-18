@@ -123,7 +123,7 @@ Assets 的来源删除命令在当前素材库管理员与来源锁内组合 Lea
 
 `apps/assets-source` 的既有 HTTP runtime 执行单文件上传初始化、发布完成、Dataset/Item 删除、同步 ZIP、旧前缀扫描，以及列表、读取、创建、更新、删除和测试六项连接管理操作。连接管理仍通过 API 原有认证入口；内部 Source 接口接收 API 提供的 actor UUID，并由 Identity 与 Assets 原生能力重新验证活动状态、连接范围和当前权限。`ASSETS_SOURCE_URL` 为空时使用本地 Source 工作流；配置远程 URL 后，远程故障不会回退到本地实现。Source 容器不是默认或生产 Compose 的一部分，按独立工件部署。
 
-Source LOGIN 精确执行 26 项 Assets 能力：14 项既有来源/入库函数、9 项连接管理函数和 3 项图片来源能力（已接受来源解析、派发和旧 Task 上传事实读取），不授予业务关系、序列或其他 owner schema 的直接权限。Catalog LOGIN 仍为 29 项，导入执行器 LOGIN 为 9 项。
+Source LOGIN 精确执行 26 项 Assets 能力：14 项既有来源/入库函数、9 项连接管理函数和 3 项图片来源能力（已接受来源解析、受理和旧数据集上传事实读取），不授予业务关系、序列或其他 owner schema 的直接权限。Catalog LOGIN 仍为 29 项，导入执行器 LOGIN 为 9 项；两个旧媒体投递 claim/ack 能力只供 API maintenance relay。
 
 Assets Media 共用控制 LOGIN 执行 32 项能力（视频 18 项、图片 14 项），视频 worker 保留 10 项能力；图片执行 worker 使用独立 LOGIN，精确执行 6 项 worker 能力。Assets cleanup LOGIN 执行 4 项能力，其中两项处理通用存储 outbox、两项领取和确认图片垃圾清理。以上受限角色均不获得业务表、列、序列、外部 owner schema 或 DDL 权限。
 

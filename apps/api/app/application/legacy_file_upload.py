@@ -7,7 +7,14 @@ from dataclasses import dataclass
 from fastapi import HTTPException
 
 from sqlalchemy.ext.asyncio import AsyncSession
-from aap_assets_images.contract import ImageFailure
+from aap_assets_images.contract import (
+    AcceptedImageWork,
+    ImageBackfillSelection,
+    ImageBackfillSpec,
+    ImageFailure,
+    ImageWorkReference,
+    ScheduleImageMediaRequest,
+)
 from aap_assets_source_runtime.image_admission import (
     ImageAdmission,
     object_identity_from_head,
@@ -23,7 +30,6 @@ from app.services.labeling_tasks import (
     LabelingUploadTaskNotUploading,
     LabelingUploadTargetChanged,
 )
-from app.services.media_job_dispatch import MediaJobDispatcher
 from app.services.project_access import (
     bind_project_write_policy_resolver,
     resolve_project_access_by_id,
@@ -139,7 +145,6 @@ class LegacyFileUploadWorkflow:
         *,
         actor_id: uuid.UUID,
         task_id: uuid.UUID,
-        dispatcher: MediaJobDispatcher,
     ) -> UploadCompleteResult:
         try:
             target = await self.labeling_tasks.read_upload_target(task_id)
@@ -229,12 +234,60 @@ class LegacyFileUploadWorkflow:
             scope=LegacyFileUploadScope(actor_id, task.project_id, task.id)
         )
 
-    async def queue_thumbnail_backfill(
+    async def accept_thumbnail_backfill(
         self,
         *,
         actor_id: uuid.UUID,
         project_id: uuid.UUID,
-        dispatcher: MediaJobDispatcher,
-    ) -> str:
+        operation_id: uuid.UUID,
+    ) -> AcceptedImageWork:
         await self._manager_access(actor_id, project_id, lock=True)
-        return dispatcher.dispatch_task_thumbnail_backfill(project_id)
+        request = ScheduleImageMediaRequest(
+            operation_id=operation_id,
+            owner_kind=None,
+            owner_id=None,
+            spec=ImageBackfillSpec(
+                selection=ImageBackfillSelection(
+                    owner_kind="task",
+                    project_id=project_id,
+                    purpose="thumbnail",
+                    only_missing=True,
+                ),
+                policy=image_policy(),
+            ),
+        )
+        try:
+            async with image_gateway() as owner:
+                accepted = await owner.call("schedule_image_media", request)
+        except ImageFailure as exc:
+            status = {
+                "invalid_request": 422,
+                "permission_denied": 403,
+                "account_not_active": 401,
+                "invalid_account_role": 403,
+                "source_missing": 404,
+                "asset_missing": 404,
+                "owner_changed": 409,
+                "operation_conflict": 409,
+                "operation_busy": 409,
+                "source_busy": 409,
+                "source_changed": 409,
+                "resource_budget_exceeded": 413,
+                "invalid_response": 502,
+                "storage_unavailable": 503,
+            }.get(exc.code, 503)
+            raise TaskWorkflowError(status, {"reason": exc.code}) from exc
+        if (
+            not isinstance(accepted, AcceptedImageWork)
+            or accepted.operation_id != operation_id
+            or accepted.work.kind != "image_backfill"
+            or accepted.work.owner is not None
+            or not isinstance(accepted.work, ImageWorkReference)
+            or not isinstance(accepted.spec, ImageBackfillSpec)
+            or accepted.spec.selection.owner_kind != "task"
+            or accepted.spec.selection.project_id != project_id
+            or accepted.spec.selection.purpose != "thumbnail"
+            or accepted.spec.selection.accepted_before is None
+        ):
+            raise TaskWorkflowError(502, {"reason": "invalid_image_backfill_receipt"})
+        return accepted
