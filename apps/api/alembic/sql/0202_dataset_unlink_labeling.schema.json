@@ -1,0 +1,190 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:aap:contract:dataset-unlink-labeling:v1",
+  "title": "Dataset unlink Labeling capabilities v1",
+  "description": "Same-transaction Labeling capabilities for dataset unlink; functions never commit.",
+  "x-postgresql-functions": [
+    "aap_labeling_v1.dataset_task_references(uuid, uuid)",
+    "aap_labeling_v1.lock_dataset_unlink_scope(uuid, uuid)",
+    "aap_labeling_v1.guard_dataset_unlink(uuid, uuid)",
+    "aap_labeling_v1.preview_dataset_unlink(uuid, uuid)",
+    "aap_labeling_v1.delete_dataset_tasks(uuid, uuid)"
+  ],
+  "x-postgresql-dependencies": ["aap_assets_v1.dataset_item_references(uuid, uuid)"],
+  "oneOf": [
+    { "$ref": "#/$defs/taskReferencesCall" },
+    { "$ref": "#/$defs/guardCall" },
+    { "$ref": "#/$defs/previewCall" },
+    { "$ref": "#/$defs/deleteCall" }
+  ],
+  "$defs": {
+    "uuid": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "arguments": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["p_dataset_id", "p_project_id"],
+      "properties": {
+        "p_dataset_id": { "$ref": "#/$defs/uuid" },
+        "p_project_id": { "$ref": "#/$defs/uuid" }
+      }
+    },
+    "taskReference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["task_id"],
+      "properties": {
+        "task_id": { "$ref": "#/$defs/uuid" }
+      }
+    },
+    "taskReferences": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/taskReference" },
+      "uniqueItems": true
+    },
+    "taskReferencesCall": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["function", "arguments", "result"],
+      "properties": {
+        "function": {
+          "const": "aap_labeling_v1.dataset_task_references(uuid, uuid)"
+        },
+        "arguments": { "$ref": "#/$defs/arguments" },
+        "result": { "$ref": "#/$defs/taskReferences" }
+      }
+    },
+    "sourceRetentionSuccess": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "ok", "data"],
+      "properties": {
+        "schema": { "const": "aap-source-retention/v1" },
+        "ok": { "const": true },
+        "data": {
+          "type": "object",
+          "additionalProperties": false
+        }
+      }
+    },
+    "sourceRetentionFailure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "ok", "error"],
+      "properties": {
+        "schema": { "const": "aap-source-retention/v1" },
+        "ok": { "const": false },
+        "error": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["code"],
+          "properties": {
+            "code": {
+              "enum": [
+                "active_learning_reference",
+                "task_feedback_retained",
+                "annotation_reference_retained"
+              ]
+            }
+          }
+        }
+      }
+    },
+    "sourceRetentionResponse": {
+      "oneOf": [
+        { "$ref": "#/$defs/sourceRetentionSuccess" },
+        { "$ref": "#/$defs/sourceRetentionFailure" }
+      ]
+    },
+    "guardCall": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["function", "arguments", "result"],
+      "properties": {
+        "function": {
+          "const": "aap_labeling_v1.guard_dataset_unlink(uuid, uuid)"
+        },
+        "arguments": { "$ref": "#/$defs/arguments" },
+        "result": { "$ref": "#/$defs/sourceRetentionResponse" }
+      }
+    },
+    "previewData": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["will_delete_tasks", "will_delete_annotations", "will_delete_batches"],
+      "properties": {
+        "will_delete_tasks": { "type": "integer", "minimum": 0 },
+        "will_delete_annotations": { "type": "integer", "minimum": 0 },
+        "will_delete_batches": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "previewResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "ok", "data"],
+      "properties": {
+        "schema": { "const": "aap-dataset-unlink-preview/v1" },
+        "ok": { "const": true },
+        "data": { "$ref": "#/$defs/previewData" }
+      }
+    },
+    "previewCall": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["function", "arguments", "result"],
+      "properties": {
+        "function": {
+          "const": "aap_labeling_v1.preview_dataset_unlink(uuid, uuid)"
+        },
+        "arguments": { "$ref": "#/$defs/arguments" },
+        "result": { "$ref": "#/$defs/previewResponse" }
+      }
+    },
+    "deleteData": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "deleted_tasks",
+        "deleted_annotations",
+        "deleted_batches",
+        "deleted_batch_ids",
+        "soft"
+      ],
+      "properties": {
+        "deleted_tasks": { "type": "integer", "minimum": 0 },
+        "deleted_annotations": { "type": "integer", "minimum": 0 },
+        "deleted_batches": { "type": "integer", "minimum": 0 },
+        "deleted_batch_ids": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/uuid" },
+          "uniqueItems": true
+        },
+        "soft": { "const": false }
+      }
+    },
+    "deleteResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "ok", "data"],
+      "properties": {
+        "schema": { "const": "aap-dataset-task-unlink/v1" },
+        "ok": { "const": true },
+        "data": { "$ref": "#/$defs/deleteData" }
+      }
+    },
+    "deleteCall": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["function", "arguments", "result"],
+      "properties": {
+        "function": {
+          "const": "aap_labeling_v1.delete_dataset_tasks(uuid, uuid)"
+        },
+        "arguments": { "$ref": "#/$defs/arguments" },
+        "result": { "$ref": "#/$defs/deleteResponse" }
+      }
+    }
+  }
+}
