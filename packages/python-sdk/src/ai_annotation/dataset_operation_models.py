@@ -42,6 +42,18 @@ class DatasetImportFromConnectionResult(_DatasetOperationResponse):
     job_id: UUID
 
 
+class DatasetUploadInitResult(_DatasetOperationResponse):
+    item_id: UUID
+    upload_url: str
+    expires_in: int
+
+
+class DatasetUploadCompleteResult(_DatasetOperationResponse):
+    status: Literal["ok"]
+    item_id: UUID
+    linked_tasks: int = Field(ge=0)
+
+
 class DatasetBackfillDimensionsResult(_DatasetOperationResponse):
     processed: int
     failed: int

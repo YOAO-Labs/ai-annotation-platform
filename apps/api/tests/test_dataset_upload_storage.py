@@ -42,7 +42,13 @@ def test_missing_head_and_conditional_publication():
 def test_dimension_read_pins_etag_and_closes_response_body():
     image = BytesIO()
     Image.new("RGB", (20, 30)).save(image, format="PNG")
-    body = BytesIO(image.getvalue())
+
+    class ImageBody(BytesIO):
+        def read(self, size=-1):
+            assert size == 256 * 1024
+            return super().read(size)
+
+    body = ImageBody(image.getvalue())
     storage = StorageService()
     storage.client = MagicMock()
     storage.client.get_object.return_value = {"Body": body}
@@ -51,6 +57,20 @@ def test_dimension_read_pins_etag_and_closes_response_body():
     ) == (20, 30)
     assert storage.client.get_object.call_args.kwargs["IfMatch"] == '"digest"'
     assert body.closed
+
+
+@pytest.mark.parametrize("code", ["PreconditionFailed", "NoSuchKey", "AccessDenied"])
+def test_conditional_dimension_read_propagates_storage_failure(code):
+    storage = StorageService()
+    storage.client = MagicMock()
+    storage.client.get_object.side_effect = ClientError(
+        {"Error": {"Code": code}}, "GetObject"
+    )
+    with pytest.raises(ClientError):
+        storage.read_image_dimensions(
+            "source", bucket="datasets", if_match='"original"'
+        )
+    assert storage.read_image_dimensions("source", bucket="datasets") is None
 
 
 def test_cleanup_lease_cannot_expire_before_the_writer_hard_limit():

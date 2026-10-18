@@ -161,8 +161,11 @@ GRANT SELECT (id, dataset_id), UPDATE (id), DELETE
 GRANT SELECT, INSERT (
     id, dataset_id, file_name, file_path, file_type, file_size,
     content_hash, width, height, metadata
-), UPDATE (id), DELETE
+), UPDATE (id, file_size, content_hash, width, height), DELETE
     ON public.dataset_items TO :"assets_owner";
+GRANT SELECT (operation_id, actor_id, dataset_id, item_id, request, result, created_at),
+    INSERT (operation_id, actor_id, dataset_id, item_id, request, result)
+    ON public.dataset_legacy_upload_operations TO :"assets_owner";
 GRANT SELECT ON public.dataset_upload_intents TO :"assets_owner";
 GRANT INSERT (
     item_id, dataset_id, actor_id, file_name, file_type, content_type, staging_key
@@ -533,6 +536,12 @@ ALTER VIEW aap_workspace_v1.project_catalog_configs OWNER TO :"workspace_owner";
 REVOKE CREATE ON SCHEMA aap_workspace_v1 FROM :"workspace_owner";
 
 GRANT CREATE ON SCHEMA aap_assets_v1 TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1._legacy_upload_reply(jsonb, text) OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1.lock_legacy_dataset_upload(uuid, uuid, uuid, uuid)
+    OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1.complete_legacy_dataset_upload(
+    uuid, uuid, uuid, uuid, text, bigint, text, integer, integer
+) OWNER TO :"assets_owner";
 ALTER FUNCTION aap_assets_v1._association_read_failure(text)
     OWNER TO :"assets_owner";
 ALTER FUNCTION aap_assets_v1.list_dataset_projects(uuid, uuid)

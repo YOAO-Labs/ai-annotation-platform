@@ -5,9 +5,10 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "aap-assets-source"
 version = "0.1.0"
-description = "Public language-neutral contracts for Assets source operations"
+description = "Assets source contracts and independent SQL/S3 runtime"
 requires-python = ">=3.11"
 dependencies = [
+    "pydantic>=2.10.0",
     "aap-audit-contract",
     "aap-assets-cleanup",
 ]
@@ -31,9 +32,13 @@ test = [
 aap-audit-contract = { path = "../_shared/audit_contract", editable = true }
 aap-assets-cleanup = { path = "../assets-cleanup", editable = true }
 
+[tool.setuptools.package-data]
+aap_assets_source = ["protocol.schema.json"]
+
 [tool.setuptools.packages.find]
 where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
+asyncio_mode = "auto"

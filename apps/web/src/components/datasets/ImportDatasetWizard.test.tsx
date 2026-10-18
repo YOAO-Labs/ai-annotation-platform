@@ -74,6 +74,8 @@ vi.mock("@/components/ui/Toast", async () => {
 });
 
 import { ImportDatasetWizard } from "./ImportDatasetWizard";
+import { datasetsApi } from "@/api/datasets";
+import { runUploadQueue } from "@/utils/uploadQueue";
 
 function renderUI(props: Partial<React.ComponentProps<typeof ImportDatasetWizard>> = {}) {
   const defaults = {
@@ -101,6 +103,31 @@ describe("ImportDatasetWizard", () => {
     mockCreateDatasetReset.mockReset();
     mockImportFromConnectionMutateAsync.mockReset();
     mockPushToast.mockReset();
+  });
+
+  it("keeps separate phase keys when the queue worker repeats uncertain initialization", async () => {
+    const init = vi.mocked(datasetsApi.uploadInit);
+    const complete = vi.mocked(datasetsApi.uploadComplete);
+    init.mockClear().mockRejectedValueOnce(new Error("initialization response lost"));
+    complete.mockClear();
+    vi.mocked(runUploadQueue).mockImplementationOnce(async (tasks, map, options) => {
+      const task = tasks[0];
+      await expect(task.worker({ aborted: false }, () => {})).rejects.toThrow("response lost");
+      await task.worker({ aborted: false }, () => {});
+      map.get(task.id)!.status = "done";
+      options?.onUpdate?.();
+    });
+    renderUI({ datasetId: "existing-ds" });
+    pickFile();
+    fireEvent.click(screen.getByRole("button", { name: /开始上传/ }));
+    await waitFor(() => expect(complete).toHaveBeenCalledTimes(1));
+    const initKeys = init.mock.calls.map((call) => call[2]?.idempotencyKey);
+    const completeKey = complete.mock.calls[0][2]?.idempotencyKey;
+    expect(initKeys).toHaveLength(2);
+    expect(initKeys[0]).toMatch(/^[0-9a-f-]{36}$/);
+    expect(initKeys[1]).toBe(initKeys[0]);
+    expect(completeKey).toMatch(/^[0-9a-f-]{36}$/);
+    expect(completeKey).not.toBe(initKeys[0]);
   });
 
   it("初始渲染: step1 显示「选择来源」, 文件模式未选文件时「下一步」禁用", () => {

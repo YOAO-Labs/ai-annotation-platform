@@ -230,18 +230,26 @@ export function ImportDatasetWizard({ open, onClose, datasetId, datasetName, onU
     setStep(3);
     setRunning(true);
 
-    const tasks = files.map((file, i) => ({
-      id: `${i}`,
-      worker: async (_signal: { aborted: boolean }, onProgress: (pct: number) => void) => {
-        const init = await datasetsApi.uploadInit(dsId, {
-          file_name: file.name,
-          content_type: file.type || "application/octet-stream",
-        });
-        await putWithProgress(init.upload_url, file, onProgress);
-        await datasetsApi.uploadComplete(dsId, init.item_id);
-        return init.item_id;
-      },
-    }));
+    const tasks = files.map((file, i) => {
+      const initKey = crypto.randomUUID();
+      const completeKey = crypto.randomUUID();
+      return {
+        id: `${i}`,
+        worker: async (_signal: { aborted: boolean }, onProgress: (pct: number) => void) => {
+          const init = await datasetsApi.uploadInit(
+            dsId,
+            {
+              file_name: file.name,
+              content_type: file.type || "application/octet-stream",
+            },
+            { idempotencyKey: initKey },
+          );
+          await putWithProgress(init.upload_url, file, onProgress);
+          await datasetsApi.uploadComplete(dsId, init.item_id, { idempotencyKey: completeKey });
+          return init.item_id;
+        },
+      };
+    });
 
     await runUploadQueue(tasks, map, {
       concurrency: 3,

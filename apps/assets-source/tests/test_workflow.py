@@ -5,6 +5,7 @@ from uuid import uuid4
 import pytest
 
 from aap_assets_source.contract import (
+    SourceFailure,
     SourceDeletionRequest,
     UploadCompleteRequest,
     UploadInitRequest,
@@ -252,6 +253,24 @@ async def test_missing_staging_object_is_frozen_without_source_copy() -> None:
     assert result.result is None
     assert result.duplicate_of is None
     assert events == ["lock", "head_staging", "discard"]
+
+
+@pytest.mark.asyncio
+async def test_explicit_source_deletion_is_not_reported_as_missing_upload() -> None:
+    actor, dataset, item = uuid4(), uuid4(), uuid4()
+    events = []
+    workflow, uploads, *_ = _workflow(events)
+    uploads.intent = _intent(
+        actor,
+        dataset,
+        item,
+        state="discarded",
+        result=DatasetUploadDiscardedResult(reason="source_deleted"),
+    )
+    with pytest.raises(SourceFailure) as failure:
+        await workflow.complete_upload(_complete_request(actor, dataset, item))
+    assert failure.value.code == "upload_not_pending"
+    assert events == ["lock"]
 
 
 @pytest.mark.asyncio

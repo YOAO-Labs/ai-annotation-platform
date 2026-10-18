@@ -963,6 +963,16 @@ for _namespace, _methods, _note in [
     ),
     (
         "datasets",
+        "upload_init",
+        "Active account and datasets:write. Reserves a staged upload without creating an Item or Task. Reuse a saved UUID for uncertain pending initialization; a completed intent cannot issue another PUT URL. No automatic retry.",
+    ),
+    (
+        "datasets",
+        "upload_complete",
+        "Active account and datasets:write; modern uploads require the original actor and matching parent. Copies the frozen staging generation and commits Item, task append and receipt together. Save this phase UUID for uncertain legacy completion; missing/duplicate returns400/409 without deleting old sources. Successful media dispatch is asynchronous. No automatic retry.",
+    ),
+    (
+        "datasets",
         "import_from_connection",
         "Platform manager operation on the global dataset catalogue. Rechecks connector visibility, host guard and source path, freezes import budgets, then returns HTTP 202 job_id. Observe that AsyncJob explicitly; no idempotency key or automatic retry.",
     ),

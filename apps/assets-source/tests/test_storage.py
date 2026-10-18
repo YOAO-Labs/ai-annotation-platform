@@ -156,6 +156,23 @@ async def test_forbidden_range_read_is_storage_failure_not_missing() -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "code,status", [("PreconditionFailed", 412), ("NoSuchKey", 404)]
+)
+async def test_conditioned_image_read_rejects_replaced_or_removed_source(code, status):
+    s3 = _S3()
+    s3.get_error = _client_error(code, status)
+    storage = SourceStorage(_config(), internal_client=s3, public_signer=_Signer())
+    for read in (
+        storage.read_staging_image_dimensions,
+        storage.read_legacy_image_dimensions,
+    ):
+        with pytest.raises(SourceFailure) as error:
+            await read("source/key", if_match='"original-etag"')
+        assert error.value.code == "source_changed"
+
+
+@pytest.mark.asyncio
 async def test_copy_precondition_failure_is_source_changed() -> None:
     s3 = _S3()
     s3.copy_error = _client_error("PreconditionFailed", 412)

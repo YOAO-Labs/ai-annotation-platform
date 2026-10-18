@@ -464,3 +464,34 @@ last_reviewed: 2026-10-18
 | 变量 | 默认值 | 说明 |
 |---|---|---|
 | `AAP_WORKTREE_MODE` | `—` | 由 pnpm dev:worktree 向子进程注入 dev/test/e2e；不要手工配置。 pytest / Playwright 据此拒绝在 dev 模式运行破坏性测试；测试连接、队列和存储也由入口覆盖。 |
+
+## 独立 Assets 来源服务（可选，不进入默认 Compose）
+
+| 变量 | 默认值 | 说明 |
+|---|---|---|
+| `ASSETS_SOURCE_URL` | `—` | 网关：空 URL 保持本地模式；显式远程失败不会回退。 |
+| `ASSETS_SOURCE_TOKEN` | `—` | — |
+| `ASSETS_SOURCE_TIMEOUT_SECONDS` | `300` | — |
+| `ASSETS_SOURCE_DATABASE_URL` | `—` | 独立进程：显式专用 DSN/token/S3 凭据，不能使用日常 API 宽凭据。 source LOGIN 只执行九项来源函数，无业务关系/其他 owner schema 权限。 |
+| `ASSETS_SOURCE_DATABASE_URL_FILE` | `—` | — |
+| `ASSETS_SOURCE_TOKEN_FILE` | `—` | — |
+| `ASSETS_SOURCE_S3_ACCESS_KEY` | `—` | — |
+| `ASSETS_SOURCE_S3_ACCESS_KEY_FILE` | `—` | — |
+| `ASSETS_SOURCE_S3_SECRET_KEY` | `—` | — |
+| `ASSETS_SOURCE_S3_SECRET_KEY_FILE` | `—` | — |
+| `ASSETS_SOURCE_S3_ENDPOINT` | `—` | I/O origin 供服务访问；public origin 供浏览器签名访问，签名后不替换 Host。 |
+| `ASSETS_SOURCE_S3_PUBLIC_ENDPOINT` | `—` | — |
+| `ASSETS_SOURCE_S3_REGION` | `us-east-1` | — |
+| `ASSETS_SOURCE_DATASETS_BUCKET` | `—` | — |
+| `ASSETS_SOURCE_IMPORT_BUCKET` | `—` | — |
+| `ASSETS_SOURCE_MEDIA_CACHE_BUCKET` | `—` | — |
+| `ASSETS_SOURCE_HOST` | `0.0.0.0` | — |
+| `ASSETS_SOURCE_PORT` | `8767` | — |
+| `ASSETS_SOURCE_MAX_REQUEST_BYTES` | `1048576` | — |
+| `ASSETS_SOURCE_MAX_RESPONSE_BYTES` | `16777216` | — |
+| `ASSETS_SOURCE_POOL_MIN_SIZE` | `1` | — |
+| `ASSETS_SOURCE_POOL_MAX_SIZE` | `8` | — |
+| `ASSETS_SOURCE_POOL_TIMEOUT_SECONDS` | `2` | — |
+| `ASSETS_SOURCE_SQL_TIMEOUT_SECONDS` | `5` | — |
+| `ASSETS_SOURCE_S3_CONNECT_TIMEOUT_SECONDS` | `2` | — |
+| `ASSETS_SOURCE_S3_READ_TIMEOUT_SECONDS` | `10` | — |

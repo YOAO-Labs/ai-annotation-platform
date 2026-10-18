@@ -1,0 +1,66 @@
+services:
+  assets-source:
+    build:
+      context: .
+      dockerfile: apps/assets-source/Dockerfile
+    environment:
+      ASSETS_SOURCE_DATABASE_URL_FILE: /run/secrets/assets_source_database_url
+      ASSETS_SOURCE_TOKEN_FILE: /run/secrets/assets_source_token
+      ASSETS_SOURCE_S3_ACCESS_KEY_FILE: /run/secrets/assets_source_s3_access_key
+      ASSETS_SOURCE_S3_SECRET_KEY_FILE: /run/secrets/assets_source_s3_secret_key
+      ASSETS_SOURCE_S3_ENDPOINT: ${ASSETS_SOURCE_S3_ENDPOINT:?Set the service-reachable S3 origin}
+      ASSETS_SOURCE_S3_PUBLIC_ENDPOINT: ${ASSETS_SOURCE_S3_PUBLIC_ENDPOINT:?Set the browser-reachable S3 origin}
+      ASSETS_SOURCE_S3_REGION: ${ASSETS_SOURCE_S3_REGION:-us-east-1}
+      ASSETS_SOURCE_DATASETS_BUCKET: ${ASSETS_SOURCE_DATASETS_BUCKET:?Set the datasets bucket}
+      ASSETS_SOURCE_IMPORT_BUCKET: ${ASSETS_SOURCE_IMPORT_BUCKET:?Set the import staging bucket}
+      ASSETS_SOURCE_MEDIA_CACHE_BUCKET: ${ASSETS_SOURCE_MEDIA_CACHE_BUCKET:?Set the media-cache bucket}
+      ASSETS_SOURCE_HOST: 0.0.0.0
+      ASSETS_SOURCE_PORT: 8767
+      ASSETS_SOURCE_MAX_REQUEST_BYTES: ${ASSETS_SOURCE_MAX_REQUEST_BYTES:-1048576}
+      ASSETS_SOURCE_MAX_RESPONSE_BYTES: ${ASSETS_SOURCE_MAX_RESPONSE_BYTES:-16777216}
+      ASSETS_SOURCE_POOL_MIN_SIZE: ${ASSETS_SOURCE_POOL_MIN_SIZE:-1}
+      ASSETS_SOURCE_POOL_MAX_SIZE: ${ASSETS_SOURCE_POOL_MAX_SIZE:-8}
+      ASSETS_SOURCE_POOL_TIMEOUT_SECONDS: ${ASSETS_SOURCE_POOL_TIMEOUT_SECONDS:-2}
+      ASSETS_SOURCE_SQL_TIMEOUT_SECONDS: ${ASSETS_SOURCE_SQL_TIMEOUT_SECONDS:-5}
+      ASSETS_SOURCE_S3_CONNECT_TIMEOUT_SECONDS: ${ASSETS_SOURCE_S3_CONNECT_TIMEOUT_SECONDS:-2}
+      ASSETS_SOURCE_S3_READ_TIMEOUT_SECONDS: ${ASSETS_SOURCE_S3_READ_TIMEOUT_SECONDS:-10}
+    secrets:
+      - assets_source_database_url
+      - assets_source_token
+      - assets_source_s3_access_key
+      - assets_source_s3_secret_key
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    expose:
+      - "8767"
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    cpus: 0.5
+    mem_limit: 256m
+    restart: unless-stopped
+    stop_grace_period: 30s
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8767/ready', timeout=2)"
+      interval: 30s
+      timeout: 3s
+      start_period: 30s
+      retries: 3
+
+secrets:
+  assets_source_database_url:
+    file: ${ASSETS_SOURCE_DATABASE_URL_FILE:-./.secrets/assets-source-database-url}
+  assets_source_token:
+    file: ${ASSETS_SOURCE_TOKEN_FILE:-./.secrets/assets-source-token}
+  assets_source_s3_access_key:
+    file: ${ASSETS_SOURCE_S3_ACCESS_KEY_FILE:-./.secrets/assets-source-s3-access-key}
+  assets_source_s3_secret_key:
+    file: ${ASSETS_SOURCE_S3_SECRET_KEY_FILE:-./.secrets/assets-source-s3-secret-key}

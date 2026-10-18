@@ -468,10 +468,74 @@ def test_upload_files_three_step_flow(client, respx_mock, tmp_path):
     # 预签名 PUT 不应携带平台 auth
     assert "Authorization" not in put_req.headers
     assert complete.called
+    phase_keys = [
+        init.calls.last.request.headers["Idempotency-Key"],
+        complete.calls.last.request.headers["Idempotency-Key"],
+    ]
+    assert all(str(UUID(key)) == key for key in phase_keys)
+    assert phase_keys[0] != phase_keys[1]
     assert isinstance(items[0], UploadedItem)
     assert str(items[0].item_id) == item_id
     assert items[0].file_name == "img.jpg"
     assert progress == [(1, 1, "img.jpg")]
+
+
+@pytest.mark.parametrize("phase", ["init", "complete"])
+def test_upload_phases_reuse_saved_keys_after_uncertain_response(
+    client, respx_mock, phase
+):
+    from ai_annotation import DatasetUploadInitResult, DatasetUploadCompleteResult
+
+    key, item_id = str(uuid4()), str(uuid4())
+    if phase == "init":
+        url = f"{API}/datasets/{DS_ID}/items/upload-init"
+        response = {
+            "item_id": item_id,
+            "upload_url": "https://objects.example/source?signature=opaque",
+            "expires_in": 900,
+        }
+
+        def call():
+            return client.datasets.upload_init(
+                DS_ID, "image.jpg", "image/jpeg", idempotency_key=key
+            )
+
+        expected_type = DatasetUploadInitResult
+    else:
+        url = f"{API}/datasets/{DS_ID}/items/upload-complete/{item_id}"
+        response = {"status": "ok", "item_id": item_id, "linked_tasks": 1}
+
+        def call():
+            return client.datasets.upload_complete(DS_ID, item_id, idempotency_key=key)
+
+        expected_type = DatasetUploadCompleteResult
+    route = respx_mock.post(url).mock(
+        side_effect=[
+            httpx.ReadTimeout("committed response lost"),
+            httpx.Response(200, json=response),
+        ]
+    )
+    with pytest.raises(httpx.ReadTimeout):
+        call()
+    assert isinstance(call(), expected_type)
+    assert [record.request.headers["Idempotency-Key"] for record in route.calls] == [
+        key,
+        key,
+    ]
+    assert route.calls[0].request.content == route.calls[1].request.content
+
+
+@pytest.mark.parametrize("phase", ["init", "complete"])
+def test_upload_phase_invalid_key_sends_no_request(client, respx_mock, phase):
+    route = respx_mock.post(url__regex=r".*/items/upload-.*").mock(
+        return_value=httpx.Response(200, json={})
+    )
+    with pytest.raises(ValueError, match="idempotency_key must be a UUID"):
+        if phase == "init":
+            client.datasets.upload_init(DS_ID, "image.jpg", idempotency_key="invalid")
+        else:
+            client.datasets.upload_complete(DS_ID, uuid4(), idempotency_key="invalid")
+    assert route.call_count == 0
 
 
 def test_upload_zip(client, respx_mock, tmp_path):

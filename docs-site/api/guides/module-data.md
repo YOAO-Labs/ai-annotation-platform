@@ -10,7 +10,7 @@ last_reviewed: 2026-10-18
 这些接口供可信后端进程使用，不是终端用户 REST API。调用方仍负责身份认证和用例准入；
 初始操作接受时还会在数据库内校验当前项目管理权。持有函数执行权限不等于获得任意用户的项目管理权限。
 
-实现与冻结合同位于 `apps/api/alembic/sql/0190*` 至 `0212*`。接口通过 PostgreSQL
+实现与冻结合同位于 `apps/api/alembic/sql/0190*` 至 `0213*`。接口通过 PostgreSQL
 协议调用，使用调用方同一连接的外层事务，不接收 Python Session、ORM 或任意 SQL。
 安装、独立角色及本地验收命令见仓库 `DEV.md`；数据所有权见
 [ADR-0092](/dev/adr/0092-transactional-module-data-capabilities)。
@@ -279,3 +279,11 @@ ListBucket/DeleteObject，不继承 API、Redis 或 Celery 配置。配置、独
 `list_dataset_projects(actor,dataset)` 和 `list_project_datasets(actor,project)` 返回冻结 `aap-assets-associations/v1`，完整结构见 `0212_asset_association_reads.schema.json`。两者均为 STABLE 读取，按最外层 SELECT 的同一个 MVCC 快照组合身份、关联、配置与计数，不调用写入围栏或持有行锁。快照开始后的撤权和解绑不改变已开始读取的结果，下一条 READ COMMITTED 语句读取新状态。
 
 Identity 只提供 actor UUID、平台角色和活跃状态；Workspace 提供原始项目配置及当前可见性；Labeling 提供持久项目计数和按直接来源分组的任务数；Assets 持有目录、条目与关联。Owner 间只授予版本化投影/函数权限，不授予其他 owner 私有表。目录 LOGIN 仅执行七个公开 Assets 操作，不能读取这些投影。
+
+## 旧上传条目的完成与回执
+
+已有 DatasetItem 没有上传 intent 时，不能从当前账号补造历史上传者。Assets 的 `lock_legacy_dataset_upload(operation,actor,dataset,item)` 在当前活跃身份、Dataset 与 Item 围栏内返回最小来源快照；`complete_legacy_dataset_upload(operation,actor,dataset,item,expected_path,size,hash,width,height)` 校验同一来源后更新元数据、调用 Labeling 追加任务，并保存 Assets 自己的完成回执。
+
+调用方在同一个外层事务中持有锁，期间只读取既有来源的 HEAD/有限图像头，不复制或删除旧字节。文件缺失或内容重复不清除旧行、对象或人工证据。成功时元数据、任务、计数、Labeling 回执和 Assets 回执共同提交；最终提交失败则共同回滚。Labeling 的可复用追加 ID 不能单独证明 Assets 已完成上传。
+
+`dataset_legacy_upload_operations` 没有 live Dataset/Item/账号外键，也不自动过期。重放仍检查当前活跃身份、父子存在关系和当前来源路径/类型；不同规范请求复用操作 ID 返回 `operation_conflict`，来源替换返回 `source_changed`，不会按历史回执改回当前来源。状态为 pending/completed/duplicate，完整字段及错误见 `0213_assets_source_runtime.schema.json`。独立来源进程的专用 LOGIN 仅执行五项现代上传、两项来源删除和两项旧上传操作，不读取业务关系。

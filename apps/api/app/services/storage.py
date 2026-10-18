@@ -471,7 +471,7 @@ class StorageService:
         *,
         if_match: str | None = None,
     ) -> tuple[int, int] | None:
-        """读取对象前若干字节交给 Pillow 解析尺寸。无法解析返回 None；不抛。
+        """Read a bounded image header, preserving conditional source failures.
 
         Pillow 大多格式（JPEG / PNG / WEBP / GIF）只需读到文件头即可拿到 size，
         故只 Range-fetch 头部 head_bytes（默认 256KB）来避开整张大图的下载与内存。
@@ -489,10 +489,12 @@ class StorageService:
                 Bucket=b, Key=key, Range=f"bytes=0-{head_bytes - 1}", **condition
             )
             try:
-                data = resp["Body"].read()
+                data = resp["Body"].read(head_bytes)
             finally:
                 resp["Body"].close()
         except ClientError as exc:
+            if if_match is not None:
+                raise
             logger.warning("读取对象 head 失败 key=%s err=%s", key, exc)
             return None
 

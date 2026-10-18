@@ -34,6 +34,8 @@ from ai_annotation.dataset_operation_models import (
     DatasetImportFromConnectionResult,
     DatasetScanItemsResult,
     DatasetSniffAxisResult,
+    DatasetUploadCompleteResult,
+    DatasetUploadInitResult,
 )
 from ai_annotation.export_models import ExportRequestBody, LidarExportPreflightRequest
 from ai_annotation.project_operation_models import (
@@ -561,6 +563,38 @@ class Datasets:
         resp = self._http.request("GET", f"/datasets/{dataset_id}/projects")
         return [Project.model_validate(x) for x in resp.json()]
 
+    def upload_init(
+        self,
+        dataset_id: IdLike,
+        file_name: str,
+        content_type: str = "application/octet-stream",
+        *,
+        idempotency_key: IdLike | None = None,
+    ) -> DatasetUploadInitResult:
+        """Reserve an upload; reuse a saved UUID while initialization is uncertain."""
+        reply = self._http.request(
+            "POST",
+            f"/datasets/{dataset_id}/items/upload-init",
+            json={"file_name": file_name, "content_type": content_type},
+            headers=_dataset_idempotency_header(idempotency_key),
+        )
+        return DatasetUploadInitResult.model_validate(reply.json())
+
+    def upload_complete(
+        self,
+        dataset_id: IdLike,
+        item_id: IdLike,
+        *,
+        idempotency_key: IdLike | None = None,
+    ) -> DatasetUploadCompleteResult:
+        """Complete publication; reuse the phase UUID after an uncertain response."""
+        reply = self._http.request(
+            "POST",
+            f"/datasets/{dataset_id}/items/upload-complete/{item_id}",
+            headers=_dataset_idempotency_header(idempotency_key),
+        )
+        return DatasetUploadCompleteResult.model_validate(reply.json())
+
     def upload_files(
         self,
         dataset_id: IdLike,
@@ -577,17 +611,10 @@ class Datasets:
             content_type = (
                 mimetypes.guess_type(path.name)[0] or "application/octet-stream"
             )
-            init = self._http.request(
-                "POST",
-                f"/datasets/{dataset_id}/items/upload-init",
-                json={"file_name": path.name, "content_type": content_type},
-            ).json()
-            self._http.put_presigned(init["upload_url"], path, content_type)
-            done = self._http.request(
-                "POST",
-                f"/datasets/{dataset_id}/items/upload-complete/{init['item_id']}",
-            ).json()
-            items.append(UploadedItem(file_name=path.name, **done))
+            init = self.upload_init(dataset_id, path.name, content_type)
+            self._http.put_presigned(init.upload_url, path, content_type)
+            done = self.upload_complete(dataset_id, init.item_id)
+            items.append(UploadedItem(file_name=path.name, **done.model_dump()))
             if on_progress is not None:
                 on_progress(i + 1, len(files), path.name)
         return items

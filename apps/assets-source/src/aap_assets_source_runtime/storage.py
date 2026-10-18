@@ -147,9 +147,8 @@ class SourceStorage:
                 body.close()
         except ClientError as exc:
             code = exc.response.get("Error", {}).get("Code")
-            status = exc.response.get("ResponseMetadata", {}).get("HTTPStatusCode")
-            if code in _MISSING_CODES and status == 404:
-                return None
+            if code in _PRECONDITION_CODES or code in _MISSING_CODES:
+                raise SourceFailure("source_changed") from None
             logger.warning("Image header read failed (%s)", type(exc).__name__)
             raise SourceFailure("storage_unavailable") from None
         except BotoCoreError as exc:
@@ -189,7 +188,7 @@ class SourceStorage:
             )
         except ClientError as exc:
             code = exc.response.get("Error", {}).get("Code")
-            if code in _PRECONDITION_CODES:
+            if code in _PRECONDITION_CODES or code in _MISSING_CODES:
                 raise SourceFailure("source_changed") from None
             logger.warning("Dataset source publication failed (%s)", type(exc).__name__)
             raise SourceFailure("storage_unavailable") from None

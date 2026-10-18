@@ -1708,3 +1708,12 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
 - 本轮全量隔离验收 660 项通过、零跳过；真实独立目录容器、SQL 最小角色、API scope/默认值、服务中断/重启、本地远程切换和语句快照并发均通过。冻结 SQL 独立安装/外层回滚与完整迁移四阶段验证通过，临时 PostgreSQL、Redis、九个桶、两组 S3 身份、容器和镜像均按归属清理。早先迁移/夹具/浮点不一致结果保留，以本次完整结果替换，不重复计数。
 - 纯共享/目录包 51 项、SDK 73 项、架构 293 项通过；架构另有 119 个不适用的冷加载参数跳过。固定 Ruff、锁文件、TypeScript、OpenAPI/SDK 目录生成、文档构建和 API 镜像冷导入 119 表通过。证据 `.worktree/assets-associations-verification.json` 及同前缀 JSON/JUnit/log。
 - 已本地合入主 checkout，日常数据库 0211→0212；无测试账号或目录回执写入。常驻 LaunchAgent 经核验后暂停、同步依赖和迁移，再使用原配置恢复。公开 OpenAPI 与当前快照一致（485 paths、873 schemas）；源码内容不变的热重载约 8.762 秒恢复。DB/Redis/MinIO 均 200，日常 Celery 未启动，`/health` 与 `/health/celery` 保持既有 503。证据 `.worktree/assets-associations-main-runtime.json`。未 push、发布或运行远程 CI。
+
+## Independent Assets source control runtime
+
+- 单文件 upload-init、upload-complete 及 Dataset/Item 删除四个真实公开入口已迁到独立 `apps/assets-source` SQL/S3 运行工件。公开 API 保留认证、scope、原响应和提交后的媒体派发；默认本地模式消费同一公开工作流和原生命令，选定远程后不自动回退。纯源码合同、Audit 上下文包、冻结 JSON Schema、专用九函数 LOGIN、S3 Get/Put 最小前缀、独立镜像和可选 Compose 均已提供。
+- 0213 为无 intent 的旧条目增加来源围栏、Assets 终态回执及原子完成；不推导历史上传者，不补造 intent。元数据、Labeling Task/计数及两侧回执共同提交/回滚。重放检查当前账号、父子存在与来源路径/类型；不同规范请求复用 UUID 拒绝。当前台账 120 张 ORM 表，Assets 18 张，原始字节与引用保护规则保留。
+- SDK/Web 保留不同上传阶段的 UUID；新增 SDK 显式阶段调用，便利上传沿用三步流程。读取后来源改变/删除返回 source_changed，权限/网络错误不冒充缺失；明确撤销的上传保持 upload_not_pending，不能按缺失继续。旧私有上传编排与两个私有合同模块已删除，实际消费者使用公开包。
+- 全量与最后定向结果按用例替换去重后覆盖 693 个数据库/合同/实际消费者用例，零有效业务跳过；定向运行不是额外累计用例。独立进程真实上传/删除、SQL/S3 最小权限、响应丢失、当前权限、原始字节保留、本地远程切换及停服重启通过。复制后、SQL 完成前强制终止进程，重试只登记一份 Item/Task，使用新的 publication 路径并保留未登记旧拷贝。
+- 共享/来源包 71 项、SDK 80 项、Web 27 项通过；架构 287 项通过，另 117 个不适用冷加载参数跳过。迁移四阶段及冻结 SQL 独立安装/回滚通过，四个受限 LOGIN、三组 S3 身份及隔离 PostgreSQL/Redis/桶/容器已清理。锁文件、Ruff、TypeScript、文档、wheel 和 API 镜像冷导入 120 表通过。证据归档使用 assets-source-controls 前缀，保留早先来源删除切片记录。
+- 全模块目标仍进行中：其他导入/扫描/连接器、媒体派生与完整 Blob、身份/成员生命周期、各模块完整操作/凭据/运行工件尚未完成。API 仍负责提交后媒体派发，共享 PostgreSQL 与迁移期宽权限保留；未登记来源拷贝目前不自动回收。Go 保持隔离实验，无 push、发布、远程 CI 或生产容量声明。

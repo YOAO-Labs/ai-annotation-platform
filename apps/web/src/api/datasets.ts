@@ -125,15 +125,22 @@ export const datasetsApi = {
     return apiClient.get<DatasetItemListResponse>(`/datasets/${id}/items${qs ? `?${qs}` : ""}`);
   },
 
-  uploadInit: (id: string, payload: { file_name: string; content_type?: string }) =>
+  uploadInit: (
+    id: string,
+    payload: { file_name: string; content_type?: string },
+    options?: { idempotencyKey?: string },
+  ) =>
     apiClient.post<{ item_id: string; upload_url: string; expires_in: number }>(
       `/datasets/${id}/items/upload-init`,
       payload,
+      { headers: { "Idempotency-Key": options?.idempotencyKey ?? crypto.randomUUID() } },
     ),
 
-  uploadComplete: (id: string, itemId: string) =>
+  uploadComplete: (id: string, itemId: string, options?: { idempotencyKey?: string }) =>
     apiClient.post<{ status: string; item_id: string; linked_tasks: number }>(
       `/datasets/${id}/items/upload-complete/${itemId}`,
+      undefined,
+      { headers: { "Idempotency-Key": options?.idempotencyKey ?? crypto.randomUUID() } },
     ),
 
   /**

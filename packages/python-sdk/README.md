@@ -280,3 +280,5 @@ pytest
 新增 `comments`、`annotation_history`、`bug_reports`、`mask_formats`、`mask_qc`、`point_cloud_quality`。讨论与历史沿用实际任务权限，格式导入／修复保留精确回执和摘要，点云评估晋升校验基线版本。完整工作流见 `docs-site/dev/sdk/annotation-quality.md`。
 
 SDK 覆盖全部 558 项稳定公开 REST（含运维），十项执行器私有操作排除，另提供六条公开 WebSocket。任务、租约、相机／轨迹和几何提交见 [任务工作流](../../docs-site/dev/sdk/task-workflows.md)；可选 `streams` extra 与有界 NDJSON 监听见 [公开事件流](../../docs-site/dev/sdk/streams.md)。
+
+上传需要自行处理响应中断时，可使用 `client.datasets.upload_init(dataset_id, file_name, content_type, idempotency_key=init_key)` 与 `client.datasets.upload_complete(dataset_id, item_id, idempotency_key=complete_key)`。两个阶段分别保存自己的 UUID，完成前复用初始化键、完成重试复用原条目与完成键；SDK 不自动重试这些写入。`upload_files()` 继续提供初始化、裸签名 PUT、完成的便利流程，并为每个阶段生成 UUID。

@@ -969,3 +969,32 @@ nuScenes mini 到 `~/.cache/ai-annotation-platform/nuscenes-mini`（约 4 GB，�
 详见 [CHANGELOG.md](CHANGELOG.md) 顶部的 roadmap 与 [docs/plans/](docs/plans/) 下的具体计划。
 
 自动训练策略默认关闭。部署迁移后刷新 default/export worker 与 beat，确认注册 `app.workers.learning_policy.check_policies`；beat 每分钟分批检查策略，独立训练执行器仍按固定 GPU 领取。负责人明确保存门槛、检查间隔和冷却时间后才启用；没有 beat 的工作树环境可通过「立即检查与同步」验收相同路径。关闭策略不要求训练目录仍在线，成功训练不会自动发布。
+
+## 独立 Assets 来源服务
+
+`apps/assets-source` 执行单文件上传初始化、条件发布完成及 Dataset/Item 删除。公开 API 保留认证、`datasets:write` 和提交后的媒体派发；来源服务不连接 Redis/Celery。协议与重放见[来源控制](docs-site/api/guides/assets-source.md)。
+
+先迁移至 0213、完成 module-data owner 授权，再为独立 `asset_source_client` LOGIN 应用：
+
+```bash
+psql -v expected_database=annotation_test -v migration_role=owner \
+  -v assets_owner=assets_code -v asset_source_role=asset_source_client \
+  -f infra/docker/assets-source-grants.sql
+```
+
+数据库名和连接参数应指向明确选择的环境。该角色只能执行九项来源函数，不读业务关系、序列或其他 owner schema，不授予角色成员资格。不要把日常宽权限 API 账号用于此服务。
+
+服务显式配置专用 DSN、token、S3 access/secret；可用 `.env.example` 的 `_FILE` 变量。secret 必须能被用户 10003 读取。S3 仅授予 import 的 `dataset-uploads/*` Get/Put、datasets 历史来源 Get 和 `dataset-sources/*` Put，不能授予 Delete、List 或桶管理；cache 桶只用于 SQL outbox。内部 I/O endpoint 与浏览器签名 endpoint 分开，均从服务配置取得。
+
+准备固定桶与 origin 后显式运行独立项目：
+
+```bash
+docker compose -p aap-assets-source-dev -f docker-compose.assets-source.yml up -d --build
+docker compose -p aap-assets-source-dev -f docker-compose.assets-source.yml exec assets-source python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8767/ready', timeout=2)"
+```
+
+该项目不进入默认 Compose，默认只 expose 内部 8767。宿主联调可使用 `uv run --project apps/assets-source --extra server python -m aap_assets_source_runtime`，传入专用环境，再将网关指向实际可达地址。网关 `ASSETS_SOURCE_URL` 留空为本地模式，设置后还需同一 token；刷新 API 生效。默认网关超时 300 秒，上限 3600 秒；服务默认池 1..8、取得连接 2 秒、SQL 5 秒、S3 连接/读取 2/10 秒、请求/响应 1/16 MiB。就绪检查验证 SQL 身份，实际对象权限由业务调用及本地验收验证。
+
+复制后退出或 SQL 回滚可能留下未登记来源拷贝；目前保留这些字节，尚无自动回收。重试保持原 Item/操作 UUID，并使用新 publication 代次，不能通过删除原始文件或旧条目恢复。默认派生媒体派发仍由 API 在发布提交后执行，发布结果不代表媒体已完成。
+
+回退时可先清空网关 URL、刷新 API 并保留 SQL/回执，再停止同一 `-p`/`-f` 独立项目。回退迁移须先停止写入并处理未确认请求，删除回执会失去重放依据。完整 Assets 的导入、扫描、媒体与 Blob 边界仍在推进；此服务不提供全模块或生产容量资格。

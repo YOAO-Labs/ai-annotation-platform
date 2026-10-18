@@ -146,6 +146,8 @@ class UploadWorkflow:
         if intent.state == "discarded":
             if not isinstance(intent.result, DatasetUploadDiscardedResult):
                 raise SourceFailure("invalid_response")
+            if intent.result.duplicate_of is None and intent.result.reason != "missing":
+                raise SourceFailure("upload_not_pending")
             return self._outcome(
                 request,
                 intent.file_type,
@@ -202,8 +204,7 @@ class UploadWorkflow:
                 )
                 if dimensions is not None:
                     width, height = dimensions
-            # Publication is deliberately not compensated if the SQL reply is
-            # uncertain. A retry is fenced by the same frozen publication path.
+            # shortcut: Retain uncertain copies until durable publication evidence can fence reclamation.
             await self._storage.publish_dataset_upload(
                 intent.staging_key, intent.file_path, etag=etag
             )

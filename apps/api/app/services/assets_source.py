@@ -187,7 +187,7 @@ class _LocalStoragePort:
                 content_type,
                 bucket=self._storage.import_bucket,
             )
-        except (BotoCoreError, OSError) as exc:
+        except (ClientError, BotoCoreError, OSError) as exc:
             raise SourceFailure("storage_unavailable") from exc
 
     async def verify_staging_upload(self, key: str) -> dict | None:
@@ -199,28 +199,34 @@ class _LocalStoragePort:
     async def _head(self, key: str, bucket: str) -> dict | None:
         try:
             return await asyncio.to_thread(self._storage.verify_upload, key, bucket)
-        except (BotoCoreError, OSError) as exc:
+        except (ClientError, BotoCoreError, OSError) as exc:
             raise SourceFailure("storage_unavailable") from exc
 
     async def read_staging_image_dimensions(
         self, key: str, *, if_match: str
     ) -> tuple[int, int] | None:
-        return await asyncio.to_thread(
-            self._storage.read_image_dimensions,
-            key,
-            bucket=self._storage.import_bucket,
-            if_match=if_match,
-        )
+        return await self._dimensions(key, self._storage.import_bucket, if_match)
 
     async def read_legacy_image_dimensions(
         self, key: str, *, if_match: str
     ) -> tuple[int, int] | None:
-        return await asyncio.to_thread(
-            self._storage.read_image_dimensions,
-            key,
-            bucket=self._storage.datasets_bucket,
-            if_match=if_match,
-        )
+        return await self._dimensions(key, self._storage.datasets_bucket, if_match)
+
+    async def _dimensions(self, key: str, bucket: str, if_match: str):
+        try:
+            return await asyncio.to_thread(
+                self._storage.read_image_dimensions,
+                key,
+                bucket=bucket,
+                if_match=if_match,
+            )
+        except ClientError as exc:
+            code = exc.response.get("Error", {}).get("Code")
+            if code in {"412", "PreconditionFailed", "404", "NoSuchKey", "NotFound"}:
+                raise SourceFailure("source_changed") from exc
+            raise SourceFailure("storage_unavailable") from exc
+        except (BotoCoreError, OSError) as exc:
+            raise SourceFailure("storage_unavailable") from exc
 
     async def publish_dataset_upload(
         self, staging_key: str, final_key: str, *, etag: str
@@ -236,6 +242,9 @@ class _LocalStoragePort:
             if exc.response.get("Error", {}).get("Code") in {
                 "412",
                 "PreconditionFailed",
+                "404",
+                "NoSuchKey",
+                "NotFound",
             }:
                 raise SourceFailure("source_changed") from exc
             raise SourceFailure("storage_unavailable") from exc

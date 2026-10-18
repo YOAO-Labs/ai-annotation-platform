@@ -174,6 +174,8 @@ class DatasetUploadDiscardedResult(_Value):
             "reason" in self.model_fields_set
         ):
             raise ValueError("discarded result must contain exactly one disposition")
+        if self.duplicate_of is None and self.reason is None:
+            raise ValueError("discarded result disposition cannot be null")
         return self
 
 

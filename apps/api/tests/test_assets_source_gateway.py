@@ -9,6 +9,7 @@ from fastapi import HTTPException
 from starlette.responses import Response
 
 from aap_assets_source.contract import (
+    SourceFailure,
     SourceDeletionRequest,
     UploadInitRequest,
     UploadInitResult,
@@ -27,6 +28,7 @@ from app.services.assets_source import (
     AssetsSourceGateway,
     AssetsSourceGatewayError,
     _LegacyUploadData,
+    _LocalStoragePort,
 )
 
 pytestmark = pytest.mark.asyncio
@@ -37,6 +39,33 @@ ITEM = UUID("30000000-0000-4000-8000-000000000003")
 OPERATION = UUID("40000000-0000-4000-8000-000000000004")
 OTHER_ITEM = UUID("50000000-0000-4000-8000-000000000005")
 TOKEN = "source-test-token-" + ("x" * 32)
+
+
+@pytest.mark.parametrize(
+    "code,expected",
+    [
+        ("PreconditionFailed", "source_changed"),
+        ("NoSuchKey", "source_changed"),
+        ("AccessDenied", "storage_unavailable"),
+    ],
+)
+async def test_local_conditional_dimensions_fail_closed_like_independent_storage(
+    code, expected
+):
+    from botocore.exceptions import ClientError
+    from unittest.mock import Mock
+
+    storage = SimpleNamespace(
+        datasets_bucket="datasets",
+        import_bucket="imports",
+        read_image_dimensions=Mock(
+            side_effect=ClientError({"Error": {"Code": code}}, "GetObject")
+        ),
+    )
+    port = _LocalStoragePort(storage)
+    with pytest.raises(SourceFailure) as failure:
+        await port.read_legacy_image_dimensions("source", if_match='"original"')
+    assert failure.value.code == expected
 
 
 def _upload_init_request() -> UploadInitRequest:

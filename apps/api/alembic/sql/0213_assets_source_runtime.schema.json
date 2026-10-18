@@ -1,0 +1,433 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:aap:legacy-dataset-upload:v1",
+  "title": "Assets legacy upload completion and replay",
+  "x-postgresql-functions": [
+    "aap_assets_v1.lock_legacy_dataset_upload(uuid, uuid, uuid, uuid)",
+    "aap_assets_v1.complete_legacy_dataset_upload(uuid, uuid, uuid, uuid, text, bigint, text, integer, integer)"
+  ],
+  "x-postgresql-argument-order": {
+    "aap_assets_v1.lock_legacy_dataset_upload(uuid, uuid, uuid, uuid)": [
+      "operation_id",
+      "actor_id",
+      "dataset_id",
+      "item_id"
+    ],
+    "aap_assets_v1.complete_legacy_dataset_upload(uuid, uuid, uuid, uuid, text, bigint, text, integer, integer)": [
+      "operation_id",
+      "actor_id",
+      "dataset_id",
+      "item_id",
+      "expected_file_path",
+      "file_size",
+      "content_hash",
+      "width",
+      "height"
+    ]
+  },
+  "oneOf": [
+    {
+      "$ref": "#/$defs/LegacyUploadLockRequestCall"
+    },
+    {
+      "$ref": "#/$defs/LegacyUploadCompletionCall"
+    }
+  ],
+  "$defs": {
+    "DatasetUploadCompletedResult": {
+      "additionalProperties": false,
+      "properties": {
+        "item_id": {
+          "format": "uuid",
+          "title": "Item Id",
+          "type": "string"
+        },
+        "linked_tasks": {
+          "minimum": 0,
+          "title": "Linked Tasks",
+          "type": "integer"
+        }
+      },
+      "required": ["item_id", "linked_tasks"],
+      "title": "DatasetUploadCompletedResult",
+      "type": "object"
+    },
+    "LegacyUploadState": {
+      "additionalProperties": false,
+      "properties": {
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "dataset_id": {
+          "format": "uuid",
+          "title": "Dataset Id",
+          "type": "string"
+        },
+        "item_id": {
+          "format": "uuid",
+          "title": "Item Id",
+          "type": "string"
+        },
+        "file_path": {
+          "maxLength": 1000,
+          "minLength": 1,
+          "title": "File Path",
+          "type": "string"
+        },
+        "file_type": {
+          "title": "File Type",
+          "type": "string"
+        },
+        "width": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "maximum": 2147483647,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Width"
+        },
+        "height": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "maximum": 2147483647,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Height"
+        },
+        "state": {
+          "enum": ["pending", "completed", "duplicate"],
+          "title": "State",
+          "type": "string"
+        },
+        "result": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DatasetUploadCompletedResult"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "duplicate_of": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Duplicate Of"
+        }
+      },
+      "required": [
+        "operation_id",
+        "actor_id",
+        "dataset_id",
+        "item_id",
+        "file_path",
+        "file_type",
+        "width",
+        "height",
+        "state",
+        "result",
+        "duplicate_of"
+      ],
+      "title": "LegacyUploadState",
+      "type": "object",
+      "x-invariants": [
+        "pending has neither result nor duplicate_of",
+        "completed has a result and no duplicate_of",
+        "duplicate has duplicate_of and no result"
+      ],
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "state": {
+                "const": "pending"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "result": {
+                "type": "null"
+              },
+              "duplicate_of": {
+                "type": "null"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "state": {
+                "const": "completed"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "result": {
+                "$ref": "#/$defs/DatasetUploadCompletedResult"
+              },
+              "duplicate_of": {
+                "type": "null"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "state": {
+                "const": "duplicate"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "result": {
+                "type": "null"
+              },
+              "duplicate_of": {
+                "type": "string",
+                "format": "uuid"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "LegacyUploadLockRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "dataset_id": {
+          "format": "uuid",
+          "title": "Dataset Id",
+          "type": "string"
+        },
+        "item_id": {
+          "format": "uuid",
+          "title": "Item Id",
+          "type": "string"
+        }
+      },
+      "required": ["operation_id", "actor_id", "dataset_id", "item_id"],
+      "title": "LegacyUploadLockRequest",
+      "type": "object"
+    },
+    "LegacyUploadCompletion": {
+      "additionalProperties": false,
+      "properties": {
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "dataset_id": {
+          "format": "uuid",
+          "title": "Dataset Id",
+          "type": "string"
+        },
+        "item_id": {
+          "format": "uuid",
+          "title": "Item Id",
+          "type": "string"
+        },
+        "expected_file_path": {
+          "maxLength": 1000,
+          "minLength": 1,
+          "title": "Expected File Path",
+          "type": "string"
+        },
+        "file_size": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "File Size",
+          "type": "integer"
+        },
+        "content_hash": {
+          "anyOf": [
+            {
+              "pattern": "^(?:[0-9a-fA-F]{32}|[0-9a-fA-F]{64})$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Content Hash"
+        },
+        "width": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "maximum": 2147483647,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Width"
+        },
+        "height": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "maximum": 2147483647,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Height"
+        }
+      },
+      "required": [
+        "operation_id",
+        "actor_id",
+        "dataset_id",
+        "item_id",
+        "expected_file_path",
+        "file_size",
+        "content_hash",
+        "width",
+        "height"
+      ],
+      "title": "LegacyUploadCompletion",
+      "type": "object",
+      "x-invariants": [
+        "content_hash is null or 32/64 hexadecimal characters and canonicalized to lowercase",
+        "width and height are both null or both positive integers",
+        "file_size is a signed bigint non-negative value"
+      ]
+    },
+    "reply": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["schema", "ok", "data"],
+          "properties": {
+            "schema": {
+              "const": "aap-legacy-dataset-upload/v1"
+            },
+            "ok": {
+              "const": true
+            },
+            "data": {
+              "$ref": "#/$defs/LegacyUploadState"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["schema", "ok", "error"],
+          "properties": {
+            "schema": {
+              "const": "aap-legacy-dataset-upload/v1"
+            },
+            "ok": {
+              "const": false
+            },
+            "error": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["code"],
+              "properties": {
+                "code": {
+                  "type": "string",
+                  "enum": [
+                    "invalid_request",
+                    "account_not_active",
+                    "account_busy",
+                    "invalid_account_role",
+                    "dataset_missing",
+                    "upload_missing",
+                    "upload_scope_mismatch",
+                    "upload_not_pending",
+                    "dataset_busy",
+                    "operation_conflict",
+                    "source_changed"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "LegacyUploadLockRequestCall": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["function", "arguments", "result"],
+      "properties": {
+        "function": {
+          "const": "aap_assets_v1.lock_legacy_dataset_upload(uuid, uuid, uuid, uuid)"
+        },
+        "arguments": {
+          "$ref": "#/$defs/LegacyUploadLockRequest"
+        },
+        "result": {
+          "$ref": "#/$defs/reply"
+        }
+      }
+    },
+    "LegacyUploadCompletionCall": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["function", "arguments", "result"],
+      "properties": {
+        "function": {
+          "const": "aap_assets_v1.complete_legacy_dataset_upload(uuid, uuid, uuid, uuid, text, bigint, text, integer, integer)"
+        },
+        "arguments": {
+          "$ref": "#/$defs/LegacyUploadCompletion"
+        },
+        "result": {
+          "$ref": "#/$defs/reply"
+        }
+      }
+    }
+  }
+}

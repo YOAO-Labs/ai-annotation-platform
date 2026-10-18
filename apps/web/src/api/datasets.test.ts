@@ -123,14 +123,33 @@ describe("datasetsApi · endpoint 契约", () => {
     });
   });
 
-  it("upload init / complete", () => {
-    datasetsApi.uploadInit("d1", { file_name: "a.pcd", content_type: "x" });
-    expect(post).toHaveBeenCalledWith("/datasets/d1/items/upload-init", {
-      file_name: "a.pcd",
-      content_type: "x",
+  it("upload phases preserve explicit keys and generate UUIDs when omitted", () => {
+    const initKey = crypto.randomUUID();
+    const completeKey = crypto.randomUUID();
+    datasetsApi.uploadInit(
+      "d1",
+      { file_name: "a.pcd", content_type: "x" },
+      { idempotencyKey: initKey },
+    );
+    expect(post).toHaveBeenCalledWith(
+      "/datasets/d1/items/upload-init",
+      {
+        file_name: "a.pcd",
+        content_type: "x",
+      },
+      { headers: { "Idempotency-Key": initKey } },
+    );
+    datasetsApi.uploadComplete("d1", "i1", { idempotencyKey: completeKey });
+    expect(post).toHaveBeenCalledWith("/datasets/d1/items/upload-complete/i1", undefined, {
+      headers: { "Idempotency-Key": completeKey },
     });
+    datasetsApi.uploadInit("d1", { file_name: "a.pcd" });
     datasetsApi.uploadComplete("d1", "i1");
-    expect(post).toHaveBeenCalledWith("/datasets/d1/items/upload-complete/i1");
+    for (const call of post.mock.calls.slice(-2)) {
+      expect(call[2]).toEqual({
+        headers: { "Idempotency-Key": expect.stringMatching(/^[0-9a-f-]{36}$/) },
+      });
+    }
   });
 
   it("scan / backfill", () => {
