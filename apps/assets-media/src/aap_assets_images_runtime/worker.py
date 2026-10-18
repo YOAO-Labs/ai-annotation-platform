@@ -1005,16 +1005,8 @@ class ImageExecutor:
                 heartbeat.check()
             if not source.upload_ready:
                 raise ImageFailure("source_not_ready")
-            if (
-                source.source_drifted
-                or (
-                    source.object_identity is not None
-                    and identity != source.object_identity
-                )
-                or (
-                    source.file_size is not None
-                    and identity.byte_size != source.file_size
-                )
+            if source.source_drifted or (
+                source.file_size is not None and identity.byte_size != source.file_size
             ):
                 return ImageBackfillSourceObservation(
                     owner=source.owner,

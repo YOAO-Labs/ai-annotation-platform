@@ -668,6 +668,76 @@ async def test_backfill_observes_every_candidate_before_cursor_commit():
 
 
 @pytest.mark.asyncio
+async def test_backfill_forwards_changed_head_identity_for_native_drift_recording():
+    source_bytes = b"source"
+    source = _source(source_bytes)
+    following_source = _source(b"another source").model_copy(
+        update={"dataset_id": source.dataset_id}
+    )
+    sources = sorted([source, following_source], key=lambda row: row.owner.id.int)
+    source, following_source = sources
+    observed_identity = ObjectIdentity(
+        etag="replacement-etag",
+        byte_size=source.object_identity.byte_size,
+        version_id="replacement-version",
+    )
+    claim = _image_backfill_claim(source, _policy())
+    batch_token = uuid4()
+    prepare = ImageBackfillProgress(
+        job_id=claim.job_id,
+        generation=claim.generation,
+        lease_token=claim.lease_token,
+        scheduled=0,
+        skipped=0,
+        complete=False,
+        next_owner_kind=source.owner.kind,
+        next_owner_id=following_source.owner.id,
+        batch_token=batch_token,
+        candidates=sources,
+        needs_observation=True,
+    )
+    committed = ImageBackfillProgress(
+        job_id=claim.job_id,
+        generation=claim.generation,
+        lease_token=claim.lease_token,
+        scheduled=1,
+        skipped=1,
+        complete=True,
+        next_owner_kind=None,
+        next_owner_id=None,
+        batch_token=batch_token,
+    )
+    database = _FakeDatabase(claim, advance_results=[prepare, committed])
+    storage = _FakeStorage(
+        source_bytes,
+        heads=[observed_identity, following_source.object_identity],
+    )
+
+    result = await ImageExecutor(database, storage).execute_once()
+
+    assert result.outcome == "published"
+    advance_calls = [
+        request for name, request in database.calls if name == "advance_image_backfill"
+    ]
+    assert len(advance_calls) == 2
+    observations = advance_calls[1].observations.items
+    assert len(observations) == 2
+    assert observations[0].owner == source.owner
+    assert observations[0].source_snapshot == source.source_snapshot
+    assert observations[0].object_identity == observed_identity
+    assert observations[0].error_code is None
+    assert observations[1].owner == following_source.owner
+    assert observations[1].object_identity == following_source.object_identity
+    assert observations[1].error_code is None
+    assert [name for name, _request in database.calls] == [
+        "claim_image_media",
+        "heartbeat_image_media",
+        "advance_image_backfill",
+        "advance_image_backfill",
+    ]
+
+
+@pytest.mark.asyncio
 async def test_backfill_storage_failure_does_not_advance_or_skip_the_candidate():
     source = _source(b"source")
     claim = _image_backfill_claim(source, _policy())
