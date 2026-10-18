@@ -198,12 +198,17 @@ class S3MediaStorage:
             str(path),
             self.cache_bucket,
             key,
-            ExtraArgs={"ContentType": content_type},
+            ExtraArgs={"ContentType": content_type, "Metadata": {"sha256": digest}},
         )
         head = self._client.head_object(Bucket=self.cache_bucket, Key=key)
         identity = _identity(head)
-        if identity.byte_size != byte_size:
-            raise MediaFailure("object_missing")
+        metadata = head.get("Metadata")
+        if (
+            identity.byte_size != byte_size
+            or not isinstance(metadata, dict)
+            or metadata.get("sha256") != digest
+        ):
+            raise MediaFailure("storage_unavailable")
         return Artifact(key=key, byte_size=byte_size, sha256=digest)
 
     async def delete_cache_keys(self, keys: list[str]) -> int:
@@ -379,6 +384,14 @@ def _storage_error(exc: Exception, *, missing_is_object: bool = False) -> MediaF
         return MediaFailure("source_changed")
     if missing_is_object and code in {"NoSuchKey", "NotFound", "404"}:
         return MediaFailure("object_missing")
-    if missing_is_object and status == 404:
+    if (
+        missing_is_object
+        and status == 404
+        and code
+        not in {
+            "NoSuchBucket",
+            "NoSuchAccessPoint",
+        }
+    ):
         return MediaFailure("object_missing")
     return MediaFailure("storage_unavailable")

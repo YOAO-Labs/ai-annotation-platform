@@ -12,6 +12,8 @@ from aap_assets_media.contract import (
     REQUEST_BYTES,
     MediaFailure,
     MediaAssets,
+    ClaimRequest,
+    ClaimedWork,
     SamplesPage,
     TimetablePage,
     BackfillPage,
@@ -62,6 +64,13 @@ def validate_native_result(name: str, request: BaseModel, raw: Any) -> BaseModel
     result = decode_reply(raw, operation.result)
     try:
         require_scope(request, result)
+        if isinstance(request, ClaimRequest) and isinstance(result, ClaimedWork):
+            claim = result.claim
+            if claim is not None and (
+                (request.job_id is not None and claim.job_id != request.job_id)
+                or claim.spec.kind not in request.kinds
+            ):
+                raise ValueError("media claim escaped its requested job selector")
         records: list[BaseModel] | None = None
         if isinstance(result, TimetablePage):
             records = result.frames
@@ -93,6 +102,11 @@ class AsyncpgMediaDatabase:
         self._allowed_roles = (
             frozenset(allowed_roles) if allowed_roles is not None else None
         )
+
+    @property
+    def pool(self) -> Any:
+        """Expose the configured asyncpg pool to the shared capability checker."""
+        return self._pool
 
     @classmethod
     async def connect(

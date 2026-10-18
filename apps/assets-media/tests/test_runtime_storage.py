@@ -22,6 +22,7 @@ class _ClientError(Exception):
 class _FakeS3:
     def __init__(self):
         self.objects: dict[tuple[str, str], bytes] = {}
+        self.metadata: dict[tuple[str, str], dict] = {}
         self.calls: list[tuple[str, dict]] = []
         self.continuations = 0
 
@@ -41,7 +42,14 @@ class _FakeS3:
             body = self.objects[(params["Bucket"], params["Key"])]
         except KeyError as exc:
             raise _ClientError("NoSuchKey", 404) from exc
-        return self._identity(body)
+        return {
+            **self._identity(body),
+            **(
+                {"Metadata": self.metadata[(params["Bucket"], params["Key"])]}
+                if (params["Bucket"], params["Key"]) in self.metadata
+                else {}
+            ),
+        }
 
     def get_object(self, **params):
         self.calls.append(("get_object", params))
@@ -59,6 +67,7 @@ class _FakeS3:
     def upload_file(self, filename, bucket, key, ExtraArgs):
         self.calls.append(("upload_file", {"Bucket": bucket, "Key": key, **ExtraArgs}))
         self.objects[(bucket, key)] = Path(filename).read_bytes()
+        self.metadata[(bucket, key)] = ExtraArgs.get("Metadata", {})
 
     def delete_objects(self, **params):
         self.calls.append(("delete_objects", params))
@@ -192,6 +201,32 @@ def test_upload_head_sign_and_delete_stay_in_fixed_cache_bucket(tmp_path: Path):
     )
     with pytest.raises(MediaFailure, match="invalid_request"):
         asyncio.run(storage.upload_cache(path, "videos/legacy.mp4"))
+
+
+def test_jpeg_output_upload_uses_jpeg_media_type(tmp_path: Path):
+    client = _FakeS3()
+    storage, _ = _storage(client)
+    key = f"media-assets/{uuid4()}/g1/a{uuid4()}/frame.jpeg"
+    path = tmp_path / "frame.jpeg"
+    path.write_bytes(b"jpeg")
+
+    asyncio.run(storage.upload_cache(path, key))
+
+    call = next(call for call in client.calls if call[0] == "upload_file")
+    assert call[1]["ContentType"] == "image/jpeg"
+
+
+def test_missing_bucket_is_not_misreported_as_a_missing_cache_object():
+    client = _FakeS3()
+    storage, _ = _storage(client)
+
+    def missing_bucket(**params):
+        raise _ClientError("NoSuchBucket", 404)
+
+    client.head_object = missing_bucket
+    key = f"media-assets/{uuid4()}/g1/a{uuid4()}/poster.webp"
+    with pytest.raises(MediaFailure, match="storage_unavailable"):
+        asyncio.run(storage.head_cache(key))
 
 
 def test_source_signing_keeps_s3_seven_day_limit():

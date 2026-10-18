@@ -8,17 +8,20 @@ import pytest
 from aap_assets_media.contract import (
     MEDIA_SCHEMA,
     OPERATIONS,
+    BackfillSelection,
+    BackfillSpec,
+    ClaimedWork,
     ClaimRequest,
     InvalidateRequest,
     Invalidation,
     InternalSourceRequest,
+    MediaClaim,
     MediaFailure,
     ReadSourceRequest,
     RequestWorkRequest,
-    BackfillSpec,
-    BackfillSelection,
     ScheduleWorkRequest,
     MetadataSpec,
+    WorkTiming,
 )
 from aap_assets_media_runtime.database import (
     AsyncpgMediaDatabase,
@@ -165,6 +168,26 @@ def test_result_scope_rejects_source_substitution():
     }
     with pytest.raises(MediaFailure, match="invalid_response"):
         validate_native_result("read_media_source", request, wrong)
+
+
+def test_claim_result_must_match_requested_job_and_work_kind():
+    request = ClaimRequest(worker_id=uuid4(), job_id=uuid4(), kinds=["video_backfill"])
+    claim = MediaClaim(
+        job_id=uuid4(),
+        generation=1,
+        lease_token=uuid4(),
+        lease_expires_at="2026-10-19T00:00:00Z",
+        source=None,
+        spec=BackfillSpec(selection=BackfillSelection(dataset_id=uuid4())),
+        output_prefix=None,
+        timetable_revision=0,
+        timing=WorkTiming(),
+    )
+    result = ClaimedWork(claim=claim)
+    reply = _ok(result.model_dump(mode="json"))
+
+    with pytest.raises(MediaFailure, match="invalid_response"):
+        validate_native_result("claim_video_media", request, reply)
 
 
 def test_request_budget_is_checked_before_call():
