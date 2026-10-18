@@ -956,7 +956,16 @@ BEGIN
     v_items := to_jsonb(v_page_rows);
     SELECT COALESCE(array_agg((item ->> 'id')::uuid ORDER BY (item ->> 'id')::uuid), ARRAY[]::uuid[])
     INTO v_item_ids FROM unnest(v_page_rows) AS rows(item);
-    v_scenes := v_data -> 'scenes_snapshot';
+    SELECT COALESCE(pg_catalog.jsonb_agg(
+        scene.value ORDER BY (scene.value ->> 'created_at')::timestamptz,
+        (scene.value ->> 'id')::uuid
+    ), '[]'::jsonb)
+    INTO v_scenes
+    FROM pg_catalog.jsonb_array_elements(v_data -> 'scenes_snapshot') AS scene(value)
+    WHERE EXISTS (
+        SELECT 1 FROM unnest(v_page_rows) AS page(item)
+        WHERE page.item ->> 'scene_id' = scene.value ->> 'id'
+    );
     IF v_more AND cardinality(v_item_ids) > 0 THEN
         v_next := v_item_ids[pg_catalog.cardinality(v_item_ids)];
     END IF;
@@ -1070,7 +1079,16 @@ BEGIN
     v_items := to_jsonb(v_page_rows);
     SELECT COALESCE(array_agg((item ->> 'id')::uuid ORDER BY (item ->> 'id')::uuid), ARRAY[]::uuid[])
     INTO v_item_ids FROM unnest(v_page_rows) AS rows(item);
-    v_scenes := v_data -> 'scenes_snapshot';
+    SELECT COALESCE(pg_catalog.jsonb_agg(
+        scene.value ORDER BY (scene.value ->> 'created_at')::timestamptz,
+        (scene.value ->> 'id')::uuid
+    ), '[]'::jsonb)
+    INTO v_scenes
+    FROM pg_catalog.jsonb_array_elements(v_data -> 'scenes_snapshot') AS scene(value)
+    WHERE EXISTS (
+        SELECT 1 FROM unnest(v_page_rows) AS page(item)
+        WHERE page.item ->> 'scene_id' = scene.value ->> 'id'
+    );
     IF v_more AND cardinality(v_item_ids) > 0 THEN
         v_next := v_item_ids[pg_catalog.cardinality(v_item_ids)];
     END IF;
@@ -1800,7 +1818,7 @@ DECLARE
     v_scene_dataset uuid;
     v_result jsonb;
 BEGIN
-    IF p_operation_id IS NULL OR p_dataset_id IS NULL
+    IF p_operation_id IS NULL OR p_dataset_id IS NULL OR p_mode IS NULL
        OR p_mode NOT IN ('single', 'per_subdirectory', 'auto') OR p_dry_run IS NULL
        OR jsonb_typeof(p_plan) IS DISTINCT FROM 'object'
        OR (p_plan - ARRAY['scenes', 'assignments', 'created_scenes', 'assigned_items',
@@ -2847,3 +2865,85 @@ END;
 $function$;
 -- aap-statement-break
 REVOKE ALL ON FUNCTION aap_assets_v1.set_spatial_dataset_axis(uuid, uuid, text) FROM PUBLIC;
+-- aap-statement-break
+CREATE FUNCTION aap_assets_v1.read_spatial_layout_receipt(
+    p_operation_id uuid,
+    p_actor_id uuid,
+    p_dataset_id uuid,
+    p_mode text,
+    p_dry_run boolean
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+VOLATILE
+PARALLEL UNSAFE
+SECURITY DEFINER
+SET search_path = pg_catalog, pg_temp
+AS $function$
+DECLARE
+    v_guard jsonb;
+    v_receipt jsonb;
+    v_layout_result jsonb;
+BEGIN
+    IF p_operation_id IS NULL OR p_dataset_id IS NULL OR p_mode IS NULL
+       OR p_mode NOT IN ('single', 'per_subdirectory', 'auto')
+       OR p_dry_run IS NULL THEN
+        RETURN aap_assets_v1._spatial_failure('invalid_request');
+    END IF;
+    IF p_actor_id IS NOT NULL THEN
+        v_guard := aap_assets_v1.guard_spatial_actor(p_actor_id, 'manager_write');
+        IF v_guard -> 'ok' IS DISTINCT FROM 'true'::jsonb THEN RETURN v_guard; END IF;
+    END IF;
+    v_receipt := aap_assets_v1._read_spatial_receipt(
+        p_operation_id, p_actor_id, 'layout.apply',
+        jsonb_build_object('dataset_id', p_dataset_id),
+        jsonb_build_object('mode', p_mode, 'dry_run', p_dry_run)
+    );
+    IF v_receipt IS NOT NULL THEN
+        IF v_receipt -> 'ok' IS DISTINCT FROM 'true'::jsonb THEN
+            RETURN v_receipt;
+        END IF;
+        v_layout_result := v_receipt -> 'data';
+        IF v_receipt ->> 'schema' IS DISTINCT FROM 'aap-assets-spatial/v1'
+           OR (v_receipt - ARRAY['schema', 'ok', 'data']) IS DISTINCT FROM '{}'::jsonb
+           OR pg_catalog.jsonb_typeof(v_layout_result) IS DISTINCT FROM 'object'
+           OR (v_layout_result - ARRAY[
+                'operation_id', 'actor_id', 'dataset_id', 'created_scenes',
+                'assigned_items', 'skipped_items', 'dry_run', 'notes'
+           ]) IS DISTINCT FROM '{}'::jsonb
+           OR v_layout_result ->> 'operation_id' IS DISTINCT FROM p_operation_id::text
+           OR v_layout_result ->> 'dataset_id' IS DISTINCT FROM p_dataset_id::text
+           OR (v_layout_result -> 'actor_id') IS DISTINCT FROM
+              COALESCE(to_jsonb(p_actor_id), 'null'::jsonb)
+           OR (v_layout_result -> 'dry_run') IS DISTINCT FROM to_jsonb(p_dry_run)
+           OR pg_catalog.jsonb_typeof(v_layout_result -> 'created_scenes') IS DISTINCT FROM 'number'
+           OR pg_catalog.jsonb_typeof(v_layout_result -> 'assigned_items') IS DISTINCT FROM 'number'
+           OR pg_catalog.jsonb_typeof(v_layout_result -> 'skipped_items') IS DISTINCT FROM 'number'
+           OR pg_catalog.jsonb_typeof(v_layout_result -> 'notes') IS DISTINCT FROM 'array'
+           OR EXISTS (
+                SELECT 1 FROM pg_catalog.jsonb_array_elements(v_layout_result -> 'notes') AS note(value)
+                WHERE pg_catalog.jsonb_typeof(value) IS DISTINCT FROM 'string'
+           ) THEN
+            RETURN aap_assets_v1._spatial_failure('invalid_response');
+        END IF;
+        IF (v_layout_result ->> 'created_scenes')::numeric < 0
+           OR (v_layout_result ->> 'created_scenes')::numeric <> pg_catalog.trunc((v_layout_result ->> 'created_scenes')::numeric)
+           OR (v_layout_result ->> 'assigned_items')::numeric < 0
+           OR (v_layout_result ->> 'assigned_items')::numeric <> pg_catalog.trunc((v_layout_result ->> 'assigned_items')::numeric)
+           OR (v_layout_result ->> 'skipped_items')::numeric < 0
+           OR (v_layout_result ->> 'skipped_items')::numeric <> pg_catalog.trunc((v_layout_result ->> 'skipped_items')::numeric) THEN
+            RETURN aap_assets_v1._spatial_failure('invalid_response');
+        END IF;
+    END IF;
+    RETURN aap_assets_v1._spatial_success(pg_catalog.jsonb_build_object(
+        'operation_id', p_operation_id,
+        'actor_id', p_actor_id,
+        'dataset_id', p_dataset_id,
+        'mode', p_mode,
+        'dry_run', p_dry_run,
+        'result', v_layout_result
+    ));
+END;
+$function$;
+-- aap-statement-break
+REVOKE ALL ON FUNCTION aap_assets_v1.read_spatial_layout_receipt(uuid, uuid, uuid, text, boolean) FROM PUBLIC;
