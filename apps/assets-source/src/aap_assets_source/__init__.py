@@ -1,0 +1,73 @@
+"""Pure public contracts for the independently deployable Assets source module."""
+
+from .contract import (
+    SourceDeletionRequest,
+    SourceFailure,
+    UploadCompleteRequest,
+    UploadInitRequest,
+    UploadInitResult,
+    UploadOutcome,
+    decode_source_reply,
+)
+from .deletion_contract import (
+    DatasetSourceDeletionCommand,
+    DatasetSourceDeletionFailure,
+    DatasetSourceDeletionReceipt,
+    decode_source_deletion_reply,
+)
+from .legacy_upload_contract import (
+    LegacyUploadCompletion,
+    LegacyUploadDataPort,
+    LegacyUploadLockRequest,
+    LegacyUploadState,
+    decode_legacy_upload_reply,
+)
+from .upload_contract import (
+    DatasetUploadAcceptance,
+    DatasetUploadCompletedResult,
+    DatasetUploadCompletion,
+    DatasetUploadDataPort,
+    DatasetUploadDiscard,
+    DatasetUploadDiscardedResult,
+    DatasetUploadDuplicate,
+    DatasetUploadFailure,
+    DatasetUploadIntent,
+    DatasetUploadReserve,
+    UploadErrorCode,
+    canonical_content_hash,
+    decode_dataset_upload_reply,
+    validate_relative_file_name,
+)
+
+__all__ = [
+    "DatasetSourceDeletionCommand",
+    "DatasetSourceDeletionFailure",
+    "DatasetSourceDeletionReceipt",
+    "DatasetUploadAcceptance",
+    "DatasetUploadCompletedResult",
+    "DatasetUploadCompletion",
+    "DatasetUploadDataPort",
+    "DatasetUploadDiscard",
+    "DatasetUploadDiscardedResult",
+    "DatasetUploadDuplicate",
+    "DatasetUploadFailure",
+    "DatasetUploadIntent",
+    "DatasetUploadReserve",
+    "LegacyUploadCompletion",
+    "LegacyUploadDataPort",
+    "LegacyUploadLockRequest",
+    "LegacyUploadState",
+    "SourceDeletionRequest",
+    "SourceFailure",
+    "UploadCompleteRequest",
+    "UploadErrorCode",
+    "UploadInitRequest",
+    "UploadInitResult",
+    "UploadOutcome",
+    "canonical_content_hash",
+    "decode_dataset_upload_reply",
+    "decode_legacy_upload_reply",
+    "decode_source_deletion_reply",
+    "decode_source_reply",
+    "validate_relative_file_name",
+]

@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "aap-assets-source"
+version = "0.1.0"
+description = "Public language-neutral contracts for Assets source operations"
+requires-python = ">=3.11"
+dependencies = [
+    "aap-audit-contract",
+    "aap-assets-cleanup",
+]
+
+[project.optional-dependencies]
+test = ["pytest>=8.3.0"]
+
+[tool.uv.sources]
+aap-audit-contract = { path = "../_shared/audit_contract", editable = true }
+aap-assets-cleanup = { path = "../assets-cleanup", editable = true }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
