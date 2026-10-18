@@ -9,7 +9,9 @@ from fastapi import (
     Request,
     Response,
 )
-from starlette.datastructures import UploadFile as StarletteUploadFile
+from starlette.formparsers import MultiPartException, MultiPartParser
+from starlette.datastructures import FormData, UploadFile as StarletteUploadFile
+from starlette.requests import parse_options_header
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -87,6 +89,60 @@ from aap_audit_contract import ProjectDeletionAuditContext
 router = APIRouter()
 
 _MANAGERS = (UserRole.SUPER_ADMIN, UserRole.PROJECT_ADMIN)
+
+# Allow room for multipart boundaries, per-part headers, and the closing delimiter.
+_ZIP_MULTIPART_OVERHEAD_BYTES = 64 * 1024
+
+
+class _ZipMultipartBodyTooLarge(MultiPartException):
+    pass
+
+
+def _zip_too_large_error() -> HTTPException:
+    return HTTPException(
+        413,
+        detail=(
+            f"ZIP 包超过 {ZIP_MAX_BYTES // 1024 // 1024}MB 限制。"
+            "浏览器向导只适合单个原生 scene；多 scene / nuScenes 等大包请使用转换脚本。"
+            "格式说明见 docs-site/user-guide/datasets/import-formats.md"
+        ),
+    )
+
+
+async def _parse_bounded_zip_form(request: Request):
+    content_type, _ = parse_options_header(request.headers.get("content-type"))
+    if content_type != b"multipart/form-data":
+        return FormData()
+
+    max_body_bytes = ZIP_MAX_BYTES + _ZIP_MULTIPART_OVERHEAD_BYTES
+    content_length = request.headers.get("content-length")
+    if content_length is not None and content_length.isdecimal():
+        normalized_length = content_length.lstrip("0") or "0"
+        if (
+            len(normalized_length) > len(str(max_body_bytes))
+            or int(normalized_length) > max_body_bytes
+        ):
+            raise _zip_too_large_error()
+
+    async def bounded_stream():
+        body_bytes = 0
+        async for chunk in request.stream():
+            body_bytes += len(chunk)
+            if body_bytes > max_body_bytes:
+                raise _ZipMultipartBodyTooLarge("ZIP multipart request is too large")
+            yield chunk
+
+    try:
+        return await MultiPartParser(
+            request.headers,
+            bounded_stream(),
+            max_files=1,
+            max_fields=0,
+        ).parse()
+    except _ZipMultipartBodyTooLarge as exc:
+        raise _zip_too_large_error() from exc
+    except MultiPartException as exc:
+        raise HTTPException(400, detail=exc.message) from exc
 
 
 def _deletion_audit_context(request: Request) -> ProjectDeletionAuditContext:
@@ -572,20 +628,16 @@ async def upload_zip(
     )
     try:
         gateway = AssetsSourceGateway(db)
-        async with request.form(max_files=1, max_fields=0) as form:
+        form = await _parse_bounded_zip_form(request)
+        try:
             file = form.get("file")
             if not isinstance(file, StarletteUploadFile):
                 raise HTTPException(422, detail="Field required: file")
             if file.size is not None and file.size > ZIP_MAX_BYTES:
-                raise HTTPException(
-                    413,
-                    detail=(
-                        f"ZIP 包超过 {ZIP_MAX_BYTES // 1024 // 1024}MB 限制。"
-                        "浏览器向导只适合单个原生 scene；多 scene / nuScenes 等大包请使用转换脚本。"
-                        "格式说明见 docs-site/user-guide/datasets/import-formats.md"
-                    ),
-                )
+                raise _zip_too_large_error()
             receipt = await gateway.ingest_zip(command, file.file)
+        finally:
+            await form.close()
     except Exception:
         await db.rollback()
         raise

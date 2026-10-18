@@ -1,5 +1,6 @@
 import json
 import io
+import tempfile
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 from uuid import UUID
@@ -73,7 +74,13 @@ def _ingest_reply(command: IngestCommand, *, kind: str) -> dict:
     }
 
 
-def _multipart_request(payload: bytes) -> Request:
+def _multipart_request(
+    payload: bytes,
+    *,
+    content_length: int | None = None,
+    chunks: list[bytes] | None = None,
+    receive_calls: list[int] | None = None,
+) -> Request:
     boundary = b"assets-ingest-test"
     body = (
         b"--" + boundary + b"\r\n"
@@ -84,23 +91,33 @@ def _multipart_request(payload: bytes) -> Request:
         + boundary
         + b"--\r\n"
     )
-    sent = False
+    messages = chunks if chunks is not None else [body]
+    index = 0
 
     async def receive():
-        nonlocal sent
-        if sent:
+        nonlocal index
+        if receive_calls is not None:
+            receive_calls.append(1)
+        if index >= len(messages):
             return {"type": "http.disconnect"}
-        sent = True
-        return {"type": "http.request", "body": body, "more_body": False}
+        chunk = messages[index]
+        index += 1
+        return {
+            "type": "http.request",
+            "body": chunk,
+            "more_body": index < len(messages),
+        }
+
+    headers = [(b"content-type", b"multipart/form-data; boundary=" + boundary)]
+    if content_length is not None:
+        headers.append((b"content-length", str(content_length).encode("ascii")))
 
     return Request(
         {
             "type": "http",
             "method": "POST",
             "path": "/api/v1/datasets/items/upload-zip",
-            "headers": [
-                (b"content-type", b"multipart/form-data; boundary=" + boundary)
-            ],
+            "headers": headers,
         },
         receive,
     )
@@ -705,12 +722,14 @@ async def test_remote_ingest_preserves_archive_failure_and_maps_bad_reply(monkey
 async def test_zip_route_commits_after_receipt_validation_and_echoes_key(monkeypatch):
     command_data = []
     uploaded = []
+    uploaded_streams = []
 
     class Gateway:
         is_remote = False
 
         async def ingest_zip(self, command, source):
             command_data.append(command)
+            uploaded_streams.append(source)
             uploaded.append(source.read())
             return IngestReceipt.model_validate(
                 _ingest_reply(command, kind="zip")["data"]
@@ -728,6 +747,7 @@ async def test_zip_route_commits_after_receipt_validation_and_echoes_key(monkeyp
     )
 
     assert uploaded == [b"zip bytes"]
+    assert uploaded_streams[0].closed
     assert command_data[0].operation_id == OPERATION
     assert command_data[0].actor_id == ACTOR
     assert command_data[0].dataset_id == DATASET
@@ -743,6 +763,120 @@ async def test_zip_route_commits_after_receipt_validation_and_echoes_key(monkeyp
     assert response.headers["Idempotency-Key"] == str(OPERATION)
     db.commit.assert_awaited_once()
     db.rollback.assert_not_awaited()
+
+
+async def test_zip_route_rejects_large_content_length_without_reading_body(monkeypatch):
+    monkeypatch.setattr(dataset_routes, "ZIP_MAX_BYTES", 16)
+    monkeypatch.setattr(dataset_routes, "_ZIP_MULTIPART_OVERHEAD_BYTES", 8)
+    receive_calls = []
+    request = _multipart_request(
+        b"unused",
+        content_length=25,
+        receive_calls=receive_calls,
+    )
+    ingest = AsyncMock()
+
+    class Gateway:
+        is_remote = False
+        ingest_zip = ingest
+
+    monkeypatch.setattr(dataset_routes, "AssetsSourceGateway", lambda _db: Gateway())
+    db = SimpleNamespace(commit=AsyncMock(), rollback=AsyncMock())
+
+    with pytest.raises(HTTPException) as raised:
+        await dataset_routes.upload_zip(
+            DATASET,
+            request,
+            db,
+            SimpleNamespace(id=ACTOR),
+            idempotency_key=OPERATION,
+        )
+
+    assert raised.value.status_code == 413
+    assert receive_calls == []
+    ingest.assert_not_awaited()
+    db.rollback.assert_awaited_once()
+
+
+async def test_zip_route_stops_chunked_body_and_parser_closes_spooled_file(monkeypatch):
+    boundary = b"assets-ingest-test"
+    part_headers = (
+        b"--" + boundary + b"\r\n"
+        b'Content-Disposition: form-data; name="file"; filename="scene.zip"\r\n'
+        b"Content-Type: application/zip\r\n\r\n"
+    )
+    first_chunk = part_headers + b"first"
+    monkeypatch.setattr(dataset_routes, "ZIP_MAX_BYTES", len(first_chunk) + 4)
+    monkeypatch.setattr(dataset_routes, "_ZIP_MULTIPART_OVERHEAD_BYTES", 0)
+    receive_calls = []
+    request = _multipart_request(
+        b"unused",
+        chunks=[first_chunk, b"12345", b"unread tail"],
+        receive_calls=receive_calls,
+    )
+    real_spooled_file = tempfile.SpooledTemporaryFile
+    spooled_files = []
+
+    def tracked_spooled_file(*args, **kwargs):
+        file = real_spooled_file(*args, **kwargs)
+        spooled_files.append(file)
+        return file
+
+    monkeypatch.setattr(
+        "starlette.formparsers.SpooledTemporaryFile", tracked_spooled_file
+    )
+    ingest = AsyncMock()
+
+    class Gateway:
+        is_remote = False
+        ingest_zip = ingest
+
+    monkeypatch.setattr(dataset_routes, "AssetsSourceGateway", lambda _db: Gateway())
+    db = SimpleNamespace(commit=AsyncMock(), rollback=AsyncMock())
+
+    with pytest.raises(HTTPException) as raised:
+        await dataset_routes.upload_zip(
+            DATASET,
+            request,
+            db,
+            SimpleNamespace(id=ACTOR),
+            idempotency_key=OPERATION,
+        )
+
+    assert raised.value.status_code == 413
+    assert len(receive_calls) == 2
+    assert len(spooled_files) == 1
+    assert spooled_files[0].closed
+    ingest.assert_not_awaited()
+    db.rollback.assert_awaited_once()
+
+
+async def test_zip_route_closes_parsed_form_when_gateway_fails(monkeypatch):
+    streams = []
+
+    class Gateway:
+        is_remote = False
+
+        async def ingest_zip(self, _command, source):
+            streams.append(source)
+            raise HTTPException(503, detail="source unavailable")
+
+    monkeypatch.setattr(dataset_routes, "AssetsSourceGateway", lambda _db: Gateway())
+    db = SimpleNamespace(commit=AsyncMock(), rollback=AsyncMock())
+
+    with pytest.raises(HTTPException) as raised:
+        await dataset_routes.upload_zip(
+            DATASET,
+            _multipart_request(b"zip bytes"),
+            db,
+            SimpleNamespace(id=ACTOR),
+            idempotency_key=OPERATION,
+        )
+
+    assert raised.value.status_code == 503
+    assert len(streams) == 1
+    assert streams[0].closed
+    db.rollback.assert_awaited_once()
 
 
 async def test_scan_route_does_not_commit_remote_session(monkeypatch):
