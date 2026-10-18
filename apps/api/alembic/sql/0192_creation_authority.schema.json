@@ -1,0 +1,195 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aap-creation-authority-v1.schema.json",
+  "title": "Dataset task creation authority capability responses",
+  "oneOf": [
+    { "$ref": "#/$defs/activeActorSuccess" },
+    { "$ref": "#/$defs/activeActorFailure" },
+    { "$ref": "#/$defs/projectManagerSuccess" },
+    { "$ref": "#/$defs/projectManagerFailure" },
+    { "$ref": "#/$defs/datasetAssociationSuccess" },
+    { "$ref": "#/$defs/datasetAssociationFailure" }
+  ],
+  "$defs": {
+    "activeActorSuccess": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "ok", "data"],
+      "properties": {
+        "schema": { "const": "aap-active-actor/v1" },
+        "ok": { "const": true },
+        "data": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["actor_id", "platform_role"],
+          "properties": {
+            "actor_id": { "type": "string", "format": "uuid" },
+            "platform_role": { "type": "string" }
+          }
+        }
+      }
+    },
+    "activeActorFailure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "ok", "error"],
+      "properties": {
+        "schema": { "const": "aap-active-actor/v1" },
+        "ok": { "const": false },
+        "error": { "$ref": "#/$defs/identityError" }
+      }
+    },
+    "projectManagerSuccess": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "ok", "data"],
+      "properties": {
+        "schema": { "const": "aap-project-manager/v1" },
+        "ok": { "const": true },
+        "data": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "actor_id",
+            "platform_role",
+            "project_id",
+            "owner_id",
+            "data_type",
+            "scene_mode"
+          ],
+          "properties": {
+            "actor_id": { "type": "string", "format": "uuid" },
+            "platform_role": { "type": "string" },
+            "project_id": { "type": "string", "format": "uuid" },
+            "owner_id": { "type": "string", "format": "uuid" },
+            "data_type": { "type": "string" },
+            "scene_mode": { "type": "boolean" }
+          }
+        }
+      }
+    },
+    "projectManagerFailure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "ok", "error"],
+      "properties": {
+        "schema": { "const": "aap-project-manager/v1" },
+        "ok": { "const": false },
+        "error": { "$ref": "#/$defs/authorityError" }
+      }
+    },
+    "datasetAssociationSuccess": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "ok", "data"],
+      "properties": {
+        "schema": { "const": "aap-dataset-association/v1" },
+        "ok": { "const": true },
+        "data": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["link_id", "existing", "item_count", "project_data_type"],
+          "properties": {
+            "link_id": { "type": "string", "format": "uuid" },
+            "existing": { "type": "boolean" },
+            "item_count": { "type": "integer", "minimum": 0 },
+            "project_data_type": { "type": "string" }
+          }
+        }
+      }
+    },
+    "datasetAssociationFailure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "ok", "error"],
+      "properties": {
+        "schema": { "const": "aap-dataset-association/v1" },
+        "ok": { "const": false },
+        "error": {
+          "oneOf": [
+            { "$ref": "#/$defs/associationSimpleError" },
+            { "$ref": "#/$defs/associationMismatchError" }
+          ]
+        }
+      }
+    },
+    "identityError": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code"],
+      "properties": {
+        "code": { "enum": ["account_not_active", "account_busy"] }
+      }
+    },
+    "authorityError": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code"],
+      "properties": {
+        "code": {
+          "enum": [
+            "account_not_active",
+            "account_busy",
+            "project_missing",
+            "project_busy",
+            "invalid_account_role",
+            "membership_busy",
+            "invalid_project_role",
+            "membership_incompatible",
+            "project_manager_required"
+          ]
+        }
+      }
+    },
+    "associationSimpleError": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code"],
+      "properties": {
+        "code": {
+          "enum": [
+            "account_not_active",
+            "account_busy",
+            "project_missing",
+            "project_busy",
+            "invalid_account_role",
+            "membership_busy",
+            "invalid_project_role",
+            "membership_incompatible",
+            "project_manager_required",
+            "dataset_missing"
+          ]
+        }
+      }
+    },
+    "associationMismatchError": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "details"],
+      "properties": {
+        "code": { "enum": ["media_kind_mismatch", "scene_kind_mismatch"] },
+        "details": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "project_data_type",
+            "dataset_data_type",
+            "project_scene_mode",
+            "dataset_has_scenes"
+          ],
+          "properties": {
+            "project_data_type": { "type": ["string", "null"] },
+            "dataset_data_type": { "type": ["string", "null"] },
+            "project_scene_mode": { "type": "boolean" },
+            "dataset_has_scenes": { "type": "boolean" }
+          }
+        }
+      }
+    }
+  },
+  "x-postgresql-functions": [
+    "aap_identity_v1.lock_active_actor(uuid)",
+    "aap_workspace_v1.lock_project_manager(uuid, uuid)",
+    "aap_assets_v1.associate_project(uuid, uuid, uuid)"
+  ]
+}
