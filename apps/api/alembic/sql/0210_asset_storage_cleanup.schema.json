@@ -1,0 +1,108 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:aap:contract:asset-storage-cleanup:v2",
+  "title": "Assets storage cleanup data contract v2",
+  "description": "Bucket-filtered keyset pages over eligible Assets-owned outbox rows; a producer lease deadline is respected and object IO occurs after the read transaction commits.",
+  "x-postgresql-functions": [
+    "aap_assets_v1.pending_storage_deletions_v2(text, timestamptz, uuid, uuid, integer)",
+    "aap_assets_v1.complete_storage_deletion(uuid, uuid)"
+  ],
+  "oneOf": [{ "$ref": "#/$defs/pendingCall" }, { "$ref": "#/$defs/completeCall" }],
+  "$defs": {
+    "uuid": { "type": "string", "format": "uuid" },
+    "nullableUuid": { "type": ["string", "null"], "format": "uuid" },
+    "nullableTimestamp": { "type": ["string", "null"], "format": "date-time" },
+    "bucket": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 63,
+      "pattern": "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*$",
+      "not": { "pattern": "^[0-9]+(\\.[0-9]+){3}$" }
+    },
+    "pendingDeletionRow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["operation_id", "asset_id", "bucket", "prefix", "created_at"],
+      "properties": {
+        "operation_id": { "$ref": "#/$defs/uuid" },
+        "asset_id": { "$ref": "#/$defs/uuid" },
+        "bucket": { "$ref": "#/$defs/bucket" },
+        "prefix": {
+          "type": "string",
+          "pattern": "^image-pyramids/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/$"
+        },
+        "created_at": { "type": "string", "format": "date-time" }
+      }
+    },
+    "pendingCall": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["function", "arguments", "result"],
+      "properties": {
+        "function": {
+          "const": "aap_assets_v1.pending_storage_deletions_v2(text, timestamptz, uuid, uuid, integer)"
+        },
+        "arguments": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "p_bucket",
+            "p_after_created_at",
+            "p_after_operation",
+            "p_after_asset",
+            "p_limit"
+          ],
+          "properties": {
+            "p_bucket": { "$ref": "#/$defs/bucket" },
+            "p_after_created_at": { "$ref": "#/$defs/nullableTimestamp" },
+            "p_after_operation": { "$ref": "#/$defs/nullableUuid" },
+            "p_after_asset": { "$ref": "#/$defs/nullableUuid" },
+            "p_limit": { "type": "integer", "minimum": 1, "maximum": 1000 }
+          },
+          "allOf": [
+            {
+              "oneOf": [
+                {
+                  "properties": {
+                    "p_after_created_at": { "const": null },
+                    "p_after_operation": { "const": null },
+                    "p_after_asset": { "const": null }
+                  }
+                },
+                {
+                  "properties": {
+                    "p_after_created_at": { "type": "string", "format": "date-time" },
+                    "p_after_operation": { "$ref": "#/$defs/uuid" },
+                    "p_after_asset": { "$ref": "#/$defs/uuid" }
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        "result": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/pendingDeletionRow" }
+        }
+      }
+    },
+    "completeCall": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["function", "arguments", "result"],
+      "properties": {
+        "function": { "const": "aap_assets_v1.complete_storage_deletion(uuid, uuid)" },
+        "arguments": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["p_operation_id", "p_asset_id"],
+          "properties": {
+            "p_operation_id": { "$ref": "#/$defs/uuid" },
+            "p_asset_id": { "$ref": "#/$defs/uuid" }
+          }
+        },
+        "result": { "type": "boolean" }
+      }
+    }
+  }
+}
