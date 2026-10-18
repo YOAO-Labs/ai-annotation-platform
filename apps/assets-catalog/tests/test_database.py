@@ -166,6 +166,9 @@ async def test_role_preflight_fails_closed_and_names_exact_five_functions() -> N
     }
     for signature in EXPECTED_CATALOG_FUNCTIONS:
         assert signature in ROLE_PREFLIGHT_SQL
+    normalized_preflight = " ".join(ROLE_PREFLIGHT_SQL.split())
+    assert "membership.member = login_role.oid" in normalized_preflight
+    assert "membership.roleid = login_role.oid" in normalized_preflight
 
     class _PreflightConnection(_Connection):
         async def fetchval(self, sql, *args):

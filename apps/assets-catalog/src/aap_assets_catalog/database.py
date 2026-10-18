@@ -160,6 +160,7 @@ SELECT
     AND NOT EXISTS (
         SELECT 1 FROM pg_catalog.pg_auth_members AS membership
         WHERE membership.member = login_role.oid
+           OR membership.roleid = login_role.oid
     )
     AND pg_catalog.has_schema_privilege(
         current_user, 'aap_assets_v1', 'USAGE'
