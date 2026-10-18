@@ -147,6 +147,12 @@ from app.db.models.storage_connection import (
 )
 from app.db.models.storage_connection_operation import StorageConnectionOperation
 from app.db.models.dataset_operator_operation import DatasetOperatorOperation
+from app.db.models.asset_media import (
+    AssetMediaGarbage,
+    AssetMediaJob,
+    AssetMediaOperation,
+    AssetMediaTimetableStaging,
+)
 
 __all__ = [
     "TrainedModelVersion",
@@ -251,6 +257,10 @@ __all__ = [
     "StorageConnectionScope",
     "StorageConnectionOperation",
     "DatasetOperatorOperation",
+    "AssetMediaJob",
+    "AssetMediaOperation",
+    "AssetMediaTimetableStaging",
+    "AssetMediaGarbage",
 ]
 
 from app.db.models.learning_policy import LearningPolicy, LearningTrigger

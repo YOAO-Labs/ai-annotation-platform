@@ -110,6 +110,19 @@ class DatasetItem(Base):
     thumbnail_path: Mapped[str | None] = mapped_column(String(512), nullable=True)
     blurhash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     metadata_: Mapped[dict] = mapped_column("metadata", JSONB, default=dict)
+    media_source_generation: Mapped[int] = mapped_column(
+        BigInteger, nullable=False, server_default="1"
+    )
+    media_timetable_revision: Mapped[int] = mapped_column(
+        BigInteger, nullable=False, server_default="0"
+    )
+    media_materialized_generation: Mapped[int] = mapped_column(
+        BigInteger, nullable=False, server_default="0"
+    )
+    media_object_identity: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    media_source_drifted: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default="false"
+    )
     # v0.14.0 · 跨 task 帧序基地;FK 到 scenes,SET NULL 容忍历史数据 / scene 删除
     scene_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
@@ -234,6 +247,12 @@ class VideoChunk(Base):
     byte_size: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     generation_mode: Mapped[str | None] = mapped_column(String(20), nullable=True)
     diagnostics: Mapped[dict] = mapped_column(JSONB, default=dict)
+    source_generation: Mapped[int] = mapped_column(
+        BigInteger, nullable=False, server_default="0"
+    )
+    timetable_revision: Mapped[int] = mapped_column(
+        BigInteger, nullable=False, server_default="0"
+    )
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     last_accessed_at: Mapped[datetime | None] = mapped_column(
@@ -280,6 +299,12 @@ class VideoFrameCache(Base):
     byte_size: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source_generation: Mapped[int] = mapped_column(
+        BigInteger, nullable=False, server_default="0"
+    )
+    timetable_revision: Mapped[int] = mapped_column(
+        BigInteger, nullable=False, server_default="0"
+    )
     last_accessed_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )

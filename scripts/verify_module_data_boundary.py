@@ -52,6 +52,8 @@ MODULE_ROLES = (
     "asset_source_client",
     "asset_import_client",
     "asset_operator_client",
+    "asset_media_control_client",
+    "asset_media_worker_client",
 )
 SQL_ARTIFACTS = (
     "0190_workspace_data_contract.sql",
@@ -89,6 +91,10 @@ SQL_ARTIFACTS = (
     "0217_assets_connections_support.sql",
     "0217_assets_connections.sql",
     "0218_assets_operator.sql",
+    "0219_media_authorities.sql",
+    "0219_assets_media_state.sql",
+    "0219_assets_media_control.sql",
+    "0219_assets_media_execution.sql",
 )
 SCHEMA_ARTIFACTS = (
     "0191_task_append.schema.json",
@@ -118,6 +124,7 @@ SCHEMA_ARTIFACTS = (
     "0216_assets_spatial.schema.json",
     "0217_assets_connections.schema.json",
     "0218_assets_operator.schema.json",
+    "0219_assets_media.schema.json",
 )
 TEST_FILES = (
     "tests/test_workspace_data_contract.py",
@@ -198,6 +205,9 @@ TEST_FILES = (
     "tests/test_assets_operator_native.py",
     "tests/test_assets_operator_peer.py",
     "tests/test_assets_operator_runtime.py",
+    "tests/test_assets_media_native.py",
+    "tests/test_assets_media_control_native.py",
+    "tests/test_assets_media_peer.py",
     "tests/test_assets_spatial_gateway.py",
     "tests/test_assets_spatial_runtime.py",
     "tests/test_assets_catalog_runtime.py",
@@ -693,6 +703,8 @@ def _create_module_roles(
     source_password: str,
     import_password: str,
     operator_password: str,
+    media_control_password: str,
+    media_worker_password: str,
 ) -> None:
     _psql(
         container_id,
@@ -746,12 +758,25 @@ def _create_module_roles(
             "CREATE ROLE asset_operator_client LOGIN "
             f"PASSWORD '{operator_password}' NOSUPERUSER NOCREATEDB NOCREATEROLE "
             "NOINHERIT NOREPLICATION NOBYPASSRLS;\n"
+            "CREATE ROLE asset_media_control_client LOGIN "
+            f"PASSWORD '{media_control_password}' NOSUPERUSER NOCREATEDB NOCREATEROLE "
+            "NOINHERIT NOREPLICATION NOBYPASSRLS;\n"
+            "CREATE ROLE asset_media_worker_client LOGIN "
+            f"PASSWORD '{media_worker_password}' NOSUPERUSER NOCREATEDB NOCREATEROLE "
+            "NOINHERIT NOREPLICATION NOBYPASSRLS;\n"
             'REVOKE TEMPORARY ON DATABASE :"expected_database" FROM PUBLIC;\n'
             'GRANT TEMPORARY ON DATABASE :"expected_database" TO '
             + ", ".join(
                 ("legacy_runtime",)
                 + tuple(
-                    role for role in MODULE_ROLES if role != "asset_operator_client"
+                    role
+                    for role in MODULE_ROLES
+                    if role
+                    not in {
+                        "asset_operator_client",
+                        "asset_media_control_client",
+                        "asset_media_worker_client",
+                    }
                 )
             )
             + ";\n"
@@ -1067,6 +1092,7 @@ def main(argv: list[str] | None = None) -> int:
         source_grants_path = ROOT / "infra/docker/assets-source-grants.sql"
         import_grants_path = ROOT / "infra/docker/assets-import-grants.sql"
         operator_grants_path = ROOT / "infra/docker/assets-operator-grants.sql"
+        media_grants_path = ROOT / "infra/docker/assets-media-grants.sql"
         artifacts = tuple(
             ROOT / "apps/api/alembic/sql" / name for name in SQL_ARTIFACTS
         )
@@ -1079,6 +1105,7 @@ def main(argv: list[str] | None = None) -> int:
             or not source_grants_path.is_file()
             or not import_grants_path.is_file()
             or not operator_grants_path.is_file()
+            or not media_grants_path.is_file()
             or any(not path.is_file() for path in artifacts)
             or any(not path.is_file() for path in schema_paths)
         ):
@@ -1099,6 +1126,7 @@ def main(argv: list[str] | None = None) -> int:
         source_grant_sql = source_grants_path.read_text(encoding="utf-8")
         import_grant_sql = import_grants_path.read_text(encoding="utf-8")
         operator_grant_sql = operator_grants_path.read_text(encoding="utf-8")
+        media_grant_sql = media_grants_path.read_text(encoding="utf-8")
 
         from sqlalchemy.engine import URL
 
@@ -1117,6 +1145,8 @@ def main(argv: list[str] | None = None) -> int:
         source_password = f"source-{secrets.token_hex(16)}"
         import_password = f"import-{secrets.token_hex(16)}"
         operator_password = f"operator-{secrets.token_hex(16)}"
+        media_control_password = f"media-control-{secrets.token_hex(16)}"
+        media_worker_password = f"media-worker-{secrets.token_hex(16)}"
         container_id = docker(
             "run",
             "-d",
@@ -1279,6 +1309,22 @@ def main(argv: list[str] | None = None) -> int:
             port=port,
             database=database,
         ).render_as_string(hide_password=False)
+        media_control_url = URL.create(
+            "postgresql+asyncpg",
+            username="asset_media_control_client",
+            password=media_control_password,
+            host="127.0.0.1",
+            port=port,
+            database=database,
+        ).render_as_string(hide_password=False)
+        media_worker_url = URL.create(
+            "postgresql+asyncpg",
+            username="asset_media_worker_client",
+            password=media_worker_password,
+            host="127.0.0.1",
+            port=port,
+            database=database,
+        ).render_as_string(hide_password=False)
         role_create_password = append_password.replace("'", "''")
         phase = "create-scoped-roles"
         _create_module_roles(
@@ -1293,6 +1339,8 @@ def main(argv: list[str] | None = None) -> int:
             source_password,
             import_password,
             operator_password,
+            media_control_password,
+            media_worker_password,
         )
         phase = "install-module-grants"
         _psql(
@@ -1389,6 +1437,23 @@ def main(argv: list[str] | None = None) -> int:
                 "asset_operator_role": "asset_operator_client",
             },
         )
+        phase = "install-media-grants"
+        _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="owner",
+            password=owner_password,
+            database=database,
+            sql=media_grant_sql,
+            variables={
+                "expected_database": database,
+                "migration_role": "owner",
+                "assets_owner": "assets_code",
+                "asset_media_control_role": "asset_media_control_client",
+                "asset_media_worker_role": "asset_media_worker_client",
+            },
+        )
         phase = "create-scoped-storage-identity"
         cleanup_storage = _cleanup_storage_scope(backend)
         _create_cleanup_storage_scope(cleanup_storage)
@@ -1425,6 +1490,8 @@ def main(argv: list[str] | None = None) -> int:
                 "AAP_MODULE_DATA_ASSET_SOURCE_URL": source_url,
                 "AAP_MODULE_DATA_ASSET_IMPORT_URL": import_url,
                 "AAP_MODULE_DATA_ASSET_OPERATOR_URL": operator_url,
+                "AAP_MODULE_DATA_ASSET_MEDIA_CONTROL_URL": media_control_url,
+                "AAP_MODULE_DATA_ASSET_MEDIA_WORKER_URL": media_worker_url,
                 "AAP_MODULE_DATA_ASSET_IMPORT_S3_ACCESS_KEY": import_storage[
                     "access_key"
                 ],

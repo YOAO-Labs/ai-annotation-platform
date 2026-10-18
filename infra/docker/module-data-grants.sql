@@ -223,6 +223,23 @@ GRANT SELECT (display_id, created_at, updated_at),
     ON public.scenes TO :"assets_owner";
 GRANT USAGE, SELECT ON SEQUENCE public.display_seq_scenes TO :"assets_owner";
 GRANT UPDATE (metadata) ON public.dataset_items TO :"assets_owner";
+GRANT UPDATE (
+    media_source_generation, media_timetable_revision,
+    media_materialized_generation, media_object_identity, media_source_drifted,
+    thumbnail_path, blurhash, width, height
+) ON public.dataset_items TO :"assets_owner";
+GRANT SELECT, INSERT, UPDATE ON public.video_frame_cache, public.video_chunks
+    TO :"assets_owner";
+GRANT SELECT, INSERT, DELETE ON public.video_frame_indices TO :"assets_owner";
+GRANT SELECT, INSERT, UPDATE ON public.asset_media_jobs TO :"assets_owner";
+GRANT SELECT, INSERT ON public.asset_media_operations TO :"assets_owner";
+GRANT SELECT, INSERT, DELETE ON public.asset_media_timetable_staging TO :"assets_owner";
+GRANT SELECT, INSERT ON public.asset_media_garbage TO :"assets_owner";
+GRANT UPDATE (
+    lease_token, lease_expires_at, attempt_count, completed_at,
+    not_before, last_ack_token
+)
+    ON public.asset_media_garbage TO :"assets_owner";
 GRANT SELECT, INSERT, UPDATE ON public.scene_frame_poses TO :"assets_owner";
 GRANT SELECT, INSERT ON public.sensor_calibration_revisions,
     public.dataset_spatial_operations TO :"assets_owner";
@@ -855,6 +872,8 @@ BEGIN
                OR proc.proname LIKE '%sensor_calibration%'
                OR proc.proname LIKE '%storage_connection%'
                OR proc.proname LIKE '%operator%'
+               OR proc.proname LIKE '%media%'
+               OR (ns.nspname = 'aap_assets_v1' AND proc.proname LIKE '%video_%')
                OR ns.nspname IN ('aap_settings_v1','aap_notifications_v1'))
     LOOP
         EXECUTE pg_catalog.format('ALTER FUNCTION %s OWNER TO %I',
@@ -887,6 +906,16 @@ GRANT EXECUTE ON FUNCTION
     aap_labeling_v1.lock_spatial_camera_authority(uuid,uuid,text,uuid),
     aap_labeling_v1.lock_spatial_preparation_scope(uuid),
     aap_labeling_v1.read_spatial_preparation_scope(uuid)
+    TO :"assets_owner";
+GRANT EXECUTE ON FUNCTION
+    aap_workspace_v1.read_media_project_access(uuid,uuid),
+    aap_workspace_v1.lock_media_project_access(uuid,uuid),
+    aap_workspace_v1.read_media_managed_projects(uuid,uuid[]),
+    aap_labeling_v1.read_media_task_access(uuid,uuid,uuid),
+    aap_labeling_v1.read_media_visible_video_item(uuid,uuid),
+    aap_labeling_v1.lock_media_task_annotation_write(uuid,uuid,uuid),
+    aap_labeling_v1.read_media_failure_context(uuid,uuid[]),
+    aap_settings_v1.read_video_media_preferences()
     TO :"assets_owner";
 GRANT EXECUTE ON FUNCTION
     aap_audit_v1.record_sensor_calibration_update(uuid,uuid,uuid,uuid,text,integer,text,jsonb),
