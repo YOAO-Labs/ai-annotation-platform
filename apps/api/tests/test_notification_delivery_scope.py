@@ -9,6 +9,8 @@ from __future__ import annotations
 import uuid
 from types import SimpleNamespace
 
+import pytest
+
 from app.services.notification import NotificationService, _notification_project_id
 
 
@@ -95,12 +97,22 @@ async def test_export_target_resolves_job_project_and_export_capability():
     assert scopes == [(True, project_id, True)]
 
 
-async def test_global_job_target_is_preserved_as_global():
+@pytest.mark.parametrize("kind", ["audit_archive", "dataset_import"])
+async def test_global_job_target_is_preserved_as_global(kind):
     target_id = uuid.uuid4()
-    svc = NotificationService(_FakeDb([(target_id, None, "audit_archive")]))
-    rows = [_job_row({"kind": "audit_archive"}, "async_job", target_id)]
+    svc = NotificationService(_FakeDb([(target_id, None, kind)]))
+    rows = [_job_row({"kind": kind}, "async_job", target_id)]
     scopes = await svc._resolve_delivery_scopes(rows)
     assert scopes == [(False, None, False)]
+
+
+async def test_unresolved_required_job_fails_closed_despite_forged_payload_project():
+    target_id = uuid.uuid4()
+    project_id = uuid.uuid4()
+    svc = NotificationService(_FakeDb([(target_id, None, "create_tasks")]))
+    rows = [_job_row({"project_id": str(project_id)}, "async_job", target_id)]
+    scopes = await svc._resolve_delivery_scopes(rows)
+    assert scopes == [(True, None, False)]
 
 
 async def test_project_async_job_without_payload_scope_is_restricted():

@@ -39,6 +39,7 @@ from app.db.models.notification_preference import NotificationPreference
 from app.db.models.project import Project
 from app.db.models.project_member import ProjectMember
 from app.db.models.user import User
+from app.services.async_job_access import GLOBAL_ASYNC_JOB_KINDS
 from app.services.workspace_contract import platform_role_is_manager
 from app.services.project_aggregates import valid_membership_conditions
 
@@ -100,6 +101,20 @@ def _job_exists_expr():
     )
 
 
+def _job_project_exists_expr():
+    return (
+        select(AsyncJob.id)
+        .join(
+            Project,
+            Project.id
+            == func.coalesce(AsyncJob.project_id, AsyncJob.retained_project_id),
+        )
+        .where(AsyncJob.id == Notification.target_id)
+        .correlate(Notification)
+        .exists()
+    )
+
+
 def _effective_project_text_expr():
     """SQL text expression for a notification's actual project scope.
 
@@ -123,8 +138,8 @@ def _is_restricted_expr():
 
     Export targets are always restricted. An async-job target is restricted
     when its real job is project-scoped, and fails closed (restricted with a
-    NULL project) when that job row is missing. An existing global job with
-    neither project scope stays global.
+    NULL project) when the job is missing or requires a project but has no
+    authoritative scope. Only known global job kinds remain global.
     """
 
     payload_project = Notification.payload["project_id"].astext
@@ -132,7 +147,11 @@ def _is_restricted_expr():
         Notification.target_type == "export",
         and_(
             Notification.target_type == "async_job",
-            or_(_job_project_text_expr().is_not(None), ~_job_exists_expr()),
+            or_(
+                _job_project_text_expr().is_not(None),
+                ~_job_exists_expr(),
+                _job_kind_expr().not_in(GLOBAL_ASYNC_JOB_KINDS),
+            ),
         ),
         and_(
             Notification.target_type.not_in(_ACTUAL_TARGET_TYPES),
@@ -326,7 +345,11 @@ class NotificationService:
                     restricted = True
                     export_required = True
                 else:  # async_job
-                    restricted = job is None or job_project is not None
+                    restricted = (
+                        job is None
+                        or job_project is not None
+                        or job_kind not in GLOBAL_ASYNC_JOB_KINDS
+                    )
                     export_required = job is not None and job_kind == "export"
                 project_id = job_project
             else:
@@ -387,14 +410,16 @@ class NotificationService:
         owner_pairs = {(pid, uid) for pid, uid in owner_rows.all()}
 
         super_rows = await self.db.execute(
-            select(User.id).where(
-                User.id.in_({uid for _pid, uid in pairs}),
+            select(Project.id, User.id)
+            .select_from(Project)
+            .join(User, User.id.in_({uid for _pid, uid in pairs}))
+            .where(
+                tuple_(Project.id, User.id).in_(pairs),
                 User.is_active.is_(True),
                 User.role == PlatformRole.SUPER_ADMIN.value,
             )
         )
-        super_ids = set(super_rows.scalars().all())
-        super_pairs = {(pid, uid) for pid, uid in pairs if uid in super_ids}
+        super_pairs = set(super_rows.all())
 
         base_pairs = member_pairs | owner_pairs | super_pairs
         export_pairs = reviewer_pairs | owner_pairs | super_pairs
@@ -535,7 +560,23 @@ class NotificationService:
         """
 
         if user.role == PlatformRole.SUPER_ADMIN.value:
-            return []
+            actual_target = Notification.target_type.in_(_ACTUAL_TARGET_TYPES)
+            valid_global_scope = and_(
+                _job_project_text_expr().is_(None),
+                _job_kind_expr().in_(GLOBAL_ASYNC_JOB_KINDS),
+            )
+            valid_project_scope = and_(
+                _job_project_text_expr().is_not(None), _job_project_exists_expr()
+            )
+            return [
+                or_(
+                    ~actual_target,
+                    and_(
+                        _job_exists_expr(),
+                        or_(valid_global_scope, valid_project_scope),
+                    ),
+                )
+            ]
         project_text = _effective_project_text_expr()
         restricted = _is_restricted_expr()
         return [

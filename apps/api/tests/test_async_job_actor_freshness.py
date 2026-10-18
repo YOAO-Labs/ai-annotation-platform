@@ -59,7 +59,7 @@ async def _committed_job_authority_rows(test_engine):
         )
         global_job = AsyncJob(
             id=global_job_id,
-            kind="batch_predict",
+            kind="dataset_import",
             project_id=None,
             user_id=owner.id,
             status="completed",

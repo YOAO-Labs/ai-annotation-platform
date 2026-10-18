@@ -33,7 +33,14 @@ def _build_async_job_query(
         .correlate(AsyncJob)
         .exists()
     )
-    query = select(AsyncJob).where(or_(project_scope_id.is_(None), project_exists))
+    unresolved_scope = and_(
+        project_scope_id.is_(None),
+        AsyncJob.kind.not_in(async_job_access.GLOBAL_ASYNC_JOB_KINDS),
+    )
+    query = select(AsyncJob).where(
+        ~unresolved_scope,
+        or_(project_scope_id.is_(None), project_exists),
+    )
 
     if current_user.role != PlatformRole.SUPER_ADMIN.value:
         # Resolve membership in SQL so page and count scopes need no per-job read.

@@ -6,7 +6,7 @@ from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.enums import PlatformRole, ProjectRole
-from app.db.models.async_job import AsyncJob
+from app.db.models.async_job import AsyncJob, AsyncJobKind
 from app.db.models.project import Project
 from app.db.models.user import User
 from app.services import task_access
@@ -14,6 +14,10 @@ from app.services.workspace_contract import ProjectCapability
 from app.services.project_access import resolve_project_access
 
 EXPORT_JOB_KIND = "export"
+# Unlisted kinds require project scope; these are the audited global production kinds.
+GLOBAL_ASYNC_JOB_KINDS = frozenset(
+    {AsyncJobKind.AUDIT_ARCHIVE.value, AsyncJobKind.DATASET_IMPORT.value}
+)
 
 
 async def _can_access_job(
@@ -28,11 +32,12 @@ async def _can_access_job(
         return False
     project_id = job.project_id or job.retained_project_id
     if project_id is None:
-        if user.role == PlatformRole.SUPER_ADMIN.value:
-            return True
-        # Export has no global mode: a missing project cannot expose its signed URL.
         if job.kind == EXPORT_JOB_KIND:
             return False
+        if job.kind not in GLOBAL_ASYNC_JOB_KINDS:
+            return False
+        if user.role == PlatformRole.SUPER_ADMIN.value:
+            return True
         return job.user_id == user.id
     project = await db.get(Project, project_id, populate_existing=True)
     if project is None:
