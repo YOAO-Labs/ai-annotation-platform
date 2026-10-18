@@ -704,3 +704,13 @@ def test_strict_envelope_budget_and_manifest_legacy_wire_names():
     assert serialized["schema"] == c.PYRAMID_SCHEMA
     assert serialized["tileSize"] == 512
     assert "tile_size" not in serialized
+
+
+@pytest.mark.parametrize("code", ["already_ready", "not_eligible", "retry_cooldown"])
+def test_explicit_image_retry_errors_survive_the_frozen_envelope(code):
+    with pytest.raises(c.ImageFailure) as failed:
+        c.decode_reply(
+            {"schema": c.IMAGE_SCHEMA, "ok": False, "error": {"code": code}},
+            c.ImageSource,
+        )
+    assert failed.value.code == code
