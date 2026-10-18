@@ -1717,3 +1717,4 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
 - 全量与最后定向结果按用例替换去重后覆盖 693 个数据库/合同/实际消费者用例，零有效业务跳过；定向运行不是额外累计用例。独立进程真实上传/删除、SQL/S3 最小权限、响应丢失、当前权限、原始字节保留、本地远程切换及停服重启通过。复制后、SQL 完成前强制终止进程，重试只登记一份 Item/Task，使用新的 publication 路径并保留未登记旧拷贝。
 - 共享/来源包 71 项、SDK 80 项、Web 27 项通过；架构 287 项通过，另 117 个不适用冷加载参数跳过。迁移四阶段及冻结 SQL 独立安装/回滚通过，四个受限 LOGIN、三组 S3 身份及隔离 PostgreSQL/Redis/桶/容器已清理。锁文件、Ruff、TypeScript、文档、wheel 和 API 镜像冷导入 120 表通过。证据归档使用 assets-source-controls 前缀，保留早先来源删除切片记录。
 - 全模块目标仍进行中：其他导入/扫描/连接器、媒体派生与完整 Blob、身份/成员生命周期、各模块完整操作/凭据/运行工件尚未完成。API 仍负责提交后媒体派发，共享 PostgreSQL 与迁移期宽权限保留；未登记来源拷贝目前不自动回收。Go 保持隔离实验，无 push、发布、远程 CI 或生产容量声明。
+- 已本地合入主 checkout，日常库 0212→0213；旧上传回执与测试账号均为零。核验原 LaunchAgent/PID/cwd 后暂停、同步锁定依赖与迁移，再按原配置恢复；公开 OpenAPI 匹配当前快照（485 paths、873 schemas），源码内容不变的热重载约 8.773 秒。DB/Redis/MinIO 200；日常 Celery 未启动，`/health` 与 `/health/celery` 保持既有 503。证据 `.worktree/assets-source-controls-main-runtime.json`、`.worktree/assets-source-controls-verification.json`。
