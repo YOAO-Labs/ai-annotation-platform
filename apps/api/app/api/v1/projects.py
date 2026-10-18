@@ -834,7 +834,7 @@ async def delete_project(
     from ipaddress import ip_address
     from app.middleware.request_id import request_id_var
     from app.services.audit import audit_origin_from_request
-    from app.services.project_deletion_contract import ProjectDeletionAuditContext
+    from aap_audit_contract import ProjectDeletionAuditContext
 
     origin = audit_origin_from_request(request)
     try:

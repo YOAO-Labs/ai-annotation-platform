@@ -5,7 +5,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, model_validator
 
-from app.services.project_deletion_contract import ProjectDeletionAuditContext
+from aap_audit_contract import ProjectDeletionAuditContext
 from aap_assets_cleanup.contract import CleanupBucket
 
 Count = Annotated[int, Field(strict=True, ge=0)]

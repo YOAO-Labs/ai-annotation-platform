@@ -14,7 +14,7 @@ from app.db.models.project import Project
 from app.db.models.task import Task
 from app.db.models.task_append_operation import TaskAppendOperation
 from app.db.models.user import User
-from app.services.dataset_upload_contract import (
+from aap_assets_source.upload_contract import (
     DatasetUploadCompletion,
     DatasetUploadReserve,
 )

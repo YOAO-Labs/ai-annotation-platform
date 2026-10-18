@@ -14,7 +14,7 @@ from app.application.dataset_task_creation import DatasetTaskCreationWorkflow
 from app.db.models.dataset import Dataset, DatasetItem
 from app.db.models.project import Project
 from app.services.dataset import DatasetService
-from app.services.dataset_upload_contract import (
+from aap_assets_source.upload_contract import (
     DatasetUploadCompletedResult,
     DatasetUploadCompletion,
     DatasetUploadDiscard,

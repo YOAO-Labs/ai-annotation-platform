@@ -74,7 +74,7 @@ from app.services.mask_formats.safe_archive import (
 )
 from app.services.storage import storage_service
 from app.services.system_settings_service import SystemSettingsService
-from app.services.project_deletion_contract import ProjectDeletionAuditContext
+from aap_audit_contract import ProjectDeletionAuditContext
 
 router = APIRouter()
 

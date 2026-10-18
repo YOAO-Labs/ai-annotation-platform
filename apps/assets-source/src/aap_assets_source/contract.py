@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import Annotated, Literal, TypeVar
+import unicodedata
 from urllib.parse import urlsplit
 from uuid import UUID
 
@@ -75,8 +76,19 @@ class UploadInitResult(_Value):
     @field_validator("upload_url")
     @classmethod
     def validate_signed_http_url(cls, value: str) -> str:
-        if any(ord(char) < 32 or ord(char) == 127 for char in value):
+        if any(unicodedata.category(char) == "Cc" for char in value):
             raise ValueError("upload_url must not contain control characters")
+        if value.startswith("/"):
+            parsed = urlsplit(value)
+            if (
+                value.startswith("//")
+                or "\\" in value
+                or parsed.scheme
+                or parsed.netloc
+                or parsed.fragment
+            ):
+                raise ValueError("upload_url must be a safe root-relative URL")
+            return value
         try:
             parsed = urlsplit(value)
             parsed.port

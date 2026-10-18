@@ -5,7 +5,7 @@ from uuid import UUID
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.services.dataset_upload_contract import (
+from aap_assets_source.upload_contract import (
     DatasetUploadAcceptance,
     DatasetUploadCompletion,
     DatasetUploadDataPort,

@@ -1,6 +1,6 @@
 from pydantic import BaseModel, Field, field_validator
 
-from app.services.dataset_upload_contract import validate_relative_file_name
+from aap_assets_source.upload_contract import validate_relative_file_name
 from uuid import UUID
 from datetime import datetime
 from typing import Literal

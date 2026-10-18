@@ -64,6 +64,8 @@ REMOVED_MODULES = (
     "app.workers.roi",
     "app.services.project_delete",
     "app.services.project",
+    "app.services.dataset_upload_contract",
+    "app.services.dataset_source_deletion_contract",
 )
 
 _LEGACY_CALL_REFERENCE_ALLOWLIST: dict[tuple[str, str, str], str] = {}
@@ -349,7 +351,7 @@ DOMAIN_PACKAGES = (
     DomainSpec(
         package="dataset_unlink_contract",
         legacy_facades=(),
-        allowed_app_imports=("app.services.project_deletion_contract",),
+        allowed_app_imports=(),
     ),
     DomainSpec(
         package="dataset_unlink_data",
@@ -357,22 +359,12 @@ DOMAIN_PACKAGES = (
         allowed_app_imports=("app.services.dataset_unlink_contract",),
     ),
     DomainSpec(
-        package="dataset_source_deletion_contract",
-        legacy_facades=(),
-        allowed_app_imports=("app.services.project_deletion_contract",),
-    ),
-    DomainSpec(
         package="dataset_source_deletion_data",
         legacy_facades=(),
-        allowed_app_imports=("app.services.dataset_source_deletion_contract",),
-    ),
-    DomainSpec(
-        package="dataset_upload_contract", legacy_facades=(), allowed_app_imports=()
     ),
     DomainSpec(
         package="dataset_upload_data",
         legacy_facades=(),
-        allowed_app_imports=("app.services.dataset_upload_contract",),
     ),
     DomainSpec(
         package="task_creation_jobs",

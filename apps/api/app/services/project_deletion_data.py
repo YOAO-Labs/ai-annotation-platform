@@ -5,8 +5,8 @@ from uuid import UUID
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from aap_audit_contract import ProjectDeletionAuditContext
 from app.services.project_deletion_contract import (
-    ProjectDeletionAuditContext,
     ProjectDeletionReceipt,
     decode_project_deletion_reply,
 )

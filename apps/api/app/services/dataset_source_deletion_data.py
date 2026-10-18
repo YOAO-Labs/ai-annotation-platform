@@ -3,7 +3,7 @@
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.services.dataset_source_deletion_contract import (
+from aap_assets_source.deletion_contract import (
     DatasetSourceDeletionCommand,
     DatasetSourceDeletionReceipt,
     decode_source_deletion_reply,

@@ -6,7 +6,7 @@ from uuid import uuid4
 import pytest
 from pydantic import ValidationError
 
-from app.services.dataset_source_deletion_contract import (
+from aap_assets_source.deletion_contract import (
     DatasetSourceDeletionCommand,
     DatasetSourceDeletionFailure,
     decode_source_deletion_reply,

@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from app.services.dataset_upload_contract import (
+from aap_assets_source.upload_contract import (
     DatasetUploadAcceptance,
     DatasetUploadCompletion,
     DatasetUploadDiscard,

@@ -11,7 +11,7 @@ from app.db.models.dataset import Dataset, DatasetItem, ProjectDataset, Scene
 from app.db.models.project import Project
 from app.db.models.task import Task
 from app.db.models.task_batch import TaskBatch
-from app.services.dataset_source_deletion_contract import (
+from aap_assets_source.deletion_contract import (
     DatasetSourceDeletionCommand,
     DatasetSourceDeletionFailure,
     DatasetSourceDeletionReceipt,
@@ -24,7 +24,7 @@ from app.services.dataset_unlink_contract import (
     DatasetUnlinkReceipt,
 )
 from app.services.dataset_unlink_data import DatasetUnlinkData
-from app.services.project_deletion_contract import ProjectDeletionAuditContext
+from aap_audit_contract import ProjectDeletionAuditContext
 
 
 async def delete_dataset(

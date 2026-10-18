@@ -64,6 +64,13 @@ def test_public_upload_requests_and_init_result_validate_values() -> None:
         upload_url="https://storage.example/upload?signature=abc",
     )
     assert result.expires_in == 900
+    relative = UploadInitResult(
+        actor_id=ACTOR,
+        dataset_id=DATASET,
+        item_id=ITEM,
+        upload_url="/minio/bucket/item?signature=abc",
+    )
+    assert relative.upload_url == "/minio/bucket/item?signature=abc"
     assert (
         UploadCompleteRequest(
             operation_id=OPERATION,
@@ -82,6 +89,9 @@ def test_public_upload_requests_and_init_result_validate_values() -> None:
         "https:///missing-host",
         "https://user:pass@storage.example/object",
         "https://storage.example/object\nX-Injected: true",
+        "https://storage.example/object\x85X-Injected: true",
+        "//storage.example/object",
+        "/\\storage.example/object",
     ],
 )
 def test_upload_init_result_rejects_unsafe_url(upload_url: str) -> None:
