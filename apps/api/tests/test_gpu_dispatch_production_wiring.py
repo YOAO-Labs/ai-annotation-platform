@@ -213,7 +213,14 @@ async def test_frame_segment_builds_authority_from_its_own_session_factory(
 ) -> None:
     authority_marker = object()
     backend = MLBackendRegistry(id=uuid.uuid4())
-    task = Task(id=uuid.uuid4(), project_id=uuid.uuid4(), version=1, status="pending")
+    task = Task(
+        id=uuid.uuid4(),
+        project_id=uuid.uuid4(),
+        dataset_item_id=uuid.uuid4(),
+        file_type="video",
+        version=1,
+        status="pending",
+    )
     client_kwargs: list[dict] = []
     built_from: list[object] = []
 
@@ -264,7 +271,7 @@ async def test_frame_segment_builds_authority_from_its_own_session_factory(
             raise RuntimeError("stop after dispatch wiring is observed")
 
     async def build_frame_context(
-        _reader, *, task_id, project_id, file_type, dataset_item_id
+        _reader, *, actor_id=None, task_id, project_id, file_type, dataset_item_id
     ):
         assert task_id == task.id
         assert project_id == task.project_id
@@ -288,7 +295,7 @@ async def test_frame_segment_builds_authority_from_its_own_session_factory(
         "app.services.ml_routing.client.RoutedMLBackendClient", FakeClient
     )
     monkeypatch.setattr(
-        "app.services.video_frame_service.AssetsVideoContextReader.from_task",
+        "app.services.video_frame_service.AssetsVideoContextReader.from_task_summary",
         build_frame_context,
     )
     monkeypatch.setattr(
@@ -305,8 +312,8 @@ async def test_frame_segment_builds_authority_from_its_own_session_factory(
     monkeypatch.setattr(frame_preannotate, "_write_job_progress", AsyncMock())
 
     stats = await frame_preannotate._run_segment(
-        segment={"task_id": str(uuid.uuid4()), "frame_indices": [0]},
-        project_id=str(uuid.uuid4()),
+        segment={"task_id": str(task.id), "frame_indices": [0]},
+        project_id=str(task.project_id),
         ml_backend_id=str(uuid.uuid4()),
         stage0={},
         job_id=str(uuid.uuid4()),
@@ -324,7 +331,14 @@ async def test_frame_segment_builds_authority_from_its_own_session_factory(
 @pytest.mark.asyncio
 async def test_frame_segment_aggregates_gpu_arbiter_failures(monkeypatch) -> None:
     backend = MLBackendRegistry(id=uuid.uuid4())
-    task = Task(id=uuid.uuid4(), project_id=uuid.uuid4(), version=1, status="pending")
+    task = Task(
+        id=uuid.uuid4(),
+        project_id=uuid.uuid4(),
+        dataset_item_id=uuid.uuid4(),
+        file_type="video",
+        version=1,
+        status="pending",
+    )
 
     class FakeEngine:
         async def dispose(self) -> None:
@@ -375,13 +389,14 @@ async def test_frame_segment_aggregates_gpu_arbiter_failures(monkeypatch) -> Non
     async def no_existing(_db, _task_id):
         return set()
 
-    async def frame_urls(_db, _ctx, frame_indices):
+    async def frame_urls(_db, _ctx, frame_indices, *, job_id=None):
+        assert job_id is not None
         return {
             frame_index: f"http://x/{frame_index}.jpg" for frame_index in frame_indices
         }
 
     async def build_frame_context(
-        _reader, *, task_id, project_id, file_type, dataset_item_id
+        _reader, *, actor_id=None, task_id, project_id, file_type, dataset_item_id
     ):
         assert task_id == task.id and project_id == task.project_id
         assert file_type == task.file_type and dataset_item_id == task.dataset_item_id
@@ -407,7 +422,7 @@ async def test_frame_segment_aggregates_gpu_arbiter_failures(monkeypatch) -> Non
         "app.services.ml_routing.client.RoutedMLBackendClient", RejectedClient
     )
     monkeypatch.setattr(
-        "app.services.video_frame_service.AssetsVideoContextReader.from_task",
+        "app.services.video_frame_service.AssetsVideoContextReader.from_task_summary",
         build_frame_context,
     )
     monkeypatch.setattr(frame_preannotate, "_job_cancelled", not_cancelled)
@@ -421,13 +436,12 @@ async def test_frame_segment_aggregates_gpu_arbiter_failures(monkeypatch) -> Non
 
     stats = await frame_preannotate._run_segment(
         segment={"task_id": str(task.id), "frame_indices": [0, 1]},
-        project_id=str(uuid.uuid4()),
+        project_id=str(task.project_id),
         ml_backend_id=str(uuid.uuid4()),
         stage0={},
         job_id=str(uuid.uuid4()),
         celery_root_task_id=None,
     )
-
     assert stats["failed"] == 2
     assert stats["gpu_arbiter_failures"] == [
         {

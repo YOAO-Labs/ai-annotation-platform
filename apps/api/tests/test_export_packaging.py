@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import io
 import json
 import os
@@ -13,9 +14,12 @@ import sys
 import tempfile
 import uuid
 import zipfile
+from types import SimpleNamespace
 
 import pytest
 from PIL import Image
+from aap_assets_media.contract import InternalSourceRequest, MediaSource
+from aap_assets_media.transport import SourceReference
 
 from app.db.models.annotation import Annotation
 from app.db.models.dataset import DatasetItem
@@ -27,6 +31,65 @@ from app.services.exporting.packaging import (
     clean_export_targets,
     relative_path_from_file_path,
 )
+
+
+class _FakeMediaGateway:
+    """Pure owner-reference double for the export packager's source reads."""
+
+    def __init__(self, items):
+        self.items = items
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *_args):
+        return False
+
+    async def internal_source_reference(self, request, *, expires_in):
+        assert isinstance(request, InternalSourceRequest)
+        item = self.items[request.dataset_item_id]
+        video_metadata = dict((item.metadata_ or {}).get("video") or {})
+        source = MediaSource(
+            dataset_item_id=item.id,
+            dataset_id=item.dataset_id,
+            source_generation=1,
+            source_snapshot=hashlib.sha256(item.file_path.encode()).hexdigest(),
+            timetable_revision=0,
+            materialized_generation=1,
+            object_identity=None,
+            source_drifted=False,
+            file_name=item.file_name,
+            file_path=item.file_path,
+            file_type=item.file_type,
+            file_size=item.file_size,
+            content_hash=item.content_hash,
+            width=item.width,
+            height=item.height,
+            thumbnail_path=None,
+            blurhash=None,
+            video_metadata=video_metadata,
+        )
+        url = f"https://media.test/{source.file_path.lstrip('/')}"
+        return SourceReference(
+            source=source,
+            original_url=url,
+            video_url=url,
+            poster_url=None,
+            expires_in=expires_in,
+        )
+
+
+async def _materialize_video_chunks(chunks):
+    batches = [batch async for batch in chunks]
+    items = {}
+    for _tasks, _annotations, batch_items in batches:
+        items.update(batch_items)
+
+    async def replay():
+        for batch in batches:
+            yield batch
+
+    return items, replay()
 
 
 def test_fetch_frames_script_extracts_only_selected_frames(tmp_path):
@@ -203,31 +266,14 @@ async def test_video_yolo_frames_zip_writes_grid_labels_and_manifest(monkeypatch
         attributes={"speed": 3},
     )
 
-    # v0.12.1 · 流式签名：喂内存 chunk（单块），ZIP 落盘 tmp_path，断言后清理。
+    # v0.12.1 · 流式签名：喂内存 chunk（单块），ZIP 落盘后断言。
     async def _chunks():
         yield [task], {task_id: [track, bbox]}, {item_id: item}
 
-    fd, tmp_path = tempfile.mkstemp(suffix=".zip")
-    os.close(fd)
-    try:
-        ret_path, file_count, size_bytes = await _build_video_export_zip(
-            None,
-            project,
-            _chunks(),
-            tmp_path=tmp_path,
-            batch_id=None,
-            targets=["yolo-frames-det"],
-            include_attributes=True,
-            video_frame_mode="keyframes",
-        )
-        assert ret_path == tmp_path
-        assert size_bytes == os.path.getsize(tmp_path)
-        data = open(tmp_path, "rb").read()
-    finally:
-        try:
-            os.unlink(tmp_path)
-        except OSError:
-            pass
+    data, file_count, size_bytes = await _run_video_zip_with_size(
+        project, _chunks(), ["yolo-frames-det"]
+    )
+    assert size_bytes == len(data)
 
     assert file_count == 3
     with zipfile.ZipFile(io.BytesIO(data)) as zf:
@@ -340,26 +386,45 @@ def _single_frame_polygon(task_id, project_id):
     )
 
 
-async def _run_video_zip(project, chunks, targets):
+async def _run_video_zip_with_size(project, chunks, targets):
+    from app.services.exporting import packaging
+
+    items, replay = await _materialize_video_chunks(chunks)
     fd, tmp_path = tempfile.mkstemp(suffix=".zip")
     os.close(fd)
     try:
-        _ret, file_count, _size = await _build_video_export_zip(
-            None,
-            project,
-            chunks,
-            tmp_path=tmp_path,
-            batch_id=None,
-            targets=targets,
-            include_attributes=True,
-            video_frame_mode="keyframes",
-        )
-        return open(tmp_path, "rb").read(), file_count
+        with pytest.MonkeyPatch.context() as monkeypatch:
+            monkeypatch.setattr(
+                packaging,
+                "media_gateway",
+                lambda _db: _FakeMediaGateway(items),
+            )
+            ret_path, file_count, size_bytes = await _build_video_export_zip(
+                SimpleNamespace(db=object()),
+                project,
+                replay,
+                tmp_path=tmp_path,
+                batch_id=None,
+                targets=targets,
+                include_attributes=True,
+                video_frame_mode="keyframes",
+            )
+        assert ret_path == tmp_path
+        with open(tmp_path, "rb") as exported:
+            data = exported.read()
+        return data, file_count, size_bytes
     finally:
         try:
             os.unlink(tmp_path)
         except OSError:
             pass
+
+
+async def _run_video_zip(project, chunks, targets):
+    data, file_count, _size_bytes = await _run_video_zip_with_size(
+        project, chunks, targets
+    )
+    return data, file_count
 
 
 async def test_polygon_geometries_reach_yolo_frames_det_as_bounding_boxes(monkeypatch):

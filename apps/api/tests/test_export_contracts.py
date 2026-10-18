@@ -44,7 +44,13 @@ def test_video_source_grid_is_absolute_scoped_and_freezes_original_parameters():
     )
     scope = VideoExportScope(task.id, item.id, "frames", 3, 8)
     frozen = video_source_contract(
-        source, task, item, {"fps": 30, "frame_count": 20}, scope
+        source,
+        task,
+        item,
+        {"fps": 30, "frame_count": 20},
+        scope,
+        source_file_path=item.file_path,
+        source_content_hash=item.content_hash,
     )
     assert frozen["source_key"] == item.file_path
     assert frozen["resolved_step"] == 2

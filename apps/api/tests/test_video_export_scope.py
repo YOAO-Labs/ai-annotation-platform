@@ -3,6 +3,7 @@ from __future__ import annotations
 import uuid
 
 import pytest
+from tests.media_owner_fixtures import media_owner as media_owner
 
 from app.db.models.dataset import Dataset, DatasetItem, VideoSegment
 from app.db.models.async_job import AsyncJob
@@ -137,6 +138,7 @@ async def test_normalize_segment_scope_resolves_contiguous_effective_range(
     httpx_client,
     monkeypatch,
     super_admin,
+    media_owner,
 ):
     user, token = super_admin
     suffix = uuid.uuid4().hex[:8]
@@ -165,6 +167,7 @@ async def test_normalize_segment_scope_resolves_contiguous_effective_range(
     )
     db_session.add(item)
     await db_session.flush()
+    await media_owner.seed_video_item(item, user.id)
     task = Task(
         project_id=project.id,
         dataset_item_id=item.id,
@@ -197,6 +200,7 @@ async def test_normalize_segment_scope_resolves_contiguous_effective_range(
     )
     scope = await normalize_video_export_scope(
         db_session,
+        actor_id=user.id,
         project=project,
         request=request,
     )
@@ -232,6 +236,7 @@ async def test_normalize_segment_scope_resolves_contiguous_effective_range(
     with pytest.raises(ValueError, match="exceeds source frame_count"):
         await normalize_video_export_scope(
             db_session,
+            actor_id=user.id,
             project=project,
             request=invalid,
         )
