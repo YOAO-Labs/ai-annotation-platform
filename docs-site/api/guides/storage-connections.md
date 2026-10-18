@@ -2,7 +2,7 @@
 audience: [dev]
 type: reference
 status: stable
-last_reviewed: 2026-10-17
+last_reviewed: 2026-10-19
 ---
 
 # 存储连接器 API
@@ -15,20 +15,24 @@ last_reviewed: 2026-10-17
 
 ## 端点一览
 
-| 方法   | 路径                                          | 权限              | 说明                                         |
-| ------ | --------------------------------------------- | ----------------- | -------------------------------------------- |
-| GET    | `/storage-connections`                        | 登录用户          | 列表（超管看全部，普通用户看 global + 自建） |
-| POST   | `/storage-connections`                        | 项目管理员 / 超管 | 新建连接器                                   |
-| GET    | `/storage-connections/{id}`                   | 可见该连接器者    | 获取单个                                     |
-| PATCH  | `/storage-connections/{id}`                   | 创建者 / 超管     | 更新名称 / 配置 / 密钥                       |
-| DELETE | `/storage-connections/{id}`                   | 创建者 / 超管     | 删除（`204`）                                |
-| POST   | `/storage-connections/{id}/test`              | 可见该连接器者    | 测试连通性                                   |
-| GET    | `/storage-connections/allowlist`              | 仅超管            | 读主机白名单及来源                           |
-| PUT    | `/storage-connections/allowlist`              | 仅超管            | 保存数据库覆盖                               |
-| DELETE | `/storage-connections/allowlist`              | 仅超管            | 删除覆盖并恢复部署默认                       |
-| GET    | `/storage-connections/deployment-sftp-preset` | 仅超管            | 读取部署主机 SFTP 快捷预设                   |
+| 方法   | 路径                                          | 权限                               | 说明                       |
+| ------ | --------------------------------------------- | ---------------------------------- | -------------------------- |
+| GET    | `/storage-connections`                        | 活跃用户                           | 返回该用户可见的完整列表   |
+| POST   | `/storage-connections`                        | 项目管理员 / 超管                  | 新建连接器                 |
+| GET    | `/storage-connections/{id}`                   | 可使用该连接器者                   | 获取单个                   |
+| PATCH  | `/storage-connections/{id}`                   | owner 创建者 / 超管；global 仅超管 | 更新名称 / 配置 / 密钥     |
+| DELETE | `/storage-connections/{id}`                   | owner 创建者 / 超管；global 仅超管 | 删除（`204`）              |
+| POST   | `/storage-connections/{id}/test`              | 可使用该连接器者                   | 测试连通性                 |
+| GET    | `/storage-connections/allowlist`              | 仅超管                             | 读主机白名单及来源         |
+| PUT    | `/storage-connections/allowlist`              | 仅超管                             | 保存数据库覆盖             |
+| DELETE | `/storage-connections/allowlist`              | 仅超管                             | 删除覆盖并恢复部署默认     |
+| GET    | `/storage-connections/deployment-sftp-preset` | 仅超管                             | 读取部署主机 SFTP 快捷预设 |
 
-`global` 作用域的连接器仅超管可创建。
+活跃用户都可以读取和使用 `global` 连接器；`owner` 连接器仅创建者和超管可读取或使用。创建 `owner` 连接器需要项目管理员或超管，创建和管理 `global` 连接器仅限超管。`owner` 创建者即使后来降为 employee 或 viewer，仍可管理自己创建的连接器。创建请求中历史兼容字段 `project_id` 会被忽略，新连接器的 `project_id` 始终为 `null`。
+
+这六个公开端点继续由 API 认证并保留原响应模型。Assets Source 持有同一套连接器工作流：未配置远程服务时，API 在本地调用它并通过当前数据库连接执行原生能力；配置 `ASSETS_SOURCE_URL` 和 `ASSETS_SOURCE_TOKEN` 后，请求发送到内部 `/v1/connections/{list,read,create,update,delete,test}`。远程错误直接失败，不会改走本地实现。公开列表仍返回所有可见连接器，网关内部按有界页面读取并验证快照和游标，不把分页参数暴露给调用方。
+
+创建、`PATCH`、删除和测试接受可选 UUID `Idempotency-Key`。省略时 API 会生成新的 UUID；成功响应都会回传实际使用的键，创建时连接器 ID 也等于该键。结果不确定时，调用方可用首次请求中的同一键和相同请求确认原结果；相同键配不同请求会冲突。SDK 与 CLI 提供显式传键的参数，客户端不会自动重试这些写入和测试请求。
 
 ## 数据形态
 
@@ -58,7 +62,7 @@ SFTP config: { host, username, port?, base_path?, auth_type: "password"|"key" }
      secret: { password }  或  { private_key, passphrase? }
 ```
 
-PATCH 中 `secret` 可省略——省略表示不轮换，沿用已存密钥；提供则整体替换。`kind` 与 `scope` 创建后不可变更。
+PATCH 中省略或传入 null 的字段不变更；`config` 提供时整体替换，`secret` 提供非 null 值时整体轮换，省略或 null 表示沿用已存密钥。`kind` 与 `scope` 创建后不可变更。
 
 config 拒绝未支持的键，避免拼写错误被忽略。S3 endpoint 不得内嵌用户名／密码；历史响应会移除 endpoint 的 userinfo，凭据应放入 secret。SFTP 密码和私钥必须二选一，并与 `auth_type` 一致；省略认证方式时可按唯一凭据推断，config-only 更新也会核对已存密钥。SDK/CLI 用法见 [账户、管理与运维](../../dev/sdk/account-and-operations)。
 
@@ -94,7 +98,7 @@ POST /api/v1/storage-connections/{id}/test
 }
 ```
 
-`ok=false` 时 `message` 给出失败原因（白名单拒绝、鉴权失败、网络不可达等）。
+底层连接探测失败时 `ok=false`，`message` 只包含安全的异常类型，例如 `连接失败: ConnectionError`；不会包含 SDK 异常文本、目标 URL 或凭据。白名单和请求配置拒绝仍按原 HTTP 错误响应处理。SFTP 目标的 host key 必须已存在于可信 `known_hosts`；独立 Source 可通过 `ASSETS_SOURCE_SFTP_KNOWN_HOSTS_FILE` 指定可读文件，未指定时使用进程的系统 `known_hosts`，不会自动信任未知主机。
 
 ## 主机白名单（仅超管）
 
@@ -146,7 +150,7 @@ POST /api/v1/datasets/{dataset_id}/import-from-connection   →  202 Accepted
 }
 ```
 
-返回 `job_id`，进度与结果通过 [AsyncJob](/api/guides/async-jobs) 查询。受 `DATASET_IMPORT_MAX_FILES` / `DATASET_IMPORT_MAX_TOTAL_BYTES` 上限约束，超限任务失败。
+返回 `job_id`，进度与结果通过 [AsyncJob](/api/guides/async-jobs) 查询。受理时保存连接器配置和加密凭据快照；之后删除连接器不会删除已受理作业的快照。显式取消、作业终态、父数据集和当前租约仍会阻止迟到结果提交。导入受 `DATASET_IMPORT_MAX_FILES` / `DATASET_IMPORT_MAX_TOTAL_BYTES` 上限约束，超限任务失败。
 
 ## 审计
 

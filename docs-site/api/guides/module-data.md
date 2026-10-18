@@ -2,7 +2,7 @@
 audience: [dev]
 type: reference
 status: stable
-last_reviewed: 2026-10-18
+last_reviewed: 2026-10-19
 ---
 
 # 同库事务数据接口
@@ -10,7 +10,7 @@ last_reviewed: 2026-10-18
 这些接口供可信后端进程使用，不是终端用户 REST API。调用方仍负责身份认证和用例准入；
 初始操作接受时还会在数据库内校验当前项目管理权。持有函数执行权限不等于获得任意用户的项目管理权限。
 
-实现与冻结合同位于 `apps/api/alembic/sql/0190*` 至 `0215*`。接口通过 PostgreSQL
+实现与冻结合同位于 `apps/api/alembic/sql/0190*` 至 `0217*`。接口通过 PostgreSQL
 协议调用，使用调用方同一连接的外层事务，不接收 Python Session、ORM 或任意 SQL。
 安装、独立角色及本地验收命令见仓库 `DEV.md`；数据所有权见
 [ADR-0092](/dev/adr/0092-transactional-module-data-capabilities)。
@@ -278,7 +278,7 @@ ListBucket/DeleteObject，不继承 API、Redis 或 Celery 配置。配置、独
 
 `list_dataset_projects(actor,dataset)` 和 `list_project_datasets(actor,project)` 返回冻结 `aap-assets-associations/v1`，完整结构见 `0212_asset_association_reads.schema.json`。两者均为 STABLE 读取，按最外层 SELECT 的同一个 MVCC 快照组合身份、关联、配置与计数，不调用写入围栏或持有行锁。快照开始后的撤权和解绑不改变已开始读取的结果，下一条 READ COMMITTED 语句读取新状态。
 
-Identity 只提供 actor UUID、平台角色和活跃状态；Workspace 提供原始项目配置及当前可见性；Labeling 提供持久项目计数和按直接来源分组的任务数；Assets 持有目录、条目与关联。Owner 间只授予版本化投影/函数权限，不授予其他 owner 私有表。目录 LOGIN 执行目录、关联与空间素材的 27 个公开 Assets 操作，不能读取这些投影。
+Identity 只提供 actor UUID、平台角色和活跃状态；Workspace 提供原始项目配置及当前可见性；Labeling 提供持久项目计数和按直接来源分组的任务数；Assets 持有目录、条目与关联。Owner 间只授予版本化投影/函数权限，不授予其他 owner 私有表。Catalog LOGIN 执行目录、关联与空间素材的 29 个公开 Assets 操作，不能读取这些投影。
 
 ## 旧上传条目的完成与回执
 
@@ -286,7 +286,7 @@ Identity 只提供 actor UUID、平台角色和活跃状态；Workspace 提供�
 
 调用方在同一个外层事务中持有锁，期间只读取既有来源的 HEAD/有限图像头，不复制或删除旧字节。文件缺失或内容重复不清除旧行、对象或人工证据。成功时元数据、任务、计数、Labeling 回执和 Assets 回执共同提交；最终提交失败则共同回滚。Labeling 的可复用追加 ID 不能单独证明 Assets 已完成上传。
 
-`dataset_legacy_upload_operations` 没有 live Dataset/Item/账号外键，也不自动过期。重放仍检查当前活跃身份、父子存在关系和当前来源路径/类型；不同规范请求复用操作 ID 返回 `operation_conflict`，来源替换返回 `source_changed`，不会按历史回执改回当前来源。状态为 pending/completed/duplicate，完整字段及错误见 `0213_assets_source_runtime.schema.json`。0215 后独立来源进程的专用 LOGIN 精确执行 14 项能力，即五项现代上传、两项删除、两项旧上传和五项 ZIP/扫描能力，不读取业务关系。
+`dataset_legacy_upload_operations` 没有 live Dataset/Item/账号外键，也不自动过期。重放仍检查当前活跃身份、父子存在关系和当前来源路径/类型；不同规范请求复用操作 ID 返回 `operation_conflict`，来源替换返回 `source_changed`，不会按历史回执改回当前来源。状态为 pending/completed/duplicate，完整字段及错误见 `0213_assets_source_runtime.schema.json`。在 0215 阶段，独立来源进程的专用 LOGIN 精确执行 14 项能力，即五项现代上传、两项删除、两项旧上传和五项 ZIP/扫描能力，不读取业务关系。
 
 ## 同步 ZIP 与对象桶扫描
 
@@ -308,13 +308,33 @@ ZIP 的 `read_dataset_ingest_layout` 以 UUID keyset 分页返回至多 500 个 
 
 完整 native JSON 合同见 `apps/api/alembic/sql/0215_dataset_source_ingest.schema.json`；纯 Python HTTP/wire 合同见 `apps/assets-source/src/aap_assets_source/ingest_contract.schema.json`。迁移按 `0215_dataset_source_ingest.sql` 后 `0215_dataset_source_ingest_delivery.sql` 的顺序安装。既有 Source LOGIN 权限面从九项增加到 14 项，只有这五项新数据能力加入；`claim_dataset_source_ingest_delivery` 和 `complete_dataset_source_ingest_delivery` 仅供 API maintenance relay 领取/确认派发，不授予 Source LOGIN。交付收据表示 broker 接受，不表示媒体已执行。
 
+## 存储连接器管理
+
+0217 为 Assets Source 增加九项连接器原生能力，专用 Source LOGIN 现在共可执行 23 项公开能力。独立连接器导入执行器仍使用独立的七项 LOGIN 能力；它不能接受新的导入授权。两个角色都不能直接读取或写入业务表。
+
+| 原生能力                          | SQL 参数签名                                                       |
+| --------------------------------- | ------------------------------------------------------------------ |
+| `list_storage_connections`        | `(uuid, timestamptz, uuid, integer)`                               |
+| `read_storage_connection`         | `(uuid, uuid)`                                                     |
+| `read_storage_connection_policy`  | `(uuid, jsonb)`                                                    |
+| `capture_storage_connection`      | `(uuid, uuid, text)`                                               |
+| `read_storage_connection_receipt` | `(uuid, uuid, text, uuid, jsonb)`                                  |
+| `create_storage_connection`       | `(uuid, uuid, jsonb, jsonb, text, text, jsonb, jsonb)`             |
+| `update_storage_connection`       | `(uuid, uuid, uuid, jsonb, jsonb, text, text, text, jsonb, jsonb)` |
+| `delete_storage_connection`       | `(uuid, uuid, uuid, jsonb)`                                        |
+| `record_storage_connection_test`  | `(uuid, uuid, uuid, text, text, jsonb, jsonb, jsonb)`              |
+
+六个公开 REST 操作通过内部 `POST /v1/connections/{list,read,create,update,delete,test}` 调用 Source 工作流。API 网关保留 JWT/API key、公开角色和响应；本地模式复用同一工作流与调用方 SQL 连接，远程模式由 Source 持有事务，远程故障不回退到本地。列表在内部按有界页面读取并校验完整快照，公开响应仍是完整列表。
+
+Source 在 `public.storage_connection_operations` 中保存不可变幂等回执，并与连接器变化和审计共同提交。create、update、delete、test 接受 `operation_id`，通过 API 的可选 UUID `Idempotency-Key` 传入；重放要求相同 actor、操作、资源和用户意图。create 令 `connection_id=operation_id`。历史兼容 `project_id` 不参与新记录归属，owner 连接器使用 `created_by`，其创建者即使降为 employee/viewer 仍可管理，global 连接器仅超级管理员可管理。Source 通过公开身份能力检查当前角色，不依赖调用方传入角色布尔值。
+
 ## 持久连接器导入
 
 Assets 的 `prepare_dataset_import`、`accept_dataset_import` 与 `cancel_dataset_import` 服务公开适配器；独立执行器只获得 claim、heartbeat、connection、manifest、next、complete-entry、finish 七项能力，不能接受新授权或读取其他 owner 关系。协议为 `aap-dataset-import/v1`，完整定义见 `0214_dataset_import.schema.json` 和随包的 `import_contract.schema.json`。
 
-`dataset_import_operations` 保存已接受执行权、加密连接快照、预算、租约和聚合进度；`dataset_import_entries` 保存不可变清单、稳定条目 UUID 与逐文件回执。它们和 `dataset_import_deliveries` 没有 live 业务外键，也不自动过期。通用清理保留带该受理协议的 Jobs 回执，避免清理后原 UUID 无法重放。最多 16 MiB 的清单在复制前校验；源路径与文件名分别受目录安全、数据库字符及对象 key UTF-8 预算约束。
+`dataset_import_operations` 保存已接受执行权、加密连接配置与凭据快照、预算、租约和聚合进度；`dataset_import_entries` 保存不可变清单、稳定条目 UUID 与逐文件回执。它们和 `dataset_import_deliveries` 没有 live 业务外键，也不自动过期。通用清理保留带该受理协议的 Jobs 回执，避免清理后原 UUID 无法重放。最多 16 MiB 的清单在复制前校验；源路径与文件名分别受目录安全、数据库字符及对象 key UTF-8 预算约束。
 
-接受时仍校验当前活跃管理员与连接器使用权，prepare 持有连接行锁直到调用方完成主机/路径校验和接受提交。同一 UUID 重放绑定原用户意图并沿用首次预算。执行不重新授予或撤回原受理者的权限；显式取消、当前作业、连接器版本、Dataset 与 lease/token 在 SQL 中逐文件围栏。每次复制使用新的 publication 路径，原始及不确定拷贝保留。
+接受时仍校验当前活跃管理员与连接器使用权，prepare 持有连接行锁直到调用方完成主机/路径校验和接受提交。同一 UUID 重放绑定原用户意图并沿用首次预算。作业接受后使用已保存的连接器配置和加密凭据快照；删除连接器不会删除该快照或撤销已接受的执行权。执行不重新授予原受理者权限；显式取消、作业终态、Dataset 与 lease/token 在 SQL 中逐文件围栏。每次复制使用新的 publication 路径，原始及不确定拷贝保留。
 
 Item、文件数、Labeling append、游标/计数、Jobs 进度和媒体派发意图共同提交或回滚。Jobs 终态经 Notifications 能力持久化通知；Settings 的当前白名单通过其版本化能力读取。两个新 NOLOGIN owner 不读取 Identity 私表，Identity 存在事实由既有公开能力提供。
 
@@ -322,6 +342,6 @@ Item、文件数、Labeling append、游标/计数、Jobs 进度和媒体派发�
 
 ## 空间素材状态与同事务组合
 
-场景、帧组织、位姿、标定与 nuScenes 标定 provenance 使用二十项公开原生能力；完整合同见[空间素材协议](./assets-spatial)。Assets 新增不可变 `dataset_spatial_operations`，不保存 live-resource 外键。Catalog LOGIN 共 27 项 execute-only 能力，Source LOGIN 保持 14 项。
+场景、帧组织、位姿、标定与 nuScenes 标定 provenance 使用二十项公开原生能力；完整合同见[空间素材协议](./assets-spatial)。Assets 新增不可变 `dataset_spatial_operations`，不保存 live-resource 外键。Catalog LOGIN 共 29 项 execute-only 能力，Source LOGIN 共 23 项。
 
 Assets 只通过 Labeling 当前相机/共享与受理范围、Workspace 当前项目访问和 Audit 事件能力组合跨 owner 状态，不读取其他 owner 私有表。标定更新与审计、回执、历史修订和元数据共同提交；需要同事务的建题导入继续在调用方同一 SQL 连接上组合公开能力。读取标定文件前不增加空间状态行锁，最终应用再检查来源快照和已受理作业/关联代次。普通远程故障不触发本地回退。

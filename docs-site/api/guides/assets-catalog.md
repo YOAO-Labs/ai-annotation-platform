@@ -2,7 +2,7 @@
 audience: [dev, ops]
 type: reference
 status: stable
-last_reviewed: 2026-10-18
+last_reviewed: 2026-10-19
 ---
 
 # 独立素材目录
@@ -49,7 +49,7 @@ SDK 的 `client.datasets.create(..., idempotency_key=key)` 与 `update(..., idem
 
 原生入口位于 `aap_assets_v1`：`list_catalog_datasets`、`get_catalog_dataset`、`list_catalog_items`、`create_catalog_dataset`、`update_catalog_dataset`。冻结 SQL 和 JSON Schema 位于 `apps/api/alembic/sql/0211_dataset_catalog.*`。写入和 `dataset_catalog_operations` 回执共用一项调用方事务；函数不自行提交，不执行 S3 或 broker 操作。
 
-先完成常规模块 owner 授权，再运行 `infra/docker/assets-catalog-grants.sql`。目录 LOGIN 只能执行目录、关联与空间素材的 27 项公开能力；不能读取业务表、视图、序列或 Identity/Workspace/Labeling schema。Assets 函数 owner 通过 Identity 当前账号合同检查权限，并通过 Workspace/Labeling 的版本化只读投影组合关联结果。当前主 API 仍使用迁移期宽权限角色。
+先完成常规模块 owner 授权，再运行 `infra/docker/assets-catalog-grants.sql`。目录 LOGIN 只能执行目录、关联与空间素材的 29 项公开能力；不能读取业务表、视图、序列或 Identity/Workspace/Labeling schema。Assets 函数 owner 通过 Identity 当前账号合同检查权限，并通过 Workspace/Labeling 的版本化只读投影组合关联结果。当前主 API 仍使用迁移期宽权限角色。
 
 目录 S3 身份仅需 `GetObject`：一个 datasets 桶的历史及新来源路径，以及固定 media-cache 桶中的 `thumbnails/`、`videos/`、`playback/`、`image-pyramids/`。不授予列桶、写入、删除或桶管理权限。公开签名 origin 显式配置；不能从请求指定 bucket、endpoint 或任意 key。空间素材准备还使用同一只读身份条件读取有限字节的标定 JSON；固定连接 origin 可通过 `ASSETS_CATALOG_S3_ENDPOINT` 与公开签名地址分开配置。
 
@@ -80,4 +80,4 @@ SDK 的 `client.datasets.create(..., idempotency_key=key)` 与 `update(..., idem
 
 新业务错误码为 `invalid_request,account_not_active,invalid_account_role,project_missing,invalid_project_role,incompatible_project_role`。错误 schema、错父级或重复 UUID 会明确失败，不返回部分列表。两个读取沿用同一传输预算、服务停服失败和本地/远程选择规则。
 
-升级时先停止受影响写入，应用 0216 与 owner/Catalog 授权，再更新目录镜像并通过就绪检查，最后切换网关。旧镜像的权限预检会拒绝新的 27 项执行权，需要协调升级。Scene、位姿、标定、来源快照与同事务导入详见[空间素材协议](./assets-spatial)。
+升级时先停止受影响写入，应用 0216 与 owner/Catalog 授权，再更新目录镜像并通过就绪检查，最后切换网关。旧镜像的权限预检会拒绝新的 29 项执行权，需要协调升级。Scene、位姿、标定、来源快照与同事务导入详见[空间素材协议](./assets-spatial)。

@@ -2,12 +2,12 @@
 audience: [dev]
 type: reference
 status: stable
-last_reviewed: 2026-10-18
+last_reviewed: 2026-10-19
 ---
 
 # 独立素材来源控制
 
-`apps/assets-source` 是既有 Assets 来源控制运行时，持有单文件上传初始化、发布完成、Dataset/Item 删除、同步 ZIP 入库和旧对象桶扫描的实际 SQL/S3 执行。公开 API 继续认证 JWT/API key、检查各入口既有 scope 与角色并保持同步响应；显式远程配置失败会报错，不回退到本地。未配置远程地址时使用同一公开工作流与原生能力。
+`apps/assets-source` 是 Assets 来源控制运行时，持有单文件上传初始化、发布完成、Dataset/Item 删除、同步 ZIP 入库、旧对象桶扫描，以及存储连接器列表、读取、创建、更新、删除和连通性测试。公开 API 继续认证 JWT/API key、检查各入口既有 scope 与角色并保持原响应；显式远程配置失败会报错，不回退到本地。未配置远程地址时使用同一工作流与原生能力。
 
 ## 接口与身份
 
@@ -23,6 +23,16 @@ last_reviewed: 2026-10-18
 内部请求使用可信网关 bearer，账号 UUID 从公开 API 的当前认证结果取得；原生能力再次检查当前活跃账号、上传归属或全局素材库管理权。来源服务不读取 API 的 JWT、Redis 或 Celery 配置。普通上传和 ZIP 入库允许符合现有策略的活跃账号；ZIP 只要求 `datasets:write`，不要求素材库管理员。来源删除仍仅允许全局素材库管理员。扫描保留现有 `super_admin`、`project_admin` 管理员集合并要求 `datasets:write`。引用中的来源返回 409，须先在对应项目或功能中解除引用。
 
 普通来源操作使用 `aap-assets-source/v1` 信封：成功仅含 `schema,ok:true,data`，失败仅含 `schema,ok:false,error:{code}`。批量导入使用独立的 `aap-dataset-source-ingest/v1` 数据合同。完整 JSON Schema 随纯合同 wheel 分发，位于 `apps/assets-source/src/aap_assets_source/protocol.schema.json`。调用方检查 actor、父子与操作 UUID，未知版本、字段、错误或错误 scope 明确失败，不接受部分结果。JSON 请求/响应默认上限为 1/16 MiB；ZIP 使用单独的归档预算。
+
+## 存储连接器管理
+
+六个公开连接器端点保留原路径、权限、状态码和响应模型。它们调用 Assets Source 的内部 `POST /v1/connections/{list,read,create,update,delete,test}` 工作流。本地模式复用同一 Python 工作流并在调用方数据库事务中执行；配置 `ASSETS_SOURCE_URL` 与 `ASSETS_SOURCE_TOKEN` 后，API 调用独立 Source，远程错误会直接返回，不自动切到本地。`GET /storage-connections` 仍返回全部可见连接器，网关逐页读取并校验完整快照与游标，不把内部分页暴露给公开响应。
+
+内部协议为 `aap-assets-connections/v1`，完整请求、结果和原生参数合同见 `apps/assets-source/src/aap_assets_source/connections_contract.schema.json`。本地与远程连接器请求/响应都受 1/16 MiB 单次预算约束；完整列表由多个有界私有页面组成。
+
+创建、更新、删除和测试接受可选 UUID `Idempotency-Key`。省略时 API 生成新 UUID，成功响应回传实际使用的键，创建的连接器 ID 等于该键。结果不确定时，调用方应保存并复用首次请求的键；同键同请求可取回原结果，改变请求会冲突。SDK/CLI 不会自动重试这些操作。测试连通失败只返回安全异常类型，不回传 SDK 异常文本、目标 URL 或凭据。
+
+新连接器的历史兼容字段 `project_id` 会被忽略，所有新连接器均保存 `project_id=null`。全体活跃用户可使用 global 连接器；owner 连接器由创建者和超级管理员使用。owner 创建者即使平台角色后来降为 employee 或 viewer，仍可管理该连接器；global 连接器只由超级管理员管理。
 
 ## 上传与重放
 
@@ -50,7 +60,7 @@ ZIP 将新字节写入不可变 key：`dataset-sources/{dataset_id}/{item_id}/{p
 
 ## 事务与存储权限
 
-0215 后，服务使用专用 execute-only LOGIN 执行现有九项来源能力和五项批量入库能力，共 14 项；不能直接读写业务表、序列、其他 owner schema 或继承角色。两项媒体派发 claim/ack 能力只由 API maintenance relay 使用。原生 SQL 安装与 owner 授权见[同库数据接口](/api/guides/module-data)。来源删除的 Audit、回执和派生清理 outbox 与业务删除在同一事务；原始字节始终保留。
+0215 阶段的专用 execute-only LOGIN 执行九项来源能力和五项批量入库能力，共 14 项；不能直接读写业务表、序列、其他 owner schema 或继承角色。0217 增加九项连接器原生能力后，Source LOGIN 共执行 23 项公开能力。两项媒体派发 claim/ack 能力只由 API maintenance relay 使用。原生 SQL 安装与 owner 授权见[同库数据接口](/api/guides/module-data)。来源删除的 Audit、回执和派生清理 outbox 与业务删除在同一事务；原始字节始终保留。
 
 S3 身份只拥有 import 桶 `dataset-uploads/*` 的 Get/Put、datasets 桶历史来源读取与该桶自身的 ListBucket，以及 `dataset-sources/*` 的 Put 和 multipart Abort。扫描只对原生能力返回的 Dataset 前缀执行条件 HEAD/GET。它不能删除对象、列其它桶或管理桶，也不写 media-cache。内部 I/O endpoint 与浏览器签名 endpoint 分别显式配置，签名后不改 Host。服务不读取请求提供的任意 URL、bucket 或对象 key。
 
@@ -60,7 +70,7 @@ S3 身份只拥有 import 桶 `dataset-uploads/*` 的 Get/Put、datasets 桶历�
 
 ## 运行与回退
 
-先应用至 0215 的迁移、module-data owner 授权与 `infra/docker/assets-source-grants.sql`，再为非 root 用户 10003 准备专用 secret、固定桶和 S3 origin。独立启动配置见仓库 `DEV.md`、`docker-compose.assets-source.yml` 及服务 README。先确认服务 `/health` 与 `/ready`，再设置网关 `ASSETS_SOURCE_URL`、`ASSETS_SOURCE_TOKEN` 并刷新 API。网关 I/O 超时默认 300 秒，上限 3600 秒；独立服务的池、SQL、S3 连接/读取和消息预算均可独立限制。0215 的 SQL 工件先安装 core，再安装 delivery；降级会移除完成收据并丢失同键重放结果，故应先停止来源写入并排空活动操作和待派发媒体记录。
+先应用至 0217 的迁移、module-data owner 授权与 `infra/docker/assets-source-grants.sql`，再为非 root 用户 10003 准备专用 secret、固定桶和 S3 origin。独立启动配置见仓库 `DEV.md`、`docker-compose.assets-source.yml` 及服务 README。先确认服务 `/health` 与 `/ready`，再设置网关 `ASSETS_SOURCE_URL`、`ASSETS_SOURCE_TOKEN` 并刷新 API。网关 I/O 超时默认 300 秒，上限 3600 秒；独立服务的池、SQL、S3 连接/读取和消息预算均可独立限制。0215 的 SQL 工件仍按 core 后 delivery 的顺序安装；降级会移除来源和连接器回执并丢失同键重放结果，故应先停止来源写入并排空活动操作和待派发媒体记录。
 
 回退到本地模式可清空网关 URL 并刷新 API，保留兼容的 SQL 与完成回执，再停止指定独立 Compose 项目。回退迁移前须停止来源写入并处理仍需确认的操作；空库迁移往返不证明删除在途回执安全。Go 仍是隔离实验，不进入本服务或真实环境。
 
@@ -70,7 +80,7 @@ S3 身份只拥有 import 桶 `dataset-uploads/*` 的 Get/Put、datasets 桶历�
 
 `aap-dataset-import/v1` 将接受、租约、冻结清单、逐文件完成和终态分开；每次调用在完整回复验证后提交。`python -m aap_assets_source_import` 使用独立数据库身份轮询已接受作业，不导入 API、ORM、Celery 或 Redis。七项执行能力只允许处理已接受的导入；接受和取消能力由 API 使用，不授予执行器。
 
-每个作业固定预算与连接器配置/加密凭据。执行时再次读取有效白名单，显式空数据库覆盖保持拒绝。连接器修改或删除阻止后续提交。已接受执行不因原发起者被停用而丢弃；显式取消、Jobs 终态、父数据集和当前租约仍逐项围栏。
+每个作业固定预算与连接器配置/加密凭据快照。已接受作业继续使用这份快照；删除连接器不会删除快照或撤销已受理的执行授权。执行时再次读取有效白名单，显式空数据库覆盖保持拒绝。已接受执行不因原发起者被停用而丢弃；显式取消、Jobs 终态、父数据集和当前租约仍逐项围栏。
 
 清单在复制前完整持久保存。每次尝试写入独立 `dataset-sources/{dataset}/{item}/{publication}/` 路径，不覆盖按文件名共用的 key，也不在判重时删除原始字节。条目、文件计数、Labeling append、导入游标/计数和后续派发记录在一个事务内提交。提交结果不确定或进程被终止后，接替执行器从已提交游标继续；数据库锁竞争保留当前文件重试，不计为文件失败。
 
