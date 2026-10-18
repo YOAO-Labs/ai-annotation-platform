@@ -1303,6 +1303,23 @@
             "type": "string",
             "format": "uuid"
           }
+        },
+        {
+          "name": "Idempotency-Key",
+          "in": "header",
+          "required": false,
+          "schema": {
+            "title": "Idempotency-Key",
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
         }
       ],
       "responses": {
@@ -1357,6 +1374,23 @@
             "title": "Item Id",
             "type": "string",
             "format": "uuid"
+          }
+        },
+        {
+          "name": "Idempotency-Key",
+          "in": "header",
+          "required": false,
+          "schema": {
+            "title": "Idempotency-Key",
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         }
       ],
@@ -44644,11 +44678,21 @@
           "annotation": "IdLike",
           "required": true,
           "default": null
+        },
+        {
+          "name": "idempotency_key",
+          "kind": "keyword_only",
+          "annotation": "IdLike | None",
+          "required": false,
+          "default": null
         }
       ],
       "return_type": "None",
       "python_only": false,
-      "constructed_models": [],
+      "constructed_models": [
+        "UUID",
+        "ValueError"
+      ],
       "direct_api_operations": [
         "DELETE /api/v1/datasets/{dataset_id}"
       ],
@@ -44680,11 +44724,21 @@
           "annotation": "IdLike",
           "required": true,
           "default": null
+        },
+        {
+          "name": "idempotency_key",
+          "kind": "keyword_only",
+          "annotation": "IdLike | None",
+          "required": false,
+          "default": null
         }
       ],
       "return_type": "None",
       "python_only": false,
-      "constructed_models": [],
+      "constructed_models": [
+        "UUID",
+        "ValueError"
+      ],
       "direct_api_operations": [
         "DELETE /api/v1/datasets/{dataset_id}/items/{item_id}"
       ],
@@ -67968,6 +68022,17 @@
           "description": "数据集 ID"
         },
         {
+          "name": "idempotency_key",
+          "kind": "option",
+          "options": [
+            "--idempotency-key"
+          ],
+          "required": false,
+          "default": null,
+          "type": "str | None",
+          "description": "稳定 UUID；响应不确定时重试请复用原值"
+        },
+        {
           "name": "yes",
           "kind": "option",
           "options": [
@@ -68017,6 +68082,17 @@
           "default": null,
           "type": "str",
           "description": "文件 ID"
+        },
+        {
+          "name": "idempotency_key",
+          "kind": "option",
+          "options": [
+            "--idempotency-key"
+          ],
+          "required": false,
+          "default": null,
+          "type": "str | None",
+          "description": "稳定 UUID；响应不确定时重试请复用原值"
         },
         {
           "name": "yes",

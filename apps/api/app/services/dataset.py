@@ -9,8 +9,9 @@ import uuid
 from typing import Any, AsyncIterator, BinaryIO, Literal, Mapping, Sequence
 
 from fastapi import HTTPException
-from sqlalchemy import select, func, delete, text
+from sqlalchemy import select, func, delete, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm.attributes import set_committed_value
 
 from app.db.models.dataset import (
     Dataset,
@@ -27,7 +28,6 @@ from app.services.project_kind import (
 )
 from app.services.media_job_dispatch import MediaJobDispatcher
 from app.services.storage import TRUSTED_NUSCENES_PREFIX, storage_service
-from app.services.active_learning_references import guard_source
 from app.services.task_creation_contract import (
     DatasetAssociationFacts,
     decode_creation_reply,
@@ -61,11 +61,6 @@ class IngestOutcome:
     content_hash: str | None = None
     reason: str | None = None
     error: str | None = None
-
-
-@dataclass(frozen=True)
-class DatasetDeleteCleanup:
-    pyramid_asset_ids: tuple[uuid.UUID, ...]
 
 
 @dataclass(frozen=True)
@@ -394,40 +389,6 @@ class DatasetService:
         await self.db.flush()
         return ds
 
-    async def delete_dataset_record(self, ds: Dataset) -> DatasetDeleteCleanup:
-        from app.db.models.image_pyramid import ImagePyramidAsset
-
-        asset_ids = list(
-            (
-                await self.db.execute(
-                    select(ImagePyramidAsset.id)
-                    .join(
-                        DatasetItem,
-                        DatasetItem.id == ImagePyramidAsset.dataset_item_id,
-                    )
-                    .where(DatasetItem.dataset_id == ds.id)
-                )
-            )
-            .scalars()
-            .all()
-        )
-        await self.db.delete(ds)
-        await self.db.flush()
-        return DatasetDeleteCleanup(pyramid_asset_ids=tuple(asset_ids))
-
-    @staticmethod
-    def cleanup_deleted_storage(cleanup: DatasetDeleteCleanup) -> None:
-        from app.services.image_pyramid import PYRAMID_PREFIX
-
-        for asset_id in cleanup.pyramid_asset_ids:
-            try:
-                storage_service.delete_prefix(
-                    f"{PYRAMID_PREFIX}/{asset_id}",
-                    bucket=storage_service.media_cache_bucket,
-                )
-            except Exception:  # noqa: BLE001
-                log.exception("failed to clean image pyramid asset %s", asset_id)
-
     # ── Items ───────────────────────────────────────────────────────────────
 
     async def list_items(
@@ -503,6 +464,20 @@ class DatasetService:
         *,
         flush: bool = True,
     ) -> DatasetItem:
+        count = await self.db.scalar(
+            update(Dataset)
+            .where(Dataset.id == dataset_id)
+            .values(file_count=Dataset.file_count + 1)
+            .returning(Dataset.file_count)
+            .execution_options(synchronize_session="fetch")
+        )
+        if count is None:
+            raise HTTPException(404, "Dataset not found")
+        cached = self.db.sync_session.identity_map.get(
+            self.db.sync_session.identity_key(Dataset, dataset_id)
+        )
+        if cached is not None:
+            set_committed_value(cached, "file_count", count)
         item = DatasetItem(
             dataset_id=dataset_id,
             file_name=file_name,
@@ -516,10 +491,6 @@ class DatasetService:
         if metadata_ is not None:
             item.metadata_ = metadata_
         self.db.add(item)
-
-        ds = await self.db.get(Dataset, dataset_id)
-        if ds:
-            ds.file_count = (ds.file_count or 0) + 1
 
         if flush:
             await self.db.flush()
@@ -602,50 +573,6 @@ class DatasetService:
             dataset.file_count = count
         await self.db.flush()
         return count
-
-    async def delete_item(
-        self, item_id: uuid.UUID, *, dataset_id: uuid.UUID | None = None
-    ) -> bool:
-        parent_id = await self.db.scalar(
-            select(DatasetItem.dataset_id).where(DatasetItem.id == item_id)
-        )
-        if parent_id is None or (dataset_id is not None and parent_id != dataset_id):
-            return False
-        await self.lock_dataset_reference(parent_id)
-        item = await self.db.scalar(
-            select(DatasetItem)
-            .where(DatasetItem.id == item_id, DatasetItem.dataset_id == parent_id)
-            .with_for_update()
-        )
-        if not item:
-            return False
-
-        await guard_source(self.db, item_ids=[item_id])
-        ds = await self.db.get(Dataset, item.dataset_id)
-        if ds:
-            ds.file_count = max((ds.file_count or 0) - 1, 0)
-        from app.db.models.image_pyramid import ImagePyramidAsset
-        from app.services.image_pyramid import PYRAMID_PREFIX
-
-        asset_ids = list(
-            (
-                await self.db.execute(
-                    select(ImagePyramidAsset.id).where(
-                        ImagePyramidAsset.dataset_item_id == item.id
-                    )
-                )
-            )
-            .scalars()
-            .all()
-        )
-        for asset_id in asset_ids:
-            storage_service.delete_prefix(
-                f"{PYRAMID_PREFIX}/{asset_id}",
-                bucket=storage_service.media_cache_bucket,
-            )
-        await self.db.delete(item)
-        await self.db.flush()
-        return True
 
     async def ingest_one(
         self,

@@ -477,6 +477,12 @@ async def create_quality_run(
     snapshot, scope_json = await build_source_snapshot(
         db, project=project, request=request
     )
+    from app.services.scene import lock_scene_source_references
+
+    if not await lock_scene_source_references(
+        db, (uuid.UUID(value) for value in scope_json["scene_ids"])
+    ):
+        raise PointCloudQualityError(409, "point_cloud_quality_source_changed")
     source_digest = canonical_digest(snapshot)
     config_digest = point_cloud_quality_config_digest(config)
     singleflight_key = canonical_digest(

@@ -353,6 +353,7 @@ def _upload_and_verify(
     prefix = generation_prefix(asset_id, generation_number)
     expected: dict[str, int] = {}
     for local_path, level, x, y in tiles:
+        _check_deadline(deadline)
         key = tile_key(asset_id, generation_number, level, x, y)
         size = local_path.stat().st_size
         storage.upload_file(
@@ -366,6 +367,7 @@ def _upload_and_verify(
         _check_deadline(deadline)
 
     ov_key = overview_key(asset_id, generation_number)
+    _check_deadline(deadline)
     storage.upload_file(
         str(overview_path),
         ov_key,
@@ -383,6 +385,7 @@ def _upload_and_verify(
         raise ImagePyramidError("upload_verification_failed")
 
     mf_key = manifest_key(asset_id, generation_number)
+    _check_deadline(deadline)
     storage.client.put_object(
         Bucket=storage.media_cache_bucket,
         Key=mf_key,

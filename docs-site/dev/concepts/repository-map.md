@@ -155,8 +155,8 @@ last_reviewed: 2026-10-17
    分块提交、追加 flush-only 和标定前置提交不同，不能合并成一种事务。
    上传完成的内容观测归 `DatasetService.record_uploaded_item_content`，图片尺寸归其既有 `set_item_dimensions`；HTTP 保留 Head/尺寸读取、去重、占位清理与追加建题的原事务及派发顺序。
    项目删除由 `application/project_deletion.py` 和严格 `services/project_deletion_contract.py` / `project_deletion_data.py` 绑定 Workspace 原生事务命令；各 owner 清理、学习保留、审计与删除回执共同提交，原始素材保留。Jobs 的 `retained_project_id` 固定删除后的访问范围，不从 payload 推断权限。
-   `api/v1/datasets.py` 的 20 个 HTTP 路由（6 个读取，含 POST sniff；14 个写入）仍由同一 API 入口装配；其中预览与项目解绑仅将事务写入迁至 owner 命令。`application/dataset_deletion.py` 用 `DatasetUnlinkCommand` / `DatasetUnlinkReceipt` 和 `services/dataset_unlink_data.py` 绑定 Workspace 的 `preview_dataset_unlink` / `unlink_dataset`。0201–0205 冻结 SQL 由 Workspace 原子协调 Learning 与 Labeling 保留检查、Labeling 任务/计数写入、Diagnostics 引用解除、Assets 关联代次与派生金字塔 outbox、Jobs 精确 `create_tasks` 代次取消及 Audit；调用方仍持有同连接提交权。提交后 `MediaJobDispatcher` 派发清理，周期 worker 重试 outbox，不在事务内运行 S3 或 broker。`Idempotency-Key` 是可选 UUID，REST 回传它，SDK/Web 对同一操作复用原 key。
-   项目解绑只移除该项目关联、其任务/标注及可删空批次，保留 Dataset、DatasetItem、原始文件和共享来源金字塔。整库 Dataset/Item 删除及无源任务清理仍由现有本地路径组合；不能把本切片表述为整个 Assets/Labeling 模块独立部署或所有数据删除操作已迁移。
+   `api/v1/datasets.py` 的 20 个 HTTP 路由（6 个读取，含 POST sniff；14 个写入）仍由同一 API 入口装配。项目解绑通过 Workspace 的 `DatasetUnlinkCommand` / `Receipt`，公开来源删除通过 Assets 的 `DatasetSourceDeletionCommand` / `Receipt` 调用原生协调命令。当前身份/权限、关联代次、Learning/Labeling 保留、Jobs 检查/取消、计数、Audit、owner 清理及不可变回执在同一调用方连接提交。`Idempotency-Key` 是可选 UUID，REST 回传它，SDK/Web 对同一操作复用原 key。
+   项目解绑保留 Dataset、Item、原始文件和共享来源金字塔；来源删除保护关联证据，只排队 item-owned 金字塔。上传初始化仅保留 intent 并签发 staging PUT，完成时以 ETag 条件拷贝后原子登记 Item、追加 Task 和保存回执。独立 `apps/assets-cleanup` 用两个公开 SQL 能力和 prefix 受限 S3 身份轮询已提交责任；不依赖 API、ORM、Celery 或 Redis，也不在业务事务内删除对象。其他 CRUD、导入、派生写入和无源任务清理仍待逐项提取，不能据此声称整个 Assets/Labeling 模块独立部署。
    生命周期、审核及单题/整批送审经 `application/task_lifecycle.py`、`task_review.py`、
    `task_submission.py`；状态/部分项目计数写入归 `LabelingTaskService`，证据归
    `annotation_evidence`，应用组合反馈、审计和通知。整批默认 200 题分块提交，

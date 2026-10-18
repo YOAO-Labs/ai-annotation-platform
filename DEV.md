@@ -384,7 +384,7 @@ unset MEDIA_PROBE_URL MEDIA_PROBE_TOKEN
 UUID、素材 UUID 数组与唯一操作 UUID，返回 `aap-task-append/v1` JSON。函数与来源素材
 写入共享调用方事务，不内部提交。调用端可以使用任何 PostgreSQL 驱动；不可读取其他
 模块私有表来代替公开接口。SQL 和 JSON Schema 位于 `apps/api/alembic/sql/0190*`、
-`0191*` 至 `0205*`，迁移链安装同一份冻结 SQL。初始建题另有当前管理权、
+`0191*` 至 `0210*`，迁移链安装同一份冻结 SQL。初始建题另有当前管理权、
 关联创建、Jobs 生命周期和持久化计划/分块回执合同，参数及恢复规则见
 [同库事务数据接口](docs-site/api/guides/module-data.md)。
 
@@ -393,12 +393,12 @@ UUID、素材 UUID 数组与唯一操作 UUID，返回 `aap-task-append/v1` JSON
 不允许改绑项目；旧的范围缺失作业不会从 payload 补造授权。详见
 [ADR-0094](docs/adr/0094-transactional-project-deletion.md)。
 
-项目取消数据集关联也使用 Workspace 原生命令：当前账号/项目管理权、关联代次、学习和标注引用检查、任务删除与计数、Audit、Workspace 回执及 Assets 的派生金字塔清理计划在调用方同一事务中提交或回滚。Jobs 只取消匹配当前 dataset/project/association 代次的冻结 `create_tasks` 作业；任务源文件与共享来源金字塔保留。数据库事务提交后才派发 S3 清理，Celery 的周期任务会重试未完成回执。API 的 `Idempotency-Key` 可选 UUID，成功时回传；SDK/Web 重试应复用原 key。允许的跨域客户端可读取该响应头；production 自定义 `CORS_ALLOW_HEADERS` 时需包含 `Idempotency-Key`。
+项目取消数据集关联也使用 Workspace 原生命令：当前账号/项目管理权、关联代次、学习和标注引用检查、任务删除与计数、Audit、Workspace 回执及 Assets 的派生金字塔清理计划在调用方同一事务中提交或回滚。Jobs 只取消匹配当前 dataset/project/association 代次的冻结 `create_tasks` 作业；任务源文件与共享来源金字塔保留。公开 Dataset/Item 删除使用 Assets 协调命令，保留关联任务、标注与学习证据，活动导入返回冲突。两种删除都只写持久 outbox，由独立清理进程轮询；API 不派发清理 Celery 消息。API 的 `Idempotency-Key` 可选 UUID，成功时回传；SDK/Web 重试应复用原 key。允许的跨域客户端可读取该响应头；production 自定义 `CORS_ALLOW_HEADERS` 时需包含 `Idempotency-Key`。
 
 独立数据接口使用 Identity、Workspace、Assets、Jobs、Labeling、Learning、Inference、
 Insights、Diagnostics、Export、Audit 十一个无登录函数 owner，以及 `append_client` 与
 `asset_cleanup_client` 两个独立登录角色。后者只可使用 `aap_assets_v1` 并执行
-`pending_storage_deletions(uuid, integer)` 和 `complete_storage_deletion(uuid, uuid)`；
+`pending_storage_deletions_v2(text, timestamptz, uuid, uuid, integer)` 和 `complete_storage_deletion(uuid, uuid)`；
 `append_client` 不可调用这两个清理函数。
 `infra/docker/module-data-grants.sql` 只向显式数据库中的既有角色授权，不创建角色或
 修改密码。部署操作者先提供角色及迁移者向其转交函数的权限，再运行：
@@ -416,12 +416,42 @@ psql -v expected_database=annotation_test -v migration_role=owner \
 ```
 
 连接参数由操作者在本地显式配置。该脚本拒绝带管理权限、继承 owner 或能直接读写
-业务表的调用角色；不会自动缩减现有主 API 的宽权限账号。独立的清理 worker 使用其
-进程 `DATABASE_URL` 以 `asset_cleanup_client` 连接；API/普通 workflow 不得领取或确认
-清理 outbox。当前受限清理角色仅在隔离的专用验收队列中运行；默认 Compose 仍由宽权限
-worker 消费共享 `cleanup` 队列。部署受限 Assets worker 前须先拆分队列与服务，不能替换
-共享 worker 的数据库账号。现有主 API/worker 迁移期仍使用原运行角色，分离迁移账号时需在迁移后
+业务表的调用角色；不会自动缩减现有主 API 的宽权限账号。`apps/assets-cleanup` 以
+专用 `ASSET_CLEANUP_DATABASE_URL`（或对应 `_FILE`）连接；API/普通 workflow 不得领取或确认
+清理 outbox。该进程不需要 Redis、Celery、主 API 或 SQLAlchemy，也不使用它们的环境配置。
+现有主 API/worker 迁移期仍使用原运行角色，分离迁移账号时需在迁移后
 执行原环境授权流程以获取新接口执行权。
+
+显式本地部署清理进程前，准备三个仅供此服务读取的 secret 文件：普通 PostgreSQL URL
+（`postgresql://`，受限 cleanup LOGIN）、专用 S3 access key 和 secret key。S3 身份只允许
+对选定 media-cache 桶的 `image-pyramids/*` 执行带 prefix 条件的 `ListBucket` 与
+`DeleteObject`，不能读/写对象或操作其他桶。容器用户为 10001，secret 文件必须允许该
+用户读取；不要把 API 的宽权限账号写入这些文件。设置 `.env.example` 的三个
+`ASSET_CLEANUP_*_FILE` 宿主路径、`ASSET_CLEANUP_BUCKET` 和容器可达的
+`ASSET_CLEANUP_S3_ENDPOINT` 后运行：
+
+```bash
+docker compose -p aap-assets-cleanup-dev -f docker-compose.assets-cleanup.yml up -d --build
+docker compose -p aap-assets-cleanup-dev -f docker-compose.assets-cleanup.yml exec assets-cleanup python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8765/health/ready', timeout=2)"
+```
+
+进程启动时检查数据库最小权限和 S3 prefix 可用性；数据库身份过宽会拒绝启动。分页游标
+越过失败记录，下一轮从头重试。构建中的金字塔延迟到已记录 lease 之后才可领取和确认，
+writer 配置要求 lease 严格长于其 hard time limit。旧 cleanup Celery task 已移除，更新后
+须刷新旧 worker/beat，避免同时保留旧消费者。仅停止这个本地项目可使用上述同一
+`-p` / `-f` 参数执行 `down`。
+
+切换顺序为先迁移和授权、准备专用存储身份、启动并确认新清理进程就绪，再刷新 API
+与旧 worker/beat。清理服务故障时保留 outbox 并恢复该服务，不手工标记完成。需要回退
+数据库协议时，先停止相关业务写入及金字塔构建，等待已记录租约结束并由新进程清空
+待处理责任，再停止新进程、回退迁移并恢复旧代码和消费者。迁移的隔离空库回退测试
+不代替在途工作排空；不要在仍有未到期责任时直接删除 `not_before` 列。
+
+上传初始化只保留 intent 并签发 import staging PUT，不再产生可被建题消费的占位 Item。
+完成时按 ETag 条件拷贝到本次 UUID 路径，再在同一 SQL 命令中登记 Item、追加 Task 和
+冻结回执；完成响应重放不会重新拷贝。旧的无 intent 占位记录沿用非破坏性兼容完成，
+缺失或重复时不删除旧行/对象，也不补造原上传者。临时 staging 仍按 import 桶生命周期
+过期；未完成 intent 和不确定提交留下的原始拷贝目前保留，需计入存储用量。
 
 本地验收使用专属 PostgreSQL 容器、test mode 数据库、Redis 与九个隔离桶，不创建或
 修改日常 PostgreSQL 的角色。运行命令及参数见

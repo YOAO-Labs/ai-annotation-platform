@@ -1,4 +1,3 @@
-import asyncio
 import hashlib
 import io
 import mimetypes
@@ -51,6 +50,7 @@ from app.services.dataset import (
     ensure_dataset_storage_name_is_writable,
 )
 from app.application.dataset_task_creation import DatasetTaskCreationWorkflow
+from app.application.dataset_upload import DatasetUploadWorkflow
 from app.application.dataset_deletion import (
     delete_dataset as delete_dataset_workflow,
     unlink_dataset_from_project,
@@ -64,10 +64,30 @@ from app.services.mask_formats.safe_archive import (
 )
 from app.services.storage import storage_service
 from app.services.system_settings_service import SystemSettingsService
+from app.services.project_deletion_contract import ProjectDeletionAuditContext
 
 router = APIRouter()
 
 _MANAGERS = (UserRole.SUPER_ADMIN, UserRole.PROJECT_ADMIN)
+
+
+def _deletion_audit_context(request: Request) -> ProjectDeletionAuditContext:
+    from ipaddress import ip_address
+
+    from app.middleware.request_id import request_id_var
+    from app.services.audit import audit_origin_from_request
+
+    origin = audit_origin_from_request(request)
+    try:
+        ip = str(ip_address(origin.ip)) if origin.ip else None
+    except ValueError:
+        ip = None
+    return ProjectDeletionAuditContext(
+        method=origin.method,
+        path=origin.path,
+        ip=ip,
+        request_id=request_id_var.get()[:36] or None,
+    )
 
 
 @router.get(
@@ -206,17 +226,35 @@ async def sniff_axis_convention(
     "/{dataset_id}",
     status_code=204,
     dependencies=[Depends(require_scopes("datasets:write"))],
+    responses={
+        204: {
+            "headers": {
+                "Idempotency-Key": {
+                    "description": "Reuse this UUID to replay the committed deletion.",
+                    "schema": {"type": "string", "format": "uuid"},
+                }
+            }
+        }
+    },
 )
 async def delete_dataset(
     dataset_id: uuid.UUID,
+    request: Request,
+    response: Response,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles(*_MANAGERS)),
+    idempotency_key: uuid.UUID | None = Header(default=None, alias="Idempotency-Key"),
 ):
-    cleanup = await delete_dataset_workflow(db, dataset_id)
-    if cleanup is None:
-        raise HTTPException(status_code=404, detail="Dataset not found")
+    receipt = await delete_dataset_workflow(
+        db,
+        dataset_id,
+        actor_id=current_user.id,
+        cleanup_bucket=storage_service.media_cache_bucket,
+        operation_id=idempotency_key,
+        audit_context=_deletion_audit_context(request),
+    )
     await db.commit()
-    await asyncio.to_thread(DatasetService.cleanup_deleted_storage, cleanup)
+    response.headers["Idempotency-Key"] = str(receipt.operation_id)
 
 
 # ── Items ───────────────────────────────────────────────────────────────────
@@ -296,6 +334,9 @@ async def import_from_connection(
     # worker must never re-read global settings while enumerating files: queued
     # jobs retain the limits accepted here even after an admin changes them.
     import_limits = await SystemSettingsService.get_import_limits_snapshot(db)
+    # JSON-only job scopes must share the source-deletion parent fence.
+    if await svc.lock_dataset_reference(dataset_id) is None:
+        raise HTTPException(status_code=404, detail="Dataset not found")
     job = await async_job_svc.create_job(
         db,
         kind=AsyncJobKind.DATASET_IMPORT.value,
@@ -349,30 +390,21 @@ async def upload_init(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    svc = DatasetService(db)
-    ds = await svc.get(dataset_id)
-    if not ds:
-        raise HTTPException(status_code=404, detail="Dataset not found")
-
-    ensure_dataset_storage_name_is_writable(ds.name)
-    storage_key = f"{ds.name}/{data.file_name}"
-    file_type = _infer_file_type(data.content_type)
-
-    item = await svc.add_item(
+    workflow = DatasetUploadWorkflow(db, storage_service)
+    intent = await workflow.reserve(
+        actor_id=current_user.id,
         dataset_id=dataset_id,
         file_name=data.file_name,
-        file_path=storage_key,
-        file_type=file_type,
+        content_type=data.content_type,
+    )
+    upload_url = storage_service.generate_upload_url(
+        intent.staging_key,
+        intent.content_type,
+        bucket=storage_service.import_bucket,
     )
     await db.commit()
-
-    upload_url = storage_service.generate_upload_url(
-        storage_key,
-        data.content_type,
-        bucket=storage_service.datasets_bucket,
-    )
     return DatasetUploadInitResponse(
-        item_id=item.id, upload_url=upload_url, expires_in=900
+        item_id=intent.item_id, upload_url=upload_url, expires_in=900
     )
 
 
@@ -387,74 +419,27 @@ async def upload_complete(
     current_user: User = Depends(get_current_user),
     media_dispatcher: MediaJobDispatcher = Depends(get_media_job_dispatcher),
 ):
-    from app.db.models.dataset import DatasetItem
-
-    svc = DatasetService(db)
-    item = await db.get(DatasetItem, item_id)
-    if not item or item.dataset_id != dataset_id:
-        raise HTTPException(status_code=404, detail="Item not found")
-
-    meta = storage_service.verify_upload(
-        item.file_path, bucket=storage_service.datasets_bucket
-    )
-    if not meta:
-        # 上传未完成 — 清理占位 DatasetItem
-        await svc.delete_item(item_id)
-        await db.commit()
-        raise HTTPException(status_code=400, detail="File not found in storage")
-
-    if await svc.lock_dataset_reference(dataset_id) is None:
-        raise HTTPException(status_code=404, detail="Item not found")
-    item = await db.get(DatasetItem, item_id, populate_existing=True)
-    if item is None or item.dataset_id != dataset_id:
-        raise HTTPException(status_code=404, detail="Item not found")
-
-    content_length = meta.get("ContentLength")
-    if content_length:
-        svc.record_uploaded_item_content(item, file_size=content_length)
-
-    # ETag（MinIO 单 PUT = md5）用于去重
-    etag = (meta.get("ETag") or "").strip('"')
-    if len(etag) == 32:
-        existing = await svc.find_by_hash(dataset_id, etag)
-        if existing and existing.id != item_id:
-            # 删除刚上传的对象与占位记录，返回 409 告知前端
-            try:
-                storage_service.delete_object(
-                    item.file_path, bucket=storage_service.datasets_bucket
-                )
-            except Exception:
-                pass
-            await svc.delete_item(item_id)
-            await db.commit()
-            raise HTTPException(
-                status_code=409,
-                detail={
-                    "msg": "文件已存在（内容重复）",
-                    "duplicate_of": str(existing.id),
-                },
-            )
-        svc.record_uploaded_item_content(item, content_hash=etag)
-
-    if item.file_type == "image" and (item.width is None or item.height is None):
-        dims = storage_service.read_image_dimensions(
-            item.file_path,
-            bucket=storage_service.datasets_bucket,
-        )
-        if dims:
-            await svc.set_item_dimensions(item_id, dims)
-
-    linked_tasks = await DatasetTaskCreationWorkflow(db).append_items(
-        dataset_id, [item.id]
+    outcome = await DatasetUploadWorkflow(db, storage_service).complete(
+        actor_id=current_user.id,
+        dataset_id=dataset_id,
+        item_id=item_id,
     )
     await db.commit()
-
-    if item.file_type == "image":
+    if outcome.duplicate_of is not None:
+        raise HTTPException(
+            409,
+            {
+                "msg": "文件已存在（内容重复）",
+                "duplicate_of": str(outcome.duplicate_of),
+            },
+        )
+    if outcome.result is None:
+        raise HTTPException(400, "File not found in storage")
+    if outcome.file_type == "image":
         media_dispatcher.dispatch_thumbnail(item_id)
-    elif item.file_type == "video":
+    elif outcome.file_type == "video":
         media_dispatcher.dispatch_video_metadata(item_id)
-
-    return {"status": "ok", "item_id": str(item_id), "linked_tasks": linked_tasks}
+    return {"status": "ok", **outcome.result.model_dump(mode="json")}
 
 
 _ZIP_MAX_BYTES = 200 * 1024 * 1024  # 200 MB
@@ -893,18 +878,37 @@ async def backfill_scenes_endpoint(
     "/{dataset_id}/items/{item_id}",
     status_code=204,
     dependencies=[Depends(require_scopes("datasets:write"))],
+    responses={
+        204: {
+            "headers": {
+                "Idempotency-Key": {
+                    "description": "Reuse this UUID to replay the committed deletion.",
+                    "schema": {"type": "string", "format": "uuid"},
+                }
+            }
+        }
+    },
 )
 async def delete_item(
     dataset_id: uuid.UUID,
     item_id: uuid.UUID,
+    request: Request,
+    response: Response,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles(*_MANAGERS)),
+    idempotency_key: uuid.UUID | None = Header(default=None, alias="Idempotency-Key"),
 ):
-    svc = DatasetService(db)
-    ok = await svc.delete_item(item_id, dataset_id=dataset_id)
-    if not ok:
-        raise HTTPException(status_code=404, detail="Item not found")
+    receipt = await delete_dataset_workflow(
+        db,
+        dataset_id,
+        item_id=item_id,
+        actor_id=current_user.id,
+        cleanup_bucket=storage_service.media_cache_bucket,
+        operation_id=idempotency_key,
+        audit_context=_deletion_audit_context(request),
+    )
     await db.commit()
+    response.headers["Idempotency-Key"] = str(receipt.operation_id)
 
 
 # ── Project linking ─────────────────────────────────────────────────────────
@@ -1018,22 +1022,9 @@ async def unlink_project(
     _project: Project = Depends(require_project_owner),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
-    media_dispatcher: MediaJobDispatcher = Depends(get_media_job_dispatcher),
     idempotency_key: uuid.UUID | None = Header(default=None, alias="Idempotency-Key"),
 ):
-    import logging
-    from ipaddress import ip_address
-
-    from app.middleware.request_id import request_id_var
-    from app.services.audit import audit_origin_from_request
-    from app.services.project_deletion_contract import ProjectDeletionAuditContext
-
     operation_id = idempotency_key if idempotency_key is not None else uuid.uuid4()
-    origin = audit_origin_from_request(request)
-    try:
-        ip = str(ip_address(origin.ip)) if origin.ip else None
-    except ValueError:
-        ip = None
     info = await unlink_dataset_from_project(
         db,
         dataset_id,
@@ -1041,23 +1032,12 @@ async def unlink_project(
         actor_id=current_user.id,
         cleanup_bucket=storage_service.media_cache_bucket,
         operation_id=operation_id,
-        audit_context=ProjectDeletionAuditContext(
-            method=origin.method,
-            path=origin.path,
-            ip=ip,
-            request_id=request_id_var.get()[:36] or None,
-        ),
+        audit_context=_deletion_audit_context(request),
     )
     if info is None:
         raise HTTPException(status_code=404, detail="Link not found")
     await db.commit()
     response.headers["Idempotency-Key"] = str(operation_id)
-    try:
-        media_dispatcher.dispatch_asset_storage_cleanup(operation_id)
-    except Exception:
-        logging.getLogger(__name__).exception(
-            "Committed unlink cleanup remains pending for %s", operation_id
-        )
     return info
 
 

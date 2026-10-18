@@ -7,12 +7,16 @@ from fastapi import HTTPException
 from sqlalchemy import inspect
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models.dataset import ProjectDataset
+from app.db.models.dataset import Dataset, DatasetItem, ProjectDataset, Scene
 from app.db.models.project import Project
 from app.db.models.task import Task
 from app.db.models.task_batch import TaskBatch
-from app.services.active_learning_references import guard_source
-from app.services.dataset import DatasetDeleteCleanup, DatasetService
+from app.services.dataset_source_deletion_contract import (
+    DatasetSourceDeletionCommand,
+    DatasetSourceDeletionFailure,
+    DatasetSourceDeletionReceipt,
+)
+from app.services.dataset_source_deletion_data import DatasetSourceDeletionData
 from app.services.dataset_unlink_contract import (
     DatasetUnlinkCommand,
     DatasetUnlinkFailure,
@@ -24,14 +28,75 @@ from app.services.project_deletion_contract import ProjectDeletionAuditContext
 
 
 async def delete_dataset(
-    db: AsyncSession, dataset_id: uuid.UUID
-) -> DatasetDeleteCleanup | None:
-    assets = DatasetService(db)
-    dataset = await assets.get(dataset_id)
-    if dataset is None:
-        return None
-    await guard_source(db, dataset_id=dataset_id)
-    return await assets.delete_dataset_record(dataset)
+    db: AsyncSession,
+    dataset_id: uuid.UUID,
+    *,
+    actor_id: uuid.UUID,
+    cleanup_bucket: str,
+    item_id: uuid.UUID | None = None,
+    operation_id: uuid.UUID | None = None,
+    audit_context: ProjectDeletionAuditContext | None = None,
+) -> DatasetSourceDeletionReceipt:
+    command = DatasetSourceDeletionCommand(
+        operation_id=operation_id or uuid.uuid4(),
+        actor_id=actor_id,
+        dataset_id=dataset_id,
+        item_id=item_id,
+        cleanup_bucket=cleanup_bucket,
+        audit_context=audit_context,
+    )
+    try:
+        receipt = await DatasetSourceDeletionData(db).delete(command)
+    except DatasetSourceDeletionFailure as exc:
+        if exc.code == "account_not_active":
+            raise HTTPException(
+                401, "账号已停用或不存在", headers={"WWW-Authenticate": "Bearer"}
+            ) from exc
+        if exc.code in {"dataset_missing", "item_missing"}:
+            raise HTTPException(
+                404, "Item not found" if item_id else "Dataset not found"
+            ) from exc
+        if exc.code in {"invalid_account_role", "catalog_manager_required"}:
+            raise HTTPException(403, "仅素材库管理员可删除素材") from exc
+        if exc.code in {
+            "source_in_use",
+            "active_learning_reference",
+            "creation_in_progress",
+        }:
+            raise HTTPException(
+                409,
+                {
+                    "code": exc.code,
+                    "message": "关联记录仍引用此来源，未删除素材或存储对象",
+                },
+            ) from exc
+        if exc.code in {"source_busy", "account_busy", "operation_conflict"}:
+            raise HTTPException(409, {"reason": exc.code}) from exc
+        raise HTTPException(500, "Dataset source deletion contract failed") from exc
+    # Native owner writes bypass this assembly's ORM identity map.
+    for row in list(db.sync_session.identity_map.values()):
+        state = inspect(row)
+        if isinstance(row, Dataset) and state.identity == (dataset_id,):
+            if item_id is None:
+                db.expunge(row)
+            else:
+                db.expire(row, ["file_count", "updated_at"])
+        elif isinstance(row, (DatasetItem, Scene, ProjectDataset)) and (
+            state.dict.get("dataset_id") == dataset_id
+            and (
+                item_id is None
+                or isinstance(row, DatasetItem)
+                and state.identity == (item_id,)
+            )
+        ):
+            db.expunge(row)
+        elif (
+            item_id is None
+            and isinstance(row, TaskBatch)
+            and state.dict.get("dataset_id") == dataset_id
+        ):
+            db.expire(row, ["dataset_id"])
+    return receipt
 
 
 def _restore_unlink_failure(exc: DatasetUnlinkFailure) -> NoReturn:

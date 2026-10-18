@@ -18,7 +18,7 @@ from dataclasses import dataclass
 import uuid
 from typing import Iterable
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -72,6 +72,18 @@ class SceneNameConflict(ValueError):
 
 class SceneFrameIndexInconsistent(ValueError):
     """dataset_item 有 scene_id 但 frame_index=NULL;数据状态异常,API 层包成 409。"""
+
+
+async def lock_scene_source_references(
+    db: AsyncSession, scene_ids: Iterable[uuid.UUID]
+) -> bool:
+    result = await db.scalar(
+        text("SELECT aap_assets_v1.lock_scene_source_references(CAST(:ids AS uuid[]))"),
+        {"ids": list(set(scene_ids))},
+    )
+    if type(result) is not bool:
+        raise ValueError("Invalid scene source fence result")
+    return result
 
 
 async def create_scene(

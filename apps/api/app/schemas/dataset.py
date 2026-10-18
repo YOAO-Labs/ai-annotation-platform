@@ -1,4 +1,6 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+from app.services.dataset_upload_contract import validate_relative_file_name
 from uuid import UUID
 from datetime import datetime
 from typing import Literal
@@ -83,8 +85,22 @@ class DatasetLinkRequest(BaseModel):
 
 
 class DatasetUploadInitRequest(BaseModel):
-    file_name: str
-    content_type: str = "image/jpeg"
+    file_name: str = Field(
+        min_length=1, max_length=500, json_schema_extra={"x-max-utf8-bytes": 897}
+    )
+    content_type: str = Field(default="image/jpeg", min_length=1, max_length=255)
+
+    @field_validator("file_name")
+    @classmethod
+    def safe_file_name(cls, value: str) -> str:
+        return validate_relative_file_name(value)
+
+    @field_validator("content_type")
+    @classmethod
+    def canonical_content_type(cls, value: str) -> str:
+        if value != value.strip():
+            raise ValueError("content_type must not have surrounding whitespace")
+        return value
 
 
 class DatasetUploadInitResponse(BaseModel):

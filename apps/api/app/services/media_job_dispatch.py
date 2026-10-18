@@ -1,4 +1,4 @@
-"""Execution port for Assets media jobs and committed storage cleanup."""
+"""Execution port for Assets media jobs."""
 
 from __future__ import annotations
 
@@ -13,8 +13,6 @@ class VideoFrameRequest(TypedDict):
 
 
 class MediaJobDispatcher(Protocol):
-    def dispatch_asset_storage_cleanup(self, operation_id: UUID) -> None: ...
-
     def dispatch_thumbnail(self, item_id: UUID) -> None: ...
 
     def dispatch_video_metadata(self, item_id: UUID) -> None: ...

@@ -4,7 +4,14 @@ from enum import Enum
 from pathlib import Path
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    TypeAdapter,
+    field_validator,
+    model_validator,
+)
 from pydantic_settings import BaseSettings, NoDecode
 from sqlalchemy.engine import make_url
 
@@ -235,8 +242,20 @@ class Settings(BaseSettings):
     image_pyramid_max_source_bytes: int = 8 * 1024 * 1024 * 1024
     image_pyramid_max_derived_bytes: int = 8 * 1024 * 1024 * 1024
     image_pyramid_max_temp_bytes: int = 12 * 1024 * 1024 * 1024
-    image_pyramid_job_timeout_seconds: int = 1_800
-    image_pyramid_lease_seconds: int = 2_100
+    image_pyramid_job_timeout_seconds: int = Field(default=1_800, gt=0)
+    image_pyramid_lease_seconds: int = Field(default=2_100, gt=0)
+
+    @model_validator(mode="after")
+    def pyramid_lease_outlasts_writer(self):
+        if (
+            self.image_pyramid_lease_seconds
+            <= self.image_pyramid_job_timeout_seconds + 60
+        ):
+            raise ValueError(
+                "Image pyramid lease must outlast the worker hard time limit"
+            )
+        return self
+
     image_pyramid_url_expiry_seconds: int = 900
     image_pyramid_asset_url_batch_max: int = 128
     image_pyramid_retry_cooldown_seconds: int = 300

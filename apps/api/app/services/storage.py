@@ -302,8 +302,24 @@ class StorageService:
     def verify_upload(self, key: str, bucket: str | None = None) -> dict | None:
         try:
             return self.client.head_object(Bucket=bucket or self.bucket, Key=key)
-        except ClientError:
-            return None
+        except ClientError as exc:
+            if exc.response.get("Error", {}).get("Code") in {
+                "404",
+                "NoSuchKey",
+                "NotFound",
+            }:
+                return None
+            raise
+
+    def publish_dataset_upload(
+        self, staging_key: str, final_key: str, *, etag: str
+    ) -> None:
+        self.client.copy_object(
+            Bucket=self.datasets_bucket,
+            Key=final_key,
+            CopySource={"Bucket": self.import_bucket, "Key": staging_key},
+            CopySourceIfMatch=etag,
+        )
 
     def delete_object(self, key: str, bucket: str | None = None) -> None:
         self.client.delete_object(Bucket=bucket or self.bucket, Key=key)
@@ -452,6 +468,8 @@ class StorageService:
         key: str,
         bucket: str | None = None,
         head_bytes: int = 256 * 1024,
+        *,
+        if_match: str | None = None,
     ) -> tuple[int, int] | None:
         """读取对象前若干字节交给 Pillow 解析尺寸。无法解析返回 None；不抛。
 
@@ -466,10 +484,14 @@ class StorageService:
 
         b = bucket or self.bucket
         try:
+            condition = {"IfMatch": if_match} if if_match is not None else {}
             resp = self.client.get_object(
-                Bucket=b, Key=key, Range=f"bytes=0-{head_bytes - 1}"
+                Bucket=b, Key=key, Range=f"bytes=0-{head_bytes - 1}", **condition
             )
-            data = resp["Body"].read()
+            try:
+                data = resp["Body"].read()
+            finally:
+                resp["Body"].close()
         except ClientError as exc:
             logger.warning("读取对象 head 失败 key=%s err=%s", key, exc)
             return None

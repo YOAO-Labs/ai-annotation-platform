@@ -11916,12 +11916,17 @@
         "properties": {
           "content_type": {
             "default": "image/jpeg",
+            "maxLength": 255,
+            "minLength": 1,
             "title": "Content Type",
             "type": "string"
           },
           "file_name": {
+            "maxLength": 500,
+            "minLength": 1,
             "title": "File Name",
-            "type": "string"
+            "type": "string",
+            "x-max-utf8-bytes": 897
           }
         },
         "required": [
@@ -57563,11 +57568,37 @@
               "title": "Dataset Id",
               "type": "string"
             }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
+            }
           }
         ],
         "responses": {
           "204": {
-            "description": "Successful Response"
+            "description": "Successful Response",
+            "headers": {
+              "Idempotency-Key": {
+                "description": "Reuse this UUID to replay the committed deletion.",
+                "schema": {
+                  "format": "uuid",
+                  "type": "string"
+                }
+              }
+            }
           },
           "422": {
             "content": {
@@ -58168,11 +58199,37 @@
               "title": "Item Id",
               "type": "string"
             }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
+            }
           }
         ],
         "responses": {
           "204": {
-            "description": "Successful Response"
+            "description": "Successful Response",
+            "headers": {
+              "Idempotency-Key": {
+                "description": "Reuse this UUID to replay the committed deletion.",
+                "schema": {
+                  "format": "uuid",
+                  "type": "string"
+                }
+              }
+            }
           },
           "422": {
             "content": {

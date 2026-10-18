@@ -10,7 +10,7 @@ last_reviewed: 2026-10-18
 这些接口供可信后端进程使用，不是终端用户 REST API。调用方仍负责身份认证和用例准入；
 初始操作接受时还会在数据库内校验当前项目管理权。持有函数执行权限不等于获得任意用户的项目管理权限。
 
-实现与冻结合同位于 `apps/api/alembic/sql/0190*` 至 `0205*`。接口通过 PostgreSQL
+实现与冻结合同位于 `apps/api/alembic/sql/0190*` 至 `0210*`。接口通过 PostgreSQL
 协议调用，使用调用方同一连接的外层事务，不接收 Python Session、ORM 或任意 SQL。
 安装、独立角色及本地验收命令见仓库 `DEV.md`；数据所有权见
 [ADR-0092](/dev/adr/0092-transactional-module-data-capabilities)。
@@ -201,19 +201,73 @@ operation 回执的规范请求包含 operation ID、actor ID、Dataset ID、Pro
 审计传输上下文不参与请求身份。重放要求原 actor 仍活跃且规范请求一致，不要求重新取得管理权；同 ID
 换请求返回 `operation_conflict`。REST 入口仍要求当前项目管理权，原生回执的重放许可不绕过该入口检查。Bucket 由可信服务配置传入，不是终端用户字段。
 
-解绑事务内不执行 S3 或 broker 操作。提交后，API 通过媒体作业端口派发清理任务，cleanup worker 和周期重试处理未完成的 outbox
-条目。它仅按记录的 asset UUID、prefix 和 bucket 做幂等删除及确认；配置 bucket 与记录不一致时拒绝
-执行。源对象字节、item-owned pyramid 和共享 pyramid 不会被此操作删除。独立 cleanup LOGIN 才能读取
-待处理并确认完成，workflow LOGIN 不能扫描 outbox 或读取其私有表。当前受限角色使用隔离
-专用队列验收；默认 Compose 仍是宽权限 worker 的共享 `cleanup` 队列，部署受限 worker 前须先拆队列。
+解绑事务内不执行 S3 或 broker 操作。独立 `apps/assets-cleanup` 进程轮询已提交的 outbox，
+按精确 asset UUID/prefix/bucket 删除和确认；API 不再派发清理 Celery 消息。源对象字节、item-owned
+pyramid 和共享 pyramid 保留。专用 cleanup LOGIN 只能执行新的 bucket/keyset pending 操作和完成确认，
+workflow LOGIN 不能领取或确认 outbox，也不能读取其私有表。
 
 `active_learning_reference`、`task_feedback_retained` 和
 `annotation_reference_retained` 表示证据必须先保留或经明确的领域流程处理；`source_in_use` 表示数据库
 仍有其他受限来源引用。锁/序列化争用返回 `project_busy`，完整回滚后重试整个命令；同 operation ID
 对应不同 Dataset、Project、actor 或 bucket 时返回 `operation_conflict`，不能覆盖原回执。
 
-数据集解绑是 Workspace 的同库事务切片，不代表 Workspace 或各参与 owner 已能独立部署。Dataset 与
-DatasetItem 的公开删除命令仍未迁移；0201 Learning guard 和后续 owner 引用能力目前是这些删除边界的
-私有基础，不是完整删除操作。身份/成员生命周期、其他模块操作以及完整运行工件和凭据仍待完成；总体
-状态见[模块部署台账](/dev/concepts/module-deployment)、[ADR-0094](/dev/adr/0094-transactional-project-deletion)
-和 [ADR-0095](/dev/adr/0095-transactional-dataset-unlink)。
+数据集解绑是 Workspace 的同库事务切片，不代表 Workspace 或各参与 owner 已能独立部署。
+公开来源删除、上传与独立清理见下文；完整模块状态见[模块部署台账](/dev/concepts/module-deployment)。
+
+## Assets 来源删除
+
+`delete_dataset(operation_id, actor_id, dataset_id, cleanup_bucket, audit_context)` 和
+`delete_dataset_item(operation_id, actor_id, dataset_id, item_id, cleanup_bucket, audit_context)`
+返回 `aap-dataset-source-delete/v1`。完整字段、计数和错误见
+`0209_dataset_source_deletion.schema.json`。成功回执记录删除的数据集、条目、场景、关联数，
+取消的原关联建题作业、废弃的未完成上传、排队的派生清理及审计 ID；不返回任意存储路径。
+
+新命令要求当前活跃素材库管理员（super_admin/project_admin），沿用全局素材库准入，不改成项目
+负责人或 created_by 校验。新鲜身份、Dataset 排他锁及有序 Scene/Item/association/intent 锁先于检查和
+级联删除。Learning 保留 member/candidate 来源；Labeling 保护 Task 主来源、所有素材链接、sensor
+标注、轨迹、quality 和 video 执行记录。完整 Dataset 删除只解除 TaskBatch 的数据集归属，不删除批次。
+Item 删除遇当前关联仍接受/运行中的建题返回 `creation_in_progress`；Dataset 删除则显式取消匹配原
+association 的建题。活动导入或不能证明无关的旧导入 scope 返回 `source_busy`，不改造旧 payload。
+导入接受与 JSON-only 质检记录分别取得 Dataset/Scene 来源锁，不能绕过删除检查提交迟到引用。
+
+`source_in_use`、`active_learning_reference` 或 `creation_in_progress` 返回 HTTP 409；锁争用为
+`source_busy`，换请求复用操作 ID 为 `operation_conflict`。所有 owner 写入、审计和 Assets 回执与调用方
+提交/回滚一致。原始 source bytes 始终保留；只有 item-owned 金字塔进入精确 outbox。
+REST 两个 DELETE 保持 204 空响应，缺失/父子不匹配为 404。UUID `Idempotency-Key` 可选且成功回传；
+同次重试使用原 key。原生回执允许原 actor 仍活跃时重放，REST 的当前管理员检查继续生效。
+
+## Assets 暂存上传
+
+`reserve_dataset_upload(item, actor, dataset, file_name, content_type)` 保留未来 Item UUID，返回
+`aap-dataset-upload/v1` intent facts，不创建 DatasetItem、不增加 file_count、不参与建题。
+原生调用者自己保存 UUID，可对相同待完成规范请求重放；REST upload-init 每次保留一个新 UUID。
+文件名必须是最多 500 字符、897 个 UTF-8 字节的安全相对路径（完整对象 key 不超过 1024 字节），拒绝绝对路径、空段、`.`/`..`、反斜杠和控制字符。
+
+PUT 只签发到 import 桶 `dataset-uploads/{item}/source`。`lock_dataset_upload(actor,dataset,item)`
+在当前活跃原发起者和父 Dataset/intent 围栏内，为每次 pending 尝试生成独立 publication UUID，目标为
+`dataset-sources/{dataset}/{item}/{publication}/{file_name}`。这条锁在调用方最终提交前保持。
+已完成 intent 返回冻结结果且不旋转路径。父子不匹配仍按缺失处理，不补造旧记录的上传归属。
+
+调用方 HEAD staging，读取尺寸时使用 `IfMatch`，并通过 `CopySourceIfMatch` 将同一 ETag 条件拷贝到
+冻结目标。已知内容重复可通过 `find_dataset_upload_duplicate` 提前避免拷贝，但最终判定仍在
+`complete_dataset_upload(actor,dataset,item,publication,size,hash,width,height)` 内完成。该公开 SQL
+命令原子组合私有接受、Labeling append 和私有完成，外层提交前不会暴露半登记的 Item。
+已完成重放返回原 `{item_id,linked_tasks}`，不会再次拷贝或追加。私有 accept/finish 不授权给 workflow。
+
+缺失 staging 通过 `discard_dataset_upload(...,'missing')` 废弃 intent；重复仅保存 duplicate_of，
+不删除已有 Item/对象。旧无 intent 占位记录保留非破坏性完成兼容，缺失或重复不删除旧来源。
+临时 staging 按 import 生命周期过期；未完成 intent 与不确定提交留下的原始拷贝目前保留，
+需要计入容量，后续回收必须另有持久 publication 证据和迟到 I/O 围栏。
+
+## 独立派生清理
+
+`pending_storage_deletions_v2(bucket,after_created_at,after_operation,after_asset,limit)` 仅返回指定桶的
+已到期 outbox，limit 为 1–1000，游标三个值必须全部为空或全部存在。结果按
+`(created_at,operation_id,asset_id)` 排序并返回下一页游标所需的 created_at。失败记录之后的页仍可继续，
+轮询下一轮从头重试。`complete_storage_deletion(operation,asset)` 成功后可幂等确认；提前确认返回 false。
+
+删除生产者捕获 building generation 的最大 lease 到 `not_before`；新 pending 和完成确认都要求该时刻
+已到。数据库读取事务在 S3 操作前结束，确认另用短事务。对象删除失败、响应丢失或确认失败不会移除
+未完成责任。进程显式配置 cleanup DSN 和 S3 专用凭据，只允许一个桶中 `image-pyramids/*` 的
+ListBucket/DeleteObject，不继承 API、Redis 或 Celery 配置。配置、独立镜像和本地 Compose 入口见
+仓库 `DEV.md`、`apps/assets-cleanup/README.md` 与 [ADR-0096](/dev/adr/0096-assets-source-deletion-and-cleanup)。

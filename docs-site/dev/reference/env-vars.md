@@ -95,7 +95,7 @@ last_reviewed: 2026-10-18
 | `IMAGE_PYRAMID_MAX_DERIVED_BYTES` | `8589934592` | — |
 | `IMAGE_PYRAMID_MAX_TEMP_BYTES` | `12884901888` | — |
 | `IMAGE_PYRAMID_JOB_TIMEOUT_SECONDS` | `1800` | — |
-| `IMAGE_PYRAMID_LEASE_SECONDS` | `2100` | — |
+| `IMAGE_PYRAMID_LEASE_SECONDS` | `2100` | 必须严格大于 IMAGE_PYRAMID_JOB_TIMEOUT_SECONDS + 60（worker hard time limit）。 |
 | `IMAGE_PYRAMID_URL_EXPIRY_SECONDS` | `900` | — |
 | `IMAGE_PYRAMID_ASSET_URL_BATCH_MAX` | `128` | — |
 | `IMAGE_PYRAMID_RETRY_COOLDOWN_SECONDS` | `300` | — |
@@ -202,6 +202,19 @@ last_reviewed: 2026-10-18
 | `MEDIA_PROBE_TIMEOUT_SECONDS` | `90` | HTTP 各 I/O 阶段超时秒数，包含上传／等待／读取；ffprobe 自身仍有独立的 30 秒上限。 |
 | `MEDIA_PROBE_MAX_FILE_BYTES` | `1073741824` | 独立探测服务单次文件输入上限（字节），仅由 apps/media-probe 读取。 |
 | `MEDIA_PROBE_HOST_PORT` | `8092` | docker-compose.modules.yml 的宿主回环端口，仅供显式本地独立部署。 |
+| `ASSET_CLEANUP_DATABASE_URL` | `—` | 独立 Assets 清理进程；不继承 API 的 DATABASE_URL、MINIO_* 或 Celery 配置。 宿主进程可直接设置 ASSET_CLEANUP_DATABASE_URL / S3_ACCESS_KEY / S3_SECRET_KEY； 每项与对应 *_FILE 二选一。Compose 的 *_FILE 是宿主 secret 文件路径。 |
+| `ASSET_CLEANUP_S3_ACCESS_KEY` | `—` | — |
+| `ASSET_CLEANUP_S3_SECRET_KEY` | `—` | — |
+| `ASSET_CLEANUP_DATABASE_URL_FILE` | `—` | — |
+| `ASSET_CLEANUP_S3_ACCESS_KEY_FILE` | `—` | — |
+| `ASSET_CLEANUP_S3_SECRET_KEY_FILE` | `—` | — |
+| `ASSET_CLEANUP_BUCKET` | `—` | — |
+| `ASSET_CLEANUP_S3_ENDPOINT` | `—` | — |
+| `ASSET_CLEANUP_S3_REGION` | `us-east-1` | — |
+| `ASSET_CLEANUP_POLL_SECONDS` | `5` | — |
+| `ASSET_CLEANUP_PAGE_SIZE` | `100` | — |
+| `ASSET_CLEANUP_HEALTH_HOST` | `127.0.0.1` | 健康接口仅绑定进程内 IPv4 回环；独立镜像使用此默认值。 |
+| `ASSET_CLEANUP_HEALTH_PORT` | `8765` | — |
 | `VIDEO_CHUNK_SIZE_FRAMES` | `60` | 每个 chunk 包含的帧数。30fps 下默认 60 帧约等于 2 秒。 |
 | `VIDEO_CHUNK_WARMUP_LOOKAHEAD` | `1` | chunk warmup look-ahead：请求命中 chunk N 时顺带预解码 N+1..N+K。默认 1 仅预热紧邻的下一个 chunk，设 0 关闭。 |
 | `VIDEO_FRAME_CACHE_TTL_DAYS` | `14` | 单帧 WebP/JPEG 缓存对象未访问多少天后由 Celery beat 清理。 |

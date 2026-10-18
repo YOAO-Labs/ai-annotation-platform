@@ -347,7 +347,7 @@ async def _assert_cleanup_login(test_engine, cleanup_engine, media_bucket: str):
             )
         )
         pending = (
-            (await cleanup.execute(_PENDING_QUERY, {"bucket": media_bucket}))
+            (await cleanup.execute(text(_PENDING_QUERY), {"bucket": media_bucket}))
             .mappings()
             .all()
         )
@@ -1003,6 +1003,7 @@ async def _cleanup_database_rows(
         database = await owner.scalar(text("SELECT current_database()"))
         if not database or not database.endswith("_test"):
             pytest.fail("refusing cleanup outside the disposable test DB")
+        await owner.execute(text("SET LOCAL app.allow_audit_update = 'true'"))
         await owner.execute(
             text(
                 "DELETE FROM public.audit_logs "

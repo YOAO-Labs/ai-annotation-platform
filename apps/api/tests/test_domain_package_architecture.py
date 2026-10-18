@@ -348,10 +348,7 @@ DOMAIN_PACKAGES = (
     DomainSpec(
         package="dataset_unlink_contract",
         legacy_facades=(),
-        allowed_app_imports=(
-            "app.services.project_deletion_contract",
-            "app.services.asset_storage_cleanup_contract",
-        ),
+        allowed_app_imports=("app.services.project_deletion_contract",),
     ),
     DomainSpec(
         package="dataset_unlink_data",
@@ -359,17 +356,22 @@ DOMAIN_PACKAGES = (
         allowed_app_imports=("app.services.dataset_unlink_contract",),
     ),
     DomainSpec(
-        package="asset_storage_cleanup_contract",
+        package="dataset_source_deletion_contract",
         legacy_facades=(),
-        allowed_app_imports=(),
+        allowed_app_imports=("app.services.project_deletion_contract",),
     ),
     DomainSpec(
-        package="asset_storage_cleanup",
+        package="dataset_source_deletion_data",
         legacy_facades=(),
-        allowed_app_imports=(
-            "app.services.asset_storage_cleanup_contract",
-            "app.services.storage",
-        ),
+        allowed_app_imports=("app.services.dataset_source_deletion_contract",),
+    ),
+    DomainSpec(
+        package="dataset_upload_contract", legacy_facades=(), allowed_app_imports=()
+    ),
+    DomainSpec(
+        package="dataset_upload_data",
+        legacy_facades=(),
+        allowed_app_imports=("app.services.dataset_upload_contract",),
     ),
     DomainSpec(
         package="task_creation_jobs",

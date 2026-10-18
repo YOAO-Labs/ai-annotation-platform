@@ -38,6 +38,15 @@ class AssetStorageDeletion(Base):
             name="ck_asset_storage_deletions_prefix",
         ),
         Index(
+            "ix_asset_storage_deletions_pending_bucket_created",
+            "bucket",
+            "created_at",
+            "operation_id",
+            "asset_id",
+            postgresql_include=["not_before"],
+            postgresql_where=text("completed_at IS NULL"),
+        ),
+        Index(
             "ix_asset_storage_deletions_pending_created",
             "created_at",
             "operation_id",
@@ -57,4 +66,7 @@ class AssetStorageDeletion(Base):
     )
     completed_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
+    )
+    not_before: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
     )

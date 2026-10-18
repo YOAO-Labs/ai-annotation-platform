@@ -23,6 +23,7 @@ import time
 from unittest.mock import patch
 from uuid import uuid4
 import shutil
+from urllib.parse import quote, urlsplit
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "apps/api"))
@@ -63,6 +64,11 @@ SQL_ARTIFACTS = (
     "0203_dataset_unlink_assets.sql",
     "0204_dataset_unlink_jobs_audit.sql",
     "0205_dataset_unlink.sql",
+    "0206_dataset_source_guards.sql",
+    "0207_dataset_upload_intents.sql",
+    "0208_dataset_source_support.sql",
+    "0209_dataset_source_deletion.sql",
+    "0210_asset_storage_cleanup.sql",
 )
 SCHEMA_ARTIFACTS = (
     "0191_task_append.schema.json",
@@ -78,6 +84,11 @@ SCHEMA_ARTIFACTS = (
     "0203_dataset_unlink_assets.schema.json",
     "0204_dataset_unlink_jobs_audit.schema.json",
     "0205_dataset_unlink.schema.json",
+    "0206_dataset_source_guards.schema.json",
+    "0207_dataset_upload_intents.schema.json",
+    "0208_dataset_source_support.schema.json",
+    "0209_dataset_source_deletion.schema.json",
+    "0210_asset_storage_cleanup.schema.json",
 )
 TEST_FILES = (
     "tests/test_workspace_data_contract.py",
@@ -111,7 +122,15 @@ TEST_FILES = (
     "tests/test_dataset_import.py",
     "tests/test_dataset_link.py",
     "tests/test_dataset_link_kind_match.py",
-    "tests/test_dataset_delete_cleanup.py",
+    "tests/test_dataset_source_deletion_bindings.py",
+    "tests/test_dataset_source_deletion.py",
+    "tests/test_dataset_source_http.py",
+    "tests/test_dataset_source_guards.py",
+    "tests/test_dataset_source_support.py",
+    "tests/test_dataset_upload_data.py",
+    "tests/test_dataset_upload_native.py",
+    "tests/test_dataset_upload_storage.py",
+    "tests/test_dataset_upload_s3_runtime.py",
     "tests/test_dataset_source_retention.py",
     "tests/test_dataset_unlink_labeling.py",
     "tests/test_dataset_unlink_assets.py",
@@ -119,7 +138,6 @@ TEST_FILES = (
     "tests/test_dataset_unlink_coordinator.py",
     "tests/test_dataset_unlink_bindings.py",
     "tests/test_dataset_unlink_http.py",
-    "tests/test_asset_storage_cleanup.py",
     "tests/test_asset_storage_cleanup_runtime.py",
     "tests/test_dataset_api_scopes.py",
     "tests/test_worker_signals.py",
@@ -162,6 +180,145 @@ def _write_evidence(path: Path, document: dict) -> None:
         json.dumps(document, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
+
+
+def _cleanup_storage_scope(backend) -> dict:
+    from worktree_resources import docker
+
+    endpoint = urlsplit(f"http://{backend.settings.minio_endpoint}")
+    matches = []
+    for candidate in docker(
+        "ps",
+        "--filter",
+        "label=com.docker.compose.service=minio",
+        "--format",
+        "{{.ID}}",
+    ).splitlines():
+        observed = json.loads(docker("inspect", candidate))[0]
+        bindings = (observed.get("NetworkSettings", {}).get("Ports") or {}).get(
+            "9000/tcp"
+        ) or []
+        if any(
+            int(binding.get("HostPort", 0)) == (endpoint.port or 9000)
+            for binding in bindings
+        ):
+            matches.append(observed)
+    if len(matches) != 1:
+        raise RuntimeError("The local MinIO admin container is not uniquely identified")
+    bucket = backend.resources["buckets"]["MINIO_MEDIA_CACHE_BUCKET"]
+    tags = backend.s3.get_bucket_tagging(Bucket=bucket)["TagSet"]
+    if not any(
+        tag["Key"] == "aap-worktree-owner"
+        and tag["Value"] == backend.resources["owner"]
+        for tag in tags
+    ):
+        raise RuntimeError("The cleanup bucket is not owned by this acceptance")
+    token = secrets.token_hex(8)
+    scheme = "https" if backend.settings.minio_use_ssl else "http"
+    return {
+        "container": matches[0]["Id"],
+        "bucket": bucket,
+        "access_key": f"aapcln{token[:14]}",
+        "secret_key": secrets.token_hex(24),
+        "policy": f"aap-cleanup-{token}",
+        "config": f"/tmp/aap-cleanup-{token}",
+        "host": f"{scheme}://{quote(backend.settings.minio_access_key, safe='')}:{quote(backend.settings.minio_secret_key, safe='')}@127.0.0.1:9000",
+        "user_created": False,
+        "policy_created": False,
+    }
+
+
+def _cleanup_mc(
+    scope: dict, arguments: list[str], *, payload: str | None = None
+) -> None:
+    from worktree_resources import docker
+
+    observed = json.loads(docker("inspect", scope["container"]))[0]
+    if not (
+        observed.get("Id") == scope["container"]
+        and observed.get("State", {}).get("Running") is True
+        and (observed.get("Config", {}).get("Labels") or {}).get(
+            "com.docker.compose.service"
+        )
+        == "minio"
+    ):
+        raise RuntimeError("The MinIO admin container identity changed")
+    result = subprocess.run(
+        [
+            "docker",
+            "exec",
+            "-i",
+            "-e",
+            f"MC_HOST_scoped={scope['host']}",
+            "-e",
+            f"MC_CONFIG_DIR={scope['config']}",
+            scope["container"],
+            "/usr/bin/mc",
+            "--json",
+            *arguments,
+        ],
+        input=payload,
+        text=True,
+        capture_output=True,
+        timeout=30,
+        check=False,
+    )
+    if result.returncode:
+        raise RuntimeError("MinIO cleanup identity administration failed")
+
+
+def _create_cleanup_storage_scope(scope: dict) -> None:
+    _cleanup_mc(
+        scope,
+        ["admin", "user", "add", "scoped", scope["access_key"], scope["secret_key"]],
+    )
+    scope["user_created"] = True
+    policy = {
+        "Version": "2012-10-17",
+        "Statement": [
+            {
+                "Effect": "Allow",
+                "Action": ["s3:ListBucket"],
+                "Resource": [f"arn:aws:s3:::{scope['bucket']}"],
+                "Condition": {"StringLike": {"s3:prefix": ["image-pyramids/*"]}},
+            },
+            {
+                "Effect": "Allow",
+                "Action": ["s3:DeleteObject"],
+                "Resource": [f"arn:aws:s3:::{scope['bucket']}/image-pyramids/*"],
+            },
+        ],
+    }
+    _cleanup_mc(
+        scope,
+        ["admin", "policy", "create", "scoped", scope["policy"], "/dev/stdin"],
+        payload=json.dumps(policy),
+    )
+    scope["policy_created"] = True
+    _cleanup_mc(
+        scope,
+        [
+            "admin",
+            "policy",
+            "attach",
+            "scoped",
+            scope["policy"],
+            "--user",
+            scope["access_key"],
+        ],
+    )
+
+
+def _destroy_cleanup_storage_scope(scope: dict) -> None:
+    from worktree_resources import docker
+
+    if scope["user_created"]:
+        _cleanup_mc(scope, ["admin", "user", "remove", "scoped", scope["access_key"]])
+        scope["user_created"] = False
+    if scope["policy_created"]:
+        _cleanup_mc(scope, ["admin", "policy", "remove", "scoped", scope["policy"]])
+        scope["policy_created"] = False
+    docker("exec", scope["container"], "rm", "-rf", "--", scope["config"])
 
 
 def _container_details(
@@ -400,7 +557,9 @@ def _install_and_rollback_frozen_sql(
         "SELECT aap_learning_v1.guard_dataset_unlink(NULL::uuid, NULL::uuid);\n"
         "SELECT aap_workspace_v1.preview_dataset_unlink(NULL::uuid, NULL::uuid, NULL::uuid);\n"
         "SELECT aap_workspace_v1.unlink_dataset(NULL::uuid, NULL::uuid, NULL::uuid, NULL::uuid, NULL::text, NULL::jsonb);\n"
-        "SELECT count(*) FROM aap_assets_v1.pending_storage_deletions(NULL::uuid, 100);\n"
+        "SELECT aap_assets_v1.reserve_dataset_upload(NULL::uuid,NULL::uuid,NULL::uuid,NULL::text,NULL::text);\n"
+        "SELECT aap_assets_v1.delete_dataset(NULL::uuid,NULL::uuid,NULL::uuid,NULL::text,NULL::jsonb);\n"
+        "SELECT count(*) FROM aap_assets_v1.pending_storage_deletions_v2('cache-bucket',NULL::timestamptz,NULL::uuid,NULL::uuid,100);\n"
         "SELECT aap_learning_v1.lock_project_deletion(:'project_id'::uuid);\n"
         "SELECT aap_learning_v1.guard_project_deletion(:'project_id'::uuid);\n"
         "SELECT aap_assets_v1.delete_project_owned_records(:'project_id'::uuid);\n"
@@ -462,6 +621,8 @@ def _install_and_rollback_frozen_sql(
         "aap-source-retention/v1": "invalid_request",
         "aap-dataset-unlink-preview/v1": "invalid_request",
         "aap-dataset-unlink/v1": "invalid_request",
+        "aap-dataset-source-delete/v1": "invalid_request",
+        "aap-dataset-upload/v1": "invalid_request",
     }
     if any(
         not any(
@@ -512,6 +673,8 @@ def _install_and_rollback_frozen_sql(
             "AND to_regclass('public.project_deletion_operations') IS NULL "
             "AND to_regclass('public.dataset_unlink_operations') IS NULL "
             "AND to_regclass('public.asset_storage_deletions') IS NULL "
+            "AND to_regclass('public.dataset_upload_intents') IS NULL "
+            "AND to_regclass('public.dataset_source_deletion_operations') IS NULL "
             "AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_attribute "
             "WHERE attrelid = 'public.async_jobs'::pg_catalog.regclass "
             "AND attname = 'retained_project_id' AND NOT attisdropped) "
@@ -566,6 +729,7 @@ def main(argv: list[str] | None = None) -> int:
             "runtime_grants_reapplied": False,
         },
         "cleanup": {
+            "storage_identity_removed": False,
             "local_resources_destroyed": False,
             "postgres_container_removed": False,
             "resource_root_retained": None,
@@ -578,6 +742,7 @@ def main(argv: list[str] | None = None) -> int:
     container_name = f"aap-module-data-{secrets.token_hex(6)}"
     container_identity = secrets.token_hex(12)
     backend = None
+    cleanup_storage = None
     resource_root = Path(
         tempfile.mkdtemp(prefix="aap-module-data-acceptance-")
     ).resolve()
@@ -698,8 +863,8 @@ def main(argv: list[str] | None = None) -> int:
         database = resources["database"]
         evidence["database"] = database
         _, heads = migration_graph(ROOT)
-        if heads != ["0205"]:
-            raise RuntimeError("module-data acceptance requires migration head 0205")
+        if heads != ["0210"]:
+            raise RuntimeError("module-data acceptance requires migration head 0210")
         evidence["migrations"]["head_before_downgrade"] = heads[0]
         phase = "downgrade-to-0189"
         _container_details(
@@ -792,11 +957,20 @@ def main(argv: list[str] | None = None) -> int:
         )
 
         resource_environment = backend.environment()
+        phase = "create-scoped-storage-identity"
+        cleanup_storage = _cleanup_storage_scope(backend)
+        _create_cleanup_storage_scope(cleanup_storage)
         resource_environment.update(
             {
                 "AAP_MODULE_DATA_ROLE_ACCEPTANCE": "1",
                 "AAP_MODULE_DATA_APPEND_URL": append_url,
                 "AAP_MODULE_DATA_ASSET_CLEANUP_URL": cleanup_url,
+                "AAP_MODULE_DATA_ASSET_CLEANUP_S3_ACCESS_KEY": cleanup_storage[
+                    "access_key"
+                ],
+                "AAP_MODULE_DATA_ASSET_CLEANUP_S3_SECRET_KEY": cleanup_storage[
+                    "secret_key"
+                ],
                 "AAP_MODULE_DATA_LEGACY_RUNTIME_URL": URL.create(
                     "postgresql+asyncpg",
                     username="legacy_runtime",
@@ -837,6 +1011,15 @@ def main(argv: list[str] | None = None) -> int:
         evidence["failure"] = {"phase": phase, "error_type": type(error).__name__}
         exit_code = 1
     finally:
+        if cleanup_storage is not None:
+            try:
+                _destroy_cleanup_storage_scope(cleanup_storage)
+                evidence["cleanup"]["storage_identity_removed"] = True
+            except Exception as error:
+                evidence["cleanup"]["errors"].append(
+                    {"storage_identity": type(error).__name__}
+                )
+                exit_code = 1
         local_resources_destroyed = backend is None or not backend.touched
         if backend is not None and backend.touched:
             try:

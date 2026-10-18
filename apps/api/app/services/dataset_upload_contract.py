@@ -43,6 +43,8 @@ def validate_relative_file_name(value: str) -> str:
     if (
         not value
         or len(value) > 500
+        # UUID publication paths leave 897 bytes within the S3 object-key limit.
+        or len(value.encode("utf-8")) > 897
         or value.startswith("/")
         or re.match(r"^[A-Za-z]:/", value)
         or "\\" in value
@@ -87,6 +89,7 @@ class DatasetUploadReserve(_Value):
         min_length=1,
         max_length=500,
         description="Safe relative file path; may contain legitimate subdirectories.",
+        json_schema_extra={"x-max-utf8-bytes": 897},
     )
     content_type: str = Field(min_length=1, max_length=255)
 
@@ -190,7 +193,9 @@ class DatasetUploadIntent(_Value):
     item_id: UUID
     actor_id: UUID
     dataset_id: UUID
-    file_name: str = Field(min_length=1, max_length=500)
+    file_name: str = Field(
+        min_length=1, max_length=500, json_schema_extra={"x-max-utf8-bytes": 897}
+    )
     file_path: str | None = Field(max_length=1000)
     file_type: UploadFileType
     content_type: str = Field(min_length=1, max_length=255)

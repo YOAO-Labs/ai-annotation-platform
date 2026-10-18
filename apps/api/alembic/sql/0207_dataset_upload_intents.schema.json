@@ -49,7 +49,8 @@
           "maxLength": 500,
           "minLength": 1,
           "title": "File Name",
-          "type": "string"
+          "type": "string",
+          "x-max-utf8-bytes": 897
         },
         "content_type": {
           "maxLength": 255,
@@ -252,7 +253,8 @@
           "maxLength": 500,
           "minLength": 1,
           "title": "File Name",
-          "type": "string"
+          "type": "string",
+          "x-max-utf8-bytes": 897
         },
         "file_path": {
           "anyOf": [
@@ -356,7 +358,8 @@
           "maxLength": 500,
           "minLength": 1,
           "title": "File Name",
-          "type": "string"
+          "type": "string",
+          "x-max-utf8-bytes": 897
         },
         "file_path": {
           "anyOf": [

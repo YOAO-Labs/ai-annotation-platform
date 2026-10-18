@@ -85,16 +85,10 @@
       }
     },
     "learningResponse": {
-      "oneOf": [
-        { "$ref": "#/$defs/sourceRetentionSuccess" },
-        { "$ref": "#/$defs/learningFailure" }
-      ]
+      "oneOf": [{ "$ref": "#/$defs/sourceRetentionSuccess" }, { "$ref": "#/$defs/learningFailure" }]
     },
     "labelingResponse": {
-      "oneOf": [
-        { "$ref": "#/$defs/sourceRetentionSuccess" },
-        { "$ref": "#/$defs/labelingFailure" }
-      ]
+      "oneOf": [{ "$ref": "#/$defs/sourceRetentionSuccess" }, { "$ref": "#/$defs/labelingFailure" }]
     },
     "learningGuardCall": {
       "type": "object",

@@ -116,7 +116,7 @@ BEGIN
         RETURN aap_assets_v1._dataset_upload_failure(v_code);
     END IF;
     IF pg_catalog.jsonb_typeof(v_actor -> 'data') IS DISTINCT FROM 'object'
-       OR (v_actor -> 'data' - ARRAY['actor_id', 'platform_role']) <> '{}'::jsonb
+       OR ((v_actor -> 'data') - ARRAY['actor_id', 'platform_role']) <> '{}'::jsonb
        OR pg_catalog.jsonb_typeof(v_actor #> '{data,actor_id}') IS DISTINCT FROM 'string'
        OR pg_catalog.jsonb_typeof(v_actor #> '{data,platform_role}') IS DISTINCT FROM 'string'
        OR v_actor #>> '{data,actor_id}' IS DISTINCT FROM p_actor_id::text THEN
@@ -357,6 +357,7 @@ DECLARE
 BEGIN
     IF p_item_id IS NULL OR p_actor_id IS NULL OR p_dataset_id IS NULL
        OR p_file_name IS NULL OR pg_catalog.char_length(p_file_name) NOT BETWEEN 1 AND 500
+       OR pg_catalog.octet_length(p_file_name) > 897
        OR p_file_name ~ '^/' OR p_file_name ~ '^[A-Za-z]:/'
        OR p_file_name ~ '[[:cntrl:]]'
        OR pg_catalog.strpos(p_file_name, pg_catalog.chr(92)) > 0
@@ -544,12 +545,6 @@ BEGIN
             RETURN aap_assets_v1._dataset_upload_failure('dataset_busy');
     END;
     IF NOT FOUND THEN
-        IF EXISTS (
-            SELECT 1 FROM public.dataset_upload_intents AS intent
-            WHERE intent.item_id = p_item_id
-        ) THEN
-            RETURN aap_assets_v1._dataset_upload_failure('upload_scope_mismatch');
-        END IF;
         RETURN aap_assets_v1._dataset_upload_failure('upload_missing');
     END IF;
     IF v_intent.actor_id IS DISTINCT FROM p_actor_id THEN

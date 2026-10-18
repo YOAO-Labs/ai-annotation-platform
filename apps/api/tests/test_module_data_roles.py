@@ -337,6 +337,8 @@ async def test_append_client_cannot_read_or_write_private_tables_or_escalate(
         "public.task_creation_chunks",
         "public.asset_storage_deletions",
         "public.dataset_unlink_operations",
+        "public.dataset_upload_intents",
+        "public.dataset_source_deletion_operations",
     )
     async with append_engine.connect() as connection:
         for relation in relations:
@@ -466,7 +468,7 @@ async def test_asset_cleanup_client_uses_only_the_storage_outbox_functions(
             ), schema
 
         for signature in (
-            "aap_assets_v1.pending_storage_deletions(uuid,integer)",
+            "aap_assets_v1.pending_storage_deletions_v2(text,timestamptz,uuid,uuid,integer)",
             "aap_assets_v1.complete_storage_deletion(uuid,uuid)",
         ):
             assert await cleanup.scalar(
@@ -476,6 +478,7 @@ async def test_asset_cleanup_client_uses_only_the_storage_outbox_functions(
                 {"signature": signature},
             ), signature
         for signature in (
+            "aap_assets_v1.pending_storage_deletions(uuid,integer)",
             "aap_assets_v1.lock_dataset_reference(uuid)",
             "aap_assets_v1.lock_current_association(uuid,uuid)",
             "aap_assets_v1.lock_append_sources(uuid,uuid[])",
@@ -500,7 +503,7 @@ async def test_asset_cleanup_client_uses_only_the_storage_outbox_functions(
                     "JOIN pg_catalog.pg_namespace AS namespace "
                     "ON namespace.oid = proc.pronamespace "
                     "WHERE ((namespace.nspname = 'aap_assets_v1' AND proc.oid NOT IN ("
-                    "'aap_assets_v1.pending_storage_deletions(uuid,integer)'::regprocedure, "
+                    "'aap_assets_v1.pending_storage_deletions_v2(text,timestamptz,uuid,uuid,integer)'::regprocedure, "
                     "'aap_assets_v1.complete_storage_deletion(uuid,uuid)'::regprocedure)) "
                     "OR (namespace.nspname <> 'aap_assets_v1' "
                     "AND left(namespace.nspname, 4) = 'aap_' "
@@ -514,6 +517,8 @@ async def test_asset_cleanup_client_uses_only_the_storage_outbox_functions(
         for relation in (
             "public.asset_storage_deletions",
             "public.dataset_unlink_operations",
+            "public.dataset_upload_intents",
+            "public.dataset_source_deletion_operations",
             "public.async_jobs",
             "public.projects",
         ):
@@ -530,8 +535,8 @@ async def test_asset_cleanup_client_uses_only_the_storage_outbox_functions(
         assert (
             await cleanup.scalar(
                 text(
-                    "SELECT count(*) FROM aap_assets_v1.pending_storage_deletions("
-                    "CAST(:operation_id AS uuid), 1)"
+                    "SELECT count(*) FROM aap_assets_v1.pending_storage_deletions_v2("
+                    "'cache-bucket',NULL::timestamptz,NULL::uuid,NULL::uuid,1)"
                 ),
                 {"operation_id": operation_id},
             )
@@ -586,7 +591,7 @@ async def test_asset_cleanup_client_uses_only_the_storage_outbox_functions(
 
     async with append_engine.connect() as workflow:
         for signature in (
-            "aap_assets_v1.pending_storage_deletions(uuid,integer)",
+            "aap_assets_v1.pending_storage_deletions_v2(text,timestamptz,uuid,uuid,integer)",
             "aap_assets_v1.complete_storage_deletion(uuid,uuid)",
         ):
             assert not await workflow.scalar(
@@ -597,7 +602,7 @@ async def test_asset_cleanup_client_uses_only_the_storage_outbox_functions(
             ), signature
         await _assert_permission_denied(
             workflow,
-            "SELECT * FROM aap_assets_v1.pending_storage_deletions(NULL::uuid, 1)",
+            "SELECT * FROM aap_assets_v1.pending_storage_deletions_v2('cache-bucket',NULL::timestamptz,NULL::uuid,NULL::uuid,1)",
         )
         await _assert_permission_denied(
             workflow,

@@ -1,0 +1,39 @@
+services:
+  assets-cleanup:
+    build:
+      context: .
+      dockerfile: apps/assets-cleanup/Dockerfile
+    environment:
+      ASSET_CLEANUP_DATABASE_URL_FILE: /run/secrets/cleanup_database_url
+      ASSET_CLEANUP_S3_ACCESS_KEY_FILE: /run/secrets/cleanup_s3_access_key
+      ASSET_CLEANUP_S3_SECRET_KEY_FILE: /run/secrets/cleanup_s3_secret_key
+      ASSET_CLEANUP_BUCKET: ${ASSET_CLEANUP_BUCKET:?Set the dedicated cleanup bucket}
+      ASSET_CLEANUP_S3_ENDPOINT: ${ASSET_CLEANUP_S3_ENDPOINT:?Set the reachable S3 origin}
+      ASSET_CLEANUP_S3_REGION: ${ASSET_CLEANUP_S3_REGION:-us-east-1}
+      ASSET_CLEANUP_POLL_SECONDS: ${ASSET_CLEANUP_POLL_SECONDS:-5}
+      ASSET_CLEANUP_PAGE_SIZE: ${ASSET_CLEANUP_PAGE_SIZE:-100}
+    secrets:
+      - cleanup_database_url
+      - cleanup_s3_access_key
+      - cleanup_s3_secret_key
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    cpus: 0.5
+    mem_limit: 256m
+    restart: unless-stopped
+    stop_grace_period: 60s
+
+secrets:
+  cleanup_database_url:
+    file: ${ASSET_CLEANUP_DATABASE_URL_FILE:-./.secrets/assets-cleanup-database-url}
+  cleanup_s3_access_key:
+    file: ${ASSET_CLEANUP_S3_ACCESS_KEY_FILE:-./.secrets/assets-cleanup-s3-access-key}
+  cleanup_s3_secret_key:
+    file: ${ASSET_CLEANUP_S3_SECRET_KEY_FILE:-./.secrets/assets-cleanup-s3-secret-key}

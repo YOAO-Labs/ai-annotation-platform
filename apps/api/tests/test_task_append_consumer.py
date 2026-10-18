@@ -13,7 +13,7 @@ from pydantic import ValidationError
 from sqlalchemy import delete, event, func, insert, inspect, select, text
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from app.application.dataset_deletion import unlink_dataset_from_project
+from app.application.dataset_deletion import delete_dataset, unlink_dataset_from_project
 from app.application.dataset_task_creation import DatasetTaskCreationWorkflow
 from app.db.models.dataset import Dataset, DatasetItem, ProjectDataset
 from app.db.models.project import Project
@@ -91,13 +91,19 @@ async def append_state(test_engine):
             await db.execute(text("SET LOCAL app.allow_audit_update = 'true'"))
             await db.execute(
                 text(
-                    "DELETE FROM public.audit_logs WHERE actor_id=:actor AND action='dataset.unlink'"
+                    "DELETE FROM public.audit_logs WHERE actor_id=:actor AND action IN ('dataset.unlink','dataset.item_delete','dataset.delete')"
                 ),
                 {"actor": owner_id},
             )
             await db.execute(
                 text(
                     "DELETE FROM public.dataset_unlink_operations WHERE actor_id=:actor"
+                ),
+                {"actor": owner_id},
+            )
+            await db.execute(
+                text(
+                    "DELETE FROM public.dataset_source_deletion_operations WHERE actor_id=:actor"
                 ),
                 {"actor": owner_id},
             )
@@ -337,7 +343,15 @@ async def test_item_delete_uses_parent_lock_before_append_reference(
     async with state.maker() as deleter, state.maker() as appender:
         deleter_pid = await deleter.scalar(text("SELECT pg_backend_pid()"))
         appender_pid = await appender.scalar(text("SELECT pg_backend_pid()"))
-        assert await DatasetService(deleter).delete_item(state.item_id)
+        assert (
+            await delete_dataset(
+                deleter,
+                state.dataset_id,
+                item_id=state.item_id,
+                actor_id=state.owner_id,
+                cleanup_bucket="append-test-cache",
+            )
+        ).deleted_items == 1
         pending = asyncio.create_task(
             DatasetTaskCreationWorkflow(appender).append_items(
                 state.dataset_id, [state.item_id]
@@ -352,6 +366,40 @@ async def test_item_delete_uses_parent_lock_before_append_reference(
             if not pending.done():
                 pending.cancel()
             await asyncio.gather(pending, return_exceptions=True)
+
+
+@pytest.mark.asyncio
+async def test_cached_dataset_count_cannot_overwrite_another_source_writer(
+    append_state,
+):
+    state = append_state
+    async with state.maker() as stale, state.maker() as peer:
+        cached = await stale.get(Dataset, state.dataset_id)
+        assert cached.file_count == 1
+        await DatasetService(peer).add_item(
+            state.dataset_id, "peer.jpg", "peer.jpg", "image"
+        )
+        await peer.commit()
+        await DatasetService(stale).add_item(
+            state.dataset_id, "stale.jpg", "stale.jpg", "image"
+        )
+        assert cached.file_count == 3
+        await stale.commit()
+    async with state.maker() as observer:
+        assert (
+            await observer.scalar(
+                select(Dataset.file_count).where(Dataset.id == state.dataset_id)
+            )
+            == 3
+        )
+        assert (
+            await observer.scalar(
+                select(func.count(DatasetItem.id)).where(
+                    DatasetItem.dataset_id == state.dataset_id
+                )
+            )
+            == 3
+        )
 
 
 @pytest.mark.asyncio
@@ -529,7 +577,7 @@ async def test_upload_completion_locks_parent_before_item_updates_and_delete(
                 state.dataset_id,
                 state.item_id,
                 db=uploader,
-                current_user=None,
+                current_user=SimpleNamespace(id=state.owner_id),
                 media_dispatcher=dispatcher,
             )
         )
@@ -537,12 +585,18 @@ async def test_upload_completion_locks_parent_before_item_updates_and_delete(
         try:
             await asyncio.wait_for(item_written.wait(), timeout=5)
             deletion = asyncio.create_task(
-                DatasetService(deleter).delete_item(state.item_id)
+                delete_dataset(
+                    deleter,
+                    state.dataset_id,
+                    item_id=state.item_id,
+                    actor_id=state.owner_id,
+                    cleanup_bucket="append-test-cache",
+                )
             )
             await _wait_for_blocker(test_engine, delete_pid, upload_pid)
             resume_upload.set()
             assert (await asyncio.wait_for(upload, timeout=5))["linked_tasks"] == 0
-            assert await asyncio.wait_for(deletion, timeout=5) is True
+            assert (await asyncio.wait_for(deletion, timeout=5)).deleted_items == 1
             await deleter.commit()
         finally:
             resume_upload.set()

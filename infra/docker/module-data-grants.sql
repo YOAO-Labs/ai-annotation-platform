@@ -138,7 +138,7 @@ BEGIN
 END $$;
 
 -- Assets owns catalog/source rows and their exact upload/source-deletion receipts.
-GRANT SELECT (id, data_type, name), UPDATE (id, file_count, updated_at), DELETE
+GRANT SELECT (id, data_type, name, file_count), UPDATE (id, file_count, updated_at), DELETE
     ON public.datasets TO :"assets_owner";
 GRANT SELECT (id, project_id, dataset_id), INSERT (id, project_id, dataset_id),
     UPDATE (id) ON public.project_datasets TO :"assets_owner";

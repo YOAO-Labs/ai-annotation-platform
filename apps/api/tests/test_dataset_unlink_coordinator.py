@@ -1349,16 +1349,19 @@ async def test_workflow_and_cleanup_logins_use_only_their_unlink_capabilities(
                 (
                     await worker.execute(
                         text(
-                            "SELECT * FROM aap_assets_v1.pending_storage_deletions("
-                            "CAST(:operation_id AS uuid), 20)"
+                            "SELECT * FROM aap_assets_v1.pending_storage_deletions_v2("
+                            "'media-cache-test',NULL::timestamptz,NULL::uuid,NULL::uuid,20)"
                         ),
-                        {"operation_id": operation_id},
                     )
                 )
                 .mappings()
                 .all()
             )
-            assert pending == [
+            assert len(pending) == 1 and pending[0]["created_at"].tzinfo is not None
+            assert [
+                {key: value for key, value in row.items() if key != "created_at"}
+                for row in pending
+            ] == [
                 {
                     "operation_id": operation_id,
                     "asset_id": fixture["task_asset_id"],
@@ -1382,10 +1385,9 @@ async def test_workflow_and_cleanup_logins_use_only_their_unlink_capabilities(
             assert (
                 await worker.execute(
                     text(
-                        "SELECT * FROM aap_assets_v1.pending_storage_deletions("
-                        "CAST(:operation_id AS uuid), 20)"
+                        "SELECT * FROM aap_assets_v1.pending_storage_deletions_v2("
+                        "'media-cache-test',NULL::timestamptz,NULL::uuid,NULL::uuid,20)"
                     ),
-                    {"operation_id": operation_id},
                 )
             ).all() == []
             await worker.commit()

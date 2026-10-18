@@ -205,6 +205,7 @@ async def _cleanup_world(world: _World) -> None:
                 {"ids": list(world.operation_ids)},
             )
         if world.audit_ids:
+            await db.execute(text("SET LOCAL app.allow_audit_update = 'true'"))
             await db.execute(delete(AuditLog).where(AuditLog.id.in_(world.audit_ids)))
         await db.execute(delete(Dataset).where(Dataset.id == world.dataset_id))
         await db.execute(delete(Project).where(Project.id == world.project_id))
@@ -460,6 +461,7 @@ async def test_upload_scope_actor_state_roles_and_untrusted_inputs(
         "frames\\image.jpg",
         "frames/image\n.jpg",
         "a" * 501,
+        "中" * 300 + ".jpg",
     )
     async with world.maker() as db:
         for bad_name in bad_names:

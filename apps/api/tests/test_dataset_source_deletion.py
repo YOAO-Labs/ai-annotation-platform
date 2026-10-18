@@ -415,6 +415,49 @@ async def test_retained_task_reference_rejects_item_delete_without_partial_write
         await _cleanup(test_engine, fixture)
 
 
+async def test_unproven_pyramid_writer_cannot_be_acknowledged_as_deleted(test_engine):
+    fixture = await _seed(
+        test_engine,
+        with_pyramid=True,
+        lease_expires_at=datetime.now(UTC) + timedelta(hours=1),
+    )
+    operation = uuid.uuid4()
+    fixture["operation_ids"].append(operation)
+    maker = async_sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
+    try:
+        async with maker.begin() as db:
+            await db.execute(
+                text(
+                    "UPDATE public.image_pyramid_generations SET lease_expires_at=NULL WHERE asset_id=:asset"
+                ),
+                {"asset": fixture["asset_id"]},
+            )
+        async with maker.begin() as db:
+            reply = await _delete(
+                db, fixture, operation, item_id=fixture["item_ids"][0]
+            )
+            assert reply["error"]["code"] == "source_busy"
+        async with maker() as db:
+            assert (
+                await _count(
+                    db,
+                    "SELECT count(*) FROM public.image_pyramid_assets WHERE id=:id",
+                    id=fixture["asset_id"],
+                )
+                == 1
+            )
+            assert (
+                await _count(
+                    db,
+                    "SELECT count(*) FROM public.asset_storage_deletions WHERE operation_id=:id",
+                    id=operation,
+                )
+                == 0
+            )
+    finally:
+        await _cleanup(test_engine, fixture)
+
+
 async def test_outer_rollback_restores_item_asset_audit_and_receipt(test_engine):
     fixture = await _seed(test_engine, with_pyramid=True)
     operation_id = uuid.uuid4()
@@ -853,6 +896,7 @@ async def test_pending_upload_deletion_discards_only_when_no_import_is_active(
                         payload={"dataset_id": str(fixture["dataset_id"])},
                     )
                 )
+                await session.flush()
             await session.execute(
                 text(
                     "INSERT INTO public.dataset_upload_intents "

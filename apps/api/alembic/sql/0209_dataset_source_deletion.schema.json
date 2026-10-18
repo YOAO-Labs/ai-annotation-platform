@@ -1,0 +1,317 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:aap:contract:dataset-source-delete:v1",
+  "title": "Assets transactional source deletion v1",
+  "x-postgresql-functions": [
+    "aap_assets_v1.delete_dataset(uuid,uuid,uuid,text,jsonb)",
+    "aap_assets_v1.delete_dataset_item(uuid,uuid,uuid,uuid,text,jsonb)",
+    "aap_assets_v1.lock_scene_source_references(uuid[])"
+  ],
+  "oneOf": [
+    {
+      "$ref": "#/$defs/command"
+    },
+    {
+      "$ref": "#/$defs/success"
+    },
+    {
+      "$ref": "#/$defs/failure"
+    },
+    {
+      "$ref": "#/$defs/sceneFenceCommand"
+    },
+    {
+      "type": "boolean"
+    }
+  ],
+  "$defs": {
+    "ProjectDeletionAuditContext": {
+      "additionalProperties": false,
+      "properties": {
+        "method": {
+          "anyOf": [
+            {
+              "maxLength": 8,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Method"
+        },
+        "path": {
+          "anyOf": [
+            {
+              "maxLength": 256,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Path"
+        },
+        "ip": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ip"
+        },
+        "request_id": {
+          "anyOf": [
+            {
+              "maxLength": 36,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Request Id"
+        }
+      },
+      "title": "ProjectDeletionAuditContext",
+      "type": "object"
+    },
+    "command": {
+      "additionalProperties": false,
+      "properties": {
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "dataset_id": {
+          "format": "uuid",
+          "title": "Dataset Id",
+          "type": "string"
+        },
+        "item_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Item Id"
+        },
+        "cleanup_bucket": {
+          "maxLength": 63,
+          "minLength": 3,
+          "not": {
+            "pattern": "^[0-9]+(\\.[0-9]+){3}$"
+          },
+          "pattern": "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*$",
+          "title": "Cleanup Bucket",
+          "type": "string"
+        },
+        "audit_context": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProjectDeletionAuditContext"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": ["operation_id", "actor_id", "dataset_id", "cleanup_bucket"],
+      "title": "DatasetSourceDeletionCommand",
+      "type": "object"
+    },
+    "receipt": {
+      "additionalProperties": false,
+      "properties": {
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "dataset_id": {
+          "format": "uuid",
+          "title": "Dataset Id",
+          "type": "string"
+        },
+        "item_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Item Id"
+        },
+        "cleanup_bucket": {
+          "maxLength": 63,
+          "minLength": 3,
+          "not": {
+            "pattern": "^[0-9]+(\\.[0-9]+){3}$"
+          },
+          "pattern": "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*$",
+          "title": "Cleanup Bucket",
+          "type": "string"
+        },
+        "audit_id": {
+          "exclusiveMinimum": 0,
+          "title": "Audit Id",
+          "type": "integer"
+        },
+        "deleted_datasets": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Deleted Datasets",
+          "type": "integer"
+        },
+        "deleted_items": {
+          "minimum": 0,
+          "title": "Deleted Items",
+          "type": "integer"
+        },
+        "deleted_scenes": {
+          "minimum": 0,
+          "title": "Deleted Scenes",
+          "type": "integer"
+        },
+        "deleted_associations": {
+          "minimum": 0,
+          "title": "Deleted Associations",
+          "type": "integer"
+        },
+        "discarded_uploads": {
+          "minimum": 0,
+          "title": "Discarded Uploads",
+          "type": "integer"
+        },
+        "queued_storage_deletions": {
+          "minimum": 0,
+          "title": "Queued Storage Deletions",
+          "type": "integer"
+        },
+        "cancelled_creation_jobs": {
+          "minimum": 0,
+          "title": "Cancelled Creation Jobs",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "operation_id",
+        "actor_id",
+        "dataset_id",
+        "item_id",
+        "cleanup_bucket",
+        "audit_id",
+        "deleted_datasets",
+        "deleted_items",
+        "deleted_scenes",
+        "deleted_associations",
+        "discarded_uploads",
+        "queued_storage_deletions",
+        "cancelled_creation_jobs"
+      ],
+      "title": "DatasetSourceDeletionReceipt",
+      "type": "object"
+    },
+    "error": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "enum": [
+            "invalid_request",
+            "account_not_active",
+            "account_busy",
+            "invalid_account_role",
+            "catalog_manager_required",
+            "dataset_missing",
+            "item_missing",
+            "source_busy",
+            "source_in_use",
+            "active_learning_reference",
+            "creation_in_progress",
+            "operation_conflict"
+          ],
+          "title": "Code",
+          "type": "string"
+        }
+      },
+      "required": ["code"],
+      "title": "_Failure",
+      "type": "object"
+    },
+    "success": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-dataset-source-delete/v1"
+        },
+        "ok": {
+          "const": true
+        },
+        "data": {
+          "$ref": "#/$defs/receipt"
+        }
+      },
+      "required": ["schema", "ok", "data"]
+    },
+    "failure": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-dataset-source-delete/v1"
+        },
+        "ok": {
+          "const": false
+        },
+        "error": {
+          "$ref": "#/$defs/error"
+        }
+      },
+      "required": ["schema", "ok", "error"]
+    },
+    "sceneFenceCommand": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "scene_ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "required": ["scene_ids"]
+    }
+  }
+}

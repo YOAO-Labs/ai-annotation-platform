@@ -143,7 +143,6 @@ async def test_lost_response_replay_does_not_unlink_a_new_generation(
         )
         == 1
     )
-    assert media_dispatcher.asset_storage_cleanups == [operation_id, operation_id]
 
     other = await create_project(db_session, owner_id=user.id, name="other scope")
     conflict = await httpx_client.delete(
@@ -152,28 +151,18 @@ async def test_lost_response_replay_does_not_unlink_a_new_generation(
     )
     assert conflict.status_code == 409, conflict.text
     assert conflict.json()["detail"] == {"reason": "operation_conflict"}
-    assert media_dispatcher.asset_storage_cleanups == [operation_id, operation_id]
 
 
-async def test_broker_failure_after_commit_leaves_durable_cleanup(
+async def test_committed_unlink_needs_no_dispatcher_to_leave_durable_cleanup(
     httpx_client, db_session, super_admin, media_dispatcher, monkeypatch
 ):
     user, token = super_admin
     dataset_id, project_id, _, _, _, asset_id = await _seed(db_session, user.id)
-    dispatched = []
-
-    def unavailable(operation_id):
-        assert not db_session.in_transaction()
-        dispatched.append(operation_id)
-        raise ConnectionError("broker unavailable")
-
-    monkeypatch.setattr(media_dispatcher, "dispatch_asset_storage_cleanup", unavailable)
     response = await httpx_client.delete(
         f"/api/v1/datasets/{dataset_id}/link/{project_id}", headers=_headers(token)
     )
     assert response.status_code == 200, response.text
     operation_id = uuid.UUID(response.headers["Idempotency-Key"])
-    assert dispatched == [operation_id]
     assert (
         await db_session.scalar(
             select(DatasetUnlinkOperation.operation_id).where(
@@ -205,7 +194,6 @@ async def test_commit_failure_never_dispatches_cleanup(
         await httpx_client.delete(
             f"/api/v1/datasets/{dataset_id}/link/{project_id}", headers=_headers(token)
         )
-    assert media_dispatcher.asset_storage_cleanups == []
 
 
 async def test_invalid_idempotency_header_cannot_mutate_or_dispatch(
@@ -220,7 +208,6 @@ async def test_invalid_idempotency_header_cannot_mutate_or_dispatch(
         headers=_headers(token, "invalid-key"),
     )
     assert response.status_code == 422, response.text
-    assert media_dispatcher.asset_storage_cleanups == []
     assert await db_session.scalar(select(Task.id).where(Task.id == task_id)) == task_id
     assert (
         await db_session.scalar(

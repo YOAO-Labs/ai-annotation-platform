@@ -13,6 +13,29 @@ overrides = [
 ]
 
 [[package]]
+name = "aap-assets-cleanup"
+version = "0.1.0"
+source = { editable = "../assets-cleanup" }
+dependencies = [
+    { name = "pydantic" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "asyncpg", marker = "extra == 'worker'", specifier = ">=0.30.0" },
+    { name = "boto3", marker = "extra == 'worker'", specifier = ">=1.43.77" },
+    { name = "pydantic", specifier = ">=2.10.0" },
+]
+provides-extras = ["worker"]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "pytest", specifier = ">=8.3.0" },
+    { name = "pytest-asyncio", specifier = ">=0.24.0" },
+    { name = "ruff", specifier = "==0.15.22" },
+]
+
+[[package]]
 name = "aap-media-probe"
 version = "0.1.0"
 source = { editable = "../media-probe" }
@@ -102,6 +125,7 @@ name = "anno-api"
 version = "0.26.1"
 source = { virtual = "." }
 dependencies = [
+    { name = "aap-assets-cleanup" },
     { name = "aap-media-probe" },
     { name = "aap-protocol-v2" },
     { name = "aap-task-contract" },
@@ -147,6 +171,7 @@ test = [
 
 [package.metadata]
 requires-dist = [
+    { name = "aap-assets-cleanup", editable = "../assets-cleanup" },
     { name = "aap-media-probe", editable = "../media-probe" },
     { name = "aap-protocol-v2", editable = "../_shared/protocol_v2" },
     { name = "aap-task-contract", editable = "../_shared/task_contract" },

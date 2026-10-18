@@ -12,7 +12,6 @@ celery_app = Celery(
         "app.workers.tasks",
         "app.workers.media",
         "app.workers.image_pyramid",
-        "app.workers.asset_storage_cleanup",
         "app.workers.cleanup",
         "app.workers.audit",
         "app.workers.deactivation",
@@ -90,9 +89,6 @@ celery_app.conf.update(
         "app.workers.image_pyramid.generate_image_pyramid": {"queue": "image-pyramid"},
         "app.workers.image_pyramid.reconcile_image_pyramids": {"queue": "cleanup"},
         # shortcut: shared legacy queue; split it before deploying an Assets LOGIN worker.
-        "app.workers.asset_storage_cleanup.retry_asset_storage_deletions": {
-            "queue": "cleanup"
-        },
         "app.workers.video_tracker.run_video_tracker_job": {"queue": "gpu"},
         "app.workers.video_track_quality.run": {"queue": "media"},
         "app.workers.mask_qc.run_mask_qc": {"queue": "media"},
@@ -180,10 +176,6 @@ celery_app.conf.update(
         "purge-soft-deleted-attachments": {
             "task": "app.workers.cleanup.purge_soft_deleted_attachments",
             "schedule": crontab(hour=3, minute=0),  # 每日 03:00 UTC
-        },
-        "retry-asset-storage-deletions": {
-            "task": "app.workers.asset_storage_cleanup.retry_asset_storage_deletions",
-            "schedule": timedelta(minutes=5),
         },
         "purge-unreferenced-raster-masks": {
             "task": "app.workers.cleanup.purge_unreferenced_raster_masks",

@@ -1664,3 +1664,12 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
 - CLI 支持 `--idempotency-key`，SDK 发现目录同步新的恢复参数；允许的跨域前端可读取成功回传的 key，production 默认请求头白名单包含它。Web 确认窗保留同次重试的 key；未新增自动重试策略。默认 Compose 仍由宽权限 worker 消费共享 cleanup 队列；受限角色仅在隔离专用队列验收，独立 worker 的队列/服务部署继续列为后续工作。
 - 主 checkout 已提交并升级开发库 0200→0205；只读事务核对原生无效命令响应，回滚后解绑回执和清理 outbox 都为零，没有在日常库播种测试数据。原 API LaunchAgent 重启时遗留的 Uvicorn reloader 经 PID、命令、cwd 与端口归属核实后清除，原 LaunchAgent 已恢复；源码内容不变的热重载将实际服务子进程 25320→26968，连同健康复核共 8.932 秒。DB/Redis/MinIO 全为 200，公开 OpenAPI 485 paths/872 schemas 与快照一致，幂等键 CORS 预检为 200。日常 Celery 仍未启动，总健康/Celery 端点保留原有 503；隔离 worker 已在上述回归验证并清理。证据 `.worktree/dataset-unlink-main-runtime.json`。
 - 所有 native 工件哈希与集成提交一致；提交钩子只将 0205 JSON Schema 重新排版，解析数据与此前资格验证相同，记录在 `.worktree/dataset-unlink-postchecks.json`。本任务 5 个临时工作树/分支均在补丁等价与干净状态确认后清理，清理时保留其余 11 个工作树。本片未推送、发布或授予生产容量/GPU 资格。
+
+## Assets source deletion, staged publication and independent cleanup
+
+- 已按确认规则实现：相机链接、场景轨迹、质量/视频执行及主来源、标注、主动学习证据仍引用时返回 409，先在对应项目/功能中解除，不借 FK 级联清理。新原生 Assets 删除命令组合当前素材库管理权、来源围栏、Learning/Labeling/Jobs、Audit、精确派生 outbox 与不可变回执；Dataset/Item REST 保持 204 和父子不匹配 404。
+- 上传 intent 不创建占位 Item；staging HEAD/尺寸与条件拷贝使用同一 ETag，每次 pending publication 使用独立 UUID 目标。公开完成 SQL 原子登记 Item、Labeling append 与冻结结果；已完成重试不再拷贝。旧无 intent 记录不补造上传者、不因缺失/重复删除源文件。文件名同时满足字符与 UTF-8 对象 key 预算。
+- `apps/assets-cleanup` 为独立 Python 工件，直接使用两个受限 PostgreSQL 能力与一个桶中 `image-pyramids/*` 的 List/Delete 身份；去掉 API/Celery/Redis/ORM 装配。outbox 捕获 building lease，pending 与确认都等待到期；writer 在每次对象写入前检查 deadline。旧清理 task/beat/派发已移除，独立 Compose 和切换/回退流程已给出。
+- 630 个唯一数据库/消费者/真实对象存储/独立容器用例已有效通过，无业务跳过；这是整合结果加定向补验的去重集合，不是累加每次运行。独立包 29、deadline 2、架构 295（119 条不适用）、兼容 51（4 条空规则）、环境单元 42、SDK/CLI 65 与 Web 17 项检查通过。自有测试资源和限定 S3 身份已清理；原始证据在本地 `.worktree/assets-source-*.json/.junit.xml`。
+- 当前表台账为 118 张，其中 Assets 16。主 API 仍是聚合装配和迁移期宽权限账号；独立清理只是 Assets 子能力。其余 CRUD、连接器/扫描/导入、媒体派生写入、完整 Blob/读取合同、身份/成员生命周期及其他模块运行工件继续推进；总目标保持进行中。Go 月报仍为独立实验，不上线真实环境。
+- 原始文件保留包括不确定提交后的未引用拷贝，未完成 intent 也暂不自动回收；后续源回收需持久 publication 证据和迟到 I/O 围栏。本地验收不构成生产容量、模型/GPU 或远程 CI 资格。
