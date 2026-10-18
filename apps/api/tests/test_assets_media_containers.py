@@ -81,6 +81,7 @@ def _container_environment(
     cache_bucket: str,
     access_key: str,
     secret_key: str,
+    legacy_bucket: str | None = None,
     token: str | None = None,
 ) -> dict[str, str]:
     common = {
@@ -97,6 +98,8 @@ def _container_environment(
     }
     if role == "control":
         assert token is not None
+        if legacy_bucket is None:
+            pytest.fail("the owned legacy bucket is required for image control")
         role_values = {
             "ASSETS_MEDIA_CONTROL_DATABASE_URL": database_url,
             "ASSETS_MEDIA_TOKEN": token,
@@ -104,6 +107,7 @@ def _container_environment(
             "ASSETS_MEDIA_PORT": "8768",
             "ASSETS_MEDIA_POOL_MIN_SIZE": "1",
             "ASSETS_MEDIA_POOL_MAX_SIZE": "2",
+            "ASSETS_IMAGES_LEGACY_BUCKET": legacy_bucket,
         }
     else:
         role_values = {
@@ -217,6 +221,7 @@ def _verify_container(
     }
     if control:
         required.add("ASSETS_MEDIA_TOKEN")
+        required.add("ASSETS_IMAGES_LEGACY_BUCKET")
     forbidden_credentials = (
         {"ASSETS_MEDIA_WORKER_DATABASE_URL"}
         if control
@@ -326,11 +331,12 @@ async def test_restricted_media_images_serve_real_video_assets(
     worker_image = _required_env("AAP_ASSETS_MEDIA_WORKER_IMAGE")
     resources = _verified_resource_manifest(test_engine, control_url)
     datasets_bucket = resources["buckets"]["MINIO_DATASETS_BUCKET"]
+    legacy_bucket = resources["buckets"]["MINIO_BUCKET"]
     cache_bucket = resources["buckets"]["MINIO_MEDIA_CACHE_BUCKET"]
     owner_s3 = _local_s3_client(
         settings, settings.minio_access_key, settings.minio_secret_key
     )
-    for bucket in (datasets_bucket, cache_bucket):
+    for bucket in (datasets_bucket, legacy_bucket, cache_bucket):
         _verify_bucket_owner(owner_s3, bucket, resources["owner"])
 
     control_access = _required_env("AAP_MODULE_DATA_ASSET_MEDIA_CONTROL_S3_ACCESS_KEY")
@@ -364,6 +370,7 @@ async def test_restricted_media_images_serve_real_video_assets(
             s3_endpoint=internal_s3,
             s3_public_endpoint=public_s3,
             datasets_bucket=datasets_bucket,
+            legacy_bucket=legacy_bucket,
             cache_bucket=cache_bucket,
             access_key=control_access,
             secret_key=control_secret,

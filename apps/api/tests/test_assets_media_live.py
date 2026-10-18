@@ -77,9 +77,14 @@ def _runtime_environment(
     cache_bucket: str,
     access_key: str,
     secret_key: str,
+    legacy_bucket: str | None = None,
     token: str | None = None,
     port: int | None = None,
     ffmpeg_gate: tuple[Path, Path] | None = None,
+    image_worker: bool = False,
+    srgb_profile: Path | None = None,
+    image_control_settings: dict[str, str] | None = None,
+    vips_gate: tuple[Path, Path] | None = None,
 ) -> dict[str, str]:
     environment = {
         "LANG": os.environ.get("LANG", "C.UTF-8"),
@@ -104,6 +109,8 @@ def _runtime_environment(
     }
     if role == "control":
         assert token is not None and port is not None
+        if legacy_bucket is None:
+            pytest.fail("the owned legacy bucket is required for image control")
         environment.update(
             {
                 "ASSETS_MEDIA_CONTROL_DATABASE_URL": database_url,
@@ -112,24 +119,48 @@ def _runtime_environment(
                 "ASSETS_MEDIA_PORT": str(port),
                 "ASSETS_MEDIA_POOL_MIN_SIZE": "1",
                 "ASSETS_MEDIA_POOL_MAX_SIZE": "2",
+                "ASSETS_IMAGES_LEGACY_BUCKET": legacy_bucket,
             }
         )
+        if image_control_settings is not None:
+            environment.update(image_control_settings)
     else:
-        environment.update(
-            {
-                "ASSETS_MEDIA_WORKER_DATABASE_URL": database_url,
-                "ASSETS_MEDIA_POLL_SECONDS": "0.1",
-                "ASSETS_MEDIA_LEASE_SECONDS": "30",
-                "ASSETS_MEDIA_FRAME_TTL_DAYS": "14",
-                "ASSETS_MEDIA_CHUNK_TTL_DAYS": "30",
-            }
-        )
+        if image_worker:
+            if legacy_bucket is None or srgb_profile is None:
+                pytest.fail(
+                    "image worker requires owned legacy bucket and sRGB profile"
+                )
+            environment.update(
+                {
+                    "ASSETS_IMAGES_DATABASE_URL": database_url,
+                    "ASSETS_IMAGES_LEGACY_BUCKET": legacy_bucket,
+                    "ASSETS_IMAGES_POLL_SECONDS": "0.1",
+                    "ASSETS_IMAGES_SRGB_PROFILE": str(srgb_profile),
+                }
+            )
+        else:
+            environment.update(
+                {
+                    "ASSETS_MEDIA_WORKER_DATABASE_URL": database_url,
+                    "ASSETS_MEDIA_POLL_SECONDS": "0.1",
+                    "ASSETS_MEDIA_LEASE_SECONDS": "30",
+                    "ASSETS_MEDIA_FRAME_TTL_DAYS": "14",
+                    "ASSETS_MEDIA_CHUNK_TTL_DAYS": "30",
+                }
+            )
     if ffmpeg_gate is not None:
         gate_directory, marker_directory = ffmpeg_gate
         environment["PATH"] = str(gate_directory) + os.pathsep + environment["PATH"]
         environment["AAP_MEDIA_FFMPEG_REAL"] = shutil.which("ffmpeg") or ""
         environment["AAP_MEDIA_FFMPEG_GATE_ENTERED"] = str(marker_directory / "entered")
         environment["AAP_MEDIA_FFMPEG_GATE_RELEASE"] = str(marker_directory / "release")
+    if vips_gate is not None:
+        gate_directory, marker_directory = vips_gate
+        environment["PYTHONPATH"] = os.pathsep.join(
+            (str(gate_directory), environment["PYTHONPATH"])
+        )
+        environment["AAP_IMAGES_VIPS_GATE_ENTERED"] = str(marker_directory / "entered")
+        environment["AAP_IMAGES_VIPS_GATE_RELEASE"] = str(marker_directory / "release")
     return environment
 
 
@@ -551,13 +582,14 @@ async def test_real_control_and_worker_runtime_scopes_and_fences(test_engine, tm
 
     resources = _verified_resource_manifest(test_engine, control_url)
     datasets_bucket = resources["buckets"]["MINIO_DATASETS_BUCKET"]
+    legacy_bucket = resources["buckets"]["MINIO_BUCKET"]
     cache_bucket = resources["buckets"]["MINIO_MEDIA_CACHE_BUCKET"]
     scheme = "https" if settings.minio_use_ssl else "http"
     endpoint = f"{scheme}://{settings.minio_endpoint}"
     owner_s3 = _local_s3_client(
         settings, settings.minio_access_key, settings.minio_secret_key
     )
-    for bucket in (datasets_bucket, cache_bucket):
+    for bucket in (datasets_bucket, legacy_bucket, cache_bucket):
         _verify_bucket_owner(owner_s3, bucket, resources["owner"])
 
     control_access = _required_env("AAP_MODULE_DATA_ASSET_MEDIA_CONTROL_S3_ACCESS_KEY")
@@ -654,6 +686,7 @@ async def test_real_control_and_worker_runtime_scopes_and_fences(test_engine, tm
         endpoint=endpoint,
         public_endpoint=endpoint,
         datasets_bucket=datasets_bucket,
+        legacy_bucket=legacy_bucket,
         cache_bucket=cache_bucket,
         access_key=control_access,
         secret_key=control_secret,
