@@ -87,7 +87,7 @@ Workspace 通过版本化 `preview_dataset_unlink` 提供只读数量预览，�
 
 事务内不调用 S3 或 broker。提交后 API 派发清理任务，cleanup worker 仅删除记录的精确 UUID/prefix/bucket，并可幂等重试和确认；bucket 与 executor 配置不符时拒绝执行。受限 cleanup LOGIN 在隔离专用队列中完成角色验收，workflow LOGIN 无法读取或 drain outbox。默认 Compose 仍使用宽权限 worker 的共享 `cleanup` 队列；独立清理角色的部署还需专用队列与服务。REST 可选 UUID `Idempotency-Key` 在成功时回传，SDK/Web 的同次重试复用原 key；响应体仍为五字段，API key 写入需 `datasets:write` scope；JWT 行为保持不变。
 
-本节只记录 Dataset→Project 解绑与清理回执边界。Assets 的公开 Dataset 和 DatasetItem 删除命令仍待迁移；Learning guard 和 Assets/Labeling source-reference 能力是这些操作的私有基础，不代表删除操作已完成。实现决策见 [ADR-0095](/dev/adr/0095-transactional-dataset-unlink)。本阶段独立 PostgreSQL 整合回归 516 项通过、零跳过，覆盖两个受限 LOGIN、原生 psql、回滚/提交失败、幂等重放和真实 Celery/MinIO 清理恢复；迁移往返及冻结 SQL 独立安装/回滚通过，隔离资源已清理。角色验收不等于默认 Compose 已部署受限清理 worker，也不提供完整模块或生产容量资格。
+本节只记录 Dataset→Project 解绑与清理回执边界。Assets 的公开 Dataset 和 DatasetItem 删除命令仍待迁移；Learning guard 和 Assets/Labeling source-reference 能力是这些操作的私有基础，不代表删除操作已完成。实现决策见 [ADR-0095](/dev/adr/0095-transactional-dataset-unlink)。本阶段独立 PostgreSQL 整合回归 516 项通过、零跳过，覆盖两个受限 LOGIN、原生 psql、回滚/提交失败、幂等重放和真实 Celery/MinIO 清理恢复；迁移往返及冻结 SQL 独立安装/回滚通过，隔离资源已清理。角色验收不等于默认 Compose 已部署受限清理 worker，也不提供完整模块或生产容量资格。主 checkout 已应用 0205，API 热重载与 DB/Redis/MinIO 检查通过；日常 Celery 未启动，相关健康检查维持 503。
 
 ## 全目标完成门槛
 
