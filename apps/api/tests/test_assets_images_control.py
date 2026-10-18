@@ -9,6 +9,7 @@ import pytest
 from sqlalchemy import text
 
 from app.db.models.dataset import DatasetItem
+from app.db.models.image_pyramid import ImagePyramidAsset, ImagePyramidGeneration
 from tests.test_assets_catalog_native import _seed_actor, _seed_dataset
 
 pytestmark = pytest.mark.asyncio
@@ -26,11 +27,13 @@ _RESOLVE_INTERNAL = text(
     "CAST(:owner_id AS uuid), :snapshot, CAST(:identity AS jsonb))"
 )
 _READ_SUMMARIES = text(
-    "SELECT aap_assets_v1.read_image_summaries(CAST(:actor_id AS uuid), CAST(:selectors AS jsonb))"
+    "SELECT aap_assets_v1.read_image_summaries(CAST(:actor_id AS uuid), "
+    "CAST(:selectors AS jsonb), CAST(:profile_version AS text))"
 )
 _READ_GENERATION = text(
     "SELECT aap_assets_v1.read_image_generation(CAST(:actor_id AS uuid), "
-    "CAST(:task_id AS uuid), CAST(:item_id AS uuid), CAST(:generation AS integer))"
+    "CAST(:task_id AS uuid), CAST(:item_id AS uuid), "
+    "CAST(:generation AS integer), CAST(:profile_version AS text))"
 )
 _PREPARE = text(
     "SELECT aap_assets_v1.prepare_image_media(CAST(:operation_id AS uuid), "
@@ -195,6 +198,7 @@ async def test_item_source_observation_and_pyramid_summary_follow_generation(
                 "selectors": json.dumps(
                     [{"task_id": None, "dataset_item_id": str(item_id)}]
                 ),
+                "profile_version": None,
             },
         )
     )["items"][0]
@@ -241,6 +245,244 @@ async def test_linked_task_source_uses_dataset_item_facts_and_current_visibility
     assert source["file_path"] == f"image-source/{item_id}.png"
 
     _error(await _read(db_session, other_id, None, task_id=task.id), "task_not_visible")
+
+
+async def test_pyramid_reads_select_the_requested_profile(db_session):
+    actor_id = await _seed_actor(db_session)
+    _, item_id = await _seed_image_item(db_session, actor_id=actor_id)
+    source = _data(await _read(db_session, actor_id, item_id))["data"]
+    bound = _data(
+        await _observe(
+            db_session,
+            actor_id,
+            source,
+            {"etag": "profile-read", "byte_size": 2048},
+            item_id=item_id,
+        )
+    )["data"]
+    v1_asset = ImagePyramidAsset(
+        id=uuid4(),
+        dataset_item_id=item_id,
+        profile_version="pyramid-v1",
+        active_generation=1,
+    )
+    v2_asset = ImagePyramidAsset(
+        id=uuid4(),
+        dataset_item_id=item_id,
+        profile_version="pyramid-v2",
+        active_generation=1,
+    )
+    db_session.add_all([v1_asset, v2_asset])
+    await db_session.flush()
+    db_session.add_all(
+        [
+            ImagePyramidGeneration(
+                asset_id=asset.id,
+                generation=1,
+                source_identity=bound["source_snapshot"],
+                source_fingerprint=None,
+                status="failed",
+                width=4000 if asset is v1_asset else 1800,
+                height=3000 if asset is v1_asset else 1200,
+                normalization_version="exif-autorotate-srgb-v1",
+                error_code="synthetic_failure",
+            )
+            for asset in (v1_asset, v2_asset)
+        ]
+    )
+    await db_session.flush()
+    await db_session.execute(
+        text(
+            "UPDATE public.image_pyramid_generations "
+            "SET source_generation=:source_generation,source_snapshot=:source_snapshot "
+            "WHERE asset_id IN (:v1_id,:v2_id)"
+        ),
+        {
+            "source_generation": bound["source_generation"],
+            "source_snapshot": bound["source_snapshot"],
+            "v1_id": v1_asset.id,
+            "v2_id": v2_asset.id,
+        },
+    )
+    await db_session.execute(
+        text(
+            "UPDATE public.image_pyramid_assets SET updated_at=CASE "
+            "WHEN id=:v1_id THEN clock_timestamp()+interval '1 minute' "
+            "ELSE clock_timestamp()-interval '1 minute' END "
+            "WHERE id IN (:v1_id,:v2_id)"
+        ),
+        {"v1_id": v1_asset.id, "v2_id": v2_asset.id},
+    )
+
+    selectors = json.dumps([{"task_id": None, "dataset_item_id": str(item_id)}])
+    selected_summary = _data(
+        await db_session.scalar(
+            _READ_SUMMARIES,
+            {
+                "actor_id": actor_id,
+                "selectors": selectors,
+                "profile_version": "pyramid-v2",
+            },
+        )
+    )["items"][0]["pyramid"]
+    assert selected_summary["profile_version"] == "pyramid-v2"
+    assert selected_summary["width"] == 1800
+
+    selected_generation = _data(
+        await db_session.scalar(
+            _READ_GENERATION,
+            {
+                "actor_id": actor_id,
+                "task_id": None,
+                "item_id": item_id,
+                "generation": None,
+                "profile_version": "pyramid-v2",
+            },
+        )
+    )["pyramid"]
+    assert selected_generation["asset_id"] == str(v2_asset.id)
+    assert selected_generation["profile_version"] == "pyramid-v2"
+
+    default_summary = _data(
+        await db_session.scalar(
+            _READ_SUMMARIES,
+            {
+                "actor_id": actor_id,
+                "selectors": selectors,
+                "profile_version": None,
+            },
+        )
+    )["items"][0]["pyramid"]
+    assert default_summary["profile_version"] == "pyramid-v1"
+    assert default_summary["width"] == 4000
+
+    _error(
+        await db_session.scalar(
+            _INVALIDATE,
+            {
+                "actor_id": actor_id,
+                "task_id": None,
+                "item_id": item_id,
+                "invalidation": json.dumps(
+                    {
+                        "source_snapshot": bound["source_snapshot"],
+                        "kind": "overview",
+                        "generation": 1,
+                        "profile_version": "pyramid-v2",
+                    }
+                ),
+            },
+        ),
+        "source_changed",
+    )
+    _error(
+        await db_session.scalar(
+            _INVALIDATE,
+            {
+                "actor_id": actor_id,
+                "task_id": None,
+                "item_id": item_id,
+                "invalidation": json.dumps(
+                    {
+                        "source_snapshot": bound["source_snapshot"],
+                        "kind": "overview",
+                        "generation": 1,
+                        "profile_version": "pyramid-v3",
+                    }
+                ),
+            },
+        ),
+        "asset_missing",
+    )
+
+
+async def test_task_source_reads_newest_current_ready_image_dimensions(db_session):
+    from tests.test_image_source_authorities import _seed_image_task
+
+    actor_id = await _seed_actor(db_session)
+    task = await _seed_image_task(db_session, actor_id=actor_id)
+    first_identity = {"etag": "task-dimensions-v1", "byte_size": 4096}
+    source = _data(await _read(db_session, actor_id, None, task_id=task.id))["data"]
+    bound = _data(
+        await _observe(
+            db_session,
+            actor_id,
+            source,
+            first_identity,
+            task_id=task.id,
+        )
+    )["data"]
+
+    ready_results = (
+        (
+            "dimensions",
+            "dimensions:preview",
+            {"kind": "dimensions", "width": 640, "height": 480},
+            1,
+        ),
+        (
+            "thumbnail",
+            "thumbnail",
+            {"kind": "thumbnail", "width": 800, "height": 600},
+            2,
+        ),
+        (
+            "pyramid",
+            "pyramid:pyramid-v1",
+            {
+                "kind": "pyramid",
+                "manifest": {"width": 1024, "height": 768},
+            },
+            3,
+        ),
+    )
+    for kind, slot_key, result_dimensions, sort_order in ready_results:
+        result = {
+            **result_dimensions,
+            "source_identity": first_identity,
+        }
+        await db_session.execute(
+            text(
+                "INSERT INTO public.asset_image_jobs "
+                "(job_id,kind,owner_kind,owner_id,slot_key,spec,status,"
+                "source_generation,source_snapshot,source_facts,result,updated_at) "
+                "VALUES (:job_id,:kind,'task',:task_id,:slot_key,CAST(:spec AS jsonb),"
+                "'ready',:source_generation,:source_snapshot,CAST(:source_facts AS jsonb),"
+                "CAST(:result AS jsonb),clock_timestamp()+make_interval(secs=>:sort_order))"
+            ),
+            {
+                "job_id": uuid4(),
+                "kind": kind,
+                "task_id": task.id,
+                "slot_key": slot_key,
+                "spec": json.dumps(
+                    {"kind": kind, "expected_source_snapshot": bound["source_snapshot"]}
+                ),
+                "source_generation": bound["source_generation"],
+                "source_snapshot": bound["source_snapshot"],
+                "source_facts": json.dumps({"object_identity": first_identity}),
+                "result": json.dumps(result),
+                "sort_order": sort_order,
+            },
+        )
+
+    current = _data(await _read(db_session, actor_id, None, task_id=task.id))["data"]
+    assert (current["width"], current["height"]) == (1024, 768)
+
+    task.file_path = f"image-source/replaced-{uuid4()}.png"
+    await db_session.flush()
+    changed = _data(await _read(db_session, actor_id, None, task_id=task.id))["data"]
+    changed = _data(
+        await _observe(
+            db_session,
+            actor_id,
+            changed,
+            {"etag": "task-dimensions-v2", "byte_size": 4096},
+            task_id=task.id,
+        )
+    )["data"]
+    assert changed["source_generation"] == current["source_generation"] + 1
+    assert (changed["width"], changed["height"]) == (None, None)
 
 
 async def test_retry_receipt_replays_before_ready_and_new_retry_is_rejected(db_session):

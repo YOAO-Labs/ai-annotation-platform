@@ -174,8 +174,10 @@ BEGIN
             AND p_source -> 'item_id' = 'null'::jsonb
             AND p_source -> 'file_size' = 'null'::jsonb
             AND p_source -> 'content_hash' = 'null'::jsonb
-            AND p_source -> 'width' = 'null'::jsonb
-            AND p_source -> 'height' = 'null'::jsonb;
+            AND ((p_source -> 'width' = 'null'::jsonb
+                  AND p_source -> 'height' = 'null'::jsonb)
+                 OR (p_source -> 'width' <> 'null'::jsonb
+                     AND p_source -> 'height' <> 'null'::jsonb));
     END IF;
     RETURN p_source ->> 'bucket_kind' = 'datasets'
         AND p_source ->> 'item_id' = v_uuid
@@ -352,6 +354,8 @@ DECLARE
     v_drifted boolean;
     v_thumbnail text;
     v_thumbnail_generation bigint;
+    v_width integer;
+    v_height integer;
     v_created_at timestamptz;
 BEGIN
     IF pg_catalog.jsonb_typeof(p_facts) IS DISTINCT FROM 'object'
@@ -422,6 +426,83 @@ BEGIN
         AND (p_facts ->> 'upload_ready')::boolean
         AND aap_assets_v1._image_thumbnail_key_valid(p_facts ->> 'thumbnail_path')
         THEN p_facts ->> 'thumbnail_path' END;
+    IF v_identity IS NOT NULL AND NOT v_drifted THEN
+        SELECT candidate.width, candidate.height
+        INTO v_width, v_height
+        FROM (
+            SELECT
+                CASE
+                    WHEN job.kind IN ('dimensions', 'thumbnail')
+                     AND job.result ->> 'kind' = job.kind
+                     AND pg_catalog.jsonb_typeof(job.result -> 'width') = 'number'
+                     AND job.result ->> 'width' ~ '^[1-9][0-9]*$'
+                     AND pg_catalog.char_length(job.result ->> 'width') <= 10
+                     AND CASE WHEN job.result ->> 'width' ~ '^[1-9][0-9]*$'
+                                   AND pg_catalog.char_length(job.result ->> 'width') <= 10
+                         THEN (job.result ->> 'width')::numeric BETWEEN 1 AND 2147483647
+                         ELSE false END
+                        THEN (job.result ->> 'width')::integer
+                    WHEN job.kind = 'pyramid'
+                     AND job.result ->> 'kind' = 'pyramid'
+                     AND pg_catalog.jsonb_typeof(job.result -> 'manifest') = 'object'
+                     AND pg_catalog.jsonb_typeof(job.result #> '{manifest,width}') = 'number'
+                     AND job.result #>> '{manifest,width}' ~ '^[1-9][0-9]*$'
+                     AND pg_catalog.char_length(job.result #>> '{manifest,width}') <= 10
+                     AND CASE WHEN job.result #>> '{manifest,width}' ~ '^[1-9][0-9]*$'
+                                   AND pg_catalog.char_length(job.result #>> '{manifest,width}') <= 10
+                         THEN (job.result #>> '{manifest,width}')::numeric BETWEEN 1 AND 2147483647
+                         ELSE false END
+                        THEN (job.result #>> '{manifest,width}')::integer
+                END AS width,
+                CASE
+                    WHEN job.kind IN ('dimensions', 'thumbnail')
+                     AND job.result ->> 'kind' = job.kind
+                     AND pg_catalog.jsonb_typeof(job.result -> 'height') = 'number'
+                     AND job.result ->> 'height' ~ '^[1-9][0-9]*$'
+                     AND pg_catalog.char_length(job.result ->> 'height') <= 10
+                     AND CASE WHEN job.result ->> 'height' ~ '^[1-9][0-9]*$'
+                                   AND pg_catalog.char_length(job.result ->> 'height') <= 10
+                         THEN (job.result ->> 'height')::numeric BETWEEN 1 AND 2147483647
+                         ELSE false END
+                        THEN (job.result ->> 'height')::integer
+                    WHEN job.kind = 'pyramid'
+                     AND job.result ->> 'kind' = 'pyramid'
+                     AND pg_catalog.jsonb_typeof(job.result -> 'manifest') = 'object'
+                     AND pg_catalog.jsonb_typeof(job.result #> '{manifest,height}') = 'number'
+                     AND job.result #>> '{manifest,height}' ~ '^[1-9][0-9]*$'
+                     AND pg_catalog.char_length(job.result #>> '{manifest,height}') <= 10
+                     AND CASE WHEN job.result #>> '{manifest,height}' ~ '^[1-9][0-9]*$'
+                                   AND pg_catalog.char_length(job.result #>> '{manifest,height}') <= 10
+                         THEN (job.result #>> '{manifest,height}')::numeric BETWEEN 1 AND 2147483647
+                         ELSE false END
+                        THEN (job.result #>> '{manifest,height}')::integer
+                END AS height,
+                job.updated_at,
+                job.job_id
+            FROM public.asset_image_jobs AS job
+            WHERE job.owner_kind = 'task'
+              AND job.owner_id = v_task_id
+              AND job.kind IN ('dimensions', 'thumbnail', 'pyramid')
+              AND job.status = 'ready'
+              AND job.source_generation = v_source_generation
+              AND job.source_snapshot = v_snapshot
+              AND aap_assets_v1._media_object_identity_valid(
+                    job.source_facts -> 'object_identity'
+                  )
+              AND aap_assets_v1._image_normalize_identity(
+                    job.source_facts -> 'object_identity'
+                  ) = v_identity
+              AND aap_assets_v1._media_object_identity_valid(
+                    job.result -> 'source_identity'
+                  )
+              AND aap_assets_v1._image_normalize_identity(
+                    job.result -> 'source_identity'
+                  ) = v_identity
+        ) AS candidate
+        WHERE candidate.width IS NOT NULL AND candidate.height IS NOT NULL
+        ORDER BY candidate.updated_at DESC, candidate.job_id DESC
+        LIMIT 1;
+    END IF;
     RETURN pg_catalog.jsonb_build_object(
         'owner', pg_catalog.jsonb_build_object('kind', 'task', 'id', v_task_id),
         'task_id', v_task_id,
@@ -439,8 +520,8 @@ BEGIN
         'bucket_kind', 'legacy',
         'file_size', NULL,
         'content_hash', NULL,
-        'width', NULL,
-        'height', NULL,
+        'width', v_width,
+        'height', v_height,
         'thumbnail_path', v_thumbnail,
         'blurhash', CASE WHEN v_thumbnail IS NOT NULL THEN p_facts -> 'blurhash' END,
         'thumbnail_source_generation', CASE WHEN v_thumbnail IS NOT NULL
@@ -953,7 +1034,7 @@ REVOKE ALL ON FUNCTION aap_assets_v1._image_observe_owner(text, uuid, text, json
 -- aap-statement-break
 
 CREATE FUNCTION aap_assets_v1._image_pyramid_projection(
-    p_source jsonb, p_generation integer
+    p_source jsonb, p_generation integer, p_profile_version text
 )
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -969,6 +1050,7 @@ DECLARE
     v_source_snapshot text;
     v_source_drifted boolean;
     v_upload_ready boolean;
+    v_profile_version text;
     v_width integer;
     v_height integer;
     v_asset public.image_pyramid_assets%ROWTYPE;
@@ -988,6 +1070,7 @@ DECLARE
     v_overview_digest text;
     v_has_generation boolean := false;
 BEGIN
+    v_profile_version := COALESCE(p_profile_version, 'pyramid-v1');
     IF pg_catalog.jsonb_typeof(p_source) IS DISTINCT FROM 'object'
        OR pg_catalog.jsonb_typeof(p_source -> 'owner') IS DISTINCT FROM 'object'
        OR p_source #>> '{owner,kind}' NOT IN ('dataset_item', 'task')
@@ -997,7 +1080,8 @@ BEGIN
        OR pg_catalog.jsonb_typeof(p_source -> 'source_generation') IS DISTINCT FROM 'number'
        OR p_source ->> 'source_generation' !~ '^[1-9][0-9]*$'
        OR pg_catalog.jsonb_typeof(p_source -> 'source_drifted') IS DISTINCT FROM 'boolean'
-       OR pg_catalog.jsonb_typeof(p_source -> 'upload_ready') IS DISTINCT FROM 'boolean' THEN
+       OR pg_catalog.jsonb_typeof(p_source -> 'upload_ready') IS DISTINCT FROM 'boolean'
+       OR pg_catalog.char_length(v_profile_version) NOT BETWEEN 1 AND 64 THEN
         RETURN NULL;
     END IF;
     BEGIN
@@ -1019,12 +1103,14 @@ BEGIN
         SELECT asset.* INTO v_asset
         FROM public.image_pyramid_assets AS asset
         WHERE asset.dataset_item_id = v_owner_id
+          AND asset.profile_version = v_profile_version
         ORDER BY asset.updated_at DESC, asset.id DESC
         LIMIT 1;
     ELSE
         SELECT asset.* INTO v_asset
         FROM public.image_pyramid_assets AS asset
         WHERE asset.task_id = v_owner_id
+          AND asset.profile_version = v_profile_version
         ORDER BY asset.updated_at DESC, asset.id DESC
         LIMIT 1;
     END IF;
@@ -1039,6 +1125,7 @@ BEGIN
             AND v_width::numeric * v_height::numeric >= (v_policy ->> 'required_pixels')::numeric;
         RETURN pg_catalog.jsonb_build_object(
             'asset_id', NULL, 'status', v_status, 'required', v_required,
+            'profile_version', v_profile_version,
             'generation', NULL, 'building_generation', NULL, 'building_status', NULL,
             'source_generation', NULL, 'source_snapshot', NULL,
             'width', v_width, 'height', v_height, 'tile_size', 512,
@@ -1131,6 +1218,7 @@ BEGIN
         'asset_id', v_asset.id,
         'status', v_status,
         'required', v_required,
+        'profile_version', v_asset.profile_version,
         'generation', v_generation.generation,
         'building_generation', v_asset.building_generation,
         'building_status', CASE WHEN v_building.status IN ('pending', 'building')
@@ -1155,7 +1243,7 @@ BEGIN
 END;
 $function$;
 -- aap-statement-break
-REVOKE ALL ON FUNCTION aap_assets_v1._image_pyramid_projection(jsonb, integer)
+REVOKE ALL ON FUNCTION aap_assets_v1._image_pyramid_projection(jsonb, integer, text)
     FROM PUBLIC;
 -- aap-statement-break
 
@@ -1169,6 +1257,7 @@ AS $function$
     SELECT pg_catalog.jsonb_build_object(
         'status', p_projection -> 'status',
         'required', p_projection -> 'required',
+        'profile_version', p_projection -> 'profile_version',
         'generation', p_projection -> 'generation',
         'building_generation', p_projection -> 'building_generation',
         'building_status', p_projection -> 'building_status',
@@ -1713,7 +1802,9 @@ BEGIN
            AND v_source -> 'thumbnail_source_generation' = v_source -> 'source_generation' THEN
             RETURN aap_assets_v1._image_reply(NULL, 'already_ready');
         ELSIF p_purpose = 'pyramid' THEN
-            v_projection := aap_assets_v1._image_pyramid_projection(v_source, NULL);
+            v_projection := aap_assets_v1._image_pyramid_projection(
+                v_source, NULL, v_policy ->> 'profile_version'
+            );
             IF v_projection IS NULL THEN
                 RETURN aap_assets_v1._image_reply(NULL, 'invalid_response');
             END IF;
@@ -2399,11 +2490,12 @@ DECLARE
     v_changed boolean := false;
     v_projection jsonb;
     v_policy jsonb;
+    v_profile_version text;
 BEGIN
     IF p_actor_id IS NULL OR ((p_task_id IS NULL) = (p_dataset_item_id IS NULL))
        OR pg_catalog.jsonb_typeof(p_invalidation) IS DISTINCT FROM 'object'
        OR (p_invalidation - ARRAY[
-            'source_snapshot', 'kind', 'generation', 'level', 'x', 'y'
+            'source_snapshot', 'kind', 'generation', 'profile_version', 'level', 'x', 'y'
        ]) IS DISTINCT FROM '{}'::jsonb
        OR NOT (p_invalidation ?& ARRAY['source_snapshot', 'kind'])
        OR pg_catalog.jsonb_typeof(p_invalidation -> 'source_snapshot') IS DISTINCT FROM 'string'
@@ -2414,6 +2506,12 @@ BEGIN
     END IF;
     v_kind := p_invalidation ->> 'kind';
     v_snapshot := p_invalidation ->> 'source_snapshot';
+    IF p_invalidation -> 'profile_version' <> 'null'::jsonb
+       AND (pg_catalog.jsonb_typeof(p_invalidation -> 'profile_version') IS DISTINCT FROM 'string'
+            OR pg_catalog.char_length(p_invalidation ->> 'profile_version') NOT BETWEEN 1 AND 64) THEN
+        RETURN aap_assets_v1._image_reply(NULL, 'invalid_request');
+    END IF;
+    v_profile_version := COALESCE(p_invalidation ->> 'profile_version', 'pyramid-v1');
     IF EXISTS (
         SELECT 1 FROM pg_catalog.jsonb_each(p_invalidation) AS field(name, value)
         WHERE field.name IN ('generation', 'level', 'x', 'y')
@@ -2435,7 +2533,7 @@ BEGIN
     EXCEPTION WHEN invalid_text_representation OR numeric_value_out_of_range THEN
         RETURN aap_assets_v1._image_reply(NULL, 'invalid_request');
     END;
-    IF (v_kind = 'thumbnail' AND (v_generation IS NOT NULL OR v_level IS NOT NULL OR v_x IS NOT NULL OR v_y IS NOT NULL))
+    IF (v_kind = 'thumbnail' AND (v_generation IS NOT NULL OR p_invalidation -> 'profile_version' <> 'null'::jsonb OR v_level IS NOT NULL OR v_x IS NOT NULL OR v_y IS NOT NULL))
        OR (v_kind IN ('overview', 'manifest') AND (
             v_generation IS NULL OR v_generation < 1 OR v_level IS NOT NULL OR v_x IS NOT NULL OR v_y IS NOT NULL
        ))
@@ -2566,11 +2664,13 @@ BEGIN
         IF v_owner_kind = 'dataset_item' THEN
             SELECT asset.* INTO v_asset FROM public.image_pyramid_assets AS asset
             WHERE asset.dataset_item_id = v_owner_id
+              AND asset.profile_version = v_profile_version
             ORDER BY asset.updated_at DESC, asset.id DESC
             LIMIT 1 FOR UPDATE NOWAIT;
         ELSE
             SELECT asset.* INTO v_asset FROM public.image_pyramid_assets AS asset
             WHERE asset.task_id = v_owner_id
+              AND asset.profile_version = v_profile_version
             ORDER BY asset.updated_at DESC, asset.id DESC
             LIMIT 1 FOR UPDATE NOWAIT;
         END IF;
@@ -3030,7 +3130,9 @@ REVOKE ALL ON FUNCTION aap_assets_v1._image_job_access(uuid, uuid, boolean)
     FROM PUBLIC;
 -- aap-statement-break
 
-CREATE FUNCTION aap_assets_v1.read_image_summaries(p_actor_id uuid, p_selectors jsonb)
+CREATE FUNCTION aap_assets_v1.read_image_summaries(
+    p_actor_id uuid, p_selectors jsonb, p_profile_version text
+)
 RETURNS jsonb
 LANGUAGE plpgsql
 VOLATILE
@@ -3047,12 +3149,16 @@ DECLARE
     v_source jsonb;
     v_projection jsonb;
     v_selector_json jsonb;
+    v_selected_profile text;
     v_items jsonb := '[]'::jsonb;
 BEGIN
     IF p_actor_id IS NULL OR pg_catalog.jsonb_typeof(p_selectors) IS DISTINCT FROM 'array'
-       OR pg_catalog.jsonb_array_length(p_selectors) > 500 THEN
+       OR pg_catalog.jsonb_array_length(p_selectors) > 500
+       OR (p_profile_version IS NOT NULL
+           AND pg_catalog.char_length(p_profile_version) NOT BETWEEN 1 AND 64) THEN
         RETURN aap_assets_v1._image_reply(NULL, 'invalid_request');
     END IF;
+    v_selected_profile := COALESCE(p_profile_version, 'pyramid-v1');
     IF EXISTS (
         SELECT 1 FROM pg_catalog.jsonb_array_elements(p_selectors) AS row(value)
         WHERE pg_catalog.jsonb_typeof(row.value) IS DISTINCT FROM 'object'
@@ -3094,7 +3200,9 @@ BEGIN
         IF NOT aap_assets_v1._image_source_data_valid(v_source) THEN
             RETURN aap_assets_v1._image_reply(NULL, 'invalid_response');
         END IF;
-        v_projection := aap_assets_v1._image_pyramid_projection(v_source, NULL);
+        v_projection := aap_assets_v1._image_pyramid_projection(
+            v_source, NULL, v_selected_profile
+        );
         IF v_projection IS NULL THEN RETURN aap_assets_v1._image_reply(NULL, 'invalid_response'); END IF;
         v_selector_json := pg_catalog.jsonb_build_object(
             'task_id', v_task_id, 'dataset_item_id', v_item_id
@@ -3113,11 +3221,12 @@ EXCEPTION WHEN invalid_text_representation OR numeric_value_out_of_range THEN
 END;
 $function$;
 -- aap-statement-break
-REVOKE ALL ON FUNCTION aap_assets_v1.read_image_summaries(uuid, jsonb) FROM PUBLIC;
+REVOKE ALL ON FUNCTION aap_assets_v1.read_image_summaries(uuid, jsonb, text) FROM PUBLIC;
 -- aap-statement-break
 
 CREATE FUNCTION aap_assets_v1.read_image_generation(
-    p_actor_id uuid, p_task_id uuid, p_dataset_item_id uuid, p_generation integer
+    p_actor_id uuid, p_task_id uuid, p_dataset_item_id uuid,
+    p_generation integer, p_profile_version text
 )
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -3130,11 +3239,15 @@ DECLARE
     v_source_reply jsonb;
     v_source jsonb;
     v_projection jsonb;
+    v_selected_profile text;
 BEGIN
     IF p_actor_id IS NULL OR ((p_task_id IS NULL) = (p_dataset_item_id IS NULL))
-       OR (p_generation IS NOT NULL AND p_generation < 1) THEN
+       OR (p_generation IS NOT NULL AND p_generation < 1)
+       OR (p_profile_version IS NOT NULL
+           AND pg_catalog.char_length(p_profile_version) NOT BETWEEN 1 AND 64) THEN
         RETURN aap_assets_v1._image_reply(NULL, 'invalid_request');
     END IF;
+    v_selected_profile := COALESCE(p_profile_version, 'pyramid-v1');
     v_source_reply := aap_assets_v1._image_owner_source(
         p_actor_id, p_task_id, p_dataset_item_id, false
     );
@@ -3143,7 +3256,9 @@ BEGIN
     IF NOT aap_assets_v1._image_source_data_valid(v_source) THEN
         RETURN aap_assets_v1._image_reply(NULL, 'invalid_response');
     END IF;
-    v_projection := aap_assets_v1._image_pyramid_projection(v_source, p_generation);
+    v_projection := aap_assets_v1._image_pyramid_projection(
+        v_source, p_generation, v_selected_profile
+    );
     IF v_projection IS NULL THEN
         RETURN aap_assets_v1._image_reply(
             NULL, CASE WHEN p_generation IS NOT NULL THEN 'asset_missing' ELSE 'invalid_response' END
@@ -3155,7 +3270,7 @@ BEGIN
 END;
 $function$;
 -- aap-statement-break
-REVOKE ALL ON FUNCTION aap_assets_v1.read_image_generation(uuid, uuid, uuid, integer)
+REVOKE ALL ON FUNCTION aap_assets_v1.read_image_generation(uuid, uuid, uuid, integer, text)
     FROM PUBLIC;
 -- aap-statement-break
 
