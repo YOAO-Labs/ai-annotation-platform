@@ -433,6 +433,7 @@ class LocalResources:
                     "aap_assets_v1.read_spatial_layout(uuid,uuid,uuid,uuid,integer), "
                     "aap_assets_v1.read_spatial_items(uuid,uuid[],uuid,integer), "
                     "aap_assets_v1.read_spatial_poses(uuid,uuid,integer,integer), "
+                    "aap_assets_v1.read_spatial_pose_pairs(jsonb), "
                     "aap_assets_v1.read_spatial_calibrations(uuid[],boolean,uuid,integer,integer), "
                     "aap_assets_v1.lock_spatial_calibration_facts(uuid,uuid,text,uuid,jsonb), "
                     "aap_assets_v1.mutate_spatial_scene(uuid,uuid,uuid,jsonb,jsonb), "

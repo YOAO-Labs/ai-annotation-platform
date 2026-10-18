@@ -53,6 +53,7 @@ def downgrade() -> None:
 
 
 _DOWNGRADE_SIGNATURES: tuple[str, ...] = (
+    "aap_assets_v1.read_spatial_pose_pairs(jsonb)",
     "aap_assets_v1.read_spatial_layout_receipt(uuid, uuid, uuid, text, boolean)",
     "aap_assets_v1.set_spatial_dataset_axis(uuid, uuid, text)",
     "aap_assets_v1.record_spatial_calibration_provenance(uuid, uuid, jsonb)",

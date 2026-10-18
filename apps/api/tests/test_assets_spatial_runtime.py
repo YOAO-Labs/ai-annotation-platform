@@ -23,6 +23,7 @@ from aap_assets_catalog.spatial_contract import (
     LayoutMutationResult,
     LayoutPage,
     PosePage,
+    PosePairsResult,
     PreparationMutationResult,
     decode_spatial_reply,
 )
@@ -376,6 +377,20 @@ async def test_spatial_container_complete_reads_replay_and_accepted_source_prepa
                         break
                     cursor = page.next_frame_index
                 assert count == 1050 and pages == 6
+                selected = await direct.post(
+                    "/v1/spatial/read_spatial_pose_pairs",
+                    headers=private_headers,
+                    json={
+                        "pairs": [
+                            {"scene_id": str(scene_id), "frame_index": index}
+                            for index in (0, 1049, 1051)
+                        ]
+                    },
+                )
+                assert selected.status_code == 200, selected.text
+                selected_poses = decode_spatial_reply(selected.json(), PosePairsResult)
+                assert [pose.frame_index for pose in selected_poses.poses] == [0, 1049]
+                assert all(pose.scene_id == scene_id for pose in selected_poses.poses)
                 scene_page_evidence = {}
                 for operation, response_model in (
                     ("read_spatial_layout", LayoutPage),
@@ -474,6 +489,33 @@ async def test_spatial_container_complete_reads_replay_and_accepted_source_prepa
                     replay.status_code == 200 and replay.json()["name"] == "committed"
                 )
                 assert replay.headers["Idempotency-Key"] == str(patch_id)
+
+                async with maker() as owner:
+                    remote_link = await _seed_uncommitted(
+                        owner, owner_id=actor_id, item_count=1, mode="pointcloud"
+                    )
+                    await owner.execute(
+                        text("DELETE FROM project_datasets WHERE id=:association"),
+                        {"association": remote_link.association_id},
+                    )
+                    await owner.commit()
+                linked = await api.post(
+                    f"/api/v1/datasets/{remote_link.dataset_id}/link",
+                    headers=headers,
+                    json={"project_id": str(remote_link.project_id)},
+                )
+                assert linked.status_code == 200, linked.text
+                assert linked.json()["created_tasks"] == 1
+                async with test_engine.connect() as observer:
+                    assert (
+                        await observer.scalar(
+                            text(
+                                "SELECT count(*) FROM tasks WHERE project_id=:project"
+                            ),
+                            {"project": remote_link.project_id},
+                        )
+                        == 1
+                    )
 
                 async with maker() as owner:
                     await owner.execute(
@@ -611,6 +653,7 @@ async def test_spatial_container_complete_reads_replay_and_accepted_source_prepa
                 "actual_s3_changed_source_rejected": True,
                 "calibration_replay_audits": 1,
                 "scene_lost_response_replay": True,
+                "public_link_remote_preparation": True,
                 "restart_and_local_cutover": True,
             }
             report_path = ROOT / ".worktree/assets-spatial-runtime-evidence.json"

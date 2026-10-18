@@ -12,6 +12,7 @@ from aap_assets_catalog.spatial_contract import (
     CalibrationRecord,
     GuardSpatialActorRequest,
     LayoutReceiptResult,
+    PosePairsResult,
     ReadItemsRequest,
     PosePage,
     ScenePatch,
@@ -119,7 +120,7 @@ def test_distributable_schema_matches_wire_models_and_exact_native_surface():
     expected = spatial_json_schema()
     packaged = files("aap_assets_catalog").joinpath("spatial_contract.schema.json")
     assert json.loads(packaged.read_text()) == expected
-    assert len(SPATIAL_NATIVE_SIGNATURES) == 21
+    assert len(SPATIAL_NATIVE_SIGNATURES) == 22
     assert set(expected["x-native-capabilities"]) == set(SPATIAL_NATIVE_SIGNATURES)
     assert expected["$defs"]["ScenePatch"]["additionalProperties"] is False
     for name, signature in SPATIAL_NATIVE_SIGNATURES.items():
@@ -143,6 +144,47 @@ def test_layout_receipt_rejects_a_result_from_another_scope(field):
     result[field] = True if field == "dry_run" else uuid4()
     with pytest.raises(ValidationError, match="Layout receipt escaped"):
         LayoutReceiptResult(**scope, result=result)
+
+
+@pytest.mark.parametrize("escaped", ["scene", "frame"])
+def test_pose_pairs_reject_records_outside_the_requested_subset(escaped):
+    scene_id = uuid4()
+    with pytest.raises(ValidationError, match="requested pairs"):
+        PosePairsResult(
+            pairs=[{"scene_id": scene_id, "frame_index": 0}],
+            poses=[
+                {
+                    "scene_id": uuid4() if escaped == "scene" else scene_id,
+                    "frame_index": 1 if escaped == "frame" else 0,
+                    "timestamp_us": None,
+                    "ego_translation": [0.0] * 3,
+                    "ego_rotation": [1.0, 0.0, 0.0, 0.0],
+                    "source_metadata": {},
+                }
+            ],
+            snapshot_digest="a" * 64,
+        )
+
+
+def test_pose_pair_reply_parses_uuid_strings_from_native_json():
+    scene_id = uuid4()
+    reply = PosePairsResult.model_validate(
+        {
+            "pairs": [{"scene_id": str(scene_id), "frame_index": 0}],
+            "poses": [
+                {
+                    "scene_id": str(scene_id),
+                    "frame_index": 0,
+                    "timestamp_us": None,
+                    "ego_translation": [0.0] * 3,
+                    "ego_rotation": [1.0, 0.0, 0.0, 0.0],
+                    "source_metadata": {},
+                }
+            ],
+            "snapshot_digest": "a" * 64,
+        }
+    )
+    assert reply.poses[0].scene_id == scene_id
 
 
 @pytest.mark.parametrize(

@@ -66,6 +66,10 @@ class SpatialNativeBinding(Protocol):
         self, request: spatial.ReadPosesRequest
     ) -> spatial.PosePage: ...
 
+    async def read_spatial_pose_pairs(
+        self, request: spatial.ReadPosePairsRequest
+    ) -> spatial.PosePairsResult: ...
+
     async def read_spatial_calibrations(
         self, request: spatial.ReadCalibrationsRequest
     ) -> spatial.CalibrationPage: ...

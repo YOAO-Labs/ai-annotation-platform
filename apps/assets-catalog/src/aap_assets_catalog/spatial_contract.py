@@ -311,6 +311,43 @@ class ReadPosesRequest(_Value):
     page_size: PageSize = SPATIAL_PAGE_SIZE
 
 
+class PosePair(_Value):
+    scene_id: UUID
+    frame_index: Annotated[StrictInt, Field(ge=0, le=2_147_483_647)]
+
+
+class SpatialPoseReference(WireFramePose):
+    scene_id: Annotated[UUID, Field(strict=False)]
+
+
+class ReadPosePairsRequest(_Value):
+    pairs: Annotated[list[PosePair], Field(min_length=1, max_length=5000)]
+
+    @model_validator(mode="after")
+    def check_pairs(self):
+        keys = [(pair.scene_id, pair.frame_index) for pair in self.pairs]
+        if len(keys) != len(set(keys)):
+            raise ValueError("Duplicate requested pose pairs")
+        return self
+
+
+class PosePairsResult(ReadPosePairsRequest):
+    poses: list[SpatialPoseReference]
+    snapshot_digest: Digest
+
+    @model_validator(mode="after")
+    def check_scope(self):
+        wanted = {(pair.scene_id, pair.frame_index) for pair in self.pairs}
+        actual = [(pose.scene_id, pose.frame_index) for pose in self.poses]
+        if (
+            len(actual) != len(set(actual))
+            or actual != sorted(actual)
+            or not set(actual) <= wanted
+        ):
+            raise ValueError("Pose results escaped the requested pairs")
+        return self
+
+
 class PosePage(_Value):
     actor_id: UUID | None
     scene_id: UUID
@@ -781,6 +818,7 @@ SPATIAL_NATIVE_SIGNATURES = {
     "read_spatial_layout": "uuid,uuid,uuid,uuid,integer",
     "read_spatial_items": "uuid,uuid[],uuid,integer",
     "read_spatial_poses": "uuid,uuid,integer,integer",
+    "read_spatial_pose_pairs": "jsonb",
     "read_spatial_calibrations": "uuid[],boolean,uuid,integer,integer",
     "lock_spatial_calibration_facts": "uuid,uuid,text,uuid,jsonb",
     "mutate_spatial_scene": "uuid,uuid,uuid,jsonb,jsonb",
@@ -817,6 +855,7 @@ SPATIAL_NATIVE_ARGUMENTS = {
     ),
     "read_spatial_items": ("dataset_id", "item_ids", "after_item_id", "page_size"),
     "read_spatial_poses": ("actor_id", "scene_id", "after_frame_index", "page_size"),
+    "read_spatial_pose_pairs": ("pairs",),
     "read_spatial_calibrations": (
         "dataset_item_ids",
         "include_history",
@@ -907,6 +946,7 @@ SPATIAL_OPERATIONS = {
     "read_spatial_layout": (ReadLayoutRequest, LayoutPage),
     "read_spatial_items": (ReadItemsRequest, ItemFactsPage),
     "read_spatial_poses": (ReadPosesRequest, PosePage),
+    "read_spatial_pose_pairs": (ReadPosePairsRequest, PosePairsResult),
     "read_spatial_calibrations": (ReadCalibrationsRequest, CalibrationPage),
     "lock_spatial_calibration_facts": (LockCalibrationFactsRequest, CalibrationRecord),
     "mutate_spatial_scene": (MutateSceneRequest, SceneMutationResult),
@@ -959,6 +999,7 @@ def require_spatial_scope(request: BaseModel, result: BaseModel) -> None:
         "mode",
         "access",
         "axis_convention",
+        "pairs",
     ):
         if name in type(request).model_fields and name in type(result).model_fields:
             if (

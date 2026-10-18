@@ -11,7 +11,7 @@ Scene, frame assignment, pose and calibration persistence still mixed Assets row
 
 ## Decision
 
-Use the existing Assets Catalog runtime and configuration for spatial operations. Publish `aap-assets-spatial/v1`, with the same strict values distributed as a package schema and a native SQL schema. Migration 0216 adds one immutable Assets receipt table, `dataset_spatial_operations`, without live-resource foreign keys. The Catalog LOGIN executes its seven existing capabilities and twenty-one spatial capabilities; it receives no direct relation privileges or foreign schema access. Source keeps its existing fourteen capabilities.
+Use the existing Assets Catalog runtime and configuration for spatial operations. Publish `aap-assets-spatial/v1`, with the same strict values distributed as a package schema and a native SQL schema. Migration 0216 adds one immutable Assets receipt table, `dataset_spatial_operations`, without live-resource foreign keys. The Catalog LOGIN executes its seven existing capabilities and twenty-two spatial capabilities; it receives no direct relation privileges or foreign schema access. Source keeps its existing fourteen capabilities.
 
 Move the pure calibration, pose, coordinate-system and axis-inference values into `aap_assets_catalog`. Reuse the Source frame/scene planner. Keep Task, camera-link, annotation and track composition with Labeling, consuming detached Assets facts rather than Assets ORM models.
 
@@ -21,9 +21,13 @@ Use bounded cursor pages for complete Scene, item, layout, pose and calibration 
 
 Public mutations retain current authority checks. Calibration writes lock the Source item, verify current Labeling camera ownership and Workspace management/sharing authority, compare the calibration revision/digest, and append the revision, merge metadata, record Audit and save the replay receipt in one transaction. Human materialized revisions remain authoritative. Legacy metadata exposes virtual revision one with its original null timestamp and exact normalized digest. The trusted owner supplies canonical current and new documents; native SQL validates their parsed values against the captured source state, verifies the current document SHA-256 for virtual legacy state, and always verifies the new document SHA-256. Materialized historical digests remain opaque because JSONB can normalize negative zero.
 
+Camera-member annotations retain Labeling annotation-write authority. Their calibration facts lock rechecks the active actor, current visible task-role link and Source snapshot without applying the manager/shared-source policy reserved for calibration mutation. Shared camera sources remain usable by project annotators; the final calibration mutation still enforces its existing management and sharing restrictions.
+
 Accepted point-cloud preparation uses the saved operation, association generation and Job state. Disabling the original actor or removing management rights does not revoke accepted work. Unlinking or explicit cancellation fences subsequent uncommitted application. Native capture is nonlocking; conditional bounded S3 reads happen before the final Source/CAS locks. Final application revalidates the captured source and accepted scope.
 
 Ordinary remote calls commit inside the independent service. Deliberate caller-owned atomic composition uses the same published native capabilities on the caller's existing SQL connection, including when a remote URL is configured. This mode is explicit and is not an automatic fallback after remote failure. It does not transfer an ORM session to the provider. Preexisting caller transaction locks remain owned by that caller; spatial capture adds no locks across object I/O.
+
+Ordinary point-cloud creation commits its accepted operation before the remote preparation owner reads it. The explicit native preparation binding never commits; nuScenes imports retain preparation, task creation and provenance in one outer transaction. Export reads only the selected Scene/frame pairs for each chunk, preserving missing poses without repeated full-trajectory reads.
 
 Preserve the post-task nuScenes calibration provenance write through a narrow owner capability. It may only fill a missing `nuscenes_export.platform_calibration_digest`, after source/CAS and canonical-document checks. It cannot overwrite an existing provenance digest or become a general metadata mutation endpoint.
 

@@ -458,6 +458,11 @@ async def test_nuscenes_task_creation_rolls_back_with_import_transaction(
     )
     caller = maker()
     transaction = await caller.begin()
+
+    async def reject_internal_commit():
+        raise AssertionError("nuScenes import must leave the caller transaction open")
+
+    monkeypatch.setattr(caller, "commit", reject_internal_commit)
     dataset_id = None
     project_id = None
     scene_ids: list[uuid.UUID] = []

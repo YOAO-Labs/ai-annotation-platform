@@ -13,6 +13,7 @@ from sqlalchemy import func, select, text
 from aap_assets_catalog.spatial_contract import (
     CalibrationMutationResult,
     CalibrationPage,
+    CalibrationRecord,
     CameraTargetResult,
     ProvenanceMutationResult,
     canonical_calibration_document,
@@ -53,6 +54,11 @@ _RECORD_PROVENANCE = text(
 _READ_CAMERA_TARGET = text(
     "SELECT aap_assets_v1.read_spatial_camera_target("
     "CAST(:actor_id AS uuid),CAST(:task_id AS uuid),'camera_front')"
+)
+_LOCK_CALIBRATION_FACTS = text(
+    "SELECT aap_assets_v1.lock_spatial_calibration_facts("
+    "CAST(:actor_id AS uuid), CAST(:task_id AS uuid), 'camera_front', "
+    "CAST(:dataset_item_id AS uuid), CAST(:source_snapshot AS jsonb))"
 )
 
 
@@ -104,6 +110,43 @@ async def test_camera_target_read_uses_current_link_and_visibility(db_session):
     )
     _spatial_error(
         await _call(db_session, _READ_CAMERA_TARGET, fixture), "camera_role_not_linked"
+    )
+
+
+async def test_calibration_facts_lock_rechecks_camera_link_and_actor(db_session):
+    fixture = await _seed_camera_fixture(db_session)
+    page = await _calibration_page(db_session, [fixture["dataset_item_id"]])
+    values = {**fixture, "source_snapshot": json.dumps(page.records[0].source_snapshot)}
+    record = _spatial_result(
+        await _call(db_session, _LOCK_CALIBRATION_FACTS, values), CalibrationRecord
+    )
+    assert record.dataset_item_id == fixture["dataset_item_id"]
+    await db_session.execute(
+        text("UPDATE users SET is_active=false WHERE id=:actor_id"), fixture
+    )
+    _spatial_error(
+        await _call(db_session, _LOCK_CALIBRATION_FACTS, values), "account_not_active"
+    )
+    await db_session.execute(
+        text("UPDATE users SET is_active=true WHERE id=:actor_id"), fixture
+    )
+    replacement = DatasetItem(
+        dataset_id=fixture["dataset_id"],
+        file_name="replacement.jpg",
+        file_path=f"spatial/{fixture['dataset_id']}/replacement.jpg",
+        file_type="image",
+    )
+    db_session.add(replacement)
+    await db_session.flush()
+    await db_session.execute(
+        text(
+            "UPDATE task_dataset_item_links SET dataset_item_id=:replacement WHERE task_id=:task_id"
+        ),
+        {"replacement": replacement.id, "task_id": fixture["task_id"]},
+    )
+    _spatial_error(
+        await _call(db_session, _LOCK_CALIBRATION_FACTS, values),
+        "camera_role_not_linked",
     )
 
 

@@ -7,10 +7,6 @@ from contextlib import suppress
 from dataclasses import dataclass
 from typing import Protocol
 
-import boto3
-from botocore.config import Config
-from botocore.exceptions import ClientError
-
 from .config import CatalogConfig
 
 _PRESIGN_ALIGN_WINDOW_SECONDS = 600
@@ -43,6 +39,9 @@ def create_source_read_client(
     *, endpoint_url: str, region_name: str, access_key: str, secret_key: str
 ) -> SourceReadClient:
     """Create the bounded, fixed-origin client used for source HEAD/Get reads."""
+    import boto3
+    from botocore.config import Config
+
     return boto3.client(
         "s3",
         endpoint_url=endpoint_url,
@@ -107,6 +106,8 @@ class SpatialCalibrationSourceReader:
         expected_etag: str | None = None,
         expected_size: int | None = None,
     ) -> SourceObjectFacts:
+        from botocore.exceptions import ClientError
+
         self._validate_source_key(key)
         params = {"Bucket": self.datasets_bucket, "Key": key}
         if expected_etag is not None:
@@ -146,6 +147,8 @@ class SpatialCalibrationSourceReader:
         expected_size: int | None = None,
     ) -> tuple[SourceObjectFacts, bytes]:
         """Read a calibration JSON object with a HEAD/Get If-Match fence."""
+        from botocore.exceptions import ClientError
+
         self._validate_source_key(key)
         if expected_size is not None and expected_size < 0:
             raise ValueError("expected_size must be non-negative")
@@ -223,17 +226,23 @@ class CatalogObjectSigner:
         self._spatial_source_reader: SpatialCalibrationSourceReader | None = None
         # SigV4 binds Host into the canonical request. Sign against the external
         # origin directly instead of rewriting a URL signed for the internal host.
-        self._client = client or boto3.client(
-            "s3",
-            endpoint_url=config.s3_public_endpoint,
-            aws_access_key_id=config.s3_access_key,
-            aws_secret_access_key=config.s3_secret_key,
-            region_name=config.s3_region,
-            config=Config(
-                signature_version="s3v4",
-                s3={"addressing_style": "path"},
-            ),
-        )
+        if client is None:
+            import boto3
+            from botocore.config import Config
+
+            self._client = boto3.client(
+                "s3",
+                endpoint_url=config.s3_public_endpoint,
+                aws_access_key_id=config.s3_access_key,
+                aws_secret_access_key=config.s3_secret_key,
+                region_name=config.s3_region,
+                config=Config(
+                    signature_version="s3v4",
+                    s3={"addressing_style": "path"},
+                ),
+            )
+        else:
+            self._client = client
 
     def sign_source(self, key: str) -> str:
         return self._sign(self.datasets_bucket, key)
@@ -337,7 +346,7 @@ def _source_facts(response: object) -> SourceObjectFacts:
     return SourceObjectFacts(etag=_normalize_etag(etag), size=size)
 
 
-def _source_error(exc: ClientError) -> SourceReadError:
+def _source_error(exc: Exception) -> SourceReadError:
     response = getattr(exc, "response", {})
     error = response.get("Error", {}) if isinstance(response, dict) else {}
     code = error.get("Code") if isinstance(error, dict) else None

@@ -175,12 +175,15 @@ class DatasetTaskCreationWorkflow:
         if operation.state == "accepted":
             frames = None
             if operation.mode == "pointcloud":
+                if commit_calibration:
+                    # The independent preparation owner must see the accepted operation.
+                    await self.db.commit()
                 await AssetsSpatialGateway(self.db).prepare_pointcloud(
                     PreparePointcloudRequest(
                         creation_operation_id=operation.operation_id
                     ),
                     same_session_native=not commit_calibration,
-                    commit=commit_calibration,
+                    commit=False,
                 )
                 if commit_calibration:
                     # Keep accepted preparation durable before Labeling starts task chunks.

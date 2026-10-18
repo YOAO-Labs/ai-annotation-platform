@@ -42,6 +42,8 @@ from aap_assets_catalog.spatial_contract import (
     MutateSceneRequest,
     PoseMutationResult,
     PosePage,
+    PosePair,
+    PosePairsResult,
     PreparationMutationResult,
     PreparationPage,
     PreparePointcloudRequest,
@@ -51,6 +53,7 @@ from aap_assets_catalog.spatial_contract import (
     ReadItemsRequest,
     ReadLayoutRequest,
     ReadPosesRequest,
+    ReadPosePairsRequest,
     ReadPreparationRequest,
     RecordCalibrationProvenanceRequest,
     SceneCursor,
@@ -382,6 +385,37 @@ class AssetsSpatialGateway:
         )
         return result
 
+    async def read_spatial_pose_pairs(
+        self, request: ReadPosePairsRequest
+    ) -> PosePairsResult:
+        result, _ = await self._call(
+            "read_spatial_pose_pairs",
+            request,
+            ([pair.model_dump(mode="json") for pair in request.pairs],),
+            PosePairsResult,
+        )
+        return result
+
+    async def read_pose_pairs(
+        self, pairs: set[tuple[uuid.UUID, int]]
+    ) -> dict[tuple[uuid.UUID, int], FramePose]:
+        ordered = sorted(pairs)
+        poses = {}
+        for start in range(0, len(ordered), 200):
+            result = await self.read_spatial_pose_pairs(
+                ReadPosePairsRequest(
+                    pairs=[
+                        PosePair(scene_id=scene_id, frame_index=frame_index)
+                        for scene_id, frame_index in ordered[start : start + 200]
+                    ]
+                )
+            )
+            for pose in result.poses:
+                poses[(pose.scene_id, pose.frame_index)] = FramePose.model_validate(
+                    pose
+                )
+        return poses
+
     async def lock_spatial_calibration_facts(
         self, request: LockCalibrationFactsRequest
     ) -> CalibrationRecord:
@@ -547,7 +581,7 @@ class AssetsSpatialGateway:
         )
         return result
 
-    async def apply_pointcloud_preparation_native(
+    async def apply_pointcloud_preparation(
         self, request: ApplyPreparationRequest
     ) -> PreparationMutationResult:
         result, _ = await self._call(
@@ -797,7 +831,9 @@ class AssetsSpatialGateway:
                 break
             cursor = page.next_item_id
         assert first is not None
-        if len(items) != first.total or len(scenes) != first.scene_count:
+        if len(items) != first.total or any(
+            item.scene_id is not None and item.scene_id not in scenes for item in items
+        ):
             raise self._invalid_response("Layout snapshot was incomplete")
         return first.model_copy(
             update={"items": items, "scenes": list(scenes.values())}
@@ -1201,28 +1237,6 @@ class AssetsSpatialGateway:
             await self.db.commit()
         return result
 
-    async def apply_pointcloud_preparation(
-        self,
-        request: ApplyPreparationRequest,
-        *,
-        commit: bool = True,
-    ) -> PreparationMutationResult:
-        result, remote = await self._call(
-            "apply_pointcloud_preparation",
-            request,
-            (
-                request.creation_operation_id,
-                request.snapshot,
-                request.calibration_updates,
-                request.frame_plan,
-            ),
-            PreparationMutationResult,
-            same_session_native=not commit,
-        )
-        if commit and not remote:
-            await self.db.commit()
-        return result
-
     async def record_calibration_provenance(
         self,
         request: RecordCalibrationProvenanceRequest,
@@ -1284,7 +1298,9 @@ class AssetsSpatialGateway:
                 break
             cursor = page.next_item_id
         assert first is not None
-        if len(items) != first.total or len(scenes) != first.scene_count:
+        if len(items) != first.total or any(
+            item.scene_id is not None and item.scene_id not in scenes for item in items
+        ):
             raise self._invalid_response("Preparation snapshot was incomplete")
         return first.model_copy(
             update={"items": items, "scenes": list(scenes.values())}

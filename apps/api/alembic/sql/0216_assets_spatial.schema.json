@@ -65,6 +65,9 @@
               "$ref": "#/$defs/PosePage"
             },
             {
+              "$ref": "#/$defs/PosePairsResult"
+            },
+            {
               "$ref": "#/$defs/PreparationMutationResult"
             },
             {
@@ -2140,6 +2143,107 @@
       "title": "PosePage",
       "type": "object"
     },
+    "PosePair": {
+      "additionalProperties": false,
+      "properties": {
+        "scene_id": {
+          "format": "uuid",
+          "title": "Scene Id",
+          "type": "string"
+        },
+        "frame_index": {
+          "maximum": 2147483647,
+          "minimum": 0,
+          "title": "Frame Index",
+          "type": "integer"
+        }
+      },
+      "required": ["scene_id", "frame_index"],
+      "title": "PosePair",
+      "type": "object"
+    },
+    "SpatialPoseReference": {
+      "additionalProperties": false,
+      "properties": {
+        "frame_index": {
+          "minimum": 0,
+          "title": "Frame Index",
+          "type": "integer"
+        },
+        "timestamp_us": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Timestamp Us"
+        },
+        "ego_translation": {
+          "items": {
+            "type": "number"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "title": "Ego Translation",
+          "type": "array"
+        },
+        "ego_rotation": {
+          "items": {
+            "type": "number"
+          },
+          "maxItems": 4,
+          "minItems": 4,
+          "title": "Ego Rotation",
+          "type": "array"
+        },
+        "source_metadata": {
+          "additionalProperties": true,
+          "title": "Source Metadata",
+          "type": "object"
+        },
+        "scene_id": {
+          "format": "uuid",
+          "title": "Scene Id",
+          "type": "string"
+        }
+      },
+      "required": ["frame_index", "ego_translation", "ego_rotation", "scene_id"],
+      "title": "SpatialPoseReference",
+      "type": "object"
+    },
+    "PosePairsResult": {
+      "additionalProperties": false,
+      "properties": {
+        "pairs": {
+          "items": {
+            "$ref": "#/$defs/PosePair"
+          },
+          "maxItems": 5000,
+          "minItems": 1,
+          "title": "Pairs",
+          "type": "array"
+        },
+        "poses": {
+          "items": {
+            "$ref": "#/$defs/SpatialPoseReference"
+          },
+          "title": "Poses",
+          "type": "array"
+        },
+        "snapshot_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Snapshot Digest",
+          "type": "string"
+        }
+      },
+      "required": ["pairs", "poses", "snapshot_digest"],
+      "title": "PosePairsResult",
+      "type": "object"
+    },
     "PreparationMutationResult": {
       "additionalProperties": false,
       "properties": {
@@ -2521,6 +2625,23 @@
       },
       "required": ["actor_id", "dataset_id"],
       "title": "ReadLayoutRequest",
+      "type": "object"
+    },
+    "ReadPosePairsRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "pairs": {
+          "items": {
+            "$ref": "#/$defs/PosePair"
+          },
+          "maxItems": 5000,
+          "minItems": 1,
+          "title": "Pairs",
+          "type": "array"
+        }
+      },
+      "required": ["pairs"],
+      "title": "ReadPosePairsRequest",
       "type": "object"
     },
     "ReadPosesRequest": {
@@ -3155,6 +3276,16 @@
         "$ref": "#/$defs/PosePage"
       }
     },
+    "read_spatial_pose_pairs": {
+      "signature": "aap_assets_v1.read_spatial_pose_pairs(jsonb)",
+      "arguments": ["pairs"],
+      "request": {
+        "$ref": "#/$defs/ReadPosePairsRequest"
+      },
+      "response": {
+        "$ref": "#/$defs/PosePairsResult"
+      }
+    },
     "read_spatial_calibrations": {
       "signature": "aap_assets_v1.read_spatial_calibrations(uuid[],boolean,uuid,integer,integer)",
       "arguments": [
@@ -3405,6 +3536,16 @@
       },
       "response": {
         "$ref": "#/$defs/PosePage"
+      }
+    },
+    "read_spatial_pose_pairs": {
+      "method": "POST",
+      "path": "/v1/spatial/read_spatial_pose_pairs",
+      "request": {
+        "$ref": "#/$defs/ReadPosePairsRequest"
+      },
+      "response": {
+        "$ref": "#/$defs/PosePairsResult"
       }
     },
     "read_spatial_calibrations": {

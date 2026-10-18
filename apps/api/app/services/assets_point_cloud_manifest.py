@@ -9,7 +9,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from aap_assets_catalog.spatial_contract import (
     ReadItemsRequest,
     ReadLayoutRequest,
-    ReadPosesRequest,
     SpatialFailure,
     SpatialItem,
 )
@@ -97,16 +96,9 @@ class SqlAlchemyPointCloudManifestAssetsReader(PointCloudManifestAssetsReader):
                     }
                 )
                 if frame_index is not None:
-                    poses = await self._gateway.read_poses(
-                        ReadPosesRequest(
-                            actor_id=None,
-                            scene_id=scene_id,
-                            after_frame_index=frame_index - 1,
-                            page_size=1,
-                        )
+                    ego_pose = await self._gateway.read_frame_pose(
+                        scene_id, frame_index
                     )
-                    if poses and poses[0].frame_index == frame_index:
-                        ego_pose = poses[0]
 
         return PointCloudManifestPrimaryContextFacts(
             axis_convention=item.axis_convention,

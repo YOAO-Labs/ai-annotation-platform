@@ -11,6 +11,7 @@ from sqlalchemy import select
 
 from app.db.models.annotation import Annotation
 from app.db.models.dataset import Dataset, DatasetItem, Scene, SensorCalibrationRevision
+from app.db.models.project_member import ProjectMember
 from app.db.models.scene_track import SceneTrack
 from app.db.models.task import Task
 from app.db.models.task_dataset_item_link import TaskDatasetItemLink
@@ -552,6 +553,114 @@ async def test_camera_member_http_create_and_list(
     assert [item["id"] for item in body["items"]] == [member["id"]]
     assert body["track_revision"] == 2
     assert body["projected_bbox"] is not None
+
+
+@pytest.mark.parametrize(
+    ("actor_kind", "shared_camera"),
+    [("annotator", False), ("annotator", True), ("owner", True)],
+)
+async def test_camera_member_http_keeps_annotation_authority(
+    db_session,
+    httpx_client,
+    project_admin,
+    annotator,
+    super_admin,
+    actor_kind,
+    shared_camera,
+):
+    owner, _ = project_admin
+    task, camera, source, track = await _seed(db_session, owner.id)
+    user, token = annotator if actor_kind == "annotator" else project_admin
+    if actor_kind == "annotator":
+        db_session.add(
+            ProjectMember(project_id=task.project_id, user_id=user.id, role="annotator")
+        )
+        task.assignee_id = user.id
+    if shared_camera:
+        other_owner, _ = super_admin
+        other_project = await create_project(
+            db_session, owner_id=other_owner.id, type_key="lidar"
+        )
+        other_task = Task(
+            project_id=other_project.id,
+            display_id=f"T-MM-{uuid.uuid4().hex[:8]}",
+            file_name=task.file_name,
+            file_path=task.file_path,
+            file_type="point_cloud",
+            status="in_progress",
+        )
+        db_session.add(other_task)
+        await db_session.flush()
+        db_session.add(
+            TaskDatasetItemLink(
+                task_id=other_task.id, dataset_item_id=camera.id, role="camera_front"
+            )
+        )
+    await db_session.flush()
+    headers = {"Authorization": f"Bearer {token}"}
+    path = f"/api/v1/tasks/{task.id}/point-cloud/camera-members"
+    calibration_cas = {
+        "expected_calibration_revision": 1,
+        "expected_calibration_digest": calibration_digest(_calibration()),
+    }
+    created = await httpx_client.post(
+        path,
+        headers=headers,
+        json={
+            "source_annotation_id": str(source.id),
+            "camera_role": "camera_front",
+            "bbox": {"x": 0.4, "y": 0.35, "w": 0.2, "h": 0.3},
+            "expected_track_revision": track.revision,
+            **calibration_cas,
+        },
+    )
+    assert created.status_code == 201, created.text
+    member = created.json()
+    patched = await httpx_client.patch(
+        f"{path}/{member['id']}",
+        headers=headers,
+        json={
+            "visibility": "occluded",
+            "expected_version": member["version"],
+            "expected_track_revision": member["track_revision"],
+            **calibration_cas,
+        },
+    )
+    assert patched.status_code == 200, patched.text
+    member = patched.json()
+    removed = await httpx_client.request(
+        "DELETE",
+        f"{path}/{member['id']}",
+        headers=headers,
+        json={
+            "expected_version": member["version"],
+            "expected_track_revision": member["track_revision"],
+        },
+    )
+    assert removed.status_code == 200, removed.text
+    member = removed.json()
+    assert member["is_active"] is False
+    restored = await httpx_client.post(
+        f"{path}/{member['id']}/restore",
+        headers=headers,
+        json={
+            "expected_version": member["version"],
+            "expected_track_revision": member["track_revision"],
+            **calibration_cas,
+        },
+    )
+    assert restored.status_code == 200, restored.text
+    assert restored.json()["is_active"] is True
+    assert restored.json()["visibility"] == "occluded"
+    assert restored.json()["calibration_revision"] == 1
+    assert (
+        await db_session.scalar(
+            select(SensorCalibrationRevision.id).where(
+                SensorCalibrationRevision.dataset_item_id == camera.id
+            )
+        )
+        is None
+    )
 
 
 async def test_calibration_history_keeps_virtual_baseline_and_append_only_order(

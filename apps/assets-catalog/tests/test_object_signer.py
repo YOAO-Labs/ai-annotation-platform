@@ -135,7 +135,7 @@ def test_source_reads_use_the_private_endpoint_while_presigns_keep_public_origin
         client_configs.append(kwargs)
         return source_client
 
-    monkeypatch.setattr("aap_assets_catalog.object_signer.boto3.client", make_client)
+    monkeypatch.setattr("boto3.client", make_client)
     config = replace(
         _config(),
         s3_public_endpoint="http://127.0.0.1:9000",

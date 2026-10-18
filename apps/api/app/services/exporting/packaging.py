@@ -45,7 +45,6 @@ from aap_assets_catalog.spatial_values import SensorCalibration
 from aap_assets_catalog.spatial_values import FramePose
 from aap_assets_catalog.spatial_contract import (
     GetSceneRequest,
-    ReadPosesRequest,
     SpatialItem,
     SpatialScene,
     normalize_calibration_record,
@@ -1295,15 +1294,7 @@ async def _build_lidar_export_zip(
                         GetSceneRequest(actor_id=None, scene_id=scene_id)
                     )
                     scenes_by_id[scene_id] = scene_result.scene
-                pairs_by_scene: dict[uuid.UUID, set[int]] = {}
-                for scene_id, frame_index in chunk_pose_pairs:
-                    pairs_by_scene.setdefault(scene_id, set()).add(frame_index)
-                for scene_id, wanted_indexes in pairs_by_scene.items():
-                    for pose in await gateway.read_poses(
-                        ReadPosesRequest(actor_id=None, scene_id=scene_id)
-                    ):
-                        if pose.frame_index in wanted_indexes:
-                            poses_by_frame[(scene_id, pose.frame_index)] = pose
+                poses_by_frame = await gateway.read_pose_pairs(chunk_pose_pairs)
             for task in tasks:
                 linked = links_by_task.get(task.id, {})
                 primary_item = _primary_lidar_item(task, links_by_task, dataset_items)

@@ -93,6 +93,7 @@ SELECT aap_assets_v1.read_spatial_poses(
     $1::uuid, $2::uuid, $3::integer, $4::integer
 )
 """
+READ_SPATIAL_POSE_PAIRS_SQL = "SELECT aap_assets_v1.read_spatial_pose_pairs($1::jsonb)"
 READ_SPATIAL_CALIBRATIONS_SQL = """
 SELECT aap_assets_v1.read_spatial_calibrations(
     $1::uuid[], $2::boolean, $3::uuid, $4::integer, $5::integer
@@ -584,6 +585,16 @@ class CatalogDatabase:
             after.dataset_item_id if after else None,
             after.revision if after else None,
             request.page_size,
+        )
+
+    async def read_spatial_pose_pairs(
+        self, request: spatial.ReadPosePairsRequest
+    ) -> spatial.PosePairsResult:
+        return await self._spatial_call(
+            "read_spatial_pose_pairs",
+            READ_SPATIAL_POSE_PAIRS_SQL,
+            request,
+            [pair.model_dump(mode="json") for pair in request.pairs],
         )
 
     async def lock_spatial_calibration_facts(

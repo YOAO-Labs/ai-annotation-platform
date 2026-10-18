@@ -181,7 +181,7 @@ async def test_role_preflight_fails_closed_and_names_exact_twenty_six_functions(
         f"{name}({signature})" for name, signature in SPATIAL_NATIVE_SIGNATURES.items()
     }
     assert EXPECTED_ASSET_FUNCTIONS == catalog_functions | spatial_functions
-    assert len(EXPECTED_ASSET_FUNCTIONS) == 28
+    assert len(EXPECTED_ASSET_FUNCTIONS) == 29
     for signature in EXPECTED_ASSET_FUNCTIONS:
         assert signature in ROLE_PREFLIGHT_SQL
     normalized_preflight = " ".join(ROLE_PREFLIGHT_SQL.split())

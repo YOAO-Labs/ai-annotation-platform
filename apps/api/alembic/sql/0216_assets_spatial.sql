@@ -1475,24 +1475,14 @@ BEGIN
         RETURN aap_assets_v1._spatial_failure('camera_dataset_item_missing');
     END IF;
     IF p_actor_id IS NOT NULL THEN
-        v_authority := aap_labeling_v1.lock_spatial_camera_authority(
-            p_actor_id, p_task_id, p_camera_role, p_dataset_item_id
+        v_authority := aap_assets_v1.read_spatial_camera_target(
+            p_actor_id, p_task_id, p_camera_role
         );
-        IF v_authority ->> 'schema' IS DISTINCT FROM 'aap-labeling-spatial-camera-authority/v1'
-           OR jsonb_typeof(v_authority -> 'ok') IS DISTINCT FROM 'boolean' THEN
-            RETURN aap_assets_v1._spatial_failure('invalid_response');
-        END IF;
         IF v_authority -> 'ok' IS DISTINCT FROM 'true'::jsonb THEN
-            RETURN aap_assets_v1._spatial_failure(CASE v_authority #>> '{error,code}'
-                WHEN 'account_not_active' THEN 'account_not_active'
-                WHEN 'account_busy' THEN 'account_busy'
-                WHEN 'task_missing' THEN 'task_missing'
-                WHEN 'task_busy' THEN 'task_busy'
-                WHEN 'project_missing' THEN 'project_missing'
-                WHEN 'project_manager_required' THEN 'project_manager_required'
-                WHEN 'camera_role_not_linked' THEN 'camera_role_not_linked'
-                WHEN 'camera_shared_across_projects' THEN 'camera_shared_across_projects'
-                ELSE 'invalid_response' END);
+            RETURN v_authority;
+        END IF;
+        IF v_authority #>> '{data,dataset_item_id}' IS DISTINCT FROM p_dataset_item_id::text THEN
+            RETURN aap_assets_v1._spatial_failure('camera_role_not_linked');
         END IF;
     END IF;
     v_snapshot := aap_assets_v1._spatial_item_source_snapshot(p_dataset_item_id);

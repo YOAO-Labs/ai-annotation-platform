@@ -24,6 +24,7 @@ from aap_assets_catalog.spatial_contract import (
     ScenePage,
     SceneResult,
     ScenePatch,
+    PosePairsResult,
     SpatialLayoutPlan,
     SpatialScene,
 )
@@ -243,7 +244,7 @@ async def test_explicit_atomic_preparation_uses_native_binding_without_commit(
         async def prepare_pointcloud(self, request, *, native=None):
             assert request.creation_operation_id == creation_operation_id
             assert isinstance(native, SameSessionAssetsSpatialGateway)
-            return await native.apply_pointcloud_preparation_native(apply_request)
+            return await native.apply_pointcloud_preparation(apply_request)
 
     gateway = AssetsSpatialGateway(db)
     gateway._spatial_workflow = lambda: Workflow()
@@ -283,6 +284,34 @@ async def test_native_spatial_reply_budget_rejects_before_commit(monkeypatch):
             )
         )
     db.commit.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_pose_pair_reads_bound_each_request_to_its_exact_chunk(monkeypatch):
+    scene_id = uuid.uuid4()
+    captured = []
+
+    def handler(request):
+        assert request.url.path == "/v1/spatial/read_spatial_pose_pairs"
+        pairs = json.loads(request.content)["pairs"]
+        captured.append(
+            [(uuid.UUID(pair["scene_id"]), pair["frame_index"]) for pair in pairs]
+        )
+        return httpx.Response(
+            200,
+            json=_wire(
+                PosePairsResult(pairs=pairs, poses=[], snapshot_digest="a" * 64)
+            ),
+        )
+
+    _mock_http(monkeypatch, handler)
+    wanted = {(scene_id, index) for index in range(201)}
+    assert (
+        await AssetsSpatialGateway(AsyncMock(spec=AsyncSession)).read_pose_pairs(wanted)
+        == {}
+    )
+    assert [len(chunk) for chunk in captured] == [200, 1]
+    assert {pair for chunk in captured for pair in chunk} == wanted
 
 
 @pytest.mark.asyncio
