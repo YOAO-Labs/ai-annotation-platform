@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.config import settings
 from app.db.models.async_job import AsyncJob
+from app.db.models.dataset import Dataset, DatasetItem
 from app.db.models.ml_backend_registry import MLBackendRegistry
 from app.db.models.prediction import Prediction, PredictionMeta
 from app.db.models.project import Project
@@ -35,7 +36,28 @@ async def frame_world(test_engine):
             db, "project_admin", f"frame-{uuid.uuid4()}@test.local", "Frame owner"
         )
         project = await create_project(db, owner_id=owner.id)
+        dataset = Dataset(
+            display_id=f"D-FRAME-{uuid.uuid4().hex[:8]}",
+            name="Frame persistence video",
+            data_type="video",
+            created_by=owner.id,
+        )
+        db.add(dataset)
+        await db.flush()
+        item = DatasetItem(
+            dataset_id=dataset.id,
+            file_name="frame-source.mp4",
+            file_path=f"frame-source/{uuid.uuid4()}.mp4",
+            file_type="video",
+            metadata_={"video": {"fps": 30, "frame_count": 3, "duration_ms": 100}},
+        )
+        db.add(item)
+        await db.flush()
         task = await create_task(db, project_id=project.id)
+        task.dataset_item_id = item.id
+        task.file_name = item.file_name
+        task.file_path = item.file_path
+        task.file_type = "video"
         backend = MLBackendRegistry(name="frame-test", url="http://frame.test")
         job = AsyncJob(
             kind="batch_predict",
@@ -49,6 +71,8 @@ async def frame_world(test_engine):
         world = SimpleNamespace(
             maker=maker,
             owner_id=owner.id,
+            dataset_id=dataset.id,
+            item_id=item.id,
             project_id=project.id,
             task_id=task.id,
             backend_id=backend.id,
@@ -70,6 +94,8 @@ async def frame_world(test_engine):
             )
             await db.execute(delete(AsyncJob).where(AsyncJob.id == world.job_id))
             await db.execute(delete(Task).where(Task.id == world.task_id))
+            await db.execute(delete(DatasetItem).where(DatasetItem.id == world.item_id))
+            await db.execute(delete(Dataset).where(Dataset.id == world.dataset_id))
             await db.execute(delete(Project).where(Project.id == world.project_id))
             await db.execute(delete(User).where(User.id == world.owner_id))
             await db.execute(
@@ -167,8 +193,15 @@ async def test_frame_persistence_retries_contention_and_rechecks_scope(
                 write_scope=scope,
             )
         )
-        monkeypatch.setattr(
-            PredictionService, "apply_prediction_result", observed_apply
+        await writer.commit()
+
+    monkeypatch.setattr(PredictionService, "apply_prediction_result", observed_apply)
+    async with world.maker() as locker:
+        # Hold only the Task row. The baseline prediction and its authority
+        # locks were committed above, so the contention reaches the intended
+        # task-write NOWAIT fence instead of an earlier scope lock.
+        task = await locker.scalar(
+            select(Task).where(Task.id == world.task_id).with_for_update()
         )
         runner = asyncio.create_task(
             frame_preannotate._run_segment(
@@ -185,10 +218,10 @@ async def test_frame_persistence_retries_contention_and_rechecks_scope(
             if change == "task_status":
                 task.status = "review"
             elif change == "job_terminal":
-                job = await writer.get(AsyncJob, world.job_id)
+                job = await locker.get(AsyncJob, world.job_id)
                 job.status = "cancelled"
             elif change == "account_disabled":
-                owner = await writer.get(User, world.owner_id)
+                owner = await locker.get(User, world.owner_id)
                 owner.is_active = False
             if change == "still_busy":
                 with pytest.raises(frame_preannotate._FrameWriteDeferred) as deferred:
@@ -197,7 +230,7 @@ async def test_frame_persistence_retries_contention_and_rechecks_scope(
                 assert resume["stats"]["failed"] == 0
                 assert resume["pending_write"]["ml_backend_id"] == world.backend_id
                 assert resume["write_scope"]["task_version"] == scope.task_version
-                await writer.commit()
+                await locker.commit()
                 context_read = AsyncMock(side_effect=RuntimeError("source unavailable"))
                 monkeypatch.setattr(
                     "app.services.video_frame_service.AssetsVideoContextReader.from_task_summary",
@@ -217,7 +250,7 @@ async def test_frame_persistence_retries_contention_and_rechecks_scope(
                 context_read.assert_not_awaited()
                 cache_read.assert_not_awaited()
             else:
-                await writer.commit()
+                await locker.commit()
                 stats = await asyncio.wait_for(runner, timeout=10)
         finally:
             if not runner.done():
@@ -264,6 +297,49 @@ async def test_frame_persistence_retries_contention_and_rechecks_scope(
                 select(PredictionMeta).where(PredictionMeta.prediction_id == retried.id)
             )
             assert meta.inference_time_ms == 12 and meta.total_tokens == 7
+
+
+async def test_media_owner_busy_defers_before_prediction(
+    frame_world, test_db_url, monkeypatch
+):
+    from aap_assets_media.contract import MediaFailure
+
+    world = frame_world
+    predict = AsyncMock()
+    client = SimpleNamespace(predict=predict, last_instance_id=None, pool_id=None)
+    monkeypatch.setattr(settings, "database_url", test_db_url)
+    monkeypatch.setattr(
+        "app.services.ml_routing.client.RoutedMLBackendClient",
+        lambda *_args, **_kwargs: client,
+    )
+    monkeypatch.setattr(
+        "app.services.ml_backend.MLBackendService.pool_id_for_registry",
+        AsyncMock(return_value=None),
+    )
+    monkeypatch.setattr(
+        frame_preannotate,
+        "_read_frame_urls",
+        AsyncMock(side_effect=MediaFailure("operation_busy")),
+    )
+
+    with pytest.raises(frame_preannotate._FrameWriteDeferred) as deferred:
+        await frame_preannotate._run_segment(
+            segment={"task_id": str(world.task_id), "frame_indices": [0]},
+            project_id=str(world.project_id),
+            ml_backend_id=str(world.backend_id),
+            stage0={},
+            job_id=str(world.job_id),
+            celery_root_task_id=None,
+        )
+
+    resume = deferred.value.resume
+    assert resume["frame_indices"] == [0]
+    assert resume["pending_write"] is None
+    assert resume["stats"]["failed"] == 0
+    predict.assert_not_awaited()
+    async with world.maker() as db:
+        job = await db.get(AsyncJob, world.job_id)
+        assert job.status == "running"
 
 
 @pytest.mark.parametrize("status", ["cancelled", "failed", "completed"])
