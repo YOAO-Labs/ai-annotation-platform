@@ -17,6 +17,7 @@ from aap_assets_images.contract import (
 )
 from aap_assets_images.http_contract import http_document
 from aap_assets_images.transport import (
+    ImageAssetReference,
     ImageAssetReferences,
     ImageAssetReferencesRequest,
     ImageGenerationReference,
@@ -213,6 +214,77 @@ def test_source_and_generation_references_cannot_cross_actor_or_snapshot():
         require_source_reference_scope(
             ReadImageSourceRequest(actor_id=uuid4(), dataset_item_id=item_id),
             source_reference,
+        )
+
+
+def test_generation_and_asset_references_cannot_cross_profiles():
+    actor_id = uuid4()
+    current = source(uuid4())
+    old_profile = "pyramid-legacy"
+    generation_request = ImageGenerationReferenceRequest(
+        actor_id=actor_id,
+        dataset_item_id=current.item_id,
+        profile_version=old_profile,
+    )
+    generation = ImageGenerationReference(
+        source=current,
+        pyramid=ImagePyramidSummary(
+            profile_version=old_profile,
+            status="missing",
+            required=False,
+            generation=None,
+            building_generation=None,
+            building_status=None,
+            width=None,
+            height=None,
+            format=None,
+        ),
+        pyramid_source_generation=None,
+        pyramid_source_snapshot=None,
+        manifest=None,
+        overview_url=None,
+        expires_in=120,
+    )
+    require_generation_reference_scope(generation_request, generation)
+    with pytest.raises(ValueError, match="escaped"):
+        require_generation_reference_scope(
+            generation_request,
+            generation.model_copy(
+                update={
+                    "pyramid": generation.pyramid.model_copy(
+                        update={"profile_version": "pyramid-current"}
+                    )
+                }
+            ),
+        )
+
+    asset_request = ImageAssetReferencesRequest(
+        actor_id=actor_id,
+        dataset_item_id=current.item_id,
+        profile_version=old_profile,
+        items=[{"kind": "overview", "generation": 3}],
+    )
+    assets = ImageAssetReferences(
+        source=current,
+        generation=3,
+        profile_version=old_profile,
+        expires_in=60,
+        items=[
+            ImageAssetReference(
+                kind="overview",
+                generation=3,
+                level=None,
+                x=None,
+                y=None,
+                url="https://media.local/overview.webp",
+            )
+        ],
+    )
+    require_asset_reference_scope(asset_request, assets)
+    with pytest.raises(ValueError, match="escaped"):
+        require_asset_reference_scope(
+            asset_request,
+            assets.model_copy(update={"profile_version": "pyramid-current"}),
         )
 
 

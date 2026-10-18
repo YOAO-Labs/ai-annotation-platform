@@ -25,6 +25,7 @@ from .contract import (
     ImagePyramidSummary,
     ImageSource,
     ImageSourceSelector,
+    ProfileVersion,
     PyramidGeneration,
     ReadImageGenerationRequest,
     Revision,
@@ -135,6 +136,7 @@ ImageAssetRequest = Annotated[
 
 class ImageAssetReferencesRequest(ActorImageSourceRequest):
     expected_source_snapshot: Digest | None = None
+    profile_version: ProfileVersion | None = None
     items: list[ImageAssetRequest] = Field(min_length=1, max_length=128)
 
     @model_validator(mode="after")
@@ -185,6 +187,7 @@ class ImageAssetReference(Value):
 class ImageAssetReferences(Value):
     source: ImageSource
     generation: PyramidGeneration
+    profile_version: ProfileVersion = "pyramid-v1"
     expires_in: StrictInt = Field(ge=1, le=86400)
     items: list[ImageAssetReference] = Field(max_length=128)
 
@@ -275,6 +278,10 @@ def require_asset_reference_scope(
             and result.source.source_snapshot != request.expected_source_snapshot
         )
         or result.generation != request.items[0].generation
+        or (
+            request.profile_version is not None
+            and result.profile_version != request.profile_version
+        )
     ):
         raise ValueError("image asset references escaped source selector")
     expected = {
@@ -396,6 +403,10 @@ def require_generation_reference_scope(
         or (
             request.generation is not None
             and result.pyramid.generation != request.generation
+        )
+        or (
+            request.profile_version is not None
+            and result.pyramid.profile_version != request.profile_version
         )
         or (
             result.manifest is not None

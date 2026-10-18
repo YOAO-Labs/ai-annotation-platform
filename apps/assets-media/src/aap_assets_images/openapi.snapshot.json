@@ -250,6 +250,13 @@
             "title": "Items",
             "type": "array"
           },
+          "profile_version": {
+            "default": "pyramid-v1",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Profile Version",
+            "type": "string"
+          },
           "source": {
             "$ref": "#/components/schemas/ImageSource"
           }
@@ -314,6 +321,20 @@
             "minItems": 1,
             "title": "Items",
             "type": "array"
+          },
+          "profile_version": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Profile Version"
           },
           "task_id": {
             "anyOf": [
@@ -666,6 +687,20 @@
             "default": null,
             "title": "Generation"
           },
+          "profile_version": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Profile Version"
+          },
           "task_id": {
             "anyOf": [
               {
@@ -719,6 +754,20 @@
             ],
             "default": null,
             "title": "Level"
+          },
+          "profile_version": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Profile Version"
           },
           "source_snapshot": {
             "pattern": "^[0-9a-f]{64}$",
@@ -1085,6 +1134,13 @@
             ],
             "title": "Overview Key"
           },
+          "profile_version": {
+            "default": "pyramid-v1",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Profile Version",
+            "type": "string"
+          },
           "required": {
             "title": "Required",
             "type": "boolean"
@@ -1429,6 +1485,13 @@
               }
             ],
             "title": "Height"
+          },
+          "profile_version": {
+            "default": "pyramid-v1",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Profile Version",
+            "type": "string"
           },
           "required": {
             "title": "Required",
@@ -2432,6 +2495,20 @@
             "default": null,
             "title": "Generation"
           },
+          "profile_version": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Profile Version"
+          },
           "task_id": {
             "anyOf": [
               {
@@ -2496,6 +2573,20 @@
             "format": "uuid",
             "title": "Actor Id",
             "type": "string"
+          },
+          "profile_version": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Profile Version"
           },
           "selectors": {
             "items": {

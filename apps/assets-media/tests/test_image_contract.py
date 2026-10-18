@@ -163,6 +163,18 @@ def test_image_schema_operation_signatures_and_http_artifacts_are_frozen():
         "observations",
     )
     assert advance.sql_types == ("uuid", "bigint", "uuid", "integer", "jsonb")
+    summaries = c.OPERATIONS["read_image_summaries"]
+    assert summaries.arguments == ("actor_id", "selectors", "profile_version")
+    assert summaries.sql_types == ("uuid", "jsonb", "text")
+    generation = c.OPERATIONS["read_image_generation"]
+    assert generation.arguments == (
+        "actor_id",
+        "task_id",
+        "dataset_item_id",
+        "generation",
+        "profile_version",
+    )
+    assert generation.sql_types == ("uuid", "uuid", "uuid", "integer", "text")
     document_path = source_root / "openapi.snapshot.json"
     document = json.loads(document_path.read_text())
     from aap_assets_images.http_contract import http_document
@@ -205,6 +217,82 @@ def test_source_selector_and_owner_projection_are_strict():
     with pytest.raises(ValidationError):
         c.ImageSource.model_validate(
             {**legacy.model_dump(), "file_path": "../foreign.png"}
+        )
+
+
+def test_profile_selection_is_scoped_in_generation_summary_and_invalidation():
+    current = image_source()
+    profile = "pyramid-legacy"
+    pyramid = c.ImagePyramidGeneration(
+        asset_id=None,
+        profile_version=profile,
+        status="missing",
+        required=False,
+        generation=None,
+        building_generation=None,
+        building_status=None,
+        source_generation=None,
+        source_snapshot=None,
+        width=None,
+        height=None,
+        format=None,
+        manifest=None,
+        manifest_key=None,
+        manifest_digest=None,
+        overview_key=None,
+        overview_digest=None,
+        tile_count=0,
+        retained_bytes=0,
+    )
+    generation_read = c.ImageGenerationRead(source=current, pyramid=pyramid)
+    generation_request = c.ReadImageGenerationRequest(
+        actor_id=uuid4(),
+        dataset_item_id=current.item_id,
+        profile_version=profile,
+    )
+    c.require_scope(generation_request, generation_read)
+    assert pyramid.summary().profile_version == profile
+    with pytest.raises(ValueError, match="requested profile"):
+        c.require_scope(
+            generation_request.model_copy(
+                update={"profile_version": "pyramid-current"}
+            ),
+            generation_read,
+        )
+
+    selector = c.ImageSourceSelector(dataset_item_id=current.item_id)
+    summary_request = c.ReadImageSummariesRequest(
+        actor_id=uuid4(), selectors=[selector], profile_version=profile
+    )
+    summaries = c.ImageSummaries(
+        items=[
+            c.ImageSummaryItem(
+                selector=selector,
+                source=current,
+                thumbnail_current=current.thumbnail_current,
+                pyramid=pyramid.summary(),
+            )
+        ]
+    )
+    c.require_scope(summary_request, summaries)
+    with pytest.raises(ValueError, match="requested profile"):
+        c.require_scope(
+            summary_request.model_copy(update={"profile_version": "pyramid-current"}),
+            summaries,
+        )
+
+    invalidation = c.ImageInvalidation(
+        source_snapshot=current.source_snapshot,
+        kind="overview",
+        generation=1,
+        profile_version=profile,
+    )
+    assert invalidation.profile_version == profile
+    with pytest.raises(ValidationError, match="thumbnail invalidation"):
+        c.ImageInvalidation(
+            source_snapshot=current.source_snapshot,
+            kind="thumbnail",
+            profile_version=profile,
         )
 
 

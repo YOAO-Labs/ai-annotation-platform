@@ -91,6 +91,7 @@ ErrorCode = Literal[
 
 Digest = Annotated[StrictStr, Field(pattern=r"^[0-9a-f]{64}$")]
 PyramidDigest = Annotated[StrictStr, Field(pattern=r"^sha256:[0-9a-f]{64}$")]
+ProfileVersion = Annotated[StrictStr, Field(min_length=1, max_length=64)]
 Count = Annotated[StrictInt, Field(ge=0, le=9_223_372_036_854_775_807)]
 Revision = Annotated[StrictInt, Field(ge=1, le=9_223_372_036_854_775_807)]
 PyramidGeneration = Annotated[StrictInt, Field(ge=1, le=2_147_483_647)]
@@ -277,6 +278,7 @@ class InternalImageSourceRequest(Value):
 class ReadImageSummariesRequest(Value):
     actor_id: UUID
     selectors: Annotated[list[ImageSourceSelector], Field(max_length=BATCH_SIZE)]
+    profile_version: ProfileVersion | None = None
 
     @model_validator(mode="after")
     def unique_selectors(self):
@@ -373,6 +375,7 @@ class ImagePyramidManifest(Value):
 
 
 class ImagePyramidSummary(Value):
+    profile_version: ProfileVersion = "pyramid-v1"
     status: PyramidStatus
     required: StrictBool
     generation: PyramidGeneration | None
@@ -391,6 +394,7 @@ class ImagePyramidGeneration(Value):
     """Trusted native projection. Object keys never leave the control boundary."""
 
     asset_id: UUID | None
+    profile_version: ProfileVersion = "pyramid-v1"
     status: PyramidStatus
     required: StrictBool
     generation: PyramidGeneration | None
@@ -446,6 +450,7 @@ class ImagePyramidGeneration(Value):
 
     def summary(self) -> ImagePyramidSummary:
         return ImagePyramidSummary(
+            profile_version=self.profile_version,
             status=self.status,
             required=self.required,
             generation=self.generation,
@@ -504,6 +509,7 @@ class ImageInvalidation(Value):
     source_snapshot: Digest
     kind: Literal["thumbnail", "overview", "manifest", "tile"]
     generation: PyramidGeneration | None = None
+    profile_version: ProfileVersion | None = None
     level: Index | None = None
     x: Index | None = None
     y: Index | None = None
@@ -514,7 +520,11 @@ class ImageInvalidation(Value):
             value is not None for value in (self.level, self.x, self.y)
         )
         if self.kind == "thumbnail":
-            if self.generation is not None or tile_coordinate_present:
+            if (
+                self.generation is not None
+                or self.profile_version is not None
+                or tile_coordinate_present
+            ):
                 raise ValueError("thumbnail invalidation has a pyramid coordinate")
         elif self.generation is None:
             raise ValueError("pyramid invalidation requires a generation")
@@ -537,6 +547,7 @@ class InvalidationResult(Value):
 
 class ReadImageGenerationRequest(ActorImageSourceRequest):
     generation: PyramidGeneration | None = None
+    profile_version: ProfileVersion | None = None
 
 
 class ImageGenerationRead(Value):
@@ -1142,8 +1153,8 @@ OPERATIONS = {
     "read_image_summaries": NativeOperation(
         ReadImageSummariesRequest,
         ImageSummaries,
-        ("actor_id", "selectors"),
-        ("uuid", "jsonb"),
+        ("actor_id", "selectors", "profile_version"),
+        ("uuid", "jsonb", "text"),
         "control",
     ),
     "prepare_image_media": NativeOperation(
@@ -1165,8 +1176,14 @@ OPERATIONS = {
     "read_image_generation": NativeOperation(
         ReadImageGenerationRequest,
         ImageGenerationRead,
-        ("actor_id", "task_id", "dataset_item_id", "generation"),
-        ("uuid", "uuid", "uuid", "integer"),
+        (
+            "actor_id",
+            "task_id",
+            "dataset_item_id",
+            "generation",
+            "profile_version",
+        ),
+        ("uuid", "uuid", "uuid", "integer", "text"),
         "control",
     ),
     "read_image_work": NativeOperation(
@@ -1401,6 +1418,11 @@ def require_scope(request: BaseModel, result: BaseModel) -> None:
             for key in actual
         ):
             raise ValueError("image summary source escaped its selector")
+        if request.profile_version is not None and any(
+            row.pyramid.profile_version != request.profile_version
+            for row in result.items
+        ):
+            raise ValueError("image summary escaped its requested profile")
     for field in ("operation_id", "job_id", "generation", "lease_token", "garbage_id"):
         if (
             hasattr(request, field)
@@ -1573,6 +1595,14 @@ def require_scope(request: BaseModel, result: BaseModel) -> None:
     ):
         if result.queued_orphans + result.ignored_candidates > len(request.candidates):
             raise ValueError("image reconcile exceeded candidate batch")
+    if isinstance(request, ReadImageGenerationRequest) and isinstance(
+        result, ImageGenerationRead
+    ):
+        if (
+            request.profile_version is not None
+            and result.pyramid.profile_version != request.profile_version
+        ):
+            raise ValueError("image generation escaped its requested profile")
     if isinstance(request, CompleteImageGarbageRequest) and isinstance(
         result, ImageGarbageAck
     ):
