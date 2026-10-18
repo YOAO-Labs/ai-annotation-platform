@@ -19,6 +19,10 @@ from fastapi.responses import Response
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, or_, and_
+from aap_assets_catalog.associations_contract import (
+    ListProjectDatasetsRequest,
+    ProjectDatasetSummary,
+)
 from app.deps import (
     get_db,
     get_current_user,
@@ -86,6 +90,7 @@ from app.services.batch_permissions import allows_bulk_preannotation
 from app.services.pipeline_template import (
     assert_pipeline_visible,
 )
+from app.services.assets_catalog import AssetsCatalogGateway
 from app.application.project_deletion import (
     delete_project as delete_project_transaction,
 )
@@ -2352,60 +2357,14 @@ async def cleanup_orphan_tasks(
 # ── v0.7.3 · 项目侧关联数据集 ────────────────────────────────────────────
 
 
-@router.get("/{project_id}/datasets")
+@router.get("/{project_id}/datasets", response_model=list[ProjectDatasetSummary])
 async def list_project_datasets(
     project_id: uuid.UUID,
-    project: Project = Depends(require_project_visible),
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
-    """列出本项目已关联的所有数据集（含基础元数据 + task 数）。"""
-    from app.db.models.dataset import Dataset, DatasetItem, ProjectDataset
-    from app.db.models.task import Task
-
-    rows = (
-        await db.execute(
-            select(Dataset, ProjectDataset.created_at.label("linked_at"))
-            .join(ProjectDataset, ProjectDataset.dataset_id == Dataset.id)
-            .where(ProjectDataset.project_id == project_id)
-            .order_by(ProjectDataset.created_at.desc())
-        )
-    ).all()
-
-    if not rows:
-        return []
-
-    ds_ids = [r[0].id for r in rows]
-    item_counts = dict(
-        (
-            await db.execute(
-                select(DatasetItem.dataset_id, func.count())
-                .where(DatasetItem.dataset_id.in_(ds_ids))
-                .group_by(DatasetItem.dataset_id)
-            )
-        ).all()
+    """List linked datasets after the Assets owner rechecks current project visibility."""
+    result = await AssetsCatalogGateway(db).list_project_datasets(
+        ListProjectDatasetsRequest(actor_id=current_user.id, project_id=project_id)
     )
-    task_counts = dict(
-        (
-            await db.execute(
-                select(DatasetItem.dataset_id, func.count())
-                .join(Task, Task.dataset_item_id == DatasetItem.id)
-                .where(
-                    Task.project_id == project_id, DatasetItem.dataset_id.in_(ds_ids)
-                )
-                .group_by(DatasetItem.dataset_id)
-            )
-        ).all()
-    )
-
-    return [
-        {
-            "id": str(d.id),
-            "display_id": d.display_id,
-            "name": d.name,
-            "data_type": d.data_type,
-            "linked_at": linked_at.isoformat() if linked_at else None,
-            "items_count": int(item_counts.get(d.id, 0)),
-            "tasks_in_project": int(task_counts.get(d.id, 0)),
-        }
-        for d, linked_at in rows
-    ]
+    return result.datasets

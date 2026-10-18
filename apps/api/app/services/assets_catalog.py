@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import json
-from typing import TypeVar
+from typing import Callable, TypeVar
 from urllib.parse import urlsplit
 
 import httpx
 from fastapi import HTTPException
 from pydantic import BaseModel, ValidationError
 from sqlalchemy import text
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from aap_assets_catalog import (
@@ -25,6 +26,14 @@ from aap_assets_catalog import (
     ListItemsRequest,
     UpdateDatasetRequest,
     decode_reply,
+)
+from aap_assets_catalog.associations_contract import (
+    AssociationFailure,
+    DatasetProjectsResult,
+    ListDatasetProjectsRequest,
+    ListProjectDatasetsRequest,
+    ProjectDatasetsResult,
+    decode_associations_reply,
 )
 from app.config import settings
 from app.services.storage import storage_service
@@ -43,6 +52,18 @@ _BUSINESS_ERRORS: dict[str, tuple[int, str]] = {
     "source_busy": (409, "Dataset has an active operation"),
     "operation_conflict": (409, "Idempotency-Key conflicts with an earlier request"),
     "reserved_namespace": (422, "Dataset name uses a reserved storage namespace"),
+}
+_ASSOCIATION_ERRORS: dict[str, tuple[int, str, dict[str, str] | None]] = {
+    "invalid_request": (422, "项目数据集关联读取请求无效", None),
+    "account_not_active": (
+        401,
+        "账号已停用或不存在",
+        {"WWW-Authenticate": "Bearer"},
+    ),
+    "invalid_account_role": (403, "账号角色无效，访问被拒绝", None),
+    "project_missing": (404, "项目不存在", None),
+    "invalid_project_role": (403, "项目职责无效，访问被拒绝", None),
+    "incompatible_project_role": (403, "账号平台角色与项目职责不兼容", None),
 }
 
 
@@ -77,9 +98,15 @@ def _peer_url() -> str | None:
 class CatalogGatewayError(HTTPException):
     """A selected peer or its response failed; local SQL is never a fallback."""
 
-    def __init__(self, code: str, message: str, status_code: int = 503):
+    def __init__(
+        self,
+        code: str,
+        message: str,
+        status_code: int = 503,
+        headers: dict[str, str] | None = None,
+    ):
         self.code = code
-        super().__init__(status_code=status_code, detail=message)
+        super().__init__(status_code=status_code, detail=message, headers=headers)
 
 
 def _encode_request(request: BaseModel) -> bytes:
@@ -108,6 +135,18 @@ def _decode(payload: object, result_type: type[_RESULT]) -> _RESULT:
     except CatalogFailure as exc:
         status_code, message = _BUSINESS_ERRORS[exc.code]
         raise CatalogGatewayError(exc.code, message, status_code) from None
+    except (ValidationError, ValueError, TypeError, KeyError) as exc:
+        raise CatalogGatewayError(
+            "invalid_response", "Assets catalog returned an invalid response", 502
+        ) from exc
+
+
+def _decode_associations(payload: object, result_type: type[_RESULT]) -> _RESULT:
+    try:
+        return decode_associations_reply(payload, result_type)
+    except AssociationFailure as exc:
+        status_code, message, headers = _ASSOCIATION_ERRORS[exc.code]
+        raise CatalogGatewayError(exc.code, message, status_code, headers) from None
     except (ValidationError, ValueError, TypeError, KeyError) as exc:
         raise CatalogGatewayError(
             "invalid_response", "Assets catalog returned an invalid response", 502
@@ -249,6 +288,48 @@ class AssetsCatalogGateway:
             await self.db.commit()
         return reply
 
+    async def list_dataset_projects(
+        self, request: ListDatasetProjectsRequest
+    ) -> DatasetProjectsResult:
+        body = _encode_request(request)
+        reply, _ = await self._call(
+            "dataset-projects",
+            """
+            SELECT aap_assets_v1.list_dataset_projects(
+                CAST(:actor_id AS uuid), CAST(:dataset_id AS uuid)
+            )
+            """,
+            {"actor_id": request.actor_id, "dataset_id": request.dataset_id},
+            body,
+            DatasetProjectsResult,
+            decoder=_decode_associations,
+            local_errors_unavailable=True,
+        )
+        if reply.dataset_id != request.dataset_id:
+            raise self._invalid_scope()
+        return reply
+
+    async def list_project_datasets(
+        self, request: ListProjectDatasetsRequest
+    ) -> ProjectDatasetsResult:
+        body = _encode_request(request)
+        reply, _ = await self._call(
+            "project-datasets",
+            """
+            SELECT aap_assets_v1.list_project_datasets(
+                CAST(:actor_id AS uuid), CAST(:project_id AS uuid)
+            )
+            """,
+            {"actor_id": request.actor_id, "project_id": request.project_id},
+            body,
+            ProjectDatasetsResult,
+            decoder=_decode_associations,
+            local_errors_unavailable=True,
+        )
+        if reply.project_id != request.project_id:
+            raise self._invalid_scope()
+        return reply
+
     async def _call(
         self,
         operation: str,
@@ -256,12 +337,23 @@ class AssetsCatalogGateway:
         parameters: dict,
         body: bytes,
         result_type: type[_RESULT],
+        *,
+        decoder: Callable[[object, type[_RESULT]], _RESULT] = _decode,
+        local_errors_unavailable: bool = False,
     ) -> tuple[_RESULT, bool]:
         peer = _peer_url()
         if peer is None:
             # Native capability call shares the caller's transaction and actor identity.
-            result = await self.db.execute(text(sql), parameters)
-            return _decode(result.scalar_one(), result_type), False
+            try:
+                result = await self.db.execute(text(sql), parameters)
+                payload = result.scalar_one()
+            except SQLAlchemyError:
+                if local_errors_unavailable:
+                    raise CatalogGatewayError(
+                        "unavailable", "Assets catalog service is unavailable", 503
+                    ) from None
+                raise
+            return decoder(payload, result_type), False
         try:
             async with httpx.AsyncClient(
                 timeout=settings.assets_catalog_timeout_seconds,
@@ -308,7 +400,7 @@ class AssetsCatalogGateway:
             raise CatalogGatewayError(
                 "unavailable", "Assets catalog service is unavailable", 503
             ) from exc
-        return _decode(payload, result_type), True
+        return decoder(payload, result_type), True
 
     @staticmethod
     def _invalid_scope() -> CatalogGatewayError:

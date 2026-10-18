@@ -25,6 +25,7 @@ from aap_assets_catalog import (
     ListItemsRequest,
     UpdateDatasetRequest,
 )
+from aap_assets_catalog.associations_contract import ListDatasetProjectsRequest
 from app.deps import (
     get_db,
     get_current_user,
@@ -1090,10 +1091,12 @@ async def unlink_project(
 async def get_linked_projects(
     dataset_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ):
-    svc = DatasetService(db)
-    return await svc.get_linked_projects(dataset_id)
+    result = await AssetsCatalogGateway(db).list_dataset_projects(
+        ListDatasetProjectsRequest(actor_id=current_user.id, dataset_id=dataset_id)
+    )
+    return [ProjectOut.model_validate(project) for project in result.projects]
 
 
 def _infer_file_type(content_type: str) -> str:

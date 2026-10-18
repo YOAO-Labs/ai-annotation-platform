@@ -20,7 +20,6 @@ from app.db.models.dataset import (
     Scene,
     VideoFrameIndex,
 )
-from app.db.models.project import Project
 from app.services.display_id import next_display_id
 from app.services.project_kind import (
     dataset_has_scenes,
@@ -1003,14 +1002,6 @@ class DatasetService:
             return
         if not await dataset_has_scenes(self.db, dataset_id):
             raise ValueError("声明为时序数据集但未识别出任何 scene,请检查目录结构")
-
-    async def get_linked_projects(self, dataset_id: uuid.UUID) -> list[Project]:
-        result = await self.db.execute(
-            select(Project)
-            .join(ProjectDataset, ProjectDataset.project_id == Project.id)
-            .where(ProjectDataset.dataset_id == dataset_id)
-        )
-        return list(result.scalars().all())
 
 
 _IMAGE_EXTS = {"jpg", "jpeg", "png", "bmp", "webp", "tiff", "tif", "gif", "svg"}
