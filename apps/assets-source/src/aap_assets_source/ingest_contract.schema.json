@@ -1,0 +1,1513 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "aap-dataset-source-ingest/v1",
+  "x-native-envelope": {
+    "schema": "aap-dataset-source-ingest/v1",
+    "strict_boolean_ok": true,
+    "failure_codes": [
+      "account_busy",
+      "account_not_active",
+      "archive_invalid",
+      "archive_unsafe",
+      "catalog_manager_required",
+      "dataset_busy",
+      "dataset_missing",
+      "invalid_account_role",
+      "invalid_request",
+      "invalid_response",
+      "lease_lost",
+      "operation_conflict",
+      "operation_missing",
+      "reserved_namespace",
+      "resource_budget_exceeded",
+      "scene_conflict",
+      "service_unavailable",
+      "source_busy",
+      "storage_unavailable",
+      "temporal_scenes_missing"
+    ]
+  },
+  "$defs": {
+    "IngestBatchPlan": {
+      "additionalProperties": false,
+      "properties": {
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "dataset_id": {
+          "format": "uuid",
+          "title": "Dataset Id",
+          "type": "string"
+        },
+        "batch_id": {
+          "format": "uuid",
+          "title": "Batch Id",
+          "type": "string"
+        },
+        "entries": {
+          "items": {
+            "$ref": "#/$defs/IngestPlannedEntry"
+          },
+          "maxItems": 200,
+          "title": "Entries",
+          "type": "array"
+        },
+        "progress": {
+          "$ref": "#/$defs/IngestProgress"
+        }
+      },
+      "required": ["operation_id", "actor_id", "dataset_id", "batch_id", "entries", "progress"],
+      "title": "IngestBatchPlan",
+      "type": "object"
+    },
+    "IngestBatchResult": {
+      "additionalProperties": false,
+      "properties": {
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "dataset_id": {
+          "format": "uuid",
+          "title": "Dataset Id",
+          "type": "string"
+        },
+        "batch_id": {
+          "format": "uuid",
+          "title": "Batch Id",
+          "type": "string"
+        },
+        "progress": {
+          "$ref": "#/$defs/IngestProgress"
+        }
+      },
+      "required": ["operation_id", "actor_id", "dataset_id", "batch_id", "progress"],
+      "title": "IngestBatchResult",
+      "type": "object"
+    },
+    "IngestCommand": {
+      "additionalProperties": false,
+      "description": "Verified gateway scope, without a caller role or storage origin.",
+      "properties": {
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "dataset_id": {
+          "format": "uuid",
+          "title": "Dataset Id",
+          "type": "string"
+        }
+      },
+      "required": ["operation_id", "actor_id", "dataset_id"],
+      "title": "IngestCommand",
+      "type": "object"
+    },
+    "IngestContext": {
+      "additionalProperties": false,
+      "properties": {
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "dataset_id": {
+          "format": "uuid",
+          "title": "Dataset Id",
+          "type": "string"
+        },
+        "descriptor": {
+          "$ref": "#/$defs/IngestDescriptor"
+        },
+        "state": {
+          "enum": ["preparing", "completed"],
+          "title": "State",
+          "type": "string"
+        },
+        "dataset_name": {
+          "maxLength": 255,
+          "title": "Dataset Name",
+          "type": "string"
+        },
+        "is_temporal": {
+          "title": "Is Temporal",
+          "type": "boolean"
+        },
+        "source_prefix": {
+          "title": "Source Prefix",
+          "type": "string"
+        },
+        "next_index": {
+          "maximum": 2147483647,
+          "minimum": 0,
+          "title": "Next Index",
+          "type": "integer"
+        },
+        "result": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/IngestReceipt"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "operation_id",
+        "actor_id",
+        "dataset_id",
+        "descriptor",
+        "state",
+        "dataset_name",
+        "is_temporal",
+        "source_prefix",
+        "next_index",
+        "result"
+      ],
+      "title": "IngestContext",
+      "type": "object"
+    },
+    "IngestDeliveryAcknowledged": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        }
+      },
+      "required": ["id"],
+      "title": "IngestDeliveryAcknowledged",
+      "type": "object"
+    },
+    "IngestDeliveryLease": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "kind": {
+          "enum": ["thumbnail", "video_metadata"],
+          "title": "Kind",
+          "type": "string"
+        },
+        "target_id": {
+          "format": "uuid",
+          "title": "Target Id",
+          "type": "string"
+        },
+        "lease_token": {
+          "format": "uuid",
+          "title": "Lease Token",
+          "type": "string"
+        }
+      },
+      "required": ["id", "operation_id", "kind", "target_id", "lease_token"],
+      "title": "IngestDeliveryLease",
+      "type": "object"
+    },
+    "IngestDescriptor": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "enum": ["zip", "scan"],
+          "title": "Kind",
+          "type": "string"
+        },
+        "request_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Request Digest",
+          "type": "string"
+        },
+        "total_in_zip": {
+          "anyOf": [
+            {
+              "maximum": 2147483647,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Total In Zip"
+        },
+        "planned_entries": {
+          "anyOf": [
+            {
+              "maximum": 2147483647,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Planned Entries"
+        },
+        "hidden_count": {
+          "default": 0,
+          "maximum": 2147483647,
+          "minimum": 0,
+          "title": "Hidden Count",
+          "type": "integer"
+        },
+        "unsafe_count": {
+          "default": 0,
+          "maximum": 2147483647,
+          "minimum": 0,
+          "title": "Unsafe Count",
+          "type": "integer"
+        },
+        "top_level_dirs": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 5000,
+          "title": "Top Level Dirs",
+          "type": "array"
+        }
+      },
+      "required": ["kind", "request_digest", "total_in_zip", "planned_entries"],
+      "title": "IngestDescriptor",
+      "type": "object"
+    },
+    "IngestEntryCompletion": {
+      "additionalProperties": false,
+      "properties": {
+        "entry_id": {
+          "format": "uuid",
+          "title": "Entry Id",
+          "type": "string"
+        },
+        "status": {
+          "enum": ["ready", "error"],
+          "title": "Status",
+          "type": "string"
+        },
+        "publication_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Publication Id"
+        },
+        "file_size": {
+          "anyOf": [
+            {
+              "maximum": 9223372036854775807,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "File Size"
+        },
+        "content_hash": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{32}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Content Hash"
+        },
+        "width": {
+          "anyOf": [
+            {
+              "maximum": 2147483647,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Width"
+        },
+        "height": {
+          "anyOf": [
+            {
+              "maximum": 2147483647,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Height"
+        },
+        "error_code": {
+          "anyOf": [
+            {
+              "enum": [
+                "invalid_source_object",
+                "archive_entry_read_failed",
+                "storage_write_failed",
+                "source_changed",
+                "source_missing",
+                "source_read_failed"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Error Code"
+        }
+      },
+      "required": [
+        "entry_id",
+        "status",
+        "publication_id",
+        "file_size",
+        "content_hash",
+        "width",
+        "height",
+        "error_code"
+      ],
+      "title": "IngestEntryCompletion",
+      "type": "object"
+    },
+    "IngestFailureDetail": {
+      "additionalProperties": false,
+      "properties": {
+        "reason": {
+          "pattern": "^[a-z][a-z0-9_]{0,63}$",
+          "title": "Reason",
+          "type": "string"
+        },
+        "message": {
+          "maxLength": 4096,
+          "title": "Message",
+          "type": "string"
+        },
+        "budget": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Budget"
+        },
+        "limit": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Limit"
+        },
+        "observed": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Observed"
+        },
+        "path": {
+          "anyOf": [
+            {
+              "maxLength": 4096,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Path"
+        },
+        "conflicts_with": {
+          "anyOf": [
+            {
+              "maxLength": 4096,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Conflicts With"
+        }
+      },
+      "required": ["reason", "message"],
+      "title": "IngestFailureDetail",
+      "type": "object"
+    },
+    "IngestFileError": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "maxLength": 512,
+          "title": "Name",
+          "type": "string"
+        },
+        "error": {
+          "maxLength": 512,
+          "minLength": 1,
+          "title": "Error",
+          "type": "string"
+        }
+      },
+      "required": ["name", "error"],
+      "title": "IngestFileError",
+      "type": "object"
+    },
+    "IngestFinish": {
+      "additionalProperties": false,
+      "properties": {
+        "layout_snapshot_digest": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Layout Snapshot Digest"
+        },
+        "scene_plan": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/IngestScenePlan"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "scene_inference_notes": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 1024,
+          "title": "Scene Inference Notes",
+          "type": "array"
+        }
+      },
+      "required": ["layout_snapshot_digest", "scene_plan"],
+      "title": "IngestFinish",
+      "type": "object"
+    },
+    "IngestFrameAssignment": {
+      "additionalProperties": false,
+      "properties": {
+        "item_id": {
+          "format": "uuid",
+          "title": "Item Id",
+          "type": "string"
+        },
+        "scene_id": {
+          "format": "uuid",
+          "title": "Scene Id",
+          "type": "string"
+        },
+        "frame_index": {
+          "anyOf": [
+            {
+              "maximum": 2147483647,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Frame Index"
+        }
+      },
+      "required": ["item_id", "scene_id", "frame_index"],
+      "title": "IngestFrameAssignment",
+      "type": "object"
+    },
+    "IngestLayoutItem": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "file_name": {
+          "title": "File Name",
+          "type": "string"
+        },
+        "file_path": {
+          "title": "File Path",
+          "type": "string"
+        },
+        "file_type": {
+          "enum": ["image", "video", "point_cloud", "other"],
+          "title": "File Type",
+          "type": "string"
+        },
+        "scene_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Scene Id"
+        },
+        "frame_index": {
+          "anyOf": [
+            {
+              "maximum": 2147483647,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Frame Index"
+        },
+        "logical_path": {
+          "anyOf": [
+            {
+              "maxLength": 4096,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Logical Path"
+        }
+      },
+      "required": [
+        "id",
+        "file_name",
+        "file_path",
+        "file_type",
+        "scene_id",
+        "frame_index",
+        "logical_path"
+      ],
+      "title": "IngestLayoutItem",
+      "type": "object"
+    },
+    "IngestLayoutPage": {
+      "additionalProperties": false,
+      "properties": {
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "dataset_id": {
+          "format": "uuid",
+          "title": "Dataset Id",
+          "type": "string"
+        },
+        "snapshot_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Snapshot Digest",
+          "type": "string"
+        },
+        "scene_count": {
+          "maximum": 2147483647,
+          "minimum": 0,
+          "title": "Scene Count",
+          "type": "integer"
+        },
+        "assigned_count": {
+          "maximum": 2147483647,
+          "minimum": 0,
+          "title": "Assigned Count",
+          "type": "integer"
+        },
+        "total_items": {
+          "maximum": 2147483647,
+          "minimum": 0,
+          "title": "Total Items",
+          "type": "integer"
+        },
+        "items": {
+          "items": {
+            "$ref": "#/$defs/IngestLayoutItem"
+          },
+          "maxItems": 500,
+          "title": "Items",
+          "type": "array"
+        },
+        "next_item_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Next Item Id"
+        }
+      },
+      "required": [
+        "operation_id",
+        "actor_id",
+        "dataset_id",
+        "snapshot_digest",
+        "scene_count",
+        "assigned_count",
+        "total_items",
+        "items",
+        "next_item_id"
+      ],
+      "title": "IngestLayoutPage",
+      "type": "object"
+    },
+    "IngestPlannedEntry": {
+      "additionalProperties": false,
+      "properties": {
+        "source_name": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "title": "Source Name",
+          "type": "string"
+        },
+        "relpath": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "title": "Relpath",
+          "type": "string"
+        },
+        "source_key": {
+          "anyOf": [
+            {
+              "maxLength": 4096,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Source Key"
+        },
+        "file_type": {
+          "enum": ["image", "video", "point_cloud", "other"],
+          "title": "File Type",
+          "type": "string"
+        },
+        "content_type": {
+          "maxLength": 255,
+          "title": "Content Type",
+          "type": "string"
+        },
+        "file_size": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "File Size",
+          "type": "integer"
+        },
+        "content_hash": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{32}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Content Hash"
+        },
+        "width": {
+          "anyOf": [
+            {
+              "maximum": 2147483647,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Width"
+        },
+        "height": {
+          "anyOf": [
+            {
+              "maximum": 2147483647,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Height"
+        },
+        "error_code": {
+          "anyOf": [
+            {
+              "enum": [
+                "invalid_source_object",
+                "archive_entry_read_failed",
+                "storage_write_failed",
+                "source_changed",
+                "source_missing",
+                "source_read_failed"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Error Code"
+        },
+        "entry_id": {
+          "format": "uuid",
+          "title": "Entry Id",
+          "type": "string"
+        },
+        "index": {
+          "maximum": 2147483647,
+          "minimum": 0,
+          "title": "Index",
+          "type": "integer"
+        },
+        "status": {
+          "enum": ["pending", "deduped", "skipped", "error", "added"],
+          "title": "Status",
+          "type": "string"
+        },
+        "item_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Item Id"
+        },
+        "publication_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Publication Id"
+        },
+        "file_name": {
+          "anyOf": [
+            {
+              "maxLength": 500,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "File Name"
+        },
+        "file_path": {
+          "anyOf": [
+            {
+              "maxLength": 4096,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "File Path"
+        }
+      },
+      "required": [
+        "source_name",
+        "relpath",
+        "source_key",
+        "file_type",
+        "content_type",
+        "file_size",
+        "content_hash",
+        "width",
+        "height",
+        "entry_id",
+        "index",
+        "status",
+        "item_id",
+        "publication_id",
+        "file_name",
+        "file_path"
+      ],
+      "title": "IngestPlannedEntry",
+      "type": "object"
+    },
+    "IngestPlannedScene": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 255,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "source_format": {
+          "const": "inferred",
+          "title": "Source Format",
+          "type": "string"
+        },
+        "source_metadata": {
+          "$ref": "#/$defs/IngestSceneMetadata"
+        }
+      },
+      "required": ["id", "name", "source_format", "source_metadata"],
+      "title": "IngestPlannedScene",
+      "type": "object"
+    },
+    "IngestProgress": {
+      "additionalProperties": false,
+      "properties": {
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "dataset_id": {
+          "format": "uuid",
+          "title": "Dataset Id",
+          "type": "string"
+        },
+        "staged": {
+          "maximum": 2147483647,
+          "minimum": 0,
+          "title": "Staged",
+          "type": "integer"
+        },
+        "settled": {
+          "maximum": 2147483647,
+          "minimum": 0,
+          "title": "Settled",
+          "type": "integer"
+        },
+        "added": {
+          "maximum": 2147483647,
+          "minimum": 0,
+          "title": "Added",
+          "type": "integer"
+        },
+        "deduped": {
+          "maximum": 2147483647,
+          "minimum": 0,
+          "title": "Deduped",
+          "type": "integer"
+        },
+        "skipped": {
+          "maximum": 2147483647,
+          "minimum": 0,
+          "title": "Skipped",
+          "type": "integer"
+        },
+        "error_count": {
+          "maximum": 2147483647,
+          "minimum": 0,
+          "title": "Error Count",
+          "type": "integer"
+        },
+        "linked_tasks": {
+          "maximum": 2147483647,
+          "minimum": 0,
+          "title": "Linked Tasks",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "operation_id",
+        "actor_id",
+        "dataset_id",
+        "staged",
+        "settled",
+        "added",
+        "deduped",
+        "skipped",
+        "error_count",
+        "linked_tasks"
+      ],
+      "title": "IngestProgress",
+      "type": "object"
+    },
+    "IngestReceipt": {
+      "additionalProperties": false,
+      "properties": {
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "dataset_id": {
+          "format": "uuid",
+          "title": "Dataset Id",
+          "type": "string"
+        },
+        "kind": {
+          "enum": ["zip", "scan"],
+          "title": "Kind",
+          "type": "string"
+        },
+        "request_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Request Digest",
+          "type": "string"
+        },
+        "added": {
+          "maximum": 2147483647,
+          "minimum": 0,
+          "title": "Added",
+          "type": "integer"
+        },
+        "deduped": {
+          "maximum": 2147483647,
+          "minimum": 0,
+          "title": "Deduped",
+          "type": "integer"
+        },
+        "skipped": {
+          "maximum": 2147483647,
+          "minimum": 0,
+          "title": "Skipped",
+          "type": "integer"
+        },
+        "errors": {
+          "items": {
+            "$ref": "#/$defs/IngestFileError"
+          },
+          "maxItems": 5000,
+          "title": "Errors",
+          "type": "array"
+        },
+        "error_count": {
+          "maximum": 2147483647,
+          "minimum": 0,
+          "title": "Error Count",
+          "type": "integer"
+        },
+        "total_in_zip": {
+          "anyOf": [
+            {
+              "maximum": 2147483647,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Total In Zip"
+        },
+        "linked_tasks": {
+          "maximum": 2147483647,
+          "minimum": 0,
+          "title": "Linked Tasks",
+          "type": "integer"
+        },
+        "scene_inference_notes": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 1024,
+          "title": "Scene Inference Notes",
+          "type": "array"
+        }
+      },
+      "required": [
+        "operation_id",
+        "actor_id",
+        "dataset_id",
+        "kind",
+        "request_digest",
+        "added",
+        "deduped",
+        "skipped",
+        "errors",
+        "error_count",
+        "total_in_zip",
+        "linked_tasks",
+        "scene_inference_notes"
+      ],
+      "title": "IngestReceipt",
+      "type": "object"
+    },
+    "IngestSceneMetadata": {
+      "additionalProperties": false,
+      "properties": {
+        "mode": {
+          "enum": ["single", "per_subdirectory", "auto"],
+          "title": "Mode",
+          "type": "string"
+        },
+        "group_key": {
+          "title": "Group Key",
+          "type": "string"
+        }
+      },
+      "required": ["mode", "group_key"],
+      "title": "IngestSceneMetadata",
+      "type": "object"
+    },
+    "IngestScenePlan": {
+      "additionalProperties": false,
+      "properties": {
+        "mode": {
+          "enum": ["single", "per_subdirectory", "auto"],
+          "title": "Mode",
+          "type": "string"
+        },
+        "dry_run": {
+          "title": "Dry Run",
+          "type": "boolean"
+        },
+        "scenes": {
+          "items": {
+            "$ref": "#/$defs/IngestPlannedScene"
+          },
+          "maxItems": 100,
+          "title": "Scenes",
+          "type": "array"
+        },
+        "assignments": {
+          "items": {
+            "$ref": "#/$defs/IngestFrameAssignment"
+          },
+          "title": "Assignments",
+          "type": "array"
+        },
+        "created_scenes": {
+          "maximum": 2147483647,
+          "minimum": 0,
+          "title": "Created Scenes",
+          "type": "integer"
+        },
+        "assigned_items": {
+          "maximum": 2147483647,
+          "minimum": 0,
+          "title": "Assigned Items",
+          "type": "integer"
+        },
+        "skipped_items": {
+          "maximum": 2147483647,
+          "minimum": 0,
+          "title": "Skipped Items",
+          "type": "integer"
+        },
+        "notes": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 1024,
+          "title": "Notes",
+          "type": "array"
+        }
+      },
+      "required": [
+        "mode",
+        "dry_run",
+        "scenes",
+        "assignments",
+        "created_scenes",
+        "assigned_items",
+        "skipped_items",
+        "notes"
+      ],
+      "title": "IngestScenePlan",
+      "type": "object"
+    },
+    "IngestSourceEntry": {
+      "additionalProperties": false,
+      "properties": {
+        "source_name": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "title": "Source Name",
+          "type": "string"
+        },
+        "relpath": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "title": "Relpath",
+          "type": "string"
+        },
+        "source_key": {
+          "anyOf": [
+            {
+              "maxLength": 4096,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Source Key"
+        },
+        "file_type": {
+          "enum": ["image", "video", "point_cloud", "other"],
+          "title": "File Type",
+          "type": "string"
+        },
+        "content_type": {
+          "maxLength": 255,
+          "title": "Content Type",
+          "type": "string"
+        },
+        "file_size": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "File Size",
+          "type": "integer"
+        },
+        "content_hash": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{32}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Content Hash"
+        },
+        "width": {
+          "anyOf": [
+            {
+              "maximum": 2147483647,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Width"
+        },
+        "height": {
+          "anyOf": [
+            {
+              "maximum": 2147483647,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Height"
+        },
+        "error_code": {
+          "anyOf": [
+            {
+              "enum": [
+                "invalid_source_object",
+                "archive_entry_read_failed",
+                "storage_write_failed",
+                "source_changed",
+                "source_missing",
+                "source_read_failed"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Error Code"
+        }
+      },
+      "required": [
+        "source_name",
+        "relpath",
+        "source_key",
+        "file_type",
+        "content_type",
+        "file_size",
+        "content_hash",
+        "width",
+        "height"
+      ],
+      "title": "IngestSourceEntry",
+      "type": "object"
+    },
+    "IngestSuccess": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "ok", "data"],
+      "properties": {
+        "schema": {
+          "const": "aap-dataset-source-ingest/v1"
+        },
+        "ok": {
+          "const": true
+        },
+        "data": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/IngestContext"
+            },
+            {
+              "$ref": "#/$defs/IngestBatchPlan"
+            },
+            {
+              "$ref": "#/$defs/IngestBatchResult"
+            },
+            {
+              "$ref": "#/$defs/IngestLayoutPage"
+            },
+            {
+              "$ref": "#/$defs/IngestReceipt"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "IngestFailure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "ok", "error"],
+      "properties": {
+        "schema": {
+          "const": "aap-dataset-source-ingest/v1"
+        },
+        "ok": {
+          "const": false
+        },
+        "error": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["code"],
+          "properties": {
+            "code": {
+              "enum": [
+                "account_busy",
+                "account_not_active",
+                "archive_invalid",
+                "archive_unsafe",
+                "catalog_manager_required",
+                "dataset_busy",
+                "dataset_missing",
+                "invalid_account_role",
+                "invalid_request",
+                "invalid_response",
+                "lease_lost",
+                "operation_conflict",
+                "operation_missing",
+                "reserved_namespace",
+                "resource_budget_exceeded",
+                "scene_conflict",
+                "service_unavailable",
+                "source_busy",
+                "storage_unavailable",
+                "temporal_scenes_missing"
+              ]
+            },
+            "detail": {
+              "$ref": "#/$defs/IngestFailureDetail"
+            }
+          }
+        }
+      }
+    },
+    "DeliverySuccess": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "ok", "data"],
+      "properties": {
+        "schema": {
+          "const": "aap-dataset-source-ingest-delivery/v1"
+        },
+        "ok": {
+          "const": true
+        },
+        "data": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/IngestDeliveryLease"
+            },
+            {
+              "$ref": "#/$defs/IngestDeliveryAcknowledged"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "DeliveryFailure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "ok", "error"],
+      "properties": {
+        "schema": {
+          "const": "aap-dataset-source-ingest-delivery/v1"
+        },
+        "ok": {
+          "const": false
+        },
+        "error": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["code"],
+          "properties": {
+            "code": {
+              "enum": [
+                "account_busy",
+                "account_not_active",
+                "archive_invalid",
+                "archive_unsafe",
+                "catalog_manager_required",
+                "dataset_busy",
+                "dataset_missing",
+                "invalid_account_role",
+                "invalid_request",
+                "invalid_response",
+                "lease_lost",
+                "operation_conflict",
+                "operation_missing",
+                "reserved_namespace",
+                "resource_budget_exceeded",
+                "scene_conflict",
+                "service_unavailable",
+                "source_busy",
+                "storage_unavailable",
+                "temporal_scenes_missing"
+              ]
+            },
+            "detail": {
+              "$ref": "#/$defs/IngestFailureDetail"
+            }
+          }
+        }
+      }
+    }
+  },
+  "oneOf": [
+    {
+      "$ref": "#/$defs/IngestSuccess"
+    },
+    {
+      "$ref": "#/$defs/IngestFailure"
+    },
+    {
+      "$ref": "#/$defs/DeliverySuccess"
+    },
+    {
+      "$ref": "#/$defs/DeliveryFailure"
+    }
+  ]
+}
