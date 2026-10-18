@@ -114,6 +114,122 @@ def test_import_from_connection_cli_requires_confirmation_and_returns_job(
     )
 
 
+def test_unlink_cli_reuses_saved_key_after_lost_response(
+    client, monkeypatch, respx_mock
+):
+    _patch_cli_clients(monkeypatch, client)
+    idempotency_key = str(uuid4())
+    route = respx_mock.delete(f"{API}/datasets/{DATASET_ID}/link/{PROJECT_ID}").mock(
+        side_effect=[
+            httpx.ReadTimeout("response lost after the server accepted the request"),
+            httpx.Response(
+                200,
+                json={
+                    "deleted_tasks": 1,
+                    "deleted_annotations": 0,
+                    "deleted_batches": 0,
+                    "deleted_batch_ids": [],
+                    "soft": False,
+                },
+            ),
+        ]
+    )
+    args = [
+        "unlink",
+        DATASET_ID,
+        PROJECT_ID,
+        "--json",
+        "--yes",
+        "--idempotency-key",
+        idempotency_key,
+    ]
+
+    first = runner.invoke(datasets_app, args, env=ENV)
+    assert first.exit_code == 1, first.output
+    second = runner.invoke(datasets_app, args, env=ENV)
+    assert second.exit_code == 0, second.output
+    assert json.loads(second.stdout)["deleted_tasks"] == 1
+    assert [call.request.headers["Idempotency-Key"] for call in route.calls] == [
+        idempotency_key,
+        idempotency_key,
+    ]
+
+
+def test_unlink_cli_confirmation_passes_idempotency_key(
+    client, monkeypatch, respx_mock
+):
+    _patch_cli_clients(monkeypatch, client)
+    idempotency_key = str(uuid4())
+    respx_mock.get(
+        f"{API}/datasets/{DATASET_ID}/link/{PROJECT_ID}/preview-unlink"
+    ).respond(
+        200,
+        json={
+            "will_delete_tasks": 3,
+            "will_delete_annotations": 2,
+            "will_delete_batches": 0,
+        },
+    )
+    route = respx_mock.delete(f"{API}/datasets/{DATASET_ID}/link/{PROJECT_ID}").respond(
+        200,
+        json={
+            "deleted_tasks": 3,
+            "deleted_annotations": 2,
+            "deleted_batches": 0,
+            "deleted_batch_ids": [],
+            "soft": False,
+        },
+    )
+
+    result = runner.invoke(
+        datasets_app,
+        [
+            "unlink",
+            DATASET_ID,
+            PROJECT_ID,
+            "--idempotency-key",
+            idempotency_key,
+        ],
+        input="y\n",
+        env=ENV,
+    )
+
+    assert result.exit_code == 0, result.output
+    assert route.called
+    assert route.calls.last.request.headers["Idempotency-Key"] == idempotency_key
+
+
+def test_unlink_cli_rejects_invalid_key_before_requests(
+    client, monkeypatch, respx_mock
+):
+    _patch_cli_clients(monkeypatch, client)
+    preview = respx_mock.get(
+        f"{API}/datasets/{DATASET_ID}/link/{PROJECT_ID}/preview-unlink"
+    ).respond(200, json={})
+    unlink = respx_mock.delete(
+        f"{API}/datasets/{DATASET_ID}/link/{PROJECT_ID}"
+    ).respond(200, json={})
+
+    result = runner.invoke(
+        datasets_app,
+        [
+            "unlink",
+            DATASET_ID,
+            PROJECT_ID,
+            "--json",
+            "--yes",
+            "--idempotency-key",
+            "not-a-uuid",
+        ],
+        env=ENV,
+    )
+
+    assert result.exit_code != 0
+    assert "UUID" in result.output
+    assert not preview.called
+    assert not unlink.called
+
+
 def test_guide_asset_put_cli_requires_confirmation_and_does_not_complete(
     client, monkeypatch, respx_mock, tmp_path
 ):

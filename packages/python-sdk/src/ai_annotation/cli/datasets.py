@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from uuid import UUID
 
 import typer
 from rich.progress import BarColumn, Progress, TaskProgressColumn, TextColumn
@@ -213,10 +214,20 @@ def preview_unlink(
 def unlink(
     dataset_id: str = typer.Argument(..., help="数据集 ID"),
     project_id: str = typer.Argument(..., help="项目 ID"),
+    idempotency_key: str | None = typer.Option(
+        None,
+        "--idempotency-key",
+        help="稳定 UUID；响应不确定时重试请复用原值",
+    ),
     yes: bool = typer.Option(False, "--yes", "-y", help="跳过确认"),
     json_output: bool = typer.Option(False, "--json", help="输出裸 JSON"),
 ) -> None:
     """取消数据集与项目的关联。"""
+    if idempotency_key is not None:
+        try:
+            idempotency_key = str(UUID(idempotency_key))
+        except ValueError as exc:
+            raise typer.BadParameter("--idempotency-key 必须是 UUID") from exc
     if json_output:
         confirm_destructive("确认取消关联?", yes, json_output)
     with cli_errors(json_output):
@@ -230,7 +241,9 @@ def unlink(
                     f"batches={preview.will_delete_batches}"
                 )
                 confirm_destructive("确认取消关联?", yes, json_output)
-            result = client.datasets.unlink_project(dataset_id, project_id)
+            result = client.datasets.unlink_project(
+                dataset_id, project_id, idempotency_key=idempotency_key
+            )
     if json_output:
         print_json(result.model_dump(mode="json"))
     else:
