@@ -208,6 +208,7 @@ TEST_FILES = (
     "tests/test_assets_media_native.py",
     "tests/test_assets_media_control_native.py",
     "tests/test_assets_media_peer.py",
+    "tests/test_assets_media_live.py",
     "tests/test_assets_spatial_gateway.py",
     "tests/test_assets_spatial_runtime.py",
     "tests/test_assets_catalog_runtime.py",
@@ -431,6 +432,77 @@ def _create_catalog_storage_scope(scope: dict) -> None:
         scope,
         ["admin", "policy", "create", "scoped", scope["policy"], "/dev/stdin"],
         payload=json.dumps(policy),
+    )
+    scope["policy_created"] = True
+    _cleanup_mc(
+        scope,
+        [
+            "admin",
+            "policy",
+            "attach",
+            "scoped",
+            scope["policy"],
+            "--user",
+            scope["access_key"],
+        ],
+    )
+
+
+def _create_media_storage_scope(scope: dict, *, worker: bool) -> None:
+    _cleanup_mc(
+        scope,
+        ["admin", "user", "add", "scoped", scope["access_key"], scope["secret_key"]],
+    )
+    scope["user_created"] = True
+    cache_objects = f"arn:aws:s3:::{scope['bucket']}/media-assets/*"
+    statements = [
+        {
+            "Effect": "Allow",
+            "Action": ["s3:GetObject"],
+            "Resource": [f"arn:aws:s3:::{scope['datasets_bucket']}/*"],
+        }
+    ]
+    if worker:
+        statements.extend(
+            [
+                {
+                    "Effect": "Allow",
+                    "Action": ["s3:ListBucket"],
+                    "Resource": [f"arn:aws:s3:::{scope['bucket']}"],
+                    "Condition": {"StringLike": {"s3:prefix": ["media-assets/*"]}},
+                },
+                {
+                    "Effect": "Allow",
+                    "Action": ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"],
+                    "Resource": [cache_objects],
+                },
+                {
+                    "Effect": "Allow",
+                    "Action": ["s3:DeleteObject"],
+                    "Resource": [
+                        f"arn:aws:s3:::{scope['bucket']}/videos/*/frames/*",
+                        f"arn:aws:s3:::{scope['bucket']}/videos/*/chunks/*",
+                    ],
+                },
+            ]
+        )
+    else:
+        statements.append(
+            {
+                "Effect": "Allow",
+                "Action": ["s3:GetObject"],
+                "Resource": [
+                    cache_objects,
+                    f"arn:aws:s3:::{scope['bucket']}/videos/*/frames/*",
+                    f"arn:aws:s3:::{scope['bucket']}/videos/*/chunks/*",
+                    f"arn:aws:s3:::{scope['bucket']}/playback/*.mp4",
+                ],
+            }
+        )
+    _cleanup_mc(
+        scope,
+        ["admin", "policy", "create", "scoped", scope["policy"], "/dev/stdin"],
+        payload=json.dumps({"Version": "2012-10-17", "Statement": statements}),
     )
     scope["policy_created"] = True
     _cleanup_mc(
@@ -1065,6 +1137,8 @@ def main(argv: list[str] | None = None) -> int:
             "source_storage_identity_removed": False,
             "import_storage_identity_removed": False,
             "import_source_storage_identity_removed": False,
+            "media_control_storage_identity_removed": False,
+            "media_worker_storage_identity_removed": False,
             "local_resources_destroyed": False,
             "postgres_container_removed": False,
             "resource_root_retained": None,
@@ -1082,6 +1156,8 @@ def main(argv: list[str] | None = None) -> int:
     source_storage = None
     import_storage = None
     import_source_storage = None
+    media_control_storage = None
+    media_worker_storage = None
     resource_root = Path(
         tempfile.mkdtemp(prefix="aap-module-data-acceptance-")
     ).resolve()
@@ -1478,7 +1554,24 @@ def main(argv: list[str] | None = None) -> int:
             "MINIO_IMPORT_BUCKET"
         ]
         _create_import_storage_scope(import_source_storage, source=True)
+        media_control_storage = _cleanup_storage_scope(backend)
+        media_control_storage["datasets_bucket"] = resources["buckets"][
+            "MINIO_DATASETS_BUCKET"
+        ]
+        media_control_storage["policy"] = "aap-media-control-" + secrets.token_hex(8)
+        _create_media_storage_scope(media_control_storage, worker=False)
+        media_worker_storage = _cleanup_storage_scope(backend)
+        media_worker_storage["datasets_bucket"] = resources["buckets"][
+            "MINIO_DATASETS_BUCKET"
+        ]
+        media_worker_storage["policy"] = "aap-media-worker-" + secrets.token_hex(8)
+        _create_media_storage_scope(media_worker_storage, worker=True)
         from cryptography.fernet import Fernet
+
+        media_control_access_key = media_control_storage["access_key"]
+        media_control_secret_key = media_control_storage["secret_key"]
+        media_worker_access_key = media_worker_storage["access_key"]
+        media_worker_secret_key = media_worker_storage["secret_key"]
 
         resource_environment.update(
             {
@@ -1523,6 +1616,10 @@ def main(argv: list[str] | None = None) -> int:
                 "AAP_MODULE_DATA_ASSET_CLEANUP_S3_SECRET_KEY": cleanup_storage[
                     "secret_key"
                 ],
+                "AAP_MODULE_DATA_ASSET_MEDIA_CONTROL_S3_ACCESS_KEY": media_control_access_key,
+                "AAP_MODULE_DATA_ASSET_MEDIA_CONTROL_S3_SECRET_KEY": media_control_secret_key,
+                "AAP_MODULE_DATA_ASSET_MEDIA_WORKER_S3_ACCESS_KEY": media_worker_access_key,
+                "AAP_MODULE_DATA_ASSET_MEDIA_WORKER_S3_SECRET_KEY": media_worker_secret_key,
                 "AAP_MODULE_DATA_LEGACY_RUNTIME_URL": URL.create(
                     "postgresql+asyncpg",
                     username="legacy_runtime",
@@ -1564,6 +1661,8 @@ def main(argv: list[str] | None = None) -> int:
         exit_code = 1
     finally:
         for label, scope in (
+            ("media_worker", media_worker_storage),
+            ("media_control", media_control_storage),
             ("import", import_storage),
             ("import_source", import_source_storage),
         ):
