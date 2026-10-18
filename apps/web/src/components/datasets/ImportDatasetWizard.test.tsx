@@ -25,6 +25,14 @@ vi.mock("@/hooks/useDatasets", () => ({
   }),
 }));
 
+vi.mock("@/hooks/useAsyncJob", () => ({
+  useAsyncJob: () => ({ data: undefined, isLoading: false }),
+}));
+
+vi.mock("@/hooks/useAsyncJob", () => ({
+  useAsyncJob: () => ({ data: undefined, isLoading: false }),
+}));
+
 vi.mock("@/hooks/useStorageConnections", () => ({
   useStorageConnections: () => ({
     data: [{ id: "c1", name: "Conn", kind: "s3", scope: "global" }],
@@ -191,6 +199,60 @@ describe("ImportDatasetWizard", () => {
     fireEvent.click(screen.getByRole("button", { name: /下一步/ }));
     const nameInput = screen.getByPlaceholderText(/商品检测训练集/) as HTMLInputElement;
     expect(nameInput.value).toBe("dataset-A");
+  });
+
+  it("连接器提交响应不确定时手动重试复用同一个键", async () => {
+    mockImportFromConnectionMutateAsync
+      .mockRejectedValueOnce(new Error("response lost"))
+      .mockResolvedValueOnce({ job_id: "job-1" });
+    renderUI({ datasetId: "existing-ds" });
+    fireEvent.click(screen.getByRole("button", { name: /连接器导入/ }));
+    fireEvent.change(screen.getByRole("combobox"), { target: { value: "c1" } });
+    fireEvent.change(screen.getByPlaceholderText("batch-a/"), {
+      target: { value: "incoming/images" },
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /开始导入/ }));
+    await waitFor(() => expect(mockImportFromConnectionMutateAsync).toHaveBeenCalledTimes(1));
+    const first = mockImportFromConnectionMutateAsync.mock.calls[0][0];
+    expect(first.idempotencyKey).toMatch(/^[0-9a-f-]{36}$/);
+    expect(first.payload).toEqual({
+      connection_id: "c1",
+      source_path: "incoming/images",
+      recursive: true,
+      include_globs: [],
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /重试提交/ }));
+    await waitFor(() => expect(mockImportFromConnectionMutateAsync).toHaveBeenCalledTimes(2));
+    expect(mockImportFromConnectionMutateAsync.mock.calls[1][0]).toEqual(first);
+  });
+
+  it("连接器提交响应不确定时手动重试复用同一个键", async () => {
+    mockImportFromConnectionMutateAsync
+      .mockRejectedValueOnce(new Error("response lost"))
+      .mockResolvedValueOnce({ job_id: "job-1" });
+    renderUI({ datasetId: "existing-ds" });
+    fireEvent.click(screen.getByRole("button", { name: /连接器导入/ }));
+    fireEvent.change(screen.getByRole("combobox"), { target: { value: "c1" } });
+    fireEvent.change(screen.getByPlaceholderText("batch-a/"), {
+      target: { value: "incoming/images" },
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /开始导入/ }));
+    await waitFor(() => expect(mockImportFromConnectionMutateAsync).toHaveBeenCalledTimes(1));
+    const first = mockImportFromConnectionMutateAsync.mock.calls[0][0];
+    expect(first.idempotencyKey).toMatch(/^[0-9a-f-]{36}$/);
+    expect(first.payload).toEqual({
+      connection_id: "c1",
+      source_path: "incoming/images",
+      recursive: true,
+      include_globs: [],
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /重试提交/ }));
+    await waitFor(() => expect(mockImportFromConnectionMutateAsync).toHaveBeenCalledTimes(2));
+    expect(mockImportFromConnectionMutateAsync.mock.calls[1][0]).toEqual(first);
   });
 
   it("完整新建流程: 选文件 → 下一步 → 填名 → 开始上传 → 触发 createDataset", async () => {

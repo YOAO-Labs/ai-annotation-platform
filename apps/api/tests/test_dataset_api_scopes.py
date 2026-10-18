@@ -223,9 +223,14 @@ async def test_read_scope_rejects_every_dataset_mutation_without_work(
         record_storage_call("read_image_dimensions"),
     )
 
-    from app.workers import dataset_import, media
+    from app.services.assets_import import DatasetImportCapabilities
+    from app.workers import media
 
     queued: list[str] = []
+    import_calls: list[str] = []
+
+    async def record_import_call(self, *_args, **_kwargs):
+        import_calls.append("called")
 
     def record_queue_call(name):
         def called(*args, **kwargs):
@@ -235,11 +240,10 @@ async def test_read_scope_rejects_every_dataset_mutation_without_work(
         return called
 
     monkeypatch.setattr(
-        dataset_import.run_dataset_import, "delay", record_queue_call("import")
-    )
-    monkeypatch.setattr(
         media.backfill_media, "delay", record_queue_call("media-backfill")
     )
+    monkeypatch.setattr(DatasetImportCapabilities, "prepare", record_import_call)
+    monkeypatch.setattr(DatasetImportCapabilities, "accept", record_import_call)
 
     async def unexpected_scan(self, dataset_id):
         if False:
@@ -308,6 +312,7 @@ async def test_read_scope_rejects_every_dataset_mutation_without_work(
         name: list(getattr(media_dispatcher, name)) for name in dispatch_before
     } == dispatch_before
     assert storage_calls == []
+    assert import_calls == []
     assert queued == []
 
 

@@ -75,6 +75,66 @@ def test_update_dataset_preserves_explicit_none(client, respx_mock):
     assert isinstance(dataset, Dataset)
 
 
+def test_dataset_import_reuses_saved_key_after_lost_response(client, respx_mock):
+    key = str(uuid4())
+    connection_id = str(uuid4())
+    job_id = str(uuid4())
+    route = respx_mock.post(f"{API}/datasets/{DS_ID}/import-from-connection").mock(
+        side_effect=[
+            httpx.ReadTimeout("response lost after the server accepted the job"),
+            httpx.Response(202, json={"job_id": job_id}),
+        ]
+    )
+    request = DatasetImportFromConnectionRequest(
+        connection_id=connection_id,
+        source_path="incoming/images",
+        recursive=False,
+        include_globs=["*.jpg"],
+    )
+
+    def call():
+        return client.datasets.import_from_connection(
+            DS_ID, request, idempotency_key=key
+        )
+
+    with pytest.raises(httpx.ReadTimeout):
+        call()
+    assert str(call().job_id) == job_id
+    assert [call.request.headers["Idempotency-Key"] for call in route.calls] == [
+        key,
+        key,
+    ]
+    assert [json.loads(req.request.content) for req in route.calls] == [
+        {
+            "connection_id": connection_id,
+            "source_path": "incoming/images",
+            "recursive": False,
+            "include_globs": ["*.jpg"],
+        },
+        {
+            "connection_id": connection_id,
+            "source_path": "incoming/images",
+            "recursive": False,
+            "include_globs": ["*.jpg"],
+        },
+    ]
+
+
+def test_dataset_import_rejects_invalid_key_before_request(client, respx_mock):
+    route = respx_mock.post(f"{API}/datasets/{DS_ID}/import-from-connection").mock(
+        return_value=httpx.Response(202, json={"job_id": str(uuid4())})
+    )
+
+    with pytest.raises(ValueError, match="idempotency_key must be a UUID"):
+        client.datasets.import_from_connection(
+            DS_ID,
+            DatasetImportFromConnectionRequest(connection_id=uuid4()),
+            idempotency_key="invalid",
+        )
+
+    assert not route.called
+
+
 @pytest.mark.parametrize("operation", ["create", "update"])
 def test_dataset_create_update_reuses_saved_key_after_lost_response(
     client, respx_mock, operation

@@ -14,9 +14,12 @@
 
 from __future__ import annotations
 
-import json
-
-from cryptography.fernet import Fernet, InvalidToken
+from aap_assets_source.connectors.crypto import (
+    ConnectorCryptoError as PortableConnectorCryptoError,
+    ConnectorCryptoNotConfigured as PortableConnectorCryptoNotConfigured,
+    decrypt_secret as _decrypt_secret,
+    encrypt_secret as _encrypt_secret,
+)
 
 from app.config import settings
 
@@ -29,30 +32,32 @@ class ConnectorCryptoError(RuntimeError):
     """密文损坏 / key 不匹配，无法解密。"""
 
 
-def _fernet() -> Fernet:
+def _key() -> str:
     key = settings.connector_encryption_key
     if not key:
         raise ConnectorCryptoNotConfigured(
             "CONNECTOR_ENCRYPTION_KEY 未配置，无法加解密连接器凭据"
         )
-    try:
-        return Fernet(key.encode() if isinstance(key, str) else key)
-    except (ValueError, TypeError) as e:
-        raise ConnectorCryptoNotConfigured(
-            f"CONNECTOR_ENCRYPTION_KEY 非法（需 Fernet key）: {e}"
-        ) from e
+    return key
 
 
 def encrypt_secret(secret: dict) -> bytes:
     """把密钥 dict（如 {access_key, secret_key} / {password}）加密为密文字节。"""
-    plaintext = json.dumps(secret, separators=(",", ":"), sort_keys=True).encode()
-    return _fernet().encrypt(plaintext)
+    try:
+        return _encrypt_secret(secret, _key())
+    except PortableConnectorCryptoNotConfigured as exc:
+        raise ConnectorCryptoNotConfigured(str(exc)) from exc
+    except PortableConnectorCryptoError as exc:
+        raise ConnectorCryptoError(str(exc)) from exc
 
 
 def decrypt_secret(token: bytes) -> dict:
     """解密回密钥 dict。密文损坏 / key 不匹配抛 ConnectorCryptoError。"""
     try:
-        plaintext = _fernet().decrypt(token)
-    except InvalidToken as e:
-        raise ConnectorCryptoError("连接器凭据解密失败（密文损坏或密钥不匹配）") from e
-    return json.loads(plaintext)
+        return _decrypt_secret(token, _key())
+    except PortableConnectorCryptoNotConfigured as exc:
+        raise ConnectorCryptoNotConfigured(str(exc)) from exc
+    except PortableConnectorCryptoError as exc:
+        raise ConnectorCryptoError(
+            "连接器凭据解密失败（密文损坏或密钥不匹配）"
+        ) from exc

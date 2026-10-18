@@ -494,12 +494,24 @@ def import_from_connection(
         ..., "--body", help="UTF-8 JSON 导入请求文件，使用 - 从 stdin 读取"
     ),
     yes: bool = typer.Option(False, "--yes", "-y", help="确认排队导入任务"),
+    idempotency_key: str | None = typer.Option(
+        None,
+        "--idempotency-key",
+        help="稳定 UUID；响应不确定时重试请复用原值",
+    ),
     json_output: bool = typer.Option(False, "--json", help="输出裸 JSON"),
 ) -> None:
     """从已授权存储连接器排队导入，返回 job_id。"""
+    if idempotency_key is not None:
+        try:
+            idempotency_key = str(UUID(idempotency_key))
+        except ValueError as exc:
+            raise typer.BadParameter("--idempotency-key 必须是 UUID") from exc
     with cli_errors(json_output):
         body = read_json_body(body_path, DatasetImportFromConnectionRequest)
         confirm_destructive("确认排队外部存储导入?", yes, json_output)
         with get_client(json_output) as client:
-            result = client.datasets.import_from_connection(dataset_id, body)
+            result = client.datasets.import_from_connection(
+                dataset_id, body, idempotency_key=idempotency_key
+            )
     print_learning_result(result, json_output)

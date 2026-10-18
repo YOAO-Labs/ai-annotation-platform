@@ -74,6 +74,7 @@ def test_import_from_connection_cli_requires_confirmation_and_returns_job(
 ):
     _patch_cli_clients(monkeypatch, client)
     job_id = str(uuid4())
+    idempotency_key = str(uuid4())
     route = respx_mock.post(f"{API}/datasets/{DATASET_ID}/import-from-connection").mock(
         return_value=httpx.Response(202, json={"job_id": job_id})
     )
@@ -104,6 +105,8 @@ def test_import_from_connection_cli_requires_confirmation_and_returns_job(
             "-",
             "--json",
             "--yes",
+            "--idempotency-key",
+            idempotency_key,
         ],
         input=body,
         env=ENV,
@@ -113,6 +116,71 @@ def test_import_from_connection_cli_requires_confirmation_and_returns_job(
     assert (
         json.loads(route.calls.last.request.content)["source_path"] == "incoming/images"
     )
+    assert route.calls.last.request.headers["Idempotency-Key"] == idempotency_key
+
+
+def test_import_from_connection_cli_reuses_saved_key_after_lost_response(
+    client, monkeypatch, respx_mock
+):
+    _patch_cli_clients(monkeypatch, client)
+    idempotency_key = str(uuid4())
+    job_id = str(uuid4())
+    route = respx_mock.post(f"{API}/datasets/{DATASET_ID}/import-from-connection").mock(
+        side_effect=[
+            httpx.ReadTimeout("response lost after the server accepted the job"),
+            httpx.Response(202, json={"job_id": job_id}),
+        ]
+    )
+    body = json.dumps({"connection_id": str(uuid4()), "source_path": "incoming"})
+    args = [
+        "import-from-connection",
+        DATASET_ID,
+        "--body",
+        "-",
+        "--json",
+        "--yes",
+        "--idempotency-key",
+        idempotency_key,
+    ]
+
+    first = runner.invoke(datasets_app, args, input=body, env=ENV)
+    second = runner.invoke(datasets_app, args, input=body, env=ENV)
+
+    assert first.exit_code == 1
+    assert second.exit_code == 0, second.output
+    assert json.loads(second.stdout) == {"job_id": job_id}
+    assert [call.request.headers["Idempotency-Key"] for call in route.calls] == [
+        idempotency_key,
+        idempotency_key,
+    ]
+
+
+def test_import_from_connection_cli_rejects_invalid_key_before_request(
+    client, monkeypatch, respx_mock
+):
+    _patch_cli_clients(monkeypatch, client)
+    route = respx_mock.post(f"{API}/datasets/{DATASET_ID}/import-from-connection").mock(
+        return_value=httpx.Response(202, json={"job_id": str(uuid4())})
+    )
+
+    result = runner.invoke(
+        datasets_app,
+        [
+            "import-from-connection",
+            DATASET_ID,
+            "--body",
+            "-",
+            "--json",
+            "--yes",
+            "--idempotency-key",
+            "invalid",
+        ],
+        input=json.dumps({"connection_id": str(uuid4())}),
+        env=ENV,
+    )
+
+    assert result.exit_code != 0
+    assert not route.called
 
 
 @pytest.mark.parametrize("operation", ["create", "update"])

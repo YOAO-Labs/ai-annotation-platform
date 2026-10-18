@@ -15,6 +15,7 @@ import {
   type StorageConnectionFormValues,
 } from "@/components/connections/StorageConnectionsPanel";
 import { datasetsApi } from "@/api/datasets";
+import { ApiError } from "@/api/client";
 import { AxisConventionPicker } from "@/components/datasets/AxisConventionPicker";
 import { putWithProgress, runUploadQueue, type QueueItem } from "@/utils/uploadQueue";
 import type { DatasetResponse } from "@/api/datasets";
@@ -101,11 +102,13 @@ export function ImportDatasetWizard({ open, onClose, datasetId, datasetName, onU
   const [includeGlobs, setIncludeGlobs] = useState("");
   const [connectionJobId, setConnectionJobId] = useState<string | null>(null);
   const [connectionImportError, setConnectionImportError] = useState<string | null>(null);
+  const [connectionImportRetryable, setConnectionImportRetryable] = useState(false);
   const [created, setCreated] = useState<DatasetResponse | null>(null);
   const [items, setItems] = useState<Map<string, QueueItem>>(new Map());
   const [running, setRunning] = useState(false);
   const tickRef = useRef(0);
   const createAttemptRef = useRef<{ request: string; key: string } | null>(null);
+  const connectionImportAttemptRef = useRef<{ request: string; key: string } | null>(null);
   const [, force] = useState(0);
 
   useEffect(() => {
@@ -130,10 +133,12 @@ export function ImportDatasetWizard({ open, onClose, datasetId, datasetName, onU
       setIncludeGlobs("");
       setConnectionJobId(null);
       setConnectionImportError(null);
+      setConnectionImportRetryable(false);
       setCreated(null);
       setItems(new Map());
       setRunning(false);
       createAttemptRef.current = null;
+      connectionImportAttemptRef.current = null;
       createDataset.reset();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -316,21 +321,38 @@ export function ImportDatasetWizard({ open, onClose, datasetId, datasetName, onU
       .split(",")
       .map((pattern) => pattern.trim())
       .filter(Boolean);
+    const importPayload = {
+      connection_id: connectionId,
+      source_path: sourcePath.trim(),
+      recursive,
+      include_globs: globs,
+    };
+    const fingerprint = JSON.stringify({ datasetId: dsId, payload: importPayload });
+    let attempt = connectionImportAttemptRef.current;
+    if (!attempt || attempt.request !== fingerprint) {
+      attempt = {
+        request: fingerprint,
+        key: crypto.randomUUID(),
+      };
+      connectionImportAttemptRef.current = attempt;
+    }
+    const idempotencyKey = attempt.key;
 
     try {
       const res = await importFromConnection.mutateAsync({
         datasetId: dsId,
-        payload: {
-          connection_id: connectionId,
-          source_path: sourcePath.trim(),
-          recursive,
-          include_globs: globs,
-        },
+        payload: importPayload,
+        idempotencyKey,
       });
       setConnectionJobId(res.job_id);
+      setConnectionImportRetryable(false);
+      connectionImportAttemptRef.current = null;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       setConnectionImportError(msg);
+      setConnectionImportRetryable(
+        !(err instanceof ApiError) || err.status >= 500 || err.status === 409,
+      );
       setRunning(false);
       pushToast({ msg: "连接器导入提交失败", sub: msg, kind: "error" });
     }
@@ -443,7 +465,9 @@ export function ImportDatasetWizard({ open, onClose, datasetId, datasetName, onU
           <Step3Connection
             jobId={connectionJobId}
             submitError={connectionImportError}
+            retryable={connectionImportRetryable}
             running={running}
+            onRetry={startConnectionImport}
             onSettled={(job) => {
               setRunning(false);
               const added = connectionImportAdded(job);
@@ -1173,14 +1197,18 @@ function Step3Zip({
 function Step3Connection({
   jobId,
   submitError,
+  retryable,
   running,
+  onRetry,
   onSettled,
   onClose,
   onView,
 }: {
   jobId: string | null;
   submitError: string | null;
+  retryable: boolean;
   running: boolean;
+  onRetry: () => void;
   onSettled: (job: AsyncJob) => void;
   onClose: () => void;
   onView: () => void;
@@ -1280,6 +1308,11 @@ function Step3Connection({
       {submitError && <div className={styles.zipError}>{submitError}</div>}
 
       <div className={styles.actions}>
+        {submitError && retryable && (
+          <Button variant="primary" onClick={onRetry} disabled={running}>
+            重试提交
+          </Button>
+        )}
         <Button onClick={onClose}>关闭</Button>
         <Button variant="primary" onClick={onView} disabled={busy}>
           查看数据集

@@ -22,6 +22,13 @@ from aap_assets_source.contract import (
     UploadCompleteRequest,
     UploadInitRequest,
 )
+from aap_assets_source.import_contract import ImportLimits
+from aap_assets_source.connectors.base import SourcePathError
+from aap_assets_source.connectors.host_guard import ConnectorHostDenied
+from aap_assets_source.connectors.registry import (
+    target_host as connector_target_host,
+    validate_source_path as validate_connector_source_path,
+)
 from aap_assets_catalog import (
     CreateDatasetRequest,
     DatasetPatch,
@@ -70,6 +77,7 @@ from app.application.dataset_deletion import (
     preview_dataset_unlink,
 )
 from app.services.assets_source import AssetsSourceGateway
+from app.services.assets_import import DatasetImportCapabilities
 from app.services.media_job_dispatch import MediaJobDispatcher
 from app.services.mask_formats.safe_archive import (
     ArchiveLimits,
@@ -333,45 +341,46 @@ async def list_dataset_items(
     response_model=DatasetImportFromConnectionResponse,
     status_code=202,
     dependencies=[Depends(require_scopes("datasets:write"))],
+    responses={
+        202: {
+            "headers": {
+                "Idempotency-Key": {
+                    "description": "Reuse this UUID to replay the accepted import.",
+                    "schema": {"type": "string", "format": "uuid"},
+                }
+            }
+        }
+    },
 )
 async def import_from_connection(
     dataset_id: uuid.UUID,
     payload: DatasetImportFromConnectionRequest,
     request: Request,
+    response: Response,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles(*_MANAGERS)),
+    idempotency_key: uuid.UUID | None = Header(default=None, alias="Idempotency-Key"),
 ):
-    from app.db.models.async_job import AsyncJobKind
-    from app.services import async_job as async_job_svc
     from app.services import connector_guard
-    from app.services.sources import SourcePathError, validate_source_path
-    from app.services.storage_connection import (
-        ConnectorAccessDenied,
-        StorageConnectionService,
-        assert_connection_usable,
-        target_host,
+
+    capabilities = DatasetImportCapabilities(db)
+    context = await capabilities.prepare(
+        actor_id=current_user.id,
+        dataset_id=dataset_id,
+        connection_id=payload.connection_id,
     )
-    from app.workers.dataset_import import run_dataset_import
-
-    svc = DatasetService(db)
-    ds = await svc.get(dataset_id)
-    if not ds:
-        raise HTTPException(status_code=404, detail="Dataset not found")
-
-    conn = await StorageConnectionService.get(db, payload.connection_id)
-    if conn is None:
-        raise HTTPException(status_code=404, detail="连接器不存在")
     try:
-        assert_connection_usable(current_user, conn)
-    except ConnectorAccessDenied:
-        raise HTTPException(status_code=404, detail="连接器不存在")
-    try:
-        await connector_guard.assert_connection_target_allowed(db, target_host(conn))
-        validate_source_path(conn, payload.source_path)
-    except connector_guard.ConnectorHostDenied as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        await connector_guard.assert_connection_target_allowed(
+            db,
+            connector_target_host(context.connection_kind, context.connection_config),
+        )
+        validate_connector_source_path(
+            context.connection_kind, context.connection_config, payload.source_path
+        )
+    except ConnectorHostDenied as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
     except SourcePathError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e)) from e
 
     clean_globs = [
         pattern.strip()
@@ -382,49 +391,24 @@ async def import_from_connection(
     # worker must never re-read global settings while enumerating files: queued
     # jobs retain the limits accepted here even after an admin changes them.
     import_limits = await SystemSettingsService.get_import_limits_snapshot(db)
-    # JSON-only job scopes must share the source-deletion parent fence.
-    if await svc.lock_dataset_reference(dataset_id) is None:
-        raise HTTPException(status_code=404, detail="Dataset not found")
-    job = await async_job_svc.create_job(
-        db,
-        kind=AsyncJobKind.DATASET_IMPORT.value,
-        user_id=current_user.id,
-        payload={
-            "dataset_id": str(dataset_id),
-            "dataset_display_id": ds.display_id,
-            "dataset_name": ds.name,
-            "connection_id": str(conn.id),
-            "connection_name": conn.name,
-            "connection_kind": conn.kind,
+    limits = ImportLimits.model_validate(import_limits, strict=True)
+    operation_id = idempotency_key or uuid.uuid4()
+    accepted = await capabilities.accept(
+        operation_id=operation_id,
+        actor_id=current_user.id,
+        dataset_id=dataset_id,
+        connection_id=payload.connection_id,
+        request={
             "source_path": payload.source_path,
             "recursive": payload.recursive,
             "include_globs": clean_globs,
-            "settings_snapshot": import_limits,
         },
-    )
-    await AuditService.log(
-        db,
-        actor=current_user,
-        action=AuditAction.DATASET_IMPORT,
-        target_type="dataset",
-        target_id=str(dataset_id),
-        request=request,
-        status_code=202,
-        detail={
-            "connection_id": str(conn.id),
-            "connection_kind": conn.kind,
-            "source_path": payload.source_path,
-            "recursive": payload.recursive,
-            "include_globs": clean_globs,
-            "settings_version": import_limits["version"],
-        },
+        limits=limits,
+        audit_context=_deletion_audit_context(request).model_dump(mode="json"),
     )
     await db.commit()
-
-    task = run_dataset_import.delay(str(job.id))
-    async_job_svc.bind_execution_id(job, task.id)
-    await db.commit()
-    return DatasetImportFromConnectionResponse(job_id=job.id)
+    response.headers["Idempotency-Key"] = str(operation_id)
+    return DatasetImportFromConnectionResponse(job_id=accepted.job_id)
 
 
 @router.post(

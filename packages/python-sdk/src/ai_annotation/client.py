@@ -517,11 +517,19 @@ class Datasets:
         self,
         dataset_id: IdLike,
         request: DatasetImportFromConnectionRequest,
+        *,
+        idempotency_key: IdLike | None = None,
     ) -> DatasetImportFromConnectionResult:
+        """Queue a connector import; pass a saved UUID to replay after a lost response."""
         response = self._http.request(
             "POST",
             f"/datasets/{dataset_id}/import-from-connection",
             json=request.model_dump(mode="json", by_alias=True, exclude_none=True),
+            headers=(
+                _dataset_idempotency_header(idempotency_key)
+                if idempotency_key is not None
+                else None
+            ),
         )
         return DatasetImportFromConnectionResult.model_validate(response.json())
 

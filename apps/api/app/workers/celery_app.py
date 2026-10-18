@@ -41,8 +41,6 @@ celery_app = Celery(
         "app.workers.learning_policy",
         "app.workers.training_study",
         "app.workers.export_cleanup",
-        # v0.11.15 · 外部连接器数据集导入
-        "app.workers.dataset_import",
         # v0.12.0 · B4 建任务异步化（大 dataset link → Celery 建 task）
         "app.workers.create_tasks",
         "app.workers.cross_frame_job",
@@ -120,7 +118,6 @@ celery_app.conf.update(
         "app.workers.export_cleanup.purge_expired_export_artifacts": {
             "queue": "cleanup"
         },
-        "app.workers.dataset_import.run_dataset_import": {"queue": "media"},
         # v0.12.0 · B4 建任务异步化走 default 队列
         "app.workers.create_tasks.run_create_tasks": {"queue": "default"},
         "app.workers.cross_frame_job.run_cross_frame_job": {"queue": "default"},

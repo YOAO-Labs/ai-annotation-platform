@@ -70,6 +70,18 @@ class SqlJobCancellation(JobCancellationPort):
             job = await db.get(AsyncJob, job_id)
             if job is None:
                 raise HTTPException(status_code=404, detail="async_job not found")
+            payload = job.payload if isinstance(job.payload, dict) else {}
+            if job.kind == "dataset_import":
+                from app.services.assets_import import (
+                    DATASET_IMPORT_PROTOCOL,
+                    DatasetImportCapabilities,
+                )
+
+                if payload.get("import_protocol") == DATASET_IMPORT_PROTOCOL:
+                    state = await DatasetImportCapabilities(db).cancel(
+                        actor_id=actor_id, job_id=job.id
+                    )
+                    return state.stage
             if not await async_job_access._can_access_job(
                 db, job=job, actor_id=actor_id
             ):

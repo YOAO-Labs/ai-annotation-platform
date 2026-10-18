@@ -15,6 +15,8 @@ from botocore.config import Config as BotoConfig
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from aap_assets_source.connectors.registry import target_host as _connector_target_host
+from aap_assets_source.connectors.sftp import load_sftp_private_key
 from app.core.crypto import decrypt_secret, encrypt_secret
 from app.db.enums import UserRole
 from app.db.models.storage_connection import StorageConnection
@@ -152,9 +154,7 @@ def _validate_secret(kind: str, secret: dict, config: dict | None = None) -> str
 
 def target_host(conn: StorageConnection) -> str:
     """connector_guard 校验用的目标地址（endpoint / host）。"""
-    if conn.kind == "s3":
-        return str(conn.config.get("endpoint", ""))
-    return str(conn.config.get("host", ""))
+    return _connector_target_host(conn.kind, dict(conn.config or {}))
 
 
 def to_out_dict(conn: StorageConnection) -> dict:
@@ -314,8 +314,6 @@ def _test_s3(config: dict, secret: dict) -> int:
 
 def _test_sftp(config: dict, secret: dict) -> int:
     import paramiko
-
-    from app.services.sources.sftp import load_sftp_private_key
 
     client = paramiko.SSHClient()
     # 不用 AutoAddPolicy（静默接受 = MITM 风险）；首版用 RejectPolicy + 系统 known_hosts。

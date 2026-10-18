@@ -11513,6 +11513,7 @@
                 "items": {
                   "type": "string"
                 },
+                "maxItems": 256,
                 "type": "array"
               },
               {
@@ -11528,6 +11529,7 @@
           },
           "source_path": {
             "default": "",
+            "maxLength": 2048,
             "title": "Source Path",
             "type": "string"
           }
@@ -57956,6 +57958,23 @@
               "title": "Dataset Id",
               "type": "string"
             }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
+            }
           }
         ],
         "requestBody": {
@@ -57977,7 +57996,16 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "Successful Response",
+            "headers": {
+              "Idempotency-Key": {
+                "description": "Reuse this UUID to replay the accepted import.",
+                "schema": {
+                  "format": "uuid",
+                  "type": "string"
+                }
+              }
+            }
           },
           "422": {
             "content": {

@@ -123,10 +123,12 @@ export function useImportFromConnection() {
     mutationFn: ({
       datasetId,
       payload,
+      idempotencyKey,
     }: {
       datasetId: string;
       payload: DatasetImportFromConnectionPayload;
-    }) => storageConnectionsApi.importFromConnection(datasetId, payload),
+      idempotencyKey: string;
+    }) => storageConnectionsApi.importFromConnection(datasetId, payload, idempotencyKey),
     onSuccess: (res) => {
       qc.invalidateQueries({ queryKey: ["async-job", res.job_id] });
     },

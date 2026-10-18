@@ -1,9 +1,11 @@
+import unicodedata
+from datetime import datetime
+from typing import Literal
+from uuid import UUID
+
 from pydantic import BaseModel, Field, field_validator
 
 from aap_assets_source.upload_contract import validate_relative_file_name
-from uuid import UUID
-from datetime import datetime
-from typing import Literal
 
 from app.schemas._jsonb_types import DatasetItemMetadata, LidarAxisConvention
 
@@ -111,9 +113,22 @@ class DatasetUploadInitResponse(BaseModel):
 
 class DatasetImportFromConnectionRequest(BaseModel):
     connection_id: UUID
-    source_path: str = ""
+    source_path: str = Field(default="", max_length=2048)
     recursive: bool = True
-    include_globs: list[str] | None = None
+    include_globs: list[str] | None = Field(default=None, max_length=256)
+
+    @field_validator("include_globs")
+    @classmethod
+    def bounded_include_globs(cls, values: list[str] | None) -> list[str] | None:
+        if values is None:
+            return None
+        if any(
+            len(value) > 255
+            or any(unicodedata.category(char) == "Cc" for char in value)
+            for value in values
+        ):
+            raise ValueError("include_globs contains an invalid pattern")
+        return values
 
 
 class DatasetImportFromConnectionResponse(BaseModel):
