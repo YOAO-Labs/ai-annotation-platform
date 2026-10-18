@@ -132,13 +132,24 @@ async def _parse_bounded_zip_form(request: Request):
                 raise _ZipMultipartBodyTooLarge("ZIP multipart request is too large")
             yield chunk
 
+    parser = MultiPartParser(
+        request.headers,
+        bounded_stream(),
+        max_files=1,
+        max_fields=0,
+    )
     try:
-        return await MultiPartParser(
-            request.headers,
-            bounded_stream(),
-            max_files=1,
-            max_fields=0,
-        ).parse()
+        try:
+            return await parser.parse()
+        except BaseException:
+            # Starlette closes these files for MultiPartException only; disconnects
+            # and task cancellation can otherwise leave the partially parsed ZIP open.
+            for file in parser._files_to_close_on_error:
+                try:
+                    file.close()
+                except BaseException:
+                    pass
+            raise
     except _ZipMultipartBodyTooLarge as exc:
         raise _zip_too_large_error() from exc
     except MultiPartException as exc:

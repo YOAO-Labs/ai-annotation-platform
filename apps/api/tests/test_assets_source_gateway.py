@@ -8,7 +8,7 @@ from uuid import UUID
 import httpx
 import pytest
 from fastapi import HTTPException
-from starlette.requests import Request
+from starlette.requests import ClientDisconnect, Request
 from starlette.responses import Response
 
 from aap_assets_source.contract import (
@@ -844,6 +844,69 @@ async def test_zip_route_stops_chunked_body_and_parser_closes_spooled_file(monke
         )
 
     assert raised.value.status_code == 413
+    assert len(receive_calls) == 2
+    assert len(spooled_files) == 1
+    assert spooled_files[0].closed
+    ingest.assert_not_awaited()
+    db.rollback.assert_awaited_once()
+
+
+async def test_zip_route_closes_parser_spool_and_preserves_disconnect(monkeypatch):
+    boundary = b"assets-ingest-test"
+    first_chunk = (
+        b"--" + boundary + b"\r\n"
+        b'Content-Disposition: form-data; name="file"; filename="scene.zip"\r\n'
+        b"Content-Type: application/zip\r\n\r\n"
+        b"partial zip bytes"
+    )
+    receive_calls = []
+
+    async def receive():
+        receive_calls.append(1)
+        if len(receive_calls) == 1:
+            return {"type": "http.request", "body": first_chunk, "more_body": True}
+        return {"type": "http.disconnect"}
+
+    request = Request(
+        {
+            "type": "http",
+            "method": "POST",
+            "path": "/api/v1/datasets/items/upload-zip",
+            "headers": [
+                (b"content-type", b"multipart/form-data; boundary=" + boundary)
+            ],
+        },
+        receive,
+    )
+    real_spooled_file = tempfile.SpooledTemporaryFile
+    spooled_files = []
+
+    def tracked_spooled_file(*args, **kwargs):
+        file = real_spooled_file(*args, **kwargs)
+        spooled_files.append(file)
+        return file
+
+    monkeypatch.setattr(
+        "starlette.formparsers.SpooledTemporaryFile", tracked_spooled_file
+    )
+    ingest = AsyncMock()
+
+    class Gateway:
+        is_remote = False
+        ingest_zip = ingest
+
+    monkeypatch.setattr(dataset_routes, "AssetsSourceGateway", lambda _db: Gateway())
+    db = SimpleNamespace(commit=AsyncMock(), rollback=AsyncMock())
+
+    with pytest.raises(ClientDisconnect):
+        await dataset_routes.upload_zip(
+            DATASET,
+            request,
+            db,
+            SimpleNamespace(id=ACTOR),
+            idempotency_key=OPERATION,
+        )
+
     assert len(receive_calls) == 2
     assert len(spooled_files) == 1
     assert spooled_files[0].closed
