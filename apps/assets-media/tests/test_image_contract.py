@@ -288,6 +288,12 @@ def test_profile_selection_is_scoped_in_generation_summary_and_invalidation():
         profile_version=profile,
     )
     assert invalidation.profile_version == profile
+    assert invalidation.model_dump(mode="json")["profile_version"] == profile
+    thumbnail_invalidation = c.ImageInvalidation(
+        source_snapshot=current.source_snapshot,
+        kind="thumbnail",
+    )
+    assert "profile_version" not in thumbnail_invalidation.model_dump(mode="json")
     with pytest.raises(ValidationError, match="thumbnail invalidation"):
         c.ImageInvalidation(
             source_snapshot=current.source_snapshot,

@@ -18,6 +18,7 @@ from pydantic import (
     StrictInt,
     StrictStr,
     field_validator,
+    model_serializer,
     model_validator,
 )
 
@@ -534,6 +535,13 @@ class ImageInvalidation(Value):
         elif tile_coordinate_present:
             raise ValueError("non-tile invalidation has tile coordinates")
         return self
+
+    @model_serializer(mode="wrap")
+    def omit_unselected_profile(self, handler):
+        result = handler(self)
+        if self.profile_version is None:
+            result.pop("profile_version", None)
+        return result
 
 
 class InvalidateImageMediaRequest(ActorImageSourceRequest):
