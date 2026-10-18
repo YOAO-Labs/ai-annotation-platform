@@ -729,6 +729,45 @@ BEGIN
             'error', pg_catalog.jsonb_build_object('code', 'invalid_response')
         );
     END IF;
+    BEGIN
+        IF v_task.batch_id IS NOT NULL THEN
+            PERFORM batch.id
+            FROM public.task_batches AS batch
+            WHERE batch.id = v_task.batch_id
+            FOR SHARE NOWAIT;
+        END IF;
+        SELECT
+            task.project_id,
+            task.dataset_item_id,
+            task.file_type,
+            task.status AS task_status,
+            task.batch_id,
+            task.assignee_id,
+            task.annotation_contributor_ids,
+            task.review_round_id,
+            task.review_contributor_ids,
+            task.review_submitter_id,
+            batch.annotator_id AS batch_annotator_id
+        INTO v_task
+        FROM public.tasks AS task
+        LEFT JOIN public.task_batches AS batch ON batch.id = task.batch_id
+        WHERE task.id = p_task_id
+          AND task.dataset_item_id = p_dataset_item_id
+          AND task.project_id = (v_access_data ->> 'project_id')::uuid
+          AND task.batch_id IS NOT DISTINCT FROM v_task.batch_id
+        FOR SHARE OF task NOWAIT;
+    EXCEPTION WHEN lock_not_available OR serialization_failure OR deadlock_detected THEN
+        RETURN pg_catalog.jsonb_build_object(
+            'schema', 'aap-labeling-media-task-write/v1', 'ok', false,
+            'error', pg_catalog.jsonb_build_object('code', 'task_busy')
+        );
+    END;
+    IF NOT FOUND OR v_task.file_type IS DISTINCT FROM 'video' THEN
+        RETURN pg_catalog.jsonb_build_object(
+            'schema', 'aap-labeling-media-task-write/v1', 'ok', false,
+            'error', pg_catalog.jsonb_build_object('code', 'task_busy')
+        );
+    END IF;
     v_role := v_access_data ->> 'project_role';
     v_manager := (v_access_data ->> 'is_manager')::boolean;
     v_can_write := v_manager OR v_role = 'annotator'

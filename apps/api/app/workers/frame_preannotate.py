@@ -36,6 +36,7 @@ from typing import cast
 
 import redis
 from fastapi import HTTPException
+from aap_assets_media.contract import MediaFailure
 
 from app.config import settings
 from app.application.preannotation_contract import (
@@ -584,6 +585,21 @@ async def _run_segment(
                     raise
                 except Exception as exc:
                     await db.rollback()
+                    if isinstance(exc, MediaFailure) and exc.code in {
+                        "operation_busy",
+                        "source_busy",
+                        "task_busy",
+                        "account_busy",
+                    }:
+                        raise _FrameWriteDeferred(
+                            {
+                                "frame_indices": frame_indices[index:],
+                                "write_scope": asdict(write_scope),
+                                "pending_write": pending_write,
+                                "stats": stats,
+                                "gpu_arbiter_failures": gpu_arbiter_failures,
+                            }
+                        ) from exc
                     stats["failed"] += 1
                     failure = gpu_arbiter_failure_record(exc)
                     if failure is not None:
@@ -696,7 +712,18 @@ async def _extract_frames_for_video(
     job_id: str | None,
 ) -> dict[int, str]:
     """Phase A asks Assets for each internal frame; Assets owns extraction and cache."""
-    return await _read_frame_urls(db, dataset_item_id, frame_indices, job_id=job_id)
+    try:
+        return await _read_frame_urls(db, dataset_item_id, frame_indices, job_id=job_id)
+    except MediaFailure as exc:
+        if exc.code not in {
+            "operation_busy",
+            "source_busy",
+            "task_busy",
+            "account_busy",
+        }:
+            raise
+        # Warmup is advisory; Phase B retains and retries the unprocessed segment.
+        return {}
 
 
 async def _read_frame_urls(
@@ -725,7 +752,14 @@ async def _read_frame_urls(
                         format=_FRAME_FORMAT,
                     )
                 )
-            except MediaFailure:
+            except MediaFailure as exc:
+                if exc.code in {
+                    "operation_busy",
+                    "source_busy",
+                    "task_busy",
+                    "account_busy",
+                }:
+                    raise
                 continue
             asset = next(
                 (

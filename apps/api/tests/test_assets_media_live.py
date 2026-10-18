@@ -82,7 +82,6 @@ def _runtime_environment(
     ffmpeg_gate: tuple[Path, Path] | None = None,
 ) -> dict[str, str]:
     environment = {
-        "HOME": str(tmp_path),
         "LANG": os.environ.get("LANG", "C.UTF-8"),
         "PATH": os.environ.get("PATH", ""),
         "PYTHONPATH": os.pathsep.join(
@@ -253,6 +252,11 @@ async def _wait_source_ready(
                 "media worker exited during metadata work: " + _process_log(worker_log)
             )
         response = await _post(client, token, "/v1/source-reference", request)
+        if response.status_code == 409 and response.json().get("error", {}).get(
+            "code"
+        ) in {"operation_busy", "source_busy", "task_busy", "account_busy"}:
+            await asyncio.sleep(0.2)
+            continue
         if response.status_code != 200:
             pytest.fail(
                 "source reference failed with "
@@ -270,7 +274,9 @@ async def _wait_source_ready(
         ):
             return last
         await asyncio.sleep(0.2)
-    pytest.fail(f"video metadata/poster/playback did not become ready: {last}")
+    pytest.fail(
+        f"video metadata/poster/playback did not become ready: {last['source']['video_metadata'] if last else None}"
+    )
 
 
 async def _wait_asset_ready(
@@ -290,10 +296,15 @@ async def _wait_asset_ready(
                 "media worker exited during cache work: " + _process_log(worker_log)
             )
         response = await _post(client, token, "/v1/assets-reference", request)
-        if (
-            response.status_code == 503
-            and response.json().get("error", {}).get("code") == "metadata_not_ready"
-        ):
+        if response.status_code in {409, 503} and response.json().get("error", {}).get(
+            "code"
+        ) in {
+            "metadata_not_ready",
+            "operation_busy",
+            "source_busy",
+            "task_busy",
+            "account_busy",
+        }:
             await asyncio.sleep(0.2)
             continue
         if response.status_code != 200:
@@ -311,7 +322,9 @@ async def _wait_asset_ready(
         if asset["status"] == "ready" and asset.get("url"):
             return asset
         await asyncio.sleep(0.2)
-    pytest.fail(f"{kind} asset did not become ready: {last}")
+    pytest.fail(
+        f"{kind} asset did not become ready: {[(row['status'], row.get('error')) for row in last] if last else None}"
+    )
 
 
 async def _job_for_frame(test_engine, item_id, frame_index: int, width: int):
@@ -594,9 +607,9 @@ async def test_real_control_and_worker_runtime_scopes_and_fences(test_engine, tm
             "2",
             "-an",
             "-c:v",
-            "libx264",
-            "-preset",
-            "ultrafast",
+            "mpeg4",
+            "-q:v",
+            "2",
             "-g",
             "5",
             "-keyint_min",
@@ -776,7 +789,7 @@ async def test_real_control_and_worker_runtime_scopes_and_fences(test_engine, tm
                 "/v1/commands/read_video_timetable",
                 {**source_request, "page_size": 100},
             )
-            assert timetable_response.status_code == 200
+            assert timetable_response.status_code == 200, _process_log(control_log)
             timetable = timetable_response.json()["data"]
             assert timetable["complete"] and timetable["total"] >= 10
             assert len(timetable["frames"]) == timetable["total"]
@@ -1130,7 +1143,6 @@ async def test_real_control_and_worker_runtime_scopes_and_fences(test_engine, tm
                     .scalars()
                     .all()
                 )
-            garbage_patterns = [f"%media-assets/{job_id}/%" for job_id in job_ids]
             try:
                 await _delete_objects(
                     owner_s3,
@@ -1139,15 +1151,7 @@ async def test_real_control_and_worker_runtime_scopes_and_fences(test_engine, tm
                 )
             finally:
                 async with test_engine.begin() as owner:
-                    if garbage_patterns:
-                        await owner.execute(
-                            text(
-                                "DELETE FROM public.asset_media_garbage "
-                                "WHERE prefix LIKE ANY(:patterns) "
-                                "OR keys::text LIKE ANY(:patterns)"
-                            ),
-                            {"patterns": garbage_patterns},
-                        )
+                    # Retained ledgers leave with the verifier-owned database.
                     await owner.execute(
                         text(
                             "DELETE FROM public.asset_media_timetable_staging "

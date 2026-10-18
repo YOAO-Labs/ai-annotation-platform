@@ -1684,7 +1684,7 @@ DECLARE
     v_cutoff timestamptz;
     v_total bigint;
     v_page jsonb;
-    v_count bigint;
+    v_count integer;
     v_next uuid;
     v_complete boolean;
     v_digest text;
@@ -1785,7 +1785,7 @@ BEGIN
     )
     INTO v_page
     FROM (
-        SELECT item.*
+        SELECT item AS item, item.id
         FROM public.dataset_items AS item
         WHERE item.file_type = 'video'
           AND item.created_at <= v_cutoff
@@ -1860,7 +1860,7 @@ DECLARE
     v_total bigint;
     v_all jsonb;
     v_frames jsonb;
-    v_count bigint;
+    v_count integer;
     v_next integer;
     v_complete boolean;
     v_digest text;
@@ -2018,7 +2018,7 @@ DECLARE
     v_samples jsonb;
     v_page jsonb;
     v_total bigint;
-    v_count bigint;
+    v_count integer;
     v_next integer;
     v_complete boolean;
     v_digest text;

@@ -368,6 +368,10 @@ GRANT SELECT (task_id, dataset_item_id, role),
     INSERT (id, task_id, dataset_item_id, role, sensor_name)
     ON public.task_dataset_item_links TO :"labeling_owner";
 GRANT SELECT (file_type, assignee_id, reviewer_id) ON public.tasks TO :"labeling_owner";
+GRANT SELECT (
+    display_id, annotation_contributor_ids, review_round_id,
+    review_contributor_ids, review_submitter_id
+) ON public.tasks TO :"labeling_owner";
 GRANT UPDATE (id) ON public.task_dataset_item_links TO :"labeling_owner";
 GRANT USAGE ON SEQUENCE public.display_seq_tasks TO :"labeling_owner";
 GRANT SELECT, INSERT, UPDATE ON public.task_append_operations TO :"labeling_owner";
@@ -476,7 +480,7 @@ GRANT USAGE ON SCHEMA aap_audit_v1
 GRANT EXECUTE ON FUNCTION aap_identity_v1.lock_active_actor(uuid)
     TO :"workspace_owner", :"assets_owner", :"labeling_owner";
 GRANT EXECUTE ON FUNCTION aap_identity_v1.read_actor_facts(uuid)
-    TO :"workspace_owner", :"assets_owner";
+    TO :"workspace_owner", :"assets_owner", :"labeling_owner";
 GRANT EXECUTE ON FUNCTION aap_identity_v1.lock_audit_actor(uuid)
     TO :"audit_owner";
 GRANT EXECUTE ON FUNCTION aap_workspace_v1.lock_project_reference(uuid)

@@ -562,7 +562,8 @@ def test_real_chunk_path_smartcopies_keyframe_aligned_h264(tmp_path):
 
 
 @pytest.mark.parametrize("vfr", [False, True])
-def test_frame_pixels_match_source_ordinals_with_sparse_timing(tmp_path, vfr):
+@pytest.mark.parametrize("format_", ["jpeg", "webp"])
+def test_frame_pixels_match_source_ordinals_with_sparse_timing(tmp_path, vfr, format_):
     from PIL import Image
     from aap_media_probe.probe import probe_video_file, probe_video_frame_timetable
 
@@ -636,7 +637,7 @@ def test_frame_pixels_match_source_ordinals_with_sparse_timing(tmp_path, vfr):
             lease_token=lease,
             lease_expires_at="2026-10-19T00:00:00Z",
             source=source,
-            spec=FrameSpec(frame_index=index, width=48, format="jpeg"),
+            spec=FrameSpec(frame_index=index, width=48, format=format_),
             output_prefix=f"media-assets/{job}/g1/a{lease}/",
             timetable_revision=0,
             timing=WorkTiming(anchors=anchors),

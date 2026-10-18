@@ -137,6 +137,65 @@ async def _claim_prefix(db_session):
     return batch.items[0]
 
 
+@pytest.mark.parametrize("poster_error", [False, True])
+async def test_metadata_freshness_does_not_require_h264_playback_copy_or_optional_poster(
+    db_session, poster_error
+):
+    from aap_assets_media.contract import MetadataResult
+
+    actor_id = await _seed_actor(db_session)
+    dataset_id = await _seed_dataset(db_session, actor_id=actor_id, data_type="video")
+    item_id = await _seed_video(db_session, actor_id=actor_id, dataset_id=dataset_id)
+    job_id = await _seed_job(
+        db_session,
+        item_id=item_id,
+        kind="video_metadata",
+        spec={
+            "kind": "video_metadata",
+            "probe_timetable": False,
+            "generate_poster": poster_error,
+            "generate_playback": not poster_error,
+        },
+    )
+    claim = await _claim(db_session, job_id=job_id, kind="video_metadata")
+    patch = {"frame_count": 2, "fps": 30.0, "codec": "h264"}
+    if poster_error:
+        patch["poster_error"] = "poster encoding failed"
+    result = MetadataResult(
+        kind="video_metadata",
+        source_identity={"etag": "source-etag", "byte_size": 100, "version_id": None},
+        source_sha256="a" * 64,
+        metadata_patch=patch,
+        clear_errors=["probe_error", "playback_error"],
+        width=1920,
+        height=1080,
+    )
+    reply = _data(
+        await db_session.scalar(
+            _FINISH,
+            {
+                "job_id": job_id,
+                "generation": claim.generation,
+                "lease_token": claim.lease_token,
+                "result": result.model_dump_json(),
+            },
+        )
+    )
+    assert reply["outcome"] == "published"
+    row = (
+        await db_session.execute(
+            text(
+                "SELECT media_materialized_generation,metadata FROM public.dataset_items WHERE id=:id"
+            ),
+            {"id": item_id},
+        )
+    ).one()
+    assert row.media_materialized_generation == 1
+    assert row.metadata["video"]["codec"] == "h264"
+    assert "playback_path" not in row.metadata["video"]
+    assert ("poster_error" in row.metadata["video"]) == poster_error
+
+
 def _metadata_result(claim: MediaClaim) -> dict:
     return {
         "kind": "video_timetable",

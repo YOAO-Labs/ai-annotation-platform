@@ -102,23 +102,38 @@ def extract_video_frame_image(
     width: int,
 ) -> None:
     """Select the decoded source ordinal without rounded or interpolated seeks."""
-    _run_ffmpeg(
-        [
-            "-i",
-            str(input_path),
-            "-map",
-            "0:v:0",
-            "-frames:v",
-            "1",
-            "-vf",
-            f"select='eq(n,{max(0, frame_index)})',scale='min({max(1, width)},iw)':-2",
-            "-fps_mode",
-            "vfr",
-            str(output_path),
-        ],
-        timeout=FFMPEG_FRAME_TIMEOUT_SECONDS,
-        error="ffmpeg frame extraction",
+    destination = Path(output_path)
+    decoded_path = (
+        destination.with_suffix(".png")
+        if destination.suffix == ".webp"
+        else destination
     )
+    try:
+        _run_ffmpeg(
+            [
+                "-i",
+                str(input_path),
+                "-map",
+                "0:v:0",
+                "-frames:v",
+                "1",
+                "-vf",
+                f"select='eq(n,{max(0, frame_index)})',scale='min({max(1, width)},iw)':-2",
+                "-fps_mode",
+                "vfr",
+                str(decoded_path),
+            ],
+            timeout=FFMPEG_FRAME_TIMEOUT_SECONDS,
+            error="ffmpeg frame extraction",
+        )
+        if decoded_path != destination:
+            from PIL import Image
+
+            with Image.open(decoded_path) as image:
+                image.save(destination, format="WEBP", quality=80)
+    finally:
+        if decoded_path != destination:
+            decoded_path.unlink(missing_ok=True)
 
 
 def extract_video_chunk(

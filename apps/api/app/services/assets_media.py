@@ -220,46 +220,67 @@ class MediaGateway:
             raise c.MediaFailure("invalid_request")
         deadline = time.monotonic() + timeout_seconds
         accepted_jobs = {}
+        last_busy = None
         while time.monotonic() < deadline:
-            refs = await self.provider.internal_frame_reference(request)
-            ready = next((a for a in refs.state.assets if a.status == "ready"), None)
-            if ready is not None:
-                return refs
-            source = refs.state.source
-            if source.materialized_generation != source.source_generation:
-                spec = c.MetadataSpec(expected_source_snapshot=source.source_snapshot)
-            else:
-                spec = c.FrameSpec(
-                    frame_index=request.frame_index,
-                    width=request.width,
-                    format=request.format,
-                    expected_source_snapshot=source.source_snapshot,
+            try:
+                refs = await self.provider.internal_frame_reference(request)
+                last_busy = None
+                ready = next(
+                    (a for a in refs.state.assets if a.status == "ready"), None
                 )
-            key = (source.source_snapshot, spec.kind)
-            if key not in accepted_jobs:
-                existing = next((a.job_id for a in refs.state.assets if a.job_id), None)
-                if existing is None:
-                    accepted = await self.provider.call(
-                        "schedule_video_media",
-                        c.ScheduleWorkRequest(
-                            operation_id=None,
-                            dataset_item_id=request.dataset_item_id,
-                            spec=spec,
-                        ),
+                if ready is not None:
+                    return refs
+                source = refs.state.source
+                if source.materialized_generation != source.source_generation:
+                    spec = c.MetadataSpec(
+                        expected_source_snapshot=source.source_snapshot
                     )
-                    existing = accepted.work.job_id
-                accepted_jobs[key] = existing
-            job_id = accepted_jobs[key]
-            status = await self.provider.call(
-                "read_video_work", c.WorkStatusRequest(job_id=job_id)
-            )
-            if status.work.status == "failed":
-                raise c.MediaFailure("storage_unavailable")
-            if status.work.status == "canceled":
-                raise c.MediaFailure("lease_lost")
-            executed = await self._execute(job_id)
-            if not executed:
+                else:
+                    spec = c.FrameSpec(
+                        frame_index=request.frame_index,
+                        width=request.width,
+                        format=request.format,
+                        expected_source_snapshot=source.source_snapshot,
+                    )
+                key = (source.source_snapshot, spec.kind)
+                if key not in accepted_jobs:
+                    existing = next(
+                        (a.job_id for a in refs.state.assets if a.job_id), None
+                    )
+                    if existing is None:
+                        accepted = await self.provider.call(
+                            "schedule_video_media",
+                            c.ScheduleWorkRequest(
+                                operation_id=None,
+                                dataset_item_id=request.dataset_item_id,
+                                spec=spec,
+                            ),
+                        )
+                        existing = accepted.work.job_id
+                    accepted_jobs[key] = existing
+                job_id = accepted_jobs[key]
+                status = await self.provider.call(
+                    "read_video_work", c.WorkStatusRequest(job_id=job_id)
+                )
+                if status.work.status == "failed":
+                    raise c.MediaFailure("storage_unavailable")
+                if status.work.status == "canceled":
+                    raise c.MediaFailure("lease_lost")
+                executed = await self._execute(job_id)
+                if not executed:
+                    await asyncio.sleep(min(0.5, max(0, deadline - time.monotonic())))
+            except c.MediaFailure as exc:
+                if exc.code not in {
+                    "operation_busy",
+                    "source_busy",
+                    "task_busy",
+                    "account_busy",
+                }:
+                    raise
+                last_busy = exc
                 await asyncio.sleep(min(0.5, max(0, deadline - time.monotonic())))
+        if last_busy is not None:
+            raise last_busy
         raise c.MediaFailure("storage_unavailable")
 
 

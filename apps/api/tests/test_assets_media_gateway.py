@@ -238,3 +238,91 @@ def test_local_browser_proxy_is_applied_only_at_response_edges(monkeypatch):
         assets_media.settings, "assets_media_url", "http://media.example"
     )
     assert assets_media.browser_media_url(url) == url
+
+
+@pytest.mark.asyncio
+async def test_internal_frame_waiter_retries_busy_persistence_without_new_admission():
+    s = source()
+
+    class Provider:
+        calls = 0
+
+        async def internal_frame_reference(self, request):
+            self.calls += 1
+            if self.calls <= 2:
+                raise c.MediaFailure("operation_busy")
+            return MediaReferences(
+                state=c.MediaAssets(
+                    source=s,
+                    assets=[
+                        c.MediaAsset(
+                            row_id=uuid4(),
+                            dataset_item_id=s.dataset_item_id,
+                            kind="frame",
+                            source_generation=1,
+                            timetable_revision=1,
+                            status="ready",
+                            storage_key="media-assets/frame.webp",
+                            frame_index=0,
+                            width=512,
+                            format="webp",
+                            url="http://s3.local/frame.webp",
+                        )
+                    ],
+                ),
+                video_url="http://s3.local/source.mp4",
+                expires_in=3600,
+            )
+
+        async def call(self, operation, request):
+            pytest.fail("busy persistence caused a replacement admission")
+
+    provider = Provider()
+    async with assets_media.MediaGateway(provider, local_execution=False) as gateway:
+        result = await gateway.ensure_internal_frame(
+            c.InternalFrameRequest(dataset_item_id=s.dataset_item_id, frame_index=0),
+            timeout_seconds=5,
+        )
+    assert result.state.assets[0].status == "ready"
+    assert provider.calls == 3
+
+
+@pytest.mark.asyncio
+async def test_internal_frame_waiter_busy_exhaustion_is_bounded():
+    class Provider:
+        async def internal_frame_reference(self, request):
+            raise c.MediaFailure("source_busy")
+
+    async with assets_media.MediaGateway(Provider(), local_execution=False) as gateway:
+        with pytest.raises(c.MediaFailure, match="source_busy"):
+            await gateway.ensure_internal_frame(
+                c.InternalFrameRequest(dataset_item_id=uuid4(), frame_index=0),
+                timeout_seconds=0.01,
+            )
+
+
+@pytest.mark.asyncio
+async def test_frame_media_contention_reaches_segment_retry_but_does_not_break_warmup(
+    monkeypatch,
+):
+    from app.workers import frame_preannotate
+
+    class Provider:
+        async def ensure_internal_frame(self, request):
+            raise c.MediaFailure("operation_busy")
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            pass
+
+    monkeypatch.setattr(assets_media, "media_gateway", lambda *args: Provider())
+    with pytest.raises(c.MediaFailure, match="operation_busy"):
+        await frame_preannotate._read_frame_urls(None, uuid4(), [2])
+    assert (
+        await frame_preannotate._extract_frames_for_video(
+            None, uuid4(), [2], job_id=None
+        )
+        == {}
+    )

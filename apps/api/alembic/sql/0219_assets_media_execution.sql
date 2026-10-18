@@ -1317,23 +1317,8 @@ BEGIN
         END;
         v_full_success := v_job.kind = 'video_metadata'
             AND NOT (v_video ? 'probe_error')
-            AND (
-                COALESCE(v_job.spec -> 'generate_playback' = 'true'::jsonb, true) = false
-                OR (NOT (v_video ? 'playback_error')
-                    AND v_video ->> 'playback_path' IS NOT NULL)
-            )
-            AND (
-                COALESCE(v_job.spec -> 'generate_poster' = 'true'::jsonb, true) = false
-                OR (NOT (v_video ? 'poster_error')
-                    AND v_video ->> 'poster_frame_path' IS NOT NULL)
-            )
             AND v_video ->> 'frame_count' IS NOT NULL
-            AND v_video ->> 'fps' IS NOT NULL
-            AND (
-                COALESCE(v_job.spec -> 'probe_timetable' = 'true'::jsonb, true) = false
-                OR (v_next_timetable_revision IS NOT NULL
-                    AND NOT (v_video ? 'frame_timetable_error'))
-            );
+            AND v_video ->> 'fps' IS NOT NULL;
         IF p_result -> 'poster' IS NOT NULL AND p_result -> 'poster' <> 'null'::jsonb THEN
             INSERT INTO public.video_frame_cache (
                 id, dataset_item_id, frame_index, width, format, storage_key, byte_size,

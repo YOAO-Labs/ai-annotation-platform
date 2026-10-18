@@ -7,6 +7,8 @@ from uuid import uuid4
 
 import pytest
 from sqlalchemy import text
+from sqlalchemy.exc import DBAPIError
+from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.db.models.dataset import DatasetItem
 from app.db.models.task import Task
@@ -95,6 +97,188 @@ async def _seed_item(
     )
     await db_session.flush()
     return dataset_id, item_id
+
+
+async def test_nonempty_timetable_and_backfill_pages_preserve_cursor_and_digest(
+    db_session,
+):
+    from aap_assets_media.contract import (
+        BackfillRequest,
+        BackfillSelection,
+        TimetableRequest,
+    )
+    from app.db.models.dataset import VideoFrameIndex
+    from app.services.assets_media import SqlAlchemyMediaDatabase
+
+    actor_id = await _seed_actor(db_session)
+    dataset_id, item_id = await _seed_item(
+        db_session,
+        actor_id=actor_id,
+        file_type="video",
+        name="paged-timetable",
+        metadata={"video": {"frame_count": 4, "fps": 30}},
+    )
+    other_id = uuid4()
+    db_session.add(
+        DatasetItem(
+            id=other_id,
+            dataset_id=dataset_id,
+            file_name="second.mp4",
+            file_path=f"native-test/{other_id}",
+            file_type="video",
+            metadata_={},
+        )
+    )
+    project = await create_project(db_session, owner_id=actor_id)
+    task = Task(
+        project_id=project.id,
+        dataset_item_id=item_id,
+        display_id=f"T-PAGED-{uuid4().hex[:12]}",
+        file_name="paged.mp4",
+        file_path=f"native-test/{item_id}",
+        file_type="video",
+        status="pending",
+    )
+    db_session.add(task)
+    db_session.add_all(
+        [
+            VideoFrameIndex(
+                dataset_item_id=item_id,
+                frame_index=i,
+                pts_ms=i * 33 - 20,
+                is_keyframe=i == 0,
+            )
+            for i in range(4)
+        ]
+    )
+    await db_session.flush()
+    await db_session.execute(
+        text(
+            "UPDATE public.dataset_items SET media_materialized_generation=media_source_generation,media_timetable_revision=1 WHERE id=:id"
+        ),
+        {"id": item_id},
+    )
+    binding = SqlAlchemyMediaDatabase(db_session, commit=False)
+    request = TimetableRequest(
+        actor_id=actor_id, dataset_item_id=item_id, task_id=task.id, page_size=2
+    )
+    first = await binding.call("read_video_timetable", request)
+    second = await binding.call(
+        "read_video_timetable",
+        request.model_copy(update={"after_frame": first.next_frame}),
+    )
+    assert [frame.frame_index for frame in first.frames + second.frames] == [0, 1, 2, 3]
+    assert first.next_frame == 1 and not first.complete
+    assert second.complete and second.next_frame is None
+    assert first.total == second.total == 4
+    assert first.snapshot_digest == second.snapshot_digest
+    cutoff = await db_session.scalar(text("SELECT clock_timestamp()"))
+    selection = BackfillSelection(
+        dataset_id=dataset_id, only_missing=False, accepted_before=cutoff
+    )
+    request = BackfillRequest(selection=selection, page_size=1)
+    first = await binding.call("scan_video_backfill", request)
+    second = await binding.call(
+        "scan_video_backfill",
+        request.model_copy(update={"after_item_id": first.next_item_id}),
+    )
+    assert {source.dataset_item_id for source in first.items + second.items} == {
+        item_id,
+        other_id,
+    }
+    assert first.next_item_id is not None and not first.complete
+    assert second.next_item_id is None and second.complete
+    assert first.total == second.total == 2
+    assert first.snapshot_digest == second.snapshot_digest
+
+
+async def test_task_retry_serializes_task_changes_until_acceptance_transaction_ends(
+    test_engine,
+):
+    from aap_assets_media.contract import FrameSelection
+
+    maker = async_sessionmaker(test_engine, expire_on_commit=False)
+    actor_id = dataset_id = project_id = item_id = task_id = None
+    try:
+        async with maker.begin() as owner:
+            actor_id = await _seed_actor(owner)
+            dataset_id, item_id = await _seed_item(
+                owner,
+                actor_id=actor_id,
+                file_type="video",
+                name="retry-lock",
+                metadata={"video": {"frame_count": 2, "fps": 30}},
+            )
+            await owner.execute(
+                text(
+                    "UPDATE public.dataset_items SET media_materialized_generation=media_source_generation WHERE id=:id"
+                ),
+                {"id": item_id},
+            )
+            project = await create_project(owner, owner_id=actor_id)
+            project_id = project.id
+            task = Task(
+                project_id=project_id,
+                dataset_item_id=item_id,
+                display_id=f"T-MEDIA-{uuid4().hex[:12]}",
+                file_name="retry.mp4",
+                file_path=f"native-test/{item_id}",
+                file_type="video",
+                status="pending",
+            )
+            owner.add(task)
+            await owner.flush()
+            task_id = task.id
+        async with (
+            test_engine.connect() as admission,
+            test_engine.connect() as mutation,
+        ):
+            selection = FrameSelection(
+                intent="task_frame_retry",
+                frame_indices=[0],
+                failed_only=True,
+            )
+            reply = _object(
+                await admission.scalar(
+                    _ENSURE,
+                    {
+                        "actor": actor_id,
+                        "item": item_id,
+                        "task": task_id,
+                        "selection": selection.model_dump_json(),
+                    },
+                )
+            )
+            assert reply["ok"] is True
+            with pytest.raises(DBAPIError) as blocked:
+                await mutation.execute(
+                    text("SELECT id FROM public.tasks WHERE id=:id FOR UPDATE NOWAIT"),
+                    {"id": task_id},
+                )
+            assert getattr(blocked.value.orig, "sqlstate", None) == "55P03"
+            await mutation.rollback()
+            await admission.rollback()
+            assert (
+                await mutation.scalar(
+                    text("SELECT id FROM public.tasks WHERE id=:id FOR UPDATE NOWAIT"),
+                    {"id": task_id},
+                )
+                == task_id
+            )
+            await mutation.rollback()
+    finally:
+        if task_id is not None:
+            async with test_engine.begin() as cleanup:
+                for table, key in (
+                    ("tasks", task_id),
+                    ("projects", project_id),
+                    ("dataset_items", item_id),
+                    ("datasets", dataset_id),
+                    ("users", actor_id),
+                ):
+                    await cleanup.execute(
+                        text(f"DELETE FROM public.{table} WHERE id=:id"), {"id": key}
+                    )
 
 
 async def test_media_source_rechecks_active_actor_and_exact_task_item_link(db_session):
