@@ -184,6 +184,10 @@ def test_source_selector_and_owner_projection_are_strict():
         c.require_scope(
             c.ReadImageSourceRequest(actor_id=uuid4(), task_id=uuid4()), linked
         )
+    with pytest.raises(ValueError, match="escaped its selector"):
+        c.require_scope(
+            c.ReadImageSourceRequest(actor_id=uuid4(), dataset_item_id=item), linked
+        )
     legacy_task = uuid4()
     legacy = image_source(owner=c.ImageOwner(kind="task", id=legacy_task))
     assert legacy.bucket_kind == "legacy"
@@ -311,6 +315,14 @@ def test_pyramid_claim_and_result_are_bound_to_generation_grid_and_attempt_prefi
 def test_backfill_selection_cursor_and_reconcile_candidate_scope_are_bounded():
     with pytest.raises(ValidationError):
         c.ImageBackfillSelection(owner_kind="dataset_item", purpose="pyramid")
+    with pytest.raises(ValidationError, match="Dataset ID"):
+        c.ImageBackfillSelection(
+            owner_kind="task", dataset_id=uuid4(), purpose="pyramid"
+        )
+    task_backfill = c.ImageBackfillSelection(
+        owner_kind="task", project_id=uuid4(), purpose="pyramid"
+    )
+    assert task_backfill.owner_kind == "task"
     selection = c.ImageBackfillSelection(
         owner_kind="dataset_item", dataset_id=uuid4(), purpose="pyramid"
     )

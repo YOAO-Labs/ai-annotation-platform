@@ -253,7 +253,13 @@ async def iter_image_backfill_sources(
         cursor_kind = page.next_owner_kind
         cursor_id = page.next_owner_id
         request = request.model_copy(
-            update={"after_owner_kind": cursor_kind, "after_owner_id": cursor_id}
+            update={
+                "after_owner_kind": cursor_kind,
+                "after_owner_id": cursor_id,
+                "selection": request.selection.model_copy(
+                    update={"accepted_before": page.accepted_before}
+                ),
+            }
         )
 
 

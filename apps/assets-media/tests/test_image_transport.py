@@ -230,7 +230,13 @@ async def test_backfill_iterator_checks_scope_snapshot_and_global_cursor_progres
 
     class Pages:
         async def call(self, operation, page_request):
-            calls.append((operation, page_request.after_owner_id))
+            calls.append(
+                (
+                    operation,
+                    page_request.after_owner_id,
+                    page_request.selection.accepted_before,
+                )
+            )
             if page_request.after_owner_id is None:
                 row = first if first.owner.id.int < second.owner.id.int else second
                 return ImageBackfillPage(
@@ -259,8 +265,9 @@ async def test_backfill_iterator_checks_scope_snapshot_and_global_cursor_progres
 
     yielded = [row async for row in iter_image_backfill_sources(Pages(), request)]
     assert len(yielded) == 2
-    assert calls[0] == ("scan_image_backfill", None)
+    assert calls[0] == ("scan_image_backfill", None, None)
     assert calls[1][1] == yielded[0].owner.id
+    assert calls[1][2] == pages_cutoff
 
     class ChangedPages:
         count = 0

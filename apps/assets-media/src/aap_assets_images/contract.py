@@ -589,6 +589,8 @@ class ImageBackfillSelection(Value):
             raise ValueError("image backfill requires exactly one owner selector")
         if len(set(self.owner_ids)) != len(self.owner_ids):
             raise ValueError("duplicate image backfill owner IDs")
+        if self.owner_kind == "task" and self.dataset_id is not None:
+            raise ValueError("legacy Task backfill cannot select by Dataset ID")
         return self
 
 
@@ -1292,6 +1294,7 @@ def image_source_matches_selector(
             source.owner.kind == "dataset_item"
             and source.owner.id == selector.dataset_item_id
             and source.item_id == selector.dataset_item_id
+            and source.task_id is None
         )
     return source.task_id == selector.task_id and (
         (source.owner.kind == "task" and source.owner.id == selector.task_id)
@@ -1352,6 +1355,13 @@ def require_scope(request: BaseModel, result: BaseModel) -> None:
         ):
             raise ValueError("accepted image work changed its source")
         if (
+            not result.source.upload_ready
+            or result.source.source_drifted
+            or result.work.owner != result.source.owner
+            or result.work.source_generation != result.source.source_generation
+        ):
+            raise ValueError("accepted image work is not bound to its ready owner")
+        if (
             request.expected_source_snapshot is not None
             and result.source.source_snapshot != request.expected_source_snapshot
         ):
@@ -1371,10 +1381,25 @@ def require_scope(request: BaseModel, result: BaseModel) -> None:
         if request.owner_kind is None:
             if result.source is not None or result.work.owner is not None:
                 raise ValueError("scheduled image backfill acquired one source")
-        elif result.source is None or result.source.owner != ImageOwner(
-            kind=request.owner_kind, id=request.owner_id
+        elif (
+            result.source is None
+            or result.source.owner
+            != ImageOwner(kind=request.owner_kind, id=request.owner_id)
+            or result.work.owner != result.source.owner
+            or result.work.source_generation != result.source.source_generation
         ):
             raise ValueError("scheduled image work changed its owner")
+        expected_spec = request.spec.model_dump(mode="json")
+        accepted_spec = result.spec.model_dump(mode="json")
+        if isinstance(request.spec, ImageBackfillSpec):
+            if request.spec.selection.accepted_before is None:
+                if result.spec.selection.accepted_before is None:
+                    raise ValueError("image backfill acceptance omitted its cutoff")
+                expected_spec["selection"]["accepted_before"] = accepted_spec[
+                    "selection"
+                ]["accepted_before"]
+        if expected_spec != accepted_spec:
+            raise ValueError("scheduled image work changed its accepted spec")
     if isinstance(request, ReadImageWorkRequest) and isinstance(
         result, ImageWorkStatus
     ):
@@ -1453,6 +1478,8 @@ def require_scope(request: BaseModel, result: BaseModel) -> None:
             request.lease_token,
         ):
             raise ValueError("image backfill progress escaped its lease")
+        if result.complete != (result.next_owner_id is None):
+            raise ValueError("image backfill progress has invalid completion state")
     if isinstance(request, ReconcileImageMediaRequest) and isinstance(
         result, ImageReconcileResult
     ):
