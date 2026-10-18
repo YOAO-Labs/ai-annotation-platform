@@ -31,6 +31,7 @@ import { StorageConnectionsPanel } from "@/components/connections/StorageConnect
 import { AxisConventionPicker } from "@/components/datasets/AxisConventionPicker";
 import { useProjects } from "@/hooks/useProjects";
 import { usePermissions } from "@/hooks/usePermissions";
+import { useAuthStore } from "@/stores/authStore";
 import type { DatasetResponse } from "@/api/datasets";
 import type { ProjectResponse } from "@/api/projects";
 import type { IconName } from "@/components/ui/Icon";
@@ -213,6 +214,8 @@ function DatasetDetail({ ds }: { ds: DatasetResponse }) {
   const backfillMediaMutation = useBackfillMedia(ds.id);
   const updateDataset = useUpdateDataset();
   const pushToast = useToastStore((s) => s.push);
+  const actorId = useAuthStore((state) => state.user?.id ?? null);
+  const updateAttemptRef = useRef<{ request: string; key: string } | null>(null);
 
   const items = itemsData?.items ?? [];
   const totalItems = itemsData?.total ?? 0;
@@ -236,10 +239,19 @@ function DatasetDetail({ ds }: { ds: DatasetResponse }) {
       )
         return;
     }
+    const payload = { axis_convention: next };
+    const request = JSON.stringify([actorId, ds.id, payload]);
+    let attempt = updateAttemptRef.current;
+    if (!attempt || attempt.request !== request) {
+      attempt = { request, key: crypto.randomUUID() };
+      updateAttemptRef.current = attempt;
+    }
+    const idempotencyKey = attempt.key;
     updateDataset.mutate(
-      { id: ds.id, payload: { axis_convention: next } },
+      { id: ds.id, payload, idempotencyKey },
       {
         onSuccess: () => {
+          if (updateAttemptRef.current?.key === idempotencyKey) updateAttemptRef.current = null;
           queryClient.invalidateQueries({ queryKey: ["dataset", ds.id] });
           pushToast({ msg: "坐标系约定已更新" });
         },

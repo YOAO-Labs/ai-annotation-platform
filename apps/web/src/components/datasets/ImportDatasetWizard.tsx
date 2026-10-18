@@ -9,6 +9,7 @@ import { useCreateDataset, useImportFromConnection } from "@/hooks/useDatasets";
 import { useAsyncJob } from "@/hooks/useAsyncJob";
 import { useCreateStorageConnection, useStorageConnections } from "@/hooks/useStorageConnections";
 import { usePermissions } from "@/hooks/usePermissions";
+import { useAuthStore } from "@/stores/authStore";
 import {
   StorageConnectionForm,
   type StorageConnectionFormValues,
@@ -76,6 +77,7 @@ function ProgressFill({ progress, color }: { progress: number; color: string }) 
 export function ImportDatasetWizard({ open, onClose, datasetId, datasetName, onUploaded }: Props) {
   const navigate = useNavigate();
   const pushToast = useToastStore((s) => s.push);
+  const actorId = useAuthStore((state) => state.user?.id ?? null);
   const createDataset = useCreateDataset();
   const importFromConnection = useImportFromConnection();
 
@@ -103,6 +105,7 @@ export function ImportDatasetWizard({ open, onClose, datasetId, datasetName, onU
   const [items, setItems] = useState<Map<string, QueueItem>>(new Map());
   const [running, setRunning] = useState(false);
   const tickRef = useRef(0);
+  const createAttemptRef = useRef<{ request: string; key: string } | null>(null);
   const [, force] = useState(0);
 
   useEffect(() => {
@@ -130,6 +133,7 @@ export function ImportDatasetWizard({ open, onClose, datasetId, datasetName, onU
       setCreated(null);
       setItems(new Map());
       setRunning(false);
+      createAttemptRef.current = null;
       createDataset.reset();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -178,14 +182,25 @@ export function ImportDatasetWizard({ open, onClose, datasetId, datasetName, onU
 
   const ensureDataset = async (): Promise<string | null> => {
     if (targetDatasetId) return targetDatasetId;
+    const payload = {
+      name: trimmedName,
+      description: description.trim() || undefined,
+      data_type: dataType,
+      axis_convention: dataType === "point_cloud" ? axisConvention : undefined,
+      is_temporal: isTemporal || undefined,
+    };
+    const request = JSON.stringify([actorId, payload]);
+    let attempt = createAttemptRef.current;
+    if (!attempt || attempt.request !== request) {
+      attempt = { request, key: crypto.randomUUID() };
+      createAttemptRef.current = attempt;
+    }
     try {
       const dsResp = await createDataset.mutateAsync({
-        name: trimmedName,
-        description: description.trim() || undefined,
-        data_type: dataType,
-        axis_convention: dataType === "point_cloud" ? axisConvention : undefined,
-        is_temporal: isTemporal || undefined,
+        payload,
+        idempotencyKey: attempt.key,
       });
+      if (createAttemptRef.current?.key === attempt.key) createAttemptRef.current = null;
       setCreated(dsResp);
       return dsResp.id;
     } catch (err) {

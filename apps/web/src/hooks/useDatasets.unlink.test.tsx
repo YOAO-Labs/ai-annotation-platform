@@ -3,13 +3,21 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, renderHook } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-const { mockUnlinkProject } = vi.hoisted(() => ({ mockUnlinkProject: vi.fn() }));
-
-vi.mock("@/api/datasets", () => ({
-  datasetsApi: { unlinkProject: mockUnlinkProject },
+const { mockCreateDataset, mockUpdateDataset, mockUnlinkProject } = vi.hoisted(() => ({
+  mockCreateDataset: vi.fn(),
+  mockUpdateDataset: vi.fn(),
+  mockUnlinkProject: vi.fn(),
 }));
 
-import { useUnlinkProject } from "./useDatasets";
+vi.mock("@/api/datasets", () => ({
+  datasetsApi: {
+    create: mockCreateDataset,
+    update: mockUpdateDataset,
+    unlinkProject: mockUnlinkProject,
+  },
+}));
+
+import { useCreateDataset, useUnlinkProject, useUpdateDataset } from "./useDatasets";
 
 function makeWrapper(client: QueryClient) {
   return ({ children }: { children: ReactNode }) =>
@@ -19,6 +27,51 @@ function makeWrapper(client: QueryClient) {
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
+});
+
+describe("dataset mutation hooks", () => {
+  it("keep the same create/update keys and bodies when React Query retries", async () => {
+    const createKey = "11111111-1111-4111-8111-111111111111";
+    const updateKey = "22222222-2222-4222-8222-222222222222";
+    const createPayload = { name: "training", data_type: "image" };
+    const updatePayload = { axis_convention: null };
+    mockCreateDataset
+      .mockRejectedValueOnce(new Error("response lost"))
+      .mockResolvedValue({ id: "ds1" });
+    mockUpdateDataset
+      .mockRejectedValueOnce(new Error("response lost"))
+      .mockResolvedValue({ id: "ds1" });
+
+    const queryClient = new QueryClient({
+      defaultOptions: { mutations: { retry: 1, retryDelay: 0 } },
+    });
+    const { result } = renderHook(
+      () => ({ create: useCreateDataset(), update: useUpdateDataset() }),
+      { wrapper: makeWrapper(queryClient) },
+    );
+
+    await act(async () => {
+      await result.current.create.mutateAsync({
+        payload: createPayload,
+        idempotencyKey: createKey,
+      });
+      await result.current.update.mutateAsync({
+        id: "ds1",
+        payload: updatePayload,
+        idempotencyKey: updateKey,
+      });
+    });
+
+    expect(mockCreateDataset.mock.calls).toEqual([
+      [createPayload, { idempotencyKey: createKey }],
+      [createPayload, { idempotencyKey: createKey }],
+    ]);
+    expect(mockUpdateDataset.mock.calls).toEqual([
+      ["ds1", updatePayload, { idempotencyKey: updateKey }],
+      ["ds1", updatePayload, { idempotencyKey: updateKey }],
+    ]);
+    queryClient.clear();
+  });
 });
 
 describe("useUnlinkProject", () => {

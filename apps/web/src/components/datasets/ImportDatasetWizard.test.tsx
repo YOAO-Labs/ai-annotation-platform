@@ -182,6 +182,62 @@ describe("ImportDatasetWizard", () => {
     });
   });
 
+  it("reuses the create key for retries, changes it with intent, and resets it for a new form", async () => {
+    mockCreateDatasetMutateAsync
+      .mockRejectedValueOnce(new Error("response lost"))
+      .mockRejectedValueOnce(new Error("response lost"))
+      .mockRejectedValueOnce(new Error("response lost"))
+      .mockResolvedValue({ id: "ds-new", name: "Test DS" });
+    const onClose = vi.fn();
+    const view = renderUI({ onClose });
+
+    pickFile();
+    await waitFor(() => expect(screen.getByText(/已选 1 个文件/)).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: /下一步/ }));
+    const nameInput = screen.getByPlaceholderText(/商品检测训练集/);
+    fireEvent.change(nameInput, { target: { value: "same request" } });
+    const uploadButton = screen.getByRole("button", { name: /开始上传/ });
+
+    fireEvent.click(uploadButton);
+    await waitFor(() => expect(mockCreateDatasetMutateAsync).toHaveBeenCalledTimes(1));
+    const first = mockCreateDatasetMutateAsync.mock.calls[0][0];
+    fireEvent.click(uploadButton);
+    await waitFor(() => expect(mockCreateDatasetMutateAsync).toHaveBeenCalledTimes(2));
+    const retry = mockCreateDatasetMutateAsync.mock.calls[1][0];
+    expect(retry.payload).toEqual(first.payload);
+    expect(retry.idempotencyKey).toBe(first.idempotencyKey);
+
+    fireEvent.change(nameInput, { target: { value: "changed request" } });
+    fireEvent.click(uploadButton);
+    await waitFor(() => expect(mockCreateDatasetMutateAsync).toHaveBeenCalledTimes(3));
+    const changed = mockCreateDatasetMutateAsync.mock.calls[2][0];
+    expect(changed.payload.name).toBe("changed request");
+    expect(changed.idempotencyKey).not.toBe(first.idempotencyKey);
+
+    view.rerender(
+      <MemoryRouter>
+        <ImportDatasetWizard open={false} onClose={onClose} />
+      </MemoryRouter>,
+    );
+    await waitFor(() => expect(mockCreateDatasetReset).toHaveBeenCalled());
+    view.rerender(
+      <MemoryRouter>
+        <ImportDatasetWizard open onClose={onClose} />
+      </MemoryRouter>,
+    );
+    pickFile();
+    await waitFor(() => expect(screen.getByText(/已选 1 个文件/)).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: /下一步/ }));
+    fireEvent.change(screen.getByPlaceholderText(/商品检测训练集/), {
+      target: { value: "same request" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /开始上传/ }));
+    await waitFor(() => expect(mockCreateDatasetMutateAsync).toHaveBeenCalledTimes(4));
+    const reopened = mockCreateDatasetMutateAsync.mock.calls[3][0];
+    expect(reopened.payload).toEqual(first.payload);
+    expect(reopened.idempotencyKey).not.toBe(first.idempotencyKey);
+  });
+
   it("3D 点云 + 勾选时序: createDataset 带 data_type=point_cloud 与 is_temporal=true", async () => {
     renderUI();
     pickFile();
@@ -196,7 +252,10 @@ describe("ImportDatasetWizard", () => {
     fireEvent.click(screen.getByRole("button", { name: /开始上传/ }));
     await waitFor(() => {
       expect(mockCreateDatasetMutateAsync).toHaveBeenCalledWith(
-        expect.objectContaining({ data_type: "point_cloud", is_temporal: true }),
+        expect.objectContaining({
+          payload: expect.objectContaining({ data_type: "point_cloud", is_temporal: true }),
+          idempotencyKey: expect.stringMatching(/^[0-9a-f-]{36}$/),
+        }),
       );
     });
   });
@@ -214,7 +273,10 @@ describe("ImportDatasetWizard", () => {
     fireEvent.click(screen.getByRole("button", { name: /开始上传/ }));
     await waitFor(() => {
       expect(mockCreateDatasetMutateAsync).toHaveBeenCalledWith(
-        expect.objectContaining({ data_type: "image", is_temporal: true }),
+        expect.objectContaining({
+          payload: expect.objectContaining({ data_type: "image", is_temporal: true }),
+          idempotencyKey: expect.stringMatching(/^[0-9a-f-]{36}$/),
+        }),
       );
     });
   });
@@ -230,7 +292,10 @@ describe("ImportDatasetWizard", () => {
     fireEvent.click(screen.getByRole("button", { name: /开始上传/ }));
     await waitFor(() => {
       expect(mockCreateDatasetMutateAsync).toHaveBeenCalledWith(
-        expect.objectContaining({ is_temporal: undefined }),
+        expect.objectContaining({
+          payload: expect.objectContaining({ is_temporal: undefined }),
+          idempotencyKey: expect.stringMatching(/^[0-9a-f-]{36}$/),
+        }),
       );
     });
   });
@@ -267,7 +332,10 @@ describe("ImportDatasetWizard", () => {
     fireEvent.click(screen.getByRole("button", { name: /开始上传/ }));
     await waitFor(() => {
       expect(mockCreateDatasetMutateAsync).toHaveBeenCalledWith(
-        expect.objectContaining({ data_type: "video", is_temporal: undefined }),
+        expect.objectContaining({
+          payload: expect.objectContaining({ data_type: "video", is_temporal: undefined }),
+          idempotencyKey: expect.stringMatching(/^[0-9a-f-]{36}$/),
+        }),
       );
     });
   });

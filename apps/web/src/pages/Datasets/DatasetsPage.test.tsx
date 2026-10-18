@@ -192,6 +192,79 @@ describe("DatasetsPage", () => {
     expect(screen.getByText("时序数据集")).toBeInTheDocument();
   });
 
+  it("重试同一坐标系更新复用 key，变更意图及成功后使用新 key", () => {
+    mockUseDatasetItems.mockReturnValue({ data: { items: [], total: 0 }, isLoading: false });
+    mockUseDatasets.mockReturnValue({
+      data: {
+        items: [
+          {
+            id: "ds-axis",
+            display_id: "D-AXIS",
+            name: "坐标系重试数据集",
+            description: "",
+            data_type: "point_cloud",
+            axis_convention: "iso_8855",
+            has_scenes: false,
+            is_temporal: false,
+            file_count: 0,
+            project_count: 0,
+            created_at: "2026-01-01T00:00:00Z",
+          },
+        ],
+        total: 1,
+      },
+      isLoading: false,
+    });
+    let respondWithSuccess = false;
+    const updateMutation = {
+      mutate: vi.fn(
+        (
+          _variables: unknown,
+          callbacks: {
+            onError?: (error: Error) => void;
+            onSuccess?: () => void;
+          },
+        ) => {
+          if (respondWithSuccess) callbacks.onSuccess?.();
+          else callbacks.onError?.(new Error("response lost"));
+        },
+      ),
+      isPending: false,
+    };
+    mockUseUpdateDataset.mockReturnValue(updateMutation);
+
+    renderUI();
+    fireEvent.click(screen.getByText("坐标系重试数据集"));
+    const select = screen.getByDisplayValue("ISO 8855 (+X 前 / +Y 左)");
+    fireEvent.change(select, { target: { value: "apollo" } });
+    fireEvent.change(select, { target: { value: "apollo" } });
+    expect(updateMutation.mutate).toHaveBeenCalledTimes(2);
+    const first = updateMutation.mutate.mock.calls[0][0] as {
+      payload: { axis_convention: string };
+      idempotencyKey: string;
+    };
+    const retry = updateMutation.mutate.mock.calls[1][0] as typeof first;
+    expect(retry.payload).toEqual(first.payload);
+    expect(retry.idempotencyKey).toBe(first.idempotencyKey);
+
+    fireEvent.change(select, { target: { value: "kitti_camera" } });
+    expect(updateMutation.mutate).toHaveBeenCalledTimes(3);
+    const changed = updateMutation.mutate.mock.calls[2][0] as typeof first;
+    expect(changed.payload.axis_convention).toBe("kitti_camera");
+    expect(changed.idempotencyKey).not.toBe(first.idempotencyKey);
+
+    respondWithSuccess = true;
+    fireEvent.change(select, { target: { value: "kitti_camera" } });
+    expect(updateMutation.mutate).toHaveBeenCalledTimes(4);
+    const success = updateMutation.mutate.mock.calls[3][0] as typeof first;
+    expect(success.idempotencyKey).toBe(changed.idempotencyKey);
+    fireEvent.change(select, { target: { value: "kitti_camera" } });
+    expect(updateMutation.mutate).toHaveBeenCalledTimes(5);
+    const afterSuccess = updateMutation.mutate.mock.calls[4][0] as typeof first;
+    expect(afterSuccess.payload).toEqual(success.payload);
+    expect(afterSuccess.idempotencyKey).not.toBe(success.idempotencyKey);
+  });
+
   it("点击「新建数据集」按钮 → 弹出新建+上传向导", () => {
     mockUseDatasets.mockReturnValue({ data: { items: [], total: 0 }, isLoading: false });
     renderUI();

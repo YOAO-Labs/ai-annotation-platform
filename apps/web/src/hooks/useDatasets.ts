@@ -31,7 +31,13 @@ export function useDataset(id: string | undefined) {
 export function useCreateDataset() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (payload: DatasetCreatePayload) => datasetsApi.create(payload),
+    mutationFn: ({
+      payload,
+      idempotencyKey,
+    }: {
+      payload: DatasetCreatePayload;
+      idempotencyKey: string;
+    }) => datasetsApi.create(payload, { idempotencyKey }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["datasets"] });
     },
@@ -41,8 +47,15 @@ export function useCreateDataset() {
 export function useUpdateDataset() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, payload }: { id: string; payload: DatasetUpdatePayload }) =>
-      datasetsApi.update(id, payload),
+    mutationFn: ({
+      id,
+      payload,
+      idempotencyKey,
+    }: {
+      id: string;
+      payload: DatasetUpdatePayload;
+      idempotencyKey: string;
+    }) => datasetsApi.update(id, payload, { idempotencyKey }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["datasets"] });
     },
