@@ -160,3 +160,5 @@
 - [0112 — Durable Mask deletion fences and terminal receipts](0112-durable-mask-gc-fences.md)
 - [0113 — Durable ordinary preannotation results and execution handoff](0113-durable-preannotation-results.md)
 - [0114 — Durable failed-prediction retries and running tracker roots](0114-durable-prediction-retries.md)
+- [0115 — Identity 准入与持久会话撤权](0115-identity-admission-and-durable-revocation.md)
+- [0116 — API key 命令与可重放签发](0116-independent-identity-key-commands.md)

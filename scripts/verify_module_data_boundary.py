@@ -38,6 +38,7 @@ IDENTITY_CLIENT_ROLES = {
     "COMMAND": "identity_command_client",
     "FENCE": "identity_fence_client",
     "OPERATOR": "identity_session_operator",
+    "KEYS": "identity_key_client",
 }
 MODULE_ROLES = (
     "identity_code",
@@ -142,6 +143,7 @@ SQL_ARTIFACTS = (
     "0233_prediction_retry_finalization.sql",
     "0234_mask_gc_preview.sql",
     "0235_identity_admission.sql",
+    "0236_identity_api_keys.sql",
 )
 SCHEMA_ARTIFACTS = (
     "0191_task_append.schema.json",
@@ -187,6 +189,7 @@ SCHEMA_ARTIFACTS = (
     "0233_preannotation_result_scope.schema.json",
     "0234_mask_gc.schema.json",
     "0235_identity_admission.schema.json",
+    "0236_identity_api_keys.schema.json",
 )
 TEST_FILES = (
     "tests/test_identity_auth_native.py",
@@ -1939,6 +1942,7 @@ def main(argv: list[str] | None = None) -> int:
         mask_gc_grants_path = ROOT / "infra/docker/labeling-mask-gc-data-grants.sql"
         result_grants_path = ROOT / "infra/docker/preannotation-result-data-grants.sql"
         identity_grants_path = ROOT / "infra/docker/identity-auth-grants.sql"
+        identity_key_grants_path = ROOT / "infra/docker/identity-keys-grants.sql"
         artifacts = tuple(
             ROOT / "apps/api/alembic/sql" / name for name in SQL_ARTIFACTS
         )
@@ -1956,6 +1960,7 @@ def main(argv: list[str] | None = None) -> int:
             or not mask_gc_grants_path.is_file()
             or not result_grants_path.is_file()
             or not identity_grants_path.is_file()
+            or not identity_key_grants_path.is_file()
             or any(not path.is_file() for path in artifacts)
             or any(not path.is_file() for path in schema_paths)
         ):
@@ -1981,6 +1986,7 @@ def main(argv: list[str] | None = None) -> int:
         mask_gc_grant_sql = mask_gc_grants_path.read_text(encoding="utf-8")
         result_grant_sql = result_grants_path.read_text(encoding="utf-8")
         identity_grant_sql = identity_grants_path.read_text(encoding="utf-8")
+        identity_key_grant_sql = identity_key_grants_path.read_text(encoding="utf-8")
 
         from sqlalchemy.engine import URL
 
@@ -2083,8 +2089,8 @@ def main(argv: list[str] | None = None) -> int:
         database = resources["database"]
         evidence["database"] = database
         _, heads = migration_graph(ROOT)
-        if heads != ["0235"]:
-            raise RuntimeError("module-data acceptance requires migration head 0235")
+        if heads != ["0236"]:
+            raise RuntimeError("module-data acceptance requires migration head 0236")
         evidence["migrations"]["head_before_downgrade"] = heads[0]
         phase = "downgrade-to-0189"
         _container_details(
@@ -2310,6 +2316,22 @@ def main(argv: list[str] | None = None) -> int:
                     f"identity_{kind.lower()}_role": role
                     for kind, role in IDENTITY_CLIENT_ROLES.items()
                 },
+            },
+        )
+        phase = "install-identity-key-grants"
+        _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="owner",
+            password=owner_password,
+            database=database,
+            sql=identity_key_grant_sql,
+            variables={
+                "expected_database": database,
+                "migration_role": "owner",
+                "identity_owner": "identity_code",
+                "identity_key_role": "identity_key_client",
             },
         )
         resource_environment = backend.environment()

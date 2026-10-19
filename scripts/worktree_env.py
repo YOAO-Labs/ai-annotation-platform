@@ -205,6 +205,8 @@ def isolated_environment(
         "IDENTITY_TOKEN": "",
         "IDENTITY_AUTH_DATABASE_URL": "",
         "IDENTITY_AUTH_DATABASE_URL_FILE": "",
+        "IDENTITY_KEY_DATABASE_URL": "",
+        "IDENTITY_KEY_DATABASE_URL_FILE": "",
         "SMTP_HOST": "",
         "SENTRY_DSN": "",
     }

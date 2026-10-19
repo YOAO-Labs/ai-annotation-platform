@@ -1111,6 +1111,8 @@ Celery 原任务仍在 `cleanup` 队列运行，兼容原 `dry_run` 参数，并
 
 `apps/identity` 提供同一个 JWT／API key 验证器及私有 `POST /v1/identity/authenticate`。`IDENTITY_URL` 留空时在 API 内装配；设置后使用 `IDENTITY_TOKEN` 和独立服务，错误不会回退。`IDENTITY_AUTH_DATABASE_URL` 或 `_FILE` 可在内嵌模式选择函数专用 LOGIN，两项不能同时设置；显式文件错误不会改用应用连接。未配置时，本地请求复用调用方事务，socket 使用独立短事务。
 
+同一运行时也提供 `POST /v1/identity/api-keys/execute`，持有 API key 五项管理命令和可重放回执。公开路由只消费主体和值消息，不水合 User 或写 key ORM。内嵌装配可另设 `IDENTITY_KEY_DATABASE_URL(_FILE)` 使用命令专用 LOGIN；两项最多一项，显式错误不会回到应用连接。远程装配复用 `IDENTITY_URL`，写入由独立服务持有。
+
 先安装迁移及 module-data owner grants，再为预先创建、无继承／成员关系的四个 LOGIN 安装精确权限：
 
 ```bash
@@ -1125,20 +1127,33 @@ psql -v expected_database=annotation_test -v migration_role=owner \
 
 PUBLIC 的 TEMP 须在数据库初始化时撤销。准入 LOGIN 只有四项函数能力，不持有业务表、Redis、队列或对象存储权限。密码恢复、登出和账号生命周期通过调用方同一 SQL 事务维护持久 generation／JTI；单纯远程认证不会替业务命令取得最终写入围栏。
 
-独立进程显式设置 `IDENTITY_DATABASE_URL(_FILE)`、`IDENTITY_TOKEN(_FILE)`、`IDENTITY_SIGNING_SECRET(_FILE)`，每对恰好一项；它不读取 API `.env`。签名 secret 与 API `SECRET_KEY` 相同。运行 `uv run --project apps/identity --locked --extra runtime python -m aap_identity_runtime`，或使用可选 `docker-compose.identity.yml` 及三个 `IDENTITY_RUNTIME_*_FILE`。`/health` 是进程存活，`/ready` 检查原生协议及四项调用权限。Secret 文件须对容器用户可读，源码目录不挂入运行镜像。
+另为预先创建、无继承／成员关系的 `identity_key_client` 安装两项命令能力：
+
+```bash
+psql -v expected_database=annotation_test -v migration_role=owner \
+  -v identity_owner=identity_code -v identity_key_role=identity_key_client \
+  -f infra/docker/identity-keys-grants.sql
+```
+
+此 LOGIN 只有 key 策略和命令执行函数，不含准入函数或直接表权限。运行时分别使用准入与命令两个连接；命令前的哈希工作不持有最终业务锁，原生函数锁当前账号、凭据和目标 key 后共同提交修改与回执。非空 key 操作回执阻止删除该协议的降级，回执随其 Identity 账号的物理删除级联清除。
+
+独立进程显式设置 `IDENTITY_DATABASE_URL(_FILE)`、`IDENTITY_TOKEN(_FILE)`、`IDENTITY_SIGNING_SECRET(_FILE)`，每对恰好一项；它不读取 API `.env`。命令另设 `IDENTITY_KEY_DATABASE_URL(_FILE)`，省略时只提供准入，命令返回 503。签名 secret 与 API `SECRET_KEY` 相同。运行 `uv run --project apps/identity --locked --extra runtime python -m aap_identity_runtime`，或使用可选 `docker-compose.identity.yml` 及四个 `IDENTITY_RUNTIME_*_FILE`。`/health` 是进程存活，`/ready` 检查原生协议及已配置能力的精确调用权限。Secret 文件须对容器用户可读，源码目录不挂入运行镜像。
 
 这次认证切换要求旧 JWT 重新登录，API key 保留原 SQL 状态。先停止全部旧 API／WebSocket／签发与刷新进程，再受控迁移并启动新验证器；不能新旧认证滚动并行或回到接受旧 JWT 的代码。已有用户或撤销记录时，迁移拒绝降级；保留数据向前恢复。独立安装包、只读容器、真实 API／WebSocket 和 Node 准入客户端已通过一次性本地联调，备份还原后保留原生权限和撤销状态。当前日常环境尚未切换这一能力，完整凭据命令与多 owner 生命周期仍待完成。详见 [ADR-0115](docs/adr/0115-identity-admission-and-durable-revocation.md)。
 
-复验使用 `scripts/verify_module_data_boundary.py` 创建的独立 PostgreSQL、Redis 和测试桶。先用 `uv sync --project apps/identity --locked --extra runtime --no-editable` 安装独立包，再构建 `apps/identity/Dockerfile`。镜像须带 `org.aap.acceptance=identity-admission` 和唯一的 `org.aap.acceptance-id` 标签。设置 `AAP_IDENTITY_RUNTIME_PYTHON` 为该虚拟环境 Python 的绝对路径，`AAP_IDENTITY_RUNTIME_IMAGE` 为镜像名或摘要，`AAP_IDENTITY_RUNTIME_IDENTITY` 为对应标签值，然后运行：
+复验使用 `scripts/verify_module_data_boundary.py` 创建的独立 PostgreSQL、Redis 和测试桶。先用 `uv sync --project apps/identity --locked --extra runtime --no-editable --reinstall-package aap-identity` 安装当前源码的独立包，再构建 `apps/identity/Dockerfile`。镜像须带 `org.aap.acceptance=identity-admission` 和唯一的 `org.aap.acceptance-id` 标签。设置 `AAP_IDENTITY_RUNTIME_PYTHON` 为该虚拟环境 Python 的绝对路径，`AAP_IDENTITY_RUNTIME_IMAGE` 为镜像名或摘要，`AAP_IDENTITY_RUNTIME_IDENTITY` 为对应标签值，然后运行：
 
 ```bash
-AAP_IDENTITY_LIVE_ACCEPTANCE=1 apps/api/.venv/bin/python \
+AAP_IDENTITY_LIVE_ACCEPTANCE=1 AAP_IDENTITY_KEYS_LIVE_ACCEPTANCE=1 apps/api/.venv/bin/python \
   scripts/verify_module_data_boundary.py --output .worktree/identity-live.json \
   --test-file tests/test_identity_admission_live.py \
+  --test-file tests/test_identity_keys_live.py \
   --test-file tests/test_identity_recovery.py
 ```
 
 这组测试启动独立服务和 API，验证当前角色、JWT／API key、登出、全设备登出、WebSocket 重验、停服拒绝及备份恢复；Node 仅是无 Python 依赖的契约客户端。安装内容逐文件匹配源码；容器只读、非 root，限制为 1 CPU／256 MiB。32 次 JWT 请求、并发 8 的本地采样只用于联通与并发冒烟，不能作为生产容量结论。验收器清理自己的基础设施，JSON 和 JUnit 保留实际退出状态；全部跳过不会记为通过，镜像留作工件。
+
+key 命令验收另覆盖无身份表权限的真实 API 调用层、Node 五项操作、丢响应后重启重放、有效期／省略字段／Unicode、撤销与缺失能力拒绝，以及备份恢复后的回执和 secret 变更冲突。公开请求保留原有单次 POST 行为；重放始终要求当前有效凭据，用 key 轮换自身后须换有效凭据重放。算法与轮换边界见 [ADR-0116](docs/adr/0116-independent-identity-key-commands.md) 和[私有运行协议](docs-site/api/guides/identity-runtime.md)。
 
 ## 普通批量结果检查点
 

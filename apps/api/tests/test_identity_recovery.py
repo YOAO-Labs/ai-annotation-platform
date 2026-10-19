@@ -18,9 +18,11 @@ from sqlalchemy.ext.asyncio import create_async_engine
 
 from aap_identity.authenticator import Authenticator
 from aap_identity.contract import IdentityFailure
+from aap_identity.key_contract import KeyFailure, decode_key_request
+from aap_identity.key_manager import KeyManager
+from aap_identity.key_postgres import KeyPostgresData
 from aap_identity.postgres import PostgresData
-from aap_identity.security import decode_access_token, hash_password
-from app.db.models.api_key import ApiKey
+from aap_identity.security import decode_access_token
 from app.db.models.user import User
 from tests.test_asset_storage_cleanup_runtime import _verify_postgres
 from tests.test_identity_admission_live import ROOT, _cleanup, _dsn, _token, _world
@@ -54,7 +56,11 @@ def _postgres_tool(test_engine, command, *, body=None):
     return result.stdout
 
 
-def _refuse_downgrade(url):
+def _refuse_downgrade(
+    url,
+    *,
+    message=b"Cannot remove credential generation or durable revocation authority",
+):
     environment = dict(os.environ)
     raw = url.render_as_string(hide_password=False)
     environment.update(
@@ -68,9 +74,7 @@ def _refuse_downgrade(url):
         timeout=40,
     )
     assert result.returncode != 0
-    assert b"Cannot remove credential generation or durable revocation authority" in (
-        result.stdout + result.stderr
-    )
+    assert message in (result.stdout + result.stderr)
 
 
 async def test_restored_authority_retains_revocation_and_refuses_populated_downgrade(
@@ -89,7 +93,7 @@ async def test_restored_authority_retains_revocation_and_refuses_populated_downg
     secret = secrets.token_urlsafe(32)
     value = _token(actor, secret, gen=9)
     jti = uuid.UUID(decode_access_token(value, secret=secret)["jti"])
-    key, key_id = "ak_" + secrets.token_urlsafe(24), uuid.uuid4()
+    key_id = uuid.uuid4()
     snapshot = tmp_path / "authority.dump"
     try:
         async with maker.begin() as db:
@@ -97,20 +101,25 @@ async def test_restored_authority_retains_revocation_and_refuses_populated_downg
                 text("UPDATE public.users SET credential_generation=9 WHERE id=:id"),
                 {"id": actor},
             )
-            db.add(
-                ApiKey(
-                    id=key_id,
-                    user_id=actor,
-                    name="Restore fixture",
-                    key_prefix=key[:12],
-                    key_hash=hash_password(key),
-                    scopes=["datasets:read"],
-                )
-            )
             await db.execute(
                 text("SELECT aap_identity_v1.revoke_jti(:jti,:expiry)"),
                 {"jti": jti, "expiry": datetime.now(UTC) + timedelta(days=8)},
             )
+        command = decode_key_request(
+            {
+                "schema": "aap-identity-keys/v1",
+                "operation": "create_api_key",
+                "operation_id": str(key_id),
+                "token": _token(actor, secret, gen=9),
+                "payload": {"name": "Restore fixture", "scopes": ["datasets:read"]},
+            }
+        )
+        issued = await KeyManager(
+            Authenticator(PostgresData(_dsn("AUTH", test_engine)), secret),
+            KeyPostgresData(_dsn("KEYS", test_engine)),
+            secret,
+        ).execute(command)
+        key = issued.model_dump(mode="python")["data"]["plaintext"]
         dump = _postgres_tool(
             test_engine,
             ["pg_dump", "-U", "owner", "-Fc", test_engine.url.database],
@@ -140,11 +149,31 @@ async def test_restored_authority_retains_revocation_and_refuses_populated_downg
         assert principal.credential_id == key_id
         assert principal.scopes == ["datasets:read"]
 
-        _refuse_downgrade(owner_url)
+        key_url = make_url(_dsn("KEYS", test_engine)).set(database=clone)
+        key_data = KeyPostgresData(key_url.render_as_string(hide_password=False))
+        replay = await KeyManager(auth, key_data, secret).execute(command)
+        replay_key = replay.model_dump(mode="python")["data"]["plaintext"]
+        assert secrets.compare_digest(replay_key, key), (
+            "Restored operation returned different material"
+        )
+        changed_secret = secrets.token_urlsafe(32)
+        changed_auth = Authenticator(
+            PostgresData(auth_url.render_as_string(hide_password=False)), changed_secret
+        )
+        changed_command = command.model_copy(update={"token": key})
+        with pytest.raises(KeyFailure, match="operation_conflict"):
+            await KeyManager(changed_auth, key_data, changed_secret).execute(
+                changed_command
+            )
+        assert (await changed_auth.authenticate(key)).credential_id == key_id
+
+        _refuse_downgrade(
+            owner_url, message=b"Cannot remove Identity API-key operation receipts"
+        )
         async with restored.begin() as db:
             assert (
                 await db.scalar(text("SELECT version_num FROM alembic_version"))
-                == "0235"
+                == "0236"
             )
             assert (
                 await db.scalar(
@@ -159,7 +188,7 @@ async def test_restored_authority_retains_revocation_and_refuses_populated_downg
         async with restored.connect() as db:
             assert (
                 await db.scalar(text("SELECT version_num FROM alembic_version"))
-                == "0235"
+                == "0236"
             )
             assert (
                 await db.scalar(
@@ -172,7 +201,8 @@ async def test_restored_authority_retains_revocation_and_refuses_populated_downg
             )
         record_property("restored_snapshot_sha256", hashlib.sha256(dump).hexdigest())
         record_property(
-            "restored_authority", "generation,jti,api-key,restricted-auth-grants"
+            "restored_authority",
+            "generation,jti,api-key,key-receipt,restricted-auth-and-key-grants",
         )
     finally:
         snapshot.unlink(missing_ok=True)

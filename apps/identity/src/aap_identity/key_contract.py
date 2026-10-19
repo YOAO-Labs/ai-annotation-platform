@@ -179,6 +179,13 @@ class KeyRevokedData(ClosedModel):
     key_id: uuid.UUID
     revoked: Literal[True]
 
+    @field_validator("revoked", mode="before")
+    @classmethod
+    def boolean_revocation(cls, value):
+        if type(value) is not bool:
+            raise ValueError("Revocation must be a boolean")
+        return value
+
 
 class KeyFailureDetail(ClosedModel):
     code: KeyFailureCode
@@ -435,9 +442,8 @@ class NativeKeyRecordData(ClosedModel):
     key: KeyRecord
 
 
-class NativeKeyRevokedData(ClosedModel):
-    key_id: uuid.UUID
-    revoked: Literal[True]
+class NativeKeyRevokedData(KeyRevokedData):
+    pass
 
 
 class _NativeSuccess(ClosedModel):

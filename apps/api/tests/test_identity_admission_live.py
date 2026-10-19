@@ -141,6 +141,9 @@ async def _start_container_identity(test_engine, directory, secret, control):
         "IDENTITY_DATABASE_URL": make_url(_dsn("AUTH", test_engine))
         .set(host="host.docker.internal")
         .render_as_string(hide_password=False),
+        "IDENTITY_KEY_DATABASE_URL": make_url(_dsn("KEYS", test_engine))
+        .set(host="host.docker.internal")
+        .render_as_string(hide_password=False),
         "IDENTITY_TOKEN": control,
         "IDENTITY_SIGNING_SECRET": secret,
     }
@@ -252,7 +255,9 @@ def _start(command, environment, cwd, log_path, port, ready):
         raise
 
 
-def _start_identity(test_engine, directory, secret, control, *, port=None):
+def _start_identity(
+    test_engine, directory, secret, control, *, port=None, enable_keys=True
+):
     interpreter = Path(os.environ["AAP_IDENTITY_RUNTIME_PYTHON"])
     assert interpreter.is_file()
     values = {
@@ -260,6 +265,8 @@ def _start_identity(test_engine, directory, secret, control, *, port=None):
         "token": control,
         "signing_secret": secret,
     }
+    if enable_keys:
+        values["key_database_url"] = _dsn("KEYS", test_engine)
     environment = {
         "PATH": os.environ.get("PATH", ""),
         "IDENTITY_HOST": "127.0.0.1",
@@ -280,7 +287,7 @@ def _start_identity(test_engine, directory, secret, control, *, port=None):
     )
 
 
-def _start_api(directory, secret, control, identity_origin):
+def _start_api(directory, secret, control, identity_origin, *, database_url=None):
     environment = dict(os.environ)
     environment.update(
         {
@@ -289,6 +296,8 @@ def _start_api(directory, secret, control, identity_origin):
             "IDENTITY_TOKEN": control,
             "IDENTITY_AUTH_DATABASE_URL": "",
             "IDENTITY_AUTH_DATABASE_URL_FILE": "",
+            "IDENTITY_KEY_DATABASE_URL": "",
+            "IDENTITY_KEY_DATABASE_URL_FILE": "",
             "MIGRATION_DATABASE_URL": "",
             "ALEMBIC_AUTO_UPGRADE": "false",
             "E2E_SEED_ENABLED": "false",
@@ -297,6 +306,9 @@ def _start_api(directory, secret, control, identity_origin):
             "DEBUG": "false",
         }
     )
+    if database_url:
+        environment["DATABASE_URL"] = database_url
+        environment["AUDIT_ASYNC"] = "true"
     for prefix in (
         "ASSETS_CATALOG",
         "ASSETS_SOURCE",

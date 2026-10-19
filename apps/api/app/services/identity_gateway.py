@@ -38,7 +38,7 @@ def _secret_value(value) -> str | None:
     return getter() if callable(getter) else str(value)
 
 
-def _postgres_dsn(value: str) -> str:
+def identity_postgres_dsn(value: str) -> str:
     try:
         return (
             make_url(value)
@@ -46,6 +46,41 @@ def _postgres_dsn(value: str) -> str:
             .render_as_string(hide_password=False)
         )
     except Exception:
+        raise IdentityGatewayUnavailable() from None
+
+
+def identity_database_source(value: str | None, path: str | None) -> str | None:
+    if value and path:
+        raise IdentityGatewayUnavailable()
+    if path:
+        try:
+            with Path(path).open("rb") as stream:
+                raw = stream.read(4097)
+            if len(raw) > 4096:
+                raise IdentityGatewayUnavailable()
+            value = raw.decode().strip()
+            if not value:
+                raise IdentityGatewayUnavailable()
+        except (OSError, UnicodeError):
+            raise IdentityGatewayUnavailable() from None
+    return identity_postgres_dsn(value) if value else None
+
+
+def identity_endpoint(origin: str | None, path: str) -> str:
+    try:
+        target = urlsplit(origin)
+        if (
+            target.scheme not in {"http", "https"}
+            or not target.hostname
+            or target.username is not None
+            or target.password is not None
+            or target.query
+            or target.fragment
+        ):
+            raise IdentityGatewayUnavailable()
+        _ = target.port
+        return f"{origin.rstrip('/')}{path}"
+    except (ValueError, AttributeError):
         raise IdentityGatewayUnavailable() from None
 
 
@@ -98,23 +133,13 @@ class IdentityGateway:
         if not self.identity_token:
             raise IdentityGatewayUnavailable()
         try:
-            target = urlsplit(self.identity_url)
-            if (
-                target.scheme not in {"http", "https"}
-                or not target.hostname
-                or target.username is not None
-                or target.password is not None
-                or target.query
-                or target.fragment
-            ):
-                raise IdentityGatewayUnavailable()
-            _ = target.port
+            endpoint = identity_endpoint(self.identity_url, "/v1/identity/authenticate")
             async with httpx.AsyncClient(
                 timeout=self.timeout_seconds, trust_env=False
             ) as client:
                 async with client.stream(
                     "POST",
-                    f"{self.identity_url}/v1/identity/authenticate",
+                    endpoint,
                     json={"token": token},
                     headers={"Authorization": f"Bearer {self.identity_token}"},
                 ) as response:
@@ -135,9 +160,8 @@ class IdentityGateway:
             raise IdentityGatewayUnavailable() from None
         return principal
 
-    async def _authenticate_embedded(self, token: str, *, db: AsyncSession | None):
+    def embedded_authenticator(self, db: AsyncSession | None):
         from aap_identity.authenticator import Authenticator
-        from aap_identity.contract import IdentityFailure, IdentityUnavailable
         from aap_identity.postgres import PostgresData
 
         secret = (
@@ -146,33 +170,33 @@ class IdentityGateway:
             else _secret_value(settings.secret_key)
         )
         try:
-            if not secret or (self.auth_database_url and self.auth_database_url_file):
+            if not secret or self.identity_url is not None:
                 raise IdentityGatewayUnavailable()
+            dsn = identity_database_source(
+                self.auth_database_url, self.auth_database_url_file
+            )
             if self.uses_caller_session(db):
                 from app.services.identity_session_data import IdentitySessionData
 
                 data = IdentitySessionData(db)
             else:
-                dsn = _secret_value(self.auth_database_url)
-                if not dsn and self.auth_database_url_file:
-                    with Path(self.auth_database_url_file).open("rb") as stream:
-                        raw = stream.read(4097)
-                    if len(raw) > 4096:
-                        raise IdentityGatewayUnavailable()
-                    dsn = raw.decode().strip()
-                    if not dsn:
-                        raise IdentityGatewayUnavailable()
                 if not dsn:
-                    dsn = settings.database_url
-                data = PostgresData(_postgres_dsn(dsn))
-            return await Authenticator(data, secret=secret).authenticate(token)
+                    dsn = identity_postgres_dsn(settings.database_url)
+                data = PostgresData(dsn)
+            return Authenticator(data, secret=secret)
+        except (OSError, UnicodeError):
+            raise IdentityGatewayUnavailable() from None
+
+    async def _authenticate_embedded(self, token: str, *, db: AsyncSession | None):
+        from aap_identity.contract import IdentityFailure, IdentityUnavailable
+
+        try:
+            return await self.embedded_authenticator(db).authenticate(token)
         except IdentityFailure as exc:
             self._raise_failure(exc.code)
         except IdentityGatewayUnavailable:
             raise
         except IdentityUnavailable:
-            raise IdentityGatewayUnavailable() from None
-        except (OSError, UnicodeError):
             raise IdentityGatewayUnavailable() from None
 
     @staticmethod

@@ -5,6 +5,7 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
+from aap_identity.contract import Principal
 from app.db.base import async_session
 from app.db.models.user import User
 from app.db.models.project import Project
@@ -167,12 +168,12 @@ def get_video_tracker_job_dispatcher() -> VideoTrackerJobDispatcher:
     return CeleryVideoTrackerJobDispatcher()
 
 
-async def get_current_user(
+async def get_current_principal(
     request: Request,
     credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
     db: AsyncSession = Depends(get_db),
     identity: IdentityGateway = Depends(get_identity_gateway),
-) -> User:
+) -> Principal:
     exc = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="无效的认证凭据",
@@ -189,6 +190,20 @@ async def get_current_user(
             detail="身份认证服务暂不可用",
         ) from None
 
+    request.state.identity_principal = principal
+    is_api_key = principal.credential_type == "api_key"
+    request.state.api_key_scopes = list(principal.scopes or []) if is_api_key else None
+    request.state.api_key_id = str(principal.credential_id) if is_api_key else None
+    if is_api_key and identity.uses_caller_session(db):
+        await db.commit()
+    return principal
+
+
+async def get_current_user(
+    request: Request,
+    principal: Principal = Depends(get_current_principal),
+    db: AsyncSession = Depends(get_db),
+) -> User:
     result = await db.execute(
         select(User)
         .where(User.id == principal.actor_id)
@@ -196,14 +211,15 @@ async def get_current_user(
     )
     user = result.scalar_one_or_none()
     if user is None or not user.is_active or user.role != principal.role:
-        raise exc
+        for field in ("identity_principal", "api_key_scopes", "api_key_id"):
+            if hasattr(request.state, field):
+                delattr(request.state, field)
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="无效的认证凭据",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
     # Profile hydration must not overwrite a role change after admission.
-    request.state.identity_principal = principal
-    is_api_key = principal.credential_type == "api_key"
-    request.state.api_key_scopes = list(principal.scopes or []) if is_api_key else None
-    request.state.api_key_id = str(principal.credential_id) if is_api_key else None
-    if is_api_key and identity.uses_caller_session(db):
-        await db.commit()
     return user
 
 

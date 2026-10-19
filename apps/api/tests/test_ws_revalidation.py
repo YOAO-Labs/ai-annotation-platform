@@ -13,7 +13,7 @@ from sqlalchemy import delete, update
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.api.v1 import ws
-from app.core.security import create_access_token, hash_password
+from app.core.security import create_access_token
 from app.db.models.api_key import ApiKey
 from app.db.models.project import Project
 from app.db.models.task import Task
@@ -21,8 +21,7 @@ from app.db.models.user import User
 from app.services.identity_contracts import IdentityActorFacts
 from app.services.identity_gateway import IdentityGateway
 from app.services.notification import NotificationService
-from app.services import api_key_service
-from tests.factory import create_project, create_task, create_user
+from tests.factory import create_api_key, create_project, create_task, create_user
 
 
 def _actor_facts(*, role: str = "employee") -> IdentityActorFacts:
@@ -449,16 +448,7 @@ async def test_socket_gateway_persists_api_key_usage_from_function_runtime(
             f"ws-api-key-{uuid.uuid4()}@test.local",
             "API socket admin",
         )
-        plaintext, prefix = api_key_service.generate_token()
-        key = ApiKey(
-            user_id=user.id,
-            name="WS Identity test",
-            key_prefix=prefix,
-            key_hash=hash_password(plaintext),
-            scopes=[],
-        )
-        setup.add(key)
-        await setup.flush()
+        key, plaintext = await create_api_key(setup, user.id, "WS Identity test", [])
         user_id, key_id = user.id, key.id
         await setup.commit()
 

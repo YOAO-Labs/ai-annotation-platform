@@ -148,6 +148,29 @@ class KeyData:
 
 
 @pytest.mark.asyncio
+async def test_revoke_translates_native_result_into_the_wire_model():
+    actor = principal()
+    command = request("revoke_api_key", {"key_id": str(KEY_ID)})
+
+    class RevokeData:
+        async def execute_key_command(self, native):
+            return {
+                "schema": NATIVE_KEY_PROTOCOL,
+                "ok": True,
+                "operation": "revoke_api_key",
+                "operation_id": native["operation_id"],
+                "principal": actor.model_dump(mode="json"),
+                "data": {"key_id": str(KEY_ID), "revoked": True},
+            }
+
+    reply = await KeyManager(
+        BoundAuth(VerifiedCredential(actor, None)), RevokeData(), SECRET
+    ).execute(command)
+    assert reply.operation == "revoke_api_key" and reply.data.key_id == KEY_ID
+    assert reply.data.revoked is True
+
+
+@pytest.mark.asyncio
 async def test_authenticate_bound_returns_only_the_verified_api_key_hash():
     token = "ak_" + "q" * 32
     hashed = bcrypt.hashpw(token.encode(), bcrypt.gensalt(rounds=4)).decode()

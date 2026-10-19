@@ -74,7 +74,7 @@ last_reviewed: 2026-10-19
   `IdentityCommandService.mark_inactive_accounts_offline(cutoff)` 以单条批量更新写身份状态，
   保留 online 与缺失/严格早于 cutoff 的 `last_seen_at` 条件。
 - 邀请接受：`application/invitation_acceptance.py` 组合 `InvitationService`、`IdentityCommandService` 与 `project_membership.grant_invitation_membership`。邀请、账号、成员各由对应所有者写入；原 token/当前权限锁与重复 409 保持，HTTP 持有审计、最终提交和 JWT 签发。
-- 自有 API key 管理：`services/api_key_contracts.ApiKeyManagementPort` 以 owner UUID 和现有 schema 提供五个操作；`api_key_service.SqlApiKeyManagement` 绑定请求 Session，持有凭据行与原提交/refresh，并返回响应 DTO。`deps.get_current_user_id` 复用同一次认证，凭据解析及 `last_used_at` 提交保持原路径。
+- 自有 API key 管理：`services/api_key_contracts.ApiKeyManagementPort` 消费 `aap-identity-keys/v1` 值消息，`api_key_service.IdentityKeyManagement` 装配调用方事务、函数专用连接或独立运行时。`deps.get_current_principal` 提供准入和审计身份；管理路由不水合 User 或写 key ORM。Identity 命令所有者持有五项操作、当前凭据围栏、签发和冻结回执。
 - 类别重命名：`application/project_class_rename.py` 组合 workspace 绑定与
   `AnnotationService.rename_class_name()`；管理权威及排他项目锁在修改前刷新。
   工具选择只收窄配置，存量标注的项目级名称迁移及原版本语义保留。

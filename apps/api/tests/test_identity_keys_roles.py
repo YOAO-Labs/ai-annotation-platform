@@ -32,7 +32,7 @@ async def test_identity_key_login_has_only_two_functions_and_no_private_or_ddl_a
         actual = await connection.fetch(
             """
             SELECT namespace.nspname || '.' || function.proname || '('
-                   || pg_catalog.pg_get_function_identity_arguments(function.oid) || ')' AS signature
+                   || pg_catalog.oidvectortypes(function.proargtypes) || ')' AS signature
             FROM pg_catalog.pg_proc AS function
             JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid=function.pronamespace
             WHERE left(namespace.nspname,4)='aap_'

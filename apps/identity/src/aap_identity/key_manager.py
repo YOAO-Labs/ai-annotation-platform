@@ -23,6 +23,7 @@ from .key_contract import (
     KeyFailure,
     KeyListData,
     KeyRecordData,
+    KeyRevokedData,
     KeyReply,
     ListKeyReply,
     ListKeyRequest,
@@ -176,6 +177,8 @@ class KeyManager:
             return RevokeKeyReply(
                 **shared,
                 operation="revoke_api_key",
-                data=reply.data,
+                data=KeyRevokedData(
+                    key_id=reply.data.key_id, revoked=reply.data.revoked
+                ),
             )
         raise IdentityUnavailable()

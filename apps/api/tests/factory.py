@@ -97,6 +97,32 @@ async def create_user(
     return user
 
 
+async def create_api_key(
+    db: AsyncSession,
+    user_id: uuid.UUID,
+    name: str,
+    scopes: list[str],
+    expires_at: datetime | None = None,
+):
+    """Stage a real hashed test credential without invoking a production command."""
+    from app.core.security import hash_password
+    from app.db.models.api_key import ApiKey
+
+    plaintext = "ak_" + secrets.token_urlsafe(24)
+    key = ApiKey(
+        user_id=user_id,
+        name=name,
+        key_prefix=plaintext[:12],
+        key_hash=hash_password(plaintext),
+        scopes=scopes,
+        expires_at=expires_at,
+    )
+    db.add(key)
+    await db.flush()
+    await db.refresh(key)
+    return key, plaintext
+
+
 async def create_project(
     db: AsyncSession,
     *,

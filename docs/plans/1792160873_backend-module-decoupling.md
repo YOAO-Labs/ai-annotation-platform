@@ -2233,3 +2233,54 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   Full Identity command ownership, least-privilege API assembly, selected provider
   replacement, the remaining module matrix and local cutover stay active. The
   Go experiment, production, push, release and remote CI are outside this work.
+
+### Identity API-key command ownership and replay qualification
+
+- The existing Identity package and private runtime now own list, create, update,
+  rotate and revoke. The API command port carries values and validated principals;
+  the former ORM key writer and token generator are removed. Public response
+  shapes and scope rules are unchanged. Admission remains a separate call for
+  failed-request attribution, followed by independent command authentication and
+  the native commit fence.
+- Migration 0236 adds one Identity-owned mutation receipt table and two native
+  functions. The separate key LOGIN has exactly policy and command capabilities,
+  without direct tables, DDL, memberships or AUTH functions. Current User and
+  credential locks serialize writes with revocation, generation and key rotation;
+  API-key hash equality rejects a key rotated after its password verification.
+- Receipts and writes commit atomically. Explicit private operation replay returns
+  frozen data after current authentication, without reapplying old state. HMAC
+  derivation under a separate purpose domain reproduces issuance plaintext across
+  response loss and restart; receipts store neither bearer plaintext nor hashes.
+  Secret rotation conflicts with old issue operations while existing key hashes
+  remain valid. Self-rotation requires another valid owner credential for replay.
+  Public POSTs gain no automatic retry or idempotency header.
+- A real API process uses the AUTH LOGIN, which cannot SELECT users or API keys,
+  and completes all five commands through the independent owner container. Node
+  exercises every operation with exact 64-bit generation values. Tests cover
+  dropped rotation replies, provider restart, saved-operation replay, revoked
+  credentials, omitted/null expiry, Unicode names, operation conflicts, missing
+  capabilities and no fallback. This is cross-language consumption evidence,
+  not a second-language provider replacement or sustained capacity qualification.
+- ACL-preserving backup/restore retains key operation receipts as well as keys,
+  generation and JTI state. Restricted AUTH and key LOGINS authenticate and replay
+  after restore. Nonempty receipts block downgrade; after account-owned cascade,
+  retained JTI state still blocks the entire downgrade transaction.
+- Backend qualification has 524 distinct latest passing cases and 122 explicit
+  domain lazy-root exclusions. Initial native integration failures were corrected
+  for PostgreSQL JSON shape checks, fixture flush ordering, function signature
+  inspection and the revoke reply DTO. A broader regression exposed a source
+  test that assumed overwrites remove old versions; focused replacements prove
+  preserved frozen-version reads and rejection when that version is unavailable.
+  Reports retain earlier failures and their targeted successful replacements.
+- The independent installed package passes all 62 tests from a temporary working
+  directory with Python isolated mode. The current nonroot image matches all
+  package/schema source hashes and passes real process/container acceptance.
+  Focused SDK auth, API-key, discovery and OpenAPI checks pass 53 cases; the public
+  OpenAPI snapshot is unchanged. Five owned verifier runs report zero cleanup
+  errors and remove their PostgreSQL, Redis, buckets and storage identities.
+- Daily development remains at migration 0234 with the earlier qualified source;
+  no primary signing secret, source, configuration or workers are switched.
+  Login/registration, password/email/account commands, profile hydration, multi-
+  owner lifecycle, complete API least privilege, other modules, provider language
+  replacement and daily cutover remain active. The final assembled API image is
+  qualified separately from the live host-API/Identity-container acceptance.

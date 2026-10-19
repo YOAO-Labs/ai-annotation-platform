@@ -172,7 +172,7 @@ async def test_profile_role_changed_after_admission_is_not_restored():
     from fastapi import HTTPException
     from fastapi.security import HTTPAuthorizationCredentials
     from starlette.requests import Request
-    from app.deps import get_current_user
+    from app.deps import get_current_principal, get_current_user
 
     value = _principal()
     user = SimpleNamespace(id=value.actor_id, role="employee", is_active=True)
@@ -187,12 +187,13 @@ async def test_profile_role_changed_after_admission_is_not_restored():
 
     request = Request({"type": "http"})
     with pytest.raises(HTTPException) as error:
-        await get_current_user(
+        principal = await get_current_principal(
             request,
             HTTPAuthorizationCredentials(scheme="Bearer", credentials="token"),
             Database(),
             Gateway(),
         )
+        await get_current_user(request, principal, Database())
     assert error.value.status_code == 401 and user.role == "employee"
     assert not hasattr(request.state, "identity_principal")
 

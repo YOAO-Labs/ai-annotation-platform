@@ -182,3 +182,30 @@ class IdentitySessionData:
                     instance, "credential_generation", result["generation"]
                 )
         return result
+
+
+class IdentityKeySessionData:
+    """Stage key-owner commands in the caller's committing SQL transaction."""
+
+    def __init__(self, db: AsyncSession) -> None:
+        self.db = db
+
+    async def _call(self, statement: str, parameters: dict):
+        try:
+            value = await self.db.scalar(text(statement), parameters)
+            result = _json_value(value)
+            if not isinstance(result, dict):
+                raise IdentityGatewayUnavailable()
+            return result
+        except SQLAlchemyError:
+            raise IdentityGatewayUnavailable() from None
+
+    async def key_policy(self) -> dict:
+        return await self._call("SELECT aap_identity_keys_v1.key_policy()", {})
+
+    async def execute_key_command(self, request: dict) -> dict:
+        await self.db.flush()
+        return await self._call(
+            "SELECT aap_identity_keys_v1.execute_key_command(CAST(:request AS jsonb))",
+            {"request": json.dumps(request)},
+        )

@@ -292,6 +292,25 @@ def test_targeted_update_and_revoke_replies_require_the_requested_key_id():
         "data": {"key_id": str(KEY_ID), "revoked": True},
     }
     assert decode_key_reply(revoke_request, revoke_reply).operation == "revoke_api_key"
+    actor = Principal.model_validate_json(json.dumps(revoke_reply["principal"]))
+    native_revoke = {**revoke_reply, "schema": NATIVE_KEY_PROTOCOL}
+    assert (
+        decode_native_key_reply(
+            revoke_request, native_revoke, expected_principal=actor, new_key=None
+        ).data.revoked
+        is True
+    )
+    for value in (1, "true", False, None):
+        data = {"key_id": str(KEY_ID), "revoked": value}
+        with pytest.raises(IdentityUnavailable):
+            decode_key_reply(revoke_request, {**revoke_reply, "data": data})
+        with pytest.raises(IdentityUnavailable):
+            decode_native_key_reply(
+                revoke_request,
+                {**native_revoke, "data": data},
+                expected_principal=actor,
+                new_key=None,
+            )
     with pytest.raises(IdentityUnavailable):
         decode_key_reply(
             revoke_request,

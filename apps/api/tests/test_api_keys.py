@@ -285,6 +285,9 @@ async def test_actor_routes_resolve_identity_principal_once(
 
     from app.db.models.user import User
     from app.deps import get_db, get_identity_gateway
+    from app.api.v1.api_keys import get_api_key_management
+    from aap_identity.contract import Principal
+    from aap_identity.key_contract import decode_key_reply
     from tests.factory import make_user_dict
 
     maker = async_sessionmaker(test_engine, expire_on_commit=False)
@@ -294,6 +297,7 @@ async def test_actor_routes_resolve_identity_principal_once(
     previous_gateway = app_module.dependency_overrides.get(
         get_identity_gateway, missing
     )
+    previous_keys = app_module.dependency_overrides.get(get_api_key_management, missing)
     try:
         owner_email = f"api-key-owner-{uuid.uuid4()}@test.local"
         async with maker() as db:
@@ -315,7 +319,7 @@ async def test_actor_routes_resolve_identity_principal_once(
             async def authenticate(self, token, *, db=None):
                 self.calls += 1
                 assert token == "ak_test_identity_principal"
-                return SimpleNamespace(
+                self.principal = SimpleNamespace(
                     actor_id=owner_id,
                     name="API Key Owner",
                     email=owner_email,
@@ -327,12 +331,32 @@ async def test_actor_routes_resolve_identity_principal_once(
                     scopes=[],
                     expires_at=None,
                 )
+                return self.principal
 
             def uses_caller_session(self, _db):
                 return False
 
         gateway = FakeGateway()
         app_module.dependency_overrides[get_identity_gateway] = lambda: gateway
+
+        class KeyOwner:
+            async def execute(self, command):
+                assert command.operation == "list_api_keys"
+                assert command.token == "ak_test_identity_principal"
+                principal = Principal(**vars(gateway.principal))
+                return decode_key_reply(
+                    command,
+                    {
+                        "schema": "aap-identity-keys/v1",
+                        "ok": True,
+                        "operation": command.operation,
+                        "operation_id": str(command.operation_id),
+                        "principal": principal.model_dump(mode="json"),
+                        "data": {"items": []},
+                    },
+                )
+
+        app_module.dependency_overrides[get_api_key_management] = lambda: KeyOwner()
         session_count = 0
 
         async def get_independent_db():
@@ -381,6 +405,10 @@ async def test_actor_routes_resolve_identity_principal_once(
             app_module.dependency_overrides.pop(get_identity_gateway, None)
         else:
             app_module.dependency_overrides[get_identity_gateway] = previous_gateway
+        if previous_keys is missing:
+            app_module.dependency_overrides.pop(get_api_key_management, None)
+        else:
+            app_module.dependency_overrides[get_api_key_management] = previous_keys
         if owner_id is not None:
             async with maker() as db:
                 await db.execute(delete(User).where(User.id == owner_id))

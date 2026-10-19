@@ -36,7 +36,7 @@ function hasExactKeys(value, keys) {
   );
 }
 
-function parseJsonPreservingGeneration(source) {
+export function parseJsonPreservingGeneration(source) {
   return JSON.parse(source, (key, value, context) => {
     if (key !== "generation" || value === null) return value;
     const numberSource = context?.source;
@@ -49,7 +49,7 @@ function parseJsonPreservingGeneration(source) {
   });
 }
 
-function uuid(value) {
+export function uuid(value) {
   if (
     typeof value !== "string" ||
     !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)
@@ -59,7 +59,7 @@ function uuid(value) {
   return value.toLowerCase();
 }
 
-function validDateTime(value) {
+export function validDateTime(value) {
   const match =
     typeof value === "string" &&
     /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,6}))?(Z|[+-]\d{2}:\d{2})$/.exec(
@@ -96,7 +96,7 @@ function validDateTime(value) {
   return Number.isFinite(Date.parse(value));
 }
 
-function principalReceipt(value) {
+export function principalReceipt(value) {
   const fields = [
     "actor_id",
     "name",
@@ -201,7 +201,7 @@ export function parseIdentityReceipt(body, status, contentType = "application/js
   };
 }
 
-function validateInput(value) {
+export function validateInput(value) {
   if (!hasExactKeys(value, ["url", "control_token", "credential"])) fail();
   if (
     typeof value.url !== "string" ||
@@ -236,7 +236,7 @@ function validateInput(value) {
   return { origin, controlToken: value.control_token, credential: value.credential };
 }
 
-async function readInput() {
+export async function readPeerInput() {
   const chunks = [];
   let size = 0;
   for await (const chunk of process.stdin) {
@@ -245,13 +245,13 @@ async function readInput() {
     chunks.push(chunk);
   }
   const text = new TextDecoder("utf-8", { fatal: true }).decode(Buffer.concat(chunks));
-  return validateInput(JSON.parse(text));
+  return JSON.parse(text);
 }
 
-function postCredential(origin, controlToken, credential) {
-  const endpoint = new URL("/v1/identity/authenticate", origin);
+export function postIdentityRequest(origin, controlToken, path, payload) {
+  const endpoint = new URL(path, origin);
   const transport = endpoint.protocol === "https:" ? httpsRequest : httpRequest;
-  const body = Buffer.from(JSON.stringify({ token: credential }), "utf8");
+  const body = Buffer.from(JSON.stringify(payload), "utf8");
 
   return new Promise((resolveResponse, rejectResponse) => {
     const request = transport(
@@ -299,8 +299,10 @@ function postCredential(origin, controlToken, credential) {
 }
 
 async function main() {
-  const { origin, controlToken, credential } = await readInput();
-  const response = await postCredential(origin, controlToken, credential);
+  const { origin, controlToken, credential } = validateInput(await readPeerInput());
+  const response = await postIdentityRequest(origin, controlToken, "/v1/identity/authenticate", {
+    token: credential,
+  });
   process.stdout.write(
     `${JSON.stringify(
       parseIdentityReceipt(response.text, response.status, response.contentType),

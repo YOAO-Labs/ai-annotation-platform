@@ -478,7 +478,10 @@ last_reviewed: 2026-10-20
 | `IDENTITY_TIMEOUT_SECONDS` | `20` | — |
 | `IDENTITY_AUTH_DATABASE_URL` | `—` | 可选函数专用准入 LOGIN；两项二选一，使用 postgresql://，留空沿用当前应用连接。 |
 | `IDENTITY_AUTH_DATABASE_URL_FILE` | `—` | — |
-| `IDENTITY_RUNTIME_DATABASE_URL_FILE` | `—` | 独立 Compose 的三个 secret 文件。DSN 只能使用准入函数 LOGIN；签名 secret 与当前 API SECRET_KEY 相同。 |
+| `IDENTITY_KEY_DATABASE_URL` | `—` | 内嵌 API key 命令可用独立的两项函数 LOGIN；每对 DSN / 文件最多一项。 |
+| `IDENTITY_KEY_DATABASE_URL_FILE` | `—` | — |
+| `IDENTITY_RUNTIME_DATABASE_URL_FILE` | `—` | 独立 Compose 的四个 secret 文件。准入／命令分别使用函数 LOGIN；签名 secret 与当前 API SECRET_KEY 相同。 |
+| `IDENTITY_RUNTIME_KEY_DATABASE_URL_FILE` | `—` | — |
 | `IDENTITY_RUNTIME_TOKEN_FILE` | `—` | — |
 | `IDENTITY_RUNTIME_SIGNING_SECRET_FILE` | `—` | — |
 

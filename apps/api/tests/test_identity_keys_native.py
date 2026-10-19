@@ -285,6 +285,7 @@ async def test_patch_semantics_expired_targets_and_owner_isolation(test_engine):
                     is_active=True,
                 )
             )
+            await session.flush()
             session.add(
                 ApiKey(
                     id=other_key_id,

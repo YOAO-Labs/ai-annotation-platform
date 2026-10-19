@@ -7,10 +7,12 @@ services:
       IDENTITY_HOST: 0.0.0.0
       IDENTITY_PORT: 8170
       IDENTITY_DATABASE_URL_FILE: /run/secrets/identity_database_url
+      IDENTITY_KEY_DATABASE_URL_FILE: /run/secrets/identity_key_database_url
       IDENTITY_TOKEN_FILE: /run/secrets/identity_token
       IDENTITY_SIGNING_SECRET_FILE: /run/secrets/identity_signing_secret
     secrets:
       - identity_database_url
+      - identity_key_database_url
       - identity_token
       - identity_signing_secret
     ports:
@@ -25,6 +27,8 @@ services:
 secrets:
   identity_database_url:
     file: ${IDENTITY_RUNTIME_DATABASE_URL_FILE:?Set Identity function-only DSN file}
+  identity_key_database_url:
+    file: ${IDENTITY_RUNTIME_KEY_DATABASE_URL_FILE:?Set Identity API-key command DSN file}
   identity_token:
     file: ${IDENTITY_RUNTIME_TOKEN_FILE:?Set Identity private bearer file}
   identity_signing_secret:

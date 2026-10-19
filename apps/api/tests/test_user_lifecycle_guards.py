@@ -18,7 +18,7 @@ from app.db.models.task_batch import TaskBatch
 from app.db.models.task_lock import TaskLock
 from app.db.models.user import User
 from app.deps import get_current_user, get_db
-from app.services.api_key_service import _create_key_for_owner
+from tests.factory import create_api_key
 from app.services.password_reset import PasswordResetService
 from tests.factory import (
     create_membership,
@@ -241,7 +241,7 @@ async def test_emergency_handoff_reactivation_retires_old_credentials(
 ):
     actor, _ = super_admin
     target, receiver, projects, batches, tasks = await seed_handoff(db_session, actor)
-    key, token = await _create_key_for_owner(
+    key, token = await create_api_key(
         db_session, target.id, "Export integration", ["*"]
     )
     old_headers = headers(target)
@@ -297,9 +297,7 @@ async def test_legacy_suspension_retires_keys_and_recovery_links(
 ):
     actor, _ = super_admin
     target, _, _, _, _ = await seed_handoff(db_session, actor)
-    _, key = await _create_key_for_owner(
-        db_session, target.id, "Old integration", ["*"]
-    )
+    _, key = await create_api_key(db_session, target.id, "Old integration", ["*"])
     token = await PasswordResetService(db_session).create_token(target.email)
     response = await httpx_client.post(
         f"/api/v1/users/{target.id}/deactivate", headers=headers(actor)

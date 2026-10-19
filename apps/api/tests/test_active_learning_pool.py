@@ -290,11 +290,11 @@ async def test_conditional_reads_compute_actual_sha_and_detect_inflight_object_c
 async def test_prepare_rechecks_api_key_after_candidate_media_io(
     db_session, super_admin, monkeypatch
 ):
-    from app.services.api_key_service import _create_key_for_owner
+    from tests.factory import create_api_key
 
     owner, _ = super_admin
     world = await seed(db_session, owner, monkeypatch)
-    key, _token = await _create_key_for_owner(
+    key, _token = await create_api_key(
         db_session, owner.id, "active-learning-revocation", ["*"]
     )
     original = pool.asyncio.to_thread

@@ -17,7 +17,7 @@ from app.db.models.dataset import Dataset
 from app.db.models.task import Task
 from aap_assets_catalog.spatial_contract import CreateSceneRequest, GetSceneRequest
 from app.services.assets_spatial import AssetsSpatialGateway
-from app.services.api_key_service import _create_key_for_owner
+from tests.factory import create_api_key
 from tests.factory import create_membership, create_project, create_task, create_user
 
 pytestmark = pytest.mark.asyncio
@@ -363,10 +363,8 @@ async def test_scene_reads_enforce_dataset_scope_for_api_keys(
     owner, _ = super_admin
     dataset = await _dataset(db_session, owner.id)
     scene = await _create_scene(db_session, dataset.id, "scope")
-    _, no_scope_token = await _create_key_for_owner(
-        db_session, owner.id, "scene-none", []
-    )
-    _, read_token = await _create_key_for_owner(
+    _, no_scope_token = await create_api_key(db_session, owner.id, "scene-none", [])
+    _, read_token = await create_api_key(
         db_session, owner.id, "scene-read", ["datasets:read"]
     )
     no_scope = {"Authorization": f"Bearer {no_scope_token}"}
