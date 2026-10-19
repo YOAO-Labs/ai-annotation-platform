@@ -185,11 +185,30 @@ async def test_public_observation_binds_current_source_without_signing_or_dispat
     database = Database(native)
     storage = FakeStorage(source_identity=current.object_identity)
     observed = await ImageControl(database, storage).observe_source(
-        c.ReadImageSourceRequest(actor_id=uuid4(), task_id=current.task_id)
+        c.ReadImageSourceRequest(actor_id=uuid4(), task_id=current.task_id),
+        expected_source_snapshot=current.source_snapshot,
     )
     assert observed == current
     assert storage.head_source_calls == [unbound]
     assert not storage.signed_source and not storage.signed_cache
+
+
+@pytest.mark.asyncio
+async def test_observation_rejects_captured_snapshot_change_before_head():
+    current = source(owner=c.ImageOwner(kind="task", id=uuid4()))
+    database = Database(lambda _operation, _request: current)
+    storage = FakeStorage()
+
+    with pytest.raises(c.ImageFailure, match="source_changed"):
+        await ImageControl(database, storage).observe_source(
+            c.ReadImageSourceRequest(actor_id=uuid4(), task_id=current.task_id),
+            expected_source_snapshot="f" * 64,
+        )
+
+    assert [operation for operation, _request in database.calls] == [
+        "read_image_source"
+    ]
+    assert storage.head_source_calls == []
 
 
 def pyramid_projection(current, *, status="ready", generation=2, attempt=None):

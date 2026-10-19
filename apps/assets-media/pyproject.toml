@@ -30,7 +30,7 @@ aap-media-probe = { path = "../media-probe", editable = true }
 aap_assets_media = ["protocol.schema.json", "openapi.snapshot.json"]
 aap_assets_images = ["protocol.schema.json", "openapi.snapshot.json"]
 aap_assets_inputs = ["protocol.schema.json", "openapi.snapshot.json"]
-aap_assets_input_manifests = ["protocol.schema.json"]
+aap_assets_input_manifests = ["protocol.schema.json", "openapi.snapshot.json"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

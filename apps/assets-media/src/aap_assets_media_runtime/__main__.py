@@ -18,6 +18,9 @@ from aap_assets_inputs_runtime.api import install_input_routes
 from aap_assets_inputs_runtime.control import InputControl
 from aap_assets_inputs_runtime.database import AsyncpgInputDatabase
 from aap_assets_inputs_runtime.storage import S3InputStorage
+from aap_assets_input_manifests_runtime.api import install_manifest_routes
+from aap_assets_input_manifests_runtime.control import ManifestControl
+from aap_assets_input_manifests_runtime.database import AsyncpgManifestDatabase
 
 from .api import create_app
 from .control import MediaControl
@@ -47,12 +50,17 @@ def configured_app(config):
         def __getattr__(self, name):
             return getattr(state["input_control"], name)
 
+    class ManifestControlProxy:
+        def __getattr__(self, name):
+            return getattr(state["manifest_control"], name)
+
     async def ready():
         return "pool" in state and await check_capabilities(state["pool"], "control")
 
     app = create_app(Control(), config.token, readiness=ready)
     install_image_routes(app, ImageControlProxy(), config.token)
     install_input_routes(app, InputControlProxy(), config.token)
+    install_manifest_routes(app, ManifestControlProxy(), config.token)
 
     image_storage = load_image_storage_config()
     image_storage = replace(
@@ -108,6 +116,10 @@ def configured_app(config):
                 state["image_control"],
                 state["input_storage"],
                 url_expiry_seconds=min(image_policy.url_expiry_seconds, 3600),
+            )
+            state["manifest_control"] = ManifestControl(
+                AsyncpgManifestDatabase(pool, allowed_roles={"control"}),
+                state["image_control"],
             )
             yield
         finally:
