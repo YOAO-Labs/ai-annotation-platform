@@ -88,6 +88,10 @@ from app.services.pipeline_validation import (
 from app.services.capability_registry import INPUT_BBOX_PROMPT, INPUT_CROP
 from app.services.batch_permissions import allows_bulk_preannotation
 from app.services.accepted_inputs import InputAdmission, get_input_admission
+from app.services.accepted_input_manifests import (
+    InputManifestCaptureFactory,
+    get_input_manifest_capture,
+)
 from app.services.pipeline_template import (
     assert_pipeline_visible,
 )
@@ -1725,6 +1729,9 @@ async def trigger_preannotation(
         get_batch_prediction_dispatcher
     ),
     input_admission: InputAdmission = Depends(get_input_admission),
+    input_manifest_capture: InputManifestCaptureFactory = Depends(
+        get_input_manifest_capture
+    ),
 ):
     from app.services.ml_backend import MLBackendService
     from app.services.audit import AuditService
@@ -1908,6 +1915,57 @@ async def trigger_preannotation(
                 raise HTTPException(status_code=422, detail=geo_violations[0].detail)
         pipeline_stages_payload = norm
 
+    from app.services import async_job as async_job_svc
+    from app.services.data_management.actions import (
+        assert_idempotent_request_matches,
+        find_idempotent_job,
+        lock_idempotency_key,
+        normalize_idempotency_key,
+        request_digest as data_manager_request_digest,
+    )
+
+    idempotency_key = normalize_idempotency_key(idempotency_key)
+    existing_job = None
+    request_digest_value = None
+    canonical_task_ids = (
+        sorted(set(body.task_ids), key=str) if body.task_ids is not None else None
+    )
+    if idempotency_key is not None:
+        canonical_body = body.model_dump(mode="json")
+        canonical_body["task_ids"] = (
+            [str(task_id) for task_id in canonical_task_ids]
+            if canonical_task_ids is not None
+            else None
+        )
+        request_digest_value = data_manager_request_digest(canonical_body)
+        await lock_idempotency_key(
+            db,
+            action="preannotate",
+            project_id=project.id,
+            actor_id=current_user.id,
+            key=idempotency_key,
+        )
+        existing_job = await find_idempotent_job(
+            db,
+            kind="batch_predict",
+            project_id=project.id,
+            actor_id=current_user.id,
+            key=idempotency_key,
+        )
+        if existing_job is not None:
+            assert_idempotent_request_matches(existing_job, digest=request_digest_value)
+            if existing_job.status != "pending":
+                return {
+                    "job_id": str(existing_job.id),
+                    "status": existing_job.status,
+                    "total_tasks": (existing_job.payload or {}).get("total_tasks"),
+                    "channel": f"project:{project.id}:preannotate",
+                    "celery_task_id": existing_job.celery_task_id,
+                }
+
+    replay_manifest = existing_job is not None and (
+        (existing_job.payload or {}).get("accepted_input_manifest_protocol") is not None
+    )
     if body.execution_scope == "workbench":
         if not body.task_ids:
             raise HTTPException(
@@ -1923,7 +1981,11 @@ async def trigger_preannotation(
             )
     explicit_task_ids: list[uuid.UUID] | None = None
     if body.task_ids:
-        if body.execution_scope == "workbench":
+        if replay_manifest:
+            # The native capture replay validates the original selector; do not
+            # reselect or replace accepted membership from today's Task state.
+            explicit_task_ids = canonical_task_ids
+        elif body.execution_scope == "workbench":
             explicit_task_ids = await _validate_workbench_task_scope(
                 db,
                 project=project,
@@ -1940,7 +2002,9 @@ async def trigger_preannotation(
 
     # v0.9.5 · 指定 batch 时校验归属本项目 + 状态在 active
     total_tasks_hint: int | None = None
-    if body.batch_id:
+    if replay_manifest:
+        total_tasks_hint = (existing_job.payload or {}).get("total_tasks")
+    elif body.batch_id:
         from app.db.models.task_batch import TaskBatch
         from app.db.enums import BatchStatus
         from app.db.models.task import Task as TaskModel
@@ -2012,6 +2076,15 @@ async def trigger_preannotation(
         if src_stage is not None and src_stage.source:
             execution_unit = (src_stage.source or {}).get("execution_unit")
 
+    uses_input_manifest = replay_manifest or (
+        body.execution_scope == "bulk"
+        and project.data_type == "image"
+        and execution_unit not in {"frame", "video", "scene"}
+        and not has_tracker_stage
+        and not has_text_stage
+        and body.task not in {"text", "tracker"}
+    )
+
     accepted_input_task_id: uuid.UUID | None = None
     if (
         body.execution_scope == "workbench"
@@ -2037,7 +2110,7 @@ async def trigger_preannotation(
         else {}
     )
 
-    if uses_controlled_model:
+    if uses_controlled_model and not replay_manifest:
         media_scope = [Task.project_id == project.id, Task.file_type != "image"]
         if explicit_task_ids is not None:
             media_scope.append(Task.id.in_(explicit_task_ids))
@@ -2086,49 +2159,94 @@ async def trigger_preannotation(
     # - 数据管理重试可带幂等键 (复用/去重)。
     # - 工作台单题请求 (无幂等键) 也预建, 使 worker 在派发前的范围复校验失败时
     #   on_failure 能按 celery_task_id 落一条 failed 作业 (issue #121 review)。
-    from app.services import async_job as async_job_svc
-    from app.services.data_management.actions import (
-        assert_idempotent_request_matches,
-        find_idempotent_job,
-        lock_idempotency_key,
-        normalize_idempotency_key,
-        request_digest as data_manager_request_digest,
-    )
+    accepted_input_manifest_protocol = None
+    accepted_input_manifest_id = None
+    accepted_input_manifest_digest = None
 
-    idempotency_key = normalize_idempotency_key(idempotency_key)
+    async def capture_input_manifest(job: AsyncJob, *, replay: bool):
+        nonlocal total_tasks_hint
+        nonlocal accepted_input_manifest_protocol
+        nonlocal accepted_input_manifest_id
+        nonlocal accepted_input_manifest_digest
+        if not uses_input_manifest:
+            return
+
+        from aap_assets_input_manifests import contract as manifests
+
+        selection = manifests.ManifestSelection(
+            batch_id=body.batch_id,
+            task_ids=explicit_task_ids,
+            predict_mode=body.predict_mode,
+        )
+        payload = job.payload or {}
+        if replay and (
+            payload.get("accepted_input_manifest_protocol") != manifests.MANIFEST_SCHEMA
+            or payload.get("accepted_input_manifest_id") != str(job.id)
+            or payload.get("input_selection") != selection.model_dump(mode="json")
+            or not isinstance(payload.get("accepted_input_manifest_digest"), str)
+        ):
+            await async_job_svc.mark_dispatch_failed(
+                db, job.id, error="accepted_input_manifest_identity_invalid"
+            )
+            await db.commit()
+            raise HTTPException(
+                status_code=409,
+                detail="本次批量图像任务缺少有效冻结输入清单，请重新发起",
+            )
+        if not replay:
+            job.payload = {
+                **payload,
+                "accepted_input_manifest_protocol": manifests.MANIFEST_SCHEMA,
+                "accepted_input_manifest_id": str(job.id),
+                "input_selection": selection.model_dump(mode="json"),
+            }
+        capture_request = manifests.CaptureManifestRequest(
+            job_id=job.id,
+            actor_id=current_user.id,
+            project_id=project.id,
+            selection=selection,
+        )
+        try:
+            header = await input_manifest_capture(db).capture(capture_request)
+            manifests.require_scope(capture_request, header)
+            if replay and (
+                header.selection_digest != payload["accepted_input_manifest_digest"]
+            ):
+                raise manifests.ManifestFailure("manifest_scope_mismatch")
+        except (ValueError, TypeError, AttributeError) as exc:
+            await db.rollback()
+            raise HTTPException(
+                status_code=503,
+                detail="冻结输入清单返回无效，请重试本次请求",
+                headers={"Retry-After": "5"},
+            ) from exc
+        except manifests.ManifestFailure as exc:
+            await db.rollback()
+            transient = exc.code in {
+                "manifest_busy",
+                "storage_unavailable",
+                "invalid_response",
+            }
+            raise HTTPException(
+                status_code=503 if transient else 409,
+                detail=f"无法冻结批量图像输入：{exc.code}",
+                headers={"Retry-After": "5"} if transient else None,
+            ) from exc
+        total_tasks_hint = header.selected_count
+        accepted_input_manifest_protocol = manifests.MANIFEST_SCHEMA
+        accepted_input_manifest_id = str(job.id)
+        accepted_input_manifest_digest = header.selection_digest
+        job.payload = {
+            **(job.payload or {}),
+            "accepted_input_manifest_digest": header.selection_digest,
+            "total_tasks": header.selected_count,
+            "input_candidate_count": header.candidate_count,
+        }
+
     precreated_job: AsyncJob | None = None
     if idempotency_key is not None:
-        canonical_body = body.model_dump(mode="json")
-        canonical_body["task_ids"] = (
-            [str(task_id) for task_id in explicit_task_ids]
-            if explicit_task_ids is not None
-            else None
-        )
-        request_digest_value = data_manager_request_digest(canonical_body)
-        await lock_idempotency_key(
-            db,
-            action="preannotate",
-            project_id=project.id,
-            actor_id=current_user.id,
-            key=idempotency_key,
-        )
-        existing = await find_idempotent_job(
-            db,
-            kind="batch_predict",
-            project_id=project.id,
-            actor_id=current_user.id,
-            key=idempotency_key,
-        )
+        existing = existing_job
         if existing is not None:
-            assert_idempotent_request_matches(existing, digest=request_digest_value)
-            if existing.status != "pending":
-                return {
-                    "job_id": str(existing.id),
-                    "status": existing.status,
-                    "total_tasks": (existing.payload or {}).get("total_tasks"),
-                    "channel": f"project:{project.id}:preannotate",
-                    "celery_task_id": existing.celery_task_id,
-                }
             # A request may have crashed after committing this pending row but
             # before publishing to Celery. Reuse the row and safely republish;
             # the worker's row lock makes a duplicate delivery a no-op.
@@ -2175,6 +2293,7 @@ async def trigger_preannotation(
         # can therefore resolve a job even if the worker fails before the API
         # request reaches its post-dispatch commit.
         async_job_svc.bind_execution_id(precreated_job, str(precreated_job.id))
+        await capture_input_manifest(precreated_job, replay=existing is not None)
         await db.commit()
     else:
         # Every request without an idempotency key still needs a durable job id
@@ -2212,6 +2331,7 @@ async def trigger_preannotation(
             },
         )
         async_job_svc.bind_execution_id(precreated_job, str(precreated_job.id))
+        await capture_input_manifest(precreated_job, replay=False)
         await db.commit()
 
     accepted_inputs_protocol: str | None = None
@@ -2369,6 +2489,9 @@ async def trigger_preannotation(
         frozen_model_ref=frozen_model_ref,
         accepted_inputs_protocol=accepted_inputs_protocol,
         accepted_input_ids=accepted_input_ids,
+        accepted_input_manifest_protocol=accepted_input_manifest_protocol,
+        accepted_input_manifest_id=accepted_input_manifest_id,
+        accepted_input_manifest_digest=accepted_input_manifest_digest,
     )
     try:
         dispatched_id = batch_dispatcher.dispatch(

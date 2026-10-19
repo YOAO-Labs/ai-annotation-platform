@@ -63,6 +63,16 @@ The existing image-worker and cleanup scopes remain ten and six capabilities.
 Current single-image, video/frame, tracker and Learning paths retain their
 separate qualification and migration status.
 
+API composition binds `InputManifestCapturePort` to its existing transaction;
+the port exchanges only the published value request/header. The durable Job
+stores `accepted_input_manifest_protocol`, `accepted_input_manifest_id` (its own
+ID), `accepted_input_manifest_digest`, canonical `input_selection`, selected
+`total_tasks` and `input_candidate_count`. A pending same-key replay reads its
+original manifest without applying today's selector again. The local gateway
+reuses the existing Input/Image owners; explicit remote mode uses the four HTTP
+control operations without a local fallback. Each preparation delivery attempts
+at most 100 unfinished members, skipping already completed Inputs on replay.
+
 ## Consequences
 
 Bulk submission gains explicit input preparation before inference. The complete
