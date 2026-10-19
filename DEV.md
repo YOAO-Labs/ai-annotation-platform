@@ -1083,6 +1083,8 @@ uv run --project apps/assets-media --extra runtime python -m aap_assets_media_ru
 
 受理视频输入使用同一控制工件的 `POST /v1/video-inputs/{manifest,members,prepare,seal,input,verify,times,require-frame,frame,reference}`，协议为 `aap-assets-video-input-control/v1`。capture、worker、最终 Labeling 围栏及回收函数不作为 HTTP 命令暴露。视频 Worker 默认公平轮询技术媒体、受理原始视频和派生帧三类队列；`--once` 最多执行一个已领取单位，可组合互斥的 `--job-id`、`--input-id` 或 `--frame-id` 精确选择。来源字节复用既有 Media 凭据与数据集桶，不要求为视频 Worker 增加图片 Worker 环境变量。
 
+视频 Worker 的 CLI 收到 `SIGTERM` 后停止领取新单位，保留当前单位的处理与租约心跳，完成后关闭运行资源；空闲轮询会立即唤醒退出。`--once` 同样可排空当前单位，`--healthcheck` 和 `SIGINT` 保持原行为。部署的停止宽限时间应容纳当前处理；超时强杀仍依靠租约和来源围栏恢复，不能据此宣称任意在途作业都能立即接管。
+
 逐帧业务入口与 Celery 段任务已消费同一保留清单、原视频和精确帧。分离迁移账号与单体 runtime 时，工作树准备和 `lan-production-grants.sql` 为 runtime 补充精确的 25 项视频 workflow/control/worker/Labeling 能力，以及 22 项图片媒体和 16 项已受理图片输入、清单与 Labeling 引用能力；视频 sweep/垃圾回收、图片输入 sweep/垃圾回收和图片私有回执/Pin helper 仍由各自 owner 控制，不改变独立模块的受限账号配置。先应用迁移及授权，再刷新实际 API/Celery；旧逐帧消息缺少清单身份会明确失败，不按当前视频恢复历史来源。所有外部准备与来源核验都在最终业务写锁之外。
 
 `apps/api/.venv/bin/python scripts/verify_legacy_image_runtime.py --output .worktree/legacy-image-runtime.json` 在一次性本地 PostgreSQL、专用 Redis 和隔离存储桶内分别验证工作树与 LAN 应用授权。它实际运行 LAN SQL，以非迁移账号验证图片原始输入、批量清单、标注证据继承和缩略图生成；此命令不修改日常开发库或真实部署。

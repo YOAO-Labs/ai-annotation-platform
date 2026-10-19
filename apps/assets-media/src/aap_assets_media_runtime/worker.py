@@ -10,6 +10,7 @@ from dataclasses import dataclass
 import hashlib
 from pathlib import Path
 import re
+import signal
 import stat
 import tempfile
 from typing import AsyncIterator, Sequence
@@ -628,14 +629,18 @@ async def _run_worker(
     job_id: UUID | None = None,
     input_id: UUID | None = None,
     frame_id: UUID | None = None,
+    shutdown_event: asyncio.Event | None = None,
 ) -> None:
     if sum(value is not None for value in (job_id, input_id, frame_id)) > 1:
         raise ValueError("worker selectors are mutually exclusive")
     config = load_config()
     runtime = await create_worker_runtime(config)
     poller = FairWorkerPoller(runtime.media_executor, runtime.video_executor)
+    stop_requested = shutdown_event or asyncio.Event()
     try:
         if once:
+            if stop_requested.is_set():
+                return
             await poller.execute_once(
                 job_id=job_id,
                 input_id=input_id,
@@ -643,7 +648,7 @@ async def _run_worker(
             )
             return
         next_maintenance = 0.0
-        while True:
+        while not stop_requested.is_set():
             did_work = None
             now = asyncio.get_running_loop().time()
             if now >= next_maintenance:
@@ -662,6 +667,8 @@ async def _run_worker(
                 next_maintenance = (
                     asyncio.get_running_loop().time() + _MAINTENANCE_INTERVAL_SECONDS
                 )
+            if stop_requested.is_set():
+                break
             try:
                 did_work = await poller.execute_once(
                     job_id=job_id,
@@ -672,10 +679,40 @@ async def _run_worker(
                 _LOGGER.error(
                     "Assets media worker iteration failed (%s)", type(exc).__name__
                 )
+            if stop_requested.is_set():
+                break
             if did_work is None:
-                await asyncio.sleep(config.poll_seconds)
+                try:
+                    await asyncio.wait_for(
+                        stop_requested.wait(), timeout=config.poll_seconds
+                    )
+                except asyncio.TimeoutError:
+                    pass
     finally:
         await runtime.close()
+
+
+async def _run_worker_cli(
+    *,
+    once: bool,
+    job_id: UUID | None = None,
+    input_id: UUID | None = None,
+    frame_id: UUID | None = None,
+) -> None:
+    """Install CLI-only SIGTERM handling and drain the current claimed unit."""
+    loop = asyncio.get_running_loop()
+    stop_requested = asyncio.Event()
+    loop.add_signal_handler(signal.SIGTERM, stop_requested.set)
+    try:
+        await _run_worker(
+            once=once,
+            job_id=job_id,
+            input_id=input_id,
+            frame_id=frame_id,
+            shutdown_event=stop_requested,
+        )
+    finally:
+        loop.remove_signal_handler(signal.SIGTERM)
 
 
 async def _healthcheck() -> None:
@@ -715,14 +752,19 @@ def main() -> None:
     if args.healthcheck:
         asyncio.run(_healthcheck())
         return
-    asyncio.run(
-        _run_worker(
-            once=args.once,
-            job_id=args.job_id,
-            input_id=args.input_id,
-            frame_id=args.frame_id,
+    # Leave SIGINT to asyncio.run; only container SIGTERM requests a drain.
+    previous_sigterm = signal.getsignal(signal.SIGTERM)
+    try:
+        asyncio.run(
+            _run_worker_cli(
+                once=args.once,
+                job_id=args.job_id,
+                input_id=args.input_id,
+                frame_id=args.frame_id,
+            )
         )
-    )
+    finally:
+        signal.signal(signal.SIGTERM, previous_sigterm)
 
 
 if __name__ == "__main__":
