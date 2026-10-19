@@ -181,8 +181,18 @@ async def test_frame_chord_retains_results_across_real_retries(
                     for key in keys:
                         assert broker.ttl(key) > 60
                     assert (
+                        broker.ttl(frame_preannotate._progress_key(str(world.job_id)))
+                        > 60
+                    )
+                    assert (
                         broker.ttl(
                             frame_preannotate._progress_total_key(str(world.job_id))
+                        )
+                        > 60
+                    )
+                    assert (
+                        broker.ttl(
+                            frame_preannotate._segment_results_key(str(world.job_id))
                         )
                         > 60
                     )

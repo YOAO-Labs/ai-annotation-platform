@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import json
 import random
 import uuid
 from dataclasses import asdict
@@ -90,8 +91,8 @@ def _progress_total_key(job_id: str) -> str:
     return f"frame_preannotate:{job_id}:total"
 
 
-def _segment_progress_key(job_id: str, segment_id: str) -> str:
-    return f"frame_preannotate:{job_id}:segment:{segment_id}"
+def _segment_results_key(job_id: str) -> str:
+    return f"frame_preannotate:{job_id}:segments"
 
 
 def _init_progress(job_id: str, total: int) -> None:
@@ -115,38 +116,117 @@ def _bump_progress(job_id: str, done_delta: int) -> tuple[int, int]:
 
 
 _SEGMENT_PROGRESS_LUA = """
-local segment = KEYS[1]
+local segments = KEYS[1]
 local done = KEYS[2]
 local total = KEYS[3]
-local delta = tonumber(ARGV[1])
-local ttl = tonumber(ARGV[2])
-if redis.call('EXISTS', segment) == 0 then
-  redis.call('SET', segment, '1', 'EX', ttl)
+local segment_id = ARGV[1]
+local delta = tonumber(ARGV[2])
+local ttl = tonumber(ARGV[3])
+local result = ARGV[4]
+local inserted = redis.call('HSETNX', segments, segment_id, result)
+if inserted == 1 then
   redis.call('INCRBY', done, delta)
+else
+  result = redis.call('HGET', segments, segment_id)
 end
-redis.call('EXPIRE', segment, ttl)
+redis.call('EXPIRE', segments, ttl)
 redis.call('EXPIRE', done, ttl)
 redis.call('EXPIRE', total, ttl)
-return {tonumber(redis.call('GET', done) or '0'), tonumber(redis.call('GET', total) or '0')}
+return {tonumber(redis.call('GET', done) or '0'), tonumber(redis.call('GET', total) or '0'), result}
 """
+
+_SEGMENT_RESULT_MAX_FAILURE_IDS = 100
+_SEGMENT_RESULT_MAX_GPU_FAILURES = 32
+
+
+def _bounded_segment_stats(stats: dict) -> dict:
+    """Keep chord receipts small and limited to aggregate frame outcomes."""
+    failed_ids = stats.get("failed_prediction_ids")
+    if not isinstance(failed_ids, list):
+        failed_ids = []
+    bounded = {
+        "task_id": str(stats.get("task_id", ""))[:36],
+        "frames_done": _safe_segment_count(stats.get("frames_done")),
+        "boxes": _safe_segment_count(stats.get("boxes")),
+        "failed": _safe_segment_count(stats.get("failed")),
+        "skipped": _safe_segment_count(stats.get("skipped")),
+        "failed_prediction_ids": [
+            str(value)[:36] for value in failed_ids[:_SEGMENT_RESULT_MAX_FAILURE_IDS]
+        ],
+    }
+    failures = stats.get("gpu_arbiter_failures")
+    if isinstance(failures, list):
+        summary = []
+        for failure in failures[:_SEGMENT_RESULT_MAX_GPU_FAILURES]:
+            if not isinstance(failure, dict):
+                continue
+            item = {}
+            code = failure.get("error_code")
+            if isinstance(code, str):
+                item["error_code"] = code[:64]
+            for name in ("status_code", "retry_after_s", "count"):
+                value = failure.get(name)
+                if type(value) is int and 0 <= value <= 2**53 - 1:
+                    item[name] = value
+            if item:
+                summary.append(item)
+        if summary:
+            bounded["gpu_arbiter_failures"] = summary
+    return bounded
+
+
+def _safe_segment_count(value) -> int:
+    if type(value) is int and 0 <= value <= 2**53 - 1:
+        return value
+    return 0
+
+
+def _serialize_segment_stats(stats: dict) -> str:
+    return json.dumps(
+        {"version": 1, "stats": _bounded_segment_stats(stats)},
+        separators=(",", ":"),
+        sort_keys=True,
+    )
+
+
+def _deserialize_segment_stats(encoded) -> dict:
+    try:
+        if isinstance(encoded, bytes):
+            encoded = encoded.decode("utf-8")
+        document = json.loads(encoded)
+        if (
+            not isinstance(document, dict)
+            or document.get("version") != 1
+            or not isinstance(document.get("stats"), dict)
+        ):
+            raise ValueError("invalid receipt document")
+        return _bounded_segment_stats(document["stats"])
+    except (UnicodeDecodeError, TypeError, ValueError, json.JSONDecodeError):
+        raise RuntimeError("invalid frame segment receipt in Redis") from None
 
 
 def _bump_segment_progress(
-    job_id: str, segment_id: str, done_delta: int
-) -> tuple[int, int]:
-    """Count a logical chord segment once, including on broker redelivery."""
+    job_id: str, segment_id: str, done_delta: int, stats: dict
+) -> tuple[int, int, dict]:
+    """Cache one logical chord result and count its progress atomically."""
     r = redis.from_url(settings.redis_url)
     try:
-        done, total = r.eval(
+        done, total, result = r.eval(
             _SEGMENT_PROGRESS_LUA,
             3,
-            _segment_progress_key(job_id, segment_id),
+            _segment_results_key(job_id),
             _progress_key(job_id),
             _progress_total_key(job_id),
+            segment_id,
             max(0, done_delta),
             86400,
+            _serialize_segment_stats(stats),
         )
-        return int(done or 0), int(total or 0)
+        return (
+            int(done or 0),
+            int(total or 0),
+            _deserialize_segment_stats(result),
+        )
     finally:
         r.close()
 
@@ -306,6 +386,7 @@ def predict_video_segment(
         with redis.from_url(settings.redis_url) as progress:
             progress.expire(_progress_key(job_id), 86400)
             progress.expire(_progress_total_key(job_id), 86400)
+            progress.expire(_segment_results_key(job_id), 86400)
         raise self.retry(
             args=(segment,),
             kwargs={
@@ -561,7 +642,13 @@ async def _run_segment(
             if await _job_cancelled(db, job_id):
                 stats["skipped"] += len(frame_ordinals)
                 if async_job is None or async_job.status not in {"pending", "running"}:
-                    return stats
+                    return await _finish_segment(
+                        stats,
+                        gpu_arbiter_failures,
+                        project_id=project_id,
+                        job_id=job_id,
+                        segment_id=segment_id,
+                    )
                 return await _finish_segment(
                     stats,
                     gpu_arbiter_failures,
@@ -1281,13 +1368,24 @@ async def _finish_segment(
 
     # 进度推进 (已处理帧 = 成功 + 跳过 + 失败): 让分母对齐规划总帧数。
     processed = stats["frames_done"] + stats["skipped"] + stats["failed"]
-    await _write_job_progress(job_id, processed, project_id, segment_id=segment_id)
-    return stats
+    canonical = await _write_job_progress(
+        job_id,
+        processed,
+        project_id,
+        segment_id=segment_id,
+        segment_stats=stats,
+    )
+    return canonical if isinstance(canonical, dict) else stats
 
 
 async def _write_job_progress(
-    job_id: str, done_delta: int, project_id: str, *, segment_id: str
-) -> None:
+    job_id: str,
+    done_delta: int,
+    project_id: str,
+    *,
+    segment_id: str,
+    segment_stats: dict,
+) -> dict:
     """Publish completed segment progress while fencing terminal transitions."""
     from sqlalchemy import select
     from sqlalchemy.ext.asyncio import (
@@ -1311,15 +1409,22 @@ async def _write_job_progress(
                 .with_for_update()
                 .execution_options(populate_existing=True)
             )
-            if job is None or job.status not in {"pending", "running"}:
-                return
-            done, total = _bump_segment_progress(job_id, segment_id, done_delta)
+            active = job is not None and job.status in {"pending", "running"}
+            done, total, canonical = _bump_segment_progress(
+                job_id,
+                segment_id,
+                done_delta if active else 0,
+                segment_stats,
+            )
+            if not active:
+                return canonical
             if total > 0:
                 pct = min(99, max(int(job.progress_pct or 0), int(done * 100 / total)))
                 await async_job_svc.update_progress(db, job.id, pct)
                 await db.flush()
             _publish_frame_progress(project_id, done, total, status="running")
             await db.commit()
+            return canonical
     finally:
         await engine.dispose()
 
