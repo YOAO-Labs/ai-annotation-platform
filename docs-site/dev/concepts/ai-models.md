@@ -3,12 +3,14 @@ audience: [dev]
 type: explanation
 since: v0.9.0
 status: stable
-last_reviewed: 2026-07-20
+last_reviewed: 2026-10-19
 ---
 
 # AI 模型集成
 
 协议契约见 [`ml-backend-protocol.md`](../reference/ml-backend-protocol)。本页说明当前模型服务的部署拓扑、显存预算、缓存、并发控制和能力协商。
+
+服务实例、模型、服务池和项目发布之间的关系，以及请求如何选路、Token 如何认证，见[模型服务接入、路由与认证](./ml-backend-routing-and-auth)。该文也说明训练结果回流、默认凭据的生成与同步，以及初始化和重建容器各自解决的问题。
 
 内置服务以固定服务 ID 和部署指定的唯一 URL 绑定系统托管认证，registry 的 `managed:<provider>` 与凭据一起参与既有认证修订围栏。API 只向该映射内的对应地址发送该服务凭据，禁用环境代理与重定向；URL 或认证并发变更会在短行锁下复核，防止把共享凭据绑定到另一个地址。凭据文件各自持久保存，服务只读自身子目录；启动生成默认值不改写已有实例认证，也不宣告服务可用。业务 Bearer 与 GPU 控制签名是独立校验，普通健康检查保持公开。外部服务保留 `none`／手动 `token`，`none` 不发送任何认证信息。
 

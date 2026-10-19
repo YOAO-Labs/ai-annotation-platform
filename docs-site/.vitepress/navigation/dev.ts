@@ -93,6 +93,7 @@ export function createDevSidebar(
             { text: "预标注流水线", link: "/dev/concepts/prediction-pipeline" },
             { text: "视频 AI 追踪", link: "/dev/concepts/video-ai-tracking" },
             { text: "AI 模型集成", link: "/dev/concepts/ai-models" },
+            { text: "模型服务接入、路由与认证", link: "/dev/concepts/ml-backend-routing-and-auth" },
           ],
         },
         {

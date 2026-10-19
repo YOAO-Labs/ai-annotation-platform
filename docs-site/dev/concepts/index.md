@@ -75,6 +75,8 @@
   tracker 能力路由、分窗身份、候选暂存与接受 / 丢弃边界
 - [AI 模型集成](./ai-models)：
   GroundingDINO / SAM 怎么接入，预测怎么存
+- [模型服务接入、路由与认证](./ml-backend-routing-and-auth)：
+  服务实例与模型的区别、服务池接流、训练回流和 Token 凭据
 
 ## 平台实现架构
 
