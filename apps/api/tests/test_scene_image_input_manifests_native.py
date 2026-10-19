@@ -37,6 +37,8 @@ async def _capture_request(db, *, actor_id, project_id, task_id):
         payload={
             "batch_id": None,
             "execution_scope": "bulk",
+            "task_ids": [str(task_id)],
+            "scope": {"task_ids": [str(task_id)]},
             "accepted_input_manifest_protocol": manifests.MANIFEST_SCHEMA,
             "accepted_input_manifest_id": str(job_id),
             "input_selection": selection.model_dump(mode="json"),

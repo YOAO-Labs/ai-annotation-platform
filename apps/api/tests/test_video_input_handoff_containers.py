@@ -1193,7 +1193,7 @@ async def test_media_containers_reclaim_and_fence_a_paused_original_lease(
             )
 
         finally:
-            for container_id in list(paused_containers):
+            for container_id in containers:
                 try:
                     await _unpause_owned_container(container_id, identity)
                 except Exception:

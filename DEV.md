@@ -1093,6 +1093,10 @@ uv run --project apps/assets-media --extra runtime python -m aap_assets_media_ru
 
 容器验收入口为 `apps/api/.venv/bin/python scripts/verify_video_consumers_containers.py --output .worktree/video-containers.json`。先从当前源码构建下列四个镜像，并给四者设置同一组标签：`org.aap.acceptance=module-data-boundary`、`org.aap.acceptance-id=<同一24位十六进制标识>`。将对应镜像引用写入环境变量；验收不构建镜像，也不刷新常驻开发栈。
 
+默认 `--profile smoke` 使用两项各 12 帧的小视频，并检查 Cleanup。`--profile capacity` 固定使用三项各 120 帧、1280×720 的移动图案视频，Job 等待上限为 900 秒；模型桩读取并解码真实版本化帧，在一项响应仍在处理时优雅停止对应 Celery 容器，由另一台继续完成。JUnit 保留对象读取、数据库 attempt、进度采样、内存及端到端耗时。模型回复中的固定推理耗时不作为实测延迟；逐帧任务当前使用提前确认，这项优雅交接也不证明强制杀进程后的消息重投。
+
+`--profile media-handoff` 只运行媒体租约接管，所需镜像变量仅为 `AAP_VIDEO_CONSUMER_MEDIA_WORKER_IMAGE`。它暂停正在处理的 A 容器，只在一次性验收库中将同一租约的 input 与 attempt 到期时间一起推进，再由 B 领取第二代租约；恢复 A 后验证其旧 token 被拒绝，且 B 的封存计划和精确帧保持不变。业务场景使用 180 秒等待预算，资源清理另行完成；清理先恢复本次创建的暂停容器，再按身份移除。该时钟推进只属于隔离故障注入，不在业务运行时提供接口。
+
 | 镜像环境变量                             | Dockerfile                       | 构建 target              |
 | ---------------------------------------- | -------------------------------- | ------------------------ |
 | `AAP_VIDEO_CONSUMER_API_IMAGE`           | `infra/docker/Dockerfile.api`    | 默认，API 与 Celery 共用 |
@@ -1120,7 +1124,7 @@ API 设置 `ASSETS_MEDIA_URL` 和相同的 `ASSETS_MEDIA_TOKEN` 后，将图片�
 
 图片 schema 属于迁移 `0220`，已受理输入属于 `0221`。按既有 module-data 与媒体授权顺序安装 owner/辅助能力、`infra/docker/assets-media-grants.sql` 和 `infra/docker/assets-image-grants.sql`。图片 Worker 只能执行自己的 10 项函数，不能直接访问表或其他 owner schema；清理 LOGIN 只能领取/确认 owner 发出的删除责任。所有 SQL LOGIN 必须与迁移角色和 NOLOGIN owner 分离。
 
-批量图片输入清单使用迁移 `0222`，不增加服务、桶或 secret。升级前排空或明确处理非 Scene 图片项目中仍为 pending/running、scope 为 bulk 或缺省、且没有清单协议的旧预标作业；迁移会拒绝这些在途记录。旧 pending payload 没有完整配方，文字／跟踪配方若排在普通图片项目中也保守纳入排空。刷新 API、普通预标 Celery consumer 和共享 Media 控制，核验三项 `accepted_input_manifest_*` 派发参数及四个 `/v1/input-manifests/` 路由；控制就绪探针需要精确 40 项能力。清单封存前不交付 Input 引用；已有单张 Workbench 输入协议保留。清单和成员是 native 管理的两张证据表，保留记录时拒绝 downgrade，不自动清空历史。
+批量图片输入清单的基础迁移为 `0222`，Scene 模式普通单图 Task 需要 `0227`，均不增加服务、桶或 secret。各自升级前先排空或明确处理对应图片项目中仍为 pending/running、scope 为 bulk 或缺省、且没有清单协议的旧预标作业；迁移会拒绝这些在途记录。旧 pending payload 没有完整配方，无法分类的文字／跟踪／场景配方也保守纳入排空；有明确保存的执行单位或配方标记时按原独立路径处理。刷新 API、普通预标 Celery consumer 和共享 Media 控制，核验三项 `accepted_input_manifest_*` 派发参数及四个 `/v1/input-manifests/` 路由；当前共享控制就绪探针核验 49 项能力。清单封存前不交付 Input 引用。清单和成员是 native 管理的两张证据表，保留记录时拒绝删除表；仍有 Scene 模式清单时也拒绝恢复旧的普通图片范围，不自动清空历史。
 
 可选 `docker-compose.assets-media.yml` 增加共享控制、视频 Worker 和图片 Worker；需要把它与默认服务文件组合，并只启动所需服务：
 

@@ -359,7 +359,7 @@ async def test_bulk_consumer_retains_original_inputs_for_roi_partial_failure_and
             batch = await create_batch(owner, project_id=project.id, status="active")
             backend = MLBackendRegistry(
                 name=f"manifest-{uuid4()}",
-                url="http://unused.test/",
+                url=f"http://unused-{uuid4().hex}.test/",
                 state="connected",
                 is_interactive=True,
             )
