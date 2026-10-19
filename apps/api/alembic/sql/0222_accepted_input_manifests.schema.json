@@ -37,18 +37,12 @@
           "title": "Task Ids"
         },
         "predict_mode": {
-          "enum": [
-            "skip_predicted",
-            "overwrite",
-            "append"
-          ],
+          "enum": ["skip_predicted", "overwrite", "append"],
           "title": "Predict Mode",
           "type": "string"
         }
       },
-      "required": [
-        "predict_mode"
-      ],
+      "required": ["predict_mode"],
       "title": "ManifestSelection",
       "type": "object"
     },
@@ -74,12 +68,7 @@
           "$ref": "#/$defs/ManifestSelection"
         }
       },
-      "required": [
-        "job_id",
-        "actor_id",
-        "project_id",
-        "selection"
-      ],
+      "required": ["job_id", "actor_id", "project_id", "selection"],
       "title": "CaptureManifestRequest",
       "type": "object"
     },
@@ -128,10 +117,7 @@
           "type": "integer"
         },
         "status": {
-          "enum": [
-            "preparing",
-            "sealed"
-          ],
+          "enum": ["preparing", "sealed"],
           "title": "Status",
           "type": "string"
         },
@@ -229,11 +215,7 @@
           "type": "string"
         }
       },
-      "required": [
-        "job_id",
-        "actor_id",
-        "project_id"
-      ],
+      "required": ["job_id", "actor_id", "project_id"],
       "title": "ManifestScope",
       "type": "object"
     },
@@ -288,12 +270,7 @@
           "type": "integer"
         }
       },
-      "required": [
-        "job_id",
-        "actor_id",
-        "project_id",
-        "selection_digest"
-      ],
+      "required": ["job_id", "actor_id", "project_id", "selection_digest"],
       "title": "ManifestPageRequest",
       "type": "object"
     },
@@ -301,10 +278,7 @@
       "additionalProperties": false,
       "properties": {
         "kind": {
-          "enum": [
-            "dataset_item",
-            "task"
-          ],
+          "enum": ["dataset_item", "task"],
           "title": "Kind",
           "type": "string"
         },
@@ -314,10 +288,7 @@
           "type": "string"
         }
       },
-      "required": [
-        "kind",
-        "id"
-      ],
+      "required": ["kind", "id"],
       "title": "ImageOwner",
       "type": "object"
     },
@@ -423,10 +394,7 @@
           "type": "string"
         },
         "bucket_kind": {
-          "enum": [
-            "datasets",
-            "legacy"
-          ],
+          "enum": ["datasets", "legacy"],
           "title": "Bucket Kind",
           "type": "string"
         },
@@ -588,13 +556,7 @@
           "type": "string"
         },
         "status": {
-          "enum": [
-            "pending",
-            "materializing",
-            "ready",
-            "failed",
-            "expired"
-          ],
+          "enum": ["pending", "materializing", "ready", "failed", "expired"],
           "title": "Status",
           "type": "string"
         },
@@ -838,12 +800,7 @@
           ]
         },
         "state": {
-          "enum": [
-            "unprepared",
-            "preparing",
-            "ready",
-            "failed"
-          ],
+          "enum": ["unprepared", "preparing", "ready", "failed"],
           "title": "State",
           "type": "string"
         },
@@ -974,10 +931,7 @@
           "title": "Version Id"
         }
       },
-      "required": [
-        "etag",
-        "byte_size"
-      ],
+      "required": ["etag", "byte_size"],
       "title": "ObjectIdentity",
       "type": "object"
     },
@@ -1015,12 +969,7 @@
           "type": "array"
         }
       },
-      "required": [
-        "manifest",
-        "cursor",
-        "next_cursor",
-        "members"
-      ],
+      "required": ["manifest", "cursor", "next_cursor", "members"],
       "title": "ManifestPage",
       "type": "object"
     },
@@ -1143,13 +1092,7 @@
           "$ref": "#/$defs/ManifestMember"
         }
       },
-      "required": [
-        "job_id",
-        "actor_id",
-        "project_id",
-        "selection_digest",
-        "member"
-      ],
+      "required": ["job_id", "actor_id", "project_id", "selection_digest", "member"],
       "title": "ManifestMemberReceipt",
       "type": "object"
     },
@@ -1177,12 +1120,7 @@
           "type": "string"
         }
       },
-      "required": [
-        "job_id",
-        "actor_id",
-        "project_id",
-        "selection_digest"
-      ],
+      "required": ["job_id", "actor_id", "project_id", "selection_digest"],
       "title": "SealManifestRequest",
       "type": "object"
     },
@@ -1221,14 +1159,7 @@
           "type": "string"
         }
       },
-      "required": [
-        "job_id",
-        "actor_id",
-        "project_id",
-        "selection_digest",
-        "ordinal",
-        "task_id"
-      ],
+      "required": ["job_id", "actor_id", "project_id", "selection_digest", "ordinal", "task_id"],
       "title": "PrepareManifestMemberRequest",
       "type": "object"
     },
@@ -1298,9 +1229,7 @@
           "type": "string"
         }
       },
-      "required": [
-        "code"
-      ],
+      "required": ["code"],
       "title": "_Error",
       "type": "object"
     }
@@ -1314,23 +1243,14 @@
   "x-native": {
     "capture_accepted_image_input_manifest": {
       "signature": "aap_assets_v1.capture_accepted_image_input_manifest(uuid,uuid,uuid,jsonb)",
-      "arguments": [
-        "job_id",
-        "actor_id",
-        "project_id",
-        "selection"
-      ],
+      "arguments": ["job_id", "actor_id", "project_id", "selection"],
       "request": "CaptureManifestRequest",
       "result": "ManifestHeader",
       "role": "workflow"
     },
     "read_accepted_image_input_manifest": {
       "signature": "aap_assets_v1.read_accepted_image_input_manifest(uuid,uuid,uuid)",
-      "arguments": [
-        "job_id",
-        "actor_id",
-        "project_id"
-      ],
+      "arguments": ["job_id", "actor_id", "project_id"],
       "request": "ManifestScope",
       "result": "ManifestHeader",
       "role": "control"
@@ -1369,12 +1289,7 @@
     },
     "seal_accepted_image_input_manifest": {
       "signature": "aap_assets_v1.seal_accepted_image_input_manifest(uuid,uuid,uuid,text)",
-      "arguments": [
-        "job_id",
-        "actor_id",
-        "project_id",
-        "selection_digest"
-      ],
+      "arguments": ["job_id", "actor_id", "project_id", "selection_digest"],
       "request": "SealManifestRequest",
       "result": "ManifestHeader",
       "role": "control"

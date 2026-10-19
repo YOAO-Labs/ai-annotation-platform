@@ -212,7 +212,9 @@ class ImageControl:
         try:
             operation = getattr(self.storage, name)
             return await operation(*args)
-        except c.ImageFailure:
+        except c.ImageFailure as exc:
+            if exc.code == "object_missing" and missing_code is not None:
+                raise c.ImageFailure(missing_code) from None
             raise
         except FileNotFoundError:
             raise c.ImageFailure(missing_code or "object_missing") from None

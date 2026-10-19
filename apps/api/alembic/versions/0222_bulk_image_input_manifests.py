@@ -28,6 +28,7 @@ _REPLACED_FUNCTIONS = {
     "aap_assets_v1._accepted_image_input_job_scope": "0221_accepted_inputs_control.sql",
     "aap_assets_v1._accepted_image_input_job_consistency": "0221_accepted_inputs_control.sql",
     "aap_assets_v1.read_accepted_image_input_work": "0221_accepted_inputs_control.sql",
+    "aap_assets_v1.lock_accepted_image_input": "0221_accepted_inputs_control.sql",
 }
 _COMPOSITE_FUNCTIONS = {
     "aap_assets_v1._accepted_image_input_manifest_header",
@@ -158,7 +159,7 @@ def downgrade() -> None:
             f"Cannot downgrade retained immutable bulk image input manifests: {detail}."
         )
 
-    # Restore the exact frozen 0221 private capability bodies before removing
+    # Restore the exact frozen 0221 capability bodies before removing
     # their manifest-aware replacements.
     for statement in _restore_statements():
         op.execute(statement)

@@ -131,6 +131,19 @@ async def test_image_control_closes_optional_async_storage_client():
 
 
 @pytest.mark.asyncio
+async def test_typed_missing_source_preserves_the_owner_source_error():
+    class MissingStorage:
+        async def head_source(self, _source):
+            raise c.ImageFailure("object_missing")
+
+    control = ImageControl(None, MissingStorage())
+    with pytest.raises(c.ImageFailure, match="source_missing"):
+        await control._storage_call("head_source", None, missing_code="source_missing")
+    with pytest.raises(c.ImageFailure, match="object_missing"):
+        await control._storage_call("head_source", None)
+
+
+@pytest.mark.asyncio
 async def test_source_batch_settles_peer_reads_before_reporting_a_leaf_failure(
     monkeypatch,
 ):

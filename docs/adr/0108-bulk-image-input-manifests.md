@@ -1,6 +1,6 @@
 # ADR-0108: Durable bulk image input manifests
 
-- Status: Accepted; implementation and qualification in progress
+- Status: Accepted; implemented and qualified in the local development environment
 - Date: 2026-10-19
 - Deciders: implementation team
 
@@ -86,6 +86,12 @@ General Jobs execution leases, whole-process takeover and exactly-once external
 inference are separate requirements of the complete module goal; a sealed input
 manifest alone does not claim them.
 
+A page failure after inference starts terminates the Job explicitly with its
+processed cursor and unprocessed count; committed candidates remain available.
+It must not leave a running Job whose redelivery becomes a no-op. The complete
+inference recipe still travels in the existing request rather than a new durable
+Jobs execution protocol.
+
 ## Verification requirements
 
 Qualification must cover 1503 or more immutable members, project/batch/explicit
@@ -97,3 +103,11 @@ restricted SQL/S3 scopes, a base wheel and a Node protocol consumer. Native SQL
 install/rollback, migration phases and real local process tests remain required.
 No unit-only or isolated slice result proves complete module independence,
 production capacity or production deployment. Go remains an isolated experiment.
+
+Local qualification passes 41 restricted-role, migration, API and process cases,
+including installed-wheel control/image workers, a Node peer reading 1503
+members, immutable replay, retained original-input retry and hard actor deletion.
+The affected backend run passes 290 cases; its three existing opt-in real Celery
+frame cases are skipped because that separate environment was not enabled.
+The native installer preserves all frozen SQL through 0221, and downgrade
+restores all four replaced 0221 functions before removing the new capability.

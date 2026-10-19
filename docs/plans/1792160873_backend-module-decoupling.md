@@ -1819,23 +1819,61 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
 - Local primary cutover is complete at implementation commit `d18c303c1`. The API-only controlled refresh installs the two updated local packages with the locked test extra, upgrades development database `annotation` from 0220 to 0221 and creates only the dedicated versioned `accepted-inputs` bucket without expiration. Business/media counts remain unchanged and all four new input/evidence ledgers are empty. Twelve invalid-argument native probes run read-only and roll back; the preserved primary-test database remains at 0218. The unchanged LaunchAgent starts the intended checkout; a same-content touch then replaces its API worker while retaining the new supervisor. Served OpenAPI matches 485 paths, DB/Redis/MinIO return 200, and the preexisting unstarted default Celery/aggregate state remains 503. Source/cache bucket versioning and lifecycle policies are unchanged.
 - Both integration test/e2e modes, the native test mode, temporary process/container/IAM resources and six clean integrated modifier worktrees are removed. The original fourteen worktrees and four baseline infrastructure containers are preserved; the resource-free integration checkout remains for the next slice. The amended retry branch is proven identical on all three changed paths before removal. Canonical evidence is `.worktree/accepted-inputs-verification.json`, `.worktree/input-accepted-main-runtime.json` and `.worktree/accepted-inputs-qualification-d18c303c1/`. Original diagnostic reports remain in the retained integration checkout. The complete module goal remains active: ordinary batch/frame inputs, tracker/correction, Learning source composition, broader Labeling/Jobs and the remaining modules still need extraction and qualification. Go remains isolated; no production deployment, push, release or remote CI occurred.
 
-## Bulk image input manifests — active implementation
+## Bulk image input manifests — local qualification
 
-- Read-only consumer/native audits confirm that implicit project/batch membership
-  is still selected live in the worker, root URLs and ROI can use different
-  mutable objects, and the existing source scanner neither captures membership
-  nor bounds full-scope digest work. Explicit Task requests are capped at 200;
-  project/batch all-selection has no total cap. Do not replace it with an
-  arbitrary smaller limit or an unbounded Job/broker payload.
-- The next complete slice uses a portable manifest family inside the existing
-  Media artifact. A transaction captures ordered Task/source facts and an opaque
-  selection digest; bounded preparation pages reuse the versioned Input owner.
-  A seal barrier accounts for every ready input or permanent member failure
-  before model work/overwrite. Task selection time and the first previously
-  unknown object's HEAD capture time are distinct, explicit facts. See ADR-0108.
-- The initial contract and schema include five native operations, one workflow
-  capture grant and four control operations, 64 KiB / 2 MiB message bounds,
-  100-member pages, fixed scope/digest/cursor checks and historical sealed
-  outcomes. Twenty portable behavior cases pass. Native 0222 state/permissions,
-  runtime/HTTP, consumer migration, installed artifacts and real SQL/S3/Node
-  qualification remain required; no bulk change is promoted to primary yet.
+- Ordinary non-Scene bulk image requests now capture complete ordered Task/source
+  membership in the same transaction as their durable Job. Project/batch
+  all-selection has no new total cap; explicit selection keeps the 200-ID limit.
+  Candidate and selected counts follow current bulk eligibility and the existing
+  prediction counter policy. Pending keyed replay reads the original selection
+  without adding later Tasks or reapplying today's selectors.
+- `aap-assets-input-manifest/v1` extends the existing Media artifact with five
+  native operations, one workflow capture grant and four private control HTTP
+  operations. Requests/replies are bounded at 64 KiB / 2 MiB. Pages return at
+  most 100 members and stop earlier for the byte budget. Persisted selection and
+  sealed digests avoid repeated full-scope JSON aggregation. Media control,
+  image-worker and Cleanup have exact capability sets of 40, 10 and 6 with no
+  direct business-table or foreign-owner access.
+- Preparation attempts at most 100 unfinished members per delivery and defers
+  the same pending Job before its claim, model work or overwrite. Known object
+  identity must match; a previously unknown object's first successful HEAD is
+  its byte-identity capture point. Fixed source failures remain per-member
+  outcomes, including invalid legacy paths. Seal fixes ready/failed outcomes;
+  later Input expiry cannot rewrite their historical digest.
+- Real consumers use the sealed manifest, one member's local file at a time,
+  and verify original bytes before overwrite. Current authority, Task/batch/editor
+  eligibility, source facts and the actual Input origin Job remain final-write
+  fences. Bundles preflight all Mask I/O before business locks and retry the
+  complete original result set after rollback. Failure records carry manifest
+  and original Input identity; missing original bytes never use a current URL.
+  A later page failure ends the Job explicitly with processed/unprocessed facts.
+- Local qualification passes 41 restricted SQL/S3, migration, API and real
+  process cases with zero skips. Installed-wheel control/image workers cover
+  dropped responses, source replacement, model/ROI identical versioned bytes,
+  overwrite, partial failure, origin Job pruning and retained-input retry. Node
+  consumes all four HTTP operations and 1503 ordered members. Native tests cover
+  legal near-budget metadata pages and retained evidence after hard actor
+  deletion. Temporary verifier containers, roles, identities, Redis and buckets
+  are destroyed without cleanup errors. Evidence:
+  `.worktree/bulk-inputs-role-and-process-final.json` and its JUnit sibling.
+- The affected backend run passes 290 cases; three existing opt-in real Celery
+  frame cases are skipped because their separate environment was not enabled.
+  Portable manifest values/client pass 35 cases; image control/runtime source
+  error checks pass 60. A cold Pydantic-only base wheel imports no API, ORM,
+  HTTPX or server package; runtime processes import no API, ORM, Celery or Redis.
+  Migration fresh, reversible, forward and backup/restore phases pass with no
+  owned leftovers. All SQL through 0221 remains unchanged; 0222 restores the
+  four replaced 0221 functions on downgrade.
+- The public API, native autogeneration and architecture run passes 299 cases
+  with 122 explicit lazy-root exclusions. Ruff check/format passes for all 42
+  changed Python files. The documentation build passes in 13.24 seconds; public
+  OpenAPI remains unchanged. Final read-only consumer review finds no additional
+  concrete gap.
+- This completes the ordinary bulk image input slice, not the complete module
+  goal. Scene, frame/video fan-out, tracking/correction and Learning first-source
+  composition still require frozen owner facts. General Blob lifecycle,
+  remaining locked object I/O and full Labeling/Inference/Jobs protocols remain.
+  The inference recipe still travels in the existing request; this manifest
+  does not add general execution leases, whole-process takeover or exactly-once
+  external inference. Go stays isolated; no production, push or release follows
+  from local qualification.

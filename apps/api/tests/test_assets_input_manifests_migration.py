@@ -122,7 +122,6 @@ def test_0222_revokes_every_new_function_and_streams_without_full_json_aggregati
     assert "jsonb_agg" not in capture
     assert "pg_catalog.row_number() OVER (ORDER BY eligible.id)" in capture
     assert "task_lock.expire_at > pg_catalog.clock_timestamp()" in capture
-    assert "prediction.task_id = eligible.id" in capture
     control = (SQL_DIR / "0222_accepted_input_manifests_control.sql").read_text(
         encoding="utf-8"
     )

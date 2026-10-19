@@ -71,9 +71,9 @@ def _reply(value):
     return json.loads(value) if isinstance(value, str) else value
 
 
-def _data(value: object) -> dict:
+def _data(value: object, *, schema="aap-assets-input-manifest/v1") -> dict:
     reply = _reply(value)
-    assert reply["schema"] == "aap-assets-input-manifest/v1", reply
+    assert reply["schema"] == schema, reply
     assert reply["ok"] is True, reply.get("error")
     return reply["data"]
 
@@ -237,7 +237,8 @@ async def test_capture_replay_pages_and_seal_preserve_selected_bytes_and_failure
                 "input_id": observed["member"]["input"]["input_id"],
                 "lease_seconds": 300,
             },
-        )
+        ),
+        schema="aap-assets-inputs/v1",
     )["claim"]
     assert claim is not None
     blob = {
@@ -295,6 +296,71 @@ async def test_capture_replay_pages_and_seal_preserve_selected_bytes_and_failure
         "failed",
     ]
     assert sealed_page["manifest"] == sealed
+
+    from app.db.models.annotation import Annotation
+
+    later_actor = await _seed_actor(db_session, role="super_admin")
+    project.owner_id = later_actor
+    annotation = Annotation(
+        task_id=tasks_by_id[selected[0]["task_id"]].id,
+        project_id=project.id,
+        user_id=later_actor,
+        class_name="car",
+        geometry={"type": "bbox", "x": 0, "y": 0, "width": 2, "height": 2},
+    )
+    db_session.add(annotation)
+    await db_session.flush()
+    pin = _reply(
+        await db_session.scalar(
+            text(
+                "SELECT aap_labeling_v1.attach_annotation_input_source(:annotation, :input, :sha)"
+            ),
+            {
+                "annotation": annotation.id,
+                "input": claim["input"]["input_id"],
+                "sha": blob["sha256"],
+            },
+        )
+    )
+    assert pin["ok"], pin
+    await db_session.execute(
+        text("DELETE FROM public.users WHERE id=:actor"), {"actor": actor_id}
+    )
+    assert (
+        await db_session.scalar(
+            text("SELECT user_id FROM public.async_jobs WHERE id=:job"), {"job": job_id}
+        )
+        is None
+    )
+    work = _data(
+        await db_session.scalar(
+            text(
+                "SELECT aap_assets_v1.read_accepted_image_input_work(:input, :job, :task)"
+            ),
+            {
+                "input": claim["input"]["input_id"],
+                "job": job_id,
+                "task": selected[0]["task_id"],
+            },
+        ),
+        schema="aap-assets-inputs/v1",
+    )
+    assert work["input"]["sha256"] == blob["sha256"]
+    assert work["input"]["actor_id"] == str(actor_id)
+    locked = _data(
+        await db_session.scalar(
+            text(
+                "SELECT aap_assets_v1.lock_accepted_image_input(:input, :task, :project)"
+            ),
+            {
+                "input": claim["input"]["input_id"],
+                "task": selected[0]["task_id"],
+                "project": project.id,
+            },
+        ),
+        schema="aap-assets-inputs/v1",
+    )
+    assert locked["input_id"] == claim["input"]["input_id"]
 
 
 async def test_page_stops_before_reply_budget_and_returns_a_resumable_cursor(

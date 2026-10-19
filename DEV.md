@@ -1093,11 +1093,13 @@ uv run --project apps/assets-media --extra runtime python -m aap_assets_media_ru
 
 ## 图片金字塔的独立控制与执行
 
-图片金字塔现由 `apps/assets-media` 中的共享媒体控制进程和专用图片 Worker 承担。共享控制端同时承载视频、图片与已受理输入契约，`asset_media_control_client` 共 36 项 SQL 能力（视频 18、图片 14、输入 4）；视频 Worker 使用 10 项，图片 Worker 使用独立的 `asset_image_worker_client` 和 10 项（图片 6、输入 4）。图片处理使用 Pillow 与受资源上限约束的 libvips 子进程，不依赖 Celery 执行队列。图片和输入垃圾由既有 `assets-cleanup` 进程处理，`asset_cleanup_client` 仅获 6 项清理能力。
+图片金字塔现由 `apps/assets-media` 中的共享媒体控制进程和专用图片 Worker 承担。共享控制端同时承载视频、图片与已受理输入契约，`asset_media_control_client` 共 40 项 SQL 能力（视频 18、图片 14、输入 4、批量输入清单 4）；视频 Worker 使用 10 项，图片 Worker 使用独立的 `asset_image_worker_client` 和 10 项（图片 6、输入 4）。图片处理使用 Pillow 与受资源上限约束的 libvips 子进程，不依赖 Celery 执行队列。图片和输入垃圾由既有 `assets-cleanup` 进程处理，`asset_cleanup_client` 仅获 6 项清理能力。
 
 API 设置 `ASSETS_MEDIA_URL` 和相同的 `ASSETS_MEDIA_TOKEN` 后，将图片控制请求发到共享控制进程；一旦配置远程地址，连接或请求失败不会退回本地。地址留空时，当前开发兼容路径仍在 API 进程内装配本地控制，并保留轻量 Celery 唤醒适配；这条路径不代表独立控制/执行部署。默认 Compose 不启动媒体 overlay，也不表示图片 Worker 已部署到主环境或生产环境。
 
 图片 schema 属于迁移 `0220`，已受理输入属于 `0221`。按既有 module-data 与媒体授权顺序安装 owner/辅助能力、`infra/docker/assets-media-grants.sql` 和 `infra/docker/assets-image-grants.sql`。图片 Worker 只能执行自己的 10 项函数，不能直接访问表或其他 owner schema；清理 LOGIN 只能领取/确认 owner 发出的删除责任。所有 SQL LOGIN 必须与迁移角色和 NOLOGIN owner 分离。
+
+批量图片输入清单使用迁移 `0222`，不增加服务、桶或 secret。升级前排空或明确处理非 Scene 图片项目中仍为 pending/running、scope 为 bulk 或缺省、且没有清单协议的旧预标作业；迁移会拒绝这些在途记录。旧 pending payload 没有完整配方，文字／跟踪配方若排在普通图片项目中也保守纳入排空。刷新 API、普通预标 Celery consumer 和共享 Media 控制，核验三项 `accepted_input_manifest_*` 派发参数及四个 `/v1/input-manifests/` 路由；控制就绪探针需要精确 40 项能力。清单封存前不交付 Input 引用；已有单张 Workbench 输入协议保留。清单和成员是 native 管理的两张证据表，保留记录时拒绝 downgrade，不自动清空历史。
 
 可选 `docker-compose.assets-media.yml` 增加共享控制、视频 Worker 和图片 Worker；需要把它与默认服务文件组合，并只启动所需服务：
 

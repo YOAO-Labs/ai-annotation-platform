@@ -22,7 +22,7 @@ last_reviewed: 2026-10-19
 | 来源与派生对象的签名引用、批量来源引用                                       | 6 个专用 reference 路径，字段见 HTTP 工件          |
 | 领取、续租、时间表暂存、发布、失败、过期、垃圾领取/完成、回填推进与用量      | 10 个原生执行能力；不通过控制 HTTP 暴露            |
 
-共享控制 LOGIN 精确授予 32 个函数，其中视频 18 个、图片 14 个；视频执行 LOGIN 保留 10 个函数，图片执行使用独立 LOGIN 的 6 个函数。它们均没有私有业务表、列、序列、其他 owner schema、成员继承或 DDL 权限。函数的外层事务仍由调用方持有；默认 HTTP 绑定在返回前验证并提交完整结果。
+共享控制 LOGIN 精确授予 40 个函数，其中视频 18 个、图片 14 个、受理输入 4 个、批量输入清单 4 个；视频执行 LOGIN 保留 10 个函数，图片执行使用独立 LOGIN 的 10 个函数（图片 6 个、输入 4 个）。它们均没有私有业务表、列、序列、其他 owner schema、成员继承或 DDL 权限。函数的外层事务仍由调用方持有；默认 HTTP 绑定在返回前验证并提交完整结果。
 
 请求最多 8 MiB、响应最多 16 MiB。记录页最多 500 项、记录 JSON 最多 15 MiB；完整时间表和 packet 样本按页读取。调用方必须核对来源快照、依赖版本、顺序、总数、游标及完成标志，不能只取第一页。packet 数组保留解码顺序，展示帧排名可因 B 帧不单调。
 
@@ -57,3 +57,28 @@ Task 摘要明确区分 `missing`、`stale`、`inconsistent` 与生成状态，�
 图片回填冻结选择范围和截止时间，按有界页分两阶段推进：先读取候选，锁外观察对象，再原子比较来源、受理子作业并提交游标回执。来源变化只跳过相应条目，存储暂时不可用会保留已受理工作。清理保留迟到写入的重扫责任；删除仍被相机、轨迹或视频执行记录引用的素材返回 409，先在项目内解除引用。
 
 一般 Blob、章节和运维 reset 仍使用各自既有路径。跟踪/推理已接受作业还需要冻结来源快照的受理迁移；不能直接改用当前素材地址而改变已接受作业的输入。完整模块状态与本地验收证据见[独立部署台账](/dev/concepts/module-deployment)、[ADR-0105](/dev/adr/0105-independent-video-media-owner)及 [ADR-0106](/dev/adr/0106-independent-image-media-owner)。
+
+## 已受理图片输入
+
+`aap-assets-inputs/v1` 固定 Job、Task 受理版本与来源绑定、Assets 代次／快照和对象身份。`POST /v1/inputs/{accept,find,record,reference,verify-source}` 与媒体控制共用地址及认证；十二项 native 能力分配给控制、图片执行、Labeling 和清理身份。输入副本位于独立的 versioning 桶，引用绑定 VersionId、SHA 和大小；整图与 ROI 消费相同内容。最终 Labeling 在业务写事务中复核原输入及当前权威，并保留候选、失败项和标注的输入证据。
+
+## 普通图片的批量输入清单
+
+`aap-assets-input-manifest/v1` 面向非 Scene 图片项目的普通批量预标。类型与两个工件位于媒体包的 `aap_assets_input_manifests` 命名空间；基础值和注入传输的客户端只依赖 Pydantic，HTTP 传输及服务运行依赖按可选包安装。Scene、视频、逐帧、文字和跟踪流程继续按各自边界迁移。
+
+| 控制入口                           | 请求与结果                                                                     |
+| ---------------------------------- | ------------------------------------------------------------------------------ |
+| `POST /v1/input-manifests/record`  | Job、actor、project 范围 → 清单 header                                         |
+| `POST /v1/input-manifests/page`    | 范围、selection digest、可选 sealed digest、cursor、page size → 有序成员页     |
+| `POST /v1/input-manifests/prepare` | 范围、selection digest、ordinal、Task ID → 同一成员与原 Input 收据             |
+| `POST /v1/input-manifests/seal`    | 范围、selection digest → 完整 sealed header；未准备完返回 `manifest_not_ready` |
+
+捕获使用 workflow 专属的 `aap_assets_v1.capture_accepted_image_input_manifest`，与 Job 在原事务共同提交；控制 HTTP 不提供捕获操作。选择值固定 `batch_id`、`task_ids`、`predict_mode` 三个键，包括显式 null。显式 Task 最多 200 项，项目／批次全选无新增总量上限。Job ID 同时作为清单 ID，Job 和队列消息只保存清单身份、摘要与数量，不携带全量成员。
+
+header 保留 `candidate_count`、`selected_count`、`prepared_count`；`ready_count`、`failed_count` 和 `sealed_digest` 在准备期间为 null，完整封存后才固定。成员有稳定 ordinal，保留原 Task 版本与来源、Assets 快照、可选 Input 和固定失败原因。封存后的结果及摘要保持历史含义，后来输入过期不改写原封存结果。
+
+清单请求最多 64 KiB，响应最多 2 MiB。每页至多 100 项，达到字节预算时可提前结束；消费者始终按 `next_cursor` 继续，不能假定每页恰好 100 项。`selection_digest` 固定逻辑选择，`sealed_digest` 固定最终 Input／失败结果，两者用途不同。
+
+prepare 先读取原成员，已有 Input 或固定失败时直接重放。控制服务根据捕获快照观察来源，再提交 native 准备；HTTP 调用方不能提供伪造对象身份。已知对象身份必须匹配；首次未知身份以准备时首次成功 HEAD 为字节受理时点，提交瞬间不证明未知历史内容。来源或任务绑定变化使该成员失败，不会替换为当前源。
+
+输入物化和准备等待发生在 Job 认领、覆盖清理和模型调用之前；临时繁忙继续等待同一作业。封存后逐页、逐题使用原输入，输入校验通过后才清理该题旧预测。后续页读取失败会记录作业失败及已处理进度；已提交候选保留，未处理部分需核对范围后重新提交。完整 Jobs 执行租约、进程接管及推理协议继续单独提取。升级排空与凭据配置见 `DEV.md`；设计取舍见 [ADR-0108](/dev/adr/0108-bulk-image-input-manifests)。

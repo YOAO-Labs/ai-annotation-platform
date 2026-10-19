@@ -385,7 +385,7 @@ GRANT SELECT (
     media_source_generation, media_object_identity, media_source_drifted,
     thumbnail_path, blurhash
 ) ON public.tasks TO :"labeling_owner";
-GRANT SELECT (version) ON public.tasks TO :"labeling_owner";
+GRANT SELECT (version, total_predictions) ON public.tasks TO :"labeling_owner";
 GRANT UPDATE (
     media_source_generation, media_object_identity, media_source_drifted,
     thumbnail_path, blurhash

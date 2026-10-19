@@ -170,7 +170,7 @@ CREATE TABLE public.asset_accepted_image_input_manifest_members (
         AND task_version > 0
         AND task_source_generation > 0
         AND task_source_snapshot ~ '^[0-9a-f]{64}$'
-        AND aap_assets_v1._accepted_image_input_manifest_path_valid(file_path)
+        AND pg_catalog.char_length(file_path) <= 1024
         AND file_type = 'image'
         AND (source IS NULL OR (
             aap_assets_v1._image_source_data_valid(source)

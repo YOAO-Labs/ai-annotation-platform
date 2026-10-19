@@ -1870,17 +1870,19 @@ async def _execute_preannotation(
                 except Exception as exc:
                     raise _ManifestPageReadFailure(cursor) from exc
 
-                page_task_ids = [member.task_id for member in page.members]
-                rows = (
-                    await db.execute(
-                        select(Task, TaskBatch)
-                        .outerjoin(TaskBatch, TaskBatch.id == Task.batch_id)
-                        .where(Task.id.in_(page_task_ids))
-                    )
-                ).all()
-                page_tasks = {row.id: (row, batch_row) for row, batch_row in rows}
                 for member in page.members:
-                    task_row, batch_row = page_tasks.get(member.task_id, (None, None))
+                    # A prior member can roll back and expire ORM rows. Load
+                    # current eligibility at each boundary, including its batch.
+                    task_row = await db.get(
+                        Task, member.task_id, populate_existing=True
+                    )
+                    batch_row = (
+                        await db.get(
+                            TaskBatch, task_row.batch_id, populate_existing=True
+                        )
+                        if task_row is not None and task_row.batch_id is not None
+                        else None
+                    )
                     yield member.ordinal - 1, task_row, member, batch_row
                 cursor = (
                     page.next_cursor
@@ -2012,6 +2014,10 @@ async def _execute_preannotation(
                     or (batch_id_uuid is not None and task.batch_id != batch_id_uuid)
                     or task.status != "pending"
                     or (current_batch is not None and current_batch.admin_locked)
+                    or (
+                        current_batch is not None
+                        and current_batch.project_id != project_uuid
+                    )
                     or (
                         current_batch is not None
                         and not allows_bulk_preannotation(current_batch)

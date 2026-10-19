@@ -62,8 +62,11 @@ BEGIN
         RETURN aap_jobs_v1._accepted_image_input_manifest_reply(NULL, 'job_not_active');
     END IF;
     IF v_job.kind IS DISTINCT FROM 'batch_predict'
-       OR v_job.user_id IS DISTINCT FROM p_actor_id
-       OR v_job.project_id IS DISTINCT FROM p_project_id
+       OR (v_job.user_id IS DISTINCT FROM p_actor_id
+           AND (p_require_active OR v_job.user_id IS NOT NULL))
+       OR (v_job.project_id IS DISTINCT FROM p_project_id
+           AND (p_require_active OR v_job.project_id IS NOT NULL
+                OR v_job.retained_project_id IS DISTINCT FROM p_project_id))
        OR (v_job.retained_project_id IS NOT NULL
            AND v_job.retained_project_id IS DISTINCT FROM p_project_id)
        OR v_job.celery_task_id IS DISTINCT FROM v_job.id::text
@@ -98,7 +101,7 @@ BEGIN
     ELSE
         IF pg_catalog.jsonb_typeof(v_job.payload -> 'task_ids') IS DISTINCT FROM 'array'
            OR pg_catalog.jsonb_typeof(v_job.payload -> 'scope') IS DISTINCT FROM 'object'
-           OR (v_job.payload -> 'scope' - 'task_ids') IS DISTINCT FROM '{}'::jsonb
+           OR ((v_job.payload -> 'scope') - 'task_ids') IS DISTINCT FROM '{}'::jsonb
            OR pg_catalog.jsonb_typeof(v_job.payload #> '{scope,task_ids}') IS DISTINCT FROM 'array' THEN
             RETURN aap_jobs_v1._accepted_image_input_manifest_reply(NULL, 'manifest_scope_mismatch');
         END IF;
@@ -145,7 +148,13 @@ BEGIN
     IF v_job.status NOT IN ('pending', 'running', 'completed', 'failed', 'cancelled') THEN
         RETURN aap_jobs_v1._accepted_image_input_manifest_reply(NULL, 'invalid_response');
     END IF;
-    v_active := v_job.status IN ('pending', 'running') AND NOT v_cancel_requested;
+    -- Historical reads rely on the immutable Assets header/member after FK
+    -- nulling; only the complete live Job identity may grant execution.
+    v_active := COALESCE(
+        v_job.user_id = p_actor_id AND v_job.project_id = p_project_id
+        AND v_job.status IN ('pending', 'running') AND NOT v_cancel_requested,
+        false
+    );
     IF p_require_active AND NOT v_active THEN
         RETURN aap_jobs_v1._accepted_image_input_manifest_reply(NULL, 'job_not_active');
     END IF;
@@ -331,7 +340,7 @@ BEGIN
         WITH eligible AS MATERIALIZED (
             SELECT task.id, task.project_id, task.dataset_item_id, task.batch_id,
                    task.file_type, task.file_path, task.created_at, task.version,
-                   task.media_source_generation,
+                   task.media_source_generation, task.total_predictions,
                    aap_labeling_v1._image_source_snapshot_fields(
                        task.id, task.created_at, task.project_id,
                        task.dataset_item_id, task.file_type, task.file_path,
@@ -345,7 +354,8 @@ BEGIN
               AND (v_batch_id IS NULL OR task.batch_id = v_batch_id)
               AND (
                   task.batch_id IS NULL
-                  OR (batch.id IS NOT NULL AND NOT batch.admin_locked
+                  OR (batch.id IS NOT NULL AND batch.project_id = p_project_id
+                      AND NOT batch.admin_locked
                       AND (batch.status = 'active'
                            OR (batch.status = 'draft'
                                AND batch.annotator_id IS NULL
@@ -360,10 +370,7 @@ BEGIN
             SELECT pg_catalog.count(*)::bigint AS candidate_count,
                    pg_catalog.count(*) FILTER (
                        WHERE v_predict_mode <> 'skip_predicted'
-                          OR NOT EXISTS (
-                              SELECT 1 FROM public.predictions AS prediction
-                              WHERE prediction.task_id = eligible.id
-                          )
+                          OR COALESCE(eligible.total_predictions, 0) = 0
                    )::bigint AS selected_count,
                    COALESCE(pg_catalog.bool_or(eligible.file_type IS DISTINCT FROM 'image'), false)
                        AS unsupported_media,
@@ -385,10 +392,7 @@ BEGIN
                    pg_catalog.row_number() OVER (ORDER BY eligible.id)::bigint AS ordinal
             FROM eligible
             WHERE v_predict_mode <> 'skip_predicted'
-               OR NOT EXISTS (
-                   SELECT 1 FROM public.predictions AS prediction
-                   WHERE prediction.task_id = eligible.id
-               )
+               OR COALESCE(eligible.total_predictions, 0) = 0
         ), rows AS (
             SELECT 0 AS row_kind, 0::bigint AS ordinal,
                    CASE
@@ -474,7 +478,12 @@ BEGIN
         RETURN aap_labeling_v1._accepted_image_input_manifest_capture_reply(NULL, v_code);
     END IF;
     BEGIN
-        SELECT task.* INTO v_task
+        SELECT task.id, task.project_id, task.dataset_item_id, task.batch_id,
+               task.status, task.file_type, task.file_path, task.created_at,
+               task.version, task.media_source_generation, task.total_predictions
+        INTO v_task.id, v_task.project_id, v_task.dataset_item_id, v_task.batch_id,
+             v_task.status, v_task.file_type, v_task.file_path, v_task.created_at,
+             v_task.version, v_task.media_source_generation, v_task.total_predictions
         FROM public.tasks AS task
         WHERE task.id = p_task_id
         FOR UPDATE NOWAIT;
@@ -498,15 +507,16 @@ BEGIN
     ) THEN
         RETURN aap_labeling_v1._accepted_image_input_manifest_capture_reply(NULL, 'task_scope_changed');
     END IF;
-    IF p_predict_mode = 'skip_predicted' AND EXISTS (
-        SELECT 1 FROM public.predictions AS prediction
-        WHERE prediction.task_id = p_task_id
-    ) THEN
+    IF p_predict_mode = 'skip_predicted'
+       AND COALESCE(v_task.total_predictions, 0) <> 0 THEN
         RETURN aap_labeling_v1._accepted_image_input_manifest_capture_reply(NULL, 'task_scope_changed');
     END IF;
     IF v_task.batch_id IS NOT NULL THEN
         BEGIN
-            SELECT batch.* INTO v_batch
+            SELECT batch.id, batch.project_id, batch.status, batch.admin_locked,
+                   batch.annotator_id, batch.reviewer_id
+            INTO v_batch.id, v_batch.project_id, v_batch.status, v_batch.admin_locked,
+                 v_batch.annotator_id, v_batch.reviewer_id
             FROM public.task_batches AS batch
             WHERE batch.id = v_task.batch_id
             FOR SHARE NOWAIT;

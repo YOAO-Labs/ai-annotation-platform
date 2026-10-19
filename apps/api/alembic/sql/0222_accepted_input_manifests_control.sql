@@ -391,7 +391,8 @@ BEGIN
            OR pg_catalog.jsonb_typeof(v_row -> 'task_id') IS DISTINCT FROM 'string'
            OR v_row ->> 'project_id' IS DISTINCT FROM p_project_id::text
            OR v_row ->> 'file_type' IS DISTINCT FROM 'image'
-           OR NOT aap_assets_v1._accepted_image_input_manifest_path_valid(v_row ->> 'file_path') THEN
+           OR pg_catalog.jsonb_typeof(v_row -> 'file_path') IS DISTINCT FROM 'string'
+           OR pg_catalog.char_length(v_row ->> 'file_path') > 1024 THEN
             RAISE EXCEPTION USING ERRCODE = 'P0001', MESSAGE = 'manifest_abort:invalid_response';
         END IF;
         BEGIN
@@ -407,8 +408,16 @@ BEGIN
         v_source := NULL;
         v_source_error := NULL;
         v_task_scope_changed := false;
-        v_task_reply := aap_labeling_v1.read_image_task_source(v_task_id, p_actor_id, false);
-        IF v_task_reply IS NULL
+        v_task_source := NULL;
+        IF v_item_id IS NULL
+           AND NOT aap_assets_v1._accepted_image_input_manifest_path_valid(v_row ->> 'file_path') THEN
+            v_source_error := 'source_missing';
+        ELSE
+            v_task_reply := aap_labeling_v1.read_image_task_source(v_task_id, p_actor_id, false);
+        END IF;
+        IF v_source_error IS NOT NULL THEN
+            NULL;
+        ELSIF v_task_reply IS NULL
            OR v_task_reply ->> 'schema' IS DISTINCT FROM 'aap-labeling-image-source/v1'
            OR v_task_reply -> 'ok' IS DISTINCT FROM 'true'::jsonb THEN
             v_error := COALESCE(v_task_reply #>> '{error,code}', 'invalid_response');
@@ -1282,8 +1291,8 @@ BEGIN
         EXCEPTION WHEN invalid_text_representation THEN
             RETURN aap_assets_v1._accepted_image_input_manifest_reply(NULL, 'invalid_response');
         END;
-        v_reply := aap_assets_v1._image_observe_owner(
-            v_owner_kind, v_owner_id,
+        v_reply := aap_assets_v1.observe_image_source(
+            p_actor_id, p_task_id, NULL,
             v_member.source ->> 'source_snapshot', v_identity
         );
         IF v_reply IS NULL OR v_reply ->> 'schema' IS DISTINCT FROM 'aap-assets-images/v1'
@@ -1638,3 +1647,91 @@ $function$;
 -- aap-statement-break
 REVOKE ALL ON FUNCTION aap_assets_v1.seal_accepted_image_input_manifest(uuid, uuid, uuid, text)
     FROM PUBLIC;
+-- aap-statement-break
+-- JSON null is a valid direct Task source binding.
+CREATE OR REPLACE FUNCTION aap_assets_v1.lock_accepted_image_input(
+    p_input_id uuid, p_task_id uuid, p_project_id uuid
+)
+RETURNS jsonb
+LANGUAGE plpgsql VOLATILE PARALLEL UNSAFE SECURITY DEFINER
+SET search_path = pg_catalog, pg_temp
+AS $function$
+DECLARE
+    v_input public.asset_accepted_image_inputs%ROWTYPE;
+    v_reply jsonb;
+    v_job jsonb;
+    v_task jsonb;
+    v_source jsonb;
+BEGIN
+    IF p_input_id IS NULL OR p_task_id IS NULL OR p_project_id IS NULL THEN
+        RETURN aap_assets_v1._accepted_image_input_reply(NULL, 'invalid_request');
+    END IF;
+    BEGIN
+        SELECT input.* INTO v_input
+        FROM public.asset_accepted_image_inputs AS input
+        WHERE input.input_id = p_input_id
+        FOR UPDATE NOWAIT;
+    EXCEPTION WHEN lock_not_available OR serialization_failure OR deadlock_detected THEN
+        RETURN aap_assets_v1._accepted_image_input_reply(NULL, 'input_busy');
+    END;
+    IF NOT FOUND THEN
+        RETURN aap_assets_v1._accepted_image_input_reply(NULL, 'input_missing');
+    END IF;
+    IF (v_input.task_id, v_input.project_id) IS DISTINCT FROM (p_task_id, p_project_id) THEN
+        RETURN aap_assets_v1._accepted_image_input_reply(NULL, 'input_scope_mismatch');
+    END IF;
+    IF v_input.status = 'expired' THEN
+        RETURN aap_assets_v1._accepted_image_input_reply(NULL, 'input_expired');
+    ELSIF v_input.status <> 'ready' THEN
+        RETURN aap_assets_v1._accepted_image_input_reply(NULL, 'input_not_ready');
+    END IF;
+    v_reply := aap_assets_v1._accepted_image_input_job_consistency(
+        v_input.job_id, p_task_id, v_input.actor_id, p_project_id
+    );
+    IF v_reply -> 'ok' IS DISTINCT FROM 'true'::jsonb THEN RETURN v_reply; END IF;
+    v_job := v_reply -> 'data';
+    IF v_job -> 'consistent' IS DISTINCT FROM 'true'::jsonb THEN
+        RETURN aap_assets_v1._accepted_image_input_reply(NULL, 'input_scope_mismatch');
+    END IF;
+    v_reply := aap_assets_v1._accepted_image_input_task_scope(p_task_id, NULL, true);
+    IF v_reply -> 'ok' IS DISTINCT FROM 'true'::jsonb THEN RETURN v_reply; END IF;
+    v_task := v_reply -> 'data';
+    IF (v_task ->> 'project_id')::uuid IS DISTINCT FROM p_project_id
+       OR (v_task ->> 'task_source_generation')::bigint IS DISTINCT FROM v_input.task_source_generation
+       OR v_task ->> 'task_source_snapshot' IS DISTINCT FROM v_input.task_source_snapshot
+       OR v_task -> 'dataset_item_id' IS DISTINCT FROM COALESCE(pg_catalog.to_jsonb(v_input.dataset_item_id), 'null'::jsonb) THEN
+        RETURN aap_assets_v1._accepted_image_input_reply(NULL, 'source_changed');
+    END IF;
+    v_reply := aap_assets_v1._accepted_image_input_source_scope(NULL, p_task_id, true);
+    IF v_reply -> 'ok' IS DISTINCT FROM 'true'::jsonb THEN RETURN v_reply; END IF;
+    v_source := v_reply -> 'data';
+    IF NOT aap_assets_v1._image_source_data_valid(v_source)
+       OR v_source ->> 'project_id' IS DISTINCT FROM p_project_id::text
+       OR v_source #>> '{owner,kind}' IS DISTINCT FROM v_input.source_owner_kind
+       OR v_source #>> '{owner,id}' IS DISTINCT FROM v_input.source_owner_id::text
+       OR v_source ->> 'source_generation' IS DISTINCT FROM v_input.source_generation::text
+       OR v_source ->> 'source_snapshot' IS DISTINCT FROM v_input.source_snapshot
+       OR v_source -> 'source_drifted' IS DISTINCT FROM 'false'::jsonb
+       OR v_source -> 'upload_ready' IS DISTINCT FROM 'true'::jsonb
+       OR v_source -> 'object_identity' = 'null'::jsonb
+       OR aap_assets_v1._image_normalize_identity(v_source -> 'object_identity')
+            IS DISTINCT FROM v_input.source_identity THEN
+        RETURN aap_assets_v1._accepted_image_input_reply(NULL, 'source_changed');
+    END IF;
+    UPDATE public.asset_accepted_image_inputs AS input
+    SET retire_after = NULL,
+        retention_checked_at = NULL,
+        updated_at = pg_catalog.clock_timestamp()
+    WHERE input.input_id = p_input_id;
+    v_input.retire_after := NULL;
+    RETURN aap_assets_v1._accepted_image_input_reply(
+        aap_assets_v1._accepted_image_input_record(v_input), NULL
+    );
+EXCEPTION WHEN lock_not_available OR serialization_failure OR deadlock_detected THEN
+    RETURN aap_assets_v1._accepted_image_input_reply(NULL, 'source_busy');
+WHEN OTHERS THEN
+    RETURN aap_assets_v1._accepted_image_input_reply(NULL, 'invalid_response');
+END;
+$function$;
+-- aap-statement-break
+REVOKE ALL ON FUNCTION aap_assets_v1.lock_accepted_image_input(uuid, uuid, uuid) FROM PUBLIC;

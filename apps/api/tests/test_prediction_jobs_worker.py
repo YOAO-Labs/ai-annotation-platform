@@ -28,17 +28,25 @@ from app.workers import tasks as worker_tasks
 
 
 async def _run_batch(**kwargs):
-    """Exercise the application command with the existing test database session."""
+    """Exercise workflow behavior with legacy model stubs; admission is separate."""
+    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
     from app.application.preannotation_contract import BatchPredictionRequest
-    from app.application.preannotation_execution import run_preannotation
+    from app.application.preannotation_execution import _execute_preannotation
+    from app.config import settings
 
     execution_id = kwargs.pop("celery_task_id", None)
     frame_dispatcher = kwargs.pop("frame_dispatcher", None)
-    return await run_preannotation(
-        BatchPredictionRequest(**kwargs),
-        execution_id=execution_id,
-        frame_dispatcher=frame_dispatcher,
-    )
+    engine = create_async_engine(settings.database_url, echo=False)
+    try:
+        return await _execute_preannotation(
+            BatchPredictionRequest(**kwargs),
+            execution_id=execution_id,
+            frame_dispatcher=frame_dispatcher,
+            SessionLocal=async_sessionmaker(engine, expire_on_commit=False),
+        )
+    finally:
+        await engine.dispose()
 
 
 def test_retryable_request_context_has_hard_size_limit():
@@ -568,7 +576,7 @@ async def test_manifest_page_failure_after_success_marks_job_failed_with_progres
         request,
         execution_id=str(job_id),
         frame_dispatcher=None,
-        SessionLocal=fake_factory,
+        SessionLocal=fake_factory(),
         accepted_manifest=accepted_manifest,
     )
 
