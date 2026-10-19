@@ -1,3 +1,4 @@
+import { CopyableError } from "@/components/ui/CopyableError";
 import { useEffect, useState } from "react";
 import { Icon } from "@/components/ui/Icon";
 import type { ReconnectState } from "@/hooks/useReconnectingWebSocket";
@@ -144,7 +145,7 @@ export function StatusBar({
         {segmentLeaseError && (
           <>
             <span className={cn(inlineItem, "text-status-danger")}>
-              <Icon name="warning" size={11} /> {segmentLeaseError}
+              <Icon name="warning" size={11} /> <CopyableError message={segmentLeaseError} />
             </span>
             <Sep />
           </>
@@ -217,7 +218,8 @@ export function StatusBar({
           {saveState === "saving" && "保存中…"}
           {saveState === "saved" && "已保存"}
           {saveState === "local" && "仅保存在本机"}
-          {saveState === "sync-error" && "同步失败"}
+          {saveState === "sync-error" &&
+            (saveError ? <CopyableError message={saveError} preview="同步失败" /> : "同步失败")}
         </span>
         <Sep />
         {diffMode !== undefined && onSetDiffMode && (

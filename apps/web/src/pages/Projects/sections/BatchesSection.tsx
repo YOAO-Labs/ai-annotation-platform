@@ -1,3 +1,4 @@
+import { CopyableError } from "@/components/ui/CopyableError";
 import { useMemo, useState, type ComponentProps } from "react";
 import { useSearchParams } from "react-router-dom";
 import { Card } from "@/components/ui/Card";
@@ -349,7 +350,17 @@ export function BatchesSection({ project }: { project: ProjectResponse }) {
       <li key={item.batch_id} className="text-xs text-muted-foreground">
         <span className="mono">{b?.display_id ?? item.batch_id.slice(0, 8)}</span>
         {b ? <span className="ml-1.5">· {b.name}</span> : null}
-        <span className="ml-1.5 text-muted-foreground">— {reason}</span>
+        <span className="ml-1.5 text-muted-foreground">
+          —{" "}
+          {item.reason === "requires_force" ? (
+            reason
+          ) : (
+            <CopyableError
+              message={`${b?.display_id ?? item.batch_id}：${reason}`}
+              preview={reason}
+            />
+          )}
+        </span>
       </li>
     );
   };

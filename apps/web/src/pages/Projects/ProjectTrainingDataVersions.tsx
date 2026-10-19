@@ -1,3 +1,4 @@
+import { CopyableError } from "@/components/ui/CopyableError";
 import { useId, useState } from "react";
 import { ArrowRight, ChevronDown, Database, Plus } from "lucide-react";
 import type { TrainingDatasetSummary } from "@/api/trainingDatasets";
@@ -185,7 +186,7 @@ export function ProjectTrainingDataVersions({
                     {building && <ProgressBar value={version.progress_pct} />}
                     {version.error_message && (
                       <p className="mt-1 break-words text-xs text-status-danger">
-                        {version.error_message}
+                        <CopyableError message={version.error_message} />
                       </p>
                     )}
                   </div>

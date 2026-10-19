@@ -1,3 +1,4 @@
+import { CopyableError } from "@/components/ui/CopyableError";
 import { useState, type ReactNode } from "react";
 
 import { Badge } from "@/components/ui/Badge";
@@ -103,7 +104,8 @@ export function CapabilityDriftReviewDialog({
 
         {preview.isError && (
           <div className="rounded-md border border-status-danger bg-status-danger-soft p-3 text-sm text-status-danger">
-            无法读取能力差异：{(preview.error as Error).message}
+            无法读取能力差异：
+            <CopyableError message={(preview.error as Error).message} />
           </div>
         )}
 

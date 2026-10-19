@@ -1,3 +1,4 @@
+import { CopyableError } from "@/components/ui/CopyableError";
 import { useMemo, useState } from "react";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
@@ -244,7 +245,11 @@ export function BulkInviteModal({ open, onClose }: Props) {
                   </Badge>
                   <div className="min-w-0 flex-1">
                     <div className="truncate">{item.email}</div>
-                    {item.error && <div className="text-xs text-status-danger">{item.error}</div>}
+                    {item.error && (
+                      <div className="text-xs text-status-danger">
+                        <CopyableError message={item.error} />
+                      </div>
+                    )}
                     {result && item.ok && item.invite_url && (
                       <input
                         aria-label={`邀请链接 ${item.email}`}

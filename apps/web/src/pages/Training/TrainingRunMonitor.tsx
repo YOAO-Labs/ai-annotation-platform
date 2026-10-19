@@ -1,3 +1,4 @@
+import { CopyableError } from "@/components/ui/CopyableError";
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import {
@@ -237,13 +238,13 @@ export function TrainingRunMonitor({
         {["failed", "cancelled"].includes(run.status) && !canResume && (
           <p className="mt-3 text-xs text-muted-foreground">
             续训资格：
-            {recoveryError
-              ? `暂无法核对（${recoveryError}）`
-              : recovery?.attempt_id === run.current_attempt_id
-                ? recovery.reasons
-                    .map((reason) => recoveryReasons[reason] ?? "资格尚未确认")
-                    .join("；")
-                : "正在核对当前执行的检查点与环境"}
+            {recoveryError ? (
+              <CopyableError message={recoveryError} preview={`暂无法核对（${recoveryError}）`} />
+            ) : recovery?.attempt_id === run.current_attempt_id ? (
+              recovery.reasons.map((reason) => recoveryReasons[reason] ?? "资格尚未确认").join("；")
+            ) : (
+              "正在核对当前执行的检查点与环境"
+            )}
           </p>
         )}
         {run.error_message && (
@@ -251,7 +252,7 @@ export function TrainingRunMonitor({
             role="alert"
             className="mt-3 rounded-md bg-status-danger-soft p-3 text-xs text-status-danger"
           >
-            {run.error_message}
+            <CopyableError message={run.error_message} />
           </p>
         )}
       </header>
@@ -291,7 +292,8 @@ export function TrainingRunMonitor({
             </p>
             {attempt.failure?.diagnostic && (
               <p className="mt-2 break-words text-muted-foreground">
-                脱敏诊断：{attempt.failure.diagnostic}
+                脱敏诊断：
+                <CopyableError message={attempt.failure.diagnostic} />
               </p>
             )}
             {attempt.failure?.code === "cuda_oom" && !!run.config.configuration && (
@@ -347,7 +349,7 @@ export function TrainingRunMonitor({
           <TabsContent value="metrics">
             {eventsError && (
               <p role="alert" className="mb-3 text-xs text-status-danger">
-                {eventsError}
+                <CopyableError message={eventsError} />
               </p>
             )}
             <p className="mb-3 text-xs text-muted-foreground">{trainingTaskLabel(task)}</p>
@@ -491,7 +493,9 @@ export function TrainingRunMonitor({
                     ` · 最近心跳 ${new Date(item.heartbeat_at).toLocaleString("zh-CN")}`}
                 </p>
                 {item.error_message && (
-                  <p className="mt-2 text-xs text-status-danger">{item.error_message}</p>
+                  <p className="mt-2 text-xs text-status-danger">
+                    <CopyableError message={item.error_message} />
+                  </p>
                 )}
                 {!Object.keys(item.artifacts).length && (
                   <p className="mt-3 text-xs text-muted-foreground">

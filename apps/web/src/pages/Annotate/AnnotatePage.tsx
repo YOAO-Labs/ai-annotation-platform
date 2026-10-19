@@ -1,3 +1,4 @@
+import { CopyableError } from "@/components/ui/CopyableError";
 import { FilterGroup, FilterToggle } from "@/components/filters/FilterControls";
 import { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
@@ -144,7 +145,9 @@ function QueryErrorState({
     <div className={`${styles.errorState} ${compact ? styles.errorStateCompact : ""}`} role="alert">
       <Icon name="warning" size={compact ? 20 : 28} className={styles.errorIcon} />
       <div className={styles.errorTitle}>无法加载{resource}</div>
-      <div className={styles.errorMessage}>{queryErrorMessage(error, resource)}</div>
+      <div className={styles.errorMessage}>
+        <CopyableError message={queryErrorMessage(error, resource)} />
+      </div>
       <Button size="sm" onClick={onRetry}>
         重新加载
       </Button>
@@ -165,7 +168,9 @@ function RefreshNotice({
     <div className={styles.refreshNotice} role="alert">
       <div>
         <strong>{resource}更新失败</strong>
-        <span>{queryErrorMessage(error, resource)} 当前内容已保留。</span>
+        <span>
+          <CopyableError message={queryErrorMessage(error, resource)} /> 当前内容已保留。
+        </span>
       </div>
       <Button size="sm" onClick={onRetry}>
         重新加载

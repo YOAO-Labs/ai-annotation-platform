@@ -1,3 +1,4 @@
+import { CopyableError } from "@/components/ui/CopyableError";
 /**
  * v0.23.4 P3 · tiny shared presentational helpers used by every registry
  * section. Kept in one file to avoid a sprawl of one-off micro-components
@@ -56,7 +57,9 @@ export function ErrorState({
   return (
     <div className="flex flex-col items-center gap-2 p-8 text-center text-sm text-status-danger">
       <Icon name="warning" size={18} />
-      <div>{message}</div>
+      <div>
+        <CopyableError message={message} />
+      </div>
       {onRetry && (
         <Button size="sm" variant="ghost" onClick={onRetry}>
           <Icon name="refresh" size={11} />

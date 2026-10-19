@@ -1,3 +1,4 @@
+import { CopyableError } from "@/components/ui/CopyableError";
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -203,7 +204,9 @@ export function AsyncJobDetailModal({
       )}
       {jobQ.isError && (
         <div role="alert" className="space-y-3 text-sm">
-          <p>{detailError(jobQ.error)}</p>
+          <p>
+            <CopyableError message={detailError(jobQ.error)} />
+          </p>
           <Button onClick={() => void jobQ.refetch()}>重新加载</Button>
         </div>
       )}
@@ -269,7 +272,7 @@ export function AsyncJobDetailModal({
             <details className="rounded-md border border-border p-3" open={job.status === "failed"}>
               <summary className="cursor-pointer font-medium text-status-danger">失败原因</summary>
               <p className="mb-0 mt-2 whitespace-pre-wrap break-words text-xs">
-                {job.error_message}
+                <CopyableError message={job.error_message} />
               </p>
             </details>
           )}
@@ -298,8 +301,9 @@ export function AsyncJobDetailModal({
               <ul className="mb-0 mt-2 space-y-2 pl-4 text-xs">
                 {fileErrors.map((error, index) => (
                   <li key={index} className="whitespace-pre-wrap break-words">
-                    {jobString(error, "relpath") ?? jobString(error, "path") ?? `文件 ${index + 1}`}
-                    ：{jobString(error, "error") ?? "导入失败"}
+                    <CopyableError
+                      message={`${jobString(error, "relpath") ?? jobString(error, "path") ?? `文件 ${index + 1}`}：${jobString(error, "error") ?? "导入失败"}`}
+                    />
                   </li>
                 ))}
               </ul>
@@ -322,7 +326,7 @@ export function AsyncJobDetailModal({
           )}
           {targetError && (
             <p role="alert" className="text-xs text-status-danger">
-              {targetError}
+              <CopyableError message={targetError} />
             </p>
           )}
           <div className="flex flex-wrap gap-2">

@@ -1,3 +1,4 @@
+import { CopyableError } from "@/components/ui/CopyableError";
 import { useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery } from "@tanstack/react-query";
@@ -320,7 +321,8 @@ function CreateContent({ projectId, scope }: { projectId: string; scope: string 
               )}
               {qualification.error && (
                 <p role="alert" className="mt-3 text-xs text-status-danger">
-                  当前部署不具备评估资格：{qualification.error.message}
+                  当前部署不具备评估资格：
+                  <CopyableError message={qualification.error.message} />
                 </p>
               )}
               {qualification.data && !qualification.error && (
@@ -535,12 +537,12 @@ function CreateContent({ projectId, scope }: { projectId: string; scope: string 
           </section>
           {error && (
             <p role="alert" className="text-sm text-status-danger">
-              {error.message}
+              <CopyableError message={error.message} />
             </p>
           )}
           {create.error && create.error.name !== "AbortError" && (
             <p role="alert" className="text-sm text-status-danger">
-              {create.error.message}
+              <CopyableError message={create.error.message} />
               。网络响应不确定时，可保持设置再次提交同一请求，或先查看评估历史。
             </p>
           )}

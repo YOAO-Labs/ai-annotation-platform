@@ -1,3 +1,4 @@
+import { CopyableError } from "@/components/ui/CopyableError";
 import { FilterGroup, FilterToggle } from "@/components/filters/FilterControls";
 /**
  * v0.10.16 · Topbar 异步任务铃铛（ROADMAP §1.7）。
@@ -260,11 +261,13 @@ function JobRow({
       </div>
       <ProgressBar pct={pct} status={job.status} />
       <div className="text-xs tabular-nums text-muted-foreground">
-        {job.status === "running" || job.status === "pending"
-          ? `${jobStage(job)} · ${pct}%`
-          : job.status === "failed"
-            ? (job.error_message ?? "失败").slice(0, 80)
-            : new Date(job.completed_at ?? job.updated_at).toLocaleString("zh-CN")}
+        {job.status === "running" || job.status === "pending" ? (
+          `${jobStage(job)} · ${pct}%`
+        ) : job.status === "failed" ? (
+          <CopyableError message={job.error_message ?? "失败"} truncate className="w-full" />
+        ) : (
+          new Date(job.completed_at ?? job.updated_at).toLocaleString("zh-CN")
+        )}
       </div>
       {resultDetail && (
         <div className="text-xs tabular-nums text-muted-foreground">

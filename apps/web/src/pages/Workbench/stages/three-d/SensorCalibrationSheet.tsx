@@ -1,3 +1,4 @@
+import { CopyableError } from "@/components/ui/CopyableError";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { HistoryIcon, PencilIcon, RotateCcwIcon, SaveIcon, TriangleAlertIcon } from "lucide-react";
 
@@ -404,9 +405,13 @@ export function SensorCalibrationSheet({
                   <TriangleAlertIcon />
                   <AlertTitle>无法读取标定历史</AlertTitle>
                   <AlertDescription>
-                    {sensorCalibration.query.error instanceof Error
-                      ? sensorCalibration.query.error.message
-                      : "请稍后重试"}
+                    <CopyableError
+                      message={
+                        sensorCalibration.query.error instanceof Error
+                          ? sensorCalibration.query.error.message
+                          : "请稍后重试"
+                      }
+                    />
                   </AlertDescription>
                 </Alert>
               )}

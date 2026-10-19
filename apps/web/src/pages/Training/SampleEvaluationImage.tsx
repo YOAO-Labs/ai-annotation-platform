@@ -1,3 +1,4 @@
+import { CopyableError } from "@/components/ui/CopyableError";
 import { useEffect, useState } from "react";
 import { sampleEvaluationsApi, type EvaluationSampleResult } from "@/api/sampleEvaluations";
 import { Button } from "@/components/ui/Button";
@@ -84,7 +85,9 @@ export function SampleEvaluationImage({
           role="alert"
           className="rounded-md bg-status-danger-soft p-4 text-xs text-status-danger"
         >
-          <p>{error}</p>
+          <p>
+            <CopyableError message={error} />
+          </p>
           <Button className="mt-3" size="sm" onClick={() => setRetry((n) => n + 1)}>
             重试图片
           </Button>

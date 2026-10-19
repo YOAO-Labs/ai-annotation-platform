@@ -1,3 +1,4 @@
+import { CopyableError } from "@/components/ui/CopyableError";
 import { useState } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/shadcn/ui/tabs";
 import { Button } from "@/components/ui/Button";
@@ -89,7 +90,7 @@ export function TrainingComparisonResults({
                 )}
                 {(e.error || e.reportError) && (
                   <p role="alert" className="mt-2 text-xs text-status-danger">
-                    {e.error || e.reportError}
+                    <CopyableError message={e.error || e.reportError} />
                   </p>
                 )}
                 {!e.report && !e.loading && !e.reportError && !e.error && (
@@ -240,7 +241,7 @@ export function TrainingComparisonResults({
                   </dl>
                   {e.eventsError && (
                     <p role="alert" className="mt-2 text-xs text-status-danger">
-                      {e.eventsError}
+                      <CopyableError message={e.eventsError} />
                     </p>
                   )}
                 </article>
@@ -512,10 +513,12 @@ function ComparisonCurves({
       </div>
       {experiments.some((e) => e.eventsError) && (
         <p role="alert" className="text-xs text-status-danger">
-          {experiments
-            .filter((e) => e.eventsError)
-            .map((e) => `${name(e)}：${e.eventsError}`)
-            .join("；")}
+          <CopyableError
+            message={experiments
+              .filter((e) => e.eventsError)
+              .map((e) => `${name(e)}：${e.eventsError}`)
+              .join("；")}
+          />
         </p>
       )}
       <div

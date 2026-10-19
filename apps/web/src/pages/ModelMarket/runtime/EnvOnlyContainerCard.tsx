@@ -1,3 +1,4 @@
+import { CopyableError } from "@/components/ui/CopyableError";
 /**
  * v0.23.4 · unregistered env container card (plan §6.2 / §A.4).
  *
@@ -93,7 +94,9 @@ export function EnvOnlyContainerCard({ target, onRegister }: EnvOnlyContainerCar
       </div>
 
       {!target.ok ? (
-        <div className="text-xs text-status-danger">{target.error ?? "不可达"}</div>
+        <div className="text-xs text-status-danger">
+          <CopyableError message={target.error ?? "不可达"} />
+        </div>
       ) : (
         <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
           {modelVersion && <span className="mono">{modelVersion}</span>}

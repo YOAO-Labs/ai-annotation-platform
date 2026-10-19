@@ -1,3 +1,4 @@
+import { CopyableError } from "@/components/ui/CopyableError";
 import { FilterSelect } from "@/components/filters/FilterControls";
 import { FilterPanel } from "@/components/filters/FilterPanel";
 import { FilterTrigger } from "@/components/filters/FilterTrigger";
@@ -346,7 +347,9 @@ function DiagnosticRow({
         </Badge>
         <span className="text-2xs text-muted-foreground">{diagnostic.source}</span>
       </div>
-      <div className="text-sm">{diagnostic.message}</div>
+      <div className="text-sm">
+        <CopyableError message={diagnostic.message} />
+      </div>
       {diagnostic.remediation && (
         <div className="flex items-start gap-1.5 text-2xs text-muted-foreground">
           <Icon name="info" size={11} className="mt-0.5 flex-shrink-0" />

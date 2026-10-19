@@ -1,3 +1,4 @@
+import { CopyableError } from "@/components/ui/CopyableError";
 import { FilterGroup, FilterSelect, FilterToggle } from "@/components/filters/FilterControls";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/Button";
@@ -614,7 +615,9 @@ export function MaskQcPanel({
           {busy && <div className="text-xs text-muted-foreground">{PHASE_LABELS[phase]}</div>}
           {error && (
             <div className="flex items-center justify-between gap-2 text-xs text-status-danger">
-              <span>{error}</span>
+              <span>
+                <CopyableError message={error} />
+              </span>
               <Button variant="ghost" size="sm" onClick={onRetryNavigation}>
                 重试
               </Button>
@@ -776,7 +779,9 @@ export function MaskQcPanel({
                 </Button>
               </div>
               {regionDecisionError && (
-                <span className="text-2xs text-status-danger">{regionDecisionError}</span>
+                <span className="text-2xs text-status-danger">
+                  <CopyableError message={regionDecisionError} />
+                </span>
               )}
             </div>
           )}

@@ -1,3 +1,4 @@
+import { CopyableError } from "@/components/ui/CopyableError";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Image, RefreshCw, Square } from "lucide-react";
@@ -363,7 +364,9 @@ function PreviewContent({
               role="alert"
               className="mt-3 rounded-md bg-status-caution-soft p-3 text-xs text-status-caution"
             >
-              <p>{error}</p>
+              <p>
+                <CopyableError message={error} />
+              </p>
               <Button
                 size="sm"
                 className="mt-2"
@@ -378,7 +381,11 @@ function PreviewContent({
               <p>
                 {statuses[result.status]} · 有效至 {new Date(result.expires_at).toLocaleString()}
               </p>
-              {result.error_message && <p className="mt-1">{result.error_message}</p>}
+              {result.error_message && (
+                <p className="mt-1">
+                  <CopyableError message={result.error_message} />
+                </p>
+              )}
             </div>
           )}
           {report && output && result && (

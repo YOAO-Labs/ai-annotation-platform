@@ -1,3 +1,4 @@
+import { CopyableError } from "@/components/ui/CopyableError";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
 import { clsx } from "clsx";
@@ -544,7 +545,7 @@ function ErrorBanner({ children }: { children: ReactNode }) {
       role="alert"
       className="rounded-md border border-status-danger/40 bg-status-danger-soft px-3 py-2 text-sm text-foreground"
     >
-      {children}
+      {typeof children === "string" ? <CopyableError message={children} /> : children}
     </div>
   );
 }

@@ -1,3 +1,4 @@
+import { CopyableError } from "@/components/ui/CopyableError";
 import { useMemo, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { useQueries, useQuery, useQueryClient, type Query } from "@tanstack/react-query";
@@ -180,7 +181,7 @@ function TrainingComparisonContent({ projectId, scope }: { projectId: string; sc
         <div className="mt-4 space-y-2">
           {runs.error && (
             <p role="alert" className="text-sm text-status-danger">
-              {runs.error.message}
+              <CopyableError message={runs.error.message} />
             </p>
           )}
           {runs.isPending && (
@@ -275,7 +276,7 @@ function TrainingComparisonContent({ projectId, scope }: { projectId: string; sc
             </div>
             {e.error && (
               <p role="alert" className="mt-3 text-xs text-status-danger">
-                {e.error}
+                <CopyableError message={e.error} />
               </p>
             )}
             {!e.run && !e.error ? (

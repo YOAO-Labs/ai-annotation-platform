@@ -5,8 +5,10 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { trainingObservabilityApi, type LogPage } from "@/api/trainingObservability";
 import { TrainingLogViewer } from "./TrainingLogViewer";
 import { mergeObservationPage } from "./useTrainingObservability";
+import { copyToClipboard } from "@/lib/clipboard";
 
 vi.mock("@/api/trainingObservability", () => ({ trainingObservabilityApi: { logs: vi.fn() } }));
+vi.mock("@/lib/clipboard", () => ({ copyToClipboard: vi.fn() }));
 const clients: QueryClient[] = [];
 afterEach(() => {
   cleanup();
@@ -30,6 +32,32 @@ const page = (from: number, count: number): LogPage => ({
     received_at: "2026-10-15T00:00:00Z",
     text: `entry-${from + index}\n`,
   })),
+});
+
+it("copies every loaded log block verbatim, including multiline content", async () => {
+  const client = new QueryClient();
+  clients.push(client);
+  vi.mocked(copyToClipboard).mockResolvedValue(true);
+  const logs = page(10, 3);
+  logs.items[1].text = `  Traceback\n${"diagnostic ".repeat(200)}\n`;
+  const data = mergeObservationPage(undefined, logs, 512);
+  render(
+    <QueryClientProvider client={client}>
+      <TrainingLogViewer
+        projectId="project"
+        runId="run"
+        attemptId="attempt"
+        data={data}
+        pending={false}
+        assertOwner={() => {}}
+      />
+    </QueryClientProvider>,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "复制当前日志" }));
+  await waitFor(() =>
+    expect(copyToClipboard).toHaveBeenCalledWith(logs.items.map((item) => item.text).join("")),
+  );
+  expect(screen.getByLabelText("脱敏日志内容")).toHaveAttribute("tabindex", "0");
 });
 
 it("loads earlier escaped content without moving the live cursor, bounds the viewport, and resumes following explicitly", async () => {

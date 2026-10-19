@@ -1,3 +1,4 @@
+import { CopyableError } from "@/components/ui/CopyableError";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 
@@ -203,7 +204,12 @@ function ActionJobStatus({
       <span title={taskIds.join("\n")}>提交时选定 {taskIds.length} 个任务</span> ·{" "}
       {jobStatusLabel(status)}
       {query.data?.progress_pct !== undefined && ` · ${query.data.progress_pct}%`}
-      {detail && ` · ${detail}`}
+      {detail && (
+        <>
+          {" "}
+          · <CopyableError message={detail} />
+        </>
+      )}
       {status === "failed" && (
         <Button size="xs" className="ml-1" disabled={busy} onClick={onRerun}>
           重新运行
@@ -227,7 +233,7 @@ function ActionError({ message }: { message: string | null }) {
       role="alert"
       className="rounded-md border border-status-danger/30 bg-status-danger-soft px-3 py-2 text-xs text-status-danger"
     >
-      {message}
+      <CopyableError message={message} />
     </div>
   ) : null;
 }
@@ -572,7 +578,7 @@ export function DataManagerTaskActions({
         )}
         {actionError && !assignmentOpen && !exportOpen && !preannotateOpen && (
           <div role="alert" className="basis-full text-xs text-status-danger">
-            {actionError}
+            <CopyableError message={actionError} />
           </div>
         )}
         {(exportJobId || preannotateJobId) && (

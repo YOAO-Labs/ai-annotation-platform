@@ -1,3 +1,4 @@
+import { CopyableError } from "@/components/ui/CopyableError";
 import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -94,7 +95,9 @@ export function TrainingRecipeStatus({
         </p>
         {clone.error && (
           <p role="alert" className="text-status-caution">
-            来源暂不可用：{clone.error.message}。草稿已保留，可明确解除来源后继续。
+            来源暂不可用：
+            <CopyableError message={clone.error.message} />
+            。草稿已保留，可明确解除来源后继续。
           </p>
         )}
         {clone.data && !clone.data.compatible && (
@@ -118,7 +121,9 @@ export function TrainingRecipeStatus({
       {pinned.data && !pinned.data.source_available && <p>原实验已删除；配方完整快照仍可用。</p>}
       {pinned.error && (
         <p role="alert" className="text-status-caution">
-          无法核验来源：{pinned.error.message}。当前草稿保留，提交前需重新核验或明确解除来源。
+          无法核验来源：
+          <CopyableError message={pinned.error.message} />
+          。当前草稿保留，提交前需重新核验或明确解除来源。
         </p>
       )}
     </div>
@@ -231,7 +236,8 @@ export function TrainingRecipeSave({
             </p>
             {error && (
               <p role="alert" className="text-status-danger">
-                {error}。编辑内容已保留；网络失败可重试原请求。
+                <CopyableError message={error} />
+                。编辑内容已保留；网络失败可重试原请求。
               </p>
             )}
             {conflict && (
@@ -427,7 +433,7 @@ export function TrainingRecipeLibrary({
         </label>
         {(error || recipes.error || history.error) && (
           <p role="alert" className="text-status-danger">
-            {error || recipes.error?.message || history.error?.message}
+            <CopyableError message={error || recipes.error?.message || history.error?.message} />
           </p>
         )}
         {selected && (

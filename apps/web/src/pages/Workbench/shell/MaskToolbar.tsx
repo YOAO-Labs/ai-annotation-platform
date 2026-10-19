@@ -1,3 +1,4 @@
+import { CopyableError } from "@/components/ui/CopyableError";
 import { useState } from "react";
 import {
   Brush,
@@ -613,7 +614,9 @@ export function MaskToolbar({
           className="flex basis-full items-center gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-2 py-1"
           role="alert"
         >
-          <span className="text-2xs text-destructive">{instanceCommitError}</span>
+          <span className="text-2xs text-destructive">
+            <CopyableError message={instanceCommitError} />
+          </span>
         </div>
       )}
       {operationStatus === "error" && (
@@ -623,9 +626,13 @@ export function MaskToolbar({
         >
           <span className="text-2xs text-destructive">
             高级操作失败：
-            {operationError instanceof Error
-              ? operationError.message
-              : String(operationError ?? "未知错误")}
+            <CopyableError
+              message={
+                operationError instanceof Error
+                  ? operationError.message
+                  : String(operationError ?? "未知错误")
+              }
+            />
           </span>
         </div>
       )}

@@ -1,3 +1,4 @@
+import { CopyableError } from "@/components/ui/CopyableError";
 import { useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { Badge } from "@/components/ui/Badge";
@@ -153,7 +154,9 @@ export function StartChecklistCard({
             role="alert"
             className="flex items-center gap-2 border-t border-border px-4 py-2 text-xs text-status-danger"
           >
-            <span>{saveError}</span>
+            <span>
+              <CopyableError message={saveError} />
+            </span>
             <button type="button" className="underline" onClick={() => void retry()}>
               重试
             </button>
@@ -237,7 +240,9 @@ export function StartChecklistCard({
           role="alert"
           className="flex items-center gap-2 border-t border-border px-4 py-2 text-xs text-status-danger"
         >
-          <span>{saveError}</span>
+          <span>
+            <CopyableError message={saveError} />
+          </span>
           <button type="button" className="underline" onClick={() => void retry()}>
             重试
           </button>

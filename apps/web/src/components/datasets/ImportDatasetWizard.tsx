@@ -1,3 +1,4 @@
+import { CopyableError } from "@/components/ui/CopyableError";
 import { useEffect, useRef, useState, type CSSProperties, type DragEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import { Modal } from "@/components/ui/Modal";
@@ -996,7 +997,11 @@ function Step3({
                 }
               />
             </div>
-            {item?.error && <div className={styles.errorMessage}>{item.error}</div>}
+            {item?.error && (
+              <div className={styles.errorMessage}>
+                <CopyableError message={item.error} />
+              </div>
+            )}
           </div>
         ))}
       </div>
@@ -1119,7 +1124,7 @@ function Step3Zip({
               <div className={styles.errorList}>
                 {result.errors.slice(0, 50).map((e, i) => (
                   <div key={i} className={styles.errorRow}>
-                    <span className="mono">{e.name}</span> — {e.error}
+                    <CopyableError message={`${e.name} — ${e.error}`} />
                   </div>
                 ))}
                 {result.errors.length > 50 && (
@@ -1133,7 +1138,11 @@ function Step3Zip({
         </div>
       )}
 
-      {error && <div className={styles.zipError}>{error}</div>}
+      {error && (
+        <div className={styles.zipError}>
+          <CopyableError message={error} />
+        </div>
+      )}
 
       <div className={styles.actions}>
         <Button onClick={onClose}>关闭</Button>
@@ -1236,7 +1245,11 @@ function Step3Connection({
               共 {total} · 跳过 {skipped} · 失败 {errors}
             </span>
           </div>
-          {job.error_message && <div className={styles.errorMessage}>{job.error_message}</div>}
+          {job.error_message && (
+            <div className={styles.errorMessage}>
+              <CopyableError message={job.error_message} />
+            </div>
+          )}
           {Array.isArray(result.errors) && result.errors.length > 0 && (
             <details className={styles.errorDetails}>
               <summary className={styles.errorSummary}>
@@ -1245,7 +1258,7 @@ function Step3Connection({
               <div className={styles.errorList}>
                 {result.errors.slice(0, 50).map((entry, index) => (
                   <div key={index} className={styles.errorRow}>
-                    {formatJobError(entry)}
+                    <CopyableError message={formatJobError(entry)} />
                   </div>
                 ))}
               </div>
@@ -1254,7 +1267,11 @@ function Step3Connection({
         </div>
       )}
 
-      {submitError && <div className={styles.zipError}>{submitError}</div>}
+      {submitError && (
+        <div className={styles.zipError}>
+          <CopyableError message={submitError} />
+        </div>
+      )}
 
       <div className={styles.actions}>
         <Button onClick={onClose}>关闭</Button>

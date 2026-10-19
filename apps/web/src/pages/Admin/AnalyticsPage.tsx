@@ -1,3 +1,4 @@
+import { CopyableError } from "@/components/ui/CopyableError";
 import { FilterGroup, FilterSelect } from "@/components/filters/FilterControls";
 /**
  * v0.10.16 · DuckDB 离线分析面板（ROADMAP §1.6）。
@@ -287,5 +288,9 @@ function NotReady({ error }: { error: unknown }) {
     error && typeof error === "object" && "message" in error
       ? String((error as { message: unknown }).message)
       : "数据初始化中（Celery beat 尚未首次同步）。";
-  return <div className="rounded-sm bg-muted p-3 text-xs text-muted-foreground">{msg}</div>;
+  return (
+    <div className="rounded-sm bg-muted p-3 text-xs text-muted-foreground">
+      {error ? <CopyableError message={msg} /> : msg}
+    </div>
+  );
 }

@@ -1,3 +1,4 @@
+import { CopyableError } from "@/components/ui/CopyableError";
 /**
  * v0.19.0 · ADR-0044 · superadmin 全局 ML backend 注册/编辑弹窗。
  *
@@ -351,7 +352,10 @@ export function GlobalBackendFormModal({ open, backend, onClose }: Props) {
                     {probeResult.model_version ? `, ${probeResult.model_version}` : ""})
                   </>
                 ) : (
-                  <>无法连接：{probeResult.error ?? "未知错误"}</>
+                  <>
+                    无法连接：
+                    <CopyableError message={probeResult.error ?? "未知错误"} />
+                  </>
                 )}
               </span>
             )}
@@ -395,7 +399,8 @@ export function GlobalBackendFormModal({ open, backend, onClose }: Props) {
             {resourcesQ.isLoading && <div className={HELP_CLASS}>正在读取 GPU 资源配置…</div>}
             {resourcesQ.isError && (
               <div className="mt-1 text-2xs text-status-danger">
-                GPU 资源配置加载失败：{(resourcesQ.error as Error).message}
+                GPU 资源配置加载失败：
+                <CopyableError message={(resourcesQ.error as Error).message} />
               </div>
             )}
           </div>
@@ -453,8 +458,9 @@ export function GlobalBackendFormModal({ open, backend, onClose }: Props) {
             <ul className="m-0 flex list-none flex-col gap-1 p-0 text-2xs text-status-danger">
               {gpuDiagnostics.map((diagnostic, index) => (
                 <li key={`${diagnostic.code}-${diagnostic.field ?? ""}-${index}`}>
-                  {diagnostic.field ? `${diagnostic.field}：` : ""}
-                  {diagnostic.message}
+                  <CopyableError
+                    message={`${diagnostic.field ? `${diagnostic.field}：` : ""}${diagnostic.message}`}
+                  />
                 </li>
               ))}
             </ul>
@@ -531,7 +537,9 @@ export function GlobalBackendFormModal({ open, backend, onClose }: Props) {
         {error && (
           <div className="flex items-start gap-1.5 rounded-md border border-status-danger bg-status-danger-soft px-2.5 py-2 text-xs text-status-danger">
             <Icon name="warning" size={12} className="mt-0.5 flex-shrink-0" />
-            <span>{error}</span>
+            <span>
+              <CopyableError message={error} />
+            </span>
           </div>
         )}
         <div className="flex justify-end gap-2">

@@ -839,12 +839,26 @@ describe("useInteractiveAI", () => {
       expect(pushToastMock).toHaveBeenCalledWith(
         expect.objectContaining({
           msg: "模型暂不可用",
-          sub: "30 秒后重试",
+          sub: "30 秒后重试\nML backend: model unavailable",
           kind: "error",
         }),
       ),
     );
-    expect(result.current.error).toBe("模型暂不可用：30 秒后重试");
+    expect(result.current.error).toBe("模型暂不可用：30 秒后重试\nML backend: model unavailable");
+  });
+
+  it.each([422, 503, 500, 400])("保留 HTTP %s 推理错误全文供界面和通知复制", async (status) => {
+    const message = `Traceback\n${"diagnostic ".repeat(200)}\n最后一行`;
+    interactiveAnnotateMock.mockRejectedValue(new ApiError(status, message));
+    const { result } = renderHook(() => useInteractiveAI(ARGS));
+    act(() => result.current.runBbox([0, 0, 0.5, 0.5]));
+    await waitFor(() => expect(result.current.error).toContain(message));
+    expect(pushToastMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sub: expect.stringContaining(message),
+        kind: "error",
+      }),
+    );
   });
 
   it("无变体字段的预测不弹任何切换 toast", async () => {

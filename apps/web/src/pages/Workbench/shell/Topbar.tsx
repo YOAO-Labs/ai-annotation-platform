@@ -5,8 +5,6 @@ import { DropdownMenu, type DropdownItem } from "@/components/ui/DropdownMenu";
 import { AssigneeAvatarStack } from "@/components/ui/AssigneeAvatarStack";
 import { SkipTaskModal, type SkipReason } from "./SkipTaskModal";
 import { BatchStatusBadge } from "@/components/badges/BatchStatusBadge";
-import { useWhatsNewStore } from "@/components/shell/WhatsNewDialog";
-import { appVersion } from "@/utils/releaseNotes";
 import { useTheme } from "@/hooks/useTheme";
 import { useBugDrawerStore } from "@/stores/bugDrawerStore";
 import type { TaskResponse } from "@/types";
@@ -503,20 +501,6 @@ export function Topbar({
             </Suspense>
           )}
           <div className="flex items-center gap-1.5 @max-[1000px]:hidden">
-            {/* 与主界面 TopBar 一致:版本号可点击,随时查看当前版本更新内容。
-                窄屏工作台顶栏已无横向余量(见 workbench-topbar.spec 的防重叠断言),
-                故随中段压缩一并收起;<1000px 时改由「更多工具」菜单提供入口。 */}
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => useWhatsNewStore.getState().openManually()}
-              title="查看本次更新内容"
-              aria-label={`查看 v${appVersion} 更新内容`}
-              data-testid="workbench-whats-new"
-              className="mono px-1.5 py-1 text-muted-foreground @max-[900px]:hidden"
-            >
-              v{appVersion}
-            </Button>
             <Button
               variant="ghost"
               size="sm"
@@ -559,11 +543,6 @@ export function Topbar({
                 ...smartItems,
                 { id: "hotkeys", label: "快捷键", onSelect: onShowHotkeys },
                 { id: "theme", label: themeActionLabel, onSelect: () => setTheme(nextTheme) },
-                {
-                  id: "whats-new",
-                  label: `本次更新 (v${appVersion})`,
-                  onSelect: () => useWhatsNewStore.getState().openManually(),
-                },
                 { id: "bug-report", label: "报告 Bug / 提交反馈", onSelect: openBugDrawer },
                 ...(onOpenWorkbenchSettings
                   ? [{ id: "settings", label: "工作台设置", onSelect: onOpenWorkbenchSettings }]

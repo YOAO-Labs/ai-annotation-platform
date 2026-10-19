@@ -1,3 +1,4 @@
+import { CopyableError } from "@/components/ui/CopyableError";
 import {
   cloneElement,
   useCallback,
@@ -1361,7 +1362,8 @@ function MarkdownEditorDocument({
           {uploadErrors.map((error) => (
             <div className={styles.uploadError} role="alert" key={error.id}>
               <span>
-                图片“{error.file.name}”上传失败：{error.message}
+                图片“{error.file.name}”上传失败：
+                <CopyableError message={error.message} />
               </span>
               <button type="button" onClick={() => retryUpload(error.id)} disabled={disabled}>
                 重试

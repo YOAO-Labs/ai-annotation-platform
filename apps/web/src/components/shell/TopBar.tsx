@@ -1,3 +1,4 @@
+import { CopyableError } from "@/components/ui/CopyableError";
 import { lazy, Suspense, useEffect, useState } from "react";
 import { useQueryClient, useIsFetching } from "@tanstack/react-query";
 import { clsx } from "clsx";
@@ -236,7 +237,7 @@ export function TopBar({
               data-testid="logout-sync-error"
               className="rounded-md border border-status-danger/30 bg-status-danger-soft px-3 py-2 text-sm text-status-danger"
             >
-              {logout.syncError}
+              <CopyableError message={logout.syncError} />
             </div>
           )}
           <AlertDialogFooter>

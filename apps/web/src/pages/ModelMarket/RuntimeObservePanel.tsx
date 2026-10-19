@@ -1,3 +1,4 @@
+import { CopyableError } from "@/components/ui/CopyableError";
 /**
  * v0.23.4 · runtime observation orchestrator (plan §6.2 / §9.3).
  *
@@ -225,7 +226,9 @@ export function RuntimeObservePanel(): React.ReactElement {
               <Alert variant="destructive">
                 <AlertTriangle aria-hidden="true" />
                 <AlertTitle>运行时状态加载失败</AlertTitle>
-                <AlertDescription>{(hardError as Error).message ?? "未知错误"}</AlertDescription>
+                <AlertDescription>
+                  <CopyableError message={(hardError as Error).message ?? "未知错误"} />
+                </AlertDescription>
               </Alert>
             ) : topology ? (
               <ServicePoolRuntimeTable topology={topology} lookup={lookup} onWarm={onWarm} />
@@ -394,8 +397,18 @@ function DataSourceRegion({
                   {topology.partial_reason ?? "原因未知"}。页面已保留其它可信来源，
                   不会把缺失指标显示为 0。
                 </p>
-                {snapshotError && <p>runtime-snapshot：{snapshotError}</p>}
-                {observeError && <p>observe：{observeError}</p>}
+                {snapshotError && (
+                  <p>
+                    runtime-snapshot：
+                    <CopyableError message={snapshotError} />
+                  </p>
+                )}
+                {observeError && (
+                  <p>
+                    observe：
+                    <CopyableError message={observeError} />
+                  </p>
+                )}
               </AlertDescription>
             </Alert>
           )}
@@ -408,10 +421,16 @@ function DataSourceRegion({
             ))}
           </div>
           {!topology.partial && snapshotError && (
-            <div className="text-2xs text-status-danger">runtime-snapshot：{snapshotError}</div>
+            <div className="text-2xs text-status-danger">
+              runtime-snapshot：
+              <CopyableError message={snapshotError} />
+            </div>
           )}
           {!topology.partial && observeError && (
-            <div className="text-2xs text-status-danger">observe：{observeError}</div>
+            <div className="text-2xs text-status-danger">
+              observe：
+              <CopyableError message={observeError} />
+            </div>
           )}
         </div>
       )}

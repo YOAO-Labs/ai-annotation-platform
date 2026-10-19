@@ -1,3 +1,4 @@
+import { CopyableError } from "@/components/ui/CopyableError";
 import { FilterGroup, FilterToggle } from "@/components/filters/FilterControls";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
@@ -337,6 +338,13 @@ function NotifRow({ item, onClick, onDelete, deletePending }: NotifRowProps) {
           </div>
         </div>
       </button>
+      {(stringValue(payload.error) || stringValue(payload.error_message)) && (
+        <CopyableError
+          message={stringValue(payload.error) || stringValue(payload.error_message)}
+          iconOnly
+          label="复制通知错误详情"
+        />
+      )}
       <button
         type="button"
         className="-mt-0.5 inline-flex h-[22px] w-[22px] flex-shrink-0 cursor-pointer appearance-none items-center justify-center rounded-sm border border-transparent bg-transparent text-muted-foreground opacity-0 hover:bg-status-danger-soft hover:text-status-danger focus-visible:opacity-100 group-hover:opacity-100 disabled:cursor-not-allowed disabled:opacity-40"
@@ -572,7 +580,9 @@ export function NotificationsPopover({
         >
           {target.error ? (
             <div className="space-y-3 text-sm">
-              <p role="alert">{target.error}</p>
+              <p role="alert">
+                <CopyableError message={target.error} />
+              </p>
               <div className="flex gap-2">
                 <Button onClick={() => void openNotificationTarget(target.item)}>重新打开</Button>
                 <Button

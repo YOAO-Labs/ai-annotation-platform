@@ -1,3 +1,4 @@
+import { CopyableError } from "@/components/ui/CopyableError";
 import { useEffect, useMemo, useState } from "react";
 
 import {
@@ -290,7 +291,7 @@ export function MaskFormatImportWizard({
             {[...preflight.plan.losses, ...preflight.plan.skips, ...preflight.plan.warnings].map(
               (entry, index) => (
                 <div key={`${entry.code}-${index}`} className="text-muted-foreground">
-                  <code className="text-foreground">{entry.code}</code> · {entry.message}
+                  <CopyableError message={`${entry.code} · ${entry.message}`} />
                 </div>
               ),
             )}

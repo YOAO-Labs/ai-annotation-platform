@@ -1,3 +1,4 @@
+import { CopyableError } from "@/components/ui/CopyableError";
 import { FilterGroup, FilterSelect } from "@/components/filters/FilterControls";
 import { FilterPanel } from "@/components/filters/FilterPanel";
 import { FilterTrigger } from "@/components/filters/FilterTrigger";
@@ -640,7 +641,7 @@ function UsersPageContent() {
                           />
                           <span className="font-medium">{userQueryTitle}</span>
                           <span className="text-xs text-muted-foreground">
-                            {userQueryErrorCopy}
+                            <CopyableError message={userQueryErrorCopy} />
                           </span>
                           <Button
                             size="sm"
@@ -1166,7 +1167,7 @@ function UsersPageContent() {
             {deleteUser.error && (
               <div className="flex items-center gap-2 rounded-md border border-status-danger bg-status-danger-soft px-3 py-2 text-sm text-status-danger">
                 <Icon name="warning" size={12} />{" "}
-                {(deleteUser.error as Error)?.message ?? "删除失败"}
+                <CopyableError message={(deleteUser.error as Error)?.message ?? "删除失败"} />
               </div>
             )}
             <div className="flex justify-end gap-2">

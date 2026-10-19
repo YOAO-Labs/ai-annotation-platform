@@ -4,6 +4,10 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
+import userEvent from "@testing-library/user-event";
+import { copyToClipboard } from "@/lib/clipboard";
+
+vi.mock("@/lib/clipboard", () => ({ copyToClipboard: vi.fn() }));
 
 const mockPushToast = vi.fn();
 const mockInvalidateQueries = vi.fn();
@@ -106,6 +110,7 @@ function renderUI() {
 
 describe("StoragePage", () => {
   beforeEach(() => {
+    vi.mocked(copyToClipboard).mockReset().mockResolvedValue(true);
     mockPushToast.mockReset();
     mockInvalidateQueries.mockReset();
     mockRetryMutate.mockReset();
@@ -182,6 +187,50 @@ describe("StoragePage", () => {
   it("视频资产失败为空 → 显示「暂无视频资产失败」", () => {
     renderUI();
     expect(screen.getByText("暂无视频资产失败")).toBeInTheDocument();
+  });
+
+  it("点击截断错误复制完整多行内容，等待复制完成后提示成功", async () => {
+    const error = `ffmpeg version 5.1.9\n${"encoder diagnostics ".repeat(40)}\n编码失败: WebPAnimEncoderAssemble()`;
+    mockUseVideoAssetFailures.mockReturnValue({
+      data: { items: [{ ...SAMPLE_VIDEO_FAILURE, error }], total: 1 },
+    });
+    let complete!: (copied: boolean) => void;
+    vi.mocked(copyToClipboard).mockReturnValue(
+      new Promise((resolve) => {
+        complete = resolve;
+      }),
+    );
+    renderUI();
+    const copy = screen.getByRole("button", { name: "复制 video.mp4 的完整错误信息" });
+    expect(copy).toHaveAttribute("title", `${error}\n\n点击复制完整错误信息`);
+    fireEvent.click(copy);
+    expect(copyToClipboard).toHaveBeenCalledWith(error);
+    expect(mockPushToast).not.toHaveBeenCalled();
+    complete(true);
+    await waitFor(() =>
+      expect(mockPushToast).toHaveBeenCalledWith({
+        msg: "已复制完整错误信息",
+        kind: "success",
+      }),
+    );
+    expect(mockRetryMutate).not.toHaveBeenCalled();
+  });
+
+  it("错误复制支持键盘触发，复制失败时提供提示", async () => {
+    const user = userEvent.setup();
+    vi.mocked(copyToClipboard).mockResolvedValue(false);
+    mockUseVideoAssetFailures.mockReturnValue({
+      data: { items: [SAMPLE_VIDEO_FAILURE], total: 1 },
+    });
+    renderUI();
+    screen.getByRole("button", { name: "复制 video.mp4 的完整错误信息" }).focus();
+    await user.keyboard("{Enter}");
+    expect(copyToClipboard).toHaveBeenCalledWith("timeout");
+    expect(mockPushToast).toHaveBeenCalledWith({
+      msg: "复制失败，请检查浏览器剪贴板权限",
+      kind: "error",
+    });
+    expect(mockRetryMutate).not.toHaveBeenCalled();
   });
 
   it("点击重试按钮 → 调用 retry.mutate", () => {

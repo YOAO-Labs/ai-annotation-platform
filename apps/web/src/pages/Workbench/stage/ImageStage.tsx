@@ -1,3 +1,4 @@
+import { CopyableError } from "@/components/ui/CopyableError";
 import type { CommitPolygonSlice } from "./usePolygonSlice";
 import {
   useCallback,
@@ -3230,7 +3231,7 @@ export function ImageStage({
               <div key={id} className="flex items-center gap-2">
                 <span className="min-w-0 flex-1 truncate">
                   {userBoxes.find((annotation) => annotation.id === id)?.cls ?? id}：
-                  {status.message}
+                  <CopyableError message={status.message} truncate />
                 </span>
                 {status.retryable && (
                   <button

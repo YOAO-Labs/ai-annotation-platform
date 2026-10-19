@@ -13,6 +13,7 @@ import type { DatasetResponse } from "@/api/datasets";
 import type { BucketSummary, VideoAssetFailureItem, VideoAssetKind } from "@/api/storage";
 import type { IconName } from "@/components/ui/Icon";
 import { PageContainer } from "@/components/layout/PageContainer";
+import { CopyableError } from "@/components/ui/CopyableError";
 
 const TYPE_ICONS: Record<string, IconName> = {
   image: "image",
@@ -246,12 +247,12 @@ function VideoAssetFailuresPanel() {
                         </div>
                       </td>
                       <td className={`${tdClass} max-w-[420px]`}>
-                        <div
-                          title={asset.error}
-                          className="overflow-hidden text-ellipsis whitespace-nowrap text-muted-foreground"
-                        >
-                          {asset.error}
-                        </div>
+                        <CopyableError
+                          message={asset.error}
+                          label={`复制 ${asset.file_name} 的完整错误信息`}
+                          className="w-full py-1 text-muted-foreground"
+                          truncate
+                        />
                       </td>
                       <td className={`${tdClass} text-xs text-muted-foreground`}>
                         {asset.updated_at ? new Date(asset.updated_at).toLocaleString() : "—"}
