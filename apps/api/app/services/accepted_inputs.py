@@ -231,19 +231,55 @@ class _PinCopyReceipt(c.Value):
     copied: c.Count
 
 
+class _PinAttachReceipt(c.Value):
+    annotation_id: UUID
+    input_id: UUID
+    sha256: c.Digest
+    attached: bool
+
+
+async def attach_annotation_input_source(
+    db: AsyncSession, *, annotation_id: UUID, input_id: UUID, sha256: str
+) -> bool:
+    """Pin accepted evidence before consuming its PredictionMeta provenance."""
+    result = await _call_pin_operation(
+        db,
+        "SELECT aap_labeling_v1.attach_annotation_input_source(CAST(:annotation AS uuid), CAST(:input AS uuid), CAST(:sha256 AS text))",
+        {"annotation": annotation_id, "input": input_id, "sha256": sha256},
+        _PinAttachReceipt,
+    )
+    if (
+        result.annotation_id != annotation_id
+        or result.input_id != input_id
+        or result.sha256 != sha256
+    ):
+        raise c.InputFailure("invalid_response")
+    return result.attached
+
+
 async def copy_annotation_input_sources(
     db: AsyncSession, *, source_annotation_id: UUID, target_annotation_id: UUID
 ) -> int:
     """Retain source evidence for sibling/derived rows in the original transaction."""
+    result = await _call_pin_operation(
+        db,
+        "SELECT aap_labeling_v1.copy_annotation_input_sources(CAST(:source AS uuid), CAST(:target AS uuid))",
+        {"source": source_annotation_id, "target": target_annotation_id},
+        _PinCopyReceipt,
+    )
+    if (
+        result.source_annotation_id != source_annotation_id
+        or result.target_annotation_id != target_annotation_id
+    ):
+        raise c.InputFailure("invalid_response")
+    return result.copied
+
+
+async def _call_pin_operation(db, statement, parameters, receipt_type):
     try:
         await db.flush()
         async with db.begin_nested():
-            raw = await db.scalar(
-                text(
-                    "SELECT aap_labeling_v1.copy_annotation_input_sources(CAST(:source AS uuid), CAST(:target AS uuid))"
-                ),
-                {"source": source_annotation_id, "target": target_annotation_id},
-            )
+            raw = await db.scalar(text(statement), parameters)
             if (
                 not isinstance(raw, dict)
                 or raw.get("schema") != "aap-labeling-input-sources/v1"
@@ -256,13 +292,7 @@ async def copy_annotation_input_sources(
                 raise c.InputFailure(c._Error.model_validate(raw["error"]).code)
             if set(raw) != {"schema", "ok", "data"}:
                 raise c.InputFailure("invalid_response")
-            result = _PinCopyReceipt.model_validate(raw["data"])
-            if (
-                result.source_annotation_id != source_annotation_id
-                or result.target_annotation_id != target_annotation_id
-            ):
-                raise c.InputFailure("invalid_response")
-            return result.copied
+            return receipt_type.model_validate(raw["data"])
     except c.InputFailure:
         raise
     except SQLAlchemyError as exc:
