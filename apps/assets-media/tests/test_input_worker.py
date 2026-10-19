@@ -1,5 +1,7 @@
+import asyncio
 from datetime import datetime, timedelta, timezone
 import hashlib
+import time
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 from uuid import uuid4
@@ -9,6 +11,7 @@ import pytest
 from aap_assets_images import contract as image
 from aap_assets_images.policy import ImagePolicy
 from aap_assets_inputs import contract as c
+from aap_assets_inputs_runtime import worker as input_worker
 from aap_assets_inputs_runtime.worker import InputExecutor, InputGarbageCollector
 from input_fixtures import BODY, input_work
 
@@ -130,13 +133,16 @@ async def test_source_replaced_after_copy_cannot_publish(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_lost_initial_lease_never_copies_or_overwrites_winner(tmp_path):
+@pytest.mark.parametrize("code", ["lease_lost", "invalid_response"])
+async def test_lost_or_unknown_initial_lease_never_copies_or_overwrites_winner(
+    tmp_path, code
+):
     state = world()
     native = state.database.call.side_effect
 
     async def lost(operation, request):
         if operation == "heartbeat_accepted_image_input":
-            raise c.InputFailure("lease_lost")
+            raise c.InputFailure(code)
         return await native(operation, request)
 
     state.database.call.side_effect = lost
@@ -151,6 +157,236 @@ async def test_lost_initial_lease_never_copies_or_overwrites_winner(tmp_path):
         operation in {"finish_accepted_image_input", "fail_accepted_image_input"}
         for operation, _ in state.calls
     )
+
+
+@pytest.mark.asyncio
+async def test_initial_input_busy_retries_before_source_io(tmp_path):
+    state = world()
+    native = state.database.call.side_effect
+    original_download = state.storage.download_source.side_effect
+    heartbeat_requests = []
+    events = []
+
+    async def busy_then_confirmed(operation, request):
+        if operation == "heartbeat_accepted_image_input":
+            heartbeat_requests.append(request)
+            events.append("heartbeat")
+            if len(heartbeat_requests) <= 2:
+                raise c.InputFailure("input_busy")
+            result = await native(operation, request)
+            events.append("confirmed")
+            return result
+        return await native(operation, request)
+
+    async def tracked_download(source, path):
+        events.append("source_io")
+        return await original_download(source, path)
+
+    state.database.call.side_effect = busy_then_confirmed
+    state.storage.download_source.side_effect = tracked_download
+    outcome = await InputExecutor(
+        state.database, state.storage, temp_root=tmp_path
+    ).execute_once(input_id=state.work.input.input_id)
+
+    assert outcome == state.ready
+    assert len(heartbeat_requests) == 3
+    assert events.index("confirmed") < events.index("source_io")
+    assert all(
+        (request.input_id, request.generation, request.lease_token)
+        == (
+            state.claim.input.input_id,
+            state.claim.generation,
+            state.claim.lease_token,
+        )
+        for request in heartbeat_requests
+    )
+    state.storage.upload_blob.assert_awaited_once()
+    assert not list(tmp_path.iterdir())
+
+
+@pytest.mark.asyncio
+async def test_periodic_input_busy_retries_same_claim(tmp_path):
+    state = world()
+    native = state.database.call.side_effect
+    heartbeat_requests = []
+    third_heartbeat = asyncio.Event()
+
+    async def busy_once(operation, request):
+        if operation == "heartbeat_accepted_image_input":
+            heartbeat_requests.append(request)
+            if len(heartbeat_requests) == 2:
+                raise c.InputFailure("input_busy")
+            if len(heartbeat_requests) >= 3:
+                third_heartbeat.set()
+        return await native(operation, request)
+
+    state.database.call.side_effect = busy_once
+    lease = input_worker._Lease(state.database, state.claim, ImagePolicy())
+    lease.interval = 0.01
+    await lease.start()
+    try:
+        await asyncio.wait_for(third_heartbeat.wait(), timeout=2)
+        assert len(heartbeat_requests) == 3
+        assert all(
+            (request.input_id, request.generation, request.lease_token)
+            == (
+                state.claim.input.input_id,
+                state.claim.generation,
+                state.claim.lease_token,
+            )
+            for request in heartbeat_requests
+        )
+        assert lease.error is None and not lease.lost.is_set()
+    finally:
+        await lease.close()
+
+
+@pytest.mark.asyncio
+async def test_periodic_true_lease_loss_remains_fenced(tmp_path):
+    state = world()
+    native = state.database.call.side_effect
+    heartbeat_requests = []
+
+    async def lose_after_initial(operation, request):
+        if operation == "heartbeat_accepted_image_input":
+            heartbeat_requests.append(request)
+            if len(heartbeat_requests) > 1:
+                raise c.InputFailure("lease_lost")
+        return await native(operation, request)
+
+    state.database.call.side_effect = lose_after_initial
+    lease = input_worker._Lease(state.database, state.claim, ImagePolicy())
+    lease.interval = 0.01
+    await lease.start()
+    try:
+        await asyncio.wait_for(lease.lost.wait(), timeout=1)
+        assert lease.error is not None and lease.error.code == "lease_lost"
+        with pytest.raises(c.InputFailure, match="lease_lost"):
+            lease.check()
+        assert len(heartbeat_requests) == 2
+        assert all(
+            (request.input_id, request.generation, request.lease_token)
+            == (
+                state.claim.input.input_id,
+                state.claim.generation,
+                state.claim.lease_token,
+            )
+            for request in heartbeat_requests
+        )
+    finally:
+        await lease.close()
+
+
+@pytest.mark.asyncio
+async def test_initial_input_busy_stops_at_existing_execution_deadline(tmp_path):
+    state = world()
+    native = state.database.call.side_effect
+    heartbeat_requests = []
+    policy = ImagePolicy(job_timeout_seconds=1, lease_seconds=62)
+
+    async def continuously_busy(operation, request):
+        if operation == "heartbeat_accepted_image_input":
+            heartbeat_requests.append(request)
+            raise c.InputFailure("input_busy")
+        return await native(operation, request)
+
+    state.database.call.side_effect = continuously_busy
+    started = time.monotonic()
+    outcome = await InputExecutor(
+        state.database, state.storage, policy=policy, temp_root=tmp_path
+    ).execute_once(input_id=state.work.input.input_id)
+
+    assert outcome.status == "failed" and outcome.error == "timeout"
+    assert len(heartbeat_requests) >= 2
+    assert all(
+        (request.input_id, request.generation, request.lease_token)
+        == (
+            state.claim.input.input_id,
+            state.claim.generation,
+            state.claim.lease_token,
+        )
+        for request in heartbeat_requests
+    )
+    assert time.monotonic() - started < 1.5
+    state.storage.download_source.assert_not_awaited()
+    assert [
+        request.error_code
+        for operation, request in state.calls
+        if operation == "fail_accepted_image_input"
+    ] == ["timeout"]
+
+
+@pytest.mark.asyncio
+async def test_periodic_input_busy_stops_at_existing_execution_deadline(tmp_path):
+    state = world()
+    native = state.database.call.side_effect
+    heartbeat_requests = []
+    policy = ImagePolicy(job_timeout_seconds=1, lease_seconds=62)
+
+    async def busy_after_initial(operation, request):
+        if operation == "heartbeat_accepted_image_input":
+            heartbeat_requests.append(request)
+            if len(heartbeat_requests) > 1:
+                raise c.InputFailure("input_busy")
+        return await native(operation, request)
+
+    state.database.call.side_effect = busy_after_initial
+    lease = input_worker._Lease(state.database, state.claim, policy)
+    lease.interval = 0.01
+    await lease.start()
+    entered = asyncio.Event()
+    released = asyncio.Event()
+
+    async def blocked_operation():
+        entered.set()
+        await released.wait()
+        return state.ready
+
+    started = time.monotonic()
+    task = asyncio.create_task(lease.call(blocked_operation))
+    try:
+        await asyncio.wait_for(entered.wait(), timeout=1)
+        with pytest.raises(c.InputFailure, match="timeout"):
+            await task
+        assert lease.error is not None and lease.error.code == "timeout"
+        assert len(heartbeat_requests) >= 2
+        assert time.monotonic() - started < 1.5
+    finally:
+        released.set()
+        await lease.close()
+
+
+@pytest.mark.asyncio
+async def test_cancellation_during_source_transfer_never_publishes_or_fails(tmp_path):
+    state = world()
+    entered = asyncio.Event()
+    cancelled = asyncio.Event()
+
+    async def blocked_download(_source, _path):
+        entered.set()
+        try:
+            await asyncio.Event().wait()
+        finally:
+            cancelled.set()
+
+    state.storage.download_source.side_effect = blocked_download
+    task = asyncio.create_task(
+        InputExecutor(state.database, state.storage, temp_root=tmp_path).execute_once(
+            input_id=state.work.input.input_id
+        )
+    )
+    await asyncio.wait_for(entered.wait(), timeout=1)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert cancelled.is_set()
+    state.storage.upload_blob.assert_not_awaited()
+    assert not any(
+        operation in {"finish_accepted_image_input", "fail_accepted_image_input"}
+        for operation, _ in state.calls
+    )
+    assert not list(tmp_path.iterdir())
 
 
 @pytest.mark.asyncio

@@ -15,29 +15,57 @@ from aap_assets_images import contract as image
 from aap_assets_images.policy import ImagePolicy
 from aap_assets_inputs import contract as c
 
+_HEARTBEAT_RETRY = frozenset({"input_busy"})
+
 
 class _Lease:
     def __init__(self, database, claim, policy):
         self.database, self.claim, self.policy = database, claim, policy
         self.lease_seconds = min(policy.lease_seconds, 7200)
         self.deadline = time.monotonic() + policy.job_timeout_seconds
+        self.interval = max(1, self.lease_seconds / 3)
         self.stopped = asyncio.Event()
         self.lost = asyncio.Event()
+        self.error = None
         self.task = None
 
     async def beat(self):
-        await self.database.call(
-            "heartbeat_accepted_image_input",
-            c.HeartbeatInputRequest(
-                input_id=self.claim.input.input_id,
-                generation=self.claim.generation,
-                lease_token=self.claim.lease_token,
-                lease_seconds=self.lease_seconds,
-            ),
+        request = c.HeartbeatInputRequest(
+            input_id=self.claim.input.input_id,
+            generation=self.claim.generation,
+            lease_token=self.claim.lease_token,
+            lease_seconds=self.lease_seconds,
         )
+        failures = 0
+        while True:
+            if time.monotonic() >= self.deadline:
+                raise c.InputFailure("timeout") from None
+            try:
+                async with asyncio.timeout_at(self.deadline):
+                    await self.database.call("heartbeat_accepted_image_input", request)
+                return
+            except c.InputFailure as exc:
+                if exc.code not in _HEARTBEAT_RETRY:
+                    raise
+            except TimeoutError:
+                raise c.InputFailure("timeout") from None
+            failures += 1
+            delay = _retry_delay(failures)
+            if time.monotonic() + delay >= self.deadline:
+                raise c.InputFailure("timeout") from None
+            await asyncio.sleep(delay)
 
     async def start(self):
-        await self.beat()
+        try:
+            await self.beat()
+        except asyncio.CancelledError:
+            raise
+        except c.InputFailure as exc:
+            if exc.code == "timeout":
+                raise
+            raise c.InputFailure("lease_lost") from None
+        except Exception:
+            raise c.InputFailure("lease_lost") from None
         self.task = asyncio.create_task(self.run())
 
     async def run(self):
@@ -46,7 +74,7 @@ class _Lease:
                 try:
                     await asyncio.wait_for(
                         self.stopped.wait(),
-                        timeout=max(1, self.lease_seconds / 3),
+                        timeout=self.interval,
                     )
                     return
                 except TimeoutError:
@@ -54,12 +82,20 @@ class _Lease:
                 await self.beat()
         except asyncio.CancelledError:
             raise
+        except c.InputFailure as exc:
+            self.error = (
+                exc
+                if exc.code in {"lease_lost", "timeout"}
+                else c.InputFailure("lease_lost")
+            )
+            self.lost.set()
         except Exception:
+            self.error = c.InputFailure("lease_lost")
             self.lost.set()
 
     def check(self):
         if self.lost.is_set():
-            raise c.InputFailure("lease_lost")
+            raise self.error or c.InputFailure("lease_lost")
         if time.monotonic() >= self.deadline:
             raise c.InputFailure("timeout")
 
@@ -76,8 +112,14 @@ class _Lease:
     async def close(self):
         self.stopped.set()
         if self.task is not None:
+            self.task.cancel()
             with suppress(asyncio.CancelledError):
                 await self.task
+            self.task = None
+
+
+def _retry_delay(failures):
+    return min(2, 0.05 * 2 ** min(failures, 6)) * random.uniform(0.75, 1.25)
 
 
 class InputExecutor:
@@ -186,9 +228,7 @@ class InputExecutor:
                     }:
                         raise
                     failures += 1
-                    delay = min(2, 0.05 * 2 ** min(failures, 6)) * random.uniform(
-                        0.75, 1.25
-                    )
+                    delay = _retry_delay(failures)
                     if time.monotonic() + delay >= lease.deadline:
                         raise
                     await asyncio.sleep(delay)
