@@ -10,6 +10,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import Response
 
 from aap_assets_mask_content import contract as c
+from aap_assets_mask_content import gc_contract as gc
 
 
 class MaskContentStore(Protocol):
@@ -20,6 +21,18 @@ class MaskContentStore(Protocol):
     def list(self, request: c.ListRequest) -> c.CandidatePage: ...
 
     def delete(self, request: c.DeleteRequest) -> c.DeleteResult: ...
+
+    def check_ready(self) -> None: ...
+
+
+class MaskGcStore(Protocol):
+    def scan(self, request: gc.GcScanRequest) -> gc.GcScanPage: ...
+
+    def execute(
+        self, request: gc.DeleteOperationRequest
+    ) -> gc.DeleteOperationStatus: ...
+
+    def status(self, request: gc.DeleteStatusRequest) -> gc.DeleteOperationStatus: ...
 
     def check_ready(self) -> None: ...
 
@@ -45,12 +58,35 @@ def _reply(
     return Response(raw, status_code=status, media_type="application/json")
 
 
+def _gc_reply(
+    data=None, *, error: gc.GcErrorCode | None = None, status: int = 200
+) -> Response:
+    payload = (
+        gc.error_envelope(error) if error is not None else gc.success_envelope(data)
+    )
+    try:
+        raw = gc.json_bytes(payload)
+    except (ValueError, TypeError, RecursionError):
+        raw = gc.json_bytes(gc.error_envelope("invalid_response"))
+        status = 502
+    if len(raw) > gc.MAX_GC_RESPONSE_BYTES:
+        raw = gc.json_bytes(gc.error_envelope("resource_limit"))
+        status = 413
+    return Response(raw, status_code=status, media_type="application/json")
+
+
 def _parse_request(raw: bytes, request_type):
     document = c.parse_json(raw)
     return request_type.model_validate(document)
 
 
-def create_app(store: MaskContentStore, token: str, role: str) -> FastAPI:
+def create_app(
+    store: MaskContentStore,
+    token: str,
+    role: str,
+    *,
+    gc_store: MaskGcStore | None = None,
+) -> FastAPI:
     if (
         role not in _ALLOWED_OPERATIONS
         or len(token) < 32
@@ -108,6 +144,31 @@ def create_app(store: MaskContentStore, token: str, role: str) -> FastAPI:
         async with admission:
             return await execute(operation, request, request_type, result_type)
 
+    @app.post("/v1/mask-gc/{operation}")
+    async def invoke_gc(operation: str, request: Request):
+        authorization = request.headers.get("authorization", "")
+        if not hmac.compare_digest(
+            authorization.encode("utf-8"), ("Bearer " + token).encode("ascii")
+        ):
+            return _gc_reply(error="permission_denied", status=401)
+        if role != "cleanup" or gc_store is None:
+            return _gc_reply(error="permission_denied", status=403)
+
+        request_type = gc.request_type(operation)
+        result_type = gc.result_type(operation)
+        if request_type is None or result_type is None:
+            return _gc_reply(error="permission_denied", status=403)
+        if (
+            request.headers.get("content-type", "").split(";", 1)[0].strip().lower()
+            != "application/json"
+        ):
+            return _gc_reply(error="invalid_request", status=415)
+
+        if admission.locked():
+            return _gc_reply(error="storage_unavailable", status=503)
+        async with admission:
+            return await execute_gc(operation, request, request_type, result_type)
+
     async def execute(operation, request, request_type, result_type):
         try:
             raw = bytearray()
@@ -141,5 +202,35 @@ def create_app(store: MaskContentStore, token: str, role: str) -> FastAPI:
         except Exception:
             # Storage/provider messages can contain keys or credentials.
             return _reply(error="storage_unavailable", status=503)
+
+    async def execute_gc(operation, request, request_type, result_type):
+        try:
+            raw = bytearray()
+            async for chunk in request.stream():
+                if len(raw) + len(chunk) > gc.MAX_GC_REQUEST_BYTES:
+                    return _gc_reply(error="resource_limit", status=413)
+                raw.extend(chunk)
+            value = request_type.model_validate(gc.parse_json(bytes(raw)))
+        except (ValueError, TypeError, RecursionError, UnicodeError):
+            return _gc_reply(error="invalid_request", status=422)
+
+        try:
+            callback = getattr(gc_store, operation)
+            work = asyncio.create_task(asyncio.to_thread(callback, value))
+            try:
+                result = await asyncio.shield(work)
+            except asyncio.CancelledError:
+                # Keep shared admission until the outstanding S3 work returns.
+                await work
+                raise
+            if not isinstance(result, result_type):
+                raise gc.MaskGcFailure("invalid_response")
+            return _gc_reply(result)
+        except gc.MaskGcFailure as exc:
+            return _gc_reply(error=exc.code, status=gc.http_error_status(exc.code))
+        except (ValueError, TypeError, AttributeError):
+            return _gc_reply(error="invalid_response", status=502)
+        except Exception:
+            return _gc_reply(error="storage_unavailable", status=503)
 
     return app

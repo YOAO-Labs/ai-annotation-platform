@@ -26,7 +26,12 @@ test = [
 aap-assets-mask-content = "aap_assets_mask_content_runtime.__main__:main"
 
 [tool.setuptools.package-data]
-aap_assets_mask_content = ["protocol.schema.json", "openapi.snapshot.json"]
+aap_assets_mask_content = [
+    "protocol.schema.json",
+    "openapi.snapshot.json",
+    "gc.protocol.schema.json",
+    "gc.openapi.snapshot.json",
+]
 
 [tool.setuptools.packages.find]
 where = ["src"]
