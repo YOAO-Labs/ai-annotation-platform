@@ -1,3 +1,4 @@
+import { randomId } from "@/utils/id";
 import { normalizeTask } from "@/api/generated/capabilityVocab.gen";
 import { useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -137,7 +138,7 @@ export function ProjectLearningPolicyPanel({ projectId }: { projectId: string })
   const token = useAuthStore((state) => state.token ?? "");
   const sessionRevision = useTrainingSessionRevision();
   const owner = useMemo(
-    () => ({ projectId, userId, sessionToken: token, sessionRevision, key: crypto.randomUUID() }),
+    () => ({ projectId, userId, sessionToken: token, sessionRevision, key: randomId() }),
     [projectId, userId, token, sessionRevision],
   );
   return <ProjectLearningPolicyContent key={owner.key} projectId={projectId} />;
@@ -145,7 +146,7 @@ export function ProjectLearningPolicyPanel({ projectId }: { projectId: string })
 
 function ProjectLearningPolicyContent({ projectId }: { projectId: string }) {
   const view = useTrainingViewOwner(projectId, "policy");
-  const [scope] = useState(() => crypto.randomUUID());
+  const [scope] = useState(() => randomId());
   const queryClient = useQueryClient();
   const policy = useQuery({
     queryKey: ["learning-policy", projectId, scope],

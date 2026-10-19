@@ -1,3 +1,4 @@
+import { randomId } from "@/utils/id";
 import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import {
   Link,
@@ -120,7 +121,7 @@ export function TrainingCreatePage() {
       userId,
       sessionToken: token,
       sessionRevision,
-      key: crypto.randomUUID(),
+      key: randomId(),
     }),
     [id, userId, token, sessionRevision],
   );
@@ -174,7 +175,7 @@ function TrainingCreateContent({
   const { draft } = state;
   const navigate = useNavigate();
   const client = useQueryClient();
-  const [queryScope] = useState(() => crypto.randomUUID());
+  const [queryScope] = useState(() => randomId());
   const project = useProject(projectId);
   const [step, setStep] = useState(() => (draft.pendingStudy ? 2 : 0));
   const [studyMode, setStudyMode] = useState(

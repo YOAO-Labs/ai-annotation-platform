@@ -1,3 +1,4 @@
+import { randomId } from "@/utils/id";
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { Link, Navigate, Outlet, useParams, useSearchParams } from "react-router-dom";
 import { ArrowLeft, Database, FlaskConical, GitBranch, Layers, Settings2 } from "lucide-react";
@@ -66,7 +67,7 @@ export function ProjectLearningPage() {
   const token = useAuthStore((state) => state.token);
   const revision = useTrainingSessionRevision();
   const owner = useMemo(
-    () => ({ id, userId, token, revision, key: crypto.randomUUID() }),
+    () => ({ id, userId, token, revision, key: randomId() }),
     [id, userId, token, revision],
   );
   if (params.get("new") === "1") {
@@ -182,7 +183,7 @@ function ProjectLearningContent({
   const [error, setError] = useState("");
   const [pendingCreate, setPendingCreate] = useState<TrainingDatasetCreate | null>(initialBody);
   const [storageError, setStorageError] = useState(initialRequest.error);
-  const requestId = useRef(initialBody?.request_id ?? crypto.randomUUID());
+  const requestId = useRef(initialBody?.request_id ?? randomId());
   const checkedDigest = useRef<string | null>(null);
   const selectionEpoch = useRef(0);
   const issueTaskOrdinals = useMemo(() => {
@@ -313,7 +314,7 @@ function ProjectLearningContent({
     onSuccess: (value, _variables, epoch) => {
       if (!owns() || epoch !== selectionEpoch.current) return;
       if (checkedDigest.current && checkedDigest.current !== value.digest)
-        requestId.current = crypto.randomUUID();
+        requestId.current = randomId();
       checkedDigest.current = value.digest;
       setReport(value);
       setError("");
@@ -352,7 +353,7 @@ function ProjectLearningContent({
           pendingCreate: null,
           report: null,
           error: "",
-          requestId: crypto.randomUUID(),
+          requestId: randomId(),
           checkedDigest: null,
         });
       setPendingCreate((current) => (current?.request_id === body.request_id ? null : current));
@@ -361,7 +362,7 @@ function ProjectLearningContent({
       setCreateOpen(false);
       setName(newTrainingVersionName());
       setReport(null);
-      requestId.current = crypto.randomUUID();
+      requestId.current = randomId();
       checkedDigest.current = null;
     },
     onError: (reason: Error, body, epoch) => {
@@ -461,7 +462,7 @@ function ProjectLearningContent({
     if (!owns() || busy || currentDraft.current.pendingCreate || storageError) return;
     update();
     selectionEpoch.current += 1;
-    requestId.current = crypto.randomUUID();
+    requestId.current = randomId();
     checkedDigest.current = null;
     setReport(null);
     setError("");
@@ -507,7 +508,7 @@ function ProjectLearningContent({
       setError(draft?.error ?? "");
       setPendingCreate(draft?.pendingCreate ?? null);
       setStorageError(draft?.storageError ?? stored.error);
-      requestId.current = draft?.requestId ?? crypto.randomUUID();
+      requestId.current = draft?.requestId ?? randomId();
       checkedDigest.current = draft?.checkedDigest ?? null;
       setPage(0);
       setParentPage(0);
@@ -1004,7 +1005,7 @@ function ProjectLearningContent({
                     onChange={(event) => {
                       if (!owns() || busy || pendingCreate || storageError) return;
                       setName(event.target.value);
-                      requestId.current = crypto.randomUUID();
+                      requestId.current = randomId();
                     }}
                     placeholder="例如：路口车辆首轮数据"
                   />

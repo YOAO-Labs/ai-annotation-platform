@@ -1,3 +1,4 @@
+import { randomId } from "@/utils/id";
 import { useMemo, useRef, useState } from "react";
 import { Link, useLocation, useParams, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -153,7 +154,7 @@ export function ModelLineagePage() {
   const { id = "", kind = "", nodeId = "" } = useParams();
   const revision = useTrainingSessionRevision();
   const scope = useMemo(
-    () => ({ key: crypto.randomUUID(), id, kind, nodeId, revision }),
+    () => ({ key: randomId(), id, kind, nodeId, revision }),
     [id, kind, nodeId, revision],
   );
   if (!Object.prototype.hasOwnProperty.call(kindNames, kind))
@@ -187,10 +188,7 @@ function LineageContent({
   const session = useTrainingViewOwner(projectId, scope);
   const location = useLocation();
   const [params, setParams] = useSearchParams();
-  const viewIdentity = useMemo(
-    () => ({ key: crypto.randomUUID(), location: location.key }),
-    [location.key],
-  );
+  const viewIdentity = useMemo(() => ({ key: randomId(), location: location.key }), [location.key]);
   const viewKey = viewIdentity.key;
   const view = useRef(viewKey);
   view.current = viewKey;
@@ -243,7 +241,7 @@ function LineageContent({
   const [disposition, setDisposition] = useState<ModelDecisionCreate["disposition"]>("research");
   const [note, setNote] = useState("");
   const [notice, setNotice] = useState("");
-  const request = useRef({ signature: "", id: crypto.randomUUID() });
+  const request = useRef({ signature: "", id: randomId() });
   const client = useQueryClient();
   const append = useMutation({
     mutationFn: async ({ body, viewKey }: { body: ModelDecisionCreate; viewKey: string }) => {
@@ -255,7 +253,7 @@ function LineageContent({
       if (!session.owns() || view.current !== variables.viewKey) return;
       setNote("");
       setNotice("决策已记录，项目发布选择保持不变。");
-      request.current = { signature: "", id: crypto.randomUUID() };
+      request.current = { signature: "", id: randomId() };
       update({ before: undefined });
       void client.invalidateQueries({ queryKey: ["model-decisions", projectId] });
       void client.invalidateQueries({ queryKey: ["trained-models", projectId] });
@@ -483,7 +481,7 @@ function LineageContent({
               session.assert();
               const signature = JSON.stringify([disposition, note.trim()]);
               if (signature !== request.current.signature)
-                request.current = { signature, id: crypto.randomUUID() };
+                request.current = { signature, id: randomId() };
               setNotice("");
               append.mutate({
                 body: { request_id: request.current.id, disposition, note: note.trim() },

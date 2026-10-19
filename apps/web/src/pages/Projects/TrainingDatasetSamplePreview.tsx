@@ -1,3 +1,4 @@
+import { randomId } from "@/utils/id";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { trainingDatasetsApi, type TrainingDatasetAnalyzedSampleOut } from "@/api/trainingDatasets";
@@ -68,7 +69,7 @@ export function TrainingDatasetSamplePanel(props: PanelProps) {
       taskId: props.sample.task_id,
       contentSha256: props.sample.sha256,
       labelSha256: props.sample.label_sha256,
-      key: crypto.randomUUID(),
+      key: randomId(),
     }),
     [
       userId,

@@ -1,3 +1,4 @@
+import { randomId } from "@/utils/id";
 import { useMemo } from "react";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { trainedModelsApi } from "@/api/trainedModels";
@@ -21,7 +22,7 @@ export function useTrainingInitializationSource(
     projectId,
     JSON.stringify([framework, baseModel, datasetId, selectedId]),
   );
-  const scope = useMemo(() => ({ owner: view.owner, key: crypto.randomUUID() }), [view.owner]).key;
+  const scope = useMemo(() => ({ owner: view.owner, key: randomId() }), [view.owner]).key;
   const source = useQuery({
     queryKey: ["training-initialization-source", projectId, scope, selectedId],
     enabled: supportsProjectWeights && !!selectedId && !!baseModel,
@@ -66,7 +67,7 @@ export function TrainingInitializationSource({
   onChange: (value: TrainingInitialization | undefined) => void;
 }) {
   const view = useTrainingViewOwner(projectId, "initialization-choices");
-  const scope = useMemo(() => ({ owner: view.owner, key: crypto.randomUUID() }), [view.owner]).key;
+  const scope = useMemo(() => ({ owner: view.owner, key: randomId() }), [view.owner]).key;
   const choices = useInfiniteQuery({
     queryKey: ["training-initialization-choices", projectId, scope],
     initialPageParam: 0,

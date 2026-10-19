@@ -5,7 +5,7 @@
  * 已有 useAnnotationHistory.test.ts 测的是纯函数 applyLeaf；此处补 React hook
  * 状态机层（栈管理 / busy 锁 / taskId 切换）。
  */
-import { describe, it, expect, vi } from "vitest";
+import { afterEach, describe, it, expect, vi } from "vitest";
 import { renderHook, act, waitFor } from "@testing-library/react";
 import {
   useAnnotationHistory,
@@ -244,6 +244,7 @@ function receipt(payload: AnnotationSliceRestoreRequest): AnnotationSliceRespons
 }
 
 describe("atomic slice history", () => {
+  afterEach(() => vi.unstubAllGlobals());
   it("preserves a new edit's redo invalidation while an earlier undo settles", async () => {
     let resolve!: (value: AnnotationSliceResponse) => void;
     const restoreSlice = vi.fn(
@@ -307,6 +308,7 @@ describe("atomic slice history", () => {
     expect(result.current.canRedo).toBe(false);
   });
   it("moves one command only after success and keeps IDs and server-returned versions", async () => {
+    vi.stubGlobal("crypto", { getRandomValues: crypto.getRandomValues.bind(crypto) });
     const restoreSlice = vi.fn(
       async (_task: string, _operation: string, payload: AnnotationSliceRestoreRequest) =>
         receipt(payload),

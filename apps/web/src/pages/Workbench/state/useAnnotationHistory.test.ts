@@ -3,7 +3,7 @@
 // 思路：直接测从 hook 模块导出的纯函数 applyLeaf，构造 mock handlers，
 // 不需要 React 渲染环境。
 
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   applyLeaf,
   loadHistoryFromSession,
@@ -22,6 +22,7 @@ function makeHandlers(over: Partial<HistoryHandlers> = {}): HistoryHandlers {
 }
 
 const dummyPayload = { annotation_type: "bbox", class_name: "x", geometry: {} as never };
+afterEach(() => vi.unstubAllGlobals());
 
 describe("applyLeaf · create undo (v0.6.3 P0 tmpId 本地分支)", () => {
   it("annotationId 是 tmpId 且 removeLocalCreate 提供 → 走本地分支，不调 deleteAnnotation", async () => {
@@ -59,6 +60,7 @@ describe("applyLeaf · create undo (v0.6.3 P0 tmpId 本地分支)", () => {
 
 describe("applyLeaf · create redo / update / delete 不受 tmpId 分支影响", () => {
   it("uses a new creation key after undo and retains it for a failed redo retry", async () => {
+    vi.stubGlobal("crypto", { getRandomValues: crypto.getRandomValues.bind(crypto) });
     const create = vi
       .fn()
       .mockRejectedValueOnce(new TypeError("lost response"))

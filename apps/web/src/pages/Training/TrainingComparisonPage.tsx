@@ -1,3 +1,4 @@
+import { randomId } from "@/utils/id";
 import { useMemo, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { useQueries, useQuery, useQueryClient, type Query } from "@tanstack/react-query";
@@ -22,10 +23,7 @@ export function TrainingComparisonPage() {
   const { id = "" } = useParams();
   const userId = useAuthStore((state) => state.user?.id);
   const token = useAuthStore((state) => state.token);
-  const scope = useMemo(
-    () => ({ key: crypto.randomUUID(), id, userId, token }),
-    [id, userId, token],
-  );
+  const scope = useMemo(() => ({ key: randomId(), id, userId, token }), [id, userId, token]);
   return <TrainingComparisonContent key={scope.key} projectId={id} scope={scope.key} />;
 }
 

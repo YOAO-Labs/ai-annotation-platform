@@ -1,3 +1,4 @@
+import { randomId } from "@/utils/id";
 import { useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery } from "@tanstack/react-query";
@@ -19,7 +20,7 @@ export function SampleEvaluationCreatePage() {
   const token = useAuthStore((s) => s.token);
   const revision = useTrainingSessionRevision();
   const scope = useMemo(
-    () => ({ key: crypto.randomUUID(), id, userId, token, revision }),
+    () => ({ key: randomId(), id, userId, token, revision }),
     [id, userId, token, revision],
   );
   return <CreateContent key={scope.key} projectId={id} scope={scope.key} />;
@@ -138,7 +139,7 @@ function CreateContent({ projectId, scope }: { projectId: string; scope: string 
     nms_iou: Number(nmsIou),
   };
   const identity = JSON.stringify(body);
-  const request = useMemo(() => ({ id: crypto.randomUUID(), identity }), [identity]);
+  const request = useMemo(() => ({ id: randomId(), identity }), [identity]);
   const requestId = request.id;
   const create = useMutation({
     mutationFn: async () => {

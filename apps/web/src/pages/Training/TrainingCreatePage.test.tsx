@@ -414,6 +414,7 @@ describe("immutable recipe and clone reuse", () => {
 afterEach(() => {
   cleanup();
   clients.splice(0).forEach((client) => client.clear());
+  vi.unstubAllGlobals();
   localStorage.clear();
 });
 async function prepare(review = true) {
@@ -436,6 +437,17 @@ async function check() {
 }
 
 describe("training creation modal", () => {
+  it("preflights a training draft on plain HTTP without randomUUID", async () => {
+    vi.stubGlobal("crypto", { getRandomValues: crypto.getRandomValues.bind(crypto) });
+    await prepare();
+    await check();
+    expect(trainingRunsApi.preflight).toHaveBeenCalledOnce();
+    const draft = JSON.parse(localStorage.getItem(trainingDraftKey("user-1:project-1"))!);
+    expect(draft.requestId).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+    );
+  });
+
   it("distinguishes the dataset prompt from selectable ready versions", async () => {
     const user = userEvent.setup();
     mount();

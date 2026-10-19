@@ -1,3 +1,4 @@
+import { randomId } from "@/utils/id";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -124,7 +125,7 @@ export function TrainingDatasetInsights(props: {
       revision,
       projectId: props.projectId,
       versionId: props.version.id,
-      key: crypto.randomUUID(),
+      key: randomId(),
     }),
     [userId, token, revision, props.projectId, props.version.id],
   );

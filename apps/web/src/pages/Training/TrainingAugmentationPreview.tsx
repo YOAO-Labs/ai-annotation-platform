@@ -1,3 +1,4 @@
+import { randomId } from "@/utils/id";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Image, RefreshCw, Square } from "lucide-react";
@@ -61,7 +62,7 @@ export function TrainingAugmentationPreview(props: Props) {
       projectId: props.projectId,
       binding: props.binding,
       inputIdentity,
-      key: crypto.randomUUID(),
+      key: randomId(),
     }),
     [userId, token, props.projectId, props.binding, inputIdentity],
   );
@@ -157,7 +158,7 @@ function PreviewContent({
             seed: Number(seed),
             epoch: Number(epoch),
             count,
-            request_id: crypto.randomUUID(),
+            request_id: randomId(),
           };
     request.current = body;
     const ticket = ++sequence.current;

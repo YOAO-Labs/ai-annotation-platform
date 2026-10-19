@@ -1,3 +1,4 @@
+import { randomId } from "@/utils/id";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -32,7 +33,7 @@ export function SampleEvaluationPage() {
   const token = useAuthStore((s) => s.token);
   const revision = useTrainingSessionRevision();
   const scope = useMemo(
-    () => ({ key: crypto.randomUUID(), id, evaluationId, userId, token, revision }),
+    () => ({ key: randomId(), id, evaluationId, userId, token, revision }),
     [id, evaluationId, userId, token, revision],
   );
   return (
@@ -56,10 +57,7 @@ function EvaluationContent({
 }) {
   const { assert } = useTrainingViewOwner(projectId, scope);
   const location = useLocation();
-  const view = useMemo(
-    () => ({ key: crypto.randomUUID(), locationKey: location.key }),
-    [location.key],
-  );
+  const view = useMemo(() => ({ key: randomId(), locationKey: location.key }), [location.key]);
   const currentView = useRef(view.key);
   currentView.current = view.key;
   const [params, setParams] = useSearchParams();

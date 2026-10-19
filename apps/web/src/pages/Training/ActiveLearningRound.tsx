@@ -1,3 +1,4 @@
+import { randomId } from "@/utils/id";
 import { useEffect, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -188,7 +189,7 @@ export function RoundContent({
   });
   const sendDecision = (operation: "accept" | "reject") => {
     const body: DecisionInput = {
-      request_id: crypto.randomUUID(),
+      request_id: randomId(),
       action: operation,
       ordinals: [...selected].sort((a, b) => a - b),
       batch_name: batchName.trim(),
@@ -208,7 +209,7 @@ export function RoundContent({
   );
   const sendFeedback = () => {
     const body: FeedbackInput = {
-      request_id: crypto.randomUUID(),
+      request_id: randomId(),
       evaluations: evaluationIds.flatMap((id, index) =>
         id.trim()
           ? [{ evaluation_id: id.trim(), attempt_id: evaluationAttempts[index].trim() }]

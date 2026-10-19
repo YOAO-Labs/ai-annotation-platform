@@ -1,3 +1,4 @@
+import { randomId } from "@/utils/id";
 import { useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -120,7 +121,7 @@ export function TrainingDatasetSampleComparison(props: Props) {
       baselineVersionId: props.baselineVersionId,
       targetVersionId: props.targetVersionId,
       contentSha256: props.contentSha256,
-      key: crypto.randomUUID(),
+      key: randomId(),
     }),
     [
       userId,

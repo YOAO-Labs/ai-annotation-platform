@@ -168,12 +168,26 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   clients.splice(0).forEach((client) => client.clear());
+  vi.unstubAllGlobals();
   vi.restoreAllMocks();
   useAuthStore.getState().logout();
   localStorage.clear();
 });
 
 describe("project learning data versions", () => {
+  it("opens training data and creates UUID requests on plain HTTP without randomUUID", async () => {
+    vi.stubGlobal("crypto", { getRandomValues: crypto.getRandomValues.bind(crypto) });
+    const user = userEvent.setup();
+    mount();
+    await user.click(await screen.findByRole("button", { name: "准备新版本" }));
+    await user.click(screen.getByRole("button", { name: "检查训练数据" }));
+    await user.click(await screen.findByRole("button", { name: "创建数据版本" }));
+    await waitFor(() => expect(trainingDatasetsApi.create).toHaveBeenCalledOnce());
+    expect(vi.mocked(trainingDatasetsApi.create).mock.calls[0][1].request_id).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+    );
+  });
+
   it("defaults to the actual project task when no qualified image tools are enabled", async () => {
     vi.mocked(useProject).mockReturnValue({
       data: {

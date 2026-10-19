@@ -1,3 +1,4 @@
+import { randomId } from "@/utils/id";
 import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -167,7 +168,7 @@ export function TrainingRecipeSave({
           ...capture,
           name: name.trim(),
           description,
-          request_id: crypto.randomUUID(),
+          request_id: randomId(),
           expected_head_revision: target ? targetHead : 0,
         },
         recipe: target || undefined,

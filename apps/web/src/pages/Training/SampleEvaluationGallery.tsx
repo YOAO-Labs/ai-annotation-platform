@@ -1,3 +1,4 @@
+import { randomId } from "@/utils/id";
 import { useEffect, useRef, useState, type RefObject } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useLocation, useNavigate } from "react-router-dom";
@@ -385,7 +386,7 @@ function SourceDialog({
   onClose: () => void;
   returnFocusRef: RefObject<HTMLButtonElement | null>;
 }) {
-  const [requestScope] = useState(() => crypto.randomUUID());
+  const [requestScope] = useState(() => randomId());
   const { assert } = useTrainingViewOwner(run.project_id, `${scope}:${requestScope}`);
   const location = useLocation();
   const navigate = useNavigate();

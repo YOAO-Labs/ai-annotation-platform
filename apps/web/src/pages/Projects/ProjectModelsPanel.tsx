@@ -1,3 +1,4 @@
+import { randomId } from "@/utils/id";
 import { useMemo, useRef, useState } from "react";
 import { Link, useLocation, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -208,7 +209,7 @@ function TrialImage({ trial }: { trial: Record<string, unknown> }) {
 export function ProjectModelsPanel(props: { projectId: string; classes: string[] }) {
   const revision = useTrainingSessionRevision();
   const scope = useMemo(
-    () => ({ key: crypto.randomUUID(), projectId: props.projectId, revision }),
+    () => ({ key: randomId(), projectId: props.projectId, revision }),
     [props.projectId, revision],
   );
   return <ModelsContent key={scope.key} {...props} scope={scope.key} />;
@@ -226,10 +227,7 @@ function ModelsContent({
   const client = useQueryClient();
   const location = useLocation();
   const session = useTrainingViewOwner(projectId, scope);
-  const viewIdentity = useMemo(
-    () => ({ key: crypto.randomUUID(), location: location.key }),
-    [location.key],
-  );
+  const viewIdentity = useMemo(() => ({ key: randomId(), location: location.key }), [location.key]);
   const viewKey = viewIdentity.key;
   const currentView = useRef(viewKey);
   currentView.current = viewKey;
@@ -286,10 +284,10 @@ function ModelsContent({
   const [predictMode, setPredictMode] = useState<"skip_predicted" | "overwrite">("skip_predicted");
   const [confidence, setConfidence] = useState("0.25");
   const [jobId, setJobId] = useState("");
-  const registrationId = useRef(crypto.randomUUID());
+  const registrationId = useRef(randomId());
   const publishRequest = useRef<{ intent: string; body: ModelReleaseCreate } | null>(null);
   const predictRequest = useRef<{ id: string; payload?: DataManagerTaskPreannotationPayload }>({
-    id: crypto.randomUUID(),
+    id: randomId(),
   });
   const runs = useQuery({
     queryKey: ["training-runs", projectId, scope, sourcePage],
@@ -368,7 +366,7 @@ function ModelsContent({
   };
   const changeRegistration = (change: () => void) => {
     change();
-    registrationId.current = crypto.randomUUID();
+    registrationId.current = randomId();
     setError("");
   };
   const showDetail = (id: string) => {
@@ -393,7 +391,7 @@ function ModelsContent({
       if (!ownsView(view)) return;
       showDetail(model.id);
       setName(newTrainingVersionName());
-      registrationId.current = crypto.randomUUID();
+      registrationId.current = randomId();
       refresh();
     },
     onError: (reason: Error, view) => {
@@ -439,7 +437,7 @@ function ModelsContent({
         publishRequest.current = {
           intent,
           body: {
-            request_id: crypto.randomUUID(),
+            request_id: randomId(),
             expected_generation: releases.data?.generation ?? 0,
             model_version_id: target.modelId,
             deployment_id: target.deploymentId,
@@ -483,7 +481,7 @@ function ModelsContent({
     },
   });
   const resetPrediction = () => {
-    predictRequest.current = { id: crypto.randomUUID() };
+    predictRequest.current = { id: randomId() };
     setError("");
   };
   const predict = useMutation({
@@ -506,7 +504,7 @@ function ModelsContent({
     onSuccess: (value, view) => {
       if (!ownsView(view)) return;
       setJobId(value.job_id);
-      predictRequest.current = { id: crypto.randomUUID() };
+      predictRequest.current = { id: randomId() };
       setError("");
       void client.invalidateQueries({ queryKey: ["learning-pending-tasks", projectId] });
     },
