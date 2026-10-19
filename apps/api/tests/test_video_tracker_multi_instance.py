@@ -28,6 +28,12 @@ from app.services.video_tracking.runner import (
 from app.services.video_context import VideoContext
 from app.schemas.task import VideoMetadata
 from tests.media_owner_fixtures import media_owner as media_owner
+from tests.tracker_input_test_ports import seed_staged_tracker_input
+
+
+@pytest.fixture(autouse=True)
+def _tracker_input_owner_test_port(tracker_input_owner_fakes):
+    return tracker_input_owner_fakes
 
 
 class _TrackerJobDispatcher:
@@ -244,6 +250,7 @@ async def test_runner_lands_extra_instances_as_new_tracks(
         event_channel="video-tracker-job:test",
     )
     db_session.add(job)
+    await db_session.flush()
     await db_session.commit()
 
     # 两窗 (0,1) (2,3), 每窗返回 obj0(primary)+obj1+obj2。
@@ -355,6 +362,7 @@ async def test_runner_sourceless_detection_lands_all_as_new_tracks(
         event_channel="video-tracker-job:test-sourceless",
     )
     db_session.add(job)
+    await db_session.flush()
     await db_session.commit()
 
     monkeypatch.setattr(settings, "video_tracker_sam3_window_size_frames", 2)
@@ -456,6 +464,8 @@ async def test_full_accept_skips_sourceless_instance_with_only_outside_results(
         event_channel="video-tracker-job:test-sourceless",
     )
     db_session.add(job)
+    await db_session.flush()
+    seed_staged_tracker_input(job, task)
     await db_session.commit()
 
     async def collect(_channel: str, _payload: dict) -> None:

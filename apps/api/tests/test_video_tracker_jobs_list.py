@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import uuid
 
+import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.annotation import Annotation
@@ -12,6 +13,12 @@ from app.db.models.project import Project
 from app.db.models.task import Task
 from app.db.models.video_tracker_job import VideoTrackerJob, VideoTrackerJobStatus
 from tests.factory import create_membership, build_tool_bindings
+from tests.tracker_input_test_ports import seed_staged_tracker_input
+
+
+@pytest.fixture(autouse=True)
+def _tracker_input_owner_test_port(tracker_input_owner_fakes):
+    return tracker_input_owner_fakes
 
 
 def _bearer(token: str) -> dict[str, str]:
@@ -344,6 +351,7 @@ async def _make_staged_job(db, task, item, owner_id):
     )
     db.add(job)
     await db.flush()
+    seed_staged_tracker_input(job, task, {"1": annotation.id})
     return job, annotation
 
 
@@ -435,6 +443,8 @@ async def test_preview_typed_results_roundtrip_rich_shape(
         },
     )
     db_session.add(job)
+    await db_session.flush()
+    seed_staged_tracker_input(job, task, {"2": annotation.id})
     await db_session.commit()
 
     res = await httpx_client.get(

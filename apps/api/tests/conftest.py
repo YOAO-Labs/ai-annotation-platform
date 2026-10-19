@@ -402,3 +402,11 @@ async def create_registry_with_pool(
     )
     await db.flush()
     return registry, pool
+
+
+@pytest.fixture
+def tracker_input_owner_fakes(db_session: AsyncSession, monkeypatch):
+    """Focused fake native input owner for ORM-based tracker worker/review tests."""
+    from tests.tracker_input_test_ports import create_tracker_input_owner_fakes
+
+    return create_tracker_input_owner_fakes(db_session, monkeypatch)

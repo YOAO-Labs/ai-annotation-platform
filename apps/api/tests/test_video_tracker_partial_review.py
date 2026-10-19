@@ -1,11 +1,18 @@
 from __future__ import annotations
 
+import pytest
 from sqlalchemy import func, select
 
 from app.db.models.annotation import Annotation
 from app.db.models.audit_log import AuditLog
 from app.db.models.video_tracker_job import VideoTrackerJob, VideoTrackerJobStatus
 from tests.test_video_tracker_jobs_list import _bearer, _make_video_task
+from tests.tracker_input_test_ports import seed_staged_tracker_input
+
+
+@pytest.fixture(autouse=True)
+def _tracker_input_owner_test_port(tracker_input_owner_fakes):
+    return tracker_input_owner_fakes
 
 
 def _candidate(frame_index: int) -> dict:
@@ -89,6 +96,8 @@ async def _seed_review(db, owner_id, *, manual_frame: int | None = None):
         event_channel="video-tracker-job:test",
     )
     db.add(job)
+    await db.flush()
+    seed_staged_tracker_input(job, task, {"1": annotation.id})
     await db.commit()
     return task, annotation, job
 
@@ -295,6 +304,8 @@ async def test_discovered_instance_reuses_one_annotation_across_windows(
         event_channel="video-tracker-job:test",
     )
     db_session.add(job)
+    await db_session.flush()
+    seed_staged_tracker_input(job, task)
     await db_session.commit()
 
     first = await httpx_client.post(
@@ -380,6 +391,8 @@ async def test_discovered_instance_keeps_outside_frames_accepted_before_visibili
         event_channel="video-tracker-job:test",
     )
     db_session.add(job)
+    await db_session.flush()
+    seed_staged_tracker_input(job, task)
     await db_session.commit()
 
     outside = await httpx_client.post(
@@ -467,6 +480,8 @@ async def test_sourceless_decision_skips_instance_with_only_outside_candidates(
         event_channel="video-tracker-job:test",
     )
     db_session.add(job)
+    await db_session.flush()
+    seed_staged_tracker_input(job, task)
     await db_session.commit()
 
     accepted = await httpx_client.post(
@@ -575,6 +590,8 @@ async def test_legacy_single_source_mapping_survives_primary_slice_removal(
         event_channel="video-tracker-job:test",
     )
     db_session.add(job)
+    await db_session.flush()
+    seed_staged_tracker_input(job, task)
     await db_session.commit()
 
     accepted = await httpx_client.post(

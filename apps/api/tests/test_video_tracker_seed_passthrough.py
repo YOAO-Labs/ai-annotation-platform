@@ -19,6 +19,11 @@ from app.services.video_tracking.runner import run_tracker_job
 from tests.test_video_tracker_multi_instance import _make_video_task
 
 
+@pytest.fixture(autouse=True)
+def _tracker_input_owner_test_port(tracker_input_owner_fakes):
+    return tracker_input_owner_fakes
+
+
 class _CaptureAdapter:
     """逐窗记录 (from_frame, to_frame, seeds), 每帧回一条主实例结果。"""
 

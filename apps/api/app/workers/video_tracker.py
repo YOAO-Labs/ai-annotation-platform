@@ -5,6 +5,7 @@ import uuid
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
+from aap_assets_video_inputs.tracker import TrackerFailure
 from app.config import settings
 from app.db.models.project import Project
 from app.db.models.task import Task
@@ -17,6 +18,10 @@ from app.services import async_job as async_job_svc
 from app.services.async_job_notify import notify_job_terminal
 from app.services.gpu_arbitration.contracts import gpu_arbiter_failure_record
 from app.services.gpu_arbitration.dispatch import build_gpu_dispatch_context_factory
+from app.services.accepted_tracker_inputs import (
+    TrackerInputDeferred,
+    prepare_tracker_video_input,
+)
 from app.services.video_tracking.runner import run_tracker_job
 from app.workers.celery_app import celery_app
 
@@ -37,6 +42,7 @@ async def _run_video_tracker_job(job_id: str, celery_task_id: str | None) -> Non
             # v0.10.16 · async_jobs 双写（汇总索引层；失败不阻断主流程）
             async_job_id: uuid.UUID | None = None
             project_id: uuid.UUID | None = None
+            tracker_input_ready = None
             if job is not None:
                 task = await db.get(Task, job.task_id)
                 project_id = task.project_id if task else None
@@ -64,6 +70,23 @@ async def _run_video_tracker_job(job_id: str, celery_task_id: str | None) -> Non
                         job.error_message = "permission_revoked"
                         await db.commit()
                         return
+                if task is not None and job.created_by is not None:
+                    # Release authority-read transactions before waiting for an
+                    # independently materialized tracker input.
+                    await db.commit()
+                    try:
+                        tracker_input_ready = await prepare_tracker_video_input(
+                            session_factory=SessionLocal,
+                            actor_id=job.created_by,
+                            tracker_job_id=job.id,
+                            task_id=task.id,
+                        )
+                    except TrackerInputDeferred:
+                        raise
+                    except TrackerFailure:
+                        # Let run_tracker_job terminalize the canonical Job
+                        # and create its normal best-effort summary below.
+                        pass
                 try:
                     project = await db.get(Project, project_id) if project_id else None
                     aj = await async_job_svc.create_job(
@@ -113,6 +136,7 @@ async def _run_video_tracker_job(job_id: str, celery_task_id: str | None) -> Non
                     shadow_session_factory=SessionLocal,
                     dispatch_context_factory=dispatch_context_factory,
                     failure_recorder=_record_gpu_arbiter_failure,
+                    tracker_input_ready=tracker_input_ready,
                 )
             except Exception as e:
                 gpu_arbiter_error = gpu_arbiter_error or gpu_arbiter_failure_record(e)
@@ -168,6 +192,9 @@ async def _run_video_tracker_job(job_id: str, celery_task_id: str | None) -> Non
         await engine.dispose()
 
 
-@celery_app.task(bind=True, max_retries=1, default_retry_delay=30, queue="gpu")
+@celery_app.task(bind=True, max_retries=None, default_retry_delay=30, queue="gpu")
 def run_video_tracker_job(self, job_id: str) -> None:
-    asyncio.run(_run_video_tracker_job(job_id, getattr(self.request, "id", None)))
+    try:
+        asyncio.run(_run_video_tracker_job(job_id, getattr(self.request, "id", None)))
+    except TrackerInputDeferred as exc:
+        raise self.retry(exc=exc, countdown=30, max_retries=None) from exc

@@ -33,6 +33,7 @@ from app.schemas.video_tracker_job import (
     VideoTrackerPropagateRequest,
 )
 from app.services.project_access import is_privileged_for_project
+from app.services.accepted_tracker_inputs import capture_video_tracker_input
 from app.services.video_collaboration import (
     assert_task_lock_for_legacy_video,
     collaboration_config,
@@ -46,7 +47,7 @@ from app.services.raster_mask_storage import (
     lock_raster_mask_references,
     validate_mask_geometry_for_task,
 )
-from app.services.video_context import VideoContext
+from app.services.video_context import VideoContext, derive_step
 from app.services.video_segment_service import ensure_segments
 from app.services.video_tracking.adapters import registered_tracker_models
 from app.services.video_tracking import runner as _runner
@@ -893,6 +894,11 @@ async def create_video_mask_correction_job(
         )
 
     privileged = await _is_privileged(db, task, user)
+    project = await db.get(Project, task.project_id)
+    grid_step = derive_step(
+        ctx.metadata.fps,
+        (project.video_sampling or {}) if project else {},
+    )
     segment_id = await _assert_segment_lock(
         db, ctx, payload, user, privileged=privileged
     )
@@ -960,6 +966,12 @@ async def create_video_mask_correction_job(
     try:
         await db.flush()
         row.event_channel = f"video-tracker-job:{row.id}"
+        await capture_video_tracker_input(
+            db,
+            actor_id=user.id,
+            tracker_job_id=row.id,
+            grid_step=grid_step,
+        )
     except IntegrityError as exc:
         await db.rollback()
         raise HTTPException(
@@ -1108,6 +1120,11 @@ async def create_tracker_job(
             payload.target_tool_unit_id,
         )
     privileged = await _is_privileged(db, task, user)
+    project = await db.get(Project, task.project_id)
+    grid_step = derive_step(
+        ctx.metadata.fps,
+        (project.video_sampling or {}) if project else {},
+    )
     segment_id = await _assert_segment_lock(
         db, ctx, payload, user, privileged=privileged
     )
@@ -1159,6 +1176,12 @@ async def create_tracker_job(
     db.add(row)
     await db.flush()
     row.event_channel = f"video-tracker-job:{row.id}"
+    await capture_video_tracker_input(
+        db,
+        actor_id=user.id,
+        tracker_job_id=row.id,
+        grid_step=grid_step,
+    )
     await db.commit()
     await db.refresh(row)
 
