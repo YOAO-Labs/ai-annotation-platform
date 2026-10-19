@@ -99,27 +99,27 @@ BEGIN
     END IF;
 END $$;
 
-REVOKE ALL ON SCHEMA aap_identity_v1, aap_identity_keys_v1, aap_workspace_v1, aap_assets_v1,
+REVOKE ALL ON SCHEMA aap_identity_v1, aap_identity_keys_v1, aap_identity_sessions_v1, aap_workspace_v1, aap_assets_v1,
     aap_labeling_v1, aap_jobs_v1, aap_learning_v1, aap_inference_v1,
     aap_insights_v1, aap_diagnostics_v1, aap_export_v1, aap_audit_v1, aap_settings_v1, aap_notifications_v1 FROM PUBLIC;
 REVOKE ALL ON ALL FUNCTIONS IN SCHEMA aap_identity_v1, aap_workspace_v1,
-    aap_identity_keys_v1, aap_assets_v1, aap_labeling_v1, aap_jobs_v1, aap_learning_v1,
+    aap_identity_keys_v1, aap_identity_sessions_v1, aap_assets_v1, aap_labeling_v1, aap_jobs_v1, aap_learning_v1,
     aap_inference_v1, aap_insights_v1, aap_diagnostics_v1, aap_export_v1,
     aap_audit_v1, aap_settings_v1, aap_notifications_v1 FROM PUBLIC;
-REVOKE ALL ON SCHEMA aap_identity_v1, aap_identity_keys_v1, aap_workspace_v1, aap_assets_v1,
+REVOKE ALL ON SCHEMA aap_identity_v1, aap_identity_keys_v1, aap_identity_sessions_v1, aap_workspace_v1, aap_assets_v1,
     aap_labeling_v1, aap_jobs_v1, aap_learning_v1, aap_inference_v1,
     aap_insights_v1, aap_diagnostics_v1, aap_export_v1, aap_audit_v1, aap_settings_v1, aap_notifications_v1
     FROM :"asset_cleanup_role";
 REVOKE ALL ON ALL FUNCTIONS IN SCHEMA aap_identity_v1, aap_workspace_v1,
-    aap_identity_keys_v1, aap_assets_v1, aap_labeling_v1, aap_jobs_v1, aap_learning_v1,
+    aap_identity_keys_v1, aap_identity_sessions_v1, aap_assets_v1, aap_labeling_v1, aap_jobs_v1, aap_learning_v1,
     aap_inference_v1, aap_insights_v1, aap_diagnostics_v1, aap_export_v1,
     aap_audit_v1 FROM :"asset_cleanup_role";
-REVOKE ALL ON SCHEMA aap_identity_v1, aap_identity_keys_v1, aap_workspace_v1, aap_assets_v1,
+REVOKE ALL ON SCHEMA aap_identity_v1, aap_identity_keys_v1, aap_identity_sessions_v1, aap_workspace_v1, aap_assets_v1,
     aap_labeling_v1, aap_jobs_v1, aap_learning_v1, aap_inference_v1,
     aap_insights_v1, aap_diagnostics_v1, aap_export_v1, aap_audit_v1,
     aap_settings_v1, aap_notifications_v1 FROM :"mask_gc_role";
 REVOKE ALL ON ALL FUNCTIONS IN SCHEMA aap_identity_v1, aap_workspace_v1,
-    aap_identity_keys_v1, aap_assets_v1, aap_labeling_v1, aap_jobs_v1, aap_learning_v1,
+    aap_identity_keys_v1, aap_identity_sessions_v1, aap_assets_v1, aap_labeling_v1, aap_jobs_v1, aap_learning_v1,
     aap_inference_v1, aap_insights_v1, aap_diagnostics_v1, aap_export_v1,
     aap_audit_v1, aap_settings_v1, aap_notifications_v1 FROM :"mask_gc_role";
 GRANT CONNECT ON DATABASE :"expected_database" TO :"workflow_role";
@@ -142,8 +142,12 @@ GRANT USAGE ON SCHEMA public TO :"identity_owner", :"workspace_owner",
 
 -- Identity and Workspace provide only the current actor/project facts needed
 -- to retain their row locks through the caller-owned transaction.
-GRANT SELECT (id, name, email, role, is_active, credential_generation),
-    UPDATE (id, credential_generation)
+GRANT SELECT (
+    id, name, email, role, is_active, credential_generation, email_verified_at,
+    password_hash, last_login_at, last_seen_at, status
+), UPDATE (
+    id, credential_generation, last_login_at, last_seen_at, status
+)
     ON public.users TO :"identity_owner";
 GRANT SELECT (
     id, user_id, name, key_prefix, key_hash, scopes, expires_at, last_used_at,
@@ -159,6 +163,12 @@ GRANT SELECT (
     operation_id, actor_id, operation, payload, derivation_id, result, created_at
 ), INSERT (operation_id, actor_id, operation, payload, derivation_id, result)
     ON public.identity_key_operation_receipts TO :"identity_owner";
+GRANT SELECT (
+    operation_id, actor_id, operation, request_scope, result, audit_id, created_at
+), INSERT (
+    operation_id, actor_id, operation, request_scope, result, audit_id
+)
+    ON public.identity_session_operation_receipts TO :"identity_owner";
 GRANT SELECT (id, owner_id, data_type, scene_mode, display_id, name), UPDATE (id),
     DELETE ON public.projects TO :"workspace_owner";
 GRANT SELECT (
@@ -568,7 +578,7 @@ GRANT SELECT (project_id), DELETE ON public.export_artifacts TO :"export_owner";
 -- dataset -> current authority -> association -> Jobs/Labeling lock order.
 GRANT USAGE ON SCHEMA aap_identity_v1
     TO :"identity_owner", :"workspace_owner", :"assets_owner", :"audit_owner", :"labeling_owner";
-GRANT USAGE ON SCHEMA aap_identity_keys_v1 TO :"identity_owner";
+GRANT USAGE ON SCHEMA aap_identity_keys_v1, aap_identity_sessions_v1 TO :"identity_owner";
 GRANT USAGE ON SCHEMA aap_workspace_v1 TO :"workspace_owner", :"assets_owner",
     :"labeling_owner", :"jobs_owner", :"workflow_role";
 GRANT USAGE ON SCHEMA aap_assets_v1 TO :"assets_owner", :"labeling_owner",
@@ -587,7 +597,10 @@ GRANT USAGE ON SCHEMA aap_diagnostics_v1
     TO :"diagnostics_owner", :"workspace_owner";
 GRANT USAGE ON SCHEMA aap_export_v1 TO :"export_owner", :"workspace_owner";
 GRANT USAGE ON SCHEMA aap_audit_v1
-    TO :"audit_owner", :"workspace_owner", :"assets_owner";
+    TO :"identity_owner", :"audit_owner", :"workspace_owner", :"assets_owner";
+GRANT EXECUTE ON FUNCTION aap_audit_v1.record_identity_session_event(
+    text, jsonb, jsonb, jsonb
+) TO :"identity_owner";
 
 GRANT EXECUTE ON FUNCTION aap_identity_v1.lock_active_actor(uuid)
     TO :"workspace_owner", :"assets_owner", :"labeling_owner";
@@ -831,6 +844,7 @@ GRANT EXECUTE ON FUNCTION aap_workspace_v1.delete_project(uuid, uuid, uuid, json
 -- Keep schemas owned by the migrator; NOLOGIN code owners cannot replace code.
 GRANT CREATE ON SCHEMA aap_identity_v1 TO :"identity_owner";
 GRANT CREATE ON SCHEMA aap_identity_keys_v1 TO :"identity_owner";
+GRANT CREATE ON SCHEMA aap_identity_sessions_v1 TO :"identity_owner";
 ALTER FUNCTION aap_identity_v1.lock_active_actor(uuid) OWNER TO :"identity_owner";
 ALTER FUNCTION aap_identity_v1.lock_audit_actor(uuid) OWNER TO :"identity_owner";
 ALTER FUNCTION aap_identity_v1.read_actor_facts(uuid) OWNER TO :"identity_owner";
@@ -866,6 +880,15 @@ ALTER FUNCTION aap_identity_keys_v1.key_policy()
 ALTER FUNCTION aap_identity_keys_v1.execute_key_command(jsonb)
     OWNER TO :"identity_owner";
 REVOKE CREATE ON SCHEMA aap_identity_keys_v1 FROM :"identity_owner";
+ALTER FUNCTION aap_identity_sessions_v1._failure(text, bigint)
+    OWNER TO :"identity_owner";
+ALTER FUNCTION aap_identity_sessions_v1.session_policy()
+    OWNER TO :"identity_owner";
+ALTER FUNCTION aap_identity_sessions_v1.read_login_candidate(text)
+    OWNER TO :"identity_owner";
+ALTER FUNCTION aap_identity_sessions_v1.execute_session_command(jsonb)
+    OWNER TO :"identity_owner";
+REVOKE CREATE ON SCHEMA aap_identity_sessions_v1 FROM :"identity_owner";
 
 GRANT CREATE ON SCHEMA aap_workspace_v1 TO :"workspace_owner";
 ALTER FUNCTION aap_workspace_v1.lock_project_reference(uuid) OWNER TO :"workspace_owner";
@@ -1186,6 +1209,9 @@ ALTER FUNCTION aap_export_v1.clear_project_export_artifacts(uuid)
 REVOKE CREATE ON SCHEMA aap_export_v1 FROM :"export_owner";
 
 GRANT CREATE ON SCHEMA aap_audit_v1 TO :"audit_owner";
+ALTER FUNCTION aap_audit_v1.record_identity_session_event(
+    text, jsonb, jsonb, jsonb
+) OWNER TO :"audit_owner";
 ALTER FUNCTION aap_audit_v1.record_project_deletion(
     uuid, uuid, uuid, text, text, bigint, bigint, jsonb
 ) OWNER TO :"audit_owner";

@@ -32,6 +32,7 @@ NATIVE_MANAGED_TABLES = frozenset(
         "prediction_retry_deliveries",
         "identity_revoked_jtis",
         "identity_key_operation_receipts",
+        "identity_session_operation_receipts",
     }
 )
 
