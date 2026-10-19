@@ -114,6 +114,31 @@ physical blob locators are provenance fields outside this logical plan digest.
 
 ## Qualification
 
+The owner authority contract additionally publishes the following SQL interfaces
+for the Assets owner. These are Labeling/Jobs projections, not direct table
+grants or Media control operations:
+
+| Interface                                      | Arguments                                                                                                                       | Reply schema                         |
+| ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------ |
+| `aap_labeling_v1.read_video_input_task_source` | Task ID, current actor ID                                                                                                       | `aap-labeling-video-input-source/v1` |
+| `aap_labeling_v1.lock_video_input_task_source` | Task ID, current actor ID, expected Task binding JSON                                                                           | `aap-labeling-video-input-source/v1` |
+| `aap_jobs_v1.project_video_input_job`          | Job ID, optional Task ID, origin actor ID, project ID, canonical selection JSON, optional selection digest, require-active flag | `aap-jobs-video-input-job/v1`        |
+
+Source replies contain the request actor, current binding and upload readiness.
+Lock compares all source binding fields except the ordinary Task workflow
+version. Job replies distinguish a pruned Job from a present mismatched Job.
+Historical FK nulling never grants active execution; retained project identity
+must still match. The durable admission fields are
+`accepted_video_inputs_protocol`, `accepted_video_manifest_id`,
+`accepted_video_selection` and `accepted_video_selection_digest`; the selection
+contains explicit batch/Task selectors, predict mode, execution scope and sampling.
+New original Jobs use their own ID as broker ID and manifest ID, and explicitly
+declare `execution_unit=frame`. Legacy rows cannot invent these accepted facts.
+
+`authority.schema.json` freezes the request/result shapes, SQL argument order,
+caller owner and response envelopes for these interfaces. Until native
+installation and qualification finish, this remains a contract specification.
+
 The values foundation requires strict malformed/crossed value rejection,
 source/timebase digest fences, incomplete/changed page rejection, exact-version
 frame references, large-count bounded planning, packaged schema and independent
