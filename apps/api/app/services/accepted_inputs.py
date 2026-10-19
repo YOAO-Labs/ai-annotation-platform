@@ -189,7 +189,7 @@ async def input_gateway(*, session_factory=None):
         storage,
         url_expiry_seconds=min(policy.url_expiry_seconds, 3600),
     )
-    executor = InputExecutor(database, storage, images, policy=policy)
+    executor = InputExecutor(database, storage, policy=policy)
     try:
         yield InputGateway(
             control, executor=executor, storage=storage, database=database

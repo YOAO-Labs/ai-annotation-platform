@@ -492,6 +492,8 @@ async def test_asset_cleanup_client_uses_only_the_storage_outbox_functions(
             "aap_assets_v1.complete_storage_deletion(uuid,uuid)",
             "aap_assets_v1.claim_image_garbage(uuid,integer,integer)",
             "aap_assets_v1.complete_image_garbage(uuid,uuid)",
+            "aap_assets_v1.claim_accepted_input_garbage(uuid,integer,integer)",
+            "aap_assets_v1.complete_accepted_input_garbage(uuid,uuid)",
         ):
             assert await cleanup.scalar(
                 text(
@@ -511,6 +513,9 @@ async def test_asset_cleanup_client_uses_only_the_storage_outbox_functions(
             "aap_assets_v1.prepare_dataset_unlink_cleanup(uuid,uuid,uuid,text)",
             "aap_assets_v1.remove_dataset_association(uuid,uuid,uuid)",
             "aap_assets_v1.delete_project_owned_records(uuid)",
+            "aap_assets_v1.sweep_accepted_image_inputs(integer)",
+            "aap_assets_v1.read_accepted_image_input_work(uuid,uuid,uuid)",
+            "aap_assets_v1.lock_accepted_image_input(uuid,uuid,uuid)",
             "aap_workspace_v1.unlink_dataset(uuid,uuid,uuid,uuid,text,jsonb)",
         ):
             assert (
@@ -528,7 +533,9 @@ async def test_asset_cleanup_client_uses_only_the_storage_outbox_functions(
                     "'aap_assets_v1.pending_storage_deletions_v2(text,timestamptz,uuid,uuid,integer)'::regprocedure, "
                     "'aap_assets_v1.complete_storage_deletion(uuid,uuid)'::regprocedure, "
                     "'aap_assets_v1.claim_image_garbage(uuid,integer,integer)'::regprocedure, "
-                    "'aap_assets_v1.complete_image_garbage(uuid,uuid)'::regprocedure)) "
+                    "'aap_assets_v1.complete_image_garbage(uuid,uuid)'::regprocedure, "
+                    "'aap_assets_v1.claim_accepted_input_garbage(uuid,integer,integer)'::regprocedure, "
+                    "'aap_assets_v1.complete_accepted_input_garbage(uuid,uuid)'::regprocedure)) "
                     "OR (namespace.nspname <> 'aap_assets_v1' "
                     "AND left(namespace.nspname, 4) = 'aap_' "
                     "AND right(namespace.nspname, 3) = '_v1')) "
@@ -545,6 +552,10 @@ async def test_asset_cleanup_client_uses_only_the_storage_outbox_functions(
             "public.dataset_source_deletion_operations",
             "public.async_jobs",
             "public.projects",
+            "public.asset_accepted_image_inputs",
+            "public.asset_accepted_image_input_attempts",
+            "public.asset_accepted_input_garbage",
+            "public.annotation_input_sources",
         ):
             assert not await cleanup.scalar(
                 text(
@@ -619,6 +630,8 @@ async def test_asset_cleanup_client_uses_only_the_storage_outbox_functions(
             "aap_assets_v1.complete_storage_deletion(uuid,uuid)",
             "aap_assets_v1.claim_image_garbage(uuid,integer,integer)",
             "aap_assets_v1.complete_image_garbage(uuid,uuid)",
+            "aap_assets_v1.claim_accepted_input_garbage(uuid,integer,integer)",
+            "aap_assets_v1.complete_accepted_input_garbage(uuid,uuid)",
         ):
             assert not await workflow.scalar(
                 text(
@@ -648,6 +661,10 @@ async def test_asset_image_worker_client_executes_only_image_worker_capabilities
         "aap_assets_v1.fail_image_media(uuid,bigint,uuid,text,text)",
         "aap_assets_v1.advance_image_backfill(uuid,bigint,uuid,integer,jsonb)",
         "aap_assets_v1.reconcile_image_media(jsonb,integer)",
+        "aap_assets_v1.claim_accepted_image_input(uuid,uuid,integer)",
+        "aap_assets_v1.heartbeat_accepted_image_input(uuid,bigint,uuid,integer)",
+        "aap_assets_v1.finish_accepted_image_input(uuid,bigint,uuid,jsonb)",
+        "aap_assets_v1.fail_accepted_image_input(uuid,bigint,uuid,text)",
     }
     async with asset_image_worker_engine.connect() as worker:
         assert await worker.scalar(
@@ -694,6 +711,9 @@ async def test_asset_image_worker_client_executes_only_image_worker_capabilities
             "public.asset_image_jobs",
             "public.asset_image_operations",
             "public.asset_image_garbage",
+            "public.asset_accepted_image_inputs",
+            "public.asset_accepted_image_input_attempts",
+            "public.asset_accepted_input_garbage",
             "public.dataset_items",
             "public.tasks",
         ):
@@ -706,12 +726,64 @@ async def test_asset_image_worker_client_executes_only_image_worker_capabilities
                 ),
                 {"relation": relation},
             ), relation
+
         assert not await worker.scalar(
             text(
                 "SELECT has_database_privilege(current_user, current_database(), 'CREATE') "
                 "OR has_database_privilege(current_user, current_database(), 'TEMP')"
             )
         )
+
+
+@pytest.mark.parametrize(
+    ("url_name", "username", "role"),
+    [
+        (
+            "AAP_MODULE_DATA_ASSET_MEDIA_CONTROL_URL",
+            "asset_media_control_client",
+            "control",
+        ),
+        (
+            "AAP_MODULE_DATA_ASSET_IMAGE_WORKER_URL",
+            "asset_image_worker_client",
+            "worker",
+        ),
+    ],
+)
+async def test_input_runtime_profiles_pass_real_preflight_and_typed_native_calls(
+    url_name, username, role
+):
+    import asyncpg
+
+    from aap_assets_images_runtime.health import check_capabilities
+    from aap_assets_inputs import contract as c
+    from aap_assets_inputs_runtime.database import AsyncpgInputDatabase
+
+    url = make_url(_role_url(url_name, username)).set(drivername="postgresql")
+    pool = await asyncpg.create_pool(
+        dsn=url.render_as_string(hide_password=False),
+        min_size=1,
+        max_size=1,
+        timeout=5,
+        command_timeout=10,
+    )
+    try:
+        assert await check_capabilities(pool, role)
+        native = AsyncpgInputDatabase(pool, allowed_roles={role})
+        if role == "control":
+            with pytest.raises(c.InputFailure, match="input_missing"):
+                await native.call(
+                    "read_accepted_image_input",
+                    c.InputRequest(input_id=uuid4(), job_id=uuid4(), task_id=uuid4()),
+                )
+        else:
+            result = await native.call(
+                "claim_accepted_image_input",
+                c.ClaimInputRequest(worker_id=uuid4(), input_id=uuid4()),
+            )
+            assert result.claim is None
+    finally:
+        await pool.close()
 
 
 async def test_append_receipt_replay_is_frozen_after_association_change(

@@ -50,7 +50,7 @@ async def test_once_materializes_inputs_and_preserves_targeted_image_work(
             calls.append("image-storage-close")
 
     class Inputs:
-        def __init__(self, native, _storage, _images, **values):
+        def __init__(self, native, _storage, **values):
             assert native == (pool, {"worker"})
             assert values["worker_id"] == Images.worker_id
 
@@ -72,7 +72,6 @@ async def test_once_materializes_inputs_and_preserves_targeted_image_work(
         "AsyncpgInputDatabase",
         lambda actual_pool, *, allowed_roles: (actual_pool, allowed_roles),
     )
-    monkeypatch.setattr(worker, "ImageControl", lambda *_args, **_values: object())
     monkeypatch.setattr(worker, "ImageExecutor", Images)
     monkeypatch.setattr(worker, "InputExecutor", Inputs)
 

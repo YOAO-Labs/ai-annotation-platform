@@ -103,6 +103,12 @@ SQL_ARTIFACTS = (
     "0220_assets_images_garbage.sql",
     "0220_image_cleanup.sql",
     "0220_image_sources.sql",
+    "0221_accepted_inputs_state.sql",
+    "0221_accepted_inputs_authorities.sql",
+    "0221_accepted_inputs_control.sql",
+    "0221_accepted_inputs_execution.sql",
+    "0221_accepted_inputs_retention.sql",
+    "0221_accepted_inputs_garbage.sql",
 )
 SCHEMA_ARTIFACTS = (
     "0191_task_append.schema.json",
@@ -134,6 +140,7 @@ SCHEMA_ARTIFACTS = (
     "0218_assets_operator.schema.json",
     "0219_assets_media.schema.json",
     "0220_assets_images.schema.json",
+    "0221_accepted_inputs.schema.json",
 )
 TEST_FILES = (
     "tests/test_workspace_data_contract.py",
@@ -232,6 +239,9 @@ TEST_FILES = (
     "tests/test_assets_images_containers.py",
     "tests/test_assets_images_migration_contract.py",
     "tests/test_assets_images_migration_guards.py",
+    "tests/test_assets_accepted_inputs_migration.py",
+    "tests/test_assets_accepted_inputs_native.py",
+    "tests/test_accepted_inputs_api_bridge.py",
     "tests/test_screenshot_seed_catalog.py",
     "tests/test_task_views.py",
     "tests/test_task_views_filter.py",
@@ -1780,8 +1790,8 @@ def main(argv: list[str] | None = None) -> int:
         database = resources["database"]
         evidence["database"] = database
         _, heads = migration_graph(ROOT)
-        if heads != ["0220"]:
-            raise RuntimeError("module-data acceptance requires migration head 0220")
+        if heads != ["0221"]:
+            raise RuntimeError("module-data acceptance requires migration head 0221")
         evidence["migrations"]["head_before_downgrade"] = heads[0]
         phase = "downgrade-to-0189"
         _container_details(

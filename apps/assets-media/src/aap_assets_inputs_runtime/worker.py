@@ -85,13 +85,12 @@ class InputExecutor:
         self,
         database,
         storage,
-        image_control,
         *,
         worker_id=None,
         policy=None,
         temp_root=None,
     ):
-        self.database, self.storage, self.images = database, storage, image_control
+        self.database, self.storage = database, storage
         self.worker_id = worker_id or uuid4()
         self.policy = policy or ImagePolicy()
         self.temp_root = Path(temp_root) if temp_root is not None else None
@@ -135,22 +134,10 @@ class InputExecutor:
             )
             if blob.sha256 != measured.sha256 or blob.byte_size != measured.byte_size:
                 raise c.InputFailure("input_corrupt")
-            observed = await lease.call(
-                self.images.observe_internal_source,
-                image.InternalImageSourceRequest(
-                    owner=source.owner,
-                    expected_source_snapshot=source.source_snapshot,
-                    object_identity=expected,
-                ),
-            )
-            if (
-                observed.owner != source.owner
-                or observed.source_generation != source.source_generation
-                or observed.source_snapshot != source.source_snapshot
-                or observed.object_identity != expected
-                or observed.source_drifted
-                or not observed.upload_ready
-            ):
+            # The worker owns only its four input capabilities. Recheck current
+            # object bytes here; finish performs the canonical owner/source fence
+            # in SQL without granting the worker control/system operations.
+            if await lease.call(self.storage.head_source, source) != expected:
                 raise c.InputFailure("source_changed")
             return blob
 

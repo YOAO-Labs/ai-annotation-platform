@@ -24,7 +24,6 @@ from aap_assets_inputs_runtime.storage import S3InputStorage
 from aap_assets_inputs_runtime.worker import InputExecutor
 from aap_assets_inputs.contract import InputFailure
 from aap_assets_images.policy import image_policy_from_environment
-from aap_assets_images_runtime.control import ImageControl
 
 from aap_assets_images.contract import (
     AdvanceImageBackfillRequest,
@@ -1434,7 +1433,6 @@ async def _run_worker(
             inputs = InputExecutor(
                 AsyncpgInputDatabase(database.pool, allowed_roles={"worker"}),
                 input_storage,
-                ImageControl(database, storage, policy, wakeup=None),
                 policy=policy,
                 worker_id=executor.worker_id,
             )

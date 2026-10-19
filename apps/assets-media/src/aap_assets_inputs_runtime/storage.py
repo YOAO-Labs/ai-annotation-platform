@@ -143,6 +143,9 @@ class S3InputStorage:
     async def download_source(self, source, destination: Path):
         return await self.source_storage.download_source(source, destination)
 
+    async def head_source(self, source):
+        return await self.source_storage.head_source(source)
+
     def _head_blob(self, stop, blob):
         _check_key(blob.key)
         _check_stop(stop)

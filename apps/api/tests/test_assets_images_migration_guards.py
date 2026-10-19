@@ -28,14 +28,18 @@ pytestmark = [
 
 
 def _invoke(connection, direction):
-    path = (
-        Path(__file__).resolve().parents[1] / "alembic/versions/0220_assets_images.py"
-    )
-    spec = importlib.util.spec_from_file_location("image_migration_guard", path)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    with Operations.context(MigrationContext.configure(connection)):
-        getattr(module, direction)()
+    filenames = ["0220_assets_images.py"]
+    if direction == "downgrade":
+        # Remove the newer empty input boundary first, as the real migration
+        # chain does. Rolling back the test transaction restores both revisions.
+        filenames.insert(0, "0221_accepted_inputs.py")
+    for filename in filenames:
+        path = Path(__file__).resolve().parents[1] / "alembic/versions" / filename
+        spec = importlib.util.spec_from_file_location("image_migration_guard", path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        with Operations.context(MigrationContext.configure(connection)):
+            getattr(module, direction)()
 
 
 @pytest.mark.parametrize("legacy", ["pending", "building", "import", "ingest"])
