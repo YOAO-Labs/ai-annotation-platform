@@ -144,30 +144,30 @@ class _LeaseHeartbeat:
         self._claim = claim
         self.lease_seconds = lease_seconds
         self.deadline = deadline
+        self._request = HeartbeatImageMediaRequest(
+            job_id=claim.job_id,
+            generation=claim.generation,
+            lease_token=claim.lease_token,
+            lease_seconds=lease_seconds,
+        )
+        self._interval = max(1.0, lease_seconds / 3)
         self._stopped = asyncio.Event()
         self._lost = asyncio.Event()
+        self._error: ImageFailure | None = None
         self._task: asyncio.Task[None] | None = None
 
     async def start(self) -> None:
         try:
-            result = await self._database.call(
-                "heartbeat_image_media",
-                HeartbeatImageMediaRequest(
-                    job_id=self._claim.job_id,
-                    generation=self._claim.generation,
-                    lease_token=self._claim.lease_token,
-                    lease_seconds=self.lease_seconds,
-                ),
-            )
+            active = await self._beat()
         except asyncio.CancelledError:
-            self._lost.set()
+            self._record_failure()
             raise
+        except ImageFailure as exc:
+            raise self._record_failure(exc) from None
         except Exception:
-            self._lost.set()
-            raise ImageFailure("lease_lost") from None
-        if not result.active:
-            self._lost.set()
-            raise ImageFailure("lease_lost")
+            raise self._record_failure() from None
+        if not active:
+            raise self._record_failure(ImageFailure("lease_lost"))
         self._task = asyncio.create_task(self._run())
 
     def check(self) -> None:
@@ -177,33 +177,80 @@ class _LeaseHeartbeat:
 
     def check_lease(self) -> None:
         if self._lost.is_set():
-            raise ImageFailure("lease_lost")
+            raise self._error or ImageFailure("lease_lost")
+
+    def _record_failure(self, error: ImageFailure | None = None) -> ImageFailure:
+        if not (
+            isinstance(error, ImageFailure) and error.code in {"lease_lost", "timeout"}
+        ):
+            error = ImageFailure("lease_lost")
+        self._error = error
+        self._lost.set()
+        return error
+
+    async def _beat(self) -> bool:
+        failures = 0
+        while True:
+            if self._stopped.is_set():
+                return False
+            if time.monotonic() >= self.deadline:
+                raise ImageFailure("timeout")
+            try:
+                async with asyncio.timeout_at(self.deadline):
+                    result = await self._database.call(
+                        "heartbeat_image_media", self._request
+                    )
+            except TimeoutError:
+                raise ImageFailure("timeout") from None
+            except ImageFailure as exc:
+                if exc.code != "operation_busy":
+                    raise
+                failures += 1
+                base = min(
+                    _FINISH_RETRY_BASE_SECONDS * (2 ** (failures - 1)),
+                    _FINISH_RETRY_MAX_SECONDS,
+                )
+                delay = base + random.uniform(0, base)
+                remaining = self.deadline - time.monotonic()
+                if delay >= remaining:
+                    raise ImageFailure("timeout") from None
+                try:
+                    await asyncio.wait_for(self._stopped.wait(), timeout=delay)
+                    return False
+                except TimeoutError:
+                    continue
+            if not result.active:
+                raise ImageFailure("lease_lost")
+            return True
 
     async def _run(self) -> None:
-        interval = max(1.0, self.lease_seconds / 3)
         try:
             while not self._stopped.is_set():
+                remaining = self.deadline - time.monotonic()
+                if remaining <= 0:
+                    self._record_failure(ImageFailure("timeout"))
+                    return
                 try:
-                    await asyncio.wait_for(self._stopped.wait(), timeout=interval)
+                    await asyncio.wait_for(
+                        self._stopped.wait(),
+                        timeout=min(self._interval, remaining),
+                    )
                     return
                 except TimeoutError:
-                    pass
-                result = await self._database.call(
-                    "heartbeat_image_media",
-                    HeartbeatImageMediaRequest(
-                        job_id=self._claim.job_id,
-                        generation=self._claim.generation,
-                        lease_token=self._claim.lease_token,
-                        lease_seconds=self.lease_seconds,
-                    ),
-                )
-                if not result.active:
-                    self._lost.set()
+                    if time.monotonic() >= self.deadline:
+                        self._record_failure(ImageFailure("timeout"))
+                        return
+                try:
+                    if not await self._beat():
+                        return
+                except ImageFailure as exc:
+                    self._record_failure(exc)
                     return
         except asyncio.CancelledError:
+            self._record_failure()
             raise
         except BaseException:
-            self._lost.set()
+            self._record_failure()
 
     async def close(self) -> None:
         self._stopped.set()
