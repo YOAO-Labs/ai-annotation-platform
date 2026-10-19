@@ -2362,3 +2362,23 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   threshold. Other modules, universal final credential write fences, selected
   provider replacement, sustained capacity and daily cutover remain active. No
   production, Go expansion, push, release or remote CI work is performed.
+
+### Identity core-session assembled artifact verification
+
+- A clean-source API image from implementation commit `f7f3a5a65` matches 34 API,
+  dependency, migration and snapshot files and all 21 installed Identity source/
+  schema files. Network-disabled read-only cold import verifies the actual API,
+  both key/session command bindings, existing prediction-worker signatures, exact
+  OpenAPI and migration head 0237. The proof container is removed; this is distinct
+  from the separate live host-API/Identity-container functional acceptance.
+- Required commit hooks, schema export, Ruff/format, six-secret Compose policy
+  configuration and docs build pass. Three clean modifier worktrees are removed
+  only after patch-identity equivalence with their integrated commits, preserving
+  older and unrelated worktrees. Current evidence is retained in
+  `.worktree/identity-sessions-verification-current.json` with original failed
+  reports and the targeted successful replacements.
+- Fresh read-only checks keep primary source at `856fa79c8`, main database at
+  0234 and the unrelated test database at 0218; the original four running
+  containers remain. No primary Identity cutover, signer/configuration change or
+  worker refresh is made. This tranche completes a core-session sub-boundary;
+  complete Identity, the other module matrix and the seven-gate goal remain active.
