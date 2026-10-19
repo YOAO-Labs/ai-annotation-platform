@@ -1,0 +1,360 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:aap:identity-api-keys-native:v1",
+  "title": "Identity API-key native command and receipt protocol",
+  "oneOf": [
+    { "$ref": "#/$defs/KeyPolicy" },
+    { "$ref": "#/$defs/ListRequest" },
+    { "$ref": "#/$defs/CreateRequest" },
+    { "$ref": "#/$defs/UpdateRequest" },
+    { "$ref": "#/$defs/RotateRequest" },
+    { "$ref": "#/$defs/RevokeRequest" },
+    { "$ref": "#/$defs/SuccessReply" },
+    { "$ref": "#/$defs/FailureReply" }
+  ],
+  "$defs": {
+    "Principal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "actor_id",
+        "name",
+        "email",
+        "role",
+        "is_active",
+        "credential_type",
+        "credential_id",
+        "generation",
+        "scopes",
+        "expires_at"
+      ],
+      "properties": {
+        "actor_id": { "type": "string", "format": "uuid" },
+        "name": { "type": "string" },
+        "email": { "type": "string" },
+        "role": { "enum": ["super_admin", "project_admin", "employee", "viewer"] },
+        "is_active": { "const": true },
+        "credential_type": { "enum": ["jwt", "api_key"] },
+        "credential_id": { "type": "string", "format": "uuid" },
+        "generation": {
+          "anyOf": [
+            { "type": "integer", "minimum": 0, "maximum": 9223372036854775807 },
+            { "type": "null" }
+          ]
+        },
+        "scopes": {
+          "anyOf": [{ "type": "array", "items": { "type": "string" } }, { "type": "null" }]
+        },
+        "expires_at": {
+          "anyOf": [{ "type": "string", "format": "date-time" }, { "type": "null" }]
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "credential_type": { "const": "jwt" } } },
+          "then": {
+            "properties": {
+              "generation": { "type": "integer", "minimum": 0, "maximum": 9223372036854775807 },
+              "scopes": { "type": "null" },
+              "expires_at": { "type": "string", "format": "date-time" }
+            }
+          },
+          "else": {
+            "properties": {
+              "generation": { "type": "null" },
+              "scopes": { "type": "array", "items": { "type": "string" } },
+              "expires_at": { "type": "null" }
+            }
+          }
+        }
+      ]
+    },
+    "NewKey": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["key_id", "key_prefix", "key_hash", "derivation_id"],
+      "properties": {
+        "key_id": { "type": "string", "format": "uuid" },
+        "key_prefix": { "type": "string", "pattern": "^ak_[A-Za-z0-9_-]{9}$" },
+        "key_hash": { "type": "string", "pattern": "^\\$2[aby]\\$12\\$[./A-Za-z0-9]{53}$" },
+        "derivation_id": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+      }
+    },
+    "KeyRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "name",
+        "key_prefix",
+        "scopes",
+        "expires_at",
+        "last_used_at",
+        "revoked_at",
+        "created_at"
+      ],
+      "properties": {
+        "id": { "type": "string", "format": "uuid" },
+        "name": { "type": "string", "minLength": 1, "maxLength": 60 },
+        "key_prefix": { "type": "string", "maxLength": 12 },
+        "scopes": { "type": "array", "items": { "type": "string" } },
+        "expires_at": { "$ref": "#/$defs/NullableDateTime" },
+        "last_used_at": { "$ref": "#/$defs/NullableDateTime" },
+        "revoked_at": { "$ref": "#/$defs/NullableDateTime" },
+        "created_at": { "type": "string", "format": "date-time" }
+      }
+    },
+    "NullableDateTime": {
+      "anyOf": [{ "type": "string", "format": "date-time" }, { "type": "null" }]
+    },
+    "NativeCommand": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "operation_id", "actor", "expected_key_hash"],
+      "properties": {
+        "schema": { "const": "aap-identity-keys-native/v1" },
+        "operation": {
+          "enum": [
+            "list_api_keys",
+            "create_api_key",
+            "update_api_key",
+            "rotate_api_key",
+            "revoke_api_key"
+          ]
+        },
+        "operation_id": { "type": "string", "format": "uuid" },
+        "actor": { "$ref": "#/$defs/Principal" },
+        "expected_key_hash": {
+          "anyOf": [{ "type": "string", "minLength": 1, "maxLength": 255 }, { "type": "null" }]
+        },
+        "payload": { "type": "object" },
+        "new_key": {
+          "anyOf": [{ "$ref": "#/$defs/NewKey" }, { "type": "null" }]
+        }
+      }
+    },
+    "ListRequest": {
+      "allOf": [
+        { "$ref": "#/$defs/NativeCommand" },
+        {
+          "type": "object",
+          "required": ["operation", "payload", "new_key"],
+          "properties": {
+            "operation": { "const": "list_api_keys" },
+            "payload": { "type": "object", "additionalProperties": false },
+            "new_key": { "type": "null" }
+          }
+        }
+      ]
+    },
+    "CreateRequest": {
+      "allOf": [
+        { "$ref": "#/$defs/NativeCommand" },
+        {
+          "type": "object",
+          "required": ["operation", "payload", "new_key"],
+          "properties": {
+            "operation": { "const": "create_api_key" },
+            "payload": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["name"],
+              "properties": {
+                "name": { "type": "string", "minLength": 1, "maxLength": 60 },
+                "scopes": { "type": "array", "items": { "type": "string" }, "default": [] },
+                "expires_in_days": {
+                  "anyOf": [
+                    { "type": "integer", "minimum": 1, "maximum": 3650 },
+                    { "type": "null" }
+                  ],
+                  "default": null
+                }
+              }
+            },
+            "new_key": { "$ref": "#/$defs/NewKey" }
+          }
+        }
+      ]
+    },
+    "UpdateRequest": {
+      "allOf": [
+        { "$ref": "#/$defs/NativeCommand" },
+        {
+          "type": "object",
+          "required": ["operation", "payload", "new_key"],
+          "properties": {
+            "operation": { "const": "update_api_key" },
+            "payload": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["key_id", "patch"],
+              "properties": {
+                "key_id": { "type": "string", "format": "uuid" },
+                "patch": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "name": { "type": "string", "minLength": 1, "maxLength": 60 },
+                    "scopes": { "type": "array", "items": { "type": "string" } },
+                    "expires_in_days": {
+                      "anyOf": [
+                        { "type": "integer", "minimum": 1, "maximum": 3650 },
+                        { "type": "null" }
+                      ]
+                    }
+                  }
+                }
+              }
+            },
+            "new_key": { "type": "null" }
+          }
+        }
+      ]
+    },
+    "RotateRequest": {
+      "allOf": [
+        { "$ref": "#/$defs/NativeCommand" },
+        {
+          "type": "object",
+          "required": ["operation", "payload", "new_key"],
+          "properties": {
+            "operation": { "const": "rotate_api_key" },
+            "payload": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["key_id"],
+              "properties": { "key_id": { "type": "string", "format": "uuid" } }
+            },
+            "new_key": { "$ref": "#/$defs/NewKey" }
+          }
+        }
+      ]
+    },
+    "RevokeRequest": {
+      "allOf": [
+        { "$ref": "#/$defs/NativeCommand" },
+        {
+          "type": "object",
+          "required": ["operation", "payload", "new_key"],
+          "properties": {
+            "operation": { "const": "revoke_api_key" },
+            "payload": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["key_id"],
+              "properties": { "key_id": { "type": "string", "format": "uuid" } }
+            },
+            "new_key": { "type": "null" }
+          }
+        }
+      ]
+    },
+    "KeyListData": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["items"],
+      "properties": { "items": { "type": "array", "items": { "$ref": "#/$defs/KeyRecord" } } }
+    },
+    "KeyData": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["key"],
+      "properties": { "key": { "$ref": "#/$defs/KeyRecord" } }
+    },
+    "RevokeData": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["key_id", "revoked"],
+      "properties": {
+        "key_id": { "type": "string", "format": "uuid" },
+        "revoked": { "const": true }
+      }
+    },
+    "KeyPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "derivation"],
+      "properties": {
+        "schema": { "const": "aap-identity-keys-policy/v1" },
+        "derivation": { "const": "aap-identity-api-keys/v1" }
+      }
+    },
+    "SuccessReply": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "ok", "operation", "operation_id", "principal", "data"],
+      "properties": {
+        "schema": { "const": "aap-identity-keys-native/v1" },
+        "ok": { "const": true },
+        "operation": {
+          "enum": [
+            "list_api_keys",
+            "create_api_key",
+            "update_api_key",
+            "rotate_api_key",
+            "revoke_api_key"
+          ]
+        },
+        "operation_id": { "type": "string", "format": "uuid" },
+        "principal": { "$ref": "#/$defs/Principal" },
+        "data": {
+          "oneOf": [
+            { "$ref": "#/$defs/KeyListData" },
+            { "$ref": "#/$defs/KeyData" },
+            { "$ref": "#/$defs/RevokeData" }
+          ]
+        }
+      }
+    },
+    "FailureReply": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "ok", "error"],
+      "properties": {
+        "schema": { "const": "aap-identity-keys-native/v1" },
+        "ok": { "const": false },
+        "error": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["code"],
+          "properties": {
+            "code": {
+              "enum": [
+                "invalid_request",
+                "credential_invalid",
+                "credential_revoked",
+                "generation_outdated",
+                "token_expired",
+                "user_inactive",
+                "invalid_account_role",
+                "credential_busy",
+                "key_not_found",
+                "key_busy",
+                "operation_conflict"
+              ]
+            }
+          }
+        }
+      }
+    }
+  },
+  "x-postgresql-functions": [
+    "aap_identity_keys_v1.key_policy()",
+    "aap_identity_keys_v1.execute_key_command(jsonb)"
+  ],
+  "x-native-errors": [
+    "invalid_request",
+    "credential_invalid",
+    "credential_revoked",
+    "generation_outdated",
+    "token_expired",
+    "user_inactive",
+    "invalid_account_role",
+    "credential_busy",
+    "key_not_found",
+    "key_busy",
+    "operation_conflict"
+  ],
+  "x-native-retention": "Mutation receipts freeze only public key records and revoke outcomes, and cascade with their actor account.",
+  "x-native-lock-order": "Lock the current actor and API-key credential through aap_identity_v1, then take the operation advisory lock, then lock a target key with FOR UPDATE NOWAIT."
+}
