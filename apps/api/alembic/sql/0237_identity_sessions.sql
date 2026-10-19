@@ -527,7 +527,7 @@ BEGIN
         END IF;
         v_credential_type := v_actor->>'credential_type';
         IF pg_catalog.jsonb_typeof(p_request->'expected_key_hash') IS DISTINCT FROM
-           CASE WHEN v_credential_type = 'api_key' THEN 'string' ELSE 'null' END THEN
+           (CASE WHEN v_credential_type = 'api_key' THEN 'string' ELSE 'null' END) THEN
             RETURN aap_identity_sessions_v1._failure('invalid_request', NULL);
         END IF;
         IF v_credential_type = 'jwt' THEN
