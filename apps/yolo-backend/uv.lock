@@ -11,6 +11,49 @@ resolution-markers = [
 ]
 
 [[package]]
+name = "aap-backend-runtime"
+version = "0.1.0"
+source = { editable = "../_shared/backend_runtime" }
+dependencies = [
+    { name = "aap-protocol-v2" },
+    { name = "httpx" },
+    { name = "pillow" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "aap-protocol-v2", editable = "../_shared/protocol_v2" },
+    { name = "httpx", specifier = ">=0.27" },
+    { name = "pillow", specifier = ">=10.0" },
+    { name = "pytest", marker = "extra == 'test'", specifier = ">=8.0" },
+]
+provides-extras = ["test"]
+
+[[package]]
+name = "aap-protocol-v2"
+version = "0.2.0"
+source = { editable = "../_shared/protocol_v2" }
+dependencies = [
+    { name = "aap-task-contract" },
+    { name = "cryptography" },
+    { name = "fastapi" },
+    { name = "pydantic" },
+    { name = "pyjwt" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "aap-task-contract", editable = "../_shared/task_contract" },
+    { name = "cryptography", specifier = ">=43.0.0" },
+    { name = "fastapi", specifier = ">=0.110" },
+    { name = "numpy", marker = "extra == 'test'", specifier = ">=1.24" },
+    { name = "pydantic", specifier = ">=2.5" },
+    { name = "pyjwt", specifier = ">=2.10,<3" },
+    { name = "pytest", marker = "extra == 'test'", specifier = ">=8.0" },
+]
+provides-extras = ["test"]
+
+[[package]]
 name = "aap-task-contract"
 version = "0.1.0"
 source = { editable = "../_shared/task_contract" }
@@ -2113,6 +2156,8 @@ name = "yolo-backend"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "aap-backend-runtime" },
+    { name = "aap-protocol-v2" },
     { name = "aap-task-contract" },
     { name = "aap-training-contract" },
     { name = "clip" },
@@ -2145,6 +2190,8 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "aap-backend-runtime", editable = "../_shared/backend_runtime" },
+    { name = "aap-protocol-v2", editable = "../_shared/protocol_v2" },
     { name = "aap-task-contract", editable = "../_shared/task_contract" },
     { name = "aap-training-contract", editable = "../_shared/training_contract" },
     { name = "clip", git = "https://github.com/ultralytics/CLIP.git?rev=7ffa84b3bfa40c42ecc1c77147a855e69cb2dd40" },

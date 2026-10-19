@@ -5,14 +5,20 @@
 import pytest
 
 
-@pytest.fixture(autouse=True)
-def authenticated_backend_clients(monkeypatch):
+@pytest.fixture(scope="module", autouse=True)
+def authenticated_backend_clients():
+    with pytest.MonkeyPatch.context() as monkeypatch:
+        _authenticate_backend_clients(monkeypatch)
+        yield
+
+
+def _authenticate_backend_clients(monkeypatch):
     import httpx
     from starlette.testclient import TestClient
-    from aap_backend_runtime import backend_auth
 
     token = "backend-source-test-credential-" + "x" * 40
-    monkeypatch.setattr(backend_auth, "backend_credential", lambda _provider: token)
+    monkeypatch.delenv("YOLO_MANAGED_MODELS_TOKEN", raising=False)
+    monkeypatch.setenv("AAP_BACKEND_AUTH_TOKEN", token)
     original_sync = TestClient.__init__
     original_async = httpx.AsyncClient.__init__
 

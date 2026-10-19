@@ -141,3 +141,74 @@ async def test_batch_initialization_syncs_all_origin_aliases_and_preserves_manua
             row.id, preserve_manual_auth=True, auth_method="managed:yolo"
         )
     assert db.commit.await_count == 3
+
+
+@pytest.mark.parametrize("failure", ["first_sync", "second_sync", "summary", None])
+async def test_registry_sync_and_its_explicit_audit_are_atomic(
+    db_session, tmp_path, monkeypatch, failure
+):
+    from fastapi import Request
+    from sqlalchemy import select
+
+    from app.db.models.audit_log import AuditLog
+    from app.db.models.ml_backend_registry import MLBackendRegistry
+    from app.services import managed_inference_auth
+
+    monkeypatch.setattr(settings, "ml_managed_auth_dir", str(tmp_path / "auth"))
+    monkeypatch.setattr(
+        settings, "ml_managed_backend_urls", {"yolo": "http://yolo.test:8003"}
+    )
+    monkeypatch.setattr(
+        managed_inference_auth,
+        "initialize_managed_auth",
+        AsyncMock(return_value="private-test-credential"),
+    )
+    rows = [
+        MLBackendRegistry(name=name, url=url, auth_method="none", source="manual")
+        for name, url in [
+            ("first", "http://yolo.test:8003"),
+            ("second", "http://YOLO.test:8003"),
+        ]
+    ]
+    db_session.add_all(rows)
+    await db_session.flush()
+    real_log = routes.AuditService.log
+    synced = 0
+
+    async def log(db, **kwargs):
+        nonlocal synced
+        if kwargs["action"] == "ml_registry.managed_auth_synced":
+            synced += 1
+            if failure == ("first_sync" if synced == 1 else "second_sync"):
+                raise RuntimeError("audit unavailable")
+        elif failure == "summary":
+            raise RuntimeError("audit unavailable")
+        return await real_log(db, **kwargs)
+
+    monkeypatch.setattr(routes.AuditService, "log", log)
+    actor = SimpleNamespace(id=None, email="admin@test.local", role="super_admin")
+    request = Request(
+        {"type": "http", "method": "POST", "path": "/initialize", "headers": []}
+    )
+
+    async def initialize():
+        return await routes.initialize_managed_backends(
+            routes.ManagedAuthInitialize(), request, db_session, actor
+        )
+
+    if failure:
+        with pytest.raises(RuntimeError, match="audit unavailable"):
+            await initialize()
+    else:
+        await initialize()
+    for row in rows:
+        await db_session.refresh(row)
+    audits = (
+        await db_session.scalars(
+            select(AuditLog).where(AuditLog.action == "ml_registry.managed_auth_synced")
+        )
+    ).all()
+    changed_ids = {str(row.id) for row in rows if row.auth_method == "managed:yolo"}
+    assert changed_ids == {audit.target_id for audit in audits}
+    assert len(changed_ids) == {"first_sync": 0, "second_sync": 1}.get(failure, 2)
+    assert all(audit.detail_json == {"provider": "yolo"} for audit in audits)

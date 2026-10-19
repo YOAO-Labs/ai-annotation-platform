@@ -12,6 +12,7 @@ reconcile: env 里已删除的 URL 对应的 source='env' 行置 state='disconne
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import UTC, datetime
 
@@ -26,8 +27,25 @@ from app.db.base import async_session
 from app.db.models.ml_backend_registry import MLBackendRegistry
 from app.services.capability_instances import _observe_urls, _probe_setup
 from app.services.ml_capabilities import extract_capabilities
+from app.services.ml_client import MLBackendClient
 
 logger = logging.getLogger(__name__)
+
+
+async def _probe_backend(client: MLBackendClient) -> dict | None:
+    try:
+        if client.auth_method == "none":
+            async with httpx.AsyncClient(timeout=settings.ml_health_timeout) as public:
+                return await _probe_setup(public, client.base_url)
+        if managed_provider(client.auth_method) is not None:
+            # Public health alone cannot attest an authenticated backend.
+            healthy, _ = await client.health_meta()
+            if not healthy:
+                return None
+        return await client.setup()
+    except Exception:
+        logger.warning("env backend discovery failed for a configured service")
+        return None
 
 
 async def sync_env_backends() -> None:
@@ -35,6 +53,7 @@ async def sync_env_backends() -> None:
     urls = _observe_urls()
     now = datetime.now(UTC)
     async with async_session() as db:
+        probes = []
         for url in urls:
             existing = (
                 await db.execute(
@@ -55,26 +74,21 @@ async def sync_env_backends() -> None:
                     source="env",
                 )
                 await db.commit()
-            from app.services.ml_client import MLBackendClient
-
-            requested_identity = (existing.url, existing.auth_revision)
-            client = MLBackendClient(existing)
-            setup = None
-            try:
-                if existing.auth_method == "none":
-                    async with httpx.AsyncClient(
-                        timeout=settings.ml_health_timeout
-                    ) as public:
-                        setup = await _probe_setup(public, url)
-                elif managed_provider(existing.auth_method) is not None:
-                    # Public health alone cannot attest an authenticated backend.
-                    healthy, _ = await client.health_meta()
-                    if healthy:
-                        setup = await client.setup()
-                else:
-                    setup = await client.setup()
-            except Exception:
-                logger.warning("env backend discovery failed for a configured service")
+            probes.append(
+                (
+                    existing.id,
+                    (existing.url, existing.auth_revision),
+                    MLBackendClient(existing),
+                )
+            )
+        # End the discovery transaction before waiting for any network calls.
+        # Only probes run concurrently; the AsyncSession stays in this task.
+        await db.commit()
+        setups = await asyncio.gather(
+            *(_probe_backend(client) for _, _, client in probes)
+        )
+        for (registry_id, requested_identity, _), setup in zip(probes, setups):
+            url = requested_identity[0]
             caps = extract_capabilities(setup) if setup else None
             health_meta = {"capabilities": caps} if caps else None
             state = "connected" if caps else "error"
@@ -82,12 +96,13 @@ async def sync_env_backends() -> None:
             name = (setup or {}).get("name") or url.rstrip("/").split("/")[-1]
             current = await db.scalar(
                 select(MLBackendRegistry)
-                .where(MLBackendRegistry.id == existing.id)
+                .where(MLBackendRegistry.id == registry_id)
                 .with_for_update()
                 .execution_options(populate_existing=True)
             )
             if (
                 current is None
+                or current.source != "env"
                 or (current.url, current.auth_revision) != requested_identity
             ):
                 await db.commit()

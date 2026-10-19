@@ -453,6 +453,16 @@ async def initialize_managed_backends(
                     )
                     if updated is None:
                         raise HTTPException(409, "实例已删除，请刷新后重试。")
+                    await AuditService.log(
+                        db,
+                        actor=admin,
+                        action="ml_registry.managed_auth_synced",
+                        target_type="ml_backend",
+                        target_id=str(registry.id),
+                        request=request,
+                        status_code=200,
+                        detail={"provider": item.provider},
+                    )
                     registry.auth_method = updated.auth_method
                     registry.state = updated.state
                 await db.commit()

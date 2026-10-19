@@ -6,7 +6,6 @@ stub torch + ultralytics, 用 FastAPI TestClient 直接打 app, mock predictor �
 
 from __future__ import annotations
 
-import os
 import sys
 from unittest.mock import MagicMock
 
@@ -30,17 +29,19 @@ def client(tmp_path_factory):
     """启动 FastAPI TestClient. lifespan 内会建一个真实 ModelPool, 但 build_model 是
     mock (sys.modules ultralytics MagicMock), 不会真的拉权重."""
     # CHECKPOINTS_DIR 默认 /app/checkpoints, 在测试机上不可写; 改指向 tmp.
-    tmp = tmp_path_factory.mktemp("yolo-test-")
-    os.environ["YOLO_CHECKPOINTS_DIR"] = str(tmp)
     # main 已被其他测试 import 过, 用 importlib.reload 让 env 重新生效.
     import importlib
     import main
 
-    main = importlib.reload(main)
     from fastapi.testclient import TestClient
 
-    with TestClient(main.app) as c:
-        yield c
+    with pytest.MonkeyPatch.context() as monkeypatch:
+        monkeypatch.setenv(
+            "YOLO_CHECKPOINTS_DIR", str(tmp_path_factory.mktemp("yolo-test-"))
+        )
+        main = importlib.reload(main)
+        with TestClient(main.app) as c:
+            yield c
 
 
 def test_warmup_first_call_cache_miss(client) -> None:
