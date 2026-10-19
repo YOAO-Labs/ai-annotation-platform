@@ -34,7 +34,7 @@ from aap_assets_images.contract import (
 from aap_assets_images.policy import ImagePolicy
 from aap_assets_images_runtime.config import ConfigurationError, load_config
 from aap_assets_images_runtime.storage import DownloadedSource, SourceHeader
-from aap_assets_images_runtime.worker import ImageExecutor, _run_child
+from aap_assets_images_runtime.worker import ImageExecutor, _LeaseHeartbeat, _run_child
 
 
 def _png_bytes(size=(4, 2)) -> bytes:
@@ -113,23 +113,56 @@ def _claim(source: ImageSource | None, spec, *, job_id=None) -> ImageClaim:
     )
 
 
+def _dimensions_claim(source: ImageSource, *, policy=None) -> ImageClaim:
+    return _claim(
+        source,
+        DimensionsWorkSpec(
+            expected_source_snapshot=source.source_snapshot,
+            policy=policy or _policy(),
+        ),
+    )
+
+
 class _FakeDatabase:
-    def __init__(self, claim, *, advance_results=None, finish_failures=None):
+    def __init__(
+        self,
+        claim,
+        *,
+        advance_results=None,
+        finish_failures=None,
+        heartbeat_failures=None,
+        heartbeat_active_results=None,
+        events=None,
+    ):
         self.claim = claim
         self.advance_results = list(advance_results or [])
         self.finish_failures = list(finish_failures or [])
+        self.heartbeat_failures = list(heartbeat_failures or [])
+        self.heartbeat_active_results = list(heartbeat_active_results or [])
+        self.events = events
         self.calls = []
 
     async def call(self, name, request):
         self.calls.append((name, request))
+        if self.events is not None:
+            self.events.append(f"database:{name}")
         if name == "claim_image_media":
             return ClaimedImageWork(claim=self.claim)
         if name == "heartbeat_image_media":
+            if self.heartbeat_failures:
+                failure = self.heartbeat_failures.pop(0)
+                if isinstance(failure, str):
+                    raise ImageFailure(failure)
+                raise failure
             return ImageLeaseState(
                 job_id=request.job_id,
                 generation=request.generation,
                 lease_token=request.lease_token,
-                active=True,
+                active=(
+                    self.heartbeat_active_results.pop(0)
+                    if self.heartbeat_active_results
+                    else True
+                ),
                 lease_expires_at=datetime.now(timezone.utc) + timedelta(minutes=5),
             )
         if name == "advance_image_backfill":
@@ -163,10 +196,11 @@ class _FakeDatabase:
 
 
 class _FakeStorage:
-    def __init__(self, source_bytes=b"", *, header=None, heads=None):
+    def __init__(self, source_bytes=b"", *, header=None, heads=None, events=None):
         self.source_bytes = source_bytes
         self.header = header if header is not None else source_bytes
         self.heads = list(heads or [])
+        self.events = events
         self.headers = []
         self.downloads = []
         self.uploads = []
@@ -174,10 +208,14 @@ class _FakeStorage:
         self.orphans = []
 
     async def head_source(self, source):
+        if self.events is not None:
+            self.events.append("storage:head_source")
         self.sources.append(source)
         return self.heads.pop(0) if self.heads else source.object_identity
 
     async def read_source_header(self, source):
+        if self.events is not None:
+            self.events.append("storage:read_source_header")
         self.headers.append(source)
         return SourceHeader(
             identity=source.object_identity,
@@ -185,6 +223,8 @@ class _FakeStorage:
         )
 
     async def download_source(self, source, destination):
+        if self.events is not None:
+            self.events.append("storage:download_source")
         self.downloads.append(source)
         destination.write_bytes(self.source_bytes)
         return DownloadedSource(
@@ -194,6 +234,8 @@ class _FakeStorage:
         )
 
     async def upload_cache(self, path, key):
+        if self.events is not None:
+            self.events.append("storage:upload_cache")
         data = Path(path).read_bytes()
         artifact = Artifact(
             key=key,
@@ -312,6 +354,211 @@ async def test_dimensions_worker_uses_bounded_header_and_finishes_only_after_sou
     assert finish.result.width == 4
     assert finish.result.height == 2
     assert storage.sources == [source]
+
+
+@pytest.mark.asyncio
+async def test_initial_heartbeat_retries_operation_busy_before_object_io(monkeypatch):
+    import aap_assets_images_runtime.worker as worker_module
+
+    monkeypatch.setattr(worker_module.random, "uniform", lambda _low, _high: 0.0)
+    data = _png_bytes()
+    source = _source(data)
+    claim = _claim(
+        source,
+        DimensionsWorkSpec(
+            expected_source_snapshot=source.source_snapshot,
+            policy=_policy(),
+        ),
+    )
+    events = []
+    database = _FakeDatabase(
+        claim,
+        heartbeat_failures=["operation_busy", "operation_busy"],
+        events=events,
+    )
+    storage = _FakeStorage(data, events=events)
+
+    result = await ImageExecutor(database, storage).execute_once()
+
+    requests = [
+        request for name, request in database.calls if name == "heartbeat_image_media"
+    ]
+    assert result.outcome == "published"
+    assert len(requests) == 3
+    assert all(request is requests[0] for request in requests)
+    assert (requests[0].job_id, requests[0].generation, requests[0].lease_token) == (
+        claim.job_id,
+        claim.generation,
+        claim.lease_token,
+    )
+    heartbeat_positions = [
+        index
+        for index, event in enumerate(events)
+        if event == "database:heartbeat_image_media"
+    ]
+    assert events.index("storage:head_source") > heartbeat_positions[-1]
+
+
+@pytest.mark.asyncio
+async def test_initial_heartbeat_persistent_contention_stops_at_deadline(monkeypatch):
+    import aap_assets_images_runtime.worker as worker_module
+
+    monkeypatch.setattr(worker_module.random, "uniform", lambda _low, _high: 0.0)
+    source = _source(b"source")
+    claim = _dimensions_claim(source)
+    database = _FakeDatabase(claim, heartbeat_failures=["operation_busy"] * 10)
+    heartbeat = _LeaseHeartbeat(
+        database,
+        claim,
+        lease_seconds=claim.spec.policy.lease_seconds,
+        deadline=time.monotonic() + 0.12,
+    )
+
+    with pytest.raises(ImageFailure, match="timeout"):
+        await heartbeat.start()
+
+    requests = [
+        request for name, request in database.calls if name == "heartbeat_image_media"
+    ]
+    assert len(requests) >= 2
+    assert all(request is requests[0] for request in requests)
+    assert heartbeat._task is None
+
+
+@pytest.mark.asyncio
+async def test_periodic_heartbeat_retries_operation_busy_with_same_claim(monkeypatch):
+    import aap_assets_images_runtime.worker as worker_module
+
+    monkeypatch.setattr(worker_module.random, "uniform", lambda _low, _high: 0.0)
+    source = _source(b"source")
+    claim = _dimensions_claim(source)
+    database = _FakeDatabase(claim)
+    heartbeat = _LeaseHeartbeat(
+        database,
+        claim,
+        lease_seconds=claim.spec.policy.lease_seconds,
+        deadline=time.monotonic() + 5,
+    )
+    await heartbeat.start()
+    heartbeat._interval = 0.01
+    database.heartbeat_failures = ["operation_busy"]
+
+    until = time.monotonic() + 1
+    while len(database.calls) < 3 and time.monotonic() < until:
+        await asyncio.sleep(0.01)
+    await heartbeat.close()
+
+    requests = [
+        request for name, request in database.calls if name == "heartbeat_image_media"
+    ]
+    assert len(requests) == 3
+    assert all(request is requests[0] for request in requests)
+    assert not heartbeat._lost.is_set()
+
+
+@pytest.mark.asyncio
+async def test_periodic_heartbeat_persistent_contention_records_timeout(monkeypatch):
+    import aap_assets_images_runtime.worker as worker_module
+
+    monkeypatch.setattr(worker_module.random, "uniform", lambda _low, _high: 0.0)
+    source = _source(b"source")
+    claim = _dimensions_claim(source)
+    database = _FakeDatabase(claim)
+    heartbeat = _LeaseHeartbeat(
+        database,
+        claim,
+        lease_seconds=claim.spec.policy.lease_seconds,
+        deadline=time.monotonic() + 5,
+    )
+    await heartbeat.start()
+    heartbeat._interval = 0.01
+    heartbeat.deadline = time.monotonic() + 0.16
+    database.heartbeat_failures = ["operation_busy"] * 10
+
+    await heartbeat._task
+
+    with pytest.raises(ImageFailure, match="timeout"):
+        heartbeat.check_lease()
+    requests = [
+        request for name, request in database.calls if name == "heartbeat_image_media"
+    ]
+    assert len(requests) >= 3
+    assert all(request is requests[0] for request in requests)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", ["inactive", "lease_lost", "unknown"])
+async def test_nontransient_initial_heartbeat_still_fences_before_object_io(failure):
+    source = _source(b"source")
+    claim = _dimensions_claim(source)
+    database = _FakeDatabase(claim)
+    if failure == "inactive":
+        database.heartbeat_active_results = [False]
+    elif failure == "lease_lost":
+        database.heartbeat_failures = ["lease_lost"]
+    else:
+        database.heartbeat_failures = [RuntimeError("unexpected database error")]
+    storage = _FakeStorage(b"source")
+
+    with pytest.raises(ImageFailure, match="lease_lost"):
+        await ImageExecutor(database, storage).execute_once()
+
+    assert [name for name, _request in database.calls] == [
+        "claim_image_media",
+        "heartbeat_image_media",
+    ]
+    assert storage.sources == []
+    assert storage.headers == []
+    assert storage.downloads == []
+
+
+@pytest.mark.asyncio
+async def test_cancelled_heartbeat_still_fences_before_object_io():
+    source = _source(b"source")
+    claim = _dimensions_claim(source)
+    heartbeat_started = asyncio.Event()
+
+    class _CancelledHeartbeatDatabase(_FakeDatabase):
+        async def call(self, name, request):
+            if name == "heartbeat_image_media":
+                self.calls.append((name, request))
+                heartbeat_started.set()
+                await asyncio.Event().wait()
+            return await super().call(name, request)
+
+    database = _CancelledHeartbeatDatabase(claim)
+    storage = _FakeStorage(b"source")
+    execution = asyncio.create_task(ImageExecutor(database, storage).execute_once())
+    await heartbeat_started.wait()
+    execution.cancel()
+
+    with pytest.raises(asyncio.CancelledError):
+        await execution
+
+    assert storage.sources == []
+    assert storage.headers == []
+    assert storage.downloads == []
+
+
+@pytest.mark.asyncio
+async def test_cancelling_periodic_heartbeat_fences_the_lease():
+    source = _source(b"source")
+    claim = _dimensions_claim(source)
+    database = _FakeDatabase(claim)
+    heartbeat = _LeaseHeartbeat(
+        database,
+        claim,
+        lease_seconds=claim.spec.policy.lease_seconds,
+        deadline=time.monotonic() + 5,
+    )
+    await heartbeat.start()
+    await asyncio.sleep(0)
+
+    heartbeat._task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await heartbeat._task
+    with pytest.raises(ImageFailure, match="lease_lost"):
+        heartbeat.check_lease()
 
 
 @pytest.mark.asyncio
