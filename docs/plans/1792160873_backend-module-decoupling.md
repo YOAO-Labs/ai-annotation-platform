@@ -1867,8 +1867,30 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
 - The public API, native autogeneration and architecture run passes 299 cases
   with 122 explicit lazy-root exclusions. Ruff check/format passes for all 42
   changed Python files. The documentation build passes in 13.24 seconds; public
-  OpenAPI remains unchanged. Final read-only consumer review finds no additional
-  concrete gap.
+  OpenAPI remains unchanged. Final read-only consumer and native reviews find
+  no additional concrete gap.
+- Local primary cutover is complete at implementation commit `cc3599e92`. Locked
+  dependency sync rebuilds the existing Media package; only development database
+  `annotation` advances 0221→0222. Business/media counts remain unchanged, all
+  six input/manifest/evidence ledgers are empty, and 17 invalid-argument native
+  probes return typed errors in read-only rolled-back transactions. The original
+  primary-test database remains at 0218; the dedicated versioned input bucket
+  and all nine protected source/cache bucket policies remain unchanged.
+- The unchanged API LaunchAgent serves the intended primary checkout. A
+  same-content touch preserves its supervisor and replaces its API child;
+  DB/Redis/MinIO return 200 and public OpenAPI matches the snapshot. Default
+  Celery remains unstarted, so its preexisting aggregate/Celery 503 is explicit.
+  The installed Celery task signature includes all three manifest fields. No default worker or
+  production process is started by this slice.
+- Final cleanup removes only owned test mode `fce2359c2a7f6564:test`, including
+  its database, Redis/port and ten buckets; original containers and the primary
+  test database remain intact. All three clean modifier worktrees are removed
+  after matching their original and integrated patch IDs, taking 18 registered
+  worktrees to 15 and preserving every other checkout. Safe qualification and
+  artifact evidence is retained under
+  `.worktree/bulk-inputs-qualification-cc3599e92/`; runtime and cleanup summaries
+  are `.worktree/bulk-inputs-primary-runtime.json` and
+  `.worktree/bulk-inputs-resource-cleanup.json`.
 - This completes the ordinary bulk image input slice, not the complete module
   goal. Scene, frame/video fan-out, tracking/correction and Learning first-source
   composition still require frozen owner facts. General Blob lifecycle,
