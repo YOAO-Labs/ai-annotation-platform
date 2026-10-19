@@ -1,4 +1,4 @@
-"""Autogeneration must not propose dropping the native input/evidence ledgers."""
+"""Autogeneration must not propose dropping native ledgers and GC authority."""
 
 from uuid import uuid4
 
@@ -18,6 +18,11 @@ async def test_native_ledgers_are_retained_while_unmapped_orm_drops_still_surfac
     assert {
         "video_tracker_input_scopes",
         "annotation_video_tracker_input_sources",
+        "mask_gc_intents",
+        "mask_gc_key_epochs",
+        "mask_gc_sweeps",
+        "mask_gc_roots",
+        "mask_gc_write_permit_secrets",
     } <= NATIVE_MANAGED_TABLES
     control = "test_autogen_control_" + uuid4().hex
 
