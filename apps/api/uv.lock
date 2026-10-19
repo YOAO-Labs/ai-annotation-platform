@@ -196,6 +196,37 @@ requires-dist = [
 provides-extras = ["test"]
 
 [[package]]
+name = "aap-identity"
+version = "0.1.0"
+source = { editable = "../identity" }
+dependencies = [
+    { name = "bcrypt" },
+    { name = "pydantic" },
+    { name = "python-jose", extra = ["cryptography"] },
+]
+
+[package.optional-dependencies]
+postgres = [
+    { name = "asyncpg" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "asyncpg", marker = "extra == 'postgres'", specifier = ">=0.29" },
+    { name = "asyncpg", marker = "extra == 'runtime'", specifier = ">=0.29" },
+    { name = "bcrypt", specifier = ">=4.0" },
+    { name = "fastapi", marker = "extra == 'runtime'", specifier = ">=0.115" },
+    { name = "httpx", marker = "extra == 'test'", specifier = ">=0.27" },
+    { name = "pydantic", specifier = ">=2.5" },
+    { name = "pydantic-settings", marker = "extra == 'runtime'", specifier = ">=2.6" },
+    { name = "pytest", marker = "extra == 'test'", specifier = ">=8.3" },
+    { name = "pytest-asyncio", marker = "extra == 'test'", specifier = ">=0.24" },
+    { name = "python-jose", extras = ["cryptography"], specifier = ">=3.3.0" },
+    { name = "uvicorn", marker = "extra == 'runtime'", specifier = ">=0.30" },
+]
+provides-extras = ["postgres", "runtime", "test"]
+
+[[package]]
 name = "aap-labeling-mask-gc"
 version = "0.1.0"
 source = { editable = "../labeling-mask-gc" }
@@ -364,6 +395,7 @@ dependencies = [
     { name = "aap-assets-media", extra = ["client", "runtime"] },
     { name = "aap-assets-source" },
     { name = "aap-audit-contract" },
+    { name = "aap-identity", extra = ["postgres"] },
     { name = "aap-labeling-mask-gc", extra = ["client"] },
     { name = "aap-media-probe", extra = ["client"] },
     { name = "aap-preannotation-results" },
@@ -418,6 +450,7 @@ requires-dist = [
     { name = "aap-assets-media", extras = ["client", "runtime"], editable = "../assets-media" },
     { name = "aap-assets-source", editable = "../assets-source" },
     { name = "aap-audit-contract", editable = "../_shared/audit_contract" },
+    { name = "aap-identity", extras = ["postgres"], editable = "../identity" },
     { name = "aap-labeling-mask-gc", extras = ["client"], editable = "../labeling-mask-gc" },
     { name = "aap-media-probe", extras = ["client"], editable = "../media-probe" },
     { name = "aap-preannotation-results", editable = "../preannotation-results" },

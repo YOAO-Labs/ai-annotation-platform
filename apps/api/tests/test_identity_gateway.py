@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import uuid
 from datetime import UTC, datetime, timedelta
+from contextlib import asynccontextmanager
 
 import pytest
 
@@ -34,6 +35,10 @@ class _Response:
         self.status_code = status_code
         self.content = json.dumps(payload).encode()
 
+    async def aiter_bytes(self, chunk_size):
+        for start in range(0, len(self.content), chunk_size):
+            yield self.content[start : start + chunk_size]
+
 
 class _Client:
     def __init__(self, response: _Response) -> None:
@@ -49,6 +54,11 @@ class _Client:
     async def post(self, url: str, *, json: dict, headers: dict):
         self.call = {"url": url, "json": json, "headers": headers}
         return self.response
+
+    @asynccontextmanager
+    async def stream(self, method, url, **kwargs):
+        assert method == "POST"
+        yield await self.post(url, **kwargs)
 
 
 @pytest.mark.asyncio
@@ -125,3 +135,80 @@ def test_embedded_default_uses_caller_transaction_when_available():
     assert not IdentityGateway(identity_url="http://identity").uses_caller_session(
         object()
     )
+
+
+@pytest.mark.asyncio
+async def test_secret_file_is_bounded_and_configuration_never_falls_back(tmp_path):
+    path = tmp_path / "dsn"
+    path.write_bytes(b"x" * 4097)
+    for kwargs in (
+        {"auth_database_url_file": str(path)},
+        {
+            "auth_database_url_file": str(path),
+            "auth_database_url": "postgresql://unused/db",
+        },
+        {"signing_secret": ""},
+    ):
+        with pytest.raises(IdentityGatewayUnavailable):
+            await IdentityGateway(**kwargs).authenticate("not-a-token")
+
+
+@pytest.mark.asyncio
+async def test_remote_response_budget_is_enforced_during_stream(monkeypatch):
+    client = _Client(_Response(200, principal_reply(_principal())))
+    monkeypatch.setattr(
+        "app.services.identity_gateway.httpx.AsyncClient", lambda **kwargs: client
+    )
+    monkeypatch.setattr("app.services.identity_gateway.MAX_RESPONSE_BYTES", 128)
+    with pytest.raises(IdentityGatewayUnavailable):
+        await IdentityGateway(
+            identity_url="https://identity.internal", identity_token="control"
+        ).authenticate("token")
+
+
+@pytest.mark.asyncio
+async def test_profile_role_changed_after_admission_is_not_restored():
+    from types import SimpleNamespace
+    from fastapi import HTTPException
+    from fastapi.security import HTTPAuthorizationCredentials
+    from starlette.requests import Request
+    from app.deps import get_current_user
+
+    value = _principal()
+    user = SimpleNamespace(id=value.actor_id, role="employee", is_active=True)
+
+    class Database:
+        async def execute(self, statement):
+            return SimpleNamespace(scalar_one_or_none=lambda: user)
+
+    class Gateway:
+        async def authenticate(self, token, db):
+            return value
+
+    request = Request({"type": "http"})
+    with pytest.raises(HTTPException) as error:
+        await get_current_user(
+            request,
+            HTTPAuthorizationCredentials(scheme="Bearer", credentials="token"),
+            Database(),
+            Gateway(),
+        )
+    assert error.value.status_code == 401 and user.role == "employee"
+    assert not hasattr(request.state, "identity_principal")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("value", [0, None])
+async def test_generation_reply_requires_a_real_integer(value):
+    from app.services.identity_session_data import IdentitySessionData
+
+    class Database:
+        async def scalar(self, statement, params):
+            return value
+
+    data = IdentitySessionData(Database())
+    if value is None:
+        with pytest.raises(IdentityGatewayUnavailable):
+            await data.get_credential_generation(uuid.uuid4())
+    else:
+        assert await data.get_credential_generation(uuid.uuid4()) == 0

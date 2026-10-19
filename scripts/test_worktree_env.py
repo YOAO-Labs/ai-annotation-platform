@@ -101,6 +101,10 @@ class EnvironmentTests(unittest.TestCase):
                 "ASSETS_MASK_CONTENT_URL": "http://shared-content.test",
                 "LABELING_MASK_GC_URL": "http://shared-labeling.test",
                 "LABELING_MASK_GC_TOKEN": "shared-test-token",
+                "identity_url": "http://shared-identity.test",
+                "IDENTITY_TOKEN": "shared-identity-token",
+                "IDENTITY_AUTH_DATABASE_URL": "postgresql://shared/identity",
+                "IDENTITY_AUTH_DATABASE_URL_FILE": "/shared/identity-dsn",
                 "DUCKDB_PATH": "/shared/analytics.duckdb",
                 "MINIO_PUBLIC_URL": "http://localhost:9000",
                 "MINIO_PROXY_TARGET": "http://shared:9000",
@@ -136,6 +140,7 @@ class EnvironmentTests(unittest.TestCase):
             self.assertTrue(env["DUCKDB_PATH"].startswith(resources["directory"]))
             self.assertEqual(env["ML_BACKEND_OBSERVE_URLS"], "[]")
             self.assertNotIn("assets_mask_cleanup_url", env)
+            self.assertNotIn("identity_url", env)
             for key in (
                 "ASSETS_MASK_CONTENT_URL",
                 "ASSETS_MASK_CONTENT_TOKEN",
@@ -143,6 +148,10 @@ class EnvironmentTests(unittest.TestCase):
                 "ASSETS_MASK_CLEANUP_TOKEN",
                 "LABELING_MASK_GC_URL",
                 "LABELING_MASK_GC_TOKEN",
+                "IDENTITY_URL",
+                "IDENTITY_TOKEN",
+                "IDENTITY_AUTH_DATABASE_URL",
+                "IDENTITY_AUTH_DATABASE_URL_FILE",
             ):
                 self.assertEqual(env[key], "")
             self.assertEqual(env["PATH"], "/bin")

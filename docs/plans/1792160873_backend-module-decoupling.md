@@ -2151,3 +2151,36 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   explicit in the architecture and import guide; it is not qualified as an
   independent owner operation. No reset command or destructive primary test is
   run. These lifecycle/ops gaps remain part of the active full-module goal.
+
+### Identity admission and durable session authority
+
+- The full10module/7gate objective remains active. Identity admission is now a
+  real extraction candidate: one portable Python verifier, closed principal
+  protocol, independent private runtime/package/image and explicit local/remote
+  assembly. Python reuses existing bcrypt/JOSE; the Go experiment is unchanged.
+- Native0235 owns generation, retained JTI metadata and11functions. Auth,
+  command, final-fence and operator LOGINS have4/5/1/1business capabilities with
+  no direct tables, role membership or CREATE/TEMP. Lifecycle revocation uses
+  the caller transaction; all REST/WS admissions use the common verifier.
+- The issuer/key derivation cutoff rejects oldJWTs, requiring login again;
+  SQL-backed APIkeys remain valid. No incomplete Redis import is used. Old
+  issuers/verifiers must be drained; retained state blocks downgrade and recovery
+  rolls forward. Credential admission alone does not fence every later write.
+- Integration fixes include PostgreSQL-compatible UUID pagination, one command
+  snapshot for current account/JTI facts, current-role hydration without stale
+  overwrite, all Principal actor-id callers, strict scope validation for refresh,
+  bounded secret files/HTTP responses and complete request deadlines. Existing
+  current-platform-role fixtures replace ordinary historical-role fixtures.
+- Preliminary isolated native/consumer/role/autogeneration checks have104unique
+  passing cases. Earlier failed fixture/WS reports remain historical; all their
+  owned PostgreSQL, Redis and storage resources were removed. The separate nine-case
+  refresh run passes, including wrong-owner rejection. Package/runtime checks
+  pass36cases and caller/audit units pass11cases in their own reports. A first
+  image was built, with final source-hash/process,
+  second-language and cutover qualification still pending.
+- Daily development remains at the previous qualified implementation and
+  migration0234. No Identity source, migration, signing-secret or environment
+  cutover is made there yet. Login/registration, key management, password/email
+  commands, profile hydration, cross-owner coordination and universal current
+  credential write fences are still part of the full Identity work. Do not call
+  this tranche full Identity or full-module independent deployment.

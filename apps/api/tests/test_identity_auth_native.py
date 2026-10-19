@@ -45,6 +45,7 @@ async def _seed(
                 is_active=active,
             )
         )
+        await session.flush()
         if create_key:
             session.add(
                 ApiKey(

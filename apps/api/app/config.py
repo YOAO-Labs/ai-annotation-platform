@@ -227,6 +227,12 @@ class Settings(BaseSettings):
     # (/minio，由 Vite 代理到对象存储)。
     minio_public_url: str = ""
 
+    identity_url: str = ""
+    identity_token: str = Field(default="", repr=False)
+    identity_timeout_seconds: float = Field(default=20, gt=0, le=120)
+    identity_auth_database_url: str = Field(default="", repr=False)
+    identity_auth_database_url_file: str = ""
+
     media_probe_url: str = ""
     media_probe_token: str = Field(default="", repr=False)
     media_probe_timeout_seconds: float = Field(default=90, gt=0, le=3600)

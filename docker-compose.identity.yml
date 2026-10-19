@@ -1,0 +1,31 @@
+services:
+  identity-admission:
+    build:
+      context: .
+      dockerfile: apps/identity/Dockerfile
+    environment:
+      IDENTITY_HOST: 0.0.0.0
+      IDENTITY_PORT: 8170
+      IDENTITY_DATABASE_URL_FILE: /run/secrets/identity_database_url
+      IDENTITY_TOKEN_FILE: /run/secrets/identity_token
+      IDENTITY_SIGNING_SECRET_FILE: /run/secrets/identity_signing_secret
+    secrets:
+      - identity_database_url
+      - identity_token
+      - identity_signing_secret
+    ports:
+      - "127.0.0.1:8170:8170"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 64
+    mem_limit: 256m
+    cpus: 1
+
+secrets:
+  identity_database_url:
+    file: ${IDENTITY_RUNTIME_DATABASE_URL_FILE:?Set Identity function-only DSN file}
+  identity_token:
+    file: ${IDENTITY_RUNTIME_TOKEN_FILE:?Set Identity private bearer file}
+  identity_signing_secret:
+    file: ${IDENTITY_RUNTIME_SIGNING_SECRET_FILE:?Set Identity JWT signing secret file}

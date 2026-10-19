@@ -201,6 +201,10 @@ def isolated_environment(
         "ASSETS_MASK_CLEANUP_TOKEN": "",
         "LABELING_MASK_GC_URL": "",
         "LABELING_MASK_GC_TOKEN": "",
+        "IDENTITY_URL": "",
+        "IDENTITY_TOKEN": "",
+        "IDENTITY_AUTH_DATABASE_URL": "",
+        "IDENTITY_AUTH_DATABASE_URL_FILE": "",
         "SMTP_HOST": "",
         "SENTRY_DSN": "",
     }

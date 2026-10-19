@@ -197,6 +197,42 @@ async def test_refresh_rejects_malformed_token(
     assert "invalid_token" in r.text
 
 
+async def test_refresh_rejects_an_owner_reply_for_another_actor(
+    httpx_client, db_session, monkeypatch
+):
+    from aap_identity.contract import Principal, principal_reply
+
+    user = await _seed_user(db_session)
+    value = _make_token_with_exp(
+        user.id, user.role, datetime.now(timezone.utc) - timedelta(minutes=1)
+    )
+
+    async def wrong_reply(self, actor_id, jti, generation, expires_at, **kwargs):
+        return principal_reply(
+            Principal(
+                actor_id=uuid.uuid4(),
+                name="Wrong actor",
+                email="wrong@test.local",
+                role="employee",
+                is_active=True,
+                credential_type="jwt",
+                credential_id=jti,
+                generation=generation,
+                scopes=None,
+                expires_at=expires_at,
+            )
+        )
+
+    monkeypatch.setattr(
+        "app.services.identity_session_data.IdentitySessionData.read_jwt_principal",
+        wrong_reply,
+    )
+    response = await httpx_client.post(
+        "/api/v1/auth/refresh", headers={"Authorization": f"Bearer {value}"}
+    )
+    assert response.status_code == 503
+
+
 async def test_refresh_rejects_legacy_hs256_token(
     httpx_client: httpx.AsyncClient, db_session: AsyncSession
 ):

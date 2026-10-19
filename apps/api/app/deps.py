@@ -187,24 +187,19 @@ async def get_current_user(
             detail="身份认证服务暂不可用",
         ) from None
 
-    request.state.identity_principal = principal
-    is_api_key = principal.credential_type == "api_key"
-    request.state.api_key_scopes = list(principal.scopes or []) if is_api_key else None
-    request.state.api_key_id = str(principal.credential_id) if is_api_key else None
-
     result = await db.execute(
         select(User)
         .where(User.id == principal.actor_id)
         .execution_options(populate_existing=True)
     )
     user = result.scalar_one_or_none()
-    if user is None or not user.is_active:
+    if user is None or not user.is_active or user.role != principal.role:
         raise exc
-    # The local User row still supplies profile fields during the migration. Its
-    # role must come from the verified current Identity principal.
-    from sqlalchemy.orm.attributes import set_committed_value
-
-    set_committed_value(user, "role", principal.role)
+    # Profile hydration must not overwrite a role change after admission.
+    request.state.identity_principal = principal
+    is_api_key = principal.credential_type == "api_key"
+    request.state.api_key_scopes = list(principal.scopes or []) if is_api_key else None
+    request.state.api_key_id = str(principal.credential_id) if is_api_key else None
     if is_api_key and identity.uses_caller_session(db):
         await db.commit()
     return user

@@ -469,6 +469,19 @@ last_reviewed: 2026-10-20
 |---|---|---|
 | `AAP_WORKTREE_MODE` | `—` | 由 pnpm dev:worktree 向子进程注入 dev/test/e2e；不要手工配置。 pytest / Playwright 据此拒绝在 dev 模式运行破坏性测试；测试连接、队列和存储也由入口覆盖。 |
 
+## Identity 认证准入（可选独立进程，不进入默认 Compose）
+
+| 变量 | 默认值 | 说明 |
+|---|---|---|
+| `IDENTITY_URL` | `—` | 空 URL 使用同一个内嵌验证器；显式远程失败不回退。原角色/项目/scope检查继续由业务入口执行。 |
+| `IDENTITY_TOKEN` | `—` | — |
+| `IDENTITY_TIMEOUT_SECONDS` | `20` | — |
+| `IDENTITY_AUTH_DATABASE_URL` | `—` | 可选函数专用准入 LOGIN；两项二选一，使用 postgresql://，留空沿用当前应用连接。 |
+| `IDENTITY_AUTH_DATABASE_URL_FILE` | `—` | — |
+| `IDENTITY_RUNTIME_DATABASE_URL_FILE` | `—` | 独立 Compose 的三个 secret 文件。DSN 只能使用准入函数 LOGIN；签名 secret 与当前 API SECRET_KEY 相同。 |
+| `IDENTITY_RUNTIME_TOKEN_FILE` | `—` | — |
+| `IDENTITY_RUNTIME_SIGNING_SECRET_FILE` | `—` | — |
+
 ## 独立 Assets 来源服务（可选，不进入默认 Compose）
 
 | 变量 | 默认值 | 说明 |

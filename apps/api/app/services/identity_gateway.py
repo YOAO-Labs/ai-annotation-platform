@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 from typing import NoReturn
+from urllib.parse import urlsplit
 
 import httpx
 from sqlalchemy.engine import make_url
@@ -22,6 +24,7 @@ _REJECTED_CODES = frozenset(
         "invalid_account_role",
     }
 )
+MAX_RESPONSE_BYTES = 16 * 1024 * 1024
 
 
 class IdentityCredentialRejected(Exception):
@@ -81,10 +84,14 @@ class IdentityGateway:
     async def authenticate(self, token: str, *, db: AsyncSession | None = None):
         if not isinstance(token, str) or not 1 <= len(token) <= 16384:
             raise IdentityCredentialRejected("credential_invalid")
-        if self.identity_url is not None:
-            principal = await self._authenticate_remote(token)
-        else:
-            principal = await self._authenticate_embedded(token, db=db)
+        try:
+            async with asyncio.timeout(self.timeout_seconds):
+                if self.identity_url is not None:
+                    principal = await self._authenticate_remote(token)
+                else:
+                    principal = await self._authenticate_embedded(token, db=db)
+        except TimeoutError:
+            raise IdentityGatewayUnavailable() from None
         return principal
 
     async def _authenticate_remote(self, token: str):
@@ -97,18 +104,37 @@ class IdentityGateway:
         if not self.identity_token:
             raise IdentityGatewayUnavailable()
         try:
-            async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
-                response = await client.post(
+            target = urlsplit(self.identity_url)
+            if (
+                target.scheme not in {"http", "https"}
+                or not target.hostname
+                or target.username is not None
+                or target.password is not None
+                or target.query
+                or target.fragment
+            ):
+                raise IdentityGatewayUnavailable()
+            _ = target.port
+            async with httpx.AsyncClient(
+                timeout=self.timeout_seconds, trust_env=False
+            ) as client:
+                async with client.stream(
+                    "POST",
                     f"{self.identity_url}/v1/identity/authenticate",
                     json={"token": token},
                     headers={"Authorization": f"Bearer {self.identity_token}"},
-                )
-        except httpx.HTTPError:
+                ) as response:
+                    if response.status_code != 200:
+                        raise IdentityGatewayUnavailable()
+                    body = bytearray()
+                    async for chunk in response.aiter_bytes(chunk_size=65536):
+                        body.extend(chunk)
+                        if len(body) > MAX_RESPONSE_BYTES:
+                            raise IdentityGatewayUnavailable()
+        except (httpx.HTTPError, httpx.InvalidURL, ValueError):
             raise IdentityGatewayUnavailable() from None
-        if response.status_code != 200 or len(response.content) > 65536:
-            raise IdentityGatewayUnavailable()
         try:
-            principal = decode_principal_reply(response.content)
+            principal = decode_principal_reply(bytes(body))
         except IdentityFailure as exc:
             self._raise_failure(exc.code)
         except IdentityUnavailable:
@@ -120,8 +146,14 @@ class IdentityGateway:
         from aap_identity.contract import IdentityFailure, IdentityUnavailable
         from aap_identity.postgres import PostgresData
 
-        secret = self.signing_secret or _secret_value(settings.secret_key)
+        secret = (
+            self.signing_secret
+            if self.signing_secret is not None
+            else _secret_value(settings.secret_key)
+        )
         try:
+            if not secret or (self.auth_database_url and self.auth_database_url_file):
+                raise IdentityGatewayUnavailable()
             if self.uses_caller_session(db):
                 from app.services.identity_session_data import IdentitySessionData
 
@@ -129,11 +161,11 @@ class IdentityGateway:
             else:
                 dsn = _secret_value(self.auth_database_url)
                 if not dsn and self.auth_database_url_file:
-                    dsn = (
-                        Path(self.auth_database_url_file)
-                        .read_text(encoding="utf-8")
-                        .strip()
-                    )
+                    with Path(self.auth_database_url_file).open("rb") as stream:
+                        raw = stream.read(4097)
+                    if len(raw) > 4096:
+                        raise IdentityGatewayUnavailable()
+                    dsn = raw.decode().strip()
                     if not dsn:
                         raise IdentityGatewayUnavailable()
                 if not dsn:

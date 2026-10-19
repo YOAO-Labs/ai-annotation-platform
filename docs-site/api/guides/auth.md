@@ -29,6 +29,8 @@ Content-Type: application/json
 
 `access_token` 默认有效期 **24 小时**（`access_token_expire_minutes` 配置，默认 `60 * 24`）。登录后通过 `/api/v1/auth/me` 获取当前用户；续期使用同一个 Bearer token。
 
+认证准入支持可选独立 Identity 进程，公开路径及响应模型保持不变。当前账号角色、启用状态、JWT 代际／撤销和 API key 有效期由持久权威确认；权威不可用返回 503，客户端不应将其视为密码错误。新验证器只接受当前 issuer 的 JWT，受控切换后旧会话须重新登录，旧 JWT 不能通过刷新跨过切换；API key 沿用已有 SQL 状态。普通自助／管理员改密的会话策略保持原样，密码恢复和账号凭据回收继续撤销旧会话。
+
 ## 携带 token
 
 ```http

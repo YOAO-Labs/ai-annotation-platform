@@ -136,7 +136,9 @@ async def _notification_message_allowed(token: str, data) -> bool:
         # closed on revocation or bogus ids.
         for attempt in range(4):
             if await db.get(Notification, notification_id) is not None:
-                return await service.notification_deliverable(notification_id, actor.id)
+                return await service.notification_deliverable(
+                    notification_id, actor.actor_id
+                )
             if attempt < 3:
                 await asyncio.sleep(_NOTIFICATION_GATE_RETRY_SECONDS)
         return False
@@ -337,7 +339,9 @@ async def preannotate_progress(
     """
 
     actor = await _authenticate_socket_token(token)
-    if actor is None or not await _revalidate_project_access(project_id, str(actor.id)):
+    if actor is None or not await _revalidate_project_access(
+        project_id, str(actor.actor_id)
+    ):
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         return
 
@@ -382,7 +386,9 @@ async def batch_events_socket(
     """
 
     actor = await _authenticate_socket_token(token)
-    if actor is None or not await _revalidate_project_access(project_id, str(actor.id)):
+    if actor is None or not await _revalidate_project_access(
+        project_id, str(actor.actor_id)
+    ):
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         return
 

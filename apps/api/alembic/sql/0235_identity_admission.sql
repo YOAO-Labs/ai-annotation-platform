@@ -70,24 +70,33 @@ DECLARE
     v_role text;
     v_is_active boolean;
     v_generation bigint;
-    v_now timestamptz := pg_catalog.clock_timestamp();
+    v_now timestamptz;
+    v_revoked boolean;
 BEGIN
     IF p_actor_id IS NULL OR p_jti IS NULL OR p_generation IS NULL
        OR p_generation < 0 OR p_expires_at IS NULL
        OR NOT pg_catalog.isfinite(p_expires_at) OR p_for_refresh IS NULL THEN
         RETURN aap_identity_v1._admission_failure('invalid_request');
     END IF;
-    IF aap_identity_v1.is_jti_revoked(p_jti) THEN
-        RETURN aap_identity_v1._admission_failure('credential_revoked');
-    END IF;
-
+    -- Observe account facts and revocation on the same command snapshot.
+    WITH observed AS MATERIALIZED (
+        SELECT pg_catalog.clock_timestamp() AS at
+    )
     SELECT actor.name, actor.email, actor.role, actor.is_active,
-           actor.credential_generation
-    INTO v_name, v_email, v_role, v_is_active, v_generation
+           actor.credential_generation,
+           EXISTS (
+               SELECT 1 FROM public.identity_revoked_jtis AS revoked
+               WHERE revoked.jti = p_jti AND revoked.expires_at > observed.at
+           ), observed.at
+    INTO v_name, v_email, v_role, v_is_active, v_generation, v_revoked, v_now
     FROM public.users AS actor
+    CROSS JOIN observed
     WHERE actor.id = p_actor_id;
     IF NOT FOUND THEN
         RETURN aap_identity_v1._admission_failure('credential_invalid');
+    END IF;
+    IF v_revoked THEN
+        RETURN aap_identity_v1._admission_failure('credential_revoked');
     END IF;
     IF NOT v_is_active THEN
         RETURN aap_identity_v1._admission_failure('user_inactive');
@@ -178,7 +187,7 @@ BEGIN
                '[]'::jsonb
            ),
            pg_catalog.count(*)::integer,
-           pg_catalog.max(page.id)
+           (pg_catalog.array_agg(page.id ORDER BY page.id DESC))[1]
     INTO v_items, v_count, v_last_id
     FROM page;
 

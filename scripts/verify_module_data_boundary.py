@@ -32,6 +32,12 @@ CONTAINER_LABEL = "org.aap.acceptance"
 CONTAINER_LABEL_VALUE = "module-data-boundary"
 CONTAINER_ID_LABEL = "org.aap.acceptance-id"
 POSTGRES_IMAGE = "postgres:16-alpine"
+IDENTITY_CLIENT_ROLES = {
+    "AUTH": "identity_auth_client",
+    "COMMAND": "identity_command_client",
+    "FENCE": "identity_fence_client",
+    "OPERATOR": "identity_session_operator",
+}
 MODULE_ROLES = (
     "identity_code",
     "workspace_code",
@@ -57,6 +63,7 @@ MODULE_ROLES = (
     "asset_image_worker_client",
     "labeling_mask_gc_client",
     "preannotation_result_client",
+    *IDENTITY_CLIENT_ROLES.values(),
 )
 SQL_ARTIFACTS = (
     "0190_workspace_data_contract.sql",
@@ -133,6 +140,7 @@ SQL_ARTIFACTS = (
     "0233_prediction_retry_result_scope.sql",
     "0233_prediction_retry_finalization.sql",
     "0234_mask_gc_preview.sql",
+    "0235_identity_admission.sql",
 )
 SCHEMA_ARTIFACTS = (
     "0191_task_append.schema.json",
@@ -177,8 +185,11 @@ SCHEMA_ARTIFACTS = (
     "0233_prediction_retries.schema.json",
     "0233_preannotation_result_scope.schema.json",
     "0234_mask_gc.schema.json",
+    "0235_identity_admission.schema.json",
 )
 TEST_FILES = (
+    "tests/test_identity_auth_native.py",
+    "tests/test_identity_auth_roles.py",
     "tests/test_workspace_data_contract.py",
     "tests/test_task_append_data_contract.py",
     "tests/test_task_append_consumer.py",
@@ -1556,6 +1567,7 @@ def _create_module_roles(
                         "asset_image_worker_client",
                         "labeling_mask_gc_client",
                         "preannotation_result_client",
+                        *IDENTITY_CLIENT_ROLES.values(),
                     }
                 )
             )
@@ -1896,6 +1908,7 @@ def main(argv: list[str] | None = None) -> int:
         image_grants_path = ROOT / "infra/docker/assets-image-grants.sql"
         mask_gc_grants_path = ROOT / "infra/docker/labeling-mask-gc-data-grants.sql"
         result_grants_path = ROOT / "infra/docker/preannotation-result-data-grants.sql"
+        identity_grants_path = ROOT / "infra/docker/identity-auth-grants.sql"
         artifacts = tuple(
             ROOT / "apps/api/alembic/sql" / name for name in SQL_ARTIFACTS
         )
@@ -1912,6 +1925,7 @@ def main(argv: list[str] | None = None) -> int:
             or not image_grants_path.is_file()
             or not mask_gc_grants_path.is_file()
             or not result_grants_path.is_file()
+            or not identity_grants_path.is_file()
             or any(not path.is_file() for path in artifacts)
             or any(not path.is_file() for path in schema_paths)
         ):
@@ -1936,6 +1950,7 @@ def main(argv: list[str] | None = None) -> int:
         image_grant_sql = image_grants_path.read_text(encoding="utf-8")
         mask_gc_grant_sql = mask_gc_grants_path.read_text(encoding="utf-8")
         result_grant_sql = result_grants_path.read_text(encoding="utf-8")
+        identity_grant_sql = identity_grants_path.read_text(encoding="utf-8")
 
         from sqlalchemy.engine import URL
 
@@ -1959,6 +1974,9 @@ def main(argv: list[str] | None = None) -> int:
         image_worker_password = f"image-worker-{secrets.token_hex(16)}"
         mask_gc_password = f"mask-gc-{secrets.token_hex(16)}"
         result_password = f"batch-result-{secrets.token_hex(16)}"
+        identity_passwords = {
+            role: secrets.token_hex(24) for role in IDENTITY_CLIENT_ROLES.values()
+        }
         container_id = docker(
             "run",
             "-d",
@@ -2035,8 +2053,8 @@ def main(argv: list[str] | None = None) -> int:
         database = resources["database"]
         evidence["database"] = database
         _, heads = migration_graph(ROOT)
-        if heads != ["0234"]:
-            raise RuntimeError("module-data acceptance requires migration head 0234")
+        if heads != ["0235"]:
+            raise RuntimeError("module-data acceptance requires migration head 0235")
         evidence["migrations"]["head_before_downgrade"] = heads[0]
         phase = "downgrade-to-0189"
         _container_details(
@@ -2165,6 +2183,20 @@ def main(argv: list[str] | None = None) -> int:
             mask_gc_password,
             result_password,
         )
+        phase = "create-identity-client-roles"
+        _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="owner",
+            password=owner_password,
+            database=database,
+            sql="\n".join(
+                f"CREATE ROLE {role} LOGIN PASSWORD '{password}' NOSUPERUSER "
+                "NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS;"
+                for role, password in identity_passwords.items()
+            ),
+        )
         phase = "install-module-grants"
         _psql(
             container_id,
@@ -2231,7 +2263,39 @@ def main(argv: list[str] | None = None) -> int:
             },
         )
 
+        phase = "install-identity-grants"
+        _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="owner",
+            password=owner_password,
+            database=database,
+            sql=identity_grant_sql,
+            variables={
+                "expected_database": database,
+                "migration_role": "owner",
+                "identity_owner": "identity_code",
+                **{
+                    f"identity_{kind.lower()}_role": role
+                    for kind, role in IDENTITY_CLIENT_ROLES.items()
+                },
+            },
+        )
         resource_environment = backend.environment()
+        resource_environment.update(
+            {
+                f"AAP_MODULE_DATA_IDENTITY_{kind}_URL": URL.create(
+                    "postgresql+asyncpg",
+                    username=role,
+                    password=identity_passwords[role],
+                    host="127.0.0.1",
+                    port=port,
+                    database=database,
+                ).render_as_string(hide_password=False)
+                for kind, role in IDENTITY_CLIENT_ROLES.items()
+            }
+        )
         phase = "install-catalog-grants"
         _psql(
             container_id,

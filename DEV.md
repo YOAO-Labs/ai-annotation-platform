@@ -1107,6 +1107,28 @@ Celery 原任务仍在 `cleanup` 队列运行，兼容原 `dry_run` 参数，并
 
 日志和终态回执不设置自动过期或删除策略；没有回执的操作持续保留围栏，不能按租约或时间自动释放。普通批处理及重试的结果交接、独立回收镜像和固定本地样本已通过隔离验收；日常 API 使用同一协调器的内嵌装配，远程配置仍关闭。完整模块部署和生产容量仍未完成。详见 [ADR-0112](docs/adr/0112-durable-mask-gc-fences.md)。
 
+## Identity 独立认证准入
+
+`apps/identity` 提供同一个 JWT／API key 验证器及私有 `POST /v1/identity/authenticate`。`IDENTITY_URL` 留空时在 API 内装配；设置后使用 `IDENTITY_TOKEN` 和独立服务，错误不会回退。`IDENTITY_AUTH_DATABASE_URL` 或 `_FILE` 可在内嵌模式选择函数专用 LOGIN，两项不能同时设置；显式文件错误不会改用应用连接。未配置时，本地请求复用调用方事务，socket 使用独立短事务。
+
+先安装迁移及 module-data owner grants，再为预先创建、无继承／成员关系的四个 LOGIN 安装精确权限：
+
+```bash
+psql -v expected_database=annotation_test -v migration_role=owner \
+  -v identity_owner=identity_code \
+  -v identity_auth_role=identity_auth_client \
+  -v identity_command_role=identity_command_client \
+  -v identity_fence_role=identity_fence_client \
+  -v identity_operator_role=identity_session_operator \
+  -f infra/docker/identity-auth-grants.sql
+```
+
+PUBLIC 的 TEMP 须在数据库初始化时撤销。准入 LOGIN 只有四项函数能力，不持有业务表、Redis、队列或对象存储权限。密码恢复、登出和账号生命周期通过调用方同一 SQL 事务维护持久 generation／JTI；单纯远程认证不会替业务命令取得最终写入围栏。
+
+独立进程显式设置 `IDENTITY_DATABASE_URL(_FILE)`、`IDENTITY_TOKEN(_FILE)`、`IDENTITY_SIGNING_SECRET(_FILE)`，每对恰好一项；它不读取 API `.env`。签名 secret 与 API `SECRET_KEY` 相同。运行 `uv run --project apps/identity --locked --extra runtime python -m aap_identity_runtime`，或使用可选 `docker-compose.identity.yml` 及三个 `IDENTITY_RUNTIME_*_FILE`。`/health` 是进程存活，`/ready` 检查原生协议及四项调用权限。Secret 文件须对容器用户可读，源码目录不挂入运行镜像。
+
+这次认证切换要求旧 JWT 重新登录，API key 保留原 SQL 状态。先停止全部旧 API／WebSocket／签发与刷新进程，再受控迁移并启动新验证器；不能新旧认证滚动并行或回到接受旧 JWT 的代码。已有用户或撤销记录时，迁移拒绝降级；保留数据向前恢复。当前日常环境尚未切换这一能力，独立进程、镜像与跨语言联合验收继续推进。详见 [ADR-0115](docs/adr/0115-identity-admission-and-durable-revocation.md)。
+
 ## 普通批量结果检查点
 
 安装当前迁移和 `module-data-grants.sql` 后，为预先创建、无角色成员关系的 `preannotation_result_client` LOGIN 安装精确能力。数据库初始化必须已撤销 PUBLIC 的 TEMP，并按需给现有角色单独重授；授权脚本会核验此项，不隐式修改 PUBLIC ACL。本地一次性验收器执行该初始化：

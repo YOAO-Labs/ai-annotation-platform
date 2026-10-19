@@ -133,8 +133,6 @@ class IdentitySessionData:
             text("SELECT aap_identity_v1.get_credential_generation(:actor_id)"),
             {"actor_id": actor_id},
         )
-        if value is None:
-            return 0
         if type(value) is not int or value < 0:
             raise IdentityGatewayUnavailable()
         return value

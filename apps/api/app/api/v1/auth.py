@@ -552,6 +552,7 @@ async def refresh_token(
         IdentityFailure,
         IdentityUnavailable,
         decode_principal_reply,
+        require_jwt_scope,
     )
 
     try:
@@ -559,6 +560,7 @@ async def refresh_token(
             actor_id, jti, generation, expired_at, for_refresh=True
         )
         principal = decode_principal_reply(reply)
+        require_jwt_scope(principal, actor_id, jti, generation, expired_at)
     except IdentityFailure as exc:
         if exc.code in {"credential_busy", "invalid_request"}:
             raise HTTPException(
@@ -581,6 +583,7 @@ async def refresh_token(
             detail="身份认证服务暂不可用",
         ) from None
 
+    request.state.identity_principal = principal
     cur_gen = principal.generation
     if cur_gen is None:
         raise HTTPException(

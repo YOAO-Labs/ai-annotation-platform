@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import uuid
 from types import SimpleNamespace
 
@@ -461,7 +462,12 @@ async def test_socket_gateway_persists_api_key_usage_from_function_runtime(
         user_id, key_id = user.id, key.id
         await setup.commit()
 
-    gateway = IdentityGateway(auth_database_url=str(test_engine.url))
+    gateway = IdentityGateway(
+        auth_database_url=(
+            os.environ.get("AAP_MODULE_DATA_IDENTITY_AUTH_URL")
+            or test_engine.url.render_as_string(hide_password=False)
+        )
+    )
     monkeypatch.setattr(ws, "get_identity_gateway", lambda: gateway)
     try:
         principal = await ws._authenticate_socket_token(plaintext)

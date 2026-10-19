@@ -40,6 +40,18 @@ from worktree_runtime import (
 
 OWNER_LABEL = "org.aap.worktree-owner"
 OWNER_TAG = "aap-worktree-owner"
+IDENTITY_RUNTIME_CAPABILITIES = (
+    "aap_identity_v1.authentication_policy()",
+    "aap_identity_v1.read_jwt_principal(uuid,uuid,bigint,timestamptz,boolean)",
+    "aap_identity_v1.read_api_key_candidates(text,uuid,integer)",
+    "aap_identity_v1.confirm_api_key_principal(uuid,text)",
+    "aap_identity_v1.get_credential_generation(uuid)",
+    "aap_identity_v1.advance_credential_generation(uuid)",
+    "aap_identity_v1.revoke_jti(uuid,timestamptz)",
+    "aap_identity_v1.is_jti_revoked(uuid)",
+    "aap_identity_v1.retire_account_credentials(uuid)",
+    "aap_identity_v1.lock_current_principal(uuid,text,uuid,bigint,timestamptz,text[])",
+)
 VIDEO_RUNTIME_CAPABILITIES = (
     "aap_assets_v1.capture_accepted_video_manifest(uuid,uuid,uuid,jsonb)",
     "aap_assets_v1.read_accepted_video_manifest(uuid,uuid,uuid)",
@@ -493,6 +505,7 @@ class LocalResources:
                 self.resources["database"]
             )
             video_function_grant = ", ".join(VIDEO_RUNTIME_CAPABILITIES)
+            identity_function_grant = ", ".join(IDENTITY_RUNTIME_CAPABILITIES)
             image_media_function_grant = ", ".join(IMAGE_MEDIA_RUNTIME_CAPABILITIES)
             image_accepted_function_grant = ", ".join(
                 IMAGE_ACCEPTED_RUNTIME_CAPABILITIES
@@ -503,7 +516,7 @@ class LocalResources:
                     f"GRANT USAGE ON SCHEMA public TO {role}",
                     f"GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO {role}",
                     f"GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO {role}",
-                    f"GRANT USAGE ON SCHEMA aap_workspace_v1, aap_assets_v1, aap_labeling_v1, aap_jobs_v1 TO {role}",
+                    f"GRANT USAGE ON SCHEMA aap_workspace_v1, aap_assets_v1, aap_labeling_v1, aap_jobs_v1, aap_identity_v1 TO {role}",
                     "GRANT SELECT ON aap_assets_v1.spatial_item_references, "
                     f"aap_assets_v1.spatial_scene_references TO {role}",
                     f"GRANT EXECUTE ON FUNCTION aap_workspace_v1.lock_project_reference(uuid), "
@@ -658,6 +671,7 @@ class LocalResources:
                     "aap_jobs_v1.fail_task_creation_job(uuid, uuid, text), "
                     f"aap_jobs_v1.cancel_task_creation_job(uuid, uuid) TO {role}",
                     f"GRANT EXECUTE ON FUNCTION {video_function_grant} TO {role}",
+                    f"GRANT EXECUTE ON FUNCTION {identity_function_grant} TO {role}",
                     f"GRANT EXECUTE ON FUNCTION {image_media_function_grant} TO {role}",
                     f"GRANT EXECUTE ON FUNCTION {image_accepted_function_grant} TO {role}",
                 ):
