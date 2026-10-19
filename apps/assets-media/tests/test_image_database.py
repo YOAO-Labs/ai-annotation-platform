@@ -28,6 +28,7 @@ from aap_assets_media.contract import OPERATIONS as VIDEO_OPERATIONS
 from aap_assets_inputs.contract import OPERATIONS as INPUT_OPERATIONS
 from aap_assets_input_manifests.contract import OPERATIONS as MANIFEST_OPERATIONS
 from aap_assets_video_inputs.execution import OPERATIONS as VIDEO_INPUT_OPERATIONS
+from aap_assets_video_inputs.tracker import TRACKER_OPERATIONS
 from aap_assets_images_runtime.database import (
     AsyncpgImageDatabase,
     prepare_native_call,
@@ -256,13 +257,17 @@ def test_native_binding_enforces_per_page_record_budget(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_capability_preflight_requires_exact_image_and_input_worker_oids():
+async def test_capability_preflight_requires_exact_image_input_tracker_worker_oids():
     signatures = {
         "aap_assets_v1." + name + "(" + ", ".join(operation.sql_types) + ")": index
         for index, (name, operation) in enumerate(
             (
                 (name, operation)
-                for operation_set in (OPERATIONS, INPUT_OPERATIONS)
+                for operation_set in (
+                    OPERATIONS,
+                    INPUT_OPERATIONS,
+                    TRACKER_OPERATIONS,
+                )
                 for name, operation in operation_set.items()
                 if operation.role == "worker"
             ),
@@ -270,7 +275,7 @@ async def test_capability_preflight_requires_exact_image_and_input_worker_oids()
         )
     }
     rows = [{"oid": oid, "prosecdef": True} for oid in signatures.values()]
-    assert len(signatures) == 10
+    assert len(signatures) == 16
     connection = _HealthConnection(
         identity_ok=True,
         signatures=signatures,
@@ -290,6 +295,7 @@ async def test_shared_control_preflight_includes_inputs_but_rejects_cleanup_swee
         (INPUT_OPERATIONS, {"control"}),
         (MANIFEST_OPERATIONS, {"control"}),
         (VIDEO_INPUT_OPERATIONS, {"control"}),
+        (TRACKER_OPERATIONS, {"control"}),
     )
     control_signatures = {
         "aap_assets_v1." + name + "(" + ", ".join(operation.sql_types) + ")": oid
@@ -303,7 +309,7 @@ async def test_shared_control_preflight_includes_inputs_but_rejects_cleanup_swee
             start=100,
         )
     }
-    assert len(control_signatures) == 49
+    assert len(control_signatures) == 52
     rows = [{"oid": oid, "prosecdef": True} for oid in control_signatures.values()]
     connection = _HealthConnection(
         identity_ok=True,

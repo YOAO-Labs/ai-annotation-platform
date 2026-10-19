@@ -1,0 +1,878 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Retained video-tracker input control",
+    "version": "1"
+  },
+  "security": [
+    {
+      "serviceToken": []
+    }
+  ],
+  "paths": {
+    "/v1/video-tracker-inputs/input": {
+      "post": {
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TrackerInputReadRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Tracker source control result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["schema", "ok", "data"],
+                  "properties": {
+                    "schema": {
+                      "const": "aap-assets-video-tracker-control/v1"
+                    },
+                    "ok": {
+                      "const": true
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/TrackerVideoInputStatus"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Tracker source control failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["schema", "ok", "error"],
+                  "properties": {
+                    "schema": {
+                      "const": "aap-assets-video-tracker-control/v1"
+                    },
+                    "ok": {
+                      "const": false
+                    },
+                    "error": {
+                      "$ref": "#/components/schemas/TrackerControlError"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/video-tracker-inputs/prepare": {
+      "post": {
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TrackerInputRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Tracker source control result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["schema", "ok", "data"],
+                  "properties": {
+                    "schema": {
+                      "const": "aap-assets-video-tracker-control/v1"
+                    },
+                    "ok": {
+                      "const": true
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/TrackerVideoInputStatus"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Tracker source control failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["schema", "ok", "error"],
+                  "properties": {
+                    "schema": {
+                      "const": "aap-assets-video-tracker-control/v1"
+                    },
+                    "ok": {
+                      "const": false
+                    },
+                    "error": {
+                      "$ref": "#/components/schemas/TrackerControlError"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/video-tracker-inputs/reference": {
+      "post": {
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TrackerSourceReferenceRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Tracker source control result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["schema", "ok", "data"],
+                  "properties": {
+                    "schema": {
+                      "const": "aap-assets-video-tracker-control/v1"
+                    },
+                    "ok": {
+                      "const": true
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/TrackerVideoSourceReference"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Tracker source control failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["schema", "ok", "error"],
+                  "properties": {
+                    "schema": {
+                      "const": "aap-assets-video-tracker-control/v1"
+                    },
+                    "ok": {
+                      "const": false
+                    },
+                    "error": {
+                      "$ref": "#/components/schemas/TrackerControlError"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "serviceToken": {
+        "type": "http",
+        "scheme": "bearer"
+      }
+    },
+    "schemas": {
+      "TrackerInputReadRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "actor_id": {
+            "format": "uuid",
+            "title": "Actor Id",
+            "type": "string"
+          },
+          "tracker_job_id": {
+            "format": "uuid",
+            "title": "Tracker Job Id",
+            "type": "string"
+          },
+          "task_id": {
+            "format": "uuid",
+            "title": "Task Id",
+            "type": "string"
+          }
+        },
+        "required": ["actor_id", "tracker_job_id", "task_id"],
+        "title": "TrackerInputReadRequest",
+        "type": "object"
+      },
+      "TrackerCorrectionMaskSnapshot": {
+        "additionalProperties": false,
+        "description": "Exact correction keyframe input captured at admission.",
+        "properties": {
+          "annotation_id": {
+            "format": "uuid",
+            "title": "Annotation Id",
+            "type": "string"
+          },
+          "annotation_version": {
+            "maximum": 9007199254740991,
+            "minimum": 1,
+            "title": "Annotation Version",
+            "type": "integer"
+          },
+          "frame_index": {
+            "maximum": 2147483647,
+            "minimum": 0,
+            "title": "Frame Index",
+            "type": "integer"
+          },
+          "mask": {
+            "additionalProperties": true,
+            "title": "Mask",
+            "type": "object"
+          },
+          "mask_digest": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Mask Digest",
+            "type": "string"
+          }
+        },
+        "required": ["annotation_id", "annotation_version", "frame_index", "mask", "mask_digest"],
+        "title": "TrackerCorrectionMaskSnapshot",
+        "type": "object"
+      },
+      "TrackerExecutionSpec": {
+        "additionalProperties": false,
+        "description": "Immutable inference facts, independent of mutable review prompt JSON.\n\n``prompt_snapshot`` contains the accepted prompt and seed material after\nexcluding fields the existing review workflow mutates (routing backend,\nexpected source versions, and touched annotation IDs). It is stored with\nthe typed source geometry below so a worker never reconstructs a request\nfrom the mutable ``VideoTrackerJob.prompt`` column.",
+        "properties": {
+          "job_kind": {
+            "enum": ["tracking", "correction"],
+            "title": "Job Kind",
+            "type": "string"
+          },
+          "model_key": {
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Model Key",
+            "type": "string"
+          },
+          "direction": {
+            "enum": ["forward", "backward", "bidirectional"],
+            "title": "Direction",
+            "type": "string"
+          },
+          "from_frame": {
+            "maximum": 2147483647,
+            "minimum": 0,
+            "title": "From Frame",
+            "type": "integer"
+          },
+          "to_frame": {
+            "maximum": 2147483647,
+            "minimum": 0,
+            "title": "To Frame",
+            "type": "integer"
+          },
+          "grid_step": {
+            "maximum": 2147483647,
+            "minimum": 1,
+            "title": "Grid Step",
+            "type": "integer"
+          },
+          "correction_frame": {
+            "anyOf": [
+              {
+                "maximum": 2147483647,
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Correction Frame"
+          },
+          "segment_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Segment Id"
+          },
+          "track_id_snapshot": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Track Id Snapshot"
+          },
+          "target_class_name": {
+            "anyOf": [
+              {
+                "maxLength": 100,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Class Name"
+          },
+          "target_tool_unit_id": {
+            "anyOf": [
+              {
+                "maxLength": 30,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Tool Unit Id"
+          },
+          "prompt_snapshot": {
+            "additionalProperties": true,
+            "title": "Prompt Snapshot",
+            "type": "object"
+          },
+          "source_annotations": {
+            "items": {
+              "$ref": "#/components/schemas/TrackerSourceAnnotationSnapshot"
+            },
+            "maxItems": 256,
+            "title": "Source Annotations",
+            "type": "array"
+          },
+          "correction_mask": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TrackerCorrectionMaskSnapshot"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "job_kind",
+          "model_key",
+          "direction",
+          "from_frame",
+          "to_frame",
+          "grid_step",
+          "correction_frame",
+          "segment_id",
+          "track_id_snapshot",
+          "target_class_name",
+          "target_tool_unit_id",
+          "prompt_snapshot",
+          "source_annotations",
+          "correction_mask"
+        ],
+        "title": "TrackerExecutionSpec",
+        "type": "object"
+      },
+      "TrackerSourceAnnotationSnapshot": {
+        "additionalProperties": false,
+        "description": "Stable source geometry used to seed this tracking execution.",
+        "properties": {
+          "annotation_id": {
+            "format": "uuid",
+            "title": "Annotation Id",
+            "type": "string"
+          },
+          "version": {
+            "maximum": 9007199254740991,
+            "minimum": 1,
+            "title": "Version",
+            "type": "integer"
+          },
+          "frame_index": {
+            "maximum": 2147483647,
+            "minimum": 0,
+            "title": "Frame Index",
+            "type": "integer"
+          },
+          "geometry": {
+            "additionalProperties": true,
+            "title": "Geometry",
+            "type": "object"
+          },
+          "geometry_digest": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Geometry Digest",
+            "type": "string"
+          }
+        },
+        "required": ["annotation_id", "version", "frame_index", "geometry", "geometry_digest"],
+        "title": "TrackerSourceAnnotationSnapshot",
+        "type": "object"
+      },
+      "VideoFacts": {
+        "additionalProperties": false,
+        "description": "Measured from the retained bytes, not copied from mutable item metadata.",
+        "properties": {
+          "frame_count": {
+            "maximum": 9007199254740991,
+            "minimum": 1,
+            "title": "Frame Count",
+            "type": "integer"
+          },
+          "width": {
+            "maximum": 9007199254740991,
+            "minimum": 1,
+            "title": "Width",
+            "type": "integer"
+          },
+          "height": {
+            "maximum": 9007199254740991,
+            "minimum": 1,
+            "title": "Height",
+            "type": "integer"
+          },
+          "duration_ms": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "title": "Duration Ms",
+            "type": "integer"
+          },
+          "video_stream": {
+            "default": 0,
+            "maximum": 0,
+            "minimum": 0,
+            "title": "Video Stream",
+            "type": "integer"
+          }
+        },
+        "required": ["frame_count", "width", "height", "duration_ms"],
+        "title": "VideoFacts",
+        "type": "object"
+      },
+      "TrackerVideoInputStatus": {
+        "additionalProperties": false,
+        "description": "Sanitized status exposed by the private tracker HTTP endpoint.",
+        "properties": {
+          "tracker_job_id": {
+            "format": "uuid",
+            "title": "Tracker Job Id",
+            "type": "string"
+          },
+          "input_id": {
+            "format": "uuid",
+            "title": "Input Id",
+            "type": "string"
+          },
+          "origin_actor_id": {
+            "format": "uuid",
+            "title": "Origin Actor Id",
+            "type": "string"
+          },
+          "task_id": {
+            "format": "uuid",
+            "title": "Task Id",
+            "type": "string"
+          },
+          "project_id": {
+            "format": "uuid",
+            "title": "Project Id",
+            "type": "string"
+          },
+          "file_type": {
+            "const": "video",
+            "default": "video",
+            "title": "File Type",
+            "type": "string"
+          },
+          "execution": {
+            "$ref": "#/components/schemas/TrackerExecutionSpec"
+          },
+          "request_digest": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Request Digest",
+            "type": "string"
+          },
+          "prompt_digest": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Prompt Digest",
+            "type": "string"
+          },
+          "status": {
+            "enum": ["pending", "materializing", "ready", "failed", "expired"],
+            "title": "Status",
+            "type": "string"
+          },
+          "plan_digest": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Plan Digest"
+          },
+          "timebase_digest": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Timebase Digest"
+          },
+          "video": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/VideoFacts"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "error": {
+            "anyOf": [
+              {
+                "enum": [
+                  "invalid_request",
+                  "invalid_response",
+                  "storage_unavailable",
+                  "account_not_active",
+                  "account_busy",
+                  "invalid_account_role",
+                  "task_not_visible",
+                  "task_busy",
+                  "permission_denied",
+                  "source_missing",
+                  "source_changed",
+                  "source_not_ready",
+                  "not_video",
+                  "job_busy",
+                  "job_not_active",
+                  "manifest_scope_mismatch",
+                  "source_busy",
+                  "metadata_not_ready",
+                  "invalid_frame_range",
+                  "asset_missing",
+                  "operation_conflict",
+                  "operation_busy",
+                  "lease_lost",
+                  "dependency_changed",
+                  "resource_budget_exceeded",
+                  "object_missing",
+                  "input_missing",
+                  "input_scope_mismatch",
+                  "input_not_ready",
+                  "input_expired",
+                  "input_corrupt",
+                  "input_busy",
+                  "manifest_missing",
+                  "manifest_busy",
+                  "manifest_not_ready",
+                  "manifest_cursor_invalid",
+                  "task_scope_changed",
+                  "unsupported_media",
+                  "timebase_changed",
+                  "timebase_incomplete",
+                  "frame_missing",
+                  "frame_not_ready",
+                  "frame_busy",
+                  "versioning_required",
+                  "resource_limit",
+                  "timeout",
+                  "processing_failed",
+                  "reference_busy"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "retire_after": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retire After"
+          }
+        },
+        "required": [
+          "tracker_job_id",
+          "input_id",
+          "origin_actor_id",
+          "task_id",
+          "project_id",
+          "execution",
+          "request_digest",
+          "prompt_digest",
+          "status",
+          "plan_digest",
+          "timebase_digest",
+          "video",
+          "error",
+          "created_at",
+          "retire_after"
+        ],
+        "title": "TrackerVideoInputStatus",
+        "type": "object"
+      },
+      "TrackerInputRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "actor_id": {
+            "format": "uuid",
+            "title": "Actor Id",
+            "type": "string"
+          },
+          "tracker_job_id": {
+            "format": "uuid",
+            "title": "Tracker Job Id",
+            "type": "string"
+          },
+          "task_id": {
+            "format": "uuid",
+            "title": "Task Id",
+            "type": "string"
+          },
+          "input_id": {
+            "format": "uuid",
+            "title": "Input Id",
+            "type": "string"
+          },
+          "request_digest": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Request Digest",
+            "type": "string"
+          }
+        },
+        "required": ["actor_id", "tracker_job_id", "task_id", "input_id", "request_digest"],
+        "title": "TrackerInputRequest",
+        "type": "object"
+      },
+      "TrackerSourceReferenceRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "actor_id": {
+            "format": "uuid",
+            "title": "Actor Id",
+            "type": "string"
+          },
+          "tracker_job_id": {
+            "format": "uuid",
+            "title": "Tracker Job Id",
+            "type": "string"
+          },
+          "task_id": {
+            "format": "uuid",
+            "title": "Task Id",
+            "type": "string"
+          },
+          "input_id": {
+            "format": "uuid",
+            "title": "Input Id",
+            "type": "string"
+          },
+          "request_digest": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Request Digest",
+            "type": "string"
+          },
+          "plan_digest": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Plan Digest",
+            "type": "string"
+          }
+        },
+        "required": [
+          "actor_id",
+          "tracker_job_id",
+          "task_id",
+          "input_id",
+          "request_digest",
+          "plan_digest"
+        ],
+        "title": "TrackerSourceReferenceRequest",
+        "type": "object"
+      },
+      "TrackerVideoObjectVersion": {
+        "additionalProperties": false,
+        "description": "Version identity without exposing the internal storage object key.",
+        "properties": {
+          "version_id": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Version Id",
+            "type": "string"
+          },
+          "etag": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Etag",
+            "type": "string"
+          },
+          "byte_size": {
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991,
+            "title": "Byte Size",
+            "type": "integer"
+          },
+          "sha256": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Sha256",
+            "type": "string"
+          }
+        },
+        "required": ["version_id", "etag", "byte_size", "sha256"],
+        "title": "TrackerVideoObjectVersion",
+        "type": "object"
+      },
+      "TrackerVideoSourceReference": {
+        "additionalProperties": false,
+        "description": "Private HTTP result used only by the tracker inference executor.",
+        "properties": {
+          "input": {
+            "$ref": "#/components/schemas/TrackerVideoInputStatus"
+          },
+          "source_version": {
+            "$ref": "#/components/schemas/TrackerVideoObjectVersion"
+          },
+          "url": {
+            "maxLength": 4096,
+            "minLength": 1,
+            "title": "Url",
+            "type": "string"
+          },
+          "expires_in": {
+            "maximum": 3600,
+            "minimum": 1,
+            "title": "Expires In",
+            "type": "integer"
+          }
+        },
+        "required": ["input", "source_version", "url", "expires_in"],
+        "title": "TrackerVideoSourceReference",
+        "type": "object"
+      },
+      "TrackerControlError": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "invalid_request",
+              "invalid_response",
+              "storage_unavailable",
+              "account_not_active",
+              "account_busy",
+              "invalid_account_role",
+              "task_not_visible",
+              "task_busy",
+              "permission_denied",
+              "source_missing",
+              "source_changed",
+              "source_not_ready",
+              "not_video",
+              "job_busy",
+              "job_not_active",
+              "manifest_scope_mismatch",
+              "source_busy",
+              "metadata_not_ready",
+              "invalid_frame_range",
+              "asset_missing",
+              "operation_conflict",
+              "operation_busy",
+              "lease_lost",
+              "dependency_changed",
+              "resource_budget_exceeded",
+              "object_missing",
+              "input_missing",
+              "input_scope_mismatch",
+              "input_not_ready",
+              "input_expired",
+              "input_corrupt",
+              "input_busy",
+              "manifest_missing",
+              "manifest_busy",
+              "manifest_not_ready",
+              "manifest_cursor_invalid",
+              "task_scope_changed",
+              "unsupported_media",
+              "timebase_changed",
+              "timebase_incomplete",
+              "frame_missing",
+              "frame_not_ready",
+              "frame_busy",
+              "versioning_required",
+              "resource_limit",
+              "timeout",
+              "processing_failed",
+              "reference_busy"
+            ],
+            "title": "Code",
+            "type": "string"
+          }
+        },
+        "required": ["code"],
+        "title": "TrackerControlError",
+        "type": "object"
+      }
+    }
+  },
+  "x-control-schema": "aap-assets-video-tracker-control/v1",
+  "x-budgets": {
+    "request_bytes": 65536,
+    "reply_bytes": 2097152,
+    "url_expiry_seconds": 3600
+  }
+}

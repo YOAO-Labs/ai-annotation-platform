@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from aap_assets_media.contract import OPERATIONS
 from aap_assets_video_inputs.execution import OPERATIONS as VIDEO_INPUT_OPERATIONS
+from aap_assets_video_inputs.tracker import TRACKER_OPERATIONS
 
 _IDENTITY = """
 SELECT current_user = session_user
@@ -57,6 +58,11 @@ async def check_capabilities(pool, role: str) -> bool:
         "aap_assets_v1." + name + "(" + ", ".join(op.sql_types) + ")"
         for name, op in VIDEO_INPUT_OPERATIONS.items()
         if op.role in {"worker", "system"}
+    )
+    expected.update(
+        "aap_assets_v1." + name + "(" + ", ".join(op.sql_types) + ")"
+        for name, op in TRACKER_OPERATIONS.items()
+        if op.namespace == "aap_assets_v1" and op.role == "worker"
     )
     try:
         async with pool.acquire(timeout=2) as connection:

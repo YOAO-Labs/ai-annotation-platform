@@ -52,6 +52,7 @@ def create_app(
     token: str,
     *,
     readiness: Callable[[], Awaitable[bool]] | None = None,
+    tracker_control=None,
 ) -> FastAPI:
     if (
         len(token) < 32
@@ -165,5 +166,10 @@ def create_app(
             control.internal_frame_reference,
             MediaReferences,
         )
+
+    if tracker_control is not None:
+        from aap_assets_video_inputs_runtime.tracker_api import install_tracker_routes
+
+        install_tracker_routes(app, tracker_control, token)
 
     return app

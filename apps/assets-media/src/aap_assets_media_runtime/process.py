@@ -1,4 +1,4 @@
-"""Compose all Assets video work lanes inside the existing media worker."""
+"""Compose Assets media, video, frame and tracker-source lanes in one worker."""
 
 from __future__ import annotations
 
@@ -17,6 +17,10 @@ from aap_assets_video_inputs_runtime.storage import (
     VideoSourceStorage,
 )
 from aap_assets_video_inputs_runtime.worker import VideoInputExecutor
+from aap_assets_video_inputs_runtime.tracker_database import (
+    AsyncpgTrackerVideoInputDatabase,
+    TrackerVideoInputExecutorDatabase,
+)
 
 from .config import MediaWorkerConfig
 from .database import AsyncpgMediaDatabase
@@ -75,18 +79,46 @@ class WorkerRuntime:
     video_executor: Any
     video_database: Any
     _resources: AsyncExitStack
+    tracker_executor: Any | None = None
+    tracker_database: Any | None = None
     _closed: bool = False
 
     async def maintenance_once(self) -> None:
-        for page in range(_MAX_MAINTENANCE_PAGES):
-            swept = await self.video_database.call(
-                "sweep_accepted_video_inputs",
-                video_contract.SweepVideoInputsRequest(limit=_VIDEO_SWEEP_PAGE_SIZE),
+        try:
+            for page in range(_MAX_MAINTENANCE_PAGES):
+                swept = await self.video_database.call(
+                    "sweep_accepted_video_inputs",
+                    video_contract.SweepVideoInputsRequest(
+                        limit=_VIDEO_SWEEP_PAGE_SIZE
+                    ),
+                )
+                if swept.expired < _VIDEO_SWEEP_PAGE_SIZE:
+                    break
+            else:
+                _LOGGER.warning("Accepted video retention sweep reached its page limit")
+        except Exception as exc:
+            _LOGGER.error(
+                "Accepted video retention sweep failed (%s)", type(exc).__name__
             )
-            if swept.expired < _VIDEO_SWEEP_PAGE_SIZE:
-                break
-        else:
-            _LOGGER.warning("Accepted video retention sweep reached its page limit")
+        if self.tracker_database is not None:
+            try:
+                for page in range(_MAX_MAINTENANCE_PAGES):
+                    swept = await self.tracker_database.call(
+                        "sweep_video_tracker_inputs",
+                        video_contract.SweepVideoInputsRequest(
+                            limit=_VIDEO_SWEEP_PAGE_SIZE
+                        ),
+                    )
+                    if swept.expired < _VIDEO_SWEEP_PAGE_SIZE:
+                        break
+                else:
+                    _LOGGER.warning(
+                        "Tracker video retention sweep reached its page limit"
+                    )
+            except Exception as exc:
+                _LOGGER.error(
+                    "Tracker video retention sweep failed (%s)", type(exc).__name__
+                )
 
     async def close(self) -> None:
         if self._closed:
@@ -143,7 +175,7 @@ class ClaimTrackedExecutor:
 
 
 async def create_worker_runtime(config: MediaWorkerConfig) -> WorkerRuntime:
-    """Create one DB pool and shared S3 clients for all three worker lanes."""
+    """Create one DB pool and shared S3 clients for all four worker lanes."""
     from .worker import MediaExecutor
 
     resources = AsyncExitStack()
@@ -205,12 +237,27 @@ async def create_worker_runtime(config: MediaWorkerConfig) -> WorkerRuntime:
         tracked_video_executor = ClaimTrackedExecutor(
             video_executor, video_claim_database
         )
+        tracker_database = AsyncpgTrackerVideoInputDatabase(
+            database.pool, allowed_roles={"worker"}
+        )
+        tracker_execution_database = TrackerVideoInputExecutorDatabase(tracker_database)
+        tracker_claim_database = ClaimTrackingDatabase(tracker_execution_database)
+        tracker_video_executor = VideoInputExecutor(
+            tracker_claim_database,
+            video_storage,
+            worker_id=media_executor.worker_id,
+        )
+        tracked_tracker_executor = ClaimTrackedExecutor(
+            tracker_video_executor, tracker_claim_database
+        )
         return WorkerRuntime(
             database=database,
             media_executor=tracked_media_executor,
             video_executor=tracked_video_executor,
             video_database=video_database,
             _resources=resources,
+            tracker_executor=tracked_tracker_executor,
+            tracker_database=tracker_database,
         )
     except BaseException:
         await resources.aclose()
@@ -220,11 +267,13 @@ async def create_worker_runtime(config: MediaWorkerConfig) -> WorkerRuntime:
 class FairWorkerPoller:
     """Try each unfiltered lease queue once per round, rotating the first lane."""
 
-    _LANES = ("media", "video_input", "video_frame")
+    _LANES = ("media", "video_input", "video_frame", "tracker_input")
 
-    def __init__(self, media_executor, video_executor):
+    def __init__(self, media_executor, video_executor, tracker_executor=None):
         self.media_executor = media_executor
         self.video_executor = video_executor
+        self.tracker_executor = tracker_executor
+        self._lanes = self._LANES if tracker_executor is not None else self._LANES[:-1]
         self._first_lane = 0
 
     async def execute_once(
@@ -233,8 +282,12 @@ class FairWorkerPoller:
         job_id=None,
         input_id=None,
         frame_id=None,
+        tracker_input_id=None,
     ):
-        selected = sum(value is not None for value in (job_id, input_id, frame_id))
+        selected = sum(
+            value is not None
+            for value in (job_id, input_id, frame_id, tracker_input_id)
+        )
         if selected > 1:
             raise ValueError("worker selectors are mutually exclusive")
         if job_id is not None:
@@ -247,24 +300,32 @@ class FairWorkerPoller:
             return self._claimed(
                 await self.video_executor.execute_frame_once(frame_id=frame_id)
             )
+        if tracker_input_id is not None:
+            if self.tracker_executor is None:
+                raise ValueError("tracker input executor is unavailable")
+            return self._claimed(
+                await self.tracker_executor.execute_once(input_id=tracker_input_id)
+            )
 
         start = self._first_lane
-        for offset in range(len(self._LANES)):
-            lane_index = (start + offset) % len(self._LANES)
-            lane = self._LANES[lane_index]
-            self._first_lane = (lane_index + 1) % len(self._LANES)
+        for offset in range(len(self._lanes)):
+            lane_index = (start + offset) % len(self._lanes)
+            lane = self._lanes[lane_index]
+            self._first_lane = (lane_index + 1) % len(self._lanes)
             if lane == "media":
                 result = self._claimed(await self.media_executor.execute_once())
             elif lane == "video_input":
                 result = self._claimed(await self.video_executor.execute_once())
-            else:
+            elif lane == "video_frame":
                 result = self._claimed(await self.video_executor.execute_frame_once())
+            else:
+                result = self._claimed(await self.tracker_executor.execute_once())
             if result is not None:
                 if not result.claimed:
                     continue
-                self._first_lane = (lane_index + 1) % len(self._LANES)
+                self._first_lane = (lane_index + 1) % len(self._lanes)
                 return result
-        self._first_lane = (start + 1) % len(self._LANES)
+        self._first_lane = (start + 1) % len(self._lanes)
         return None
 
     @staticmethod
