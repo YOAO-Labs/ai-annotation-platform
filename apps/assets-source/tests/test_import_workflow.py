@@ -28,6 +28,7 @@ from aap_assets_source_import.__main__ import _handle_failure
 from aap_assets_source_import.storage import SourceReadError
 from aap_assets_source_import.workflow import (
     ImportWorkflow,
+    LeaseUnavailable,
     LeaseKeeper,
     PersistenceBusy,
     WorkerStopping,
@@ -876,17 +877,36 @@ def test_database_role_is_limited_to_the_frozen_nine_capabilities() -> None:
 
 
 class _HeartbeatData:
-    def __init__(self, failure_code: str | None = None) -> None:
+    def __init__(
+        self,
+        failure_code: str | None = None,
+        *,
+        failures_before_success: int | None = None,
+    ) -> None:
         self.failure_code = failure_code
+        self.failures_before_success = failures_before_success
         self.heartbeat_calls = 0
+        self.heartbeat_arguments = []
         self.settled = 0
         self.called = asyncio.Event()
+        self.succeeded = asyncio.Event()
 
-    async def heartbeat(self, *_arguments):
+    async def heartbeat(self, job_id, lease_token, lease_seconds):
         self.heartbeat_calls += 1
+        self.heartbeat_arguments.append((job_id, lease_token, lease_seconds))
         self.called.set()
-        if self.failure_code is not None:
+        if self.failure_code is not None and (
+            self.failures_before_success is None
+            or self.heartbeat_calls <= self.failures_before_success
+        ):
             raise ImportFailure(self.failure_code)
+        self.state = self.state.model_copy(
+            update={
+                "lease_expires_at": datetime.now(timezone.utc)
+                + timedelta(seconds=lease_seconds)
+            }
+        )
+        self.succeeded.set()
         return self.state
 
     async def complete_entry(self, *_arguments):
@@ -931,6 +951,89 @@ async def test_heartbeat_terminal_state_stops_worker_before_settlement(
 
     assert data.heartbeat_calls == 1
     assert data.settled == 0
+
+
+@pytest.mark.asyncio
+async def test_dataset_busy_heartbeat_retries_same_lease_until_renewed() -> None:
+    state = _state(stage="importing")
+    data = _HeartbeatData("dataset_busy", failures_before_success=2)
+    database = _HeartbeatDatabase(data, state)
+    keeper = LeaseKeeper(
+        database,
+        SimpleNamespace(heartbeat_seconds=0.001, lease_seconds=120),
+        state,
+        asyncio.Event(),
+    )
+
+    async with keeper:
+        await asyncio.wait_for(data.succeeded.wait(), timeout=1)
+        keeper.check()
+
+    assert data.heartbeat_calls == 3
+    assert data.heartbeat_arguments == [
+        (state.job_id, state.lease_token, 120),
+        (state.job_id, state.lease_token, 120),
+        (state.job_id, state.lease_token, 120),
+    ]
+    assert data.state.lease_expires_at > state.lease_expires_at
+
+
+@pytest.mark.asyncio
+async def test_persistent_dataset_busy_stops_before_known_lease_expiry() -> None:
+    lease_expires_at = datetime.now(timezone.utc) + timedelta(seconds=2)
+    state = _replace_state(
+        _state(stage="importing"),
+        lease_expires_at=lease_expires_at,
+    )
+    data = _HeartbeatData("dataset_busy")
+    keeper = LeaseKeeper(
+        _HeartbeatDatabase(data, state),
+        SimpleNamespace(heartbeat_seconds=0.001, lease_seconds=120),
+        state,
+        asyncio.Event(),
+    )
+    started = asyncio.get_running_loop().time()
+    stopped_before_expiry = False
+
+    async with keeper:
+        await asyncio.wait_for(data.called.wait(), timeout=0.5)
+        for _ in range(400):
+            try:
+                keeper.check()
+            except LeaseUnavailable:
+                stopped_before_expiry = datetime.now(timezone.utc) < lease_expires_at
+                break
+            await asyncio.sleep(0.005)
+        else:
+            pytest.fail("persistent heartbeat contention must stop by lease expiry")
+
+    assert data.heartbeat_calls >= 1
+    assert stopped_before_expiry
+    assert asyncio.get_running_loop().time() - started < 2.5
+    assert data.succeeded.is_set() is False
+
+
+@pytest.mark.asyncio
+async def test_shutdown_during_busy_heartbeat_retry_stops_without_another_attempt() -> (
+    None
+):
+    state = _state(stage="importing")
+    data = _HeartbeatData("dataset_busy")
+    shutdown = asyncio.Event()
+    keeper = LeaseKeeper(
+        _HeartbeatDatabase(data, state),
+        SimpleNamespace(heartbeat_seconds=0.001, lease_seconds=120),
+        state,
+        shutdown,
+    )
+
+    async with keeper:
+        await asyncio.wait_for(data.called.wait(), timeout=1)
+        shutdown.set()
+        with pytest.raises(WorkerStopping):
+            keeper.check()
+
+    assert data.heartbeat_calls == 1
 
 
 @pytest.mark.asyncio

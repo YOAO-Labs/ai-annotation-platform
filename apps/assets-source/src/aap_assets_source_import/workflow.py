@@ -7,12 +7,14 @@ import base64
 import binascii
 from collections.abc import Callable
 from contextlib import suppress
+from datetime import datetime, timezone
 import json
 import logging
 import os
 import posixpath
 import re
 import threading
+import time
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -55,6 +57,8 @@ _TRANSIENT_SQLSTATES = {
     "55P03",
     "57014",
 }
+_HEARTBEAT_RETRY_BASE_SECONDS = 0.05
+_HEARTBEAT_RETRY_MAX_SECONDS = 2.0
 _IMAGE_EXTS = {"jpg", "jpeg", "png", "bmp", "webp", "tiff", "tif", "gif", "svg"}
 _VIDEO_EXTS = {"mp4", "avi", "mov", "mkv", "wmv", "flv", "webm"}
 _POINTCLOUD_EXTS = {"pcd", "bin", "las", "ply"}
@@ -94,6 +98,44 @@ class LeaseKeeper:
         self._interrupted: ImportFailure | None = None
         self._unavailable = False
         self._task: asyncio.Task[None] | None = None
+        self._lease_deadline = self._deadline_for(state.lease_expires_at)
+
+    @staticmethod
+    def _deadline_for(expires_at: datetime | None) -> float:
+        if expires_at is None:
+            return time.monotonic()
+        remaining = (expires_at - datetime.now(timezone.utc)).total_seconds()
+        return time.monotonic() + max(0.0, remaining)
+
+    def _remaining_lease(self) -> float:
+        return self._lease_deadline - time.monotonic()
+
+    def _stop_unavailable(self) -> None:
+        self._unavailable = True
+        self._thread_stop.set()
+
+    async def _retry_delay(self, failures: int) -> bool:
+        """Retry transient contention only while the confirmed lease can be live."""
+        remaining = self._remaining_lease()
+        if remaining <= 0:
+            self._stop_unavailable()
+            return False
+        delay = min(
+            _HEARTBEAT_RETRY_BASE_SECONDS * 2 ** min(failures - 1, 6),
+            _HEARTBEAT_RETRY_MAX_SECONDS,
+        )
+        if delay >= remaining:
+            self._stop_unavailable()
+            return False
+        try:
+            await asyncio.wait_for(self._shutdown.wait(), timeout=delay)
+        except TimeoutError:
+            if self._remaining_lease() <= 0:
+                self._stop_unavailable()
+                return False
+            return True
+        self._thread_stop.set()
+        return False
 
     async def __aenter__(self) -> LeaseKeeper:
         self._task = asyncio.create_task(
@@ -118,39 +160,67 @@ class LeaseKeeper:
             raise WorkerStopping
         if self._thread_stop.is_set():
             raise WorkerStopping
+        if self._remaining_lease() <= 0:
+            self._stop_unavailable()
+            raise LeaseUnavailable
 
     def stop_requested_from_thread(self) -> bool:
         return self._thread_stop.is_set()
 
     async def _run(self) -> None:
         while not self._shutdown.is_set():
-            try:
-                await asyncio.wait_for(
-                    self._shutdown.wait(), timeout=self._config.heartbeat_seconds
-                )
-                self._thread_stop.set()
+            remaining = self._remaining_lease()
+            if remaining <= 0:
+                self._stop_unavailable()
                 return
-            except TimeoutError:
-                pass
-            try:
-                async with self._database.transaction() as data:
-                    renewed = await data.heartbeat(
-                        self._state.job_id,
-                        self._state.lease_token,
-                        self._config.lease_seconds,
+            if remaining > self._config.heartbeat_seconds:
+                try:
+                    await asyncio.wait_for(
+                        self._shutdown.wait(),
+                        timeout=self._config.heartbeat_seconds,
                     )
-                    if renewed.lease_token != self._state.lease_token:
+                    self._thread_stop.set()
+                    return
+                except TimeoutError:
+                    pass
+
+            failures = 0
+            while not self._shutdown.is_set():
+                if self._remaining_lease() <= 0:
+                    self._stop_unavailable()
+                    return
+                try:
+                    async with self._database.transaction() as data:
+                        if self._shutdown.is_set():
+                            self._thread_stop.set()
+                            return
+                        renewed = await data.heartbeat(
+                            self._state.job_id,
+                            self._state.lease_token,
+                            self._config.lease_seconds,
+                        )
+                        if renewed.lease_token != self._state.lease_token:
+                            raise ImportFailure("lease_lost")
+                        _require_same_scope(self._state, renewed)
+                    if renewed.lease_expires_at is None:
                         raise ImportFailure("lease_lost")
-                    _require_same_scope(self._state, renewed)
-            except ImportFailure as exc:
-                self._interrupted = exc
-                self._thread_stop.set()
-                return
-            except Exception:
-                # Ownership is uncertain; stop all I/O and let the lease expire.
-                self._unavailable = True
-                self._thread_stop.set()
-                return
+                    self._lease_deadline = self._deadline_for(renewed.lease_expires_at)
+                    if self._remaining_lease() <= 0:
+                        raise ImportFailure("lease_lost")
+                    break
+                except ImportFailure as exc:
+                    if exc.code != "dataset_busy":
+                        self._interrupted = exc
+                        self._thread_stop.set()
+                        return
+                    failures += 1
+                    if not await self._retry_delay(failures):
+                        return
+                except Exception:
+                    # Transport and unknown errors leave ownership uncertain.
+                    self._stop_unavailable()
+                    return
+        self._thread_stop.set()
 
 
 class ImportWorkflow:
