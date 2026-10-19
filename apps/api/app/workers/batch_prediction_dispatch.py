@@ -49,6 +49,18 @@ class CeleryBatchPredictionDispatcher:
             kwargs["accepted_input_manifest_digest"] = (
                 request.accepted_input_manifest_digest
             )
+        if request.accepted_video_inputs_protocol is not None:
+            kwargs["accepted_video_inputs_protocol"] = (
+                request.accepted_video_inputs_protocol
+            )
+        if request.accepted_video_manifest_id is not None:
+            kwargs["accepted_video_manifest_id"] = request.accepted_video_manifest_id
+        if request.accepted_video_selection_digest is not None:
+            kwargs["accepted_video_selection_digest"] = (
+                request.accepted_video_selection_digest
+            )
+        if request.accepted_video_selection is not None:
+            kwargs["accepted_video_selection"] = request.accepted_video_selection
 
         options: dict[str, str | int] = {"queue": queue}
         if request.async_job_id is not None:

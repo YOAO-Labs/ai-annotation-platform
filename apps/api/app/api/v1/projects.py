@@ -92,6 +92,10 @@ from app.services.accepted_input_manifests import (
     InputManifestCaptureFactory,
     get_input_manifest_capture,
 )
+from app.services.accepted_video_inputs import (
+    VideoInputManifestCaptureFactory,
+    get_video_input_manifest_capture,
+)
 from app.services.pipeline_template import (
     assert_pipeline_visible,
 )
@@ -115,6 +119,157 @@ logger = logging.getLogger("app.api.projects")
 _MANAGERS = (UserRole.SUPER_ADMIN, UserRole.PROJECT_ADMIN)
 _STATS_SERIES_POINTS = 12
 _STATS_SERIES_STEP = timedelta(days=7)
+_VIDEO_INPUT_IMAGE_MARKERS = {
+    "accepted_inputs_protocol",
+    "accepted_input_ids",
+    "accepted_input_manifest_protocol",
+    "accepted_input_manifest_id",
+    "accepted_input_manifest_digest",
+}
+
+
+def _preannotation_execution_unit(body: preannotate_schemas.PreannotateRequest):
+    if not body.pipeline_stages:
+        return None
+    source = next(
+        (stage.source for stage in body.pipeline_stages if stage.parent_stage is None),
+        None,
+    )
+    return (source or {}).get("execution_unit")
+
+
+def _frame_pipeline_supported(execution_unit, pipeline_stages) -> bool:
+    return execution_unit != "frame" or len(pipeline_stages or []) <= 1
+
+
+def _build_video_input_selection(body, task_ids, *, max_frames: int):
+    from aap_assets_video_inputs import authority, values
+
+    return authority.VideoSelection(
+        batch_id=body.batch_id,
+        task_ids=task_ids,
+        predict_mode=body.predict_mode,
+        execution_scope=body.execution_scope,
+        sampling=values.FrameSampling(
+            max_frames=max_frames,
+            step=1,
+            width=1280,
+            format="jpeg",
+        ),
+    )
+
+
+def _restore_video_input_selection(body, task_ids, payload):
+    from aap_assets_video_inputs import authority, execution
+
+    raw_selection = (
+        payload.get("accepted_video_selection") if isinstance(payload, dict) else None
+    )
+    if not isinstance(raw_selection, dict):
+        raise execution.VideoInputFailure("manifest_scope_mismatch")
+    try:
+        selection = authority.VideoSelection.model_validate(raw_selection)
+    except (ValueError, TypeError):
+        raise execution.VideoInputFailure("manifest_scope_mismatch") from None
+    expected_task_ids = (
+        tuple(sorted(set(task_ids), key=str)) if task_ids is not None else None
+    )
+    if (
+        selection.model_dump(mode="json") != raw_selection
+        or selection.batch_id != body.batch_id
+        or selection.task_ids != expected_task_ids
+        or selection.predict_mode != body.predict_mode
+        or selection.execution_scope != body.execution_scope
+    ):
+        raise execution.VideoInputFailure("manifest_scope_mismatch")
+    return selection
+
+
+def _video_manifest_payload_matches(payload, job_id, selection) -> bool:
+    from aap_assets_video_inputs import values
+
+    task_ids = (
+        [str(task_id) for task_id in selection.task_ids]
+        if selection.task_ids is not None
+        else None
+    )
+    digest = (
+        payload.get("accepted_video_selection_digest")
+        if isinstance(payload, dict)
+        else None
+    )
+    if (
+        not isinstance(payload, dict)
+        or payload.get("accepted_video_inputs_protocol") != values.VIDEO_INPUT_SCHEMA
+        or payload.get("accepted_video_manifest_id") != str(job_id)
+        or payload.get("accepted_video_selection") != selection.model_dump(mode="json")
+        or payload.get("execution_unit") != "frame"
+        or payload.get("execution_scope") != selection.execution_scope
+        or "batch_id" not in payload
+        or payload.get("batch_id")
+        != (str(selection.batch_id) if selection.batch_id else None)
+        or any(key in payload for key in _VIDEO_INPUT_IMAGE_MARKERS)
+        or not isinstance(digest, str)
+        or len(digest) != 64
+        or any(character not in "0123456789abcdef" for character in digest)
+    ):
+        return False
+    if task_ids is None:
+        return "task_ids" not in payload and "scope" not in payload
+    return payload.get("task_ids") == task_ids and payload.get("scope") == {
+        "task_ids": task_ids
+    }
+
+
+async def _capture_video_input_manifest(
+    db,
+    job,
+    *,
+    actor_id,
+    project_id,
+    selection,
+    capture_factory: VideoInputManifestCaptureFactory,
+    replay: bool,
+):
+    from aap_assets_video_inputs import execution as video_contract
+    from aap_assets_video_inputs import values
+
+    payload = job.payload or {}
+    selection_payload = selection.model_dump(mode="json")
+    if replay:
+        if not _video_manifest_payload_matches(payload, job.id, selection):
+            raise video_contract.VideoInputFailure("manifest_scope_mismatch")
+    else:
+        if any(key in payload for key in _VIDEO_INPUT_IMAGE_MARKERS):
+            raise video_contract.VideoInputFailure("manifest_scope_mismatch")
+        payload = {
+            **payload,
+            "execution_unit": "frame",
+            "accepted_video_inputs_protocol": values.VIDEO_INPUT_SCHEMA,
+            "accepted_video_manifest_id": str(job.id),
+            "accepted_video_selection": selection_payload,
+        }
+        job.payload = payload
+
+    capture_request = video_contract.CaptureVideoManifestRequest(
+        job_id=job.id,
+        actor_id=actor_id,
+        project_id=project_id,
+        selection=selection,
+    )
+    header = await capture_factory(db).capture(capture_request)
+    video_contract.require_scope(
+        "capture_accepted_video_manifest", capture_request, header
+    )
+    if replay and header.selection_digest != payload["accepted_video_selection_digest"]:
+        raise video_contract.VideoInputFailure("manifest_scope_mismatch")
+    job.payload = {
+        **(job.payload or {}),
+        "accepted_video_selection_digest": header.selection_digest,
+        "total_tasks": header.selected_count,
+        "video_input_candidate_count": header.candidate_count,
+    }
+    return header
 
 
 def _visible_project_filter(user: User):
@@ -1732,12 +1887,22 @@ async def trigger_preannotation(
     input_manifest_capture: InputManifestCaptureFactory = Depends(
         get_input_manifest_capture
     ),
+    video_input_manifest_capture: VideoInputManifestCaptureFactory = Depends(
+        get_video_input_manifest_capture
+    ),
 ):
     from app.services.ml_backend import MLBackendService
     from app.services.audit import AuditService
     from app.services.prediction_context import build_predict_context
     from app.services.prediction_retry import retryable_request_context
     from app.services import trained_models
+
+    execution_unit = _preannotation_execution_unit(body)
+    if not _frame_pipeline_supported(execution_unit, body.pipeline_stages):
+        raise HTTPException(
+            status_code=422,
+            detail="逐帧预标注暂不支持多阶段流水线",
+        )
 
     uses_controlled_model = trained_models.is_controlled(body.model_id) or any(
         trained_models.is_controlled(stage.model_id)
@@ -1963,9 +2128,40 @@ async def trigger_preannotation(
                     "celery_task_id": existing_job.celery_task_id,
                 }
 
-    replay_manifest = existing_job is not None and (
-        (existing_job.payload or {}).get("accepted_input_manifest_protocol") is not None
+    existing_payload = (
+        existing_job.payload
+        if existing_job is not None and isinstance(existing_job.payload, dict)
+        else {}
     )
+    has_video_manifest_markers = any(
+        key in existing_payload
+        for key in (
+            "accepted_video_inputs_protocol",
+            "accepted_video_manifest_id",
+            "accepted_video_selection",
+            "accepted_video_selection_digest",
+        )
+    )
+    has_image_manifest_markers = any(
+        key in existing_payload for key in _VIDEO_INPUT_IMAGE_MARKERS
+    )
+    if existing_job is not None and (
+        (execution_unit == "frame" and has_image_manifest_markers)
+        or (execution_unit != "frame" and has_video_manifest_markers)
+    ):
+        await async_job_svc.mark_dispatch_failed(
+            db, existing_job.id, error="accepted_video_manifest_identity_invalid"
+        )
+        await db.commit()
+        raise HTTPException(
+            status_code=409,
+            detail="本次预标注作业的冻结输入类型不匹配，请重新发起",
+        )
+    replay_image_manifest = existing_job is not None and (
+        existing_payload.get("accepted_input_manifest_protocol") is not None
+    )
+    replay_video_manifest = existing_job is not None and execution_unit == "frame"
+    replay_manifest = replay_image_manifest or replay_video_manifest
     if body.execution_scope == "workbench":
         if not body.task_ids:
             raise HTTPException(
@@ -2068,15 +2264,7 @@ async def trigger_preannotation(
     #   execution_unit 是整任务迭代粒度、非 per-stage, 故作 batch_predict 顶层参数。
     #   源阶段判据须与 _validate_pipeline_stages 一致 (恰一个 parent_stage=None); stage 号是自由整数,
     #   不保证为 0, 故不能按 s.stage == 0 找源。
-    execution_unit: str | None = None
-    if body.pipeline_stages:
-        src_stage = next(
-            (s for s in body.pipeline_stages if s.parent_stage is None), None
-        )
-        if src_stage is not None and src_stage.source:
-            execution_unit = (src_stage.source or {}).get("execution_unit")
-
-    uses_input_manifest = replay_manifest or (
+    uses_input_manifest = replay_image_manifest or (
         body.execution_scope == "bulk"
         and project.data_type == "image"
         and not project.scene_mode
@@ -2085,6 +2273,7 @@ async def trigger_preannotation(
         and not has_text_stage
         and body.task not in {"text", "tracker"}
     )
+    uses_video_manifest = execution_unit == "frame"
 
     accepted_input_task_id: uuid.UUID | None = None
     if (
@@ -2163,6 +2352,10 @@ async def trigger_preannotation(
     accepted_input_manifest_protocol = None
     accepted_input_manifest_id = None
     accepted_input_manifest_digest = None
+    accepted_video_inputs_protocol = None
+    accepted_video_manifest_id = None
+    accepted_video_selection_digest = None
+    accepted_video_selection = None
 
     async def capture_input_manifest(job: AsyncJob, *, replay: bool):
         nonlocal total_tasks_hint
@@ -2243,6 +2436,81 @@ async def trigger_preannotation(
             "input_candidate_count": header.candidate_count,
         }
 
+    async def capture_video_manifest(job: AsyncJob, *, replay: bool):
+        nonlocal total_tasks_hint
+        nonlocal accepted_video_inputs_protocol
+        nonlocal accepted_video_manifest_id
+        nonlocal accepted_video_selection_digest
+        nonlocal accepted_video_selection
+        if not uses_video_manifest:
+            return
+
+        from aap_assets_video_inputs import execution as video_contract
+        from aap_assets_video_inputs import values as video_values
+
+        try:
+            video_selection = (
+                _restore_video_input_selection(body, explicit_task_ids, job.payload)
+                if replay
+                else _build_video_input_selection(
+                    body,
+                    explicit_task_ids,
+                    max_frames=settings.frame_preannotate_max_frames,
+                )
+            )
+            header = await _capture_video_input_manifest(
+                db,
+                job,
+                actor_id=current_user.id,
+                project_id=project.id,
+                selection=video_selection,
+                capture_factory=video_input_manifest_capture,
+                replay=replay,
+            )
+        except video_contract.VideoInputFailure as exc:
+            transient = exc.code.endswith("_busy") or exc.code in {
+                "storage_unavailable",
+                "invalid_response",
+            }
+            if replay and not transient:
+                await async_job_svc.mark_dispatch_failed(
+                    db, job.id, error=f"accepted_video_{exc.code}"
+                )
+                await db.commit()
+            else:
+                await db.rollback()
+            raise HTTPException(
+                status_code=503 if transient else 409,
+                detail=(
+                    "冻结视频输入暂时不可用，请重试本次请求"
+                    if transient
+                    else f"无法冻结逐帧视频输入：{exc.code}"
+                ),
+                headers={"Retry-After": "5"} if transient else None,
+            ) from exc
+        except (ValueError, TypeError, AttributeError) as exc:
+            await db.rollback()
+            raise HTTPException(
+                status_code=503,
+                detail="冻结视频输入返回无效，请重试本次请求",
+                headers={"Retry-After": "5"},
+            ) from exc
+        except Exception as exc:
+            # A lost native response is ambiguous; keep replayable durable state
+            # only when it was committed before this call.
+            await db.rollback()
+            raise HTTPException(
+                status_code=503,
+                detail="冻结视频输入暂时不可用，请重试本次请求",
+                headers={"Retry-After": "5"},
+            ) from exc
+
+        total_tasks_hint = header.selected_count
+        accepted_video_inputs_protocol = video_values.VIDEO_INPUT_SCHEMA
+        accepted_video_manifest_id = str(job.id)
+        accepted_video_selection_digest = header.selection_digest
+        accepted_video_selection = video_selection.model_dump(mode="json")
+
     precreated_job: AsyncJob | None = None
     if idempotency_key is not None:
         existing = existing_job
@@ -2294,6 +2562,7 @@ async def trigger_preannotation(
         # request reaches its post-dispatch commit.
         async_job_svc.bind_execution_id(precreated_job, str(precreated_job.id))
         await capture_input_manifest(precreated_job, replay=existing is not None)
+        await capture_video_manifest(precreated_job, replay=existing is not None)
         await db.commit()
     else:
         # Every request without an idempotency key still needs a durable job id
@@ -2332,6 +2601,7 @@ async def trigger_preannotation(
         )
         async_job_svc.bind_execution_id(precreated_job, str(precreated_job.id))
         await capture_input_manifest(precreated_job, replay=False)
+        await capture_video_manifest(precreated_job, replay=False)
         await db.commit()
 
     accepted_inputs_protocol: str | None = None
@@ -2492,6 +2762,10 @@ async def trigger_preannotation(
         accepted_input_manifest_protocol=accepted_input_manifest_protocol,
         accepted_input_manifest_id=accepted_input_manifest_id,
         accepted_input_manifest_digest=accepted_input_manifest_digest,
+        accepted_video_inputs_protocol=accepted_video_inputs_protocol,
+        accepted_video_manifest_id=accepted_video_manifest_id,
+        accepted_video_selection_digest=accepted_video_selection_digest,
+        accepted_video_selection=accepted_video_selection,
     )
     try:
         dispatched_id = batch_dispatcher.dispatch(
