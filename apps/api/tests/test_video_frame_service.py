@@ -27,30 +27,13 @@ from app.services.video_frame_service import (
 )
 from app.services.video_context import VideoContext
 from app.schemas.task import VideoMetadata
-from tests.media_owner_fixtures import MediaOwnerTestBinding
+from tests.media_owner_fixtures import media_owner as media_owner
 
 
 @pytest.fixture(autouse=True)
-async def bind_media_owner_to_test_savepoint(db_session, media_dispatcher, monkeypatch):
+def bind_media_owner_to_test_savepoint(media_owner):
     """Keep API owner calls on the fixture SAVEPOINT and use deterministic S3."""
-    from app.services import assets_media
-
-    binding = MediaOwnerTestBinding(db_session, media_dispatcher)
-    monkeypatch.setattr(
-        assets_media,
-        "_IndependentMediaDatabase",
-        lambda: assets_media.SqlAlchemyMediaDatabase(db_session, commit=False),
-    )
-    monkeypatch.setattr(
-        assets_media, "media_storage", lambda **_kwargs: binding.storage
-    )
-    monkeypatch.setattr(assets_media, "_wake", binding.wake)
-    db_session.info["media_owner_test_binding"] = binding
-    try:
-        yield binding
-    finally:
-        await binding.remove_seeded_jobs()
-        db_session.info.pop("media_owner_test_binding", None)
+    return media_owner
 
 
 async def _make_video_task(db_session, owner_id):

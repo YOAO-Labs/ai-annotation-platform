@@ -508,7 +508,9 @@ async def media_owner(db_session, media_dispatcher, monkeypatch):
     monkeypatch.setattr(
         assets_media,
         "_IndependentMediaDatabase",
-        lambda: assets_media.SqlAlchemyMediaDatabase(db_session, commit=False),
+        lambda _session_factory=None: assets_media.SqlAlchemyMediaDatabase(
+            db_session, commit=False
+        ),
     )
     monkeypatch.setattr(
         assets_media, "media_storage", lambda **_kwargs: binding.storage
