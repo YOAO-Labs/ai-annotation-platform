@@ -73,6 +73,8 @@ async def test_employee_annotates_a_reviews_b_and_cannot_access_c(
     task_b.review_round_id = uuid.uuid4()
     pending_b = await create_task(db_session, project_id=project_b.id)
     pending_b.assignee_id = colleague.id
+    # Keep this Task visible so the request reaches annotation capability checks.
+    pending_b.reviewer_id = employee.id
     task_c = await create_task(db_session, project_id=project_c.id)
     # Assignment alone must not grant project authority.
     task_c.assignee_id = employee.id
@@ -96,7 +98,11 @@ async def test_employee_annotates_a_reviews_b_and_cannot_access_c(
             f"/api/v1/tasks/{task.id}/{operation}", headers=headers, json=payload
         )
         expected = 404 if task is task_c else 403
-        assert response.status_code == expected, response.text
+        assert response.status_code == expected, (
+            operation,
+            str(task.id),
+            response.text,
+        )
     hidden = await httpx_client.get(f"/api/v1/tasks/{task_c.id}", headers=headers)
     assert hidden.status_code == 404, hidden.text
 

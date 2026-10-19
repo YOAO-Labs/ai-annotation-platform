@@ -9,10 +9,12 @@ from app.db.base import async_session
 from app.db.models.user import User
 from app.db.models.project import Project
 from app.services.workspace_contract import ProjectAccess
-from app.services.identity_gateway import (
+from app.services.identity_contracts import (
     IdentityCredentialRejected,
-    IdentityGateway,
     IdentityGatewayUnavailable,
+)
+from app.services.identity_gateway import (
+    IdentityGateway,
     get_identity_gateway,
 )
 from app.services.project_access import resolve_project_access_by_id

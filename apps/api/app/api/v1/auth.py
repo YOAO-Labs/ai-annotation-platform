@@ -37,9 +37,7 @@ from app.services.identity_commands import IdentityCommandService
 
 from app.config import settings
 from aap_identity.contract import REFRESH_GRACE_SECONDS
-from app.services.identity_gateway import (
-    IdentityGatewayUnavailable,
-)
+from app.services.identity_contracts import IdentityGatewayUnavailable
 from app.services.identity_session_data import IdentitySessionData
 import logging
 

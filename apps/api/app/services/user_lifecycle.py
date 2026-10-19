@@ -20,7 +20,7 @@ from app.db.models.task_batch import TaskBatch
 from app.db.models.task_lock import TaskLock
 from app.db.models.user import User
 from app.schemas.user import UserOut
-from app.services.identity_gateway import IdentityGatewayUnavailable
+from app.services.identity_contracts import IdentityGatewayUnavailable
 from app.services.identity_session_data import IdentitySessionData
 
 REACTIVATABLE_KINDS = {"suspended", "emergency_suspended"}

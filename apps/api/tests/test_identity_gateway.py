@@ -8,11 +8,11 @@ from contextlib import asynccontextmanager
 import pytest
 
 from aap_identity.contract import FailureCode, Principal, failure_reply, principal_reply
-from app.services.identity_gateway import (
+from app.services.identity_contracts import (
     IdentityCredentialRejected,
-    IdentityGateway,
     IdentityGatewayUnavailable,
 )
+from app.services.identity_gateway import IdentityGateway
 
 
 def _principal() -> Principal:

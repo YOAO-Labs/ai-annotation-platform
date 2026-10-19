@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import set_committed_value
 
 from app.db.models.user import User
-from app.services.identity_gateway import IdentityGatewayUnavailable
+from app.services.identity_contracts import IdentityGatewayUnavailable
 
 
 def _json_value(value):

@@ -10,12 +10,12 @@ from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect, status
 
 from app.config import settings
 from app.db.enums import PlatformRole
-from app.services.identity_contracts import IdentityActorFacts
-from app.services.identity_gateway import (
+from app.services.identity_contracts import (
+    IdentityActorFacts,
     IdentityCredentialRejected,
     IdentityGatewayUnavailable,
-    get_identity_gateway,
 )
+from app.services.identity_gateway import get_identity_gateway
 from app.services.notification import channel_for
 
 if TYPE_CHECKING:

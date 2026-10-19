@@ -80,10 +80,21 @@ the runtime is not yet the sole credential command owner. The API keeps its
 broad transitional database role, and universal final-write credential fencing
 remains unqualified. These are unfinished parts of the full module goal.
 
-Native, consumer, installed process/image, language interoperability and cutover
-checks are separate gates. Current implementation is not promoted to the daily
-development environment until the required local gates pass. Production and
-the Go experiment are outside this cutover.
+Native and installed-process/image checks are qualified in owned local resources.
+Installed file hashes match source; the read-only nonroot container has no API,
+ORM, Redis, queue, object-store or ML dependencies. A real API consumes it over
+HTTP for REST/API-key operations and socket revalidation, and refuses admission
+when the service stops. Restart preserves revocation. Backup/restore retains
+generation, JTI, keys and restricted function privileges; populated downgrade
+refuses without changing the revision. A standalone Node client verifies exact
+principal bindings and preserves signed 64-bit generations. This is client
+interoperability, not a second-language provider implementation. The bounded
+local concurrency smoke does not qualify production capacity.
+
+Full command ownership, selected provider replacement and daily cutover remain
+separate gates. Current implementation is not promoted to the daily development
+environment until its required local gates pass. Production and the Go
+experiment are outside this cutover.
 
 ## Alternatives Considered
 

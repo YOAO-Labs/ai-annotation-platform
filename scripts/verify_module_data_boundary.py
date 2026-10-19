@@ -24,6 +24,7 @@ from unittest.mock import patch
 from uuid import uuid4
 import shutil
 from urllib.parse import quote, urlsplit
+import xml.etree.ElementTree as ET
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "apps/api"))
@@ -378,6 +379,19 @@ TEST_FILES = (
 )
 
 
+def _test_file(value: str) -> str:
+    relative = Path(value.split("::", 1)[0])
+    path = (ROOT / "apps/api" / relative).resolve()
+    if (
+        relative.is_absolute()
+        or not path.is_relative_to(ROOT / "apps/api/tests")
+        or path.suffix != ".py"
+        or not path.is_file()
+    ):
+        raise argparse.ArgumentTypeError("Select an existing file under apps/api/tests")
+    return value
+
+
 def _arguments(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
@@ -396,6 +410,14 @@ def _arguments(argv: list[str] | None = None) -> argparse.Namespace:
         type=Path,
         help="explicit JUnit XML path (defaults beside --output)",
     )
+    parser.add_argument(
+        "--test-file",
+        dest="test_files",
+        action="append",
+        type=_test_file,
+        metavar="TEST_NODEID",
+        help="select an apps/api test file or node ID; repeat to replace the default suite",
+    )
     return parser.parse_args(argv)
 
 
@@ -404,6 +426,13 @@ def _write_evidence(path: Path, document: dict) -> None:
     path.write_text(
         json.dumps(document, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
+    )
+
+
+def _passed_test_count(junit: Path) -> int:
+    return sum(
+        all(case.find(state) is None for state in ("skipped", "failure", "error"))
+        for case in ET.parse(junit).findall(".//testcase")
     )
 
 
@@ -1813,6 +1842,7 @@ def _install_and_rollback_frozen_sql(
 
 def main(argv: list[str] | None = None) -> int:
     args = _arguments(argv)
+    test_files = tuple(dict.fromkeys(args.test_files or TEST_FILES))
     output = args.output.resolve()
     junit = (
         args.junit_xml.resolve()
@@ -1840,7 +1870,7 @@ def main(argv: list[str] | None = None) -> int:
         },
         "database": None,
         "roles": list(MODULE_ROLES),
-        "test_files": list(TEST_FILES),
+        "test_files": list(test_files),
         "junit_xml": str(junit),
         "test_exit_code": None,
         "migrations": {
@@ -1891,7 +1921,7 @@ def main(argv: list[str] | None = None) -> int:
     ).resolve()
 
     try:
-        selected_test_paths = {name.split("::", 1)[0] for name in TEST_FILES}
+        selected_test_paths = {name.split("::", 1)[0] for name in test_files}
         missing_tests = [
             name
             for name in selected_test_paths
@@ -2647,7 +2677,7 @@ def main(argv: list[str] | None = None) -> int:
             "--tb=short",
             "--maxfail=3",
             f"--junitxml={junit}",
-            *TEST_FILES,
+            *test_files,
         ]
         options = parse_arguments(["exec", "--mode", "test", "--", *command])
         phase = "pytest"
@@ -2657,6 +2687,9 @@ def main(argv: list[str] | None = None) -> int:
         with patch.dict(os.environ, resource_environment, clear=False):
             exit_code = run_processes(backend, options)
         evidence["test_exit_code"] = exit_code
+        evidence["passed_test_count"] = _passed_test_count(junit)
+        if exit_code == 0 and evidence["passed_test_count"] == 0:
+            raise RuntimeError("Acceptance ran no passing test cases")
         evidence["status"] = "passed" if exit_code == 0 else "failed"
     except Exception as error:
         evidence["status"] = "failed"

@@ -12,6 +12,10 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
+from app.services.identity_contracts import (
+    IdentityCredentialRejected,
+    IdentityGatewayUnavailable,
+)
 
 
 _REJECTED_CODES = frozenset(
@@ -25,16 +29,6 @@ _REJECTED_CODES = frozenset(
     }
 )
 MAX_RESPONSE_BYTES = 16 * 1024 * 1024
-
-
-class IdentityCredentialRejected(Exception):
-    def __init__(self, code: str) -> None:
-        self.code = code
-        super().__init__(code)
-
-
-class IdentityGatewayUnavailable(Exception):
-    """Identity could not return a trustworthy admission result."""
 
 
 def _secret_value(value) -> str | None:

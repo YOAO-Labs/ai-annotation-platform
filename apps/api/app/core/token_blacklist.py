@@ -11,7 +11,7 @@ from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services.identity_session_data import IdentitySessionData
-from app.services.identity_gateway import IdentityGatewayUnavailable
+from app.services.identity_contracts import IdentityGatewayUnavailable
 
 
 def _uuid(value: str | uuid.UUID) -> uuid.UUID:

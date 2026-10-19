@@ -2184,3 +2184,46 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   commands, profile hydration, cross-owner coordination and universal current
   credential write fences are still part of the full Identity work. Do not call
   this tranche full Identity or full-module independent deployment.
+
+### Identity installed-process and recovery qualification
+
+- The installed host package and independent nonroot image match every current
+  Python/schema source hash. They import no API, SQLAlchemy, Redis, Celery, S3
+  or ML dependency. The image runs with a read-only root, verified tmpfs, one CPU,
+  256 MiB and 64 PIDs, with no source mounts.
+- A real API process consumes the container over HTTP. JWT and API-key identity,
+  scopes, rotation, last-use recording, logout, logout-all, credential revocation,
+  notification socket handshake/per-message rejection and service-down 503 pass.
+  A separately installed process retains revoked JTI state across restart and
+  fails readiness when any required AUTH function grant is removed.
+- A standalone Node client checks the complete actor/credential/role/generation
+  binding and preserves exact signed 64-bit generation values. It is a protocol
+  consumer fixture, not another language's provider implementation or a complete
+  language-replacement proof. Thirty-two JWT requests at concurrency eight are
+  a bounded local smoke, not sustained production capacity qualification.
+- An ACL-preserving PostgreSQL backup restores generation, JTI, API keys and
+  restricted AUTH function privileges into a second owned database. Authentication
+  uses the restricted LOGIN after restore. Both populated-account and JTI-only
+  downgrade attempts refuse without changing revision or retained state. The
+  clone and its backup are removed using the acceptance's ownership checks.
+- The current backend qualification has 537 distinct passing cases. Its 123
+  explicit exclusions are 122 domains with no lazy-root rule and one allow edge
+  covered by a dedicated case. Initial regression exposed a gateway/session
+  adapter SCC; common failures now live in the existing pure Identity contract.
+  An old employee fixture now makes its pending review Task visible so its
+  unchanged 403 annotation-capability assertion is exercised. Docker tmpfs is
+  verified through HostConfig and actual mountinfo rather than an empty Mounts
+  list. Failed reports remain historical; selected follow-ups resolve all cases.
+- SDK regression has 1131 distinct passing cases after regeneration of the
+  offline operation catalog's two existing source-delete 409 responses. The
+  selected discovery follow-up passes 21 cases; unrelated successful SDK tests
+  are not rerun. Public API/SDK versions and public response models do not change.
+- The module-data verifier accepts explicit test files/node IDs, rejects targets
+  outside the API test tree, records the selected suite and refuses a zero-pass
+  all-skipped acceptance. Two focused CLI/reporting checks pass. Every owned live
+  verifier reports zero cleanup errors; shared infrastructure is preserved.
+- Daily development still uses migration 0234 and the earlier qualified source.
+  This tranche does not switch its validator, signing secret, API or workers.
+  Full Identity command ownership, least-privilege API assembly, selected provider
+  replacement, the remaining module matrix and local cutover stay active. The
+  Go experiment, production, push, release and remote CI are outside this work.

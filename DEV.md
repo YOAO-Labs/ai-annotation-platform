@@ -1127,7 +1127,18 @@ PUBLIC 的 TEMP 须在数据库初始化时撤销。准入 LOGIN 只有四项函
 
 独立进程显式设置 `IDENTITY_DATABASE_URL(_FILE)`、`IDENTITY_TOKEN(_FILE)`、`IDENTITY_SIGNING_SECRET(_FILE)`，每对恰好一项；它不读取 API `.env`。签名 secret 与 API `SECRET_KEY` 相同。运行 `uv run --project apps/identity --locked --extra runtime python -m aap_identity_runtime`，或使用可选 `docker-compose.identity.yml` 及三个 `IDENTITY_RUNTIME_*_FILE`。`/health` 是进程存活，`/ready` 检查原生协议及四项调用权限。Secret 文件须对容器用户可读，源码目录不挂入运行镜像。
 
-这次认证切换要求旧 JWT 重新登录，API key 保留原 SQL 状态。先停止全部旧 API／WebSocket／签发与刷新进程，再受控迁移并启动新验证器；不能新旧认证滚动并行或回到接受旧 JWT 的代码。已有用户或撤销记录时，迁移拒绝降级；保留数据向前恢复。当前日常环境尚未切换这一能力，独立进程、镜像与跨语言联合验收继续推进。详见 [ADR-0115](docs/adr/0115-identity-admission-and-durable-revocation.md)。
+这次认证切换要求旧 JWT 重新登录，API key 保留原 SQL 状态。先停止全部旧 API／WebSocket／签发与刷新进程，再受控迁移并启动新验证器；不能新旧认证滚动并行或回到接受旧 JWT 的代码。已有用户或撤销记录时，迁移拒绝降级；保留数据向前恢复。独立安装包、只读容器、真实 API／WebSocket 和 Node 准入客户端已通过一次性本地联调，备份还原后保留原生权限和撤销状态。当前日常环境尚未切换这一能力，完整凭据命令与多 owner 生命周期仍待完成。详见 [ADR-0115](docs/adr/0115-identity-admission-and-durable-revocation.md)。
+
+复验使用 `scripts/verify_module_data_boundary.py` 创建的独立 PostgreSQL、Redis 和测试桶。先用 `uv sync --project apps/identity --locked --extra runtime --no-editable` 安装独立包，再构建 `apps/identity/Dockerfile`。镜像须带 `org.aap.acceptance=identity-admission` 和唯一的 `org.aap.acceptance-id` 标签。设置 `AAP_IDENTITY_RUNTIME_PYTHON` 为该虚拟环境 Python 的绝对路径，`AAP_IDENTITY_RUNTIME_IMAGE` 为镜像名或摘要，`AAP_IDENTITY_RUNTIME_IDENTITY` 为对应标签值，然后运行：
+
+```bash
+AAP_IDENTITY_LIVE_ACCEPTANCE=1 apps/api/.venv/bin/python \
+  scripts/verify_module_data_boundary.py --output .worktree/identity-live.json \
+  --test-file tests/test_identity_admission_live.py \
+  --test-file tests/test_identity_recovery.py
+```
+
+这组测试启动独立服务和 API，验证当前角色、JWT／API key、登出、全设备登出、WebSocket 重验、停服拒绝及备份恢复；Node 仅是无 Python 依赖的契约客户端。安装内容逐文件匹配源码；容器只读、非 root，限制为 1 CPU／256 MiB。32 次 JWT 请求、并发 8 的本地采样只用于联通与并发冒烟，不能作为生产容量结论。验收器清理自己的基础设施，JSON 和 JUnit 保留实际退出状态；全部跳过不会记为通过，镜像留作工件。
 
 ## 普通批量结果检查点
 
