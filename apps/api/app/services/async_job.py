@@ -49,12 +49,33 @@ async def create_job(
 
 
 async def delete_batch_predict_jobs(db: AsyncSession, batch_id: uuid.UUID) -> int:
-    """Remove batch_predict history for a batch; the caller owns the transaction."""
-    result = await db.execute(
-        delete(AsyncJob).where(
-            AsyncJob.kind == AsyncJobKind.BATCH_PREDICT.value,
-            AsyncJob.payload["batch_id"].astext == str(batch_id),
+    """Cancel live batch_predict jobs, then remove history in the caller's transaction.
+
+    The status transition lets durable result owners revoke execution leases and
+    retire pending snapshots before the guarded history delete runs.
+    """
+    batch_filter = (
+        AsyncJob.kind == AsyncJobKind.BATCH_PREDICT.value,
+        AsyncJob.payload["batch_id"].astext == str(batch_id),
+    )
+    await db.execute(
+        update(AsyncJob)
+        .where(
+            *batch_filter,
+            AsyncJob.status.in_(
+                (AsyncJobStatus.PENDING.value, AsyncJobStatus.RUNNING.value)
+            ),
         )
+        .values(
+            status=AsyncJobStatus.CANCELLED.value,
+            completed_at=datetime.now(timezone.utc),
+        )
+        .execution_options(synchronize_session="fetch")
+    )
+    result = await db.execute(
+        delete(AsyncJob)
+        .where(*batch_filter)
+        .execution_options(synchronize_session="fetch")
     )
     return int(result.rowcount or 0)
 
