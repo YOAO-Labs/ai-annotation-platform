@@ -31,6 +31,20 @@ export const JOB_STATUS_LABEL: Record<AsyncJobStatus, string> = {
   cancelled: "已取消",
 };
 
+export function jobNotificationVerb(type: string, kind: unknown): string | null {
+  const suffix =
+    type === "job.completed"
+      ? "完成"
+      : type === "job.failed"
+        ? "失败"
+        : type === "job.cancelled"
+          ? "已取消"
+          : null;
+  if (!suffix) return null;
+  const label = (typeof kind === "string" && JOB_KIND_LABEL[kind]) || "后台任务";
+  return `${label}${suffix}`;
+}
+
 export function jobString(record: Record<string, unknown>, key: string): string | null {
   const value = record[key];
   return typeof value === "string" && value ? value : null;
