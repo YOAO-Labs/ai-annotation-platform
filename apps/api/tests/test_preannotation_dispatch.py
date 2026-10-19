@@ -352,7 +352,7 @@ def test_celery_dispatch_preserves_manifest_identity_without_member_payload(
 
 
 @pytest.mark.asyncio
-async def test_frame_dispatch_uses_only_supplied_counts_and_returns_receipt(
+async def test_frame_dispatch_uses_sealed_ordinals_and_returns_receipt(
     monkeypatch,
 ):
     import celery
@@ -360,11 +360,11 @@ async def test_frame_dispatch_uses_only_supplied_counts_and_returns_receipt(
     from app.application.preannotation_contract import (
         FramePreannotationDispatchRequest,
         FramePreannotationDispatchReceipt,
-        TaskFrameCount,
+        VideoFrameTaskPlan,
     )
     from app.workers import frame_preannotate
 
-    captured = {"extractions": []}
+    captured = {"segments": []}
 
     class FakeTask:
         def __init__(self, name):
@@ -372,13 +372,12 @@ async def test_frame_dispatch_uses_only_supplied_counts_and_returns_receipt(
 
         def s(self, *args, **kwargs):
             signature = (self.name, args, kwargs)
-            if self.name == "extract":
-                captured["extractions"].append(signature)
+            if self.name == "predict":
+                captured["segments"].append(signature)
             return signature
 
-    monkeypatch.setattr(frame_preannotate, "extract_frames_task", FakeTask("extract"))
-    monkeypatch.setattr(frame_preannotate, "launch_predict_phase", FakeTask("predict"))
-    monkeypatch.setattr(frame_preannotate.settings, "frame_preannotate_max_frames", 4)
+    monkeypatch.setattr(frame_preannotate, "predict_video_segment", FakeTask("predict"))
+    monkeypatch.setattr(frame_preannotate, "finalize_frame_job", FakeTask("finalize"))
     monkeypatch.setattr(frame_preannotate.settings, "frame_preannotate_chunk_size", 2)
     monkeypatch.setattr(
         frame_preannotate,
@@ -402,37 +401,41 @@ async def test_frame_dispatch_uses_only_supplied_counts_and_returns_receipt(
         FramePreannotationDispatchRequest(
             project_id="project-id",
             ml_backend_id="backend-id",
-            task_frame_counts=(
-                TaskFrameCount(task_id="video-id", frame_count=9),
-                TaskFrameCount(task_id="no-frames", frame_count=0),
+            video_task_plans=(
+                VideoFrameTaskPlan(
+                    task_id="video-id",
+                    input_id="input-id",
+                    input_job_id="origin-job-id",
+                    plan_digest="a" * 64,
+                    selected_count=4,
+                ),
             ),
             stage0={"stage": 7},
-            job_id="job-id",
+            job_id="00000000-0000-0000-0000-000000000001",
             root_execution_id="root-id",
+            actor_id="00000000-0000-0000-0000-000000000002",
+            accepted_video_manifest_id="00000000-0000-0000-0000-000000000001",
+            accepted_video_selection_digest="b" * 64,
+            accepted_video_sealed_digest="c" * 64,
         )
     )
 
     assert receipt == FramePreannotationDispatchReceipt(
         dispatched=True, segments=2, total_frames=4
     )
-    assert captured["progress"] == ("job-id", 4)
-    assert captured["extractions"] == [
-        ("extract", ("video-id", [0, 1, 2, 3]), {"job_id": "job-id"})
-    ]
+    assert captured["progress"] == ("00000000-0000-0000-0000-000000000001", 4)
     signatures, callback = captured["chord"]
-    assert len(signatures) == 1
-    assert callback == (
-        "predict",
-        (),
-        {
-            "project_id": "project-id",
-            "ml_backend_id": "backend-id",
-            "stage0": {"stage": 7},
-            "job_id": "job-id",
-            "segments": [
-                {"task_id": "video-id", "frame_indices": [0, 1]},
-                {"task_id": "video-id", "frame_indices": [2, 3]},
-            ],
-            "celery_root_task_id": "root-id",
-        },
+    assert len(signatures) == 2
+    assert signatures == tuple(captured["segments"])
+    assert [call[1][0]["frame_ordinals"] for call in captured["segments"]] == [
+        [1, 2],
+        [3, 4],
+    ]
+    assert all(
+        call[1][0]["input_job_id"] == "origin-job-id" for call in captured["segments"]
     )
+    assert callback[0] == "finalize"
+    assert callback[2] == {
+        "project_id": "project-id",
+        "job_id": "00000000-0000-0000-0000-000000000001",
+    }

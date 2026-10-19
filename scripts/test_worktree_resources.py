@@ -1,14 +1,19 @@
 """Additive accepted-input bucket upgrades preserve exact worktree ownership."""
 
+import asyncio
 import json
+import re
+import unittest
+from contextlib import asynccontextmanager
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
-import unittest
 from unittest.mock import MagicMock, patch
 
+from sqlalchemy.engine import make_url
+
 from worktree_env import atomic_json, load_identity, read_state, topology
-from worktree_resources import LocalResources
+from worktree_resources import LocalResources, VIDEO_RUNTIME_CAPABILITIES
 
 
 def _without_buckets(manifest, *names):
@@ -344,6 +349,68 @@ class BucketUpgradeTests(unittest.TestCase):
         atomic_json(self.path, changed)
         with self.assertRaisesRegex(ValueError, "目标.*不一致"):
             LocalResources(self.target["resources"], self.settings, code_root=self.root)
+
+    def test_lan_runtime_grants_exact_video_capabilities_without_sweep_or_gc(self):
+        grant_file = (
+            Path(__file__).resolve().parents[1]
+            / "infra/docker/lan-production-grants.sql"
+        )
+        sql = grant_file.read_text()
+        runtime_grants = re.findall(
+            r'GRANT EXECUTE ON FUNCTION\s+(.*?)\s+TO\s+:"application_role";',
+            sql,
+            flags=re.DOTALL,
+        )
+        normalized = re.sub(r"\s+", "", ",".join(runtime_grants))
+
+        self.assertEqual(len(VIDEO_RUNTIME_CAPABILITIES), 25)
+        self.assertEqual(len(set(VIDEO_RUNTIME_CAPABILITIES)), 25)
+        for signature in VIDEO_RUNTIME_CAPABILITIES:
+            self.assertIn(signature, normalized)
+        for excluded in (
+            "aap_assets_v1.sweep_accepted_video_inputs(integer)",
+            "aap_assets_v1.claim_accepted_video_input_garbage(uuid,integer,integer)",
+            "aap_assets_v1.complete_accepted_video_input_garbage(uuid,uuid)",
+        ):
+            self.assertNotIn(excluded, normalized)
+
+    def test_worktree_runtime_grant_uses_the_video_allowlist(self):
+        backend = object.__new__(LocalResources)
+        backend.settings = SimpleNamespace(
+            database_url="postgresql+asyncpg://app@localhost/app"
+        )
+        backend.url = make_url("postgresql+asyncpg://owner@localhost/app")
+        backend.resources = {"database": "aap_test"}
+        statements = []
+
+        class Connection:
+            async def exec_driver_sql(self, sql):
+                statements.append(sql)
+
+        class Preparer:
+            @staticmethod
+            def quote_identifier(value):
+                return f'"{value}"'
+
+        class Engine:
+            dialect = SimpleNamespace(identifier_preparer=Preparer())
+
+            @asynccontextmanager
+            async def begin(self):
+                yield Connection()
+
+            async def dispose(self):
+                return None
+
+        with patch("worktree_resources.create_async_engine", return_value=Engine()):
+            asyncio.run(backend.grant_runtime())
+
+        expected = (
+            "GRANT EXECUTE ON FUNCTION "
+            + ", ".join(VIDEO_RUNTIME_CAPABILITIES)
+            + ' TO "app"'
+        )
+        self.assertIn(expected, statements)
 
 
 if __name__ == "__main__":

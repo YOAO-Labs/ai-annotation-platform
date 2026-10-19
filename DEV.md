@@ -1083,6 +1083,8 @@ uv run --project apps/assets-media --extra runtime python -m aap_assets_media_ru
 
 受理视频输入使用同一控制工件的 `POST /v1/video-inputs/{manifest,members,prepare,seal,input,verify,times,require-frame,frame,reference}`，协议为 `aap-assets-video-input-control/v1`。capture、worker、最终 Labeling 围栏及回收函数不作为 HTTP 命令暴露。视频 Worker 默认公平轮询技术媒体、受理原始视频和派生帧三类队列；`--once` 最多执行一个已领取单位，可组合互斥的 `--job-id`、`--input-id` 或 `--frame-id` 精确选择。来源字节复用既有 Media 凭据与数据集桶，不要求为视频 Worker 增加图片 Worker 环境变量。
 
+逐帧业务入口与 Celery 段任务已消费同一保留清单、原视频和精确帧。分离迁移账号与单体 runtime 时，工作树准备和 `lan-production-grants.sql` 为 runtime 补充精确的 25 项视频 workflow/control/worker/Labeling 能力；不包含视频 sweep、垃圾领取或垃圾确认，也不改变独立模块的受限账号配置。先应用迁移及授权，再刷新实际 API/Celery；旧逐帧消息缺少清单身份会明确失败，不按当前视频恢复历史来源。所有外部准备与来源核验都在最终业务写锁之外。
+
 受理对象使用专用、启用版本管理的 `ASSETS_MEDIA_INPUTS_BUCKET`。图片 Worker 仅可写 `accepted-inputs/*`，视频 Worker 仅可写 `accepted-video-inputs/*`；控制只读精确版本，Cleanup 按单个尝试前缀删除对象版本与 multipart。详细权限见 [Cleanup 工件说明](apps/assets-cleanup/README.md)。这些独立进程已完成隔离的本地对象存储与 Node 互操作验收，业务视频预标注、覆盖和失败重试消费者仍在迁移，暂不切换常驻环境。
 
 每个进程只接收自己的专用环境。必填的 DSN、token、S3 凭据可用对应 `_FILE`，直接值与文件变量不能同时存在，空值不作为回退来源。控制进程使用 `ASSETS_MEDIA_CONTROL_DATABASE_URL`，执行进程使用 `ASSETS_MEDIA_WORKER_DATABASE_URL`；S3 endpoint、region、两个桶和身份由 `ASSETS_MEDIA_*` 显式提供。API 设置 `ASSETS_MEDIA_URL` 和同一 token 后选择远程控制，任何远程配置或调用失败都不回退本地；留空使用同一工作流的本地 SQL/对象装配和薄 Celery 执行适配。
@@ -1097,7 +1099,7 @@ uv run --project apps/assets-media --extra runtime python -m aap_assets_media_ru
 
 ## 图片金字塔的独立控制与执行
 
-图片金字塔现由 `apps/assets-media` 中的共享媒体控制进程和专用图片 Worker 承担。共享控制端同时承载视频、图片与已受理输入契约，`asset_media_control_client` 共 40 项 SQL 能力（视频 18、图片 14、输入 4、批量输入清单 4）；视频 Worker 使用 10 项，图片 Worker 使用独立的 `asset_image_worker_client` 和 10 项（图片 6、输入 4）。图片处理使用 Pillow 与受资源上限约束的 libvips 子进程，不依赖 Celery 执行队列。图片和输入垃圾由既有 `assets-cleanup` 进程处理，`asset_cleanup_client` 仅获 6 项清理能力。
+图片金字塔现由 `apps/assets-media` 中的共享媒体控制进程和专用图片 Worker 承担。共享控制端同时承载视频、图片与已受理输入契约，`asset_media_control_client` 共 49 项 SQL 能力（视频 18、图片 14、图片输入 4、图片批量清单 4、视频输入 9）；视频 Worker 使用 20 项，图片 Worker 使用独立的 `asset_image_worker_client` 和 10 项（图片 6、输入 4）。图片处理使用 Pillow 与受资源上限约束的 libvips 子进程，不依赖 Celery 执行队列。图片和输入垃圾由既有 `assets-cleanup` 进程处理，`asset_cleanup_client` 仅获 8 项清理能力。
 
 API 设置 `ASSETS_MEDIA_URL` 和相同的 `ASSETS_MEDIA_TOKEN` 后，将图片控制请求发到共享控制进程；一旦配置远程地址，连接或请求失败不会退回本地。地址留空时，当前开发兼容路径仍在 API 进程内装配本地控制，并保留轻量 Celery 唤醒适配；这条路径不代表独立控制/执行部署。默认 Compose 不启动媒体 overlay，也不表示图片 Worker 已部署到主环境或生产环境。
 

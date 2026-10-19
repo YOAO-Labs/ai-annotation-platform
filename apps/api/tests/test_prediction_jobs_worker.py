@@ -183,125 +183,70 @@ async def test_mark_job_failed_skips_already_completed(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(
-    ("frame_counts", "receipt", "expected_status"),
-    [
-        ([9, 0], (True, 2, 9), AsyncJobStatus.RUNNING.value),
-        ([0], (False, 0, 0), AsyncJobStatus.COMPLETED.value),
-    ],
-)
-async def test_frame_execution_uses_existing_session_and_dispatches_facts(
-    db_session: AsyncSession,
-    monkeypatch,
-    super_admin,
-    frame_counts,
-    receipt,
-    expected_status,
+@pytest.mark.parametrize("predict_mode", ["overwrite", "append"])
+async def test_legacy_frame_execution_rejects_missing_retained_manifest_before_overwrite(
+    db_session: AsyncSession, monkeypatch, super_admin, predict_mode
 ):
-    """Frame metadata stays in the batch session and only facts cross the worker port."""
-    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
 
-    from app.application.preannotation_contract import (
-        FramePreannotationDispatchReceipt,
-        TaskFrameCount,
-    )
+    from app.application.preannotation_contract import BatchPredictionRequest
+    from app.application.preannotation_execution import run_preannotation
+    from app.db.models.prediction import Prediction
     from app.db.models.task import Task
 
     user, _ = super_admin
     project, backend = await _seed_project_and_backend(db_session, user.id)
-    tasks = [
-        Task(
-            id=uuid.uuid4(),
-            project_id=project.id,
-            display_id=f"T-VIDEO-{index}",
-            file_name=f"video-{index}.mp4",
-            file_path=f"video/{index}.mp4",
-            file_type="video",
-            status="pending",
-        )
-        for index in range(len(frame_counts))
-    ]
-    db_session.add_all(tasks)
+    task = Task(
+        id=uuid.uuid4(),
+        project_id=project.id,
+        display_id="T-LEGACY-VIDEO",
+        file_name="video.mp4",
+        file_path="mutable/video.mp4",
+        file_type="video",
+        status="pending",
+        total_predictions=1,
+    )
+    db_session.add(task)
     await db_session.flush()
-
+    previous = Prediction(task_id=task.id, project_id=project.id, result=[])
+    db_session.add(previous)
+    await db_session.flush()
+    previous_id = previous.id
     fake_engine, fake_factory = _passthrough_engine_and_factory(db_session)
     import sqlalchemy.ext.asyncio as sa_async
 
     monkeypatch.setattr(sa_async, "create_async_engine", fake_engine)
     monkeypatch.setattr(sa_async, "async_sessionmaker", fake_factory)
-
-    context_reads = []
-    frame_count_by_task = {
-        task.id: frame_count
-        for task, frame_count in zip(tasks, frame_counts, strict=True)
-    }
-
-    async def build_context(
-        reader,
-        *,
-        actor_id=None,
-        task_id,
-        project_id,
-        file_type,
-        dataset_item_id,
-    ):
-        assert reader._db is db_session
-        context_reads.append(task_id)
-        frame_count = frame_count_by_task[task_id]
-        return SimpleNamespace(metadata=SimpleNamespace(frame_count=frame_count))
-
+    metadata = AsyncMock(
+        side_effect=AssertionError("legacy input must not be re-resolved")
+    )
     monkeypatch.setattr(
         "app.services.video_frame_service.AssetsVideoContextReader.from_task_summary",
-        build_context,
+        metadata,
     )
-
-    dispatched = []
-
-    async def frame_dispatcher(request):
-        dispatched.append(request)
-        return FramePreannotationDispatchReceipt(*receipt)
-
-    def unexpected_image_inference(*_args, **_kwargs):
-        raise AssertionError("frame execution must not enter image inference")
-
-    monkeypatch.setattr(
-        "app.services.ml_routing.client.RoutedMLBackendClient",
-        unexpected_image_inference,
-    )
-
-    await _run_batch(
-        project_id=str(project.id),
-        user_id=str(user.id),
-        ml_backend_id=str(backend.id),
-        task_ids=[str(task.id) for task in tasks],
-        execution_unit="frame",
-        frame_dispatcher=frame_dispatcher,
-    )
-
-    assert len(context_reads) == len(tasks)
-    assert set(context_reads) == {task.id for task in tasks}
-    assert len(dispatched) == 1
-    assert set(dispatched[0].task_frame_counts) == {
-        TaskFrameCount(str(task.id), frame_count)
-        for task, frame_count in zip(tasks, frame_counts, strict=True)
-        if frame_count > 0
-    }
-    assert dispatched[0].project_id == str(project.id)
-    assert dispatched[0].ml_backend_id == str(backend.id)
-    assert dispatched[0].job_id
-
-    job = (
-        await db_session.execute(
-            select(AsyncJob).where(
-                AsyncJob.kind == "batch_predict",
-                AsyncJob.project_id == project.id,
-            )
+    dispatch = AsyncMock()
+    with pytest.raises(ValueError, match="requires a retained video manifest"):
+        await run_preannotation(
+            BatchPredictionRequest(
+                project_id=str(project.id),
+                user_id=str(user.id),
+                ml_backend_id=str(backend.id),
+                task_ids=[str(task.id)],
+                execution_unit="frame",
+                predict_mode=predict_mode,
+            ),
+            execution_id=None,
+            frame_dispatcher=dispatch,
         )
-    ).scalar_one()
-    assert job.status == expected_status
-    if expected_status == AsyncJobStatus.COMPLETED.value:
-        assert job.result["execution_unit"] == "frame"
-        assert job.result["reason"] == "no_frames"
+    metadata.assert_not_awaited()
+    dispatch.assert_not_awaited()
+    assert (
+        await db_session.scalar(
+            select(Prediction.id).where(Prediction.id == previous_id)
+        )
+        == previous_id
+    )
+    assert task.total_predictions == 1
 
 
 @pytest.mark.asyncio

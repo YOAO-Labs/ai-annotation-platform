@@ -126,7 +126,7 @@ async def _lock_accepted_video_input_source(
     scope: LabelingWriteScope,
     plan: FrozenFramePlan,
 ) -> None:
-    """Fence an overwrite against its original retained video plan."""
+    """Fence overwrite or failure accounting against the retained original."""
     if type(plan) is not FrozenFramePlan:
         raise _conflict("accepted_video_input_unavailable")
     frozen = plan.input
@@ -135,7 +135,6 @@ async def _lock_accepted_video_input_source(
         or frozen.job_id != scope.job_id
         or frozen.task.task_id != scope.task_id
         or frozen.task.project_id != scope.project_id
-        or frozen.task.task_version != scope.task_version
         or frozen.task.task_source_generation != scope.task_source_generation
         or frozen.task.dataset_item_id != scope.source_dataset_item_id
         or frozen.task.file_path != scope.source_file_path
@@ -290,7 +289,6 @@ async def _assert_execution_current(
         raise _conflict("prediction_video_manifest_origin_mismatch")
     if accepted_video_plan is not None and (
         type(accepted_video_plan) is not FrozenFramePlan
-        or payload["accepted_video_selection"].get("predict_mode") != "overwrite"
         or accepted_video_plan.input.job_id != job.id
         or accepted_video_plan.input.task.task_id != task_id
         or accepted_video_plan.input.task.project_id != scope.project_id

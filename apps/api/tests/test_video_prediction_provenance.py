@@ -213,6 +213,38 @@ async def test_persist_stamps_typed_evidence_and_trusted_execution_job():
 
 
 @pytest.mark.asyncio
+async def test_raw_video_fence_accepts_current_workflow_version_with_original_source(
+    monkeypatch,
+):
+    from app.services import accepted_video_inputs, labeling_write_guard
+    from tests.test_accepted_video_inputs_gateway import facts
+
+    _scope_value, _header, members, _sealed = facts()
+    plan = members[0].input.plan
+    binding = plan.input.task
+    scope = replace(
+        _scope(_evidence()),
+        task_id=binding.task_id,
+        project_id=binding.project_id,
+        job_id=plan.input.job_id,
+        task_version=binding.task_version + 1,
+        task_source_generation=binding.task_source_generation,
+        source_dataset_item_id=binding.dataset_item_id,
+        source_file_path=binding.file_path,
+        source_file_type=binding.file_type,
+    )
+
+    async def lock_source(_db, request):
+        assert request.input_id == plan.input.input_id
+        assert request.job_id == scope.job_id
+        assert request.actor_id == scope.actor_id
+        return SimpleNamespace(plan=plan)
+
+    monkeypatch.setattr(accepted_video_inputs, "lock_video_input_source", lock_source)
+    await labeling_write_guard._lock_accepted_video_input_source(object(), scope, plan)
+
+
+@pytest.mark.asyncio
 async def test_preannotation_video_job_requires_matching_frame_proof(monkeypatch):
     from fastapi import HTTPException
 

@@ -40,6 +40,33 @@ from worktree_runtime import (
 
 OWNER_LABEL = "org.aap.worktree-owner"
 OWNER_TAG = "aap-worktree-owner"
+VIDEO_RUNTIME_CAPABILITIES = (
+    "aap_assets_v1.capture_accepted_video_manifest(uuid,uuid,uuid,jsonb)",
+    "aap_assets_v1.read_accepted_video_manifest(uuid,uuid,uuid)",
+    "aap_assets_v1.read_accepted_video_manifest_page(uuid,uuid,uuid,text,text,bigint,integer)",
+    "aap_assets_v1.prepare_accepted_video_member(uuid,uuid,uuid,text,bigint,uuid,text,bigint,jsonb,text)",
+    "aap_assets_v1.seal_accepted_video_manifest(uuid,uuid,uuid,text)",
+    "aap_assets_v1.read_accepted_video_input(uuid,uuid,uuid,uuid)",
+    "aap_assets_v1.read_accepted_video_input_work(uuid,uuid,uuid,uuid)",
+    "aap_assets_v1.read_accepted_video_times(uuid,uuid,uuid,uuid,text,bigint,integer)",
+    "aap_assets_v1.require_accepted_video_frame(uuid,uuid,uuid,uuid,text,bigint)",
+    "aap_assets_v1.read_accepted_video_frame(uuid,uuid,uuid,uuid,text,bigint)",
+    "aap_assets_v1.claim_accepted_video_input(uuid,uuid,integer)",
+    "aap_assets_v1.heartbeat_accepted_video_input(uuid,bigint,uuid,integer)",
+    "aap_assets_v1.stage_accepted_video_times(uuid,bigint,uuid,bigint,jsonb)",
+    "aap_assets_v1.finish_accepted_video_input(uuid,bigint,uuid,jsonb)",
+    "aap_assets_v1.fail_accepted_video_input(uuid,bigint,uuid,text)",
+    "aap_assets_v1.claim_accepted_video_frame(uuid,uuid,integer)",
+    "aap_assets_v1.heartbeat_accepted_video_frame(uuid,bigint,uuid,integer)",
+    "aap_assets_v1.finish_accepted_video_frame(uuid,bigint,uuid,jsonb)",
+    "aap_assets_v1.fail_accepted_video_frame(uuid,bigint,uuid,text)",
+    "aap_assets_v1.lock_accepted_video_frame(uuid,uuid,uuid,uuid,text,bigint,jsonb,jsonb)",
+    "aap_assets_v1.lock_accepted_video_input(uuid,uuid,uuid,uuid,text)",
+    "aap_assets_v1._lock_accepted_video_input_pin(uuid,uuid,jsonb,uuid)",
+    "aap_labeling_v1.attach_annotation_video_input_source(uuid,uuid,jsonb)",
+    "aap_labeling_v1.copy_annotation_video_input_sources(uuid,uuid)",
+    "aap_labeling_v1.accepted_video_input_referenced(uuid)",
+)
 
 
 def _without_buckets(manifest: dict, *names: str) -> dict:
@@ -414,6 +441,7 @@ class LocalResources:
             database = engine.dialect.identifier_preparer.quote_identifier(
                 self.resources["database"]
             )
+            video_function_grant = ", ".join(VIDEO_RUNTIME_CAPABILITIES)
             async with engine.begin() as connection:
                 for sql in (
                     f"GRANT CONNECT ON DATABASE {database} TO {role}",
@@ -563,6 +591,7 @@ class LocalResources:
                     "aap_jobs_v1.finish_task_creation_job(uuid, uuid), "
                     "aap_jobs_v1.fail_task_creation_job(uuid, uuid, text), "
                     f"aap_jobs_v1.cancel_task_creation_job(uuid, uuid) TO {role}",
+                    f"GRANT EXECUTE ON FUNCTION {video_function_grant} TO {role}",
                 ):
                     await connection.exec_driver_sql(sql)
         finally:

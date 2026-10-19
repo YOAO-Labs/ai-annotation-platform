@@ -51,12 +51,6 @@ class BatchPredictionRequest:
 
 
 @dataclass(frozen=True, slots=True)
-class TaskFrameCount:
-    task_id: str
-    frame_count: int
-
-
-@dataclass(frozen=True, slots=True)
 class VideoFrameTaskPlan:
     """A retained original's selected ordinals, independent of mutable metadata."""
 
@@ -71,7 +65,6 @@ class VideoFrameTaskPlan:
 class FramePreannotationDispatchRequest:
     project_id: str
     ml_backend_id: str
-    task_frame_counts: tuple[TaskFrameCount, ...]
     stage0: dict[str, Any]
     job_id: str
     root_execution_id: str | None
