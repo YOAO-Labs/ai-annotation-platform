@@ -59,7 +59,13 @@ allowed_functions AS (
         )::oid AS claim_inputs_oid,
         pg_catalog.to_regprocedure(
             'aap_assets_v1.complete_accepted_input_garbage(uuid,uuid)'
-        )::oid AS complete_inputs_oid
+        )::oid AS complete_inputs_oid,
+        pg_catalog.to_regprocedure(
+            'aap_assets_v1.claim_accepted_video_input_garbage(uuid,integer,integer)'
+        )::oid AS claim_video_inputs_oid,
+        pg_catalog.to_regprocedure(
+            'aap_assets_v1.complete_accepted_video_input_garbage(uuid,uuid)'
+        )::oid AS complete_video_inputs_oid
 )
 SELECT
     current_user = session_user
@@ -117,6 +123,8 @@ SELECT
           AND proc.oid <> COALESCE(allowed.complete_image_oid, 0::oid)
           AND proc.oid <> COALESCE(allowed.claim_inputs_oid, 0::oid)
           AND proc.oid <> COALESCE(allowed.complete_inputs_oid, 0::oid)
+          AND proc.oid <> COALESCE(allowed.claim_video_inputs_oid, 0::oid)
+          AND proc.oid <> COALESCE(allowed.complete_video_inputs_oid, 0::oid)
           AND pg_catalog.has_function_privilege(
               current_user, proc.oid, 'EXECUTE'
           )
@@ -218,6 +226,14 @@ SELECT
             allowed.complete_inputs_oid,
             'EXECUTE'
         ),
+        false
+    )
+    AND COALESCE(
+        pg_catalog.has_function_privilege(current_user,allowed.claim_video_inputs_oid,'EXECUTE'),
+        false
+    )
+    AND COALESCE(
+        pg_catalog.has_function_privilege(current_user,allowed.complete_video_inputs_oid,'EXECUTE'),
         false
     ) AS is_scoped
 FROM target_login AS login_role

@@ -58,6 +58,10 @@ _CLAIM_FRAME = text(
     "SELECT aap_assets_v1.claim_accepted_video_frame(CAST(:worker AS uuid),"
     "CAST(:frame AS uuid),CAST(:lease_seconds AS integer))"
 )
+_REQUIRE_FRAME = text(
+    "SELECT aap_assets_v1.require_accepted_video_frame(CAST(:actor AS uuid),"
+    "CAST(:job AS uuid),CAST(:task AS uuid),CAST(:input AS uuid),CAST(:plan AS text),1)"
+)
 _HEARTBEAT_FRAME = text(
     "SELECT aap_assets_v1.heartbeat_accepted_video_frame(CAST(:frame AS uuid),"
     "CAST(:generation AS bigint),CAST(:token AS uuid),CAST(:lease_seconds AS integer))"
@@ -103,7 +107,7 @@ async def _seed_prepared_video_input(db):
         ),
         {"identity": json.dumps(identity), "item": item_id},
     )
-    selection = _selection(task_ids=[task_id])
+    selection = _selection(task_ids=[str(task_id)])
     job_id = await _seed_video_job(
         db, actor_id=actor, project_id=project.id, selection=selection
     )
@@ -434,6 +438,20 @@ async def test_video_worker_leases_stage_replay_takeover_and_exact_frame_publica
         ),
         "versioning_required",
     )
+    wrong_created_at = json.loads(json.dumps(plan))
+    wrong_created_at["input"]["created_at"] = "2000-01-01T00:00:00Z"
+    _video_error(
+        await db_session.scalar(
+            _FINISH_INPUT,
+            {
+                "input": input_id,
+                "generation": next_claim["generation"],
+                "token": next_claim["lease_token"],
+                "plan": json.dumps(wrong_created_at),
+            },
+        ),
+        "input_scope_mismatch",
+    )
     finished = _video_data(
         await db_session.scalar(
             _FINISH_INPUT,
@@ -472,13 +490,46 @@ async def test_video_worker_leases_stage_replay_takeover_and_exact_frame_publica
         )
     )
     assert sealed["status"] == "sealed"
-
-    frame_id = await db_session.scalar(
-        text(
-            "SELECT frame_id FROM public.asset_accepted_video_frames WHERE input_id=:input AND ordinal=1"
-        ),
-        {"input": input_id},
+    await db_session.execute(
+        text("UPDATE public.async_jobs SET status='completed' WHERE id=:job"),
+        {"job": job_id},
     )
+    assert (
+        _video_data(
+            await db_session.scalar(
+                _FINISH_INPUT,
+                {
+                    "input": input_id,
+                    "generation": next_claim["generation"],
+                    "token": next_claim["lease_token"],
+                    "plan": json.dumps(plan),
+                },
+            )
+        )
+        == finished
+    )
+    assert (
+        await db_session.scalar(
+            text(
+                "SELECT pg_catalog.count(*) FROM public.asset_accepted_video_frames WHERE input_id=:input"
+            ),
+            {"input": input_id},
+        )
+        == 0
+    )
+    required = _video_data(
+        await db_session.scalar(
+            _REQUIRE_FRAME,
+            {
+                "actor": actor,
+                "job": job_id,
+                "task": finished["task"]["task_id"],
+                "input": input_id,
+                "plan": plan["plan_digest"],
+            },
+        )
+    )
+    frame_id = required["frame_id"]
     frame_claim = _video_data(
         await db_session.scalar(
             _CLAIM_FRAME,
@@ -612,7 +663,7 @@ async def test_video_worker_claim_stops_cancelled_job_and_source_aba(db_session)
             "item": item2,
         },
     )
-    selection2 = _selection(task_ids=[task2])
+    selection2 = _selection(task_ids=[str(task2)])
     job2 = await _seed_video_job(
         db_session, actor_id=actor2, project_id=project2.id, selection=selection2
     )

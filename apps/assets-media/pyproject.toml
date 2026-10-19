@@ -31,7 +31,7 @@ aap_assets_media = ["protocol.schema.json", "openapi.snapshot.json"]
 aap_assets_images = ["protocol.schema.json", "openapi.snapshot.json"]
 aap_assets_inputs = ["protocol.schema.json", "openapi.snapshot.json"]
 aap_assets_input_manifests = ["protocol.schema.json", "openapi.snapshot.json"]
-aap_assets_video_inputs = ["protocol.schema.json", "authority.schema.json", "execution.schema.json", "selection.schema.json"]
+aap_assets_video_inputs = ["protocol.schema.json", "authority.schema.json", "execution.schema.json", "selection.schema.json", "evidence.schema.json"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

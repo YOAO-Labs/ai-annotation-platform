@@ -380,7 +380,7 @@ Mask QC 与点云质检问题的人工状态转移分别由 `services/mask_qc/se
 
 组织两表仍由 identity 承接历史持久化责任；源码复核未发现普通生产入口写入它们，不因此删除表或假定数据无用。`video_segments` 虽定义在 dataset 模型文件中，仍是 labeling 聚合；`project_task_views` 是 SQL 表，不是 view。主动学习报告存于 Attempt JSON，不另造报告表或对象前缀。
 
-已接受媒体输入另有四张由 native SQL 迁移持有、未映射为 ORM 的表：Assets 持有 `asset_accepted_image_inputs`、`asset_accepted_image_input_attempts`、`asset_accepted_input_garbage`，Labeling 持有 `annotation_input_sources`。它们不计入上表的 136 张映射表，但同样受 owner 凭据、保留责任与显式迁移约束。Alembic autogenerate 排除这四张表，防止把未映射误判为应删除。
+已接受媒体输入、图片批量清单和视频帧计划另有十四张由 native SQL 迁移持有、未映射为 ORM 的表。Assets 持有图片输入/尝试、共享垃圾账本、图片清单/成员，以及视频清单/成员、视频输入/尝试、所选帧时间、派生帧/尝试，共十二张；Labeling 持有图片和视频 Annotation 证据表。它们不计入上表的 136 张映射表，但同样受 owner 凭据、保留责任与显式迁移约束。Alembic autogenerate 只排除这十四张明确管理的表，仍报告其他未映射表的删除。视频状态表没有 live Task/Job/User 外键，视频证据只引用 Labeling 自有 Annotation。
 
 ### 字段级所有权与派生投影
 
@@ -447,4 +447,4 @@ Scene、DatasetItem 的 Scene/frame 分配、位姿和标定通过 Assets 的 `a
 
 标定 CAS、历史修订、当前元数据合并、Audit 和不可变回执共享事务；最终写入重新校验当前项目管理与共享相机权限。已受理点云准备保持原操作执行权，解绑、取消和关联代次变化阻止迟到结果。普通远程工作流由独立工件执行；明确要求整体回滚的导入在同一调用方 SQL 连接上组合公开原生能力，不在远程故障后自动回退。
 
-Catalog LOGIN 精确执行 29 项公开能力；Source LOGIN 执行 26 项（14 项来源/入库能力、9 项连接管理能力和 3 项图片来源能力），导入 LOGIN 执行 9 项，operator LOGIN 单独执行 6 项 Dataset/Item 能力。共享 Assets Media 控制 LOGIN 执行视频、图片、受理输入及批量清单合计 40 项，视频 worker 10 项、图片 worker 10 项，Cleanup LOGIN 执行通用存储、图片及受理输入垃圾清理合计 6 项；各 LOGIN 只执行其冻结函数清单。连接列表、读取、策略、捕获、回执和四类写入均经既有 Assets Source runtime；它不直接读取业务表。`storage_connection_operations` 保存无 live FK 的不可变回执。需要网络策略的变更在 DNS/探测完成后才短暂锁定 Settings 并重查策略；锁不跨越外部 I/O。连接管理字段与重放规则见[连接器 API](/api/guides/storage-connections)；空间字段、分页完整性、S3 条件读取与部署次序见[空间素材协议](/api/guides/assets-spatial)及 [ADR-0102](/dev/adr/0102-assets-spatial-state)。其他媒体与 Blob 类型仍按各自 owner/生命周期管理。
+Catalog LOGIN 精确执行 29 项公开能力；Source LOGIN 执行 26 项（14 项来源/入库能力、9 项连接管理能力和 3 项图片来源能力），导入 LOGIN 执行 9 项，operator LOGIN 单独执行 6 项 Dataset/Item 能力。共享 Assets Media 控制 LOGIN 执行视频、图片、受理输入及批量清单合计 49 项，视频 worker 20 项、图片 worker 10 项，Cleanup LOGIN 执行通用存储、图片及受理输入垃圾清理合计 8 项；各 LOGIN 只执行其冻结函数清单。连接列表、读取、策略、捕获、回执和四类写入均经既有 Assets Source runtime；它不直接读取业务表。`storage_connection_operations` 保存无 live FK 的不可变回执。需要网络策略的变更在 DNS/探测完成后才短暂锁定 Settings 并重查策略；锁不跨越外部 I/O。连接管理字段与重放规则见[连接器 API](/api/guides/storage-connections)；空间字段、分页完整性、S3 条件读取与部署次序见[空间素材协议](/api/guides/assets-spatial)及 [ADR-0102](/dev/adr/0102-assets-spatial-state)。其他媒体与 Blob 类型仍按各自 owner/生命周期管理。

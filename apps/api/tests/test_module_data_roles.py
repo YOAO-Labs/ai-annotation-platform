@@ -494,6 +494,8 @@ async def test_asset_cleanup_client_uses_only_the_storage_outbox_functions(
             "aap_assets_v1.complete_image_garbage(uuid,uuid)",
             "aap_assets_v1.claim_accepted_input_garbage(uuid,integer,integer)",
             "aap_assets_v1.complete_accepted_input_garbage(uuid,uuid)",
+            "aap_assets_v1.claim_accepted_video_input_garbage(uuid,integer,integer)",
+            "aap_assets_v1.complete_accepted_video_input_garbage(uuid,uuid)",
         ):
             assert await cleanup.scalar(
                 text(
@@ -535,7 +537,9 @@ async def test_asset_cleanup_client_uses_only_the_storage_outbox_functions(
                     "'aap_assets_v1.claim_image_garbage(uuid,integer,integer)'::regprocedure, "
                     "'aap_assets_v1.complete_image_garbage(uuid,uuid)'::regprocedure, "
                     "'aap_assets_v1.claim_accepted_input_garbage(uuid,integer,integer)'::regprocedure, "
-                    "'aap_assets_v1.complete_accepted_input_garbage(uuid,uuid)'::regprocedure)) "
+                    "'aap_assets_v1.complete_accepted_input_garbage(uuid,uuid)'::regprocedure, "
+                    "'aap_assets_v1.claim_accepted_video_input_garbage(uuid,integer,integer)'::regprocedure, "
+                    "'aap_assets_v1.complete_accepted_video_input_garbage(uuid,uuid)'::regprocedure)) "
                     "OR (namespace.nspname <> 'aap_assets_v1' "
                     "AND left(namespace.nspname, 4) = 'aap_' "
                     "AND right(namespace.nspname, 3) = '_v1')) "

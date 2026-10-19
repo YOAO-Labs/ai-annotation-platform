@@ -21,7 +21,7 @@ DECLARE
     v_expired boolean := false;
     v_message text;
 BEGIN
-    IF p_worker_id IS NULL OR p_lease_seconds NOT BETWEEN 60 AND 7200 THEN
+    IF p_worker_id IS NULL OR p_lease_seconds IS NULL OR p_lease_seconds NOT BETWEEN 60 AND 7200 THEN
         RETURN aap_assets_v1._video_input_reply(NULL,'invalid_request');
     END IF;
     IF p_input_id IS NOT NULL AND NOT EXISTS (
@@ -176,7 +176,7 @@ DECLARE
     v_reply jsonb; v_code text; v_source_code text; v_expires timestamptz;
 BEGIN
     IF p_input_id IS NULL OR p_generation IS NULL OR p_generation<=0 OR p_lease_token IS NULL
-       OR p_lease_seconds NOT BETWEEN 60 AND 7200 THEN
+       OR p_lease_seconds IS NULL OR p_lease_seconds NOT BETWEEN 60 AND 7200 THEN
         RETURN aap_assets_v1._video_input_reply(NULL,'invalid_request');
     END IF;
     SELECT input.* INTO v_input FROM public.asset_accepted_video_inputs AS input
@@ -395,9 +395,10 @@ BEGIN
     SELECT input.* INTO v_input FROM public.asset_accepted_video_inputs AS input
     WHERE input.input_id=p_input_id FOR UPDATE NOWAIT;
     IF NOT FOUND THEN RETURN aap_assets_v1._video_input_reply(NULL,'input_missing'); END IF;
+    IF (p_plan #>> '{input,created_at}')::timestamptz IS DISTINCT FROM v_input.created_at THEN
+        RETURN aap_assets_v1._video_input_reply(NULL,'input_scope_mismatch'); END IF;
     v_plan := pg_catalog.jsonb_set(p_plan,'{input,created_at}',pg_catalog.to_jsonb(v_input.created_at),false);
-    IF (v_plan #>> '{input,created_at}')::timestamptz IS DISTINCT FROM v_input.created_at
-       OR v_plan #>> '{input,job_id}' IS DISTINCT FROM v_input.job_id::text
+    IF v_plan #>> '{input,job_id}' IS DISTINCT FROM v_input.job_id::text
        OR v_plan #>> '{input,actor_id}' IS DISTINCT FROM v_input.actor_id::text
        OR v_plan #> '{input,task}' IS DISTINCT FROM v_input.task
        OR v_plan #> '{input,source}' IS DISTINCT FROM v_input.source
@@ -530,13 +531,6 @@ BEGIN
     WHERE input.input_id=p_input_id RETURNING * INTO v_input;
     UPDATE public.asset_accepted_video_input_attempts AS attempt SET status='ready',completed_at=pg_catalog.clock_timestamp()
     WHERE attempt.input_id=p_input_id AND attempt.generation=p_generation;
-    INSERT INTO public.asset_accepted_video_frames(
-        input_id,request_actor_id,plan_digest,ordinal,frame_index,pts_ms,is_keyframe
-    ) SELECT p_input_id,v_input.request_actor_id,v_plan->>'plan_digest',times.ordinal,
-        times.frame_index,times.pts_ms,times.is_keyframe
-      FROM public.asset_accepted_video_times AS times
-      WHERE times.input_id=p_input_id AND times.generation=p_generation AND times.lease_token=p_lease_token
-      ORDER BY times.ordinal;
     PERFORM aap_assets_v1._video_input_complete_member(p_input_id,'ready',NULL);
     RETURN aap_assets_v1._video_input_reply(aap_assets_v1._video_input_record(v_input),NULL);
 EXCEPTION
@@ -647,7 +641,7 @@ DECLARE
     v_key text; v_claim jsonb; v_expired boolean;
     v_message text;
 BEGIN
-    IF p_worker_id IS NULL OR p_lease_seconds NOT BETWEEN 60 AND 7200 THEN
+    IF p_worker_id IS NULL OR p_lease_seconds IS NULL OR p_lease_seconds NOT BETWEEN 60 AND 7200 THEN
         RETURN aap_assets_v1._video_input_reply(NULL,'invalid_request');
     END IF;
     IF p_frame_id IS NOT NULL AND NOT EXISTS (
@@ -702,7 +696,7 @@ BEGIN
             IS DISTINCT FROM (v_frame.frame_index,v_frame.pts_ms,v_frame.is_keyframe) THEN
             RETURN aap_assets_v1._video_input_reply(NULL,'timebase_changed');
         END IF;
-        v_reply := aap_assets_v1._video_input_job(v_manifest,v_input.task_id,true);
+        v_reply := aap_assets_v1._video_input_job(v_manifest,v_input.task_id,false);
         v_code := aap_assets_v1._video_input_code(v_reply,'aap-assets-video-input-execution/v1');
         IF v_code IS NOT NULL THEN
             IF v_code IN ('job_not_active','task_not_visible','permission_denied','source_missing','source_changed',
@@ -806,7 +800,7 @@ DECLARE
     v_reply jsonb; v_code text; v_source_code text; v_expires timestamptz;
 BEGIN
     IF p_frame_id IS NULL OR p_generation IS NULL OR p_generation<=0 OR p_lease_token IS NULL
-       OR p_lease_seconds NOT BETWEEN 60 AND 7200 THEN
+       OR p_lease_seconds IS NULL OR p_lease_seconds NOT BETWEEN 60 AND 7200 THEN
         RETURN aap_assets_v1._video_input_reply(NULL,'invalid_request');
     END IF;
     SELECT frame.* INTO v_frame FROM public.asset_accepted_video_frames AS frame
@@ -842,7 +836,7 @@ BEGIN
         IS DISTINCT FROM (v_frame.frame_index,v_frame.pts_ms,v_frame.is_keyframe) THEN
         RETURN aap_assets_v1._video_input_reply(NULL,'timebase_changed');
     END IF;
-    v_reply := aap_assets_v1._video_input_job(v_manifest,v_input.task_id,true);
+    v_reply := aap_assets_v1._video_input_job(v_manifest,v_input.task_id,false);
     v_code := aap_assets_v1._video_input_code(v_reply,'aap-assets-video-input-execution/v1');
     IF v_code IS NOT NULL THEN RETURN aap_assets_v1._video_input_reply(NULL,v_code); END IF;
     v_source_code := aap_assets_v1._video_input_current_source(v_input,v_frame.request_actor_id,true,false);
@@ -950,7 +944,7 @@ BEGIN
     IF NOT FOUND OR v_attempt.lease_expires_at<=pg_catalog.clock_timestamp() THEN
         RETURN aap_assets_v1._video_input_reply(NULL,'lease_lost');
     END IF;
-    v_reply := aap_assets_v1._video_input_job(v_manifest,v_input.task_id,true);
+    v_reply := aap_assets_v1._video_input_job(v_manifest,v_input.task_id,false);
     v_code := aap_assets_v1._video_input_code(v_reply,'aap-assets-video-input-execution/v1');
     IF v_code IS NOT NULL THEN RETURN aap_assets_v1._video_input_reply(NULL,v_code); END IF;
     v_source_code := aap_assets_v1._video_input_current_source(v_input,v_frame.request_actor_id,true,false);
@@ -1039,7 +1033,7 @@ BEGIN
         IS DISTINCT FROM (v_frame.frame_index,v_frame.pts_ms,v_frame.is_keyframe) THEN
         RETURN aap_assets_v1._video_input_reply(NULL,'timebase_changed');
     END IF;
-    v_reply := aap_assets_v1._video_input_job(v_manifest,v_input.task_id,true);
+    v_reply := aap_assets_v1._video_input_job(v_manifest,v_input.task_id,false);
     v_code := aap_assets_v1._video_input_code(v_reply,'aap-assets-video-input-execution/v1');
     IF v_code IS NOT NULL THEN RETURN aap_assets_v1._video_input_reply(NULL,v_code); END IF;
     v_source_code := aap_assets_v1._video_input_current_source(v_input,v_frame.request_actor_id,true,false);

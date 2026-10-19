@@ -249,6 +249,11 @@ GRANT SELECT, INSERT, UPDATE ON public.asset_accepted_image_inputs,
     public.asset_accepted_input_garbage TO :"assets_owner";
 GRANT SELECT, INSERT, UPDATE ON public.asset_accepted_image_input_manifests,
     public.asset_accepted_image_input_manifest_members TO :"assets_owner";
+GRANT SELECT, INSERT, UPDATE ON public.asset_accepted_video_manifests,
+    public.asset_accepted_video_members, public.asset_accepted_video_inputs,
+    public.asset_accepted_video_input_attempts, public.asset_accepted_video_frames,
+    public.asset_accepted_video_frame_attempts TO :"assets_owner";
+GRANT SELECT, INSERT ON public.asset_accepted_video_times TO :"assets_owner";
 GRANT SELECT, INSERT, UPDATE ON public.scene_frame_poses TO :"assets_owner";
 GRANT SELECT, INSERT ON public.sensor_calibration_revisions,
     public.dataset_spatial_operations TO :"assets_owner";
@@ -336,6 +341,7 @@ GRANT SELECT (
 ), UPDATE (parent_annotation_id, parent_prediction_id), DELETE
     ON public.annotations TO :"labeling_owner";
 GRANT SELECT, INSERT ON public.annotation_input_sources TO :"labeling_owner";
+GRANT SELECT, INSERT ON public.annotation_video_input_sources TO :"labeling_owner";
 GRANT SELECT (id, project_id, task_id, annotation_id, thread_parent_id),
     UPDATE (thread_parent_id), DELETE
     ON public.annotation_feedbacks TO :"labeling_owner";
@@ -554,6 +560,8 @@ GRANT EXECUTE ON FUNCTION
     aap_labeling_v1.project_accepted_image_input_task(uuid, uuid, boolean),
     aap_labeling_v1.accepted_image_input_referenced(uuid)
     TO :"assets_owner";
+GRANT EXECUTE ON FUNCTION aap_labeling_v1.accepted_video_input_referenced(uuid)
+    TO :"assets_owner";
 GRANT EXECUTE ON FUNCTION aap_assets_v1.associate_project(uuid, uuid, uuid)
     TO :"workflow_role";
 GRANT EXECUTE ON FUNCTION aap_assets_v1.delete_project_owned_records(uuid)
@@ -593,6 +601,17 @@ GRANT EXECUTE ON FUNCTION
 GRANT EXECUTE ON FUNCTION aap_assets_v1.capture_accepted_image_input_manifest(
     uuid, uuid, uuid, jsonb
 ) TO :"workflow_role";
+GRANT EXECUTE ON FUNCTION aap_assets_v1.capture_accepted_video_manifest(uuid,uuid,uuid,jsonb)
+    TO :"workflow_role";
+GRANT EXECUTE ON FUNCTION
+    aap_assets_v1.lock_accepted_video_input(uuid,uuid,uuid,uuid,text),
+    aap_assets_v1.lock_accepted_video_frame(uuid,uuid,uuid,uuid,text,bigint,jsonb,jsonb),
+    aap_assets_v1._lock_accepted_video_input_pin(uuid,uuid,jsonb,uuid)
+    TO :"labeling_owner";
+GRANT EXECUTE ON FUNCTION
+    aap_labeling_v1.attach_annotation_video_input_source(uuid,uuid,jsonb),
+    aap_labeling_v1.copy_annotation_video_input_sources(uuid,uuid)
+    TO :"workflow_role";
 GRANT EXECUTE ON FUNCTION aap_assets_v1.dataset_item_references(uuid, uuid)
     TO :"labeling_owner", :"learning_owner";
 GRANT EXECUTE ON FUNCTION aap_assets_v1.dataset_scene_references(uuid),
@@ -680,7 +699,9 @@ GRANT EXECUTE ON FUNCTION aap_assets_v1.pending_storage_deletions_v2(
     aap_assets_v1.claim_image_garbage(uuid, integer, integer),
     aap_assets_v1.complete_image_garbage(uuid, uuid),
     aap_assets_v1.claim_accepted_input_garbage(uuid, integer, integer),
-    aap_assets_v1.complete_accepted_input_garbage(uuid, uuid)
+    aap_assets_v1.complete_accepted_input_garbage(uuid, uuid),
+    aap_assets_v1.claim_accepted_video_input_garbage(uuid,integer,integer),
+    aap_assets_v1.complete_accepted_video_input_garbage(uuid,uuid)
     TO :"asset_cleanup_role";
 REVOKE ALL ON FUNCTION aap_assets_v1.pending_storage_deletions(uuid, integer)
     FROM :"asset_cleanup_role";
@@ -1057,6 +1078,7 @@ BEGIN
                OR proc.proname LIKE '%operator%'
                OR proc.proname LIKE '%media%'
                OR (ns.nspname = 'aap_assets_v1' AND proc.proname LIKE '%video_%')
+               OR (ns.nspname = 'aap_labeling_v1' AND proc.proname LIKE '%video_input%')
                OR ns.nspname IN ('aap_settings_v1','aap_notifications_v1'))
     LOOP
         EXECUTE pg_catalog.format('ALTER FUNCTION %s OWNER TO %I',
@@ -1161,6 +1183,14 @@ BEGIN
         'public.asset_accepted_image_input_manifests',
         'public.asset_accepted_image_input_manifest_members',
         'public.annotation_input_sources',
+        'public.asset_accepted_video_manifests',
+        'public.asset_accepted_video_members',
+        'public.asset_accepted_video_inputs',
+        'public.asset_accepted_video_input_attempts',
+        'public.asset_accepted_video_times',
+        'public.asset_accepted_video_frames',
+        'public.asset_accepted_video_frame_attempts',
+        'public.annotation_video_input_sources',
         'public.tasks', 'public.task_batches', 'public.task_locks',
         'public.predictions', 'public.prediction_metas', 'public.failed_predictions',
         'public.annotations', 'public.annotation_feedbacks', 'public.annotation_drafts',
@@ -1389,6 +1419,10 @@ BEGIN
         'aap_assets_v1.claim_accepted_input_garbage(uuid,integer,integer)', 'EXECUTE')
        OR NOT has_function_privilege(current_setting('aap.asset_cleanup_role'),
         'aap_assets_v1.complete_accepted_input_garbage(uuid,uuid)', 'EXECUTE')
+       OR NOT has_function_privilege(current_setting('aap.asset_cleanup_role'),
+        'aap_assets_v1.claim_accepted_video_input_garbage(uuid,integer,integer)', 'EXECUTE')
+       OR NOT has_function_privilege(current_setting('aap.asset_cleanup_role'),
+        'aap_assets_v1.complete_accepted_video_input_garbage(uuid,uuid)', 'EXECUTE')
        OR has_function_privilege(current_setting('aap.asset_cleanup_role'),
         'aap_assets_v1.pending_storage_deletions(uuid,integer)', 'EXECUTE')
        OR EXISTS (
@@ -1404,7 +1438,9 @@ BEGIN
                  'aap_assets_v1.claim_image_garbage(uuid,integer,integer)'::pg_catalog.regprocedure,
                  'aap_assets_v1.complete_image_garbage(uuid,uuid)'::pg_catalog.regprocedure,
                  'aap_assets_v1.claim_accepted_input_garbage(uuid,integer,integer)'::pg_catalog.regprocedure,
-                 'aap_assets_v1.complete_accepted_input_garbage(uuid,uuid)'::pg_catalog.regprocedure
+                 'aap_assets_v1.complete_accepted_input_garbage(uuid,uuid)'::pg_catalog.regprocedure,
+                 'aap_assets_v1.claim_accepted_video_input_garbage(uuid,integer,integer)'::pg_catalog.regprocedure,
+                 'aap_assets_v1.complete_accepted_video_input_garbage(uuid,uuid)'::pg_catalog.regprocedure
              )
        ) OR EXISTS (
            SELECT 1

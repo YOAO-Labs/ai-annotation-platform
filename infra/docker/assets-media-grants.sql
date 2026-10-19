@@ -159,7 +159,16 @@ GRANT EXECUTE ON FUNCTION
     aap_assets_v1.read_accepted_image_input_manifest(uuid,uuid,uuid),
     aap_assets_v1.read_accepted_image_input_manifest_page(uuid,uuid,uuid,text,text,bigint,integer),
     aap_assets_v1.prepare_accepted_image_input_manifest_member(uuid,uuid,uuid,text,bigint,uuid,text,jsonb,text),
-    aap_assets_v1.seal_accepted_image_input_manifest(uuid,uuid,uuid,text)
+    aap_assets_v1.seal_accepted_image_input_manifest(uuid,uuid,uuid,text),
+    aap_assets_v1.read_accepted_video_manifest(uuid,uuid,uuid),
+    aap_assets_v1.read_accepted_video_manifest_page(uuid,uuid,uuid,text,text,bigint,integer),
+    aap_assets_v1.prepare_accepted_video_member(uuid,uuid,uuid,text,bigint,uuid,text,bigint,jsonb,text),
+    aap_assets_v1.seal_accepted_video_manifest(uuid,uuid,uuid,text),
+    aap_assets_v1.read_accepted_video_input(uuid,uuid,uuid,uuid),
+    aap_assets_v1.read_accepted_video_input_work(uuid,uuid,uuid,uuid),
+    aap_assets_v1.read_accepted_video_times(uuid,uuid,uuid,uuid,text,bigint,integer),
+    aap_assets_v1.require_accepted_video_frame(uuid,uuid,uuid,uuid,text,bigint),
+    aap_assets_v1.read_accepted_video_frame(uuid,uuid,uuid,uuid,text,bigint)
     TO :"asset_media_control_role";
 GRANT EXECUTE ON FUNCTION
     aap_assets_v1.claim_video_media(uuid,uuid,integer,text[]),
@@ -171,7 +180,17 @@ GRANT EXECUTE ON FUNCTION
     aap_assets_v1.claim_video_media_garbage(uuid,integer,integer),
     aap_assets_v1.complete_video_media_garbage(uuid,uuid),
     aap_assets_v1.advance_video_backfill(uuid,bigint,uuid,integer),
-    aap_assets_v1.read_video_media_usage()
+    aap_assets_v1.read_video_media_usage(),
+    aap_assets_v1.claim_accepted_video_input(uuid,uuid,integer),
+    aap_assets_v1.heartbeat_accepted_video_input(uuid,bigint,uuid,integer),
+    aap_assets_v1.stage_accepted_video_times(uuid,bigint,uuid,bigint,jsonb),
+    aap_assets_v1.finish_accepted_video_input(uuid,bigint,uuid,jsonb),
+    aap_assets_v1.fail_accepted_video_input(uuid,bigint,uuid,text),
+    aap_assets_v1.claim_accepted_video_frame(uuid,uuid,integer),
+    aap_assets_v1.heartbeat_accepted_video_frame(uuid,bigint,uuid,integer),
+    aap_assets_v1.finish_accepted_video_frame(uuid,bigint,uuid,jsonb),
+    aap_assets_v1.fail_accepted_video_frame(uuid,bigint,uuid,text),
+    aap_assets_v1.sweep_accepted_video_inputs(integer)
     TO :"asset_media_worker_role";
 
 DO $$
@@ -226,7 +245,16 @@ DECLARE
         pg_catalog.to_regprocedure('aap_assets_v1.read_accepted_image_input_manifest(uuid,uuid,uuid)')::oid,
         pg_catalog.to_regprocedure('aap_assets_v1.read_accepted_image_input_manifest_page(uuid,uuid,uuid,text,text,bigint,integer)')::oid,
         pg_catalog.to_regprocedure('aap_assets_v1.prepare_accepted_image_input_manifest_member(uuid,uuid,uuid,text,bigint,uuid,text,jsonb,text)')::oid,
-        pg_catalog.to_regprocedure('aap_assets_v1.seal_accepted_image_input_manifest(uuid,uuid,uuid,text)')::oid
+        pg_catalog.to_regprocedure('aap_assets_v1.seal_accepted_image_input_manifest(uuid,uuid,uuid,text)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.read_accepted_video_manifest(uuid,uuid,uuid)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.read_accepted_video_manifest_page(uuid,uuid,uuid,text,text,bigint,integer)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.prepare_accepted_video_member(uuid,uuid,uuid,text,bigint,uuid,text,bigint,jsonb,text)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.seal_accepted_video_manifest(uuid,uuid,uuid,text)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.read_accepted_video_input(uuid,uuid,uuid,uuid)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.read_accepted_video_input_work(uuid,uuid,uuid,uuid)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.read_accepted_video_times(uuid,uuid,uuid,uuid,text,bigint,integer)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.require_accepted_video_frame(uuid,uuid,uuid,uuid,text,bigint)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.read_accepted_video_frame(uuid,uuid,uuid,uuid,text,bigint)')::oid
     ];
     worker_functions oid[] := ARRAY[
         pg_catalog.to_regprocedure('aap_assets_v1.claim_video_media(uuid,uuid,integer,text[])')::oid,
@@ -238,7 +266,17 @@ DECLARE
         pg_catalog.to_regprocedure('aap_assets_v1.claim_video_media_garbage(uuid,integer,integer)')::oid,
         pg_catalog.to_regprocedure('aap_assets_v1.complete_video_media_garbage(uuid,uuid)')::oid,
         pg_catalog.to_regprocedure('aap_assets_v1.advance_video_backfill(uuid,bigint,uuid,integer)')::oid,
-        pg_catalog.to_regprocedure('aap_assets_v1.read_video_media_usage()')::oid
+        pg_catalog.to_regprocedure('aap_assets_v1.read_video_media_usage()')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.claim_accepted_video_input(uuid,uuid,integer)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.heartbeat_accepted_video_input(uuid,bigint,uuid,integer)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.stage_accepted_video_times(uuid,bigint,uuid,bigint,jsonb)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.finish_accepted_video_input(uuid,bigint,uuid,jsonb)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.fail_accepted_video_input(uuid,bigint,uuid,text)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.claim_accepted_video_frame(uuid,uuid,integer)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.heartbeat_accepted_video_frame(uuid,bigint,uuid,integer)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.finish_accepted_video_frame(uuid,bigint,uuid,jsonb)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.fail_accepted_video_frame(uuid,bigint,uuid,text)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.sweep_accepted_video_inputs(integer)')::oid
     ];
 BEGIN
     IF pg_catalog.has_database_privilege(control_oid, current_database(), 'CREATE')

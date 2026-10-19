@@ -6,6 +6,7 @@ from aap_assets_images.contract import OPERATIONS as IMAGE_OPERATIONS
 from aap_assets_media.contract import OPERATIONS as VIDEO_OPERATIONS
 from aap_assets_inputs.contract import OPERATIONS as INPUT_OPERATIONS
 from aap_assets_input_manifests.contract import OPERATIONS as MANIFEST_OPERATIONS
+from aap_assets_video_inputs.execution import OPERATIONS as VIDEO_INPUT_OPERATIONS
 
 _ROLE_SQL = """
 SELECT current_user = session_user
@@ -52,6 +53,7 @@ def _expected_signatures(role: str) -> tuple[str, ...]:
             (IMAGE_OPERATIONS, {"control", "system"}),
             (INPUT_OPERATIONS, {"control"}),
             (MANIFEST_OPERATIONS, {"control"}),
+            (VIDEO_INPUT_OPERATIONS, {"control"}),
         )
     else:
         return ()

@@ -1973,7 +1973,20 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   clean up all their temporary resources. This SQL remains transactionally
   compiled draft state; migration 0225 installation and restricted-role worker,
   retention and process acceptance are still pending.
-- Retained video worker/retention integration, process/HTTP wiring, sealed
+- Migration 0225 now installs all 24 execution capabilities, seven Assets state
+  tables and one Labeling evidence table. Native worker publication independently
+  verifies staged selected times and both digests, keeps generation/token CAS,
+  rejects transient contention as a fixed failure and creates frame rows lazily.
+  Original-Job history is distinct from the active Labeling execution/retry Job.
+  Typed ready/failure evidence, same-project cross-Task lineage, source/frame
+  pinning, 30-day grace and partitioned attempt GC preserve original metadata.
+  Expiring an input terminalizes every unfinished frame and releases its lease.
+  The owned PostgreSQL/role/migration/lifecycle suite passes 34 cases, zero skips;
+  it includes existing image retention regression and native autogeneration.
+  Install/rollback, downgrade to 0189, reinstall to 0225 and grant reapplication
+  pass; all owned resources are cleaned. Control, video-worker and Cleanup exact
+  permission sets are 49, 20 and 8; no direct foreign-owner data grants are added.
+- Retained video process/HTTP wiring, sealed
   preparation and real consumer/overwrite migration, failure/retry and typed
   Annotation evidence/GC remain next. Installed-process, restricted real video
   S3 and affected Celery qualification are still required before promotion.

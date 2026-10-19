@@ -1,0 +1,2697 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aap-assets-video-input-execution/v1",
+  "$defs": {
+    "FrameSampling": {
+      "additionalProperties": false,
+      "properties": {
+        "max_frames": {
+          "maximum": 2147483647,
+          "minimum": 1,
+          "title": "Max Frames",
+          "type": "integer"
+        },
+        "step": {
+          "default": 1,
+          "maximum": 2147483647,
+          "minimum": 1,
+          "title": "Step",
+          "type": "integer"
+        },
+        "width": {
+          "default": 1280,
+          "maximum": 4096,
+          "minimum": 1,
+          "title": "Width",
+          "type": "integer"
+        },
+        "format": {
+          "default": "jpeg",
+          "enum": ["jpeg", "webp"],
+          "title": "Format",
+          "type": "string"
+        }
+      },
+      "required": ["max_frames"],
+      "title": "FrameSampling",
+      "type": "object"
+    },
+    "VideoSelection": {
+      "additionalProperties": false,
+      "properties": {
+        "batch_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Batch Id"
+        },
+        "task_ids": {
+          "anyOf": [
+            {
+              "items": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "maxItems": 200,
+              "minItems": 1,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Task Ids"
+        },
+        "predict_mode": {
+          "enum": ["skip_predicted", "overwrite", "append"],
+          "title": "Predict Mode",
+          "type": "string"
+        },
+        "execution_scope": {
+          "enum": ["bulk", "workbench"],
+          "title": "Execution Scope",
+          "type": "string"
+        },
+        "sampling": {
+          "$ref": "#/$defs/FrameSampling"
+        }
+      },
+      "required": ["batch_id", "task_ids", "predict_mode", "execution_scope", "sampling"],
+      "title": "VideoSelection",
+      "type": "object"
+    },
+    "CaptureVideoManifestRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "job_id": {
+          "format": "uuid",
+          "title": "Job Id",
+          "type": "string"
+        },
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "selection": {
+          "$ref": "#/$defs/VideoSelection"
+        }
+      },
+      "required": ["job_id", "actor_id", "project_id", "selection"],
+      "title": "CaptureVideoManifestRequest",
+      "type": "object"
+    },
+    "VideoManifestHeader": {
+      "additionalProperties": false,
+      "description": "actor_id attributes admission; read requests carry the current actor.",
+      "properties": {
+        "job_id": {
+          "format": "uuid",
+          "title": "Job Id",
+          "type": "string"
+        },
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "selection": {
+          "$ref": "#/$defs/VideoSelection"
+        },
+        "selection_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Selection Digest",
+          "type": "string"
+        },
+        "candidate_count": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "title": "Candidate Count",
+          "type": "integer"
+        },
+        "selected_count": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "title": "Selected Count",
+          "type": "integer"
+        },
+        "prepared_count": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "title": "Prepared Count",
+          "type": "integer"
+        },
+        "status": {
+          "enum": ["preparing", "sealed"],
+          "title": "Status",
+          "type": "string"
+        },
+        "ready_count": {
+          "anyOf": [
+            {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Ready Count"
+        },
+        "failed_count": {
+          "anyOf": [
+            {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Failed Count"
+        },
+        "sealed_digest": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Sealed Digest"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "sealed_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Sealed At"
+        }
+      },
+      "required": [
+        "job_id",
+        "actor_id",
+        "project_id",
+        "selection",
+        "selection_digest",
+        "candidate_count",
+        "selected_count",
+        "prepared_count",
+        "status",
+        "ready_count",
+        "failed_count",
+        "sealed_digest",
+        "created_at",
+        "sealed_at"
+      ],
+      "title": "VideoManifestHeader",
+      "type": "object"
+    },
+    "VideoManifestScope": {
+      "additionalProperties": false,
+      "properties": {
+        "job_id": {
+          "format": "uuid",
+          "title": "Job Id",
+          "type": "string"
+        },
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        }
+      },
+      "required": ["job_id", "actor_id", "project_id"],
+      "title": "VideoManifestScope",
+      "type": "object"
+    },
+    "VideoManifestPageRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "job_id": {
+          "format": "uuid",
+          "title": "Job Id",
+          "type": "string"
+        },
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "selection_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Selection Digest",
+          "type": "string"
+        },
+        "sealed_digest": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sealed Digest"
+        },
+        "cursor": {
+          "default": 0,
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "title": "Cursor",
+          "type": "integer"
+        },
+        "page_size": {
+          "default": 100,
+          "maximum": 100,
+          "minimum": 1,
+          "title": "Page Size",
+          "type": "integer"
+        }
+      },
+      "required": ["job_id", "actor_id", "project_id", "selection_digest"],
+      "title": "VideoManifestPageRequest",
+      "type": "object"
+    },
+    "CapturedVideoTask": {
+      "additionalProperties": false,
+      "description": "Raw capture can retain a missing link as a fixed member failure.",
+      "properties": {
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "batch_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Batch Id"
+        },
+        "task_version": {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "title": "Task Version",
+          "type": "integer"
+        },
+        "task_source_generation": {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "title": "Task Source Generation",
+          "type": "integer"
+        },
+        "dataset_item_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Dataset Item Id"
+        },
+        "task_source_snapshot": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Task Source Snapshot",
+          "type": "string"
+        },
+        "file_path": {
+          "maxLength": 1024,
+          "title": "File Path",
+          "type": "string"
+        },
+        "file_type": {
+          "const": "video",
+          "title": "File Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "task_id",
+        "project_id",
+        "batch_id",
+        "task_version",
+        "task_source_generation",
+        "dataset_item_id",
+        "task_source_snapshot",
+        "file_path",
+        "file_type"
+      ],
+      "title": "CapturedVideoTask",
+      "type": "object"
+    },
+    "FrozenFramePlan": {
+      "additionalProperties": false,
+      "properties": {
+        "input": {
+          "$ref": "#/$defs/FrozenVideoInput"
+        },
+        "sampling": {
+          "$ref": "#/$defs/FrameSampling"
+        },
+        "selected_count": {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "title": "Selected Count",
+          "type": "integer"
+        },
+        "timebase_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Timebase Digest",
+          "type": "string"
+        },
+        "plan_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Plan Digest",
+          "type": "string"
+        }
+      },
+      "required": ["input", "sampling", "selected_count", "timebase_digest", "plan_digest"],
+      "title": "FrozenFramePlan",
+      "type": "object"
+    },
+    "FrozenVideoInput": {
+      "additionalProperties": false,
+      "properties": {
+        "input_id": {
+          "format": "uuid",
+          "title": "Input Id",
+          "type": "string"
+        },
+        "job_id": {
+          "format": "uuid",
+          "title": "Job Id",
+          "type": "string"
+        },
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "task": {
+          "$ref": "#/$defs/TaskVideoBinding"
+        },
+        "source": {
+          "$ref": "#/$defs/VideoSourceSnapshot"
+        },
+        "blob": {
+          "$ref": "#/$defs/VideoBlob"
+        },
+        "video": {
+          "$ref": "#/$defs/VideoFacts"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "input_id",
+        "job_id",
+        "actor_id",
+        "task",
+        "source",
+        "blob",
+        "video",
+        "created_at"
+      ],
+      "title": "FrozenVideoInput",
+      "type": "object"
+    },
+    "ObjectIdentity": {
+      "additionalProperties": false,
+      "properties": {
+        "etag": {
+          "maxLength": 255,
+          "minLength": 1,
+          "title": "Etag",
+          "type": "string"
+        },
+        "byte_size": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "title": "Byte Size",
+          "type": "integer"
+        },
+        "version_id": {
+          "anyOf": [
+            {
+              "maxLength": 255,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Version Id"
+        }
+      },
+      "required": ["etag", "byte_size", "version_id"],
+      "title": "ObjectIdentity",
+      "type": "object"
+    },
+    "TaskVideoBinding": {
+      "additionalProperties": false,
+      "properties": {
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "task_version": {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "title": "Task Version",
+          "type": "integer"
+        },
+        "task_source_generation": {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "title": "Task Source Generation",
+          "type": "integer"
+        },
+        "dataset_item_id": {
+          "format": "uuid",
+          "title": "Dataset Item Id",
+          "type": "string"
+        },
+        "task_source_snapshot": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Task Source Snapshot",
+          "type": "string"
+        },
+        "file_path": {
+          "maxLength": 1024,
+          "title": "File Path",
+          "type": "string"
+        },
+        "file_type": {
+          "const": "video",
+          "title": "File Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "task_id",
+        "project_id",
+        "task_version",
+        "task_source_generation",
+        "dataset_item_id",
+        "task_source_snapshot",
+        "file_path",
+        "file_type"
+      ],
+      "title": "TaskVideoBinding",
+      "type": "object"
+    },
+    "VideoBlob": {
+      "additionalProperties": false,
+      "properties": {
+        "key": {
+          "maxLength": 2048,
+          "pattern": "^accepted-video-inputs/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g[1-9][0-9]*/a[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/source$",
+          "title": "Key",
+          "type": "string"
+        },
+        "version_id": {
+          "maxLength": 255,
+          "minLength": 1,
+          "title": "Version Id",
+          "type": "string"
+        },
+        "etag": {
+          "maxLength": 255,
+          "minLength": 1,
+          "title": "Etag",
+          "type": "string"
+        },
+        "byte_size": {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "title": "Byte Size",
+          "type": "integer"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        }
+      },
+      "required": ["key", "version_id", "etag", "byte_size", "sha256"],
+      "title": "VideoBlob",
+      "type": "object"
+    },
+    "VideoCaptureSource": {
+      "additionalProperties": false,
+      "description": "Only the Assets facts needed to retain the admitted original bytes.",
+      "properties": {
+        "dataset_item_id": {
+          "format": "uuid",
+          "title": "Dataset Item Id",
+          "type": "string"
+        },
+        "dataset_id": {
+          "format": "uuid",
+          "title": "Dataset Id",
+          "type": "string"
+        },
+        "source_generation": {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "title": "Source Generation",
+          "type": "integer"
+        },
+        "source_snapshot": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Source Snapshot",
+          "type": "string"
+        },
+        "timetable_revision": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "title": "Timetable Revision",
+          "type": "integer"
+        },
+        "object_identity": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ObjectIdentity"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "source_drifted": {
+          "title": "Source Drifted",
+          "type": "boolean"
+        },
+        "file_path": {
+          "maxLength": 1024,
+          "minLength": 1,
+          "title": "File Path",
+          "type": "string"
+        },
+        "file_type": {
+          "const": "video",
+          "title": "File Type",
+          "type": "string"
+        },
+        "file_size": {
+          "anyOf": [
+            {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "File Size"
+        },
+        "content_hash": {
+          "anyOf": [
+            {
+              "maxLength": 255,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Content Hash"
+        }
+      },
+      "required": [
+        "dataset_item_id",
+        "dataset_id",
+        "source_generation",
+        "source_snapshot",
+        "timetable_revision",
+        "object_identity",
+        "source_drifted",
+        "file_path",
+        "file_type",
+        "file_size",
+        "content_hash"
+      ],
+      "title": "VideoCaptureSource",
+      "type": "object"
+    },
+    "VideoFacts": {
+      "additionalProperties": false,
+      "description": "Measured from the retained bytes, not copied from mutable item metadata.",
+      "properties": {
+        "frame_count": {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "title": "Frame Count",
+          "type": "integer"
+        },
+        "width": {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "title": "Width",
+          "type": "integer"
+        },
+        "height": {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "title": "Height",
+          "type": "integer"
+        },
+        "duration_ms": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "title": "Duration Ms",
+          "type": "integer"
+        },
+        "video_stream": {
+          "default": 0,
+          "maximum": 0,
+          "minimum": 0,
+          "title": "Video Stream",
+          "type": "integer"
+        }
+      },
+      "required": ["frame_count", "width", "height", "duration_ms"],
+      "title": "VideoFacts",
+      "type": "object"
+    },
+    "VideoInputRecord": {
+      "additionalProperties": false,
+      "properties": {
+        "input_id": {
+          "format": "uuid",
+          "title": "Input Id",
+          "type": "string"
+        },
+        "job_id": {
+          "format": "uuid",
+          "title": "Job Id",
+          "type": "string"
+        },
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "task": {
+          "$ref": "#/$defs/TaskVideoBinding"
+        },
+        "source": {
+          "$ref": "#/$defs/VideoSourceSnapshot"
+        },
+        "sampling": {
+          "$ref": "#/$defs/FrameSampling"
+        },
+        "status": {
+          "enum": ["pending", "materializing", "ready", "failed", "expired"],
+          "title": "Status",
+          "type": "string"
+        },
+        "plan": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FrozenFramePlan"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "error": {
+          "anyOf": [
+            {
+              "enum": [
+                "invalid_request",
+                "invalid_response",
+                "storage_unavailable",
+                "account_not_active",
+                "account_busy",
+                "invalid_account_role",
+                "task_not_visible",
+                "task_busy",
+                "permission_denied",
+                "source_missing",
+                "source_changed",
+                "source_not_ready",
+                "not_video",
+                "job_busy",
+                "job_not_active",
+                "manifest_scope_mismatch",
+                "source_busy",
+                "metadata_not_ready",
+                "invalid_frame_range",
+                "asset_missing",
+                "operation_conflict",
+                "operation_busy",
+                "lease_lost",
+                "dependency_changed",
+                "resource_budget_exceeded",
+                "object_missing",
+                "input_missing",
+                "input_scope_mismatch",
+                "input_not_ready",
+                "input_expired",
+                "input_corrupt",
+                "input_busy",
+                "manifest_missing",
+                "manifest_busy",
+                "manifest_not_ready",
+                "manifest_cursor_invalid",
+                "task_scope_changed",
+                "unsupported_media",
+                "timebase_changed",
+                "timebase_incomplete",
+                "frame_missing",
+                "frame_not_ready",
+                "frame_busy",
+                "versioning_required",
+                "resource_limit",
+                "timeout",
+                "processing_failed",
+                "reference_busy"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Error"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "retire_after": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Retire After"
+        }
+      },
+      "required": [
+        "input_id",
+        "job_id",
+        "actor_id",
+        "task",
+        "source",
+        "sampling",
+        "status",
+        "plan",
+        "error",
+        "created_at",
+        "retire_after"
+      ],
+      "title": "VideoInputRecord",
+      "type": "object"
+    },
+    "VideoManifestMember": {
+      "additionalProperties": false,
+      "properties": {
+        "ordinal": {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "title": "Ordinal",
+          "type": "integer"
+        },
+        "task": {
+          "$ref": "#/$defs/CapturedVideoTask"
+        },
+        "source": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/VideoCaptureSource"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "state": {
+          "enum": ["unprepared", "preparing", "ready", "failed"],
+          "title": "State",
+          "type": "string"
+        },
+        "input": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/VideoInputRecord"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "error": {
+          "anyOf": [
+            {
+              "enum": [
+                "invalid_request",
+                "invalid_response",
+                "storage_unavailable",
+                "account_not_active",
+                "account_busy",
+                "invalid_account_role",
+                "task_not_visible",
+                "task_busy",
+                "permission_denied",
+                "source_missing",
+                "source_changed",
+                "source_not_ready",
+                "not_video",
+                "job_busy",
+                "job_not_active",
+                "manifest_scope_mismatch",
+                "source_busy",
+                "metadata_not_ready",
+                "invalid_frame_range",
+                "asset_missing",
+                "operation_conflict",
+                "operation_busy",
+                "lease_lost",
+                "dependency_changed",
+                "resource_budget_exceeded",
+                "object_missing",
+                "input_missing",
+                "input_scope_mismatch",
+                "input_not_ready",
+                "input_expired",
+                "input_corrupt",
+                "input_busy",
+                "manifest_missing",
+                "manifest_busy",
+                "manifest_not_ready",
+                "manifest_cursor_invalid",
+                "task_scope_changed",
+                "unsupported_media",
+                "timebase_changed",
+                "timebase_incomplete",
+                "frame_missing",
+                "frame_not_ready",
+                "frame_busy",
+                "versioning_required",
+                "resource_limit",
+                "timeout",
+                "processing_failed",
+                "reference_busy"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Error"
+        }
+      },
+      "required": ["ordinal", "task", "source", "state", "input", "error"],
+      "title": "VideoManifestMember",
+      "type": "object"
+    },
+    "VideoSourceSnapshot": {
+      "additionalProperties": false,
+      "properties": {
+        "dataset_item_id": {
+          "format": "uuid",
+          "title": "Dataset Item Id",
+          "type": "string"
+        },
+        "dataset_id": {
+          "format": "uuid",
+          "title": "Dataset Id",
+          "type": "string"
+        },
+        "source_generation": {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "title": "Source Generation",
+          "type": "integer"
+        },
+        "source_snapshot": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Source Snapshot",
+          "type": "string"
+        },
+        "timetable_revision": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "title": "Timetable Revision",
+          "type": "integer"
+        },
+        "object_identity": {
+          "$ref": "#/$defs/ObjectIdentity"
+        }
+      },
+      "required": [
+        "dataset_item_id",
+        "dataset_id",
+        "source_generation",
+        "source_snapshot",
+        "timetable_revision",
+        "object_identity"
+      ],
+      "title": "VideoSourceSnapshot",
+      "type": "object"
+    },
+    "VideoManifestPage": {
+      "additionalProperties": false,
+      "properties": {
+        "manifest": {
+          "$ref": "#/$defs/VideoManifestHeader"
+        },
+        "cursor": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "title": "Cursor",
+          "type": "integer"
+        },
+        "next_cursor": {
+          "anyOf": [
+            {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Next Cursor"
+        },
+        "members": {
+          "items": {
+            "$ref": "#/$defs/VideoManifestMember"
+          },
+          "maxItems": 100,
+          "title": "Members",
+          "type": "array"
+        }
+      },
+      "required": ["manifest", "cursor", "next_cursor", "members"],
+      "title": "VideoManifestPage",
+      "type": "object"
+    },
+    "ObserveVideoMemberRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "job_id": {
+          "format": "uuid",
+          "title": "Job Id",
+          "type": "string"
+        },
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "selection_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Selection Digest",
+          "type": "string"
+        },
+        "ordinal": {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "title": "Ordinal",
+          "type": "integer"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "source_snapshot": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Source Snapshot"
+        },
+        "timetable_revision": {
+          "anyOf": [
+            {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Timetable Revision"
+        },
+        "object_identity": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ObjectIdentity"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "terminal_error": {
+          "anyOf": [
+            {
+              "enum": [
+                "source_missing",
+                "source_changed",
+                "source_not_ready",
+                "not_video",
+                "task_scope_changed",
+                "timebase_changed",
+                "input_expired",
+                "input_corrupt",
+                "resource_budget_exceeded"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Terminal Error"
+        }
+      },
+      "required": [
+        "job_id",
+        "actor_id",
+        "project_id",
+        "selection_digest",
+        "ordinal",
+        "task_id",
+        "source_snapshot",
+        "timetable_revision",
+        "object_identity",
+        "terminal_error"
+      ],
+      "title": "ObserveVideoMemberRequest",
+      "type": "object"
+    },
+    "VideoMemberReceipt": {
+      "additionalProperties": false,
+      "properties": {
+        "manifest": {
+          "$ref": "#/$defs/VideoManifestHeader"
+        },
+        "member": {
+          "$ref": "#/$defs/VideoManifestMember"
+        }
+      },
+      "required": ["manifest", "member"],
+      "title": "VideoMemberReceipt",
+      "type": "object"
+    },
+    "SealVideoManifestRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "job_id": {
+          "format": "uuid",
+          "title": "Job Id",
+          "type": "string"
+        },
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "selection_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Selection Digest",
+          "type": "string"
+        }
+      },
+      "required": ["job_id", "actor_id", "project_id", "selection_digest"],
+      "title": "SealVideoManifestRequest",
+      "type": "object"
+    },
+    "ReadVideoInputRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "input_id": {
+          "format": "uuid",
+          "title": "Input Id",
+          "type": "string"
+        },
+        "job_id": {
+          "format": "uuid",
+          "title": "Job Id",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        }
+      },
+      "required": ["input_id", "job_id", "task_id", "actor_id"],
+      "title": "ReadVideoInputRequest",
+      "type": "object"
+    },
+    "VideoInputWork": {
+      "additionalProperties": false,
+      "properties": {
+        "input": {
+          "$ref": "#/$defs/VideoInputRecord"
+        },
+        "source": {
+          "$ref": "#/$defs/VideoCaptureSource"
+        }
+      },
+      "required": ["input", "source"],
+      "title": "VideoInputWork",
+      "type": "object"
+    },
+    "FramePageRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "job_id": {
+          "format": "uuid",
+          "title": "Job Id",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "input_id": {
+          "format": "uuid",
+          "title": "Input Id",
+          "type": "string"
+        },
+        "plan_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Plan Digest",
+          "type": "string"
+        },
+        "cursor": {
+          "default": 0,
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "title": "Cursor",
+          "type": "integer"
+        },
+        "page_size": {
+          "default": 100,
+          "maximum": 100,
+          "minimum": 1,
+          "title": "Page Size",
+          "type": "integer"
+        }
+      },
+      "required": ["actor_id", "job_id", "task_id", "input_id", "plan_digest"],
+      "title": "FramePageRequest",
+      "type": "object"
+    },
+    "FrameTimeEntry": {
+      "additionalProperties": false,
+      "properties": {
+        "ordinal": {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "title": "Ordinal",
+          "type": "integer"
+        },
+        "frame_index": {
+          "maximum": 2147483647,
+          "minimum": 0,
+          "title": "Frame Index",
+          "type": "integer"
+        },
+        "pts_ms": {
+          "maximum": 9007199254740991,
+          "minimum": -9007199254740991,
+          "title": "Pts Ms",
+          "type": "integer"
+        },
+        "is_keyframe": {
+          "title": "Is Keyframe",
+          "type": "boolean"
+        }
+      },
+      "required": ["ordinal", "frame_index", "pts_ms", "is_keyframe"],
+      "title": "FrameTimeEntry",
+      "type": "object"
+    },
+    "FrameTimePage": {
+      "additionalProperties": false,
+      "properties": {
+        "plan": {
+          "$ref": "#/$defs/FrozenFramePlan"
+        },
+        "cursor": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "title": "Cursor",
+          "type": "integer"
+        },
+        "next_cursor": {
+          "anyOf": [
+            {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Next Cursor"
+        },
+        "entries": {
+          "items": {
+            "$ref": "#/$defs/FrameTimeEntry"
+          },
+          "maxItems": 100,
+          "title": "Entries",
+          "type": "array"
+        }
+      },
+      "required": ["plan", "cursor", "next_cursor", "entries"],
+      "title": "FrameTimePage",
+      "type": "object"
+    },
+    "VideoFrameRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "job_id": {
+          "format": "uuid",
+          "title": "Job Id",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "input_id": {
+          "format": "uuid",
+          "title": "Input Id",
+          "type": "string"
+        },
+        "plan_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Plan Digest",
+          "type": "string"
+        },
+        "ordinal": {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "title": "Ordinal",
+          "type": "integer"
+        }
+      },
+      "required": ["actor_id", "job_id", "task_id", "input_id", "plan_digest", "ordinal"],
+      "title": "VideoFrameRequest",
+      "type": "object"
+    },
+    "FrameBlob": {
+      "additionalProperties": false,
+      "properties": {
+        "key": {
+          "maxLength": 2048,
+          "pattern": "^accepted-video-inputs/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g[1-9][0-9]*/a[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/frames/(0|[1-9][0-9]*)/w[1-9][0-9]*-(jpeg|webp)$",
+          "title": "Key",
+          "type": "string"
+        },
+        "version_id": {
+          "maxLength": 255,
+          "minLength": 1,
+          "title": "Version Id",
+          "type": "string"
+        },
+        "etag": {
+          "maxLength": 255,
+          "minLength": 1,
+          "title": "Etag",
+          "type": "string"
+        },
+        "byte_size": {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "title": "Byte Size",
+          "type": "integer"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        }
+      },
+      "required": ["key", "version_id", "etag", "byte_size", "sha256"],
+      "title": "FrameBlob",
+      "type": "object"
+    },
+    "VideoFrameRecord": {
+      "additionalProperties": false,
+      "properties": {
+        "frame_id": {
+          "format": "uuid",
+          "title": "Frame Id",
+          "type": "string"
+        },
+        "plan": {
+          "$ref": "#/$defs/FrozenFramePlan"
+        },
+        "entry": {
+          "$ref": "#/$defs/FrameTimeEntry"
+        },
+        "status": {
+          "enum": ["pending", "materializing", "ready", "failed", "expired"],
+          "title": "Status",
+          "type": "string"
+        },
+        "blob": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FrameBlob"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "error": {
+          "anyOf": [
+            {
+              "enum": [
+                "invalid_request",
+                "invalid_response",
+                "storage_unavailable",
+                "account_not_active",
+                "account_busy",
+                "invalid_account_role",
+                "task_not_visible",
+                "task_busy",
+                "permission_denied",
+                "source_missing",
+                "source_changed",
+                "source_not_ready",
+                "not_video",
+                "job_busy",
+                "job_not_active",
+                "manifest_scope_mismatch",
+                "source_busy",
+                "metadata_not_ready",
+                "invalid_frame_range",
+                "asset_missing",
+                "operation_conflict",
+                "operation_busy",
+                "lease_lost",
+                "dependency_changed",
+                "resource_budget_exceeded",
+                "object_missing",
+                "input_missing",
+                "input_scope_mismatch",
+                "input_not_ready",
+                "input_expired",
+                "input_corrupt",
+                "input_busy",
+                "manifest_missing",
+                "manifest_busy",
+                "manifest_not_ready",
+                "manifest_cursor_invalid",
+                "task_scope_changed",
+                "unsupported_media",
+                "timebase_changed",
+                "timebase_incomplete",
+                "frame_missing",
+                "frame_not_ready",
+                "frame_busy",
+                "versioning_required",
+                "resource_limit",
+                "timeout",
+                "processing_failed",
+                "reference_busy"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Error"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        }
+      },
+      "required": ["frame_id", "plan", "entry", "status", "blob", "error", "created_at"],
+      "title": "VideoFrameRecord",
+      "type": "object"
+    },
+    "ClaimVideoInputRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "worker_id": {
+          "format": "uuid",
+          "title": "Worker Id",
+          "type": "string"
+        },
+        "input_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Input Id"
+        },
+        "lease_seconds": {
+          "default": 2100,
+          "maximum": 7200,
+          "minimum": 60,
+          "title": "Lease Seconds",
+          "type": "integer"
+        }
+      },
+      "required": ["worker_id"],
+      "title": "ClaimVideoInputRequest",
+      "type": "object"
+    },
+    "VideoInputClaim": {
+      "additionalProperties": false,
+      "properties": {
+        "input": {
+          "$ref": "#/$defs/VideoInputRecord"
+        },
+        "source": {
+          "$ref": "#/$defs/VideoCaptureSource"
+        },
+        "generation": {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "title": "Generation",
+          "type": "integer"
+        },
+        "lease_token": {
+          "format": "uuid",
+          "title": "Lease Token",
+          "type": "string"
+        },
+        "lease_expires_at": {
+          "format": "date-time",
+          "title": "Lease Expires At",
+          "type": "string"
+        },
+        "blob_key": {
+          "title": "Blob Key",
+          "type": "string"
+        }
+      },
+      "required": ["input", "source", "generation", "lease_token", "lease_expires_at", "blob_key"],
+      "title": "VideoInputClaim",
+      "type": "object"
+    },
+    "ClaimedVideoInput": {
+      "additionalProperties": false,
+      "properties": {
+        "claim": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/VideoInputClaim"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": ["claim"],
+      "title": "ClaimedVideoInput",
+      "type": "object"
+    },
+    "HeartbeatVideoInputRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "input_id": {
+          "format": "uuid",
+          "title": "Input Id",
+          "type": "string"
+        },
+        "generation": {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "title": "Generation",
+          "type": "integer"
+        },
+        "lease_token": {
+          "format": "uuid",
+          "title": "Lease Token",
+          "type": "string"
+        },
+        "lease_seconds": {
+          "default": 2100,
+          "maximum": 7200,
+          "minimum": 60,
+          "title": "Lease Seconds",
+          "type": "integer"
+        }
+      },
+      "required": ["input_id", "generation", "lease_token"],
+      "title": "HeartbeatVideoInputRequest",
+      "type": "object"
+    },
+    "VideoInputLease": {
+      "additionalProperties": false,
+      "properties": {
+        "input_id": {
+          "format": "uuid",
+          "title": "Input Id",
+          "type": "string"
+        },
+        "generation": {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "title": "Generation",
+          "type": "integer"
+        },
+        "lease_token": {
+          "format": "uuid",
+          "title": "Lease Token",
+          "type": "string"
+        },
+        "lease_expires_at": {
+          "format": "date-time",
+          "title": "Lease Expires At",
+          "type": "string"
+        }
+      },
+      "required": ["input_id", "generation", "lease_token", "lease_expires_at"],
+      "title": "VideoInputLease",
+      "type": "object"
+    },
+    "StageVideoTimesRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "input_id": {
+          "format": "uuid",
+          "title": "Input Id",
+          "type": "string"
+        },
+        "generation": {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "title": "Generation",
+          "type": "integer"
+        },
+        "lease_token": {
+          "format": "uuid",
+          "title": "Lease Token",
+          "type": "string"
+        },
+        "cursor": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "title": "Cursor",
+          "type": "integer"
+        },
+        "entries": {
+          "items": {
+            "$ref": "#/$defs/FrameTimeEntry"
+          },
+          "maxItems": 100,
+          "minItems": 1,
+          "title": "Entries",
+          "type": "array"
+        }
+      },
+      "required": ["input_id", "generation", "lease_token", "cursor", "entries"],
+      "title": "StageVideoTimesRequest",
+      "type": "object"
+    },
+    "StagedVideoTimes": {
+      "additionalProperties": false,
+      "properties": {
+        "input_id": {
+          "format": "uuid",
+          "title": "Input Id",
+          "type": "string"
+        },
+        "generation": {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "title": "Generation",
+          "type": "integer"
+        },
+        "lease_token": {
+          "format": "uuid",
+          "title": "Lease Token",
+          "type": "string"
+        },
+        "next_cursor": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "title": "Next Cursor",
+          "type": "integer"
+        }
+      },
+      "required": ["input_id", "generation", "lease_token", "next_cursor"],
+      "title": "StagedVideoTimes",
+      "type": "object"
+    },
+    "FinishVideoInputRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "input_id": {
+          "format": "uuid",
+          "title": "Input Id",
+          "type": "string"
+        },
+        "generation": {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "title": "Generation",
+          "type": "integer"
+        },
+        "lease_token": {
+          "format": "uuid",
+          "title": "Lease Token",
+          "type": "string"
+        },
+        "plan": {
+          "$ref": "#/$defs/FrozenFramePlan"
+        }
+      },
+      "required": ["input_id", "generation", "lease_token", "plan"],
+      "title": "FinishVideoInputRequest",
+      "type": "object"
+    },
+    "FailVideoInputRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "input_id": {
+          "format": "uuid",
+          "title": "Input Id",
+          "type": "string"
+        },
+        "generation": {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "title": "Generation",
+          "type": "integer"
+        },
+        "lease_token": {
+          "format": "uuid",
+          "title": "Lease Token",
+          "type": "string"
+        },
+        "error_code": {
+          "enum": [
+            "invalid_request",
+            "invalid_response",
+            "storage_unavailable",
+            "account_not_active",
+            "account_busy",
+            "invalid_account_role",
+            "task_not_visible",
+            "task_busy",
+            "permission_denied",
+            "source_missing",
+            "source_changed",
+            "source_not_ready",
+            "not_video",
+            "job_busy",
+            "job_not_active",
+            "manifest_scope_mismatch",
+            "source_busy",
+            "metadata_not_ready",
+            "invalid_frame_range",
+            "asset_missing",
+            "operation_conflict",
+            "operation_busy",
+            "lease_lost",
+            "dependency_changed",
+            "resource_budget_exceeded",
+            "object_missing",
+            "input_missing",
+            "input_scope_mismatch",
+            "input_not_ready",
+            "input_expired",
+            "input_corrupt",
+            "input_busy",
+            "manifest_missing",
+            "manifest_busy",
+            "manifest_not_ready",
+            "manifest_cursor_invalid",
+            "task_scope_changed",
+            "unsupported_media",
+            "timebase_changed",
+            "timebase_incomplete",
+            "frame_missing",
+            "frame_not_ready",
+            "frame_busy",
+            "versioning_required",
+            "resource_limit",
+            "timeout",
+            "processing_failed",
+            "reference_busy"
+          ],
+          "title": "Error Code",
+          "type": "string"
+        }
+      },
+      "required": ["input_id", "generation", "lease_token", "error_code"],
+      "title": "FailVideoInputRequest",
+      "type": "object"
+    },
+    "ClaimVideoFrameRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "worker_id": {
+          "format": "uuid",
+          "title": "Worker Id",
+          "type": "string"
+        },
+        "frame_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Frame Id"
+        },
+        "lease_seconds": {
+          "default": 2100,
+          "maximum": 7200,
+          "minimum": 60,
+          "title": "Lease Seconds",
+          "type": "integer"
+        }
+      },
+      "required": ["worker_id"],
+      "title": "ClaimVideoFrameRequest",
+      "type": "object"
+    },
+    "VideoFrameClaim": {
+      "additionalProperties": false,
+      "properties": {
+        "frame": {
+          "$ref": "#/$defs/VideoFrameRecord"
+        },
+        "generation": {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "title": "Generation",
+          "type": "integer"
+        },
+        "lease_token": {
+          "format": "uuid",
+          "title": "Lease Token",
+          "type": "string"
+        },
+        "lease_expires_at": {
+          "format": "date-time",
+          "title": "Lease Expires At",
+          "type": "string"
+        },
+        "blob_key": {
+          "title": "Blob Key",
+          "type": "string"
+        }
+      },
+      "required": ["frame", "generation", "lease_token", "lease_expires_at", "blob_key"],
+      "title": "VideoFrameClaim",
+      "type": "object"
+    },
+    "ClaimedVideoFrame": {
+      "additionalProperties": false,
+      "properties": {
+        "claim": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/VideoFrameClaim"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": ["claim"],
+      "title": "ClaimedVideoFrame",
+      "type": "object"
+    },
+    "HeartbeatVideoFrameRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "frame_id": {
+          "format": "uuid",
+          "title": "Frame Id",
+          "type": "string"
+        },
+        "generation": {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "title": "Generation",
+          "type": "integer"
+        },
+        "lease_token": {
+          "format": "uuid",
+          "title": "Lease Token",
+          "type": "string"
+        },
+        "lease_seconds": {
+          "default": 2100,
+          "maximum": 7200,
+          "minimum": 60,
+          "title": "Lease Seconds",
+          "type": "integer"
+        }
+      },
+      "required": ["frame_id", "generation", "lease_token"],
+      "title": "HeartbeatVideoFrameRequest",
+      "type": "object"
+    },
+    "VideoFrameLease": {
+      "additionalProperties": false,
+      "properties": {
+        "frame_id": {
+          "format": "uuid",
+          "title": "Frame Id",
+          "type": "string"
+        },
+        "generation": {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "title": "Generation",
+          "type": "integer"
+        },
+        "lease_token": {
+          "format": "uuid",
+          "title": "Lease Token",
+          "type": "string"
+        },
+        "lease_expires_at": {
+          "format": "date-time",
+          "title": "Lease Expires At",
+          "type": "string"
+        }
+      },
+      "required": ["frame_id", "generation", "lease_token", "lease_expires_at"],
+      "title": "VideoFrameLease",
+      "type": "object"
+    },
+    "FinishVideoFrameRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "frame_id": {
+          "format": "uuid",
+          "title": "Frame Id",
+          "type": "string"
+        },
+        "generation": {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "title": "Generation",
+          "type": "integer"
+        },
+        "lease_token": {
+          "format": "uuid",
+          "title": "Lease Token",
+          "type": "string"
+        },
+        "blob": {
+          "$ref": "#/$defs/FrameBlob"
+        }
+      },
+      "required": ["frame_id", "generation", "lease_token", "blob"],
+      "title": "FinishVideoFrameRequest",
+      "type": "object"
+    },
+    "FailVideoFrameRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "frame_id": {
+          "format": "uuid",
+          "title": "Frame Id",
+          "type": "string"
+        },
+        "generation": {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "title": "Generation",
+          "type": "integer"
+        },
+        "lease_token": {
+          "format": "uuid",
+          "title": "Lease Token",
+          "type": "string"
+        },
+        "error_code": {
+          "enum": [
+            "invalid_request",
+            "invalid_response",
+            "storage_unavailable",
+            "account_not_active",
+            "account_busy",
+            "invalid_account_role",
+            "task_not_visible",
+            "task_busy",
+            "permission_denied",
+            "source_missing",
+            "source_changed",
+            "source_not_ready",
+            "not_video",
+            "job_busy",
+            "job_not_active",
+            "manifest_scope_mismatch",
+            "source_busy",
+            "metadata_not_ready",
+            "invalid_frame_range",
+            "asset_missing",
+            "operation_conflict",
+            "operation_busy",
+            "lease_lost",
+            "dependency_changed",
+            "resource_budget_exceeded",
+            "object_missing",
+            "input_missing",
+            "input_scope_mismatch",
+            "input_not_ready",
+            "input_expired",
+            "input_corrupt",
+            "input_busy",
+            "manifest_missing",
+            "manifest_busy",
+            "manifest_not_ready",
+            "manifest_cursor_invalid",
+            "task_scope_changed",
+            "unsupported_media",
+            "timebase_changed",
+            "timebase_incomplete",
+            "frame_missing",
+            "frame_not_ready",
+            "frame_busy",
+            "versioning_required",
+            "resource_limit",
+            "timeout",
+            "processing_failed",
+            "reference_busy"
+          ],
+          "title": "Error Code",
+          "type": "string"
+        }
+      },
+      "required": ["frame_id", "generation", "lease_token", "error_code"],
+      "title": "FailVideoFrameRequest",
+      "type": "object"
+    },
+    "LockVideoFrameRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "job_id": {
+          "format": "uuid",
+          "title": "Job Id",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "input_id": {
+          "format": "uuid",
+          "title": "Input Id",
+          "type": "string"
+        },
+        "plan_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Plan Digest",
+          "type": "string"
+        },
+        "ordinal": {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "title": "Ordinal",
+          "type": "integer"
+        },
+        "expected_entry": {
+          "$ref": "#/$defs/FrameTimeEntry"
+        },
+        "expected_blob": {
+          "$ref": "#/$defs/FrameBlob"
+        }
+      },
+      "required": [
+        "actor_id",
+        "job_id",
+        "task_id",
+        "input_id",
+        "plan_digest",
+        "ordinal",
+        "expected_entry",
+        "expected_blob"
+      ],
+      "title": "LockVideoFrameRequest",
+      "type": "object"
+    },
+    "LockVideoInputRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "input_id": {
+          "format": "uuid",
+          "title": "Input Id",
+          "type": "string"
+        },
+        "job_id": {
+          "format": "uuid",
+          "title": "Job Id",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "plan_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Plan Digest",
+          "type": "string"
+        }
+      },
+      "required": ["input_id", "job_id", "task_id", "actor_id", "plan_digest"],
+      "title": "LockVideoInputRequest",
+      "type": "object"
+    },
+    "SweepVideoInputsRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "limit": {
+          "default": 100,
+          "maximum": 100,
+          "minimum": 1,
+          "title": "Limit",
+          "type": "integer"
+        }
+      },
+      "title": "SweepVideoInputsRequest",
+      "type": "object"
+    },
+    "SweptVideoInputs": {
+      "additionalProperties": false,
+      "properties": {
+        "expired": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "title": "Expired",
+          "type": "integer"
+        }
+      },
+      "required": ["expired"],
+      "title": "SweptVideoInputs",
+      "type": "object"
+    },
+    "ClaimVideoGarbageRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "worker_id": {
+          "format": "uuid",
+          "title": "Worker Id",
+          "type": "string"
+        },
+        "lease_seconds": {
+          "default": 600,
+          "maximum": 7200,
+          "minimum": 60,
+          "title": "Lease Seconds",
+          "type": "integer"
+        },
+        "page_size": {
+          "default": 100,
+          "maximum": 100,
+          "minimum": 1,
+          "title": "Page Size",
+          "type": "integer"
+        }
+      },
+      "required": ["worker_id"],
+      "title": "ClaimVideoGarbageRequest",
+      "type": "object"
+    },
+    "VideoGarbage": {
+      "additionalProperties": false,
+      "properties": {
+        "garbage_id": {
+          "format": "uuid",
+          "title": "Garbage Id",
+          "type": "string"
+        },
+        "prefix": {
+          "maxLength": 1024,
+          "pattern": "^accepted-video-inputs/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g[1-9][0-9]*/a[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/$",
+          "title": "Prefix",
+          "type": "string"
+        },
+        "lease_token": {
+          "format": "uuid",
+          "title": "Lease Token",
+          "type": "string"
+        }
+      },
+      "required": ["garbage_id", "prefix", "lease_token"],
+      "title": "VideoGarbage",
+      "type": "object"
+    },
+    "VideoGarbageBatch": {
+      "additionalProperties": false,
+      "properties": {
+        "items": {
+          "items": {
+            "$ref": "#/$defs/VideoGarbage"
+          },
+          "maxItems": 100,
+          "title": "Items",
+          "type": "array"
+        }
+      },
+      "required": ["items"],
+      "title": "VideoGarbageBatch",
+      "type": "object"
+    },
+    "CompleteVideoGarbageRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "garbage_id": {
+          "format": "uuid",
+          "title": "Garbage Id",
+          "type": "string"
+        },
+        "lease_token": {
+          "format": "uuid",
+          "title": "Lease Token",
+          "type": "string"
+        }
+      },
+      "required": ["garbage_id", "lease_token"],
+      "title": "CompleteVideoGarbageRequest",
+      "type": "object"
+    },
+    "VideoGarbageAck": {
+      "additionalProperties": false,
+      "properties": {
+        "garbage_id": {
+          "format": "uuid",
+          "title": "Garbage Id",
+          "type": "string"
+        },
+        "completed": {
+          "title": "Completed",
+          "type": "boolean"
+        }
+      },
+      "required": ["garbage_id", "completed"],
+      "title": "VideoGarbageAck",
+      "type": "object"
+    },
+    "PrepareVideoMemberRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "job_id": {
+          "format": "uuid",
+          "title": "Job Id",
+          "type": "string"
+        },
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "selection_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Selection Digest",
+          "type": "string"
+        },
+        "ordinal": {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "title": "Ordinal",
+          "type": "integer"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        }
+      },
+      "required": ["job_id", "actor_id", "project_id", "selection_digest", "ordinal", "task_id"],
+      "title": "PrepareVideoMemberRequest",
+      "type": "object"
+    },
+    "CapturedVideoMember": {
+      "additionalProperties": false,
+      "description": "Immutable admission facts used by the portable selection digest.",
+      "properties": {
+        "ordinal": {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "title": "Ordinal",
+          "type": "integer"
+        },
+        "task": {
+          "$ref": "#/$defs/CapturedVideoTask"
+        },
+        "source": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/VideoCaptureSource"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "error": {
+          "anyOf": [
+            {
+              "enum": [
+                "source_missing",
+                "source_changed",
+                "source_not_ready",
+                "not_video",
+                "task_scope_changed",
+                "timebase_changed",
+                "input_expired",
+                "input_corrupt",
+                "resource_budget_exceeded"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Error"
+        }
+      },
+      "required": ["ordinal", "task", "source", "error"],
+      "title": "CapturedVideoMember",
+      "type": "object"
+    },
+    "_Error": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "enum": [
+            "invalid_request",
+            "invalid_response",
+            "storage_unavailable",
+            "account_not_active",
+            "account_busy",
+            "invalid_account_role",
+            "task_not_visible",
+            "task_busy",
+            "permission_denied",
+            "source_missing",
+            "source_changed",
+            "source_not_ready",
+            "not_video",
+            "job_busy",
+            "job_not_active",
+            "manifest_scope_mismatch",
+            "source_busy",
+            "metadata_not_ready",
+            "invalid_frame_range",
+            "asset_missing",
+            "operation_conflict",
+            "operation_busy",
+            "lease_lost",
+            "dependency_changed",
+            "resource_budget_exceeded",
+            "object_missing",
+            "input_missing",
+            "input_scope_mismatch",
+            "input_not_ready",
+            "input_expired",
+            "input_corrupt",
+            "input_busy",
+            "manifest_missing",
+            "manifest_busy",
+            "manifest_not_ready",
+            "manifest_cursor_invalid",
+            "task_scope_changed",
+            "unsupported_media",
+            "timebase_changed",
+            "timebase_incomplete",
+            "frame_missing",
+            "frame_not_ready",
+            "frame_busy",
+            "versioning_required",
+            "resource_limit",
+            "timeout",
+            "processing_failed",
+            "reference_busy"
+          ],
+          "title": "Code",
+          "type": "string"
+        }
+      },
+      "required": ["code"],
+      "title": "_Error",
+      "type": "object"
+    }
+  },
+  "x-stage": "owner contract; native and HTTP admission not activated",
+  "x-budgets": {
+    "request_bytes": 65536,
+    "reply_bytes": 2097152,
+    "page_size": 100,
+    "timebase_bytes": 67108864
+  },
+  "x-manifest-digest": "SHA-256 chains of typed UTF-8 length-prefixed fields; see ADR-0109",
+  "x-native": {
+    "capture_accepted_video_manifest": {
+      "signature": "aap_assets_v1.capture_accepted_video_manifest(uuid,uuid,uuid,jsonb)",
+      "arguments": ["job_id", "actor_id", "project_id", "selection"],
+      "request": "CaptureVideoManifestRequest",
+      "result": "VideoManifestHeader",
+      "role": "workflow"
+    },
+    "read_accepted_video_manifest": {
+      "signature": "aap_assets_v1.read_accepted_video_manifest(uuid,uuid,uuid)",
+      "arguments": ["job_id", "actor_id", "project_id"],
+      "request": "VideoManifestScope",
+      "result": "VideoManifestHeader",
+      "role": "control"
+    },
+    "read_accepted_video_manifest_page": {
+      "signature": "aap_assets_v1.read_accepted_video_manifest_page(uuid,uuid,uuid,text,text,bigint,integer)",
+      "arguments": [
+        "job_id",
+        "actor_id",
+        "project_id",
+        "selection_digest",
+        "sealed_digest",
+        "cursor",
+        "page_size"
+      ],
+      "request": "VideoManifestPageRequest",
+      "result": "VideoManifestPage",
+      "role": "control"
+    },
+    "prepare_accepted_video_member": {
+      "signature": "aap_assets_v1.prepare_accepted_video_member(uuid,uuid,uuid,text,bigint,uuid,text,bigint,jsonb,text)",
+      "arguments": [
+        "job_id",
+        "actor_id",
+        "project_id",
+        "selection_digest",
+        "ordinal",
+        "task_id",
+        "source_snapshot",
+        "timetable_revision",
+        "object_identity",
+        "terminal_error"
+      ],
+      "request": "ObserveVideoMemberRequest",
+      "result": "VideoMemberReceipt",
+      "role": "control"
+    },
+    "seal_accepted_video_manifest": {
+      "signature": "aap_assets_v1.seal_accepted_video_manifest(uuid,uuid,uuid,text)",
+      "arguments": ["job_id", "actor_id", "project_id", "selection_digest"],
+      "request": "SealVideoManifestRequest",
+      "result": "VideoManifestHeader",
+      "role": "control"
+    },
+    "read_accepted_video_input": {
+      "signature": "aap_assets_v1.read_accepted_video_input(uuid,uuid,uuid,uuid)",
+      "arguments": ["input_id", "job_id", "task_id", "actor_id"],
+      "request": "ReadVideoInputRequest",
+      "result": "VideoInputRecord",
+      "role": "control"
+    },
+    "read_accepted_video_input_work": {
+      "signature": "aap_assets_v1.read_accepted_video_input_work(uuid,uuid,uuid,uuid)",
+      "arguments": ["input_id", "job_id", "task_id", "actor_id"],
+      "request": "ReadVideoInputRequest",
+      "result": "VideoInputWork",
+      "role": "control"
+    },
+    "read_accepted_video_times": {
+      "signature": "aap_assets_v1.read_accepted_video_times(uuid,uuid,uuid,uuid,text,bigint,integer)",
+      "arguments": [
+        "actor_id",
+        "job_id",
+        "task_id",
+        "input_id",
+        "plan_digest",
+        "cursor",
+        "page_size"
+      ],
+      "request": "FramePageRequest",
+      "result": "FrameTimePage",
+      "role": "control"
+    },
+    "require_accepted_video_frame": {
+      "signature": "aap_assets_v1.require_accepted_video_frame(uuid,uuid,uuid,uuid,text,bigint)",
+      "arguments": ["actor_id", "job_id", "task_id", "input_id", "plan_digest", "ordinal"],
+      "request": "VideoFrameRequest",
+      "result": "VideoFrameRecord",
+      "role": "control"
+    },
+    "read_accepted_video_frame": {
+      "signature": "aap_assets_v1.read_accepted_video_frame(uuid,uuid,uuid,uuid,text,bigint)",
+      "arguments": ["actor_id", "job_id", "task_id", "input_id", "plan_digest", "ordinal"],
+      "request": "VideoFrameRequest",
+      "result": "VideoFrameRecord",
+      "role": "control"
+    },
+    "claim_accepted_video_input": {
+      "signature": "aap_assets_v1.claim_accepted_video_input(uuid,uuid,integer)",
+      "arguments": ["worker_id", "input_id", "lease_seconds"],
+      "request": "ClaimVideoInputRequest",
+      "result": "ClaimedVideoInput",
+      "role": "worker"
+    },
+    "heartbeat_accepted_video_input": {
+      "signature": "aap_assets_v1.heartbeat_accepted_video_input(uuid,bigint,uuid,integer)",
+      "arguments": ["input_id", "generation", "lease_token", "lease_seconds"],
+      "request": "HeartbeatVideoInputRequest",
+      "result": "VideoInputLease",
+      "role": "worker"
+    },
+    "stage_accepted_video_times": {
+      "signature": "aap_assets_v1.stage_accepted_video_times(uuid,bigint,uuid,bigint,jsonb)",
+      "arguments": ["input_id", "generation", "lease_token", "cursor", "entries"],
+      "request": "StageVideoTimesRequest",
+      "result": "StagedVideoTimes",
+      "role": "worker"
+    },
+    "finish_accepted_video_input": {
+      "signature": "aap_assets_v1.finish_accepted_video_input(uuid,bigint,uuid,jsonb)",
+      "arguments": ["input_id", "generation", "lease_token", "plan"],
+      "request": "FinishVideoInputRequest",
+      "result": "VideoInputRecord",
+      "role": "worker"
+    },
+    "fail_accepted_video_input": {
+      "signature": "aap_assets_v1.fail_accepted_video_input(uuid,bigint,uuid,text)",
+      "arguments": ["input_id", "generation", "lease_token", "error_code"],
+      "request": "FailVideoInputRequest",
+      "result": "VideoInputRecord",
+      "role": "worker"
+    },
+    "claim_accepted_video_frame": {
+      "signature": "aap_assets_v1.claim_accepted_video_frame(uuid,uuid,integer)",
+      "arguments": ["worker_id", "frame_id", "lease_seconds"],
+      "request": "ClaimVideoFrameRequest",
+      "result": "ClaimedVideoFrame",
+      "role": "worker"
+    },
+    "heartbeat_accepted_video_frame": {
+      "signature": "aap_assets_v1.heartbeat_accepted_video_frame(uuid,bigint,uuid,integer)",
+      "arguments": ["frame_id", "generation", "lease_token", "lease_seconds"],
+      "request": "HeartbeatVideoFrameRequest",
+      "result": "VideoFrameLease",
+      "role": "worker"
+    },
+    "finish_accepted_video_frame": {
+      "signature": "aap_assets_v1.finish_accepted_video_frame(uuid,bigint,uuid,jsonb)",
+      "arguments": ["frame_id", "generation", "lease_token", "blob"],
+      "request": "FinishVideoFrameRequest",
+      "result": "VideoFrameRecord",
+      "role": "worker"
+    },
+    "fail_accepted_video_frame": {
+      "signature": "aap_assets_v1.fail_accepted_video_frame(uuid,bigint,uuid,text)",
+      "arguments": ["frame_id", "generation", "lease_token", "error_code"],
+      "request": "FailVideoFrameRequest",
+      "result": "VideoFrameRecord",
+      "role": "worker"
+    },
+    "lock_accepted_video_frame": {
+      "signature": "aap_assets_v1.lock_accepted_video_frame(uuid,uuid,uuid,uuid,text,bigint,jsonb,jsonb)",
+      "arguments": [
+        "actor_id",
+        "job_id",
+        "task_id",
+        "input_id",
+        "plan_digest",
+        "ordinal",
+        "expected_entry",
+        "expected_blob"
+      ],
+      "request": "LockVideoFrameRequest",
+      "result": "VideoFrameRecord",
+      "role": "labeling"
+    },
+    "lock_accepted_video_input": {
+      "signature": "aap_assets_v1.lock_accepted_video_input(uuid,uuid,uuid,uuid,text)",
+      "arguments": ["input_id", "job_id", "task_id", "actor_id", "plan_digest"],
+      "request": "LockVideoInputRequest",
+      "result": "VideoInputRecord",
+      "role": "labeling"
+    },
+    "sweep_accepted_video_inputs": {
+      "signature": "aap_assets_v1.sweep_accepted_video_inputs(integer)",
+      "arguments": ["limit"],
+      "request": "SweepVideoInputsRequest",
+      "result": "SweptVideoInputs",
+      "role": "system"
+    },
+    "claim_accepted_video_input_garbage": {
+      "signature": "aap_assets_v1.claim_accepted_video_input_garbage(uuid,integer,integer)",
+      "arguments": ["worker_id", "lease_seconds", "page_size"],
+      "request": "ClaimVideoGarbageRequest",
+      "result": "VideoGarbageBatch",
+      "role": "cleanup"
+    },
+    "complete_accepted_video_input_garbage": {
+      "signature": "aap_assets_v1.complete_accepted_video_input_garbage(uuid,uuid)",
+      "arguments": ["garbage_id", "lease_token"],
+      "request": "CompleteVideoGarbageRequest",
+      "result": "VideoGarbageAck",
+      "role": "cleanup"
+    }
+  }
+}

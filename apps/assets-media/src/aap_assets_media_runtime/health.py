@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from aap_assets_media.contract import OPERATIONS
+from aap_assets_video_inputs.execution import OPERATIONS as VIDEO_INPUT_OPERATIONS
 
 _IDENTITY = """
 SELECT current_user = session_user
@@ -40,12 +41,23 @@ ORDER BY 1
 async def check_capabilities(pool, role: str) -> bool:
     if role not in {"control", "worker"}:
         return False
+    if role == "control":
+        from aap_assets_images_runtime.health import (
+            check_capabilities as shared_control,
+        )
+
+        return await shared_control(pool, "control")
     wanted_roles = {"control", "system"} if role == "control" else {"worker"}
     expected = {
         "aap_assets_v1." + name + "(" + ", ".join(op.sql_types) + ")"
         for name, op in OPERATIONS.items()
         if op.role in wanted_roles
     }
+    expected.update(
+        "aap_assets_v1." + name + "(" + ", ".join(op.sql_types) + ")"
+        for name, op in VIDEO_INPUT_OPERATIONS.items()
+        if op.role in {"worker", "system"}
+    )
     try:
         async with pool.acquire(timeout=2) as connection:
             async with connection.transaction(readonly=True):

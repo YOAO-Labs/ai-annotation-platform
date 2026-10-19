@@ -14,9 +14,9 @@ BEGIN
             'schema','input_id','job_id','task_id','project_id','plan_digest',
             'timebase_digest','frame_id','entry','source_sha256','frame_sha256'
        ])
-       OR p_data ->> 'schema' IS DISTINCT FROM CASE WHEN p_ready
+       OR p_data ->> 'schema' IS DISTINCT FROM (CASE WHEN p_ready
             THEN 'aap-assets-video-input-evidence/v1'
-            ELSE 'aap-assets-video-input-failure/v1' END
+            ELSE 'aap-assets-video-input-failure/v1' END)
        OR NOT aap_assets_v1._video_input_uuid(p_data -> 'input_id')
        OR NOT aap_assets_v1._video_input_uuid(p_data -> 'job_id')
        OR NOT aap_assets_v1._video_input_uuid(p_data -> 'task_id')
@@ -110,9 +110,9 @@ BEGIN
             'schema','input_id','job_id','task_id','project_id','plan_digest',
             'timebase_digest','frame_id','entry','source_sha256','frame_sha256'
        ])
-       OR p_data ->> 'schema' IS DISTINCT FROM CASE WHEN p_ready
+       OR p_data ->> 'schema' IS DISTINCT FROM (CASE WHEN p_ready
             THEN 'aap-assets-video-input-evidence/v1'
-            ELSE 'aap-assets-video-input-failure/v1' END
+            ELSE 'aap-assets-video-input-failure/v1' END)
        OR NOT aap_labeling_v1._video_input_sources_uuid(p_data -> 'input_id')
        OR NOT aap_labeling_v1._video_input_sources_uuid(p_data -> 'job_id')
        OR NOT aap_labeling_v1._video_input_sources_uuid(p_data -> 'task_id')
@@ -561,7 +561,7 @@ BEGIN
     IF NOT FOUND THEN RETURN aap_labeling_v1._video_input_sources_reply(NULL, 'source_missing'); END IF;
     IF v_source_task_id IS NULL OR v_target_task_id IS NULL OR v_source_project_id IS NULL
        OR v_target_project_id IS NULL
-       OR (v_source_task_id,v_source_project_id) IS DISTINCT FROM (v_target_task_id,v_target_project_id) THEN
+       OR v_source_project_id IS DISTINCT FROM v_target_project_id THEN
         RETURN aap_labeling_v1._video_input_sources_reply(NULL, 'input_scope_mismatch');
     END IF;
     FOR v_source IN
@@ -570,7 +570,6 @@ BEGIN
         ORDER BY source.input_id,source.plan_digest,source.ordinal
     LOOP
         IF NOT aap_labeling_v1._video_input_evidence_valid(v_source.evidence,true)
-           OR v_source.task_id IS DISTINCT FROM v_source_task_id
            OR v_source.project_id IS DISTINCT FROM v_source_project_id THEN
             PERFORM aap_labeling_v1._video_input_abort('input_scope_mismatch');
         END IF;
@@ -585,7 +584,7 @@ BEGIN
             PERFORM aap_labeling_v1._video_input_abort('input_scope_mismatch');
         END IF;
         v_pin := aap_assets_v1._lock_accepted_video_input_pin(
-            v_source_task_id,v_source_project_id,v_source.evidence,NULL
+            v_source.task_id,v_source_project_id,v_source.evidence,NULL
         );
         v_code := aap_labeling_v1._video_input_sources_code(v_pin,'aap-assets-video-input-execution/v1');
         IF v_code IS NOT NULL THEN PERFORM aap_labeling_v1._video_input_abort(v_code); END IF;
@@ -605,7 +604,7 @@ BEGIN
             annotation_id,input_id,plan_digest,task_id,project_id,frame_id,ordinal,frame_index,
             timebase_digest,source_sha256,frame_sha256,evidence
         ) VALUES (
-            p_target_annotation_id,v_source.input_id,v_source.plan_digest,v_source_task_id,
+            p_target_annotation_id,v_source.input_id,v_source.plan_digest,v_source.task_id,
             v_source_project_id,v_source.frame_id,v_source.ordinal,v_source.frame_index,
             v_source.timebase_digest,v_source.source_sha256,v_source.frame_sha256,v_source.evidence
         ) ON CONFLICT (annotation_id,input_id,plan_digest,ordinal) DO NOTHING;
@@ -655,9 +654,9 @@ BEGIN
     SELECT parent.task_id,parent.project_id INTO v_parent_task_id,v_parent_project_id
     FROM public.annotations AS parent WHERE parent.id=NEW.parent_annotation_id;
     IF NOT FOUND OR NEW.task_id IS NULL OR NEW.project_id IS NULL
-       OR (NEW.task_id,NEW.project_id) IS DISTINCT FROM (v_parent_task_id,v_parent_project_id) THEN
+       OR NEW.project_id IS DISTINCT FROM v_parent_project_id THEN
         RAISE EXCEPTION USING ERRCODE='23514',
-            MESSAGE='annotation video input lineage must stay within one Task and project';
+            MESSAGE='annotation video input lineage must stay within one project';
     END IF;
     FOR v_source IN
         SELECT source.* FROM public.annotation_video_input_sources AS source
@@ -665,7 +664,6 @@ BEGIN
         ORDER BY source.input_id,source.plan_digest,source.ordinal
     LOOP
         IF NOT aap_labeling_v1._video_input_evidence_valid(v_source.evidence,true)
-           OR v_source.task_id IS DISTINCT FROM NEW.task_id
            OR v_source.project_id IS DISTINCT FROM NEW.project_id THEN
             RAISE EXCEPTION USING ERRCODE='23514', MESSAGE='annotation video evidence scope changed';
         END IF;
@@ -678,7 +676,7 @@ BEGIN
             RAISE EXCEPTION USING ERRCODE='23514', MESSAGE='annotation video evidence changed';
         END IF;
         v_pin := aap_assets_v1._lock_accepted_video_input_pin(
-            NEW.task_id,NEW.project_id,v_source.evidence,NULL
+            v_source.task_id,NEW.project_id,v_source.evidence,NULL
         );
         v_code := aap_labeling_v1._video_input_sources_code(v_pin,'aap-assets-video-input-execution/v1');
         IF v_code IS NOT NULL THEN
@@ -696,7 +694,7 @@ BEGIN
             annotation_id,input_id,plan_digest,task_id,project_id,frame_id,ordinal,frame_index,
             timebase_digest,source_sha256,frame_sha256,evidence
         ) VALUES (
-            NEW.id,v_source.input_id,v_source.plan_digest,NEW.task_id,NEW.project_id,
+            NEW.id,v_source.input_id,v_source.plan_digest,v_source.task_id,NEW.project_id,
             v_source.frame_id,v_source.ordinal,v_source.frame_index,v_source.timebase_digest,
             v_source.source_sha256,v_source.frame_sha256,v_source.evidence
         ) ON CONFLICT (annotation_id,input_id,plan_digest,ordinal) DO NOTHING;
@@ -725,14 +723,14 @@ BEGIN
             FROM public.annotations AS parent
             JOIN public.annotations AS child
               ON child.parent_annotation_id=parent.id
-             AND child.task_id=parent.task_id AND child.project_id=parent.project_id
-            WHERE parent.id=NEW.annotation_id AND parent.task_id=NEW.task_id
+             AND child.project_id=parent.project_id
+            WHERE parent.id=NEW.annotation_id
               AND parent.project_id=NEW.project_id
             UNION ALL
             SELECT child.id,child.task_id,child.project_id,descendants.path || child.id
             FROM public.annotations AS child
             JOIN descendants ON child.parent_annotation_id=descendants.annotation_id
-                AND child.task_id=descendants.task_id AND child.project_id=descendants.project_id
+                AND child.project_id=descendants.project_id
             WHERE NOT child.id=ANY(descendants.path)
         )
         SELECT 1 FROM descendants
@@ -750,21 +748,21 @@ BEGIN
         FROM public.annotations AS parent
         JOIN public.annotations AS child
           ON child.parent_annotation_id=parent.id
-         AND child.task_id=parent.task_id AND child.project_id=parent.project_id
-        WHERE parent.id=NEW.annotation_id AND parent.task_id=NEW.task_id
+         AND child.project_id=parent.project_id
+        WHERE parent.id=NEW.annotation_id
           AND parent.project_id=NEW.project_id
         UNION ALL
         SELECT child.id,child.task_id,child.project_id,descendants.path || child.id
         FROM public.annotations AS child
         JOIN descendants ON child.parent_annotation_id=descendants.annotation_id
-            AND child.task_id=descendants.task_id AND child.project_id=descendants.project_id
+            AND child.project_id=descendants.project_id
         WHERE NOT child.id=ANY(descendants.path)
     )
     INSERT INTO public.annotation_video_input_sources(
         annotation_id,input_id,plan_digest,task_id,project_id,frame_id,ordinal,frame_index,
         timebase_digest,source_sha256,frame_sha256,evidence
     )
-    SELECT descendants.annotation_id,NEW.input_id,NEW.plan_digest,descendants.task_id,
+    SELECT descendants.annotation_id,NEW.input_id,NEW.plan_digest,NEW.task_id,
         descendants.project_id,NEW.frame_id,NEW.ordinal,NEW.frame_index,NEW.timebase_digest,
         NEW.source_sha256,NEW.frame_sha256,NEW.evidence
     FROM descendants
@@ -992,13 +990,21 @@ BEGIN
         END LOOP;
         FOR v_frame IN
             SELECT frame.* FROM public.asset_accepted_video_frames AS frame
-            WHERE frame.input_id=v_input.input_id AND frame.status='ready'
+            WHERE frame.input_id=v_input.input_id AND frame.status <> 'expired'
             ORDER BY frame.ordinal
             FOR UPDATE OF frame NOWAIT
         LOOP
-            UPDATE public.asset_accepted_video_frames AS frame
-            SET status='expired',updated_at=v_now
-            WHERE frame.frame_id=v_frame.frame_id;
+            IF v_frame.status='ready' THEN
+                UPDATE public.asset_accepted_video_frames AS frame
+                SET status='expired',updated_at=v_now
+                WHERE frame.frame_id=v_frame.frame_id;
+            ELSE
+                UPDATE public.asset_accepted_video_frames AS frame
+                SET status='failed',error_code='input_expired',lease_owner=NULL,lease_token=NULL,lease_expires_at=NULL,
+                    last_lease_token=COALESCE(v_frame.lease_token,frame.last_lease_token),
+                    last_outcome=CASE WHEN v_frame.lease_token IS NULL THEN frame.last_outcome ELSE 'lease_expired' END,
+                    updated_at=v_now WHERE frame.frame_id=v_frame.frame_id;
+            END IF;
         END LOOP;
         FOR v_frame_attempt IN
             SELECT attempt.* FROM public.asset_accepted_video_frame_attempts AS attempt

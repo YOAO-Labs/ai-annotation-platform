@@ -27,6 +27,7 @@ from aap_assets_images.contract import (
 from aap_assets_media.contract import OPERATIONS as VIDEO_OPERATIONS
 from aap_assets_inputs.contract import OPERATIONS as INPUT_OPERATIONS
 from aap_assets_input_manifests.contract import OPERATIONS as MANIFEST_OPERATIONS
+from aap_assets_video_inputs.execution import OPERATIONS as VIDEO_INPUT_OPERATIONS
 from aap_assets_images_runtime.database import (
     AsyncpgImageDatabase,
     prepare_native_call,
@@ -288,6 +289,7 @@ async def test_shared_control_preflight_includes_inputs_but_rejects_cleanup_swee
         (OPERATIONS, {"control", "system"}),
         (INPUT_OPERATIONS, {"control"}),
         (MANIFEST_OPERATIONS, {"control"}),
+        (VIDEO_INPUT_OPERATIONS, {"control"}),
     )
     control_signatures = {
         "aap_assets_v1." + name + "(" + ", ".join(operation.sql_types) + ")": oid
@@ -301,7 +303,7 @@ async def test_shared_control_preflight_includes_inputs_but_rejects_cleanup_swee
             start=100,
         )
     }
-    assert len(control_signatures) == 40
+    assert len(control_signatures) == 49
     rows = [{"oid": oid, "prosecdef": True} for oid in control_signatures.values()]
     connection = _HealthConnection(
         identity_ok=True,

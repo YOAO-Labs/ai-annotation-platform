@@ -114,6 +114,11 @@ SQL_ARTIFACTS = (
     "0222_accepted_input_manifests_control.sql",
     "0223_video_input_authorities.sql",
     "0224_video_input_selection.sql",
+    "0225_video_inputs_state.sql",
+    "0225_video_inputs_control.sql",
+    "0225_video_inputs_garbage.sql",
+    "0225_video_inputs_execution.sql",
+    "0225_video_inputs_retention.sql",
 )
 SCHEMA_ARTIFACTS = (
     "0191_task_append.schema.json",
@@ -149,6 +154,8 @@ SCHEMA_ARTIFACTS = (
     "0222_accepted_input_manifests.schema.json",
     "0223_video_input_authorities.schema.json",
     "0224_video_input_selection.schema.json",
+    "0225_video_inputs.schema.json",
+    "0225_video_input_evidence.schema.json",
 )
 TEST_FILES = (
     "tests/test_workspace_data_contract.py",
@@ -1812,8 +1819,8 @@ def main(argv: list[str] | None = None) -> int:
         database = resources["database"]
         evidence["database"] = database
         _, heads = migration_graph(ROOT)
-        if heads != ["0224"]:
-            raise RuntimeError("module-data acceptance requires migration head 0224")
+        if heads != ["0225"]:
+            raise RuntimeError("module-data acceptance requires migration head 0225")
         evidence["migrations"]["head_before_downgrade"] = heads[0]
         phase = "downgrade-to-0189"
         _container_details(

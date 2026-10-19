@@ -195,8 +195,8 @@ staged times and exact publication keys before changing state. Native timebase
 verification bounds canonical selected-entry text to 64 MiB before constructing
 its SHA-256 input; page/request/reply limits remain unchanged. The worker's
 existing JSON spool budget is at least as strict for normal selected entries.
-The new state is not installed or activated until its complete native owner and
-qualification are integrated.
+Migration 0225 now installs the native owner state and capabilities. This does
+not activate retained-video admission in the process or prediction consumers.
 
 The control SQL now captures complete UUID-ordered membership through Labeling's
 cursor, computes the portable admission digest, and prepares each member against
@@ -212,10 +212,23 @@ Read operations retain original transport facts and selected times. Frame reques
 and Labeling write fences require a sealed manifest, the original plan, current
 Task/source/timetable facts and current actor access. Write fences compare the
 complete frame entry and exact blob version inside the caller's transaction.
+These source fences are composed with Labeling's current Task/batch/editor and
+actual execution-Job checks; they do not grant prediction-write authority alone.
+Historical original-Job consistency remains distinct from the active retry Job,
+so later authorized adoption can retain its original bytes after Job pruning or
+ordinary Task workflow changes.
 Lock contention rolls back partial changes and remains a transient owner error.
-Owned PostgreSQL checks exercise capture paging, original identity, replay,
-committed drift and all-failed sealing. Full worker, retention, role, process and
-consumer acceptance is still required before installation or local cutover.
+Owned PostgreSQL qualification passes 34 cases with no skips. It covers capture
+paging, original identity, replay after sealing, committed drift, lease takeover,
+atomic malformed pages, exact-version frame publication, strict role grants,
+lineage retention, delayed retirement and migration rollback/reinstallation.
+Frame rows are created lazily. Existing same-project annotation clones retain
+the original evidence Task even when the clone belongs to another Task; direct
+attachment still requires the target Task. Expiry preserves ready blob metadata
+and terminalizes pending, failed or expired-lease frames without leaving leases.
+The Media control/worker and Cleanup preflights match the expanded exact grant
+sets. Real video S3, process and consumer acceptance remain required before
+local cutover.
 
 ## Retained-byte processing runtime
 

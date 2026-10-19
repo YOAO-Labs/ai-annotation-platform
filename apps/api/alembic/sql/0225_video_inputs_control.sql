@@ -195,7 +195,7 @@ BEGIN
        OR v_input.error_code IS DISTINCT FROM p_error THEN PERFORM aap_assets_v1._video_input_abort('input_scope_mismatch'); END IF;
     SELECT manifest.* INTO v_manifest FROM public.asset_accepted_video_manifests AS manifest
         WHERE manifest.job_id=v_input.job_id FOR UPDATE NOWAIT;
-    IF NOT FOUND OR v_manifest.status <> 'preparing' OR v_manifest.actor_id <> v_input.actor_id
+    IF NOT FOUND OR v_manifest.actor_id <> v_input.actor_id
        OR v_manifest.project_id <> v_input.project_id OR v_manifest.selection -> 'sampling' IS DISTINCT FROM v_input.sampling THEN
         PERFORM aap_assets_v1._video_input_abort('manifest_scope_mismatch'); END IF;
     SELECT member.* INTO v_member FROM public.asset_accepted_video_members AS member
@@ -207,7 +207,7 @@ BEGIN
            AND v_member.source_facts -> 'object_identity' IS DISTINCT FROM v_input.source -> 'object_identity') THEN
         PERFORM aap_assets_v1._video_input_abort('input_scope_mismatch'); END IF;
     IF v_member.state=p_state AND v_member.error_code IS NOT DISTINCT FROM p_error THEN RETURN; END IF;
-    IF v_member.state <> 'preparing' OR v_manifest.prepared_count >= v_manifest.selected_count THEN
+    IF v_manifest.status <> 'preparing' OR v_member.state <> 'preparing' OR v_manifest.prepared_count >= v_manifest.selected_count THEN
         PERFORM aap_assets_v1._video_input_abort('manifest_scope_mismatch'); END IF;
     UPDATE public.asset_accepted_video_members SET state=p_state,error_code=p_error,updated_at=pg_catalog.clock_timestamp()
         WHERE job_id=v_input.job_id AND ordinal=v_member.ordinal;

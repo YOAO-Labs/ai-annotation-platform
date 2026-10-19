@@ -6,9 +6,9 @@ The portable `aap-assets-media/v1`, `aap-assets-images/v1` and
 their native installations are owned by migrations 0219, 0220 and 0221.
 
 Video, image and input HTTP routes share one control process and one function-only
-control LOGIN. The process verifies the combined 36 control/system functions
-before becoming ready. Video execution remains a separate worker with ten
-functions. Image execution uses a dedicated polling worker with six image and
+control LOGIN. The process verifies all 49 control/system functions before
+becoming ready. The video worker LOGIN has 20 functions, including the retained
+video input execution and sweep capabilities. Image execution uses a dedicated polling worker with six image and
 four input functions, its own SQL LOGIN and its own S3 credentials. The image worker uses
 Pillow for small thumbnails and the bounded libvips child process for pyramid
 generation. Neither worker imports the API ORM, Celery or Redis.
@@ -39,3 +39,11 @@ capacity. The broader ownership and remaining work are tracked in the
 [ADR-0106](../../docs/adr/0106-independent-image-media-owner.md). Accepted-input
 consumer integration and its required local qualification remain tracked in
 [ADR-0107](../../docs/adr/0107-versioned-accepted-media-inputs.md).
+
+Retained video inputs have a separate portable contract and 24 native capabilities.
+Their eight new Assets/Labeling state tables, leases, frame plans, lineage pins
+and delayed garbage partitions are qualified against owned PostgreSQL resources.
+Frame rows are requested lazily. The retained-video libraries are not wired into
+the control HTTP routes, worker poll loop or prediction consumers yet; native
+installation alone does not establish that complete slice. See
+[ADR-0109](../../docs/adr/0109-retained-video-inputs-and-frame-plans.md).
