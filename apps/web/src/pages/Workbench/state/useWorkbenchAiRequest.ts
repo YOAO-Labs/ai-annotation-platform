@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import { apiErrorDetailMessage } from "@/api/client";
 import { asyncJobsApi, CANCELLABLE_ASYNC_JOB_KINDS, type AsyncJob } from "@/api/asyncJobs";
 import { useAsyncJob } from "@/hooks/useAsyncJob";
+import { randomId } from "@/utils/id";
 
 export interface WorkbenchAiRequestSummary {
   readonly projectId: string;
@@ -21,6 +22,7 @@ export interface WorkbenchAiRequestPresentation {
   canCancel: boolean;
   cancelling: boolean;
   canRetry: boolean;
+  retryCreatesNewRequest?: boolean;
 }
 
 export interface WorkbenchAiRequestStart {
@@ -29,12 +31,14 @@ export interface WorkbenchAiRequestStart {
     signal: AbortSignal;
     isCurrent: () => boolean;
     summary: WorkbenchAiRequestSummary;
+    idempotencyKey: string;
   }) => Promise<{ kind: "queued"; celeryTaskId: string } | { kind: "completed" }>;
   /** Local execution supports abort; queued jobs negotiate cancellation after lookup. */
   cancellable: boolean;
 }
 
 interface RequestOwner extends WorkbenchAiRequestStart {
+  idempotencyKey: string;
   scopeKey: string;
   onCompleted: (summary: WorkbenchAiRequestSummary) => Promise<void>;
   controller: AbortController;
@@ -104,6 +108,7 @@ function presentationOf(owner: RequestOwner): WorkbenchAiRequestPresentation {
     error: owner.error,
     canCancel: canCancel(owner),
     cancelling: owner.cancelling,
+    retryCreatesNewRequest: owner.job?.status === "failed" || owner.job?.status === "cancelled",
     canRetry:
       !owner.refreshing &&
       !owner.lookupInFlight &&
@@ -301,6 +306,7 @@ export function useWorkbenchAiRequest({
           signal: owner.controller.signal,
           isCurrent: () => owns(owner) && owner.status === "running",
           summary: owner.summary,
+          idempotencyKey: owner.idempotencyKey,
         });
         if (!owns(owner) || owner.status !== "running") return;
         if (response.kind === "completed") await complete(owner);
@@ -325,12 +331,14 @@ export function useWorkbenchAiRequest({
     (
       request: WorkbenchAiRequestStart,
       completedHandler: (summary: WorkbenchAiRequestSummary) => Promise<void>,
+      replayKey?: string,
     ): boolean => {
       if (!scopeKey || scopeRef.current !== scopeKey || !mountedRef.current) return false;
       if (ownerRef.current?.status === "running") return false;
       if (ownerRef.current) clearLookup(ownerRef.current);
       const owner: RequestOwner = {
         ...request,
+        idempotencyKey: replayKey ?? randomId(),
         summary: freezeSummary(request.summary),
         scopeKey,
         onCompleted: completedHandler,
@@ -412,6 +420,9 @@ export function useWorkbenchAiRequest({
       return begin(
         { summary: owner.summary, execute: owner.execute, cancellable: owner.cancellable },
         owner.onCompleted,
+        owner.job?.status === "failed" || owner.job?.status === "cancelled"
+          ? undefined
+          : owner.idempotencyKey,
       );
     }
     return true;

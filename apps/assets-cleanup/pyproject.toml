@@ -3,10 +3,10 @@ name = "aap-assets-cleanup"
 version = "0.1.0"
 description = "Standalone worker for the Assets-owned object cleanup outbox"
 requires-python = ">=3.11"
-dependencies = ["pydantic>=2.10.0", "aap-assets-media"]
+dependencies = ["pydantic>=2.10.0"]
 
 [project.optional-dependencies]
-worker = ["asyncpg>=0.30.0", "boto3>=1.43.77"]
+worker = ["aap-assets-media", "asyncpg>=0.30.0", "boto3>=1.43.77"]
 
 [dependency-groups]
 dev = [
@@ -20,7 +20,7 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [tool.uv.sources]
-aap-assets-media = { path = "../assets-media" }
+aap-assets-media = { path = "../assets-media", editable = true }
 
 [tool.setuptools.packages.find]
 where = ["src"]

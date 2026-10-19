@@ -270,6 +270,7 @@ describe("ordinary AI request ownership", () => {
       classes: [1, 4],
     });
     expect(execute.mock.calls[1][0].signal).not.toBe(execute.mock.calls[0][0].signal);
+    expect(execute.mock.calls[1][0].idempotencyKey).toBe(execute.mock.calls[0][0].idempotencyKey);
     expect(view.result.current.presentation.status).toBe("completed");
   });
 
@@ -724,7 +725,7 @@ describe("queued prediction job identity", () => {
     expect(view.onCompleted).not.toHaveBeenCalled();
   });
 
-  it("reports the matched job's failed terminal state and replays its original request", async () => {
+  it("starts a new submission with captured settings after an authoritative terminal job", async () => {
     const view = harness();
     const execute = await startQueued(view);
     act(() => {
@@ -738,12 +739,17 @@ describe("queued prediction job identity", () => {
       error: "model crashed",
       canRetry: true,
       canCancel: false,
+      retryCreatesNewRequest: true,
     });
     execute.mockResolvedValue(completed);
     await act(async () => {
       view.result.current.retry();
     });
     expect(execute).toHaveBeenCalledTimes(2);
+    expect(execute.mock.calls[1][0].summary.input).toEqual(execute.mock.calls[0][0].summary.input);
+    expect(execute.mock.calls[1][0].idempotencyKey).not.toBe(
+      execute.mock.calls[0][0].idempotencyKey,
+    );
     expect(view.result.current.presentation.status).toBe("completed");
   });
 

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
-from types import MethodType, SimpleNamespace
+from types import SimpleNamespace
 import uuid
 
 import pytest
@@ -159,7 +159,7 @@ async def test_recovery_reuses_the_claimed_input_and_version(monkeypatch):
 
     class Gateway:
         async def reference(self, request):
-            request_ids.append(request.input_id)
+            request_ids.append((request.input_id, request.job_id))
             if len(request_ids) == 1:
                 raise InputFailure("input_not_ready")
             return reference
@@ -186,7 +186,10 @@ async def test_recovery_reuses_the_claimed_input_and_version(monkeypatch):
         assert prepared.accepted_input["input_id"] == input_id
         assert prepared.reference.url.endswith("versionId=claimed-version")
         assert prepared.local_path.read_bytes() == b"original accepted bytes"
-    assert request_ids == [input_id, input_id]
+    assert request_ids == [
+        (input_id, origin_job_id),
+        (input_id, origin_job_id),
+    ]
     assert events == ["download", "verify"]
     assert failed.extra["retry_pending"] is True
 
@@ -194,14 +197,13 @@ async def test_recovery_reuses_the_claimed_input_and_version(monkeypatch):
 def test_frozen_input_deferral_retries_the_same_celery_execution_past_three(
     monkeypatch,
 ):
+    from celery.exceptions import Retry
+
     from app.workers import predictions_retry as retry_worker
 
     task = retry_worker.retry_failed_prediction
     assert task.max_retries is None
     captured = {}
-
-    class RetryScheduled(Exception):
-        pass
 
     def defer_before_job(coroutine):
         frame = coroutine.cr_frame
@@ -210,22 +212,20 @@ def test_frozen_input_deferral_retries_the_same_celery_execution_past_three(
         coroutine.close()
         raise FrozenInputRetryDeferred("input_not_ready")
 
-    def retry(self, *, exc, countdown, max_retries):
-        captured.update(
-            task_id=self.request.id,
-            retries=self.request.retries,
-            exception=exc,
-            countdown=countdown,
-            max_retries=max_retries,
-        )
-        raise RetryScheduled()
-
     monkeypatch.setattr(retry_worker.asyncio, "run", defer_before_job)
-    monkeypatch.setattr(task, "retry", MethodType(retry, task))
-    task.push_request(id="original-retry-execution", retries=8)
+    task.push_request(
+        id="original-retry-execution",
+        retries=8,
+        is_eager=True,
+        called_directly=False,
+        args=["failed-id", "actor-id"],
+        kwargs={},
+    )
     try:
-        with pytest.raises(RetryScheduled):
+        with pytest.raises(Retry) as retry_info:
             task.run("failed-id", "actor-id")
+        captured["task_id"] = task.request.id
+        captured["retries"] = task.request.retries
     finally:
         task.pop_request()
 
@@ -233,6 +233,4 @@ def test_frozen_input_deferral_retries_the_same_celery_execution_past_three(
     assert captured["celery_task_id"] == "original-retry-execution"
     assert captured["task_id"] == "original-retry-execution"
     assert captured["retries"] == 8
-    assert captured["countdown"] == 30
-    assert captured["max_retries"] is None
-    assert isinstance(captured["exception"], FrozenInputRetryDeferred)
+    assert retry_info.value.when == 30

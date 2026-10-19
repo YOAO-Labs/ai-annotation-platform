@@ -17,13 +17,13 @@ last_reviewed: 2026-10-19
 
 ## 当前模块状态
 
-当前入口清单覆盖主 API 的 485 paths、568 operations，另有 WebSocket、Celery、训练 executor、CLI 和诊断工具。逻辑所有权台账覆盖 136 张 ORM 表。路由数和表数用于定位现有边界，不代表模块已有稳定 wire schema。具体入口以[仓库地图](./repository-map#公开契约与入口台账)为准，表和事务以[后端分层](./backend-layers#权威数据与写入所有权)为准。
+当前入口清单覆盖主 API 的 485 paths、568 operations，另有 WebSocket、Celery、训练 executor、CLI 和诊断工具。逻辑所有权台账覆盖 136 张 ORM 表；受理输入另有三张 Assets 账本及一张 Labeling 证据表，由 native SQL 迁移持有。路由数和表数用于定位现有边界，不代表模块已有稳定 wire schema。具体入口以[仓库地图](./repository-map#公开契约与入口台账)为准，表和事务以[后端分层](./backend-layers#权威数据与写入所有权)为准。
 
 | 模块          | 已有证据                                                                                                                                                                                                                                                                                          | 独立部署与替换仍缺少的能力                                                                                                                                                                                             |
 | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | identity      | 52 个路径、61 个操作、8 张所有者表。认证、身份事实、API key、自助资料和生命周期已有若干值接口与单一写入服务；初始建题、项目删除和数据集解绑会读取当前身份事实。                                                                                                                                   | 身份服务自己的版本化协议、凭据与会话运行时，以及供其他服务使用的可信主体和当前撤权合同。成员授予、邀请、离职仍涉及 Workspace、Labeling 和 Audit 的共享事务，需明确唯一事务 owner。                                     |
 | workspace     | 31 个路径、41 个操作、5 张所有者表。项目配置、模板、成员与项目删除已有领域 owner；项目删除和数据集解绑使用 Workspace 当前权限合同及同库事务协调。                                                                                                                                                 | Workspace 尚非独立服务。项目转移、邀请、成员生命周期仍涉及多 owner 当前授权、写入与审计；完整入口、迁移和独立凭据仍缺。                                                                                                |
-| assets        | 40 个路径、51 个操作、34 张所有者表。视频探测有独立工件与 Node 互操作验收；目录、关联读取及 Scene/位姿/标定由既有 Catalog 工件提供；来源控制、六项连接管理操作、同步 ZIP/扫描、清理和持久连接器导入使用现有 Assets Source 运行时；本地图片与 nuScenes importer 使用单独的六项 operator SQL 能力。 | 视频与图片执行及引用已通过受限账号、独立进程及容器联调；一般 Blob、已接受推理源快照和其余运维写入仍待提取，全模块部署与语言替换尚未完成。                                                                              |
+| assets        | 40 个路径、51 个操作、34 张所有者表。视频探测有独立工件与 Node 互操作验收；目录、关联读取及 Scene/位姿/标定由既有 Catalog 工件提供；来源控制、六项连接管理操作、同步 ZIP/扫描、清理和持久连接器导入使用现有 Assets Source 运行时；本地图片与 nuScenes importer 使用单独的六项 operator SQL 能力。 | 视频与图片执行及引用已通过受限账号、独立进程及容器联调；单张 Workbench 输入快照已在集成分支联调；一般 Blob、其余推理输入和运维写入仍待提取，全模块部署与语言替换尚未完成。                                             |
 | labeling      | 123 个路径、138 个操作、36 张所有者表，覆盖任务、批次、标注、候选、审核、反馈、轨迹、Mask 和质检。多项写入端口及解绑主来源选择、保留检查、Task 清理和投影已有 owner 合同。                                                                                                                        | 许多操作仍绑定请求方 SQL Session。完整写入集合仍须与账号、成员、Task 和编辑锁的当前权威串行化；跨模块事务 owner 和远程撤权/重放协议仍待完成。                                                                          |
 | inference     | 82 个路径、94 个操作与 tracking/quality 路由合计；9 张推理控制面所有者表。五个 ML backend 已是独立 HTTP 服务，已有 JSON/Pydantic 协议包。                                                                                                                                                         | ML backend 是计算子能力，不是平台 inference 模块。Registry、pool、GPU 仲裁、路由、pipeline 和作业账本仍在 API/Redis/Celery 内。需公开平台控制协议，约束 GPU 租约、取消和迟到结果，并解除对 Python 协议包的运行时依赖。 |
 | learning      | 87 个路径、105 个操作、35 张所有者表。训练 executor 有独立 HTTP 拉取进程和执行权交接验收；项目删除与 Dataset/Item 删除、解绑已有保留检查能力。                                                                                                                                                    | executor 只是执行子能力；版本、训练、评估与发布账本仍由 API 持有，并依赖 Labeling/Assets 冻结来源、Workspace 权威和 Inference 安装/试用。                                                                              |
@@ -95,7 +95,7 @@ Assets 的来源删除命令在当前素材库管理员与来源锁内组合 Lea
 
 普通上传初始化只存 intent，签发 import staging PUT；完成时以同一 ETag 条件拷贝到本次 publication UUID 路径，再原子登记 Item、通过 Labeling 追加任务并冻结结果。已完成重试不重新拷贝。旧无 intent 记录不补造上传者，缺失/重复不删旧行或文件。原始字节始终保留；未完成 intent 和提交不确定时的未引用拷贝目前也保留，不能把 staging 生命周期当作所有原始拷贝的回收证明。
 
-`apps/assets-cleanup` 是独立 Python 执行工件，只有 asyncpg/boto3 与纯协议依赖；没有 API/ORM/Celery/Redis 依赖。数据库角色仅可执行原存储 outbox 的 bucket/keyset pending、完成确认，以及图片垃圾的领取和完成确认四项能力，S3 仅能在一桶 `image-pyramids/*` 和 `image-assets/*` 列举与删除。调用方提交 outbox 后无需 broker 唤醒。独立 Compose、secret 文件、健康/就绪及回退职责见 `DEV.md` 和 [ADR-0096](/dev/adr/0096-assets-source-deletion-and-cleanup)。
+`apps/assets-cleanup` 是独立 Python 执行工件，只有 asyncpg/boto3 与纯协议依赖；没有 API/ORM/Celery/Redis 依赖。数据库角色精确执行六项能力：原存储 outbox 的 bucket/keyset pending、完成确认，以及图片垃圾、受理输入垃圾各自的领取和完成确认。S3 可以在 media-cache 的 `image-pyramids/*`、`image-assets/*` 列举与删除；版本化输入桶仅授予版本状态探测及 `accepted-inputs/*` 的版本列举、指定版本删除和 multipart 清理，不允许读取或写入内容。调用方提交 outbox 后无需 broker 唤醒。独立 Compose、secret 文件、健康/就绪及回退职责见 `DEV.md` 和 [ADR-0096](/dev/adr/0096-assets-source-deletion-and-cleanup)。
 
 本地隔离 PostgreSQL、受限 LOGIN、真实 MinIO 与独立容器的有效结果共覆盖 630 个唯一用例，无业务跳过；先前失败/夹具缺失的用例以定向补验结果替换，不把多次执行重复相加。覆盖两种生产者、当前权限、引用保留、强事务、重放、UTF-8 key 预算、条件拷贝、lease 延迟、迟到对象、确认丢失与重启恢复。独立包 29 项单元用例及 writer deadline 2 项通过；自有数据库、Redis、桶、存储身份、临时容器和镜像均已清理。
 
@@ -185,7 +185,7 @@ Assets Media 共用控制 LOGIN 执行 32 项能力（视频 18 项、图片 14 
 
 ## 视频媒体控制与执行
 
-`apps/assets-media` 提供独立控制和轮询执行进程，冻结 `aap-assets-media/v1` 数据及 HTTP 工件。共用控制 LOGIN 精确执行视频 18 项和图片 14 项能力，视频执行 LOGIN 保留 10 项；新增四张账本表记录逻辑作业、不可变操作回执、时间表暂存与可重试垃圾责任。来源、作业、租约与时间表依赖在发布时核验，执行进程不导入 API、ORM、Celery 或 Redis。
+`apps/assets-media` 提供独立控制和轮询执行进程，冻结 `aap-assets-media/v1` 数据及 HTTP 工件。共用控制 LOGIN 精确执行视频 18 项、图片 14 项及受理输入 4 项能力，视频执行 LOGIN 保留 10 项；视频的四张账本表记录逻辑作业、不可变操作回执、时间表暂存与可重试垃圾责任。来源、作业、租约与时间表依赖在发布时核验，执行进程不导入 API、ORM、Celery 或 Redis。
 
 视频 REST、摘要、Data Manager 聚合、帧预标注、导出引用、seed、时间表工具及旧 Celery 注册入口已接入 owner。显式远程配置不会回退；本地绑定使用同一套实现。受限 SQL 账号、独立 HTTP/S3/FFmpeg 进程及两个带资源限制的容器已通过本地联调，覆盖租约交接、来源变化、缓存丢失与迟到结果围栏。完整字段、预算及恢复规则见[视频媒体接口](/api/guides/assets-media)。
 
@@ -195,10 +195,16 @@ Assets Media 共用控制 LOGIN 执行 32 项能力（视频 18 项、图片 14 
 
 ## 图片媒体控制与执行
 
-图片缩略图、尺寸、金字塔、回填、签名引用和保留清理由 `aap-assets-images/v1` 合同连接。现有 Media 控制工件承载图片路由，独立 image-worker 轮询已接受作业；原 API ORM 图片执行实现已移除。本地 Celery 适配器使用同一套 owner 和任务级数据库会话，连续执行时不复用已关闭事件循环的连接。图片执行账号精确执行六项能力，源对象只读，派生结果写入独立 attempt 前缀，删除由 Cleanup 持有。
+图片缩略图、尺寸、金字塔、回填、签名引用和保留清理由 `aap-assets-images/v1` 合同连接。现有 Media 控制工件承载图片路由，独立 image-worker 轮询已接受作业；原 API ORM 图片执行实现已移除。本地 Celery 适配器使用同一套 owner 和任务级数据库会话，连续执行时不复用已关闭事件循环的连接。图片执行账号精确执行六项图片及四项受理输入能力，源对象只读，派生结果写入独立 attempt 前缀，删除由 Cleanup 持有。
 
 本地联调覆盖实际 S3 条件读取、Pillow/blurhash 与 libvips 输出、来源替换、租约交接、解绑取消、迟到对象清理、冷安装和受限容器。图片容器在 2 CPU/2 GiB 下完成缩略图和 1024×1024 金字塔，观测内存峰值为 128,532,480 字节；该小样本不代表生产容量。工作台验证必需金字塔缺失时原图请求为零，尺寸探测成功后自动恢复小图，损坏图片保留明确失败状态。完整协议、迁移排空和回退保护见[媒体接口](/api/guides/assets-media)、[图片运维](/ops/runbooks/image-pyramid)及 [ADR-0106](/dev/adr/0106-independent-image-media-owner)。
 
-已接受推理、跟踪、训练与评估的源输入仍需受理快照合同；不能用当前图片 URL 替换冻结输入。一般 Blob 生命周期和其余模块继续推进。Go 保持独立实验，没有默认接入或生产部署。
+## 已接受的单张图片输入
 
-受理输入审查、训练已有副本保证及后续完整迁移门槛见[已接受作业的媒体输入](./accepted-media-inputs)。
+`aap-assets-inputs/v1` 在既有媒体工件中提供十二项 native 能力及五项私有 HTTP 操作，固定持久 Job、Task 来源绑定、Assets 代次／快照和条件对象身份。副本进入独立版本化输入桶；整图 URL 与 ROI 使用相同 VersionId、SHA 和大小，缺失或损坏时明确失败。Workbench 单张图片的根推理、ROI、失败项恢复及候选证据已经接入集成分支，尚未切换主开发运行时。
+
+受限 SQL/S3 身份下的独立控制、图片执行、清理进程与清理容器已有本地证据；Node 消费五项 HTTP 操作，真实模型桩读取版本化原图和 ROI。原 Job 删除、原发起者停用后，当前有权限的用户仍可采纳受保留的候选并登记 Annotation pin。浏览器验收覆盖同身份请求重放、新运行及任务切换，响应使用受控拦截，不作为真实推理证据。
+
+普通批量、视频逐帧、跟踪修正和 Learning 首次来源组合尚未迁移。素材转换及部分视频 Mask 路径还存在持业务锁的对象 I/O，完整 Labeling、Inference 和 Jobs 独立协议也未完成。已有冻结训练包和评估样本继续使用 Learning 自己的保留副本。一般 Blob 生命周期和其余模块继续推进。Go 保持独立实验，没有默认接入或生产部署。
+
+输入保留、当前权限、锁边界和后续完整迁移门槛见[已接受作业的媒体输入](./accepted-media-inputs)。

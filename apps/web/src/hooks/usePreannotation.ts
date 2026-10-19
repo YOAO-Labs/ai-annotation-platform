@@ -4,6 +4,7 @@ import { apiClient } from "@/api/client";
 import { useReconnectingWebSocket, type ReconnectState } from "@/hooks/useReconnectingWebSocket";
 import { useAuthStore } from "@/stores/authStore";
 import { buildWsUrl } from "@/lib/wsHost";
+import { randomId } from "@/utils/id";
 
 /** v0.18.6 · 逐阶段实时统计项 (worker _stage_totals_snapshot 的形态)。源阶段=detected; 下游=targeted/ok/failed/skipped_geometry。 */
 export interface PipelineStageStat {
@@ -150,7 +151,7 @@ type TriggerPreannotationVariables =
   | { payload: TriggerPreannotationPayload; idempotencyKey: string };
 
 export function createPreannotationIdempotencyKey(): string {
-  return crypto.randomUUID();
+  return randomId();
 }
 
 export function useTriggerPreannotation(projectId: string | undefined) {

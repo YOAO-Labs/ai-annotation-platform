@@ -4,10 +4,12 @@ import asyncio
 import base64
 from hashlib import sha256
 from io import BytesIO
+import json
 import logging
 import os
 from pathlib import Path
 import sys
+import subprocess
 import time
 from urllib.parse import unquote, urlsplit
 from uuid import uuid4
@@ -72,6 +74,124 @@ class _DropAcceptedResponse(httpx.AsyncBaseTransport):
 
     async def aclose(self):
         await self.inner.aclose()
+
+
+async def _prove_node_consumer(runtime, record, reference):
+    root = Path(__file__).resolve().parents[3]
+    result = await asyncio.to_thread(
+        subprocess.run,
+        ["node", str(root / "apps/assets-media/tests/fixtures/inputs-peer.mjs")],
+        input=json.dumps(
+            {
+                "origin": str(runtime.control_client.base_url).rstrip("/"),
+                "token": runtime.control_token,
+                "input_id": str(record.input_id),
+                "job_id": str(record.job_id),
+                "task_id": str(record.task_id),
+                "actor_id": str(record.actor_id),
+                "sha256": record.sha256,
+                "byte_size": record.byte_size,
+            }
+        ),
+        text=True,
+        capture_output=True,
+        timeout=20,
+        env={"PATH": os.environ.get("PATH", "")},
+        check=False,
+    )
+    assert result.returncode == 0, (
+        "independent Node input consumer rejected the contract"
+    )
+    assert json.loads(result.stdout) == {
+        "schema": c.INPUT_SCHEMA,
+        "input_id": str(record.input_id),
+        "version_id": reference.version_id,
+        "sha256": record.sha256,
+        "byte_size": record.byte_size,
+    }
+
+
+async def _prove_later_candidate_adoption(
+    runtime, record, project_id, task_id, monkeypatch
+):
+    from app.config import settings
+    from app.db.models.prediction import Prediction, PredictionMeta
+    from app.db.models.task import Task
+    from app.services.annotation import AnnotationService
+    from tests.test_annotation_attribute_provenance import _accept_scope, _bbox_shape
+
+    monkeypatch.setattr(
+        settings, "assets_media_url", str(runtime.control_client.base_url).rstrip("/")
+    )
+    monkeypatch.setattr(settings, "assets_media_token", runtime.control_token)
+    async with runtime.owner_sessions.begin() as owner:
+        later_actor = await _seed_actor(owner, role="super_admin")
+        runtime.track_actor(later_actor)
+        prediction = Prediction(
+            id=uuid4(),
+            task_id=task_id,
+            project_id=project_id,
+            result=[_bbox_shape("car", {"color": "original-red"})],
+            score=0.9,
+            tool_unit_id="bbox",
+        )
+        owner.add(prediction)
+        await owner.flush()
+        owner.add(
+            PredictionMeta(
+                prediction_id=prediction.id,
+                prediction_created_at=prediction.created_at,
+                extra={
+                    "accepted_input": {
+                        "input_id": str(record.input_id),
+                        "job_id": str(record.job_id),
+                        "task_id": str(record.task_id),
+                        "sha256": record.sha256,
+                        "byte_size": record.byte_size,
+                    }
+                },
+            )
+        )
+        await owner.execute(
+            text("UPDATE public.tasks SET version=version+1 WHERE id=:task"),
+            {"task": task_id},
+        )
+        await owner.execute(
+            text("UPDATE public.users SET is_active=false WHERE id=:actor"),
+            {"actor": record.actor_id},
+        )
+        await owner.execute(
+            text("DELETE FROM public.async_jobs WHERE id=:job"), {"job": record.job_id}
+        )
+
+    async with runtime.owner_sessions() as owner:
+        current = await owner.get(Task, task_id)
+        assert current.version > record.task_version
+        annotations = await AnnotationService(owner)._accept_prediction(
+            prediction.id, write_scope=_accept_scope(current, later_actor)
+        )
+        assert annotations and len(annotations) == 1
+        annotation_id = annotations[0].id
+        assert annotations[0].user_id == later_actor
+        await owner.commit()
+    async with runtime.owner_sessions.begin() as owner:
+        pins = (
+            await owner.execute(
+                text(
+                    "SELECT input_id,sha256 FROM public.annotation_input_sources WHERE annotation_id=:annotation"
+                ),
+                {"annotation": annotation_id},
+            )
+        ).all()
+        assert pins == [(record.input_id, record.sha256)]
+        await owner.execute(
+            text("DELETE FROM public.prediction_metas WHERE prediction_id=:prediction"),
+            {"prediction": prediction.id},
+        )
+        await owner.execute(
+            text("DELETE FROM public.predictions WHERE id=:prediction"),
+            {"prediction": prediction.id},
+        )
 
 
 async def _prove_cleanup_rescans_late_versions(runtime, input_id, tmp_path):
@@ -319,6 +439,13 @@ async def test_replayed_input_materializes_in_restricted_process_and_binds_one_v
                     replay_reference, tmp_path / "accepted-after-overwrite.png"
                 )
                 assert (tmp_path / "accepted-after-overwrite.png").read_bytes() == body
+                await _prove_node_consumer(runtime, record, replay_reference)
+                await _prove_later_candidate_adoption(
+                    runtime, record, project.id, task.id, monkeypatch
+                )
+                assert (
+                    await client.reference(identity)
+                ).version_id == reference.version_id
                 from app.application.preannotation_execution import _run_task_pipeline
                 from tests.test_staged_pipeline_worker import _Result, _bbox
 
@@ -401,6 +528,20 @@ async def test_replayed_input_materializes_in_restricted_process_and_binds_one_v
             # Receipts/attempts are immutable provenance; the verifier destroys
             # their owned database and versioned bucket after the qualification.
             async with runtime.owner_sessions.begin() as owner:
+                await owner.execute(
+                    text("DELETE FROM public.annotations WHERE task_id=:task"),
+                    {"task": task.id},
+                )
+                await owner.execute(
+                    text(
+                        "DELETE FROM public.prediction_metas WHERE prediction_id IN (SELECT id FROM public.predictions WHERE task_id=:task)"
+                    ),
+                    {"task": task.id},
+                )
+                await owner.execute(
+                    text("DELETE FROM public.predictions WHERE task_id=:task"),
+                    {"task": task.id},
+                )
                 await owner.execute(
                     text("DELETE FROM public.async_jobs WHERE id=:job"), {"job": job_id}
                 )

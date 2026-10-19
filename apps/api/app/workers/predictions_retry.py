@@ -205,7 +205,13 @@ async def _prepare_retry_input(session_factory, failed_id: str):
         task_id=accepted_input["task_id"],
     )
     async with input_gateway(session_factory=session_factory) as gateway:
-        with tempfile.TemporaryDirectory(prefix="aap-accepted-retry-") as directory:
+        try:
+            temporary_directory = tempfile.TemporaryDirectory(
+                prefix="aap-accepted-retry-"
+            )
+        except OSError as exc:
+            raise FrozenInputRetryDeferred("storage_unavailable") from exc
+        with temporary_directory as directory:
             local_path = Path(directory) / "source"
             reference = None
             try:

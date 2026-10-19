@@ -1,0 +1,19 @@
+"""Keep native-owned state out of ORM migration autogeneration."""
+
+NATIVE_MANAGED_TABLES = frozenset(
+    {
+        "asset_accepted_image_inputs",
+        "asset_accepted_image_input_attempts",
+        "asset_accepted_input_garbage",
+        "annotation_input_sources",
+    }
+)
+
+
+def include_orm_schema_object(object_, name, type_, reflected, compare_to):
+    """Native SQL migrations remain the sole schema owner for these relations."""
+    return not (
+        type_ == "table"
+        and getattr(object_, "schema", None) in {None, "public"}
+        and name in NATIVE_MANAGED_TABLES
+    )

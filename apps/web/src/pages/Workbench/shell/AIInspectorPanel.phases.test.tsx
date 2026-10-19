@@ -289,6 +289,24 @@ describe("AIPredictionPopover phases", () => {
     expect(screen.getByRole("textbox", { name: "预设名" })).toHaveValue("Retry should retain this");
   });
 
+  it("labels a terminal job rerun as a new submission with the captured configuration", () => {
+    const props = popoverProps({
+      request: runningRequest({
+        status: "error",
+        error: "模型执行失败",
+        canRetry: true,
+        canCancel: false,
+        retryCreatesNewRequest: true,
+      }),
+    });
+    render(<AIPredictionPopover {...props} />);
+    const action = screen.getByRole("button", { name: "按原配置重新运行" });
+    fireEvent.click(action);
+    expect(props.onRetryRequest).toHaveBeenCalledTimes(1);
+    expect(props.onRunAi).not.toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: "重试本次请求" })).toBeNull();
+  });
+
   it("keeps polling errors in running and offers only the supported polling retry", () => {
     const props = popoverProps({
       request: runningRequest({

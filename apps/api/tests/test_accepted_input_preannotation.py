@@ -239,6 +239,43 @@ async def test_source_verification_precedes_job_claim_and_overwrite(monkeypatch,
 
 
 @pytest.mark.asyncio
+async def test_private_workspace_failure_defers_before_job_claim(monkeypatch):
+    request, job, task, input_id = _request()
+    record = SimpleNamespace(
+        input_id=input_id,
+        job_id=uuid.UUID(request.async_job_id),
+        task_id=task.id,
+        project_id=task.project_id,
+        actor_id=uuid.UUID(request.user_id),
+        task_version=task.version,
+    )
+
+    class Gateway:
+        async def ensure_reference(self, _request):
+            return SimpleNamespace(input=record)
+
+        async def download(self, *_args):
+            pytest.fail("unavailable private workspace must precede transfer")
+
+    @asynccontextmanager
+    async def gateway(**_kwargs):
+        yield Gateway()
+
+    def unavailable(**_kwargs):
+        raise OSError("private temporary storage unavailable")
+
+    monkeypatch.setattr("app.services.accepted_inputs.input_gateway", gateway)
+    monkeypatch.setattr(
+        "app.application.preannotation_execution.tempfile.TemporaryDirectory",
+        unavailable,
+    )
+    with pytest.raises(PreannotationInputDeferred, match="storage_unavailable"):
+        async with _prepare_accepted_input(request, _session_factory(job, task)):
+            pytest.fail("unavailable workspace must not reach job claim")
+    assert job.status == "pending"
+
+
+@pytest.mark.asyncio
 async def test_busy_write_retries_the_same_model_result_after_rollback(monkeypatch):
     request = SimpleNamespace(result=[{"class_name": "car"}])
     calls = []

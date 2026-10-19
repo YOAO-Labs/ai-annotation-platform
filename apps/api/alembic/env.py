@@ -9,6 +9,7 @@ from alembic import context
 
 # 导入所有 Model，autogenerate 才能感知表结构
 from app.db.base import Base
+from app.db.native_schema import include_orm_schema_object
 import app.db.models  # noqa: F401 — 触发 User/Project/Task/Annotation 注册到 Base.metadata
 from app.config import settings
 
@@ -31,6 +32,7 @@ def run_migrations_offline() -> None:
     context.configure(
         url=url,
         target_metadata=target_metadata,
+        include_object=include_orm_schema_object,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
     )
@@ -56,7 +58,11 @@ def do_run_migrations(connection: Connection) -> None:
         text("SELECT pg_advisory_lock(:k)").bindparams(k=_ALEMBIC_LOCK_ID)
     )
     try:
-        context.configure(connection=connection, target_metadata=target_metadata)
+        context.configure(
+            connection=connection,
+            target_metadata=target_metadata,
+            include_object=include_orm_schema_object,
+        )
         with context.begin_transaction():
             context.run_migrations()
         connection.commit()

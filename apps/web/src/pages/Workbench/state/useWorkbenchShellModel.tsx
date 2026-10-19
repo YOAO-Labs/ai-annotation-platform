@@ -34,11 +34,7 @@ import {
 } from "@/hooks/useTasks";
 import { usePredictions } from "@/hooks/usePredictions";
 import { useAnnotationBulkUpdate } from "@/hooks/useAnnotationGroup";
-import {
-  createPreannotationIdempotencyKey,
-  usePreannotationProgress,
-  useTriggerPreannotation,
-} from "@/hooks/usePreannotation";
+import { usePreannotationProgress, useTriggerPreannotation } from "@/hooks/usePreannotation";
 import { useTaskLock } from "@/hooks/useTaskLock";
 import { useAcceptNativeMaskCandidate } from "@/hooks/useAcceptNativeMaskCandidate";
 import { tasksApi } from "@/api/tasks";
@@ -3358,7 +3354,6 @@ export function useWorkbenchShellModel({
       task_ids: [taskId],
       execution_scope: "workbench" as const,
     });
-    const idempotencyKey = createPreannotationIdempotencyKey();
     aiRequest.start({
       summary: {
         projectId,
@@ -3373,7 +3368,7 @@ export function useWorkbenchShellModel({
         input: { ...payload },
       },
       cancellable: false,
-      execute: async () => {
+      execute: async ({ idempotencyKey }) => {
         const response = await triggerPreannotation.mutateAsync({
           payload,
           idempotencyKey,
@@ -3422,7 +3417,6 @@ export function useWorkbenchShellModel({
     const configured = buildPipelineRunPayload(projectPipeline, taskId, availableBackendIds);
     if (!configured) return;
     const payload = structuredClone(configured);
-    const idempotencyKey = createPreannotationIdempotencyKey();
     aiRequest.start({
       summary: {
         projectId,
@@ -3434,7 +3428,7 @@ export function useWorkbenchShellModel({
         input: { ...payload },
       },
       cancellable: false,
-      execute: async () => {
+      execute: async ({ idempotencyKey }) => {
         const response = await triggerPreannotation.mutateAsync({
           payload,
           idempotencyKey,

@@ -880,7 +880,13 @@ export function AIPredictionPopover({
                 name={phase === "idle" ? "wandSparkles" : phase === "error" ? "rotate-ccw" : "list"}
                 size={12}
               />
-              {phase === "idle" ? "运行当前题" : phase === "error" ? "重试本次请求" : "审阅候选"}
+              {phase === "idle"
+                ? "运行当前题"
+                : phase === "error"
+                  ? request?.retryCreatesNewRequest
+                    ? "按原配置重新运行"
+                    : "重试本次请求"
+                  : "审阅候选"}
             </Button>
           )}
 

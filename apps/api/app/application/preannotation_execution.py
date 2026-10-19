@@ -325,7 +325,13 @@ async def _prepare_accepted_input(request: BatchPredictionRequest, SessionLocal)
             or reference.input.task_version != admission_task_version
         ):
             raise ValueError("accepted image input receipt differs from admitted task")
-        with tempfile.TemporaryDirectory(prefix="aap-accepted-input-") as directory:
+        try:
+            temporary_directory = tempfile.TemporaryDirectory(
+                prefix="aap-accepted-input-"
+            )
+        except OSError as exc:
+            raise PreannotationInputDeferred("storage_unavailable") from exc
+        with temporary_directory as directory:
             local_path = Path(directory) / "source"
             try:
                 await gateway.download(reference, local_path)

@@ -123,6 +123,18 @@ describe("usePreannotationProgress", () => {
 });
 
 describe("useTriggerPreannotation", () => {
+  it("generates a UUID on LAN HTTP without randomUUID", () => {
+    const fill = globalThis.crypto.getRandomValues.bind(globalThis.crypto);
+    vi.stubGlobal("crypto", { getRandomValues: fill });
+    try {
+      expect(createPreannotationIdempotencyKey()).toMatch(
+        /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("reuses a key for replay and creates a fresh key per run", async () => {
     const client = new QueryClient({ defaultOptions: { mutations: { retry: false } } });
     const post = vi.spyOn(apiClient, "post").mockResolvedValue({
