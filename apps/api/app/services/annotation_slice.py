@@ -315,7 +315,61 @@ class AnnotationSliceService:
         origin: AuditOriginContext | None = None,
         access: Any = None,
     ) -> AnnotationSliceResponse:
-        task, access = await self._lock_task(task_id, actor, access=access)
+        digest = _annotation_slice_digest(
+            {
+                "kind": "restore_slice",
+                "slice_operation_id": str(operation_id),
+                **payload.model_dump(mode="json"),
+            }
+        )
+        preflight_task = await self.db.get(Task, task_id, populate_existing=True)
+        if preflight_task is None:
+            raise _AnnotationSliceError(404, "task_not_found", "任务不存在")
+        preflight_access = await task_access.resolve_task_access(
+            self.db, preflight_task, actor.id
+        )
+        await task_access.assert_task_visible(
+            self.db, preflight_task, actor.id, access=preflight_access
+        )
+        task_access.assert_annotation_write_allowed(preflight_task, preflight_access)
+        await task_access.assert_review_adjustment_evidence(
+            self.db, preflight_task, actor.id, preflight_access
+        )
+        await self._assert_task_writable(preflight_task, actor, access=preflight_access)
+        preflight_replay = await self._replay(
+            task_id, actor, payload.idempotency_key, digest
+        )
+        verified_mask_content = None
+        if preflight_replay is None:
+            preflight_original = await self.db.scalar(
+                select(AnnotationOperation).where(
+                    AnnotationOperation.id == operation_id,
+                    AnnotationOperation.task_id == task_id,
+                )
+            )
+            if (
+                preflight_original is not None
+                and preflight_original.kind == "slice_mask"
+                and datetime.now(timezone.utc)
+                < preflight_original.created_at + _SLICE_RESTORE_TTL
+                and preflight_original.report.get("slice_snapshot_schema") == 2
+                and {
+                    str(key): value for key, value in payload.expected_versions.items()
+                }
+                == preflight_original.report.get("current_versions")
+            ):
+                from app.services.mask_slice_restore import (
+                    preflight_mask_slice_snapshots,
+                )
+
+                verified_mask_content = await preflight_mask_slice_snapshots(
+                    self.db, preflight_task, preflight_original.report
+                )
+
+        final_access = await task_access.resolve_task_access(
+            self.db, preflight_task, actor.id, lock_membership=True
+        )
+        task, access = await self._lock_task(task_id, actor, access=final_access)
         digest = _annotation_slice_digest(
             {
                 "kind": "restore_slice",
@@ -362,7 +416,12 @@ class AnnotationSliceService:
         if is_mask:
             from app.services.mask_slice_restore import load_mask_slice_snapshots
 
-            snapshots = await load_mask_slice_snapshots(self.db, task, report)
+            snapshots = await load_mask_slice_snapshots(
+                self.db,
+                task,
+                report,
+                verified_content=verified_mask_content,
+            )
         else:
             snapshots = report
         rows = await self._lock_annotations(

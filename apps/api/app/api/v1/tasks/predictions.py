@@ -254,11 +254,14 @@ async def accept_prediction(
     ),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
-    access: ProjectAccess = Depends(require_task_annotation_write),
 ):
     task = await _load_task_or_404(db, task_id)
+    access = await task_access.resolve_task_access(db, task, current_user.id)
     await task_access.assert_task_visible(db, task, current_user.id, access=access)
     task_access.assert_task_editable(task, current_user.id, access=access)
+    await task_access.assert_review_adjustment_evidence(
+        db, task, current_user.id, access
+    )
     await assert_video_annotation_write_scope(
         db,
         task=task,

@@ -18,16 +18,25 @@ from app.services.annotation_create_contract import (
     AnnotationCreatePort,
 )
 from app.services.audit import AuditAction, AuditService
+from app.services.raster_mask_storage import _VerifiedMaskContent
 from app.services.video_collaboration import heartbeat_task_lock_for_legacy_video
 
 
 class _AnnotationCreateSqlAdapter(AnnotationCreatePort):
     """Bind the command to the HTTP transaction's existing locked ORM rows."""
 
-    def __init__(self, db: AsyncSession, *, task: Task, actor: User) -> None:
+    def __init__(
+        self,
+        db: AsyncSession,
+        *,
+        task: Task,
+        actor: User,
+        verified_mask_content: _VerifiedMaskContent | None = None,
+    ) -> None:
         self.db = db
         self._task = task
         self._actor = actor
+        self._verified_mask_content = verified_mask_content
         self._task_id = task.id
         self._actor_id = actor.id
         self.annotations = AnnotationService(db)
@@ -78,6 +87,7 @@ class _AnnotationCreateSqlAdapter(AnnotationCreatePort):
                 lead_time=data.lead_time,
                 attributes=data.attributes,
                 video_segment_id=data.video_segment_id,
+                verified_mask_content=self._verified_mask_content,
             )
             await heartbeat_task_lock_for_legacy_video(self.db, task, actor.id)
 

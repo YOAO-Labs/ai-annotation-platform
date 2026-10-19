@@ -402,6 +402,67 @@ async def test_copy_component_commits_once_and_replays_same_response(
 
 
 @pytest.mark.asyncio
+async def test_mask_mutation_reads_rle_content_before_business_locks(
+    monkeypatch, db_session, super_admin
+):
+    user, _ = super_admin
+    task = await _seed_image_task(db_session, user.id)
+    source = await _seed_annotation(db_session, task, user.id)
+    result_reference = build_rle_reference(RLE_COMPONENT)
+    db_session.add(
+        RasterMaskUpload(task_id=task.id, object_key=result_reference["object_key"])
+    )
+    await db_session.flush()
+    payload = MaskMutationCommitRequest.model_validate(
+        _payload(source, _scope(), reference=result_reference)
+    )
+    events: list[str] = []
+
+    async def load(reference):
+        events.append("storage")
+        return {
+            build_rle_reference(RLE_A)["sha256"]: RLE_A,
+            build_rle_reference(RLE_COMPONENT)["sha256"]: RLE_COMPONENT,
+        }[reference["sha256"]]
+
+    original_lock_task = MaskMutationService._lock_task
+    original_lock_scope = MaskMutationService._lock_scope
+
+    async def tracked_lock_task(service, task_id):
+        events.append("task_lock")
+        return await original_lock_task(service, task_id)
+
+    async def tracked_lock_scope(service, task_id, scope, *, for_update=True, **kwargs):
+        if for_update:
+            events.append("annotation_lock")
+        return await original_lock_scope(
+            service,
+            task_id,
+            scope,
+            for_update=for_update,
+            **kwargs,
+        )
+
+    monkeypatch.setattr("app.services.raster_mask_storage.load_coco_rle", load)
+    monkeypatch.setattr("app.services.mask_mutation.load_coco_rle", load)
+    monkeypatch.setattr(MaskMutationService, "_lock_task", tracked_lock_task)
+    monkeypatch.setattr(MaskMutationService, "_lock_scope", tracked_lock_scope)
+    monkeypatch.setattr(settings, "raster_mask_create_enabled", True)
+
+    await MaskMutationService(db_session)._commit(task.id, payload, user)
+
+    last_storage = max(
+        index for index, event in enumerate(events) if event == "storage"
+    )
+    first_business_lock = min(
+        index
+        for index, event in enumerate(events)
+        if event in {"task_lock", "annotation_lock"}
+    )
+    assert last_storage < first_business_lock
+
+
+@pytest.mark.asyncio
 async def test_same_idempotency_key_with_changed_request_conflicts(
     db_session, httpx_client, super_admin, mask_content
 ):

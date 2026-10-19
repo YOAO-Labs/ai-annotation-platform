@@ -6,6 +6,7 @@ import json
 import logging
 from collections.abc import Awaitable, Callable
 from contextvars import ContextVar
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, TypeVar
 
@@ -68,6 +69,103 @@ class RasterMaskContractError(ValueError):
         super().__init__(message)
         self.status_code = status_code
         self.detail = {"reason": reason, "message": message, **detail}
+
+
+@dataclass(frozen=True, slots=True)
+class _VerifiedMaskContent:
+    reference_signature: tuple[tuple[str, str], ...]
+    foreground_keys: tuple[str, ...]
+    rle_cache: tuple[tuple[str, dict[str, Any]], ...] = ()
+
+
+def _unique_mask_references(value: Any) -> list[dict[str, Any]]:
+    unique = {
+        (
+            str(reference["object_key"]),
+            json.dumps(reference, sort_keys=True, separators=(",", ":")),
+        ): reference
+        for reference in collect_mask_references(value)
+    }
+    return [unique[key] for key in sorted(unique)]
+
+
+def _mask_content_signature(
+    value: Any, *, reference_value: Any | None = None
+) -> _VerifiedMaskContent:
+    foreground_keys = tuple(
+        sorted(
+            str(reference["object_key"])
+            for geometry in collect_mask_geometries(value)
+            if geometry.get("type") == "raster_mask"
+            for reference in collect_mask_references(geometry)
+        )
+    )
+    references = _unique_mask_references(
+        value if reference_value is None else reference_value
+    )
+    signature = tuple(
+        sorted(
+            (
+                str(reference["object_key"]),
+                json.dumps(reference, sort_keys=True, separators=(",", ":")),
+            )
+            for reference in references
+        )
+    )
+    return _VerifiedMaskContent(signature, foreground_keys)
+
+
+async def verify_mask_payload_content(
+    value: Any, *, reference_value: Any | None = None
+) -> _VerifiedMaskContent:
+    """Verify immutable RLE objects before callers acquire business-row locks."""
+    try:
+        verified = _mask_content_signature(value, reference_value=reference_value)
+    except (KeyError, TypeError, ValueError) as exc:
+        raise RasterMaskContractError(
+            status_code=409,
+            reason="mask_reference_invalid",
+            message=f"mask object is invalid: {exc}",
+        ) from exc
+    foreground_keys = set(verified.foreground_keys)
+    references = _unique_mask_references(
+        value if reference_value is None else reference_value
+    )
+    rle_cache: dict[str, dict[str, Any]] = {}
+    try:
+        for reference in references:
+            key = str(reference["object_key"])
+            payload = await _observe_content_operation(
+                "verify",
+                _verify_mask_reference_content(
+                    reference,
+                    key=key,
+                    value=value,
+                    require_raster_foreground=key in foreground_keys,
+                ),
+            )
+            rle_cache[
+                str(reference.get("object_key") or reference.get("sha256") or "")
+            ] = payload
+    except RasterMaskContractError:
+        raise
+    except (KeyError, ValueError) as exc:
+        raise RasterMaskContractError(
+            status_code=409,
+            reason="mask_reference_invalid",
+            message=f"mask object is invalid: {exc}",
+        ) from exc
+    except Exception as exc:
+        raise RasterMaskContractError(
+            status_code=503,
+            reason="mask_storage_unavailable",
+            message="mask object storage is unavailable",
+        ) from exc
+    return _VerifiedMaskContent(
+        verified.reference_signature,
+        verified.foreground_keys,
+        tuple(sorted(rle_cache.items())),
+    )
 
 
 def classify_raster_mask_content_error(exc: Exception) -> str:
@@ -211,7 +309,7 @@ async def _verify_mask_reference_content(
     key: str,
     value: Any,
     require_raster_foreground: bool,
-) -> None:
+) -> dict[str, Any]:
     payload = await load_coco_rle(reference)
     if require_raster_foreground and not _rle_has_foreground(payload):
         raise RasterMaskContractError(
@@ -219,6 +317,7 @@ async def _verify_mask_reference_content(
             reason="raster_mask_empty_foreground",
             message="raster mask annotation must contain foreground pixels",
         )
+    return payload
 
 
 def resolve_mask_reference_objects(
@@ -562,6 +661,7 @@ async def prepare_mask_payload_for_write(
     *,
     reference_value: Any | None = None,
     required_upload_keys: set[str] | None = None,
+    verified_content: _VerifiedMaskContent | None = None,
 ) -> None:
     """Gate, validate and claim every mask in a nested persistence payload.
 
@@ -581,9 +681,41 @@ async def prepare_mask_payload_for_write(
             message="mask persistence requires an existing task",
         )
 
-    # Every mask persistence path takes the task row before content/upload locks.
-    # Atomic mutations already own it; re-acquiring the same row is harmless and
-    # keeps ordinary create/update/prediction paths on the same global lock order.
+    references_to_commit = value if reference_value is None else reference_value
+    verified_content = verified_content or await verify_mask_payload_content(
+        value, reference_value=references_to_commit
+    )
+    try:
+        final_signature = _mask_content_signature(
+            value, reference_value=references_to_commit
+        )
+    except (KeyError, TypeError, ValueError) as exc:
+        raise RasterMaskContractError(
+            status_code=409,
+            reason="mask_reference_invalid",
+            message=f"mask object is invalid: {exc}",
+        ) from exc
+    verified_references = dict(verified_content.reference_signature)
+    missing_or_changed = [
+        (key, reference)
+        for key, reference in final_signature.reference_signature
+        if verified_references.get(key) != reference
+    ]
+    committed_foreground_keys = set(final_signature.foreground_keys) & {
+        key for key, _reference in final_signature.reference_signature
+    }
+    if missing_or_changed or not committed_foreground_keys.issubset(
+        set(verified_content.foreground_keys)
+    ):
+        raise RasterMaskContractError(
+            status_code=409,
+            reason="mask_reference_invalid",
+            message="mask content verification does not match the write payload",
+        )
+
+    # Verify bytes before taking a Task lock; only SQL reference/upload locks are
+    # acquired below. Migrated callers pass a preflight receipt from before their
+    # own business locks, while simple callers use the preflight above.
     task = (
         await db.execute(
             select(Task)
@@ -599,8 +731,8 @@ async def prepare_mask_payload_for_write(
             message="mask persistence requires an existing task",
         )
 
-    # Check every image-mask gate before object reads, advisory locks, or upload
-    # association. Video mask tracks keep their existing deployment contract.
+    # Check image-mask gates and task geometry before taking content/upload locks.
+    # Video mask tracks keep their existing deployment contract.
     if any(geometry.get("type") == "raster_mask" for geometry in geometries):
         project = await db.get(Project, task.project_id)
         assert_raster_mask_write_enabled(project)
@@ -621,7 +753,6 @@ async def prepare_mask_payload_for_write(
     # video mutations may pass only their current-frame references: unchanged
     # historical keyframes are already linked and were compared byte-for-byte by
     # the mutation contract, so re-reading thousands of old objects is wasteful.
-    references_to_commit = value if reference_value is None else reference_value
     foreground_keys = {
         str(reference["object_key"])
         for geometry in geometries
@@ -632,6 +763,7 @@ async def prepare_mask_payload_for_write(
         committed_keys = await lock_raster_mask_references(
             db,
             references_to_commit,
+            verify=False,
             foreground_object_keys=foreground_keys,
         )
         required = sorted(required_upload_keys or set())
@@ -687,9 +819,13 @@ async def prepare_mask_geometry_for_annotation_write(
     db: AsyncSession,
     task: Task | None,
     geometry: dict[str, Any],
+    *,
+    verified_content: _VerifiedMaskContent | None = None,
 ) -> None:
     """Backward-compatible direct-geometry wrapper for annotation writes."""
-    await prepare_mask_payload_for_write(db, task, geometry)
+    await prepare_mask_payload_for_write(
+        db, task, geometry, verified_content=verified_content
+    )
 
 
 def canonical_rle_bytes(rle: dict[str, Any]) -> bytes:

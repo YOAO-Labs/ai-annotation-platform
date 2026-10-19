@@ -48,7 +48,10 @@ from app.application.annotation_mutation import _AnnotationMutationSqlAdapter
 from app.application.annotation_secondary_inference import (
     _AnnotationSecondaryInferenceSqlAdapter,
 )
-from app.services.annotation import AnnotationService
+from app.services.annotation import (
+    AnnotationService,
+    annotation_create_request_digest,
+)
 from app.services.annotation_create_contract import (
     AnnotationCreateCommand,
     AnnotationCreateError,
@@ -72,7 +75,10 @@ from app.services.gpu_arbitration.contracts import (
 )
 from app.services.ml_backend import MLBackendService
 from app.services.pipeline_validation import check_capability_violations
-from app.services.raster_mask_storage import RasterMaskContractError
+from app.services.raster_mask_storage import (
+    RasterMaskContractError,
+    verify_mask_payload_content,
+)
 from app.services.secondary_inference import run_secondary_inference
 from app.db.models.project import Project
 from app.services.video_collaboration import (
@@ -339,14 +345,62 @@ async def create_annotation(
     request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
-    access: ProjectAccess = Depends(require_task_annotation_write),
     idempotency_key: str | None = Header(
         default=None,
         alias="Idempotency-Key",
         description="Optional durable creation identity (1–128 characters). Reuse only with the same request.",
     ),
 ):
-    # Serialize creates before authorization and command-owned receipt lookup.
+    task = await _load_task_or_404(db, task_id)
+    preflight_access = await task_access.resolve_task_access(db, task, current_user.id)
+    await task_access.assert_task_visible(
+        db, task, current_user.id, access=preflight_access
+    )
+    task_access.assert_task_editable(task, current_user.id, access=preflight_access)
+    await task_access.assert_review_adjustment_evidence(
+        db, task, current_user.id, preflight_access
+    )
+    await assert_video_annotation_write_scope(
+        db,
+        task=task,
+        user=current_user,
+        segment_id=data.video_segment_id,
+        geometry=data.geometry.model_dump(),
+    )
+
+    normalized_idempotency_key = idempotency_key
+    has_receipt = False
+    if idempotency_key is not None:
+        normalized_idempotency_key = idempotency_key.strip()
+        if not normalized_idempotency_key or len(normalized_idempotency_key) > 128:
+            raise HTTPException(
+                status_code=400,
+                detail="Idempotency-Key must contain 1 to 128 characters",
+            )
+        has_receipt = (
+            await AnnotationService(db).annotation_create_receipt_response(
+                task_id=task_id,
+                actor_id=current_user.id,
+                idempotency_key=normalized_idempotency_key,
+                request_digest=annotation_create_request_digest(
+                    data.model_dump(mode="json")
+                ),
+            )
+        ) is not None
+    try:
+        verified_mask_content = (
+            None
+            if has_receipt
+            else await verify_mask_payload_content(data.geometry.model_dump())
+        )
+    except RasterMaskContractError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+
+    # Fence current membership before the Task lock; object verification must
+    # not extend either lock's lifetime.
+    access = await task_access.resolve_task_access(
+        db, task, current_user.id, lock_membership=True
+    )
     task = (
         await db.execute(
             select(Task)
@@ -359,6 +413,9 @@ async def create_annotation(
         raise HTTPException(status_code=404, detail="Task not found")
     await task_access.assert_task_visible(db, task, current_user.id, access=access)
     task_access.assert_task_editable(task, current_user.id, access=access)
+    await task_access.assert_review_adjustment_evidence(
+        db, task, current_user.id, access
+    )
     await assert_video_annotation_write_scope(
         db,
         task=task,
@@ -372,12 +429,13 @@ async def create_annotation(
             db,
             task=task,
             actor=current_user,
+            verified_mask_content=verified_mask_content,
         ).create(
             AnnotationCreateCommand(
                 task_id=task.id,
                 actor_id=current_user.id,
                 data=data,
-                idempotency_key=idempotency_key,
+                idempotency_key=normalized_idempotency_key,
                 audit_origin=audit_origin_from_request(request),
             )
         )
@@ -667,10 +725,30 @@ async def update_annotation(
     response: Response,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
-    access: ProjectAccess = Depends(require_task_annotation_write),
 ):
-    # Match atomic Mask mutations: Task must be the first database row lock.
-    # This also serializes class-only changes that alter a same-class Mask scope.
+    _task = await _load_task_or_404(db, task_id)
+    if _task is None:
+        raise HTTPException(status_code=404, detail="Task not found")
+    preflight_access = await task_access.resolve_task_access(db, _task, current_user.id)
+    await task_access.assert_task_visible(
+        db, _task, current_user.id, access=preflight_access
+    )
+    task_access.assert_task_editable(_task, current_user.id, access=preflight_access)
+    await task_access.assert_review_adjustment_evidence(
+        db, _task, current_user.id, preflight_access
+    )
+    verified_mask_content = None
+    geometry = data.model_dump(exclude_unset=True).get("geometry")
+    if isinstance(geometry, dict):
+        try:
+            verified_mask_content = await verify_mask_payload_content(geometry)
+        except RasterMaskContractError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+
+    # Recheck current membership before the Task lock after object verification.
+    access = await task_access.resolve_task_access(
+        db, _task, current_user.id, lock_membership=True
+    )
     _task = (
         await db.execute(
             select(Task)
@@ -683,12 +761,16 @@ async def update_annotation(
         raise HTTPException(status_code=404, detail="Task not found")
     await task_access.assert_task_visible(db, _task, current_user.id, access=access)
     task_access.assert_task_editable(_task, current_user.id, access=access)
+    await task_access.assert_review_adjustment_evidence(
+        db, _task, current_user.id, access
+    )
     try:
         annotation = await _AnnotationMutationSqlAdapter(
             db,
             task=_task,
             actor=current_user,
             access=access,
+            verified_mask_content=verified_mask_content,
         ).update(
             AnnotationUpdateCommand(
                 task_id=_task.id,

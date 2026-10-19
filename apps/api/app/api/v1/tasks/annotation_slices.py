@@ -61,12 +61,11 @@ async def restore_annotation_slice(
     request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
-    access: ProjectAccess = Depends(require_task_annotation_write),
 ) -> AnnotationSliceResponse:
     """Restore ledger-owned slice snapshots with the complete last result versions."""
     try:
         response = await _AnnotationSliceSqlAdapter(
-            db, task_id=task_id, actor=current_user, access=access
+            db, task_id=task_id, actor=current_user, access=None
         ).restore(
             task_id=task_id,
             operation_id=operation_id,

@@ -28,6 +28,7 @@ from app.services.annotation_mutation_contract import (
 )
 from app.services.audit import AuditAction, AuditService
 from app.services.raster_mask_storage import (
+    _VerifiedMaskContent,
     RasterMaskContractError,
     prepare_mask_geometry_for_annotation_write,
 )
@@ -158,11 +159,13 @@ class _AnnotationMutationSqlAdapter(AnnotationMutationPort):
         task: Task,
         actor: User,
         access: ProjectAccess,
+        verified_mask_content: _VerifiedMaskContent | None = None,
     ) -> None:
         self._db = db
         self._task = task
         self._actor = actor
         self._access = access
+        self._verified_mask_content = verified_mask_content
         self._annotations = AnnotationService(db)
 
     def _assert_bound(self, task_id, actor_id) -> None:
@@ -264,7 +267,10 @@ class _AnnotationMutationSqlAdapter(AnnotationMutationPort):
             "video_track_mask",
         }:
             await prepare_mask_geometry_for_annotation_write(
-                self._db, task, next_geometry
+                self._db,
+                task,
+                next_geometry,
+                verified_content=self._verified_mask_content,
             )
             mask_payload_prepared = True
 

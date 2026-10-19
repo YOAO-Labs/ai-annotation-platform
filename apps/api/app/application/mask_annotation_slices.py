@@ -31,7 +31,7 @@ class _MaskMutationSqlAdapter(MaskMutationPort):
         *,
         task_id: UUID,
         actor: User,
-        access: ProjectAccess,
+        access: ProjectAccess | None,
     ) -> None:
         self._task_id = task_id
         self._actor = actor
@@ -49,7 +49,7 @@ class _MaskMutationSqlAdapter(MaskMutationPort):
         if (
             task_id != self._task_id
             or actor_id != self._actor.id
-            or self._access.user_id != actor_id
+            or (self._access is not None and self._access.user_id != actor_id)
         ):
             raise ValueError("Mask mutation command identity does not match binding")
         return await self._service._commit(
@@ -68,7 +68,7 @@ class _AnnotationSliceSqlAdapter(AnnotationSlicePort):
         *,
         task_id: UUID,
         actor: User,
-        access: ProjectAccess,
+        access: ProjectAccess | None,
     ) -> None:
         self._task_id = task_id
         self._actor = actor
@@ -79,7 +79,7 @@ class _AnnotationSliceSqlAdapter(AnnotationSlicePort):
         if (
             task_id != self._task_id
             or actor_id != self._actor.id
-            or self._access.user_id != actor_id
+            or (self._access is not None and self._access.user_id != actor_id)
         ):
             raise ValueError("Annotation slice command identity does not match binding")
 

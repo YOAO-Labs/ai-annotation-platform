@@ -56,8 +56,11 @@ from app.services.secondary_inference_result import (
     thaw_json,
 )
 from app.services.raster_mask_storage import (
+    _VerifiedMaskContent,
+    RasterMaskContractError,
     prepare_mask_geometry_for_annotation_write,
     prepare_mask_payload_for_write,
+    verify_mask_payload_content,
 )
 from app.services.scene_track_domain import (
     SceneTrackIntegrityError,
@@ -313,8 +316,13 @@ class AnnotationService:
         attributes: dict | None = None,
         tool_unit_id: str = "bbox",
         video_segment_id: uuid.UUID | None = None,
+        verified_mask_content: _VerifiedMaskContent | None = None,
     ) -> Annotation:
         task = await self.db.get(Task, task_id)
+        if task is not None:
+            verified_mask_content = (
+                verified_mask_content or await verify_mask_payload_content(geometry)
+            )
         # A2 · record before any Annotation/SceneTrack lock: this takes the task
         # row lock first, keeps the global Task -> Annotation order, and rolls
         # back with the mutation if the mutation fails.
@@ -330,7 +338,12 @@ class AnnotationService:
                 task_id, parent_annotation_id, video_segment_id
             )
 
-        await prepare_mask_geometry_for_annotation_write(self.db, task, geometry)
+        await prepare_mask_geometry_for_annotation_write(
+            self.db,
+            task,
+            geometry,
+            verified_content=verified_mask_content,
+        )
         geometry, track_id = prepare_compact_track_identity(geometry)
         if geometry.get("type") == "box_3d" and track_id is None:
             track_id = _new_track_id()
@@ -550,12 +563,6 @@ class AnnotationService:
             accepted_input_id = input_id
             accepted_input_sha256 = sha256
             write_scope = replace(write_scope, accepted_input_id=accepted_input_id)
-        await lock_labeling_write(
-            self.db,
-            write_scope,
-            operations=("candidate_accept", "interactive_mask_accept"),
-        )
-
         # Convert and validate every selected geometry before constructing or adding
         # any Annotation row.  This closes the accept path that previously bypassed
         # the raster create gate and linked uploads immediately before flush.
@@ -571,7 +578,14 @@ class AnnotationService:
                 (index, to_internal_shape(raw_shape))
                 for index, raw_shape in enumerate(raw_shapes)
             ]
-        task = await self.db.get(Task, prediction.task_id)
+        verified_mask_content = await verify_mask_payload_content(
+            [shape.get("geometry", {}) for _, shape in indexed]
+        )
+        task, _actor, _access = await lock_labeling_write(
+            self.db,
+            write_scope,
+            operations=("candidate_accept", "interactive_mask_accept"),
+        )
         if task is not None:
             # A2 · task row lock before the accepted annotations are written.
             await record_annotation_actor(self.db, task, user_id)
@@ -579,6 +593,7 @@ class AnnotationService:
             self.db,
             task,
             [shape.get("geometry", {}) for _, shape in indexed],
+            verified_content=verified_mask_content,
         )
 
         # v0.20.10 · 属性级溯源: 从 PredictionMeta.extra.pipeline 建「AI 富集属性键 → model_ref」
@@ -786,6 +801,21 @@ class AnnotationService:
             or write_scope.source_annotation_id != annotation.id
         ):
             raise HTTPException(status_code=404, detail="annotation not found")
+        prepared_shapes = []
+        if result.write_target != "attributes":
+            from app.services.prediction import to_internal_shape
+
+            for frozen_shape in result.geometry_shapes:
+                shape = to_internal_shape(thaw_json(frozen_shape))
+                geometry = shape.get("geometry")
+                if geometry:
+                    try:
+                        verified_content = await verify_mask_payload_content(geometry)
+                    except RasterMaskContractError as exc:
+                        raise HTTPException(
+                            status_code=exc.status_code, detail=exc.detail
+                        ) from exc
+                    prepared_shapes.append((shape, geometry, verified_content))
         task, _actor, _access = await lock_labeling_write(
             self.db, write_scope, operations=("secondary_inference",)
         )
@@ -816,14 +846,8 @@ class AnnotationService:
                 await self.db.flush()
             return annotation, []
 
-        from app.services.prediction import to_internal_shape
-
         children: list[Annotation] = []
-        for frozen_shape in result.geometry_shapes:
-            shape = to_internal_shape(thaw_json(frozen_shape))
-            geometry = shape.get("geometry")
-            if not geometry:
-                continue
+        for shape, geometry, verified_content in prepared_shapes:
             class_name = shape.get("class_name") or annotation.class_name
             try:
                 child = await self.create(
@@ -836,6 +860,7 @@ class AnnotationService:
                     parent_annotation_id=annotation.id,
                     tool_unit_id=annotation.tool_unit_id,
                     video_segment_id=annotation.video_segment_id,
+                    verified_mask_content=verified_content,
                 )
             except HTTPException as exc:
                 detail = str(getattr(exc, "detail", ""))
@@ -855,6 +880,7 @@ class AnnotationService:
                     parent_annotation_id=annotation.id,
                     tool_unit_id=annotation.tool_unit_id,
                     video_segment_id=annotation.video_segment_id,
+                    verified_mask_content=verified_content,
                 )
             child.source = "prediction_based"
             children.append(child)
@@ -1820,6 +1846,9 @@ class AnnotationService:
                 status_code=422,
                 detail="camera members must be edited through the point-cloud camera member API",
             )
+        verified_mask_content = None
+        if geometry is not None and not mask_payload_prepared:
+            verified_mask_content = await verify_mask_payload_content(geometry)
         track_reclassified = False
         if class_name is not None:
             # v0.14.17 · 与 create / accept_prediction 对齐: PATCH 改类也走软校验,
@@ -1845,7 +1874,10 @@ class AnnotationService:
             if not mask_payload_prepared:
                 task = await self.db.get(Task, annotation.task_id)
                 await prepare_mask_geometry_for_annotation_write(
-                    self.db, task, geometry
+                    self.db,
+                    task,
+                    geometry,
+                    verified_content=verified_mask_content,
                 )
             try:
                 geometry, track_id = prepare_compact_track_identity(

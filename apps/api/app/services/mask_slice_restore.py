@@ -17,8 +17,10 @@ from app.services.annotation_slice_contracts import (
     annotation_slice_digest as _annotation_slice_digest,
 )
 from app.services.raster_mask_storage import (
+    _VerifiedMaskContent,
     RasterMaskContractError,
     prepare_mask_payload_for_write,
+    verify_mask_payload_content,
 )
 
 
@@ -93,16 +95,9 @@ async def protect_mask_slice_versions(
     )
 
 
-async def load_mask_slice_snapshots(
-    db: AsyncSession, task: Task, report: dict
-) -> dict[str, dict[str, dict]]:
-    """Verify both sides before any write; acquire content before annotation locks.
-
-    A second version read under revision locks detects expiry/deletion concurrent
-    with object verification. Asset locks then serialize the eventual references
-    with GC through transaction commit. No client-upload reservation is needed for
-    these previously linked, server-owned versions.
-    """
+async def _resolve_mask_slice_geometries(
+    db: AsyncSession, task: Task, report: dict, *, locked: bool
+) -> dict[tuple[uuid.UUID, int], dict]:
     references = _references(report)
     annotations = {
         row.id: row
@@ -116,49 +111,72 @@ async def load_mask_slice_snapshots(
         )
     }
 
-    async def resolve(*, locked: bool) -> dict[tuple[uuid.UUID, int], dict]:
-        result = {}
-        for (annotation_id, version), snapshot in sorted(
-            references.items(), key=lambda item: (str(item[0][0]), item[0][1])
-        ):
-            annotation = annotations.get(annotation_id)
-            if annotation is not None and annotation.version == version:
-                geometry = annotation.geometry
-            else:
-                query = (
-                    select(MaskAnnotationRevision)
-                    .where(
-                        MaskAnnotationRevision.task_id == task.id,
-                        MaskAnnotationRevision.annotation_id == annotation_id,
-                        MaskAnnotationRevision.annotation_version == version,
-                        MaskAnnotationRevision.expires_at > datetime.now(timezone.utc),
-                    )
-                    .execution_options(populate_existing=True)
+    result = {}
+    for (annotation_id, version), snapshot in sorted(
+        references.items(), key=lambda item: (str(item[0][0]), item[0][1])
+    ):
+        annotation = annotations.get(annotation_id)
+        if annotation is not None and annotation.version == version:
+            geometry = annotation.geometry
+        else:
+            query = (
+                select(MaskAnnotationRevision)
+                .where(
+                    MaskAnnotationRevision.task_id == task.id,
+                    MaskAnnotationRevision.annotation_id == annotation_id,
+                    MaskAnnotationRevision.annotation_version == version,
+                    MaskAnnotationRevision.expires_at > datetime.now(timezone.utc),
                 )
-                revision = await db.scalar(query.with_for_update() if locked else query)
-                if revision is None:
-                    raise _AnnotationSliceError(
-                        409, "snapshot_unavailable", "Mask 恢复版本缺失或已过期"
-                    )
-                geometry = revision.geometry
-            if (
-                geometry.get("type") != "raster_mask"
-                or _annotation_slice_digest(geometry) != snapshot["geometry_digest"]
-            ):
+                .execution_options(populate_existing=True)
+            )
+            revision = await db.scalar(query.with_for_update() if locked else query)
+            if revision is None:
                 raise _AnnotationSliceError(
-                    409, "snapshot_unavailable", "Mask 恢复版本内容校验失败"
+                    409, "snapshot_unavailable", "Mask 恢复版本缺失或已过期"
                 )
-            result[(annotation_id, version)] = deepcopy(geometry)
-        return result
+            geometry = revision.geometry
+        if (
+            geometry.get("type") != "raster_mask"
+            or _annotation_slice_digest(geometry) != snapshot["geometry_digest"]
+        ):
+            raise _AnnotationSliceError(
+                409, "snapshot_unavailable", "Mask 恢复版本内容校验失败"
+            )
+        result[(annotation_id, version)] = deepcopy(geometry)
+    return result
 
-    first = await resolve(locked=False)
+
+async def preflight_mask_slice_snapshots(
+    db: AsyncSession, task: Task, report: dict
+) -> _VerifiedMaskContent:
+    """Verify snapshot objects before the restore acquires Task/Annotation locks."""
+    geometries = await _resolve_mask_slice_geometries(db, task, report, locked=False)
     try:
-        await prepare_mask_payload_for_write(db, task, list(first.values()))
+        return await verify_mask_payload_content(list(geometries.values()))
     except RasterMaskContractError as exc:
         raise _AnnotationSliceError(
             exc.status_code, "snapshot_unavailable", "Mask 恢复资源不可用：" + str(exc)
         ) from exc
-    verified = await resolve(locked=True)
+
+
+async def load_mask_slice_snapshots(
+    db: AsyncSession,
+    task: Task,
+    report: dict,
+    *,
+    verified_content: _VerifiedMaskContent | None = None,
+) -> dict[str, dict[str, dict]]:
+    """Finalize verified snapshots and serialize references with GC."""
+    first = await _resolve_mask_slice_geometries(db, task, report, locked=False)
+    try:
+        await prepare_mask_payload_for_write(
+            db, task, list(first.values()), verified_content=verified_content
+        )
+    except RasterMaskContractError as exc:
+        raise _AnnotationSliceError(
+            exc.status_code, "snapshot_unavailable", "Mask 恢复资源不可用：" + str(exc)
+        ) from exc
+    verified = await _resolve_mask_slice_geometries(db, task, report, locked=True)
     return {
         side: {
             key: {

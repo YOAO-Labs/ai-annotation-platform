@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import uuid
 from unittest.mock import AsyncMock
 
@@ -363,6 +364,97 @@ async def test_accept_prediction_gate_on_validates_links_and_flushes_annotation(
     }
     assert upload.linked_at is not None
     load.assert_awaited_once_with(reference)
+
+
+@pytest.mark.asyncio
+async def test_accept_prediction_waits_for_mask_storage_before_labeling_lock(
+    db_session, httpx_client, super_admin, monkeypatch
+):
+    user, token = super_admin
+    project, task = await _seed_image_task(db_session, user.id)
+    reference = build_rle_reference(FOREGROUND_RLE)
+    prediction = await _seed_prediction(db_session, project, task, reference)
+    upload = await _seed_upload(db_session, task.id, reference)
+    events: list[str] = []
+    storage_started = asyncio.Event()
+    release_storage = asyncio.Event()
+
+    async def slow_load(_reference):
+        events.append("storage")
+        storage_started.set()
+        await release_storage.wait()
+        return FOREGROUND_RLE
+
+    from app.services.labeling_write_guard import lock_labeling_write as real_lock
+
+    async def tracked_lock(*args, **kwargs):
+        events.append("labeling_lock")
+        return await real_lock(*args, **kwargs)
+
+    monkeypatch.setattr("app.services.raster_mask_storage.load_coco_rle", slow_load)
+    monkeypatch.setattr("app.services.annotation.lock_labeling_write", tracked_lock)
+    monkeypatch.setattr(settings, "raster_mask_create_enabled", True)
+
+    pending = asyncio.create_task(
+        httpx_client.post(
+            f"/api/v1/tasks/{task.id}/predictions/{prediction.id}/accept",
+            json={},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+    )
+    await storage_started.wait()
+    assert events == ["storage"]
+
+    release_storage.set()
+    response = await pending
+    await db_session.refresh(upload)
+
+    assert response.status_code == 200, response.text
+    assert len(response.json()) == 1
+    assert events == ["storage", "labeling_lock"]
+    assert upload.linked_at is not None
+
+
+@pytest.mark.asyncio
+async def test_prediction_result_rechecks_source_after_mask_preflight(
+    db_session, super_admin, monkeypatch
+):
+    user, _ = super_admin
+    project, task = await _seed_image_task(db_session, user.id)
+    reference = build_rle_reference(FOREGROUND_RLE)
+    scope = _prediction_write_scope(task, user.id)
+    task.file_path = task.file_path + ".relinked"
+    await db_session.flush()
+    events: list[str] = []
+
+    async def load(_reference):
+        events.append("storage")
+        return FOREGROUND_RLE
+
+    from app.services.labeling_write_guard import lock_labeling_write as real_lock
+
+    async def tracked_lock(*args, **kwargs):
+        events.append("final_scope_check")
+        return await real_lock(*args, **kwargs)
+
+    monkeypatch.setattr("app.services.raster_mask_storage.load_coco_rle", load)
+    monkeypatch.setattr("app.services.prediction.lock_labeling_write", tracked_lock)
+    monkeypatch.setattr(settings, "raster_mask_create_enabled", True)
+
+    with pytest.raises(ApplyPredictionResultError) as exc_info:
+        await PredictionService(db_session).apply_prediction_result(
+            ApplyPredictionResultRequest(
+                task_id=task.id,
+                project_id=project.id,
+                ml_backend_id=None,
+                result=[_shape(reference)],
+                write_scope=scope,
+            )
+        )
+
+    assert exc_info.value.detail["reason"] == "prediction_source_changed"
+    assert events == ["storage", "final_scope_check"]
+    assert await _count_for_task(db_session, Prediction, task.id) == 0
 
 
 @pytest.mark.asyncio

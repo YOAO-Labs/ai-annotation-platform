@@ -17,6 +17,7 @@ from app.db.models.annotation_operation import (
 )
 from app.db.models.dataset import VideoSegment
 from app.db.models.project import Project
+from app.db.models.raster_mask_upload import RasterMaskUpload
 from app.db.models.task import Task
 from app.db.models.user import User
 from app.schemas.mask_mutation import (
@@ -51,6 +52,7 @@ from app.services.raster_mask_storage import (
     RasterMaskContractError,
     load_coco_rle,
     prepare_mask_payload_for_write,
+    verify_mask_payload_content,
 )
 from app.services.project_access import is_privileged_for_project
 from app.services.video_collaboration import (
@@ -75,6 +77,34 @@ MAX_MASK_MUTATION_RLE_OBJECTS = 1000
 MAX_MASK_MUTATION_TOTAL_RUNS = 2_000_000
 MAX_MASK_MUTATION_OVERLAP_PAIRS = 100_000
 MAX_MASK_MUTATION_ALGEBRA_STEPS = 5_000_000
+
+
+def _raise_mask_mutation_contract_error(exc: RasterMaskContractError) -> None:
+    reason = str(exc.detail.get("reason") or "invalid_geometry")
+    if reason == "mask_reference_not_reserved":
+        raise _MaskMutationError(
+            status_code=exc.status_code,
+            reason="missing_ref",
+            message=str(exc.detail.get("message") or exc),
+            object_keys=exc.detail.get("object_keys", []),
+        ) from exc
+    if reason in {
+        "mask_reference_invalid",
+        "mask_geometry_invalid",
+        "mask_task_context_missing",
+        "raster_mask_dataset_item_required",
+        "raster_mask_image_required",
+        "raster_mask_source_dimensions_missing",
+        "raster_mask_size_mismatch",
+    }:
+        reason = "invalid_geometry"
+    elif reason == "raster_mask_empty_foreground":
+        reason = "empty_result"
+    raise _MaskMutationError(
+        status_code=exc.status_code,
+        reason=reason,
+        message=str(exc.detail.get("message") or exc),
+    ) from exc
 
 
 class _AlgebraBudget:
@@ -781,9 +811,17 @@ class MaskMutationService:
         payload: MaskMutationCommitRequest,
         annotations: list[Annotation],
         source_ids: set[uuid.UUID],
+        *,
+        preloaded_rles: dict[str, dict] | None = None,
     ) -> tuple[MaskMutationReport, dict[str, dict], _AlgebraBudget]:
-        rle_cache: dict[str, dict] = {}
-        total_runs = 0
+        rle_cache: dict[str, dict] = dict(preloaded_rles or {})
+        total_runs = sum(len(validate_coco_rle(rle)[2]) for rle in rle_cache.values())
+        if total_runs > MAX_MASK_MUTATION_TOTAL_RUNS:
+            raise _MaskMutationError(
+                status_code=422,
+                reason="operation_too_large",
+                message="mask mutation exceeds the total RLE run budget",
+            )
         algebra_budget = _AlgebraBudget()
 
         async def load_reference(reference: dict) -> dict:
@@ -1218,14 +1256,220 @@ class MaskMutationService:
         access: Any = None,
     ) -> MaskMutationCommitResponse:
         digest = request_digest(payload)
-        task = await self._lock_task(task_id)
-
         from app.services import task_access
 
-        if access is None:
-            access = await task_access.resolve_task_access(
-                self.db, task, actor.id, lock_membership=True
+        preflight_task = await self.db.get(Task, task_id, populate_existing=True)
+        if preflight_task is None:
+            raise _MaskMutationError(
+                status_code=404,
+                reason="task_not_found",
+                message="Task not found",
             )
+        preflight_access = await task_access.resolve_task_access(
+            self.db, preflight_task, actor.id
+        )
+        await task_access.assert_task_visible(
+            self.db, preflight_task, actor.id, access=preflight_access
+        )
+        task_access.assert_annotation_write_allowed(preflight_task, preflight_access)
+        await task_access.assert_review_adjustment_evidence(
+            self.db, preflight_task, actor.id, preflight_access
+        )
+        task_access.assert_task_editable(
+            preflight_task, actor.id, access=preflight_access
+        )
+        preflight_replay = await self._idempotent_replay(
+            task_id, actor.id, payload, digest
+        )
+        verified_mask_content = None
+        if preflight_replay is None:
+            preflight_geometries = [
+                mutation.geometry.model_dump(mode="json", by_alias=True)
+                for mutation in payload.mutations
+                if isinstance(mutation, (MaskUpdateMutation, MaskCreateMutation))
+            ]
+            preflight_references = [
+                reference
+                for geometry in preflight_geometries
+                if (reference := _geometry_for_frame(geometry, payload.scope))
+                is not None
+            ]
+            preflight_explicit_source_ids = {
+                source_id
+                for mutation in payload.mutations
+                if isinstance(mutation, MaskCreateMutation)
+                for source_id in mutation.source_annotation_ids
+            }
+            preflight_mutation_source_ids = preflight_explicit_source_ids | {
+                mutation.annotation_id
+                for mutation in payload.mutations
+                if isinstance(mutation, (MaskUpdateMutation, MaskDeleteMutation))
+            }
+            preflight_source_ids = set(preflight_mutation_source_ids)
+            preflight_annotation_map = {
+                annotation.id: annotation
+                for annotation in await self._lock_scope(
+                    task_id,
+                    payload.scope,
+                    for_update=False,
+                    include_annotation_ids=preflight_source_ids,
+                )
+            }
+            preflight_fingerprint = scope_fingerprint(
+                payload.scope, list(preflight_annotation_map.values())
+            )
+            preflight_versions = {
+                str(item.id): int(item.version or 1)
+                for item in preflight_annotation_map.values()
+            }
+            preflight_expected_versions = {
+                str(item.annotation_id): item.version
+                for item in payload.expected_versions
+            }
+            preflight_missing = sorted(
+                set(preflight_versions) - set(preflight_expected_versions)
+            )
+            if preflight_missing:
+                raise _MaskMutationError(
+                    status_code=428,
+                    reason="expected_versions_missing",
+                    message="expected_versions must cover every annotation in scope",
+                    annotation_ids=preflight_missing,
+                    current_scope_fingerprint=preflight_fingerprint,
+                    current_versions=preflight_versions,
+                )
+            if payload.scope_fingerprint != preflight_fingerprint or set(
+                preflight_expected_versions
+            ) != set(preflight_versions):
+                raise _MaskMutationError(
+                    status_code=409,
+                    reason="scope_stale",
+                    message="mask mutation scope changed; refresh and recompute the preview",
+                    current_scope_fingerprint=preflight_fingerprint,
+                    current_versions=preflight_versions,
+                )
+            preflight_mismatched = [
+                annotation_id
+                for annotation_id, version in preflight_versions.items()
+                if preflight_expected_versions[annotation_id] != version
+            ]
+            if preflight_mismatched:
+                raise _MaskMutationError(
+                    status_code=409,
+                    reason="version_mismatch",
+                    message="one or more source annotations changed",
+                    annotation_ids=preflight_mismatched,
+                    current_versions=preflight_versions,
+                )
+            preflight_needs_full_scope = (
+                payload.operation == "overlap" or payload.scope.strict_non_overlap
+            )
+            if preflight_needs_full_scope:
+                preflight_source_ids = set(preflight_annotation_map)
+            preflight_rle_references = list(preflight_references)
+            for source_id in sorted(preflight_source_ids, key=str):
+                annotation = preflight_annotation_map.get(source_id)
+                if annotation is None:
+                    continue
+                if (
+                    payload.operation == "copy_keyframe"
+                    and source_id in preflight_explicit_source_ids
+                ):
+                    resolved = resolve_track_at_frame(
+                        annotation.geometry,
+                        int(payload.source_frame_index or 0),
+                    )
+                    reference = (resolved or {}).get("mask")
+                else:
+                    reference = _geometry_for_frame(annotation.geometry, payload.scope)
+                if reference is not None:
+                    preflight_rle_references.append(reference)
+            preflight_source_scope = (
+                payload.scope.model_copy(
+                    update={"frame_index": payload.source_frame_index}
+                )
+                if payload.operation == "copy_keyframe"
+                else payload.scope
+            )
+            preflight_source_keys = {
+                str(reference["object_key"])
+                for source_id in preflight_mutation_source_ids
+                if (annotation := preflight_annotation_map.get(source_id)) is not None
+                and (
+                    reference := _geometry_for_frame(
+                        annotation.geometry, preflight_source_scope
+                    )
+                )
+                is not None
+                and reference.get("object_key")
+            }
+            preflight_result_keys = {
+                str(reference.get("object_key"))
+                for reference in preflight_references
+                if reference.get("object_key")
+            }
+            preflight_required_keys = sorted(
+                preflight_result_keys - preflight_source_keys
+            )
+            if preflight_required_keys:
+                preflight_owned_keys = set(
+                    (
+                        await self.db.scalars(
+                            select(RasterMaskUpload.object_key).where(
+                                RasterMaskUpload.task_id == task_id,
+                                RasterMaskUpload.object_key.in_(
+                                    preflight_required_keys
+                                ),
+                            )
+                        )
+                    ).all()
+                )
+                preflight_missing_keys = [
+                    key
+                    for key in preflight_required_keys
+                    if key not in preflight_owned_keys
+                ]
+                if preflight_missing_keys:
+                    raise _MaskMutationError(
+                        status_code=422,
+                        reason="missing_ref",
+                        message="mask reference was not reserved by this task",
+                        object_keys=preflight_missing_keys,
+                    )
+            if (
+                len(
+                    {
+                        str(
+                            reference.get("object_key") or reference.get("sha256") or ""
+                        )
+                        for reference in preflight_rle_references
+                    }
+                )
+                > MAX_MASK_MUTATION_RLE_OBJECTS
+            ):
+                raise _MaskMutationError(
+                    status_code=422,
+                    reason="operation_too_large",
+                    message="mask mutation references too many RLE objects",
+                )
+            try:
+                verified_mask_content = await verify_mask_payload_content(
+                    [
+                        *preflight_geometries,
+                        *(
+                            preflight_annotation_map[source_id].geometry
+                            for source_id in preflight_source_ids
+                            if source_id in preflight_annotation_map
+                        ),
+                    ],
+                    reference_value=preflight_rle_references,
+                )
+            except RasterMaskContractError as exc:
+                _raise_mask_mutation_contract_error(exc)
+        access = await task_access.resolve_task_access(
+            self.db, preflight_task, actor.id, lock_membership=True
+        )
+        task = await self._lock_task(task_id)
         await task_access.assert_task_visible(self.db, task, actor.id, access=access)
         task_access.assert_annotation_write_allowed(task, access)
         # The FastAPI dependency precheck is not authoritative: re-read the
@@ -1512,33 +1756,10 @@ class MaskMutationService:
                 geometries,
                 reference_value=submitted_references,
                 required_upload_keys=submitted_keys - source_keys,
+                verified_content=verified_mask_content,
             )
         except RasterMaskContractError as exc:
-            reason = str(exc.detail.get("reason") or "invalid_geometry")
-            if reason == "mask_reference_not_reserved":
-                raise _MaskMutationError(
-                    status_code=exc.status_code,
-                    reason="missing_ref",
-                    message=str(exc.detail.get("message") or exc),
-                    object_keys=exc.detail.get("object_keys", []),
-                ) from exc
-            if reason in {
-                "mask_reference_invalid",
-                "mask_geometry_invalid",
-                "mask_task_context_missing",
-                "raster_mask_dataset_item_required",
-                "raster_mask_image_required",
-                "raster_mask_source_dimensions_missing",
-                "raster_mask_size_mismatch",
-            }:
-                reason = "invalid_geometry"
-            elif reason == "raster_mask_empty_foreground":
-                reason = "empty_result"
-            raise _MaskMutationError(
-                status_code=exc.status_code,
-                reason=reason,
-                message=str(exc.detail.get("message") or exc),
-            ) from exc
+            _raise_mask_mutation_contract_error(exc)
 
         locked_annotations = await self._lock_scope(
             task_id,
@@ -1567,6 +1788,11 @@ class MaskMutationService:
             payload,
             annotations,
             source_ids,
+            preloaded_rles=(
+                dict(verified_mask_content.rle_cache)
+                if verified_mask_content is not None
+                else None
+            ),
         )
 
         before_snapshot = [
