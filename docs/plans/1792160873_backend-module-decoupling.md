@@ -2284,3 +2284,21 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   owner lifecycle, complete API least privilege, other modules, provider language
   replacement and daily cutover remain active. The final assembled API image is
   qualified separately from the live host-API/Identity-container acceptance.
+
+### Identity API-key assembled artifact verification
+
+- The API image built from clean implementation commit `128d1eb26` matches 29
+  API, dependency, migration and snapshot files plus all 15 installed Identity
+  source/schema files. A network-disabled, read-only cold import verifies the
+  real API, current key command bindings, existing prediction worker signatures,
+  exact public OpenAPI and migration head 0236. The proof container is removed;
+  this does not claim running daily workers or an Identity daily cutover.
+- Independent review found no concrete defect in the scoped extraction. Required
+  commit hooks, Ruff, formatting, Compose configuration and documentation build
+  pass. Two clean modifier worktrees are removed only after exact patch-identity
+  comparison with their integrated commits; older and unrelated worktrees stay.
+- Fresh read-only checks confirm the primary checkout remains clean at
+  `856fa79c8`, its database remains at 0234, and the unrelated test database stays
+  at 0218. The four original running containers are unchanged. The qualification
+  ledger is `.worktree/identity-keys-verification-current.json`; the full module
+  objective remains active with the limitations above.
