@@ -67,6 +67,57 @@ VIDEO_RUNTIME_CAPABILITIES = (
     "aap_labeling_v1.copy_annotation_video_input_sources(uuid,uuid)",
     "aap_labeling_v1.accepted_video_input_referenced(uuid)",
 )
+IMAGE_MEDIA_RUNTIME_CAPABILITIES = (
+    "aap_assets_v1.read_image_source(uuid,uuid,uuid)",
+    "aap_assets_v1.observe_image_source(uuid,uuid,uuid,text,jsonb)",
+    "aap_assets_v1.read_image_summaries(uuid,jsonb,text)",
+    "aap_assets_v1.prepare_image_media(uuid,uuid,uuid,uuid,text,text,jsonb,boolean)",
+    "aap_assets_v1.read_image_generation(uuid,uuid,uuid,integer,text)",
+    "aap_assets_v1.read_image_work(uuid,uuid)",
+    "aap_assets_v1.retry_image_media(uuid,uuid,uuid,uuid,text,text,jsonb,boolean)",
+    "aap_assets_v1.invalidate_image_media(uuid,uuid,uuid,jsonb)",
+    "aap_assets_v1.cancel_image_media(uuid,uuid,uuid)",
+    "aap_assets_v1.resolve_internal_image_source(text,uuid,text,jsonb)",
+    "aap_assets_v1.schedule_image_media(uuid,text,uuid,jsonb,boolean)",
+    "aap_assets_v1.read_internal_image_work(uuid)",
+    "aap_assets_v1.scan_image_backfill(jsonb,text,uuid,integer)",
+    "aap_assets_v1.read_image_usage()",
+    "aap_assets_v1.claim_image_media(uuid,uuid,integer,text[])",
+    "aap_assets_v1.heartbeat_image_media(uuid,bigint,uuid,integer)",
+    "aap_assets_v1.finish_image_media(uuid,bigint,uuid,jsonb)",
+    "aap_assets_v1.fail_image_media(uuid,bigint,uuid,text,text)",
+    "aap_assets_v1.advance_image_backfill(uuid,bigint,uuid,integer,jsonb)",
+    "aap_assets_v1.reconcile_image_media(jsonb,integer)",
+    "aap_assets_v1.claim_image_garbage(uuid,integer,integer)",
+    "aap_assets_v1.complete_image_garbage(uuid,uuid)",
+)
+IMAGE_ACCEPTED_INPUT_RUNTIME_CAPABILITIES = (
+    "aap_assets_v1.find_accepted_image_input(uuid,uuid,uuid)",
+    "aap_assets_v1.reserve_accepted_image_input(uuid,uuid,uuid,text,jsonb)",
+    "aap_assets_v1.read_accepted_image_input(uuid,uuid,uuid)",
+    "aap_assets_v1.read_accepted_image_input_work(uuid,uuid,uuid)",
+    "aap_assets_v1.claim_accepted_image_input(uuid,uuid,integer)",
+    "aap_assets_v1.heartbeat_accepted_image_input(uuid,bigint,uuid,integer)",
+    "aap_assets_v1.finish_accepted_image_input(uuid,bigint,uuid,jsonb)",
+    "aap_assets_v1.fail_accepted_image_input(uuid,bigint,uuid,text)",
+    "aap_assets_v1.lock_accepted_image_input(uuid,uuid,uuid)",
+)
+IMAGE_MANIFEST_RUNTIME_CAPABILITIES = (
+    "aap_assets_v1.capture_accepted_image_input_manifest(uuid,uuid,uuid,jsonb)",
+    "aap_assets_v1.read_accepted_image_input_manifest(uuid,uuid,uuid)",
+    "aap_assets_v1.read_accepted_image_input_manifest_page(uuid,uuid,uuid,text,text,bigint,integer)",
+    "aap_assets_v1.prepare_accepted_image_input_manifest_member(uuid,uuid,uuid,text,bigint,uuid,text,jsonb,text)",
+    "aap_assets_v1.seal_accepted_image_input_manifest(uuid,uuid,uuid,text)",
+)
+IMAGE_LABELING_INPUT_RUNTIME_CAPABILITIES = (
+    "aap_labeling_v1.attach_annotation_input_source(uuid,uuid,text)",
+    "aap_labeling_v1.copy_annotation_input_sources(uuid,uuid)",
+)
+IMAGE_ACCEPTED_RUNTIME_CAPABILITIES = (
+    *IMAGE_ACCEPTED_INPUT_RUNTIME_CAPABILITIES,
+    *IMAGE_MANIFEST_RUNTIME_CAPABILITIES,
+    *IMAGE_LABELING_INPUT_RUNTIME_CAPABILITIES,
+)
 
 
 def _without_buckets(manifest: dict, *names: str) -> dict:
@@ -442,6 +493,10 @@ class LocalResources:
                 self.resources["database"]
             )
             video_function_grant = ", ".join(VIDEO_RUNTIME_CAPABILITIES)
+            image_media_function_grant = ", ".join(IMAGE_MEDIA_RUNTIME_CAPABILITIES)
+            image_accepted_function_grant = ", ".join(
+                IMAGE_ACCEPTED_RUNTIME_CAPABILITIES
+            )
             async with engine.begin() as connection:
                 for sql in (
                     f"GRANT CONNECT ON DATABASE {database} TO {role}",
@@ -555,28 +610,6 @@ class LocalResources:
                     "aap_assets_v1.complete_video_media_garbage(uuid, uuid), "
                     "aap_assets_v1.advance_video_backfill(uuid, bigint, uuid, integer), "
                     "aap_assets_v1.read_video_media_usage(), "
-                    "aap_assets_v1.read_image_source(uuid, uuid, uuid), "
-                    "aap_assets_v1.observe_image_source(uuid, uuid, uuid, text, jsonb), "
-                    "aap_assets_v1.read_image_summaries(uuid, jsonb, text), "
-                    "aap_assets_v1.prepare_image_media(uuid, uuid, uuid, uuid, text, text, jsonb, boolean), "
-                    "aap_assets_v1.read_image_generation(uuid, uuid, uuid, integer, text), "
-                    "aap_assets_v1.read_image_work(uuid, uuid), "
-                    "aap_assets_v1.retry_image_media(uuid, uuid, uuid, uuid, text, text, jsonb, boolean), "
-                    "aap_assets_v1.invalidate_image_media(uuid, uuid, uuid, jsonb), "
-                    "aap_assets_v1.cancel_image_media(uuid, uuid, uuid), "
-                    "aap_assets_v1.resolve_internal_image_source(text, uuid, text, jsonb), "
-                    "aap_assets_v1.schedule_image_media(uuid, text, uuid, jsonb, boolean), "
-                    "aap_assets_v1.read_internal_image_work(uuid), "
-                    "aap_assets_v1.scan_image_backfill(jsonb, text, uuid, integer), "
-                    "aap_assets_v1.read_image_usage(), "
-                    "aap_assets_v1.claim_image_media(uuid, uuid, integer, text[]), "
-                    "aap_assets_v1.heartbeat_image_media(uuid, bigint, uuid, integer), "
-                    "aap_assets_v1.finish_image_media(uuid, bigint, uuid, jsonb), "
-                    "aap_assets_v1.fail_image_media(uuid, bigint, uuid, text, text), "
-                    "aap_assets_v1.advance_image_backfill(uuid, bigint, uuid, integer, jsonb), "
-                    "aap_assets_v1.reconcile_image_media(jsonb, integer), "
-                    "aap_assets_v1.claim_image_garbage(uuid, integer, integer), "
-                    "aap_assets_v1.complete_image_garbage(uuid, uuid), "
                     "aap_assets_v1.claim_dataset_source_ingest_delivery(uuid, integer), "
                     "aap_assets_v1.complete_dataset_source_ingest_delivery(uuid, uuid), "
                     "aap_labeling_v1.read_media_visible_video_item(uuid, uuid), "
@@ -592,6 +625,8 @@ class LocalResources:
                     "aap_jobs_v1.fail_task_creation_job(uuid, uuid, text), "
                     f"aap_jobs_v1.cancel_task_creation_job(uuid, uuid) TO {role}",
                     f"GRANT EXECUTE ON FUNCTION {video_function_grant} TO {role}",
+                    f"GRANT EXECUTE ON FUNCTION {image_media_function_grant} TO {role}",
+                    f"GRANT EXECUTE ON FUNCTION {image_accepted_function_grant} TO {role}",
                 ):
                     await connection.exec_driver_sql(sql)
         finally:

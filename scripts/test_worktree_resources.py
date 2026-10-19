@@ -13,7 +13,15 @@ from unittest.mock import MagicMock, patch
 from sqlalchemy.engine import make_url
 
 from worktree_env import atomic_json, load_identity, read_state, topology
-from worktree_resources import LocalResources, VIDEO_RUNTIME_CAPABILITIES
+from worktree_resources import (
+    IMAGE_ACCEPTED_INPUT_RUNTIME_CAPABILITIES,
+    IMAGE_ACCEPTED_RUNTIME_CAPABILITIES,
+    IMAGE_LABELING_INPUT_RUNTIME_CAPABILITIES,
+    IMAGE_MANIFEST_RUNTIME_CAPABILITIES,
+    IMAGE_MEDIA_RUNTIME_CAPABILITIES,
+    LocalResources,
+    VIDEO_RUNTIME_CAPABILITIES,
+)
 
 
 def _without_buckets(manifest, *names):
@@ -374,7 +382,60 @@ class BucketUpgradeTests(unittest.TestCase):
         ):
             self.assertNotIn(excluded, normalized)
 
-    def test_worktree_runtime_grant_uses_the_video_allowlist(self):
+    def test_lan_runtime_grants_image_and_accepted_image_allowlists(self):
+        grant_file = (
+            Path(__file__).resolve().parents[1]
+            / "infra/docker/lan-production-grants.sql"
+        )
+        sql = grant_file.read_text()
+        runtime_grants = re.findall(
+            r'GRANT EXECUTE ON FUNCTION\s+(.*?)\s+TO\s+:"application_role";',
+            sql,
+            flags=re.DOTALL,
+        )
+        normalized = re.sub(r"\s+", "", ",".join(runtime_grants))
+
+        self.assertEqual(len(IMAGE_MEDIA_RUNTIME_CAPABILITIES), 22)
+        self.assertEqual(len(set(IMAGE_MEDIA_RUNTIME_CAPABILITIES)), 22)
+        self.assertEqual(len(IMAGE_ACCEPTED_INPUT_RUNTIME_CAPABILITIES), 9)
+        self.assertEqual(len(IMAGE_MANIFEST_RUNTIME_CAPABILITIES), 5)
+        self.assertEqual(len(IMAGE_LABELING_INPUT_RUNTIME_CAPABILITIES), 2)
+        self.assertEqual(len(IMAGE_ACCEPTED_RUNTIME_CAPABILITIES), 16)
+        self.assertEqual(len(set(IMAGE_ACCEPTED_RUNTIME_CAPABILITIES)), 16)
+        for signature in (
+            *IMAGE_MEDIA_RUNTIME_CAPABILITIES,
+            *IMAGE_ACCEPTED_RUNTIME_CAPABILITIES,
+        ):
+            self.assertIn(signature, normalized)
+        for excluded in (
+            "aap_assets_v1.sweep_accepted_image_inputs(integer)",
+            "aap_assets_v1.claim_accepted_input_garbage(uuid,integer,integer)",
+            "aap_assets_v1.complete_accepted_input_garbage(uuid,uuid)",
+            "aap_assets_v1._lock_accepted_image_input_receipt(uuid,uuid,uuid)",
+            "aap_assets_v1._lock_accepted_image_input_pin(uuid,uuid,text)",
+        ):
+            self.assertNotIn(excluded, normalized)
+
+        image_grant_section = sql.split(
+            "-- The monolithic API/Celery runtime still composes the image media owner",
+            maxsplit=1,
+        )[1].split("REVOKE ALL ON SCHEMA aap_assets_v1", maxsplit=1)[0]
+        image_signatures = re.findall(
+            r"aap_(?:assets|labeling)_v1\.[a-z0-9_]+\([^)]*\)",
+            re.sub(r"\s+", "", image_grant_section),
+        )
+        self.assertEqual(
+            set(image_signatures),
+            set(IMAGE_MEDIA_RUNTIME_CAPABILITIES)
+            | set(IMAGE_ACCEPTED_RUNTIME_CAPABILITIES),
+        )
+        self.assertEqual(
+            len(image_signatures),
+            len(IMAGE_MEDIA_RUNTIME_CAPABILITIES)
+            + len(IMAGE_ACCEPTED_RUNTIME_CAPABILITIES),
+        )
+
+    def test_worktree_runtime_grant_uses_media_allowlists(self):
         backend = object.__new__(LocalResources)
         backend.settings = SimpleNamespace(
             database_url="postgresql+asyncpg://app@localhost/app"
@@ -411,6 +472,42 @@ class BucketUpgradeTests(unittest.TestCase):
             + ' TO "app"'
         )
         self.assertIn(expected, statements)
+        self.assertIn(
+            "GRANT EXECUTE ON FUNCTION "
+            + ", ".join(IMAGE_MEDIA_RUNTIME_CAPABILITIES)
+            + ' TO "app"',
+            statements,
+        )
+        self.assertIn(
+            "GRANT EXECUTE ON FUNCTION "
+            + ", ".join(IMAGE_ACCEPTED_RUNTIME_CAPABILITIES)
+            + ' TO "app"',
+            statements,
+        )
+        worktree_image_signatures = re.findall(
+            r"aap_(?:assets|labeling)_v1\.[a-z0-9_]+\([^)]*\)",
+            " ".join(
+                statement
+                for statement in statements
+                if any(
+                    marker in statement
+                    for marker in ("read_image_source(", "find_accepted_image_input(")
+                )
+            ),
+        )
+        self.assertEqual(
+            set(worktree_image_signatures),
+            set(IMAGE_MEDIA_RUNTIME_CAPABILITIES)
+            | set(IMAGE_ACCEPTED_RUNTIME_CAPABILITIES),
+        )
+        for excluded in (
+            "aap_assets_v1.sweep_accepted_image_inputs(integer)",
+            "aap_assets_v1.claim_accepted_input_garbage(uuid,integer,integer)",
+            "aap_assets_v1.complete_accepted_input_garbage(uuid,uuid)",
+            "aap_assets_v1._lock_accepted_image_input_receipt(uuid,uuid,uuid)",
+            "aap_assets_v1._lock_accepted_image_input_pin(uuid,uuid,text)",
+        ):
+            self.assertNotIn(excluded, " ".join(statements))
 
 
 if __name__ == "__main__":
