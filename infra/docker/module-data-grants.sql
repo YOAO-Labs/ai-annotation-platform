@@ -341,7 +341,7 @@ GRANT SELECT (id, project_id, task_id, annotation_id, thread_parent_id),
     ON public.annotation_feedbacks TO :"labeling_owner";
 GRANT SELECT (task_id, annotation_id), DELETE
     ON public.annotation_drafts TO :"labeling_owner";
-GRANT SELECT (task_id, expire_at), DELETE ON public.task_locks TO :"labeling_owner";
+GRANT SELECT (task_id, user_id, expire_at), DELETE ON public.task_locks TO :"labeling_owner";
 GRANT SELECT (project_id, annotation_id), DELETE
     ON public.annotation_comments TO :"labeling_owner";
 GRANT SELECT (project_id), DELETE ON public.task_events TO :"labeling_owner";
@@ -545,6 +545,10 @@ GRANT EXECUTE ON FUNCTION
     aap_jobs_v1.project_video_input_job(uuid, uuid, uuid, uuid, jsonb, text, boolean),
     aap_labeling_v1.read_video_input_task_source(uuid, uuid),
     aap_labeling_v1.lock_video_input_task_source(uuid, uuid, jsonb)
+    TO :"assets_owner";
+GRANT EXECUTE ON FUNCTION
+    aap_labeling_v1.open_video_input_manifest_members(uuid, uuid, jsonb),
+    aap_labeling_v1.lock_video_input_manifest_member(uuid, uuid, uuid, jsonb, jsonb)
     TO :"assets_owner";
 GRANT EXECUTE ON FUNCTION
     aap_labeling_v1.project_accepted_image_input_task(uuid, uuid, boolean),
@@ -910,6 +914,18 @@ ALTER FUNCTION aap_labeling_v1._video_input_task_binding_valid(jsonb)
 ALTER FUNCTION aap_labeling_v1.read_video_input_task_source(uuid, uuid)
     OWNER TO :"labeling_owner";
 ALTER FUNCTION aap_labeling_v1.lock_video_input_task_source(uuid, uuid, jsonb)
+    OWNER TO :"labeling_owner";
+ALTER FUNCTION aap_labeling_v1._video_input_selection_reply(jsonb, text)
+    OWNER TO :"labeling_owner";
+ALTER FUNCTION aap_labeling_v1._video_input_manifest_selection_valid(jsonb)
+    OWNER TO :"labeling_owner";
+ALTER FUNCTION aap_labeling_v1._video_input_captured_task_valid(jsonb)
+    OWNER TO :"labeling_owner";
+ALTER FUNCTION aap_labeling_v1._video_input_selection_task_access(uuid, uuid, uuid, uuid, text)
+    OWNER TO :"labeling_owner";
+ALTER FUNCTION aap_labeling_v1.open_video_input_manifest_members(uuid, uuid, jsonb)
+    OWNER TO :"labeling_owner";
+ALTER FUNCTION aap_labeling_v1.lock_video_input_manifest_member(uuid, uuid, uuid, jsonb, jsonb)
     OWNER TO :"labeling_owner";
 REVOKE CREATE ON SCHEMA aap_labeling_v1 FROM :"labeling_owner";
 

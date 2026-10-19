@@ -726,8 +726,8 @@ BEGIN
         v_initial.media_source_generation
     );
     IF v_initial.batch_id IS DISTINCT FROM
-            CASE WHEN p_captured_task -> 'batch_id' = 'null'::jsonb
-                 THEN NULL ELSE (p_captured_task ->> 'batch_id')::uuid END
+            (CASE WHEN p_captured_task -> 'batch_id' = 'null'::jsonb
+                 THEN NULL ELSE (p_captured_task ->> 'batch_id')::uuid END)
        OR (p_captured_task - ARRAY['batch_id', 'task_version'])
             IS DISTINCT FROM (pg_catalog.jsonb_build_object(
                 'task_id', v_initial.id,

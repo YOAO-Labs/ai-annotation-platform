@@ -36,7 +36,7 @@ def reply(operation, request, result):
 def test_execution_artifact_fixes_exact_native_signatures_roles_and_budgets():
     artifact = Path(c.__file__).with_name("execution.schema.json")
     assert json.loads(artifact.read_text()) == c.contract_document()
-    assert len(c.OPERATIONS) == 20
+    assert len(c.OPERATIONS) == 21
     counts = {}
     for operation in c.OPERATIONS.values():
         assert len(operation.arguments) == len(operation.sql_types)
@@ -46,7 +46,7 @@ def test_execution_artifact_fixes_exact_native_signatures_roles_and_budgets():
         "workflow": 1,
         "control": 8,
         "worker": 9,
-        "labeling": 1,
+        "labeling": 2,
         "system": 1,
     }
 
@@ -418,3 +418,18 @@ def test_linked_task_raw_path_is_independent_of_assets_transport_path():
     assert accepted.task.file_path == ""
     assert accepted.source.file_path == "dataset/original.mp4"
     assert accepted.task.dataset_item_id == accepted.source.dataset_item_id
+
+
+def test_original_input_fence_precedes_overwrite_and_requires_the_exact_ready_plan():
+    ready = record("ready")
+    request = c.LockVideoInputRequest(
+        input_id=ready.input_id,
+        job_id=ready.job_id,
+        task_id=ready.task.task_id,
+        actor_id=CURRENT_ACTOR,
+        plan_digest=ready.plan.plan_digest,
+    )
+    assert reply("lock_accepted_video_input", request, ready) == ready
+    for wrong in (record("expired"), ready.model_copy(update={"input_id": uuid4()})):
+        with pytest.raises(c.VideoInputFailure, match="invalid_response"):
+            reply("lock_accepted_video_input", request, wrong)

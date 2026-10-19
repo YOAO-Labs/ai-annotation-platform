@@ -1937,7 +1937,34 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   access. Frozen SQL install/rollback, downgrade to 0189 and re-upgrade to 0223
   pass; all temporary PG/Redis/bucket/storage identities are cleaned with zero
   errors. No primary runtime cutover follows from these source projections.
-- Retained video/manifest/frame ledgers, preparation/seal barriers, actual
-  input-based frame derivation, consumer/overwrite migration, failure/retry and
-  typed Annotation evidence/GC are the next implementation work. The complete
-  video slice and overall independent-module goal remain active.
+- The owner execution contract now fixes 21 operations and exact caller scopes:
+  one workflow capture, eight control, nine worker, two Labeling fences and one
+  system sweep. Raw missing-link capture stays separate from ready video
+  bindings. Ready plans, terminal member counts, immutable page progress,
+  original actor attribution versus current request authority, lease tokens,
+  original-input overwrite fences and exact frame-object fences are validated.
+- The control/materialization/frame libraries are implemented. The processor
+  streams decoded rows and counts them independently of PTS, spools only bounded
+  selected times, rejects selected PTS gaps and never substitutes DTS/FPS.
+  Real FFmpeg JPEG/WebP bytes pass. Simulated persistence/storage tests cover
+  dropped stage/finish responses, contention without recopies, replaced latest
+  objects, missing original versions, wrong publication keys, source drift,
+  resource limits and cancellation. Lease loss cancels and reaps active probe
+  children. These libraries are not wired into the deployed Media process or
+  prediction consumers yet.
+- Migration 0224 adds complete Labeling video selection cursors and current
+  member-scope locks. The combined native/role/migration run passes 38 cases,
+  zero skips, including 205 implicit members read in batches of 100, strict
+  explicit/batch/Workbench selectors, missing links, source ABA, ordinary Task
+  versions, editor locks and authority before contention. Assets executes only
+  the two public projections; all four private helpers stay with Labeling.
+  Assets gains no SELECT on Task/batch/editor-lock/Job/User/Project data. Frozen
+  SQL install/rollback, downgrade to 0189, re-upgrade to 0224 and grant
+  reapplication pass. All owned PostgreSQL, Redis, bucket and storage-identity
+  resources are cleaned with no errors.
+- Retained video/manifest/frame native ledgers, process/HTTP wiring, sealed
+  preparation and real consumer/overwrite migration, failure/retry and typed
+  Annotation evidence/GC remain next. Installed-process, restricted real video
+  S3 and affected Celery qualification are still required before promotion.
+  The primary runtime remains on the qualified bulk-image implementation; the
+  complete video slice and overall independent-module goal remain active.

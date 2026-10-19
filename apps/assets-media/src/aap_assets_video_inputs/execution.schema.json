@@ -2151,6 +2151,39 @@
       "title": "LockVideoFrameRequest",
       "type": "object"
     },
+    "LockVideoInputRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "input_id": {
+          "format": "uuid",
+          "title": "Input Id",
+          "type": "string"
+        },
+        "job_id": {
+          "format": "uuid",
+          "title": "Job Id",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "plan_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Plan Digest",
+          "type": "string"
+        }
+      },
+      "required": ["input_id", "job_id", "task_id", "actor_id", "plan_digest"],
+      "title": "LockVideoInputRequest",
+      "type": "object"
+    },
     "SweepVideoInputsRequest": {
       "additionalProperties": false,
       "properties": {
@@ -2469,6 +2502,13 @@
       ],
       "request": "LockVideoFrameRequest",
       "result": "VideoFrameRecord",
+      "role": "labeling"
+    },
+    "lock_accepted_video_input": {
+      "signature": "aap_assets_v1.lock_accepted_video_input(uuid,uuid,uuid,uuid,text)",
+      "arguments": ["input_id", "job_id", "task_id", "actor_id", "plan_digest"],
+      "request": "LockVideoInputRequest",
+      "result": "VideoInputRecord",
       "role": "labeling"
     },
     "sweep_accepted_video_inputs": {

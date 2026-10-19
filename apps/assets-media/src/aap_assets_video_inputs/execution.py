@@ -346,6 +346,11 @@ class VideoManifestPage(Value):
             raise ValueError("video member page omitted remaining membership")
         if len({m.task.task_id for m in self.members}) != len(self.members):
             raise ValueError("video member page repeated a Task")
+        if (
+            sum(member.state in {"ready", "failed"} for member in self.members)
+            > self.manifest.prepared_count
+        ):
+            raise ValueError("video manifest omitted prepared member outcomes")
         for index, member in enumerate(self.members, start=self.cursor + 1):
             if member.ordinal != index or index > count:
                 raise ValueError("video members are unordered or outside the manifest")
@@ -391,6 +396,11 @@ class VideoMemberReceipt(Value):
     @model_validator(mode="after")
     def original_scope(self):
         _member_scope(self.manifest, self.member)
+        if (
+            self.member.state in {"ready", "failed"}
+            and not self.manifest.prepared_count
+        ):
+            raise ValueError("video receipt omitted its prepared member outcome")
         return self
 
 
@@ -403,6 +413,10 @@ class ReadVideoInputRequest(Value):
     job_id: UUID
     task_id: UUID
     actor_id: UUID
+
+
+class LockVideoInputRequest(ReadVideoInputRequest):
+    plan_digest: Digest
 
 
 class VideoInputWork(Value):
@@ -777,6 +791,13 @@ OPERATIONS = {
         (*_FRAME_TYPES, "jsonb", "jsonb"),
         "labeling",
     ),
+    "lock_accepted_video_input": NativeOperation(
+        LockVideoInputRequest,
+        VideoInputRecord,
+        (*_INPUT, "plan_digest"),
+        (*_INPUT_TYPES, "text"),
+        "labeling",
+    ),
     "sweep_accepted_video_inputs": NativeOperation(
         SweepVideoInputsRequest,
         SweptVideoInputs,
@@ -854,6 +875,10 @@ def require_scope(operation: str, request: Value, result: Value) -> None:
             record.status != "ready" or record.plan != request.plan
         ):
             raise ValueError("video finish changed its retained plan")
+        if isinstance(request, LockVideoInputRequest) and (
+            record.status != "ready" or record.plan.plan_digest != request.plan_digest
+        ):
+            raise ValueError("video input fence changed its retained frame plan")
         if isinstance(request, FailVideoInputRequest) and (
             record.status != "failed" or record.error != request.error_code
         ):

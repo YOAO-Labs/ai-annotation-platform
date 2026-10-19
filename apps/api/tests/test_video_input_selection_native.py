@@ -80,7 +80,11 @@ async def _open_rows(db, *, actor, project, selection):
     cursor = opened["data"]["cursor"]
     assert re.fullmatch(r"aap_video_members_[0-9a-f]{32}", cursor)
     rows = await db.execute(text(f'FETCH ALL FROM "{cursor}"'))
-    return [_reply(row[0]) for row in rows]
+    result = [_reply(row[0]) for row in rows]
+    if result and result[0].get("kind") == "error":
+        assert len(result) == 1 and set(result[0]) == {"kind", "code"}
+        return {"code": result[0]["code"]}
+    return result
 
 
 async def _lock(db, *, actor, project, selection, captured_task):
@@ -314,6 +318,7 @@ async def test_explicit_and_batch_scope_fail_closed_and_unlinked_member_is_retai
             admin_locked=False,
         )
     )
+    await db_session.flush()
     await db_session.execute(
         text("UPDATE public.tasks SET batch_id=:batch WHERE id=:task"),
         {"batch": batch_id, "task": task_id},

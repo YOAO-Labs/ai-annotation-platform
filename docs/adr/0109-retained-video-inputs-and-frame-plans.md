@@ -83,7 +83,7 @@ transfer implementation while retaining a separate video key/prefix allowlist
 and typed video/frame receipts. The existing image adapter does not gain video
 write or cleanup scope. Native admission, HTTP operations and consumer migration
 are still required; no video path is activated by importing the package. All SQL
-through 0223 stays frozen; new owner state and capabilities start at 0224 or later.
+through 0224 stays frozen; new owner state and capabilities start at 0225 or later.
 
 Values include a ready original input, measured video facts, sampling policy,
 sealed frame plan, complete ordered time entries/pages and exact-version frame
@@ -120,7 +120,7 @@ physical blob locators are provenance fields outside this logical plan digest.
 `execution.schema.json` specifies the retained-input owner's operation matrix
 separately from ready values and Labeling/Jobs authority projections. The
 function-only database binding enforces that matrix; it does not install SQL or
-activate a consumer. The owner ledger, processes and HTTP admission remain
+activate a consumer. The owner ledger, process wiring and HTTP admission remain
 implementation work until qualified together.
 
 | Caller scope | Operations | Responsibility                                                                                                                   |
@@ -128,7 +128,7 @@ implementation work until qualified together.
 | Workflow     | 1          | Capture complete manifest membership in the original Job transaction.                                                            |
 | Control      | 8          | Read header/member pages, observe a member, seal the preparation barrier, read original inputs/time pages, require/read a frame. |
 | Worker       | 9          | Claim, heartbeat, stage selected times, finish/fail original input; claim, heartbeat, finish/fail frame extraction.              |
-| Labeling     | 1          | Fence the exact ready frame, input, plan, time entry and retained object before writing.                                         |
+| Labeling     | 2          | Fence the ready original input/plan before overwrite, and the exact frame/time entry/retained object before writing.             |
 | System       | 1          | Sweep eligible expired original inputs and their frame attempts.                                                                 |
 
 Raw captured Tasks can retain a missing DatasetItem link as a failed member;
@@ -160,6 +160,44 @@ Frame replies bind the plan, decoded ordinal, time entry and rendition. The
 Labeling fence additionally compares the exact expected object version and SHA;
 historically ready records can remain readable after expiry but cannot grant a
 ready write fence. Native retention must preserve references before sweeping.
+
+## Retained-byte processing runtime
+
+The control library reads the captured member before external I/O and returns
+an existing preparation outcome on replay. First preparation observes that
+member's captured Assets path; it does not resolve a new current Task/item path.
+The SQL owner must fence the current Task, Assets source and timetable revision
+after the observation. Original verification checks the retained blob version
+before the Labeling transaction takes the input/plan fence and performs overwrite.
+
+The video source-storage adapter passes only binary transfer facts to the shared
+conditional downloader; it does not fabricate an image source or image-owner
+predicate. Original materialization uploads and verifies the retained version,
+then measures the identical local bytes and stages selected times in bounded
+pages. Staging and finish retries retain the exact same observation, page,
+measured blob and lease token after contention or response loss.
+
+The processor streams every decoded frame from the first video stream and
+counts rows independently of timestamps. It ignores metadata/FPS frame-count
+estimates. Only selected time entries are spooled, under a finite disk budget.
+Presentation time uses decimal milliseconds with nearest, ties-to-even rounding;
+DTS never substitutes for missing PTS. Missing selected presentation time fails
+preparation, while an unselected timestamp gap never renumbers later decoded
+indices. Decoding excludes playlists and external network protocols.
+
+Frame extraction downloads and hashes the exact retained original version,
+then produces the captured JPEG/WebP rendition. It checks the published object's
+complete key against the claimed attempt. A missing version fails explicitly;
+a newer object at the same key and current DatasetItem URLs cannot replace it.
+Heartbeat loss cancels active work and reaps FFmpeg/ffprobe before removing the
+private workspace. An unconfirmed initial heartbeat starts no I/O and leaves
+lease takeover to the owner instead of failing another writer's work.
+
+These libraries are implemented and tested with real video/frame bytes and
+simulated database/storage responses. They are not wired into the Media process
+or existing prediction consumers yet. Restricted real video S3 roles, native
+owner ledgers, installed-process behavior and consumer/evidence/GC qualification
+remain complete-slice requirements.
 
 ## Qualification
 
@@ -221,6 +259,16 @@ Tasks produce `source_not_ready`. Both functions are executable by the Assets
 owner only; their cursor rows and lock result are specified in
 `0224_video_input_selection.schema.json`. The projections do not install an
 input ledger or activate video admission.
+
+The combined native, role and migration qualification passes 38 cases with zero
+skips in owned disposable resources. It includes 205 complete implicit members
+fetched in batches of 100, strict malformed selectors, missing links, source
+ABA, ordinary workflow versions, Workbench editor locks, current authority
+before Task contention, and exact public/private EXECUTE boundaries. Labeling
+has the lock-holder column needed for its own editor checks; Assets still has
+no Task, batch, editor-lock, Job, User or Project table/column access. Frozen SQL
+install/rollback, downgrade to 0189, re-upgrade to 0224 and grant reapplication
+pass. All verifier PostgreSQL/Redis/buckets/storage identities are cleaned.
 
 The shared versioned transfer implementation has a separate video/frame adapter.
 Its 98-case focused regression run covers the new prefixes and existing image

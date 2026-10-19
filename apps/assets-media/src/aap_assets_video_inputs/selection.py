@@ -29,7 +29,6 @@ ErrorCode = Literal[
     "task_scope_changed",
     "unsupported_media",
     "resource_limit",
-    "resource_limit",
 ]
 
 

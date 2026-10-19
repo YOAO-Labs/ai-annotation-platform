@@ -1,6 +1,11 @@
 """Original-video facts shared by owner execution regressions."""
 
 from uuid import UUID
+from pathlib import Path
+import shutil
+import subprocess
+
+import pytest
 
 from aap_assets_video_inputs import execution as c
 from aap_assets_video_inputs import values as v
@@ -118,3 +123,32 @@ def frame(status="pending"):
         error="processing_failed" if status == "failed" else None,
         created_at=frozen.input.created_at,
     )
+
+
+def write_video(path: Path) -> Path:
+    if not shutil.which("ffmpeg") or not shutil.which("ffprobe"):
+        pytest.skip("real retained-video qualification requires ffmpeg and ffprobe")
+    subprocess.run(
+        [
+            "ffmpeg",
+            "-nostdin",
+            "-v",
+            "error",
+            "-n",
+            "-f",
+            "lavfi",
+            "-i",
+            "testsrc2=size=64x48:rate=10:duration=0.8",
+            "-c:v",
+            "libx264",
+            "-bf",
+            "0",
+            "-pix_fmt",
+            "yuv420p",
+            str(path),
+        ],
+        check=True,
+        capture_output=True,
+        timeout=30,
+    )
+    return path

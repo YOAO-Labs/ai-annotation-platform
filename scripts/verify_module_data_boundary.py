@@ -113,6 +113,7 @@ SQL_ARTIFACTS = (
     "0222_accepted_input_manifests_authorities.sql",
     "0222_accepted_input_manifests_control.sql",
     "0223_video_input_authorities.sql",
+    "0224_video_input_selection.sql",
 )
 SCHEMA_ARTIFACTS = (
     "0191_task_append.schema.json",
@@ -147,6 +148,7 @@ SCHEMA_ARTIFACTS = (
     "0221_accepted_inputs.schema.json",
     "0222_accepted_input_manifests.schema.json",
     "0223_video_input_authorities.schema.json",
+    "0224_video_input_selection.schema.json",
 )
 TEST_FILES = (
     "tests/test_workspace_data_contract.py",
@@ -248,6 +250,12 @@ TEST_FILES = (
     "tests/test_assets_accepted_inputs_migration.py",
     "tests/test_assets_input_manifests_migration.py",
     "tests/test_assets_input_manifests_native.py",
+    "tests/test_video_input_authority_migration.py",
+    "tests/test_video_input_authorities_native.py",
+    "tests/test_video_input_authority_roles.py",
+    "tests/test_video_input_selection_migration.py",
+    "tests/test_video_input_selection_native.py",
+    "tests/test_video_input_selection_roles.py",
     "tests/test_native_schema_autogeneration.py",
     "tests/test_accepted_input_preannotation.py",
     "tests/test_prediction_retry_input_deferral.py",
@@ -1804,8 +1812,8 @@ def main(argv: list[str] | None = None) -> int:
         database = resources["database"]
         evidence["database"] = database
         _, heads = migration_graph(ROOT)
-        if heads != ["0223"]:
-            raise RuntimeError("module-data acceptance requires migration head 0223")
+        if heads != ["0224"]:
+            raise RuntimeError("module-data acceptance requires migration head 0224")
         evidence["migrations"]["head_before_downgrade"] = heads[0]
         phase = "downgrade-to-0189"
         _container_details(
