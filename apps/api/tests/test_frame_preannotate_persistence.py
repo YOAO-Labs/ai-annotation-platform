@@ -2,81 +2,200 @@ from __future__ import annotations
 
 import asyncio
 import uuid
+from contextlib import asynccontextmanager
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
 import pytest
 from kombu.utils.json import dumps, loads
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, select, text
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
+from aap_assets_video_inputs import execution as video_execution
+from aap_assets_video_inputs import values as video_values
 from app.config import settings
 from app.db.models.async_job import AsyncJob
 from app.db.models.dataset import Dataset, DatasetItem
 from app.db.models.ml_backend_registry import MLBackendRegistry
-from app.db.models.prediction import Prediction, PredictionMeta
+from app.db.models.prediction import FailedPrediction, Prediction, PredictionMeta
 from app.db.models.project import Project
 from app.db.models.task import Task
 from app.db.models.user import User
 from app.services.labeling_write_scope import capture_labeling_write_scope
 from app.services.labeling_prediction_contract import (
     ApplyPredictionResultError,
-    ApplyPredictionResultRequest,
 )
-from app.services.prediction import PredictionService, to_video_bbox_result
+from app.services.prediction import PredictionService
 from app.workers import frame_preannotate
-from tests.factory import create_project, create_task, create_user
+from tests.test_video_input_ledger_lifecycle import (
+    _frame_claim,
+    _publish_frame,
+    _ready_plan,
+)
 
 
 @pytest.fixture
 async def frame_world(test_engine):
     maker = async_sessionmaker(test_engine, expire_on_commit=False)
     async with maker() as db:
-        owner = await create_user(
-            db, "project_admin", f"frame-{uuid.uuid4()}@test.local", "Frame owner"
+        owner_id, project_id, plan = await _ready_plan(db, count=3)
+        input_record = video_execution.VideoInputRecord(
+            input_id=plan.input.input_id,
+            job_id=plan.input.job_id,
+            actor_id=plan.input.actor_id,
+            task=plan.input.task,
+            source=plan.input.source,
+            sampling=plan.sampling,
+            status="ready",
+            plan=plan,
+            error=None,
+            created_at=plan.input.created_at,
+            retire_after=None,
         )
-        project = await create_project(db, owner_id=owner.id)
-        dataset = Dataset(
-            display_id=f"D-FRAME-{uuid.uuid4().hex[:8]}",
-            name="Frame persistence video",
-            data_type="video",
-            created_by=owner.id,
+        entries = tuple(
+            video_values.FrameTimeEntry(
+                ordinal=ordinal,
+                frame_index=ordinal - 1,
+                pts_ms=(ordinal - 1) * 10,
+                is_keyframe=ordinal == 1,
+            )
+            for ordinal in range(1, 4)
         )
-        db.add(dataset)
-        await db.flush()
-        item = DatasetItem(
-            dataset_id=dataset.id,
-            file_name="frame-source.mp4",
-            file_path=f"frame-source/{uuid.uuid4()}.mp4",
-            file_type="video",
-            metadata_={"video": {"fps": 30, "frame_count": 3, "duration_ms": 100}},
-        )
-        db.add(item)
-        await db.flush()
-        task = await create_task(db, project_id=project.id)
-        task.dataset_item_id = item.id
-        task.file_name = item.file_name
-        task.file_path = item.file_path
-        task.file_type = "video"
+        frames = {}
+        references = {}
+        for entry in entries:
+            request = video_execution.VideoFrameRequest(
+                actor_id=owner_id,
+                job_id=plan.input.job_id,
+                task_id=plan.input.task.task_id,
+                input_id=plan.input.input_id,
+                plan_digest=plan.plan_digest,
+                ordinal=entry.ordinal,
+            )
+            pending = await db.scalar(
+                text(
+                    "SELECT aap_assets_v1.require_accepted_video_frame("
+                    "CAST(:actor AS uuid),CAST(:job AS uuid),CAST(:task AS uuid),"
+                    "CAST(:input AS uuid),CAST(:plan AS text),CAST(:ordinal AS bigint))"
+                ),
+                {
+                    "actor": owner_id,
+                    "job": plan.input.job_id,
+                    "task": plan.input.task.task_id,
+                    "input": plan.input.input_id,
+                    "plan": plan.plan_digest,
+                    "ordinal": entry.ordinal,
+                },
+            )
+            frame = video_execution.parse_native(
+                "require_accepted_video_frame",
+                request,
+                pending,
+            )
+            ready = await _publish_frame(db, await _frame_claim(db, frame))
+            frames[entry.ordinal] = ready
+            assert ready.blob is not None
+            references[entry.ordinal] = video_values.FrameReference(
+                plan=plan,
+                entry=entry,
+                blob=ready.blob,
+                url=(
+                    f"https://objects.test/{ready.blob.key}"
+                    f"?versionId={ready.blob.version_id}"
+                ),
+                expires_in=300,
+            )
+
+        class RetainedVideoGateway:
+            def __init__(self):
+                self.reference_calls = 0
+
+            async def input(self, _request):
+                return input_record
+
+            async def verify(self, _request):
+                return input_record
+
+            async def times(self, request):
+                page_entries = entries[
+                    request.cursor : request.cursor + request.page_size
+                ]
+                end = request.cursor + len(page_entries)
+                return video_values.FrameTimePage(
+                    plan=plan,
+                    cursor=request.cursor,
+                    next_cursor=end if end < plan.selected_count else None,
+                    entries=page_entries,
+                )
+
+            async def ensure_reference(self, request):
+                self.reference_calls += 1
+                return references[request.ordinal]
+
+            async def frame(self, request):
+                return frames[request.ordinal]
+
         backend = MLBackendRegistry(name="frame-test", url="http://frame.test")
-        job = AsyncJob(
-            kind="batch_predict",
-            status="running",
-            project_id=project.id,
-            user_id=owner.id,
-            payload={"batch_id": None, "execution_scope": "bulk"},
+        db.add(backend)
+        job = await db.get(AsyncJob, plan.input.job_id)
+        manifest = (
+            (
+                await db.execute(
+                    text(
+                        "SELECT selection,selection_digest,sealed_digest,candidate_count,"
+                        "selected_count FROM public.asset_accepted_video_manifests "
+                        "WHERE job_id=:job"
+                    ),
+                    {"job": plan.input.job_id},
+                )
+            )
+            .mappings()
+            .one()
         )
-        db.add_all([backend, job])
+        selection = manifest["selection"]
+        job.payload = {
+            **(job.payload or {}),
+            "batch_id": selection["batch_id"],
+            "execution_scope": selection["execution_scope"],
+            "accepted_video_inputs_protocol": "aap-assets-video-inputs/v1",
+            "accepted_video_manifest_id": str(job.id),
+            "accepted_video_selection_digest": manifest["selection_digest"],
+            "accepted_video_selection": selection,
+            "execution_unit": "frame",
+        }
+        job.status = "running"
+        job.result = {
+            **(job.result or {}),
+            "execution_unit": "frame",
+            "frame_total": plan.selected_count,
+            "video_manifest": {
+                "protocol": "aap-assets-video-inputs/v1",
+                "manifest_id": str(job.id),
+                "selection_digest": manifest["selection_digest"],
+                "sealed_digest": manifest["sealed_digest"],
+                "selected_count": manifest["selected_count"],
+                "candidate_count": manifest["candidate_count"],
+            },
+        }
         await db.commit()
         world = SimpleNamespace(
             maker=maker,
-            owner_id=owner.id,
-            dataset_id=dataset.id,
-            item_id=item.id,
-            project_id=project.id,
-            task_id=task.id,
+            owner_id=owner_id,
+            actor_id=owner_id,
+            dataset_id=plan.input.source.dataset_id,
+            item_id=plan.input.source.dataset_item_id,
+            project_id=project_id,
+            task_id=plan.input.task.task_id,
             backend_id=backend.id,
             job_id=job.id,
+            input_id=plan.input.input_id,
+            plan=plan,
+            entries=entries,
+            frames=frames,
+            references=references,
+            gateway=RetainedVideoGateway(),
+            selection_digest=manifest["selection_digest"],
+            sealed_digest=manifest["sealed_digest"],
         )
     try:
         yield world
@@ -92,6 +211,63 @@ async def frame_world(test_engine):
             await db.execute(
                 delete(Prediction).where(Prediction.task_id == world.task_id)
             )
+            failed_ids = select(FailedPrediction.id).where(
+                FailedPrediction.task_id == world.task_id
+            )
+            await db.execute(
+                delete(PredictionMeta).where(
+                    PredictionMeta.failed_prediction_id.in_(failed_ids)
+                )
+            )
+            await db.execute(
+                delete(FailedPrediction).where(
+                    FailedPrediction.task_id == world.task_id
+                )
+            )
+            await db.execute(
+                text(
+                    "DELETE FROM public.asset_accepted_video_frame_attempts "
+                    "WHERE input_id=:input"
+                ),
+                {"input": world.input_id},
+            )
+            await db.execute(
+                text(
+                    "DELETE FROM public.asset_accepted_video_frames WHERE input_id=:input"
+                ),
+                {"input": world.input_id},
+            )
+            await db.execute(
+                text(
+                    "DELETE FROM public.asset_accepted_video_times WHERE input_id=:input"
+                ),
+                {"input": world.input_id},
+            )
+            await db.execute(
+                text(
+                    "DELETE FROM public.asset_accepted_video_input_attempts "
+                    "WHERE input_id=:input"
+                ),
+                {"input": world.input_id},
+            )
+            await db.execute(
+                text(
+                    "DELETE FROM public.asset_accepted_video_inputs WHERE input_id=:input"
+                ),
+                {"input": world.input_id},
+            )
+            await db.execute(
+                text(
+                    "DELETE FROM public.asset_accepted_video_members WHERE job_id=:job"
+                ),
+                {"job": world.job_id},
+            )
+            await db.execute(
+                text(
+                    "DELETE FROM public.asset_accepted_video_manifests WHERE job_id=:job"
+                ),
+                {"job": world.job_id},
+            )
             await db.execute(delete(AsyncJob).where(AsyncJob.id == world.job_id))
             await db.execute(delete(Task).where(Task.id == world.task_id))
             await db.execute(delete(DatasetItem).where(DatasetItem.id == world.item_id))
@@ -104,6 +280,42 @@ async def frame_world(test_engine):
                 )
             )
             await db.commit()
+
+
+def _install_video_gateway(monkeypatch, world, *, gateway=None):
+    @asynccontextmanager
+    async def context(*, session_factory=None):
+        yield gateway or world.gateway
+
+    monkeypatch.setattr(
+        "app.services.accepted_video_inputs.video_input_gateway", context
+    )
+
+
+def _video_segment(world, ordinals):
+    return {
+        "task_id": str(world.task_id),
+        "input_id": str(world.input_id),
+        "input_job_id": str(world.job_id),
+        "plan_digest": world.plan.plan_digest,
+        "frame_ordinals": ordinals,
+    }
+
+
+async def _run_video_segment(world, ordinals, *, resume=None):
+    return await frame_preannotate._run_segment(
+        segment=_video_segment(world, ordinals),
+        project_id=str(world.project_id),
+        ml_backend_id=str(world.backend_id),
+        stage0={},
+        actor_id=str(world.actor_id),
+        job_id=str(world.job_id),
+        accepted_video_manifest_id=str(world.job_id),
+        accepted_video_selection_digest=world.selection_digest,
+        accepted_video_sealed_digest=world.sealed_digest,
+        celery_root_task_id=None,
+        resume=resume,
+    )
 
 
 @pytest.mark.parametrize(
@@ -154,15 +366,7 @@ async def test_frame_persistence_retries_contention_and_rechecks_scope(
         "app.services.ml_backend.MLBackendService.pool_id_for_registry",
         AsyncMock(return_value=None),
     )
-    monkeypatch.setattr(
-        "app.services.video_frame_service.AssetsVideoContextReader.from_task_summary",
-        AsyncMock(return_value=object()),
-    )
-    monkeypatch.setattr(
-        frame_preannotate,
-        "_read_frame_urls",
-        AsyncMock(return_value={0: "http://frame/0"}),
-    )
+    _install_video_gateway(monkeypatch, world)
     monkeypatch.setattr(frame_preannotate, "_bump_progress", lambda *_a: (1, 1))
     monkeypatch.setattr(
         frame_preannotate, "_publish_frame_progress", lambda *_a, **_k: None
@@ -193,16 +397,6 @@ async def test_frame_persistence_retries_contention_and_rechecks_scope(
             job_id=world.job_id,
             job_id_known=True,
         )
-        await PredictionService(writer).apply_prediction_result(
-            ApplyPredictionResultRequest(
-                task_id=world.task_id,
-                project_id=world.project_id,
-                ml_backend_id=world.backend_id,
-                result=to_video_bbox_result(raw, 99),
-                write_scope=scope,
-            )
-        )
-        await writer.commit()
 
     monkeypatch.setattr(PredictionService, "apply_prediction_result", observed_apply)
     async with world.maker() as locker:
@@ -212,16 +406,7 @@ async def test_frame_persistence_retries_contention_and_rechecks_scope(
         task = await locker.scalar(
             select(Task).where(Task.id == world.task_id).with_for_update()
         )
-        runner = asyncio.create_task(
-            frame_preannotate._run_segment(
-                segment={"task_id": str(world.task_id), "frame_indices": [0]},
-                project_id=str(world.project_id),
-                ml_backend_id=str(world.backend_id),
-                stage0={},
-                job_id=str(world.job_id),
-                celery_root_task_id=None,
-            )
-        )
+        runner = asyncio.create_task(_run_video_segment(world, [1]))
         try:
             await asyncio.wait_for(contended.wait(), timeout=5)
             if change == "task_status":
@@ -234,42 +419,41 @@ async def test_frame_persistence_retries_contention_and_rechecks_scope(
                 owner.is_active = False
             elif change == "source_path":
                 task.file_path = "replacement/video.mp4"
-            if change in {"still_busy", "resumed_source_path"}:
+            if change in {
+                "still_busy",
+                "task_status",
+                "job_terminal",
+                "source_path",
+                "resumed_source_path",
+            }:
                 with pytest.raises(frame_preannotate._FrameWriteDeferred) as deferred:
                     await asyncio.wait_for(runner, timeout=10)
                 resume = loads(dumps(deferred.value.resume))
                 assert resume["stats"]["failed"] == 0
-                assert resume["pending_write"]["ml_backend_id"] == world.backend_id
+                assert resume["pending_write"]["ml_backend_id"] == str(world.backend_id)
                 assert resume["write_scope"]["task_version"] == scope.task_version
                 assert (
                     resume["write_scope"]["task_source_generation"]
                     == scope.task_source_generation
                 )
-                assert resume["write_scope"]["source_dataset_item_id"] == world.item_id
+                assert resume["write_scope"]["source_dataset_item_id"] == str(
+                    world.item_id
+                )
                 assert (
                     resume["write_scope"]["source_file_path"] == scope.source_file_path
                 )
                 if change == "resumed_source_path":
                     task.file_path = "replacement/video.mp4"
                 await locker.commit()
-                context_read = AsyncMock(side_effect=RuntimeError("source unavailable"))
-                monkeypatch.setattr(
-                    "app.services.video_frame_service.AssetsVideoContextReader.from_task_summary",
-                    context_read,
-                )
-                cache_read = AsyncMock(side_effect=RuntimeError("cache unavailable"))
-                monkeypatch.setattr(frame_preannotate, "_read_frame_urls", cache_read)
-                stats = await frame_preannotate._run_segment(
-                    segment={"task_id": str(world.task_id), "frame_indices": [0]},
-                    project_id=str(world.project_id),
-                    ml_backend_id=str(world.backend_id),
-                    stage0={},
-                    job_id=str(world.job_id),
-                    celery_root_task_id=None,
-                    resume=resume,
-                )
-                context_read.assert_not_awaited()
-                cache_read.assert_not_awaited()
+                before_reference = world.gateway.reference_calls
+                try:
+                    stats = await _run_video_segment(world, [1], resume=resume)
+                except frame_preannotate._FrameWriteDeferred as failure_deferred:
+                    assert failure_deferred.resume["pending_failure"] is not None
+                    stats = await _run_video_segment(
+                        world, [1], resume=failure_deferred.resume
+                    )
+                assert world.gateway.reference_calls == before_reference
             else:
                 await locker.commit()
                 stats = await asyncio.wait_for(runner, timeout=10)
@@ -281,19 +465,20 @@ async def test_frame_persistence_retries_contention_and_rechecks_scope(
     succeeded = change in {None, "still_busy"}
     assert stats["frames_done"] == int(succeeded)
     assert stats["boxes"] == int(succeeded)
-    assert stats["failed"] == int(not succeeded)
+    assert stats["failed"] == 0
     predict.assert_awaited_once()
     assert all(exc.detail == {"reason": "task_busy"} for exc in failures[:-1])
     if change == "still_busy":
         assert len(failures) == frame_preannotate._WRITE_ATTEMPTS
-    elif change == "task_status":
-        assert failures[-1].detail == {"reason": "prediction_task_scope_changed"}
+    elif change in {"task_status", "source_path", "resumed_source_path"}:
+        assert failures[-1].detail in (
+            {"reason": "prediction_task_scope_changed"},
+            {"reason": "prediction_source_changed"},
+        )
     elif change == "job_terminal":
         assert failures[-1].detail == {"reason": "prediction_execution_not_writable"}
     elif change == "account_disabled":
         assert failures[-1].status_code == 401
-    elif change in {"source_path", "resumed_source_path"}:
-        assert failures[-1].detail == {"reason": "prediction_source_changed"}
     async with world.maker() as db:
         rows = list(
             (
@@ -302,7 +487,7 @@ async def test_frame_persistence_retries_contention_and_rechecks_scope(
                 )
             ).all()
         )
-        assert len(rows) == 1 + int(succeeded)
+        assert len(rows) == int(succeeded)
         task = await db.get(Task, world.task_id)
         assert task.total_predictions == len(rows)
         assert await db.scalar(
@@ -325,7 +510,7 @@ async def test_frame_persistence_retries_contention_and_rechecks_scope(
 async def test_media_owner_busy_defers_before_prediction(
     frame_world, test_db_url, monkeypatch
 ):
-    from aap_assets_media.contract import MediaFailure
+    from aap_assets_video_inputs.execution import VideoInputFailure
 
     world = frame_world
     predict = AsyncMock()
@@ -339,24 +524,15 @@ async def test_media_owner_busy_defers_before_prediction(
         "app.services.ml_backend.MLBackendService.pool_id_for_registry",
         AsyncMock(return_value=None),
     )
-    monkeypatch.setattr(
-        frame_preannotate,
-        "_read_frame_urls",
-        AsyncMock(side_effect=MediaFailure("operation_busy")),
-    )
+    gateway = world.gateway
+    gateway.ensure_reference = AsyncMock(side_effect=VideoInputFailure("input_busy"))
+    _install_video_gateway(monkeypatch, world, gateway=gateway)
 
     with pytest.raises(frame_preannotate._FrameWriteDeferred) as deferred:
-        await frame_preannotate._run_segment(
-            segment={"task_id": str(world.task_id), "frame_indices": [0]},
-            project_id=str(world.project_id),
-            ml_backend_id=str(world.backend_id),
-            stage0={},
-            job_id=str(world.job_id),
-            celery_root_task_id=None,
-        )
+        await _run_video_segment(world, [1])
 
     resume = deferred.value.resume
-    assert resume["frame_indices"] == [0]
+    assert resume["frame_ordinals"] == [1]
     assert resume["pending_write"] is None
     assert resume["stats"]["failed"] == 0
     predict.assert_not_awaited()
@@ -386,6 +562,7 @@ async def test_late_frame_progress_and_finalize_preserve_terminal_job(
         [],
         project_id=str(world.project_id),
         job_id=str(world.job_id),
+        segment_id="segment",
     )
     await frame_preannotate._finalize(
         [{"frames_done": 9, "boxes": 9}],
@@ -407,21 +584,26 @@ async def test_missing_frame_resources_are_counted_as_failures(
 ):
     world = frame_world
     monkeypatch.setattr(settings, "database_url", test_db_url)
-    progress = AsyncMock()
     client = Mock(side_effect=AssertionError("No inference for missing resources"))
-    monkeypatch.setattr(frame_preannotate, "_write_job_progress", progress)
     monkeypatch.setattr("app.services.ml_routing.client.RoutedMLBackendClient", client)
+    _install_video_gateway(monkeypatch, world)
+    missing_task = str(uuid.uuid4()) if missing == "task" else str(world.task_id)
     stats = await frame_preannotate._run_segment(
         segment={
-            "task_id": str(uuid.uuid4() if missing == "task" else world.task_id),
-            "frame_indices": [0, 1],
+            **_video_segment(world, [1, 2]),
+            "task_id": missing_task,
         },
         project_id=str(world.project_id),
         ml_backend_id=str(uuid.uuid4() if missing == "backend" else world.backend_id),
         stage0={},
+        actor_id=str(world.actor_id),
         job_id=str(world.job_id),
+        accepted_video_manifest_id=str(world.job_id),
+        accepted_video_selection_digest=world.selection_digest,
+        accepted_video_sealed_digest=world.sealed_digest,
         celery_root_task_id=None,
     )
-    assert stats["failed"] == 2 and stats["frames_done"] == 0
-    progress.assert_awaited_once_with(str(world.job_id), 2, str(world.project_id))
+    assert stats["failed"] == 0 and stats["frames_done"] == 0
     client.assert_not_called()
+    async with world.maker() as db:
+        assert (await db.get(AsyncJob, world.job_id)).status == "failed"

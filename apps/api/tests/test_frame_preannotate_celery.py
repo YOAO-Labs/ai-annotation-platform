@@ -1,7 +1,7 @@
 """Opt-in acceptance against the worktree's isolated Redis and PostgreSQL.
 
 Run via dev:worktree exec --mode test with AAP_FRAME_CELERY_ACCEPTANCE=1.
-Inference and frame-cache reads are fixtures; dispatch, retries and writes are real.
+Inference and retained-byte references are fixtures; dispatch, retries, and writes are real.
 """
 
 from __future__ import annotations
@@ -24,7 +24,14 @@ from app.db.models.prediction import Prediction, PredictionMeta
 from app.db.models.task import Task
 from app.workers import frame_preannotate
 from app.workers.celery_app import celery_app
-from tests.test_frame_preannotate_persistence import frame_world as frame_world
+from app.application.preannotation_contract import (
+    FramePreannotationDispatchRequest,
+    VideoFrameTaskPlan,
+)
+from tests.test_frame_preannotate_persistence import (
+    _install_video_gateway,
+    frame_world as frame_world,
+)
 
 pytestmark = pytest.mark.skipif(
     os.environ.get("AAP_FRAME_CELERY_ACCEPTANCE") != "1"
@@ -83,15 +90,8 @@ async def test_frame_chord_retains_results_across_real_retries(
         "app.services.ml_backend.MLBackendService.pool_id_for_registry",
         AsyncMock(return_value=None),
     )
-    monkeypatch.setattr(
-        "app.services.video_frame_service.AssetsVideoContextReader.from_task_summary",
-        AsyncMock(return_value=object()),
-    )
-    monkeypatch.setattr(
-        frame_preannotate,
-        "_read_frame_urls",
-        AsyncMock(return_value={frame: f"http://frame/{frame}" for frame in range(3)}),
-    )
+    _install_video_gateway(monkeypatch, world)
+    monkeypatch.setattr(frame_preannotate.settings, "frame_preannotate_chunk_size", 1)
 
     def on_retry(request=None, **_kwargs):
         if request.task == frame_preannotate.predict_video_segment.name:
@@ -128,18 +128,30 @@ async def test_frame_chord_retains_results_across_real_retries(
             perform_ping_check=False,
             shutdown_timeout=20,
         ):
-            frame_preannotate._init_progress(str(world.job_id), 3)
-            launched = frame_preannotate.launch_predict_phase.delay(
-                [],
-                project_id=str(world.project_id),
-                ml_backend_id=str(world.backend_id),
-                stage0={},
-                job_id=str(world.job_id),
-                segments=[
-                    {"task_id": str(world.task_id), "frame_indices": [0]},
-                    {"task_id": str(world.task_id), "frame_indices": [1, 2]},
-                ],
+            receipt = await frame_preannotate.dispatch_frame_preannotate(
+                FramePreannotationDispatchRequest(
+                    project_id=str(world.project_id),
+                    ml_backend_id=str(world.backend_id),
+                    task_frame_counts=(),
+                    stage0={},
+                    job_id=str(world.job_id),
+                    root_execution_id="root-frame-test",
+                    actor_id=str(world.actor_id),
+                    video_task_plans=(
+                        VideoFrameTaskPlan(
+                            task_id=str(world.task_id),
+                            input_id=str(world.input_id),
+                            input_job_id=str(world.job_id),
+                            plan_digest=world.plan.plan_digest,
+                            selected_count=world.plan.selected_count,
+                        ),
+                    ),
+                    accepted_video_manifest_id=str(world.job_id),
+                    accepted_video_selection_digest=world.selection_digest,
+                    accepted_video_sealed_digest=world.sealed_digest,
+                )
             )
+            assert receipt.dispatched and receipt.segments == 3
             assert await asyncio.to_thread(inference_ready.wait, 20)
             async with world.maker() as locker:
                 task = await locker.scalar(
@@ -180,7 +192,7 @@ async def test_frame_chord_retains_results_across_real_retries(
                                 frame_preannotate._progress_key(str(world.job_id))
                             )
                         )
-                        == 1
+                        == 2
                     )
                 resumed = [delivery for delivery in deliveries if delivery["resume"]]
                 assert len(resumed) >= 2
@@ -188,8 +200,8 @@ async def test_frame_chord_retains_results_across_real_retries(
                 assert all(delivery["queue"] == "ml" for delivery in deliveries)
                 for delivery in resumed:
                     checkpoint = delivery["resume"]
-                    assert checkpoint["frame_indices"] == [2]
-                    assert checkpoint["stats"]["frames_done"] == 1
+                    assert checkpoint["frame_ordinals"] == [3]
+                    assert checkpoint["stats"]["frames_done"] == 0
                     assert checkpoint["stats"]["failed"] == 0
                     assert checkpoint["write_scope"]["task_id"] == world.task_id
                     assert checkpoint["write_scope"]["task_version"] == task.version
@@ -204,16 +216,20 @@ async def test_frame_chord_retains_results_across_real_retries(
             assert finalizations == ["SUCCESS"]
             assert infer.await_count == 3
             assert max(delivery["retries"] for delivery in deliveries) >= 3
-            await asyncio.to_thread(launched.get, timeout=5)
             async with world.maker() as db:
                 job = await db.get(AsyncJob, world.job_id)
                 saved = 3 if after_wait == "release" else 2
                 assert job.status == (
-                    "cancelled" if after_wait == "cancel" else "completed"
+                    "cancelled"
+                    if after_wait == "cancel"
+                    else "failed"
+                    if after_wait == "scope_changed"
+                    else "completed"
                 )
-                assert job.result["frames_done"] == saved
-                assert job.result["failed"] == int(after_wait == "scope_changed")
-                assert job.result["skipped"] == int(after_wait == "cancel")
+                if after_wait != "scope_changed":
+                    assert job.result["frames_done"] == saved
+                    assert job.result["failed"] == 0
+                    assert job.result["skipped"] == int(after_wait == "cancel")
                 rows = list(
                     (
                         await db.scalars(
@@ -242,10 +258,9 @@ async def test_frame_chord_retains_results_across_real_retries(
                 assert len(metas) == saved
                 assert all(meta.total_tokens == 7 for meta in metas)
             with redis.from_url(settings.redis_url) as broker:
-                assert (
-                    int(broker.get(frame_preannotate._progress_key(str(world.job_id))))
-                    == 3
-                )
+                assert int(
+                    broker.get(frame_preannotate._progress_key(str(world.job_id)))
+                ) == (2 if after_wait == "scope_changed" else 3)
     finally:
         allow_write.set()
         signals.task_retry.disconnect(on_retry)
