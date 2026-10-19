@@ -271,6 +271,7 @@ class _AnnotationMutationSqlAdapter(AnnotationMutationPort):
                 task,
                 next_geometry,
                 verified_content=self._verified_mask_content,
+                require_verified_content=True,
             )
             mask_payload_prepared = True
 

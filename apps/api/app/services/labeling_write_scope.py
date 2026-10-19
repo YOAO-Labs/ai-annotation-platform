@@ -18,6 +18,30 @@ LabelingWriteOperation = Literal[
     "test_seed",
 ]
 
+TaskSourceBinding = tuple[
+    uuid.UUID,
+    int,
+    uuid.UUID | None,
+    str | None,
+    str | None,
+]
+
+
+def capture_task_source_binding(task) -> TaskSourceBinding:
+    """Freeze Task source facts before I/O can refresh its ORM identity-map row."""
+    return (
+        task.project_id,
+        int(task.media_source_generation or 1),
+        task.dataset_item_id,
+        task.file_path,
+        task.file_type,
+    )
+
+
+def task_source_binding_matches(task, binding: TaskSourceBinding) -> bool:
+    """Compare current locked Task source facts with their preflight snapshot."""
+    return capture_task_source_binding(task) == binding
+
 
 @dataclass(frozen=True, slots=True)
 class LabelingWriteScope:

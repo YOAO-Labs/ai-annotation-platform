@@ -77,7 +77,11 @@ from app.services.ml_backend import MLBackendService
 from app.services.pipeline_validation import check_capability_violations
 from app.services.raster_mask_storage import (
     RasterMaskContractError,
-    verify_mask_payload_content,
+    preflight_mask_payload_for_write,
+)
+from app.services.labeling_write_scope import (
+    capture_task_source_binding,
+    task_source_binding_matches,
 )
 from app.services.secondary_inference import run_secondary_inference
 from app.db.models.project import Project
@@ -352,6 +356,7 @@ async def create_annotation(
     ),
 ):
     task = await _load_task_or_404(db, task_id)
+    source_binding = capture_task_source_binding(task)
     preflight_access = await task_access.resolve_task_access(db, task, current_user.id)
     await task_access.assert_task_visible(
         db, task, current_user.id, access=preflight_access
@@ -391,7 +396,9 @@ async def create_annotation(
         verified_mask_content = (
             None
             if has_receipt
-            else await verify_mask_payload_content(data.geometry.model_dump())
+            else await preflight_mask_payload_for_write(
+                db, task, data.geometry.model_dump()
+            )
         )
     except RasterMaskContractError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
@@ -416,6 +423,8 @@ async def create_annotation(
     await task_access.assert_review_adjustment_evidence(
         db, task, current_user.id, access
     )
+    if not task_source_binding_matches(task, source_binding):
+        raise HTTPException(status_code=409, detail={"reason": "source_changed"})
     await assert_video_annotation_write_scope(
         db,
         task=task,
@@ -729,6 +738,7 @@ async def update_annotation(
     _task = await _load_task_or_404(db, task_id)
     if _task is None:
         raise HTTPException(status_code=404, detail="Task not found")
+    source_binding = capture_task_source_binding(_task)
     preflight_access = await task_access.resolve_task_access(db, _task, current_user.id)
     await task_access.assert_task_visible(
         db, _task, current_user.id, access=preflight_access
@@ -741,7 +751,9 @@ async def update_annotation(
     geometry = data.model_dump(exclude_unset=True).get("geometry")
     if isinstance(geometry, dict):
         try:
-            verified_mask_content = await verify_mask_payload_content(geometry)
+            verified_mask_content = await preflight_mask_payload_for_write(
+                db, _task, geometry
+            )
         except RasterMaskContractError as exc:
             raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
 
@@ -764,6 +776,8 @@ async def update_annotation(
     await task_access.assert_review_adjustment_evidence(
         db, _task, current_user.id, access
     )
+    if not task_source_binding_matches(_task, source_binding):
+        raise HTTPException(status_code=409, detail={"reason": "source_changed"})
     try:
         annotation = await _AnnotationMutationSqlAdapter(
             db,

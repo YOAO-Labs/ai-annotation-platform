@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import asyncio
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 
+from app.config import settings
 from app.services import raster_mask_storage as storage
 
 
@@ -29,8 +31,12 @@ class _Result:
 
 
 class _Database:
-    def __init__(self, task):
+    def __init__(self, task, project=None):
         self.task = task
+        self.project = project or SimpleNamespace(
+            raster_mask_native_editing_enabled=True,
+            tool_bindings={"region": {"enabled": True}},
+        )
         self.events: list[str] = []
 
     async def execute(self, statement, *_args, **_kwargs):
@@ -38,8 +44,11 @@ class _Database:
             self.events.append("task_lock")
         return _Result(self.task)
 
-    async def get(self, _model, _identity):
-        return SimpleNamespace(id=self.task.project_id)
+    async def scalar(self, _statement):
+        return self.task
+
+    async def get(self, _model, _identity, **_kwargs):
+        return self.project
 
 
 @pytest.mark.asyncio
@@ -114,3 +123,63 @@ async def test_slow_or_failed_rle_read_never_holds_a_task_lock(monkeypatch):
     assert captured.value.status_code == 503
     assert captured.value.detail["reason"] == "mask_storage_unavailable"
     assert db.events == ["storage_get", "storage_failure"]
+
+
+@pytest.mark.asyncio
+async def test_rollout_gate_rejects_before_preflight_reads_rle(monkeypatch):
+    task = SimpleNamespace(id="task", project_id="project")
+    db = _Database(task)
+    load = AsyncMock(return_value=RLE)
+    monkeypatch.setattr(settings, "raster_mask_read_enabled", True)
+    monkeypatch.setattr(settings, "raster_mask_create_enabled", False)
+    monkeypatch.setattr(storage, "load_coco_rle", load)
+
+    with pytest.raises(storage.RasterMaskContractError) as captured:
+        await storage.preflight_mask_payload_for_write(db, task, GEOMETRY)
+
+    assert captured.value.detail["reason"] == "raster_mask_create_disabled"
+    load.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_verified_membership_compares_full_canonical_reference_pairs(
+    monkeypatch,
+):
+    reference = storage.build_rle_reference(RLE)
+    alias = {**reference, "encoding": storage.COCO_RLE_GZIP_ENCODING}
+    storage.validate_reference_for_rle(alias, RLE)
+    geometry = {"type": "raster_mask", "mask": reference}
+    task = SimpleNamespace(id="task", project_id="project")
+    db = _Database(task)
+    accepted: list[object] = []
+
+    async def load(_reference):
+        return RLE
+
+    async def validate(_db, _task, _geometry):
+        return None
+
+    async def lock_references(_db, value, *, verify=True, **_kwargs):
+        assert verify is False
+        accepted.append(value)
+        return [reference["object_key"]]
+
+    monkeypatch.setattr(storage, "load_coco_rle", load)
+    monkeypatch.setattr(storage, "assert_raster_mask_write_enabled", lambda _p: None)
+    monkeypatch.setattr(storage, "validate_mask_geometry_for_task", validate)
+    monkeypatch.setattr(storage, "lock_raster_mask_references", lock_references)
+    verified = await storage.verify_mask_payload_content(
+        geometry, reference_value=[reference, alias]
+    )
+
+    assert len(verified.reference_signature) == 2
+    await storage.prepare_mask_payload_for_write(
+        db,
+        task,
+        geometry,
+        reference_value=[alias],
+        verified_content=verified,
+        require_verified_content=True,
+    )
+
+    assert accepted == [[alias]]

@@ -88,6 +88,7 @@ class _AnnotationCreateSqlAdapter(AnnotationCreatePort):
                 attributes=data.attributes,
                 video_segment_id=data.video_segment_id,
                 verified_mask_content=self._verified_mask_content,
+                require_verified_mask_content=True,
             )
             await heartbeat_task_lock_for_legacy_video(self.db, task, actor.id)
 

@@ -60,7 +60,7 @@ from app.services.raster_mask_storage import (
     RasterMaskContractError,
     prepare_mask_geometry_for_annotation_write,
     prepare_mask_payload_for_write,
-    verify_mask_payload_content,
+    preflight_mask_payload_for_write,
 )
 from app.services.scene_track_domain import (
     SceneTrackIntegrityError,
@@ -317,11 +317,13 @@ class AnnotationService:
         tool_unit_id: str = "bbox",
         video_segment_id: uuid.UUID | None = None,
         verified_mask_content: _VerifiedMaskContent | None = None,
+        require_verified_mask_content: bool = False,
     ) -> Annotation:
         task = await self.db.get(Task, task_id)
-        if task is not None:
+        if task is not None and not require_verified_mask_content:
             verified_mask_content = (
-                verified_mask_content or await verify_mask_payload_content(geometry)
+                verified_mask_content
+                or await preflight_mask_payload_for_write(self.db, task, geometry)
             )
         # A2 · record before any Annotation/SceneTrack lock: this takes the task
         # row lock first, keeps the global Task -> Annotation order, and rolls
@@ -343,6 +345,9 @@ class AnnotationService:
             task,
             geometry,
             verified_content=verified_mask_content,
+            require_verified_content=(
+                require_verified_mask_content or verified_mask_content is not None
+            ),
         )
         geometry, track_id = prepare_compact_track_identity(geometry)
         if geometry.get("type") == "box_3d" and track_id is None:
@@ -578,8 +583,13 @@ class AnnotationService:
                 (index, to_internal_shape(raw_shape))
                 for index, raw_shape in enumerate(raw_shapes)
             ]
-        verified_mask_content = await verify_mask_payload_content(
-            [shape.get("geometry", {}) for _, shape in indexed]
+        preflight_task = await self.db.get(
+            Task, prediction.task_id, populate_existing=True
+        )
+        verified_mask_content = await preflight_mask_payload_for_write(
+            self.db,
+            preflight_task,
+            [shape.get("geometry", {}) for _, shape in indexed],
         )
         task, _actor, _access = await lock_labeling_write(
             self.db,
@@ -594,6 +604,7 @@ class AnnotationService:
             task,
             [shape.get("geometry", {}) for _, shape in indexed],
             verified_content=verified_mask_content,
+            require_verified_content=True,
         )
 
         # v0.20.10 · 属性级溯源: 从 PredictionMeta.extra.pipeline 建「AI 富集属性键 → model_ref」
@@ -810,7 +821,9 @@ class AnnotationService:
                 geometry = shape.get("geometry")
                 if geometry:
                     try:
-                        verified_content = await verify_mask_payload_content(geometry)
+                        verified_content = await preflight_mask_payload_for_write(
+                            self.db, task, geometry
+                        )
                     except RasterMaskContractError as exc:
                         raise HTTPException(
                             status_code=exc.status_code, detail=exc.detail
@@ -1848,7 +1861,10 @@ class AnnotationService:
             )
         verified_mask_content = None
         if geometry is not None and not mask_payload_prepared:
-            verified_mask_content = await verify_mask_payload_content(geometry)
+            task = await self.db.get(Task, annotation.task_id)
+            verified_mask_content = await preflight_mask_payload_for_write(
+                self.db, task, geometry
+            )
         track_reclassified = False
         if class_name is not None:
             # v0.14.17 · 与 create / accept_prediction 对齐: PATCH 改类也走软校验,
@@ -1872,12 +1888,12 @@ class AnnotationService:
                 next_geometry=geometry,
             )
             if not mask_payload_prepared:
-                task = await self.db.get(Task, annotation.task_id)
                 await prepare_mask_geometry_for_annotation_write(
                     self.db,
                     task,
                     geometry,
                     verified_content=verified_mask_content,
+                    require_verified_content=verified_mask_content is not None,
                 )
             try:
                 geometry, track_id = prepare_compact_track_identity(

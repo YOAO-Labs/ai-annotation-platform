@@ -52,7 +52,11 @@ from app.services.raster_mask_storage import (
     RasterMaskContractError,
     load_coco_rle,
     prepare_mask_payload_for_write,
-    verify_mask_payload_content,
+    preflight_mask_payload_for_write,
+)
+from app.services.labeling_write_scope import (
+    capture_task_source_binding,
+    task_source_binding_matches,
 )
 from app.services.project_access import is_privileged_for_project
 from app.services.video_collaboration import (
@@ -1265,6 +1269,7 @@ class MaskMutationService:
                 reason="task_not_found",
                 message="Task not found",
             )
+        source_binding = capture_task_source_binding(preflight_task)
         preflight_access = await task_access.resolve_task_access(
             self.db, preflight_task, actor.id
         )
@@ -1453,7 +1458,9 @@ class MaskMutationService:
                     message="mask mutation references too many RLE objects",
                 )
             try:
-                verified_mask_content = await verify_mask_payload_content(
+                verified_mask_content = await preflight_mask_payload_for_write(
+                    self.db,
+                    preflight_task,
                     [
                         *preflight_geometries,
                         *(
@@ -1478,6 +1485,14 @@ class MaskMutationService:
         await task_access.assert_review_adjustment_evidence(
             self.db, task, actor.id, access
         )
+        if preflight_replay is None and not task_source_binding_matches(
+            task, source_binding
+        ):
+            raise _MaskMutationError(
+                status_code=409,
+                reason="source_changed",
+                message="Task media source changed during mask verification",
+            )
         replay = await self._idempotent_replay(task_id, actor.id, payload, digest)
         if replay is not None:
             return replay
@@ -1757,6 +1772,7 @@ class MaskMutationService:
                 reference_value=submitted_references,
                 required_upload_keys=submitted_keys - source_keys,
                 verified_content=verified_mask_content,
+                require_verified_content=True,
             )
         except RasterMaskContractError as exc:
             _raise_mask_mutation_contract_error(exc)

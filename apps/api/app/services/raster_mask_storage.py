@@ -168,6 +168,56 @@ async def verify_mask_payload_content(
     )
 
 
+async def preflight_mask_payload_for_write(
+    db: AsyncSession,
+    task: Task | None,
+    value: Any,
+    *,
+    reference_value: Any | None = None,
+) -> _VerifiedMaskContent:
+    """Check current Task eligibility, then verify bytes without row locks."""
+    geometries = collect_mask_geometries(value)
+    if not geometries:
+        return _VerifiedMaskContent((), ())
+    if task is None:
+        raise RasterMaskContractError(
+            status_code=409,
+            reason="mask_task_context_missing",
+            message="mask persistence requires an existing task",
+        )
+    current_task = await db.scalar(
+        select(Task).where(Task.id == task.id).execution_options(populate_existing=True)
+    )
+    if current_task is None:
+        raise RasterMaskContractError(
+            status_code=409,
+            reason="mask_task_context_missing",
+            message="mask persistence requires an existing task",
+        )
+    await _validate_mask_payload_for_task(db, current_task, geometries)
+    return await verify_mask_payload_content(value, reference_value=reference_value)
+
+
+async def _validate_mask_payload_for_task(
+    db: AsyncSession, task: Task, geometries: list[dict[str, Any]]
+) -> None:
+    if any(geometry.get("type") == "raster_mask" for geometry in geometries):
+        project = await db.get(Project, task.project_id, populate_existing=True)
+        assert_raster_mask_write_enabled(project)
+
+    for geometry in geometries:
+        try:
+            await validate_mask_geometry_for_task(db, task, geometry)
+        except RasterMaskContractError:
+            raise
+        except ValueError as exc:
+            raise RasterMaskContractError(
+                status_code=422,
+                reason="mask_geometry_invalid",
+                message=f"mask geometry is invalid: {exc}",
+            ) from exc
+
+
 def classify_raster_mask_content_error(exc: Exception) -> str:
     """Map arbitrary content/storage failures onto a fixed metric vocabulary."""
     chain: list[Exception] = []
@@ -662,6 +712,7 @@ async def prepare_mask_payload_for_write(
     reference_value: Any | None = None,
     required_upload_keys: set[str] | None = None,
     verified_content: _VerifiedMaskContent | None = None,
+    require_verified_content: bool = False,
 ) -> None:
     """Gate, validate and claim every mask in a nested persistence payload.
 
@@ -682,8 +733,14 @@ async def prepare_mask_payload_for_write(
         )
 
     references_to_commit = value if reference_value is None else reference_value
-    verified_content = verified_content or await verify_mask_payload_content(
-        value, reference_value=references_to_commit
+    if require_verified_content and verified_content is None:
+        raise RasterMaskContractError(
+            status_code=409,
+            reason="mask_reference_invalid",
+            message="mask content was not verified before acquiring write locks",
+        )
+    verified_content = verified_content or await preflight_mask_payload_for_write(
+        db, task, value, reference_value=references_to_commit
     )
     try:
         final_signature = _mask_content_signature(
@@ -695,11 +752,11 @@ async def prepare_mask_payload_for_write(
             reason="mask_reference_invalid",
             message=f"mask object is invalid: {exc}",
         ) from exc
-    verified_references = dict(verified_content.reference_signature)
+    verified_references = set(verified_content.reference_signature)
     missing_or_changed = [
-        (key, reference)
-        for key, reference in final_signature.reference_signature
-        if verified_references.get(key) != reference
+        reference_pair
+        for reference_pair in final_signature.reference_signature
+        if reference_pair not in verified_references
     ]
     committed_foreground_keys = set(final_signature.foreground_keys) & {
         key for key, _reference in final_signature.reference_signature
@@ -731,23 +788,8 @@ async def prepare_mask_payload_for_write(
             message="mask persistence requires an existing task",
         )
 
-    # Check image-mask gates and task geometry before taking content/upload locks.
-    # Video mask tracks keep their existing deployment contract.
-    if any(geometry.get("type") == "raster_mask" for geometry in geometries):
-        project = await db.get(Project, task.project_id)
-        assert_raster_mask_write_enabled(project)
-
-    for geometry in geometries:
-        try:
-            await validate_mask_geometry_for_task(db, task, geometry)
-        except RasterMaskContractError:
-            raise
-        except ValueError as exc:
-            raise RasterMaskContractError(
-                status_code=422,
-                reason="mask_geometry_invalid",
-                message=f"mask geometry is invalid: {exc}",
-            ) from exc
+    # Repeat Task/image/dimension eligibility under the final Task lock.
+    await _validate_mask_payload_for_task(db, task, geometries)
 
     # Verify all references in one globally sorted advisory-lock pass.  Atomic
     # video mutations may pass only their current-frame references: unchanged
@@ -821,10 +863,15 @@ async def prepare_mask_geometry_for_annotation_write(
     geometry: dict[str, Any],
     *,
     verified_content: _VerifiedMaskContent | None = None,
+    require_verified_content: bool = False,
 ) -> None:
     """Backward-compatible direct-geometry wrapper for annotation writes."""
     await prepare_mask_payload_for_write(
-        db, task, geometry, verified_content=verified_content
+        db,
+        task,
+        geometry,
+        verified_content=verified_content,
+        require_verified_content=require_verified_content,
     )
 
 

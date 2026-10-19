@@ -20,7 +20,7 @@ from app.services.raster_mask_storage import (
     _VerifiedMaskContent,
     RasterMaskContractError,
     prepare_mask_payload_for_write,
-    verify_mask_payload_content,
+    preflight_mask_payload_for_write,
 )
 
 
@@ -152,7 +152,9 @@ async def preflight_mask_slice_snapshots(
     """Verify snapshot objects before the restore acquires Task/Annotation locks."""
     geometries = await _resolve_mask_slice_geometries(db, task, report, locked=False)
     try:
-        return await verify_mask_payload_content(list(geometries.values()))
+        return await preflight_mask_payload_for_write(
+            db, task, list(geometries.values())
+        )
     except RasterMaskContractError as exc:
         raise _AnnotationSliceError(
             exc.status_code, "snapshot_unavailable", "Mask 恢复资源不可用：" + str(exc)
@@ -170,7 +172,11 @@ async def load_mask_slice_snapshots(
     first = await _resolve_mask_slice_geometries(db, task, report, locked=False)
     try:
         await prepare_mask_payload_for_write(
-            db, task, list(first.values()), verified_content=verified_content
+            db,
+            task,
+            list(first.values()),
+            verified_content=verified_content,
+            require_verified_content=True,
         )
     except RasterMaskContractError as exc:
         raise _AnnotationSliceError(

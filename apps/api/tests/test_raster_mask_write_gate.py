@@ -416,6 +416,55 @@ async def test_accept_prediction_waits_for_mask_storage_before_labeling_lock(
 
 
 @pytest.mark.asyncio
+async def test_manual_create_rejects_source_relink_during_mask_preflight(
+    db_session, httpx_client, super_admin, monkeypatch
+):
+    user, token = super_admin
+    project, task = await _seed_image_task(db_session, user.id)
+    reference = build_rle_reference(FOREGROUND_RLE)
+    upload = await _seed_upload(db_session, task.id, reference)
+    storage_started = asyncio.Event()
+    release_storage = asyncio.Event()
+
+    async def slow_load(_reference):
+        storage_started.set()
+        await release_storage.wait()
+        return FOREGROUND_RLE
+
+    monkeypatch.setattr("app.services.raster_mask_storage.load_coco_rle", slow_load)
+    monkeypatch.setattr(settings, "raster_mask_read_enabled", True)
+    monkeypatch.setattr(settings, "raster_mask_create_enabled", True)
+
+    pending = asyncio.create_task(
+        httpx_client.post(
+            f"/api/v1/tasks/{task.id}/annotations",
+            json={
+                "annotation_type": "raster_mask",
+                "tool_unit_id": "region",
+                "class_name": "object",
+                "geometry": {"type": "raster_mask", "mask": reference},
+            },
+            headers={"Authorization": f"Bearer {token}"},
+        )
+    )
+    await storage_started.wait()
+
+    task.media_source_generation = int(task.media_source_generation or 1) + 1
+    task.file_path = f"{task.file_path}.relinked"
+    await db_session.flush()
+    release_storage.set()
+    response = await pending
+
+    assert response.status_code == 409, response.text
+    assert response.json()["detail"]["reason"] == "source_changed"
+    assert await _count_for_task(db_session, Annotation, task.id) == 0
+    await db_session.refresh(upload)
+    await db_session.refresh(task)
+    assert upload.linked_at is None
+    assert task.total_annotations == 0
+
+
+@pytest.mark.asyncio
 async def test_prediction_result_rechecks_source_after_mask_preflight(
     db_session, super_admin, monkeypatch
 ):

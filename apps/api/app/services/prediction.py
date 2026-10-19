@@ -30,7 +30,7 @@ from app.services.project_access import resolve_project_access
 from app.services.raster_mask_storage import (
     RasterMaskContractError,
     prepare_mask_payload_for_write,
-    verify_mask_payload_content,
+    preflight_mask_payload_for_write,
 )
 
 logger = logging.getLogger("app.services.prediction")
@@ -586,8 +586,13 @@ class PredictionService:
         ):
             raise ValueError("prediction write scope does not match its target")
         result = _remap_track_ids(request.result)
+        preflight_task = await self.db.get(
+            Task, request.task_id, populate_existing=True
+        )
         try:
-            verified_content = await verify_mask_payload_content(result)
+            verified_content = await preflight_mask_payload_for_write(
+                self.db, preflight_task, result
+            )
             task, _actor, _access = await lock_labeling_write(
                 self.db,
                 write_scope,
@@ -606,7 +611,11 @@ class PredictionService:
             raise _apply_prediction_error(exc) from exc
         try:
             await prepare_mask_payload_for_write(
-                self.db, task, result, verified_content=verified_content
+                self.db,
+                task,
+                result,
+                verified_content=verified_content,
+                require_verified_content=True,
             )
         except RasterMaskContractError as exc:
             raise _apply_prediction_error(exc) from exc

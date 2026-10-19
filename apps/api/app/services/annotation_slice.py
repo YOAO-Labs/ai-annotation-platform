@@ -32,6 +32,10 @@ from app.services.annotation_slice_contracts import (
 )
 from app.services.audit_origin_contract import AuditOriginContext
 from app.services.audit import AuditAction, AuditService
+from app.services.labeling_write_scope import (
+    capture_task_source_binding,
+    task_source_binding_matches,
+)
 from app.services.polygon_slice import PolygonSliceGeometryError, slice_polygon
 from app.services.task_lock import TaskLockConflictError
 from app.services.video_collaboration import (
@@ -325,6 +329,7 @@ class AnnotationSliceService:
         preflight_task = await self.db.get(Task, task_id, populate_existing=True)
         if preflight_task is None:
             raise _AnnotationSliceError(404, "task_not_found", "任务不存在")
+        source_binding = capture_task_source_binding(preflight_task)
         preflight_access = await task_access.resolve_task_access(
             self.db, preflight_task, actor.id
         )
@@ -380,6 +385,12 @@ class AnnotationSliceService:
         replay = await self._replay(task_id, actor, payload.idempotency_key, digest)
         if replay:
             return replay
+        if verified_mask_content is not None and not task_source_binding_matches(
+            task, source_binding
+        ):
+            raise _AnnotationSliceError(
+                409, "source_changed", "任务媒体来源在验证恢复资源期间发生变化"
+            )
         await self._assert_task_writable(task, actor, access=access)
         original = await self.db.scalar(
             select(AnnotationOperation)
