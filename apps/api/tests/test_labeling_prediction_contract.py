@@ -12,6 +12,8 @@ from app.services.labeling_prediction_contract import (
     [
         ("task_busy", True),
         ("input_busy", True),
+        ("mask_content_deleting", True),
+        ("mask_content_epoch_changed", True),
         ("prediction_task_scope_changed", False),
         ("prediction_source_changed", False),
     ],

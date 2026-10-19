@@ -21,6 +21,8 @@ RETRYABLE_APPLY_PREDICTION_CODES = frozenset(
         "task_busy",
         "job_busy",
         "input_busy",
+        "mask_content_deleting",
+        "mask_content_epoch_changed",
     }
 )
 
