@@ -17,6 +17,8 @@ import logging
 import re
 import tempfile
 import uuid
+from contextlib import asynccontextmanager
+from dataclasses import dataclass
 from pathlib import Path
 
 from sqlalchemy.ext.asyncio import (
@@ -34,6 +36,37 @@ from app.workers.celery_app import celery_app
 
 log = logging.getLogger(__name__)
 _WRITE_ATTEMPTS = 3
+_INPUT_WAIT_CODES = frozenset(
+    {
+        "input_not_ready",
+        "input_busy",
+        "source_busy",
+        "reference_busy",
+        "job_busy",
+        "storage_unavailable",
+    }
+)
+
+
+class FrozenInputRetryDeferred(RuntimeError):
+    """A frozen retry input is temporarily unavailable before retry admission."""
+
+    def __init__(self, code: str):
+        self.code = code
+        super().__init__(code)
+
+
+@dataclass(frozen=True, slots=True)
+class _PreparedRetryInput:
+    accepted_input: dict | None = None
+    gateway: object | None = None
+    request: object | None = None
+    reference: object | None = None
+    local_path: Path | None = None
+    terminal_error: Exception | None = None
+
+
+_UNPREPARED_RETRY_INPUT = object()
 
 
 async def _verify_retry_source(gateway, request):
@@ -102,6 +135,107 @@ def _accepted_input_metadata(value, *, task_id, project_id) -> dict:
     }
 
 
+@asynccontextmanager
+async def _prepare_retry_input(session_factory, failed_id: str):
+    """Prepare the retained version before creating a retry job or notifying."""
+    from aap_assets_inputs import contract as c
+    from aap_assets_inputs.contract import InputFailure
+    from app.db.models.ml_backend_registry import MLBackendRegistry as MLBackend
+    from app.db.models.prediction import FailedPrediction
+    from app.db.models.task import Task
+
+    fid = uuid.UUID(failed_id)
+    accepted_input = None
+    terminal_error = None
+    task_id = None
+    task = backend = None
+    async with session_factory() as db:
+        failed = await db.get(FailedPrediction, fid)
+        if failed is not None:
+            task_id = failed.task_id
+            extra = failed.extra if isinstance(failed.extra, dict) else {}
+            task = await db.get(Task, failed.task_id) if failed.task_id else None
+            backend = (
+                await db.get(MLBackend, failed.ml_backend_id)
+                if failed.ml_backend_id is not None
+                else None
+            )
+            if "accepted_input" in extra:
+                if task is None:
+                    terminal_error = ValueError(
+                        "accepted input retry task is unavailable"
+                    )
+                else:
+                    try:
+                        accepted_input = _accepted_input_metadata(
+                            extra["accepted_input"],
+                            task_id=task.id,
+                            project_id=failed.project_id,
+                        )
+                    except (TypeError, ValueError) as exc:
+                        terminal_error = exc
+            elif (
+                extra.get("execution_scope") == "workbench"
+                and extra.get("execution_unit") not in {"frame", "video", "scene"}
+                and task is not None
+                and task.file_type == "image"
+                and extra.get("task") not in {"text", "tracker"}
+            ):
+                terminal_error = ValueError(
+                    "legacy Workbench image retry has no accepted input"
+                )
+
+    if (
+        accepted_input is None
+        or terminal_error is not None
+        or task_id is None
+        or task is None
+        or backend is None
+    ):
+        yield _PreparedRetryInput(
+            accepted_input=accepted_input, terminal_error=terminal_error
+        )
+        return
+
+    from app.services.accepted_inputs import input_gateway
+
+    request = c.InputRequest(
+        input_id=accepted_input["input_id"],
+        job_id=accepted_input["job_id"],
+        task_id=accepted_input["task_id"],
+    )
+    async with input_gateway(session_factory=session_factory) as gateway:
+        with tempfile.TemporaryDirectory(prefix="aap-accepted-retry-") as directory:
+            local_path = Path(directory) / "source"
+            reference = None
+            try:
+                reference = await gateway.reference(request)
+                record = reference.input
+                if (
+                    record.input_id != accepted_input["input_id"]
+                    or record.job_id != accepted_input["job_id"]
+                    or record.task_id != accepted_input["task_id"]
+                    or record.project_id != accepted_input["project_id"]
+                    or record.sha256 != accepted_input["sha256"]
+                    or record.byte_size != accepted_input["byte_size"]
+                ):
+                    raise InputFailure("input_corrupt")
+                await gateway.download(reference, local_path)
+                await _verify_retry_source(gateway, request)
+            except InputFailure as exc:
+                if exc.code in _INPUT_WAIT_CODES:
+                    raise FrozenInputRetryDeferred(exc.code) from exc
+                terminal_error = exc
+            yield _PreparedRetryInput(
+                accepted_input=accepted_input,
+                gateway=gateway,
+                request=request,
+                reference=reference,
+                local_path=local_path if reference is not None else None,
+                terminal_error=terminal_error,
+            )
+
+
 class _PredictionRetryTerminalFailure(Exception):
     def __init__(self, result: dict):
         self.result = result
@@ -109,12 +243,22 @@ class _PredictionRetryTerminalFailure(Exception):
 
 
 @celery_app.task(
-    bind=True, name="app.workers.predictions_retry.retry_failed_prediction"
+    bind=True,
+    name="app.workers.predictions_retry.retry_failed_prediction",
+    max_retries=None,
+    default_retry_delay=30,
 )
 def retry_failed_prediction(self, failed_id: str, user_id: str) -> dict:
-    return asyncio.run(
-        _run_retry(failed_id, user_id, celery_task_id=getattr(self.request, "id", None))
-    )
+    try:
+        return asyncio.run(
+            _run_retry(
+                failed_id,
+                user_id,
+                celery_task_id=getattr(self.request, "id", None),
+            )
+        )
+    except FrozenInputRetryDeferred as exc:
+        raise self.retry(exc=exc, countdown=30, max_retries=None) from exc
 
 
 async def _run_retry(
@@ -137,8 +281,20 @@ async def _do_retry_with_factory(
     failed_id: str,
     user_id: str,
     celery_task_id: str | None = None,
+    *,
+    prepared_input=_UNPREPARED_RETRY_INPUT,
 ) -> dict:
     """实际 retry 逻辑；session_factory 暴露便于测试 mock。"""
+    if prepared_input is _UNPREPARED_RETRY_INPUT:
+        async with _prepare_retry_input(session_factory, failed_id) as prepared:
+            return await _do_retry_with_factory(
+                session_factory,
+                failed_id,
+                user_id,
+                celery_task_id=celery_task_id,
+                prepared_input=prepared,
+            )
+
     from app.services import async_job as async_job_svc
     from app.services.async_job_notify import notify_job_terminal
     from app.services.prediction import PredictionService
@@ -164,6 +320,7 @@ async def _do_retry_with_factory(
                     failed_id,
                     user_id,
                     job_id=job.id,
+                    prepared_input=prepared_input,
                 )
                 await async_job_svc.replace_result(
                     db, job.id, result=_retry_result_payload(result)
@@ -241,7 +398,12 @@ def _retry_result_payload(result: dict) -> dict:
 
 
 async def _run_retry_attempt(
-    session_factory, failed_id: str, user_id: str, *, job_id: uuid.UUID
+    session_factory,
+    failed_id: str,
+    user_id: str,
+    *,
+    job_id: uuid.UUID,
+    prepared_input: _PreparedRetryInput | None = None,
 ) -> dict:
     """重试业务逻辑。终态通知由外层 async_jobs 统一发。"""
     from app.db.models.ml_backend_registry import MLBackendRegistry as MLBackend
@@ -273,13 +435,30 @@ async def _run_retry_attempt(
         failure_extra = fp.extra if isinstance(fp.extra, dict) else {}
         stored_context = failure_extra.get("request_context")
         request_context = stored_context if isinstance(stored_context, dict) else None
-        raw_accepted_input = failure_extra.get("accepted_input")
-        accepted_input = None
+        accepted_input = prepared_input.accepted_input if prepared_input else None
+        prepared_error = prepared_input.terminal_error if prepared_input else None
         if "accepted_input" in failure_extra:
-            if task is None:
-                raise ValueError("accepted input retry task is unavailable")
-            accepted_input = _accepted_input_metadata(
-                raw_accepted_input, task_id=task.id, project_id=fp.project_id
+            if task is None or accepted_input is None:
+                prepared_error = prepared_error or ValueError(
+                    "accepted input retry was not prepared"
+                )
+            else:
+                try:
+                    current_input = _accepted_input_metadata(
+                        failure_extra["accepted_input"],
+                        task_id=task.id,
+                        project_id=fp.project_id,
+                    )
+                except (TypeError, ValueError) as exc:
+                    prepared_error = prepared_error or exc
+                else:
+                    if current_input != accepted_input:
+                        prepared_error = prepared_error or ValueError(
+                            "accepted input retry identity changed"
+                        )
+        elif accepted_input is not None:
+            prepared_error = prepared_error or ValueError(
+                "accepted input retry metadata disappeared"
             )
         elif (
             failure_extra.get("execution_scope") == "workbench"
@@ -288,7 +467,9 @@ async def _run_retry_attempt(
             and task.file_type == "image"
             and failure_extra.get("task") not in {"text", "tracker"}
         ):
-            raise ValueError("legacy Workbench image retry has no accepted input")
+            prepared_error = prepared_error or ValueError(
+                "legacy Workbench image retry has no accepted input"
+            )
         ns = NotificationService(db)
         pending = await ns.notify(
             user_id=uid,
@@ -316,6 +497,8 @@ async def _run_retry_attempt(
     executed_backend_id = backend.id
     retry_pool_id = None
     try:
+        if prepared_error is not None:
+            raise prepared_error
         async with session_factory() as route_db:
             client = RoutedMLBackendClient(
                 route_db,
@@ -338,30 +521,18 @@ async def _run_retry_attempt(
             if accepted_input is None:
                 results = await predict_with_input(resolve_task_url(task))
             else:
-                from aap_assets_inputs import contract as accepted_inputs_contract
-                from aap_assets_inputs.contract import InputFailure
-                from app.services.accepted_inputs import input_gateway
-
-                input_request = accepted_inputs_contract.InputRequest(
-                    input_id=accepted_input["input_id"],
-                    job_id=accepted_input["job_id"],
-                    task_id=accepted_input["task_id"],
+                if (
+                    prepared_input is None
+                    or prepared_input.gateway is None
+                    or prepared_input.request is None
+                    or prepared_input.reference is None
+                    or prepared_input.local_path is None
+                ):
+                    raise ValueError("accepted input retry is not fully prepared")
+                results = await predict_with_input(prepared_input.reference.url)
+                await _verify_retry_source(
+                    prepared_input.gateway, prepared_input.request
                 )
-                async with input_gateway(session_factory=session_factory) as gateway:
-                    reference = await gateway.reference(input_request)
-                    record = reference.input
-                    if (
-                        record.project_id != accepted_input["project_id"]
-                        or record.sha256 != accepted_input["sha256"]
-                        or record.byte_size != accepted_input["byte_size"]
-                    ):
-                        raise InputFailure("input_corrupt")
-                    with tempfile.TemporaryDirectory(
-                        prefix="aap-accepted-retry-"
-                    ) as directory:
-                        await gateway.download(reference, Path(directory) / "source")
-                        results = await predict_with_input(reference.url)
-                        await _verify_retry_source(gateway, input_request)
             executed_backend_id = client.last_instance_id or backend.id
             retry_pool_id = client.pool_id
         if not results:

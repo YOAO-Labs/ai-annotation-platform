@@ -479,10 +479,121 @@ async def test_retry_uses_retained_input_version_and_verifies_before_write(
     assert result["status"] == "succeeded"
     assert events == [
         "download",
+        "verify-source",
         ("predict", version_url),
         "verify-source",
         ("write", input_id),
     ]
+
+
+@pytest.mark.parametrize(
+    ("failure_point", "failure_code", "expected_events"),
+    [
+        ("reference", "input_expired", ["reference"]),
+        ("download", "input_corrupt", ["reference", "download"]),
+        ("verify", "source_changed", ["reference", "download", "verify"]),
+    ],
+)
+async def test_permanent_frozen_retry_failure_uses_job_and_counter_path(
+    db_session, super_admin, monkeypatch, failure_point, failure_code, expected_events
+):
+    from contextlib import asynccontextmanager
+    from types import SimpleNamespace
+
+    from aap_assets_inputs.contract import InputFailure
+    from app.workers import predictions_retry as retry_worker
+
+    user, _ = super_admin
+    project = await _seed_project(db_session, user.id)
+    task = await _seed_task(db_session, project.id)
+    backend = await _seed_backend(db_session, project.id)
+    input_id, origin_job_id = uuid.uuid4(), uuid.uuid4()
+    failed = await _seed_failed(
+        db_session, project_id=project.id, task_id=task.id, backend_id=backend.id
+    )
+    failed.extra = {
+        "retry_pending": True,
+        "execution_scope": "workbench",
+        "accepted_input": {
+            "input_id": str(input_id),
+            "job_id": str(origin_job_id),
+            "task_id": str(task.id),
+            "sha256": "e" * 64,
+            "byte_size": 256,
+        },
+    }
+    await db_session.commit()
+    events = []
+
+    class Gateway:
+        async def reference(self, request):
+            assert request.input_id == input_id
+            assert request.job_id == origin_job_id
+            events.append("reference")
+            if failure_point == "reference":
+                raise InputFailure(failure_code)
+            return SimpleNamespace(
+                input=SimpleNamespace(
+                    input_id=input_id,
+                    job_id=origin_job_id,
+                    task_id=task.id,
+                    project_id=project.id,
+                    sha256="e" * 64,
+                    byte_size=256,
+                ),
+                url="https://inputs.test/source?versionId=original-version",
+            )
+
+        async def download(self, _reference, _destination):
+            events.append("download")
+            if failure_point == "download":
+                raise InputFailure(failure_code)
+
+        async def verify_source(self, _request):
+            events.append("verify")
+            if failure_point == "verify":
+                raise InputFailure(failure_code)
+
+    @asynccontextmanager
+    async def fake_gateway(**_kwargs):
+        yield Gateway()
+
+    async def unexpected_predict(*_args, **_kwargs):
+        events.append("predict")
+        pytest.fail("an expired frozen input must not fall back to Task.file_path")
+
+    monkeypatch.setattr("app.services.accepted_inputs.input_gateway", fake_gateway)
+    monkeypatch.setattr(
+        "app.services.ml_client.MLBackendClient.predict", unexpected_predict
+    )
+    monkeypatch.setattr(
+        "app.services.storage.resolve_task_url",
+        lambda _task: pytest.fail(
+            "an expired frozen input must not resolve the current URL"
+        ),
+    )
+
+    result = await retry_worker._do_retry_with_factory(
+        _passthrough_session_factory(db_session), str(failed.id), str(user.id)
+    )
+
+    assert result["status"] == "failed"
+    assert result["reason"] == failure_code
+    assert events == expected_events
+    await db_session.refresh(failed)
+    assert failed.retry_count == 1
+    assert "retry_pending" not in failed.extra
+    job = (
+        (
+            await db_session.execute(
+                select(AsyncJob).where(AsyncJob.kind == "prediction_retry")
+            )
+        )
+        .scalars()
+        .one()
+    )
+    assert job.status == AsyncJobStatus.FAILED.value
+    assert job.result["reason"] == failure_code
 
 
 async def test_retry_worker_tracks_backend_failure_in_async_jobs(
