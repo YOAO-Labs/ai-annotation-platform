@@ -49,7 +49,7 @@
       },
       "AIToolPreferences": {
         "additionalProperties": false,
-        "description": "每用户的 AI 工具偏好，按 ML backend id 分桶。\n\n不同 backend 的 /setup.params schema 不同（gsam2 有 box/text_threshold，sam3 有\nscore_threshold 等），故按 backend id 各存一份，互不污染；多用户各自一份 preferences，\n天然隔离不打架。值为 /setup.params 对应的自由 dict，平台只做存取不强校验字段。\n\nv0.18.25 · 新增 model_by_backend：交互工具的引擎(模型)选择，同样按 backend 分桶。\n本子树为「深一层合并」(update_preferences)，故 params/model 两个子键可各自独立保存。",
+        "description": "每用户的 AI 工具偏好，按 ML backend id 分桶。\n\n不同 backend 的 /setup.params schema 不同（gsam2 有 box/text_threshold，sam3 有\nscore_threshold 等），故按 backend id 各存一份，互不污染；多用户各自一份 preferences，\n天然隔离不打架。值为 /setup.params 对应的自由 dict，平台只做存取不强校验字段。\n\n新增 model_by_backend：交互工具的引擎(模型)选择，同样按 backend 分桶。\n本子树为「深一层合并」(update_preferences)，故 params/model 两个子键可各自独立保存。",
         "properties": {
           "interactive_backend_by_project": {
             "additionalProperties": {
@@ -7940,7 +7940,7 @@
       },
       "CameraPanelState": {
         "additionalProperties": false,
-        "description": "v0.15.x · 3D 悬浮相机面板的位置 + 折叠态。按相机 role 分桶存。\n\n位置像素由前端按视图计算后落库;无该 role 键 = 用默认贴边位置 + 自动折叠态。",
+        "description": "3D 悬浮相机面板的位置 + 折叠态。按相机 role 分桶存。\n\n位置像素由前端按视图计算后落库;无该 role 键 = 用默认贴边位置 + 自动折叠态。",
         "properties": {
           "collapsed": {
             "default": false,
@@ -14847,7 +14847,7 @@
       },
       "FloatingPanelState": {
         "additionalProperties": false,
-        "description": "v0.13.10 · 工作台浮窗状态。像素默认由前端按窗口计算。",
+        "description": "工作台浮窗状态。像素默认由前端按窗口计算。",
         "properties": {
           "detached": {
             "default": false,
@@ -14908,7 +14908,7 @@
       },
       "FloatingSelectionState": {
         "additionalProperties": false,
-        "description": "v0.16.8 · 选中标注浮动信息卡的位置、尺寸与折叠态(跨设备)。\n\n与边栏浮窗不同,选中卡无「合并回边栏」语义,故只有 collapsed(无 detached);\n显隐由选中状态驱动,这里只持久化几何与折叠。尺寸界与 FloatingPanelState 一致。",
+        "description": "选中标注浮动信息卡的位置、尺寸与折叠态(跨设备)。\n\n与边栏浮窗不同,选中卡无「合并回边栏」语义,故只有 collapsed(无 detached);\n显隐由选中状态驱动,这里只持久化几何与折叠。尺寸界与 FloatingPanelState 一致。",
         "properties": {
           "collapsed": {
             "default": false,
@@ -18983,7 +18983,7 @@
       },
       "LabelContentByType": {
         "additionalProperties": false,
-        "description": "v0.16.7 · 标签内容按标注类型分段；class 三段恒显，不入表。\n\nsingle=图片手工框 / track=视频轨迹框 / ai=图片预测框，各段只列该类型有意义的字段。\n旧扁平 list 由 WorkbenchCommonPreferences 的 before validator 迁移为本结构。",
+        "description": "标签内容按标注类型分段；class 三段恒显，不入表。\n\nsingle=图片手工框 / track=视频轨迹框 / ai=图片预测框，各段只列该类型有意义的字段。\n旧扁平 list 由 WorkbenchCommonPreferences 的 before validator 迁移为本结构。",
         "properties": {
           "ai": {
             "items": {
@@ -28415,7 +28415,7 @@
       },
       "PointcloudCameraState": {
         "additionalProperties": false,
-        "description": "v0.15.x · 点云主视角快照。由前端 OrbitControls 写入/恢复。",
+        "description": "点云主视角快照。由前端 OrbitControls 写入/恢复。",
         "properties": {
           "mode": {
             "default": "orbit",
@@ -37674,7 +37674,7 @@
       },
       "ShortcutBinding": {
         "additionalProperties": false,
-        "description": "v0.24 · 单条结构化快捷键绑定。\n\n``key`` 是规范化的 ``KeyboardEvent.key``：单个字符（任意字符，如 ``/``）或\n小写命名键（如 ``arrowright``）。``modifiers`` 是显式修饰键集合，匹配时要求\n完全一致（``mod`` = 平台主修饰键，Ctrl/⌘）。",
+        "description": "单条结构化快捷键绑定。\n\n``key`` 是规范化的 ``KeyboardEvent.key``：单个字符（任意字符，如 ``/``）或\n小写命名键（如 ``arrowright``）。``modifiers`` 是显式修饰键集合，匹配时要求\n完全一致（``mod`` = 平台主修饰键，Ctrl/⌘）。",
         "properties": {
           "key": {
             "maxLength": 32,
@@ -45867,7 +45867,7 @@
       },
       "TriViewFloatState": {
         "additionalProperties": false,
-        "description": "v0.13.10 · 3D 三视图浮层位置、尺寸与折叠态。",
+        "description": "3D 三视图浮层位置、尺寸与折叠态。",
         "properties": {
           "collapsed": {
             "default": false,
@@ -45928,7 +45928,7 @@
       },
       "UIPreferences": {
         "additionalProperties": false,
-        "description": "v0.15.25 · 全局 UI 偏好（工作台之外）；跟随账号跨设备。\n\n主题原先只存 localStorage（仅本机），升级到服务端偏好后换设备登录即保持。\n'system' = 跟随操作系统 prefers-color-scheme。",
+        "description": "全局 UI 偏好（工作台之外）；跟随账号跨设备。\n\n主题原先只存 localStorage（仅本机），升级到服务端偏好后换设备登录即保持。\n'system' = 跟随操作系统 prefers-color-scheme。",
         "properties": {
           "changelog_seen_version": {
             "default": "",
@@ -50847,7 +50847,7 @@
       },
       "WorkbenchCommonPreferences": {
         "additionalProperties": false,
-        "description": "v0.15.3 · 跨模态通用偏好（性能观测等）。",
+        "description": "跨模态通用偏好（性能观测等）。",
         "properties": {
           "autoAdvanceOnDecide": {
             "default": true,
@@ -50990,7 +50990,7 @@
       },
       "WorkbenchImagePreferences": {
         "additionalProperties": false,
-        "description": "v0.15.3 · 图像模态偏好（2D 画布渲染 / 顶点手柄）。",
+        "description": "图像模态偏好（2D 画布渲染 / 顶点手柄）。",
         "properties": {
           "afterBoxCreate": {
             "default": "pick_class",
@@ -51244,7 +51244,7 @@
       },
       "WorkbenchPointcloudPreferences": {
         "additionalProperties": false,
-        "description": "v0.15.3 · 点云模态偏好。v0.15.6 填充渲染 / 导航字段（默认值 = 拆分前现状值）。",
+        "description": "点云模态偏好与渲染、导航字段。",
         "properties": {
           "cameraDamping": {
             "default": 0.1,
@@ -51347,7 +51347,7 @@
       },
       "WorkbenchPreferencesRead": {
         "additionalProperties": false,
-        "description": "Read shape with opaque fallbacks for rolling upgrades.\n\n``workspace`` keeps stored layout envelopes verbatim; ``shortcuts`` tolerates\ncorrupt or newer shortcut subtrees so one bad bucket cannot fail the whole\npreference GET. The route strips and re-inserts both around validation.",
+        "description": "Read shape with opaque fallbacks for rolling upgrades.\n\n``workspace`` keeps stored layout envelopes verbatim; ``shortcuts`` tolerates\ncorrupt or newer shortcut subtrees so one bad bucket cannot fail the whole\npreference GET. The portable policy restores both around strict validation.",
         "properties": {
           "common": {
             "$ref": "#/components/schemas/WorkbenchCommonPreferences"
@@ -51385,7 +51385,7 @@
       },
       "WorkbenchShortcutPreferences": {
         "additionalProperties": false,
-        "description": "v0.24 · 账号级快捷键覆盖。\n\n每个桶（common / image / video）将命令 ID 映射到该命令的完整组合列表：\n缺失或 ``null`` = 用默认组合；空列表 = 停用；非空列表（≤2 条，一主一备）=\n整体替换默认组合。PATCH 只提交变更的命令条目（深合并按命令生效）。",
+        "description": "账号级快捷键覆盖。\n\n每个桶（common / image / video）将命令 ID 映射到该命令的完整组合列表：\n缺失或 ``null`` = 用默认组合；空列表 = 停用；非空列表（≤2 条，一主一备）=\n整体替换默认组合。PATCH 只提交变更的命令条目（深合并按命令生效）。",
         "properties": {
           "common": {
             "additionalProperties": {
@@ -51450,7 +51450,7 @@
       },
       "WorkbenchVideoPreferences": {
         "additionalProperties": false,
-        "description": "v0.15.5 · 视频模态偏好（播放 / 步进）。",
+        "description": "视频模态偏好（播放 / 步进）。",
         "properties": {
           "autoFitOnResize": {
             "default": true,
@@ -56019,7 +56019,7 @@
         ]
       },
       "patch": {
-        "description": "锁定最新用户偏好后深合并 PATCH；workspace context 原子替换且禁止版本降级。\n\n入参收 raw dict：先过 legacy 平铺键提升器 + 移除键剥离器（均 v0.16 移除）再手动走\npydantic 校验，校验失败按 FastAPI 原生 422 形态抛出。",
+        "description": "锁定最新偏好快照并应用稀疏 PATCH 策略，保留工作区与命名预设冲突语义。",
         "operationId": "update_preferences_api_v1_auth_me_preferences_patch",
         "requestBody": {
           "content": {
