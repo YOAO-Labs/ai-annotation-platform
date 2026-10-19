@@ -33,6 +33,7 @@ def _invoke(connection, direction):
         # Remove the newer empty input boundary first, as the real migration
         # chain does. Rolling back the test transaction restores both revisions.
         filenames.insert(0, "0221_accepted_inputs.py")
+        filenames.insert(0, "0222_bulk_image_input_manifests.py")
     for filename in filenames:
         path = Path(__file__).resolve().parents[1] / "alembic/versions" / filename
         spec = importlib.util.spec_from_file_location("image_migration_guard", path)

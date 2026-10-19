@@ -247,6 +247,8 @@ GRANT SELECT, INSERT, UPDATE ON public.asset_image_garbage TO :"assets_owner";
 GRANT SELECT, INSERT, UPDATE ON public.asset_accepted_image_inputs,
     public.asset_accepted_image_input_attempts,
     public.asset_accepted_input_garbage TO :"assets_owner";
+GRANT SELECT, INSERT, UPDATE ON public.asset_accepted_image_input_manifests,
+    public.asset_accepted_image_input_manifest_members TO :"assets_owner";
 GRANT SELECT, INSERT, UPDATE ON public.scene_frame_poses TO :"assets_owner";
 GRANT SELECT, INSERT ON public.sensor_calibration_revisions,
     public.dataset_spatial_operations TO :"assets_owner";
@@ -316,7 +318,10 @@ END $$;
 -- Labeling owns all task creation mutations, counter writes, and receipts.
 GRANT SELECT (id, project_id, dataset_item_id, batch_id, status), UPDATE (id), DELETE
     ON public.tasks TO :"labeling_owner";
-GRANT SELECT (id, project_id, dataset_id, display_id, annotator_id, status),
+GRANT SELECT (
+        id, project_id, dataset_id, display_id, annotator_id, reviewer_id,
+        status, admin_locked
+    ),
     UPDATE (id, dataset_id, total_tasks, completed_tasks, review_tasks, updated_at), DELETE
     ON public.task_batches TO :"labeling_owner";
 GRANT SELECT (id, project_id, task_id), DELETE
@@ -336,7 +341,7 @@ GRANT SELECT (id, project_id, task_id, annotation_id, thread_parent_id),
     ON public.annotation_feedbacks TO :"labeling_owner";
 GRANT SELECT (task_id, annotation_id), DELETE
     ON public.annotation_drafts TO :"labeling_owner";
-GRANT SELECT (task_id), DELETE ON public.task_locks TO :"labeling_owner";
+GRANT SELECT (task_id, expire_at), DELETE ON public.task_locks TO :"labeling_owner";
 GRANT SELECT (project_id, annotation_id), DELETE
     ON public.annotation_comments TO :"labeling_owner";
 GRANT SELECT (project_id), DELETE ON public.task_events TO :"labeling_owner";
@@ -533,6 +538,10 @@ GRANT EXECUTE ON FUNCTION aap_jobs_v1.project_accepted_image_input_job(uuid, uui
 GRANT EXECUTE ON FUNCTION aap_jobs_v1.accepted_image_input_job_consistency(uuid, uuid, uuid, uuid)
     TO :"assets_owner";
 GRANT EXECUTE ON FUNCTION
+    aap_jobs_v1.project_accepted_image_input_manifest_job(uuid, uuid, uuid, uuid, jsonb, text, boolean),
+    aap_jobs_v1.accepted_image_input_manifest_job_consistency(uuid, uuid, uuid, uuid, jsonb, text)
+    TO :"assets_owner";
+GRANT EXECUTE ON FUNCTION
     aap_labeling_v1.project_accepted_image_input_task(uuid, uuid, boolean),
     aap_labeling_v1.accepted_image_input_referenced(uuid)
     TO :"assets_owner";
@@ -549,6 +558,10 @@ GRANT EXECUTE ON FUNCTION
     aap_labeling_v1.image_thumbnail_references(text),
     aap_labeling_v1.scan_image_task_sources(jsonb, uuid, integer),
     aap_labeling_v1.invalidate_task_image_thumbnail(uuid, text, text)
+    TO :"assets_owner";
+GRANT EXECUTE ON FUNCTION
+    aap_labeling_v1.open_accepted_image_input_manifest_members(uuid, uuid, jsonb),
+    aap_labeling_v1.lock_accepted_image_input_manifest_member(uuid, uuid, uuid, uuid, uuid, text)
     TO :"assets_owner";
 GRANT EXECUTE ON FUNCTION aap_assets_v1.lock_accepted_image_input(uuid, uuid, uuid)
     TO :"workflow_role", :"labeling_owner";
@@ -568,6 +581,9 @@ GRANT EXECUTE ON FUNCTION
     aap_assets_v1.read_accepted_image_input(uuid, uuid, uuid),
     aap_assets_v1.read_accepted_image_input_work(uuid, uuid, uuid)
     TO :"workflow_role";
+GRANT EXECUTE ON FUNCTION aap_assets_v1.capture_accepted_image_input_manifest(
+    uuid, uuid, uuid, jsonb
+) TO :"workflow_role";
 GRANT EXECUTE ON FUNCTION aap_assets_v1.dataset_item_references(uuid, uuid)
     TO :"labeling_owner", :"learning_owner";
 GRANT EXECUTE ON FUNCTION aap_assets_v1.dataset_scene_references(uuid),
@@ -891,6 +907,14 @@ ALTER FUNCTION aap_jobs_v1.project_accepted_image_input_job(uuid, uuid, uuid, bo
     OWNER TO :"jobs_owner";
 ALTER FUNCTION aap_jobs_v1.accepted_image_input_job_consistency(uuid, uuid, uuid, uuid)
     OWNER TO :"jobs_owner";
+ALTER FUNCTION aap_jobs_v1._accepted_image_input_manifest_reply(jsonb, text)
+    OWNER TO :"jobs_owner";
+ALTER FUNCTION aap_jobs_v1.project_accepted_image_input_manifest_job(
+    uuid, uuid, uuid, uuid, jsonb, text, boolean
+) OWNER TO :"jobs_owner";
+ALTER FUNCTION aap_jobs_v1.accepted_image_input_manifest_job_consistency(
+    uuid, uuid, uuid, uuid, jsonb, text
+) OWNER TO :"jobs_owner";
 ALTER FUNCTION aap_jobs_v1._task_creation_job_failure(text, text) OWNER TO :"jobs_owner";
 ALTER FUNCTION aap_jobs_v1._task_creation_job_payload_valid(uuid, jsonb) OWNER TO :"jobs_owner";
 ALTER FUNCTION aap_jobs_v1.create_task_creation_job(uuid, uuid, uuid, uuid, uuid) OWNER TO :"jobs_owner";
@@ -1099,6 +1123,8 @@ BEGIN
         'public.asset_accepted_image_inputs',
         'public.asset_accepted_image_input_attempts',
         'public.asset_accepted_input_garbage',
+        'public.asset_accepted_image_input_manifests',
+        'public.asset_accepted_image_input_manifest_members',
         'public.annotation_input_sources',
         'public.tasks', 'public.task_batches', 'public.task_locks',
         'public.predictions', 'public.prediction_metas', 'public.failed_predictions',

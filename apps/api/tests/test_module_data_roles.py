@@ -555,6 +555,8 @@ async def test_asset_cleanup_client_uses_only_the_storage_outbox_functions(
             "public.asset_accepted_image_inputs",
             "public.asset_accepted_image_input_attempts",
             "public.asset_accepted_input_garbage",
+            "public.asset_accepted_image_input_manifests",
+            "public.asset_accepted_image_input_manifest_members",
             "public.annotation_input_sources",
         ):
             assert not await cleanup.scalar(
@@ -714,6 +716,8 @@ async def test_asset_image_worker_client_executes_only_image_worker_capabilities
             "public.asset_accepted_image_inputs",
             "public.asset_accepted_image_input_attempts",
             "public.asset_accepted_input_garbage",
+            "public.asset_accepted_image_input_manifests",
+            "public.asset_accepted_image_input_manifest_members",
             "public.dataset_items",
             "public.tasks",
         ):

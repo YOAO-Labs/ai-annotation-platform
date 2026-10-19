@@ -1,0 +1,1383 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aap-assets-input-manifest/v1",
+  "$defs": {
+    "ManifestSelection": {
+      "additionalProperties": false,
+      "properties": {
+        "batch_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Batch Id"
+        },
+        "task_ids": {
+          "anyOf": [
+            {
+              "items": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "maxItems": 200,
+              "minItems": 1,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Task Ids"
+        },
+        "predict_mode": {
+          "enum": [
+            "skip_predicted",
+            "overwrite",
+            "append"
+          ],
+          "title": "Predict Mode",
+          "type": "string"
+        }
+      },
+      "required": [
+        "predict_mode"
+      ],
+      "title": "ManifestSelection",
+      "type": "object"
+    },
+    "CaptureManifestRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "job_id": {
+          "format": "uuid",
+          "title": "Job Id",
+          "type": "string"
+        },
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "selection": {
+          "$ref": "#/$defs/ManifestSelection"
+        }
+      },
+      "required": [
+        "job_id",
+        "actor_id",
+        "project_id",
+        "selection"
+      ],
+      "title": "CaptureManifestRequest",
+      "type": "object"
+    },
+    "ManifestHeader": {
+      "additionalProperties": false,
+      "properties": {
+        "job_id": {
+          "format": "uuid",
+          "title": "Job Id",
+          "type": "string"
+        },
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "selection": {
+          "$ref": "#/$defs/ManifestSelection"
+        },
+        "selection_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Selection Digest",
+          "type": "string"
+        },
+        "candidate_count": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Candidate Count",
+          "type": "integer"
+        },
+        "selected_count": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Selected Count",
+          "type": "integer"
+        },
+        "prepared_count": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Prepared Count",
+          "type": "integer"
+        },
+        "status": {
+          "enum": [
+            "preparing",
+            "sealed"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "ready_count": {
+          "anyOf": [
+            {
+              "maximum": 9223372036854775807,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Ready Count"
+        },
+        "failed_count": {
+          "anyOf": [
+            {
+              "maximum": 9223372036854775807,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Failed Count"
+        },
+        "sealed_digest": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Sealed Digest"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "sealed_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Sealed At"
+        }
+      },
+      "required": [
+        "job_id",
+        "actor_id",
+        "project_id",
+        "selection",
+        "selection_digest",
+        "candidate_count",
+        "selected_count",
+        "prepared_count",
+        "status",
+        "ready_count",
+        "failed_count",
+        "sealed_digest",
+        "created_at",
+        "sealed_at"
+      ],
+      "title": "ManifestHeader",
+      "type": "object"
+    },
+    "ManifestScope": {
+      "additionalProperties": false,
+      "properties": {
+        "job_id": {
+          "format": "uuid",
+          "title": "Job Id",
+          "type": "string"
+        },
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "job_id",
+        "actor_id",
+        "project_id"
+      ],
+      "title": "ManifestScope",
+      "type": "object"
+    },
+    "ManifestPageRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "job_id": {
+          "format": "uuid",
+          "title": "Job Id",
+          "type": "string"
+        },
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "selection_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Selection Digest",
+          "type": "string"
+        },
+        "sealed_digest": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sealed Digest"
+        },
+        "cursor": {
+          "default": 0,
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Cursor",
+          "type": "integer"
+        },
+        "page_size": {
+          "default": 100,
+          "maximum": 100,
+          "minimum": 1,
+          "title": "Page Size",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "job_id",
+        "actor_id",
+        "project_id",
+        "selection_digest"
+      ],
+      "title": "ManifestPageRequest",
+      "type": "object"
+    },
+    "ImageOwner": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "enum": [
+            "dataset_item",
+            "task"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "id"
+      ],
+      "title": "ImageOwner",
+      "type": "object"
+    },
+    "ImageSource": {
+      "additionalProperties": false,
+      "description": "Current source facts plus separate freshness facts for derived media.",
+      "properties": {
+        "owner": {
+          "$ref": "#/$defs/ImageOwner"
+        },
+        "task_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Task Id"
+        },
+        "project_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Project Id"
+        },
+        "dataset_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Dataset Id"
+        },
+        "item_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Item Id"
+        },
+        "source_generation": {
+          "maximum": 9223372036854775807,
+          "minimum": 1,
+          "title": "Source Generation",
+          "type": "integer"
+        },
+        "source_snapshot": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Source Snapshot",
+          "type": "string"
+        },
+        "object_identity": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ObjectIdentity"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "source_drifted": {
+          "title": "Source Drifted",
+          "type": "boolean"
+        },
+        "upload_ready": {
+          "title": "Upload Ready",
+          "type": "boolean"
+        },
+        "file_path": {
+          "maxLength": 1024,
+          "minLength": 1,
+          "title": "File Path",
+          "type": "string"
+        },
+        "file_name": {
+          "maxLength": 512,
+          "minLength": 1,
+          "title": "File Name",
+          "type": "string"
+        },
+        "file_type": {
+          "const": "image",
+          "title": "File Type",
+          "type": "string"
+        },
+        "bucket_kind": {
+          "enum": [
+            "datasets",
+            "legacy"
+          ],
+          "title": "Bucket Kind",
+          "type": "string"
+        },
+        "file_size": {
+          "anyOf": [
+            {
+              "maximum": 9223372036854775807,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "File Size"
+        },
+        "content_hash": {
+          "anyOf": [
+            {
+              "maxLength": 255,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Content Hash"
+        },
+        "width": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "maximum": 2147483647,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Width"
+        },
+        "height": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "maximum": 2147483647,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Height"
+        },
+        "thumbnail_path": {
+          "anyOf": [
+            {
+              "maxLength": 1024,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Thumbnail Path"
+        },
+        "blurhash": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Blurhash"
+        },
+        "thumbnail_source_generation": {
+          "anyOf": [
+            {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Thumbnail Source Generation"
+        },
+        "thumbnail_error": {
+          "anyOf": [
+            {
+              "maxLength": 2000,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Thumbnail Error"
+        }
+      },
+      "required": [
+        "owner",
+        "task_id",
+        "project_id",
+        "dataset_id",
+        "item_id",
+        "source_generation",
+        "source_snapshot",
+        "object_identity",
+        "source_drifted",
+        "upload_ready",
+        "file_path",
+        "file_name",
+        "file_type",
+        "bucket_kind",
+        "file_size",
+        "content_hash",
+        "width",
+        "height",
+        "thumbnail_path",
+        "blurhash",
+        "thumbnail_source_generation",
+        "thumbnail_error"
+      ],
+      "title": "ImageSource",
+      "type": "object"
+    },
+    "InputRecord": {
+      "additionalProperties": false,
+      "properties": {
+        "input_id": {
+          "format": "uuid",
+          "title": "Input Id",
+          "type": "string"
+        },
+        "job_id": {
+          "format": "uuid",
+          "title": "Job Id",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "pending",
+            "materializing",
+            "ready",
+            "failed",
+            "expired"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "task_version": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Task Version",
+          "type": "integer"
+        },
+        "task_source_generation": {
+          "maximum": 9223372036854775807,
+          "minimum": 1,
+          "title": "Task Source Generation",
+          "type": "integer"
+        },
+        "dataset_item_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Dataset Item Id"
+        },
+        "task_source_snapshot": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Task Source Snapshot",
+          "type": "string"
+        },
+        "source_owner": {
+          "$ref": "#/$defs/ImageOwner"
+        },
+        "source_generation": {
+          "maximum": 9223372036854775807,
+          "minimum": 1,
+          "title": "Source Generation",
+          "type": "integer"
+        },
+        "source_snapshot": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Source Snapshot",
+          "type": "string"
+        },
+        "byte_size": {
+          "anyOf": [
+            {
+              "maximum": 9223372036854775807,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Byte Size"
+        },
+        "sha256": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Sha256"
+        },
+        "error": {
+          "anyOf": [
+            {
+              "enum": [
+                "invalid_request",
+                "invalid_response",
+                "storage_unavailable",
+                "account_not_active",
+                "account_busy",
+                "invalid_account_role",
+                "source_missing",
+                "source_changed",
+                "source_busy",
+                "source_not_ready",
+                "task_not_visible",
+                "task_busy",
+                "permission_denied",
+                "not_image",
+                "asset_missing",
+                "already_ready",
+                "not_eligible",
+                "retry_cooldown",
+                "operation_conflict",
+                "operation_busy",
+                "lease_lost",
+                "dependency_changed",
+                "resource_budget_exceeded",
+                "object_missing",
+                "owner_changed",
+                "unsupported_dimensions",
+                "resource_limit",
+                "invalid_coordinate",
+                "timeout",
+                "source_unavailable",
+                "color_profile_unavailable",
+                "multi_page_unsupported",
+                "dimension_mismatch",
+                "generator_unavailable",
+                "decode_failed",
+                "encode_failed",
+                "tile_grid_mismatch",
+                "upload_verification_failed",
+                "inconsistent_ready",
+                "input_missing",
+                "input_scope_mismatch",
+                "input_not_ready",
+                "input_expired",
+                "input_corrupt",
+                "input_busy",
+                "job_not_active",
+                "job_busy",
+                "reference_busy",
+                "versioning_required"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Error"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "retire_after": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Retire After"
+        }
+      },
+      "required": [
+        "input_id",
+        "job_id",
+        "task_id",
+        "project_id",
+        "actor_id",
+        "status",
+        "task_version",
+        "task_source_generation",
+        "dataset_item_id",
+        "task_source_snapshot",
+        "source_owner",
+        "source_generation",
+        "source_snapshot",
+        "byte_size",
+        "sha256",
+        "error",
+        "created_at",
+        "retire_after"
+      ],
+      "title": "InputRecord",
+      "type": "object"
+    },
+    "ManifestMember": {
+      "additionalProperties": false,
+      "properties": {
+        "ordinal": {
+          "maximum": 9223372036854775807,
+          "minimum": 1,
+          "title": "Ordinal",
+          "type": "integer"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "task_version": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Task Version",
+          "type": "integer"
+        },
+        "task_source_generation": {
+          "maximum": 9223372036854775807,
+          "minimum": 1,
+          "title": "Task Source Generation",
+          "type": "integer"
+        },
+        "dataset_item_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Dataset Item Id"
+        },
+        "task_source_snapshot": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Task Source Snapshot",
+          "type": "string"
+        },
+        "file_path": {
+          "maxLength": 1024,
+          "title": "File Path",
+          "type": "string"
+        },
+        "file_type": {
+          "const": "image",
+          "title": "File Type",
+          "type": "string"
+        },
+        "source": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ImageSource"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "state": {
+          "enum": [
+            "unprepared",
+            "preparing",
+            "ready",
+            "failed"
+          ],
+          "title": "State",
+          "type": "string"
+        },
+        "input": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/InputRecord"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "error": {
+          "anyOf": [
+            {
+              "enum": [
+                "invalid_request",
+                "invalid_response",
+                "storage_unavailable",
+                "account_not_active",
+                "account_busy",
+                "invalid_account_role",
+                "source_missing",
+                "source_changed",
+                "source_busy",
+                "source_not_ready",
+                "task_not_visible",
+                "task_busy",
+                "permission_denied",
+                "not_image",
+                "asset_missing",
+                "already_ready",
+                "not_eligible",
+                "retry_cooldown",
+                "operation_conflict",
+                "operation_busy",
+                "lease_lost",
+                "dependency_changed",
+                "resource_budget_exceeded",
+                "object_missing",
+                "owner_changed",
+                "unsupported_dimensions",
+                "resource_limit",
+                "invalid_coordinate",
+                "timeout",
+                "source_unavailable",
+                "color_profile_unavailable",
+                "multi_page_unsupported",
+                "dimension_mismatch",
+                "generator_unavailable",
+                "decode_failed",
+                "encode_failed",
+                "tile_grid_mismatch",
+                "upload_verification_failed",
+                "inconsistent_ready",
+                "input_missing",
+                "input_scope_mismatch",
+                "input_not_ready",
+                "input_expired",
+                "input_corrupt",
+                "input_busy",
+                "job_not_active",
+                "job_busy",
+                "reference_busy",
+                "versioning_required",
+                "manifest_missing",
+                "manifest_busy",
+                "manifest_scope_mismatch",
+                "manifest_not_ready",
+                "manifest_cursor_invalid",
+                "task_scope_changed",
+                "unsupported_media"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Error"
+        }
+      },
+      "required": [
+        "ordinal",
+        "task_id",
+        "project_id",
+        "task_version",
+        "task_source_generation",
+        "dataset_item_id",
+        "task_source_snapshot",
+        "file_path",
+        "file_type",
+        "source",
+        "state",
+        "input",
+        "error"
+      ],
+      "title": "ManifestMember",
+      "type": "object"
+    },
+    "ObjectIdentity": {
+      "additionalProperties": false,
+      "properties": {
+        "etag": {
+          "maxLength": 255,
+          "minLength": 1,
+          "title": "Etag",
+          "type": "string"
+        },
+        "byte_size": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Byte Size",
+          "type": "integer"
+        },
+        "version_id": {
+          "anyOf": [
+            {
+              "maxLength": 255,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Version Id"
+        }
+      },
+      "required": [
+        "etag",
+        "byte_size"
+      ],
+      "title": "ObjectIdentity",
+      "type": "object"
+    },
+    "ManifestPage": {
+      "additionalProperties": false,
+      "properties": {
+        "manifest": {
+          "$ref": "#/$defs/ManifestHeader"
+        },
+        "cursor": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Cursor",
+          "type": "integer"
+        },
+        "next_cursor": {
+          "anyOf": [
+            {
+              "maximum": 9223372036854775807,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Next Cursor"
+        },
+        "members": {
+          "items": {
+            "$ref": "#/$defs/ManifestMember"
+          },
+          "maxItems": 100,
+          "title": "Members",
+          "type": "array"
+        }
+      },
+      "required": [
+        "manifest",
+        "cursor",
+        "next_cursor",
+        "members"
+      ],
+      "title": "ManifestPage",
+      "type": "object"
+    },
+    "NativePrepareManifestMemberRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "job_id": {
+          "format": "uuid",
+          "title": "Job Id",
+          "type": "string"
+        },
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "selection_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Selection Digest",
+          "type": "string"
+        },
+        "ordinal": {
+          "maximum": 9223372036854775807,
+          "minimum": 1,
+          "title": "Ordinal",
+          "type": "integer"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "source_snapshot": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Source Snapshot"
+        },
+        "object_identity": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ObjectIdentity"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "terminal_error": {
+          "anyOf": [
+            {
+              "enum": [
+                "source_missing",
+                "source_changed",
+                "source_not_ready",
+                "not_image",
+                "task_scope_changed",
+                "input_expired",
+                "input_corrupt",
+                "resource_budget_exceeded"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Terminal Error"
+        }
+      },
+      "required": [
+        "job_id",
+        "actor_id",
+        "project_id",
+        "selection_digest",
+        "ordinal",
+        "task_id",
+        "source_snapshot",
+        "object_identity",
+        "terminal_error"
+      ],
+      "title": "NativePrepareManifestMemberRequest",
+      "type": "object"
+    },
+    "ManifestMemberReceipt": {
+      "additionalProperties": false,
+      "properties": {
+        "job_id": {
+          "format": "uuid",
+          "title": "Job Id",
+          "type": "string"
+        },
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "selection_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Selection Digest",
+          "type": "string"
+        },
+        "member": {
+          "$ref": "#/$defs/ManifestMember"
+        }
+      },
+      "required": [
+        "job_id",
+        "actor_id",
+        "project_id",
+        "selection_digest",
+        "member"
+      ],
+      "title": "ManifestMemberReceipt",
+      "type": "object"
+    },
+    "SealManifestRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "job_id": {
+          "format": "uuid",
+          "title": "Job Id",
+          "type": "string"
+        },
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "selection_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Selection Digest",
+          "type": "string"
+        }
+      },
+      "required": [
+        "job_id",
+        "actor_id",
+        "project_id",
+        "selection_digest"
+      ],
+      "title": "SealManifestRequest",
+      "type": "object"
+    },
+    "PrepareManifestMemberRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "job_id": {
+          "format": "uuid",
+          "title": "Job Id",
+          "type": "string"
+        },
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "selection_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Selection Digest",
+          "type": "string"
+        },
+        "ordinal": {
+          "maximum": 9223372036854775807,
+          "minimum": 1,
+          "title": "Ordinal",
+          "type": "integer"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "job_id",
+        "actor_id",
+        "project_id",
+        "selection_digest",
+        "ordinal",
+        "task_id"
+      ],
+      "title": "PrepareManifestMemberRequest",
+      "type": "object"
+    },
+    "_Error": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "enum": [
+            "invalid_request",
+            "invalid_response",
+            "storage_unavailable",
+            "account_not_active",
+            "account_busy",
+            "invalid_account_role",
+            "source_missing",
+            "source_changed",
+            "source_busy",
+            "source_not_ready",
+            "task_not_visible",
+            "task_busy",
+            "permission_denied",
+            "not_image",
+            "asset_missing",
+            "already_ready",
+            "not_eligible",
+            "retry_cooldown",
+            "operation_conflict",
+            "operation_busy",
+            "lease_lost",
+            "dependency_changed",
+            "resource_budget_exceeded",
+            "object_missing",
+            "owner_changed",
+            "unsupported_dimensions",
+            "resource_limit",
+            "invalid_coordinate",
+            "timeout",
+            "source_unavailable",
+            "color_profile_unavailable",
+            "multi_page_unsupported",
+            "dimension_mismatch",
+            "generator_unavailable",
+            "decode_failed",
+            "encode_failed",
+            "tile_grid_mismatch",
+            "upload_verification_failed",
+            "inconsistent_ready",
+            "input_missing",
+            "input_scope_mismatch",
+            "input_not_ready",
+            "input_expired",
+            "input_corrupt",
+            "input_busy",
+            "job_not_active",
+            "job_busy",
+            "reference_busy",
+            "versioning_required",
+            "manifest_missing",
+            "manifest_busy",
+            "manifest_scope_mismatch",
+            "manifest_not_ready",
+            "manifest_cursor_invalid",
+            "task_scope_changed",
+            "unsupported_media"
+          ],
+          "title": "Code",
+          "type": "string"
+        }
+      },
+      "required": [
+        "code"
+      ],
+      "title": "_Error",
+      "type": "object"
+    }
+  },
+  "x-budgets": {
+    "request_bytes": 65536,
+    "reply_bytes": 2097152,
+    "page_size": 100,
+    "explicit_task_limit": 200
+  },
+  "x-native": {
+    "capture_accepted_image_input_manifest": {
+      "signature": "aap_assets_v1.capture_accepted_image_input_manifest(uuid,uuid,uuid,jsonb)",
+      "arguments": [
+        "job_id",
+        "actor_id",
+        "project_id",
+        "selection"
+      ],
+      "request": "CaptureManifestRequest",
+      "result": "ManifestHeader",
+      "role": "workflow"
+    },
+    "read_accepted_image_input_manifest": {
+      "signature": "aap_assets_v1.read_accepted_image_input_manifest(uuid,uuid,uuid)",
+      "arguments": [
+        "job_id",
+        "actor_id",
+        "project_id"
+      ],
+      "request": "ManifestScope",
+      "result": "ManifestHeader",
+      "role": "control"
+    },
+    "read_accepted_image_input_manifest_page": {
+      "signature": "aap_assets_v1.read_accepted_image_input_manifest_page(uuid,uuid,uuid,text,text,bigint,integer)",
+      "arguments": [
+        "job_id",
+        "actor_id",
+        "project_id",
+        "selection_digest",
+        "sealed_digest",
+        "cursor",
+        "page_size"
+      ],
+      "request": "ManifestPageRequest",
+      "result": "ManifestPage",
+      "role": "control"
+    },
+    "prepare_accepted_image_input_manifest_member": {
+      "signature": "aap_assets_v1.prepare_accepted_image_input_manifest_member(uuid,uuid,uuid,text,bigint,uuid,text,jsonb,text)",
+      "arguments": [
+        "job_id",
+        "actor_id",
+        "project_id",
+        "selection_digest",
+        "ordinal",
+        "task_id",
+        "source_snapshot",
+        "object_identity",
+        "terminal_error"
+      ],
+      "request": "NativePrepareManifestMemberRequest",
+      "result": "ManifestMemberReceipt",
+      "role": "control"
+    },
+    "seal_accepted_image_input_manifest": {
+      "signature": "aap_assets_v1.seal_accepted_image_input_manifest(uuid,uuid,uuid,text)",
+      "arguments": [
+        "job_id",
+        "actor_id",
+        "project_id",
+        "selection_digest"
+      ],
+      "request": "SealManifestRequest",
+      "result": "ManifestHeader",
+      "role": "control"
+    }
+  }
+}

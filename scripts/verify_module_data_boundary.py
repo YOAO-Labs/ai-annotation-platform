@@ -109,6 +109,9 @@ SQL_ARTIFACTS = (
     "0221_accepted_inputs_execution.sql",
     "0221_accepted_inputs_retention.sql",
     "0221_accepted_inputs_garbage.sql",
+    "0222_accepted_input_manifests_state.sql",
+    "0222_accepted_input_manifests_authorities.sql",
+    "0222_accepted_input_manifests_control.sql",
 )
 SCHEMA_ARTIFACTS = (
     "0191_task_append.schema.json",
@@ -141,6 +144,7 @@ SCHEMA_ARTIFACTS = (
     "0219_assets_media.schema.json",
     "0220_assets_images.schema.json",
     "0221_accepted_inputs.schema.json",
+    "0222_accepted_input_manifests.schema.json",
 )
 TEST_FILES = (
     "tests/test_workspace_data_contract.py",
@@ -240,6 +244,8 @@ TEST_FILES = (
     "tests/test_assets_images_migration_contract.py",
     "tests/test_assets_images_migration_guards.py",
     "tests/test_assets_accepted_inputs_migration.py",
+    "tests/test_assets_input_manifests_migration.py",
+    "tests/test_assets_input_manifests_native.py",
     "tests/test_native_schema_autogeneration.py",
     "tests/test_accepted_input_preannotation.py",
     "tests/test_prediction_retry_input_deferral.py",
@@ -1796,8 +1802,8 @@ def main(argv: list[str] | None = None) -> int:
         database = resources["database"]
         evidence["database"] = database
         _, heads = migration_graph(ROOT)
-        if heads != ["0221"]:
-            raise RuntimeError("module-data acceptance requires migration head 0221")
+        if heads != ["0222"]:
+            raise RuntimeError("module-data acceptance requires migration head 0222")
         evidence["migrations"]["head_before_downgrade"] = heads[0]
         phase = "downgrade-to-0189"
         _container_details(

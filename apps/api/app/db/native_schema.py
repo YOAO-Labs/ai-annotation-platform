@@ -5,6 +5,8 @@ NATIVE_MANAGED_TABLES = frozenset(
         "asset_accepted_image_inputs",
         "asset_accepted_image_input_attempts",
         "asset_accepted_input_garbage",
+        "asset_accepted_image_input_manifests",
+        "asset_accepted_image_input_manifest_members",
         "annotation_input_sources",
     }
 )

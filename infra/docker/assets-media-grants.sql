@@ -155,7 +155,11 @@ GRANT EXECUTE ON FUNCTION
     aap_assets_v1.find_accepted_image_input(uuid,uuid,uuid),
     aap_assets_v1.reserve_accepted_image_input(uuid,uuid,uuid,text,jsonb),
     aap_assets_v1.read_accepted_image_input(uuid,uuid,uuid),
-    aap_assets_v1.read_accepted_image_input_work(uuid,uuid,uuid)
+    aap_assets_v1.read_accepted_image_input_work(uuid,uuid,uuid),
+    aap_assets_v1.read_accepted_image_input_manifest(uuid,uuid,uuid),
+    aap_assets_v1.read_accepted_image_input_manifest_page(uuid,uuid,uuid,text,text,bigint,integer),
+    aap_assets_v1.prepare_accepted_image_input_manifest_member(uuid,uuid,uuid,text,bigint,uuid,text,jsonb,text),
+    aap_assets_v1.seal_accepted_image_input_manifest(uuid,uuid,uuid,text)
     TO :"asset_media_control_role";
 GRANT EXECUTE ON FUNCTION
     aap_assets_v1.claim_video_media(uuid,uuid,integer,text[]),
@@ -218,7 +222,11 @@ DECLARE
         pg_catalog.to_regprocedure('aap_assets_v1.find_accepted_image_input(uuid,uuid,uuid)')::oid,
         pg_catalog.to_regprocedure('aap_assets_v1.reserve_accepted_image_input(uuid,uuid,uuid,text,jsonb)')::oid,
         pg_catalog.to_regprocedure('aap_assets_v1.read_accepted_image_input(uuid,uuid,uuid)')::oid,
-        pg_catalog.to_regprocedure('aap_assets_v1.read_accepted_image_input_work(uuid,uuid,uuid)')::oid
+        pg_catalog.to_regprocedure('aap_assets_v1.read_accepted_image_input_work(uuid,uuid,uuid)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.read_accepted_image_input_manifest(uuid,uuid,uuid)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.read_accepted_image_input_manifest_page(uuid,uuid,uuid,text,text,bigint,integer)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.prepare_accepted_image_input_manifest_member(uuid,uuid,uuid,text,bigint,uuid,text,jsonb,text)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.seal_accepted_image_input_manifest(uuid,uuid,uuid,text)')::oid
     ];
     worker_functions oid[] := ARRAY[
         pg_catalog.to_regprocedure('aap_assets_v1.claim_video_media(uuid,uuid,integer,text[])')::oid,
