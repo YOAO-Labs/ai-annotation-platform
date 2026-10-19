@@ -1,0 +1,377 @@
+{
+  "$defs": {
+    "CapturedVideoTask": {
+      "additionalProperties": false,
+      "description": "Raw capture can retain a missing link as a fixed member failure.",
+      "properties": {
+        "batch_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Batch Id"
+        },
+        "dataset_item_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Dataset Item Id"
+        },
+        "file_path": {
+          "maxLength": 1024,
+          "title": "File Path",
+          "type": "string"
+        },
+        "file_type": {
+          "const": "video",
+          "title": "File Type",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "task_source_generation": {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "title": "Task Source Generation",
+          "type": "integer"
+        },
+        "task_source_snapshot": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Task Source Snapshot",
+          "type": "string"
+        },
+        "task_version": {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "title": "Task Version",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "task_id",
+        "project_id",
+        "batch_id",
+        "task_version",
+        "task_source_generation",
+        "dataset_item_id",
+        "task_source_snapshot",
+        "file_path",
+        "file_type"
+      ],
+      "title": "CapturedVideoTask",
+      "type": "object"
+    },
+    "FrameSampling": {
+      "additionalProperties": false,
+      "properties": {
+        "format": {
+          "default": "jpeg",
+          "enum": ["jpeg", "webp"],
+          "title": "Format",
+          "type": "string"
+        },
+        "max_frames": {
+          "maximum": 2147483647,
+          "minimum": 1,
+          "title": "Max Frames",
+          "type": "integer"
+        },
+        "step": {
+          "default": 1,
+          "maximum": 2147483647,
+          "minimum": 1,
+          "title": "Step",
+          "type": "integer"
+        },
+        "width": {
+          "default": 1280,
+          "maximum": 4096,
+          "minimum": 1,
+          "title": "Width",
+          "type": "integer"
+        }
+      },
+      "required": ["max_frames"],
+      "title": "FrameSampling",
+      "type": "object"
+    },
+    "LockVideoInputManifestMemberRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "captured_task": {
+          "$ref": "#/$defs/CapturedVideoTask"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "selection": {
+          "$ref": "#/$defs/VideoSelection"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        }
+      },
+      "required": ["actor_id", "project_id", "selection", "task_id", "captured_task"],
+      "title": "LockVideoInputManifestMemberRequest",
+      "type": "object"
+    },
+    "LockedVideoInputManifestMember": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "task": {
+          "$ref": "#/$defs/CapturedVideoTask"
+        },
+        "upload_ready": {
+          "title": "Upload Ready",
+          "type": "boolean"
+        }
+      },
+      "required": ["actor_id", "task", "upload_ready"],
+      "title": "LockedVideoInputManifestMember",
+      "type": "object"
+    },
+    "OpenVideoInputManifestMembersRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "selection": {
+          "$ref": "#/$defs/VideoSelection"
+        }
+      },
+      "required": ["actor_id", "project_id", "selection"],
+      "title": "OpenVideoInputManifestMembersRequest",
+      "type": "object"
+    },
+    "OpenVideoInputManifestMembersResult": {
+      "additionalProperties": false,
+      "properties": {
+        "cursor": {
+          "maxLength": 64,
+          "minLength": 1,
+          "pattern": "^aap_video_members_[0-9a-f]{32}$",
+          "title": "Cursor",
+          "type": "string"
+        }
+      },
+      "required": ["cursor"],
+      "title": "OpenVideoInputManifestMembersResult",
+      "type": "object"
+    },
+    "SelectionCursorError": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "enum": ["invalid_response", "task_scope_changed", "unsupported_media", "resource_limit"],
+          "title": "Code",
+          "type": "string"
+        },
+        "kind": {
+          "const": "error",
+          "title": "Kind",
+          "type": "string"
+        }
+      },
+      "required": ["kind", "code"],
+      "title": "SelectionCursorError",
+      "type": "object"
+    },
+    "SelectionCursorHeader": {
+      "additionalProperties": false,
+      "properties": {
+        "candidate_count": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "title": "Candidate Count",
+          "type": "integer"
+        },
+        "kind": {
+          "const": "header",
+          "title": "Kind",
+          "type": "string"
+        },
+        "selected_count": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "title": "Selected Count",
+          "type": "integer"
+        }
+      },
+      "required": ["kind", "candidate_count", "selected_count"],
+      "title": "SelectionCursorHeader",
+      "type": "object"
+    },
+    "SelectionCursorMember": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "member",
+          "title": "Kind",
+          "type": "string"
+        },
+        "ordinal": {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "title": "Ordinal",
+          "type": "integer"
+        },
+        "task": {
+          "$ref": "#/$defs/CapturedVideoTask"
+        }
+      },
+      "required": ["kind", "ordinal", "task"],
+      "title": "SelectionCursorMember",
+      "type": "object"
+    },
+    "VideoSelection": {
+      "additionalProperties": false,
+      "properties": {
+        "batch_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Batch Id"
+        },
+        "execution_scope": {
+          "enum": ["bulk", "workbench"],
+          "title": "Execution Scope",
+          "type": "string"
+        },
+        "predict_mode": {
+          "enum": ["skip_predicted", "overwrite", "append"],
+          "title": "Predict Mode",
+          "type": "string"
+        },
+        "sampling": {
+          "$ref": "#/$defs/FrameSampling"
+        },
+        "task_ids": {
+          "anyOf": [
+            {
+              "items": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "maxItems": 200,
+              "minItems": 1,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Task Ids"
+        }
+      },
+      "required": ["batch_id", "task_ids", "predict_mode", "execution_scope", "sampling"],
+      "title": "VideoSelection",
+      "type": "object"
+    },
+    "_Error": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "enum": [
+            "invalid_request",
+            "invalid_response",
+            "account_not_active",
+            "account_busy",
+            "invalid_account_role",
+            "task_not_visible",
+            "task_busy",
+            "permission_denied",
+            "source_missing",
+            "source_not_ready",
+            "source_busy",
+            "task_scope_changed",
+            "unsupported_media",
+            "resource_limit"
+          ],
+          "title": "Code",
+          "type": "string"
+        }
+      },
+      "required": ["code"],
+      "title": "_Error",
+      "type": "object"
+    }
+  },
+  "$id": "aap-labeling-video-input-selection/v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "x-budgets": {
+    "explicit_task_limit": 200,
+    "page_size": 100,
+    "reply_bytes": 2097152,
+    "request_bytes": 65536
+  },
+  "x-cursor_rows": {
+    "error": "SelectionCursorError",
+    "header": "SelectionCursorHeader",
+    "member": "SelectionCursorMember",
+    "ordering": "header first, then selected Task UUID ascending"
+  },
+  "x-native": {
+    "lock_video_input_manifest_member": {
+      "arguments": ["actor_id", "project_id", "task_id", "selection", "captured_task"],
+      "consumer": "assets_owner",
+      "request": "LockVideoInputManifestMemberRequest",
+      "result": "LockedVideoInputManifestMember",
+      "signature": "aap_labeling_v1.lock_video_input_manifest_member(uuid,uuid,uuid,jsonb,jsonb)"
+    },
+    "open_video_input_manifest_members": {
+      "arguments": ["actor_id", "project_id", "selection"],
+      "consumer": "assets_owner",
+      "request": "OpenVideoInputManifestMembersRequest",
+      "result": "OpenVideoInputManifestMembersResult",
+      "signature": "aap_labeling_v1.open_video_input_manifest_members(uuid,uuid,jsonb)"
+    }
+  },
+  "x-stage": "Labeling selection projection; native capture owner integration pending"
+}

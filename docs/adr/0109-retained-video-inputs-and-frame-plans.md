@@ -195,6 +195,33 @@ Frozen SQL install/rollback, downgrade and upgrade pass; all scoped resources
 are cleaned. These projections provide source facts for the next input-owner
 implementation, without activating accepted-video execution.
 
+Migration 0224 adds two Labeling-owned projections under
+`aap-labeling-video-input-selection/v1`. `open_video_input_manifest_members`
+returns a cursor identifier whose first row contains candidate and selected
+counts and whose remaining rows contain captured Tasks ordered by UUID. It
+streams complete implicit project/batch membership instead of placing all Task
+IDs in the Job or an unbounded JSON array. `candidate_count` is measured before
+`skip_predicted`; `selected_count` and cursor members are measured after it.
+Explicit selections remain canonical and limited to 200 Tasks. A selected
+missing DatasetItem link remains a cursor member so the input owner can seal it
+as `source_missing`; mixed media, an invalid selector, or changed explicit
+scope fails the whole cursor before any member is yielded.
+
+`lock_video_input_manifest_member` rechecks the current project manager and
+Task visibility before attempting contention-sensitive locks, then takes the
+eligible batch `FOR SHARE NOWAIT`, the Task edit advisory lock and Task
+`FOR UPDATE NOWAIT`. It compares captured source identity while ignoring the
+ordinary Task workflow version, rechecks batch and `skip_predicted` eligibility,
+and applies the existing editor-lock rules: bulk rejects every active editor
+lock, while Workbench allows the current actor's lock and rejects another
+actor's lock. Workbench requires one explicit Task and a null selection batch;
+its current editable Task states and admin-lock checks are preserved. Missing
+links produce a fixed `source_missing` error after scope checks, and uploading
+Tasks produce `source_not_ready`. Both functions are executable by the Assets
+owner only; their cursor rows and lock result are specified in
+`0224_video_input_selection.schema.json`. The projections do not install an
+input ledger or activate video admission.
+
 The shared versioned transfer implementation has a separate video/frame adapter.
 Its 98-case focused regression run covers the new prefixes and existing image
 storage/worker behavior, including replaced latest keys, exact-version reads,
