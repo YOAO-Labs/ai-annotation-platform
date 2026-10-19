@@ -69,10 +69,37 @@ pytestmark = [
 _ACCEPTANCE_LABEL = "org.aap.acceptance"
 _IDENTITY_LABEL = "org.aap.acceptance-id"
 _WORKTREE_OWNER_LABEL = "org.aap.worktree-owner"
-_FRAME_COUNT = 12
-_TASK_COUNT = 2
 _CHUNK_SIZE = 12
 _TERMINAL = {"completed", "failed", "cancelled"}
+_PROFILES = {
+    "smoke": {
+        "name": "smoke",
+        "task_count": 2,
+        "frame_count": 12,
+        "width": 160,
+        "height": 90,
+        "job_timeout_seconds": 240,
+        "ffmpeg_timeout_seconds": 30,
+        "peer_gate_after_calls": 0,
+        "peer_gate_timeout_seconds": 20,
+    },
+    "capacity": {
+        "name": "capacity",
+        "task_count": 3,
+        "frame_count": 120,
+        "width": 1280,
+        "height": 720,
+        "job_timeout_seconds": 900,
+        "ffmpeg_timeout_seconds": 120,
+        "peer_gate_after_calls": 30,
+        "peer_gate_timeout_seconds": 20,
+    },
+}
+_PROFILE_NAME = os.environ.get("AAP_VIDEO_CONSUMER_PROFILE", "smoke")
+_PROFILE = _PROFILES.get(_PROFILE_NAME)
+_TASK_COUNT = int((_PROFILE or _PROFILES["smoke"])["task_count"])
+_FRAME_COUNT = int((_PROFILE or _PROFILES["smoke"])["frame_count"])
+_MAX_CAPACITY_SAMPLES = 901
 
 
 def _docker(*arguments: str, timeout: int = 90) -> str:
@@ -482,19 +509,36 @@ def _container_port(url: str) -> int:
     return parsed.port
 
 
-def _video_bytes(directory: Path) -> bytes:
+def _video_bytes(directory: Path, profile: dict | None = None) -> bytes:
+    profile = profile or _PROFILES["smoke"]
     destination = directory / f"video-consumer-{uuid4().hex}.mp4"
-    result = subprocess.run(
+    width = int(profile["width"])
+    height = int(profile["height"])
+    frame_count = int(profile["frame_count"])
+    if profile["name"] == "capacity":
+        input_source = f"testsrc2=size={width}x{height}:rate=6:duration=20"
+        video_filter = (
+            "drawbox=x=624:y=344:w=32:h=32:color=red:t=fill,"
+            "drawbox=x='mod(t*60,1152)':y=100:w=64:h=64:color=yellow:t=fill"
+        )
+    else:
+        input_source = "color=c=red:s=160x90:r=6:d=2"
+        video_filter = None
+    command = [
+        "ffmpeg",
+        "-v",
+        "error",
+        "-f",
+        "lavfi",
+        "-i",
+        input_source,
+    ]
+    if video_filter is not None:
+        command.extend(["-vf", video_filter])
+    command.extend(
         [
-            "ffmpeg",
-            "-v",
-            "error",
-            "-f",
-            "lavfi",
-            "-i",
-            "color=c=red:s=160x90:r=6:d=2",
             "-frames:v",
-            str(_FRAME_COUNT),
+            str(frame_count),
             "-c:v",
             "libx264",
             "-pix_fmt",
@@ -503,9 +547,12 @@ def _video_bytes(directory: Path) -> bytes:
             "+faststart",
             "-y",
             str(destination),
-        ],
+        ]
+    )
+    result = subprocess.run(
+        command,
         capture_output=True,
-        timeout=30,
+        timeout=int(profile["ffmpeg_timeout_seconds"]),
         check=False,
     )
     if result.returncode != 0 or not destination.is_file():
@@ -529,27 +576,104 @@ async def _wait_http_ready(origin: str, path: str, timeout: float = 45) -> None:
     pytest.fail("owned video-consumer HTTP service did not become ready", pytrace=False)
 
 
-async def _wait_job(engine, job_id: UUID, timeout: float = 240) -> tuple[str, dict]:
+async def _wait_job(
+    engine,
+    job_id: UUID,
+    timeout: float = 240,
+    *,
+    capacity_metrics: dict | None = None,
+    worker_prefix: str | None = None,
+) -> tuple[str, dict]:
     deadline = time.monotonic() + timeout
     current = "missing"
     result = {}
-    while time.monotonic() < deadline:
-        async with engine.connect() as connection:
-            row = (
-                await connection.execute(
-                    text("SELECT status,result FROM public.async_jobs WHERE id=:job"),
-                    {"job": job_id},
+    redis_client = None
+    celery_app = None
+    next_sample = 0.0
+    if capacity_metrics is not None:
+        import redis
+
+        from app.workers.celery_app import celery_app as app
+
+        celery_app = app
+        redis_client = redis.Redis.from_url(
+            settings.effective_celery_broker,
+            decode_responses=True,
+            socket_connect_timeout=1,
+            socket_timeout=1,
+        )
+        capacity_metrics["samples"] = []
+    try:
+        while time.monotonic() < deadline:
+            async with engine.connect() as connection:
+                row = (
+                    await connection.execute(
+                        text(
+                            "SELECT status,result FROM public.async_jobs WHERE id=:job"
+                        ),
+                        {"job": job_id},
+                    )
+                ).first()
+            if row is not None:
+                current, result = row[0], row[1] or {}
+                if current in _TERMINAL:
+                    return current, result
+            now = time.monotonic()
+            if (
+                capacity_metrics is not None
+                and redis_client is not None
+                and celery_app is not None
+                and now >= next_sample
+                and len(capacity_metrics["samples"]) < _MAX_CAPACITY_SAMPLES
+            ):
+                try:
+                    progress_prefix = f"frame_preannotate:{job_id}"
+                    done = int(redis_client.get(f"{progress_prefix}:done") or 0)
+                    total = int(redis_client.get(f"{progress_prefix}:total") or 0)
+                    receipts = int(
+                        redis_client.hlen(f"{progress_prefix}:segments") or 0
+                    )
+                    ml_queue = int(redis_client.llen("ml") or 0)
+                except Exception:
+                    done = total = receipts = ml_queue = 0
+                active_count = reserved_count = None
+                if worker_prefix:
+                    inspector = celery_app.control.inspect(timeout=1)
+                    try:
+                        active = await asyncio.to_thread(inspector.active)
+                        reserved = await asyncio.to_thread(inspector.reserved)
+                        active_count = sum(
+                            len(tasks)
+                            for worker_name, tasks in (active or {}).items()
+                            if worker_name.startswith(worker_prefix)
+                        )
+                        reserved_count = sum(
+                            len(tasks)
+                            for worker_name, tasks in (reserved or {}).items()
+                            if worker_name.startswith(worker_prefix)
+                        )
+                    except Exception:
+                        active_count = reserved_count = None
+                capacity_metrics["samples"].append(
+                    {
+                        "elapsed_seconds": round(now - (deadline - timeout), 3),
+                        "done_frames": done,
+                        "total_frames": total,
+                        "segment_receipts": receipts,
+                        "ml_queue_depth": ml_queue,
+                        "active_tasks": active_count,
+                        "reserved_tasks": reserved_count,
+                    }
                 )
-            ).first()
-        if row is not None:
-            current, result = row[0], row[1] or {}
-            if current in _TERMINAL:
-                return current, result
-        await asyncio.sleep(0.2)
-    pytest.fail(
-        f"containerized video Job did not become terminal (status={current})",
-        pytrace=False,
-    )
+                next_sample = now + 1.0
+            await asyncio.sleep(0.2)
+        pytest.fail(
+            f"containerized video Job did not become terminal (status={current})",
+            pytrace=False,
+        )
+    finally:
+        if redis_client is not None:
+            redis_client.close()
 
 
 async def _wait_celery_workers(prefix: str, timeout: float = 45) -> None:
@@ -590,6 +714,108 @@ async def _peer_calls(origin: str) -> list[dict]:
             "deterministic ML peer returned an invalid observation list", pytrace=False
         )
     return calls
+
+
+def _distribution(values: list[float]) -> dict[str, float | None]:
+    ordered = sorted(float(value) for value in values)
+    if not ordered:
+        return {"p50": None, "p95": None, "max": None}
+
+    def percentile(fraction: float) -> float:
+        return round(ordered[round((len(ordered) - 1) * fraction)], 3)
+
+    return {
+        "p50": percentile(0.5),
+        "p95": percentile(0.95),
+        "max": round(ordered[-1], 3),
+    }
+
+
+async def _wait_peer_gate(origin: str, *, timeout: float, job_wait=None) -> dict:
+    deadline = time.monotonic() + timeout
+    async with httpx.AsyncClient(trust_env=False, timeout=2) as client:
+        while time.monotonic() < deadline:
+            if job_wait is not None and job_wait.done():
+                status, _ = job_wait.result()
+                pytest.fail(
+                    "video Job became terminal before the peer held an in-flight response "
+                    f"(status={status})",
+                    pytrace=False,
+                )
+            try:
+                response = await client.get(f"{origin}/__acceptance/gate-state")
+                if response.status_code != 200:
+                    pytest.fail("capacity peer gate was not enabled", pytrace=False)
+                state = response.json()
+                if state.get("entered") is True:
+                    return state
+            except httpx.HTTPError:
+                pass
+            await asyncio.sleep(0.05)
+    pytest.fail("capacity peer gate did not hold a frame response", pytrace=False)
+
+
+async def _release_peer_gate(origin: str) -> None:
+    async with httpx.AsyncClient(trust_env=False, timeout=2) as client:
+        response = await client.post(f"{origin}/__acceptance/release")
+    if response.status_code != 200 or response.json() != {"released": True}:
+        pytest.fail(
+            "capacity peer gate did not release its held response", pytrace=False
+        )
+
+
+async def _wait_active_frame_worker(
+    celery_app,
+    *,
+    worker_prefix: str,
+    job_id: UUID,
+    frame_reference: str,
+    timeout: float = 10,
+) -> tuple[str, int]:
+    try:
+        task_id, raw_frame_index = frame_reference.rsplit(":", 1)
+        frame_ordinal = int(raw_frame_index) + 1
+    except (AttributeError, TypeError, ValueError):
+        pytest.fail("peer gate returned an invalid frame identity", pytrace=False)
+
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        inspector = celery_app.control.inspect(timeout=1)
+        try:
+            active = await asyncio.to_thread(inspector.active)
+        except Exception:
+            active = None
+        for worker_name, tasks in (active or {}).items():
+            if not worker_name.startswith(worker_prefix):
+                continue
+            for active_task in tasks or []:
+                task_name = str(active_task.get("name") or "")
+                kwargs = active_task.get("kwargs") or {}
+                args = active_task.get("args") or []
+                if (
+                    not task_name.endswith("predict_video_segment")
+                    or kwargs.get("job_id") != str(job_id)
+                    or not isinstance(args, list)
+                    or not args
+                    or not isinstance(args[0], dict)
+                ):
+                    continue
+                segment = args[0]
+                ordinals = set(segment.get("frame_ordinals") or [])
+                resume = kwargs.get("resume")
+                if isinstance(resume, dict):
+                    ordinals.update(resume.get("frame_ordinals") or [])
+                if segment.get("task_id") != task_id or frame_ordinal not in ordinals:
+                    continue
+                if worker_name.startswith(f"{worker_prefix}1@"):
+                    return "celery_a", frame_ordinal
+                if worker_name.startswith(f"{worker_prefix}2@"):
+                    return "celery_b", frame_ordinal
+        await asyncio.sleep(0.1)
+    pytest.fail(
+        "peer gate frame was not found in a live Celery segment",
+        pytrace=False,
+    )
 
 
 async def _seed_video_project(
@@ -715,11 +941,140 @@ async def _read_result_state(engine, job_id: UUID, task_ids: list[UUID]):
         return manifest, inputs, frames, predictions
 
 
+async def _capacity_database_metrics(
+    engine, job_id: UUID, task_ids: list[UUID]
+) -> dict:
+    async with engine.connect() as connection:
+        job = (
+            await connection.execute(
+                text(
+                    "SELECT created_at,started_at,completed_at "
+                    "FROM public.async_jobs WHERE id=:job"
+                ),
+                {"job": job_id},
+            )
+        ).one()
+        manifest = (
+            await connection.execute(
+                text(
+                    "SELECT created_at,sealed_at FROM public.asset_accepted_video_manifests "
+                    "WHERE job_id=:job"
+                ),
+                {"job": job_id},
+            )
+        ).one()
+        inputs = (
+            await connection.execute(
+                text(
+                    "SELECT input_id,status,attempt_count,staged_count,staged_bytes "
+                    "FROM public.asset_accepted_video_inputs WHERE job_id=:job"
+                ),
+                {"job": job_id},
+            )
+        ).all()
+        input_ids = [row[0] for row in inputs]
+        frame_summary = (
+            await connection.execute(
+                text(
+                    "SELECT count(*),count(*) FILTER (WHERE status='ready'),"
+                    "COALESCE(sum(attempt_count),0) FROM public.asset_accepted_video_frames "
+                    "WHERE input_id=ANY(CAST(:ids AS uuid[]))"
+                ),
+                {"ids": input_ids},
+            )
+        ).one()
+        input_attempt_ms = []
+        frame_attempt_ms = []
+        if input_ids:
+            input_attempt_ms = (
+                (
+                    await connection.execute(
+                        text(
+                            "SELECT extract(epoch FROM (completed_at-created_at))*1000 "
+                            "FROM public.asset_accepted_video_input_attempts "
+                            "WHERE input_id=ANY(CAST(:ids AS uuid[])) AND completed_at IS NOT NULL"
+                        ),
+                        {"ids": input_ids},
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            frame_attempt_ms = (
+                (
+                    await connection.execute(
+                        text(
+                            "SELECT extract(epoch FROM (completed_at-created_at))*1000 "
+                            "FROM public.asset_accepted_video_frame_attempts "
+                            "WHERE input_id=ANY(CAST(:ids AS uuid[])) AND completed_at IS NOT NULL"
+                        ),
+                        {"ids": input_ids},
+                    )
+                )
+                .scalars()
+                .all()
+            )
+        prediction_times = (
+            (
+                await connection.execute(
+                    text(
+                        "SELECT created_at FROM public.predictions "
+                        "WHERE task_id=ANY(CAST(:ids AS uuid[])) ORDER BY created_at"
+                    ),
+                    {"ids": task_ids},
+                )
+            )
+            .scalars()
+            .all()
+        )
+
+    def elapsed_ms(start, end):
+        return (
+            None
+            if start is None or end is None
+            else (end - start).total_seconds() * 1000
+        )
+
+    prediction_gaps = [
+        (right - left).total_seconds() * 1000
+        for left, right in zip(prediction_times, prediction_times[1:])
+    ]
+    job_created, job_started, job_completed = job
+    manifest_created, manifest_sealed = manifest
+    return {
+        "job_queue_ms": elapsed_ms(job_created, job_started),
+        "job_execution_ms": elapsed_ms(job_started, job_completed),
+        "job_total_ms": elapsed_ms(job_created, job_completed),
+        "manifest_prepare_ms": elapsed_ms(manifest_created, manifest_sealed),
+        "input_count": len(inputs),
+        "input_ready_count": sum(row[1] == "ready" for row in inputs),
+        "input_attempt_count": sum(int(row[2]) for row in inputs),
+        "input_attempt_duration_ms": _distribution(
+            [float(value) for value in input_attempt_ms]
+        ),
+        "staged_timebase_count": sum(int(row[3]) for row in inputs),
+        "staged_timebase_bytes": sum(int(row[4]) for row in inputs),
+        "frame_count": int(frame_summary[0]),
+        "frame_ready_count": int(frame_summary[1]),
+        "frame_attempt_count": int(frame_summary[2]),
+        "frame_attempt_duration_ms": _distribution(
+            [float(value) for value in frame_attempt_ms]
+        ),
+        "prediction_count": len(prediction_times),
+        "prediction_interarrival_ms": _distribution(prediction_gaps),
+    }
+
+
 async def test_retained_video_consumers_run_in_owned_api_and_worker_containers(
     test_engine, test_db_url, tmp_path, record_property
 ):
     from app.workers.celery_app import celery_app
     from app.workers.frame_preannotate import predict_video_segment
+
+    if _PROFILE is None:
+        pytest.fail("unknown video-consumer acceptance profile", pytrace=False)
+    profile = _PROFILE
+    capacity_profile = profile["name"] == "capacity"
 
     api_image = _required_image("AAP_VIDEO_CONSUMER_API_IMAGE")
     control_image = _required_image("AAP_VIDEO_CONSUMER_MEDIA_CONTROL_IMAGE")
@@ -825,6 +1180,10 @@ async def test_retained_video_consumers_run_in_owned_api_and_worker_containers(
     total_started = time.monotonic()
     container_roles: dict[str, str] = {}
     startup_seconds: dict[str, float] = {}
+    capacity_metrics: dict | None = {} if capacity_profile else None
+    peer_gate_waiting = False
+    stopped_celery_role: str | None = None
+    stopped_celery_peak: int | None = None
 
     try:
         media_s3_common = {
@@ -844,6 +1203,14 @@ async def test_retained_video_consumers_run_in_owned_api_and_worker_containers(
                 "AAP_VIDEO_PEER_MINIO_HOST": "host.docker.internal",
                 "AAP_VIDEO_PEER_MINIO_PORT": str(minio_port),
                 "AAP_VIDEO_PEER_PORT": "9100",
+                "AAP_VIDEO_PEER_EXPECTED_WIDTH": str(profile["width"]),
+                "AAP_VIDEO_PEER_EXPECTED_HEIGHT": str(profile["height"]),
+                "AAP_VIDEO_PEER_GATE_AFTER_CALLS": str(
+                    profile["peer_gate_after_calls"]
+                ),
+                "AAP_VIDEO_PEER_GATE_TIMEOUT_SECONDS": str(
+                    profile["peer_gate_timeout_seconds"]
+                ),
             },
         )
         environment_files.append(peer_env)
@@ -1083,7 +1450,7 @@ async def test_retained_video_consumers_run_in_owned_api_and_worker_containers(
             {"celery_a": celery_worker_ids[0], "celery_b": celery_worker_ids[1]}
         )
 
-        source_bytes = await asyncio.to_thread(_video_bytes, tmp_path)
+        source_bytes = await asyncio.to_thread(_video_bytes, tmp_path, profile)
         task_ids = [uuid4() for _ in range(_TASK_COUNT)]
         source_keys = [
             f"video-consumer-container/{identity}/{task_id}.mp4" for task_id in task_ids
@@ -1147,7 +1514,77 @@ async def test_retained_video_consumers_run_in_owned_api_and_worker_containers(
                 pytrace=False,
             )
 
-        status, job_result = await _wait_job(test_engine, job_id)
+        job_wait = asyncio.create_task(
+            _wait_job(
+                test_engine,
+                job_id,
+                timeout=profile["job_timeout_seconds"],
+                capacity_metrics=capacity_metrics,
+                worker_prefix=worker_prefix if capacity_profile else None,
+            )
+        )
+        if capacity_profile:
+            try:
+                gate_state = await _wait_peer_gate(
+                    peer_origin,
+                    timeout=profile["job_timeout_seconds"],
+                    job_wait=job_wait,
+                )
+                peer_gate_waiting = True
+                (
+                    stopped_celery_role,
+                    gated_frame_ordinal,
+                ) = await _wait_active_frame_worker(
+                    celery_app,
+                    worker_prefix=worker_prefix,
+                    job_id=job_id,
+                    frame_reference=gate_state.get("task"),
+                )
+                stopped_celery_id = container_roles[stopped_celery_role]
+                stopped_celery_peak = await asyncio.to_thread(
+                    _memory_peak, stopped_celery_id
+                )
+                stop_started = time.monotonic()
+                stop_task = asyncio.create_task(
+                    asyncio.to_thread(
+                        _docker,
+                        "stop",
+                        "--time",
+                        "25",
+                        stopped_celery_id,
+                        timeout=30,
+                    )
+                )
+                await asyncio.sleep(0.2)
+                await _release_peer_gate(peer_origin)
+                peer_gate_waiting = False
+                await asyncio.wait_for(stop_task, timeout=35)
+                stopped_state = _inspect(stopped_celery_id).get("State", {})
+                if stopped_state.get("ExitCode") != 0 or stopped_state.get("OOMKilled"):
+                    pytest.fail(
+                        "in-flight Celery worker did not stop gracefully",
+                        pytrace=False,
+                    )
+                capacity_metrics["handoff"] = {
+                    "worker_role": stopped_celery_role,
+                    "frame_ordinal": gated_frame_ordinal,
+                    "after_calls": gate_state.get("after_calls"),
+                    "graceful_stop_seconds": round(time.monotonic() - stop_started, 3),
+                    "exit_code": stopped_state.get("ExitCode"),
+                    "memory_peak_bytes": stopped_celery_peak,
+                }
+            except BaseException:
+                if peer_gate_waiting and peer_origin is not None:
+                    try:
+                        await _release_peer_gate(peer_origin)
+                    except Exception:
+                        pass
+                    peer_gate_waiting = False
+                if not job_wait.done():
+                    job_wait.cancel()
+                    await asyncio.gather(job_wait, return_exceptions=True)
+                raise
+        status, job_result = await job_wait
         api_to_complete_seconds = time.monotonic() - started
         if status != "completed":
             pytest.fail(
@@ -1166,6 +1603,23 @@ async def test_retained_video_consumers_run_in_owned_api_and_worker_containers(
                 "video Job result did not account for every selected frame",
                 pytrace=False,
             )
+
+        if capacity_profile:
+            async with httpx.AsyncClient(trust_env=False, timeout=2) as peer_client:
+                gate_response = await peer_client.get(
+                    f"{peer_origin}/__acceptance/gate-state"
+                )
+            settled_gate = (
+                gate_response.json() if gate_response.status_code == 200 else {}
+            )
+            if settled_gate.get("release_reason") != "released":
+                pytest.fail(
+                    "capacity peer gate did not release the held model response",
+                    pytrace=False,
+                )
+            capacity_metrics["handoff"]["gate_release_reason"] = settled_gate[
+                "release_reason"
+            ]
 
         manifest, inputs, frames, predictions = await _read_result_state(
             test_engine, job_id, task_ids
@@ -1305,8 +1759,8 @@ async def test_retained_video_consumers_run_in_owned_api_and_worker_containers(
             or set(observed_call_ids) != expected_call_ids
             or len(set(observed_call_ids)) != len(expected_call_ids)
             or any(
-                call.get("width") != 160
-                or call.get("height") != 90
+                call.get("width") != profile["width"]
+                or call.get("height") != profile["height"]
                 or call.get("pixel", [0, 255, 255])[0] < 200
                 for call in calls
             )
@@ -1398,7 +1852,7 @@ async def test_retained_video_consumers_run_in_owned_api_and_worker_containers(
             "input_id": str(first_input[0]),
             "input_job_id": str(job_id),
             "plan_digest": first_plan["plan_digest"],
-            "frame_ordinals": list(range(1, _FRAME_COUNT + 1)),
+            "frame_ordinals": list(range(1, min(_CHUNK_SIZE, _FRAME_COUNT) + 1)),
         }
         before_replay_calls = len(calls)
         before_replay_predictions = len(predictions)
@@ -1430,7 +1884,11 @@ async def test_retained_video_consumers_run_in_owned_api_and_worker_containers(
             queue="ml",
         )
         try:
-            await asyncio.to_thread(replay.get, timeout=90, propagate=True)
+            await asyncio.to_thread(
+                replay.get,
+                timeout=180 if capacity_profile else 90,
+                propagate=True,
+            )
         except Exception:
             pytest.fail(
                 "duplicate Celery frame segment did not settle safely", pytrace=False
@@ -1451,12 +1909,97 @@ async def test_retained_video_consumers_run_in_owned_api_and_worker_containers(
                 pytrace=False,
             )
 
+        if capacity_profile:
+            database_metrics = await _capacity_database_metrics(
+                test_engine, job_id, task_ids
+            )
+            peer_fetch_decode = _distribution(
+                [float(call["fetch_decode_ms"]) for call in calls]
+            )
+            peer_service = _distribution(
+                [float(call["peer_service_ms"]) for call in calls]
+            )
+            peer_gate_wait = _distribution(
+                [float(call["gate_wait_ms"]) for call in calls]
+            )
+            record_property(
+                "video_capacity_peer_fetch_decode_ms", json.dumps(peer_fetch_decode)
+            )
+            record_property("video_capacity_peer_service_ms", json.dumps(peer_service))
+            record_property(
+                "video_capacity_peer_gate_wait_ms", json.dumps(peer_gate_wait)
+            )
+            for name, value in database_metrics.items():
+                if isinstance(value, dict):
+                    for percentile, measured in value.items():
+                        record_property(
+                            f"video_capacity_{name}_{percentile}",
+                            measured if measured is not None else "unavailable",
+                        )
+                else:
+                    record_property(
+                        f"video_capacity_{name}",
+                        round(value, 3) if isinstance(value, float) else value,
+                    )
+            samples = capacity_metrics["samples"]
+            record_property("video_capacity_redis_samples", len(samples))
+            record_property("video_capacity_redis_samples_json", json.dumps(samples))
+            record_property(
+                "video_capacity_peak_ml_queue_depth",
+                max((sample["ml_queue_depth"] for sample in samples), default=0),
+            )
+            record_property(
+                "video_capacity_peak_active_tasks",
+                max((sample["active_tasks"] or 0 for sample in samples), default=0),
+            )
+            record_property(
+                "video_capacity_peak_reserved_tasks",
+                max((sample["reserved_tasks"] or 0 for sample in samples), default=0),
+            )
+            if samples:
+                record_property(
+                    "video_capacity_final_done_frames", samples[-1]["done_frames"]
+                )
+                record_property(
+                    "video_capacity_final_segment_receipts",
+                    samples[-1]["segment_receipts"],
+                )
+            if database_metrics["job_execution_ms"]:
+                record_property(
+                    "video_capacity_prediction_throughput_frames_per_second",
+                    round(
+                        len(predictions)
+                        / (database_metrics["job_execution_ms"] / 1000),
+                        3,
+                    ),
+                )
+            handoff = capacity_metrics["handoff"]
+            record_property("video_capacity_handoff_worker", handoff["worker_role"])
+            record_property(
+                "video_capacity_handoff_frame_ordinal", handoff["frame_ordinal"]
+            )
+            record_property(
+                "video_capacity_handoff_after_calls", handoff["after_calls"]
+            )
+            record_property(
+                "video_capacity_handoff_graceful_stop_seconds",
+                handoff["graceful_stop_seconds"],
+            )
+            record_property("video_capacity_handoff_exit_code", handoff["exit_code"])
+            record_property(
+                "video_capacity_handoff_gate_release_reason",
+                handoff["gate_release_reason"],
+            )
+
         for role, seconds in startup_seconds.items():
             record_property(
                 f"video_container_startup_{role}_seconds", round(seconds, 3)
             )
         for role, container_id in container_roles.items():
-            peak = await asyncio.to_thread(_memory_peak, container_id)
+            if role == stopped_celery_role:
+                peak = stopped_celery_peak
+            else:
+                peak = await asyncio.to_thread(_memory_peak, container_id)
             record_property(
                 f"video_container_{role}_cgroup_memory_peak_bytes",
                 peak if peak is not None else "unavailable",
@@ -1464,6 +2007,7 @@ async def test_retained_video_consumers_run_in_owned_api_and_worker_containers(
 
         record_property("video_container_tasks", _TASK_COUNT)
         record_property("video_container_frames_per_task", _FRAME_COUNT)
+        record_property("video_container_profile", profile["name"])
         record_property("video_container_total_frame_predictions", len(predictions))
         record_property("video_container_ml_http_calls", len(calls))
         record_property(
@@ -1528,6 +2072,11 @@ async def test_retained_video_consumers_run_in_owned_api_and_worker_containers(
         raise
     finally:
         cleanup_error = None
+        if peer_gate_waiting and peer_origin is not None:
+            try:
+                await _release_peer_gate(peer_origin)
+            except Exception:
+                pass
         for container_id in reversed(containers):
             try:
                 _stop_remove_container(container_id, identity)
