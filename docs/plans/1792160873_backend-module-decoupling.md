@@ -2218,6 +2218,12 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   offline operation catalog's two existing source-delete 409 responses. The
   selected discovery follow-up passes 21 cases; unrelated successful SDK tests
   are not rerun. Public API/SDK versions and public response models do not change.
+- A rebuilt API image from the clean implementation commit matches 23 API,
+  dependency and migration files plus all 10 installed Identity source/schema
+  files. Network-disabled cold import verifies the real API, selected existing
+  prediction-worker signatures, exact OpenAPI and migration head 0235. This
+  artifact proof complements the separate host-API/container-Identity live run;
+  it does not claim running daily workers or a daily environment cutover.
 - The module-data verifier accepts explicit test files/node IDs, rejects targets
   outside the API test tree, records the selected suite and refuses a zero-pass
   all-skipped acceptance. Two focused CLI/reporting checks pass. Every owned live
