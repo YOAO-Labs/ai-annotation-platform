@@ -477,13 +477,109 @@ async def test_periodic_heartbeat_persistent_contention_records_timeout(monkeypa
 
     await heartbeat._task
 
+    assert heartbeat.check_lease() is None
     with pytest.raises(ImageFailure, match="timeout"):
-        heartbeat.check_lease()
+        heartbeat.check()
     requests = [
         request for name, request in database.calls if name == "heartbeat_image_media"
     ]
     assert len(requests) >= 3
     assert all(request is requests[0] for request in requests)
+
+
+@pytest.mark.asyncio
+async def test_heartbeat_retry_backoff_stays_capped_after_many_busy_replies(
+    monkeypatch,
+):
+    import aap_assets_images_runtime.worker as worker_module
+
+    monkeypatch.setattr(worker_module.random, "uniform", lambda _low, _high: 0.0)
+    source = _source(b"source")
+    claim = _dimensions_claim(source)
+    database = _FakeDatabase(claim, heartbeat_failures=["operation_busy"] * 1_100)
+    heartbeat = _LeaseHeartbeat(
+        database,
+        claim,
+        lease_seconds=claim.spec.policy.lease_seconds,
+        deadline=time.monotonic() + 1_200,
+    )
+
+    class _ImmediateRetryEvent:
+        @staticmethod
+        def is_set():
+            return False
+
+        @staticmethod
+        async def wait():
+            raise TimeoutError
+
+    heartbeat._stopped = _ImmediateRetryEvent()
+
+    assert await heartbeat._beat()
+
+    requests = [
+        request for name, request in database.calls if name == "heartbeat_image_media"
+    ]
+    assert len(requests) == 1_101
+    assert all(request is requests[0] for request in requests)
+
+
+@pytest.mark.asyncio
+async def test_periodic_deadline_timeout_still_settles_failure_with_current_lease(
+    monkeypatch,
+):
+    import aap_assets_images_runtime.worker as worker_module
+
+    monkeypatch.setattr(worker_module.random, "uniform", lambda _low, _high: 0.0)
+    heartbeats = []
+    actual_heartbeat = worker_module._LeaseHeartbeat
+
+    class _ShortDeadlineHeartbeat(actual_heartbeat):
+        def __init__(self, database, claim, *, lease_seconds, deadline):
+            super().__init__(
+                database,
+                claim,
+                lease_seconds=lease_seconds,
+                deadline=time.monotonic() + 0.09,
+            )
+            self._interval = 0.005
+            heartbeats.append(self)
+
+    monkeypatch.setattr(worker_module, "_LeaseHeartbeat", _ShortDeadlineHeartbeat)
+    source = _source(_png_bytes())
+    claim = _dimensions_claim(source)
+
+    class _BusyAfterInitialHeartbeatDatabase(_FakeDatabase):
+        async def call(self, name, request):
+            if name == "heartbeat_image_media" and any(
+                prior_name == "heartbeat_image_media"
+                for prior_name, _prior_request in self.calls
+            ):
+                self.heartbeat_failures.append("operation_busy")
+            return await super().call(name, request)
+
+    database = _BusyAfterInitialHeartbeatDatabase(claim)
+    storage = _FakeStorage(_png_bytes())
+
+    async def wait_for_periodic_timeout(_source):
+        await heartbeats[0]._lost.wait()
+        raise ImageFailure("timeout")
+
+    storage.read_source_header = wait_for_periodic_timeout
+
+    result = await ImageExecutor(database, storage).execute_once()
+
+    assert result.outcome == "failed"
+    failures = [
+        request for name, request in database.calls if name == "fail_image_media"
+    ]
+    assert len(failures) == 1
+    assert failures[0].error_code == "timeout"
+    assert failures[0].job_id == claim.job_id
+    assert failures[0].generation == claim.generation
+    assert failures[0].lease_token == claim.lease_token
+    with pytest.raises(ImageFailure, match="timeout"):
+        heartbeats[0].check()
 
 
 @pytest.mark.asyncio

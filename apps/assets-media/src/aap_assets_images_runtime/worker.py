@@ -172,11 +172,17 @@ class _LeaseHeartbeat:
 
     def check(self) -> None:
         self.check_lease()
-        if time.monotonic() >= self.deadline:
+        timed_out = (
+            self._error is not None and self._error.code == "timeout"
+        ) or time.monotonic() >= self.deadline
+        if timed_out:
             raise ImageFailure("timeout")
 
     def check_lease(self) -> None:
-        if self._lost.is_set():
+        """Fence proven lease loss while allowing same-token timeout settlement."""
+        if self._lost.is_set() and not (
+            self._error is not None and self._error.code == "timeout"
+        ):
             raise self._error or ImageFailure("lease_lost")
 
     def _record_failure(self, error: ImageFailure | None = None) -> ImageFailure:
@@ -206,10 +212,11 @@ class _LeaseHeartbeat:
                 if exc.code != "operation_busy":
                     raise
                 failures += 1
-                base = min(
-                    _FINISH_RETRY_BASE_SECONDS * (2 ** (failures - 1)),
-                    _FINISH_RETRY_MAX_SECONDS,
-                )
+                base = _FINISH_RETRY_BASE_SECONDS
+                for _ in range(failures - 1):
+                    base = min(base * 2, _FINISH_RETRY_MAX_SECONDS)
+                    if base == _FINISH_RETRY_MAX_SECONDS:
+                        break
                 delay = base + random.uniform(0, base)
                 remaining = self.deadline - time.monotonic()
                 if delay >= remaining:
