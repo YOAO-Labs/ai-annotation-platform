@@ -36,7 +36,7 @@ def reply(operation, request, result):
 def test_execution_artifact_fixes_exact_native_signatures_roles_and_budgets():
     artifact = Path(c.__file__).with_name("execution.schema.json")
     assert json.loads(artifact.read_text()) == c.contract_document()
-    assert len(c.OPERATIONS) == 21
+    assert len(c.OPERATIONS) == 24
     counts = {}
     for operation in c.OPERATIONS.values():
         assert len(operation.arguments) == len(operation.sql_types)
@@ -44,10 +44,11 @@ def test_execution_artifact_fixes_exact_native_signatures_roles_and_budgets():
         counts[operation.role] = counts.get(operation.role, 0) + 1
     assert counts == {
         "workflow": 1,
-        "control": 8,
+        "control": 9,
         "worker": 9,
         "labeling": 2,
         "system": 1,
+        "cleanup": 2,
     }
 
 
@@ -433,3 +434,34 @@ def test_original_input_fence_precedes_overwrite_and_requires_the_exact_ready_pl
     for wrong in (record("expired"), ready.model_copy(update={"input_id": uuid4()})):
         with pytest.raises(c.VideoInputFailure, match="invalid_response"):
             reply("lock_accepted_video_input", request, wrong)
+
+
+def test_video_garbage_partition_never_accepts_an_image_attempt_prefix():
+    from video_input_fixtures import LEASE
+
+    request = c.ClaimVideoGarbageRequest(worker_id=uuid4(), page_size=1)
+    item = c.VideoGarbage(
+        garbage_id=uuid4(),
+        lease_token=LEASE,
+        prefix=c.attempt_prefix(record().input_id, 1, LEASE),
+    )
+    assert reply(
+        "claim_accepted_video_input_garbage",
+        request,
+        c.VideoGarbageBatch(items=(item,)),
+    ).items == (item,)
+    with pytest.raises(ValidationError):
+        c.VideoGarbage(
+            **{
+                **item.model_dump(),
+                "prefix": item.prefix.replace(
+                    "accepted-video-inputs/", "accepted-inputs/"
+                ),
+            }
+        )
+    with pytest.raises(c.VideoInputFailure, match="invalid_response"):
+        reply(
+            "claim_accepted_video_input_garbage",
+            request,
+            c.VideoGarbageBatch(items=(item, item)),
+        )

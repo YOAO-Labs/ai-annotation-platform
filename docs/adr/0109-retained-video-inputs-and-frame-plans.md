@@ -123,13 +123,14 @@ function-only database binding enforces that matrix; it does not install SQL or
 activate a consumer. The owner ledger, process wiring and HTTP admission remain
 implementation work until qualified together.
 
-| Caller scope | Operations | Responsibility                                                                                                                   |
-| ------------ | ---------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| Workflow     | 1          | Capture complete manifest membership in the original Job transaction.                                                            |
-| Control      | 8          | Read header/member pages, observe a member, seal the preparation barrier, read original inputs/time pages, require/read a frame. |
-| Worker       | 9          | Claim, heartbeat, stage selected times, finish/fail original input; claim, heartbeat, finish/fail frame extraction.              |
-| Labeling     | 2          | Fence the ready original input/plan before overwrite, and the exact frame/time entry/retained object before writing.             |
-| System       | 1          | Sweep eligible expired original inputs and their frame attempts.                                                                 |
+| Caller scope | Operations | Responsibility                                                                                                       |
+| ------------ | ---------- | -------------------------------------------------------------------------------------------------------------------- |
+| Workflow     | 1          | Capture complete manifest membership in the original Job transaction.                                                |
+| Control      | 9          | Read header/member pages, observe/seal, read original records/private work/time pages, require/read a frame.         |
+| Worker       | 9          | Claim, heartbeat, stage selected times, finish/fail original input; claim, heartbeat, finish/fail frame extraction.  |
+| Labeling     | 2          | Fence the ready original input/plan before overwrite, and the exact frame/time entry/retained object before writing. |
+| System       | 1          | Sweep eligible expired original inputs and their frame attempts.                                                     |
+| Cleanup      | 2          | Claim and acknowledge only video attempt tombstones; the image claim remains image-only.                             |
 
 Raw captured Tasks can retain a missing DatasetItem link as a failed member;
 ready bindings always require that link. Captured Assets source facts are narrow
@@ -161,14 +162,52 @@ Labeling fence additionally compares the exact expected object version and SHA;
 historically ready records can remain readable after expiry but cannot grant a
 ready write fence. Native retention must preserve references before sweeping.
 
+## Portable manifest digests and native state
+
+Admission and sealed outcomes use bounded SHA-256 hash chains. Each field is
+encoded as `N;` for null, or `S<byte length>:<UTF-8 bytes>;` otherwise. Integers
+use canonical decimal, booleans `0`/`1`, UUIDs canonical lowercase. Every hash
+begins with its ASCII domain and LF. This distinguishes null from empty strings
+and delimiter-containing paths without relying on database JSON formatting.
+
+The `selection` seed fields are execution schema, Job, origin actor, project,
+selected batch, execution scope, predict mode, sampling maximum/step/width/format,
+explicit Task count (null for implicit selection), each sorted explicit Task,
+candidate count and selected count. Each `member` hash includes previous digest,
+ordinal; captured Task/project/batch/version/source generation/item/snapshot/path/
+type; captured Assets item/dataset/generation/snapshot/timetable revision;
+observed ETag/size/version (null when unknown); drift flag/path/type/declared size/
+content hash; and the fixed capture error. The initial capture error is stored
+separately from later preparation errors, so preparation never changes admission.
+
+The `sealed` seed fields are execution schema, Job, origin actor, project,
+selection digest, selected count, ready count and failed count. Each `outcome`
+hash includes previous digest, ordinal, Task, state, fixed error, optional input
+ID, and the ready plan digest/timebase digest/original SHA/size/selected-frame
+count. All captured members and all final outcomes must appear exactly once in
+UUID order. Byte expiry preserves ready outcome metadata and its digest.
+
+Native state is authored in new SQL artifacts starting at 0225: manifest/member,
+original input/attempt, selected time, and frame/attempt tables. They retain
+immutable source receipts without live foreign-resource keys. Worker operations
+must validate canonical membership, current authority/source, lease generations,
+staged times and exact publication keys before changing state. Native timebase
+verification bounds canonical selected-entry text to 64 MiB before constructing
+its SHA-256 input; page/request/reply limits remain unchanged. The worker's
+existing JSON spool budget is at least as strict for normal selected entries.
+The new state is not installed or activated until its complete native owner and
+qualification are integrated.
+
 ## Retained-byte processing runtime
 
 The control library reads the captured member before external I/O and returns
 an existing preparation outcome on replay. First preparation observes that
 member's captured Assets path; it does not resolve a new current Task/item path.
 The SQL owner must fence the current Task, Assets source and timetable revision
-after the observation. Original verification checks the retained blob version
-before the Labeling transaction takes the input/plan fence and performs overwrite.
+after the observation. Original verification checks the retained blob version and
+HEADs the captured original path/identity before the Labeling transaction takes
+the input/plan fence and performs overwrite. Private work reads return original
+transport facts and never resolve a replacement Task path.
 
 The video source-storage adapter passes only binary transfer facts to the shared
 conditional downloader; it does not fabricate an image source or image-owner

@@ -21,6 +21,7 @@ from aap_assets_media.contract import ErrorCode as MediaErrorCode
 from .authority import ErrorCode as AuthorityErrorCode, VideoSelection, json_bytes
 from .values import (
     Count,
+    ATTEMPT_PREFIX_PATTERN,
     Digest,
     FrameBlob,
     FramePageRequest,
@@ -40,6 +41,7 @@ from .values import (
 )
 
 EXECUTION_SCHEMA = "aap-assets-video-input-execution/v1"
+TIMEBASE_BYTES = 64 * 1024 * 1024
 ErrorCode = Literal[
     AuthorityErrorCode,
     MediaErrorCode,
@@ -124,6 +126,30 @@ class VideoCaptureSource(Value):
     file_type: Literal["video"]
     file_size: Count | None
     content_hash: Annotated[StrictStr, Field(max_length=255)] | None
+
+
+class CapturedVideoMember(Value):
+    """Immutable admission facts used by the portable selection digest."""
+
+    ordinal: Revision
+    task: CapturedVideoTask
+    source: VideoCaptureSource | None
+    error: TerminalMemberError | None
+
+    @model_validator(mode="after")
+    def original_capture(self):
+        if (
+            self.source is not None
+            and self.source.dataset_item_id != self.task.dataset_item_id
+        ):
+            raise ValueError("captured video member changed its Task link")
+        if self.error is None and (
+            self.source is None
+            or self.source.source_drifted
+            or self.task.dataset_item_id is None
+        ):
+            raise ValueError("successful video capture requires a stable linked source")
+        return self
 
 
 class VideoManifestScope(Value):
@@ -629,13 +655,39 @@ class SweptVideoInputs(Value):
     expired: Count
 
 
+class ClaimVideoGarbageRequest(Value):
+    worker_id: UUID
+    lease_seconds: LeaseSeconds = 600
+    page_size: PageLimit = PAGE_SIZE
+
+
+class VideoGarbage(Value):
+    garbage_id: UUID
+    prefix: Annotated[StrictStr, Field(max_length=1024, pattern=ATTEMPT_PREFIX_PATTERN)]
+    lease_token: UUID
+
+
+class VideoGarbageBatch(Value):
+    items: Annotated[tuple[VideoGarbage, ...], Field(max_length=PAGE_SIZE)]
+
+
+class CompleteVideoGarbageRequest(Value):
+    garbage_id: UUID
+    lease_token: UUID
+
+
+class VideoGarbageAck(Value):
+    garbage_id: UUID
+    completed: StrictBool
+
+
 @dataclass(frozen=True)
 class NativeOperation:
     request: type[Value]
     result: type[Value]
     arguments: tuple[str, ...]
     sql_types: tuple[str, ...]
-    role: Literal["workflow", "control", "worker", "labeling", "system"]
+    role: Literal["workflow", "control", "worker", "labeling", "system", "cleanup"]
 
 
 _SCOPE = ("job_id", "actor_id", "project_id")
@@ -696,6 +748,13 @@ OPERATIONS = {
     "read_accepted_video_input": NativeOperation(
         ReadVideoInputRequest,
         VideoInputRecord,
+        _INPUT,
+        _INPUT_TYPES,
+        "control",
+    ),
+    "read_accepted_video_input_work": NativeOperation(
+        ReadVideoInputRequest,
+        VideoInputWork,
         _INPUT,
         _INPUT_TYPES,
         "control",
@@ -805,10 +864,28 @@ OPERATIONS = {
         ("integer",),
         "system",
     ),
+    "claim_accepted_video_input_garbage": NativeOperation(
+        ClaimVideoGarbageRequest,
+        VideoGarbageBatch,
+        ("worker_id", "lease_seconds", "page_size"),
+        ("uuid", "integer", "integer"),
+        "cleanup",
+    ),
+    "complete_accepted_video_input_garbage": NativeOperation(
+        CompleteVideoGarbageRequest,
+        VideoGarbageAck,
+        ("garbage_id", "lease_token"),
+        ("uuid", "uuid"),
+        "cleanup",
+    ),
 }
 
 
 def require_scope(operation: str, request: Value, result: Value) -> None:
+    if isinstance(result, VideoGarbageBatch) and len(result.items) > request.page_size:
+        raise ValueError("video garbage claim exceeded its requested page")
+    if isinstance(result, VideoGarbageAck) and result.garbage_id != request.garbage_id:
+        raise ValueError("video garbage receipt escaped its claim")
     header = (
         result.manifest
         if isinstance(result, (VideoManifestPage, VideoMemberReceipt))
@@ -853,7 +930,7 @@ def require_scope(operation: str, request: Value, result: Value) -> None:
             request.cursor + len(request.entries)
         ):
             raise ValueError("video staging changed its page progress")
-    record = result
+    record = result.input if isinstance(result, VideoInputWork) else result
     if isinstance(result, (ClaimedVideoInput, ClaimedVideoFrame)):
         if result.claim is None:
             return
@@ -972,6 +1049,7 @@ def contract_document() -> dict:
     definitions = {}
     models = [m for op in OPERATIONS.values() for m in (op.request, op.result)] + [
         PrepareVideoMemberRequest,
+        CapturedVideoMember,
         VideoInputWork,
         _Error,
     ]
@@ -993,7 +1071,9 @@ def contract_document() -> dict:
             "request_bytes": REQUEST_BYTES,
             "reply_bytes": REPLY_BYTES,
             "page_size": PAGE_SIZE,
+            "timebase_bytes": TIMEBASE_BYTES,
         },
+        "x-manifest-digest": "SHA-256 chains of typed UTF-8 length-prefixed fields; see ADR-0109",
         "x-native": {
             name: {
                 "signature": "aap_assets_v1."

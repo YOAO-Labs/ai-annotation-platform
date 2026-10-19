@@ -1240,6 +1240,20 @@
       "title": "ReadVideoInputRequest",
       "type": "object"
     },
+    "VideoInputWork": {
+      "additionalProperties": false,
+      "properties": {
+        "input": {
+          "$ref": "#/$defs/VideoInputRecord"
+        },
+        "source": {
+          "$ref": "#/$defs/VideoCaptureSource"
+        }
+      },
+      "required": ["input", "source"],
+      "title": "VideoInputWork",
+      "type": "object"
+    },
     "FramePageRequest": {
       "additionalProperties": false,
       "properties": {
@@ -2212,6 +2226,108 @@
       "title": "SweptVideoInputs",
       "type": "object"
     },
+    "ClaimVideoGarbageRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "worker_id": {
+          "format": "uuid",
+          "title": "Worker Id",
+          "type": "string"
+        },
+        "lease_seconds": {
+          "default": 600,
+          "maximum": 7200,
+          "minimum": 60,
+          "title": "Lease Seconds",
+          "type": "integer"
+        },
+        "page_size": {
+          "default": 100,
+          "maximum": 100,
+          "minimum": 1,
+          "title": "Page Size",
+          "type": "integer"
+        }
+      },
+      "required": ["worker_id"],
+      "title": "ClaimVideoGarbageRequest",
+      "type": "object"
+    },
+    "VideoGarbage": {
+      "additionalProperties": false,
+      "properties": {
+        "garbage_id": {
+          "format": "uuid",
+          "title": "Garbage Id",
+          "type": "string"
+        },
+        "prefix": {
+          "maxLength": 1024,
+          "pattern": "^accepted-video-inputs/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g[1-9][0-9]*/a[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/$",
+          "title": "Prefix",
+          "type": "string"
+        },
+        "lease_token": {
+          "format": "uuid",
+          "title": "Lease Token",
+          "type": "string"
+        }
+      },
+      "required": ["garbage_id", "prefix", "lease_token"],
+      "title": "VideoGarbage",
+      "type": "object"
+    },
+    "VideoGarbageBatch": {
+      "additionalProperties": false,
+      "properties": {
+        "items": {
+          "items": {
+            "$ref": "#/$defs/VideoGarbage"
+          },
+          "maxItems": 100,
+          "title": "Items",
+          "type": "array"
+        }
+      },
+      "required": ["items"],
+      "title": "VideoGarbageBatch",
+      "type": "object"
+    },
+    "CompleteVideoGarbageRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "garbage_id": {
+          "format": "uuid",
+          "title": "Garbage Id",
+          "type": "string"
+        },
+        "lease_token": {
+          "format": "uuid",
+          "title": "Lease Token",
+          "type": "string"
+        }
+      },
+      "required": ["garbage_id", "lease_token"],
+      "title": "CompleteVideoGarbageRequest",
+      "type": "object"
+    },
+    "VideoGarbageAck": {
+      "additionalProperties": false,
+      "properties": {
+        "garbage_id": {
+          "format": "uuid",
+          "title": "Garbage Id",
+          "type": "string"
+        },
+        "completed": {
+          "title": "Completed",
+          "type": "boolean"
+        }
+      },
+      "required": ["garbage_id", "completed"],
+      "title": "VideoGarbageAck",
+      "type": "object"
+    },
     "PrepareVideoMemberRequest": {
       "additionalProperties": false,
       "properties": {
@@ -2251,18 +2367,54 @@
       "title": "PrepareVideoMemberRequest",
       "type": "object"
     },
-    "VideoInputWork": {
+    "CapturedVideoMember": {
       "additionalProperties": false,
+      "description": "Immutable admission facts used by the portable selection digest.",
       "properties": {
-        "input": {
-          "$ref": "#/$defs/VideoInputRecord"
+        "ordinal": {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "title": "Ordinal",
+          "type": "integer"
+        },
+        "task": {
+          "$ref": "#/$defs/CapturedVideoTask"
         },
         "source": {
-          "$ref": "#/$defs/VideoCaptureSource"
+          "anyOf": [
+            {
+              "$ref": "#/$defs/VideoCaptureSource"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "error": {
+          "anyOf": [
+            {
+              "enum": [
+                "source_missing",
+                "source_changed",
+                "source_not_ready",
+                "not_video",
+                "task_scope_changed",
+                "timebase_changed",
+                "input_expired",
+                "input_corrupt",
+                "resource_budget_exceeded"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Error"
         }
       },
-      "required": ["input", "source"],
-      "title": "VideoInputWork",
+      "required": ["ordinal", "task", "source", "error"],
+      "title": "CapturedVideoMember",
       "type": "object"
     },
     "_Error": {
@@ -2332,8 +2484,10 @@
   "x-budgets": {
     "request_bytes": 65536,
     "reply_bytes": 2097152,
-    "page_size": 100
+    "page_size": 100,
+    "timebase_bytes": 67108864
   },
+  "x-manifest-digest": "SHA-256 chains of typed UTF-8 length-prefixed fields; see ADR-0109",
   "x-native": {
     "capture_accepted_video_manifest": {
       "signature": "aap_assets_v1.capture_accepted_video_manifest(uuid,uuid,uuid,jsonb)",
@@ -2394,6 +2548,13 @@
       "arguments": ["input_id", "job_id", "task_id", "actor_id"],
       "request": "ReadVideoInputRequest",
       "result": "VideoInputRecord",
+      "role": "control"
+    },
+    "read_accepted_video_input_work": {
+      "signature": "aap_assets_v1.read_accepted_video_input_work(uuid,uuid,uuid,uuid)",
+      "arguments": ["input_id", "job_id", "task_id", "actor_id"],
+      "request": "ReadVideoInputRequest",
+      "result": "VideoInputWork",
       "role": "control"
     },
     "read_accepted_video_times": {
@@ -2517,6 +2678,20 @@
       "request": "SweepVideoInputsRequest",
       "result": "SweptVideoInputs",
       "role": "system"
+    },
+    "claim_accepted_video_input_garbage": {
+      "signature": "aap_assets_v1.claim_accepted_video_input_garbage(uuid,integer,integer)",
+      "arguments": ["worker_id", "lease_seconds", "page_size"],
+      "request": "ClaimVideoGarbageRequest",
+      "result": "VideoGarbageBatch",
+      "role": "cleanup"
+    },
+    "complete_accepted_video_input_garbage": {
+      "signature": "aap_assets_v1.complete_accepted_video_input_garbage(uuid,uuid)",
+      "arguments": ["garbage_id", "lease_token"],
+      "request": "CompleteVideoGarbageRequest",
+      "result": "VideoGarbageAck",
+      "role": "cleanup"
     }
   }
 }

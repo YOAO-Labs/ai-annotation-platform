@@ -8,7 +8,7 @@ from typing import Any, Collection
 from aap_assets_video_inputs import execution as c
 from aap_assets_video_inputs.values import Value
 
-_ROLES = frozenset({"control", "worker", "labeling", "system"})
+_ROLES = frozenset({"control", "worker", "labeling", "system", "cleanup"})
 
 
 def prepare_native_call(

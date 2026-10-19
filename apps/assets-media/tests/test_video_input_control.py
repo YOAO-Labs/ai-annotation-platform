@@ -130,7 +130,9 @@ async def test_original_verification_never_uses_an_unready_or_expired_input(
 ):
     control, database, storage, _ = setup()
     accepted = record(state)
-    database.call = AsyncMock(return_value=accepted)
+    database.call = AsyncMock(
+        return_value=c.VideoInputWork(input=accepted, source=source())
+    )
     with pytest.raises(c.VideoInputFailure, match=error):
         await control.verify(input_request(accepted))
     storage.verify_blob.assert_not_awaited()
@@ -139,10 +141,12 @@ async def test_original_verification_never_uses_an_unready_or_expired_input(
 async def test_preoverwrite_verification_checks_exact_original_version_and_plan():
     control, database, storage, _ = setup()
     accepted = record("ready")
-    database.call = AsyncMock(return_value=accepted)
+    database.call = AsyncMock(
+        return_value=c.VideoInputWork(input=accepted, source=source())
+    )
     assert await control.verify(input_request(accepted)) == accepted
     storage.verify_blob.assert_awaited_once_with(accepted.plan.input.blob)
-    storage.head_source.assert_not_awaited()
+    storage.head_source.assert_awaited_once_with(source())
     with pytest.raises(c.VideoInputFailure, match="input_scope_mismatch"):
         await control.verify(
             input_request(accepted).model_copy(update={"plan_digest": "f" * 64})
@@ -185,3 +189,26 @@ async def test_prepare_rejects_crossed_member_before_object_io():
     with pytest.raises(c.VideoInputFailure, match="manifest_scope_mismatch"):
         await control.prepare(request.model_copy(update={"task_id": uuid4()}))
     storage.head_source.assert_not_awaited()
+
+
+@pytest.mark.parametrize(
+    "fault,error", [("changed", "source_changed"), ("missing", "source_missing")]
+)
+async def test_preoverwrite_checks_captured_source_identity_without_resolving_new_task_path(
+    fault, error
+):
+    control, database, storage, _ = setup()
+    accepted = record("ready")
+    database.call = AsyncMock(
+        return_value=c.VideoInputWork(input=accepted, source=source())
+    )
+    if fault == "changed":
+        storage.head_source.return_value = source().object_identity.model_copy(
+            update={"etag": "new"}
+        )
+    else:
+        storage.head_source.side_effect = InputFailure("object_missing")
+    with pytest.raises(c.VideoInputFailure, match=error):
+        await control.verify(input_request(accepted))
+    storage.verify_blob.assert_not_awaited()
+    storage.head_source.assert_awaited_once_with(source())

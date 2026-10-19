@@ -1,0 +1,237 @@
+{
+  "scope": {
+    "job_id": "00000000-0000-4000-8000-000000000002",
+    "actor_id": "00000000-0000-4000-8000-000000000003",
+    "project_id": "00000000-0000-4000-8000-000000000005"
+  },
+  "selection": {
+    "batch_id": null,
+    "task_ids": null,
+    "predict_mode": "overwrite",
+    "execution_scope": "bulk",
+    "sampling": {
+      "max_frames": 3,
+      "step": 5,
+      "width": 1280,
+      "format": "jpeg"
+    }
+  },
+  "candidate_count": 2,
+  "selected_count": 2,
+  "captures": [
+    {
+      "ordinal": 1,
+      "task": {
+        "task_id": "00000000-0000-4000-8000-000000000004",
+        "project_id": "00000000-0000-4000-8000-000000000005",
+        "batch_id": null,
+        "task_version": 2,
+        "task_source_generation": 3,
+        "dataset_item_id": "00000000-0000-4000-8000-000000000006",
+        "task_source_snapshot": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "file_path": "",
+        "file_type": "video"
+      },
+      "source": {
+        "dataset_item_id": "00000000-0000-4000-8000-000000000006",
+        "dataset_id": "00000000-0000-4000-8000-000000000007",
+        "source_generation": 4,
+        "source_snapshot": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "timetable_revision": 5,
+        "object_identity": null,
+        "source_drifted": false,
+        "file_path": "数据/原始;视频.mp4",
+        "file_type": "video",
+        "file_size": 4096,
+        "content_hash": null
+      },
+      "error": null
+    },
+    {
+      "ordinal": 2,
+      "task": {
+        "task_id": "00000000-0000-4000-8000-000000000044",
+        "project_id": "00000000-0000-4000-8000-000000000005",
+        "batch_id": null,
+        "task_version": 2,
+        "task_source_generation": 3,
+        "dataset_item_id": null,
+        "task_source_snapshot": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "file_path": "-",
+        "file_type": "video"
+      },
+      "source": null,
+      "error": "source_missing"
+    }
+  ],
+  "header": {
+    "job_id": "00000000-0000-4000-8000-000000000002",
+    "actor_id": "00000000-0000-4000-8000-000000000003",
+    "project_id": "00000000-0000-4000-8000-000000000005",
+    "selection": {
+      "batch_id": null,
+      "task_ids": null,
+      "predict_mode": "overwrite",
+      "execution_scope": "bulk",
+      "sampling": {
+        "max_frames": 3,
+        "step": 5,
+        "width": 1280,
+        "format": "jpeg"
+      }
+    },
+    "selection_digest": "6c1324300f730b9e0a361669ed2335b03f9f8c3dd1fb9479da294ffc10995143",
+    "candidate_count": 2,
+    "selected_count": 2,
+    "prepared_count": 2,
+    "status": "preparing",
+    "ready_count": null,
+    "failed_count": null,
+    "sealed_digest": null,
+    "created_at": "2026-10-19T00:00:00Z",
+    "sealed_at": null
+  },
+  "ready_count": 1,
+  "failed_count": 1,
+  "members": [
+    {
+      "ordinal": 1,
+      "task": {
+        "task_id": "00000000-0000-4000-8000-000000000004",
+        "project_id": "00000000-0000-4000-8000-000000000005",
+        "batch_id": null,
+        "task_version": 2,
+        "task_source_generation": 3,
+        "dataset_item_id": "00000000-0000-4000-8000-000000000006",
+        "task_source_snapshot": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "file_path": "",
+        "file_type": "video"
+      },
+      "source": {
+        "dataset_item_id": "00000000-0000-4000-8000-000000000006",
+        "dataset_id": "00000000-0000-4000-8000-000000000007",
+        "source_generation": 4,
+        "source_snapshot": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "timetable_revision": 5,
+        "object_identity": null,
+        "source_drifted": false,
+        "file_path": "数据/原始;视频.mp4",
+        "file_type": "video",
+        "file_size": 4096,
+        "content_hash": null
+      },
+      "state": "ready",
+      "input": {
+        "input_id": "00000000-0000-4000-8000-000000000001",
+        "job_id": "00000000-0000-4000-8000-000000000002",
+        "actor_id": "00000000-0000-4000-8000-000000000003",
+        "task": {
+          "task_id": "00000000-0000-4000-8000-000000000004",
+          "project_id": "00000000-0000-4000-8000-000000000005",
+          "task_version": 2,
+          "task_source_generation": 3,
+          "dataset_item_id": "00000000-0000-4000-8000-000000000006",
+          "task_source_snapshot": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "file_path": "",
+          "file_type": "video"
+        },
+        "source": {
+          "dataset_item_id": "00000000-0000-4000-8000-000000000006",
+          "dataset_id": "00000000-0000-4000-8000-000000000007",
+          "source_generation": 4,
+          "source_snapshot": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "timetable_revision": 5,
+          "object_identity": {
+            "etag": "origin",
+            "byte_size": 4096,
+            "version_id": null
+          }
+        },
+        "sampling": {
+          "max_frames": 3,
+          "step": 5,
+          "width": 1280,
+          "format": "jpeg"
+        },
+        "status": "ready",
+        "plan": {
+          "input": {
+            "input_id": "00000000-0000-4000-8000-000000000001",
+            "job_id": "00000000-0000-4000-8000-000000000002",
+            "actor_id": "00000000-0000-4000-8000-000000000003",
+            "task": {
+              "task_id": "00000000-0000-4000-8000-000000000004",
+              "project_id": "00000000-0000-4000-8000-000000000005",
+              "task_version": 2,
+              "task_source_generation": 3,
+              "dataset_item_id": "00000000-0000-4000-8000-000000000006",
+              "task_source_snapshot": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "file_path": "",
+              "file_type": "video"
+            },
+            "source": {
+              "dataset_item_id": "00000000-0000-4000-8000-000000000006",
+              "dataset_id": "00000000-0000-4000-8000-000000000007",
+              "source_generation": 4,
+              "source_snapshot": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              "timetable_revision": 5,
+              "object_identity": {
+                "etag": "origin",
+                "byte_size": 4096,
+                "version_id": null
+              }
+            },
+            "blob": {
+              "key": "accepted-video-inputs/00000000-0000-4000-8000-000000000001/g1/a00000000-0000-4000-8000-000000000008/source",
+              "version_id": "retained-1",
+              "etag": "retained",
+              "byte_size": 4096,
+              "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+            },
+            "video": {
+              "frame_count": 17,
+              "width": 1920,
+              "height": 1080,
+              "duration_ms": 800,
+              "video_stream": 0
+            },
+            "created_at": "2026-10-19T00:00:00Z"
+          },
+          "sampling": {
+            "max_frames": 3,
+            "step": 5,
+            "width": 1280,
+            "format": "jpeg"
+          },
+          "selected_count": 3,
+          "timebase_digest": "8d3460f90961a16224c660e7399d3311933245d80a2304c2f8cb15c3463a98a7",
+          "plan_digest": "cbf1010b0132a1060e0acb98a2c6e52dee84b1b2e26df62442dd029154d0e971"
+        },
+        "error": null,
+        "created_at": "2026-10-19T00:00:00Z",
+        "retire_after": null
+      },
+      "error": null
+    },
+    {
+      "ordinal": 2,
+      "task": {
+        "task_id": "00000000-0000-4000-8000-000000000044",
+        "project_id": "00000000-0000-4000-8000-000000000005",
+        "batch_id": null,
+        "task_version": 2,
+        "task_source_generation": 3,
+        "dataset_item_id": null,
+        "task_source_snapshot": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "file_path": "-",
+        "file_type": "video"
+      },
+      "source": null,
+      "state": "failed",
+      "input": null,
+      "error": "source_missing"
+    }
+  ],
+  "selection_digest": "6c1324300f730b9e0a361669ed2335b03f9f8c3dd1fb9479da294ffc10995143",
+  "sealed_digest": "8c4c095791a1304a21fe4b6758c8bce53012eb88ad2c0c4a4bd75e999715264b"
+}

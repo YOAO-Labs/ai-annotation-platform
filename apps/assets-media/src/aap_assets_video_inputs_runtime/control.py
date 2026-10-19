@@ -95,9 +95,11 @@ class VideoInputControl:
         return await self.database.call("read_accepted_video_input", request)
 
     async def verify(self, request: c.LockVideoInputRequest) -> c.VideoInputRecord:
-        record = await self.input(
-            c.ReadVideoInputRequest(**request.model_dump(exclude={"plan_digest"}))
+        work = await self.database.call(
+            "read_accepted_video_input_work",
+            c.ReadVideoInputRequest(**request.model_dump(exclude={"plan_digest"})),
         )
+        record = work.input
         if record.status == "expired":
             raise c.VideoInputFailure("input_expired")
         if record.status == "failed":
@@ -106,6 +108,14 @@ class VideoInputControl:
             raise c.VideoInputFailure("input_not_ready")
         if record.plan.plan_digest != request.plan_digest:
             raise c.VideoInputFailure("input_scope_mismatch")
+        try:
+            observed = await self._storage_call(self.storage.head_source, work.source)
+        except c.VideoInputFailure as exc:
+            if exc.code == "object_missing":
+                raise c.VideoInputFailure("source_missing") from None
+            raise
+        if observed != record.source.object_identity:
+            raise c.VideoInputFailure("source_changed")
         await self._storage_call(self.storage.verify_blob, record.plan.input.blob)
         return record
 
