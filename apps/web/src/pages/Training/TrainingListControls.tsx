@@ -60,6 +60,8 @@ export function trainingListPath(
     "attempt",
     "dataset",
     "model",
+    "register_run",
+    "register_attempt",
     "data_view",
     "data_class",
     "data_split",
@@ -79,7 +81,9 @@ export function trainingRecordPath(
   params: URLSearchParams,
 ) {
   const next = new URLSearchParams(params);
-  ["run", "return_run", "dataset", "model"].forEach((key) => next.delete(key));
+  ["run", "return_run", "dataset", "model", "register_run", "register_attempt"].forEach((key) =>
+    next.delete(key),
+  );
   return `/projects/${projectId}/learning/${kind}/${encodeURIComponent(id)}${next.size ? `?${next}` : ""}`;
 }
 

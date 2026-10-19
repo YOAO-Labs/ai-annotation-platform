@@ -155,7 +155,7 @@ export function ProjectModelList({
               className="mt-3"
               onClick={filtered ? onReset : onRegister}
             >
-              {filtered ? "重置筛选" : "填写候选信息"}
+              {filtered ? "重置筛选" : "选择训练结果"}
             </Button>
           </div>
         )

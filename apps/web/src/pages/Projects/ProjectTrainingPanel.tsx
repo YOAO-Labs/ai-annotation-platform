@@ -348,6 +348,7 @@ export function ProjectTrainingPanel({
               }}
               recovery={recovery.data}
               recoveryError={recovery.error?.message}
+              registrationEligibility={detail.data?.registration_eligibility}
               scope={scope}
               visible={detailVisible}
               assertOwner={session.assert}

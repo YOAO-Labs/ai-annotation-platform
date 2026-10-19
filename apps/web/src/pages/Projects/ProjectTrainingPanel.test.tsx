@@ -120,6 +120,41 @@ afterEach(() => {
   localStorage.clear();
 });
 describe("managed project training", () => {
+  it("links a qualified successful execution to model registration with its exact source", async () => {
+    vi.mocked(trainingRunsApi.get).mockResolvedValue({
+      run: { ...run, status: "succeeded" },
+      registration_eligibility: { qualified: true, reason: null, qualification: {} },
+      attempts: [
+        { id: "attempt", ordinal: 2, status: "succeeded", artifacts: {} },
+        { id: "older", ordinal: 1, status: "succeeded", artifacts: {} },
+      ],
+    } as never);
+    mount("older");
+    expect(await screen.findByRole("link", { name: "回流到项目模型" })).toHaveAttribute(
+      "href",
+      "/projects/project/learning?tab=models&register_run=run&register_attempt=older",
+    );
+  });
+  it("explains why a successful training result cannot return as a project model", async () => {
+    vi.mocked(trainingRunsApi.get).mockResolvedValue({
+      run: { ...run, status: "succeeded" },
+      registration_eligibility: { qualified: false, reason: "该模型家族尚未支持回流" },
+      attempts: [{ id: "attempt", ordinal: 1, status: "succeeded", artifacts: {} }],
+    } as never);
+    mount();
+    expect(await screen.findByText(/该模型家族尚未支持回流/)).toBeVisible();
+    expect(screen.queryByRole("link", { name: "回流到项目模型" })).not.toBeInTheDocument();
+  });
+  it("does not offer model registration for an unfinished execution", async () => {
+    vi.mocked(trainingRunsApi.get).mockResolvedValue({
+      run,
+      registration_eligibility: { qualified: true, reason: null },
+      attempts: [{ id: "attempt", ordinal: 1, status: "training", artifacts: {} }],
+    } as never);
+    mount();
+    await screen.findByRole("article", { name: "训练实验详情" });
+    expect(screen.queryByRole("link", { name: "回流到项目模型" })).not.toBeInTheDocument();
+  });
   it("starts with metrics and keeps execution resources accessible in their own view", async () => {
     vi.mocked(trainingRunsApi.list).mockResolvedValue({ items: [run as never], total: 1 });
     const user = userEvent.setup();

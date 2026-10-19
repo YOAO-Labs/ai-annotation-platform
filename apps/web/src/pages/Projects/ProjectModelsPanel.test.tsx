@@ -148,6 +148,91 @@ afterEach(() => {
 });
 
 describe("ProjectModelsPanel", () => {
+  it("opens registration from an experiment with the exact execution outside the first source page", async () => {
+    vi.mocked(trainingRunsApi.list).mockResolvedValue({ items: [], total: 40 });
+    vi.mocked(trainingRunsApi.get).mockResolvedValue({
+      registration_eligibility: { qualified: true, reason: null },
+      run: {
+        id: "older-run",
+        name: "较早的实验",
+        config: { framework: "ultralytics", classes: ["car", "person"] },
+      },
+      attempts: [
+        { id: "latest-attempt", ordinal: 2, status: "succeeded" },
+        { id: "older-attempt", ordinal: 1, status: "succeeded" },
+      ],
+    } as never);
+    const user = userEvent.setup();
+    mount(
+      "/projects/project-1/learning?tab=models&register_run=older-run&register_attempt=older-attempt",
+    );
+    const source = await screen.findByRole("option", { name: "较早的实验" });
+    expect(source).toHaveValue("older-run");
+    expect(screen.getByLabelText("来源训练实验")).toHaveValue("older-run");
+    expect(screen.getByLabelText("成功执行尝试")).toHaveValue("older-attempt");
+    expect(trainedModelsApi.register).not.toHaveBeenCalled();
+    await user.selectOptions(screen.getByLabelText("原生类别 0 · car"), "车辆");
+    await user.selectOptions(screen.getByLabelText("原生类别 1 · person"), "行人");
+    await user.click(screen.getByRole("button", { name: "从训练结果添加模型" }));
+    await waitFor(() => expect(trainedModelsApi.register).toHaveBeenCalledOnce());
+    expect(trainedModelsApi.register).toHaveBeenCalledWith(
+      "project-1",
+      expect.objectContaining({ run_id: "older-run", attempt_id: "older-attempt" }),
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId("location")).toHaveTextContent("/models/model-1"),
+    );
+    expect(screen.getByTestId("location").textContent).not.toContain("register_");
+  });
+  it("keeps a linked registration draft when closed without leaving an auto-open URL", async () => {
+    const user = userEvent.setup();
+    mount("/projects/project-1/learning?tab=models&register_run=run-1&register_attempt=attempt-1");
+    await screen.findByLabelText("原生类别 0 · car");
+    await user.clear(screen.getByLabelText("模型名称"));
+    await user.type(screen.getByLabelText("模型名称"), "训练回流草稿");
+    await user.keyboard("{Escape}");
+    expect(screen.getByTestId("location").textContent).not.toContain("register_");
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "从训练结果添加模型" }));
+    expect(screen.getByLabelText("模型名称")).toHaveValue("训练回流草稿");
+    expect(screen.getByLabelText("来源训练实验")).toHaveValue("run-1");
+    expect(trainedModelsApi.register).not.toHaveBeenCalled();
+  });
+  it("keeps a successful historical source selectable after a later execution failed", async () => {
+    vi.mocked(trainingRunsApi.list).mockResolvedValue({
+      items: [{ id: "run-1", name: "成功后续训失败", status: "failed" }],
+      total: 1,
+    } as never);
+    vi.mocked(trainingRunsApi.get).mockResolvedValue({
+      registration_eligibility: { qualified: true, reason: null },
+      run: {
+        id: "run-1",
+        name: "成功后续训失败",
+        status: "failed",
+        config: { framework: "ultralytics", classes: ["car", "person"] },
+      },
+      attempts: [
+        { id: "failed-attempt", ordinal: 2, status: "failed" },
+        { id: "attempt-1", ordinal: 1, status: "succeeded" },
+      ],
+    } as never);
+    mount("/projects/project-1/learning?tab=models&register_run=run-1&register_attempt=attempt-1");
+    await screen.findByRole("option", { name: "成功后续训失败" });
+    expect(screen.getByLabelText("来源训练实验")).toHaveValue("run-1");
+    expect(screen.getByLabelText("成功执行尝试")).toHaveValue("attempt-1");
+    expect(trainedModelsApi.register).not.toHaveBeenCalled();
+  });
+  it("rejects an unavailable execution from a registration URL until a successful one is selected", async () => {
+    const user = userEvent.setup();
+    mount("/projects/project-1/learning?tab=models&register_run=run-1&register_attempt=missing");
+    await screen.findByText("指定的执行记录不可用于回流，请选择成功的执行记录。");
+    await user.selectOptions(screen.getByLabelText("原生类别 0 · car"), "车辆");
+    await user.selectOptions(screen.getByLabelText("原生类别 1 · person"), "行人");
+    expect(screen.getByRole("button", { name: "从训练结果添加模型" })).toBeDisabled();
+    expect(trainedModelsApi.register).not.toHaveBeenCalled();
+    await user.selectOptions(screen.getByLabelText("成功执行尝试"), "attempt-1");
+    expect(screen.getByRole("button", { name: "从训练结果添加模型" })).toBeEnabled();
+  });
   it("registers all 80 bindings in original order even when the editor is filtered", async () => {
     const user = userEvent.setup();
     const classes = Array.from({ length: 80 }, (_, index) => `类别${index}`);
@@ -157,7 +242,7 @@ describe("ProjectModelsPanel", () => {
       attempts: [{ id: "attempt-1", ordinal: 1, status: "succeeded" }],
     } as never);
     mount("/", classes);
-    await user.click(screen.getByRole("button", { name: "注册候选模型" }));
+    await user.click(screen.getByRole("button", { name: "从训练结果添加模型" }));
     await screen.findByRole("option", { name: "成功训练" });
     await user.selectOptions(screen.getByLabelText("来源训练实验"), "run-1");
     await user.selectOptions(await screen.findByLabelText("原生类别 0 · 类别0"), "类别1");
@@ -166,7 +251,7 @@ describe("ProjectModelsPanel", () => {
     expect(trainedModelsApi.register).not.toHaveBeenCalled();
     await user.selectOptions(screen.getByLabelText("原生类别 79 · 类别79"), "类别0");
     await user.click(screen.getByRole("button", { name: "按同名绑定" }));
-    await user.click(screen.getByRole("button", { name: "注册候选模型" }));
+    await user.click(screen.getByRole("button", { name: "从训练结果添加模型" }));
     await waitFor(() => expect(trainedModelsApi.register).toHaveBeenCalledOnce());
     expect(vi.mocked(trainedModelsApi.register).mock.calls[0][1].bindings).toEqual(
       classes.map((name, index) => (index === 0 ? "类别1" : index === 79 ? "类别0" : name)),
@@ -175,7 +260,7 @@ describe("ProjectModelsPanel", () => {
   it("starts with the source experiment and preserves edits to the timestamp name", async () => {
     const user = userEvent.setup();
     mount();
-    await user.click(screen.getByRole("button", { name: "注册候选模型" }));
+    await user.click(screen.getByRole("button", { name: "从训练结果添加模型" }));
     const source = screen.getByLabelText("来源训练实验");
     const name = screen.getByLabelText("模型名称") as HTMLInputElement;
     expect(source.compareDocumentPosition(name) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
@@ -185,7 +270,7 @@ describe("ProjectModelsPanel", () => {
     await user.selectOptions(source, "run-1");
     await screen.findByLabelText(/原生类别 0/);
     expect(name).toHaveValue("");
-    expect(screen.getByRole("button", { name: "注册候选模型" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "从训练结果添加模型" })).toBeDisabled();
     expect(trainedModelsApi.register).not.toHaveBeenCalled();
   });
   it("keeps loading release and candidate states distinct from an empty model library", async () => {
@@ -201,7 +286,7 @@ describe("ProjectModelsPanel", () => {
     vi.mocked(trainedModelsApi.list).mockResolvedValue({ total: 0, items: [] });
     const user = userEvent.setup();
     mount();
-    await user.click(await screen.findByRole("button", { name: "填写候选信息" }));
+    await user.click(await screen.findByRole("button", { name: "选择训练结果" }));
     expect(screen.getByLabelText("来源训练实验")).toHaveFocus();
     expect(trainedModelsApi.register).not.toHaveBeenCalled();
   });
@@ -218,11 +303,11 @@ describe("ProjectModelsPanel", () => {
         .mockRejectedValueOnce(new Error("响应中断"))
         .mockResolvedValue(model);
       mount();
-      await user.click(screen.getByRole("button", { name: "注册候选模型" }));
+      await user.click(screen.getByRole("button", { name: "从训练结果添加模型" }));
       await user.type(screen.getByLabelText("模型名称"), "回流候选");
       await user.selectOptions(await screen.findByLabelText("来源训练实验"), "run-1");
       await screen.findByLabelText(/原生类别 0/);
-      const button = screen.getByRole("button", { name: "注册候选模型" });
+      const button = screen.getByRole("button", { name: "从训练结果添加模型" });
       expect(button).toBeDisabled();
       await user.selectOptions(screen.getByLabelText(/原生类别 0/), "车辆");
       expect(button).toBeDisabled();
@@ -333,11 +418,11 @@ it("explains and disables registration when native return is unqualified", async
     attempts: [{ id: "attempt-1", ordinal: 1, status: "succeeded" }],
   } as never);
   mount();
-  await user.click(screen.getByRole("button", { name: "注册候选模型" }));
+  await user.click(screen.getByRole("button", { name: "从训练结果添加模型" }));
   await user.type(screen.getByLabelText("模型名称"), "Libre候选");
   await user.selectOptions(await screen.findByLabelText("来源训练实验"), "run-1");
   await screen.findByText(/该原生模型家族尚未通过资格检查/);
-  expect(screen.getByRole("button", { name: "注册候选模型" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "从训练结果添加模型" })).toBeDisabled();
   expect(screen.queryByLabelText(/原生类别 0/)).not.toBeInTheDocument();
   expect(trainedModelsApi.register).not.toHaveBeenCalled();
 });
@@ -399,11 +484,11 @@ it("keeps registration disabled when the server has not supplied eligibility", a
     attempts: [{ id: "attempt-1", ordinal: 1, status: "succeeded" }],
   } as never);
   mount();
-  await user.click(screen.getByRole("button", { name: "注册候选模型" }));
+  await user.click(screen.getByRole("button", { name: "从训练结果添加模型" }));
   await user.type(screen.getByLabelText("模型名称"), "待核验候选");
   await user.selectOptions(await screen.findByLabelText("来源训练实验"), "run-1");
   await screen.findByText(/尚未取得模型回流资格/);
-  expect(screen.getByRole("button", { name: "注册候选模型" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "从训练结果添加模型" })).toBeDisabled();
   expect(trainedModelsApi.register).not.toHaveBeenCalled();
 });
 
@@ -438,11 +523,11 @@ it("keeps native metric gaps visible and declines comparisons without evaluator 
 it("keeps registration in a dialog, preserves the draft and restores focus", async () => {
   const user = userEvent.setup();
   mount();
-  const button = screen.getByRole("button", { name: "注册候选模型" });
+  const button = screen.getByRole("button", { name: "从训练结果添加模型" });
   expect(screen.queryByLabelText("模型名称")).not.toBeInTheDocument();
   expect(trainingRunsApi.list).not.toHaveBeenCalled();
   await user.click(button);
-  const dialog = screen.getByRole("dialog", { name: "注册候选模型" });
+  const dialog = screen.getByRole("dialog", { name: "从训练结果添加模型" });
   await user.clear(within(dialog).getByLabelText("模型名称"));
   await user.type(within(dialog).getByLabelText("模型名称"), "未完成候选");
   await user.keyboard("{Escape}");
@@ -474,7 +559,7 @@ it("preserves model filters and pagination through detail navigation", async () 
   await user.click(link);
   await screen.findByLabelText("模型版本详情");
   expect(screen.queryByLabelText("候选模型")).not.toBeInTheDocument();
-  expect(screen.queryByRole("button", { name: "注册候选模型" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "从训练结果添加模型" })).not.toBeInTheDocument();
   await user.click(screen.getByRole("link", { name: "返回模型列表" }));
   expect(screen.getByTestId("location").textContent).toContain("model_q=%E7%AC%AC%E4%B8%80");
   expect(screen.getByTestId("location").textContent).toContain("model_page=2");

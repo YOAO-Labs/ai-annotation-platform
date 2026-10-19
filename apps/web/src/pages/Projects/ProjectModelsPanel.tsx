@@ -1,6 +1,6 @@
 import { randomId } from "@/utils/id";
 import { CopyableError } from "@/components/ui/CopyableError";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ApiError } from "@/api/client";
@@ -313,6 +313,17 @@ function ModelsContent({
   const [confidence, setConfidence] = useState("0.25");
   const [jobId, setJobId] = useState("");
   const registrationId = useRef(randomId());
+  const registrationRun = params.get("register_run") ?? "";
+  const registrationAttempt = params.get("register_attempt") ?? "";
+  useEffect(() => {
+    if (mode !== "list" || !registrationRun) return;
+    setRunId(registrationRun);
+    setAttemptId(registrationAttempt);
+    setBindings({});
+    setError("");
+    registrationId.current = randomId();
+    setRegistrationOpen(true);
+  }, [mode, registrationRun, registrationAttempt]);
   const publishRequest = useRef<{ intent: string; body: ModelReleaseCreate } | null>(null);
   const predictRequest = useRef<{ id: string; payload?: DataManagerTaskPreannotationPayload }>({
     id: randomId(),
@@ -555,6 +566,9 @@ function ModelsContent({
     !!name.trim() &&
     !!runId &&
     !!selectedAttempt &&
+    source.data.attempts.some(
+      (attempt) => attempt.id === selectedAttempt && attempt.status === "succeeded",
+    ) &&
     nativeClasses.length > 0 &&
     nativeClasses.every((_, index) => classes.includes(bindings[index]));
   const predictionRunning =
@@ -573,7 +587,7 @@ function ModelsContent({
         <ProjectLearningSectionHeader
           id="models-title"
           title="模型与发布"
-          description="注册成功训练的权重，确认类别绑定，再加载试用与人工发布。"
+          description="从成功的训练结果添加项目模型，绑定类别后加载试用，再人工发布用于预标注。"
           actions={
             <>
               <Button
@@ -583,7 +597,7 @@ function ModelsContent({
                 onClick={() => setRegistrationOpen(true)}
               >
                 <Plus aria-hidden="true" />
-                注册候选模型
+                从训练结果添加模型
               </Button>
               <NavigationButton asChild variant="outline" size="sm">
                 <Link to={`/projects/${projectId}/learning/active-learning`}>主动学习人工选样</Link>
@@ -914,9 +928,20 @@ function ModelsContent({
         <Modal
           open={registrationOpen}
           onClose={() => {
-            if (!register.isPending) setRegistrationOpen(false);
+            if (register.isPending) return;
+            setRegistrationOpen(false);
+            if (registrationRun || registrationAttempt)
+              setParams(
+                (previous) => {
+                  const next = new URLSearchParams(previous);
+                  next.delete("register_run");
+                  next.delete("register_attempt");
+                  return next;
+                },
+                { replace: true },
+              );
           }}
-          title="注册候选模型"
+          title="从训练结果添加模型"
           width={640}
           returnFocusRef={registrationButton}
           initialFocusRef={sourceSelect}
@@ -930,7 +955,7 @@ function ModelsContent({
             }}
           >
             <p className="text-xs leading-relaxed text-muted-foreground">
-              选取成功实验的权重，并明确绑定项目类别。关闭后可继续填写。
+              直接使用平台内的训练权重，无需下载再上传。绑定项目类别后保存为候选模型，再加载试用和发布。关闭后可继续填写。
             </p>
             {error && (
               <p role="alert" className="text-xs text-status-danger">
@@ -969,6 +994,10 @@ function ModelsContent({
                 <option value="" disabled hidden>
                   选择成功实验
                 </option>
+                {source.data?.run.id === runId &&
+                  !runs.data?.items.some(
+                    (run) => run.id === runId && run.status === "succeeded",
+                  ) && <option value={runId}>{source.data.run.name}</option>}
                 {runs.data?.items
                   .filter((run) => run.status === "succeeded")
                   .map((run) => (
@@ -1030,6 +1059,15 @@ function ModelsContent({
                   disabled={register.isPending}
                   onChange={(event) => changeRegistration(() => setAttemptId(event.target.value))}
                 >
+                  {attemptId &&
+                    source.data &&
+                    !source.data.attempts.some(
+                      (attempt) => attempt.id === attemptId && attempt.status === "succeeded",
+                    ) && (
+                      <option value={attemptId} disabled hidden>
+                        请选择成功的执行记录
+                      </option>
+                    )}
                   {source.data?.attempts
                     .filter((attempt) => attempt.status === "succeeded")
                     .map((attempt) => (
@@ -1045,6 +1083,15 @@ function ModelsContent({
                 <CopyableError message={source.error.message} />
               </p>
             )}
+            {attemptId &&
+              source.data &&
+              !source.data.attempts.some(
+                (attempt) => attempt.id === attemptId && attempt.status === "succeeded",
+              ) && (
+                <p role="alert" className="text-xs text-status-warning">
+                  指定的执行记录不可用于回流，请选择成功的执行记录。
+                </p>
+              )}
             {source.data && !source.data.registration_eligibility?.qualified && (
               <p className="text-sm text-muted-foreground ">
                 {source.data.registration_eligibility?.reason ??
@@ -1068,7 +1115,7 @@ function ModelsContent({
                 variant="primary"
                 disabled={!validRegistration || register.isPending}
               >
-                {register.isPending ? "校验与注册中…" : "注册候选模型"}
+                {register.isPending ? "校验与添加中…" : "从训练结果添加模型"}
               </Button>
             </div>
           </form>
