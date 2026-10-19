@@ -159,6 +159,7 @@ async def test_task_reference_returns_structured_conflict_without_partial_cleanu
     )
     assert response.status_code == 409, response.text
     assert response.json()["detail"]["code"] == "source_in_use"
+    assert "请先在对应项目或功能中解除引用" in response.json()["detail"]["message"]
     assert await db_session.get(DatasetItem, item_id) is not None
     assert (
         await db_session.scalar(

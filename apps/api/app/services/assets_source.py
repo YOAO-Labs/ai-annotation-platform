@@ -166,7 +166,11 @@ def _raise_failure(exc: SourceFailure, *, operation: str) -> NoReturn:
             code,
             {
                 "code": code,
-                "message": "关联记录仍引用此来源，未删除素材或存储对象",
+                "message": (
+                    "关联记录仍引用此来源，请先在对应项目或功能中解除引用；未删除素材或存储对象"
+                    if code == "source_in_use"
+                    else "关联记录仍引用此来源，未删除素材或存储对象"
+                ),
             },
             409,
         ) from None
