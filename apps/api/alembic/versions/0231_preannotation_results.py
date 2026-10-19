@@ -17,8 +17,14 @@ down_revision = "0230"
 branch_labels = depends_on = None
 
 _SQL_DIR = Path(__file__).resolve().parents[1] / "sql"
-_UPGRADE_ARTIFACTS = ("0231_preannotation_results.sql",)
+_UPGRADE_ARTIFACTS = (
+    "0231_preannotation_results.sql",
+    "0231_preannotation_result_mask_roots.sql",
+)
 _STATEMENT_SEPARATOR = "-- aap-statement-break"
+_MASK_GC_ROOT_LIVENESS = (
+    "aap_labeling_v1._mask_gc_root_entry_live(text, text, timestamptz, boolean)"
+)
 
 _DOWNGRADE_GUARDS = {
     "executions": "SELECT count(*) FROM public.batch_result_executions",
@@ -53,6 +59,41 @@ def _function_signature(statement: str) -> str | None:
 
 def _function_name(signature: str) -> str:
     return signature.split("(", 1)[0].strip().lower()
+
+
+def _signature_key(signature: str) -> str:
+    return re.sub(r"\s+", "", signature).lower()
+
+
+def _previous_mask_gc_root_liveness_statements() -> list[str]:
+    signature = _MASK_GC_ROOT_LIVENESS
+    create_statement = None
+    revoke_statement = None
+    for statement in _statements("0229_mask_gc.sql"):
+        if re.match(
+            r"(?is)^CREATE\s+FUNCTION\s+"
+            r"aap_labeling_v1[.]_mask_gc_root_entry_live\s*\(",
+            statement,
+        ):
+            create_statement = re.sub(
+                r"(?is)^CREATE\s+FUNCTION\b",
+                "CREATE OR REPLACE FUNCTION",
+                statement,
+                count=1,
+            )
+        found_signature = _function_signature(statement)
+        if found_signature and _signature_key(found_signature) == _signature_key(
+            signature
+        ):
+            revoke_statement = statement
+    if create_statement is None or revoke_statement is None:
+        raise RuntimeError("Cannot restore 0229 Mask GC root liveness behavior.")
+    return [create_statement, revoke_statement]
+
+
+def _restore_previous_mask_gc_root_liveness() -> None:
+    for statement in _previous_mask_gc_root_liveness_statements():
+        _execute(statement)
 
 
 def _new_function_signatures() -> list[str]:
@@ -101,7 +142,13 @@ def downgrade() -> None:
         "DROP TRIGGER IF EXISTS trg_async_jobs_batch_result_delete_guard "
         "ON public.async_jobs RESTRICT"
     )
+    _execute(
+        "DELETE FROM public.mask_gc_roots WHERE root_kind = 'batch_result_payloads'"
+    )
+    _restore_previous_mask_gc_root_liveness()
     for signature in _new_function_signatures():
+        if _signature_key(signature) == _signature_key(_MASK_GC_ROOT_LIVENESS):
+            continue
         _execute(f"DROP FUNCTION IF EXISTS {signature} RESTRICT")
     for table_name in (
         "batch_result_parts",

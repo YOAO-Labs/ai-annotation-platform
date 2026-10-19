@@ -12,6 +12,7 @@ ROOT = Path(__file__).resolve().parents[3]
 SQL = ROOT / "apps/api/alembic/sql"
 MIGRATION = ROOT / "apps/api/alembic/versions/0231_preannotation_results.py"
 ARTIFACT = "0231_preannotation_results.sql"
+ROOTS_ARTIFACT = "0231_preannotation_result_mask_roots.sql"
 
 
 def _migration():
@@ -55,19 +56,20 @@ def _record_operations(monkeypatch, module):
     return emitted
 
 
-def test_revision_is_additive_and_has_one_native_artifact():
+def test_revision_is_additive_and_has_two_native_artifacts():
     module = _migration()
     assert module.revision == "0231"
     assert module.down_revision == "0230"
-    assert module._UPGRADE_ARTIFACTS == (ARTIFACT,)
+    assert module._UPGRADE_ARTIFACTS == (ARTIFACT, ROOTS_ARTIFACT)
     assert (SQL / ARTIFACT).is_file()
+    assert (SQL / ROOTS_ARTIFACT).is_file()
 
 
 def test_all_native_functions_revoke_public_and_protocol_operations_are_complete():
     module = _migration()
     statements = module._statements(ARTIFACT)
     signatures = set(module._new_function_signatures())
-    assert len(signatures) >= 35
+    assert len(signatures) >= 36
     assert all(
         re.search(r"(?is)^REVOKE ALL ON FUNCTION .* FROM PUBLIC;$", statement)
         for statement in statements
@@ -102,6 +104,11 @@ def test_all_native_functions_revoke_public_and_protocol_operations_are_complete
         "aap_labeling_v1.retire_batch_results(jsonb)",
     }
     assert expected_jobs | expected_labeling <= signatures
+    assert any(
+        module._signature_key(signature)
+        == module._signature_key(module._MASK_GC_ROOT_LIVENESS)
+        for signature in signatures
+    )
     assert "CREATE TRIGGER trg_async_jobs_batch_result_terminal" in "\n".join(
         statements
     )
@@ -180,6 +187,18 @@ def test_empty_downgrade_removes_triggers_before_functions_and_tables(monkeypatc
         "DROP TRIGGER IF EXISTS trg_async_jobs_batch_result_terminal ON public.async_jobs RESTRICT",
         "DROP TRIGGER IF EXISTS trg_async_jobs_batch_result_delete_guard ON public.async_jobs RESTRICT",
     ]
+    assert statements[3] == (
+        "DELETE FROM public.mask_gc_roots WHERE root_kind = 'batch_result_payloads'"
+    )
+    restored = next(
+        index
+        for index, statement in enumerate(statements)
+        if "CREATE OR REPLACE FUNCTION aap_labeling_v1._mask_gc_root_entry_live"
+        in statement
+    )
+    assert restored == 4
+    assert "video_tracker_input_scopes" in statements[restored]
+    assert "batch_result_payloads" not in statements[restored]
     assert statements[-1] == "DROP FUNCTION IF EXISTS aap_jobs_v1._helper() RESTRICT"
     dropped = [item[1][0] for item in emitted if isinstance(item, tuple)]
     assert dropped == [
@@ -189,3 +208,21 @@ def test_empty_downgrade_removes_triggers_before_functions_and_tables(monkeypatc
         "batch_result_members",
         "batch_result_executions",
     ]
+
+
+def test_downgrade_restores_the_immutable_0229_helper_before_dropping_tables():
+    module = _migration()
+    restored = module._previous_mask_gc_root_liveness_statements()
+    previous = [
+        statement
+        for statement in module._statements("0229_mask_gc.sql")
+        if statement.startswith(
+            "CREATE FUNCTION aap_labeling_v1._mask_gc_root_entry_live"
+        )
+    ][0]
+    assert restored[0] == previous.replace(
+        "CREATE FUNCTION", "CREATE OR REPLACE FUNCTION", 1
+    )
+    assert module._signature_key(module._function_signature(restored[1])) == (
+        module._signature_key(module._MASK_GC_ROOT_LIVENESS)
+    )
