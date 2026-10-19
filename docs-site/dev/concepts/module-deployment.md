@@ -231,4 +231,14 @@ Media 控制增加 `input`、`prepare`、`reference` 三项私有 HTTP 操作，
 
 准备未完成时保持 queued，在推理前延后同一作业；后续调整项目采样不改变旧网格。暂存前检查当前发起者、规范作业和来源，锁繁忙时保留同一推理结果；最终采纳则检查实际当前审核者、Task、分段、标注版本与保留输入，并在同一事务登记证据。普通跟踪取消可保留已完成部分供审核，修正取消继续丢弃结果。派生标注继承 pin，原规范作业删除不会解除已存在的原片保留关系。
 
-升级须先处理缺少来源快照的旧活动／待审作业，不通过运行时回填历史证明。控制、执行、最终写入及 GC 的 native 授权各有精确 allowlist；共享主 API 的宽数据库角色和 Mask I/O 仍是后续边界，不能据此认定 Labeling 或 Inference 全模块已完成。协议和切换说明见[媒体接口](/api/guides/assets-media#视频跟踪的原片输入)与 [ADR-0110](/dev/adr/0110-retained-tracker-video-inputs)。
+升级须先处理缺少来源快照的旧活动／待审作业，不通过运行时回填历史证明。控制、执行、最终写入及 GC 的 native 授权各有精确 allowlist；共享主 API 的宽数据库角色和完整 Mask 业务协议仍是后续边界，不能据此认定 Labeling 或 Inference 全模块已完成。协议和切换说明见[媒体接口](/api/guides/assets-media#视频跟踪的原片输入)与 [ADR-0110](/dev/adr/0110-retained-tracker-video-inputs)。
+
+## Mask 内容字节服务
+
+`apps/assets-mask-content` 提供 `aap-assets-mask-content/v1` 与独立运行工件。内容进程仅接受 `put/get`，清理进程仅接受分页 `list` 和条件 `delete`；两者使用各自的 token 与 S3 身份，固定到既有 Mask 桶的 `raster-masks/sha256/*`，不持有数据库、Celery 或 Redis 凭据。API 的 Mask 内容入口、导入、AI 采纳、修复、QC、追踪及导出继续使用既有包装函数，字节操作统一通过 owner。
+
+内容地址、未压缩 SHA/长度以及旧 JSON/gzip 引用保持兼容。写入使用条件创建并验证已存在内容，读取复核引用和实际字节。显式远程配置不会回退到 API 的对象存储身份；未配置的开发模式装配同一实现。
+
+Labeling 继续拥有任务权限、业务尺寸与帧校验、上传配额／预约、引用连接及完整回收根集。本地回收在移除过期预约后重新加锁，复查引用与预约后条件删除；近期同内容重传会续期预约。远程 cleanup 目前仅接入 dry-run 清单，业务删除明确拒绝：HTTP 失败后迟到的删除需要 Labeling 持久每键删除栅栏与结果恢复协议保护。字节服务只比较对象事实，不读取业务表。当前逻辑键的删除与历史 S3 版本的物理回收仍是不同责任。
+
+Python 实现复用现有编解码与 S3 栈，Node 测试提供方验证实际 Python 客户端能够通过相同 wire 合同更换实现语言；该 peer 是合同夹具，不代表第二语言持久运行时的生产资格。完整 Labeling 预约、写入与 GC 协调协议、一般 Blob 和其余模块仍须推进。协议与配置见 [Mask 字节接口](/api/guides/mask-content)及 [ADR-0111](/dev/adr/0111-independent-mask-content)。

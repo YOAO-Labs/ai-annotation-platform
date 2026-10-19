@@ -66,6 +66,8 @@ def create_app(store: MaskContentStore, token: str, role: str) -> FastAPI:
         redoc_url=None,
         openapi_url=None,
     )
+    # Admit before reading/parsing a body; a bounded byte payload expands in Python.
+    admission = asyncio.Semaphore(1)
 
     @app.get("/health/live")
     async def live():
@@ -101,6 +103,12 @@ def create_app(store: MaskContentStore, token: str, role: str) -> FastAPI:
         ):
             return _reply(error="invalid_request", status=415)
 
+        if admission.locked():
+            return _reply(error="storage_unavailable", status=503)
+        async with admission:
+            return await execute(operation, request, request_type, result_type)
+
+    async def execute(operation, request, request_type, result_type):
         try:
             raw = bytearray()
             async for chunk in request.stream():
@@ -113,7 +121,13 @@ def create_app(store: MaskContentStore, token: str, role: str) -> FastAPI:
 
         try:
             callback = getattr(store, operation)
-            result = await asyncio.to_thread(callback, value)
+            work = asyncio.create_task(asyncio.to_thread(callback, value))
+            try:
+                result = await asyncio.shield(work)
+            except asyncio.CancelledError:
+                # Cancellation must not release admission while S3 work is still running.
+                await work
+                raise
             if not isinstance(result, result_type):
                 raise c.MaskContentFailure("invalid_response")
             return _reply(result)

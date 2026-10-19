@@ -117,7 +117,7 @@ def _wait_runtime_ready(process: subprocess.Popen, origin: str) -> None:
             pytest.fail("Mask content runtime exited before readiness")
         try:
             response = httpx.get(origin + "/health/ready", timeout=1, trust_env=False)
-            if response.status_code == 200 and response.json() == {"status": "ok"}:
+            if response.status_code == 200 and response.text == "ok":
                 return
         except httpx.HTTPError:
             pass
@@ -167,7 +167,7 @@ def _start_runtime(role, *, bucket: str, credentials: tuple[str, str], tmp_path)
     origin = f"http://127.0.0.1:{port}"
     try:
         _wait_runtime_ready(process, origin)
-    except Exception:
+    except BaseException:
         _stop_runtime(process, log_stream)
         raise
     return process, log_stream, origin, token
@@ -192,11 +192,11 @@ def _stop_runtime(process: subprocess.Popen | None, log_stream) -> None:
 
 
 def _rle(seed: str) -> RleContent:
-    first = int(hashlib.sha256(seed.encode()).hexdigest()[:8], 16) % 1022 + 1
+    counts = [value % 16 + 1 for value in hashlib.sha256(seed.encode()).digest()]
     return RleContent(
         encoding="coco_rle",
         size=(1, 1024),
-        counts=(first, 1024 - first),
+        counts=tuple([*counts, 1024 - sum(counts)]),
     )
 
 
@@ -466,14 +466,9 @@ async def _seed_mask_world(db, owner_id):
         height=1,
         metadata_={},
     )
-    db.add_all(
-        [
-            project,
-            dataset,
-            item,
-            ProjectDataset(project_id=project.id, dataset_id=dataset.id),
-        ]
-    )
+    db.add_all([project, dataset])
+    await db.flush()
+    db.add_all([item, ProjectDataset(project_id=project.id, dataset_id=dataset.id)])
     await db.flush()
 
     task = Task(
@@ -501,7 +496,7 @@ async def _seed_mask_world(db, owner_id):
     return project, dataset, item, task, quota_task
 
 
-async def test_live_mask_api_and_gc_preserve_current_authority_and_roots(
+async def test_live_mask_api_and_embedded_gc_preserve_current_authority_and_roots(
     test_engine,
     tmp_path,
     httpx_client,
@@ -589,6 +584,13 @@ async def test_live_mask_api_and_gc_preserve_current_authority_and_roots(
             version=1,
         )
         db_session.add(annotation)
+        db_session.add(
+            RasterMaskUpload(
+                task_id=task.id,
+                object_key=recent_ref.object_key,
+                created_at=datetime.now(timezone.utc) - timedelta(days=2),
+            )
+        )
         await db_session.commit()
 
         headers = {"Authorization": f"Bearer {token}"}
@@ -675,6 +677,7 @@ async def test_live_mask_api_and_gc_preserve_current_authority_and_roots(
         )
         assert unavailable.status_code == 503
         assert unavailable.json()["detail"]["reason"] == "mask_storage_unavailable"
+        await db_session.refresh(task)
         failed_key = codec.build_rle_reference(failed_rle).object_key
         assert (
             await db_session.scalar(
@@ -686,6 +689,11 @@ async def test_live_mask_api_and_gc_preserve_current_authority_and_roots(
             is None
         )
         assert not _object_exists(owner_s3, bucket, failed_key)
+
+        # Remote deletion awaits a durable Labeling fence; exercise the current
+        # embedded GC against the same owned S3 objects after the API outage.
+        monkeypatch.setattr(settings, "assets_mask_content_url", "")
+        monkeypatch.setattr(settings, "assets_mask_cleanup_url", "")
 
         db_session.add(
             RasterMaskUpload(
@@ -789,6 +797,10 @@ async def test_live_mask_gc_rechecks_a_committed_reservation_after_retiring_old_
         monkeypatch.setattr(settings, "assets_mask_cleanup_token", cleanup_token)
         content_client = MaskContentClient(content_origin, content_token)
         rle = _rle(uuid4().hex)
+        monkeypatch.setattr(settings, "assets_mask_content_url", content_origin)
+        monkeypatch.setattr(settings, "assets_mask_content_token", content_token)
+        monkeypatch.setattr(settings, "assets_mask_cleanup_url", cleanup_origin)
+        monkeypatch.setattr(settings, "assets_mask_cleanup_token", cleanup_token)
         reference = content_client.put(PutRequest(content=rle)).reference
 
         async with sessions.begin() as owner:
@@ -845,23 +857,17 @@ async def test_live_mask_gc_rechecks_a_committed_reservation_after_retiring_old_
                 )
             )
 
-        from app.application.raster_mask_retention import (
-            is_raster_mask_key_referenced,
-            referenced_raster_mask_keys,
-        )
+        from app.application.raster_mask_retention import is_raster_mask_key_referenced
         from app.services import raster_mask_storage
         from app.services.raster_mask_storage import (
-            purge_unreferenced_raster_mask_objects,
+            _delete_unreferenced_mask_candidate,
             reserve_raster_mask_upload,
             store_coco_rle,
         )
+        from aap_assets_mask_content.storage import S3MaskContentStore
 
-        async with sessions() as gc_db:
-            rooted = await referenced_raster_mask_keys(gc_db)
-        with MaskContentClient(cleanup_origin, cleanup_token) as cleanup:
-            candidates = _all_candidates(cleanup)
-        rooted.update(
-            item.key for item in candidates if item.key != reference.object_key
+        local_cleanup = S3MaskContentStore(
+            _local_s3_client(settings, *cleanup_credentials), bucket
         )
         original_lock = raster_mask_storage.lock_raster_mask_references
         race_lock_calls = 0
@@ -888,7 +894,7 @@ async def test_live_mask_gc_rechecks_a_committed_reservation_after_retiring_old_
                             object_key=reference.object_key,
                             limit=256,
                         )
-                        replayed = await store_coco_rle(rle)
+                        replayed = await store_coco_rle(rle.model_dump(mode="json"))
                         assert replayed["object_key"] == reference.object_key
             return await original_lock(db, references, **kwargs)
 
@@ -898,18 +904,17 @@ async def test_live_mask_gc_rechecks_a_committed_reservation_after_retiring_old_
             add_committed_reservation_before_second_lock,
         )
         async with sessions() as gc_db:
-            result = await purge_unreferenced_raster_mask_objects(
+            deleted = await _delete_unreferenced_mask_candidate(
                 gc_db,
-                rooted,
+                candidate,
+                local_cleanup,
+                is_raster_mask_key_referenced,
                 cutoff,
-                is_referenced=is_raster_mask_key_referenced,
             )
 
         assert candidate.last_modified < cutoff
         assert race_lock_calls == 2
-        assert result["errors"] == 0
-        assert result["eligible"] == 1
-        assert result["deleted"] == 0
+        assert deleted is False
         assert _object_exists(owner_s3, bucket, reference.object_key)
         async with sessions() as query_db:
             reservation = (

@@ -36,8 +36,16 @@ The S3 principals should be limited to this fixed object prefix. The content
 role needs GetObject, PutObject, and bucket-location readiness access. The
 cleanup role needs GetObject/HeadObject, prefix-scoped ListBucket/DeleteObject,
 and bucket-location readiness access; it gets no PutObject permission. Labeling
-must hold its per-object database lock and recheck all live references and
-upload reservations before invoking delete.
+must own a durable per-object deletion fence as well as checking live references
+and upload reservations before cutting business GC over to remote delete. The
+API currently admits only remote dry-run inventories; business GC deletion stays
+embedded. An HTTP timeout can release a request's SQL lock while remote storage
+work is still running, so that lock alone is insufficient for remote deletion.
+
+Each role admits one operation before receiving and parsing the request body;
+additional requests return 503. The admission remains held until outstanding
+storage work finishes, including when the HTTP request is cancelled. Scale
+through replicas after qualifying representative payloads and concurrency.
 
 DELETE removes the current logical key only. If the configured bucket has
 versioning, historical object versions follow the bucket lifecycle or a separate

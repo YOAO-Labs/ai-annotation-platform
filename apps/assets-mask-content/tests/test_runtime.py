@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+import asyncio
+from threading import Event
+
+import httpx
+import pytest
 from fastapi.testclient import TestClient
 
 from aap_assets_mask_content import codec
@@ -158,3 +163,51 @@ def test_health_routes_and_bad_role_configuration():
         pass
     else:
         raise AssertionError("unsupported process role was accepted")
+
+
+@pytest.mark.parametrize("cancel_first", [False, True])
+def test_body_admission_is_bounded_until_storage_finishes(cancel_first):
+    async def check():
+        store = FakeStore()
+        entered = asyncio.Event()
+        release = Event()
+        loop = asyncio.get_running_loop()
+        get = store.get
+
+        def blocked(request):
+            loop.call_soon_threadsafe(entered.set)
+            assert release.wait(5), "test did not release storage"
+            return get(request)
+
+        store.get = blocked
+        transport = httpx.ASGITransport(app=create_app(store, "t" * 40, "content"))
+        async with httpx.AsyncClient(
+            transport=transport, base_url="http://mask"
+        ) as client:
+
+            async def request():
+                return await client.post(
+                    "/v1/mask-content/get",
+                    json={"reference": store.reference.model_dump(mode="json")},
+                    headers={"Authorization": "Bearer " + "t" * 40},
+                )
+
+            first = asyncio.create_task(request())
+            try:
+                await asyncio.wait_for(entered.wait(), timeout=5)
+                if cancel_first:
+                    first.cancel()
+                    await asyncio.sleep(0)
+                overloaded = await request()
+                assert overloaded.status_code == 503
+                assert store.calls == []
+            finally:
+                release.set()
+                if cancel_first:
+                    with pytest.raises(asyncio.CancelledError):
+                        await first
+                else:
+                    assert (await first).status_code == 200
+            assert (await request()).status_code == 200
+
+    asyncio.run(check())

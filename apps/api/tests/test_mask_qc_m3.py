@@ -334,6 +334,7 @@ async def test_tracker_compare_requires_exact_job_revision_and_candidate_digest(
             ]
         },
         staged_result={
+            "source_instance_map": {"7": str(annotation.id)},
             "results": [
                 {
                     "frame_index": 3,
@@ -350,7 +351,7 @@ async def test_tracker_compare_requires_exact_job_revision_and_candidate_digest(
                     "source_annotation_id": str(annotation.id),
                     "outside": False,
                 },
-            ]
+            ],
         },
         revision=4,
         event_channel=f"tracker:{uuid.uuid4()}",

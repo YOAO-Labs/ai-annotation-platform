@@ -198,9 +198,13 @@
             "minItems": 2,
             "prefixItems": [
               {
+                "maximum": 8192,
+                "minimum": 1,
                 "type": "integer"
               },
               {
+                "maximum": 8192,
+                "minimum": 1,
                 "type": "integer"
               }
             ],
@@ -259,8 +263,11 @@
         "properties": {
           "counts": {
             "items": {
+              "minimum": 0,
               "type": "integer"
             },
+            "maxItems": 1000000,
+            "minItems": 1,
             "title": "Counts",
             "type": "array"
           },
@@ -274,9 +281,13 @@
             "minItems": 2,
             "prefixItems": [
               {
+                "maximum": 8192,
+                "minimum": 1,
                 "type": "integer"
               },
               {
+                "maximum": 8192,
+                "minimum": 1,
                 "type": "integer"
               }
             ],
@@ -592,7 +603,9 @@
     "canonical_bytes": 4194304,
     "compressed_bytes": 8388608,
     "expansion_ratio": 20,
+    "max_dimension": 8192,
     "max_list_page": 1000,
+    "max_pixels": 67108864,
     "max_runs": 1000000,
     "request_bytes": 4210688,
     "response_bytes": 4210688

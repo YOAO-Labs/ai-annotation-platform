@@ -237,13 +237,14 @@ async def test_load_coco_rle_gzip_rejects_over_uncompressed():
     reference = {
         "encoding": "coco_rle_gzip",
         "size": [2, 2],
-        "object_key": "raster-masks/sha256/ab/cd/" + "a" * 64 + ".json.gz",
+        "object_key": "raster-masks/sha256/aa/aa/" + "a" * 64 + ".json.gz",
         "sha256": "a" * 64,
         "runs": 1,
-        "bytes": MAX_UNCOMPRESSED_BYTES + 1,
+        "bytes": 56,
     }
-    with pytest.raises(ValueError, match="MAX_UNCOMPRESSED_BYTES"):
+    with pytest.raises(ValueError):
         await load_coco_rle(reference, storage=storage)
+    storage.client.get_object.assert_called_once()
 
 
 def test_canonical_rle_bytes_gzip_pairs_match_reference():

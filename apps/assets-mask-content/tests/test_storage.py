@@ -47,7 +47,7 @@ class FakeS3:
 
         return {
             "ETag": '"' + hashlib.md5(self.objects[Key]).hexdigest() + '"',
-            "LastModified": self.last_modified,
+            "LastModified": self.last_modified.replace(microsecond=0),
             "ContentLength": len(self.objects[Key]),
         }
 
@@ -77,11 +77,15 @@ class FakeS3:
             ),
         }
 
-    def delete_object(self, *, Bucket, Key, IfMatch, IfMatchLastModifiedTime):
+    def delete_object(self, *, Bucket, Key, IfMatch):
         self.calls.append(("delete", Key))
-        self.delete_conditions.append((IfMatch, IfMatchLastModifiedTime))
+        self.delete_conditions.append(IfMatch)
         if Key not in self.objects:
             raise ClientError({"Error": {"Code": "NoSuchKey"}}, "DeleteObject")
+        import hashlib
+
+        if hashlib.md5(self.objects[Key]).hexdigest() != IfMatch:
+            raise ClientError({"Error": {"Code": "PreconditionFailed"}}, "DeleteObject")
         del self.objects[Key]
 
     def get_bucket_location(self, *, Bucket):
@@ -217,7 +221,7 @@ def test_list_is_prefix_bounded_and_delete_rechecks_candidate_identity():
     assert len(page.items) == 1
     assert deleted.deleted is True
     assert ref.object_key not in s3.objects
-    assert s3.delete_conditions == [(candidate.etag, candidate.last_modified)]
+    assert s3.delete_conditions == [candidate.etag]
     assert all(
         call_key.startswith("raster-masks/sha256/") for _op, call_key in s3.calls
     )
@@ -273,6 +277,49 @@ def test_listing_skips_keys_outside_the_canonical_mask_namespace():
     page = store.list(ListRequest(limit=10))
 
     assert [item.key for item in page.items] == [valid.object_key]
+
+
+def test_delete_keeps_changed_content_when_replaced_after_head():
+    s3 = FakeS3()
+    store = S3MaskContentStore(s3, "masks")
+    reference = store.put(PutRequest(content=_rle())).reference
+    candidate = store.list(ListRequest()).items[0]
+    delete = s3.delete_object
+
+    def replace_then_delete(**kwargs):
+        s3.objects[reference.object_key] = b"replacement"
+        return delete(**kwargs)
+
+    s3.delete_object = replace_then_delete
+    with pytest.raises(MaskContentFailure) as caught:
+        store.delete(
+            DeleteRequest(
+                object_key=candidate.key,
+                etag=candidate.etag,
+                last_modified=candidate.last_modified,
+            )
+        )
+    assert caught.value.code == "content_changed"
+    assert s3.objects[reference.object_key] == b"replacement"
+
+
+def test_delete_accepts_list_timestamp_at_head_http_date_precision():
+    s3 = FakeS3()
+    s3.last_modified = s3.last_modified.replace(microsecond=123456)
+    store = S3MaskContentStore(s3, "masks")
+    store.put(PutRequest(content=_rle()))
+    candidate = store.list(ListRequest()).items[0]
+    assert candidate.last_modified.microsecond == 123456
+    assert (
+        store.delete(
+            DeleteRequest(
+                object_key=candidate.key,
+                etag=candidate.etag,
+                last_modified=candidate.last_modified,
+            )
+        ).deleted
+        is True
+    )
 
 
 def test_listing_uses_bounded_provider_continuation_pages():

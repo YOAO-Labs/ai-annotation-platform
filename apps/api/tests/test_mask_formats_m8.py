@@ -28,9 +28,10 @@ from app.services.mask_formats.image_codecs import (
 )
 from app.services.raster_mask_storage import build_rle_reference, load_coco_rle
 from app.utils.raster_mask_rle import decode_coco_rle, encode_coco_rle
+from tests.media_owner_fixtures import media_owner as media_owner
 
 
-async def _seed_video_project(db, owner_id: uuid.UUID):
+async def _seed_video_project(db, owner_id: uuid.UUID, media_owner):
     suffix = uuid.uuid4().hex[:7]
     project = Project(
         display_id=f"P-M8-{suffix}",
@@ -73,6 +74,7 @@ async def _seed_video_project(db, owner_id: uuid.UUID):
     )
     db.add(item)
     await db.flush()
+    await media_owner.seed_video_item(item, owner_id)
     task = Task(
         project_id=project.id,
         dataset_item_id=item.id,
@@ -118,9 +120,10 @@ async def test_coco_frames_import_preserves_track_frame_outside_and_occlusion(
     super_admin,
     tmp_path,
     request,
+    media_owner,
 ) -> None:
     user, _token = super_admin
-    project, task, _item = await _seed_video_project(db_session, user.id)
+    project, task, _item = await _seed_video_project(db_session, user.id, media_owner)
     first = _mask(0)
     last = _mask(8)
     payload = {
@@ -222,9 +225,10 @@ async def test_coco_frames_import_does_not_mark_unsampled_frames_outside(
     super_admin,
     tmp_path,
     request,
+    media_owner,
 ) -> None:
     user, _token = super_admin
-    project, task, _item = await _seed_video_project(db_session, user.id)
+    project, task, _item = await _seed_video_project(db_session, user.id, media_owner)
     payload = {
         "images": [
             {
@@ -297,9 +301,10 @@ async def test_coco_frames_reports_non_contiguous_external_frame_mapping(
     db_session,
     super_admin,
     tmp_path,
+    media_owner,
 ) -> None:
     user, _token = super_admin
-    project, _task, _item = await _seed_video_project(db_session, user.id)
+    project, _task, _item = await _seed_video_project(db_session, user.id, media_owner)
     payload = {
         "images": [
             {
@@ -341,9 +346,10 @@ async def test_video_mask_package_consumers_and_all_import_preflights(
     db_session,
     super_admin,
     monkeypatch,
+    media_owner,
 ) -> None:
     user, _token = super_admin
-    project, task, _item = await _seed_video_project(db_session, user.id)
+    project, task, _item = await _seed_video_project(db_session, user.id, media_owner)
     first = _mask(0)
     last = _mask(8)
     references = {
@@ -503,9 +509,10 @@ async def test_davis_preflight_requires_explicit_overlap_winner(
     db_session,
     super_admin,
     monkeypatch,
+    media_owner,
 ) -> None:
     user, _token = super_admin
-    project, task, _item = await _seed_video_project(db_session, user.id)
+    project, task, _item = await _seed_video_project(db_session, user.id, media_owner)
     rle = _mask(0)
     reference = build_rle_reference(rle)
     for index in range(2):

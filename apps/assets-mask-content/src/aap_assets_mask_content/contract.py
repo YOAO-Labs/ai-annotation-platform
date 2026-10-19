@@ -31,6 +31,8 @@ MAX_RESPONSE_BYTES = MAX_RLE_OBJECT_BYTES + 16 * 1024
 MAX_LIST_PAGE = 1000
 
 Digest = Annotated[StrictStr, Field(pattern=r"^[0-9a-f]{64}$")]
+Dimension = Annotated[StrictInt, Field(ge=1, le=MAX_MASK_DIMENSION)]
+RunLength = Annotated[StrictInt, Field(ge=0)]
 ObjectKey = Annotated[
     StrictStr,
     Field(
@@ -92,8 +94,10 @@ class RleContent(Value):
     """Canonical COCO uncompressed RLE object sent to/from the byte owner."""
 
     encoding: Literal["coco_rle"]
-    size: tuple[StrictInt, StrictInt]
-    counts: tuple[StrictInt, ...]
+    size: tuple[Dimension, Dimension]
+    counts: Annotated[
+        tuple[RunLength, ...], Field(min_length=1, max_length=MAX_MASK_RUNS)
+    ]
 
     @field_validator("size", mode="before")
     @classmethod
@@ -105,6 +109,8 @@ class RleContent(Value):
     def strict_counts_tuple(cls, value):
         if not isinstance(value, (list, tuple)):
             raise ValueError("counts must be a non-empty integer array")
+        if not 1 <= len(value) <= MAX_MASK_RUNS:
+            raise ValueError(f"mask runs must be between 1 and {MAX_MASK_RUNS}")
         if any(type(part) is not int for part in value):
             raise ValueError("counts must contain strict integers")
         return tuple(int(part) for part in value)
@@ -136,7 +142,7 @@ class MaskReference(Value):
 
     encoding: Literal["coco_rle_ref", "coco_rle_gzip"] = "coco_rle_ref"
     storage_encoding: Literal["identity", "gzip"] | None = None
-    size: tuple[StrictInt, StrictInt]
+    size: tuple[Dimension, Dimension]
     object_key: ObjectKey
     sha256: Digest
     runs: Annotated[StrictInt, Field(ge=1, le=MAX_MASK_RUNS)]
@@ -463,6 +469,8 @@ def contract_document() -> dict:
             "compressed_bytes": MAX_COMPRESSED_BYTES,
             "expansion_ratio": MAX_EXPANSION_RATIO,
             "max_runs": MAX_MASK_RUNS,
+            "max_dimension": MAX_MASK_DIMENSION,
+            "max_pixels": MAX_MASK_PIXELS,
             "max_list_page": MAX_LIST_PAGE,
         },
         "$defs": definitions,

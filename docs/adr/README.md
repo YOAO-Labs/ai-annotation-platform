@@ -156,3 +156,4 @@
 - [ADR-0108: Durable bulk image input manifests](0108-bulk-image-input-manifests.md)
 - [ADR-0109: Retained video inputs and source-bound frame plans](0109-retained-video-inputs-and-frame-plans.md)
 - [0110 — 跟踪作业固定原始视频输入](0110-retained-tracker-video-inputs.md)
+- [0111 — 独立 Mask 内容字节边界](0111-independent-mask-content.md)

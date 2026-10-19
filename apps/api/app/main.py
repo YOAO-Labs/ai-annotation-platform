@@ -5,6 +5,7 @@ from fastapi.exception_handlers import request_validation_exception_handler
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from aap_assets_mask_content.contract import MaskContentFailure
 from app.config import settings
 from app.api.v1.router import api_router
 from app.api.v1.ws import router as ws_router, close_redis_pool as _close_ws_redis_pool
@@ -116,6 +117,16 @@ async def _routing_error_handler(_request: Request, exc: RoutingError):
 
 
 app.add_exception_handler(RoutingError, _routing_error_handler)
+
+
+async def _mask_content_error_handler(_request: Request, _exc: MaskContentFailure):
+    return JSONResponse(
+        status_code=503,
+        content={"detail": {"reason": "mask_storage_unavailable", "retryable": True}},
+    )
+
+
+app.add_exception_handler(MaskContentFailure, _mask_content_error_handler)
 
 
 async def _apply_prediction_result_error_handler(

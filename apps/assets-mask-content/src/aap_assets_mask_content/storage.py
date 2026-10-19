@@ -216,7 +216,9 @@ class S3MaskContentStore:
         if (
             current_etag != request.etag
             or not isinstance(current_modified, datetime)
-            or _utc(current_modified) != _utc(request.last_modified)
+            # HEAD uses HTTP-date seconds; LIST can include fractional seconds.
+            or _utc(current_modified).replace(microsecond=0)
+            != _utc(request.last_modified).replace(microsecond=0)
         ):
             raise MaskContentFailure("content_changed")
 
@@ -225,7 +227,6 @@ class S3MaskContentStore:
                 Bucket=self.bucket,
                 Key=key,
                 IfMatch=request.etag,
-                IfMatchLastModifiedTime=request.last_modified,
             )
         except ClientError as exc:
             if _error_code(exc) in _NOT_FOUND:

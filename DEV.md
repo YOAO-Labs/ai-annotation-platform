@@ -1058,6 +1058,32 @@ psql -v expected_database=annotation_test -v migration_role=owner \
 
 SQL 回滚不会撤销对象存储 I/O。图片上传和 nuScenes 文件写入/覆盖若发生在数据库提交前，失败后对象字节仍保留；不得以回滚成功推断对象已删除。更多函数、快照与事务字段见[同库数据接口](docs-site/api/guides/module-data.md#可信导入器数据集与素材登记)及 [ADR-0104](docs/adr/0104-operator-source-registration.md)。该边界继续依赖现有本地导入脚本和共享 PostgreSQL，不代表完整 Assets、CLI 或导入器可独立部署。
 
+## Mask 内容的独立字节服务
+
+`apps/assets-mask-content` 提供 `aap-assets-mask-content/v1`，仅处理现有内容地址 RLE 对象的字节。`content` 进程只提供 `put/get`；`cleanup` 进程只提供分页 `list` 与带 ETag、修改时间围栏的 `delete`。两个进程没有数据库、Celery 或 Redis 凭据。任务权限、图像／视频限制、上传预约和引用可达性继续由 Labeling 判断。
+
+API 与需要读写 Mask 的 worker 配置 `ASSETS_MASK_CONTENT_URL`、`ASSETS_MASK_CONTENT_TOKEN`；回收清单的 dry-run 查询另配 `ASSETS_MASK_CLEANUP_URL`、`ASSETS_MASK_CLEANUP_TOKEN`。全部地址留空时使用同一实现的本地装配；配置任何远程地址后，缺少所选角色的地址／token 或远程失败都会明确报错，不会改用 API 的 S3 凭据。
+
+业务回收尚未切换为远程删除：配置远程 cleanup 时，非 dry-run 回收明确失败。HTTP 超时或断连后，远端删除可能继续执行，单靠请求期间的 SQL 锁无法保护随后重用相同内容的上传。Labeling 的持久每键删除栅栏及结果恢复协议完成前，保留本地业务回收；不要把可选字节工件的 `delete` 操作直接接到业务回收作业。
+
+运行身份使用固定桶中的 `raster-masks/sha256/*`。根据角色生成策略并安装到各自的 S3 身份，不授予整个共享桶的对象权限：
+
+```bash
+python scripts/mask_content_s3_policy.py --bucket annotations --role content
+python scripts/mask_content_s3_policy.py --bucket annotations --role cleanup
+```
+
+`MASK_CONTENT_BUCKET` 必须与既有 `MINIO_BUCKET` 中的 Mask 对象一致。内容身份仅 Put/Get；清理身份仅按前缀 List、Get（用于 HEAD）和 DeleteObject；两者仅有 GetBucketLocation 用于就绪检查。这里删除当前逻辑键，历史 S3 版本回收仍由桶生命周期／独立清理责任处理。
+
+可选 `docker-compose.assets-mask-content.yml` 不进入默认或生产 Compose。分别准备两组 token、access-key、secret-key 文件后显式启动；只暴露容器内 8770，普通内容进程不挂载清理 secret。宿主进程使用 `MASK_CONTENT_ROLE` 选择角色，token 和 S3 凭据支持 inline 与 `_FILE` 二选一：
+
+```bash
+uv run --project apps/assets-mask-content --extra server python -m aap_assets_mask_content_runtime
+docker compose -f docker-compose.assets-mask-content.yml up -d assets-mask-content assets-mask-cleanup
+```
+
+Labeling 在回收时仍持有内容 SQL 锁，保护宽限期内预约后移除过期预约并提交，再次加锁并复查当前引用和预约后才调用条件删除。同内容重传会续期预约，不能用旧对象时间判断刚上传的引用已过期。每个字节角色进程同时处理一个内容操作，忙时返回 503。接口、预算和现有引用兼容规则见[Mask 字节接口](docs-site/api/guides/mask-content.md)。
+
 ## 视频媒体的独立控制与执行
 
 `apps/assets-media` 定义 `aap-assets-media/v1` 与 `aap-assets-images/v1` 契约。视频与图片共用控制进程；视频和图片分别由独立 Worker 执行，图片通过固定 SQL 能力与来源/派生对象身份完成受理、发布和清理。视频控制/执行已通过隔离本地进程和受限容器联调；图片的可选运行方式与验证边界见下文及[图片金字塔运行手册](docs-site/ops/runbooks/image-pyramid.md)。Go 实验不进入这些默认运行路径。

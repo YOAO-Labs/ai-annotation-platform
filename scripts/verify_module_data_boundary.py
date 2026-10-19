@@ -1034,6 +1034,34 @@ def _media_storage_policy(scope: dict, *, worker: bool) -> dict:
     return {"Version": "2012-10-17", "Statement": statements}
 
 
+def _create_mask_content_storage_scope(scope: dict, *, cleanup: bool) -> None:
+    from mask_content_s3_policy import mask_content_policy
+
+    _cleanup_mc(
+        scope,
+        ["admin", "user", "add", "scoped", scope["access_key"], scope["secret_key"]],
+    )
+    scope["user_created"] = True
+    _cleanup_mc(
+        scope,
+        ["admin", "policy", "create", "scoped", scope["policy"], "/dev/stdin"],
+        payload=json.dumps(mask_content_policy(scope["bucket"], cleanup=cleanup)),
+    )
+    scope["policy_created"] = True
+    _cleanup_mc(
+        scope,
+        [
+            "admin",
+            "policy",
+            "attach",
+            "scoped",
+            scope["policy"],
+            "--user",
+            scope["access_key"],
+        ],
+    )
+
+
 def _create_media_storage_scope(scope: dict, *, worker: bool) -> None:
     _cleanup_mc(
         scope,
@@ -1766,6 +1794,8 @@ def main(argv: list[str] | None = None) -> int:
             "media_worker_storage_identity_removed": False,
             "image_worker_storage_identity_removed": False,
             "api_bootstrap_storage_identity_removed": None,
+            "mask_content_storage_identity_removed": None,
+            "mask_cleanup_storage_identity_removed": None,
             "local_resources_destroyed": False,
             "postgres_container_removed": False,
             "resource_root_retained": None,
@@ -1787,6 +1817,8 @@ def main(argv: list[str] | None = None) -> int:
     media_worker_storage = None
     image_worker_storage = None
     api_bootstrap_storage = None
+    mask_content_storage = None
+    mask_cleanup_storage = None
     resource_root = Path(
         tempfile.mkdtemp(prefix="aap-module-data-acceptance-")
     ).resolve()
@@ -2254,6 +2286,23 @@ def main(argv: list[str] | None = None) -> int:
         ]
         image_worker_storage["policy"] = "aap-images-worker-" + secrets.token_hex(8)
         _create_image_storage_scope(image_worker_storage)
+        if selected_test_paths & {
+            "tests/test_mask_content_live.py",
+            "tests/test_mask_content_containers.py",
+        }:
+            mask_content_storage = _cleanup_storage_scope(backend)
+            mask_content_storage["bucket"] = resources["buckets"]["MINIO_BUCKET"]
+            mask_content_storage["policy"] = "aap-mask-content-" + secrets.token_hex(8)
+            _create_mask_content_storage_scope(mask_content_storage, cleanup=False)
+            mask_cleanup_storage = _cleanup_storage_scope(backend)
+            mask_cleanup_storage["bucket"] = resources["buckets"]["MINIO_BUCKET"]
+            mask_cleanup_storage["policy"] = "aap-mask-cleanup-" + secrets.token_hex(8)
+            _create_mask_content_storage_scope(mask_cleanup_storage, cleanup=True)
+            evidence["mask_content_s3"] = {
+                "bucket": resources["buckets"]["MINIO_BUCKET"],
+                "prefix": "raster-masks/sha256/",
+                "content_and_cleanup_identities_created": True,
+            }
         if "tests/test_video_consumers_containers.py" in selected_test_paths:
             api_bootstrap_storage = _cleanup_storage_scope(backend)
             api_bootstrap_storage["buckets"] = resources["buckets"]
@@ -2386,6 +2435,22 @@ def main(argv: list[str] | None = None) -> int:
                     ],
                 }
             )
+        for label, scope in (
+            ("CONTENT", mask_content_storage),
+            ("CLEANUP", mask_cleanup_storage),
+        ):
+            if scope is not None:
+                resource_environment.update(
+                    {
+                        "AAP_MASK_CONTENT_ACCEPTANCE": "1",
+                        f"AAP_MODULE_DATA_MASK_{label}_S3_ACCESS_KEY": scope[
+                            "access_key"
+                        ],
+                        f"AAP_MODULE_DATA_MASK_{label}_S3_SECRET_KEY": scope[
+                            "secret_key"
+                        ],
+                    }
+                )
         command = [
             sys.executable,
             "-c",
@@ -2414,6 +2479,8 @@ def main(argv: list[str] | None = None) -> int:
         exit_code = 1
     finally:
         for label, scope in (
+            ("mask_content", mask_content_storage),
+            ("mask_cleanup", mask_cleanup_storage),
             ("api_bootstrap", api_bootstrap_storage),
             ("image_worker", image_worker_storage),
             ("media_worker", media_worker_storage),

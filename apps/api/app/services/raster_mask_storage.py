@@ -11,22 +11,34 @@ from datetime import datetime
 from typing import Any, TypeVar
 
 from botocore.exceptions import BotoCoreError, ClientError
+from pydantic import ValidationError
 from sqlalchemy import delete, func, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from aap_assets_mask_content.contract import (
+    DeleteRequest,
+    GetRequest,
+    ListRequest,
+    MaskContentFailure,
+    MaskReference,
+    PutRequest,
+    RleContent,
+)
 
 from app.db.models.dataset import DatasetItem
 from app.db.models.project import Project
 from app.db.models.raster_mask_upload import RasterMaskUpload
 from app.db.models.task import Task
+from app.config import settings
 from app.observability.metrics import record_raster_mask_content_operation
 from app.services.raster_mask_capabilities import evaluate_raster_mask_capabilities
+from app.services.mask_content import mask_content_owner
 from app.services.storage import StorageService, storage_service
 from app.services.video_context import VideoContext
 from app.utils.raster_mask_gzip import (
     MAX_COMPRESSED_BYTES,
     MAX_EXPANSION_RATIO,
     compress_mask_gzip,
-    decompress_mask_gzip,
 )
 from app.utils.raster_mask_rle import (
     MAX_IMAGE_MASK_DIMENSION,
@@ -256,6 +268,13 @@ def classify_raster_mask_content_error(exc: Exception) -> str:
         return "invalid_encoding"
 
     for item in chain:
+        if isinstance(item, MaskContentFailure):
+            return (
+                "storage_unavailable"
+                if item.code
+                in {"storage_unavailable", "invalid_response", "permission_denied"}
+                else "invalid_payload"
+            )
         if isinstance(item, RasterMaskContractError):
             reason = str(item.detail.get("reason") or "")
             if reason == "mask_storage_unavailable":
@@ -485,6 +504,9 @@ async def reserve_raster_mask_upload(
         or 0
     )
     if existing is not None:
+        # A successful same-key upload renews grace even when the blob is old.
+        existing.created_at = func.clock_timestamp()
+        await db.flush()
         return current
     if current >= limit:
         raise ValueError(f"mask orphan quota exceeded ({current}/{limit})")
@@ -505,6 +527,55 @@ def _eligible_raster_mask_objects(
     ][:1000]
 
 
+async def _delete_unreferenced_mask_candidate(
+    db, candidate, owner, is_referenced, cutoff
+) -> bool:
+    key = candidate.key
+    await lock_raster_mask_references(db, {"object_key": key}, verify=False)
+    if await is_referenced(db, key):
+        await db.commit()
+        return False
+    recent_upload = (
+        await db.execute(
+            select(RasterMaskUpload.id)
+            .where(
+                RasterMaskUpload.object_key == key,
+                RasterMaskUpload.created_at >= cutoff,
+            )
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if recent_upload is not None:
+        # Reusing an old immutable key does not refresh its S3 modification time.
+        await db.commit()
+        return False
+    await db.execute(delete(RasterMaskUpload).where(RasterMaskUpload.object_key == key))
+    # Retire reservations first; a failed object deletion remains a recoverable orphan.
+    await db.commit()
+    await lock_raster_mask_references(db, {"object_key": key}, verify=False)
+    upload_exists = (
+        await db.execute(
+            select(RasterMaskUpload.id)
+            .where(RasterMaskUpload.object_key == key)
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    deleted = False
+    if upload_exists is None and not await is_referenced(db, key):
+        # Hold the owner lock through remote deletion so a reference cannot commit in between.
+        result = await asyncio.to_thread(
+            owner.delete,
+            DeleteRequest(
+                object_key=key,
+                etag=candidate.etag,
+                last_modified=candidate.last_modified,
+            ),
+        )
+        deleted = result.deleted
+    await db.commit()
+    return deleted
+
+
 async def purge_unreferenced_raster_mask_objects(
     db: AsyncSession,
     referenced: set[str],
@@ -513,61 +584,59 @@ async def purge_unreferenced_raster_mask_objects(
     is_referenced: Callable[[AsyncSession, str], Awaitable[bool]],
     dry_run: bool = False,
 ) -> dict[str, int]:
-    """Collect unreferenced objects while preserving upload/reference lock ordering."""
-    candidates = await asyncio.to_thread(
-        storage_service.list_objects, f"{RLE_OBJECT_PREFIX}/"
-    )
-    deletable = _eligible_raster_mask_objects(candidates, referenced, cutoff)
-    deleted = 0
-    errors = 0
-    if not dry_run:
-        for item in deletable:
-            key = item["key"]
-            try:
-                await lock_raster_mask_references(
-                    db,
-                    {"object_key": key},
-                    verify=False,
+    """Keep Labeling's root/lock decisions while paging the byte owner's candidates."""
+    if not dry_run and settings.assets_mask_cleanup_url:
+        # An HTTP timeout can release SQL locks before a remote delete finishes.
+        # Keep destructive cutover closed until Labeling owns durable per-key fences.
+        raise MaskContentFailure("storage_unavailable")
+    scanned = eligible = deleted = errors = 0
+    cursor = None
+    seen_cursors = set()
+    try:
+        with mask_content_owner(storage_service, cleanup=True) as owner:
+            while True:
+                page = await asyncio.to_thread(
+                    owner.list, ListRequest(cursor=cursor, limit=1000)
                 )
-                if not await is_referenced(db, key):
-                    await db.execute(
-                        delete(RasterMaskUpload).where(
-                            RasterMaskUpload.object_key == key
-                        )
-                    )
-                    # Commit the recoverable database state first. If the process
-                    # stops before object deletion, the next pass sees an orphan.
-                    await db.commit()
-                    # A same-key upload may start after that commit. Reacquire the
-                    # content lock and recheck references and reservations.
-                    await lock_raster_mask_references(
-                        db,
-                        {"object_key": key},
-                        verify=False,
-                    )
-                    upload_exists = (
-                        await db.execute(
-                            select(RasterMaskUpload.id)
-                            .where(RasterMaskUpload.object_key == key)
-                            .limit(1)
-                        )
-                    ).scalar_one_or_none()
-                    if upload_exists is None and not await is_referenced(db, key):
-                        await asyncio.to_thread(storage_service.delete_object, key)
-                        deleted += 1
-                    await db.commit()
-                    continue
-                await db.commit()
-            except Exception as exc:  # noqa: BLE001 - retain on storage/DB failure
-                await db.rollback()
-                errors += 1
-                _log.warning(
-                    "delete unreferenced raster mask failed; error_type=%s",
-                    type(exc).__name__,
-                )
+                scanned += len(page.items)
+                for candidate in page.items:
+                    if not _eligible_raster_mask_objects(
+                        [candidate.model_dump(mode="python")], referenced, cutoff
+                    ):
+                        continue
+                    eligible += 1
+                    if not dry_run:
+                        try:
+                            deleted += int(
+                                await _delete_unreferenced_mask_candidate(
+                                    db,
+                                    candidate,
+                                    owner,
+                                    is_referenced,
+                                    cutoff,
+                                )
+                            )
+                        except Exception as exc:
+                            await db.rollback()
+                            errors += 1
+                            _log.warning(
+                                "delete unreferenced raster mask failed; error_type=%s",
+                                type(exc).__name__,
+                            )
+                    if eligible == 1000:
+                        break
+                if eligible == 1000 or page.cursor is None:
+                    break
+                if page.cursor in seen_cursors or page.cursor == cursor:
+                    raise MaskContentFailure("invalid_response")
+                seen_cursors.add(page.cursor)
+                cursor = page.cursor
+    except MaskContentFailure as exc:
+        await db.rollback()
+        _mask_content_failure(exc)
     return {
-        "scanned": len(candidates),
-        "eligible": len(deletable),
+        "scanned": scanned,
+        "eligible": eligible,
         "deleted": deleted,
         "errors": errors,
     }
@@ -954,52 +1023,43 @@ def build_rle_gzip_reference(rle: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _put_object_sync(
-    storage: StorageService, *, key: str, body: bytes, content_type: str
-) -> None:
-    """Sync boto3 put wrapped so both the async and sync helpers share one path."""
-    if storage.verify_upload(key) is None:
-        storage.client.put_object(
-            Bucket=storage.bucket,
-            Key=key,
-            Body=body,
-            ContentType=content_type,
-        )
+def _mask_content_failure(exc: MaskContentFailure) -> None:
+    if exc.code == "object_missing":
+        raise ValueError("stored mask RLE object is missing") from None
+    if exc.code == "object_corrupt":
+        raise ValueError(
+            "stored mask RLE digest mismatch or invalid metadata"
+        ) from None
+    if exc.code in {"invalid_request", "invalid_reference", "resource_limit"}:
+        raise ValueError("mask RLE reference or bounded content is invalid") from None
+    # Availability failures must not enter existing ValueError/content-conflict handlers.
+    raise exc from None
 
 
-def _get_object_sync(storage: StorageService, *, key: str, max_bytes: int) -> bytes:
-    """Sync boto3 get with a caller-selected compressed/uncompressed bound."""
+def _store_mask_content(rle: dict[str, Any], storage, storage_encoding: str):
+    # Normalize permitted extra producer metadata before crossing the byte contract.
+    content = RleContent.model_validate(json.loads(canonical_rle_bytes(rle)))
     try:
-        response = storage.client.get_object(Bucket=storage.bucket, Key=key)
-    except ClientError as exc:
-        code = str(exc.response.get("Error", {}).get("Code", ""))
-        if code in {"NoSuchKey", "404", "NotFound"}:
-            raise ValueError("stored mask RLE object is missing") from exc
-        raise
-    try:
-        data = response["Body"].read(max_bytes + 1)
-    finally:
-        response["Body"].close()
-    return data
+        with mask_content_owner(storage) as owner:
+            result = owner.put(
+                PutRequest(content=content, storage_encoding=storage_encoding)
+            )
+    except MaskContentFailure as exc:
+        _mask_content_failure(exc)
+    reference = result.reference.model_dump(mode="json", exclude_none=True)
+    validate_reference_for_rle(reference, rle)
+    if (
+        storage_encoding == RLE_STORAGE_IDENTITY
+        and reference.get("storage_encoding") == RLE_STORAGE_GZIP
+    ):
+        raise ValueError("mask content owner changed requested storage encoding")
+    return reference
 
 
 def store_coco_rle_sync(
     rle: dict[str, Any], *, storage: StorageService = storage_service
 ) -> dict[str, Any]:
-    """Sync storage path retained for non-async callers (workers / sync imports).
-
-    Most call sites are async and should ``await store_coco_rle(...)`` instead;
-    the async wrapper delegates the heavy lifting here through ``to_thread``.
-    """
-    data = canonical_rle_bytes(rle)
-    reference = build_rle_reference(rle)
-    _put_object_sync(
-        storage,
-        key=reference["object_key"],
-        body=data,
-        content_type="application/json",
-    )
-    return reference
+    return _store_mask_content(rle, storage, RLE_STORAGE_IDENTITY)
 
 
 async def store_coco_rle(
@@ -1015,22 +1075,7 @@ async def store_coco_rle(
 def store_coco_rle_gzip_sync(
     rle: dict[str, Any], *, storage: StorageService = storage_service
 ) -> dict[str, Any]:
-    """Sync gzip storage path (see ``store_coco_rle_gzip`` for the async entry)."""
-    data, gzip_bytes = canonical_rle_bytes_gzip(rle)
-    # A reference written here must always be readable under the same bounded
-    # decompression contract. Highly compressible payloads fall back to JSON.
-    if len(data) > len(gzip_bytes) * MAX_EXPANSION_RATIO:
-        return store_coco_rle_sync(rle, storage=storage)
-    reference = build_rle_gzip_reference(rle)
-    _put_object_sync(
-        storage,
-        key=reference["object_key"],
-        body=gzip_bytes,
-        content_type="application/gzip",
-    )
-    # ``bytes`` must reflect uncompressed canonical length (ADR-0052 §D6); the
-    # reference is already built that way, so no override is needed here.
-    return reference
+    return _store_mask_content(rle, storage, RLE_STORAGE_GZIP)
 
 
 async def store_coco_rle_gzip(
@@ -1052,61 +1097,20 @@ async def store_coco_rle_gzip(
 def load_coco_rle_sync(
     reference: dict[str, Any], *, storage: StorageService = storage_service
 ) -> dict[str, Any]:
-    """Sync load path: handles legacy ``.json`` and new ``.json.gz`` keys.
-
-    All digest / byte-count / run / size checks operate on the **decompressed
-    canonical bytes**, so behavior is identical regardless of transport.
-    """
-    key = str(reference["object_key"])
-    raw = _get_object_sync(
-        storage,
-        key=key,
-        max_bytes=(
-            MAX_COMPRESSED_BYTES if key.endswith(".json.gz") else MAX_RLE_OBJECT_BYTES
-        ),
-    )
-    storage_encoding = reference.get("storage_encoding")
-    gzip_key = key.endswith(".json.gz")
-    if storage_encoding not in (None, RLE_STORAGE_IDENTITY, RLE_STORAGE_GZIP):
-        raise ValueError("unsupported mask reference storage_encoding")
-    if storage_encoding == RLE_STORAGE_GZIP and not gzip_key:
-        raise ValueError("gzip mask reference must use .json.gz")
-    if storage_encoding == RLE_STORAGE_IDENTITY and gzip_key:
-        raise ValueError("identity mask reference must use .json")
-    if reference.get("encoding") not in (
-        COCO_RLE_REF_ENCODING,
-        COCO_RLE_GZIP_ENCODING,
-    ):
-        raise ValueError("unsupported mask reference encoding")
-    if gzip_key:
-        data = decompress_mask_gzip(
-            raw,
-            max_compressed=MAX_COMPRESSED_BYTES,
-            max_uncompressed=MAX_RLE_OBJECT_BYTES,
-        )
-    else:
-        if len(raw) > MAX_RLE_OBJECT_BYTES:
-            raise ValueError("stored mask RLE exceeds 4 MiB")
-        data = raw
-    if len(data) > MAX_RLE_OBJECT_BYTES:
-        raise ValueError("stored mask RLE exceeds 4 MiB")
-    digest = hashlib.sha256(data).hexdigest()
-    expected_key = (
-        rle_gzip_object_key(digest)
-        if key.endswith(".json.gz")
-        else rle_object_key(digest)
-    )
-    if digest != reference.get("sha256") or key != expected_key:
-        raise ValueError("stored mask RLE digest mismatch")
-    if len(data) != reference.get("bytes"):
-        raise ValueError("stored mask RLE byte count mismatch")
-    payload = json.loads(data)
-    height, width, counts = validate_coco_rle(payload)
-    if [height, width] != list(reference.get("size") or []):
-        raise ValueError("stored mask RLE size mismatch")
-    if len(counts) != reference.get("runs"):
-        raise ValueError("stored mask RLE run count mismatch")
-    return payload
+    try:
+        request = GetRequest(reference=MaskReference.model_validate(reference))
+    except ValidationError:
+        raise ValueError("invalid mask reference") from None
+    try:
+        with mask_content_owner(storage) as owner:
+            result = owner.get(request)
+    except MaskContentFailure as exc:
+        _mask_content_failure(exc)
+    if result.reference != request.reference:
+        raise ValueError("mask content owner changed requested reference")
+    content = result.content.model_dump(mode="json")
+    validate_reference_for_rle(reference, content)
+    return content
 
 
 async def load_coco_rle(

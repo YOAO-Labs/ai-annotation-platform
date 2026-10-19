@@ -1,6 +1,6 @@
 # 0110 — 跟踪作业固定原始视频输入
 
-- Status: Accepted; implementation in progress
+- Status: Accepted
 - Date: 2026-10-19
 - Deciders: implementation team
 - Supersedes: None; extends ADR-0109 for dedicated tracker consumers

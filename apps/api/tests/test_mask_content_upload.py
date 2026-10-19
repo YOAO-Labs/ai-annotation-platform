@@ -14,7 +14,7 @@ gzip path; absent ``encoding`` falls through to the legacy uncompressed path.
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock
 
 import pytest
@@ -118,6 +118,34 @@ async def test_count_task_mask_references_isolated_per_task(db_session, super_ad
     await db_session.flush()
     assert await _count_task_mask_references(db_session, task_a.id) == 1
     assert await _count_task_mask_references(db_session, task_b.id) == 0
+
+
+@pytest.mark.parametrize("linked", [False, True])
+async def test_same_key_upload_renews_gc_grace_without_changing_quota(
+    db_session, super_admin, linked
+):
+    from app.services.raster_mask_storage import reserve_raster_mask_upload
+
+    user, _ = super_admin
+    _, task = await _seed_task(db_session, user.id)
+    old = datetime.now(timezone.utc) - timedelta(days=2)
+    reservation = RasterMaskUpload(
+        task_id=task.id,
+        object_key=_mask_ref()["object_key"],
+        created_at=old,
+        linked_at=old if linked else None,
+    )
+    db_session.add(reservation)
+    await db_session.flush()
+    before = await _count_task_mask_references(db_session, task.id)
+    count = await reserve_raster_mask_upload(
+        db_session, task_id=task.id, object_key=reservation.object_key, limit=256
+    )
+    await db_session.refresh(reservation)
+    assert count == before
+    assert reservation.created_at > old + timedelta(hours=24)
+    assert reservation.linked_at == (old if linked else None)
+    assert await _count_task_mask_references(db_session, task.id) == before
 
 
 async def test_upload_task_mask_content_enforces_quota(

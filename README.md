@@ -160,6 +160,8 @@ Ultralytics YOLO11 的配置页可生成原生增强预览，对照冻结原图�
 
 专用视频跟踪、范围传播和 Mask 修正使用各自作业的固定原片输入，逐窗口复用同一保留版本；采样设置变化不会改写已接受请求，候选采纳与派生标注保留原片证据。控制和执行复用现有 Media 工件，见[跟踪原片接口](./docs-site/api/guides/assets-media.md#视频跟踪的原片输入)。
 
+Mask 内容读写提供可选独立工件 `apps/assets-mask-content`，沿用现有引用和业务权限；远程清单可用于 dry-run，业务回收远程删除等待持久删除栅栏。部署与配置见 [DEV.md](./DEV.md#mask-内容的独立字节服务)，协议见 [Mask 字节接口](./docs-site/api/guides/mask-content.md)。
+
 工作台单张图片预标使用同一媒体工件提供的版本化输入副本，整图模型和 ROI 读取同一版本。独立运行需配置专用的 `MINIO_INPUTS_BUCKET` 并启用版本管理；启动和权限要求见 [DEV.md](./DEV.md#图片金字塔的独立控制与执行)，其余消费路径见[媒体输入边界](./docs-site/dev/concepts/accepted-media-inputs.md)。
 
 项目成员可在工作台阅读[标注指引](./docs-site/user-guide/projects/index.md#编写标注指引)及示例图；指引编辑和图片上传、删除由项目负责人或超级管理员管理。

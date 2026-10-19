@@ -79,6 +79,9 @@ async def _seed(
     )
     db.add(item)
     await db.flush()
+    if media_type == "video":
+        item.media_materialized_generation = item.media_source_generation
+        await db.flush()
     project = Project(
         display_id=f"P-AIM-{suffix}",
         name=f"ai-mask-{suffix}",
@@ -226,6 +229,13 @@ def _body(
 
 @pytest.fixture
 def accept_storage_mocks(monkeypatch):
+    contents = {build_rle_reference(rle)["object_key"]: rle for rle in (RLE, ALT_RLE)}
+
+    async def load(reference):
+        return deepcopy(contents[reference["object_key"]])
+
+    # Preflight now verifies through the shared byte port before persistence.
+    monkeypatch.setattr("app.services.raster_mask_storage.load_coco_rle", load)
     store = AsyncMock()
     prepare_prediction = AsyncMock()
     prepare_annotation = AsyncMock()

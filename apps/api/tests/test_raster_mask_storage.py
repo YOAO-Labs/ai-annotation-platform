@@ -6,9 +6,11 @@ from unittest.mock import AsyncMock
 from unittest.mock import MagicMock
 
 import pytest
+from botocore.exceptions import ClientError
 
 from app.services.raster_mask_storage import (
     RasterMaskContractError,
+    canonical_rle_bytes,
     load_coco_rle,
     lock_raster_mask_references,
     store_coco_rle,
@@ -19,7 +21,17 @@ from app.services.raster_mask_storage import (
 def _storage(*, exists: bool = False):
     storage = MagicMock()
     storage.bucket = "annotation-data"
-    storage.verify_upload.return_value = {} if exists else None
+    if exists:
+        storage.client.put_object.side_effect = ClientError(
+            {"Error": {"Code": "PreconditionFailed"}}, "PutObject"
+        )
+        storage.client.get_object.return_value = {
+            "Body": BytesIO(
+                canonical_rle_bytes(
+                    {"encoding": "coco_rle", "size": [2, 3], "counts": [1, 2, 2, 1]}
+                )
+            )
+        }
     return storage
 
 
@@ -49,7 +61,8 @@ async def test_store_coco_rle_uses_content_addressed_key_and_put_if_absent():
         {"encoding": "coco_rle", "size": [2, 3], "counts": [1, 2, 2, 1]},
         storage=existing,
     )
-    existing.client.put_object.assert_not_called()
+    assert existing.client.put_object.call_args.kwargs["IfNoneMatch"] == "*"
+    existing.client.get_object.assert_called_once()
 
 
 async def test_load_coco_rle_verifies_reference_metadata():
