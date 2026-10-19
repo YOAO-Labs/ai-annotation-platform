@@ -139,8 +139,22 @@ New original Jobs use their own ID as broker ID and manifest ID, and explicitly
 declare `execution_unit=frame`. Legacy rows cannot invent these accepted facts.
 
 `authority.schema.json` freezes the request/result shapes, SQL argument order,
-caller owner and response envelopes for these interfaces. Until native
-installation and qualification finish, this remains a contract specification.
+caller owner and response envelopes for these interfaces. Migration 0223 installs
+the three projections and their four private helpers. Local owned-database
+qualification passes 24 native, role and migration cases, including visibility,
+source ABA, workflow-version progression, busy locks, strict Job scopes and
+historical FK nulling. Assets executes the projections without SELECT rights on
+Task, Job, User or Project tables. Media control/worker grants stay unchanged.
+Frozen SQL install/rollback, downgrade and upgrade pass; all scoped resources
+are cleaned. These projections provide source facts for the next input-owner
+implementation, without activating accepted-video execution.
+
+The shared versioned transfer implementation has a separate video/frame adapter.
+Its 98-case focused regression run covers the new prefixes and existing image
+storage/worker behavior, including replaced latest keys, exact-version reads,
+missing originals, multipart uploads and exact-attempt cleanup. The new video
+storage checks use a simulated versioned store; real video-input S3 roles and
+end-to-end byte derivation remain complete-slice qualification requirements.
 
 The values foundation requires strict malformed/crossed value rejection,
 source/timebase digest fences, incomplete/changed page rejection, exact-version

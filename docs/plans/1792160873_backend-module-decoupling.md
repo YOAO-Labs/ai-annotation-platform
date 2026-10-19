@@ -1921,3 +1921,23 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   Ruff, Node syntax and diff checks pass. Native/HTTP, worker and real consumer
   qualification remain required before promotion; the primary runtime stays
   unchanged at the qualified bulk-image implementation.
+- The next committed authority contract defines three narrow Labeling/Jobs
+  projections and explicit durable video Job/selection fields. Its 24 portable
+  cases pass; the combined portable suite passes 138 cases. The optional video
+  and frame object adapter reuses conditional exact-version transfer with a
+  separate prefix allowlist; its 98-case focused storage/worker/value regression
+  passes without broadening the image adapter's scope. A cold base wheel imports
+  both authority/value artifacts and the optional storage module without API,
+  ORM, HTTP, database or task-runtime dependencies.
+- Native source/Job projections and migration 0223 pass 24 isolated PostgreSQL
+  role/migration cases, zero skips. Proof includes source read/lock authorization,
+  source ABA versus ordinary workflow versions, busy contention, strict selector
+  and broker identity, cancellation, historical actor/project nulls and missing
+  Jobs. The Assets owner calls them without direct foreign-owner table/column
+  access. Frozen SQL install/rollback, downgrade to 0189 and re-upgrade to 0223
+  pass; all temporary PG/Redis/bucket/storage identities are cleaned with zero
+  errors. No primary runtime cutover follows from these source projections.
+- Retained video/manifest/frame ledgers, preparation/seal barriers, actual
+  input-based frame derivation, consumer/overwrite migration, failure/retry and
+  typed Annotation evidence/GC are the next implementation work. The complete
+  video slice and overall independent-module goal remain active.

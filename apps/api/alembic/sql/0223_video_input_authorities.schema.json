@@ -1,0 +1,437 @@
+{
+  "$defs": {
+    "FoundVideoJob": {
+      "additionalProperties": false,
+      "properties": {
+        "job": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/VideoJobFacts"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": ["job"],
+      "title": "FoundVideoJob",
+      "type": "object"
+    },
+    "FrameSampling": {
+      "additionalProperties": false,
+      "properties": {
+        "format": {
+          "default": "jpeg",
+          "enum": ["jpeg", "webp"],
+          "title": "Format",
+          "type": "string"
+        },
+        "max_frames": {
+          "maximum": 2147483647,
+          "minimum": 1,
+          "title": "Max Frames",
+          "type": "integer"
+        },
+        "step": {
+          "default": 1,
+          "maximum": 2147483647,
+          "minimum": 1,
+          "title": "Step",
+          "type": "integer"
+        },
+        "width": {
+          "default": 1280,
+          "maximum": 4096,
+          "minimum": 1,
+          "title": "Width",
+          "type": "integer"
+        }
+      },
+      "required": ["max_frames"],
+      "title": "FrameSampling",
+      "type": "object"
+    },
+    "LockVideoTaskRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "expected_binding": {
+          "$ref": "#/$defs/TaskVideoBinding"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        }
+      },
+      "required": ["task_id", "actor_id", "expected_binding"],
+      "title": "LockVideoTaskRequest",
+      "type": "object"
+    },
+    "ReadVideoTaskRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        }
+      },
+      "required": ["task_id", "actor_id"],
+      "title": "ReadVideoTaskRequest",
+      "type": "object"
+    },
+    "TaskVideoBinding": {
+      "additionalProperties": false,
+      "properties": {
+        "dataset_item_id": {
+          "format": "uuid",
+          "title": "Dataset Item Id",
+          "type": "string"
+        },
+        "file_path": {
+          "maxLength": 1024,
+          "title": "File Path",
+          "type": "string"
+        },
+        "file_type": {
+          "const": "video",
+          "title": "File Type",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "task_source_generation": {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "title": "Task Source Generation",
+          "type": "integer"
+        },
+        "task_source_snapshot": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Task Source Snapshot",
+          "type": "string"
+        },
+        "task_version": {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "title": "Task Version",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "task_id",
+        "project_id",
+        "task_version",
+        "task_source_generation",
+        "dataset_item_id",
+        "task_source_snapshot",
+        "file_path",
+        "file_type"
+      ],
+      "title": "TaskVideoBinding",
+      "type": "object"
+    },
+    "VideoJobFacts": {
+      "additionalProperties": false,
+      "properties": {
+        "active": {
+          "title": "Active",
+          "type": "boolean"
+        },
+        "actor_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Actor Id"
+        },
+        "cancel_requested": {
+          "title": "Cancel Requested",
+          "type": "boolean"
+        },
+        "job_id": {
+          "format": "uuid",
+          "title": "Job Id",
+          "type": "string"
+        },
+        "project_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Project Id"
+        },
+        "retained_project_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Retained Project Id"
+        },
+        "selection": {
+          "$ref": "#/$defs/VideoSelection"
+        },
+        "status": {
+          "enum": ["pending", "running", "completed", "failed", "cancelled"],
+          "title": "Status",
+          "type": "string"
+        },
+        "task_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Task Id"
+        }
+      },
+      "required": [
+        "job_id",
+        "task_id",
+        "actor_id",
+        "project_id",
+        "retained_project_id",
+        "selection",
+        "status",
+        "cancel_requested",
+        "active"
+      ],
+      "title": "VideoJobFacts",
+      "type": "object"
+    },
+    "VideoJobRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "job_id": {
+          "format": "uuid",
+          "title": "Job Id",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "require_active": {
+          "default": true,
+          "title": "Require Active",
+          "type": "boolean"
+        },
+        "selection": {
+          "$ref": "#/$defs/VideoSelection"
+        },
+        "selection_digest": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Selection Digest"
+        },
+        "task_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Task Id"
+        }
+      },
+      "required": ["job_id", "task_id", "actor_id", "project_id", "selection"],
+      "title": "VideoJobRequest",
+      "type": "object"
+    },
+    "VideoSelection": {
+      "additionalProperties": false,
+      "properties": {
+        "batch_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Batch Id"
+        },
+        "execution_scope": {
+          "enum": ["bulk", "workbench"],
+          "title": "Execution Scope",
+          "type": "string"
+        },
+        "predict_mode": {
+          "enum": ["skip_predicted", "overwrite", "append"],
+          "title": "Predict Mode",
+          "type": "string"
+        },
+        "sampling": {
+          "$ref": "#/$defs/FrameSampling"
+        },
+        "task_ids": {
+          "anyOf": [
+            {
+              "items": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "maxItems": 200,
+              "minItems": 1,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Task Ids"
+        }
+      },
+      "required": ["batch_id", "task_ids", "predict_mode", "execution_scope", "sampling"],
+      "title": "VideoSelection",
+      "type": "object"
+    },
+    "VideoTaskSource": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "binding": {
+          "$ref": "#/$defs/TaskVideoBinding"
+        },
+        "upload_ready": {
+          "title": "Upload Ready",
+          "type": "boolean"
+        }
+      },
+      "required": ["actor_id", "binding", "upload_ready"],
+      "title": "VideoTaskSource",
+      "type": "object"
+    },
+    "_Error": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "enum": [
+            "invalid_request",
+            "invalid_response",
+            "storage_unavailable",
+            "account_not_active",
+            "account_busy",
+            "invalid_account_role",
+            "task_not_visible",
+            "task_busy",
+            "permission_denied",
+            "source_missing",
+            "source_changed",
+            "source_not_ready",
+            "not_video",
+            "job_busy",
+            "job_not_active",
+            "manifest_scope_mismatch"
+          ],
+          "title": "Code",
+          "type": "string"
+        }
+      },
+      "required": ["code"],
+      "title": "_Error",
+      "type": "object"
+    }
+  },
+  "$id": "aap-video-input-authorities/v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "x-budgets": {
+    "reply_bytes": 2097152,
+    "request_bytes": 65536
+  },
+  "x-native": {
+    "lock_video_input_task_source": {
+      "arguments": ["task_id", "actor_id", "expected_binding"],
+      "consumer": "assets_owner",
+      "request": "LockVideoTaskRequest",
+      "result": "VideoTaskSource",
+      "schema": "aap-labeling-video-input-source/v1",
+      "signature": "aap_labeling_v1.lock_video_input_task_source(uuid,uuid,jsonb)"
+    },
+    "project_video_input_job": {
+      "arguments": [
+        "job_id",
+        "task_id",
+        "actor_id",
+        "project_id",
+        "selection",
+        "selection_digest",
+        "require_active"
+      ],
+      "consumer": "assets_owner",
+      "request": "VideoJobRequest",
+      "result": "FoundVideoJob",
+      "schema": "aap-jobs-video-input-job/v1",
+      "signature": "aap_jobs_v1.project_video_input_job(uuid,uuid,uuid,uuid,jsonb,text,boolean)"
+    },
+    "read_video_input_task_source": {
+      "arguments": ["task_id", "actor_id"],
+      "consumer": "assets_owner",
+      "request": "ReadVideoTaskRequest",
+      "result": "VideoTaskSource",
+      "schema": "aap-labeling-video-input-source/v1",
+      "signature": "aap_labeling_v1.read_video_input_task_source(uuid,uuid)"
+    }
+  }
+}

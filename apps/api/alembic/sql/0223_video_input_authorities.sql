@@ -625,26 +625,26 @@ BEGIN
             IS DISTINCT FROM '{}'::jsonb
        OR NOT (v_sampling ?& ARRAY['max_frames', 'step', 'width', 'format'])
        OR pg_catalog.jsonb_typeof(v_sampling -> 'max_frames') IS DISTINCT FROM 'number'
-       OR NOT CASE
+       OR NOT (CASE
             WHEN (v_sampling ->> 'max_frames') ~ '^[1-9][0-9]*$'
                  AND pg_catalog.char_length(v_sampling ->> 'max_frames') <= 10
             THEN (v_sampling ->> 'max_frames')::numeric <= 2147483647
             ELSE false
-       END
+       END)
        OR pg_catalog.jsonb_typeof(v_sampling -> 'step') IS DISTINCT FROM 'number'
-       OR NOT CASE
+       OR NOT (CASE
             WHEN (v_sampling ->> 'step') ~ '^[1-9][0-9]*$'
                  AND pg_catalog.char_length(v_sampling ->> 'step') <= 10
             THEN (v_sampling ->> 'step')::numeric <= 2147483647
             ELSE false
-       END
+       END)
        OR pg_catalog.jsonb_typeof(v_sampling -> 'width') IS DISTINCT FROM 'number'
-       OR NOT CASE
+       OR NOT (CASE
             WHEN (v_sampling ->> 'width') ~ '^[1-9][0-9]*$'
                  AND pg_catalog.char_length(v_sampling ->> 'width') <= 4
             THEN (v_sampling ->> 'width')::numeric <= 4096
             ELSE false
-       END
+       END)
        OR pg_catalog.jsonb_typeof(v_sampling -> 'format') IS DISTINCT FROM 'string'
        OR v_sampling ->> 'format' NOT IN ('jpeg', 'webp') THEN
         RETURN false;

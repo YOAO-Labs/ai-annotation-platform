@@ -542,6 +542,11 @@ GRANT EXECUTE ON FUNCTION
     aap_jobs_v1.accepted_image_input_manifest_job_consistency(uuid, uuid, uuid, uuid, jsonb, text)
     TO :"assets_owner";
 GRANT EXECUTE ON FUNCTION
+    aap_jobs_v1.project_video_input_job(uuid, uuid, uuid, uuid, jsonb, text, boolean),
+    aap_labeling_v1.read_video_input_task_source(uuid, uuid),
+    aap_labeling_v1.lock_video_input_task_source(uuid, uuid, jsonb)
+    TO :"assets_owner";
+GRANT EXECUTE ON FUNCTION
     aap_labeling_v1.project_accepted_image_input_task(uuid, uuid, boolean),
     aap_labeling_v1.accepted_image_input_referenced(uuid)
     TO :"assets_owner";
@@ -898,10 +903,24 @@ ALTER FUNCTION aap_labeling_v1._inherit_annotation_input_sources()
     OWNER TO :"labeling_owner";
 ALTER FUNCTION aap_labeling_v1._propagate_annotation_input_source()
     OWNER TO :"labeling_owner";
+ALTER FUNCTION aap_labeling_v1._video_input_task_source_reply(jsonb, text)
+    OWNER TO :"labeling_owner";
+ALTER FUNCTION aap_labeling_v1._video_input_task_binding_valid(jsonb)
+    OWNER TO :"labeling_owner";
+ALTER FUNCTION aap_labeling_v1.read_video_input_task_source(uuid, uuid)
+    OWNER TO :"labeling_owner";
+ALTER FUNCTION aap_labeling_v1.lock_video_input_task_source(uuid, uuid, jsonb)
+    OWNER TO :"labeling_owner";
 REVOKE CREATE ON SCHEMA aap_labeling_v1 FROM :"labeling_owner";
 
 GRANT CREATE ON SCHEMA aap_jobs_v1 TO :"jobs_owner";
 ALTER FUNCTION aap_jobs_v1._accepted_image_input_job_reply(jsonb, text)
+    OWNER TO :"jobs_owner";
+ALTER FUNCTION aap_jobs_v1._video_input_job_reply(jsonb, text)
+    OWNER TO :"jobs_owner";
+ALTER FUNCTION aap_jobs_v1._video_input_selection_valid(jsonb)
+    OWNER TO :"jobs_owner";
+ALTER FUNCTION aap_jobs_v1.project_video_input_job(uuid, uuid, uuid, uuid, jsonb, text, boolean)
     OWNER TO :"jobs_owner";
 ALTER FUNCTION aap_jobs_v1.project_accepted_image_input_job(uuid, uuid, uuid, boolean)
     OWNER TO :"jobs_owner";
