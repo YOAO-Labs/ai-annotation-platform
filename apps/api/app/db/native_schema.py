@@ -30,6 +30,7 @@ NATIVE_MANAGED_TABLES = frozenset(
         "batch_result_parts",
         "prediction_retry_attempts",
         "prediction_retry_deliveries",
+        "identity_revoked_jtis",
     }
 )
 

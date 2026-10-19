@@ -23,6 +23,7 @@ async def test_native_ledgers_are_retained_while_unmapped_orm_drops_still_surfac
         "mask_gc_sweeps",
         "mask_gc_roots",
         "mask_gc_write_permit_secrets",
+        "identity_revoked_jtis",
     } <= NATIVE_MANAGED_TABLES
     control = "test_autogen_control_" + uuid4().hex
 

@@ -142,8 +142,16 @@ GRANT USAGE ON SCHEMA public TO :"identity_owner", :"workspace_owner",
 
 -- Identity and Workspace provide only the current actor/project facts needed
 -- to retain their row locks through the caller-owned transaction.
-GRANT SELECT (id, role, is_active, email), UPDATE (id)
+GRANT SELECT (id, name, email, role, is_active, credential_generation),
+    UPDATE (id, credential_generation)
     ON public.users TO :"identity_owner";
+GRANT SELECT (id, user_id, key_prefix, key_hash, scopes, expires_at, last_used_at, revoked_at),
+    UPDATE (last_used_at, revoked_at)
+    ON public.api_keys TO :"identity_owner";
+GRANT SELECT (id, user_id, used_at), UPDATE (used_at)
+    ON public.password_reset_tokens TO :"identity_owner";
+GRANT SELECT, INSERT, UPDATE, DELETE
+    ON public.identity_revoked_jtis TO :"identity_owner";
 GRANT SELECT (id, owner_id, data_type, scene_mode, display_id, name), UPDATE (id),
     DELETE ON public.projects TO :"workspace_owner";
 GRANT SELECT (
@@ -817,6 +825,32 @@ GRANT CREATE ON SCHEMA aap_identity_v1 TO :"identity_owner";
 ALTER FUNCTION aap_identity_v1.lock_active_actor(uuid) OWNER TO :"identity_owner";
 ALTER FUNCTION aap_identity_v1.lock_audit_actor(uuid) OWNER TO :"identity_owner";
 ALTER FUNCTION aap_identity_v1.read_actor_facts(uuid) OWNER TO :"identity_owner";
+ALTER FUNCTION aap_identity_v1._admission_failure(text)
+    OWNER TO :"identity_owner";
+ALTER FUNCTION aap_identity_v1.authentication_policy()
+    OWNER TO :"identity_owner";
+ALTER FUNCTION aap_identity_v1.read_jwt_principal(
+    uuid, uuid, bigint, timestamptz, boolean
+) OWNER TO :"identity_owner";
+ALTER FUNCTION aap_identity_v1.read_api_key_candidates(text, uuid, integer)
+    OWNER TO :"identity_owner";
+ALTER FUNCTION aap_identity_v1.confirm_api_key_principal(uuid, text)
+    OWNER TO :"identity_owner";
+ALTER FUNCTION aap_identity_v1.get_credential_generation(uuid)
+    OWNER TO :"identity_owner";
+ALTER FUNCTION aap_identity_v1.advance_credential_generation(uuid)
+    OWNER TO :"identity_owner";
+ALTER FUNCTION aap_identity_v1.revoke_jti(uuid, timestamptz)
+    OWNER TO :"identity_owner";
+ALTER FUNCTION aap_identity_v1.is_jti_revoked(uuid)
+    OWNER TO :"identity_owner";
+ALTER FUNCTION aap_identity_v1.retire_account_credentials(uuid)
+    OWNER TO :"identity_owner";
+ALTER FUNCTION aap_identity_v1.lock_current_principal(
+    uuid, text, uuid, bigint, timestamptz, text[]
+) OWNER TO :"identity_owner";
+ALTER FUNCTION aap_identity_v1.purge_expired_revocations(integer)
+    OWNER TO :"identity_owner";
 REVOKE CREATE ON SCHEMA aap_identity_v1 FROM :"identity_owner";
 
 GRANT CREATE ON SCHEMA aap_workspace_v1 TO :"workspace_owner";
