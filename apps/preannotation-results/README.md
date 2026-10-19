@@ -19,6 +19,15 @@ or its `_FILE` variant, and writes a closed response envelope to stdout. It does
 not start an HTTP server, import the application, or expose Labeling writer
 completion through its executor adapter.
 
+Prediction retries have a separate `aap-preannotation-results.retry_contract`
+registry and the `aap-prediction-retries` CLI. Its six operations use the
+`aap-prediction-retries/v1` envelope and `prediction-retries.schema.json`; the
+original batch-result registry remains `aap-preannotation-results/v1` with 17
+operations. The retry executor exposes only attempt reads and delivery claim /
+finish calls. Admission and terminal result calls are writer-only through the
+owning application's transaction bridge. The retry CLI uses the same bounded
+PostgreSQL URL configuration and does not import the application or worker.
+
 For large readbacks, `PayloadAssembler` accepts exact indexed part replies and
 verifies the declared byte count and full payload digest while writing to a
 temporary file.

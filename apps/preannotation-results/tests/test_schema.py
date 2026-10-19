@@ -25,3 +25,9 @@ def test_schema_snapshot_matches_public_contract_and_native_allowlist():
     assert "record_batch_result_member" not in document["x-native-operations"]
     assert "batch_result_referenced" not in document["x-native-operations"]
     assert not any(key in document for key in ("openapi", "paths"))
+    operation_constraint = document["$defs"]["StageBatchResultMembersRequest"]["allOf"][
+        0
+    ]["properties"]["members"]["items"]["properties"]["write_scope"]["properties"][
+        "operation"
+    ]["const"]
+    assert operation_constraint == "preannotation"

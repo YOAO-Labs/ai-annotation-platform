@@ -266,7 +266,7 @@ class LabelingWriteScope(Value):
     project_id: CanonicalUUID
     actor_id: CanonicalUUID | None
     actor_known: StrictBool
-    operation: Literal["preannotation"]
+    operation: Literal["preannotation", "prediction_retry"]
     execution_scope: StrictStr | None
     execution_scope_known: StrictBool
     task_version: NonnegativeInt | None
@@ -414,6 +414,27 @@ class StageMember(Value):
 
 
 class StageBatchResultMembersRequest(LeaseScope):
+    model_config = Value.model_config | ConfigDict(
+        json_schema_extra={
+            "allOf": [
+                {
+                    "properties": {
+                        "members": {
+                            "items": {
+                                "properties": {
+                                    "write_scope": {
+                                        "properties": {
+                                            "operation": {"const": "preannotation"}
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            ]
+        }
+    )
     after_ordinal: NonnegativeInt
     members: tuple[StageMember, ...]
     complete: StrictBool
@@ -434,7 +455,8 @@ class StageBatchResultMembersRequest(LeaseScope):
             if member.write_scope is not None:
                 scope = member.write_scope
                 if (
-                    scope.task_id != member.task_id
+                    scope.operation != "preannotation"
+                    or scope.task_id != member.task_id
                     or scope.project_id != self.project_id
                     or scope.actor_id != self.actor_id
                     or scope.job_id != self.job_id

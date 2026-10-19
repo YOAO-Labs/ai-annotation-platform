@@ -15,9 +15,10 @@ test = ["pytest>=8.3.0", "ruff==0.15.22"]
 
 [project.scripts]
 aap-preannotation-results = "aap_preannotation_results_runtime.__main__:main"
+aap-prediction-retries = "aap_preannotation_results_runtime.retry_main:main"
 
 [tool.setuptools.package-data]
-aap_preannotation_results = ["protocol.schema.json"]
+aap_preannotation_results = ["protocol.schema.json", "prediction-retries.schema.json"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

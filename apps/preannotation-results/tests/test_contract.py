@@ -183,6 +183,26 @@ def test_labeling_scope_is_exact_and_matches_member_execution_scope():
                     {
                         "ordinal": 1,
                         "task_id": TASK_ID,
+                        "write_scope": {
+                            **frozen_scope,
+                            "operation": "prediction_retry",
+                        },
+                        "manifest_member": None,
+                    }
+                ],
+                "complete": True,
+            }
+        )
+
+    with pytest.raises(ValidationError):
+        c.StageBatchResultMembersRequest.model_validate(
+            {
+                **lease_values(),
+                "after_ordinal": 0,
+                "members": [
+                    {
+                        "ordinal": 1,
+                        "task_id": TASK_ID,
                         "write_scope": {**frozen_scope, "actor_id": uuid4()},
                         "manifest_member": None,
                     }

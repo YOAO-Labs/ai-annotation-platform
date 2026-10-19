@@ -580,7 +580,7 @@
           "type": "boolean"
         },
         "operation": {
-          "const": "preannotation",
+          "enum": ["preannotation", "prediction_retry"],
           "title": "Operation",
           "type": "string"
         },
@@ -2027,6 +2027,25 @@
     },
     "StageBatchResultMembersRequest": {
       "additionalProperties": false,
+      "allOf": [
+        {
+          "properties": {
+            "members": {
+              "items": {
+                "properties": {
+                  "write_scope": {
+                    "properties": {
+                      "operation": {
+                        "const": "preannotation"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      ],
       "properties": {
         "actor_id": {
           "format": "uuid",
