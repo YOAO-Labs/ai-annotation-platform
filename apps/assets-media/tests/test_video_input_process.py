@@ -120,6 +120,17 @@ async def test_runtime_shares_one_pool_and_s3_pair_and_closes_each_owner_once(
             assert allowed_roles == {"worker", "system"}
             self.pool = pool
 
+    class TrackerDatabase:
+        def __init__(self, pool, *, allowed_roles):
+            assert pool is Database.pool
+            assert allowed_roles == {"worker"}
+            self.pool = pool
+
+    class TrackerExecutionDatabase:
+        def __init__(self, database):
+            assert isinstance(database, TrackerDatabase)
+            self.database = database
+
     class MediaExecutor:
         worker_id = uuid4()
 
@@ -134,7 +145,9 @@ async def test_runtime_shares_one_pool_and_s3_pair_and_closes_each_owner_once(
     class VideoExecutor:
         def __init__(self, actual_db, actual_storage, *, worker_id):
             assert isinstance(actual_db, ClaimTrackingDatabase)
-            assert isinstance(actual_db.database, VideoDatabase)
+            assert isinstance(
+                actual_db.database, (VideoDatabase, TrackerExecutionDatabase)
+            )
             assert isinstance(actual_storage, VideoStorage)
             assert worker_id == MediaExecutor.worker_id
 
@@ -148,6 +161,10 @@ async def test_runtime_shares_one_pool_and_s3_pair_and_closes_each_owner_once(
     monkeypatch.setattr(process, "S3ImageStorage", BinarySourceStorage)
     monkeypatch.setattr(process, "S3VideoInputStorage", VideoStorage)
     monkeypatch.setattr(process, "AsyncpgVideoInputDatabase", VideoDatabase)
+    monkeypatch.setattr(process, "AsyncpgTrackerVideoInputDatabase", TrackerDatabase)
+    monkeypatch.setattr(
+        process, "TrackerVideoInputExecutorDatabase", TrackerExecutionDatabase
+    )
     monkeypatch.setattr(worker_module, "MediaExecutor", MediaExecutor)
     monkeypatch.setattr(process, "VideoInputExecutor", VideoExecutor)
 
@@ -159,6 +176,8 @@ async def test_runtime_shares_one_pool_and_s3_pair_and_closes_each_owner_once(
         )
     )
     assert runtime.video_executor is not None
+    assert runtime.tracker_executor is not None
+    assert runtime.tracker_database is not None
     await runtime.close()
     await runtime.close()
 
@@ -262,6 +281,24 @@ class _VideoLane:
         return None
 
 
+class _TrackerLane:
+    def __init__(self, results=None, *, events=None):
+        self.results = list(results or [])
+        self.calls = []
+        self.events = events
+
+    async def execute_once(self, **selectors):
+        self.calls.append(selectors)
+        if self.events is not None:
+            self.events.append("tracker_input")
+        if self.results:
+            result = self.results.pop(0)
+            if isinstance(result, BaseException):
+                raise result
+            return result
+        return None
+
+
 @pytest.mark.asyncio
 async def test_polling_does_not_claim_another_unit_after_lost_claim_response():
     class Database:
@@ -311,6 +348,20 @@ async def test_unfiltered_polling_rotates_media_original_and_frame_lanes():
 
 
 @pytest.mark.asyncio
+async def test_unfiltered_polling_includes_tracker_source_lane_fairly():
+    events = []
+    media = _MediaLane([object()], events=events)
+    video = _VideoLane({"input": [object()], "frame": [object()]}, events=events)
+    tracker = _TrackerLane([object()], events=events)
+    poller = FairWorkerPoller(media, video, tracker)
+
+    for _ in range(4):
+        assert await poller.execute_once() is not None
+
+    assert events == ["media", "video_input", "video_frame", "tracker_input"]
+
+
+@pytest.mark.asyncio
 async def test_polling_rotates_after_an_executor_error_and_targets_one_selector():
     media = _MediaLane([RuntimeError("media lane failure"), object()])
     video = _VideoLane({"input": [object()]})
@@ -322,16 +373,21 @@ async def test_polling_rotates_after_an_executor_error_and_targets_one_selector(
 
     job_id, input_id, frame_id = uuid4(), uuid4(), uuid4()
     selected = FairWorkerPoller(
-        _MediaLane([object()]), _VideoLane({"input": [object()], "frame": [object()]})
+        _MediaLane([object()]),
+        _VideoLane({"input": [object()], "frame": [object()]}),
+        _TrackerLane([object()]),
     )
     await selected.execute_once(job_id=job_id)
     await selected.execute_once(input_id=input_id)
     await selected.execute_once(frame_id=frame_id)
+    tracker_input_id = uuid4()
+    await selected.execute_once(tracker_input_id=tracker_input_id)
     assert selected.media_executor.calls == [{"job_id": job_id}]
     assert selected.video_executor.calls == [
         ("input", {"input_id": input_id}),
         ("frame", {"frame_id": frame_id}),
     ]
+    assert selected.tracker_executor.calls == [{"input_id": tracker_input_id}]
     with pytest.raises(ValueError, match="mutually exclusive"):
         await selected.execute_once(job_id=job_id, frame_id=frame_id)
 
@@ -345,6 +401,7 @@ async def test_once_stops_after_at_most_one_claim_and_routes_selectors(monkeypat
         def __init__(self):
             self.media_executor = _MediaLane([object()])
             self.video_executor = _VideoLane({"input": [object()], "frame": [object()]})
+            self.tracker_executor = _TrackerLane([object()])
 
         async def maintenance_once(self):
             calls.append("maintenance")
@@ -371,7 +428,10 @@ async def test_once_stops_after_at_most_one_claim_and_routes_selectors(monkeypat
     runtime.video_executor.frame_results = [object()]
     await worker._run_worker(once=True, frame_id=frame_id)
     assert runtime.video_executor.calls == [("frame", {"frame_id": frame_id})]
-    assert close_count == ["closed", "closed", "closed"]
+    tracker_input_id = uuid4()
+    await worker._run_worker(once=True, tracker_input_id=tracker_input_id)
+    assert runtime.tracker_executor.calls == [{"input_id": tracker_input_id}]
+    assert close_count == ["closed", "closed", "closed", "closed"]
 
 
 def test_iteration_failure_log_uses_only_known_video_input_error_codes(caplog):
@@ -442,19 +502,60 @@ async def test_video_maintenance_sweeps_and_collects_bounded_pages():
             calls.append((operation, request))
             return SimpleNamespace(expired=next(self.sweeps))
 
+    class TrackerDatabase:
+        def __init__(self):
+            self.sweeps = iter([100, 3])
+
+        async def call(self, operation, request):
+            calls.append((operation, request))
+            return SimpleNamespace(expired=next(self.sweeps))
+
     runtime = WorkerRuntime(
         database=object(),
         media_executor=object(),
         video_executor=object(),
         video_database=VideoDatabase(),
         _resources=AsyncExitStack(),
+        tracker_database=TrackerDatabase(),
     )
     await runtime.maintenance_once()
     assert [operation for operation, _ in calls] == [
         "sweep_accepted_video_inputs",
         "sweep_accepted_video_inputs",
+        "sweep_video_tracker_inputs",
+        "sweep_video_tracker_inputs",
     ]
-    assert all(request.limit == 100 for operation, request in calls[:2])
+    assert all(request.limit == 100 for _operation, request in calls)
+
+
+@pytest.mark.asyncio
+async def test_tracker_retention_sweep_runs_when_accepted_video_sweep_fails(caplog):
+    calls = []
+
+    class VideoDatabase:
+        async def call(self, operation, _request):
+            calls.append(operation)
+            raise RuntimeError("video sweep unavailable")
+
+    class TrackerDatabase:
+        async def call(self, operation, _request):
+            calls.append(operation)
+            return SimpleNamespace(expired=0)
+
+    runtime = WorkerRuntime(
+        database=object(),
+        media_executor=object(),
+        video_executor=object(),
+        video_database=VideoDatabase(),
+        _resources=AsyncExitStack(),
+        tracker_database=TrackerDatabase(),
+    )
+    await runtime.maintenance_once()
+    assert calls == [
+        "sweep_accepted_video_inputs",
+        "sweep_video_tracker_inputs",
+    ]
+    assert "Accepted video retention sweep failed" in caplog.text
 
 
 def test_cli_rejects_multiple_work_selectors(monkeypatch):
@@ -463,6 +564,24 @@ def test_cli_rejects_multiple_work_selectors(monkeypatch):
         sys,
         "argv",
         ["assets-media-worker", "--job-id", str(job_id), "--frame-id", str(frame_id)],
+    )
+    with pytest.raises(SystemExit) as raised:
+        worker.main()
+    assert raised.value.code == 2
+
+
+def test_cli_keeps_tracker_input_selector_separate_from_batch_input(monkeypatch):
+    input_id, tracker_input_id = uuid4(), uuid4()
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "assets-media-worker",
+            "--input-id",
+            str(input_id),
+            "--tracker-input-id",
+            str(tracker_input_id),
+        ],
     )
     with pytest.raises(SystemExit) as raised:
         worker.main()

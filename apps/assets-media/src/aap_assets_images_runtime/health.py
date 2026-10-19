@@ -7,6 +7,7 @@ from aap_assets_media.contract import OPERATIONS as VIDEO_OPERATIONS
 from aap_assets_inputs.contract import OPERATIONS as INPUT_OPERATIONS
 from aap_assets_input_manifests.contract import OPERATIONS as MANIFEST_OPERATIONS
 from aap_assets_video_inputs.execution import OPERATIONS as VIDEO_INPUT_OPERATIONS
+from aap_assets_video_inputs.tracker import TRACKER_OPERATIONS
 
 _ROLE_SQL = """
 SELECT current_user = session_user
@@ -46,6 +47,7 @@ def _expected_signatures(role: str) -> tuple[str, ...]:
         operation_sets = (
             (IMAGE_OPERATIONS, {"worker"}),
             (INPUT_OPERATIONS, {"worker"}),
+            (TRACKER_OPERATIONS, {"worker"}),
         )
     elif role == "control":
         operation_sets = (
@@ -54,6 +56,7 @@ def _expected_signatures(role: str) -> tuple[str, ...]:
             (INPUT_OPERATIONS, {"control"}),
             (MANIFEST_OPERATIONS, {"control"}),
             (VIDEO_INPUT_OPERATIONS, {"control"}),
+            (TRACKER_OPERATIONS, {"control"}),
         )
     else:
         return ()

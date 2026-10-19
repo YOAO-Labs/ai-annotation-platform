@@ -28,6 +28,13 @@ from aap_assets_video_inputs_runtime.storage import (
     S3VideoInputStorage,
     VideoSourceStorage,
 )
+from aap_assets_video_inputs_runtime.tracker_control import TrackerVideoInputControl
+from aap_assets_video_inputs_runtime.tracker_database import (
+    AsyncpgTrackerVideoInputDatabase,
+)
+from aap_assets_video_inputs.tracker import (
+    URL_EXPIRY_SECONDS as TRACKER_URL_EXPIRY_SECONDS,
+)
 
 from .api import create_app
 from .control import MediaControl
@@ -65,10 +72,19 @@ def configured_app(config):
         def __getattr__(self, name):
             return getattr(state["video_input_control"], name)
 
+    class TrackerVideoInputControlProxy:
+        def __getattr__(self, name):
+            return getattr(state["tracker_video_input_control"], name)
+
     async def ready():
         return "pool" in state and await check_capabilities(state["pool"], "control")
 
-    app = create_app(Control(), config.token, readiness=ready)
+    app = create_app(
+        Control(),
+        config.token,
+        readiness=ready,
+        tracker_control=TrackerVideoInputControlProxy(),
+    )
     install_image_routes(app, ImageControlProxy(), config.token)
     install_input_routes(app, InputControlProxy(), config.token)
     install_manifest_routes(app, ManifestControlProxy(), config.token)
@@ -141,6 +157,13 @@ def configured_app(config):
                 AsyncpgVideoInputDatabase(pool, allowed_roles={"control"}),
                 state["video_input_storage"],
                 url_expiry_seconds=min(image_policy.url_expiry_seconds, 3600),
+            )
+            state["tracker_video_input_control"] = TrackerVideoInputControl(
+                AsyncpgTrackerVideoInputDatabase(pool, allowed_roles={"control"}),
+                state["video_input_storage"],
+                url_expiry_seconds=min(
+                    image_policy.url_expiry_seconds, TRACKER_URL_EXPIRY_SECONDS
+                ),
             )
             yield
         finally:

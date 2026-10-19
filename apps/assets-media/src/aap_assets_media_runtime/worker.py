@@ -631,13 +631,24 @@ async def _run_worker(
     job_id: UUID | None = None,
     input_id: UUID | None = None,
     frame_id: UUID | None = None,
+    tracker_input_id: UUID | None = None,
     shutdown_event: asyncio.Event | None = None,
 ) -> None:
-    if sum(value is not None for value in (job_id, input_id, frame_id)) > 1:
+    if (
+        sum(
+            value is not None
+            for value in (job_id, input_id, frame_id, tracker_input_id)
+        )
+        > 1
+    ):
         raise ValueError("worker selectors are mutually exclusive")
     config = load_config()
     runtime = await create_worker_runtime(config)
-    poller = FairWorkerPoller(runtime.media_executor, runtime.video_executor)
+    poller = FairWorkerPoller(
+        runtime.media_executor,
+        runtime.video_executor,
+        getattr(runtime, "tracker_executor", None),
+    )
     stop_requested = shutdown_event or asyncio.Event()
     try:
         if once:
@@ -647,6 +658,7 @@ async def _run_worker(
                 job_id=job_id,
                 input_id=input_id,
                 frame_id=frame_id,
+                tracker_input_id=tracker_input_id,
             )
             return
         next_maintenance = 0.0
@@ -676,6 +688,7 @@ async def _run_worker(
                     job_id=job_id,
                     input_id=input_id,
                     frame_id=frame_id,
+                    tracker_input_id=tracker_input_id,
                 )
             except Exception as exc:
                 _log_iteration_failure(exc)
@@ -716,6 +729,7 @@ async def _run_worker_cli(
     job_id: UUID | None = None,
     input_id: UUID | None = None,
     frame_id: UUID | None = None,
+    tracker_input_id: UUID | None = None,
 ) -> None:
     """Install CLI-only SIGTERM handling and drain the current claimed unit."""
     loop = asyncio.get_running_loop()
@@ -727,6 +741,7 @@ async def _run_worker_cli(
             job_id=job_id,
             input_id=input_id,
             frame_id=frame_id,
+            tracker_input_id=tracker_input_id,
             shutdown_event=stop_requested,
         )
     finally:
@@ -763,6 +778,11 @@ def main() -> None:
     selectors.add_argument(
         "--frame-id", type=UUID, help="claim only this retained video frame"
     )
+    selectors.add_argument(
+        "--tracker-input-id",
+        type=UUID,
+        help="claim only this retained tracker-video source",
+    )
     parser.add_argument(
         "--healthcheck", action="store_true", help="verify the worker SQL login"
     )
@@ -779,6 +799,7 @@ def main() -> None:
                 job_id=args.job_id,
                 input_id=args.input_id,
                 frame_id=args.frame_id,
+                tracker_input_id=args.tracker_input_id,
             )
         )
     finally:
