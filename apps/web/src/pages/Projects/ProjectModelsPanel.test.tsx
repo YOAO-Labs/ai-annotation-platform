@@ -82,7 +82,7 @@ function Navigation() {
   return null;
 }
 
-function mount(entry = "/") {
+function mount(entry = "/", classes = ["车辆", "行人"]) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
@@ -91,7 +91,7 @@ function mount(entry = "/") {
     <QueryClientProvider client={client}>
       <MemoryRouter initialEntries={[entry]}>
         <Navigation />
-        <ProjectModelsPanel projectId="project-1" classes={["车辆", "行人"]} />
+        <ProjectModelsPanel projectId="project-1" classes={classes} />
       </MemoryRouter>
     </QueryClientProvider>,
   );
@@ -138,6 +138,29 @@ afterEach(() => {
 });
 
 describe("ProjectModelsPanel", () => {
+  it("registers all 80 bindings in original order even when the editor is filtered", async () => {
+    const user = userEvent.setup();
+    const classes = Array.from({ length: 80 }, (_, index) => `类别${index}`);
+    vi.mocked(trainingRunsApi.get).mockResolvedValue({
+      registration_eligibility: { qualified: true, reason: null },
+      run: { id: "run-1", config: { framework: "ultralytics", classes } },
+      attempts: [{ id: "attempt-1", ordinal: 1, status: "succeeded" }],
+    } as never);
+    mount("/", classes);
+    await screen.findByRole("option", { name: "成功训练" });
+    await user.selectOptions(screen.getByLabelText("来源训练实验"), "run-1");
+    await user.selectOptions(await screen.findByLabelText("原生类别 0 · 类别0"), "类别1");
+    const search = screen.getByRole("searchbox", { name: "搜索类别绑定" });
+    await user.type(search, "类别79{Enter}");
+    expect(trainedModelsApi.register).not.toHaveBeenCalled();
+    await user.selectOptions(screen.getByLabelText("原生类别 79 · 类别79"), "类别0");
+    await user.click(screen.getByRole("button", { name: "按同名绑定" }));
+    await user.click(screen.getByRole("button", { name: "注册候选模型" }));
+    await waitFor(() => expect(trainedModelsApi.register).toHaveBeenCalledOnce());
+    expect(vi.mocked(trainedModelsApi.register).mock.calls[0][1].bindings).toEqual(
+      classes.map((name, index) => (index === 0 ? "类别1" : index === 79 ? "类别0" : name)),
+    );
+  });
   it("starts with the source experiment and preserves edits to the timestamp name", async () => {
     const user = userEvent.setup();
     mount();

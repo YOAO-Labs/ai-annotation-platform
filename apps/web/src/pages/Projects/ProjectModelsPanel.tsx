@@ -33,6 +33,7 @@ import { useTrainingSessionRevision, useTrainingViewOwner } from "../Training/tr
 import { confirmDialog } from "@/components/ui/decisionDialog";
 import { cn } from "@/lib/utils";
 import { newTrainingVersionName } from "../Training/trainingNames";
+import { ModelClassBindings } from "./ModelClassBindings";
 
 const inputClass =
   "w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
@@ -1018,29 +1019,16 @@ function ModelsContent({
                   "尚未取得模型回流资格，请重新加载；仍可在训练实验中下载原生权重。"}
               </p>
             )}
-            {source.data?.registration_eligibility?.qualified === true &&
-              nativeClasses.map((native, index) => (
-                <label key={index} className="space-y-1 text-xs">
-                  原生类别 {index} · {native}
-                  <select
-                    className={inputClass}
-                    value={bindings[index] ?? ""}
-                    disabled={register.isPending}
-                    onChange={(event) =>
-                      changeRegistration(() =>
-                        setBindings((value) => ({ ...value, [index]: event.target.value })),
-                      )
-                    }
-                  >
-                    <option value="">明确选择项目类别</option>
-                    {classes.map((value) => (
-                      <option key={value} value={value}>
-                        {value}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              ))}
+            {source.data?.registration_eligibility?.qualified === true && (
+              <ModelClassBindings
+                key={runId}
+                nativeClasses={nativeClasses}
+                projectClasses={classes}
+                bindings={bindings}
+                disabled={register.isPending}
+                onChange={(next) => changeRegistration(() => setBindings(next))}
+              />
+            )}
             <div className="border-t border-border pt-4">
               <Button
                 type="submit"
