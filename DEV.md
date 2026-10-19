@@ -187,6 +187,8 @@ LibreYOLO 使用自己的回调、完整状态恢复与评估，不接受 Ultral
 
 模型回流需要重建 YOLO 镜像、应用迁移并刷新预测 worker。`YOLO_MANAGED_MODELS_TOKEN` 至少 32 个随机字符；将相同凭据配置到平台已启用的 YOLO 推理实例（认证方式 `token`）。Ultralytics 训练与推理使用相同的已验证版本；LibreYOLO 原生 CPU 适配器固定 LibreYOLO、Torch 与 torchvision 版本，并严格核对全部主模型张量、类别顺序和任务。此扩展无需新增迁移或环境变量；重建包含共享 qualification helper 的 YOLO 镜像并刷新 API／预测 worker。安装文件持久保存于 YOLO checkpoints 卷的 `managed/`，不能删除仍被部署使用的权重与收据。先更新实例健康与能力，再执行候选加载、固定验证图试用和发布。路由仅允许对应部署的确切实例；`off/observe` 模式下该实例还须是服务池的 legacy 实例。重新加载可恢复缺失或损坏的本地副本，不能改变版本身份。
 
+令牌由服务管理员生成，例如运行 `openssl rand -hex 32`，将生成的同一个值写入根目录 `.env` 的 `YOLO_MANAGED_MODELS_TOKEN` 和「模型市场 → 注册管理 → 实例 → 编辑」的 Token 输入框。默认空值关闭模型回流，选择认证方式不会生成令牌。修改环境变量后，从部署目录运行 `docker compose -f docker-compose.yml -f docker-compose.ml.yml --profile gpu-yolo up -d --no-deps --force-recreate yolo-backend`，让容器读取新配置；单纯重启原容器不会更新其环境变量。
+
 同一物理 GPU 的所有执行器必须共享同一个持久 `/state` 卷和一致的节点 ID；子进程继承其中的资源锁。不要在进程运行时删除状态卷或强行释放数据库租约。先停止接收新实验，等待当前进程退出和产物上传，再轮换认证凭据或镜像。旧实验续训默认仍需原镜像；修订 1 仅使用明确配置的历史镜像兼容列表。修订 2 的检测检查点只有通过实际续训验收后，才可在对应框架目录的 `compatible_config_images` 中配置「来源镜像 → 完整既有 `configuration.identity` 列表」，同时核验目标镜像、框架版本和原生参数定义。不得改写冻结摘要，也不能用检测验收放行分割或未经验证的其他组合。执行器重启后恢复持久日志，上传故障只重试上传。
 
 训练子进程退出后，永久性产物清单、配置或遥测校验拒绝会持久化为 `upload_failed`，经原租约 fencing 回报失败终态；收到确认或明确退役才清理本地记录。若失败终态本身也被永久拒绝，执行器停止并保留 journal 与租约，管理员应核对配置及日志后恢复，不能直接删除状态卷。网络故障、5xx、限流、具名锁繁忙和过期存储签名继续重试；已发出的完成回执只原样重放，避免响应丢失后改写已接受结果。

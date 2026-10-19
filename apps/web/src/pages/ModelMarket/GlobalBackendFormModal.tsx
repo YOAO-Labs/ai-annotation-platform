@@ -227,6 +227,10 @@ export function GlobalBackendFormModal({ open, backend, onClose }: Props) {
     }
 
     const token = authMethod === "token" && authToken.trim() ? authToken.trim() : undefined;
+    if (authMethod === "token" && !token && backend?.auth_method !== "token") {
+      setError("请填写服务端使用的 Token；留空不会自动生成。");
+      return;
+    }
 
     try {
       if (isEdit && backend) {
@@ -489,9 +493,22 @@ export function GlobalBackendFormModal({ open, backend, onClose }: Props) {
                 type="password"
                 value={authToken}
                 onChange={(e) => setAuthToken(e.target.value)}
-                placeholder={isEdit ? "••• 留空则保持原值" : "Bearer token"}
+                placeholder={
+                  backend?.auth_method === "token"
+                    ? "留空仅保留已保存的 Token"
+                    : "填写与服务端相同的 Token"
+                }
+                aria-describedby="global-backend-auth-help"
                 className={INPUT_CLASS}
               />
+              <div id="global-backend-auth-help" className={HELP_CLASS}>
+                Token 由服务管理员自行生成，平台不会自动生成或修改服务端配置。 YOLO 模型回流可运行{" "}
+                <code className="font-mono">openssl rand -hex 32</code>
+                生成 64 个字符的随机令牌，将同一值配置到服务端的 YOLO_MANAGED_MODELS_TOKEN，
+                重新创建 YOLO 服务容器后填到这里。默认空值表示关闭模型回流。
+                {backend?.auth_method === "token" &&
+                  "留空仅保留已保存的令牌；若原本未配置，仍需填写。"}
+              </div>
             </div>
           )}
         </div>

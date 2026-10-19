@@ -915,9 +915,11 @@ function ModelsContent({
                 <ol className="mt-2 list-decimal space-y-2 pl-5">
                   <li>
                     超级管理员：进入「模型市场 → 注册管理 → 实例」，在现有 YOLO
-                    服务的操作菜单点击「编辑」，将认证方式设为
-                    token，填写与服务端一致的访问令牌。服务端需配置至少 32 个字符的
-                    YOLO_MANAGED_MODELS_TOKEN；已有实例无需重复注册。
+                    服务的操作菜单点击「编辑」，将认证方式设为 token。服务管理员先运行{" "}
+                    <code className="font-mono">openssl rand -hex 32</code>
+                    生成令牌，将同一值配置到服务端 YOLO_MANAGED_MODELS_TOKEN 并重新创建 YOLO
+                    容器，再填入页面的 Token。令牌至少 32 个字符；默认空值关闭模型回流，
+                    页面不会自动生成。已有实例无需重复注册。
                   </li>
                   <li>
                     项目负责人：进入「项目设置 → ML 模型」，点击「管理
