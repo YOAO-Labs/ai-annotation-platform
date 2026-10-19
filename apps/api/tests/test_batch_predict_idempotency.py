@@ -167,9 +167,59 @@ async def test_unkeyed_bulk_dispatch_failure_terminalizes_durable_job(
     job_id = uuid.UUID(dispatched["request"].async_job_id)
     job = await db_session.get(AsyncJob, job_id)
     assert job is not None
+    await db_session.refresh(job)
     assert job.status == "failed"
     assert job.celery_task_id == str(job_id)
     assert "dispatch failed" in job.error_message
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "predict_mode,expected", [("skip_predicted", 1), ("overwrite", 2)]
+)
+async def test_project_bulk_cancel_before_start_retains_scoped_count(
+    httpx_client,
+    super_admin,
+    db_session,
+    _mock_celery,
+    monkeypatch,
+    predict_mode,
+    expected,
+):
+    from app.workers.celery_app import celery_app
+
+    owner, token = super_admin
+    project, backend, _batch, tasks = await _seed(db_session, owner.id)
+    # Foreign pending tasks must not inflate the hint.
+    await _seed(db_session, owner.id)
+    tasks[0].total_predictions = 1
+    tasks[1].status = "completed"
+    await db_session.commit()
+    revoke = Mock()
+    monkeypatch.setattr(celery_app.control, "revoke", revoke)
+
+    accepted = await httpx_client.post(
+        f"/api/v1/projects/{project.id}/preannotate",
+        headers=_bearer(token),
+        json={"ml_backend_id": str(backend.id), "predict_mode": predict_mode},
+    )
+    assert accepted.status_code == 200, accepted.text
+    assert accepted.json()["total_tasks"] == expected
+    job_id = uuid.UUID(accepted.json()["job_id"])
+    job = await db_session.get(AsyncJob, job_id)
+    assert job.status == "pending"
+    assert job.payload["total_tasks"] == expected
+    assert _mock_celery["request"].task_ids is None
+
+    cancelled = await httpx_client.post(
+        f"/api/v1/async-jobs/{job_id}/cancel", headers=_bearer(token)
+    )
+    assert cancelled.status_code == 200, cancelled.text
+    await db_session.refresh(job)
+    assert job.status == "cancelled"
+    assert job.result["done_count"] == 0
+    assert job.result["skipped_count"] == expected
+    revoke.assert_called_once_with(str(job_id), terminate=False)
 
 
 async def _seed(db: AsyncSession, owner_id: uuid.UUID):

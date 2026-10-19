@@ -11,7 +11,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 from app.db.models.async_job import AsyncJob, AsyncJobStatus
 from app.db.models.notification import Notification
@@ -69,6 +69,44 @@ class TestAsyncJobService:
         await db_session.refresh(aj)
         assert aj.status == AsyncJobStatus.FAILED.value
         assert aj.error_message == "boom"
+
+    @pytest.mark.parametrize(
+        "status", ["pending", "running", "completed", "cancelled", "failed"]
+    )
+    async def test_dispatch_failure_uses_current_state_despite_cached_pending(
+        self, db_session, status
+    ):
+        job = await async_job_svc.create_job(db_session, kind="batch_predict")
+        settled_at = datetime(2000, 1, 1, tzinfo=timezone.utc)
+        # Model a worker's update without refreshing the API's cached pending row.
+        await db_session.execute(
+            update(AsyncJob)
+            .where(AsyncJob.id == job.id)
+            .values(
+                status=status,
+                completed_at=settled_at,
+                error_message="worker outcome",
+                result={"retained": True},
+            )
+            .execution_options(synchronize_session=False)
+        )
+        assert job.status == "pending"
+
+        changed = await async_job_svc.mark_dispatch_failed(
+            db_session, job.id, error="x" * 4001
+        )
+        await db_session.refresh(job)
+
+        assert changed is (status == "pending")
+        assert job.result == {"retained": True}
+        if status == "pending":
+            assert job.status == "failed"
+            assert job.completed_at > settled_at
+            assert job.error_message == "x" * 4000
+        else:
+            assert job.status == status
+            assert job.completed_at == settled_at
+            assert job.error_message == "worker outcome"
 
     async def test_mark_complete_does_not_overwrite_failed(self, db_session, annotator):
         user, _ = annotator

@@ -2,9 +2,10 @@
 
 Payload updates merge shallowly; result projections replace. State writers do
 not commit or publish notices. Delete commands return affected IDs or counts
-without committing. Creation and track_job explicitly flush; other state writers
-do not. Default cancellation allows only pending/running; specialized workers
-supply their own precedence.
+without committing. Creation and track_job explicitly flush; dispatch failure
+uses a conditional SQL update; other state writers defer to the caller's flush.
+Default cancellation allows only pending/running; specialized workers supply
+their own precedence.
 """
 
 from __future__ import annotations
@@ -16,7 +17,7 @@ from collections.abc import Collection
 from datetime import datetime, timezone
 from typing import AsyncIterator
 
-from sqlalchemy import delete, or_, select
+from sqlalchemy import delete, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.async_job import AsyncJob, AsyncJobKind, AsyncJobStatus
@@ -154,6 +155,32 @@ async def mark_complete(
     job.completed_at = datetime.now(timezone.utc)
     if result is not None:
         job.result = result
+
+
+async def mark_dispatch_failed(
+    db: AsyncSession, job_id: uuid.UUID, *, error: str
+) -> bool:
+    """Fail only an unclaimed job; a broker error may follow successful delivery.
+
+    Check the database state atomically, even when this session still caches
+    pending. A worker that has claimed or settled the job keeps its state.
+    The caller owns commit.
+    """
+    changed = await db.scalar(
+        update(AsyncJob)
+        .where(
+            AsyncJob.id == job_id,
+            AsyncJob.status == AsyncJobStatus.PENDING.value,
+        )
+        .values(
+            status=AsyncJobStatus.FAILED.value,
+            completed_at=datetime.now(timezone.utc),
+            error_message=(error or "")[:4000],
+        )
+        .returning(AsyncJob.id)
+        .execution_options(synchronize_session="fetch")
+    )
+    return changed is not None
 
 
 async def mark_failed(

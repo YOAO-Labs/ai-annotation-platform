@@ -2,7 +2,7 @@
 audience: [dev]
 type: explanation
 status: stable
-last_reviewed: 2026-10-17
+last_reviewed: 2026-10-19
 ---
 
 # 预标注流水线（Prediction Pipeline）
@@ -22,16 +22,16 @@ AI 预标注流水线以 `async_jobs(kind=batch_predict)` 作为用户可见任�
 <ExcalidrawDiagram
   src="/diagrams/shared/ai/batch-predict-job-lifecycle.svg"
   alt="Celery 队列执行边界与 AsyncJob pending、running、completed、failed、cancelled 五态的真实关系"
-  caption="批量预测作业生命周期：队列等待不等于持久化 pending"
+  caption="批量预测作业生命周期：API 先持久化 pending，再派发给 worker"
 />
 
-| 状态        | 何时进入                                                             | 关键字段                                                      |
-| ----------- | -------------------------------------------------------------------- | ------------------------------------------------------------- |
-| `pending`   | worker 调 `create_job()` 时瞬时进入，随后在同次提交前标记 `running`  | `created_at`, `payload.prompt`, `payload.ml_backend_id`       |
-| `running`   | worker 建档并首次提交，通常是第一个可观察持久态                      | `started_at`, `celery_task_id`, `progress_pct`                |
-| `completed` | 无可处理 task，或至少一题成功；可同时有 `failed_count > 0`           | `completed_at`, `result.success_count`, `result.failed_count` |
-| `failed`    | 全部子项失败，或 worker 根任务未捕获异常 / 失败 signal               | `completed_at`, `error_message`                               |
-| `cancelled` | 运行中先记 `payload.cancel_requested`，worker 在下一处理边界协作收敛 | `completed_at`, `result.cancelled_at_index`                   |
+| 状态        | 何时进入                                                           | 关键字段                                                         |
+| ----------- | ------------------------------------------------------------------ | ---------------------------------------------------------------- |
+| `pending`   | HTTP 受理在派发前调用 `create_job()` 并提交                        | `created_at`, `payload.ml_backend_id`, `payload.execution_scope` |
+| `running`   | worker 认领同一持久作业并提交执行状态                              | `started_at`, `celery_task_id`, `progress_pct`                   |
+| `completed` | 无可处理 task，或至少一题成功；可同时有 `failed_count > 0`         | `completed_at`, `result.success_count`, `result.failed_count`    |
+| `failed`    | 未认领时派发失败、全部子项失败，或 worker 未捕获异常 / 失败 signal | `completed_at`, `error_message`                                  |
+| `cancelled` | pending 可直接取消；running 记录取消意图后由 worker 收敛           | `completed_at`, `result.cancelled_at_index`                      |
 
 `cancel_requested` 是 `running` 上的 payload 标记，不是第六个状态。调用 `revoke(terminate=False)` 也不会让已运行 worker 立即跳到 `cancelled`。单题 backend 5xx / timeout 通常会被记为 `FailedPrediction`；只有全部失败才让根 job 进入 `failed`。
 
@@ -41,11 +41,13 @@ AI 预标注流水线以 `async_jobs(kind=batch_predict)` 作为用户可见任�
 
 <ExcalidrawDiagram
   src="/diagrams/shared/ai/ai-preannotation-handoff.svg"
-  alt="owner 从 Web 触发预标注，FastAPI 入队，Celery worker 建立持久作业、经服务池选物理实例、写预测与进度，再由 owner 首次人工接管"
+  alt="FastAPI 先提交持久预标注作业再入队，worker 认领同一作业、经服务池推理并保存候选，再由 owner 人工接管"
   caption="批量预标端到端主链，共享同一份 canonical 可编辑资产"
 />
 
-普通批量路径返回 Celery task ID，worker 再创建独立 AsyncJob UUID；Data Manager 幂等请求、工作台明确任务范围和受控模型路径可在派发前预建 AsyncJob，并将其 UUID 同时用作执行 ID。因此不能统一假定两种 ID 总相同或总不同；按入口的持久化身份核对作业明细与终态。
+HTTP 入口对普通批量、Data Manager、工作台和受控模型请求统一先提交 `AsyncJob`，再把该 UUID 作为 Celery 执行 ID。返回的 `job_id` 可在 worker 启动前直接查询；派发异常仅将仍为 pending 的行原子地转为 failed。broker 可能已接收消息但丢失确认，已认领或已结束作业的状态因此由执行侧保留。幂等重放沿用原作业，没有幂等键的新请求创建新作业。内部旧 Celery 调用仍可省略预建 ID，由应用建立作业；它不是当前 HTTP 受理合同。
+
+项目级与批次级受理都会记录当时待处理数量提示，`skip_predicted` 排除已有预测。pending 取消使用该提示统计跳过数；该数量并不冻结任务成员，执行时仍按既有范围规则选择任务。
 
 ## 与 `predictions` 表的边界
 
@@ -102,7 +104,7 @@ AI 预标注流水线以 `async_jobs(kind=batch_predict)` 作为用户可见任�
 
 ## 失败兜底（B-1 教训）
 
-`_BatchPredictTask.on_failure` 会尽力把未捕获异常推到 `project:{id}:preannotate`，并在已建档时通过 `celery_task_id` 反查、置 `async_jobs=failed`。如果异常发生在 worker 创建 AsyncJob 之前，WS 仍可能收到 error，但没有可反查的历史行；进程硬崩或 frame fan-out callback 缺口也可能遗留 `running`，当前没有 stale-job watchdog。
+`_BatchPredictTask.on_failure` 会尽力把未捕获异常推到 `project:{id}:preannotate`，并在已建档时通过 `celery_task_id` 反查、置 `async_jobs=failed`。当前 HTTP 请求已在派发前持久化作业，推理前的复校验失败也有可反查的行。内部旧调用若未提供预建 ID，早期失败仍可能没有历史行；进程硬崩或 frame fan-out callback 缺口也可能遗留 `running`，当前没有 stale-job watchdog。
 
 详见 [Docker rebuild vs restart](../troubleshooting/docker-rebuild-vs-restart)。
 

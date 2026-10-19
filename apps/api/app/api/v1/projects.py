@@ -1976,6 +1976,12 @@ async def trigger_preannotation(
             hint_conds.append(TaskModel.total_predictions == 0)
         count_q = await db.execute(select(func.count(TaskModel.id)).where(*hint_conds))
         total_tasks_hint = int(count_q.scalar_one() or 0)
+    elif explicit_task_ids is None:
+        hint_conds = [Task.project_id == project.id, Task.status == "pending"]
+        if body.predict_mode == "skip_predicted":
+            hint_conds.append(Task.total_predictions == 0)
+        count_q = await db.execute(select(func.count(Task.id)).where(*hint_conds))
+        total_tasks_hint = int(count_q.scalar_one() or 0)
 
     # v0.19.5 · 设备感知路由: 全 CPU pipeline → cpu 队列; 任一 GPU/未自报阶段 → gpu(ml) 队列 (零退化)。
     queue = resolve_preannotate_queue(
@@ -2215,7 +2221,7 @@ async def trigger_preannotation(
         )
     except Exception as exc:
         if precreated_job is not None:
-            await async_job_svc.mark_failed(
+            await async_job_svc.mark_dispatch_failed(
                 db,
                 precreated_job.id,
                 error=f"dispatch failed: {type(exc).__name__}: {exc}",

@@ -1,9 +1,8 @@
 ---
 audience: [dev]
 type: explanation
-since: v0.9.14
 status: stable
-last_reviewed: 2026-10-17
+last_reviewed: 2026-10-19
 ---
 
 # AI 预标注接管
@@ -37,11 +36,11 @@ AI 预标注的目标不是直接把 task 变成“完成”，而是：
 
 <ExcalidrawDiagram
   src="/diagrams/shared/ai/ai-preannotation-handoff.svg"
-  alt="AI 预标注从 owner 触发、Celery 派发、worker 建立 AsyncJob、服务池路由推理、预测落库到 owner 首次人工接管的完整流程"
-  caption="AI 预标注与人工接管：区分 Celery 派发 ID、持久化作业 ID 和当前接管断点"
+  alt="AI 预标注从 owner 触发、API 提交 AsyncJob、Celery 派发、worker 认领、服务池推理到人工接管的完整流程"
+  caption="AI 预标注与人工接管：持久受理、同一作业执行与当前接管断点"
 />
 
-当前实现有两个不可互换的 ID：触发端点返回 Celery task ID，worker 启动后才创建新的 `async_jobs.id` 并把前者记入 `celery_task_id`。因此刚返回 `status="queued"` 时尚无可轮询的 `async_jobs` 行，前端不应把返回 ID 直接当作 AsyncJob 主键。
+HTTP 入口先提交 `AsyncJob`，再将其 UUID 同时作为 Celery 执行 ID。成功派发返回 `status="queued"` 时已有可轮询的持久行；worker 尚未认领时为 pending，认领后沿用该行。普通无幂等键请求也遵循这一步序，派发异常仅将仍为 pending 的行原子地转为 failed；broker 确认丢失不会覆盖已经认领或结束的作业。
 
 `pre_annotated` 还存在一个当前接管断点：普通 assigned annotator 的 task 列表和 `/tasks/next` 都排除该状态；现阶段需 owner / super_admin 从 `/ai-pre` 深链进入工作台，先产生有效 annotation 使批次进入 `annotating`，普通标注员才恢复常规可见性。
 
@@ -54,7 +53,7 @@ AI 预标注的目标不是直接把 task 变成“完成”，而是：
 | 位置                                       | 作用                                                                |
 | ------------------------------------------ | ------------------------------------------------------------------- |
 | `apps/api/app/api/v1/projects.py`          | 触发 `POST /projects/{project_id}/preannotate`                      |
-| `apps/api/app/workers/tasks.py`            | Celery worker `_run_batch()`                                        |
+| `apps/api/app/workers/tasks.py`            | Celery 注册 `batch_predict` 与应用执行适配                          |
 | `apps/api/app/services/prediction.py`      | prediction / failed prediction 写入                                 |
 | `apps/api/app/db/models/prediction.py`     | `Prediction` / `PredictionMeta` / `FailedPrediction`                |
 | `apps/api/app/db/models/async_job.py`      | `AsyncJob` 汇总表                                                   |
@@ -89,7 +88,7 @@ AI 预标注的目标不是直接把 task 变成“完成”，而是：
 
 成功派发返回 HTTP 200 和：
 
-- `job_id`：Celery task ID，不是 `async_jobs.id`
+- `job_id`：已提交的 `async_jobs.id`，同时作为这次 Celery 执行 ID
 - `status: "queued"`
 - 仅 batch 模式可得的 `total_tasks` 提示
 - 项目进度频道与可选警告
@@ -115,17 +114,17 @@ AI 预标注的目标不是直接把 task 变成“完成”，而是：
 
 ## Worker 侧写入
 
-`apps/api/app/workers/tasks.py:_run_batch()` 是预标真值源。
+`apps/api/app/application/preannotation_execution.py` 持有执行用例；`workers/tasks.py:batch_predict` 保留 Celery 注册与失败钩子。
 
 ### 任务选择
 
 worker 会按三种模式选任务：
 
-1. 显式 `task_ids`：当前只按 ID 选取，不叠加 project / batch / `pending` 约束
+1. 显式 `task_ids`：复核项目、可选批次和任务资格；bulk 要求 pending 与可批量预标的批次，workbench 使用当前题可编辑状态白名单并允许本人编辑锁
 2. 显式 `batch_id` 时，取该 batch 下 `pending` task
 3. 否则取整个 project 下 `pending` task
 
-`skip_predicted` 会在三种模式上再排除 `total_predictions > 0` 的 task。“默认只跑 `pending`”只对 batch / project 选取分支成立；显式 `task_ids` 是当前需要特别防范的实现边界。同时传 `task_ids + batch_id` 时，API 的进度提示按 batch 计数，worker 却优先按 `task_ids` 执行，调用方不应混用两种 scope。
+`skip_predicted` 会在三种模式上再排除 `total_predictions > 0` 的 task。显式选择不会扩大为整个批次；同时给出 `task_ids + batch_id` 时要求这些任务属于该批次。结果保存仍逐题复核当前账号、项目、Task/批次状态、指派和编辑锁；已分派 draft 或进入人工流程的批次不因先前受理而获得写入许可。
 
 ### 输出产物
 
@@ -142,7 +141,7 @@ worker 会按三种模式选任务：
 
 整批运行级别还会写：
 
-- `AsyncJob(kind=batch_predict)`；它由 worker 创建，`pending → running` 在同次提交前完成，通常首次可见就是 `running`。多阶段下额外写 `result.pipeline_stages`(终态逐阶段统计 `{detected, targeted, ok, failed, skipped_geometry}`,WS 重连/运行后回看都走它,不丢)
+- `AsyncJob(kind=batch_predict)`；HTTP 先提交 pending，worker 再认领同一行并提交 running。多阶段下额外写 `result.pipeline_stages`(终态逐阶段统计 `{detected, targeted, ok, failed, skipped_geometry}`,WS 重连/运行后回看都走它,不丢)
 - 存在 GPU 仲裁拒绝时，`result.gpu_arbiter_failures` 按错误码给出有界聚合摘要；逐帧执行单元只落作业摘要，不生成无法按帧重试的失败行
 
 其中 `AsyncJob` 会记录：

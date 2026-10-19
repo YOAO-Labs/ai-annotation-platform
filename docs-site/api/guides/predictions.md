@@ -1,9 +1,8 @@
 ---
 audience: [dev]
 type: reference
-since: v0.9.0
 status: stable
-last_reviewed: 2026-10-17
+last_reviewed: 2026-10-19
 ---
 
 # Predictions / Async Jobs
@@ -30,7 +29,7 @@ POST /api/v1/projects/:id/preannotate
 }
 ```
 
-返回 `202` + `job_id`。任务进 Celery，状态机见 [预标注流水线](../../dev/concepts/prediction-pipeline)。
+成功派发返回 `200` 与持久 `job_id`，可立即通过 `/async-jobs/{job_id}` 查询状态，worker 启动前为 pending。普通无幂等键请求也先提交同一作业，再交给 Celery；派发异常仅将仍为 pending 的作业转为 failed，已认领或已结束的作业保留其状态。状态机见 [预标注流水线](../../dev/concepts/prediction-pipeline)。
 
 ## 查询 jobs
 

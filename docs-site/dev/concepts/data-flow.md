@@ -1,7 +1,6 @@
 ---
 audience: [dev]
 type: explanation
-since: v0.1.0
 status: stable
 last_reviewed: 2026-07-29
 ---
@@ -43,7 +42,7 @@ last_reviewed: 2026-07-29
   caption="AI 预标注数据流：派发边界、持久化作业、路由推理与人工接管"
 />
 
-API 成功派发时返回 HTTP 200，`job_id` 是 Celery task ID；worker 后续才创建不同 UUID 的 `AsyncJob(kind=batch_predict)`。worker 不是每 batch 一次把所有媒体交给 ML，而是按 task 处理：根阶段通常每次 `/predict` 一题，成功写 `Prediction + PredictionMeta`，失败写 `FailedPrediction`，然后单题提交。
+API 先提交 pending `AsyncJob(kind=batch_predict)`，再以该 UUID 派发 Celery。成功派发返回 HTTP 200 与可立即查询的 `job_id`；worker 认领同一持久作业。worker 不是每 batch 一次把所有媒体交给 ML，而是按 task 处理：根阶段通常每次 `/predict` 一题，成功写 `Prediction + PredictionMeta`，失败写 `FailedPrediction`，然后单题提交。
 
 请求中的 registry ID 先解析到项目已启用的逻辑 service pool，`RoutedMLBackendClient` 再选物理实例。物理 backend 使用签名 URL 向 MinIO 拉取原媒体；多阶段 crop 才额外由 worker 读取原图、上传 ROI，下游 backend 再拉取 crop。
 
@@ -52,7 +51,7 @@ API 成功派发时返回 HTTP 200，`job_id` 是 Celery task ID；worker 后续
 - 触发端点：`apps/api/app/api/v1/projects.py:trigger_preannotation`
 - 服务池路由与 ML client：`apps/api/app/services/ml_routing/client.py:RoutedMLBackendClient`
 - ML 协议契约：[`docs-site/dev/ml-backend-protocol.md`](../reference/ml-backend-protocol)
-- Worker：`apps/api/app/workers/tasks.py:batch_predict / _run_batch`
+- Worker：`apps/api/app/workers/tasks.py:batch_predict` 与 `apps/api/app/application/preannotation_execution.py:run_preannotation`
 - 对象存储签名 URL：`apps/api/app/services/storage.py:resolve_task_url`
 - 项目 WS 中继：`apps/api/app/api/v1/ws.py:preannotate_progress`（当前无鉴权）
 - 全局 admin WS：`apps/api/app/api/v1/ws.py:prediction_jobs_socket`
