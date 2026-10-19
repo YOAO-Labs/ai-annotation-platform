@@ -21,7 +21,7 @@ from aap_assets_input_manifests.client import ManifestClient
 from aap_assets_inputs import contract as inputs
 from aap_assets_inputs.client import InputClient
 from app.db.models.async_job import AsyncJob
-from app.db.models.dataset import ProjectDataset
+from app.db.models.dataset import Dataset, DatasetItem, ProjectDataset, Scene
 from app.db.models.task import Task
 from app.services.accepted_input_manifests import get_input_manifest_capture
 from tests.factory import create_batch, create_project, create_task
@@ -332,8 +332,12 @@ async def test_manifest_response_loss_replays_one_input_in_restricted_materializ
             await _node_peer(runtime, sealed)
 
 
+@pytest.mark.parametrize(
+    "scene_mode",
+    [pytest.param(False, id="ordinary"), pytest.param(True, id="scene")],
+)
 async def test_bulk_consumer_retains_original_inputs_for_roi_partial_failure_and_retry(
-    test_engine, tmp_path, caplog, monkeypatch
+    test_engine, tmp_path, caplog, monkeypatch, scene_mode
 ):
     from app.application.preannotation_contract import BatchPredictionRequest
     from app.application.preannotation_execution import (
@@ -351,6 +355,7 @@ async def test_bulk_consumer_retains_original_inputs_for_roi_partial_failure_and
         async with runtime.owner_sessions.begin() as owner:
             actor_id = await _seed_actor(owner, role="super_admin")
             project = await create_project(owner, owner_id=actor_id)
+            project.scene_mode = scene_mode
             batch = await create_batch(owner, project_id=project.id, status="active")
             backend = MLBackendRegistry(
                 name=f"manifest-{uuid4()}",
@@ -376,6 +381,20 @@ async def test_bulk_consumer_retains_original_inputs_for_roi_partial_failure_and
             )
             async with runtime.owner_sessions.begin() as owner:
                 owner.add(ProjectDataset(project_id=project.id, dataset_id=dataset_id))
+                if scene_mode:
+                    dataset = await owner.get(Dataset, dataset_id)
+                    dataset.is_temporal = True
+                    scene = Scene(
+                        display_id=f"S-{uuid4().hex[:12]}",
+                        dataset_id=dataset_id,
+                        name="sequence",
+                        created_by=actor_id,
+                    )
+                    owner.add(scene)
+                    await owner.flush()
+                    item = await owner.get(DatasetItem, item_id)
+                    item.scene_id = scene.id
+                    item.frame_index = 0
                 task = await create_task(owner, project_id=project.id)
                 task.batch_id, task.dataset_item_id, task.file_path = (
                     batch.id,
