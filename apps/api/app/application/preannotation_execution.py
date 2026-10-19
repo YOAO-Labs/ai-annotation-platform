@@ -4,7 +4,7 @@ from app.application.preannotation_contract import (
     BatchPredictionRequest,
     FramePreannotationDispatchRequest,
     FramePreannotationDispatcher,
-    TaskFrameCount,
+    VideoFrameTaskPlan,
 )
 from app.services import prediction_context, prediction_progress
 import asyncio
@@ -109,6 +109,15 @@ class _PreparedAcceptedManifest:
 
 
 @dataclass(frozen=True, slots=True)
+class _PreparedAcceptedVideoManifest:
+    gateway: object
+    scope: object
+    header: object
+    selection: object
+    selection_digest: str
+
+
+@dataclass(frozen=True, slots=True)
 class _PreparedManifestMember:
     reference: object | None
     local_path: Path | None
@@ -120,6 +129,140 @@ class _ManifestPageReadFailure(RuntimeError):
     def __init__(self, cursor: int):
         self.cursor = cursor
         super().__init__("manifest_page_unavailable")
+
+
+def _video_input_task_source_matches(task, binding) -> bool:
+    """Allow workflow reassignment while requiring the originally captured media."""
+    return (
+        task.project_id == binding.project_id
+        and int(task.media_source_generation or 1) == binding.task_source_generation
+        and task.dataset_item_id == binding.dataset_item_id
+        and task.file_path == binding.file_path
+        and task.file_type == binding.file_type
+    )
+
+
+async def _verified_video_manifest_plan(gateway, member, *, actor_id):
+    """Verify a retained source and its complete selected timebase before writes."""
+    from aap_assets_video_inputs import execution as video_execution
+    from aap_assets_video_inputs import values as video_values
+    from aap_assets_video_inputs.execution import VideoInputFailure
+
+    record = member.input
+    if (
+        member.state != "ready"
+        or record is None
+        or record.status not in {"ready", "expired"}
+        or record.plan is None
+    ):
+        return None
+    plan = record.plan
+    if plan.input.input_id != record.input_id or plan.input.job_id != record.job_id:
+        raise ValueError("video manifest member changed its retained input")
+    try:
+        current = await gateway.verify(
+            video_execution.LockVideoInputRequest(
+                input_id=record.input_id,
+                job_id=record.job_id,
+                task_id=record.task.task_id,
+                actor_id=actor_id,
+                plan_digest=plan.plan_digest,
+            )
+        )
+    except VideoInputFailure as exc:
+        if exc.code in {
+            "input_busy",
+            "source_busy",
+            "job_busy",
+            "storage_unavailable",
+            "timeout",
+        }:
+            raise PreannotationInputDeferred(exc.code) from exc
+        return None
+    if current.plan != plan or current.status != "ready":
+        return None
+
+    pages = []
+    cursor = 0
+    while cursor < plan.selected_count:
+        try:
+            page = await gateway.times(
+                video_values.FramePageRequest(
+                    actor_id=actor_id,
+                    job_id=record.job_id,
+                    task_id=record.task.task_id,
+                    input_id=record.input_id,
+                    plan_digest=plan.plan_digest,
+                    cursor=cursor,
+                    page_size=min(video_values.PAGE_SIZE, plan.selected_count - cursor),
+                )
+            )
+        except VideoInputFailure as exc:
+            if exc.code in {
+                "input_busy",
+                "source_busy",
+                "job_busy",
+                "storage_unavailable",
+                "timeout",
+            }:
+                raise PreannotationInputDeferred(exc.code) from exc
+            return None
+        if page.plan != plan or page.cursor != cursor:
+            raise ValueError("video timebase page changed its frozen plan")
+        pages.append(page)
+        cursor = (
+            page.next_cursor if page.next_cursor is not None else plan.selected_count
+        )
+    video_values.require_timebase(plan, pages)
+    entries = tuple(entry for page in pages for entry in page.entries)
+    if len(entries) != plan.selected_count:
+        raise ValueError("video timebase omitted selected frames")
+    return current, plan, entries
+
+
+async def _accepted_video_members(prepared: _PreparedAcceptedVideoManifest):
+    from aap_assets_video_inputs import execution as video_execution
+    from aap_assets_video_inputs.execution import VideoInputFailure
+
+    members = []
+    cursor = 0
+    while cursor < prepared.header.selected_count:
+        try:
+            page = await prepared.gateway.members(
+                video_execution.VideoManifestPageRequest(
+                    **prepared.scope.model_dump(mode="python"),
+                    selection_digest=prepared.selection_digest,
+                    sealed_digest=prepared.header.sealed_digest,
+                    cursor=cursor,
+                    page_size=100,
+                )
+            )
+        except VideoInputFailure as exc:
+            if exc.code in {
+                "manifest_busy",
+                "input_busy",
+                "source_busy",
+                "job_busy",
+                "storage_unavailable",
+                "timeout",
+            }:
+                raise PreannotationInputDeferred(exc.code) from exc
+            raise
+        if (
+            page.manifest.model_dump(mode="json")
+            != prepared.header.model_dump(mode="json")
+            or page.cursor != cursor
+        ):
+            raise ValueError("video manifest page changed its sealed header")
+        members.extend(page.members)
+        cursor = (
+            page.next_cursor
+            if page.next_cursor is not None
+            else prepared.header.selected_count
+        )
+    if len(members) != prepared.header.selected_count:
+        raise ValueError("sealed video manifest omitted selected membership")
+    return members
 
 
 def _manifest_selection_json(request: BatchPredictionRequest, contract) -> dict:
@@ -354,6 +497,161 @@ async def _prepare_accepted_input_manifest(
             scope=scope,
             header=header,
             selection_digest=request.accepted_input_manifest_digest,
+        )
+
+
+@asynccontextmanager
+async def _prepare_accepted_video_manifest(
+    request: BatchPredictionRequest, SessionLocal
+):
+    """Validate and seal the retained video selection before any overwrite."""
+    from aap_assets_video_inputs import authority as authority_contract
+    from aap_assets_video_inputs import execution as execution_contract
+    from aap_assets_video_inputs.execution import VideoInputFailure
+    from app.db.models.async_job import AsyncJob, AsyncJobStatus
+
+    fields = (
+        request.accepted_video_inputs_protocol,
+        request.accepted_video_manifest_id,
+        request.accepted_video_selection_digest,
+        request.accepted_video_selection,
+    )
+    if all(value is None for value in fields):
+        if request.execution_unit == "frame":
+            raise ValueError("frame execution requires a retained video manifest")
+        yield None
+        return
+    if any(value is None for value in fields) or any(
+        not isinstance(value, str) or not value for value in fields[:3]
+    ):
+        raise ValueError("accepted video manifest identity is incomplete")
+    if (
+        request.accepted_video_inputs_protocol != "aap-assets-video-inputs/v1"
+        or request.execution_unit != "frame"
+        or request.accepted_input_manifest_protocol is not None
+        or request.accepted_inputs_protocol is not None
+        or request.accepted_input_ids is not None
+        or request.async_job_id is None
+        or request.user_id is None
+        or not isinstance(request.accepted_video_selection, dict)
+    ):
+        raise ValueError("accepted video manifest is outside frame execution scope")
+
+    try:
+        job_id = uuid.UUID(request.async_job_id)
+        manifest_id = uuid.UUID(request.accepted_video_manifest_id)
+        actor_id = uuid.UUID(request.user_id)
+        project_id = uuid.UUID(request.project_id)
+        selection = authority_contract.VideoSelection.model_validate(
+            request.accepted_video_selection
+        )
+    except (TypeError, ValueError, AttributeError) as exc:
+        raise ValueError("accepted video manifest scope is malformed") from exc
+    selection_json = selection.model_dump(mode="json")
+    if manifest_id != job_id:
+        raise ValueError("accepted video manifest ID must equal its Job ID")
+    if (
+        selection.batch_id
+        != (uuid.UUID(request.batch_id) if request.batch_id else None)
+        or selection.predict_mode != request.predict_mode
+        or selection.execution_scope != request.execution_scope
+        or (
+            selection.task_ids
+            != (
+                tuple(sorted({uuid.UUID(value) for value in request.task_ids}, key=str))
+                if request.task_ids is not None
+                else None
+            )
+        )
+        or selection_json != request.accepted_video_selection
+    ):
+        raise ValueError("video selection differs from the queued request")
+
+    already_claimed = False
+    async with SessionLocal() as db:
+        job = await db.get(AsyncJob, job_id, populate_existing=True)
+        if (
+            job is None
+            or job.kind != "batch_predict"
+            or job.project_id != project_id
+            or job.user_id != actor_id
+        ):
+            raise ValueError("accepted video manifest durable Job scope is unavailable")
+        if job.status != AsyncJobStatus.PENDING.value:
+            already_claimed = True
+        else:
+            payload = job.payload if isinstance(job.payload, dict) else {}
+            if (
+                payload.get("accepted_video_inputs_protocol")
+                != request.accepted_video_inputs_protocol
+                or payload.get("accepted_video_manifest_id") != str(manifest_id)
+                or payload.get("accepted_video_selection_digest")
+                != request.accepted_video_selection_digest
+                or payload.get("accepted_video_selection") != selection_json
+                or payload.get("execution_unit") != "frame"
+                or payload.get("execution_scope") != request.execution_scope
+                or payload.get("batch_id") != request.batch_id
+            ):
+                raise ValueError("video manifest differs from durable Job facts")
+    if already_claimed:
+        yield None
+        return
+
+    from app.services.accepted_video_inputs import video_input_gateway
+
+    scope = execution_contract.VideoManifestScope(
+        job_id=manifest_id, actor_id=actor_id, project_id=project_id
+    )
+    async with video_input_gateway(session_factory=SessionLocal) as gateway:
+        try:
+            header = await gateway.ensure_sealed(
+                scope,
+                selection_digest=request.accepted_video_selection_digest,
+            )
+        except VideoInputFailure as exc:
+            if exc.code in {
+                "manifest_busy",
+                "input_busy",
+                "source_busy",
+                "job_busy",
+                "reference_busy",
+                "manifest_not_ready",
+                "input_not_ready",
+                "storage_unavailable",
+                "timeout",
+            }:
+                raise PreannotationInputDeferred(exc.code) from exc
+            raise
+        if (
+            header.job_id != manifest_id
+            or header.actor_id != actor_id
+            or header.project_id != project_id
+            or header.selection.model_dump(mode="json") != selection_json
+            or header.selection_digest != request.accepted_video_selection_digest
+            or header.status != "sealed"
+            or header.sealed_digest is None
+            or header.prepared_count != header.selected_count
+        ):
+            raise ValueError("sealed video manifest differs from durable Job facts")
+        async with SessionLocal() as db:
+            job = await db.get(AsyncJob, job_id, populate_existing=True)
+            payload = (
+                job.payload if job is not None and isinstance(job.payload, dict) else {}
+            )
+            if (
+                job is None
+                or job.status != AsyncJobStatus.PENDING.value
+                or payload.get("total_tasks") not in {None, header.selected_count}
+                or payload.get("input_candidate_count")
+                not in {None, header.candidate_count}
+            ):
+                raise ValueError("sealed video counts differ from durable Job facts")
+        yield _PreparedAcceptedVideoManifest(
+            gateway=gateway,
+            scope=scope,
+            header=header,
+            selection=selection,
+            selection_digest=request.accepted_video_selection_digest,
         )
 
 
@@ -1078,14 +1376,18 @@ async def run_preannotation(
             async with _prepare_accepted_input_manifest(
                 request, session_factory
             ) as accepted_manifest:
-                await _execute_preannotation(
-                    request,
-                    execution_id=execution_id,
-                    frame_dispatcher=frame_dispatcher,
-                    SessionLocal=session_factory,
-                    accepted_input=accepted_input,
-                    accepted_manifest=accepted_manifest,
-                )
+                async with _prepare_accepted_video_manifest(
+                    request, session_factory
+                ) as accepted_video_manifest:
+                    await _execute_preannotation(
+                        request,
+                        execution_id=execution_id,
+                        frame_dispatcher=frame_dispatcher,
+                        SessionLocal=session_factory,
+                        accepted_input=accepted_input,
+                        accepted_manifest=accepted_manifest,
+                        accepted_video_manifest=accepted_video_manifest,
+                    )
     finally:
         await engine.dispose()
 
@@ -1098,6 +1400,7 @@ async def _execute_preannotation(
     SessionLocal,
     accepted_input: _PreparedAcceptedInput | None = None,
     accepted_manifest: _PreparedAcceptedManifest | None = None,
+    accepted_video_manifest: _PreparedAcceptedVideoManifest | None = None,
 ) -> None:
     """Own the batch workflow while reusing the caller's request and DB session."""
     project_id = request.project_id
@@ -1216,6 +1519,7 @@ async def _execute_preannotation(
             if task_ids is not None
             else None
         )
+        defer_video_job_claim = accepted_video_manifest is not None
         precreated_job: AsyncJob | None = None
         if async_job_id is not None:
             try:
@@ -1261,14 +1565,36 @@ async def _execute_preannotation(
                     raise ValueError(
                         "accepted input manifest differs from the locked durable Job"
                     )
+            if accepted_video_manifest is not None:
+                video_payload = precreated_job.payload or {}
+                if (
+                    request.accepted_video_inputs_protocol
+                    != "aap-assets-video-inputs/v1"
+                    or request.accepted_video_manifest_id != str(precreated_job.id)
+                    or video_payload.get("accepted_video_inputs_protocol")
+                    != request.accepted_video_inputs_protocol
+                    or video_payload.get("accepted_video_manifest_id")
+                    != request.accepted_video_manifest_id
+                    or video_payload.get("accepted_video_selection_digest")
+                    != request.accepted_video_selection_digest
+                    or video_payload.get("accepted_video_selection")
+                    != accepted_video_manifest.selection.model_dump(mode="json")
+                    or accepted_video_manifest.header.sealed_digest is None
+                ):
+                    raise ValueError(
+                        "accepted video manifest differs from the locked durable Job"
+                    )
             saved_ref = (precreated_job.payload or {}).get("frozen_model_ref")
             if frozen_model_ref is not None and saved_ref != frozen_model_ref:
                 raise ValueError("Queued model identity differs from the durable job")
             frozen_model_ref = saved_ref
             async_job_svc.bind_execution_id(precreated_job, celery_task_id)
-            await async_job_svc.mark_running(
-                db, precreated_job.id, celery_task_id=celery_task_id
-            )
+            if not defer_video_job_claim:
+                await async_job_svc.mark_running(
+                    db, precreated_job.id, celery_task_id=celery_task_id
+                )
+            # Release the initial row lock before video source verification and
+            # timebase paging. The video Job is claimed only after that barrier.
             await db.commit()
         if batch_id:
             selected_batch = await db.get(TaskBatch, uuid.UUID(batch_id))
@@ -1390,6 +1716,7 @@ async def _execute_preannotation(
         )
 
         manifest_backed = accepted_manifest is not None
+        video_manifest_backed = accepted_video_manifest is not None
 
         # v0.11.24 · 幂等：skip_predicted 排除已预标 task；append/overwrite 不排除。
         skip_predicted = predict_mode == "skip_predicted"
@@ -1416,13 +1743,236 @@ async def _execute_preannotation(
         sel = select(Task).where(*base_conds)
         if skip_predicted:
             sel = sel.where(Task.total_predictions == 0)
-        if manifest_backed:
+        video_task_plans = []
+        video_plan_records = {}
+        video_fixed_failures: list[dict] = []
+        video_skipped_task_count = 0
+        video_members = []
+        if video_manifest_backed:
+            if pipeline_stages and len(pipeline_stages) > 1:
+                raise ValueError("frame preannotation supports one detection stage")
+            video_members = await _accepted_video_members(accepted_video_manifest)
+            if requested_task_ids is not None and any(
+                member.task.task_id not in requested_task_ids
+                for member in video_members
+            ):
+                raise ValueError("video manifest escaped explicit Task scope")
+            if (
+                accepted_video_manifest.selection.task_ids is not None
+                and accepted_video_manifest.header.candidate_count
+                != len(accepted_video_manifest.selection.task_ids)
+            ):
+                raise ValueError("video manifest omitted explicit candidate scope")
+            total = accepted_video_manifest.header.selected_count
+            explicit_scope = requested_task_ids is not None
+        elif manifest_backed:
             tasks = []
             total = accepted_manifest.header.selected_count
         else:
             result = await db.execute(sel)
             tasks = list(result.scalars().all())
             total = len(tasks)
+
+        if video_manifest_backed:
+            current_tasks = []
+            lock_service = TaskLockService(db)
+            actor_uuid = actor.id if actor is not None else None
+            for member in video_members:
+                member_task_id = member.task.task_id
+                task = await db.get(Task, member_task_id, populate_existing=True)
+                batch_row = (
+                    await db.get(
+                        TaskBatch,
+                        task.batch_id,
+                        populate_existing=True,
+                    )
+                    if task is not None and task.batch_id is not None
+                    else None
+                )
+                task_scope_changed = (
+                    task is None
+                    or task.project_id != project_uuid
+                    or (batch_id is not None and task.batch_id != uuid.UUID(batch_id))
+                    or (task.batch_id is not None and batch_row is None)
+                    or (batch_row is not None and batch_row.project_id != project_uuid)
+                    or (batch_row is not None and batch_row.admin_locked)
+                    or (
+                        batch_row is not None
+                        and not workbench_scope
+                        and not allows_bulk_preannotation(batch_row)
+                    )
+                    or (
+                        not workbench_scope
+                        and task is not None
+                        and task.status != "pending"
+                    )
+                    or (
+                        workbench_scope
+                        and task is not None
+                        and task.status not in WORKBENCH_AI_EDITABLE_TASK_STATUSES
+                    )
+                )
+                if task_scope_changed:
+                    if explicit_scope:
+                        raise ValueError("explicit preannotation Task scope changed")
+                    video_skipped_task_count += 1
+                    continue
+
+                locks = await lock_service.active_locks(task.id)
+                locked_by_other = (
+                    any(lock.user_id != actor_uuid for lock in locks)
+                    if workbench_scope and actor_uuid is not None
+                    else bool(locks)
+                )
+                if locked_by_other:
+                    if explicit_scope:
+                        raise ValueError("explicit preannotation Task is locked")
+                    video_skipped_task_count += 1
+                    continue
+                if skip_predicted and (task.total_predictions or 0) > 0:
+                    video_skipped_task_count += 1
+                    continue
+
+                if member.state == "failed" or member.input is None:
+                    video_fixed_failures.append(
+                        {
+                            "task_id": str(member_task_id),
+                            "ordinal": member.ordinal,
+                            "error": member.error or "input_failed",
+                        }
+                    )
+                    continue
+
+                if (
+                    member.input.status not in {"ready", "expired"}
+                    or member.input.plan is None
+                ):
+                    if member.input.status in {"pending", "materializing"}:
+                        raise PreannotationInputDeferred("input_not_ready")
+                    video_fixed_failures.append(
+                        {
+                            "task_id": str(member_task_id),
+                            "ordinal": member.ordinal,
+                            "error": member.input.error or member.input.status,
+                        }
+                    )
+                    continue
+                if member.input.status == "expired":
+                    video_fixed_failures.append(
+                        {
+                            "task_id": str(member_task_id),
+                            "ordinal": member.ordinal,
+                            "error": "input_expired",
+                        }
+                    )
+                    continue
+
+                verified = await _verified_video_manifest_plan(
+                    accepted_video_manifest.gateway,
+                    member,
+                    actor_id=actor_uuid,
+                )
+                if verified is None:
+                    video_fixed_failures.append(
+                        {
+                            "task_id": str(member_task_id),
+                            "ordinal": member.ordinal,
+                            "error": "source_or_timebase_unavailable",
+                        }
+                    )
+                    continue
+                verified_record, plan, _entries = verified
+                if not _video_input_task_source_matches(task, plan.input.task):
+                    if explicit_scope:
+                        raise ValueError("explicit Task source changed after capture")
+                    video_fixed_failures.append(
+                        {
+                            "task_id": str(member_task_id),
+                            "ordinal": member.ordinal,
+                            "error": "task_source_changed",
+                        }
+                    )
+                    continue
+                if plan.selected_count <= 0:
+                    video_fixed_failures.append(
+                        {
+                            "task_id": str(member_task_id),
+                            "ordinal": member.ordinal,
+                            "error": "no_selected_frames",
+                        }
+                    )
+                    continue
+
+                task = await db.get(Task, member_task_id, populate_existing=True)
+                if task is None or not _video_input_task_source_matches(
+                    task, plan.input.task
+                ):
+                    if explicit_scope:
+                        raise ValueError("explicit Task source changed after capture")
+                    video_fixed_failures.append(
+                        {
+                            "task_id": str(member_task_id),
+                            "ordinal": member.ordinal,
+                            "error": "task_source_changed",
+                        }
+                    )
+                    continue
+                # Recheck mutable workflow eligibility after the owner call and before
+                # overwrite. The final Labeling write repeats these checks atomically.
+                batch_row = (
+                    await db.get(
+                        TaskBatch,
+                        task.batch_id,
+                        populate_existing=True,
+                    )
+                    if task.batch_id is not None
+                    else None
+                )
+                if (
+                    (batch_id is not None and task.batch_id != uuid.UUID(batch_id))
+                    or (batch_row is not None and batch_row.admin_locked)
+                    or (
+                        batch_row is not None
+                        and not workbench_scope
+                        and not allows_bulk_preannotation(batch_row)
+                    )
+                    or (not workbench_scope and task.status != "pending")
+                    or (
+                        workbench_scope
+                        and task.status not in WORKBENCH_AI_EDITABLE_TASK_STATUSES
+                    )
+                ):
+                    if explicit_scope:
+                        raise ValueError("explicit preannotation Task scope changed")
+                    video_skipped_task_count += 1
+                    continue
+                locks = await lock_service.active_locks(task.id)
+                locked_by_other = (
+                    any(lock.user_id != actor_uuid for lock in locks)
+                    if workbench_scope and actor_uuid is not None
+                    else bool(locks)
+                )
+                if locked_by_other:
+                    if explicit_scope:
+                        raise ValueError("explicit preannotation Task is locked")
+                    video_skipped_task_count += 1
+                    continue
+                if skip_predicted and (task.total_predictions or 0) > 0:
+                    video_skipped_task_count += 1
+                    continue
+
+                current_tasks.append(task)
+                video_plan_records[str(task.id)] = verified_record
+                video_task_plans.append(
+                    VideoFrameTaskPlan(
+                        task_id=str(task.id),
+                        input_id=str(verified_record.input_id),
+                        input_job_id=str(verified_record.job_id),
+                        plan_digest=plan.plan_digest,
+                        selected_count=plan.selected_count,
+                    )
+                )
+            tasks = current_tasks
 
         if accepted_input is not None and any(
             task.id != accepted_input.reference.input.task_id
@@ -1436,7 +1986,15 @@ async def _execute_preannotation(
 
         # v0.11.24 · overwrite：预标前清掉这批 task 的旧预测（保留人工标注），避免叠加。
         # 不重置 task 状态（与删批次不同）——预标只换预测内容、不动流程。
-        if predict_mode == "overwrite" and tasks and not manifest_backed:
+        if execution_unit == "frame" and pipeline_stages and len(pipeline_stages) > 1:
+            raise ValueError("frame preannotation supports one detection stage")
+
+        if (
+            predict_mode == "overwrite"
+            and tasks
+            and not manifest_backed
+            and not video_manifest_backed
+        ):
             from app.services.batch import BatchService
             from app.services.labeling_write_guard import lock_labeling_write
 
@@ -1522,7 +2080,137 @@ async def _execute_preannotation(
             job_payload["input_candidate_count"] = (
                 accepted_manifest.header.candidate_count
             )
-        if precreated_job is None:
+        if video_manifest_backed:
+            job_payload["accepted_video_inputs_protocol"] = (
+                request.accepted_video_inputs_protocol
+            )
+            job_payload["accepted_video_manifest_id"] = (
+                request.accepted_video_manifest_id
+            )
+            job_payload["accepted_video_selection_digest"] = (
+                request.accepted_video_selection_digest
+            )
+            job_payload["accepted_video_selection"] = (
+                accepted_video_manifest.selection.model_dump(mode="json")
+            )
+            job_payload["execution_unit"] = "frame"
+            job_payload["total_tasks"] = accepted_video_manifest.header.selected_count
+            job_payload["input_candidate_count"] = (
+                accepted_video_manifest.header.candidate_count
+            )
+        video_initial_result = None
+        if video_manifest_backed:
+            manifest_skipped_count = max(
+                0,
+                accepted_video_manifest.header.candidate_count
+                - accepted_video_manifest.header.selected_count,
+            )
+            video_initial_result = {
+                "execution_unit": "frame",
+                "input_failed_count": len(video_fixed_failures),
+                "input_failed_members": video_fixed_failures[:100],
+                "task_skipped_count": video_skipped_task_count,
+                "manifest_skipped_count": (
+                    manifest_skipped_count
+                    if accepted_video_manifest.selection.predict_mode
+                    == "skip_predicted"
+                    else 0
+                ),
+                "frame_total": sum(plan.selected_count for plan in video_task_plans),
+                "video_manifest": {
+                    "protocol": request.accepted_video_inputs_protocol,
+                    "manifest_id": request.accepted_video_manifest_id,
+                    "selection_digest": request.accepted_video_selection_digest,
+                    "sealed_digest": accepted_video_manifest.header.sealed_digest,
+                    "selected_count": accepted_video_manifest.header.selected_count,
+                    "candidate_count": accepted_video_manifest.header.candidate_count,
+                },
+            }
+        if video_manifest_backed:
+            if precreated_job is None:
+                raise ValueError("retained video execution requires a durable Job")
+            locked_job = await db.scalar(
+                select(AsyncJob)
+                .where(AsyncJob.id == precreated_job.id)
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            )
+            if locked_job is None or locked_job.status != AsyncJobStatus.PENDING.value:
+                await db.rollback()
+                return
+            durable_video_payload = locked_job.payload or {}
+            if (
+                locked_job.kind != "batch_predict"
+                or locked_job.project_id != project_uuid
+                or locked_job.user_id != actor.id
+                or durable_video_payload.get("accepted_video_inputs_protocol")
+                != request.accepted_video_inputs_protocol
+                or durable_video_payload.get("accepted_video_manifest_id")
+                != request.accepted_video_manifest_id
+                or durable_video_payload.get("accepted_video_selection_digest")
+                != request.accepted_video_selection_digest
+                or durable_video_payload.get("accepted_video_selection")
+                != accepted_video_manifest.selection.model_dump(mode="json")
+                or durable_video_payload.get("execution_scope") != execution_scope
+                or durable_video_payload.get("batch_id") != batch_id
+            ):
+                raise ValueError("video Job changed during retained-source preparation")
+
+            async_job_svc.bind_execution_id(locked_job, celery_task_id)
+            await async_job_svc.mark_running(
+                db, locked_job.id, celery_task_id=celery_task_id
+            )
+            if predict_mode == "overwrite" and tasks:
+                from app.services.batch import BatchService
+                from app.services.labeling_write_guard import lock_labeling_write
+
+                try:
+                    for overwrite_task in tasks:
+                        record = video_plan_records[str(overwrite_task.id)]
+                        await lock_labeling_write(
+                            db,
+                            capture_labeling_write_scope(
+                                overwrite_task,
+                                actor_id=actor.id,
+                                actor_known=True,
+                                operation="preannotation",
+                                execution_scope=execution_scope,
+                                execution_scope_known=True,
+                                job_id=locked_job.id,
+                                job_id_known=True,
+                            ),
+                            operations=("preannotation",),
+                            accepted_video_plan=record.plan,
+                        )
+                    await BatchService(db).clean_task_predictions(
+                        [task.id for task in tasks], actor_id=actor.id
+                    )
+                except HTTPException as exc:
+                    await db.rollback()
+                    detail = exc.detail
+                    reason = detail.get("reason") if isinstance(detail, dict) else None
+                    if reason in {
+                        "account_busy",
+                        "project_busy",
+                        "membership_busy",
+                        "batch_busy",
+                        "task_busy",
+                        "task_evidence_busy",
+                        "job_busy",
+                        "input_busy",
+                    }:
+                        raise PreannotationInputDeferred(
+                            "task_busy" if reason == "task_evidence_busy" else reason
+                        ) from exc
+                    raise
+            await async_job_svc.update_payload(db, locked_job.id, job_payload)
+            locked_job.result = {
+                **(locked_job.result or {}),
+                **video_initial_result,
+            }
+            aj = locked_job
+            precreated_job = locked_job
+        elif precreated_job is None:
             aj = await async_job_svc.create_job(
                 db,
                 kind="batch_predict",
@@ -1692,36 +2380,82 @@ async def _execute_preannotation(
         if execution_unit == "frame":
             if frame_dispatcher is None:
                 raise RuntimeError("frame execution requires a frame dispatcher")
-            from app.services.video_frame_service import AssetsVideoContextReader
+            if accepted_video_manifest is None:
+                raise ValueError("frame execution has no sealed video manifest")
+            if video_initial_result is None:
+                raise ValueError("frame execution has no durable preparation result")
+            initial_frame_result = video_initial_result
+            input_failed_count = initial_frame_result["input_failed_count"]
+            manifest_skipped_count = max(
+                0,
+                accepted_video_manifest.header.candidate_count
+                - accepted_video_manifest.header.selected_count,
+            )
 
-            task_frame_counts: list[TaskFrameCount] = []
-            for frame_task in tasks:
-                try:
-                    frame_context = await AssetsVideoContextReader(
-                        db
-                    ).from_task_summary(
-                        task_id=frame_task.id,
-                        project_id=frame_task.project_id,
-                        file_type=frame_task.file_type,
-                        dataset_item_id=frame_task.dataset_item_id,
+            if not video_task_plans:
+                if input_failed_count:
+                    await async_job_svc.mark_failed(
+                        db,
+                        async_job_id,
+                        error="video_input_preparation_failed",
+                        result=initial_frame_result,
                     )
-                except Exception:
-                    continue  # 非视频 / 元数据缺失 → 跳过 (该 task 不逐帧)
-                frame_count = int(frame_context.metadata.frame_count or 0)
-                if frame_count > 0:
-                    task_frame_counts.append(
-                        TaskFrameCount(
-                            task_id=str(frame_task.id), frame_count=frame_count
-                        )
+                    await notify_job_terminal(db, job_id=async_job_id)
+                    await db.commit()
+                    prediction_progress.publish_progress(
+                        project_id,
+                        0,
+                        0,
+                        status="failed",
+                        error="video_input_preparation_failed",
+                        job_meta=job_meta_base,
                     )
+                    return
+                reason = (
+                    "all_predicted"
+                    if manifest_skipped_count and skip_predicted
+                    else "selection_changed"
+                    if video_skipped_task_count
+                    else "no_frames"
+                )
+                await async_job_svc.mark_complete(
+                    db,
+                    async_job_id,
+                    result={
+                        **initial_frame_result,
+                        "success_count": 0,
+                        "failed_count": 0,
+                        "reason": reason,
+                    },
+                )
+                await notify_job_terminal(db, job_id=async_job_id)
+                await db.commit()
+                prediction_progress.publish_progress(
+                    project_id,
+                    0,
+                    0,
+                    status="completed",
+                    job_meta=job_meta_base,
+                )
+                return
+
             disp = await frame_dispatcher(
                 FramePreannotationDispatchRequest(
                     project_id=project_id,
                     ml_backend_id=ml_backend_id,
-                    task_frame_counts=tuple(task_frame_counts),
+                    task_frame_counts=(),
                     stage0=stages[0],
                     job_id=str(async_job_id),
                     root_execution_id=celery_task_id,
+                    actor_id=str(actor.id),
+                    video_task_plans=tuple(video_task_plans),
+                    accepted_video_manifest_id=(request.accepted_video_manifest_id),
+                    accepted_video_selection_digest=(
+                        request.accepted_video_selection_digest
+                    ),
+                    accepted_video_sealed_digest=(
+                        accepted_video_manifest.header.sealed_digest
+                    ),
                 )
             )
             if disp.dispatched:
@@ -1734,11 +2468,29 @@ async def _execute_preannotation(
                 )
                 await db.commit()
                 return
-            # 无可跑帧 (元数据缺失 / 非视频 task) → 空收尾, 不落到图像主循环。
+            if input_failed_count:
+                await async_job_svc.mark_failed(
+                    db,
+                    async_job_id,
+                    error="video_input_preparation_failed",
+                    result=initial_frame_result,
+                )
+                await notify_job_terminal(db, job_id=async_job_id)
+                await db.commit()
+                prediction_progress.publish_progress(
+                    project_id,
+                    0,
+                    disp.total_frames,
+                    status="failed",
+                    error="video_input_preparation_failed",
+                    job_meta=job_meta_base,
+                )
+                return
             await async_job_svc.mark_complete(
                 db,
                 async_job_id,
                 result={
+                    **initial_frame_result,
                     "success_count": 0,
                     "failed_count": 0,
                     "execution_unit": "frame",
