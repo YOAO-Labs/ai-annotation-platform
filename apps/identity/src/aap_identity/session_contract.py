@@ -38,6 +38,7 @@ SessionFailureCode: TypeAlias = (
         "invalid_token",
         "malformed_token",
         "operation_conflict",
+        "account_busy",
     ]
 )
 

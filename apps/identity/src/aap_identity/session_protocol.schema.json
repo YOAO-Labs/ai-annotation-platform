@@ -611,7 +611,8 @@
                 "captcha_required",
                 "invalid_token",
                 "malformed_token",
-                "operation_conflict"
+                "operation_conflict",
+                "account_busy"
               ],
               "type": "string"
             }

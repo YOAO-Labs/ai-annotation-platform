@@ -10,7 +10,7 @@ import httpx
 import pytest
 from jose import JWTError, jwt
 
-from aap_identity.authenticator import Authenticator
+from aap_identity.authenticator import Authenticator, CredentialDecodeFailure
 from aap_identity.contract import (
     IdentityFailure,
     IdentityUnavailable,
@@ -104,27 +104,47 @@ async def test_current_native_role_and_credential_scope_win_over_signed_role():
 
 
 @pytest.mark.parametrize(
-    "changes",
+    ("changes", "reason"),
     [
-        {"gen": True},
-        {"gen": -1},
-        {"gen": 2**63},
-        {"gen": "0"},
-        {"exp": 1.5},
-        {"exp": True},
-        {"exp": "later"},
-        {"exp": 2**63},
-        {"sub": "invalid"},
-        {"jti": "invalid"},
-        {"iss": "older-issuer"},
+        ({"gen": True}, "malformed_token"),
+        ({"gen": -1}, "malformed_token"),
+        ({"gen": 2**63}, "malformed_token"),
+        ({"gen": "0"}, "malformed_token"),
+        ({"exp": 1.5}, "malformed_token"),
+        ({"exp": True}, "malformed_token"),
+        ({"exp": "later"}, "malformed_token"),
+        ({"exp": 2**63}, "malformed_token"),
+        ({"sub": "invalid"}, "malformed_token"),
+        ({"jti": "invalid"}, "malformed_token"),
+        ({"jti": None}, "malformed_token"),
+        ({"iss": "older-issuer"}, "invalid_token"),
     ],
 )
 @pytest.mark.asyncio
-async def test_malformed_signed_claims_are_rejected_before_native_io(changes):
+async def test_refresh_signed_claim_failures_keep_decode_provenance(changes, reason):
     data = Data()
-    with pytest.raises(IdentityFailure):
-        await Authenticator(data, SECRET).authenticate(token(**changes))
+    with pytest.raises(CredentialDecodeFailure) as error:
+        await Authenticator(data, SECRET).authenticate_bound(
+            token(**changes), for_refresh=True
+        )
+    assert error.value.code == "credential_invalid"
+    assert error.value.reason == reason
     assert data.calls == []
+
+
+@pytest.mark.asyncio
+async def test_refresh_unparseable_and_api_key_credentials_have_invalid_token_provenance():
+    auth = Authenticator(Data(), SECRET)
+    for value in ("not-a-jwt", "ak_" + "x" * 32):
+        with pytest.raises(CredentialDecodeFailure) as error:
+            await auth.authenticate_bound(value, for_refresh=True)
+        assert error.value.code == "credential_invalid"
+        assert error.value.reason == "invalid_token"
+
+    with pytest.raises(IdentityFailure) as ordinary:
+        await auth.authenticate("not-a-jwt")
+    assert ordinary.value.code == "credential_invalid"
+    assert failure_reply(ordinary.value.code)["error"]["code"] == "credential_invalid"
 
 
 def test_legacy_signature_and_issuer_are_rejected_by_new_codec():

@@ -10,7 +10,7 @@ from typing import Protocol
 
 from jose import jwt
 
-from .authenticator import VerifiedCredential
+from .authenticator import CredentialDecodeFailure, VerifiedCredential
 from .contract import IdentityFailure, IdentityUnavailable, Principal
 from .security import ALGORITHM, signing_key, verify_password
 from .session_contract import (
@@ -136,7 +136,16 @@ class SessionManager:
                 request.token,
                 for_refresh=isinstance(request, RefreshRequest),
             )
+        except CredentialDecodeFailure as error:
+            if isinstance(request, RefreshRequest):
+                raise SessionFailure(error.reason) from None
+            raise SessionFailure(error.code) from None
         except IdentityFailure as error:
+            if (
+                isinstance(request, RefreshRequest)
+                and error.code == "credential_invalid"
+            ):
+                raise SessionFailure("user_inactive") from None
             raise SessionFailure(error.code) from None
         if (
             isinstance(request, (RefreshRequest, LogoutRequest))

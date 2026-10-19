@@ -8,9 +8,14 @@ from datetime import UTC, datetime, timedelta
 import bcrypt
 import pytest
 
-from aap_identity.authenticator import Authenticator, VerifiedCredential
+from aap_identity.authenticator import (
+    Authenticator,
+    CredentialDecodeFailure,
+    VerifiedCredential,
+)
 from aap_identity.contract import (
     IdentityFailure,
+    failure_reply,
     principal_reply,
 )
 from aap_identity.security import ISSUER, decode_access_token
@@ -388,6 +393,55 @@ async def test_authenticator_for_refresh_passes_native_flag_and_enforces_grace()
     with pytest.raises(IdentityFailure) as stale:
         await Authenticator(data, SECRET).authenticate_bound(expired, for_refresh=True)
     assert stale.value.code == "token_expired" and len(data.for_refresh) == before
+
+
+@pytest.mark.asyncio
+async def test_refresh_maps_decode_provenance_missing_actor_and_native_failures():
+    actor = jwt_actor()
+    request = session_request("refresh", token=actor_token(actor))
+
+    class FailedAuth:
+        def __init__(self, failure):
+            self.failure = failure
+
+        async def authenticate_bound(self, token, *, for_refresh=False):
+            assert for_refresh is True
+            raise self.failure
+
+    for reason in ("invalid_token", "malformed_token"):
+        with pytest.raises(SessionFailure) as failure:
+            await manager(
+                FailedAuth(CredentialDecodeFailure(reason)), SessionData(), Counter()
+            ).execute(request)
+        assert failure.value.code == reason
+
+    class MissingActor:
+        async def read_jwt_principal(
+            self, actor_id, jti, generation, expires_at, for_refresh=False
+        ):
+            assert for_refresh is True
+            return failure_reply("credential_invalid")
+
+    with pytest.raises(SessionFailure) as missing:
+        await manager(
+            Authenticator(MissingActor(), SECRET), SessionData(), Counter()
+        ).execute(request)
+    assert missing.value.code == "user_inactive"
+
+    for code in (
+        "credential_busy",
+        "account_busy",
+        "credential_revoked",
+        "generation_outdated",
+        "token_expired",
+    ):
+        with pytest.raises(SessionFailure) as failure:
+            await manager(
+                BoundAuth(VerifiedCredential(actor, None)),
+                SessionData(failure=code),
+                Counter(),
+            ).execute(request)
+        assert failure.value.code == code
 
 
 def test_session_derivation_and_fingerprint_are_stable_and_domain_separated():

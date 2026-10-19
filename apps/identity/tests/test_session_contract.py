@@ -9,7 +9,7 @@ import pytest
 from pydantic import ValidationError
 from jose import jwt
 
-from aap_identity.contract import IdentityUnavailable
+from aap_identity.contract import FailureReply, IdentityUnavailable
 from aap_identity.session_contract import (
     NATIVE_SESSION_PROTOCOL,
     SESSION_PROTOCOL,
@@ -147,10 +147,25 @@ def test_failure_counts_are_required_only_for_failed_login_and_captcha():
         decode_session_reply(session_request("login"), failure)
     assert error.value.code == "invalid_credentials" and error.value.failed_count == 3
 
+    session_busy = session_failure_reply("account_busy")
+    assert session_busy["error"] == {"code": "account_busy", "failed_count": None}
+    with pytest.raises(SessionFailure) as busy:
+        decode_session_reply(session_request("refresh"), session_busy)
+    assert busy.value.code == "account_busy"
+    with pytest.raises(ValidationError):
+        FailureReply.model_validate(
+            {
+                "schema": "aap-identity/v1",
+                "ok": False,
+                "error": {"code": "account_busy"},
+            }
+        )
+
     for invalid in (
         {"code": "invalid_credentials", "failed_count": None},
         {"code": "captcha_required", "failed_count": True},
         {"code": "credential_busy", "failed_count": 0},
+        {"code": "account_busy", "failed_count": 0},
     ):
         with pytest.raises(ValidationError):
             SessionFailureReply.model_validate(

@@ -49,6 +49,16 @@ class VerifiedCredential:
     key_hash: str | None = field(repr=False)
 
 
+class CredentialDecodeFailure(IdentityFailure):
+    """Credential failure with safe provenance for session error mapping."""
+
+    def __init__(self, reason: str):
+        if reason not in {"invalid_token", "malformed_token"}:
+            raise ValueError("Unsupported credential decode failure")
+        self.reason = reason
+        super().__init__("credential_invalid")
+
+
 class Authenticator:
     def __init__(self, data: IdentityData, secret: str):
         self.data = data
@@ -64,10 +74,15 @@ class Authenticator:
             raise IdentityFailure("credential_invalid")
         if token.startswith("ak_"):
             if for_refresh:
-                raise IdentityFailure("credential_invalid")
+                raise CredentialDecodeFailure("invalid_token")
             return await self._api_key_bound(token)
         try:
-            claims = decode_access_token(token, secret=self.secret, verify_exp=False)
+            claims = decode_access_token(
+                token, secret=self.secret, verify_exp=False, verify_jti=False
+            )
+        except (JWTError, ValueError, TypeError, UnicodeError):
+            raise CredentialDecodeFailure("invalid_token") from None
+        try:
             actor_id = uuid.UUID(claims["sub"])
             jti = uuid.UUID(claims["jti"])
             generation = claims.get("gen", 0)
@@ -82,7 +97,6 @@ class Authenticator:
                 raise ValueError("Invalid claims")
             expires_at = datetime.fromtimestamp(expiration, UTC)
         except (
-            JWTError,
             KeyError,
             ValueError,
             TypeError,
@@ -90,7 +104,7 @@ class Authenticator:
             OSError,
             AttributeError,
         ):
-            raise IdentityFailure("credential_invalid") from None
+            raise CredentialDecodeFailure("malformed_token") from None
         now = datetime.now(UTC)
         if not for_refresh and expires_at <= now:
             raise IdentityFailure("token_expired")
