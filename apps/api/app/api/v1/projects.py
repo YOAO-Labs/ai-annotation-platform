@@ -2267,7 +2267,6 @@ async def trigger_preannotation(
     uses_input_manifest = replay_image_manifest or (
         body.execution_scope == "bulk"
         and project.data_type == "image"
-        and not project.scene_mode
         and execution_unit not in {"frame", "video", "scene"}
         and not has_tracker_stage
         and not has_text_stage

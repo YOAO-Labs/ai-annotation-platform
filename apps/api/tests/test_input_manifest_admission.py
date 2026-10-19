@@ -9,6 +9,7 @@ from sqlalchemy import func, select
 
 from aap_assets_input_manifests import contract as c
 from app.db.models.async_job import AsyncJob
+from app.db.models.dataset import Dataset, DatasetItem, ProjectDataset, Scene
 from app.db.models.task import Task
 from app.db.models.task_lock import TaskLock
 from app.services.accepted_input_manifests import (
@@ -16,6 +17,8 @@ from app.services.accepted_input_manifests import (
     get_input_manifest_capture,
 )
 from tests.test_batch_predict_idempotency import _seed
+from tests.test_assets_catalog_native import _seed_dataset
+from tests.test_assets_images_execution import _seed_image
 from tests.factory import create_batch, create_project, create_task
 
 pytestmark = pytest.mark.asyncio
@@ -224,16 +227,95 @@ async def test_project_all_selection_uses_bulk_eligibility_before_frozen_counts(
     assert dispatch.call_count == 1
 
 
-async def test_scene_image_project_keeps_its_separate_execution_path(
+async def test_scene_mode_image_dataset_task_uses_retained_manifest(
+    httpx_client, db_session, super_admin, dispatch
+):
+    actor, token = super_admin
+    project, backend, _batch, tasks = await _seed(db_session, actor.id)
+    project.scene_mode = True
+    dataset_id = await _seed_dataset(
+        db_session,
+        actor_id=actor.id,
+        name=f"scene-image-{uuid4().hex[:8]}",
+        data_type="image",
+        file_count=1,
+    )
+    dataset = await db_session.get(Dataset, dataset_id)
+    dataset.is_temporal = True
+    db_session.add(ProjectDataset(project_id=project.id, dataset_id=dataset_id))
+    scene = Scene(
+        display_id=f"S-{uuid4().hex[:12]}",
+        dataset_id=dataset_id,
+        name="sequence",
+        created_by=actor.id,
+    )
+    db_session.add(scene)
+    await db_session.flush()
+    item_id = await _seed_image(
+        db_session, actor_id=actor.id, dataset_id=dataset_id, width=16, height=8
+    )
+    item = await db_session.get(DatasetItem, item_id)
+    item.scene_id = scene.id
+    item.frame_index = 7
+    task = tasks[0]
+    task.dataset_item_id = item.id
+    task.file_path = item.file_path
+    task.file_name = item.file_name
+    await db_session.commit()
+    endpoint = f"/api/v1/projects/{project.id}/preannotate"
+    response = await httpx_client.post(
+        endpoint,
+        headers={"Authorization": f"Bearer {token}"},
+        json={
+            "ml_backend_id": str(backend.id),
+            "task_ids": [str(task.id)],
+        },
+    )
+    assert response.status_code == 200, response.text
+    job = await db_session.get(AsyncJob, UUID(response.json()["job_id"]))
+    header = await _record(db_session, job, actor.id)
+    assert header.selected_count == response.json()["total_tasks"] == 1
+    assert header.actor_id == actor.id and header.project_id == project.id
+    assert job.payload["accepted_input_manifest_protocol"] == c.MANIFEST_SCHEMA
+    assert job.payload["accepted_input_manifest_id"] == str(job.id)
+    message = dispatch.call_args.args[0]
+    assert message.execution_scope == "bulk"
+    assert message.task_ids == [str(task.id)]
+    assert message.accepted_input_manifest_protocol == c.MANIFEST_SCHEMA
+    assert message.accepted_input_manifest_id == str(job.id)
+    assert message.accepted_input_manifest_digest == header.selection_digest
+    page = await SqlAlchemyManifestDatabase(db_session, commit=False).call(
+        "read_accepted_image_input_manifest_page",
+        c.ManifestPageRequest(
+            job_id=job.id,
+            actor_id=actor.id,
+            project_id=project.id,
+            selection_digest=header.selection_digest,
+        ),
+    )
+    assert len(page.members) == 1
+    member = page.members[0]
+    assert member.task_id == task.id and member.dataset_item_id == item.id
+    assert member.source is not None
+    assert member.source.owner.kind == "dataset_item"
+    assert member.source.owner.id == item.id
+    assert len(member.source.source_snapshot) == 64
+    assert member.source.source_generation == item.media_source_generation
+    assert member.source.upload_ready is True
+    assert member.source.object_identity is not None
+    assert member.source.object_identity.byte_size == 128
+
+
+async def test_scene_execution_unit_remains_outside_image_manifest_admission(
     httpx_client, db_session, super_admin, dispatch, app_module, monkeypatch
 ):
     actor, token = super_admin
-    project, backend, _batch, _tasks = await _seed(db_session, actor.id)
+    project, backend, _batch, tasks = await _seed(db_session, actor.id)
     project.scene_mode = True
     await db_session.commit()
 
     def forbidden_capture(_db):
-        pytest.fail("ordinary manifest capture cannot admit a Scene execution")
+        pytest.fail("explicit Scene execution must not capture an image manifest")
 
     monkeypatch.setitem(
         app_module.dependency_overrides,
@@ -243,13 +325,29 @@ async def test_scene_image_project_keeps_its_separate_execution_path(
     response = await httpx_client.post(
         f"/api/v1/projects/{project.id}/preannotate",
         headers={"Authorization": f"Bearer {token}"},
-        json={"ml_backend_id": str(backend.id)},
+        json={
+            "task_ids": [str(tasks[0].id)],
+            "pipeline_stages": [
+                {
+                    "stage": 9,
+                    "parent_stage": None,
+                    "ml_backend_id": str(backend.id),
+                    "task": "detect",
+                    "source": {
+                        "kind": "dataset",
+                        "data_type": "image",
+                        "execution_unit": "scene",
+                    },
+                }
+            ],
+        },
     )
     assert response.status_code == 200, response.text
     message = dispatch.call_args.args[0]
     assert message.accepted_input_manifest_protocol is None
     assert message.accepted_input_manifest_id is None
     assert message.accepted_input_manifest_digest is None
+    assert message.execution_unit == "scene"
 
 
 @pytest.mark.parametrize(
