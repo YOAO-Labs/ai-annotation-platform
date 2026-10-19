@@ -252,10 +252,7 @@ function TrainingComparisonContent({ projectId, scope }: { projectId: string; sc
             key={e.selection.runId}
             className="min-w-0 rounded-xl border border-border bg-card p-4"
           >
-            <legend className="px-1 text-xs text-muted-foreground">
-              实验 {index + 1}
-              {state.reference === e.selection.runId ? " · 参照" : ""}
-            </legend>
+            <legend className="px-1 text-xs text-muted-foreground">实验 {index + 1}</legend>
             <div className="flex items-start justify-between gap-2">
               <h2 className="min-w-0 break-words text-sm font-semibold">
                 {e.run?.name ?? e.selection.runId}
@@ -324,20 +321,6 @@ function TrainingComparisonContent({ projectId, scope }: { projectId: string; sc
         </p>
       ) : (
         <>
-          <label className="mb-4 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-            参照实验
-            <select
-              className={`${trainingInputClass} max-w-xs`}
-              value={state.reference}
-              onChange={(event) => update("reference", event.target.value)}
-            >
-              {experiments.map((e) => (
-                <option key={e.selection.runId} value={e.selection.runId}>
-                  {e.run?.name ?? e.selection.runId}
-                </option>
-              ))}
-            </select>
-          </label>
           <TrainingComparisonResults experiments={experiments} state={state} onChange={update} />
         </>
       )}

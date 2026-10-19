@@ -8,6 +8,7 @@ import { batchesApi } from "@/api/batches";
 import { tasksApi } from "@/api/tasks";
 import { asyncJobsApi } from "@/api/asyncJobs";
 import { ProjectLearningPage } from "./ProjectLearningPage";
+import { TrainingDatasetPage } from "../Training/TrainingDatasetPage";
 import { useAuthStore } from "@/stores/authStore";
 import type { MeResponse } from "@/api/auth";
 import { ApiError } from "@/api/client";
@@ -128,6 +129,16 @@ function mount(path = "/projects/project-1/learning?tab=data") {
             }
           />
           <Route path="/projects/:id/learning/new" element={<Location />} />
+          <Route
+            path="/projects/:id/learning/data/:datasetId"
+            element={
+              <>
+                <TrainingDatasetPage />
+                <Location />
+              </>
+            }
+          />
+          <Route path="/projects/:id/learning/experiments/:runId" element={<Location />} />
         </Routes>
       </MemoryRouter>
     </QueryClientProvider>
@@ -801,6 +812,7 @@ describe("project learning data versions", () => {
     await waitFor(() =>
       expect(screen.queryByRole("dialog", { name: "新建数据版本" })).not.toBeInTheDocument(),
     );
+    await user.click(await screen.findByRole("link", { name: "返回数据版本列表" }));
     await user.click(screen.getByRole("button", { name: "准备新版本" }));
     await waitFor(() =>
       expect((screen.getByLabelText("版本名称") as HTMLInputElement).value).toMatch(
@@ -867,28 +879,29 @@ describe("project learning data versions", () => {
     );
     const user = userEvent.setup();
     mount();
-    await user.click(await screen.findByRole("button", { name: "浏览版本 · 2" }));
-    await user.click(await screen.findByRole("button", { name: "查看详情：旧版" }));
+    expect(trainingDatasetsApi.getSummary).not.toHaveBeenCalled();
+    await user.click(await screen.findByRole("link", { name: "查看详情：旧版" }));
     expect(await screen.findByText("冻结详情 旧版")).toBeVisible();
     expect(trainingDatasetsApi.getSummary).toHaveBeenCalledWith(
       "project-1",
       "dataset-older",
       expect.objectContaining({ signal: expect.any(AbortSignal) }),
     );
-    expect(screen.getByText(/tab=data&dataset=dataset-older/)).toBeVisible();
+    expect(screen.getByText(/learning\/data\/dataset-older\?tab=data/)).toBeVisible();
     expect(trainingDatasetsApi.download).not.toHaveBeenCalled();
   });
 
-  it("automatically opens the newest version and respects explicitly closing its details", async () => {
+  it("starts with the table and returns from independent details preserving filters and pagination", async () => {
     vi.mocked(trainingDatasetsApi.list).mockResolvedValue({ items: [version as never], total: 1 });
     const user = userEvent.setup();
-    mount();
+    mount("/projects/project-1/learning?tab=data&data_list_status=ready&data_list_page=1");
+    await user.click(await screen.findByRole("link", { name: "查看详情：第一轮" }));
     expect(await screen.findByText("冻结详情 第一轮")).toBeVisible();
-    expect(screen.getByText(/tab=data&dataset=dataset-1/)).toBeVisible();
     await user.click(screen.getByRole("button", { name: "收起数据详情" }));
-    await user.click(await screen.findByRole("button", { name: "查看最新版本" }));
-    expect(await screen.findByText("冻结详情 第一轮")).toBeVisible();
-    expect(screen.queryByRole("button", { name: "查看最新版本" })).not.toBeInTheDocument();
+    expect(await screen.findByRole("table", { name: "训练数据版本列表" })).toBeVisible();
+    expect(screen.getByRole("combobox", { name: "数据版本状态筛选" })).toHaveValue("ready");
+    expect(screen.getByText(/data_list_status=ready&data_list_page=1/)).toBeVisible();
+    expect(screen.queryByText("冻结详情 第一轮")).not.toBeInTheDocument();
   });
 
   it("does not offer a details shortcut when the task has no versions", async () => {
@@ -896,6 +909,84 @@ describe("project learning data versions", () => {
     expect(await screen.findByText("尚无训练数据版本")).toBeVisible();
     expect(screen.queryByRole("button", { name: "查看最新版本" })).not.toBeInTheDocument();
     expect(trainingDatasetsApi.getSummary).not.toHaveBeenCalled();
+  });
+  it("keeps the models tab accessible when a legacy URL also contains an experiment", async () => {
+    mount("/projects/project-1/learning?tab=models&run=source-run");
+    expect(await screen.findByRole("tab", { name: "模型与发布" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    expect(
+      screen.getByText("/projects/project-1/learning?tab=models&run=source-run"),
+    ).toBeVisible();
+  });
+  it("filters all versions before pagination and preserves the selected state in details links", async () => {
+    vi.mocked(trainingDatasetsApi.list).mockResolvedValue({ items: [version as never], total: 21 });
+    const user = userEvent.setup();
+    mount("/projects/project-1/learning?tab=data&data_list_page=1");
+    await user.type(screen.getByRole("textbox", { name: "搜索数据版本名称" }), "第一轮");
+    await user.selectOptions(screen.getByRole("combobox", { name: "数据版本状态筛选" }), "ready");
+    await waitFor(() =>
+      expect(trainingDatasetsApi.list).toHaveBeenLastCalledWith(
+        "project-1",
+        0,
+        undefined,
+        expect.anything(),
+        { task: "detect", q: "第一轮", status: "ready" },
+      ),
+    );
+    const link = await screen.findByRole("link", { name: "查看详情：第一轮" });
+    expect(link).toHaveAttribute(
+      "href",
+      "/projects/project-1/learning/data/dataset-1?tab=data&data_list_q=%E7%AC%AC%E4%B8%80%E8%BD%AE&data_list_status=ready",
+    );
+    await user.click(screen.getByRole("button", { name: "下一页数据版本" }));
+    await waitFor(() =>
+      expect(trainingDatasetsApi.list).toHaveBeenLastCalledWith(
+        "project-1",
+        20,
+        undefined,
+        expect.anything(),
+        { task: "detect", q: "第一轮", status: "ready" },
+      ),
+    );
+    await user.selectOptions(screen.getByLabelText("数据集任务"), "segment");
+    await waitFor(() =>
+      expect(trainingDatasetsApi.list).toHaveBeenLastCalledWith(
+        "project-1",
+        0,
+        undefined,
+        expect.anything(),
+        { task: "segment", q: "第一轮", status: "ready" },
+      ),
+    );
+    expect(trainingDatasetsApi.getSummary).not.toHaveBeenCalled();
+  });
+  it("retains data rows without a loading placeholder during background refresh", async () => {
+    vi.mocked(trainingDatasetsApi.list).mockResolvedValueOnce({
+      items: [version as never],
+      total: 1,
+    });
+    let resolve!: (value: Awaited<ReturnType<typeof trainingDatasetsApi.list>>) => void;
+    vi.mocked(trainingDatasetsApi.list).mockImplementation(
+      () =>
+        new Promise((yes) => {
+          resolve = yes;
+        }),
+    );
+    mount();
+    const link = await screen.findByRole("link", { name: "查看详情：第一轮" });
+    await act(async () => {
+      void clients[clients.length - 1].refetchQueries({ queryKey: ["training-datasets"] });
+    });
+    await waitFor(() => expect(trainingDatasetsApi.list).toHaveBeenCalledTimes(2));
+    expect(screen.queryByText("正在加载数据版本…")).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "查看详情：第一轮" })).toBe(link);
+    await act(async () =>
+      resolve({ items: [{ ...version, summary: { samples: 16 } } as never], total: 1 }),
+    );
+    expect(await screen.findByText("16")).toBeVisible();
+    expect(screen.getByRole("link", { name: "查看详情：第一轮" })).toBe(link);
   });
 
   it("does not restore a deleted deep-linked version from a stale list response", async () => {
@@ -908,12 +999,12 @@ describe("project learning data versions", () => {
     await waitFor(() =>
       expect(trainingDatasetsApi.remove).toHaveBeenCalledWith("project-1", "dataset-1"),
     );
-    expect(await screen.findByRole("heading", { name: "选择一个冻结版本" })).toBeVisible();
+    expect(await screen.findByRole("table", { name: "训练数据版本列表" })).toBeVisible();
     expect(screen.getByText("/projects/project-1/learning?tab=data")).toBeVisible();
     expect(screen.queryByText("冻结详情 第一轮")).not.toBeInTheDocument();
   });
 
-  it("automatically selects the latest version of the actual project task", async () => {
+  it("lists the actual project task without automatically loading any details", async () => {
     const segment = { ...version, id: "segment-latest", task: "segment", name: "分割最新版本" };
     vi.mocked(useProject).mockReturnValue({
       data: {
@@ -929,11 +1020,9 @@ describe("project learning data versions", () => {
     );
     vi.mocked(trainingDatasetsApi.getSummary).mockResolvedValue(segment as never);
     mount();
-    expect(await screen.findByText("冻结详情 分割最新版本")).toBeVisible();
+    expect(await screen.findByRole("link", { name: "查看详情：分割最新版本" })).toBeVisible();
     expect(screen.getByLabelText("数据集任务")).toHaveValue("segment");
-    expect(
-      vi.mocked(trainingDatasetsApi.getSummary).mock.calls.every((call) => call[1] === segment.id),
-    ).toBe(true);
+    expect(trainingDatasetsApi.getSummary).not.toHaveBeenCalled();
   });
 
   it("downloads through the authorized version endpoint", async () => {
@@ -968,7 +1057,9 @@ describe("project learning data versions", () => {
     mount("/projects/project-1/learning?tab=training");
     await user.click(await screen.findByRole("button", { name: "测试历史执行" }));
     expect(
-      screen.getByText(/tab=training&attempt=historical-attempt&run=source-run/),
+      await screen.findByText(
+        /learning\/experiments\/source-run\?tab=training&attempt=historical-attempt/,
+      ),
     ).toBeInTheDocument();
   });
 });

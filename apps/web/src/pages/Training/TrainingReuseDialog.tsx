@@ -59,7 +59,7 @@ export function TrainingReuseDialog({
                 />
               </>
             ) : (
-              "受控目录基础权重"
+              "预训练基础权重"
             )}
           </p>
           <p>
@@ -73,7 +73,7 @@ export function TrainingReuseDialog({
                 />
               </>
             ) : (
-              "受控目录基础权重"
+              "预训练基础权重"
             )}
           </p>
           {after.initialization && (

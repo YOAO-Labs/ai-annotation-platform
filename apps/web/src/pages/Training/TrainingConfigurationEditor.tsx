@@ -79,7 +79,7 @@ export function TrainingConfigurationEditor({
         未修改的参数使用受控默认值。预热、优化器与增强依赖将在检查时核验，最终生效值会在开始前逐项列出。
       </p>
       <div className="grid min-w-0 gap-5 lg:grid-cols-[160px_minmax(0,1fr)]">
-        <nav aria-label="训练参数分组" className="hidden self-start lg:sticky lg:top-4 lg:block">
+        <nav aria-label="训练参数分组" className="hidden self-start lg:sticky lg:top-20 lg:block">
           {visibleGroups.map(([key, label]) => (
             <button
               type="button"
@@ -91,7 +91,9 @@ export function TrainingConfigurationEditor({
                 const node = groups.current.get(key);
                 if (node) {
                   node.open = true;
-                  node.scrollIntoView({ block: "nearest" });
+                  requestAnimationFrame(() => {
+                    if (node.isConnected) node.scrollIntoView({ block: "start" });
+                  });
                 }
               }}
             >
@@ -113,58 +115,55 @@ export function TrainingConfigurationEditor({
             </p>
           )}
           {visibleGroups.map(([key, label]) => (
-            <details
-              key={key}
-              open={activeGroup === key || !!needle || modifiedOnly}
-              onToggle={(event) => {
-                if (event.currentTarget.open && !needle && !modifiedOnly) setActiveGroup(key);
-              }}
-              ref={(node) => {
-                if (node) groups.current.set(key, node);
-                else groups.current.delete(key);
-              }}
-              className="rounded-lg border border-border bg-card"
-            >
-              <summary className="cursor-pointer px-4 py-3 text-sm font-medium">
-                {label}
-                <span className="ml-2 text-xs font-normal text-muted-foreground">
-                  {matching.filter((field) => field.group === key).length} 项
-                </span>
-              </summary>
-              <div className="border-t border-border px-4 pb-2">
-                <div className="flex justify-end pt-2">
-                  <Button
-                    type="button"
-                    size="xs"
-                    variant="ghost"
-                    disabled={
-                      disabled ||
-                      !editable.some((field) => field.group === key && field.key in fields)
-                    }
-                    onClick={() =>
-                      onReset(
-                        editable.filter((field) => field.group === key).map((field) => field.key),
-                      )
-                    }
-                  >
-                    重置本组
-                  </Button>
+            <div key={key} className="relative">
+              <details
+                open={activeGroup === key || !!needle || modifiedOnly}
+                onToggle={(event) => {
+                  if (event.currentTarget.open && !needle && !modifiedOnly) setActiveGroup(key);
+                }}
+                ref={(node) => {
+                  if (node) groups.current.set(key, node);
+                  else groups.current.delete(key);
+                }}
+                className="scroll-mt-20 rounded-lg border border-border bg-card"
+              >
+                <summary className="cursor-pointer py-3 pl-4 pr-24 text-xs font-medium">
+                  {label}
+                  <span className="ml-2 text-xs font-normal text-muted-foreground">
+                    {matching.filter((field) => field.group === key).length} 项
+                  </span>
+                </summary>
+                <div className="border-t border-border px-4 pb-2">
+                  {matching
+                    .filter((field) => field.group === key)
+                    .map((field) => (
+                      <TrainingParameterField
+                        key={field.key}
+                        field={field}
+                        value={fields[field.key] ?? valueToDraft(field.default)}
+                        changed={field.key in fields}
+                        disabled={disabled}
+                        onChange={(value) => onChange(field.key, value)}
+                        onReset={() => onReset([field.key])}
+                      />
+                    ))}
                 </div>
-                {matching
-                  .filter((field) => field.group === key)
-                  .map((field) => (
-                    <TrainingParameterField
-                      key={field.key}
-                      field={field}
-                      value={fields[field.key] ?? valueToDraft(field.default)}
-                      changed={field.key in fields}
-                      disabled={disabled}
-                      onChange={(value) => onChange(field.key, value)}
-                      onReset={() => onReset([field.key])}
-                    />
-                  ))}
-              </div>
-            </details>
+              </details>
+              <Button
+                type="button"
+                size="xs"
+                variant="ghost"
+                className="absolute right-2 top-2 disabled:pointer-events-auto"
+                disabled={
+                  disabled || !editable.some((field) => field.group === key && field.key in fields)
+                }
+                onClick={() =>
+                  onReset(editable.filter((field) => field.group === key).map((field) => field.key))
+                }
+              >
+                重置本组
+              </Button>
+            </div>
           ))}
         </div>
       </div>

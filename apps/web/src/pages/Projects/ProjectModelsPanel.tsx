@@ -24,6 +24,8 @@ import { Layers, RadioTower } from "lucide-react";
 import { TrainingLoading } from "../Training/TrainingFeedback";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
+import { Button as NavigationButton } from "@/components/shadcn/ui/button";
+import { ProjectLearningSectionHeader } from "./ProjectLearningSectionHeader";
 import { CopyValueButton } from "@/components/ui/CopyValueButton";
 import { ProgressBar } from "@/components/ui/ProgressBar";
 import { useTrainingSessionRevision, useTrainingViewOwner } from "../Training/trainingViewOwner";
@@ -531,28 +533,21 @@ function ModelsContent({
     (release.model_version_id ? `模型 ${release.model_version_id.slice(0, 8)}` : "未启用受控模型");
   return (
     <section aria-labelledby="models-title">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <h2 id="models-title" className="text-sm font-semibold">
-          模型版本与回流
-        </h2>
-        <div className="flex flex-wrap gap-2">
-          <Link
-            to={`/projects/${projectId}/learning/active-learning`}
-            className="rounded-md border border-border px-3 py-2 text-xs font-medium transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          >
-            主动学习人工选样
-          </Link>
-          <Link
-            to={`/projects/${projectId}/learning/evaluations`}
-            className="rounded-md border border-border px-3 py-2 text-xs font-medium transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          >
-            逐样本评估与误差复查
-          </Link>
-        </div>
-      </div>
-      <p className="mt-2 text-xs text-muted-foreground">
-        注册成功训练的权重，确认类别绑定，再加载试用与人工发布。
-      </p>
+      <ProjectLearningSectionHeader
+        id="models-title"
+        title="模型版本与回流"
+        description="注册成功训练的权重，确认类别绑定，再加载试用与人工发布。"
+        actions={
+          <>
+            <NavigationButton asChild variant="outline" size="sm">
+              <Link to={`/projects/${projectId}/learning/active-learning`}>主动学习人工选样</Link>
+            </NavigationButton>
+            <NavigationButton asChild variant="outline" size="sm">
+              <Link to={`/projects/${projectId}/learning/evaluations`}>逐样本评估与误差复查</Link>
+            </NavigationButton>
+          </>
+        }
+      />
       {error && (
         <p
           role="alert"

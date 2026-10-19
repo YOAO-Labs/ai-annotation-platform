@@ -20,6 +20,10 @@ last_reviewed: 2026-10-16
 | GET    | `/{version_id}/download` | 就绪且对象可用时，返回 10 分钟 `url` 和包的 `sha256` |
 | DELETE | `/{version_id}`          | 删除无引用的终态版本，持久安排存储清理，返回 `204`   |
 
+列表可组合 `q`、`status`、`task`、`task_dataset_id`、`created_from` 和 `created_to` 筛选。`q` 最长 120 字符，去除首尾空白后按版本名称做不区分大小写的字面包含匹配，`%`、`_` 与反斜杠没有通配含义；空白查询不筛选名称。`status` 为 `pending|running|ready|failed|cancelled`。
+
+`created_from`、`created_to` 仅接受 `YYYY-MM-DD` 日历日期，按 UTC 日界处理；起止日期均包含整天，可单独传入，起始晚于结束时返回 `422`。所有条件先于 `total` 计数和分页生效，按创建时间、版本 ID 降序稳定排列。`limit` 默认 20、最大 100，`offset` 默认 0。
+
 版本与终态实验的删除均先在同一数据库事务内移除业务记录并保存独立存储清理意图，提交后才删除对象。提交失败时原记录与文件均保留；存储故障不撤销已提交的业务删除，接口仍返回 `204`，现有 `maintain_evaluations` 周期任务重试清理。意图固定原 bucket 与 prefix，不因配置变更或项目删除丢失。`204` 表示业务删除完成，存储清理可能稍后完成；后续读取或删除同一 ID 返回 `404`。既有引用保护继续在存储 I/O 前生效。
 
 ### 项目任务数据集与版本筛选
@@ -205,6 +209,8 @@ last_reviewed: 2026-10-16
 | POST   | `/{run_id}/resume`                                           | 使用当前执行的已发布完整检查点创建下一次执行                              |
 | GET    | `/{run_id}/attempts/{attempt_id}/artifacts/{name}/download`  | 返回 10 分钟下载 URL、SHA-256 和大小                                      |
 | DELETE | `/{run_id}`                                                  | 删除终态实验并持久安排产物清理，返回 `204`                                |
+
+实验列表接受 `limit`（默认 20，最大 100）、`offset`（默认 0）及可组合的 `q`、`status`、`task=detect|segment`、`framework=ultralytics|libreyolo`、`created_from`、`created_to`。`q` 最长 120 字符，去除首尾空白后对实验名称或基础模型 ID 做不区分大小写的字面包含匹配；`%`、`_`、反斜杠没有通配含义。日期采用上述 UTC 日历日期规则，全部条件在 `total` 计数和分页前生效，按创建时间、实验 ID 降序稳定排列。`status` 接受实验的单个精确状态，筛选 `failed` 不包含 `lost`；不支持的状态、任务、框架或日期返回 `422`。未传筛选条件时保留原列表行为。
 
 创建请求包含 `name`、`dataset_id`、`framework`、受控 `base_model`、UUID `request_id` 和 `parameters`。参数范围：`epochs` 1–1000、`batch` 1–64、`imgsz` 128–1280 且为 32 的倍数、`lr0` 大于 0 且不超过 0.1、`seed` 0–2147483647、`patience` 0–1000。原六参数请求继续使用原适配器及精确幂等序列化，不接受任意框架参数。相同请求标识与内容重试返回原实验，防止网络中断后重复启动。
 

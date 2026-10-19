@@ -1233,25 +1233,27 @@ function TrainingCreateContent({
           </div>
         </section>
       )}
-      <nav
-        aria-label="创建步骤"
-        className="mb-5 flex gap-1 rounded-lg border border-border bg-card p-1"
-      >
-        {steps.map((label, index) => (
-          <button
-            type="button"
-            key={label}
-            aria-current={step === index ? "step" : undefined}
-            disabled={(index > 0 && !contextValid) || studyBusy}
-            onClick={() => setStep(index)}
-            className={`flex min-w-0 flex-1 items-center justify-center gap-2 rounded-md px-2 py-2.5 text-xs focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50 ${step === index ? "bg-muted font-medium" : "text-muted-foreground hover:bg-muted"}`}
-          >
-            <span className="hidden sm:inline">{index + 1}.</span>
-            {label}
-            {index === 2 && reviewed && <Check className="size-3" />}
-          </button>
-        ))}
-      </nav>
+      <div className="sticky -top-4 z-popover -mx-4 mb-5 border-b border-border bg-card px-4 py-3">
+        <nav
+          aria-label="创建步骤"
+          className="flex gap-1 rounded-lg border border-border bg-card p-1"
+        >
+          {steps.map((label, index) => (
+            <button
+              type="button"
+              key={label}
+              aria-current={step === index ? "step" : undefined}
+              disabled={(index > 0 && !contextValid) || studyBusy}
+              onClick={() => setStep(index)}
+              className={`flex min-w-0 flex-1 items-center justify-center gap-2 rounded-md px-2 py-2.5 text-xs focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50 ${step === index ? "bg-muted font-medium" : "text-muted-foreground hover:bg-muted"}`}
+            >
+              <span className="hidden sm:inline">{index + 1}.</span>
+              {label}
+              {index === 2 && reviewed && <Check className="size-3" />}
+            </button>
+          ))}
+        </nav>
+      </div>
       {(error ||
         state.storageError ||
         catalog.error ||
@@ -1448,11 +1450,17 @@ function TrainingCreateContent({
                   基础权重
                   <select
                     aria-label="基础权重"
-                    className={`${trainingInputClass} mt-1.5`}
+                    className={cn(
+                      trainingInputClass,
+                      "mt-1.5 [&>option]:text-foreground",
+                      !draft.baseModel && "text-muted-foreground",
+                    )}
                     value={draft.baseModel}
                     onChange={(event) => void chooseModel(event.target.value)}
                   >
-                    <option value="">选择基础权重</option>
+                    <option value="" disabled hidden>
+                      选择基础权重
+                    </option>
                     {draft.baseModel &&
                       (!selectedBase ||
                         (validDataset && (selectedBase.task ?? "detect") !== datasetTask)) && (
@@ -1738,7 +1746,7 @@ function TrainingCreateContent({
         </div>
         <aside
           aria-label="实验摘要"
-          className="min-w-0 rounded-xl border border-border bg-card p-4 xl:sticky xl:top-4"
+          className="min-w-0 rounded-xl border border-border bg-card p-4 xl:sticky xl:top-20"
         >
           <div className="mb-4 flex items-center gap-2">
             <FlaskConical className="size-4 text-muted-foreground" />
@@ -1754,7 +1762,7 @@ function TrainingCreateContent({
                 "初始化",
                 draft.initialization?.kind === "trained_model"
                   ? (initialization.source.data?.pin?.model_name ?? "所选候选模型")
-                  : "受控目录基础权重",
+                  : "预训练基础权重",
               ],
               ["参数覆盖", `${Object.keys(draft.fields).length} 项`],
               ["检查状态", reviewed ? "已通过" : "尚未检查"],

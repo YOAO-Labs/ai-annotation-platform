@@ -43,17 +43,18 @@ const run = {
 function Location() {
   return <p>{useLocation().pathname}</p>;
 }
-function mount(initialAttemptId = "") {
+function mount(initialAttemptId = "", mode: "list" | "detail" = "detail", search = "") {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
   clients.push(client);
   return render(
     <QueryClientProvider client={client}>
-      <MemoryRouter>
+      <MemoryRouter initialEntries={[`/projects/project/learning${search}`]}>
         <ProjectTrainingPanel
           projectId="project"
-          initialRunId={initialAttemptId ? "run" : ""}
+          mode={mode}
+          initialRunId={mode === "detail" ? "run" : ""}
           initialAttemptId={initialAttemptId}
         />
         <Location />
@@ -134,36 +135,84 @@ describe("managed project training", () => {
     expect(screen.queryByRole("region", { name: "所选执行资源与耗时" })).not.toBeInTheDocument();
     expect(trainingRunsApi.cancel).not.toHaveBeenCalled();
   });
-  it("filters only the current experiment page and selects the requested run without a write", async () => {
+  it("filters before pagination and links directly to independent details without loading a monitor", async () => {
     const other = { ...run, id: "other", name: "行人分割实验", task: "segment" };
-    vi.mocked(trainingRunsApi.list).mockResolvedValue({ items: [run, other] as never, total: 2 });
+    vi.mocked(trainingRunsApi.list).mockImplementation(
+      async (_project, _offset, _options, filters) => ({
+        items: (filters?.q ? [other] : [run, other]) as never,
+        total: filters?.q ? 21 : 22,
+      }),
+    );
     vi.mocked(trainingRunsApi.get).mockImplementation(
       async (_project, id) => ({ run: id === "other" ? other : run, attempts: [] }) as never,
     );
     const user = userEvent.setup();
-    mount();
-    await user.click(await screen.findByRole("button", { name: "浏览实验 · 2" }));
-    await user.type(await screen.findByRole("textbox", { name: "搜索本页实验" }), "分割");
-    const list = screen.getByRole("complementary", { name: "实验列表" });
-    expect(within(list).queryByRole("button", { name: "车辆训练" })).not.toBeInTheDocument();
-    await user.click(within(list).getByRole("button", { name: "行人分割实验" }));
-    expect(await screen.findByRole("heading", { name: "行人分割实验" })).toBeVisible();
-    expect(within(list).getByRole("button", { name: "行人分割实验" })).toHaveAttribute(
-      "aria-pressed",
-      "true",
+    mount("", "list", "?run_page=1");
+    await screen.findByRole("link", { name: "车辆训练" });
+    await user.type(screen.getByRole("textbox", { name: "搜索实验名称或基础权重" }), "分割");
+    await user.selectOptions(screen.getByRole("combobox", { name: "实验状态筛选" }), "succeeded");
+    await waitFor(() =>
+      expect(trainingRunsApi.list).toHaveBeenLastCalledWith(
+        "project",
+        0,
+        expect.anything(),
+        expect.objectContaining({ q: "分割", status: "succeeded" }),
+      ),
     );
-    expect(trainingRunsApi.get).toHaveBeenLastCalledWith(
-      "project",
-      "other",
-      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    const list = screen.getByRole("table", { name: "训练实验列表" });
+    await waitFor(() =>
+      expect(within(list).queryByRole("link", { name: "车辆训练" })).not.toBeInTheDocument(),
+    );
+    const link = within(list).getByRole("link", { name: "行人分割实验" });
+    expect(link).toHaveAttribute(
+      "href",
+      "/projects/project/learning/experiments/other?run_q=%E5%88%86%E5%89%B2&run_status=succeeded",
+    );
+    expect(screen.queryByRole("tab", { name: "实验详情" })).not.toBeInTheDocument();
+    expect(trainingRunsApi.get).not.toHaveBeenCalled();
+    expect(trainingRunsApi.events).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: "下一页实验" }));
+    await waitFor(() =>
+      expect(trainingRunsApi.list).toHaveBeenLastCalledWith(
+        "project",
+        20,
+        expect.anything(),
+        expect.objectContaining({ q: "分割", status: "succeeded" }),
+      ),
     );
     expect(trainingRunsApi.create).not.toHaveBeenCalled();
   });
   it("keeps an experiment request in loading feedback without announcing an empty project", async () => {
     vi.mocked(trainingRunsApi.list).mockReturnValue(new Promise(() => {}));
-    mount();
+    mount("", "list");
     expect(await screen.findByText("正在加载训练实验…")).toBeInTheDocument();
     expect(screen.queryByText("创建你的第一个训练实验")).not.toBeInTheDocument();
+  });
+  it("keeps rows and filter focus stable while background polling is pending", async () => {
+    vi.mocked(trainingRunsApi.list).mockResolvedValueOnce({ items: [run as never], total: 1 });
+    let resolve!: (value: Awaited<ReturnType<typeof trainingRunsApi.list>>) => void;
+    vi.mocked(trainingRunsApi.list).mockImplementation(
+      () =>
+        new Promise((yes) => {
+          resolve = yes;
+        }),
+    );
+    mount("", "list");
+    const link = await screen.findByRole("link", { name: "车辆训练" });
+    const input = screen.getByRole("textbox", { name: "搜索实验名称或基础权重" });
+    input.focus();
+    await act(async () => {
+      void clients[clients.length - 1].refetchQueries({ queryKey: ["training-runs"] });
+    });
+    await waitFor(() => expect(trainingRunsApi.list).toHaveBeenCalledTimes(2));
+    expect(screen.queryByText("正在加载训练实验…")).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "车辆训练" })).toBe(link);
+    expect(input).toHaveFocus();
+    await act(async () =>
+      resolve({ items: [{ ...run, metrics: { epoch: 3 } } as never], total: 1 }),
+    );
+    expect(await screen.findByText("3 / 10 轮")).toBeVisible();
+    expect(screen.getByRole("link", { name: "车辆训练" })).toBe(link);
   });
   it("opens the independent project creation page", async () => {
     const user = userEvent.setup();
@@ -204,8 +253,6 @@ describe("managed project training", () => {
     });
     const user = userEvent.setup();
     mount();
-    await screen.findByRole("option", { name: /车辆训练/ });
-    await user.selectOptions(await screen.findByRole("combobox", { name: "选择训练实验" }), "run");
     await user.click(await screen.findByRole("button", { name: "从检查点续训" }));
     await waitFor(() => expect(trainingRunsApi.resume).toHaveBeenCalledWith("project", "run"));
   });

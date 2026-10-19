@@ -111,7 +111,7 @@ export function TrainingInitializationSource({
               )
             }
           >
-            <option value="">受控目录基础权重</option>
+            <option value="">预训练基础权重</option>
             {selectedId && !items.some((item) => item.id === selectedId) && (
               <option value={selectedId} disabled={!qualification.supportsProjectWeights}>
                 {pin?.model_name ?? "所选候选模型"}（保留的选择）
@@ -128,10 +128,13 @@ export function TrainingInitializationSource({
             <CopyValueButton value={selectedId} kind="id" label="复制所选候选模型版本 ID" />
           )}
         </div>
+        <p className="mt-2 leading-relaxed text-muted-foreground">
+          使用上方所选基础模型的预训练权重，也可选择本项目已训练的候选模型。
+        </p>
       </div>
       {!qualification.supportsProjectWeights && (
         <p className="text-muted-foreground">
-          分割的项目模型权重初始化尚未通过资格验证。请选择受控目录权重；中断后可从本实验检查点续训。
+          分割暂不支持从项目候选模型初始化，请使用预训练基础权重；中断后可从本实验检查点续训。
         </p>
       )}
       {choices.hasNextPage && (

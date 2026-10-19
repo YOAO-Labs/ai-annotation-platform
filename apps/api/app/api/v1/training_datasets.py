@@ -26,6 +26,11 @@ from app.schemas.training_dataset import (
 from app.services import training_datasets as service
 from app.services import project_task_dataset as task_datasets
 from app.services import training_storage_cleanup as cleanup
+from app.services.training_list_filters import (
+    ISODate,
+    created_date_bounds,
+    literal_search_pattern,
+)
 from aap_task_contract import VisualTask
 from app.services.project_write_guard import lock_actor_project_authority
 from app.services.project_access import resolve_project_access_by_id
@@ -166,7 +171,15 @@ async def list_versions(
     ),
     task: VisualTask | None = None,
     task_dataset_id: uuid.UUID | None = None,
+    q: str = Query("", max_length=120),
+    created_from: ISODate | None = Query(
+        None, description="创建日期下界，UTC 日期（含）"
+    ),
+    created_to: ISODate | None = Query(
+        None, description="创建日期上界，UTC 日期（含整天）"
+    ),
 ):
+    start, end = created_date_bounds(created_from, created_to)
     if task_dataset_id is not None:
         stream = await db.scalar(
             select(ProjectTaskDataset).where(
@@ -193,6 +206,13 @@ async def list_versions(
     )
     if status is not None:
         stmt = stmt.where(TrainingDatasetVersion.status == status)
+    pattern = literal_search_pattern(q)
+    if pattern is not None:
+        stmt = stmt.where(TrainingDatasetVersion.name.ilike(pattern, escape="\\"))
+    if start is not None:
+        stmt = stmt.where(TrainingDatasetVersion.created_at >= start)
+    if end is not None:
+        stmt = stmt.where(TrainingDatasetVersion.created_at <= end)
     if task is not None:
         # Frozen contract, not membership, is authoritative during rolling deploy.
         stmt = stmt.where(task_datasets.recognized_task_expression() == task)
