@@ -96,6 +96,90 @@ $function$;
 -- aap-statement-break
 REVOKE ALL ON FUNCTION aap_jobs_v1._lock_batch_result_scope(jsonb, boolean, boolean) FROM PUBLIC;
 -- aap-statement-break
+
+CREATE FUNCTION aap_jobs_v1.lock_prediction_retry_finish_scope(p_payload jsonb)
+RETURNS jsonb
+LANGUAGE plpgsql VOLATILE PARALLEL UNSAFE SECURITY DEFINER
+SET search_path = pg_catalog, pg_temp
+SET timezone TO 'UTC'
+AS $function$
+DECLARE
+    v_locked jsonb;
+    v_execution public.batch_result_executions%ROWTYPE;
+    v_member public.batch_result_members%ROWTYPE;
+    v_member_count bigint;
+    v_member_json jsonb := NULL;
+    v_job_id uuid;
+BEGIN
+    IF p_payload IS NULL OR pg_catalog.octet_length(p_payload::text)>2097152
+       OR pg_catalog.jsonb_typeof(p_payload) IS DISTINCT FROM 'object'
+       OR (p_payload - ARRAY['job_id','actor_id','project_id','request_digest','generation','lease_token']) IS DISTINCT FROM '{}'::jsonb
+       OR NOT (p_payload ?& ARRAY['job_id','actor_id','project_id','request_digest','generation','lease_token'])
+       OR NOT aap_jobs_v1._batch_result_scope_valid(p_payload,true) THEN
+        RETURN aap_jobs_v1._batch_result_reply(NULL,'invalid_request');
+    END IF;
+    v_job_id := (p_payload ->> 'job_id')::uuid;
+    v_locked := aap_jobs_v1._lock_batch_result_scope(p_payload,true,true);
+    IF v_locked -> 'ok' IS DISTINCT FROM 'true'::jsonb THEN
+        RETURN v_locked;
+    END IF;
+    SELECT * INTO v_execution FROM public.batch_result_executions
+    WHERE job_id=v_job_id FOR UPDATE NOWAIT;
+    IF NOT FOUND OR NOT v_execution.selection_complete
+       OR v_execution.total NOT IN (0,1) THEN
+        RETURN aap_jobs_v1._batch_result_reply(NULL,'result_conflict');
+    END IF;
+    SELECT count(*)::bigint INTO v_member_count
+    FROM public.batch_result_members AS member
+    WHERE member.job_id=v_job_id;
+    IF v_member_count IS DISTINCT FROM v_execution.total OR v_member_count>1 THEN
+        RETURN aap_jobs_v1._batch_result_reply(NULL,'selection_conflict');
+    END IF;
+    IF v_member_count=0 THEN
+        IF NOT aap_labeling_v1._prediction_retry_member_scope_matches(
+            v_job_id,NULL,'null'::jsonb
+        ) THEN
+            RETURN aap_jobs_v1._batch_result_reply(NULL,'scope_mismatch');
+        END IF;
+    ELSE
+        BEGIN
+            SELECT * INTO v_member FROM public.batch_result_members AS member
+            WHERE member.job_id=v_job_id AND member.ordinal=1 FOR UPDATE NOWAIT;
+        EXCEPTION WHEN lock_not_available OR serialization_failure OR deadlock_detected THEN
+            RETURN aap_jobs_v1._batch_result_reply(NULL,'execution_busy');
+        END;
+        IF NOT FOUND THEN
+            RETURN aap_jobs_v1._batch_result_reply(NULL,'selection_conflict');
+        END IF;
+        IF NOT aap_labeling_v1._prediction_retry_member_scope_matches(
+            v_job_id,v_member.task_id,v_member.write_scope
+        ) THEN
+            RETURN aap_jobs_v1._batch_result_reply(NULL,'scope_mismatch');
+        END IF;
+        v_member_json := pg_catalog.jsonb_build_object(
+            'ordinal',v_member.ordinal,'task_id',v_member.task_id,
+            'write_scope',v_member.write_scope,'state',v_member.state,
+            'result_id',v_member.result_id,'failure_id',v_member.failure_id,
+            'failed_prediction_id',v_member.failed_prediction_id,
+            'error_code',v_member.error_code
+        );
+    END IF;
+    RETURN aap_jobs_v1._batch_result_reply(
+        pg_catalog.jsonb_build_object(
+            'progress',aap_jobs_v1._batch_result_progress(v_job_id),
+            'member',v_member_json,
+            'cancel_requested',v_locked #> '{data,cancel_requested}'
+        ),NULL
+    );
+EXCEPTION WHEN lock_not_available OR serialization_failure OR deadlock_detected THEN
+    RETURN aap_jobs_v1._batch_result_reply(NULL,'execution_busy');
+WHEN OTHERS THEN
+    RETURN aap_jobs_v1._batch_result_reply(NULL,'invalid_response');
+END
+$function$;
+-- aap-statement-break
+REVOKE ALL ON FUNCTION aap_jobs_v1.lock_prediction_retry_finish_scope(jsonb) FROM PUBLIC;
+-- aap-statement-break
 CREATE OR REPLACE FUNCTION aap_jobs_v1._batch_result_scope_matches_member(
     p_scope jsonb,
     p_job_id uuid,

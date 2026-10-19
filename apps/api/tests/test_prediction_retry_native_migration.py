@@ -123,7 +123,8 @@ def test_final_result_and_failure_are_fenced_and_atomic():
     assert "state='succeeded'" in all_sql
     assert "state='failed'" in all_sql
     assert "terminal_digest" in all_sql
-    assert "v_bundle.raw_complete OR v_bundle.prepared_complete" in all_sql
+    assert "v_bundle.state IN ('applied','failed','abandoned')" in all_sql
+    assert "v_bundle.receipt_count>0" in all_sql
     assert "retry_count=v_retry_count,last_retry_at" in all_sql
     assert "failed.extra ->> 'retry_job_id' IS DISTINCT FROM v_job_id::text" in all_sql
     assert "char_length(p_payload ->> 'reason')>200" in all_sql
@@ -143,6 +144,116 @@ def test_generic_terminal_paths_cannot_bypass_retry_proof():
     assert "_prediction_retry_terminal_matches(NEW.job_id,v_state,NULL)" in all_sql
     assert "_abandon_prediction_retry_from_job" in all_sql
     assert "_retire_prediction_retry_results" in all_sql
+
+
+def test_labeling_uses_jobs_owned_finish_scope_and_collision_checks():
+    state = (SQL / "0233_prediction_retry_state.sql").read_text(encoding="utf-8")
+    result_scope = (SQL / "0233_prediction_retry_result_scope.sql").read_text(
+        encoding="utf-8"
+    )
+    finalization = (SQL / "0233_prediction_retry_finalization.sql").read_text(
+        encoding="utf-8"
+    )
+    admit = state.split("CREATE FUNCTION aap_labeling_v1.admit_prediction_retry", 1)[
+        1
+    ].split("REVOKE ALL ON FUNCTION aap_labeling_v1.admit_prediction_retry", 1)[0]
+    write = finalization.split(
+        "CREATE FUNCTION aap_labeling_v1.finish_prediction_retry_write", 1
+    )[1].split(
+        "REVOKE ALL ON FUNCTION aap_labeling_v1.finish_prediction_retry_write", 1
+    )[0]
+    failure = finalization.split(
+        "CREATE FUNCTION aap_labeling_v1.finish_prediction_retry_failure", 1
+    )[1].split(
+        "REVOKE ALL ON FUNCTION aap_labeling_v1.finish_prediction_retry_failure", 1
+    )[0]
+    assert "FROM public.async_jobs" not in admit
+    assert "FROM public.batch_result_executions" not in admit
+    assert "task.id, task.project_id, task.version, task.status" in admit
+    assert "lock_prediction_retry_finish_scope(jsonb)" in result_scope
+    assert "aap_jobs_v1.lock_prediction_retry_finish_scope" in write
+    assert "aap_jobs_v1.lock_prediction_retry_finish_scope" in failure
+    assert "FROM public.batch_result_members" not in write
+    assert "FROM public.batch_result_members" not in failure
+
+
+def test_unbound_legacy_markers_are_reclaimed_without_retry_accounting():
+    state = (SQL / "0233_prediction_retry_state.sql").read_text(encoding="utf-8")
+    assert "UPDATE public.failed_predictions AS failed" in state
+    assert "pg_catalog.jsonb_typeof(failed.extra)='object'" in state
+    assert "failed.extra -> 'retry_pending'='true'::jsonb" in state
+    assert "NOT (failed.extra ? 'retry_job_id')" in state
+    reclaim = state.split("-- Reclaim only the legacy early-ack marker", 1)[1].split(
+        "CREATE FUNCTION aap_labeling_v1._prediction_retry_reply", 1
+    )[0]
+    assert "retry_count=" not in reclaim
+    assert "last_retry_at=" not in reclaim
+
+
+def test_permanent_failure_can_retire_a_captured_uncommitted_result():
+    finalization = (SQL / "0233_prediction_retry_finalization.sql").read_text(
+        encoding="utf-8"
+    )
+    failure = finalization.split(
+        "CREATE FUNCTION aap_labeling_v1.finish_prediction_retry_failure", 1
+    )[1]
+    assert "v_bundle.raw_complete OR v_bundle.prepared_complete" not in failure
+    assert "v_bundle.state IN ('applied','failed','abandoned')" in failure
+    assert "v_bundle.receipt_count>0" in failure
+    assert "p_payload -> 'abandon'" in failure
+    assert "'status','cancelled'" in failure
+    assert "IF v_gpu IS NOT NULL AND v_gpu<>'null'::jsonb THEN" in failure
+    assert "'gpu_arbiter_error',v_gpu" in failure
+
+
+def test_admission_preserves_only_bounded_legacy_output_mode_string():
+    state = (SQL / "0233_prediction_retry_state.sql").read_text(encoding="utf-8")
+    admit = state.split("CREATE FUNCTION aap_labeling_v1.admit_prediction_retry", 1)[
+        1
+    ].split("REVOKE ALL ON FUNCTION aap_labeling_v1.admit_prediction_retry", 1)[0]
+    assert "v_source_extra #- '{request_context,output}'" in admit
+    assert (
+        "pg_catalog.jsonb_typeof(v_source_extra #> '{request_context,output}') IS DISTINCT FROM 'string'"
+        in admit
+    )
+    assert (
+        "pg_catalog.octet_length(v_source_extra #>> '{request_context,output}')>8192"
+        in admit
+    )
+
+
+def test_native_request_defaults_match_closed_schema_defaults():
+    state = (SQL / "0233_prediction_retry_state.sql").read_text(encoding="utf-8")
+    finalization = (SQL / "0233_prediction_retry_finalization.sql").read_text(
+        encoding="utf-8"
+    )
+    admit = state.split("CREATE FUNCTION aap_labeling_v1.admit_prediction_retry", 1)[
+        1
+    ].split("REVOKE ALL ON FUNCTION aap_labeling_v1.admit_prediction_retry", 1)[0]
+    claim = state.split(
+        "CREATE FUNCTION aap_jobs_v1.claim_prediction_retry_deliveries", 1
+    )[1].split(
+        "REVOKE ALL ON FUNCTION aap_jobs_v1.claim_prediction_retry_deliveries", 1
+    )[0]
+    failure = finalization.split(
+        "CREATE FUNCTION aap_labeling_v1.finish_prediction_retry_failure", 1
+    )[1].split(
+        "REVOKE ALL ON FUNCTION aap_labeling_v1.finish_prediction_retry_failure", 1
+    )[0]
+    assert "NOT (p_payload ? 'legacy_delivery')" in admit
+    assert "'legacy_delivery',false" in admit
+    assert (
+        "jsonb_typeof(p_payload -> 'legacy_delivery') IS DISTINCT FROM 'boolean'"
+        in admit
+    )
+    assert "NOT (p_payload ? 'job_id')" in claim
+    assert "NOT (p_payload ? 'limit')" in claim
+    assert "'limit',100" in claim
+    assert "NOT (p_payload ? 'lease_seconds')" in claim
+    assert "'lease_seconds',30" in claim
+    assert "NOT (p_payload ? 'abandon')" in failure
+    assert "'abandon',false" in failure
+    assert "jsonb_typeof(p_payload -> 'abandon') IS DISTINCT FROM 'boolean'" in failure
 
 
 def test_all_new_native_functions_revoke_public_and_downgrade_restores_0231():

@@ -229,13 +229,15 @@ DECLARE
     v_status text;
     v_result_id uuid;
     v_failed_id uuid;
+    v_task_id uuid;
+    v_write_scope jsonb;
     v_error text;
     v_context jsonb;
     v_outcome jsonb;
     v_stages jsonb;
     v_gpu jsonb;
     v_cost numeric := 0;
-    v_terminal_state text;
+    v_required_terminal_state text;
     v_existing_members bigint;
     v_skipped_ids jsonb := '[]'::jsonb;
     v_result jsonb;
@@ -244,21 +246,29 @@ BEGIN
        OR pg_catalog.jsonb_typeof(p_payload) IS DISTINCT FROM 'object'
        OR (p_payload - ARRAY[
             'job_id','actor_id','project_id','request_digest','generation','lease_token',
-            'status','result_id','failed_prediction_id','error_code','context','outcome'
+            'status','result_id','failed_prediction_id','task_id','write_scope',
+            'terminal_state','error_code','context','outcome'
        ]) IS DISTINCT FROM '{}'::jsonb
        OR NOT (p_payload ?& ARRAY[
             'job_id','actor_id','project_id','request_digest','generation','lease_token',
-            'status','result_id','failed_prediction_id','error_code','context','outcome'
+            'status','result_id','failed_prediction_id','task_id','write_scope',
+            'terminal_state','error_code','context','outcome'
        ])
        OR NOT aap_jobs_v1._batch_result_scope_valid(p_payload - ARRAY[
-            'status','result_id','failed_prediction_id','error_code','context','outcome'
+            'status','result_id','failed_prediction_id','task_id','write_scope',
+            'terminal_state','error_code','context','outcome'
        ],true)
        OR pg_catalog.jsonb_typeof(p_payload -> 'status') IS DISTINCT FROM 'string'
-       OR p_payload ->> 'status' NOT IN ('completed','failed')
+       OR p_payload ->> 'status' NOT IN ('completed','failed','cancelled')
        OR pg_catalog.jsonb_typeof(p_payload -> 'result_id') NOT IN ('string','null')
        OR (p_payload -> 'result_id'<>'null'::jsonb AND p_payload ->> 'result_id' !~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')
        OR pg_catalog.jsonb_typeof(p_payload -> 'failed_prediction_id') NOT IN ('string','null')
        OR (p_payload -> 'failed_prediction_id'<>'null'::jsonb AND p_payload ->> 'failed_prediction_id' !~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')
+       OR pg_catalog.jsonb_typeof(p_payload -> 'task_id') NOT IN ('string','null')
+       OR (p_payload -> 'task_id'<>'null'::jsonb AND p_payload ->> 'task_id' !~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')
+       OR pg_catalog.jsonb_typeof(p_payload -> 'write_scope') NOT IN ('object','null')
+       OR pg_catalog.jsonb_typeof(p_payload -> 'terminal_state') IS DISTINCT FROM 'string'
+       OR p_payload ->> 'terminal_state' NOT IN ('succeeded','failed','abandoned')
        OR pg_catalog.jsonb_typeof(p_payload -> 'error_code') NOT IN ('string','null')
        OR pg_catalog.jsonb_typeof(p_payload -> 'context') IS DISTINCT FROM 'object'
        OR pg_catalog.jsonb_typeof(p_payload -> 'outcome') IS DISTINCT FROM 'object'
@@ -270,13 +280,24 @@ BEGIN
     v_status := p_payload ->> 'status';
     v_result_id := CASE WHEN p_payload -> 'result_id'='null'::jsonb THEN NULL ELSE (p_payload ->> 'result_id')::uuid END;
     v_failed_id := CASE WHEN p_payload -> 'failed_prediction_id'='null'::jsonb THEN NULL ELSE (p_payload ->> 'failed_prediction_id')::uuid END;
+    v_task_id := CASE WHEN p_payload -> 'task_id'='null'::jsonb THEN NULL ELSE (p_payload ->> 'task_id')::uuid END;
+    v_write_scope := p_payload -> 'write_scope';
     v_error := CASE WHEN p_payload -> 'error_code'='null'::jsonb THEN NULL ELSE p_payload ->> 'error_code' END;
+    v_required_terminal_state := p_payload ->> 'terminal_state';
     v_context := p_payload -> 'context';
     v_outcome := p_payload -> 'outcome';
-    IF (v_status='completed' AND (v_result_id IS NULL OR v_failed_id IS NULL OR v_error IS NOT NULL
+    IF (v_status='completed' AND (v_result_id IS NULL OR v_failed_id IS NULL OR v_task_id IS NULL
+                                  OR v_write_scope IS NULL OR v_write_scope='null'::jsonb
+                                  OR v_error IS NOT NULL OR v_required_terminal_state<>'succeeded'
                                   OR v_outcome ->> 'status' IS DISTINCT FROM 'succeeded'))
        OR (v_status='failed' AND (v_result_id IS NOT NULL OR v_failed_id IS NULL OR v_error IS NULL
-                                  OR v_outcome ->> 'status' IS DISTINCT FROM 'failed')) THEN
+                                  OR v_required_terminal_state<>'failed'
+                                  OR v_outcome ->> 'status' IS DISTINCT FROM 'failed'))
+       OR (v_status='cancelled' AND (v_result_id IS NOT NULL OR v_failed_id IS NULL OR v_error IS NULL
+                                     OR v_required_terminal_state<>'abandoned'
+                                     OR v_outcome ->> 'status' IS DISTINCT FROM 'cancelled'))
+       OR (v_write_scope IS DISTINCT FROM 'null'::jsonb
+           AND v_write_scope ->> 'operation' IS DISTINCT FROM 'prediction_retry') THEN
         RETURN aap_jobs_v1._prediction_retry_reply(NULL,'invalid_request');
     END IF;
     BEGIN
@@ -313,8 +334,7 @@ BEGIN
        OR v_execution.state NOT IN ('preparing','running') THEN
         RETURN aap_jobs_v1._prediction_retry_reply(NULL,'lease_lost');
     END IF;
-    v_terminal_state := CASE WHEN v_status='completed' THEN 'succeeded' ELSE 'failed' END;
-    IF NOT aap_labeling_v1._prediction_retry_terminal_matches(v_job_id,v_terminal_state,v_outcome) THEN
+    IF NOT aap_labeling_v1._prediction_retry_terminal_matches(v_job_id,v_required_terminal_state,v_outcome) THEN
         RETURN aap_jobs_v1._prediction_retry_reply(NULL,'result_conflict');
     END IF;
     IF v_context ? 'pipeline_stages' THEN
@@ -337,6 +357,12 @@ BEGIN
     SELECT * INTO v_member FROM public.batch_result_members
     WHERE job_id=v_job_id AND ordinal=1 FOR UPDATE;
     IF FOUND THEN
+        IF v_member.task_id IS DISTINCT FROM v_task_id
+           OR NOT aap_labeling_v1._prediction_retry_member_scope_matches(
+                v_job_id,v_member.task_id,v_member.write_scope
+           ) THEN
+            RETURN aap_jobs_v1._prediction_retry_reply(NULL,'scope_mismatch');
+        END IF;
         IF v_status='completed' THEN
             IF v_member.state IS DISTINCT FROM 'ready'
                OR v_member.result_id IS DISTINCT FROM v_result_id THEN
@@ -346,12 +372,16 @@ BEGIN
             RETURN aap_jobs_v1._prediction_retry_reply(NULL,'result_conflict');
         END IF;
         UPDATE public.batch_result_members
-        SET state=CASE WHEN v_status='completed' THEN 'applied' ELSE 'failed' END,
+        SET state=CASE WHEN v_status='completed' THEN 'applied'
+                       WHEN v_status='failed' THEN 'failed' ELSE 'skipped' END,
             failed_prediction_id=CASE WHEN v_status='failed' THEN v_failed_id ELSE NULL END,
-            error_code=CASE WHEN v_status='failed' THEN v_error ELSE NULL END,
+            error_code=CASE WHEN v_status IN ('failed','cancelled') THEN v_error ELSE NULL END,
             updated_at=pg_catalog.clock_timestamp()
         WHERE job_id=v_job_id AND ordinal=1;
-    ELSIF v_status='completed' THEN
+    ELSIF v_write_scope='null'::jsonb
+       AND NOT aap_labeling_v1._prediction_retry_member_scope_matches(v_job_id,v_task_id,'null'::jsonb) THEN
+        RETURN aap_jobs_v1._prediction_retry_reply(NULL,'scope_mismatch');
+    ELSIF v_status='completed' OR v_write_scope IS DISTINCT FROM 'null'::jsonb THEN
         RETURN aap_jobs_v1._prediction_retry_reply(NULL,'result_not_ready');
     END IF;
     SELECT count(*)::bigint INTO v_existing_members FROM public.batch_result_members WHERE job_id=v_job_id;
@@ -367,11 +397,12 @@ BEGIN
         next_ordinal=CASE WHEN v_existing_members=1 THEN 2 ELSE next_ordinal END,
         success_count=success_count+CASE WHEN v_status='completed' THEN 1 ELSE 0 END,
         failed_count=failed_count+CASE WHEN v_status='failed' THEN 1 ELSE 0 END,
+        skipped_count=skipped_count+CASE WHEN v_status='cancelled' THEN 1 ELSE 0 END,
         total_cost=(total_cost::numeric+v_cost)::text,
         pipeline_stages=aap_jobs_v1._batch_result_merge_stage_counts(pipeline_stages,v_stages),
         gpu_arbiter_failures=aap_jobs_v1._batch_result_merge_gpu_failures(gpu_arbiter_failures,v_gpu),
         worker_id=NULL,lease_token=NULL,lease_expires_at=NULL,
-        error_code=CASE WHEN v_status='failed' THEN v_error ELSE NULL END,
+        error_code=CASE WHEN v_status IN ('failed','cancelled') THEN v_error ELSE NULL END,
         result_extra='{}'::jsonb,updated_at=pg_catalog.clock_timestamp()
     WHERE job_id=v_job_id RETURNING * INTO v_execution;
     v_result := COALESCE(v_job.result,'{}'::jsonb) || pg_catalog.jsonb_build_object(
@@ -390,7 +421,7 @@ BEGIN
     ) || v_outcome;
     UPDATE public.async_jobs
     SET status=v_status,result=v_result,
-        error_message=CASE WHEN v_status='failed' THEN v_outcome ->> 'reason' ELSE error_message END,
+        error_message=CASE WHEN v_status IN ('failed','cancelled') THEN v_outcome ->> 'reason' ELSE error_message END,
         progress_pct=100,completed_at=pg_catalog.clock_timestamp(),updated_at=pg_catalog.clock_timestamp()
     WHERE id=v_job_id;
     RETURN aap_jobs_v1._prediction_retry_reply(
@@ -423,7 +454,7 @@ AS $function$
 DECLARE
     v_attempt public.prediction_retry_attempts%ROWTYPE;
     v_failed public.failed_predictions%ROWTYPE;
-    v_member public.batch_result_members%ROWTYPE;
+    v_member jsonb;
     v_bundle public.batch_result_bundles%ROWTYPE;
     v_prepared public.batch_result_payloads%ROWTYPE;
     v_raw public.batch_result_payloads%ROWTYPE;
@@ -497,20 +528,20 @@ BEGIN
        ),false) THEN
         RETURN aap_labeling_v1._prediction_retry_reply(NULL,'lease_lost');
     END IF;
-    v_locked := aap_jobs_v1._lock_batch_result_scope(
+    v_locked := aap_jobs_v1.lock_prediction_retry_finish_scope(
         v_scope || pg_catalog.jsonb_build_object(
             'generation',(p_payload ->> 'generation')::bigint,'lease_token',p_payload ->> 'lease_token'
-        ),true,true
+        )
     );
     IF v_locked -> 'ok' IS DISTINCT FROM 'true'::jsonb THEN
         RETURN aap_labeling_v1._prediction_retry_reply(NULL,aap_labeling_v1._prediction_retry_error_code(COALESCE(v_locked #>> '{error,code}','lease_lost')));
     END IF;
-    SELECT * INTO v_member FROM public.batch_result_members
-    WHERE job_id=v_job_id AND ordinal=1 FOR UPDATE NOWAIT;
-    IF NOT FOUND OR v_member.task_id IS DISTINCT FROM v_attempt.task_id
-       OR v_member.write_scope IS DISTINCT FROM v_attempt.write_scope
-       OR v_member.state IS DISTINCT FROM 'ready'
-       OR v_member.result_id IS DISTINCT FROM v_result_id THEN
+    v_member := v_locked #> '{data,member}';
+    IF v_member IS NULL OR v_member='null'::jsonb
+       OR v_member ->> 'task_id' IS DISTINCT FROM v_attempt.task_id::text
+       OR v_member -> 'write_scope' IS DISTINCT FROM v_attempt.write_scope
+       OR v_member ->> 'state' IS DISTINCT FROM 'ready'
+       OR v_member ->> 'result_id' IS DISTINCT FROM v_result_id::text THEN
         RETURN aap_labeling_v1._prediction_retry_reply(NULL,'result_not_ready');
     END IF;
     SELECT * INTO v_bundle FROM public.batch_result_bundles
@@ -616,7 +647,8 @@ BEGIN
         v_scope || pg_catalog.jsonb_build_object(
             'generation',(p_payload ->> 'generation')::bigint,'lease_token',p_payload ->> 'lease_token',
             'status','completed','result_id',v_result_id,'failed_prediction_id',v_attempt.failed_prediction_id,
-            'error_code',NULL,'context',v_bundle.context,'outcome',v_outcome
+            'task_id',v_attempt.task_id,'write_scope',v_attempt.write_scope,
+            'terminal_state','succeeded','error_code',NULL,'context',v_bundle.context,'outcome',v_outcome
         )
     );
     IF v_jobs -> 'ok' IS DISTINCT FROM 'true'::jsonb THEN
@@ -653,7 +685,7 @@ AS $function$
 DECLARE
     v_attempt public.prediction_retry_attempts%ROWTYPE;
     v_failed public.failed_predictions%ROWTYPE;
-    v_member public.batch_result_members%ROWTYPE;
+    v_member jsonb;
     v_bundle public.batch_result_bundles%ROWTYPE;
     v_scope jsonb;
     v_locked jsonb;
@@ -669,19 +701,23 @@ DECLARE
     v_retry_count integer;
     v_extra jsonb;
     v_has_bundle boolean := false;
+    v_abandon boolean;
 BEGIN
+    IF pg_catalog.jsonb_typeof(p_payload)='object' AND NOT (p_payload ? 'abandon') THEN
+        p_payload := p_payload || pg_catalog.jsonb_build_object('abandon',false);
+    END IF;
     IF p_payload IS NULL OR pg_catalog.octet_length(p_payload::text)>2097152
        OR pg_catalog.jsonb_typeof(p_payload) IS DISTINCT FROM 'object'
        OR (p_payload - ARRAY[
             'job_id','actor_id','project_id','request_digest','generation','lease_token',
-            'error_code','reason','gpu_arbiter_error','context'
+            'error_code','reason','gpu_arbiter_error','context','abandon'
        ]) IS DISTINCT FROM '{}'::jsonb
        OR NOT (p_payload ?& ARRAY[
             'job_id','actor_id','project_id','request_digest','generation','lease_token',
-            'error_code','reason','gpu_arbiter_error','context'
+            'error_code','reason','gpu_arbiter_error','context','abandon'
        ])
        OR NOT aap_labeling_v1._batch_result_scope_valid(p_payload - ARRAY[
-            'error_code','reason','gpu_arbiter_error','context'
+            'error_code','reason','gpu_arbiter_error','context','abandon'
        ],true)
        OR pg_catalog.jsonb_typeof(p_payload -> 'error_code') IS DISTINCT FROM 'string'
        OR pg_catalog.octet_length(p_payload ->> 'error_code') NOT BETWEEN 1 AND 256
@@ -689,19 +725,22 @@ BEGIN
        OR pg_catalog.char_length(p_payload ->> 'reason')>200
        OR pg_catalog.jsonb_typeof(p_payload -> 'gpu_arbiter_error') NOT IN ('object','null')
        OR pg_catalog.jsonb_typeof(p_payload -> 'context') IS DISTINCT FROM 'object'
+       OR pg_catalog.jsonb_typeof(p_payload -> 'abandon') IS DISTINCT FROM 'boolean'
        OR NOT aap_labeling_v1._prediction_retry_no_raw_data(p_payload -> 'gpu_arbiter_error')
        OR NOT aap_labeling_v1._prediction_retry_no_raw_data(p_payload -> 'context') THEN
         RETURN aap_labeling_v1._prediction_retry_reply(NULL,'invalid_request');
     END IF;
-    v_scope := p_payload - ARRAY['error_code','reason','gpu_arbiter_error','context','generation','lease_token'];
+    v_scope := p_payload - ARRAY['error_code','reason','gpu_arbiter_error','context','abandon','generation','lease_token'];
     v_job_id := (p_payload ->> 'job_id')::uuid;
     v_error := p_payload ->> 'error_code';
     v_reason := p_payload ->> 'reason';
     v_gpu := p_payload -> 'gpu_arbiter_error';
     v_context := p_payload -> 'context';
+    v_abandon := (p_payload ->> 'abandon')::boolean;
     v_terminal_digest := pg_catalog.encode(pg_catalog.sha256(pg_catalog.convert_to(
-        pg_catalog.jsonb_build_object('kind','failed','scope',v_scope,'error_code',v_error,
-            'reason',v_reason,'gpu_arbiter_error',v_gpu,'context',v_context)::text,'UTF8'
+        pg_catalog.jsonb_build_object('kind',CASE WHEN v_abandon THEN 'abandoned' ELSE 'failed' END,
+            'scope',v_scope,'error_code',v_error,'reason',v_reason,
+            'gpu_arbiter_error',v_gpu,'context',v_context)::text,'UTF8'
     )),'hex');
     SELECT * INTO v_attempt FROM public.prediction_retry_attempts
     WHERE job_id=v_job_id FOR UPDATE;
@@ -711,7 +750,7 @@ BEGIN
        OR v_attempt.request_digest IS DISTINCT FROM v_scope ->> 'request_digest' THEN
         RETURN aap_labeling_v1._prediction_retry_reply(NULL,'scope_mismatch');
     END IF;
-    IF v_attempt.state='failed' THEN
+    IF v_attempt.state IN ('failed','abandoned') THEN
         IF v_attempt.terminal_digest IS DISTINCT FROM v_terminal_digest THEN
             RETURN aap_labeling_v1._prediction_retry_reply(NULL,'result_conflict');
         END IF;
@@ -731,32 +770,72 @@ BEGIN
        ),false) THEN
         RETURN aap_labeling_v1._prediction_retry_reply(NULL,'lease_lost');
     END IF;
-    v_locked := aap_jobs_v1._lock_batch_result_scope(
+    v_locked := aap_jobs_v1.lock_prediction_retry_finish_scope(
         v_scope || pg_catalog.jsonb_build_object(
             'generation',(p_payload ->> 'generation')::bigint,'lease_token',p_payload ->> 'lease_token'
-        ),true,true
+        )
     );
     IF v_locked -> 'ok' IS DISTINCT FROM 'true'::jsonb THEN
         RETURN aap_labeling_v1._prediction_retry_reply(NULL,aap_labeling_v1._prediction_retry_error_code(COALESCE(v_locked #>> '{error,code}','lease_lost')));
     END IF;
-    SELECT * INTO v_member FROM public.batch_result_members
-    WHERE job_id=v_job_id AND ordinal=1 FOR UPDATE NOWAIT;
-    IF FOUND THEN
-        IF v_member.task_id IS DISTINCT FROM v_attempt.task_id
-           OR v_member.write_scope IS DISTINCT FROM v_attempt.write_scope
-           OR v_member.state IN ('applied','failed','skipped') THEN
+    v_member := v_locked #> '{data,member}';
+    IF v_member IS NOT NULL AND v_member<>'null'::jsonb THEN
+        IF v_member ->> 'task_id' IS DISTINCT FROM v_attempt.task_id::text
+           OR v_member -> 'write_scope' IS DISTINCT FROM v_attempt.write_scope
+           OR v_member ->> 'state' IN ('applied','failed','skipped') THEN
             RETURN aap_labeling_v1._prediction_retry_reply(NULL,'result_conflict');
         END IF;
         SELECT * INTO v_bundle FROM public.batch_result_bundles
         WHERE job_id=v_job_id AND ordinal=1 FOR UPDATE NOWAIT;
         IF FOUND THEN
             v_has_bundle := true;
-            IF v_bundle.raw_complete OR v_bundle.prepared_complete OR v_bundle.state='ready' THEN
-                RETURN aap_labeling_v1._prediction_retry_reply(NULL,'result_not_ready');
+            IF v_bundle.state IN ('applied','failed','abandoned') OR v_bundle.receipt_count>0 THEN
+                RETURN aap_labeling_v1._prediction_retry_reply(NULL,'result_conflict');
             END IF;
         END IF;
-    ELSIF v_attempt.task_id IS NOT NULL AND v_attempt.write_scope IS NOT NULL THEN
+    ELSIF v_attempt.write_scope IS NOT NULL THEN
         RETURN aap_labeling_v1._prediction_retry_reply(NULL,'result_conflict');
+    END IF;
+    IF v_abandon THEN
+        BEGIN
+            SELECT * INTO v_failed FROM public.failed_predictions AS failed
+            WHERE failed.id=v_attempt.failed_prediction_id FOR UPDATE NOWAIT;
+        EXCEPTION WHEN lock_not_available OR serialization_failure OR deadlock_detected THEN
+            RETURN aap_labeling_v1._prediction_retry_reply(NULL,'execution_busy');
+        END;
+        IF FOUND THEN
+            UPDATE public.failed_predictions AS failed
+            SET extra=failed.extra - ARRAY['retry_pending','retry_job_id']
+            WHERE failed.id=v_attempt.failed_prediction_id
+              AND failed.extra ->> 'retry_job_id'=v_job_id::text
+              AND failed.extra -> 'retry_pending'='true'::jsonb;
+        END IF;
+        v_outcome := pg_catalog.jsonb_build_object(
+            'status','cancelled','failed_id',v_attempt.failed_prediction_id,
+            'reason',v_reason,'error_code',v_error,
+            'retry_count',v_attempt.retry_count_at_admission
+        );
+        IF v_gpu IS NOT NULL AND v_gpu<>'null'::jsonb THEN
+            v_outcome := v_outcome || pg_catalog.jsonb_build_object('gpu_arbiter_error',v_gpu);
+        END IF;
+        UPDATE public.prediction_retry_attempts
+        SET state='abandoned',outcome=v_outcome,terminal_digest=v_terminal_digest,
+            updated_at=pg_catalog.clock_timestamp()
+        WHERE job_id=v_job_id RETURNING * INTO v_attempt;
+        v_jobs := aap_jobs_v1._finish_prediction_retry_job(
+            v_scope || pg_catalog.jsonb_build_object(
+                'generation',(p_payload ->> 'generation')::bigint,'lease_token',p_payload ->> 'lease_token',
+                'status','cancelled','result_id',NULL,'failed_prediction_id',v_attempt.failed_prediction_id,
+                'task_id',v_attempt.task_id,'write_scope',v_attempt.write_scope,
+                'terminal_state','abandoned','error_code',v_error,'context',v_context,'outcome',v_outcome
+            )
+        );
+        IF v_jobs -> 'ok' IS DISTINCT FROM 'true'::jsonb THEN
+            RAISE EXCEPTION USING ERRCODE='P0001',MESSAGE=COALESCE(v_jobs #>> '{error,code}','invalid_response');
+        END IF;
+        RETURN aap_labeling_v1._prediction_retry_reply(
+            pg_catalog.jsonb_build_object('outcome',v_outcome,'progress',v_jobs #> '{data,progress}'),NULL
+        );
     END IF;
     BEGIN
         SELECT * INTO v_failed FROM public.failed_predictions AS failed
@@ -790,8 +869,11 @@ BEGIN
     v_outcome := pg_catalog.jsonb_build_object(
         'status','failed','failed_id',v_attempt.failed_prediction_id,
         'reason',v_reason,'error_code',v_error,
-        'gpu_arbiter_error',v_gpu,'retry_count',v_retry_count
+        'retry_count',v_retry_count
     );
+    IF v_gpu IS NOT NULL AND v_gpu<>'null'::jsonb THEN
+        v_outcome := v_outcome || pg_catalog.jsonb_build_object('gpu_arbiter_error',v_gpu);
+    END IF;
     UPDATE public.prediction_retry_attempts
     SET state='failed',outcome=v_outcome,terminal_digest=v_terminal_digest,
         updated_at=pg_catalog.clock_timestamp()
@@ -816,6 +898,8 @@ BEGIN
         v_scope || pg_catalog.jsonb_build_object(
             'generation',(p_payload ->> 'generation')::bigint,'lease_token',p_payload ->> 'lease_token',
             'status','failed','result_id',NULL,'failed_prediction_id',v_attempt.failed_prediction_id,
+            'task_id',v_attempt.task_id,'write_scope',v_attempt.write_scope,
+            'terminal_state','failed',
             'error_code',v_error,'context',v_context,'outcome',v_outcome
         )
     );

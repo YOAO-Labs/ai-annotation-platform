@@ -59,6 +59,23 @@ CREATE INDEX ix_prediction_retry_deliveries_due
 REVOKE ALL ON public.prediction_retry_attempts, public.prediction_retry_deliveries FROM PUBLIC;
 -- aap-statement-break
 
+-- Reclaim only the legacy early-ack marker whose owner cannot be identified.
+-- New attempts/outbox rows are empty at this point; do not charge retry_count.
+DO $block$
+BEGIN
+    IF EXISTS (SELECT 1 FROM public.prediction_retry_attempts)
+       OR EXISTS (SELECT 1 FROM public.prediction_retry_deliveries) THEN
+        RAISE EXCEPTION 'Cannot reclaim legacy retry markers after a native attempt exists';
+    END IF;
+    UPDATE public.failed_predictions AS failed
+    SET extra=failed.extra - 'retry_pending'
+    WHERE pg_catalog.jsonb_typeof(failed.extra)='object'
+      AND failed.extra -> 'retry_pending'='true'::jsonb
+      AND NOT (failed.extra ? 'retry_job_id');
+END
+$block$;
+-- aap-statement-break
+
 CREATE FUNCTION aap_labeling_v1._prediction_retry_reply(p_data jsonb, p_code text)
 RETURNS jsonb
 LANGUAGE plpgsql IMMUTABLE PARALLEL SAFE
@@ -325,6 +342,10 @@ BEGIN
     SELECT * INTO v_attempt
     FROM public.prediction_retry_attempts
     WHERE job_id=p_job_id;
+    IF FOUND AND p_scope='null'::jsonb THEN
+        RETURN v_attempt.write_scope IS NULL
+           AND (p_task_id IS NULL OR v_attempt.task_id IS NOT DISTINCT FROM p_task_id);
+    END IF;
     RETURN FOUND
        AND v_attempt.task_id IS NOT DISTINCT FROM p_task_id
        AND v_attempt.write_scope IS NOT DISTINCT FROM p_scope
@@ -513,7 +534,6 @@ DECLARE
     v_queue text;
     v_scope jsonb;
     v_source_extra jsonb;
-    v_attempt_scope jsonb;
 BEGIN
     IF pg_catalog.jsonb_typeof(p_payload) IS DISTINCT FROM 'object'
        OR (p_payload - ARRAY['job_id','failed_prediction_id','actor_id','project_id','task_id','request_digest','execution_queue','write_scope']) IS DISTINCT FROM '{}'::jsonb
@@ -544,24 +564,16 @@ BEGIN
     v_digest := p_payload ->> 'request_digest';
     v_queue := CASE WHEN p_payload -> 'execution_queue'='null'::jsonb THEN NULL ELSE p_payload ->> 'execution_queue' END;
     v_scope := p_payload -> 'write_scope';
-    IF (v_task IS NULL AND v_scope IS DISTINCT FROM 'null'::jsonb)
-       OR (v_task IS NOT NULL AND (v_scope IS DISTINCT FROM pg_catalog.jsonb_build_object(
-            'task_id',v_task,'project_id',v_project,'actor_id',v_actor,'actor_known',true,
-            'operation','prediction_retry','execution_scope',NULL,'execution_scope_known',true,
-            'task_version',v_scope -> 'task_version','task_status',v_scope -> 'task_status',
-            'assignee_id',v_scope -> 'assignee_id','review_round_id',v_scope -> 'review_round_id',
-            'source_annotation_id',NULL,'source_annotation_version',NULL,
-            'expected_batch_id',v_scope -> 'expected_batch_id','expected_batch_id_known',true,
-            'job_id',v_job,'job_id_known',true,'source_binding_known',true,
-            'task_source_generation',v_scope -> 'task_source_generation',
-            'source_dataset_item_id',v_scope -> 'source_dataset_item_id',
-            'source_file_path',v_scope -> 'source_file_path','source_file_type',v_scope -> 'source_file_type',
-            'accepted_input_id',v_scope -> 'accepted_input_id'
-       )) OR v_scope ->> 'operation' IS DISTINCT FROM 'prediction_retry') THEN
-        RETURN aap_jobs_v1._prediction_retry_reply(NULL,'scope_mismatch');
-    END IF;
-    IF v_task IS NOT NULL AND NOT aap_labeling_v1._prediction_retry_member_scope_matches(v_job,v_task,v_scope) THEN
-        RETURN aap_jobs_v1._prediction_retry_reply(NULL,'scope_mismatch');
+    IF v_task IS NULL THEN
+        IF v_scope IS DISTINCT FROM 'null'::jsonb THEN
+            RETURN aap_jobs_v1._prediction_retry_reply(NULL,'scope_mismatch');
+        END IF;
+    ELSE
+        IF pg_catalog.jsonb_typeof(v_scope) IS DISTINCT FROM 'object'
+           OR v_scope ->> 'operation' IS DISTINCT FROM 'prediction_retry'
+           OR NOT aap_labeling_v1._prediction_retry_member_scope_matches(v_job,v_task,v_scope) THEN
+            RETURN aap_jobs_v1._prediction_retry_reply(NULL,'scope_mismatch');
+        END IF;
     END IF;
     IF NOT aap_labeling_v1._prediction_retry_attempt_scope_valid(
         pg_catalog.jsonb_build_object('job_id',v_job,'actor_id',v_actor,'project_id',v_project,'request_digest',v_digest),false
@@ -626,7 +638,7 @@ DECLARE
     v_legacy boolean;
     v_existing public.prediction_retry_attempts%ROWTYPE;
     v_failed public.failed_predictions%ROWTYPE;
-    v_task public.tasks%ROWTYPE;
+    v_task record;
     v_task_exists boolean := false;
     v_project uuid;
     v_manager jsonb;
@@ -638,6 +650,9 @@ DECLARE
     v_jobs jsonb;
     v_accepted_input_id uuid;
 BEGIN
+    IF pg_catalog.jsonb_typeof(p_payload)='object' AND NOT (p_payload ? 'legacy_delivery') THEN
+        p_payload := p_payload || pg_catalog.jsonb_build_object('legacy_delivery',false);
+    END IF;
     IF p_payload IS NULL OR pg_catalog.octet_length(p_payload::text)>2097152
        OR pg_catalog.jsonb_typeof(p_payload) IS DISTINCT FROM 'object'
        OR (p_payload - ARRAY['job_id','failed_prediction_id','actor_id','execution_queue','legacy_delivery']) IS DISTINCT FROM '{}'::jsonb
@@ -706,7 +721,13 @@ BEGIN
     v_source_extra := CASE WHEN pg_catalog.jsonb_typeof(v_failed.extra)='object'
         THEN v_failed.extra ELSE '{}'::jsonb END;
     IF pg_catalog.octet_length(v_source_extra::text)>2000000
-       OR NOT aap_labeling_v1._prediction_retry_no_raw_data(v_source_extra) THEN
+       OR NOT aap_labeling_v1._prediction_retry_no_raw_data(
+            v_source_extra #- '{request_context,output}'
+       )
+       OR (v_source_extra #> '{request_context,output}' IS NOT NULL
+           AND v_source_extra #> '{request_context,output}'<>'null'::jsonb
+           AND (pg_catalog.jsonb_typeof(v_source_extra #> '{request_context,output}') IS DISTINCT FROM 'string'
+                OR pg_catalog.octet_length(v_source_extra #>> '{request_context,output}')>8192)) THEN
         RETURN aap_labeling_v1._prediction_retry_reply(NULL,'invalid_response');
     END IF;
     IF v_source_extra ? 'retry_pending' AND pg_catalog.jsonb_typeof(v_source_extra -> 'retry_pending') IS DISTINCT FROM 'boolean' THEN
@@ -737,7 +758,11 @@ BEGIN
     v_scope := NULL;
     IF v_failed.task_id IS NOT NULL THEN
         BEGIN
-            SELECT * INTO v_task FROM public.tasks AS task
+            SELECT task.id, task.project_id, task.version, task.status,
+                   task.assignee_id, task.review_round_id, task.batch_id,
+                   task.media_source_generation, task.dataset_item_id,
+                   task.file_path, task.file_type
+            INTO v_task FROM public.tasks AS task
             WHERE task.id=v_failed.task_id FOR SHARE NOWAIT;
         EXCEPTION WHEN lock_not_available OR serialization_failure OR deadlock_detected THEN
             RETURN aap_labeling_v1._prediction_retry_reply(NULL,'execution_busy');
@@ -769,10 +794,6 @@ BEGIN
                 'accepted_input_id',v_accepted_input_id
             );
         END IF;
-    END IF;
-    IF EXISTS (SELECT 1 FROM public.async_jobs WHERE id=v_job)
-       OR EXISTS (SELECT 1 FROM public.batch_result_executions WHERE job_id=v_job) THEN
-        RETURN aap_labeling_v1._prediction_retry_reply(NULL,'result_conflict');
     END IF;
     v_digest := pg_catalog.encode(pg_catalog.sha256(pg_catalog.convert_to(
         pg_catalog.jsonb_build_object(
@@ -880,6 +901,17 @@ DECLARE
     v_item public.prediction_retry_deliveries%ROWTYPE;
     v_items jsonb := '[]'::jsonb;
 BEGIN
+    IF pg_catalog.jsonb_typeof(p_payload)='object' THEN
+        IF NOT (p_payload ? 'job_id') THEN
+            p_payload := p_payload || pg_catalog.jsonb_build_object('job_id',NULL);
+        END IF;
+        IF NOT (p_payload ? 'limit') THEN
+            p_payload := p_payload || pg_catalog.jsonb_build_object('limit',100);
+        END IF;
+        IF NOT (p_payload ? 'lease_seconds') THEN
+            p_payload := p_payload || pg_catalog.jsonb_build_object('lease_seconds',30);
+        END IF;
+    END IF;
     IF p_payload IS NULL OR pg_catalog.octet_length(p_payload::text)>2097152
        OR pg_catalog.jsonb_typeof(p_payload) IS DISTINCT FROM 'object'
        OR (p_payload - ARRAY['worker_id','job_id','limit','lease_seconds']) IS DISTINCT FROM '{}'::jsonb
