@@ -2382,3 +2382,21 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   containers remain. No primary Identity cutover, signer/configuration change or
   worker refresh is made. This tranche completes a core-session sub-boundary;
   complete Identity, the other module matrix and the seven-gate goal remain active.
+
+### Identity login challenge consumer
+
+- Web login renders CAPTCHA only after the existing HTTP 400
+  `detail: "captcha_required"` response. The failure-count header is display
+  metadata, not a second threshold implementation. A rejected attempt after a
+  challenge clears the single-use proof and replaces the widget; success clears
+  the local challenge. Pending form submits cannot duplicate the request.
+- The focused LoginPage suite passes 23 tests. In an owned e2e runtime, the real
+  Vite page, query hook and HTTP decoder also handle a count of 99 without a
+  challenge, a challenge at count 2, stale-proof rejection and a new proof on the
+  next attempt. Login HTTP responses and Turnstile are local fixtures; this
+  qualifies the UI consumer, not Cloudflare or another backend deployment. No
+  Cloudflare script loads and no uncaught browser error occurs. The browser and
+  owned mode resources are removed after verification.
+- This resolves the preceding threshold5 consumer limitation. Identity account
+  reads/commands and lifecycle extraction remain active; no primary runtime,
+  signing policy, production, Go, push or release change is made.

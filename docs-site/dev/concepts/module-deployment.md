@@ -283,4 +283,4 @@ API key 的列表、创建、更新、轮换和撤销也由同一个独立 Ident
 
 会话回执冻结数据库签发的声明，重启、丢响应和备份恢复后可重放，始终重新认证，不重复修改代次、在线状态或审计。当前账号角色可与历史声明分别返回；历史 token 不保证当前仍有效。刷新保留原 JWT 和七天宽限，账号更新 409 与凭据竞争 503、畸形声明及 Bearer challenge 的既有区别已回归。Node 和 Python 核对相同的 Unicode 指纹、精确 64 位代次与冻结签名测试向量，提供跨语言消费及原语／序列化证据；它们尚非另一语言提供方替换或生产容量证明。协议见 [ADR-0117](/dev/adr/0117-independent-identity-session-commands)。
 
-这些是可独立运行的准入、API key 和核心会话子边界。注册、密码／邮件、其他账号命令、资料水合和多 owner 生命周期仍在 API，剩余签发端共享 codec 与 secret。主体读取不等于所有业务写入已与撤权串行化；只有显式使用当前凭据围栏的事务获得该保证。新 issuer 受控切换会要求旧 JWT 重新登录，API key 状态保留；日常环境仍未切换。Web 验证码提示还保留阈值 5 的耦合，变更阈值需继续迁移消费者合同。完整 Identity 与全模块目标保持未完成，见 [ADR-0115](/dev/adr/0115-identity-admission-and-durable-revocation)。
+这些是可独立运行的准入、API key 和核心会话子边界。注册、密码／邮件、其他账号命令、资料水合和多 owner 生命周期仍在 API，剩余签发端共享 codec 与 secret。主体读取不等于所有业务写入已与撤权串行化；只有显式使用当前凭据围栏的事务获得该保证。新 issuer 受控切换会要求旧 JWT 重新登录，API key 状态保留；日常环境仍未切换。Web 登录验证由服务端 `captcha_required` 挑战驱动，失败次数仅作提示，已用证明在失败后丢弃。完整 Identity 与全模块目标保持未完成，见 [ADR-0115](/dev/adr/0115-identity-admission-and-durable-revocation)。
