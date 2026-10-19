@@ -545,7 +545,7 @@ async def test_selector_overlapping_opposite_decision_is_rejected(
     assert overlapping.json()["detail"]["reason"] == "candidate_decision_conflict"
 
 
-async def test_legacy_single_source_mapping_survives_primary_slice_removal(
+async def test_captured_single_source_mapping_survives_primary_slice_removal(
     httpx_client, super_admin, db_session
 ):
     user, token = super_admin
@@ -579,7 +579,7 @@ async def test_legacy_single_source_mapping_survives_primary_slice_removal(
         to_frame=2,
         prompt={"expected_source_versions": {str(source.id): 1}},
         staged_result={
-            # Legacy staged payloads do not carry source_instance_id.
+            # Candidate rows need no source_instance_id; the captured map remains stable.
             "results": [
                 {**_candidate(1), "instance_id": "source", "primary": True},
                 {**_candidate(2), "instance_id": "new", "primary": False},
@@ -591,7 +591,7 @@ async def test_legacy_single_source_mapping_survives_primary_slice_removal(
     )
     db_session.add(job)
     await db_session.flush()
-    seed_staged_tracker_input(job, task)
+    seed_staged_tracker_input(job, task, {"source": source.id})
     await db_session.commit()
 
     accepted = await httpx_client.post(

@@ -221,10 +221,30 @@ BEGIN
         RETURN aap_labeling_v1._video_tracker_input_reply(NULL,'invalid_response');
     END IF;
     IF p_lock THEN
-        SELECT job.* INTO v_job FROM public.video_tracker_jobs AS job
+        SELECT job.id, job.task_id, job.dataset_item_id, job.annotation_id, job.segment_id,
+            job.target_class_name, job.target_tool_unit_id, job.created_by, job.status, job.job_kind,
+            job.track_id_snapshot, job.correction_frame, job.model_key, job.direction, job.from_frame,
+            job.to_frame, job.prompt, job.staged_result, job.revision, job.cancel_requested_at,
+            job.started_at, job.created_at, job.completed_at
+        INTO v_job.id, v_job.task_id, v_job.dataset_item_id, v_job.annotation_id, v_job.segment_id,
+            v_job.target_class_name, v_job.target_tool_unit_id, v_job.created_by, v_job.status, v_job.job_kind,
+            v_job.track_id_snapshot, v_job.correction_frame, v_job.model_key, v_job.direction, v_job.from_frame,
+            v_job.to_frame, v_job.prompt, v_job.staged_result, v_job.revision, v_job.cancel_requested_at,
+            v_job.started_at, v_job.created_at, v_job.completed_at
+        FROM public.video_tracker_jobs AS job
         WHERE job.id=p_tracker_job_id FOR UPDATE NOWAIT;
     ELSE
-        SELECT job.* INTO v_job FROM public.video_tracker_jobs AS job
+        SELECT job.id, job.task_id, job.dataset_item_id, job.annotation_id, job.segment_id,
+            job.target_class_name, job.target_tool_unit_id, job.created_by, job.status, job.job_kind,
+            job.track_id_snapshot, job.correction_frame, job.model_key, job.direction, job.from_frame,
+            job.to_frame, job.prompt, job.staged_result, job.revision, job.cancel_requested_at,
+            job.started_at, job.created_at, job.completed_at
+        INTO v_job.id, v_job.task_id, v_job.dataset_item_id, v_job.annotation_id, v_job.segment_id,
+            v_job.target_class_name, v_job.target_tool_unit_id, v_job.created_by, v_job.status, v_job.job_kind,
+            v_job.track_id_snapshot, v_job.correction_frame, v_job.model_key, v_job.direction, v_job.from_frame,
+            v_job.to_frame, v_job.prompt, v_job.staged_result, v_job.revision, v_job.cancel_requested_at,
+            v_job.started_at, v_job.created_at, v_job.completed_at
+        FROM public.video_tracker_jobs AS job
         WHERE job.id=p_tracker_job_id FOR SHARE NOWAIT;
     END IF;
     IF NOT FOUND THEN RETURN aap_labeling_v1._video_tracker_input_reply(NULL,'input_missing'); END IF;
@@ -246,7 +266,7 @@ BEGIN
     END IF;
     IF v_job.task_id IS DISTINCT FROM v_task_id
        OR v_job.task_id<>v_scope.task_id
-       OR v_job.created_by IS DISTINCT FROM v_scope.origin_actor_id
+       OR (v_job.created_by IS NOT NULL AND v_job.created_by IS DISTINCT FROM v_scope.origin_actor_id)
        OR v_job.dataset_item_id IS DISTINCT FROM
             (v_scope.scope #>> '{task,dataset_item_id}')::uuid
        OR NOT aap_labeling_v1._video_tracker_request_matches(v_scope.scope,v_job) THEN
@@ -254,13 +274,14 @@ BEGIN
     END IF;
     IF p_require_active AND (
         v_job.status NOT IN ('queued','running') OR v_job.cancel_requested_at IS NOT NULL
+        OR v_job.created_by IS DISTINCT FROM v_scope.origin_actor_id
     ) THEN
         RETURN aap_labeling_v1._video_tracker_input_reply(NULL,'job_not_active');
     END IF;
     IF p_allow_review AND NOT (
         v_job.status IN ('pending_review','partially_reviewed')
         OR (v_job.status='cancelled' AND v_job.staged_result IS NOT NULL
-            AND v_job.created_at + interval '24 hours' > pg_catalog.clock_timestamp())
+            AND COALESCE(v_job.completed_at,v_job.created_at) + interval '24 hours' > pg_catalog.clock_timestamp())
     ) THEN
         RETURN aap_labeling_v1._video_tracker_input_reply(NULL,'job_not_active');
     END IF;
@@ -378,7 +399,17 @@ BEGIN
        OR v_reply #>> '{data,binding,task_id}' IS DISTINCT FROM v_preflight_task_id::text THEN
         RETURN aap_labeling_v1._video_tracker_input_reply(NULL,'invalid_response');
     END IF;
-    SELECT job.* INTO v_job FROM public.video_tracker_jobs AS job
+    SELECT job.id, job.task_id, job.dataset_item_id, job.annotation_id, job.segment_id,
+        job.target_class_name, job.target_tool_unit_id, job.created_by, job.status, job.job_kind,
+        job.track_id_snapshot, job.correction_frame, job.model_key, job.direction, job.from_frame,
+        job.to_frame, job.prompt, job.staged_result, job.revision, job.cancel_requested_at,
+        job.started_at, job.created_at, job.completed_at
+    INTO v_job.id, v_job.task_id, v_job.dataset_item_id, v_job.annotation_id, v_job.segment_id,
+        v_job.target_class_name, v_job.target_tool_unit_id, v_job.created_by, v_job.status, v_job.job_kind,
+        v_job.track_id_snapshot, v_job.correction_frame, v_job.model_key, v_job.direction, v_job.from_frame,
+        v_job.to_frame, v_job.prompt, v_job.staged_result, v_job.revision, v_job.cancel_requested_at,
+        v_job.started_at, v_job.created_at, v_job.completed_at
+    FROM public.video_tracker_jobs AS job
     WHERE job.id=p_tracker_job_id FOR UPDATE NOWAIT;
     IF NOT FOUND THEN RETURN aap_labeling_v1._video_tracker_input_reply(NULL,'input_missing'); END IF;
     IF v_job.task_id IS DISTINCT FROM v_preflight_task_id THEN
@@ -540,7 +571,7 @@ BEGIN
             'frame_index',v_job.correction_frame,'mask',v_mask,'mask_digest',v_mask_digest
         );
     END IF;
-    v_prompt := v_job.prompt - ARRAY['expected_source_versions','touched_annotation_ids'];
+    v_prompt := v_job.prompt - ARRAY['expected_source_versions','touched_annotation_ids','review_state'];
     IF pg_catalog.jsonb_typeof(v_prompt #> '{correction,routing}')='object' THEN
         v_prompt := pg_catalog.jsonb_set(v_prompt,'{correction,routing}',
             (v_prompt #> '{correction,routing}')-'execution_backend_id',true);
@@ -1220,7 +1251,7 @@ CREATE FUNCTION aap_labeling_v1._video_tracker_request_matches(
 RETURNS boolean LANGUAGE plpgsql IMMUTABLE PARALLEL SAFE
 SET search_path = pg_catalog, pg_temp AS $function$
 DECLARE
-    v_prompt jsonb := (p_job).prompt - ARRAY['expected_source_versions','touched_annotation_ids'];
+    v_prompt jsonb := (p_job).prompt - ARRAY['expected_source_versions','touched_annotation_ids','review_state'];
     v_execution jsonb := p_scope -> 'execution';
 BEGIN
     IF pg_catalog.jsonb_typeof(v_execution) IS DISTINCT FROM 'object'
@@ -1267,7 +1298,8 @@ DECLARE
     v_expected_count integer;
     v_source jsonb;
     v_annotation record;
-    v_entry record;
+    v_entry jsonb;
+    v_output record;
     v_expected_version integer;
     v_count integer := 0;
 BEGIN
@@ -1282,9 +1314,37 @@ BEGIN
         END IF;
         SELECT pg_catalog.count(*) INTO v_expected_count
         FROM pg_catalog.jsonb_object_keys(v_expected);
-        IF v_expected_count<>pg_catalog.jsonb_array_length(v_source) THEN
+        IF v_expected_count<pg_catalog.jsonb_array_length(v_source) THEN
             RETURN 'source_changed';
         END IF;
+        -- Partial review also versions discovered output tracks. Only outputs
+        -- already pinned to this exact input may extend the mutable version map.
+        FOR v_output IN SELECT entry.key,entry.value FROM pg_catalog.jsonb_each(v_expected) AS entry
+            WHERE NOT EXISTS (
+                SELECT 1 FROM pg_catalog.jsonb_array_elements(v_source) AS source(value)
+                WHERE source.value->>'annotation_id'=entry.key
+            )
+        LOOP
+            IF v_output.key !~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+               OR pg_catalog.jsonb_typeof(v_output.value) IS DISTINCT FROM 'number'
+               OR v_output.value::text !~ '^[1-9][0-9]*$'
+               OR v_output.value::numeric>2147483647 THEN RETURN 'source_changed'; END IF;
+            SELECT annotation.id,annotation.task_id,annotation.version,
+                annotation.is_active,annotation.was_cancelled
+            INTO v_annotation FROM public.annotations AS annotation
+            WHERE annotation.id=v_output.key::uuid FOR SHARE NOWAIT;
+            IF NOT FOUND OR v_annotation.task_id<>(p_job).task_id
+               OR v_annotation.version::numeric<>v_output.value::numeric
+               OR NOT v_annotation.is_active OR v_annotation.was_cancelled
+               OR NOT EXISTS (
+                   SELECT 1 FROM public.annotation_video_tracker_input_sources AS pin
+                   WHERE pin.annotation_id=v_annotation.id AND pin.tracker_job_id=(p_job).id
+                     AND pin.input_id=(SELECT scope.input_id
+                         FROM public.video_tracker_input_scopes AS scope
+                         WHERE scope.tracker_job_id=(p_job).id
+                           AND scope.request_digest=p_scope->>'request_digest')
+               ) THEN RETURN 'source_changed'; END IF;
+        END LOOP;
     END IF;
     FOR v_entry IN SELECT value FROM pg_catalog.jsonb_array_elements(v_source) LOOP
         v_count := v_count+1;
@@ -1335,6 +1395,53 @@ $function$;
 REVOKE ALL ON FUNCTION aap_labeling_v1._video_tracker_source_annotations_current(jsonb,public.video_tracker_jobs,boolean) FROM PUBLIC;
 -- aap-statement-break
 
+-- The caller has already locked current project access in this transaction.
+-- Keep the older media-access envelope unchanged for its frozen consumers.
+CREATE FUNCTION aap_workspace_v1.read_media_video_collaboration_policy(p_project_id uuid)
+RETURNS jsonb LANGUAGE plpgsql VOLATILE PARALLEL UNSAFE SECURITY DEFINER
+SET search_path = pg_catalog, pg_temp AS $function$
+DECLARE
+    v_config jsonb;
+    v_enabled jsonb;
+    v_overlap jsonb;
+BEGIN
+    SELECT project.video_collaboration INTO v_config FROM public.projects AS project
+    WHERE project.id=p_project_id FOR SHARE NOWAIT;
+    IF NOT FOUND THEN
+        RETURN pg_catalog.jsonb_build_object(
+            'schema','aap-workspace-video-collaboration-policy/v1','ok',false,
+            'error',pg_catalog.jsonb_build_object('code','project_missing'));
+    END IF;
+    IF v_config IS NULL OR v_config='null'::jsonb THEN v_config := '{}'::jsonb; END IF;
+    v_enabled := COALESCE(v_config->'enabled','false'::jsonb);
+    v_overlap := COALESCE(v_config->'overlap_frames','0'::jsonb);
+    IF pg_catalog.jsonb_typeof(v_config) IS DISTINCT FROM 'object'
+       OR pg_catalog.jsonb_typeof(v_enabled) IS DISTINCT FROM 'boolean'
+       OR pg_catalog.jsonb_typeof(v_overlap) IS DISTINCT FROM 'number'
+       OR v_overlap::text !~ '^(0|[1-9][0-9]*)$'
+       OR (v_enabled='true'::jsonb AND v_overlap::numeric<1) THEN
+        RETURN pg_catalog.jsonb_build_object(
+            'schema','aap-workspace-video-collaboration-policy/v1','ok',false,
+            'error',pg_catalog.jsonb_build_object('code','invalid_response'));
+    END IF;
+    RETURN pg_catalog.jsonb_build_object(
+        'schema','aap-workspace-video-collaboration-policy/v1','ok',true,
+        'data',pg_catalog.jsonb_build_object(
+            'project_id',p_project_id,'enabled',v_enabled,'overlap_frames',v_overlap));
+EXCEPTION WHEN lock_not_available OR serialization_failure OR deadlock_detected THEN
+    RETURN pg_catalog.jsonb_build_object(
+        'schema','aap-workspace-video-collaboration-policy/v1','ok',false,
+        'error',pg_catalog.jsonb_build_object('code','task_busy'));
+WHEN OTHERS THEN
+    RETURN pg_catalog.jsonb_build_object(
+        'schema','aap-workspace-video-collaboration-policy/v1','ok',false,
+        'error',pg_catalog.jsonb_build_object('code','invalid_response'));
+END;
+$function$;
+-- aap-statement-break
+REVOKE ALL ON FUNCTION aap_workspace_v1.read_media_video_collaboration_policy(uuid) FROM PUBLIC;
+-- aap-statement-break
+
 CREATE FUNCTION aap_labeling_v1.lock_video_tracker_input_for_stage(
     p_actor_id uuid,p_tracker_job_id uuid,p_task_id uuid,p_input_id uuid,
     p_request_digest text,p_plan_digest text
@@ -1354,6 +1461,12 @@ DECLARE
     v_evidence jsonb;
     v_privileged boolean;
     v_collaboration boolean;
+    v_policy jsonb;
+    v_overlap numeric;
+    v_segment_count bigint;
+    v_work_start bigint;
+    v_work_end bigint;
+    v_frame_count bigint;
 BEGIN
     v_reply := aap_labeling_v1.project_video_tracker_input(
         p_actor_id,p_tracker_job_id,p_task_id,p_input_id,p_request_digest,false,false,true
@@ -1368,7 +1481,17 @@ BEGIN
     END IF;
     v_data := v_reply -> 'data';
     v_scope := v_data -> 'scope';
-    SELECT job.* INTO v_job FROM public.video_tracker_jobs AS job
+    SELECT job.id, job.task_id, job.dataset_item_id, job.annotation_id, job.segment_id,
+        job.target_class_name, job.target_tool_unit_id, job.created_by, job.status, job.job_kind,
+        job.track_id_snapshot, job.correction_frame, job.model_key, job.direction, job.from_frame,
+        job.to_frame, job.prompt, job.staged_result, job.revision, job.cancel_requested_at,
+        job.started_at, job.created_at, job.completed_at
+    INTO v_job.id, v_job.task_id, v_job.dataset_item_id, v_job.annotation_id, v_job.segment_id,
+        v_job.target_class_name, v_job.target_tool_unit_id, v_job.created_by, v_job.status, v_job.job_kind,
+        v_job.track_id_snapshot, v_job.correction_frame, v_job.model_key, v_job.direction, v_job.from_frame,
+        v_job.to_frame, v_job.prompt, v_job.staged_result, v_job.revision, v_job.cancel_requested_at,
+        v_job.started_at, v_job.created_at, v_job.completed_at
+    FROM public.video_tracker_jobs AS job
     WHERE job.id=p_tracker_job_id FOR UPDATE NOWAIT;
     IF NOT FOUND OR v_job.created_by IS DISTINCT FROM p_actor_id
        OR NOT (
@@ -1404,13 +1527,61 @@ BEGIN
     v_privileged := v_access_data->'is_manager'='true'::jsonb
         OR v_access_data->'is_super_admin'='true'::jsonb;
     v_collaboration := v_access_data->'video_collaboration_enabled'='true'::jsonb;
+    v_material := aap_assets_v1._lock_video_tracker_input_plan(
+        p_actor_id,p_tracker_job_id,p_task_id,p_input_id,p_request_digest,p_plan_digest,false
+    );
+    IF v_material IS NULL OR v_material->>'schema' IS DISTINCT FROM 'aap-assets-video-tracker-inputs/v1'
+       OR v_material->'ok' IS DISTINCT FROM 'true'::jsonb THEN
+        RETURN aap_labeling_v1._video_tracker_input_reply(
+            NULL,COALESCE(v_material #>> '{error,code}','invalid_response'));
+    END IF;
     IF v_job.segment_id IS NOT NULL THEN
-        SELECT segment.dataset_item_id,segment.start_frame,segment.end_frame,
+        SELECT segment.dataset_item_id,segment.start_frame,segment.end_frame,segment.segment_index,
             segment.assignee_id,segment.locked_by,segment.lock_expires_at
         INTO v_segment FROM public.video_segments AS segment
         WHERE segment.id=v_job.segment_id FOR UPDATE NOWAIT;
-        IF NOT FOUND OR v_segment.dataset_item_id<>(v_scope #>> '{source_facts,dataset_item_id}')::uuid
-           OR v_job.from_frame<v_segment.start_frame OR v_job.to_frame>v_segment.end_frame THEN
+        IF NOT FOUND OR v_segment.dataset_item_id<>(v_scope #>> '{source_facts,dataset_item_id}')::uuid THEN
+            RETURN aap_labeling_v1._video_tracker_input_reply(NULL,'task_scope_changed');
+        END IF;
+        v_policy := aap_workspace_v1.read_media_video_collaboration_policy(
+            (v_scope #>> '{task,project_id}')::uuid);
+        IF v_policy IS NULL
+           OR v_policy->>'schema' IS DISTINCT FROM 'aap-workspace-video-collaboration-policy/v1'
+           OR pg_catalog.jsonb_typeof(v_policy->'ok') IS DISTINCT FROM 'boolean' THEN
+            RETURN aap_labeling_v1._video_tracker_input_reply(NULL,'invalid_response');
+        END IF;
+        IF v_policy->'ok' IS DISTINCT FROM 'true'::jsonb THEN
+            RETURN aap_labeling_v1._video_tracker_input_reply(NULL,
+                CASE WHEN v_policy #>> '{error,code}'='task_busy' THEN 'task_busy' ELSE 'invalid_response' END);
+        END IF;
+        v_policy := v_policy->'data';
+        IF pg_catalog.jsonb_typeof(v_policy) IS DISTINCT FROM 'object'
+           OR v_policy-ARRAY['project_id','enabled','overlap_frames']::text[]<>'{}'::jsonb
+           OR v_policy->>'project_id' IS DISTINCT FROM v_scope #>> '{task,project_id}'
+           OR v_policy->'enabled' IS DISTINCT FROM pg_catalog.to_jsonb(v_collaboration)
+           OR pg_catalog.jsonb_typeof(v_policy->'overlap_frames') IS DISTINCT FROM 'number'
+           OR v_policy->>'overlap_frames' !~ '^(0|[1-9][0-9]*)$' THEN
+            RETURN aap_labeling_v1._video_tracker_input_reply(NULL,'invalid_response');
+        END IF;
+        v_work_start := v_segment.start_frame;
+        v_work_end := v_segment.end_frame;
+        IF v_collaboration THEN
+            v_overlap := (v_policy->>'overlap_frames')::numeric;
+            v_frame_count := (v_material #>> '{data,input,plan,input,video,frame_count}')::bigint;
+            SELECT pg_catalog.count(segment.dataset_item_id) INTO v_segment_count
+            FROM public.video_segments AS segment
+            WHERE segment.dataset_item_id=v_segment.dataset_item_id;
+            IF v_overlap<1 OR v_frame_count IS NULL OR v_frame_count<1
+               OR v_segment.segment_index<0 OR v_segment.segment_index>=v_segment_count THEN
+                RETURN aap_labeling_v1._video_tracker_input_reply(NULL,'task_scope_changed');
+            END IF;
+            v_work_start := GREATEST(0::numeric,v_segment.start_frame::numeric-
+                CASE WHEN v_segment.segment_index=0 THEN 0 ELSE pg_catalog.floor(v_overlap/2) END)::bigint;
+            v_work_end := LEAST(GREATEST(0,v_frame_count-1)::numeric,v_segment.end_frame::numeric+
+                CASE WHEN v_segment.segment_index=v_segment_count-1 THEN 0
+                    ELSE v_overlap-pg_catalog.floor(v_overlap/2) END)::bigint;
+        END IF;
+        IF v_job.from_frame<v_work_start OR v_job.to_frame>v_work_end THEN
             RETURN aap_labeling_v1._video_tracker_input_reply(NULL,'task_scope_changed');
         END IF;
         IF (v_collaboration OR NOT v_privileged)
@@ -1422,14 +1593,6 @@ BEGIN
         IF v_collaboration AND v_segment.assignee_id IS DISTINCT FROM p_actor_id THEN
             RETURN aap_labeling_v1._video_tracker_input_reply(NULL,'permission_denied');
         END IF;
-    END IF;
-    v_material := aap_assets_v1._lock_video_tracker_input_plan(
-        p_actor_id,p_tracker_job_id,p_task_id,p_input_id,p_request_digest,p_plan_digest,false
-    );
-    IF v_material IS NULL OR v_material->>'schema' IS DISTINCT FROM 'aap-assets-video-tracker-inputs/v1'
-       OR v_material->'ok' IS DISTINCT FROM 'true'::jsonb THEN
-        RETURN aap_labeling_v1._video_tracker_input_reply(
-            NULL,COALESCE(v_material #>> '{error,code}','invalid_response'));
     END IF;
     v_evidence := aap_labeling_v1._video_tracker_input_evidence(
         v_scope,v_material #> '{data,input}'
@@ -1465,6 +1628,12 @@ DECLARE
     v_evidence jsonb;
     v_privileged boolean;
     v_collaboration boolean;
+    v_policy jsonb;
+    v_overlap numeric;
+    v_segment_count bigint;
+    v_work_start bigint;
+    v_work_end bigint;
+    v_frame_count bigint;
 BEGIN
     v_reply := aap_labeling_v1.project_video_tracker_input(
         p_actor_id,p_tracker_job_id,p_task_id,p_input_id,p_request_digest,false,true,true
@@ -1482,14 +1651,24 @@ BEGIN
     SELECT scope.* INTO v_scope_row FROM public.video_tracker_input_scopes AS scope
     WHERE scope.tracker_job_id=p_tracker_job_id FOR UPDATE NOWAIT;
     IF NOT FOUND THEN RETURN aap_labeling_v1._video_tracker_input_reply(NULL,'input_missing'); END IF;
-    SELECT job.* INTO v_job FROM public.video_tracker_jobs AS job
+    SELECT job.id, job.task_id, job.dataset_item_id, job.annotation_id, job.segment_id,
+        job.target_class_name, job.target_tool_unit_id, job.created_by, job.status, job.job_kind,
+        job.track_id_snapshot, job.correction_frame, job.model_key, job.direction, job.from_frame,
+        job.to_frame, job.prompt, job.staged_result, job.revision, job.cancel_requested_at,
+        job.started_at, job.created_at, job.completed_at
+    INTO v_job.id, v_job.task_id, v_job.dataset_item_id, v_job.annotation_id, v_job.segment_id,
+        v_job.target_class_name, v_job.target_tool_unit_id, v_job.created_by, v_job.status, v_job.job_kind,
+        v_job.track_id_snapshot, v_job.correction_frame, v_job.model_key, v_job.direction, v_job.from_frame,
+        v_job.to_frame, v_job.prompt, v_job.staged_result, v_job.revision, v_job.cancel_requested_at,
+        v_job.started_at, v_job.created_at, v_job.completed_at
+    FROM public.video_tracker_jobs AS job
     WHERE job.id=p_tracker_job_id FOR UPDATE NOWAIT;
     IF NOT FOUND OR v_job.status NOT IN ('pending_review','partially_reviewed')
        AND NOT (v_job.status='cancelled' AND v_job.job_kind='tracking'
            AND v_job.staged_result IS NOT NULL
-           AND v_job.created_at+interval '24 hours'>pg_catalog.clock_timestamp())
+           AND COALESCE(v_job.completed_at,v_job.created_at)+interval '24 hours'>pg_catalog.clock_timestamp())
        OR v_job.staged_result IS NULL
-       OR v_job.created_at+interval '24 hours'<=pg_catalog.clock_timestamp() THEN
+       OR COALESCE(v_job.completed_at,v_job.created_at)+interval '24 hours'<=pg_catalog.clock_timestamp() THEN
         RETURN aap_labeling_v1._video_tracker_input_reply(NULL,'job_not_active');
     END IF;
     IF NOT aap_labeling_v1._video_tracker_request_matches(v_scope,v_job) THEN
@@ -1522,13 +1701,61 @@ BEGIN
     v_privileged := v_access_data->'is_manager'='true'::jsonb
         OR v_access_data->'is_super_admin'='true'::jsonb;
     v_collaboration := v_access_data->'video_collaboration_enabled'='true'::jsonb;
+    v_material := aap_assets_v1._lock_video_tracker_input_plan(
+        p_actor_id,p_tracker_job_id,p_task_id,p_input_id,p_request_digest,p_plan_digest,false
+    );
+    IF v_material IS NULL OR v_material->>'schema' IS DISTINCT FROM 'aap-assets-video-tracker-inputs/v1'
+       OR v_material->'ok' IS DISTINCT FROM 'true'::jsonb THEN
+        RETURN aap_labeling_v1._video_tracker_input_reply(
+            NULL,COALESCE(v_material #>> '{error,code}','invalid_response'));
+    END IF;
     IF v_job.segment_id IS NOT NULL THEN
-        SELECT segment.dataset_item_id,segment.start_frame,segment.end_frame,
+        SELECT segment.dataset_item_id,segment.start_frame,segment.end_frame,segment.segment_index,
             segment.assignee_id,segment.locked_by,segment.lock_expires_at
         INTO v_segment FROM public.video_segments AS segment
         WHERE segment.id=v_job.segment_id FOR UPDATE NOWAIT;
-        IF NOT FOUND OR v_segment.dataset_item_id<>(v_scope #>> '{source_facts,dataset_item_id}')::uuid
-           OR v_job.from_frame<v_segment.start_frame OR v_job.to_frame>v_segment.end_frame THEN
+        IF NOT FOUND OR v_segment.dataset_item_id<>(v_scope #>> '{source_facts,dataset_item_id}')::uuid THEN
+            RETURN aap_labeling_v1._video_tracker_input_reply(NULL,'task_scope_changed');
+        END IF;
+        v_policy := aap_workspace_v1.read_media_video_collaboration_policy(
+            (v_scope #>> '{task,project_id}')::uuid);
+        IF v_policy IS NULL
+           OR v_policy->>'schema' IS DISTINCT FROM 'aap-workspace-video-collaboration-policy/v1'
+           OR pg_catalog.jsonb_typeof(v_policy->'ok') IS DISTINCT FROM 'boolean' THEN
+            RETURN aap_labeling_v1._video_tracker_input_reply(NULL,'invalid_response');
+        END IF;
+        IF v_policy->'ok' IS DISTINCT FROM 'true'::jsonb THEN
+            RETURN aap_labeling_v1._video_tracker_input_reply(NULL,
+                CASE WHEN v_policy #>> '{error,code}'='task_busy' THEN 'task_busy' ELSE 'invalid_response' END);
+        END IF;
+        v_policy := v_policy->'data';
+        IF pg_catalog.jsonb_typeof(v_policy) IS DISTINCT FROM 'object'
+           OR v_policy-ARRAY['project_id','enabled','overlap_frames']::text[]<>'{}'::jsonb
+           OR v_policy->>'project_id' IS DISTINCT FROM v_scope #>> '{task,project_id}'
+           OR v_policy->'enabled' IS DISTINCT FROM pg_catalog.to_jsonb(v_collaboration)
+           OR pg_catalog.jsonb_typeof(v_policy->'overlap_frames') IS DISTINCT FROM 'number'
+           OR v_policy->>'overlap_frames' !~ '^(0|[1-9][0-9]*)$' THEN
+            RETURN aap_labeling_v1._video_tracker_input_reply(NULL,'invalid_response');
+        END IF;
+        v_work_start := v_segment.start_frame;
+        v_work_end := v_segment.end_frame;
+        IF v_collaboration THEN
+            v_overlap := (v_policy->>'overlap_frames')::numeric;
+            v_frame_count := (v_material #>> '{data,input,plan,input,video,frame_count}')::bigint;
+            SELECT pg_catalog.count(segment.dataset_item_id) INTO v_segment_count
+            FROM public.video_segments AS segment
+            WHERE segment.dataset_item_id=v_segment.dataset_item_id;
+            IF v_overlap<1 OR v_frame_count IS NULL OR v_frame_count<1
+               OR v_segment.segment_index<0 OR v_segment.segment_index>=v_segment_count THEN
+                RETURN aap_labeling_v1._video_tracker_input_reply(NULL,'task_scope_changed');
+            END IF;
+            v_work_start := GREATEST(0::numeric,v_segment.start_frame::numeric-
+                CASE WHEN v_segment.segment_index=0 THEN 0 ELSE pg_catalog.floor(v_overlap/2) END)::bigint;
+            v_work_end := LEAST(GREATEST(0,v_frame_count-1)::numeric,v_segment.end_frame::numeric+
+                CASE WHEN v_segment.segment_index=v_segment_count-1 THEN 0
+                    ELSE v_overlap-pg_catalog.floor(v_overlap/2) END)::bigint;
+        END IF;
+        IF v_job.from_frame<v_work_start OR v_job.to_frame>v_work_end THEN
             RETURN aap_labeling_v1._video_tracker_input_reply(NULL,'task_scope_changed');
         END IF;
         IF (v_collaboration OR NOT v_privileged)
@@ -1540,14 +1767,6 @@ BEGIN
         IF v_collaboration AND v_segment.assignee_id IS DISTINCT FROM p_actor_id THEN
             RETURN aap_labeling_v1._video_tracker_input_reply(NULL,'permission_denied');
         END IF;
-    END IF;
-    v_material := aap_assets_v1._lock_video_tracker_input_plan(
-        p_actor_id,p_tracker_job_id,p_task_id,p_input_id,p_request_digest,p_plan_digest,false
-    );
-    IF v_material IS NULL OR v_material->>'schema' IS DISTINCT FROM 'aap-assets-video-tracker-inputs/v1'
-       OR v_material->'ok' IS DISTINCT FROM 'true'::jsonb THEN
-        RETURN aap_labeling_v1._video_tracker_input_reply(
-            NULL,COALESCE(v_material #>> '{error,code}','invalid_response'));
     END IF;
     v_evidence := aap_labeling_v1._video_tracker_input_evidence(
         v_scope,v_material #> '{data,input}'
@@ -1657,7 +1876,17 @@ BEGIN
        OR p_evidence->>'prompt_digest' IS DISTINCT FROM v_scope.prompt_digest THEN
         RETURN aap_labeling_v1._video_tracker_input_reply(NULL,'input_scope_mismatch');
     END IF;
-    SELECT job.* INTO v_job FROM public.video_tracker_jobs AS job
+    SELECT job.id, job.task_id, job.dataset_item_id, job.annotation_id, job.segment_id,
+        job.target_class_name, job.target_tool_unit_id, job.created_by, job.status, job.job_kind,
+        job.track_id_snapshot, job.correction_frame, job.model_key, job.direction, job.from_frame,
+        job.to_frame, job.prompt, job.staged_result, job.revision, job.cancel_requested_at,
+        job.started_at, job.created_at, job.completed_at
+    INTO v_job.id, v_job.task_id, v_job.dataset_item_id, v_job.annotation_id, v_job.segment_id,
+        v_job.target_class_name, v_job.target_tool_unit_id, v_job.created_by, v_job.status, v_job.job_kind,
+        v_job.track_id_snapshot, v_job.correction_frame, v_job.model_key, v_job.direction, v_job.from_frame,
+        v_job.to_frame, v_job.prompt, v_job.staged_result, v_job.revision, v_job.cancel_requested_at,
+        v_job.started_at, v_job.created_at, v_job.completed_at
+    FROM public.video_tracker_jobs AS job
     WHERE job.id=p_tracker_job_id FOR UPDATE NOWAIT;
     IF NOT FOUND OR v_job.status NOT IN ('accepted','partially_reviewed')
        OR NOT EXISTS (
@@ -1787,6 +2016,135 @@ $function$;
 REVOKE ALL ON FUNCTION aap_labeling_v1.copy_annotation_video_tracker_input_sources(uuid,uuid,uuid) FROM PUBLIC;
 -- aap-statement-break
 
+CREATE FUNCTION aap_labeling_v1._video_tracker_input_source_immutable()
+RETURNS trigger LANGUAGE plpgsql VOLATILE PARALLEL UNSAFE SECURITY DEFINER
+SET search_path = pg_catalog, pg_temp AS $function$
+BEGIN
+    IF NEW IS DISTINCT FROM OLD THEN
+        RAISE EXCEPTION USING ERRCODE='55000',
+            MESSAGE='annotation tracker input evidence is immutable';
+    END IF;
+    RETURN NEW;
+END;
+$function$;
+-- aap-statement-break
+REVOKE ALL ON FUNCTION aap_labeling_v1._video_tracker_input_source_immutable() FROM PUBLIC;
+-- aap-statement-break
+CREATE TRIGGER trg_annotation_video_tracker_input_source_immutable
+BEFORE UPDATE ON public.annotation_video_tracker_input_sources
+FOR EACH ROW EXECUTE FUNCTION aap_labeling_v1._video_tracker_input_source_immutable();
+-- aap-statement-break
+
+CREATE FUNCTION aap_labeling_v1._propagate_video_tracker_input_pin(
+    p_pin public.annotation_video_tracker_input_sources
+)
+RETURNS void LANGUAGE plpgsql VOLATILE PARALLEL UNSAFE SECURITY DEFINER
+SET search_path = pg_catalog, pg_temp AS $function$
+DECLARE v_descendant record;
+BEGIN
+    FOR v_descendant IN
+        WITH RECURSIVE descendants(annotation_id,project_id,path) AS (
+            SELECT child.id,child.project_id,ARRAY[(p_pin).annotation_id,child.id]::uuid[]
+            FROM public.annotations AS child
+            WHERE child.parent_annotation_id=(p_pin).annotation_id
+              AND child.project_id=(p_pin).project_id
+            UNION ALL
+            SELECT child.id,child.project_id,descendants.path||child.id
+            FROM public.annotations AS child JOIN descendants
+              ON child.parent_annotation_id=descendants.annotation_id
+             AND child.project_id=descendants.project_id
+            WHERE NOT child.id=ANY(descendants.path)
+        ) SELECT annotation_id FROM descendants
+    LOOP
+        IF EXISTS (
+            SELECT 1 FROM public.annotation_video_tracker_input_sources AS target
+            WHERE target.annotation_id=v_descendant.annotation_id AND target.input_id=(p_pin).input_id
+              AND (pg_catalog.to_jsonb(target)-ARRAY['annotation_id','created_at'])
+                  IS DISTINCT FROM (pg_catalog.to_jsonb(p_pin)-ARRAY['annotation_id','created_at'])
+        ) THEN
+            RAISE EXCEPTION USING ERRCODE='23514', MESSAGE='annotation tracker evidence changed';
+        END IF;
+        INSERT INTO public.annotation_video_tracker_input_sources(
+            annotation_id,tracker_job_id,input_id,task_id,project_id,request_digest,prompt_digest,
+            plan_digest,timebase_digest,source_version_id,source_sha256,from_frame,to_frame,direction,grid_step
+        ) VALUES (
+            v_descendant.annotation_id,(p_pin).tracker_job_id,(p_pin).input_id,(p_pin).task_id,
+            (p_pin).project_id,(p_pin).request_digest,(p_pin).prompt_digest,(p_pin).plan_digest,
+            (p_pin).timebase_digest,(p_pin).source_version_id,(p_pin).source_sha256,
+            (p_pin).from_frame,(p_pin).to_frame,(p_pin).direction,(p_pin).grid_step
+        ) ON CONFLICT(annotation_id,input_id) DO NOTHING;
+    END LOOP;
+END;
+$function$;
+-- aap-statement-break
+REVOKE ALL ON FUNCTION aap_labeling_v1._propagate_video_tracker_input_pin(public.annotation_video_tracker_input_sources) FROM PUBLIC;
+-- aap-statement-break
+
+CREATE FUNCTION aap_labeling_v1._inherit_annotation_video_tracker_input_sources()
+RETURNS trigger LANGUAGE plpgsql VOLATILE PARALLEL UNSAFE SECURITY DEFINER
+SET search_path = pg_catalog, pg_temp AS $function$
+DECLARE
+    v_parent_project_id uuid;
+    v_pin public.annotation_video_tracker_input_sources%ROWTYPE;
+BEGIN
+    IF NEW.parent_annotation_id IS NULL THEN RETURN NEW; END IF;
+    SELECT parent.project_id INTO v_parent_project_id FROM public.annotations AS parent
+    WHERE parent.id=NEW.parent_annotation_id;
+    IF NOT FOUND OR NEW.task_id IS NULL OR NEW.project_id IS DISTINCT FROM v_parent_project_id THEN
+        RAISE EXCEPTION USING ERRCODE='23514',
+            MESSAGE='annotation tracker input lineage must stay within one project';
+    END IF;
+    FOR v_pin IN SELECT pin.* FROM public.annotation_video_tracker_input_sources AS pin
+        WHERE pin.annotation_id=NEW.parent_annotation_id ORDER BY pin.input_id
+    LOOP
+        IF v_pin.project_id IS DISTINCT FROM NEW.project_id OR EXISTS (
+            SELECT 1 FROM public.annotation_video_tracker_input_sources AS target
+            WHERE target.annotation_id=NEW.id AND target.input_id=v_pin.input_id
+              AND (pg_catalog.to_jsonb(target)-ARRAY['annotation_id','created_at'])
+                  IS DISTINCT FROM (pg_catalog.to_jsonb(v_pin)-ARRAY['annotation_id','created_at'])
+        ) THEN
+            RAISE EXCEPTION USING ERRCODE='23514', MESSAGE='annotation tracker evidence changed';
+        END IF;
+        INSERT INTO public.annotation_video_tracker_input_sources(
+            annotation_id,tracker_job_id,input_id,task_id,project_id,request_digest,prompt_digest,
+            plan_digest,timebase_digest,source_version_id,source_sha256,from_frame,to_frame,direction,grid_step
+        ) VALUES (
+            NEW.id,v_pin.tracker_job_id,v_pin.input_id,v_pin.task_id,v_pin.project_id,
+            v_pin.request_digest,v_pin.prompt_digest,v_pin.plan_digest,v_pin.timebase_digest,
+            v_pin.source_version_id,v_pin.source_sha256,v_pin.from_frame,v_pin.to_frame,
+            v_pin.direction,v_pin.grid_step
+        ) ON CONFLICT(annotation_id,input_id) DO NOTHING;
+        v_pin.annotation_id := NEW.id;
+        PERFORM aap_labeling_v1._propagate_video_tracker_input_pin(v_pin);
+    END LOOP;
+    RETURN NEW;
+END;
+$function$;
+-- aap-statement-break
+REVOKE ALL ON FUNCTION aap_labeling_v1._inherit_annotation_video_tracker_input_sources() FROM PUBLIC;
+-- aap-statement-break
+CREATE TRIGGER trg_inherit_annotation_video_tracker_input_sources
+AFTER INSERT OR UPDATE OF parent_annotation_id ON public.annotations
+FOR EACH ROW EXECUTE FUNCTION aap_labeling_v1._inherit_annotation_video_tracker_input_sources();
+-- aap-statement-break
+
+CREATE FUNCTION aap_labeling_v1._propagate_annotation_video_tracker_input_source()
+RETURNS trigger LANGUAGE plpgsql VOLATILE PARALLEL UNSAFE SECURITY DEFINER
+SET search_path = pg_catalog, pg_temp AS $function$
+BEGIN
+    IF pg_catalog.pg_trigger_depth()>1 THEN RETURN NEW; END IF;
+    PERFORM aap_labeling_v1._propagate_video_tracker_input_pin(NEW);
+    RETURN NEW;
+END;
+$function$;
+-- aap-statement-break
+REVOKE ALL ON FUNCTION aap_labeling_v1._propagate_annotation_video_tracker_input_source() FROM PUBLIC;
+-- aap-statement-break
+CREATE TRIGGER trg_propagate_annotation_video_tracker_input_source
+AFTER INSERT ON public.annotation_video_tracker_input_sources
+FOR EACH ROW EXECUTE FUNCTION aap_labeling_v1._propagate_annotation_video_tracker_input_source();
+-- aap-statement-break
+
 CREATE FUNCTION aap_labeling_v1.video_tracker_input_referenced(p_input_id uuid)
 RETURNS jsonb LANGUAGE plpgsql VOLATILE PARALLEL UNSAFE SECURITY DEFINER
 SET search_path = pg_catalog, pg_temp AS $function$
@@ -1812,13 +2170,23 @@ BEGIN
         RETURN aap_labeling_v1._video_tracker_input_reply(
             pg_catalog.jsonb_build_object('input_id',p_input_id,'referenced',true,'retained_until',NULL),NULL);
     END IF;
-    SELECT job.* INTO v_job FROM public.video_tracker_jobs AS job
+    SELECT job.id, job.task_id, job.dataset_item_id, job.annotation_id, job.segment_id,
+        job.target_class_name, job.target_tool_unit_id, job.created_by, job.status, job.job_kind,
+        job.track_id_snapshot, job.correction_frame, job.model_key, job.direction, job.from_frame,
+        job.to_frame, job.prompt, job.staged_result, job.revision, job.cancel_requested_at,
+        job.started_at, job.created_at, job.completed_at
+    INTO v_job.id, v_job.task_id, v_job.dataset_item_id, v_job.annotation_id, v_job.segment_id,
+        v_job.target_class_name, v_job.target_tool_unit_id, v_job.created_by, v_job.status, v_job.job_kind,
+        v_job.track_id_snapshot, v_job.correction_frame, v_job.model_key, v_job.direction, v_job.from_frame,
+        v_job.to_frame, v_job.prompt, v_job.staged_result, v_job.revision, v_job.cancel_requested_at,
+        v_job.started_at, v_job.created_at, v_job.completed_at
+    FROM public.video_tracker_jobs AS job
     WHERE job.id=v_scope.tracker_job_id;
     IF NOT FOUND THEN
         RETURN aap_labeling_v1._video_tracker_input_reply(
             pg_catalog.jsonb_build_object('input_id',p_input_id,'referenced',false,'retained_until',NULL),NULL);
     END IF;
-    v_until := v_scope.created_at+interval '24 hours';
+    v_until := COALESCE(v_job.completed_at,v_job.created_at)+interval '24 hours';
     IF v_job.status IN ('queued','running') THEN
         v_referenced := true;
         v_until := NULL;
@@ -2799,6 +3167,29 @@ BEGIN
             (v_input.source #>> '{object_identity,byte_size}')::bigint THEN
         RETURN aap_assets_v1._video_tracker_input_reply(NULL,'input_corrupt');
     END IF;
+    SELECT attempt.* INTO v_attempt FROM public.asset_accepted_video_input_attempts AS attempt
+    WHERE attempt.input_id=p_input_id AND attempt.generation=p_generation
+      AND attempt.lease_token=p_lease_token AND attempt.status='leased' FOR UPDATE NOWAIT;
+    IF NOT FOUND OR v_attempt.lease_expires_at<=pg_catalog.clock_timestamp()
+       OR v_input.status<>'materializing' OR (v_input.generation,v_input.lease_token)
+            IS DISTINCT FROM (p_generation,p_lease_token)
+       OR v_input.lease_expires_at<=pg_catalog.clock_timestamp() THEN
+        IF v_input.status='ready' AND v_input.generation=p_generation
+           AND v_input.last_lease_token=p_lease_token AND v_input.last_outcome='ready'
+           AND v_input.plan IS NOT DISTINCT FROM v_plan THEN
+            SELECT attempt.* INTO v_attempt FROM public.asset_accepted_video_input_attempts AS attempt
+            WHERE attempt.input_id=p_input_id AND attempt.generation=p_generation
+              AND attempt.lease_token=p_lease_token AND attempt.status='ready';
+            IF NOT FOUND OR v_attempt.prefix IS DISTINCT FROM
+                aap_assets_v1._video_input_attempt_prefix(p_input_id,p_generation,p_lease_token) THEN
+                RETURN aap_assets_v1._video_tracker_input_reply(NULL,'input_corrupt');
+            END IF;
+            v_source_code := aap_assets_v1._video_tracker_input_current_source(v_input,true,true);
+            IF v_source_code IS NOT NULL THEN RETURN aap_assets_v1._video_tracker_input_reply(NULL,v_source_code); END IF;
+            RETURN aap_assets_v1._video_tracker_input_reply(aap_assets_v1._video_input_record(v_input),NULL);
+        END IF;
+        RETURN aap_assets_v1._video_tracker_input_reply(NULL,'lease_lost');
+    END IF;
     v_frame_count := (v_plan #>> '{input,video,frame_count}')::bigint;
     v_max_frames := (v_plan #>> '{sampling,max_frames}')::bigint;
     v_step := (v_plan #>> '{sampling,step}')::bigint;
@@ -2866,29 +3257,6 @@ BEGIN
                 RETURN aap_assets_v1._video_tracker_input_reply(NULL,'timebase_changed');
             END IF;
         END LOOP;
-    END IF;
-    SELECT attempt.* INTO v_attempt FROM public.asset_accepted_video_input_attempts AS attempt
-    WHERE attempt.input_id=p_input_id AND attempt.generation=p_generation
-      AND attempt.lease_token=p_lease_token AND attempt.status='leased' FOR UPDATE NOWAIT;
-    IF NOT FOUND OR v_attempt.lease_expires_at<=pg_catalog.clock_timestamp()
-       OR v_input.status<>'materializing' OR (v_input.generation,v_input.lease_token)
-            IS DISTINCT FROM (p_generation,p_lease_token)
-       OR v_input.lease_expires_at<=pg_catalog.clock_timestamp() THEN
-        IF v_input.status='ready' AND v_input.generation=p_generation
-           AND v_input.last_lease_token=p_lease_token AND v_input.last_outcome='ready'
-           AND v_input.plan IS NOT DISTINCT FROM v_plan THEN
-            SELECT attempt.* INTO v_attempt FROM public.asset_accepted_video_input_attempts AS attempt
-            WHERE attempt.input_id=p_input_id AND attempt.generation=p_generation
-              AND attempt.lease_token=p_lease_token AND attempt.status='ready';
-            IF NOT FOUND OR v_attempt.prefix IS DISTINCT FROM
-                aap_assets_v1._video_input_attempt_prefix(p_input_id,p_generation,p_lease_token) THEN
-                RETURN aap_assets_v1._video_tracker_input_reply(NULL,'input_corrupt');
-            END IF;
-            v_source_code := aap_assets_v1._video_tracker_input_current_source(v_input,true,true);
-            IF v_source_code IS NOT NULL THEN RETURN aap_assets_v1._video_tracker_input_reply(NULL,v_source_code); END IF;
-            RETURN aap_assets_v1._video_tracker_input_reply(aap_assets_v1._video_input_record(v_input),NULL);
-        END IF;
-        RETURN aap_assets_v1._video_tracker_input_reply(NULL,'lease_lost');
     END IF;
     v_reply := aap_labeling_v1.project_video_tracker_input(
         v_input.request_actor_id,v_input.tracker_job_id,v_input.task_id,v_input.input_id,

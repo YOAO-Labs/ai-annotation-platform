@@ -2084,6 +2084,28 @@
       "required": ["input", "source_version", "url", "expires_in"],
       "title": "TrackerVideoSourceReference",
       "type": "object"
+    },
+    "MediaVideoCollaborationPolicy": {
+      "additionalProperties": false,
+      "properties": {
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "enabled": {
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "overlap_frames": {
+          "minimum": 0,
+          "title": "Overlap Frames",
+          "type": "integer"
+        }
+      },
+      "required": ["project_id", "enabled", "overlap_frames"],
+      "title": "MediaVideoCollaborationPolicy",
+      "type": "object"
     }
   },
   "oneOf": [
@@ -2282,5 +2304,15 @@
     "reply_bytes": 2097152,
     "timebase_page_size": 100,
     "url_expiry_seconds": 3600
+  },
+  "x-workspace-projections": {
+    "read_media_video_collaboration_policy": {
+      "signature": "aap_workspace_v1.read_media_video_collaboration_policy(uuid)",
+      "schema": "aap-workspace-video-collaboration-policy/v1",
+      "result": "MediaVideoCollaborationPolicy",
+      "owner": "workspace",
+      "caller": "labeling",
+      "requires": "current project access locked in the same transaction"
+    }
   }
 }

@@ -236,7 +236,20 @@ def downgrade() -> None:
     for statement in _restore_replaced_functions():
         _execute(statement)
 
-    # Drop all new helpers first. In particular, two signatures use the
+    for name, table in (
+        (
+            "trg_annotation_video_tracker_input_source_immutable",
+            "annotation_video_tracker_input_sources",
+        ),
+        (
+            "trg_propagate_annotation_video_tracker_input_source",
+            "annotation_video_tracker_input_sources",
+        ),
+        ("trg_inherit_annotation_video_tracker_input_sources", "annotations"),
+    ):
+        _execute(f"DROP TRIGGER IF EXISTS {name} ON public.{table} RESTRICT")
+
+    # Drop all new helpers before their row types. Some signatures use the
     # composite row type of asset_accepted_video_inputs, so they must go before
     # the tracker-owner columns are removed.
     for signature in _new_function_signatures():

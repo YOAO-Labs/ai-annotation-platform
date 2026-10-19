@@ -1083,7 +1083,11 @@ uv run --project apps/assets-media --extra runtime --extra server python -m aap_
 uv run --project apps/assets-media --extra runtime python -m aap_assets_media_runtime.worker
 ```
 
-受理视频输入使用同一控制工件的 `POST /v1/video-inputs/{manifest,members,prepare,seal,input,verify,times,require-frame,frame,reference}`，协议为 `aap-assets-video-input-control/v1`。capture、worker、最终 Labeling 围栏及回收函数不作为 HTTP 命令暴露。视频 Worker 默认公平轮询技术媒体、受理原始视频和派生帧三类队列；`--once` 最多执行一个已领取单位，可组合互斥的 `--job-id`、`--input-id` 或 `--frame-id` 精确选择。来源字节复用既有 Media 凭据与数据集桶，不要求为视频 Worker 增加图片 Worker 环境变量。
+受理视频输入使用同一控制工件的 `POST /v1/video-inputs/{manifest,members,prepare,seal,input,verify,times,require-frame,frame,reference}`，协议为 `aap-assets-video-input-control/v1`。capture、worker、最终 Labeling 围栏及回收函数不作为 HTTP 命令暴露。视频 Worker 默认公平轮询技术媒体、受理原始视频、派生帧和跟踪原片四类队列；`--once` 最多执行一个已领取单位，互斥的 `--job-id`、`--input-id`、`--frame-id` 或 `--tracker-input-id` 精确选择各类工作。来源字节复用既有 Media 凭据与数据集桶，不要求为视频 Worker 增加图片 Worker 环境变量。
+
+专用跟踪输入使用 `POST /v1/video-tracker-inputs/{input,prepare,reference}`，协议为 `aap-assets-video-tracker-control/v1`，复用 `ASSETS_MEDIA_URL`、token、工件及输入桶。`input` 返回状态与固定执行事实，`prepare` 只观察原始对象并登记准备；独立 Worker 随后物化，`reference` 才交付完整原片的精确版本链接。队列仍只携带规范 `VideoTrackerJob` UUID；输入准备未完成时保持 queued 并延后同一作业，通用作业表仍只是执行摘要。批量帧和跟踪输入使用各自的领取、回收能力，不互相借用权限。
+
+启用这条跟踪路径前应用 `0228`，按当前 grants 更新受限身份，并刷新 API、跟踪 Celery consumer、Media 控制和视频 Worker。迁移会拒绝没有输入快照的旧 queued/running 作业及可审阅候选；先由旧运行时排空、采纳或丢弃，不能现场补造历史输入。保留新来源证据时拒绝回退。常驻开发环境也按这些前置条件核验后再切换；协议和凭据范围见[媒体接口](docs-site/api/guides/assets-media.md#视频跟踪的原片输入)。
 
 视频 Worker 的 CLI 收到 `SIGTERM` 后停止领取新单位，保留当前单位的处理与租约心跳，完成后关闭运行资源；空闲轮询会立即唤醒退出。`--once` 同样可排空当前单位，`--healthcheck` 和 `SIGINT` 保持原行为。部署的停止宽限时间应容纳当前处理；超时强杀仍依靠租约和来源围栏恢复，不能据此宣称任意在途作业都能立即接管。
 
@@ -1126,7 +1130,7 @@ API 设置 `ASSETS_MEDIA_URL` 和相同的 `ASSETS_MEDIA_TOKEN` 后，将图片�
 
 图片 schema 属于迁移 `0220`，已受理输入属于 `0221`。按既有 module-data 与媒体授权顺序安装 owner/辅助能力、`infra/docker/assets-media-grants.sql` 和 `infra/docker/assets-image-grants.sql`。图片 Worker 只能执行自己的 10 项函数，不能直接访问表或其他 owner schema；清理 LOGIN 只能领取/确认 owner 发出的删除责任。所有 SQL LOGIN 必须与迁移角色和 NOLOGIN owner 分离。
 
-批量图片输入清单的基础迁移为 `0222`，Scene 模式普通单图 Task 需要 `0227`，均不增加服务、桶或 secret。各自升级前先排空或明确处理对应图片项目中仍为 pending/running、scope 为 bulk 或缺省、且没有清单协议的旧预标作业；迁移会拒绝这些在途记录。旧 pending payload 没有完整配方，无法分类的文字／跟踪／场景配方也保守纳入排空；有明确保存的执行单位或配方标记时按原独立路径处理。刷新 API、普通预标 Celery consumer 和共享 Media 控制，核验三项 `accepted_input_manifest_*` 派发参数及四个 `/v1/input-manifests/` 路由；当前共享控制就绪探针核验 49 项能力。清单封存前不交付 Input 引用。清单和成员是 native 管理的两张证据表，保留记录时拒绝删除表；仍有 Scene 模式清单时也拒绝恢复旧的普通图片范围，不自动清空历史。
+批量图片输入清单的基础迁移为 `0222`，Scene 模式普通单图 Task 需要 `0227`，均不增加服务、桶或 secret。各自升级前先排空或明确处理对应图片项目中仍为 pending/running、scope 为 bulk 或缺省、且没有清单协议的旧预标作业；迁移会拒绝这些在途记录。旧 pending payload 没有完整配方，无法分类的文字／跟踪／场景配方也保守纳入排空；有明确保存的执行单位或配方标记时按原独立路径处理。刷新 API、普通预标 Celery consumer 和共享 Media 控制，核验三项 `accepted_input_manifest_*` 派发参数及四个 `/v1/input-manifests/` 路由；当前共享控制就绪探针核验 52 项能力，包含三项跟踪输入能力。清单封存前不交付 Input 引用。清单和成员是 native 管理的两张证据表，保留记录时拒绝删除表；仍有 Scene 模式清单时也拒绝恢复旧的普通图片范围，不自动清空历史。
 
 可选 `docker-compose.assets-media.yml` 增加共享控制、视频 Worker 和图片 Worker；需要把它与默认服务文件组合，并只启动所需服务：
 

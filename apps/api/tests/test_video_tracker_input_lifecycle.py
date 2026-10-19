@@ -2,16 +2,18 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import uuid
 
 import pytest
 from sqlalchemy import text
+from sqlalchemy.exc import DBAPIError
 
 from aap_assets_video_inputs import execution as e
 from aap_assets_video_inputs import tracker as c
 from aap_assets_video_inputs import values as v
 from app.db.models.annotation import Annotation
+from app.db.models.dataset import VideoSegment
 from app.db.models.task import Task
 from app.db.models.video_tracker_job import VideoTrackerJobStatus
 from tests.factory import create_membership
@@ -447,6 +449,13 @@ async def test_partial_review_uses_current_reviewer_without_rebinding_tracker_pl
         "h": 6.0,
     }
     job.status = VideoTrackerJobStatus.PARTIALLY_REVIEWED.value
+    job.created_by = None
+    job.created_at = datetime.now(timezone.utc) - timedelta(days=2)
+    job.completed_at = datetime.now(timezone.utc)
+    await db_session.execute(
+        text("UPDATE public.users SET is_active=false WHERE id=:actor"),
+        {"actor": actor},
+    )
     job.staged_result = {
         "results": [],
         "grid_step": captured.scope.execution.grid_step,
@@ -591,7 +600,7 @@ async def test_manifest_and_tracker_claimers_progress_only_their_owner_lane(
             text(
                 "UPDATE public.asset_accepted_video_inputs "
                 "SET lease_expires_at=pg_catalog.clock_timestamp()-interval '1 second' "
-                "WHERE input_id=:input AND generation=:generation AND lease_token=:token"
+                "WHERE input_id=:input AND generation=:generation AND lease_token=:lease_token"
             ),
             {"input": input_id, **claim},
         )
@@ -599,7 +608,7 @@ async def test_manifest_and_tracker_claimers_progress_only_their_owner_lane(
             text(
                 "UPDATE public.asset_accepted_video_input_attempts "
                 "SET lease_expires_at=pg_catalog.clock_timestamp()-interval '1 second' "
-                "WHERE input_id=:input AND generation=:generation AND lease_token=:token"
+                "WHERE input_id=:input AND generation=:generation AND lease_token=:lease_token"
             ),
             {"input": input_id, **claim},
         )
@@ -646,3 +655,180 @@ async def test_manifest_and_tracker_claimers_progress_only_their_owner_lane(
     assert by_id[str(manifest_input_id)].status == "failed"
     assert by_id[str(captured.input_id)].input_owner == "tracker"
     assert by_id[str(captured.input_id)].status == "failed"
+
+
+@pytest.mark.parametrize(
+    "enabled,overlap,index,first,last,allowed",
+    (
+        (True, 3, 0, 0, 11, True),
+        (True, 3, 1, 9, 21, True),
+        (True, 3, 2, 19, 29, True),
+        (False, 3, 1, 10, 19, True),
+        (False, 3, 1, 9, 21, False),
+        (True, 3, 1, 8, 22, False),
+        (True, 10**30, 1, 0, 29, True),
+    ),
+)
+async def test_stage_and_review_apply_current_segment_context_and_lock(
+    db_session, enabled, overlap, index, first, last, allowed
+):
+    actor, project, item, task_id, job = await _seed_tracker_job(db_session)
+    project.video_collaboration = {"enabled": enabled, "overlap_frames": overlap}
+    segments = [
+        VideoSegment(
+            dataset_item_id=item,
+            segment_index=position,
+            start_frame=position * 10,
+            end_frame=position * 10 + 9,
+            assignee_id=actor,
+            locked_by=actor,
+            lock_expires_at=datetime.now(timezone.utc) + timedelta(minutes=5),
+        )
+        for position in range(3)
+    ]
+    db_session.add_all(segments)
+    await db_session.flush()
+    segment = segments[index]
+    job.segment_id = segment.id
+    job.from_frame, job.to_frame = first, last
+    await db_session.flush()
+    _, captured = await _capture_input(db_session, actor, job)
+    claim = await _prepare_and_claim(db_session, actor, task_id, captured)
+    plan, entries = _plan_for_claim(claim, frame_count=30)
+    await _stage_times(db_session, claim, entries)
+    await _native_call(
+        db_session, "finish_video_tracker_input", _finish_request(claim, plan)
+    )
+    lock_request = _stage_lock_request(actor, job, captured, plan)
+    for operation, status in (
+        ("lock_video_tracker_input_for_stage", "running"),
+        ("lock_video_tracker_input_for_accept", "pending_review"),
+    ):
+        job.status = status
+        job.started_at = datetime.now(timezone.utc)
+        job.completed_at = datetime.now(timezone.utc)
+        job.staged_result = {"results": []}
+        await db_session.flush()
+        if not allowed:
+            await _expect_error(
+                db_session, operation, lock_request, "task_scope_changed"
+            )
+            continue
+        accepted = await _native_call(db_session, operation, lock_request)
+        assert accepted.input.plan.plan_digest == plan.plan_digest
+        segment.lock_expires_at = datetime.now(timezone.utc) - timedelta(seconds=1)
+        await db_session.flush()
+        # Collaboration always needs the current lock, including for managers.
+        if enabled:
+            await _expect_error(db_session, operation, lock_request, "task_busy")
+        segment.lock_expires_at = datetime.now(timezone.utc) + timedelta(minutes=5)
+        await db_session.flush()
+
+    if allowed and enabled:
+        project.video_collaboration = {"enabled": True, "overlap_frames": 1}
+        await db_session.flush()
+        await _expect_error(
+            db_session,
+            "lock_video_tracker_input_for_accept",
+            lock_request,
+            "task_scope_changed",
+        )
+
+
+async def test_tracker_pins_follow_late_attachment_reparenting_and_job_deletion(
+    db_session,
+):
+    actor, project, _, task_id, job = await _seed_tracker_job(db_session)
+    _, captured = await _capture_input(db_session, actor, job)
+    claim = await _prepare_and_claim(db_session, actor, task_id, captured)
+    plan, entries = _plan_for_claim(claim, frame_count=6)
+    await _stage_times(db_session, claim, entries)
+    await _native_call(
+        db_session, "finish_video_tracker_input", _finish_request(claim, plan)
+    )
+    job.status = "pending_review"
+    job.completed_at = datetime.now(timezone.utc)
+    job.staged_result = {"results": []}
+    await db_session.flush()
+    acceptance = await _native_call(
+        db_session,
+        "lock_video_tracker_input_for_accept",
+        _stage_lock_request(actor, job, captured, plan),
+    )
+
+    async def annotation(parent=None):
+        row = Annotation(
+            task_id=task_id,
+            project_id=project.id,
+            user_id=actor,
+            parent_annotation_id=parent.id if parent is not None else None,
+            annotation_type="bbox",
+            class_name="person",
+            geometry={"type": "bbox", "x": 1, "y": 2, "w": 3, "h": 4},
+        )
+        db_session.add(row)
+        await db_session.flush()
+        return row
+
+    parent = await annotation()
+    child = await annotation(parent)
+    leaf = await annotation(child)
+    reparented = await annotation()
+    await annotation(reparented)
+    sibling = await annotation()
+    job.status = "accepted"
+    job.prompt = {**job.prompt, "touched_annotation_ids": [str(parent.id)]}
+    await db_session.flush()
+    await _native_call(
+        db_session,
+        "attach_annotation_video_tracker_input_source",
+        c.AttachTrackerVideoInputSourceRequest(
+            actor_id=actor,
+            tracker_job_id=job.id,
+            annotation_id=parent.id,
+            evidence=acceptance.evidence,
+        ),
+    )
+
+    async def pin_count():
+        return await db_session.scalar(
+            text(
+                "SELECT count(*) FROM public.annotation_video_tracker_input_sources WHERE input_id=:input"
+            ),
+            {"input": captured.input_id},
+        )
+
+    assert await pin_count() == 3
+    await db_session.execute(
+        text("DELETE FROM public.video_tracker_jobs WHERE id=:job"), {"job": job.id}
+    )
+    reparented.parent_annotation_id = parent.id
+    await db_session.flush()
+    assert await pin_count() == 5
+    copied = await _native_call(
+        db_session,
+        "copy_annotation_video_tracker_input_sources",
+        c.CopyTrackerVideoInputSourcesRequest(
+            actor_id=actor,
+            source_annotation_id=parent.id,
+            target_annotation_id=sibling.id,
+        ),
+    )
+    assert copied.copied == 1 and await pin_count() == 6
+    with pytest.raises(DBAPIError, match="immutable"):
+        async with db_session.begin_nested():
+            await db_session.execute(
+                text(
+                    "UPDATE public.annotation_video_tracker_input_sources SET source_sha256=:sha WHERE annotation_id=:annotation"
+                ),
+                {"sha": "f" * 64, "annotation": parent.id},
+            )
+    await db_session.delete(leaf)
+    await db_session.flush()
+    assert await pin_count() == 5
+    retained = await _native_call(
+        db_session,
+        "video_tracker_input_referenced",
+        c.TrackerVideoInputReferenceRequest(input_id=captured.input_id),
+    )
+    assert retained.referenced

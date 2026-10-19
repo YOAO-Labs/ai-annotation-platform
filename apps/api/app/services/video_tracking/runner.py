@@ -1261,6 +1261,29 @@ async def _lock_tracker_input_for_accept(
     return accepted
 
 
+def _tracker_input_video_context(task: Task, acceptance, actor_id):
+    from app.schemas.task import VideoMetadata
+    from app.services.video_context import VideoContext
+
+    video = acceptance.input.plan.input.video
+    return VideoContext(
+        metadata=VideoMetadata(
+            frame_count=video.frame_count,
+            width=video.width,
+            height=video.height,
+            duration_ms=video.duration_ms,
+        ),
+        dataset_item_id=task.dataset_item_id,
+        task_id=task.id,
+        project_id=task.project_id,
+        actor_id=actor_id,
+        source_file_path="",
+        thumbnail_path=None,
+        source_width=video.width,
+        source_height=video.height,
+    )
+
+
 async def _attach_tracker_input_evidence(
     db: AsyncSession,
     *,
@@ -2146,7 +2169,14 @@ async def _decide_tracker_issue_region(
             "mask",
             override_manual_frames={frame_index} if override_manual else None,
         )
-        await validate_mask_geometry_for_task(db, task, annotation.geometry or {})
+        await validate_mask_geometry_for_task(
+            db,
+            task,
+            annotation.geometry or {},
+            video_context=_tracker_input_video_context(
+                task, tracker_acceptance, actor_id
+            ),
+        )
         await lock_raster_mask_references(
             db, annotation.geometry or {}, task_id=task.id
         )
@@ -2178,15 +2208,6 @@ async def _decide_tracker_issue_region(
         updated.pop("geometry_digest", None)
         updated.pop("candidate_key", None)
         remaining.append(_ensure_candidate_contract(updated))
-
-    if tracker_acceptance is not None and touched:
-        await _attach_tracker_input_evidence(
-            db,
-            actor_id=actor_id,
-            job=job,
-            evidence=tracker_acceptance.evidence,
-            annotations=[annotation],
-        )
 
     next_revision = int(job.revision or 1) + 1
     history[history_key] = {
@@ -2279,6 +2300,15 @@ async def _decide_tracker_issue_region(
             decision=decision,
         )
     )
+    if tracker_acceptance is not None and touched:
+        await _attach_tracker_input_evidence(
+            db,
+            actor_id=actor_id,
+            job=job,
+            evidence=tracker_acceptance.evidence,
+            annotations=[annotation],
+        )
+
     await db.flush()
     if commit:
         await db.commit()
@@ -2600,7 +2630,12 @@ async def decide_tracker_job(
         try:
             for annotation in touched:
                 await validate_mask_geometry_for_task(
-                    db, task, annotation.geometry or {}
+                    db,
+                    task,
+                    annotation.geometry or {},
+                    video_context=_tracker_input_video_context(
+                        task, tracker_acceptance, actor_id
+                    ),
                 )
             await lock_raster_mask_references(
                 db,
@@ -2610,15 +2645,6 @@ async def decide_tracker_job(
         except ValueError:
             await db.rollback()
             raise
-
-    if tracker_acceptance is not None and touched:
-        await _attach_tracker_input_evidence(
-            db,
-            actor_id=actor_id,
-            job=job,
-            evidence=tracker_acceptance.evidence,
-            annotations=touched,
-        )
 
     next_revision = int(job.revision or 1) + 1
     job._review_replayed = False
@@ -2700,6 +2726,15 @@ async def decide_tracker_job(
             else VideoTrackerJobStatus.DISCARDED.value
         )
         job.staged_result = None
+    if tracker_acceptance is not None and touched:
+        await _attach_tracker_input_evidence(
+            db,
+            actor_id=actor_id,
+            job=job,
+            evidence=tracker_acceptance.evidence,
+            annotations=touched,
+        )
+
     await db.flush()
     if commit:
         await db.commit()
@@ -2826,10 +2861,22 @@ async def accept_tracker_job(
     )
     try:
         for src in source_map.values():
-            await validate_mask_geometry_for_task(db, task, src.geometry or {})
+            await validate_mask_geometry_for_task(
+                db,
+                task,
+                src.geometry or {},
+                video_context=_tracker_input_video_context(
+                    task, tracker_acceptance, actor_id
+                ),
+            )
         for created_annotation in created:
             await validate_mask_geometry_for_task(
-                db, task, created_annotation.geometry or {}
+                db,
+                task,
+                created_annotation.geometry or {},
+                video_context=_tracker_input_video_context(
+                    task, tracker_acceptance, actor_id
+                ),
             )
         await lock_raster_mask_references(
             db,
@@ -2850,14 +2897,6 @@ async def accept_tracker_job(
         effective_actor,
         nowait=True,
     )
-    if source_map or created:
-        await _attach_tracker_input_evidence(
-            db,
-            actor_id=actor_id,
-            job=job,
-            evidence=tracker_acceptance.evidence,
-            annotations=[*source_map.values(), *created],
-        )
     # v0.22.2 · M · 记录本 job 触及的轨迹 id (回填源 + 新建) 供前端刷新/审计。落 job.prompt JSONB
     # (免 DB 迁移); accept 后 job 终态, prompt 不再被 runner 读, 写此键安全。JSONB 须重赋新 dict
     # 才能让 SQLAlchemy 检测到脏 (同一 dict 引用 in-place 改不触发 UPDATE)。
@@ -2869,6 +2908,14 @@ async def accept_tracker_job(
     # Accepted refs are now reachable from annotations; the candidate copy no
     # longer needs a grace period. Discard/failure likewise clear immediately.
     job.staged_result = None
+    if source_map or created:
+        await _attach_tracker_input_evidence(
+            db,
+            actor_id=actor_id,
+            job=job,
+            evidence=tracker_acceptance.evidence,
+            annotations=[*source_map.values(), *created],
+        )
     await db.commit()
     await db.refresh(job)
     await publisher(job.event_channel, _event(job, "job_accepted"))
@@ -3667,12 +3714,25 @@ async def run_tracker_job(
         if context_boundaries and job.staged_result is not None:
             job.staged_result["tracker_context_boundaries"] = context_boundaries
         await lock_raster_mask_references(db, job.staged_result)
-        job.status = VideoTrackerJobStatus.PENDING_REVIEW.value
-        job.completed_at = _now()
+        cancelled = (
+            job.cancel_requested_at is not None
+            or job.status == VideoTrackerJobStatus.CANCELLED.value
+        )
+        if cancelled and is_correction:
+            job.staged_result = None
+        job.status = (
+            VideoTrackerJobStatus.CANCELLED.value
+            if cancelled
+            else VideoTrackerJobStatus.PENDING_REVIEW.value
+        )
+        job.completed_at = job.completed_at or _now()
         await db.commit()
         await db.refresh(job)
-        await publisher(job.event_channel, _event(job, "job_completed"))
-        route_succeeded = True
+        await publisher(
+            job.event_channel,
+            _event(job, "job_cancelled" if cancelled else "job_completed"),
+        )
+        route_succeeded = not cancelled
         return job
     except Exception as exc:
         safe_message = _safe_tracker_error_message(exc)

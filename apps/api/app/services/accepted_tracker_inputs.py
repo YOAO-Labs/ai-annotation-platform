@@ -12,6 +12,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from aap_assets_video_inputs import tracker as t
+from aap_assets_video_inputs import tracker_http
 from aap_assets_video_inputs import execution as video_execution
 from app.config import settings
 
@@ -163,7 +164,7 @@ class TrackerVideoInputGateway:
     ) -> t.TrackerVideoInputStatus:
         result = await self.provider.input(request)
         try:
-            t.require_scope("read_video_tracker_input", request, result)
+            tracker_http.require_scope("input", request, result)
         except (ValueError, TypeError, AttributeError):
             raise t.TrackerFailure("invalid_response") from None
         return result
@@ -173,7 +174,7 @@ class TrackerVideoInputGateway:
     ) -> t.TrackerVideoInputStatus:
         result = await self.provider.prepare(request)
         try:
-            t.require_scope("prepare_video_tracker_input", request, result)
+            tracker_http.require_scope("prepare", request, result)
         except (ValueError, TypeError, AttributeError):
             raise t.TrackerFailure("invalid_response") from None
         if (
@@ -209,7 +210,7 @@ class TrackerVideoInputGateway:
     ) -> t.TrackerVideoSourceReference:
         result = await self.provider.reference(request)
         try:
-            t.require_scope("reference_video_tracker_source", request, result)
+            tracker_http.require_scope("reference", request, result)
         except (ValueError, TypeError, AttributeError):
             raise t.TrackerFailure("invalid_response") from None
         if (

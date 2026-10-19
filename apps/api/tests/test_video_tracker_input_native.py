@@ -232,22 +232,36 @@ async def test_tracker_read_ignores_workflow_version_but_fences_task_aba_and_tim
             "task": task,
         },
     )
-    read = c.parse_native(
-        "read_video_tracker_input",
-        read_request,
+    _error(
         await _read(db_session, actor, job.id, task),
+        "source_changed",
+        c.TRACKER_SCHEMA,
     )
-    assert read.record.input_id == captured.input_id
+    assert (
+        await db_session.scalar(
+            text("SELECT media_source_generation FROM public.tasks WHERE id=:task"),
+            {"task": task},
+        )
+        > task_facts.media_source_generation
+    )
 
+    next_actor, _, next_item, next_task, next_job = await _seed_tracker_job(db_session)
+    c.parse_labeling_native(
+        "capture_video_tracker_input",
+        c.TrackerVideoInputRequest(
+            actor_id=next_actor, tracker_job_id=next_job.id, grid_step=2
+        ),
+        await _capture(db_session, next_actor, next_job.id),
+    )
     await db_session.execute(
         text(
             "UPDATE public.dataset_items SET media_timetable_revision="
             "media_timetable_revision+1 WHERE id=:item"
         ),
-        {"item": item},
+        {"item": next_item},
     )
     _error(
-        await _read(db_session, actor, job.id, task),
+        await _read(db_session, next_actor, next_job.id, next_task),
         "source_changed",
         c.TRACKER_SCHEMA,
     )

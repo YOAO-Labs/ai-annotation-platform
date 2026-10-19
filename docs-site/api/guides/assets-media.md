@@ -56,7 +56,25 @@ Task 摘要明确区分 `missing`、`stale`、`inconsistent` 与生成状态，�
 
 图片回填冻结选择范围和截止时间，按有界页分两阶段推进：先读取候选，锁外观察对象，再原子比较来源、受理子作业并提交游标回执。来源变化只跳过相应条目，存储暂时不可用会保留已受理工作。清理保留迟到写入的重扫责任；删除仍被相机、轨迹或视频执行记录引用的素材返回 409，先在项目内解除引用。
 
-一般 Blob、章节和运维 reset 仍使用各自既有路径。跟踪/推理已接受作业还需要冻结来源快照的受理迁移；不能直接改用当前素材地址而改变已接受作业的输入。完整模块状态与本地验收证据见[独立部署台账](/dev/concepts/module-deployment)、[ADR-0105](/dev/adr/0105-independent-video-media-owner)及 [ADR-0106](/dev/adr/0106-independent-image-media-owner)。
+一般 Blob、章节和运维 reset 仍使用各自既有路径；其余推理消费方继续按各自输入迁移。完整模块状态与本地验收证据见[独立部署台账](/dev/concepts/module-deployment)、[ADR-0105](/dev/adr/0105-independent-video-media-owner)及 [ADR-0106](/dev/adr/0106-independent-image-media-owner)。
+
+## 视频跟踪的原片输入
+
+跟踪、范围传播和 Mask 修正使用 Labeling 的规范 `video_tracker_jobs`。创建作业时同事务捕获执行快照，通用作业摘要不参与输入授权。私有信封为 `aap-assets-video-tracker-control/v1`，与既有 Media 地址、Bearer token、数据库池和输入桶共用装配。
+
+| 控制入口                                  | 请求与结果                                                            |
+| ----------------------------------------- | --------------------------------------------------------------------- |
+| `POST /v1/video-tracker-inputs/input`     | 当前 actor、tracker Job、Task UUID → 状态、固定执行事实及就绪计划摘要 |
+| `POST /v1/video-tracker-inputs/prepare`   | 上述范围、Input UUID、request digest → 同一输入的准备状态             |
+| `POST /v1/video-tracker-inputs/reference` | 准备范围与 plan digest → 状态、精确来源版本、短期 URL 与有效期        |
+
+每次请求最多 64 KiB，响应最多 2 MiB，链接有效期最多一小时。公开控制值不含原始路径、对象 key、内部工作记录或租约；引用的 `source_version` 保存 VersionId、ETag、字节数与 SHA。调用方核对返回的作业、Task、Input、request／plan digest 及 URL 中的版本，不把这些身份值当成权限令牌。
+
+`prepare` 在 native 事务外 HEAD 当前捕获来源，随后登记观察；Worker 使用既有原片执行器物化。首次未知对象身份在成功 HEAD 时固定字节身份，不宣称 HTTP 提交瞬间已经取得未知历史版本。准备未完成时不启动推理；每个窗口重新签发同一保留版本。当前来源变化或精确副本缺失会失败关闭，远端故障不切回当前 Task URL。
+
+新引用仅供当前仍有效的 queued/running 作业。取消后停止新窗口；普通跟踪已完成的部分候选仍可审阅，修正取消会丢弃结果。暂存和采纳的来源围栏、原片级 Annotation pin 及保留查询是 Labeling 专属 native 能力，不作为 HTTP 操作。当前审核者可与原发起者不同，仍需满足现有权限、Task、分段与标注版本条件。
+
+升级排空、Worker 选择与精确 grants 见 `DEV.md`；来源快照、保留和回退责任见 [ADR-0110](/dev/adr/0110-retained-tracker-video-inputs)。这条专用协议不扩大旧批量预标的 frame-only 准入。
 
 ## 已受理图片输入
 

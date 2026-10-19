@@ -72,6 +72,13 @@ async def test_tracker_owners_keep_private_rows_and_cross_owner_reads_narrow(
             ),
             {"role": "assets_code", "table": "public." + table},
         ), table
+        assert not await db_session.scalar(
+            text(
+                "SELECT pg_catalog.has_any_column_privilege("
+                ":role,:table,'SELECT,INSERT,UPDATE,REFERENCES')"
+            ),
+            {"role": "asset_media_control_client", "table": "public." + table},
+        ), table
     for table in (
         "asset_accepted_video_inputs",
         "asset_accepted_video_input_attempts",
@@ -135,6 +142,26 @@ async def test_tracker_owners_keep_private_rows_and_cross_owner_reads_narrow(
 
 
 async def test_labeling_table_grants_are_scoped_to_its_native_receipts(db_session):
+    for column, privilege, expected in (
+        ("id", "UPDATE", True),
+        ("status", "SELECT", True),
+        ("status", "UPDATE", False),
+        ("event_channel", "SELECT", False),
+    ):
+        assert (
+            await db_session.scalar(
+                text(
+                    "SELECT pg_catalog.has_column_privilege(:role,:table,:column,:privilege)"
+                ),
+                {
+                    "role": "labeling_code",
+                    "table": "public.video_tracker_jobs",
+                    "column": column,
+                    "privilege": privilege,
+                },
+            )
+            is expected
+        ), (column, privilege)
     grants = (
         ("video_tracker_input_scopes", "SELECT,INSERT,UPDATE"),
         ("annotation_video_tracker_input_sources", "SELECT,INSERT"),
@@ -155,10 +182,32 @@ async def test_labeling_table_grants_are_scoped_to_its_native_receipts(db_sessio
             ),
             {"role": "assets_code", "table": "public." + table},
         ), table
-        assert not await db_session.scalar(
+
+
+async def test_collaboration_policy_is_a_workspace_owned_labeling_projection(
+    db_session,
+):
+    signature = "aap_workspace_v1.read_media_video_collaboration_policy(uuid)"
+    assert (
+        await db_session.scalar(
             text(
-                "SELECT pg_catalog.has_any_column_privilege("
-                ":role,:table,'SELECT,INSERT,UPDATE,REFERENCES')"
+                "SELECT pg_catalog.pg_get_userbyid(proc.proowner) FROM pg_catalog.pg_proc AS proc "
+                "WHERE proc.oid=CAST(:signature AS regprocedure)"
             ),
-            {"role": "asset_media_control_client", "table": "public." + table},
-        ), table
+            {"signature": signature},
+        )
+        == "workspace_code"
+    )
+    for role, expected in (
+        ("labeling_code", True),
+        ("assets_code", False),
+        ("asset_media_control_client", False),
+        ("asset_media_worker_client", False),
+    ):
+        assert await _function_allowed(db_session, role, signature) is expected
+    assert not await db_session.scalar(
+        text(
+            "SELECT pg_catalog.has_column_privilege("
+            "'labeling_code','public.projects','video_collaboration','SELECT')"
+        )
+    )

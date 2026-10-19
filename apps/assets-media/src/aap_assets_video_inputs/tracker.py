@@ -40,6 +40,7 @@ HTTP_PREFIX = "/v1/video-tracker-inputs"
 REQUEST_BYTES = 64 * 1024
 REPLY_BYTES = 2 * 1024 * 1024
 URL_EXPIRY_SECONDS = 3600
+WORKSPACE_POLICY_SCHEMA = "aap-workspace-video-collaboration-policy/v1"
 
 JobKind = Literal["tracking", "correction"]
 Direction = Literal["forward", "backward", "bidirectional"]
@@ -57,6 +58,12 @@ class TrackerFailure(Exception):
 
 
 TrackerInputFailure = TrackerFailure
+
+
+class MediaVideoCollaborationPolicy(Value):
+    project_id: UUID
+    enabled: StrictBool
+    overlap_frames: Annotated[StrictInt, Field(ge=0)]
 
 
 def _json_bytes(value: Any) -> bytes:
@@ -800,6 +807,7 @@ def require_scope(operation: str, request: Value, result: Value) -> None:
             or result.input.plan_digest != request.plan_digest
         ):
             raise ValueError("tracker source reference escaped its accepted scope")
+        return
     if record is not None:
         scope = record.scope
         if isinstance(
@@ -953,6 +961,7 @@ def contract_document() -> dict[str, Any]:
         TrackerVideoInputPin,
         TrackerVideoInputPins,
         TrackerVideoInputReferenceStatus,
+        MediaVideoCollaborationPolicy,
     ):
         models[model.__name__] = model
     definitions: dict[str, Any] = {}
@@ -994,5 +1003,15 @@ def contract_document() -> dict[str, Any]:
             "reply_bytes": REPLY_BYTES,
             "timebase_page_size": e.PAGE_SIZE,
             "url_expiry_seconds": URL_EXPIRY_SECONDS,
+        },
+        "x-workspace-projections": {
+            "read_media_video_collaboration_policy": {
+                "signature": "aap_workspace_v1.read_media_video_collaboration_policy(uuid)",
+                "schema": WORKSPACE_POLICY_SCHEMA,
+                "result": "MediaVideoCollaborationPolicy",
+                "owner": "workspace",
+                "caller": "labeling",
+                "requires": "current project access locked in the same transaction",
+            }
         },
     }

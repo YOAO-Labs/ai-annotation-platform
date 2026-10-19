@@ -380,15 +380,15 @@ GRANT SELECT (
     target_tool_unit_id, created_by, status, job_kind, track_id_snapshot,
     correction_frame, model_key, direction, from_frame, to_frame, prompt,
     staged_result, revision, cancel_requested_at, started_at, created_at, completed_at
-) ON public.video_tracker_jobs TO :"labeling_owner";
+), UPDATE (id) ON public.video_tracker_jobs TO :"labeling_owner";
 GRANT SELECT (
-    id, task_id, project_id, geometry, track_id, video_segment_id, is_active,
+    id, task_id, project_id, parent_annotation_id, geometry, track_id, video_segment_id, is_active,
     was_cancelled, version
 ) ON public.annotations TO :"labeling_owner";
 GRANT SELECT (
     id, dataset_item_id, start_frame, end_frame, segment_index, status,
     assignee_id, locked_by, lock_expires_at
-) ON public.video_segments TO :"labeling_owner";
+), UPDATE (id) ON public.video_segments TO :"labeling_owner";
 GRANT INSERT (
     id, project_id, dataset_item_id, display_id, file_name, file_path, file_type,
     tags, status, assignee_is_override, is_labeled, overlap, total_annotations,
@@ -1137,6 +1137,7 @@ GRANT EXECUTE ON FUNCTION aap_workspace_v1.read_spatial_project_access(uuid,uuid
 GRANT EXECUTE ON FUNCTION
     aap_workspace_v1.read_media_project_access(uuid,uuid),
     aap_workspace_v1.lock_media_project_access(uuid,uuid),
+    aap_workspace_v1.read_media_video_collaboration_policy(uuid),
     aap_workspace_v1.read_media_managed_projects(uuid,uuid[])
     TO :"labeling_owner";
 GRANT EXECUTE ON FUNCTION

@@ -12,6 +12,7 @@ import uuid
 
 from aap_assets_video_inputs import tracker as t
 from app.db.models.annotation import Annotation
+from app.db.models.dataset import DatasetItem
 from app.db.models.task import Task
 from app.db.models.video_tracker_job import VideoTrackerJob
 from app.services import accepted_tracker_inputs
@@ -53,6 +54,10 @@ def seed_staged_tracker_input(job, task, source_instance_map=None):
 
 
 def create_tracker_input_owner_fakes(db_session, monkeypatch):
+    # Import before patching the service so the worker never retains a bound
+    # method belonging to a previous test's closed session.
+    from app.workers import video_tracker as worker
+
     class Ports:
         def __init__(self):
             self.status = None
@@ -70,6 +75,14 @@ def create_tracker_input_owner_fakes(db_session, monkeypatch):
             task = await db_session.get(Task, job.task_id)
             if task is None:
                 raise AssertionError("tracker unit test Task disappeared")
+            item = await db_session.get(DatasetItem, task.dataset_item_id)
+            video = ((item.metadata_ or {}).get("video") or {}) if item else {}
+            frozen_video = SimpleNamespace(
+                frame_count=video.get("frame_count", 90),
+                width=(item.width if item else None) or video.get("width", 3),
+                height=(item.height if item else None) or video.get("height", 2),
+                duration_ms=video.get("duration_ms", 3000),
+            )
             prompt = dict(job.prompt or {})
             prompt_snapshot = {
                 key: value
@@ -185,7 +198,11 @@ def create_tracker_input_owner_fakes(db_session, monkeypatch):
                 prompt_digest=_DIGEST,
             )
             self.acceptance = SimpleNamespace(
-                input=SimpleNamespace(scope=scope), evidence=evidence
+                input=SimpleNamespace(
+                    scope=scope,
+                    plan=SimpleNamespace(input=SimpleNamespace(video=frozen_video)),
+                ),
+                evidence=evidence,
             )
             return job
 
@@ -232,6 +249,7 @@ def create_tracker_input_owner_fakes(db_session, monkeypatch):
     monkeypatch.setattr(
         accepted_tracker_inputs, "prepare_tracker_video_input", ports.prepare
     )
+    monkeypatch.setattr(worker, "prepare_tracker_video_input", ports.prepare)
     monkeypatch.setattr(accepted_tracker_inputs, "tracker_video_input_gateway", gateway)
     monkeypatch.setattr(
         accepted_tracker_inputs, "lock_video_tracker_input_for_stage", ports.lock_stage

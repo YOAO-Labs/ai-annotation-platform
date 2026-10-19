@@ -146,8 +146,9 @@ async def test_tracker_worker_completes_mock_bbox_job_and_writes_video_track(
     assert annotation.geometry["keyframes"][1]["source"] == "prediction"
 
 
-async def test_stage_source_busy_retries_held_results_without_reinference(
-    db_session, super_admin, monkeypatch, tracker_input_owner_fakes
+@pytest.mark.parametrize("fence_event", ["busy", "cancel"])
+async def test_stage_fence_retries_held_results_and_preserves_cancellation(
+    db_session, super_admin, monkeypatch, tracker_input_owner_fakes, fence_event
 ):
     from aap_assets_video_inputs.tracker import TrackerFailure
     from app.services.video_tracking import runner
@@ -210,8 +211,12 @@ async def test_stage_source_busy_retries_held_results_without_reinference(
     async def busy_then_success():
         nonlocal stage_attempts
         stage_attempts += 1
-        if stage_attempts == 1:
+        if fence_event == "busy" and stage_attempts == 1:
             raise TrackerFailure("source_busy")
+        if fence_event == "cancel":
+            job.status = VideoTrackerJobStatus.CANCELLED.value
+            job.cancel_requested_at = datetime.now(timezone.utc)
+            await db_session.flush()
         return tracker_input_owner_fakes.acceptance
 
     tracker_input_owner_fakes.stage_lock_impl = busy_then_success
@@ -222,9 +227,9 @@ async def test_stage_source_busy_retries_held_results_without_reinference(
     await run_tracker_job(db_session, job.id, publisher=_noop)
     await db_session.refresh(job)
 
-    assert job.status == "pending_review"
+    assert job.status == ("pending_review" if fence_event == "busy" else "cancelled")
     assert adapter.calls == 1
-    assert stage_attempts == 2
+    assert stage_attempts == (2 if fence_event == "busy" else 1)
     assert job.staged_result["tracker_input_evidence"]["input_id"] == str(
         tracker_input_owner_fakes.acceptance.evidence.input_id
     )
@@ -277,6 +282,8 @@ async def test_tracker_http_error_redacts_signed_source_url_from_logs_and_job(
     async def collect(_channel: str, payload: dict) -> None:
         events.append(payload)
 
+    monkeypatch.setattr(runner.log, "disabled", False)
+    monkeypatch.setattr(runner.log, "propagate", True)
     with caplog.at_level(logging.ERROR, logger="app.services.video_tracking.runner"):
         await run_tracker_job(db_session, job.id, publisher=collect)
 
@@ -1406,6 +1413,8 @@ def test_stage_tracker_results_rejects_oversized_payload_atomically(monkeypatch)
             ],
             1,
             "bbox",
+            tracker_input_evidence={},
+            source_instance_map={},
         )
     assert job.staged_result is None
 
