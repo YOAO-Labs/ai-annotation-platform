@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.concurrency import run_in_threadpool
 
 from app.deps import get_current_user, get_db, require_roles
 from app.db.enums import PlatformRole
@@ -77,7 +78,9 @@ VideoAssetKind = Literal["probe", "poster", "frame_timetable", "chunk", "frame"]
 @router.get("/health")
 async def storage_health(_: User = Depends(get_current_user)):
     try:
-        storage_service.client.head_bucket(Bucket=storage_service.bucket)
+        await run_in_threadpool(
+            storage_service.client.head_bucket, Bucket=storage_service.bucket
+        )
         return {"status": "ok", "bucket": storage_service.bucket}
     except Exception as e:
         raise HTTPException(status_code=503, detail=str(e))
@@ -95,7 +98,7 @@ async def storage_buckets(_: User = Depends(get_current_user)):
     }
     items: list[BucketSummary] = []
     for b, role in bucket_roles.items():
-        summary = storage_service.summarize_bucket(b)
+        summary = await run_in_threadpool(storage_service.summarize_bucket, b)
         items.append(BucketSummary(role=role, **summary))
 
     return BucketsResponse(

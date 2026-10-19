@@ -1,5 +1,7 @@
+import { randomId } from "@/utils/id";
+import { CopyableError } from "@/components/ui/CopyableError";
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
-import { Link, Navigate, Outlet, useParams, useSearchParams } from "react-router-dom";
+import { Link, Navigate, Outlet, useParams, useSearchParams, useLocation } from "react-router-dom";
 import { ArrowLeft, Database, FlaskConical, GitBranch, Layers, Settings2 } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/shadcn/ui/tabs";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -19,12 +21,15 @@ import { CopyValueButton } from "@/components/ui/CopyValueButton";
 import { Modal } from "@/components/ui/Modal";
 import { confirmDialog } from "@/components/ui/decisionDialog";
 import { ProjectTrainingDataVersions } from "./ProjectTrainingDataVersions";
+import { ProjectLearningSectionHeader } from "./ProjectLearningSectionHeader";
+import { cn } from "@/lib/utils";
 import { TrainingError } from "../Training/TrainingFeedback";
 import { ProjectTrainingPanel } from "./ProjectTrainingPanel";
 import { lineageReturn } from "@/api/modelLineage";
 import { ProjectModelsPanel } from "./ProjectModelsPanel";
 import { ProjectLearningPolicyPanel } from "./ProjectLearningPolicyPanel";
-import { TrainingDatasetInsights } from "./TrainingDatasetInsights";
+import { useDebouncedValue } from "@/hooks/useDebouncedValue";
+import { useTrainingListFilters, trainingRecordPath } from "../Training/TrainingListControls";
 import { useAuthStore } from "@/stores/authStore";
 import { segmentationTask, trainingTaskLabel } from "../Training/trainingPresentation";
 import { newTrainingVersionName } from "../Training/trainingNames";
@@ -62,11 +67,12 @@ export function ProjectLearningPage() {
   const { id = "" } = useParams();
   const createButtonRef = useRef<HTMLButtonElement>(null);
   const [params] = useSearchParams();
+  const location = useLocation();
   const userId = useAuthStore((state) => state.user?.id);
   const token = useAuthStore((state) => state.token);
   const revision = useTrainingSessionRevision();
   const owner = useMemo(
-    () => ({ id, userId, token, revision, key: crypto.randomUUID() }),
+    () => ({ id, userId, token, revision, key: randomId() }),
     [id, userId, token, revision],
   );
   if (params.get("new") === "1") {
@@ -75,6 +81,18 @@ export function ProjectLearningPage() {
     if (framework === "ultralytics" || framework === "libreyolo") next.set("framework", framework);
     if (params.get("run")) next.set("return_run", params.get("run")!);
     return <Navigate replace to={`/projects/${id}/learning/new${next.size ? `?${next}` : ""}`} />;
+  }
+  if (!location.pathname.endsWith("/new")) {
+    const activeTab = params.get("tab");
+    if (activeTab === "models" && params.get("model"))
+      return (
+        <Navigate replace to={trainingRecordPath(id, "models", params.get("model")!, params)} />
+      );
+    const kind = activeTab === "data" ? "data" : "experiments";
+    const selectedId =
+      kind === "data" ? params.get("dataset") : (params.get("run") ?? params.get("return_run"));
+    if (selectedId && (!activeTab || activeTab === "data" || activeTab === "training"))
+      return <Navigate replace to={trainingRecordPath(id, kind, selectedId, params)} />;
   }
   return (
     <>
@@ -150,7 +168,6 @@ function ProjectLearningContent({
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
   const [diagnosticsPage, setDiagnosticsPage] = useState(0);
   const taskChosen = useRef(params.has("data_task") || params.has("dataset"));
-  const autoSelectPending = useRef(!params.has("dataset"));
   const [mode, setMode] = useState<"reviewed" | "manager_confirmed">(
     initialBody?.mode ?? "reviewed",
   );
@@ -159,12 +176,12 @@ function ProjectLearningContent({
   const [selected, setSelected] = useState<string[]>(initialBody?.task_ids ?? []);
   const [negatives, setNegatives] = useState<string[]>(initialBody?.confirmed_negative_ids ?? []);
   const [taskPage, setTaskPage] = useState(0);
-  const [page, setPage] = useState(0);
+  const datasetList = useTrainingListFilters("data_list");
+  const { page, setPage } = datasetList;
+  const datasetSearch = useDebouncedValue(datasetList.filters.q);
   const [parentPage, setParentPage] = useState(0);
-  const detailId = params.get("dataset") ?? "";
   const setDetailId = (value: string) => {
     if (!owns()) return;
-    autoSelectPending.current = false;
     setParams((previous) => {
       const next = new URLSearchParams(previous);
       if (value) next.set("dataset", value);
@@ -182,7 +199,7 @@ function ProjectLearningContent({
   const [error, setError] = useState("");
   const [pendingCreate, setPendingCreate] = useState<TrainingDatasetCreate | null>(initialBody);
   const [storageError, setStorageError] = useState(initialRequest.error);
-  const requestId = useRef(initialBody?.request_id ?? crypto.randomUUID());
+  const requestId = useRef(initialBody?.request_id ?? randomId());
   const checkedDigest = useRef<string | null>(null);
   const selectionEpoch = useRef(0);
   const issueTaskOrdinals = useMemo(() => {
@@ -228,9 +245,33 @@ function ProjectLearningContent({
     [trainingTask, batchId, parentId, mode, seed, fraction, selected, negatives],
   );
   const versions = useQuery({
-    queryKey: ["training-datasets", projectId, scope, browseTask, page],
+    queryKey: [
+      "training-datasets",
+      projectId,
+      scope,
+      browseTask,
+      page,
+      datasetSearch,
+      datasetList.filters.status,
+      datasetList.filters.created_from,
+      datasetList.filters.created_to,
+    ],
     queryFn: ({ signal }) =>
-      trainingDatasetsApi.list(projectId, page * 20, undefined, { signal }, { task: browseTask }),
+      trainingDatasetsApi.list(
+        projectId,
+        page * 20,
+        undefined,
+        { signal },
+        {
+          task: browseTask,
+          ...(datasetSearch && { q: datasetSearch }),
+          ...(datasetList.filters.status && { status: datasetList.filters.status }),
+          ...(datasetList.filters.created_from && {
+            created_from: datasetList.filters.created_from,
+          }),
+          ...(datasetList.filters.created_to && { created_to: datasetList.filters.created_to }),
+        },
+      ),
     enabled: tab === "data",
     refetchInterval: (query) =>
       tab === "data" &&
@@ -289,13 +330,6 @@ function ProjectLearningContent({
       }),
     enabled: tab === "data" && mode === "manager_confirmed",
   });
-  const detail = useQuery({
-    queryKey: ["training-dataset", projectId, scope, detailId],
-    queryFn: ({ signal }) => trainingDatasetsApi.getSummary(projectId, detailId, { signal }),
-    enabled: tab === "data" && !!detailId,
-    refetchInterval: (query) =>
-      query.state.data && ["pending", "running"].includes(query.state.data.status) ? 2000 : false,
-  });
   const refresh = () => {
     void client.invalidateQueries({ queryKey: ["task-datasets", projectId] });
     void client.invalidateQueries({ queryKey: ["training-datasets", projectId] });
@@ -313,7 +347,7 @@ function ProjectLearningContent({
     onSuccess: (value, _variables, epoch) => {
       if (!owns() || epoch !== selectionEpoch.current) return;
       if (checkedDigest.current && checkedDigest.current !== value.digest)
-        requestId.current = crypto.randomUUID();
+        requestId.current = randomId();
       checkedDigest.current = value.digest;
       setReport(value);
       setError("");
@@ -352,7 +386,7 @@ function ProjectLearningContent({
           pendingCreate: null,
           report: null,
           error: "",
-          requestId: crypto.randomUUID(),
+          requestId: randomId(),
           checkedDigest: null,
         });
       setPendingCreate((current) => (current?.request_id === body.request_id ? null : current));
@@ -361,7 +395,7 @@ function ProjectLearningContent({
       setCreateOpen(false);
       setName(newTrainingVersionName());
       setReport(null);
-      requestId.current = crypto.randomUUID();
+      requestId.current = randomId();
       checkedDigest.current = null;
     },
     onError: (reason: Error, body, epoch) => {
@@ -435,7 +469,6 @@ function ProjectLearningContent({
         if (!owns()) return;
         await trainingDatasetsApi.remove(projectId, version.id);
         if (!owns()) return;
-        autoSelectPending.current = false;
         setParams((previous) => {
           if (previous.get("dataset") !== version.id) return previous;
           const next = new URLSearchParams(previous);
@@ -461,7 +494,7 @@ function ProjectLearningContent({
     if (!owns() || busy || currentDraft.current.pendingCreate || storageError) return;
     update();
     selectionEpoch.current += 1;
-    requestId.current = crypto.randomUUID();
+    requestId.current = randomId();
     checkedDigest.current = null;
     setReport(null);
     setError("");
@@ -507,9 +540,8 @@ function ProjectLearningContent({
       setError(draft?.error ?? "");
       setPendingCreate(draft?.pendingCreate ?? null);
       setStorageError(draft?.storageError ?? stored.error);
-      requestId.current = draft?.requestId ?? crypto.randomUUID();
+      requestId.current = draft?.requestId ?? randomId();
       checkedDigest.current = draft?.checkedDigest ?? null;
-      setPage(0);
       setParentPage(0);
       setTaskPage(0);
     },
@@ -517,9 +549,7 @@ function ProjectLearningContent({
   );
   const chooseTask = (task: DatasetTask) => {
     taskChosen.current = true;
-    autoSelectPending.current = true;
     setBrowseTask(task);
-    setPage(0);
     if (task === "detect" || task === "segment") activateTask(task);
     else {
       selectionEpoch.current += 1;
@@ -528,6 +558,7 @@ function ProjectLearningContent({
     setParams((previous) => {
       const next = new URLSearchParams(previous);
       next.set("data_task", task);
+      next.delete("data_list_page");
       [
         "dataset",
         "data_baseline",
@@ -578,7 +609,7 @@ function ProjectLearningContent({
     }
   }, [project.data, segmentationEnabled, detectionEnabled, activateTask, taskDatasets.data]);
   useEffect(() => {
-    const rawTask = detailId ? detail.data?.task : params.get("data_task");
+    const rawTask = params.get("data_task");
     if (!isDatasetTask(rawTask) || rawTask === browseTask) return;
     taskChosen.current = true;
     setBrowseTask(rawTask);
@@ -587,51 +618,7 @@ function ProjectLearningContent({
       selectionEpoch.current += 1;
       setCreateOpen(false);
     }
-  }, [detail.data?.task, detailId, params, browseTask, activateTask]);
-  useEffect(() => {
-    const expectedTask =
-      params.get("data_task") ??
-      (detectionEnabled
-        ? "detect"
-        : segmentationEnabled
-          ? "segment"
-          : taskDatasets.data?.items[0]?.task);
-    if (
-      !autoSelectPending.current ||
-      tab !== "data" ||
-      detailId ||
-      !project.data ||
-      browseTask !== expectedTask ||
-      !versions.isSuccess ||
-      !versions.data.items[0] ||
-      !owns()
-    )
-      return;
-    autoSelectPending.current = false;
-    const versionId = versions.data.items[0].id;
-    setParams(
-      (previous) => {
-        if (previous.has("dataset")) return previous;
-        const next = new URLSearchParams(previous);
-        next.set("dataset", versionId);
-        return next;
-      },
-      { replace: true },
-    );
-  }, [
-    tab,
-    detailId,
-    params,
-    browseTask,
-    detectionEnabled,
-    segmentationEnabled,
-    taskDatasets.data,
-    project.data,
-    versions.isSuccess,
-    versions.data,
-    owns,
-    setParams,
-  ]);
+  }, [params, browseTask, activateTask]);
 
   return (
     <PageContainer>
@@ -640,7 +627,7 @@ function ProjectLearningContent({
           className="mb-4 inline-block text-xs text-primary hover:underline"
           to={lineageReturn(projectId, params.get("returnTo"))}
         >
-          返回模型谱系
+          返回来源与使用记录
         </Link>
       )}
       <header className="mb-5 grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3">
@@ -715,57 +702,58 @@ function ProjectLearningContent({
               role="alert"
               className="mb-4 rounded-md bg-status-danger-soft p-3 text-sm text-status-danger"
             >
-              {error}
+              <CopyableError message={error} />
             </p>
           )}
-          <header className="mb-3 flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <h2 className="text-sm font-semibold">项目衍生数据集</h2>
-              <p className="mt-1 text-xs text-muted-foreground">
-                按任务管理冻结版本，检查数据分布与迭代变化。
-              </p>
-            </div>
-            <div className="flex flex-wrap items-end gap-3">
-              <label className="flex shrink-0 items-center gap-2 whitespace-nowrap text-xs font-medium">
-                数据集任务
-                <select
-                  className={inputClass}
-                  value={browseTask}
-                  disabled={busy}
-                  onChange={(event) => chooseTask(event.target.value as DatasetTask)}
+          <ProjectLearningSectionHeader
+            title="项目衍生数据集"
+            description="按任务管理冻结版本，检查数据分布与迭代变化。"
+            actions={
+              <>
+                <label className="flex shrink-0 items-center gap-2 whitespace-nowrap text-xs font-medium">
+                  数据集任务
+                  <select
+                    className={cn(inputClass, "h-8 py-0")}
+                    value={browseTask}
+                    disabled={busy}
+                    onChange={(event) => chooseTask(event.target.value as DatasetTask)}
+                  >
+                    {(taskDatasets.data?.items.length
+                      ? taskDatasets.data.items.map((item) => item.task)
+                      : (["detect", "segment"] as DatasetTask[])
+                    ).map((task) => (
+                      <option value={task} key={task}>
+                        {task === "detect" || task === "segment"
+                          ? trainingTaskLabel(task)
+                          : TASKS[task].label}
+                      </option>
+                    ))}
+                    {taskDatasets.data &&
+                      !taskDatasets.data.items.some((item) => item.task === browseTask) && (
+                        <option value={browseTask}>
+                          {TASKS[browseTask].label} · 尚无任务数据集
+                        </option>
+                      )}
+                  </select>
+                </label>
+                <Button
+                  ref={prepareButtonRef}
+                  size="sm"
+                  variant="primary"
+                  disabled={
+                    !qualifiedTask ||
+                    (!pendingCreate &&
+                      (!!unsupported ||
+                        !selectedTaskEnabled ||
+                        createCapability?.supported === false))
+                  }
+                  onClick={() => setCreateOpen(true)}
                 >
-                  {(taskDatasets.data?.items.length
-                    ? taskDatasets.data.items.map((item) => item.task)
-                    : (["detect", "segment"] as DatasetTask[])
-                  ).map((task) => (
-                    <option value={task} key={task}>
-                      {task === "detect" || task === "segment"
-                        ? trainingTaskLabel(task)
-                        : TASKS[task].label}
-                    </option>
-                  ))}
-                  {taskDatasets.data &&
-                    !taskDatasets.data.items.some((item) => item.task === browseTask) && (
-                      <option value={browseTask}>{TASKS[browseTask].label} · 尚无任务数据集</option>
-                    )}
-                </select>
-              </label>
-              <Button
-                ref={prepareButtonRef}
-                variant="primary"
-                disabled={
-                  !qualifiedTask ||
-                  (!pendingCreate &&
-                    (!!unsupported ||
-                      !selectedTaskEnabled ||
-                      createCapability?.supported === false))
-                }
-                onClick={() => setCreateOpen(true)}
-              >
-                准备新版本
-              </Button>
-            </div>
-          </header>
+                  准备新版本
+                </Button>
+              </>
+            }
+          />
           {taskDatasets.error && (
             <TrainingError
               message={taskDatasets.error.message}
@@ -773,7 +761,7 @@ function ProjectLearningContent({
             />
           )}
           {taskDataset && (
-            <div className="mb-3 flex flex-wrap items-center justify-between gap-2 text-2xs text-muted-foreground">
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
               <p>
                 本任务 {taskDataset.version_count} 个版本 · 已就绪{" "}
                 {taskDataset.status_counts.ready ?? 0} 个
@@ -878,65 +866,20 @@ function ProjectLearningContent({
               当前支持图片矩形框检测和单多边形实例分割数据，请切换到图片项目。
             </p>
           )}
-          <div className="flex min-w-0 flex-col gap-4">
-            <ProjectTrainingDataVersions
-              data={versions.data}
-              loading={versions.isLoading}
-              error={versions.error?.message}
-              pending={action.isPending}
-              selectedId={detailId}
-              selectedVersion={detail.data}
-              page={page}
-              onPage={setPage}
-              onRetry={() => void versions.refetch()}
-              onSelect={setDetailId}
-              onAction={(kind, version) => action.mutate({ kind, version })}
-            />
-            <div className="min-w-0">
-              {detailId && detail.isLoading && (
-                <p role="status" className="p-5 text-sm text-muted-foreground">
-                  正在加载所选数据版本…
-                </p>
-              )}
-              {detail.error && (
-                <TrainingError
-                  message={detail.error.message}
-                  onRetry={() => void detail.refetch()}
-                />
-              )}
-              {tab === "data" && detail.data && (
-                <TrainingDatasetInsights
-                  projectId={projectId}
-                  version={detail.data}
-                  onClose={() => setDetailId("")}
-                />
-              )}
-              {!detailId && (
-                <section
-                  aria-label="数据版本详情"
-                  className="rounded-xl border border-dashed border-border bg-card px-5 py-16 text-center"
-                >
-                  <Database
-                    aria-hidden="true"
-                    className="mx-auto mb-3 size-6 text-muted-foreground"
-                  />
-                  <h3 className="text-sm font-medium">选择一个冻结版本</h3>
-                  <p className="mx-auto mt-2 max-w-sm text-xs leading-relaxed text-muted-foreground">
-                    在上方选择数据版本，或展开“浏览版本”查看摘要、图表与版本变化。
-                  </p>
-                  {versions.isSuccess && versions.data.items[0] && (
-                    <Button
-                      variant="primary"
-                      className="mt-5"
-                      onClick={() => setDetailId(versions.data.items[0].id)}
-                    >
-                      {page === 0 ? "查看最新版本" : "查看本页首个版本"}
-                    </Button>
-                  )}
-                </section>
-              )}
-            </div>
-          </div>
+          <ProjectTrainingDataVersions
+            data={versions.data}
+            loading={versions.isLoading}
+            error={versions.error?.message}
+            pending={action.isPending}
+            page={page}
+            onPage={setPage}
+            onRetry={() => void versions.refetch()}
+            href={(id) => trainingRecordPath(projectId, "data", id, params)}
+            onAction={(kind, version) => action.mutate({ kind, version })}
+            filters={datasetList.filters}
+            onFilter={datasetList.update}
+            onReset={datasetList.reset}
+          />
           <Modal
             open={createOpen}
             onClose={() => setCreateOpen(false)}
@@ -956,7 +899,7 @@ function ProjectLearningContent({
                   role="alert"
                   className="mb-4 rounded-md bg-status-danger-soft p-3 text-sm text-status-danger"
                 >
-                  {error}
+                  <CopyableError message={error} />
                 </p>
               )}
               <h2 id="create-dataset-title" className="mb-1 text-sm font-semibold">
@@ -1004,7 +947,7 @@ function ProjectLearningContent({
                     onChange={(event) => {
                       if (!owns() || busy || pendingCreate || storageError) return;
                       setName(event.target.value);
-                      requestId.current = crypto.randomUUID();
+                      requestId.current = randomId();
                     }}
                     placeholder="例如：路口车辆首轮数据"
                   />
@@ -1083,7 +1026,9 @@ function ProjectLearningContent({
                 </label>
                 {(parents.error || selectedParent.error) && (
                   <p role="alert" className="text-xs text-status-danger sm:col-span-2">
-                    {parents.error?.message ?? selectedParent.error?.message}
+                    <CopyableError
+                      message={parents.error?.message ?? selectedParent.error?.message}
+                    />
                   </p>
                 )}
                 {parentReason && (
@@ -1167,7 +1112,7 @@ function ProjectLearningContent({
                     </p>
                     {taskList.error && (
                       <p role="alert" className="text-xs text-status-danger">
-                        {taskList.error.message}
+                        <CopyableError message={taskList.error.message} />
                       </p>
                     )}
                     <div className="max-h-64 overflow-auto rounded-md border border-border">
@@ -1342,16 +1287,6 @@ function ProjectLearningContent({
                   const next = new URLSearchParams(previous);
                   next.set("attempt", attemptId);
                   next.set("run", runId);
-                  return next;
-                })
-              }
-              onRunSelect={(runId) =>
-                setParams((previous) => {
-                  const next = new URLSearchParams(previous);
-                  next.set("tab", "training");
-                  next.set("run", runId);
-                  next.delete("attempt");
-                  next.delete("new");
                   return next;
                 })
               }

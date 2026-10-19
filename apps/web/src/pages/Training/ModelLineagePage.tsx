@@ -1,3 +1,5 @@
+import { randomId } from "@/utils/id";
+import { CopyableError } from "@/components/ui/CopyableError";
 import { useMemo, useRef, useState } from "react";
 import { Link, useLocation, useParams, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -57,7 +59,7 @@ const relationNames: Record<string, string> = {
   subsequent_releases: "后续发布选择",
   rollback_uses: "采用此目标的回退",
   revisions: "配方修订",
-  predictions: "可归属的预测记录",
+  predictions: "使用此模型的预标注",
   frozen_provenance: "冻结训练来源",
   frozen_release: "冻结发布身份",
   frozen_evaluation: "冻结评估身份",
@@ -67,10 +69,18 @@ const relationNames: Record<string, string> = {
   initialization_recipes: "固定此权重的配方修订",
 };
 const dispositions = {
-  active: "恢复默认显示",
-  research: "保留研究",
-  declined: "不予发布",
-  archived: "归档候选",
+  active: "普通候选",
+  research: "待进一步评估",
+  declined: "暂不采用",
+  archived: "已归档",
+};
+const dispositionHelp = {
+  active: "取消其他标记，在默认候选列表中显示。以往的备注仍会保留。",
+  research: "标记为需要继续测试或评估，仍保留在默认候选列表中。不会自动创建评估任务。",
+  declined:
+    "记录暂时不采用这个模型的意见，仍保留在默认候选列表中。不会阻止发布，也不会停用已发布的模型。",
+  archived:
+    "从默认候选列表中隐藏，可在「全部候选」或「仅已归档候选」中查看；当前发布的模型仍会显示。不会删除权重或停用模型。",
 };
 const factNames: Record<string, string> = {
   run_id: "训练实验 ID",
@@ -153,13 +163,13 @@ export function ModelLineagePage() {
   const { id = "", kind = "", nodeId = "" } = useParams();
   const revision = useTrainingSessionRevision();
   const scope = useMemo(
-    () => ({ key: crypto.randomUUID(), id, kind, nodeId, revision }),
+    () => ({ key: randomId(), id, kind, nodeId, revision }),
     [id, kind, nodeId, revision],
   );
   if (!Object.prototype.hasOwnProperty.call(kindNames, kind))
     return (
       <PageContainer>
-        <p role="alert">谱系节点类型无效</p>
+        <p role="alert">无法识别这条记录的类型</p>
         <Link to={`/projects/${id}/learning?tab=models`}>返回模型</Link>
       </PageContainer>
     );
@@ -187,10 +197,7 @@ function LineageContent({
   const session = useTrainingViewOwner(projectId, scope);
   const location = useLocation();
   const [params, setParams] = useSearchParams();
-  const viewIdentity = useMemo(
-    () => ({ key: crypto.randomUUID(), location: location.key }),
-    [location.key],
-  );
+  const viewIdentity = useMemo(() => ({ key: randomId(), location: location.key }), [location.key]);
   const viewKey = viewIdentity.key;
   const view = useRef(viewKey);
   view.current = viewKey;
@@ -218,7 +225,7 @@ function LineageContent({
       });
       session.assert(signal);
       if (result.node.id !== nodeId || result.node.kind !== kind)
-        throw new Error("谱系节点身份不符");
+        throw new Error("返回的来源记录与当前页面不一致，请重新打开");
       return result;
     },
     retry: false,
@@ -234,7 +241,7 @@ function LineageContent({
           (item) => item.project_id !== projectId || item.model_version_id !== nodeId,
         )
       )
-        throw new Error("决策记录归属不符");
+        throw new Error("备注记录与当前模型不一致，请重新打开");
       return result;
     },
     enabled: kind === "model",
@@ -243,7 +250,7 @@ function LineageContent({
   const [disposition, setDisposition] = useState<ModelDecisionCreate["disposition"]>("research");
   const [note, setNote] = useState("");
   const [notice, setNotice] = useState("");
-  const request = useRef({ signature: "", id: crypto.randomUUID() });
+  const request = useRef({ signature: "", id: randomId() });
   const client = useQueryClient();
   const append = useMutation({
     mutationFn: async ({ body, viewKey }: { body: ModelDecisionCreate; viewKey: string }) => {
@@ -254,8 +261,8 @@ function LineageContent({
     onSuccess: (_, variables) => {
       if (!session.owns() || view.current !== variables.viewKey) return;
       setNote("");
-      setNotice("决策已记录，项目发布选择保持不变。");
-      request.current = { signature: "", id: crypto.randomUUID() };
+      setNotice("标记与说明已保存。当前发布的模型未改变。");
+      request.current = { signature: "", id: randomId() };
       update({ before: undefined });
       void client.invalidateQueries({ queryKey: ["model-decisions", projectId] });
       void client.invalidateQueries({ queryKey: ["trained-models", projectId] });
@@ -293,43 +300,45 @@ function LineageContent({
       </Link>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <p className="text-xs text-muted-foreground">{kindNames[kind]} · 来源与候选决策</p>
-          <h1 className="mt-1 break-words text-lg font-semibold">{node?.name ?? "模型谱系"}</h1>
+          <p className="text-xs text-muted-foreground">{kindNames[kind]} · 来源与使用记录</p>
+          <h1 className="mt-1 break-words text-lg font-semibold">
+            {node?.name ?? "来源与使用记录"}
+          </h1>
         </div>
         {detailUrl && (
           <Link
             to={`${detailUrl}${detailUrl.includes("?") ? "&" : "?"}returnTo=${encodeURIComponent(location.pathname + location.search)}`}
             className="inline-flex items-center gap-1 rounded-md border border-border px-3 py-2 text-xs text-primary"
           >
-            打开原有详情
+            查看详情
             <ExternalLink className="size-3.5" />
           </Link>
         )}
       </div>
       <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
-        逐层核对来源与发布记录。部署展示最近一次检查，历史发布保留当时的身份；配置克隆、断点续训分别记录。
+        查看这条记录来自哪次训练、使用了哪些数据，以及相关的部署、发布和预标注记录。部署检查显示最近结果，历史发布保留发布时的信息。
       </p>
       {cyclic && (
         <p
           role="status"
           className="mt-3 rounded-md bg-status-warning-soft p-3 text-xs text-status-warning"
         >
-          导航路径再次访问了此节点，可能存在历史循环；页面仅加载当前节点的直接关联。
+          已回到之前查看过的记录，下面仅显示与这条记录直接相关的内容。
         </p>
       )}
       {query.isPending && (
         <p role="status" className="mt-6 text-sm text-muted-foreground">
-          正在读取谱系…
+          正在加载来源与使用记录…
         </p>
       )}
       {query.error && (
         <p role="alert" className="mt-4 text-sm text-status-danger">
-          {query.error.message}
+          <CopyableError message={query.error.message} />
         </p>
       )}
       {node && (
         <>
-          <section className="mt-6 border-y border-border py-4" aria-label="节点身份">
+          <section className="mt-6 border-y border-border py-4" aria-label="记录信息">
             <div className="flex flex-wrap items-center gap-2">
               <span className="inline-flex items-center gap-1">
                 <Badge>{kindNames[kind]}</Badge>
@@ -341,7 +350,7 @@ function LineageContent({
               </time>
             </div>
             <details className="mt-3 text-xs">
-              <summary className="cursor-pointer">冻结身份与摘要</summary>
+              <summary className="cursor-pointer">版本与校验信息</summary>
               <dl className="mt-3 grid gap-3 sm:grid-cols-2">
                 {Object.entries(node.facts ?? {}).map(([key, value]) => {
                   const kind = hashFactKeys.has(key) ? "hash" : idFactKeys.has(key) ? "id" : null;
@@ -364,13 +373,13 @@ function LineageContent({
                 })}
               </dl>
               {Object.keys(node.facts ?? {}).length === 0 && (
-                <p className="mt-2 text-muted-foreground">此节点没有额外冻结摘要。</p>
+                <p className="mt-2 text-muted-foreground">没有额外的版本或校验信息。</p>
               )}
             </details>
           </section>
           <section className="mt-6" aria-labelledby="lineage-inputs">
             <h2 id="lineage-inputs" className="text-sm font-semibold">
-              直接来源
+              来源记录
             </h2>
             <ul className="mt-3 divide-y divide-border">
               {query.data?.inputs.map((input, index) => (
@@ -390,13 +399,13 @@ function LineageContent({
               ))}
             </ul>
             {query.data?.inputs.length === 0 && (
-              <p className="mt-3 text-xs text-muted-foreground">没有记录上游来源。</p>
+              <p className="mt-3 text-xs text-muted-foreground">没有保存来源记录。</p>
             )}
           </section>
           {!!query.data?.sections.length && (
             <section className="mt-6" aria-labelledby="lineage-related">
               <h2 id="lineage-related" className="text-sm font-semibold">
-                关联记录
+                相关记录
               </h2>
               <div className="mt-3 flex flex-wrap gap-2">
                 {query.data.sections.map((section) => (
@@ -434,16 +443,17 @@ function LineageContent({
                   {query.data.usage ? (
                     <p className="mt-3 text-xs leading-relaxed">
                       {query.data.usage.unavailable_reason
-                        ? "候选缺少完整权重或类别绑定身份，无法计数"
-                        : "保留且可归属的预测记录："}
+                        ? "缺少权重或类别绑定信息，无法核对预标注记录"
+                        : "可核对的预标注记录："}
                       {query.data.usage.truncated ? "至少 " : ""}
                       {query.data.usage.retained_count}
-                      。仅统计匹配冻结候选身份的现存记录，旧记录及已删除记录不在范围内；0
-                      不表示从未使用。{query.data.usage.truncated && "已达到本次读取上限。"}
+                      。仅统计仍保留、且能核对为此模型生成的结果；不含已删除或无法核对的历史结果。0
+                      条记录不代表从未使用过这个模型。
+                      {query.data.usage.truncated && "已达到本次读取上限。"}
                     </p>
                   ) : (
                     query.data.items?.length === 0 && (
-                      <p className="mt-3 text-xs text-muted-foreground">没有可用关联记录。</p>
+                      <p className="mt-3 text-xs text-muted-foreground">没有可用相关记录。</p>
                     )
                   )}
                   <div className="mt-3 flex gap-2">
@@ -459,7 +469,7 @@ function LineageContent({
                       disabled={!query.data.next_cursor}
                       onClick={() => update({ cursor: query.data?.next_cursor ?? undefined })}
                     >
-                      下一批关联记录
+                      下一批相关记录
                     </Button>
                   </div>
                 </>
@@ -471,10 +481,10 @@ function LineageContent({
       {kind === "model" && node && (
         <section className="mt-8 border-t border-border pt-5" aria-labelledby="candidate-decisions">
           <h2 id="candidate-decisions" className="text-sm font-semibold">
-            候选决策记录
+            模型标记与备注
           </h2>
           <p className="mt-2 text-xs text-muted-foreground">
-            追加记录保留历史。归档只影响默认列表；部署、发布与回退仍需原有人工操作。
+            记录对这个模型的使用建议和原因，每次保存都会保留操作人、时间及以往说明。发布或停用模型请到模型详情页操作。
           </p>
           <form
             className="mt-4 space-y-3"
@@ -483,7 +493,7 @@ function LineageContent({
               session.assert();
               const signature = JSON.stringify([disposition, note.trim()]);
               if (signature !== request.current.signature)
-                request.current = { signature, id: crypto.randomUUID() };
+                request.current = { signature, id: randomId() };
               setNotice("");
               append.mutate({
                 body: { request_id: request.current.id, disposition, note: note.trim() },
@@ -492,9 +502,10 @@ function LineageContent({
             }}
           >
             <label className="block max-w-xs space-y-1 text-xs">
-              候选处置
+              模型标记
               <select
                 className={trainingInputClass}
+                aria-describedby="model-disposition-help"
                 value={disposition}
                 disabled={append.isPending}
                 onChange={(event) =>
@@ -508,8 +519,14 @@ function LineageContent({
                 ))}
               </select>
             </label>
+            <p
+              id="model-disposition-help"
+              className="text-xs leading-relaxed text-muted-foreground"
+            >
+              {dispositionHelp[disposition]}
+            </p>
             <label className="block space-y-1 text-xs">
-              决策依据
+              标记说明
               <textarea
                 className={`${trainingInputClass} min-h-24`}
                 maxLength={2000}
@@ -520,7 +537,7 @@ function LineageContent({
               />
             </label>
             <Button type="submit" size="sm" disabled={append.isPending || !note.trim()}>
-              {append.isPending ? "正在记录…" : "追加决策"}
+              {append.isPending ? "正在记录…" : "保存标记与说明"}
             </Button>
           </form>
           {notice && (
@@ -530,12 +547,12 @@ function LineageContent({
           )}
           {history.error && (
             <p role="alert" className="mt-3 text-xs text-status-danger">
-              {history.error.message}
+              <CopyableError message={history.error.message} />
             </p>
           )}
           {history.isPending && (
             <p role="status" className="mt-3 text-xs text-muted-foreground">
-              正在读取决策历史…
+              正在加载标记记录…
             </p>
           )}
           <ol className="mt-4 divide-y divide-border">
@@ -555,18 +572,18 @@ function LineageContent({
             ))}
           </ol>
           {history.data?.items.length === 0 && (
-            <p className="mt-3 text-xs text-muted-foreground">尚未记录候选决策。</p>
+            <p className="mt-3 text-xs text-muted-foreground">还没有模型标记或备注。</p>
           )}
           <div className="mt-3 flex gap-2">
             <Button size="sm" disabled={!before} onClick={() => update({ before: undefined })}>
-              最新决策
+              最新记录
             </Button>
             <Button
               size="sm"
               disabled={!history.data?.next_before}
               onClick={() => update({ before: String(history.data?.next_before) })}
             >
-              更早决策
+              更早记录
             </Button>
           </div>
         </section>

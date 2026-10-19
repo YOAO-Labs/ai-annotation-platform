@@ -1,3 +1,4 @@
+import { CopyableError } from "@/components/ui/CopyableError";
 /**
  * v0.13.2 · 点云查看器(只读 MVP)。
  *
@@ -3049,10 +3050,14 @@ export function ThreeDWorkbench({
           {isLoading && <span>加载 manifest…</span>}
           {pointCloudLoading && <span data-testid="pointcloud-loading">加载点云…</span>}
           {error && <span className={ERR}>manifest 加载失败</span>}
-          {loadError && <span className={ERR}>点云加载失败: {loadError}</span>}
+          {loadError && (
+            <span className={ERR}>
+              点云加载失败: <CopyableError message={loadError} />
+            </span>
+          )}
           {rendererError && (
             <span className={ERR} data-testid="pointcloud-renderer-error">
-              Renderer 初始化失败: {rendererError}
+              Renderer 初始化失败: <CopyableError message={rendererError} />
             </span>
           )}
           <Badge
@@ -3674,9 +3679,13 @@ export function ThreeDWorkbench({
                           }
                         >
                           2D 成员不可用：
-                          {cameraMembers.query.error instanceof Error
-                            ? cameraMembers.query.error.message
-                            : "上下文读取失败"}
+                          <CopyableError
+                            message={
+                              cameraMembers.query.error instanceof Error
+                                ? cameraMembers.query.error.message
+                                : "上下文读取失败"
+                            }
+                          />
                         </span>
                       ) : (
                         <>

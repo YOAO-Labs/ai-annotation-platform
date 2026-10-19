@@ -1,3 +1,4 @@
+import { CopyableError } from "@/components/ui/CopyableError";
 import { Icon } from "@/components/ui/Icon";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
@@ -57,7 +58,7 @@ function QueryErrorState({
     <div role="alert" className="rounded-lg border border-border bg-card p-6">
       <h1 className="text-lg font-semibold">无法加载{resource}</h1>
       <p className="mb-4 mt-2 text-sm text-muted-foreground">
-        {queryErrorMessage(error, resource)}
+        <CopyableError message={queryErrorMessage(error, resource)} />
       </p>
       <Button onClick={onRetry}>重新加载</Button>
     </div>
@@ -81,7 +82,7 @@ function RefreshNotice({
       <p className="m-0 text-sm">
         <strong className="mr-2 text-status-caution">{resource}更新失败</strong>
         <span className="text-muted-foreground">
-          {queryErrorMessage(error, resource)} 当前内容已保留。
+          <CopyableError message={queryErrorMessage(error, resource)} /> 当前内容已保留。
         </span>
       </p>
       <Button size="sm" onClick={onRetry}>

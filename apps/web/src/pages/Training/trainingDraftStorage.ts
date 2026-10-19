@@ -1,3 +1,4 @@
+import { randomId } from "@/utils/id";
 import type { TrainingRunCreate, TrainingInitialization } from "@/api/trainingRuns";
 import type { TrainingOrigin } from "@/api/trainingRecipes";
 import type { TrainingStudyCreate } from "@/api/trainingStudies";
@@ -45,9 +46,9 @@ export function emptyTrainingDraft(ownerKey: string, framework = "ultralytics"):
   return {
     version: 1,
     ownerKey,
-    draftId: crypto.randomUUID(),
+    draftId: randomId(),
     revision: 0,
-    requestId: crypto.randomUUID(),
+    requestId: randomId(),
     name: "",
     datasetId: "",
     framework,

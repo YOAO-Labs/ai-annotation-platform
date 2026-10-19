@@ -1,3 +1,4 @@
+import { CopyableError } from "@/components/ui/CopyableError";
 import { FilterGroup, FilterSelect } from "@/components/filters/FilterControls";
 import {
   useCallback,
@@ -1226,7 +1227,8 @@ export function CommentsPanel({
                       role="alert"
                       data-testid="discussion-row-error"
                     >
-                      操作失败：{rowActionState.error}
+                      操作失败：
+                      <CopyableError message={rowActionState.error} />
                     </div>
                   )}
 
@@ -1298,17 +1300,19 @@ export function CommentsPanel({
                       role="alert"
                       data-testid="discussion-attachment-error"
                     >
-                      {attachments
-                        .map((attachment) => {
-                          const key = formatAttachment(attachment).key;
-                          return key
-                            ? attachmentDownloadStates[`${mutationScopeKey}:${itemKey}:${key}`]
-                                ?.error
-                            : null;
-                        })
-                        .filter(Boolean)
-                        .map((error) => `附件下载失败：${error}`)
-                        .join("；")}
+                      <CopyableError
+                        message={attachments
+                          .map((attachment) => {
+                            const key = formatAttachment(attachment).key;
+                            return key
+                              ? attachmentDownloadStates[`${mutationScopeKey}:${itemKey}:${key}`]
+                                  ?.error
+                              : null;
+                          })
+                          .filter(Boolean)
+                          .map((error) => `附件下载失败：${error}`)
+                          .join("；")}
+                      />
                     </div>
                   )}
 

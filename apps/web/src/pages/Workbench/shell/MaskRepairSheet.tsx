@@ -1,3 +1,4 @@
+import { CopyableError } from "@/components/ui/CopyableError";
 import { useEffect, useRef, useState } from "react";
 
 import type { MaskRepairAction, MaskRepairBatch, MaskRepairDryRun } from "@/api/maskQc";
@@ -234,7 +235,9 @@ export function MaskRepairSheet({
           {dryRun.isError && (
             <Alert variant="destructive">
               <AlertTitle>预览失败</AlertTitle>
-              <AlertDescription>{errorText(dryRun.error)}</AlertDescription>
+              <AlertDescription>
+                <CopyableError message={errorText(dryRun.error)} />
+              </AlertDescription>
             </Alert>
           )}
 
@@ -325,7 +328,11 @@ export function MaskRepairSheet({
             <Alert variant="destructive">
               <AlertTitle>操作失败</AlertTitle>
               <AlertDescription>
-                {errorText(execute.error ?? batch.error ?? rollback.error ?? resume.error)}
+                <CopyableError
+                  message={errorText(
+                    execute.error ?? batch.error ?? rollback.error ?? resume.error,
+                  )}
+                />
               </AlertDescription>
             </Alert>
           )}

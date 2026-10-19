@@ -1,3 +1,4 @@
+import { CopyableError } from "@/components/ui/CopyableError";
 import { normalizeTask } from "@/api/generated/capabilityVocab.gen";
 import { FilterGroup, FilterToggle } from "@/components/filters/FilterControls";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
@@ -816,7 +817,7 @@ export function AIPredictionPopover({
               {request?.error && (
                 <div className="mb-2.5" data-testid="ai-request-error">
                   <p role="alert" className="my-1 break-words text-xs text-status-danger">
-                    {request.error}
+                    <CopyableError message={request.error} />
                   </p>
                   {phase === "running" && canRetry && (
                     <Button

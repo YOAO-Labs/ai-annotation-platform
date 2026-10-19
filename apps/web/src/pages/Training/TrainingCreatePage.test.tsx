@@ -414,6 +414,7 @@ describe("immutable recipe and clone reuse", () => {
 afterEach(() => {
   cleanup();
   clients.splice(0).forEach((client) => client.clear());
+  vi.unstubAllGlobals();
   localStorage.clear();
 });
 async function prepare(review = true) {
@@ -436,16 +437,36 @@ async function check() {
 }
 
 describe("training creation modal", () => {
-  it("distinguishes the dataset prompt from selectable ready versions", async () => {
+  it("preflights a training draft on plain HTTP without randomUUID", async () => {
+    vi.stubGlobal("crypto", { getRandomValues: crypto.getRandomValues.bind(crypto) });
+    await prepare();
+    await check();
+    expect(trainingRunsApi.preflight).toHaveBeenCalledOnce();
+    const draft = JSON.parse(localStorage.getItem(trainingDraftKey("user-1:project-1"))!);
+    expect(draft.requestId).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+    );
+  });
+
+  it("distinguishes required dataset and weight prompts from selectable options", async () => {
     const user = userEvent.setup();
     mount();
     const select = (await screen.findByLabelText("训练数据")) as HTMLSelectElement;
     expect(select).toHaveClass("text-muted-foreground");
     expect(select.options[0]).toBeDisabled();
     expect(select.options[0].hidden).toBe(true);
+    const weights = screen.getByLabelText("基础权重") as HTMLSelectElement;
+    expect(weights).toHaveClass("text-muted-foreground");
+    expect(weights.options[0]).toBeDisabled();
+    expect(weights.options[0].hidden).toBe(true);
+    await user.type(screen.getByLabelText("实验名称"), "权重选择检查");
     await screen.findByRole("option", { name: /^审核数据/ });
     await user.selectOptions(select, "dataset-1");
     expect(select).not.toHaveClass("text-muted-foreground");
+    expect(screen.getByRole("button", { name: "下一步" })).toBeDisabled();
+    await user.selectOptions(weights, "yolo11n");
+    expect(weights).not.toHaveClass("text-muted-foreground");
+    await waitFor(() => expect(screen.getByRole("button", { name: "下一步" })).toBeEnabled());
   });
 
   it.each(["close button", "Escape"])(
@@ -846,7 +867,7 @@ it("filters segmentation weights by dataset task and preserves an incompatible s
   await waitFor(() => expect(screen.getByRole("button", { name: "下一步" })).toBeEnabled());
   expect(screen.getByText(/实例分割支持单多边形原生训练/)).toBeVisible();
   expect(screen.getByLabelText("初始化权重").querySelectorAll("option")).toHaveLength(1);
-  expect(screen.getByText(/分割的项目模型权重初始化尚未通过资格验证/)).toBeVisible();
+  expect(screen.getByText(/分割暂不支持从项目候选模型初始化/)).toBeVisible();
   expect(trainedModelsApi.list).toHaveBeenCalledTimes(candidateReads);
   expect(trainingRunsApi.preflight).not.toHaveBeenCalled();
 });

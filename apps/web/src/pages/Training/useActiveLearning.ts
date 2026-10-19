@@ -1,3 +1,4 @@
+import { randomId } from "@/utils/id";
 import { useMemo } from "react";
 import { useLocation } from "react-router-dom";
 import { useAuthStore } from "@/stores/authStore";
@@ -29,7 +30,7 @@ export function useActiveLearningScope(projectId: string, roundId?: string) {
   const revision = useTrainingSessionRevision();
   const { key } = useLocation();
   return useMemo(
-    () => ({ value: crypto.randomUUID(), projectId, roundId, userId, token, revision, key }),
+    () => ({ value: randomId(), projectId, roundId, userId, token, revision, key }),
     [projectId, roundId, userId, token, revision, key],
   ).value;
 }

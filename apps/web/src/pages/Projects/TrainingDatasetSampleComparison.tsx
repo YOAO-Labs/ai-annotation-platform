@@ -1,3 +1,5 @@
+import { randomId } from "@/utils/id";
+import { CopyableError } from "@/components/ui/CopyableError";
 import { useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -120,7 +122,7 @@ export function TrainingDatasetSampleComparison(props: Props) {
       baselineVersionId: props.baselineVersionId,
       targetVersionId: props.targetVersionId,
       contentSha256: props.contentSha256,
-      key: crypto.randomUUID(),
+      key: randomId(),
     }),
     [
       userId,
@@ -257,7 +259,9 @@ function ComparisonSide({
           role="alert"
           className="rounded-md bg-status-caution-soft p-3 text-sm text-status-caution"
         >
-          <p>{query.error.message}</p>
+          <p>
+            <CopyableError message={query.error.message} />
+          </p>
           <Button size="sm" className="mt-2" onClick={() => void query.refetch()}>
             重试成员读取
           </Button>

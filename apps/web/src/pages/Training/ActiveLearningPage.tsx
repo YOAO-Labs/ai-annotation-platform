@@ -1,3 +1,4 @@
+import { CopyableError } from "@/components/ui/CopyableError";
 import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
@@ -59,7 +60,7 @@ function RoundList({ projectId, scope }: { projectId: string; scope: string }) {
       {list.isPending && <p role="status">加载选样轮次…</p>}
       {list.error && (
         <div role="alert" className="text-sm text-status-danger">
-          {list.error.message}
+          <CopyableError message={list.error.message} />
           <Button className="ml-3" size="sm" onClick={() => void list.refetch()}>
             重试
           </Button>

@@ -1,3 +1,4 @@
+import { CopyableError } from "@/components/ui/CopyableError";
 import type { ReusableSnapshot, TrainingReuseCandidate } from "@/api/trainingRecipes";
 import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
@@ -59,7 +60,7 @@ export function TrainingReuseDialog({
                 />
               </>
             ) : (
-              "受控目录基础权重"
+              "预训练基础权重"
             )}
           </p>
           <p>
@@ -73,7 +74,7 @@ export function TrainingReuseDialog({
                 />
               </>
             ) : (
-              "受控目录基础权重"
+              "预训练基础权重"
             )}
           </p>
           {after.initialization && (
@@ -100,7 +101,7 @@ export function TrainingReuseDialog({
         )}
         {(!candidate.compatible || error) && (
           <p role="alert" className="text-status-danger">
-            {error || candidate.incompatibility}
+            <CopyableError message={error || candidate.incompatibility} />
           </p>
         )}
         <p>

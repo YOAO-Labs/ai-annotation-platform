@@ -1,3 +1,5 @@
+import { randomId } from "@/utils/id";
+import { CopyableError } from "@/components/ui/CopyableError";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -32,7 +34,7 @@ export function SampleEvaluationPage() {
   const token = useAuthStore((s) => s.token);
   const revision = useTrainingSessionRevision();
   const scope = useMemo(
-    () => ({ key: crypto.randomUUID(), id, evaluationId, userId, token, revision }),
+    () => ({ key: randomId(), id, evaluationId, userId, token, revision }),
     [id, evaluationId, userId, token, revision],
   );
   return (
@@ -56,10 +58,7 @@ function EvaluationContent({
 }) {
   const { assert } = useTrainingViewOwner(projectId, scope);
   const location = useLocation();
-  const view = useMemo(
-    () => ({ key: crypto.randomUUID(), locationKey: location.key }),
-    [location.key],
-  );
+  const view = useMemo(() => ({ key: randomId(), locationKey: location.key }), [location.key]);
   const currentView = useRef(view.key);
   currentView.current = view.key;
   const [params, setParams] = useSearchParams();
@@ -239,7 +238,7 @@ function EvaluationContent({
           to={lineageReturn(projectId, params.get("returnTo"))}
         >
           <ArrowLeft className="size-3.5" />
-          返回模型谱系
+          返回来源与使用记录
         </Link>
       )}
       <Link
@@ -286,7 +285,7 @@ function EvaluationContent({
           )}
           {list.error && (
             <p role="alert" className="text-sm text-status-danger">
-              {list.error.message}
+              <CopyableError message={list.error.message} />
             </p>
           )}
           {list.data && !list.error && (
@@ -334,7 +333,9 @@ function EvaluationContent({
           )}
           {detail.error && (
             <div role="alert" className="space-y-2 text-sm text-status-danger">
-              <p>{detail.error.message}</p>
+              <p>
+                <CopyableError message={detail.error.message} />
+              </p>
               <Button size="sm" onClick={() => void detail.refetch()}>
                 重新加载
               </Button>
@@ -383,7 +384,9 @@ function EvaluationContent({
                   </p>
                 )}
                 {run.error_message && (
-                  <p className="mt-3 break-words text-xs text-status-danger">{run.error_message}</p>
+                  <p className="mt-3 break-words text-xs text-status-danger">
+                    <CopyableError message={run.error_message} />
+                  </p>
                 )}
                 {run.deletion_requested_at && (
                   <p role="status" className="mt-3 text-xs text-status-caution">
@@ -461,7 +464,7 @@ function EvaluationContent({
               </div>
               {mutation.error && mutation.error.name !== "AbortError" && (
                 <p role="alert" className="mt-3 text-sm text-status-danger">
-                  {mutation.error.message}
+                  <CopyableError message={mutation.error.message} />
                 </p>
               )}
               {!state.error && state.attemptId && !attempt && (
@@ -473,7 +476,8 @@ function EvaluationContent({
                 <>
                   {attempt.error_message && (
                     <p className="mt-4 break-words text-xs text-status-caution">
-                      所选尝试：{attempt.error_message}
+                      所选尝试：
+                      <CopyableError message={attempt.error_message} />
                     </p>
                   )}
                   {!attempt.report && (
@@ -494,7 +498,10 @@ function EvaluationContent({
                   )}
                   {report.error && (
                     <div role="alert" className="mt-4 space-y-2 text-sm text-status-danger">
-                      <p>报告不可用：{report.error.message}</p>
+                      <p>
+                        报告不可用：
+                        <CopyableError message={report.error.message} />
+                      </p>
                       <Button size="sm" onClick={() => void report.refetch()}>
                         重新校验报告
                       </Button>
@@ -568,7 +575,8 @@ function EvaluationContent({
                 />
                 {list.error && (
                   <p role="alert" className="mt-2 text-xs text-status-danger">
-                    候选列表：{list.error.message}
+                    候选列表：
+                    <CopyableError message={list.error.message} />
                   </p>
                 )}
                 {state.secondId === run.id && (
@@ -588,7 +596,7 @@ function EvaluationContent({
                 )}
                 {comparison.error && (
                   <p role="alert" className="mt-3 text-xs text-status-danger">
-                    {comparison.error.message}
+                    <CopyableError message={comparison.error.message} />
                   </p>
                 )}
                 {comparison.data &&
@@ -669,7 +677,8 @@ function EvaluationContent({
           )}
           {secondDetail.error && (
             <p role="alert" className="mt-3 text-xs text-status-danger">
-              第二候选不可用：{secondDetail.error.message}
+              第二候选不可用：
+              <CopyableError message={secondDetail.error.message} />
             </p>
           )}
         </>

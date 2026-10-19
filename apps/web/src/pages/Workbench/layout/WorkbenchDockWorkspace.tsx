@@ -1,3 +1,4 @@
+import { CopyableError } from "@/components/ui/CopyableError";
 import {
   createContext,
   useCallback,
@@ -989,10 +990,13 @@ export function WorkbenchDockWorkspace(props: WorkbenchDockWorkspaceProps) {
               role="status"
               className="flex shrink-0 items-center gap-2 border-b border-border bg-muted px-3 py-1 text-xs text-muted-foreground"
             >
-              {owner.error ??
-                (owner.readOnlyReason === "newer-schema"
-                  ? "此布局来自新版，当前使用只读标准布局。"
-                  : "保存的布局无法恢复，请从布局菜单重置。")}
+              {owner.error ? (
+                <CopyableError message={owner.error} />
+              ) : owner.readOnlyReason === "newer-schema" ? (
+                "此布局来自新版，当前使用只读标准布局。"
+              ) : (
+                "保存的布局无法恢复，请从布局菜单重置。"
+              )}
             </div>
           )}
           <div

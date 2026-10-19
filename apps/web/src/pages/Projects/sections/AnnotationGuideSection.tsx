@@ -1,3 +1,4 @@
+import { CopyableError } from "@/components/ui/CopyableError";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
@@ -682,13 +683,15 @@ function AnnotationGuideProjectBody({
             aria-live="polite"
             data-testid="guide-save-status"
           >
-            {saveStatus === "saving"
-              ? "保存中…"
-              : saveStatus === "pending"
-                ? "等待自动保存"
-                : saveStatus === "failed"
-                  ? `保存失败：${saveError ?? "请重试"}`
-                  : "已保存"}
+            {saveStatus === "saving" ? (
+              "保存中…"
+            ) : saveStatus === "pending" ? (
+              "等待自动保存"
+            ) : saveStatus === "failed" ? (
+              <CopyableError message={`保存失败：${saveError ?? "请重试"}`} />
+            ) : (
+              "已保存"
+            )}
           </span>
           <Button
             size="sm"

@@ -56,6 +56,17 @@ const TrainingComparisonPage = lazy(() =>
     default: m.TrainingComparisonPage,
   })),
 );
+const TrainingExperimentPage = lazy(() =>
+  import("@/pages/Training/TrainingExperimentPage").then((m) => ({
+    default: m.TrainingExperimentPage,
+  })),
+);
+const TrainingDatasetPage = lazy(() =>
+  import("@/pages/Training/TrainingDatasetPage").then((m) => ({ default: m.TrainingDatasetPage })),
+);
+const TrainingModelPage = lazy(() =>
+  import("@/pages/Training/TrainingModelPage").then((m) => ({ default: m.TrainingModelPage })),
+);
 const ModelLineagePage = lazy(() =>
   import("@/pages/Training/ModelLineagePage").then((m) => ({ default: m.ModelLineagePage })),
 );
@@ -587,6 +598,30 @@ export function App() {
             element={
               <RequireProjectAccess capability="project.manage">
                 <TrainingComparisonPage />
+              </RequireProjectAccess>
+            }
+          />
+          <Route
+            path="/projects/:id/learning/experiments/:runId"
+            element={
+              <RequireProjectAccess capability="project.manage">
+                <TrainingExperimentPage />
+              </RequireProjectAccess>
+            }
+          />
+          <Route
+            path="/projects/:id/learning/data/:datasetId"
+            element={
+              <RequireProjectAccess capability="project.manage">
+                <TrainingDatasetPage />
+              </RequireProjectAccess>
+            }
+          />
+          <Route
+            path="/projects/:id/learning/models/:modelId"
+            element={
+              <RequireProjectAccess capability="project.manage">
+                <TrainingModelPage />
               </RequireProjectAccess>
             }
           />

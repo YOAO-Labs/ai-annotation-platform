@@ -14,6 +14,13 @@ export type {
   TrainedModelCreate,
   TrainedModelOut,
 };
+export type TrainedModelListFilters = {
+  q?: string;
+  framework?: string;
+  created_from?: string;
+  created_to?: string;
+};
+
 const base = (projectId: string) => `/projects/${projectId}`;
 export const trainedModelsApi = {
   list: (
@@ -21,11 +28,17 @@ export const trainedModelsApi = {
     offset = 0,
     options?: RequestInit,
     archive: "exclude" | "include" | "only" = "exclude",
-  ) =>
-    apiClient.get<{ items: TrainedModelOut[]; total: number }>(
-      `${base(projectId)}/trained-models?limit=20&offset=${offset}&archive=${archive}`,
+    filters?: TrainedModelListFilters,
+  ) => {
+    const query = new URLSearchParams({ limit: "20", offset: String(offset), archive });
+    for (const key of ["q", "framework", "created_from", "created_to"] as const) {
+      if (filters?.[key]) query.set(key, filters[key]);
+    }
+    return apiClient.get<{ items: TrainedModelOut[]; total: number }>(
+      `${base(projectId)}/trained-models?${query}`,
       options,
-    ),
+    );
+  },
   get: (projectId: string, versionId: string, options?: RequestInit) =>
     apiClient.get<{ model: TrainedModelOut; deployments: ModelDeploymentOut[] }>(
       `${base(projectId)}/trained-models/${versionId}`,

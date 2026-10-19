@@ -1,3 +1,4 @@
+import { CopyableError } from "@/components/ui/CopyableError";
 import { useRef, useState } from "react";
 import type { TrainingRunCreate } from "@/api/trainingRuns";
 import {
@@ -248,7 +249,7 @@ export function TrainingStudyCreate({
       </details>
       {error && (
         <p role="alert" className="mt-3 text-xs text-status-danger">
-          {error}
+          <CopyableError message={error} />
         </p>
       )}
       {reviewed && (

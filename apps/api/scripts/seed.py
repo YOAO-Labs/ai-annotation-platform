@@ -225,6 +225,11 @@ async def seed(
     backend_requirements: str | None = None,
 ) -> None:
     parse_backend_requirements(backend_requirements)
+    if profile == "online-training":
+        await _seed_online_training_profile(
+            cache_dir=cache_dir, asset_dir=asset_dir, offline=offline
+        )
+        return
     assets = {}
     generated_assets = None
     if profile == "screenshots":
@@ -253,29 +258,7 @@ async def seed(
     strict = profile == "screenshots"
 
     async with Session() as db:
-        created_users: dict[str, User] = {}
-
-        for data in USERS:
-            existing = await db.scalar(select(User).where(User.email == data["email"]))
-            if existing:
-                print(f"  skip  {data['email']} (已存在)")
-                created_users[data["email"]] = existing
-                continue
-
-            user = User(
-                id=uuid.uuid4(),
-                email=data["email"],
-                name=data["name"],
-                password_hash=hash_password(data["password"]),
-                role=data["role"],
-                group_name=data["group_name"],
-                is_active=True,
-            )
-            db.add(user)
-            await db.flush()  # 拿到 id，后续项目引用
-            created_users[data["email"]] = user
-            print(f"  add   {data['email']}  [{data['role']}]")
-
+        created_users = await _ensure_seed_users(db)
         owner = created_users.get("pm") or created_users.get("pm@test.com")
         await db.commit()
 
@@ -497,9 +480,97 @@ async def seed(
     await engine.dispose()
 
 
+async def _ensure_seed_users(db: AsyncSession) -> dict[str, User]:
+    created_users = {}
+    for data in USERS:
+        existing = await db.scalar(select(User).where(User.email == data["email"]))
+        if existing:
+            print(f"  skip  {data['email']} (已存在)")
+            created_users[data["email"]] = existing
+            continue
+        user = User(
+            id=uuid.uuid4(),
+            email=data["email"],
+            name=data["name"],
+            password_hash=hash_password(data["password"]),
+            role=data["role"],
+            group_name=data["group_name"],
+            is_active=True,
+        )
+        db.add(user)
+        await db.flush()
+        created_users[data["email"]] = user
+        print(f"  add   {data['email']}  [{data['role']}]")
+    return created_users
+
+
+async def _seed_online_training_profile(*, cache_dir, asset_dir, offline) -> None:
+    from scripts.seed_online_training import (
+        DATASET_ID,
+        PROJECT_DISPLAY_ID,
+        prepare_baseline,
+        seed_online_training,
+    )
+    from app.workers.media import backfill_media
+    from app.workers.training_dataset import build_dataset
+
+    try:
+        assets = ensure_profile(
+            "demo",
+            assets=select_profile("demo", required_ids={"coco8"}),
+            cache_dir=cache_dir,
+            asset_dir=asset_dir,
+            offline=offline,
+        )
+        async with Session() as db:
+            users = await _ensure_seed_users(db)
+            project, created = await seed_online_training(
+                db,
+                fixture=assets["coco8"].root,
+                owner_id=users["pm"].id,
+                annotator_id=users["anno"].id,
+                reviewer_id=users["qa"].id,
+            )
+            await _ensure_demo_memberships(db, display_ids=(PROJECT_DISPLAY_ID,))
+            version = await prepare_baseline(db, project)
+            await db.commit()
+            version_id, job_id, attempt_id = (
+                version.id,
+                version.async_job_id,
+                version.attempt_id,
+            )
+            pending = version.status == "pending"
+        if pending:
+            # Build the same immutable package as the export worker, synchronously
+            # so this profile also works before Celery consumers are available.
+            await build_dataset(version_id, job_id, attempt_id, Session)
+        async with Session() as db:
+            from app.db.models.training_dataset import TrainingDatasetVersion
+
+            version = await db.get(TrainingDatasetVersion, version_id)
+            if version.status != "ready":
+                raise SeedAssetError(
+                    f"COCO8 baseline status={version.status}: "
+                    f"{version.error_message or '在训练数据页面检查、重试或创建新版本'}"
+                )
+            print(
+                f"  {'add ' if created else 'skip'}  {PROJECT_DISPLAY_ID} "
+                f"baseline=ready version={version.id} images=8 split=4/4"
+            )
+        backfill_media.delay(str(DATASET_ID))
+        print("  ready 在线训练夹具；登录 pm 后从项目的训练数据选择初始版本。")
+        print(
+            "  hint  试跑建议：epochs=1, batch=4, imgsz=320；训练与自动策略由页面明确启动。"
+        )
+    finally:
+        await engine.dispose()
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--profile", choices=("demo", "screenshots"), default="demo")
+    parser.add_argument(
+        "--profile", choices=("demo", "screenshots", "online-training"), default="demo"
+    )
     parser.add_argument("--cache-dir", type=Path)
     parser.add_argument("--asset-dir", type=Path)
     parser.add_argument("--offline", action="store_true")

@@ -1,9 +1,11 @@
+import { CopyableError } from "@/components/ui/CopyableError";
 import { useState } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/shadcn/ui/tabs";
 import { Button } from "@/components/ui/Button";
 import { CopyValueButton } from "@/components/ui/CopyValueButton";
 import { trainingInputClass } from "./TrainingParameterField";
 import { TrainingMetricChart } from "./TrainingMetricChart";
+import { TrainingComparisonMetricTable } from "./TrainingComparisonMetricTable";
 import {
   formatDuration,
   metricLabel,
@@ -48,15 +50,13 @@ export function TrainingComparisonResults({
       : experiments.length === 3
         ? "md:grid-cols-2 xl:grid-cols-3"
         : "md:grid-cols-2 xl:grid-cols-4";
-  const reference = experiments.find((e) => e.selection.runId === state.reference)!;
-  const metrics = [...new Set(experiments.flatMap((e) => Object.keys(e.report?.summary ?? {})))];
   const rows = inputDifferences(experiments, state.showAll !== true);
   const maxClasses = Math.max(...experiments.map((e) => e.report?.per_class_total ?? 0));
   return (
     <Tabs value={state.view} onValueChange={(view) => onChange("view", view)}>
       <TabsList aria-label="比较视图">
         <TabsTrigger className="text-foreground" value="summary">
-          最终结果
+          指标结果
         </TabsTrigger>
         <TabsTrigger className="text-foreground" value="inputs">
           输入差异
@@ -66,15 +66,18 @@ export function TrainingComparisonResults({
         </TabsTrigger>
       </TabsList>
       <TabsContent value="summary" className="mt-4 space-y-5">
-        <div>
-          <h2 className="text-md font-semibold">最佳权重的最终评估</h2>
-          <p className="mt-1 text-xs text-muted-foreground">
-            使用冻结的原生类别空间；注册模型的项目类别绑定仍在「模型与发布」中核对。差值以百分点表示。
-          </p>
-        </div>
+        <TrainingComparisonMetricTable experiments={experiments} source="best" />
+        <TrainingComparisonMetricTable experiments={experiments} source="last" />
+        <p className="text-xs text-muted-foreground">
+          仅对评估身份和对应指标口径兼容的实验计算最优值与差距，不兼容时按组比较；缺失或不可用指标不参与排名。
+          使用冻结的原生类别空间，模型的项目类别绑定仍在「模型与发布」中核对。
+        </p>
         <div className={`grid items-start gap-3 ${columns}`}>
           {experiments.map((e) => {
-            const reasons = incompatibility(reference.report, e.report);
+            const reasons = incompatibility(e.report, e.report);
+            const hasPeer = experiments.some(
+              (other) => other !== e && incompatibility(e.report, other.report).length === 0,
+            );
             return (
               <section
                 key={e.selection.runId}
@@ -89,7 +92,7 @@ export function TrainingComparisonResults({
                 )}
                 {(e.error || e.reportError) && (
                   <p role="alert" className="mt-2 text-xs text-status-danger">
-                    {e.error || e.reportError}
+                    <CopyableError message={e.error || e.reportError} />
                   </p>
                 )}
                 {!e.report && !e.loading && !e.reportError && !e.error && (
@@ -104,9 +107,9 @@ export function TrainingComparisonResults({
                     >
                       {reasons.length
                         ? reasons.join("；")
-                        : e === reference
-                          ? "已核验评估身份 · 参照实验"
-                          : "评估口径兼容 · 可计算差值"}
+                        : hasPeer
+                          ? "评估口径兼容 · 可计算最优差距"
+                          : "评估身份已核验 · 暂无同口径比较项"}
                     </p>
                     <dl className="mt-3 space-y-2 text-xs">
                       <div className="flex items-center gap-1">
@@ -145,60 +148,6 @@ export function TrainingComparisonResults({
             );
           })}
         </div>
-        <div
-          role="region"
-          aria-label="最终评估指标表"
-          tabIndex={0}
-          className="overflow-x-auto rounded-lg border border-border bg-card focus-visible:ring-2 focus-visible:ring-ring"
-        >
-          <table className={`${tableClass} min-w-xl`}>
-            <caption className="sr-only">最佳权重最终评估与参照差值</caption>
-            <thead className="sticky top-0 z-10 bg-muted">
-              <tr>
-                <th scope="col">指标</th>
-                {experiments.map((e) => (
-                  <th scope="col" key={e.selection.runId}>
-                    {name(e)}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {metrics.map((metric) => (
-                <tr key={metric}>
-                  <th scope="row">{metricLabel(metric)}</th>
-                  {experiments.map((e) => {
-                    const value = e.report?.summary[metric],
-                      baseline = reference.report?.summary[metric];
-                    const allowed =
-                      e !== reference &&
-                      value != null &&
-                      baseline != null &&
-                      incompatibility(reference.report, e.report).length === 0;
-                    return (
-                      <td key={e.selection.runId} className="tabular-nums">
-                        <span>{valueLabel(value)}</span>
-                        {allowed && (
-                          <span className="mt-1 block text-2xs text-muted-foreground">
-                            较参照 {value! - baseline! >= 0 ? "+" : ""}
-                            {((value! - baseline!) * 100).toFixed(2)} 个百分点
-                          </span>
-                        )}
-                      </td>
-                    );
-                  })}
-                </tr>
-              ))}
-              {!metrics.length && (
-                <tr>
-                  <td colSpan={experiments.length + 1} className="text-muted-foreground">
-                    暂无最终指标；缺失结果不会显示为零。
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
         <section aria-label="本次执行进度与耗时">
           <h2 className="mb-3 text-md font-semibold">本次执行进度与耗时</h2>
           <div className={`grid gap-3 ${columns}`}>
@@ -216,15 +165,6 @@ export function TrainingComparisonResults({
                       <dt className="text-muted-foreground">最新上报轮次</dt>
                       <dd>{latest ? `第 ${latest.epoch} 轮` : "暂无轮次事件"}</dd>
                     </div>
-                    {latest &&
-                      Object.entries(latest)
-                        .filter(([key]) => key.startsWith("metrics/"))
-                        .map(([key, value]) => (
-                          <div key={key} className="flex justify-between gap-2">
-                            <dt>{metricLabel(key)}</dt>
-                            <dd className="tabular-nums">{valueLabel(value)}</dd>
-                          </div>
-                        ))}
                     <div>
                       <dt className="text-muted-foreground">执行墙钟耗时</dt>
                       <dd>
@@ -240,7 +180,7 @@ export function TrainingComparisonResults({
                   </dl>
                   {e.eventsError && (
                     <p role="alert" className="mt-2 text-xs text-status-danger">
-                      {e.eventsError}
+                      <CopyableError message={e.eventsError} />
                     </p>
                   )}
                 </article>
@@ -512,10 +452,12 @@ function ComparisonCurves({
       </div>
       {experiments.some((e) => e.eventsError) && (
         <p role="alert" className="text-xs text-status-danger">
-          {experiments
-            .filter((e) => e.eventsError)
-            .map((e) => `${name(e)}：${e.eventsError}`)
-            .join("；")}
+          <CopyableError
+            message={experiments
+              .filter((e) => e.eventsError)
+              .map((e) => `${name(e)}：${e.eventsError}`)
+              .join("；")}
+          />
         </p>
       )}
       <div

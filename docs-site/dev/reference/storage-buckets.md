@@ -62,5 +62,6 @@ mc mirror --remove-source annotations/audit-archive/  audit-archive/
 
 - 前端: 超级管理员 → "存储管理" 页面,按卡片展示各桶对象数 / 总大小 / 错误状态(卡片集合由 `GET /api/v1/storage/buckets` 返回的桶清单决定)。
 - API: `GET /api/v1/storage/buckets`、`GET /api/v1/admin/ml-integrations/overview`。
+- 容量统计需要扫描桶内对象，大桶或对象存储重试时可能较慢；统计与存储健康检查在独立线程执行，等待结果期间其他平台请求仍可正常响应。
 - `media-cache` 体积主要受 `videos/` 前缀的 30 天 lifecycle 约束(帧/chunk 缓存),异常增长通常意味着视频源被频繁访问 → 检查 video_frame_service 命中率。`playback/`、`thumbnails/` 不过期但单文件小、数量随 item 线性增长,占比通常很小。
 - `avatars` 单对象 ≤ 约 40 KB(256×256 WebP),体积随用户数线性增长;数量对不上用户数时,检查是否有无引用的孤儿对象(`users.avatar_ref` 里不存在对应 token),可在确认后手工删除。

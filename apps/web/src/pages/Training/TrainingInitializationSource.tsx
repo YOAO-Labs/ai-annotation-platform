@@ -1,3 +1,5 @@
+import { randomId } from "@/utils/id";
+import { CopyableError } from "@/components/ui/CopyableError";
 import { useMemo } from "react";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { trainedModelsApi } from "@/api/trainedModels";
@@ -21,7 +23,7 @@ export function useTrainingInitializationSource(
     projectId,
     JSON.stringify([framework, baseModel, datasetId, selectedId]),
   );
-  const scope = useMemo(() => ({ owner: view.owner, key: crypto.randomUUID() }), [view.owner]).key;
+  const scope = useMemo(() => ({ owner: view.owner, key: randomId() }), [view.owner]).key;
   const source = useQuery({
     queryKey: ["training-initialization-source", projectId, scope, selectedId],
     enabled: supportsProjectWeights && !!selectedId && !!baseModel,
@@ -66,7 +68,7 @@ export function TrainingInitializationSource({
   onChange: (value: TrainingInitialization | undefined) => void;
 }) {
   const view = useTrainingViewOwner(projectId, "initialization-choices");
-  const scope = useMemo(() => ({ owner: view.owner, key: crypto.randomUUID() }), [view.owner]).key;
+  const scope = useMemo(() => ({ owner: view.owner, key: randomId() }), [view.owner]).key;
   const choices = useInfiniteQuery({
     queryKey: ["training-initialization-choices", projectId, scope],
     initialPageParam: 0,
@@ -110,7 +112,7 @@ export function TrainingInitializationSource({
               )
             }
           >
-            <option value="">受控目录基础权重</option>
+            <option value="">预训练基础权重</option>
             {selectedId && !items.some((item) => item.id === selectedId) && (
               <option value={selectedId} disabled={!qualification.supportsProjectWeights}>
                 {pin?.model_name ?? "所选候选模型"}（保留的选择）
@@ -127,10 +129,13 @@ export function TrainingInitializationSource({
             <CopyValueButton value={selectedId} kind="id" label="复制所选候选模型版本 ID" />
           )}
         </div>
+        <p className="mt-2 leading-relaxed text-muted-foreground">
+          使用上方所选基础模型的预训练权重，也可选择本项目已训练的候选模型。
+        </p>
       </div>
       {!qualification.supportsProjectWeights && (
         <p className="text-muted-foreground">
-          分割的项目模型权重初始化尚未通过资格验证。请选择受控目录权重；中断后可从本实验检查点续训。
+          分割暂不支持从项目候选模型初始化，请使用预训练基础权重；中断后可从本实验检查点续训。
         </p>
       )}
       {choices.hasNextPage && (
@@ -145,7 +150,7 @@ export function TrainingInitializationSource({
       )}
       {choices.error && (
         <p role="alert" className="text-status-danger">
-          {choices.error.message}
+          <CopyableError message={choices.error.message} />
         </p>
       )}
       {selectedId && (
@@ -157,7 +162,8 @@ export function TrainingInitializationSource({
           )}
           {source.error && (
             <p role="alert" className="text-status-danger">
-              来源暂不可用：{source.error.message}。当前选择已保留。
+              <CopyableError message={`来源暂不可用：${source.error.message}`} />
+              。当前选择已保留。
             </p>
           )}
           {source.data?.reasons.map((reason) => (

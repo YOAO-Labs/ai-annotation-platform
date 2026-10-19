@@ -1,3 +1,5 @@
+import { randomId } from "@/utils/id";
+import { CopyableError } from "@/components/ui/CopyableError";
 import { useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery } from "@tanstack/react-query";
@@ -211,7 +213,7 @@ export function CreateContent({ projectId, scope }: { projectId: string; scope: 
     if (!checkedPreview || !name.trim()) return;
     const body = {
       ...input,
-      request_id: crypto.randomUUID(),
+      request_id: randomId(),
       name: name.trim(),
       preview_digest: checkedPreview.preview_digest,
     };
@@ -447,7 +449,7 @@ export function CreateContent({ projectId, scope }: { projectId: string; scope: 
         .filter(Boolean)
         .map((error, index) => (
           <p key={index} role="alert" className="text-sm text-status-danger">
-            {error?.message}
+            <CopyableError message={error?.message} />
           </p>
         ))}
       {storageError && (

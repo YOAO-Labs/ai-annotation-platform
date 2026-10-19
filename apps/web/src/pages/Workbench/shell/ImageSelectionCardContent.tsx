@@ -1,3 +1,4 @@
+import { CopyableError } from "@/components/ui/CopyableError";
 import { Button } from "@/components/ui/Button";
 import { Icon } from "@/components/ui/Icon";
 import type { AttributeSchema } from "@/api/projects";
@@ -96,8 +97,9 @@ export function ImageSelectionCardContent({
           ) : (
             <span className="flex items-center gap-2">
               <span className="min-w-0 flex-1">
-                {rasterMaskStatus.backendReason ?? rasterMaskStatus.reason}：
-                {rasterMaskStatus.message}
+                <CopyableError
+                  message={`${rasterMaskStatus.backendReason ?? rasterMaskStatus.reason}：${rasterMaskStatus.message}`}
+                />
               </span>
               {rasterMaskStatus.retryable && onRetryRasterMask && (
                 <Button

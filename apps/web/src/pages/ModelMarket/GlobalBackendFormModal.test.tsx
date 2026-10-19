@@ -198,4 +198,62 @@ describe("GlobalBackendFormModal GPU claim", () => {
 
     expect(await screen.findByText("gpu_resource_id：资源不存在")).toBeInTheDocument();
   });
+
+  it.each([false, true])("首次配置 Token 认证不能留空（编辑=%s）", async (editing) => {
+    renderForm(
+      editing
+        ? {
+            id: "backend-auth",
+            name: "yolo",
+            url: "http://172.17.0.1:8003",
+            auth_method: "none",
+            gpu_resource_id: null,
+            vram_budget_mb: null,
+            eviction_priority: 0,
+          }
+        : undefined,
+    );
+    if (!editing) fillRequiredFields();
+    fireEvent.change(screen.getByLabelText("认证方式"), { target: { value: "token" } });
+    fireEvent.click(screen.getByRole("button", { name: editing ? "保存" : "注册" }));
+
+    expect(
+      await screen.findByText("请填写服务端使用的 Token；留空不会自动生成。"),
+    ).toBeInTheDocument();
+    expect(mockCreate).not.toHaveBeenCalled();
+    expect(mockUpdate).not.toHaveBeenCalled();
+  });
+
+  it("展示令牌生成及两端配置说明，填写后发送令牌", async () => {
+    renderForm();
+    fillRequiredFields();
+    fireEvent.change(screen.getByLabelText("认证方式"), { target: { value: "token" } });
+    expect(screen.getByText(/openssl rand -hex 32/)).toBeInTheDocument();
+    expect(screen.getByText(/YOLO_MANAGED_MODELS_TOKEN/)).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Token"), { target: { value: "a".repeat(64) } });
+    fireEvent.click(screen.getByRole("button", { name: "注册" }));
+    await waitFor(() =>
+      expect(mockCreate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          auth_method: "token",
+          auth_token: "a".repeat(64),
+        }),
+      ),
+    );
+  });
+
+  it("已经使用 Token 的实例留空编辑时不覆盖已保存令牌", async () => {
+    renderForm({
+      id: "backend-auth",
+      name: "yolo",
+      url: "http://172.17.0.1:8003",
+      auth_method: "token",
+      gpu_resource_id: null,
+      vram_budget_mb: null,
+      eviction_priority: 0,
+    });
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
+    await waitFor(() => expect(mockUpdate).toHaveBeenCalled());
+    expect(mockUpdate.mock.calls[0][0].payload).not.toHaveProperty("auth_token");
+  });
 });

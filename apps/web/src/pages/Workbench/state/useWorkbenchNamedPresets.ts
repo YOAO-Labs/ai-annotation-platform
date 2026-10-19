@@ -1,3 +1,4 @@
+import { randomId } from "@/utils/id";
 import { useCallback, useMemo, useReducer, useRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ApiError } from "@/api/client";
@@ -189,7 +190,7 @@ export function useWorkbenchNamedPresets() {
       } catch {
         return "request";
       }
-      const id = existing?.id ?? crypto.randomUUID();
+      const id = existing?.id ?? randomId();
       const next = {
         ...stored,
         [id]: {

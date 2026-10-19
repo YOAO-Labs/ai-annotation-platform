@@ -1,3 +1,4 @@
+import { CopyableError } from "@/components/ui/CopyableError";
 import { useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { Icon } from "@/components/ui/Icon";
@@ -123,7 +124,11 @@ export function AxisConventionPicker({ value, onChange, disabled = false, datase
           ))}
         </div>
       )}
-      {error && <div className={styles.error}>{error}</div>}
+      {error && (
+        <div className={styles.error}>
+          <CopyableError message={error} />
+        </div>
+      )}
     </div>
   );
 }

@@ -1,3 +1,4 @@
+import { CopyableError } from "@/components/ui/CopyableError";
 /**
  * v0.19.0 · ADR-0044 · superadmin 全局 ML backend 注册/编辑弹窗。
  *
@@ -226,6 +227,10 @@ export function GlobalBackendFormModal({ open, backend, onClose }: Props) {
     }
 
     const token = authMethod === "token" && authToken.trim() ? authToken.trim() : undefined;
+    if (authMethod === "token" && !token && backend?.auth_method !== "token") {
+      setError("请填写服务端使用的 Token；留空不会自动生成。");
+      return;
+    }
 
     try {
       if (isEdit && backend) {
@@ -351,7 +356,10 @@ export function GlobalBackendFormModal({ open, backend, onClose }: Props) {
                     {probeResult.model_version ? `, ${probeResult.model_version}` : ""})
                   </>
                 ) : (
-                  <>无法连接：{probeResult.error ?? "未知错误"}</>
+                  <>
+                    无法连接：
+                    <CopyableError message={probeResult.error ?? "未知错误"} />
+                  </>
                 )}
               </span>
             )}
@@ -395,7 +403,8 @@ export function GlobalBackendFormModal({ open, backend, onClose }: Props) {
             {resourcesQ.isLoading && <div className={HELP_CLASS}>正在读取 GPU 资源配置…</div>}
             {resourcesQ.isError && (
               <div className="mt-1 text-2xs text-status-danger">
-                GPU 资源配置加载失败：{(resourcesQ.error as Error).message}
+                GPU 资源配置加载失败：
+                <CopyableError message={(resourcesQ.error as Error).message} />
               </div>
             )}
           </div>
@@ -453,8 +462,9 @@ export function GlobalBackendFormModal({ open, backend, onClose }: Props) {
             <ul className="m-0 flex list-none flex-col gap-1 p-0 text-2xs text-status-danger">
               {gpuDiagnostics.map((diagnostic, index) => (
                 <li key={`${diagnostic.code}-${diagnostic.field ?? ""}-${index}`}>
-                  {diagnostic.field ? `${diagnostic.field}：` : ""}
-                  {diagnostic.message}
+                  <CopyableError
+                    message={`${diagnostic.field ? `${diagnostic.field}：` : ""}${diagnostic.message}`}
+                  />
                 </li>
               ))}
             </ul>
@@ -483,9 +493,22 @@ export function GlobalBackendFormModal({ open, backend, onClose }: Props) {
                 type="password"
                 value={authToken}
                 onChange={(e) => setAuthToken(e.target.value)}
-                placeholder={isEdit ? "••• 留空则保持原值" : "Bearer token"}
+                placeholder={
+                  backend?.auth_method === "token"
+                    ? "留空仅保留已保存的 Token"
+                    : "填写与服务端相同的 Token"
+                }
+                aria-describedby="global-backend-auth-help"
                 className={INPUT_CLASS}
               />
+              <div id="global-backend-auth-help" className={HELP_CLASS}>
+                Token 由服务管理员自行生成，平台不会自动生成或修改服务端配置。 YOLO 模型回流可运行{" "}
+                <code className="font-mono">openssl rand -hex 32</code>
+                生成 64 个字符的随机令牌，将同一值配置到服务端的 YOLO_MANAGED_MODELS_TOKEN，
+                重新创建 YOLO 服务容器后填到这里。默认空值表示关闭模型回流。
+                {backend?.auth_method === "token" &&
+                  "留空仅保留已保存的令牌；若原本未配置，仍需填写。"}
+              </div>
             </div>
           )}
         </div>
@@ -531,7 +554,9 @@ export function GlobalBackendFormModal({ open, backend, onClose }: Props) {
         {error && (
           <div className="flex items-start gap-1.5 rounded-md border border-status-danger bg-status-danger-soft px-2.5 py-2 text-xs text-status-danger">
             <Icon name="warning" size={12} className="mt-0.5 flex-shrink-0" />
-            <span>{error}</span>
+            <span>
+              <CopyableError message={error} />
+            </span>
           </div>
         )}
         <div className="flex justify-end gap-2">

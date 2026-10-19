@@ -1,3 +1,4 @@
+import { CopyableError } from "@/components/ui/CopyableError";
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import {
@@ -17,6 +18,8 @@ import { cn } from "@/lib/utils";
 import { TrainingLoading } from "./TrainingFeedback";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
+import { Button as NavigationButton } from "@/components/shadcn/ui/button";
+import type { ModelReturnEligibility } from "@/api/generated/types.gen";
 import { CopyValueButton } from "@/components/ui/CopyValueButton";
 import { ProgressBar } from "@/components/ui/ProgressBar";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/shadcn/ui/tabs";
@@ -60,6 +63,7 @@ export function TrainingRunMonitor({
   onAction,
   recovery,
   recoveryError,
+  registrationEligibility,
   scope,
   visible,
   assertOwner,
@@ -75,6 +79,7 @@ export function TrainingRunMonitor({
   onAction: (action: Action) => void;
   recovery?: TrainingRecovery;
   recoveryError?: string;
+  registrationEligibility?: ModelReturnEligibility | null;
   scope: string;
   visible: boolean;
   assertOwner: AssertTrainingOwner;
@@ -160,6 +165,32 @@ export function TrainingRunMonitor({
             </Button>
           )}
         </div>
+        {attempt?.status === "succeeded" && (
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-lg bg-muted p-3">
+            <div className="min-w-0 text-xs">
+              <p className="font-medium">将训练结果回流到项目</p>
+              <p className="mt-1 text-muted-foreground">
+                {registrationEligibility?.qualified
+                  ? "绑定项目类别后，模型会出现在「模型与发布」，供后续试用和发布。"
+                  : (registrationEligibility?.reason ?? "尚未确认回流资格，请刷新后重试。")}
+                {!registrationEligibility?.qualified && " 仍可在「产物与记录」下载权重。"}
+              </p>
+            </div>
+            {registrationEligibility?.qualified && (
+              <NavigationButton asChild size="sm">
+                <Link
+                  to={`/projects/${run.project_id}/learning?${new URLSearchParams({
+                    tab: "models",
+                    register_run: run.id,
+                    register_attempt: attempt.id,
+                  })}`}
+                >
+                  回流到项目模型
+                </Link>
+              </NavigationButton>
+            )}
+          </div>
+        )}
         <div className="mt-5 flex items-center justify-between text-xs">
           <span className="text-muted-foreground">已完成训练轮次</span>
           <span className="font-mono tabular-nums">
@@ -237,13 +268,13 @@ export function TrainingRunMonitor({
         {["failed", "cancelled"].includes(run.status) && !canResume && (
           <p className="mt-3 text-xs text-muted-foreground">
             续训资格：
-            {recoveryError
-              ? `暂无法核对（${recoveryError}）`
-              : recovery?.attempt_id === run.current_attempt_id
-                ? recovery.reasons
-                    .map((reason) => recoveryReasons[reason] ?? "资格尚未确认")
-                    .join("；")
-                : "正在核对当前执行的检查点与环境"}
+            {recoveryError ? (
+              <CopyableError message={recoveryError} preview={`暂无法核对（${recoveryError}）`} />
+            ) : recovery?.attempt_id === run.current_attempt_id ? (
+              recovery.reasons.map((reason) => recoveryReasons[reason] ?? "资格尚未确认").join("；")
+            ) : (
+              "正在核对当前执行的检查点与环境"
+            )}
           </p>
         )}
         {run.error_message && (
@@ -251,7 +282,7 @@ export function TrainingRunMonitor({
             role="alert"
             className="mt-3 rounded-md bg-status-danger-soft p-3 text-xs text-status-danger"
           >
-            {run.error_message}
+            <CopyableError message={run.error_message} />
           </p>
         )}
       </header>
@@ -291,7 +322,8 @@ export function TrainingRunMonitor({
             </p>
             {attempt.failure?.diagnostic && (
               <p className="mt-2 break-words text-muted-foreground">
-                脱敏诊断：{attempt.failure.diagnostic}
+                脱敏诊断：
+                <CopyableError message={attempt.failure.diagnostic} />
               </p>
             )}
             {attempt.failure?.code === "cuda_oom" && !!run.config.configuration && (
@@ -347,7 +379,7 @@ export function TrainingRunMonitor({
           <TabsContent value="metrics">
             {eventsError && (
               <p role="alert" className="mb-3 text-xs text-status-danger">
-                {eventsError}
+                <CopyableError message={eventsError} />
               </p>
             )}
             <p className="mb-3 text-xs text-muted-foreground">{trainingTaskLabel(task)}</p>
@@ -491,7 +523,9 @@ export function TrainingRunMonitor({
                     ` · 最近心跳 ${new Date(item.heartbeat_at).toLocaleString("zh-CN")}`}
                 </p>
                 {item.error_message && (
-                  <p className="mt-2 text-xs text-status-danger">{item.error_message}</p>
+                  <p className="mt-2 text-xs text-status-danger">
+                    <CopyableError message={item.error_message} />
+                  </p>
                 )}
                 {!Object.keys(item.artifacts).length && (
                   <p className="mt-3 text-xs text-muted-foreground">

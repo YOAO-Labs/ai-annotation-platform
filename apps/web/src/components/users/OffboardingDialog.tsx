@@ -1,3 +1,4 @@
+import { CopyableError } from "@/components/ui/CopyableError";
 import { useEffect, useMemo, useState } from "react";
 
 import {
@@ -750,7 +751,9 @@ export function OffboardingDialog({ open, user, onClose }: OffboardingDialogProp
           {formError && (
             <div className="flex items-start gap-2 rounded-md border border-status-danger/30 bg-status-danger-soft px-3 py-2 text-xs text-status-danger">
               <Icon name="warning" size={13} className="mt-0.5 shrink-0" />
-              <span>{formError}</span>
+              <span>
+                <CopyableError message={formError} />
+              </span>
             </div>
           )}
 
@@ -867,7 +870,9 @@ export function ReactivateDialog({ open, user, onClose }: ReactivateDialogProps)
           {error && (
             <div className="flex items-start gap-2 rounded-md border border-status-danger/30 bg-status-danger-soft px-3 py-2 text-xs text-status-danger">
               <Icon name="warning" size={13} className="mt-0.5 shrink-0" />
-              <span>{error}</span>
+              <span>
+                <CopyableError message={error} />
+              </span>
             </div>
           )}
           <div className="flex justify-end gap-2 border-t border-border pt-3">

@@ -197,7 +197,7 @@ async def health_redis():
 
 @router.get("/minio")
 async def health_minio():
-    result = _check_minio()
+    result = await asyncio.to_thread(_check_minio)
     code = 200 if result["status"] == "ok" else 503
     return JSONResponse(status_code=code, content=result)
 

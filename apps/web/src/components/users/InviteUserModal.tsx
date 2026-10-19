@@ -1,3 +1,4 @@
+import { CopyableError } from "@/components/ui/CopyableError";
 import { useEffect, useState } from "react";
 import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
@@ -243,7 +244,7 @@ export function InviteUserModal({ open, onClose }: Props) {
           {invite.isError && (
             <div className={styles.errorBox}>
               <Icon name="warning" size={13} />
-              {(invite.error as Error)?.message ?? "邀请失败"}
+              <CopyableError message={(invite.error as Error)?.message ?? "邀请失败"} />
             </div>
           )}
 

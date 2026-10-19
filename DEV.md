@@ -165,7 +165,9 @@ pnpm dev:worktree -- exec --mode dev -- sh -c 'cd apps/api && .venv/bin/python s
 
 ### 训练执行器配置
 
-受控训练默认关闭。配置 `TRAINING_ENABLED`、随机 `TRAINING_EXECUTOR_TOKEN`、`TRAINING_NODE_ID`、单张物理 `TRAINING_GPU_UUID` 及 `TRAINING_CATALOG_JSON` 后刷新 API。目录中的框架版本、镜像身份和基础权重 SHA-256 必须与实际执行器一致。构建输入位于 `apps/training-executor`，使用锁定依赖和独立虚拟环境；PyTorch 的 CUDA 版本需满足宿主驱动要求。
+受控训练默认关闭。配置 `TRAINING_ENABLED`、随机 `TRAINING_EXECUTOR_TOKEN`、`TRAINING_NODE_ID`、单张物理 `TRAINING_GPU_UUID` 及 `TRAINING_CATALOG_JSON` 后刷新 API，并重新创建 `celery-worker`，使定期策略检查使用同一训练目录。目录中的框架版本、镜像身份和基础权重 SHA-256 必须与实际执行器一致。构建输入位于 `apps/training-executor`，使用锁定依赖和独立虚拟环境；PyTorch 的 CUDA 版本需满足宿主驱动要求。
+
+主开发 API 仅监听宿主 `127.0.0.1:8000` 时，训练执行器的本机 Compose override 需设置 `network_mode: host`，并将 `TRAINING_API_URL` 指向 `http://127.0.0.1:8000/api/v1/internal/training`。凭据文件保持 `0600`，将执行器 `user` 配置为其所有者的 UID/GID，并让持久 `/state` 卷归该用户所有；执行器移除了全部 capabilities，不能依靠 root 绕过文件权限。该 override 只用于独立训练 Compose 项目，不加入核心 worker 的 Compose 配置。
 
 已验证适配器为 Ultralytics 8.4.177 与 LibreYOLO 1.6.0；两者支持图片检测，Ultralytics 还支持受控 `yolo11n-seg` 简单多边形实例分割。LibreYOLO 目录项使用同样的 `version`、`image_digest` 和 `base_models` 结构，基础模型 ID 为 `LibreYOLO9t`，文件名 `LibreYOLO9t.pt`。官方模型来自 `LibreYOLO/LibreYOLO9t` 的固定修订 `66ac39d1ac9b880076b96ad4674ef9235ca1a15e`，大小 8,645,036 字节，SHA-256 为 `b4d7e93f9e0393830fb42e6135c0e3464b2673b05e5ecf4b7f2374ec18e39eb2`。先下载并核验字节和原生加载，再将只读文件及实际镜像身份配置到目录；执行器不会自动下载基础权重。
 
@@ -184,6 +186,8 @@ LibreYOLO 使用自己的回调、完整状态恢复与评估，不接受 Ultral
 `TRAINING_EXECUTOR_TOKEN_PATH` 为仅管理员可读的凭据文件，`TRAINING_MODELS_PATH` 为校验过的只读基础权重目录，`TRAINING_API_URL` 指向目标 API 的 `/api/v1/internal/training`。不要将 executor 指向其他工作树。该服务不挂 Docker socket，不读取 API `.env`，不持有数据库或 MinIO 管理凭据。
 
 模型回流需要重建 YOLO 镜像、应用迁移并刷新预测 worker。`YOLO_MANAGED_MODELS_TOKEN` 至少 32 个随机字符；将相同凭据配置到平台已启用的 YOLO 推理实例（认证方式 `token`）。Ultralytics 训练与推理使用相同的已验证版本；LibreYOLO 原生 CPU 适配器固定 LibreYOLO、Torch 与 torchvision 版本，并严格核对全部主模型张量、类别顺序和任务。此扩展无需新增迁移或环境变量；重建包含共享 qualification helper 的 YOLO 镜像并刷新 API／预测 worker。安装文件持久保存于 YOLO checkpoints 卷的 `managed/`，不能删除仍被部署使用的权重与收据。先更新实例健康与能力，再执行候选加载、固定验证图试用和发布。路由仅允许对应部署的确切实例；`off/observe` 模式下该实例还须是服务池的 legacy 实例。重新加载可恢复缺失或损坏的本地副本，不能改变版本身份。
+
+令牌由服务管理员生成，例如运行 `openssl rand -hex 32`，将生成的同一个值写入根目录 `.env` 的 `YOLO_MANAGED_MODELS_TOKEN` 和「模型市场 → 注册管理 → 实例 → 编辑」的 Token 输入框。默认空值关闭模型回流，选择认证方式不会生成令牌。修改环境变量后，从部署目录运行 `docker compose -f docker-compose.yml -f docker-compose.ml.yml --profile gpu-yolo up -d --no-deps --force-recreate yolo-backend`，让容器读取新配置；单纯重启原容器不会更新其环境变量。
 
 同一物理 GPU 的所有执行器必须共享同一个持久 `/state` 卷和一致的节点 ID；子进程继承其中的资源锁。不要在进程运行时删除状态卷或强行释放数据库租约。先停止接收新实验，等待当前进程退出和产物上传，再轮换认证凭据或镜像。旧实验续训默认仍需原镜像；修订 1 仅使用明确配置的历史镜像兼容列表。修订 2 的检测检查点只有通过实际续训验收后，才可在对应框架目录的 `compatible_config_images` 中配置「来源镜像 → 完整既有 `configuration.identity` 列表」，同时核验目标镜像、框架版本和原生参数定义。不得改写冻结摘要，也不能用检测验收放行分割或未经验证的其他组合。执行器重启后恢复持久日志，上传故障只重试上传。
 
@@ -762,6 +766,35 @@ nuScenes mini 到 `~/.cache/ai-annotation-platform/nuscenes-mini`（约 4 GB，�
 并导入 scene-0061 的 39 个关键帧；归档和解压内容都不会写入 Git 仓库。
 重跑 seed 会保留已有任务和标注，并从 nuScenes `sample_data` 幂等回填旧相机条目缺失的
 像素宽高，供 3D 投影、持久化 2D 成员和残差质检共用。
+
+### COCO8 在线训练夹具
+
+只生成在线训练测试项目，不导入视频、点云等其他示例：
+
+```bash
+cd apps/api
+PYTHONPATH=. uv run python scripts/seed.py --profile online-training
+```
+
+该入口复用版本化素材清单，首次下载并校验约 443 KB 的 COCO8 归档到
+`~/.cache/ai-annotation-platform/seed-assets`；可用 `--cache-dir` 指定缓存、
+`--offline` 复用已缓存素材，或通过 `--asset-dir` 提供包含 `coco8/` 的本地素材目录。
+需要当前开发栈的 PostgreSQL、MinIO 和 Redis；数据包在脚本内同步构建，不依赖 export worker。
+
+生成项目 **COCO8 在线训练（dev）**（`P-COCO8-TRAIN`）和数据集 `DS-COCO8-TRAIN`，
+使用 COCO 80 类、8 张原图及 30 个原始检测框，任务均已完成审核。`pm` 是负责人，
+`anno` / `anno2` / `anno3`、`qa`、`viewer` 获得各自的项目职责。初始训练数据版本包含真实原图与标注，
+保留官方 4 张训练图 / 4 张验证图划分；后续创建版本时选择该父版本可继承分区。
+重跑保留已有任务、标注、数据版本、实验和策略；固定编号被其他数据占用时拒绝覆盖。
+初始版本构建失败、取消或因进程退出遗留在运行状态时，重跑命令会基于同一冻结快照重新构建；
+若上次构建仍在执行或清理，命令会提示稍后重试。也可到项目「训练数据」查看失败原因并重试。
+
+登录 `pm`（密码 `123456`），打开项目「训练数据」，选择初始版本后新建实验。
+已配置训练执行器时，可先选当前训练目录中的 Ultralytics / YOLO11n，试跑
+`epochs=1`、`batch=4`、`imgsz=320`、`seed=42`。自动训练可引用该初始数据版本，
+将变化门槛设为 `1`、检查间隔设为 `1` 分钟、冷却设为 `0`，再明确保存并启用。
+首次成功后，修改并重新审核训练分区标注可验证下一轮触发；仅验证分区变化不触发训练。
+夹具不创建实验或启用策略，也不要求生成时已开启训练目录。COCO8 用于流程试跑，不能据此评估模型质量。
 
 ## 下一步计划
 

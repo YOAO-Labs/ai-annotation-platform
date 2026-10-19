@@ -1,5 +1,5 @@
 import { act, renderHook } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Annotation } from "@/types";
 import { usePolygonSlice } from "./usePolygonSlice";
 
@@ -16,6 +16,7 @@ const source = {
     ],
   },
 } as Annotation;
+afterEach(() => vi.unstubAllGlobals());
 function setup(commit = vi.fn(async () => {})) {
   const { result, rerender, unmount } = renderHook((props) => usePolygonSlice(props), {
     initialProps: { enabled: true, owner: "task-a", annotations: [source], commit },
@@ -63,6 +64,7 @@ describe("Polygon Slice preview ownership", () => {
     expect(h.result.current.session).toBeNull();
   });
   it("retains the exact request and preview after response loss, even after a source refetch", async () => {
+    vi.stubGlobal("crypto", { getRandomValues: crypto.getRandomValues.bind(crypto) });
     const commit = vi
       .fn()
       .mockRejectedValueOnce(new Error("response lost"))
@@ -71,6 +73,7 @@ describe("Polygon Slice preview ownership", () => {
     h.draw();
     await act(async () => h.result.current.confirm());
     expect(h.result.current.session?.error).toBe("response lost");
+    expect(commit.mock.calls[0][0].idempotency_key).toMatch(/^[0-9a-f]{32}$/);
     h.rerender({
       enabled: true,
       owner: "task-a",

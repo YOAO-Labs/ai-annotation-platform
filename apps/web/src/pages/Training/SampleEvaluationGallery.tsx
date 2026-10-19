@@ -1,3 +1,5 @@
+import { randomId } from "@/utils/id";
+import { CopyableError } from "@/components/ui/CopyableError";
 import { useEffect, useRef, useState, type RefObject } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useLocation, useNavigate } from "react-router-dom";
@@ -158,7 +160,9 @@ export function SampleEvaluationGallery({
           )}
           {samples.error && (
             <div role="alert" className="p-2 text-xs text-status-danger">
-              <p>{samples.error.message}</p>
+              <p>
+                <CopyableError message={samples.error.message} />
+              </p>
               <Button size="sm" className="mt-2" onClick={() => void samples.refetch()}>
                 重试列表
               </Button>
@@ -234,9 +238,13 @@ export function SampleEvaluationGallery({
               />
               {selected.status !== "succeeded" ? (
                 <p role="status" className="mt-4 text-sm text-status-caution">
-                  {selected.status === "failed"
-                    ? `样本失败：${selected.error_message ?? selected.error_code}`
-                    : "本次尝试未完成此成员，尚无预测证据。"}
+                  {selected.status === "failed" ? (
+                    <CopyableError
+                      message={`样本失败：${selected.error_message ?? selected.error_code}`}
+                    />
+                  ) : (
+                    "本次尝试未完成此成员，尚无预测证据。"
+                  )}
                 </p>
               ) : (
                 <SampleEvidence sample={selected} classes={run.spec.classes} />
@@ -385,7 +393,7 @@ function SourceDialog({
   onClose: () => void;
   returnFocusRef: RefObject<HTMLButtonElement | null>;
 }) {
-  const [requestScope] = useState(() => crypto.randomUUID());
+  const [requestScope] = useState(() => randomId());
   const { assert } = useTrainingViewOwner(run.project_id, `${scope}:${requestScope}`);
   const location = useLocation();
   const navigate = useNavigate();
@@ -447,7 +455,9 @@ function SourceDialog({
       )}
       {source.error && (
         <div role="alert" className="space-y-3 text-sm text-status-danger">
-          <p>{source.error.message}</p>
+          <p>
+            <CopyableError message={source.error.message} />
+          </p>
           <Button size="sm" onClick={() => void source.refetch()}>
             重新核对
           </Button>

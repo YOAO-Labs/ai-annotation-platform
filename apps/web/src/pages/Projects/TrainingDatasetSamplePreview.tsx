@@ -1,3 +1,5 @@
+import { randomId } from "@/utils/id";
+import { CopyableError } from "@/components/ui/CopyableError";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { trainingDatasetsApi, type TrainingDatasetAnalyzedSampleOut } from "@/api/trainingDatasets";
@@ -68,7 +70,7 @@ export function TrainingDatasetSamplePanel(props: PanelProps) {
       taskId: props.sample.task_id,
       contentSha256: props.sample.sha256,
       labelSha256: props.sample.label_sha256,
-      key: crypto.randomUUID(),
+      key: randomId(),
     }),
     [
       userId,
@@ -191,7 +193,9 @@ function SamplePreviewContent({
           role="alert"
           className="rounded-md bg-status-caution-soft p-3 text-sm text-status-caution"
         >
-          <p>{mediaError}</p>
+          <p>
+            <CopyableError message={mediaError} />
+          </p>
           <Button size="sm" className="mt-2" onClick={() => setRetry((value) => value + 1)}>
             重试冻结图片
           </Button>
@@ -251,7 +255,7 @@ function SamplePreviewContent({
       )}
       {detail.error && (
         <p role="alert" className="mt-3 text-sm text-status-danger">
-          {detail.error.message}
+          <CopyableError message={detail.error.message} />
         </p>
       )}
       {value?.sample.issue && (

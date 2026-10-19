@@ -55,6 +55,10 @@ export type DatasetSampleFilters = {
 export type DatasetVersionFilters = {
   task?: ProjectTaskDatasetOut["task"];
   task_dataset_id?: string;
+  q?: string;
+  status?: string;
+  created_from?: string;
+  created_to?: string;
 };
 
 const queryString = (values: Record<string, string | number | undefined>) => {

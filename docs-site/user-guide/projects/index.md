@@ -180,6 +180,8 @@ scene 模式适合“一个连续场景被拆成多个 task”的项目，例如
 3. 依次完成 6 个配置步骤（随后显示创建完成页）；任何字段都可以在对应步骤覆盖（你的修改优先于源配置）。
 4. 提交后新项目就绪。**只复制配置**：`tool_bindings`（类别与属性 schema）/ `type_key` / `type_label` / `data_type` / `ai_enabled` / `label_config` / `sampling` / `rendering_config` / `show_overlap_first` / `iou_dedup_threshold` / `box_threshold` / `text_threshold` / `maximum_annotations`（完整列表见后端 `CLONEABLE_PROJECT_FIELDS`）。**不复制运行时数据**：datasets / tasks / annotations / members / batches。
 
+类别颜色沿用源项目的显式设置；未单独设色的类别使用与工作台一致的类别默认色。类别较多时，列表在向导内滚动，新增类别和「上一步 / 下一步」操作保持可见。从模板创建项目时同样适用。
+
 > 需要跨项目共享 / 跨组织共享 / 模板治理？使用「项目模板库」独立资产形态，
 > 详见 [项目模板库（Project Templates）](./project-templates.md)。
 

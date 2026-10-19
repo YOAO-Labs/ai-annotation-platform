@@ -41,6 +41,15 @@ export interface TrainingEpochEvent {
   metrics: Record<string, number>;
 }
 
+export type TrainingRunFilters = {
+  q?: string;
+  status?: string;
+  task?: string;
+  framework?: string;
+  created_from?: string;
+  created_to?: string;
+};
+
 const base = (projectId: string) => `/projects/${projectId}/training-runs`;
 export const trainingRunsApi = {
   initializationSource: (
@@ -70,11 +79,21 @@ export const trainingRunsApi = {
     ),
   catalog: (projectId: string, options?: RequestInit) =>
     apiClient.get<TrainingCatalog>(`${base(projectId)}/catalog`, options),
-  list: (projectId: string, offset = 0, options?: RequestInit) =>
-    apiClient.get<{ total: number; items: TrainingRunOut[] }>(
-      `${base(projectId)}?limit=20&offset=${offset}`,
+  list: (
+    projectId: string,
+    offset = 0,
+    options?: RequestInit,
+    filters: TrainingRunFilters = {},
+  ) => {
+    const query = new URLSearchParams({ limit: "20", offset: String(offset) });
+    Object.entries(filters).forEach(([key, value]) => {
+      if (value) query.set(key, value);
+    });
+    return apiClient.get<{ total: number; items: TrainingRunOut[] }>(
+      `${base(projectId)}?${query}`,
       options,
-    ),
+    );
+  },
   get: (projectId: string, id: string, options?: RequestInit) =>
     apiClient.get<TrainingRunDetail>(`${base(projectId)}/${id}`, options),
   events: (projectId: string, id: string, attemptId?: string, after = 0, options?: RequestInit) =>

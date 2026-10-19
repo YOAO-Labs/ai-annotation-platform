@@ -1,3 +1,4 @@
+import { CopyableError } from "@/components/ui/CopyableError";
 import { useState, type FormEvent } from "react";
 import { Button } from "@/components/ui/Button";
 import { Icon } from "@/components/ui/Icon";
@@ -616,7 +617,7 @@ export function StorageConnectionsPanel({
                     <div
                       className={cx(styles.testResult, result.ok ? styles.testOk : styles.testFail)}
                     >
-                      {result.message}
+                      {result.ok ? result.message : <CopyableError message={result.message} />}
                       {result.sample_count !== null && ` · 样本 ${result.sample_count}`}
                     </div>
                   )}

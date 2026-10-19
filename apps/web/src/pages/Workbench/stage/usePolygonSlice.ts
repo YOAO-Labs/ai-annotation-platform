@@ -1,3 +1,4 @@
+import { randomId } from "@/utils/id";
 import { useCallback, useLayoutEffect, useRef, useState } from "react";
 import type { Annotation, PolygonGeometry } from "@/types";
 import type { PolygonSliceCommitRequest } from "@/api/annotationSlices";
@@ -128,7 +129,7 @@ export function usePolygonSlice(options: Options) {
     const request = draft.request ?? {
       annotation_id: draft.source.id,
       expected_version: draft.source.version!,
-      idempotency_key: crypto.randomUUID().replace(/-/g, ""),
+      idempotency_key: randomId().replace(/-/g, ""),
       cut_path: structuredClone(draft.points),
     };
     const sending = { ...draft, request, busy: true, error: undefined };

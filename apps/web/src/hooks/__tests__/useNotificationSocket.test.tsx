@@ -417,6 +417,33 @@ describe("useNotificationSocket", () => {
     expect(errorToastMessages()[0]).toContain("漏标");
   });
 
+  it.each([
+    ["training_run", "job.completed", "模型训练完成"],
+    ["training_run", "job.failed", "模型训练失败：显存不足"],
+    ["training_run", "job.cancelled", "模型训练已取消"],
+    ["training_dataset", "job.completed", "训练数据构建完成"],
+    ["training_dataset", "job.failed", "训练数据构建失败：显存不足"],
+    ["training_dataset", "job.cancelled", "训练数据构建已取消"],
+    ["future_job", "job.failed", "后台任务失败：显存不足"],
+  ])("%s %s 的即时提醒保留具体任务和状态", async (kind, type, expected) => {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    seedPreferences(qc, "u1", [{ type, toast: true }]);
+    mount(qc);
+    act(() => {
+      MockWebSocket.instances[0].triggerMessage({
+        id: "training-notification",
+        type,
+        payload: { kind, ...(type === "job.failed" ? { error_message: "显存不足" } : {}) },
+      });
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1100);
+    });
+    expect(toastCallCount()).toBe(1);
+    const messages = type === "job.failed" ? errorToastMessages() : warningToastMessages();
+    expect(messages).toEqual([expected]);
+  });
+
   it("偏好关闭弹出或关闭接收时不弹；未选择的普通类型默认不弹", async () => {
     const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     seedPreferences(qc, "u1", [

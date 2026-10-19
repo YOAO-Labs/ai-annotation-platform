@@ -1,3 +1,4 @@
+import { CopyableError } from "@/components/ui/CopyableError";
 import type { TrackerReviewProjection } from "@/hooks/videoTrackerReviewScope";
 import {
   forwardRef,
@@ -2882,7 +2883,8 @@ export const VideoKonvaStage = forwardRef<VideoStageControls, VideoKonvaStagePro
         </div>
         {playbackError && (
           <div data-testid="video-konva-playback-error" className={styles.playbackError}>
-            视频无法播放:{playbackError}
+            视频无法播放:
+            <CopyableError message={playbackError} />
           </div>
         )}
         <VideoQcWarnings warnings={qualityWarnings} />

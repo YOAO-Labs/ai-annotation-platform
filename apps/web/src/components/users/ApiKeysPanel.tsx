@@ -1,3 +1,4 @@
+import { CopyableError } from "@/components/ui/CopyableError";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { Icon } from "@/components/ui/Icon";
@@ -312,7 +313,11 @@ export function ApiKeysPanel({ active }: { active: boolean }) {
               预测读等部分端点在路由层强制；未覆盖的端点（含多数写操作）仍遵从你的账号角色——所选
               scope 不等于只读隔离。需要真正受限的程序化访问，请改用低权限账号创建 key。
             </div>
-            {formError && <div className={styles.errorText}>{formError ?? "提交失败"}</div>}
+            {formError && (
+              <div className={styles.errorText}>
+                <CopyableError message={formError ?? "提交失败"} />
+              </div>
+            )}
             <div className={styles.actions}>
               <Button type="button" onClick={resetForm} disabled={pending}>
                 取消

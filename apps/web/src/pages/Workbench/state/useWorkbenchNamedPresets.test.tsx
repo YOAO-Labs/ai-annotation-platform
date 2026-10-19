@@ -1,6 +1,6 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ReactNode } from "react";
 import { ApiError } from "@/api/client";
 import {
@@ -64,6 +64,10 @@ describe("useWorkbenchNamedPresets", () => {
   let client: QueryClient;
   let remote: UserPreferences;
   let raw: StoredNamedWorkspacePresets;
+  afterEach(() => {
+    client.clear();
+    vi.unstubAllGlobals();
+  });
 
   beforeEach(() => {
     client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -93,6 +97,32 @@ describe("useWorkbenchNamedPresets", () => {
     );
     return renderHook(() => useWorkbenchNamedPresets(), { wrapper });
   }
+
+  it("saves a new named preset on plain HTTP without randomUUID", async () => {
+    vi.stubGlobal("crypto", { getRandomValues: crypto.getRandomValues.bind(crypto) });
+    mocks.get.mockResolvedValue(preferences("dockview@8", {}));
+    const { result, unmount } = setup();
+    await waitFor(() => expect(result.current.loaded).toBe(true));
+    await act(async () => {
+      expect(
+        await result.current.save(
+          "审核布局",
+          "review:image",
+          createWorkspacePreset("review", bounds, "review:image"),
+        ),
+      ).toBeNull();
+    });
+    const presets = mocks.patch.mock.calls[0][0].workbench.layout.workspace.namedPresets;
+    const [id] = Object.keys(presets);
+    expect(id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+    expect(presets[id].name).toBe("审核布局");
+    unmount();
+    const restored = setup();
+    await waitFor(() => expect(restored.result.current.loaded).toBe(true));
+    expect(restored.result.current.presets).toEqual([
+      expect.objectContaining({ id, name: "审核布局" }),
+    ]);
+  });
 
   it("round-trips opaque entries, preserves a newer engine and cancels stale refetches", async () => {
     const { result } = setup();

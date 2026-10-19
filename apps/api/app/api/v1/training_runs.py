@@ -41,6 +41,12 @@ from app.services import training_runs as service
 from app.services import training_recipes as recipes
 from app.services import training_observability as observations
 from app.services import training_initialization as initialization
+from app.services.training_list_filters import (
+    ISODate,
+    created_date_bounds,
+    literal_search_pattern,
+    run_task_expression,
+)
 from app.services.storage import storage_service as storage
 from app.services.training_dataset_bridge import content_digest
 
@@ -209,21 +215,54 @@ async def list_runs(
     db: AsyncSession = Depends(get_db),
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
+    q: str = Query("", max_length=120),
+    status: str | None = Query(
+        None,
+        pattern="^(queued|preparing|training|evaluating|uploading|cancelling|lost|succeeded|failed|cancelled)$",
+    ),
+    task: Literal["detect", "segment"] | None = None,
+    framework: Literal["ultralytics", "libreyolo"] | None = None,
+    created_from: ISODate | None = Query(
+        None, description="创建日期下界，UTC 日期（含）"
+    ),
+    created_to: ISODate | None = Query(
+        None, description="创建日期上界，UTC 日期（含整天）"
+    ),
 ) -> dict:
+    start, end = created_date_bounds(created_from, created_to)
+    predicates = [TrainingRun.project_id == project.id]
+    pattern = literal_search_pattern(q)
+    if pattern is not None:
+        predicates.append(
+            or_(
+                TrainingRun.name.ilike(pattern, escape="\\"),
+                TrainingRun.config["base_model"]["id"]
+                .as_string()
+                .ilike(pattern, escape="\\"),
+            )
+        )
+    if status is not None:
+        predicates.append(TrainingRun.status == status)
+    if task is not None:
+        predicates.append(run_task_expression(TrainingRun.config) == task)
+    if framework is not None:
+        predicates.append(TrainingRun.config["framework"].as_string() == framework)
+    if start is not None:
+        predicates.append(TrainingRun.created_at >= start)
+    if end is not None:
+        predicates.append(TrainingRun.created_at <= end)
     if service.catalog()["enabled"]:
         lease = await service.lock_resource(db)
         await service.observe_lost(db, lease)
         await db.commit()
     total = await db.scalar(
-        select(func.count())
-        .select_from(TrainingRun)
-        .where(TrainingRun.project_id == project.id)
+        select(func.count()).select_from(TrainingRun).where(*predicates)
     )
     items = (
         await db.scalars(
             select(TrainingRun)
-            .where(TrainingRun.project_id == project.id)
-            .order_by(TrainingRun.created_at.desc())
+            .where(*predicates)
+            .order_by(TrainingRun.created_at.desc(), TrainingRun.id.desc())
             .limit(limit)
             .offset(offset)
         )

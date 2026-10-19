@@ -211,7 +211,14 @@ async def enabled_backend(db, project_id, registry_id):
         or not backend.auth_token
         or len(backend.auth_token) < 32
     ):
-        raise HTTPException(status_code=422, detail="受控模型需要配置已认证的推理实例")
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "推理实例需使用 Token 认证，并保存至少 32 个字符的令牌。"
+                "请在「模型市场 → 注册管理 → 实例 → 编辑」填写与服务端 "
+                "YOLO_MANAGED_MODELS_TOKEN 一致的 Token；留空不会自动生成。"
+            ),
+        )
     return backend
 
 

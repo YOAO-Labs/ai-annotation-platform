@@ -151,7 +151,11 @@ POST /api/v1/videos/{dataset_item_id}/frames:retry
 
 缓存命中返回 `status="ready"` 和 signed URL；未命中创建 `VideoFrameCache(status="pending")`，投递 `extract_video_frames`，并返回 HTTP 202。抽帧优先使用 B1 的 `pts_ms`，旧视频缺 timetable 时按 `fps` 估算。
 
+帧缓存与转码分块使用毫秒时间戳舍入区间的下界定位，并保留微秒精度传给 FFmpeg，避免舍入后的起点晚于目标帧真实 PTS，造成错取下一帧或末帧抽取失败。
+
 `frames:retry` 默认只重投 `status="failed"` 的缓存行；传入 `frame_indices` 时只处理这些帧，未传时最多处理当前 `width + format` 下 500 条失败行。`force=true` 会重置指定帧的 storage key / byte size 并重新投递，适合源视频修复后刷新坏缓存。
+
+更新抽帧逻辑后，先刷新实际消费任务的 worker，再按宽度、格式分组重试。已生成但内容受影响的缓存需要显式列出源帧号并设置 `force=true` 重建，每批最多 500 帧；空帧号列表仍只选失败项，不会强制重建全部缓存。重建完成后刷新浏览器中的帧缓存。
 
 MinIO key：
 
@@ -183,6 +187,8 @@ POST /api/v1/storage/video-assets/retry
 | `frame`           | `video_frame_cache.status = "failed"`                      | `extract_video_frames`    |
 
 `probe` / `poster` / `frame_timetable` 共用 metadata 任务，因此重试任一项都会重新跑视频 metadata 生成链路。`chunk` / `frame` 重试会先把对应行恢复到 `pending` 并清空 `error`，再投递 media 队列。
+
+存储管理页的错误栏支持鼠标点击或键盘激活，复制接口返回的完整错误原文；显示省略不会截断复制内容，复制成功或失败都会提示。
 
 chunk 重试会清空旧的 `generation_mode` / `diagnostics`，下一次 worker 会重新判断 smart-copy eligibility。
 
