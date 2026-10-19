@@ -486,7 +486,13 @@ async def test_private_workspace_failure_defers_before_job_claim(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_busy_write_retries_the_same_model_result_after_rollback(monkeypatch):
+@pytest.mark.parametrize(
+    "code",
+    ["input_busy", "mask_content_deleting", "mask_content_epoch_changed"],
+)
+async def test_busy_write_retries_the_same_model_result_after_rollback(
+    monkeypatch, code
+):
     request = SimpleNamespace(result=[{"class_name": "car"}])
     calls = []
 
@@ -495,9 +501,9 @@ async def test_busy_write_retries_the_same_model_result_after_rollback(monkeypat
             calls.append(received)
             if len(calls) < 3:
                 raise ApplyPredictionResultError(
-                    code="input_busy",
+                    code=code,
                     status_code=409,
-                    detail={"reason": "input_busy"},
+                    detail={"reason": code},
                 )
             return "saved"
 
@@ -523,7 +529,11 @@ async def test_busy_write_retries_the_same_model_result_after_rollback(monkeypat
 
 
 @pytest.mark.asyncio
-async def test_busy_bundle_write_retries_the_whole_same_result_tuple(monkeypatch):
+@pytest.mark.parametrize(
+    "code",
+    ["input_busy", "mask_content_deleting", "mask_content_epoch_changed"],
+)
+async def test_busy_bundle_write_retries_the_whole_same_result_tuple(monkeypatch, code):
     requests = (
         SimpleNamespace(result=[{"class_name": "car", "index": 1}]),
         SimpleNamespace(result=[{"class_name": "car", "index": 2}]),
@@ -536,9 +546,9 @@ async def test_busy_bundle_write_retries_the_whole_same_result_tuple(monkeypatch
             if len(calls) == 1:
                 received[0].result[0]["class_name"] = "mutated by failed attempt"
                 raise ApplyPredictionResultError(
-                    code="input_busy",
+                    code=code,
                     status_code=409,
-                    detail={"reason": "input_busy"},
+                    detail={"reason": code},
                 )
             return ("first", "second")
 

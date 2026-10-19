@@ -506,6 +506,106 @@ async def test_media_owner_busy_defers_before_prediction(
         assert job.status == "running"
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "code", ["mask_content_deleting", "mask_content_epoch_changed"]
+)
+async def test_mask_content_write_contention_defers_accepted_frame_result(
+    frame_world, test_db_url, monkeypatch, code
+):
+    world = frame_world
+    raw = [
+        {
+            "type": "rectanglelabels",
+            "value": {
+                "x": 10,
+                "y": 20,
+                "width": 30,
+                "height": 40,
+                "rectanglelabels": ["car"],
+            },
+        }
+    ]
+    predict = AsyncMock(
+        return_value=[
+            SimpleNamespace(
+                result=raw,
+                score=0.9,
+                model_version="model",
+                inference_time_ms=12,
+                meta={"total_tokens": 7},
+            )
+        ]
+    )
+    client = SimpleNamespace(predict=predict, last_instance_id=None, pool_id=None)
+    monkeypatch.setattr(settings, "database_url", test_db_url)
+    monkeypatch.setattr(
+        "app.services.ml_routing.client.RoutedMLBackendClient",
+        lambda *_args, **_kwargs: client,
+    )
+    monkeypatch.setattr(
+        "app.services.ml_backend.MLBackendService.pool_id_for_registry",
+        AsyncMock(return_value=None),
+    )
+    _install_video_gateway(monkeypatch, world)
+    monkeypatch.setattr(frame_preannotate, "_bump_progress", lambda *_a: (1, 1))
+    monkeypatch.setattr(
+        frame_preannotate, "_publish_frame_progress", lambda *_a, **_k: None
+    )
+
+    async def retain_segment_stats(
+        _job_id, _done_delta, _project_id, *, segment_id, segment_stats
+    ):
+        assert segment_id
+        return segment_stats
+
+    monkeypatch.setattr(frame_preannotate, "_write_job_progress", retain_segment_stats)
+    apply_result = PredictionService.apply_prediction_result
+    write_calls = []
+
+    async def contend_then_apply(self, request):
+        write_calls.append(request)
+        if len(write_calls) <= frame_preannotate._WRITE_ATTEMPTS:
+            raise ApplyPredictionResultError(
+                code=code,
+                status_code=409,
+                detail={"reason": code},
+            )
+        return await apply_result(self, request)
+
+    monkeypatch.setattr(
+        PredictionService, "apply_prediction_result", contend_then_apply
+    )
+
+    with pytest.raises(frame_preannotate._FrameWriteDeferred) as deferred:
+        await _run_video_segment(world, [1])
+
+    resume = loads(dumps(deferred.value.resume))
+    assert len(write_calls) == frame_preannotate._WRITE_ATTEMPTS
+    assert resume["pending_write"]["result"]
+    assert resume["pending_write"]["ml_backend_id"] == world.backend_id
+    assert resume["video_evidence"]["entry"]["ordinal"] == 1
+    assert resume["write_scope"]["task_id"] == world.task_id
+    predict.assert_awaited_once()
+
+    stats = await _run_video_segment(world, [1], resume=resume)
+
+    assert len(write_calls) == frame_preannotate._WRITE_ATTEMPTS + 1
+    assert stats["frames_done"] == 1
+    assert stats["failed"] == 0
+    predict.assert_awaited_once()
+    async with world.maker() as db:
+        rows = list(
+            (
+                await db.scalars(
+                    select(Prediction).where(Prediction.task_id == world.task_id)
+                )
+            ).all()
+        )
+        assert len(rows) == 1
+        assert rows[0].result[0]["geometry"]["frame_index"] == 0
+
+
 @pytest.mark.parametrize("status", ["cancelled", "failed", "completed"])
 async def test_late_frame_progress_and_finalize_preserve_terminal_job(
     frame_world, test_db_url, monkeypatch, status
