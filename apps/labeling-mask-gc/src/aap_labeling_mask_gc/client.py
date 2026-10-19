@@ -176,7 +176,12 @@ class LabelingMaskGcClient:
         value = request or c.RunRequest()
         if type(value) is not c.RunRequest:
             raise LabelingMaskGcClientFailure("invalid_request")
-        return self._request("run", value, c.CycleStats)
+        result = self._request("run", value, c.CycleStats)
+        try:
+            c.validate_run_stats(value, result)
+        except c.MaskGcFailure:
+            raise LabelingMaskGcClientFailure("invalid_response") from None
+        return result
 
     def progress(self) -> c.ReadMaskGcProgressResult:
         return self._request(

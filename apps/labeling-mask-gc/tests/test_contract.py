@@ -44,6 +44,12 @@ def _request_for(name):
             after_key=None,
             page=GcScanPage(items=(), after_key=KEY, complete=True),
         )
+    if name == "inspect_mask_gc_page":
+        return c.InspectMaskGcPageRequest(
+            after_key=None,
+            page=GcScanPage(items=(), after_key=KEY, complete=True),
+            include_reference_count=True,
+        )
     if name == "claim_mask_gc_deletes":
         return c.ClaimMaskGcDeletesRequest(worker_id=UUID(int=1))
     if name == "finish_mask_gc_delete":
@@ -73,6 +79,7 @@ def test_native_operation_allowlist_is_one_jsonb_argument():
         "register_tracker_running_mask_root",
         "claim_mask_gc_sweep",
         "stage_mask_gc_page",
+        "inspect_mask_gc_page",
         "claim_mask_gc_deletes",
         "finish_mask_gc_delete",
         "read_mask_gc_progress",
@@ -83,6 +90,14 @@ def test_native_operation_allowlist_is_one_jsonb_argument():
         statement, arguments = prepare_native_call(name, _request_for(name))
         assert statement == f"SELECT aap_labeling_v1.{name}($1::jsonb)"
         assert len(arguments) == 1
+
+    assert c.OPERATIONS["inspect_mask_gc_page"].role == "cleanup"
+    with pytest.raises(PermissionError):
+        prepare_native_call(
+            "inspect_mask_gc_page",
+            _request_for("inspect_mask_gc_page"),
+            allowed_roles=("labeling",),
+        )
 
 
 def test_running_tracker_root_is_labeling_only_and_echoes_exact_owner_scope():
@@ -223,6 +238,58 @@ def test_scan_page_is_consumed_from_byte_owner_contract():
     assert stage.page is page
     with pytest.raises(ValidationError):
         GcScanPage(items=(candidate, candidate), after_key=KEY, complete=True)
+
+
+def test_inspection_result_counts_and_reference_presence_match_request():
+    page = GcScanPage(items=(), after_key=None, complete=True)
+    request = c.InspectMaskGcPageRequest(page=page, include_reference_count=True)
+    result = c.InspectMaskGcPageResult(scanned=0, eligible=0, retained=0, referenced=2)
+    c.validate_scope("inspect_mask_gc_page", request, result)
+
+    with pytest.raises(c.MaskGcFailure):
+        c.validate_scope(
+            "inspect_mask_gc_page",
+            request,
+            c.InspectMaskGcPageResult(scanned=1, eligible=1, retained=0, referenced=2),
+        )
+    with pytest.raises(c.MaskGcFailure):
+        c.validate_scope(
+            "inspect_mask_gc_page",
+            c.InspectMaskGcPageRequest(page=page),
+            c.InspectMaskGcPageResult(scanned=0, eligible=0, retained=0, referenced=2),
+        )
+
+
+def test_preview_request_requires_strict_fields_and_allows_only_typed_cursor():
+    request = c.RunRequest(dry_run=True, after_key=KEY)
+    assert request.after_key == KEY
+    with pytest.raises(ValidationError):
+        c.RunRequest(after_key=KEY)
+    with pytest.raises(ValidationError):
+        c.RunRequest(dry_run=1)
+    with pytest.raises(ValidationError):
+        c.InspectMaskGcPageRequest(
+            page=GcScanPage(items=(), after_key=None, complete=True),
+            include_reference_count=None,
+        )
+
+    candidate = GcCandidate(
+        object_key=KEY,
+        etag="opaque-etag",
+        last_modified=STAMP,
+        byte_size=12,
+    )
+    with pytest.raises(ValidationError):
+        c.InspectMaskGcPageRequest(
+            after_key=KEY,
+            page=GcScanPage(items=(candidate,), after_key=KEY, complete=False),
+        )
+
+    defaults = c.CycleStats().model_dump()
+    assert defaults["dry_run"] is False
+    assert defaults["scan_complete"] is False
+    assert defaults["referenced"] is None
+    assert defaults["next_after_key"] is None
 
 
 def test_delete_claim_batch_is_bounded_and_unique_by_key_and_operation():

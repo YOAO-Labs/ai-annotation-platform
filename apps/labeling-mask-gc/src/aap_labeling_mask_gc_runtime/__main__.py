@@ -93,23 +93,28 @@ async def _serve(config, *, once: bool) -> None:
                 log_config=None,
             )
         )
-        worker = asyncio.create_task(
-            _poll(
-                data,
-                storage,
-                worker_id=worker_id,
-                run_lock=run_lock,
-                poll_seconds=config.poll_seconds,
+        worker = (
+            asyncio.create_task(
+                _poll(
+                    data,
+                    storage,
+                    worker_id=worker_id,
+                    run_lock=run_lock,
+                    poll_seconds=config.poll_seconds,
+                )
             )
+            if config.poll_enabled
+            else None
         )
         try:
             await server.serve()
         finally:
-            worker.cancel()
-            try:
-                await worker
-            except asyncio.CancelledError:
-                pass
+            if worker is not None:
+                worker.cancel()
+                try:
+                    await worker
+                except asyncio.CancelledError:
+                    pass
     finally:
         await asyncio.to_thread(storage.close)
         await pool.close()

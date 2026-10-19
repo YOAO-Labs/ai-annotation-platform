@@ -102,6 +102,7 @@ class RuntimeConfig:
     host: str
     port: int
     poll_seconds: float
+    poll_enabled: bool = True
 
 
 def load_config(environment: Mapping[str, str] | None = None) -> RuntimeConfig:
@@ -132,6 +133,10 @@ def load_config(environment: Mapping[str, str] | None = None) -> RuntimeConfig:
     if not math.isfinite(poll_seconds) or not 0.1 <= poll_seconds <= 3600:
         raise ConfigurationError("MASK_GC_POLL_SECONDS must be 0.1-3600 seconds")
 
+    raw_poll_enabled = values.get("MASK_GC_POLL_ENABLED", "true")
+    if raw_poll_enabled not in {"true", "false"}:
+        raise ConfigurationError("MASK_GC_POLL_ENABLED must be true or false")
+
     return RuntimeConfig(
         database_url=database_url,
         token=token,
@@ -140,4 +145,5 @@ def load_config(environment: Mapping[str, str] | None = None) -> RuntimeConfig:
         host=host,
         port=port,
         poll_seconds=poll_seconds,
+        poll_enabled=raw_poll_enabled == "true",
     )

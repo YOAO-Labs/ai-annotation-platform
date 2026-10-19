@@ -14,6 +14,7 @@ GC_OPERATIONS = frozenset(
     {
         "claim_mask_gc_sweep",
         "stage_mask_gc_page",
+        "inspect_mask_gc_page",
         "claim_mask_gc_deletes",
         "finish_mask_gc_delete",
         "read_mask_gc_progress",
