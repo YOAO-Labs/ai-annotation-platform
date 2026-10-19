@@ -18,6 +18,11 @@ NATIVE_MANAGED_TABLES = frozenset(
         "annotation_video_input_sources",
         "video_tracker_input_scopes",
         "annotation_video_tracker_input_sources",
+        "mask_gc_intents",
+        "mask_gc_key_epochs",
+        "mask_gc_sweeps",
+        "mask_gc_roots",
+        "mask_gc_write_permit_secrets",
     }
 )
 

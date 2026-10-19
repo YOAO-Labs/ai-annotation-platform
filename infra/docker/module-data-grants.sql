@@ -8,6 +8,7 @@
 --   -v audit_owner=audit_code -v settings_owner=settings_code
 --   -v notifications_owner=notifications_code -v workflow_role=append_client
 --   -v asset_cleanup_role=asset_cleanup_client
+--   -v mask_gc_role=labeling_mask_gc_client
 --   -f infra/docker/module-data-grants.sql
 \set ON_ERROR_STOP on
 BEGIN;
@@ -28,6 +29,7 @@ SELECT set_config('aap.settings_owner', :'settings_owner', true);
 SELECT set_config('aap.notifications_owner', :'notifications_owner', true);
 SELECT set_config('aap.workflow_role', :'workflow_role', true);
 SELECT set_config('aap.asset_cleanup_role', :'asset_cleanup_role', true);
+SELECT set_config('aap.mask_gc_role', :'mask_gc_role', true);
 
 DO $$
 DECLARE
@@ -47,14 +49,15 @@ DECLARE
         current_setting('aap.settings_owner'),
         current_setting('aap.notifications_owner'),
         current_setting('aap.workflow_role'),
-        current_setting('aap.asset_cleanup_role')
+        current_setting('aap.asset_cleanup_role'),
+        current_setting('aap.mask_gc_role')
     ];
 BEGIN
     IF current_database() <> current_setting('aap.expected_database')
        OR current_user <> current_setting('aap.migration_role') THEN
         RAISE EXCEPTION 'Unexpected database or migration owner';
     END IF;
-    IF (SELECT count(DISTINCT n) FROM unnest(role_names) AS n) <> 15 THEN
+    IF (SELECT count(DISTINCT n) FROM unnest(role_names) AS n) <> 16 THEN
         RAISE EXCEPTION 'Module owners and caller must be distinct roles';
     END IF;
     FOREACH role_name IN ARRAY role_names LOOP
@@ -63,7 +66,8 @@ BEGIN
               AND NOT (rolsuper OR rolcreatedb OR rolcreaterole OR rolreplication OR rolbypassrls)
               AND rolcanlogin = (role_name IN (
                   current_setting('aap.workflow_role'),
-                  current_setting('aap.asset_cleanup_role')
+                  current_setting('aap.asset_cleanup_role'),
+                  current_setting('aap.mask_gc_role')
               ))
         ) OR pg_has_role(role_name, current_user, 'MEMBER') THEN
             RAISE EXCEPTION 'Unsafe or missing module role: %', role_name;
@@ -84,6 +88,15 @@ BEGIN
     ) THEN
         RAISE EXCEPTION 'The Assets cleanup role must not have inheriting members';
     END IF;
+    IF EXISTS (
+        SELECT FROM pg_auth_members AS membership
+        WHERE membership.roleid = (
+            SELECT oid FROM pg_roles
+            WHERE rolname = current_setting('aap.mask_gc_role')
+        )
+    ) THEN
+        RAISE EXCEPTION 'The Labeling Mask GC role must not have inheriting members';
+    END IF;
 END $$;
 
 REVOKE ALL ON SCHEMA aap_identity_v1, aap_workspace_v1, aap_assets_v1,
@@ -101,13 +114,27 @@ REVOKE ALL ON ALL FUNCTIONS IN SCHEMA aap_identity_v1, aap_workspace_v1,
     aap_assets_v1, aap_labeling_v1, aap_jobs_v1, aap_learning_v1,
     aap_inference_v1, aap_insights_v1, aap_diagnostics_v1, aap_export_v1,
     aap_audit_v1 FROM :"asset_cleanup_role";
+REVOKE ALL ON SCHEMA aap_identity_v1, aap_workspace_v1, aap_assets_v1,
+    aap_labeling_v1, aap_jobs_v1, aap_learning_v1, aap_inference_v1,
+    aap_insights_v1, aap_diagnostics_v1, aap_export_v1, aap_audit_v1,
+    aap_settings_v1, aap_notifications_v1 FROM :"mask_gc_role";
+REVOKE ALL ON ALL FUNCTIONS IN SCHEMA aap_identity_v1, aap_workspace_v1,
+    aap_assets_v1, aap_labeling_v1, aap_jobs_v1, aap_learning_v1,
+    aap_inference_v1, aap_insights_v1, aap_diagnostics_v1, aap_export_v1,
+    aap_audit_v1, aap_settings_v1, aap_notifications_v1 FROM :"mask_gc_role";
 GRANT CONNECT ON DATABASE :"expected_database" TO :"workflow_role";
 REVOKE ALL ON DATABASE :"expected_database" FROM :"asset_cleanup_role";
 GRANT CONNECT ON DATABASE :"expected_database" TO :"asset_cleanup_role";
+REVOKE ALL ON DATABASE :"expected_database" FROM :"mask_gc_role";
+GRANT CONNECT ON DATABASE :"expected_database" TO :"mask_gc_role";
 REVOKE ALL ON SCHEMA public FROM :"asset_cleanup_role";
 REVOKE ALL ON ALL TABLES IN SCHEMA public FROM :"asset_cleanup_role";
 REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM :"asset_cleanup_role";
 REVOKE ALL ON ALL FUNCTIONS IN SCHEMA public FROM :"asset_cleanup_role";
+REVOKE ALL ON SCHEMA public FROM :"mask_gc_role";
+REVOKE ALL ON ALL TABLES IN SCHEMA public FROM :"mask_gc_role";
+REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM :"mask_gc_role";
+REVOKE ALL ON ALL FUNCTIONS IN SCHEMA public FROM :"mask_gc_role";
 GRANT USAGE ON SCHEMA public TO :"identity_owner", :"workspace_owner",
     :"assets_owner", :"labeling_owner", :"jobs_owner", :"learning_owner",
     :"inference_owner", :"insights_owner", :"diagnostics_owner",
@@ -336,6 +363,15 @@ GRANT SELECT (
     ON public.task_batches TO :"labeling_owner";
 GRANT SELECT (id, project_id, task_id), DELETE
     ON public.predictions TO :"labeling_owner";
+GRANT SELECT (object_key, created_at), DELETE
+    ON public.raster_mask_uploads TO :"labeling_owner";
+GRANT SELECT, INSERT, UPDATE, DELETE ON
+    public.mask_gc_intents,
+    public.mask_gc_key_epochs,
+    public.mask_gc_sweeps,
+    public.mask_gc_roots
+    TO :"labeling_owner";
+GRANT SELECT ON public.mask_gc_write_permit_secrets TO :"labeling_owner";
 GRANT SELECT (id, project_id, task_id, retry_count, dismissed_at, extra), DELETE
     ON public.failed_predictions TO :"labeling_owner";
 GRANT SELECT (prediction_id, failed_prediction_id, extra), DELETE
@@ -938,6 +974,32 @@ BEGIN
         WHERE namespace.nspname = 'aap_labeling_v1'
           AND proc.prokind IN ('f', 'p')
           AND proc.proname LIKE '%image%'
+    LOOP
+        EXECUTE pg_catalog.format(
+            'ALTER FUNCTION %s OWNER TO %I', target.signature, owner_name
+        );
+    END LOOP;
+END $$;
+DO $$
+DECLARE
+    target record;
+    owner_name text := current_setting('aap.labeling_owner');
+BEGIN
+    FOR target IN
+        SELECT proc.oid::regprocedure AS signature
+        FROM pg_catalog.pg_proc AS proc
+        JOIN pg_catalog.pg_namespace AS namespace
+          ON namespace.oid = proc.pronamespace
+        WHERE namespace.nspname = 'aap_labeling_v1'
+          AND proc.prokind = 'f'
+          AND (
+              proc.proname LIKE '%mask_gc%'
+              OR proc.proname IN (
+                  'read_mask_write_epochs',
+                  'begin_mask_content_write',
+                  'lock_mask_write_epochs'
+              )
+          )
     LOOP
         EXECUTE pg_catalog.format(
             'ALTER FUNCTION %s OWNER TO %I', target.signature, owner_name
