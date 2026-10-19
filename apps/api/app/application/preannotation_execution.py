@@ -328,11 +328,7 @@ async def _prepare_accepted_input_manifest(
             already_claimed = False
             async with SessionLocal() as db:
                 project = await db.get(Project, project_id, populate_existing=True)
-                if (
-                    project is not None
-                    and project.data_type == "image"
-                    and not project.scene_mode
-                ):
+                if project is not None and project.data_type == "image":
                     job = (
                         await db.get(AsyncJob, job_id, populate_existing=True)
                         if job_id is not None

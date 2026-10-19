@@ -82,13 +82,16 @@ def _session_factory(job, task):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("with_job_id", [False, True])
-async def test_bulk_image_without_manifest_identity_fails_closed(with_job_id):
+@pytest.mark.parametrize("scene_mode", [False, True])
+async def test_bulk_image_without_manifest_identity_fails_closed(
+    with_job_id, scene_mode
+):
     from app.db.models.async_job import AsyncJobStatus
 
     project_id = uuid.uuid4()
     job_id = uuid.uuid4() if with_job_id else None
     actor_id = uuid.uuid4()
-    project = SimpleNamespace(data_type="image", scene_mode=False)
+    project = SimpleNamespace(data_type="image", scene_mode=scene_mode)
     job = SimpleNamespace(
         kind="batch_predict",
         project_id=project_id,
@@ -124,9 +127,10 @@ async def test_bulk_image_without_manifest_identity_fails_closed(with_job_id):
 
 
 @pytest.mark.asyncio
-async def test_running_legacy_bulk_image_job_is_drained(monkeypatch):
+@pytest.mark.parametrize("scene_mode", [False, True])
+async def test_running_legacy_bulk_image_job_is_drained(monkeypatch, scene_mode):
     project_id, job_id, actor_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
-    project = SimpleNamespace(data_type="image", scene_mode=False)
+    project = SimpleNamespace(data_type="image", scene_mode=scene_mode)
     job = SimpleNamespace(
         id=job_id,
         kind="batch_predict",
@@ -271,22 +275,15 @@ async def test_bulk_text_stage_is_outside_image_manifest_drain_guard():
 
 
 @pytest.mark.asyncio
-async def test_scene_image_project_is_outside_ordinary_manifest_drain_guard():
-    project = SimpleNamespace(data_type="image", scene_mode=True)
-
-    class Session(_Session):
-        async def get(self, model, _identity, **_kwargs):
-            assert model.__name__ == "Project"
-            return project
-
+async def test_explicit_scene_unit_is_outside_ordinary_manifest_drain_guard():
     request = BatchPredictionRequest(
         project_id=str(uuid.uuid4()),
         ml_backend_id=str(uuid.uuid4()),
         execution_scope="bulk",
-        task="detect",
+        execution_unit="scene",
     )
     async with _prepare_accepted_input_manifest(
-        request, lambda: Session(None, None)
+        request, lambda: pytest.fail("Scene work is not an ordinary image Job")
     ) as prepared:
         assert prepared is None
 
