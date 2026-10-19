@@ -1,0 +1,2209 @@
+{
+  "components": {
+    "schemas": {
+      "CapturedVideoTask": {
+        "additionalProperties": false,
+        "description": "Raw capture can retain a missing link as a fixed member failure.",
+        "properties": {
+          "batch_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Batch Id"
+          },
+          "dataset_item_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dataset Item Id"
+          },
+          "file_path": {
+            "maxLength": 1024,
+            "title": "File Path",
+            "type": "string"
+          },
+          "file_type": {
+            "const": "video",
+            "title": "File Type",
+            "type": "string"
+          },
+          "project_id": {
+            "format": "uuid",
+            "title": "Project Id",
+            "type": "string"
+          },
+          "task_id": {
+            "format": "uuid",
+            "title": "Task Id",
+            "type": "string"
+          },
+          "task_source_generation": {
+            "maximum": 9007199254740991,
+            "minimum": 1,
+            "title": "Task Source Generation",
+            "type": "integer"
+          },
+          "task_source_snapshot": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Task Source Snapshot",
+            "type": "string"
+          },
+          "task_version": {
+            "maximum": 9007199254740991,
+            "minimum": 1,
+            "title": "Task Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "task_id",
+          "project_id",
+          "batch_id",
+          "task_version",
+          "task_source_generation",
+          "dataset_item_id",
+          "task_source_snapshot",
+          "file_path",
+          "file_type"
+        ],
+        "title": "CapturedVideoTask",
+        "type": "object"
+      },
+      "FrameBlob": {
+        "additionalProperties": false,
+        "properties": {
+          "byte_size": {
+            "maximum": 9007199254740991,
+            "minimum": 1,
+            "title": "Byte Size",
+            "type": "integer"
+          },
+          "etag": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Etag",
+            "type": "string"
+          },
+          "key": {
+            "maxLength": 2048,
+            "pattern": "^accepted-video-inputs/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g[1-9][0-9]*/a[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/frames/(0|[1-9][0-9]*)/w[1-9][0-9]*-(jpeg|webp)$",
+            "title": "Key",
+            "type": "string"
+          },
+          "sha256": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Sha256",
+            "type": "string"
+          },
+          "version_id": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Version Id",
+            "type": "string"
+          }
+        },
+        "required": ["key", "version_id", "etag", "byte_size", "sha256"],
+        "title": "FrameBlob",
+        "type": "object"
+      },
+      "FramePageRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "actor_id": {
+            "format": "uuid",
+            "title": "Actor Id",
+            "type": "string"
+          },
+          "cursor": {
+            "default": 0,
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "title": "Cursor",
+            "type": "integer"
+          },
+          "input_id": {
+            "format": "uuid",
+            "title": "Input Id",
+            "type": "string"
+          },
+          "job_id": {
+            "format": "uuid",
+            "title": "Job Id",
+            "type": "string"
+          },
+          "page_size": {
+            "default": 100,
+            "maximum": 100,
+            "minimum": 1,
+            "title": "Page Size",
+            "type": "integer"
+          },
+          "plan_digest": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Plan Digest",
+            "type": "string"
+          },
+          "task_id": {
+            "format": "uuid",
+            "title": "Task Id",
+            "type": "string"
+          }
+        },
+        "required": ["actor_id", "job_id", "task_id", "input_id", "plan_digest"],
+        "title": "FramePageRequest",
+        "type": "object"
+      },
+      "FrameReference": {
+        "additionalProperties": false,
+        "properties": {
+          "blob": {
+            "$ref": "#/components/schemas/FrameBlob"
+          },
+          "entry": {
+            "$ref": "#/components/schemas/FrameTimeEntry"
+          },
+          "expires_in": {
+            "maximum": 3600,
+            "minimum": 1,
+            "title": "Expires In",
+            "type": "integer"
+          },
+          "plan": {
+            "$ref": "#/components/schemas/FrozenFramePlan"
+          },
+          "url": {
+            "maxLength": 16384,
+            "minLength": 1,
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": ["plan", "entry", "blob", "url", "expires_in"],
+        "title": "FrameReference",
+        "type": "object"
+      },
+      "FrameSampling": {
+        "additionalProperties": false,
+        "properties": {
+          "format": {
+            "default": "jpeg",
+            "enum": ["jpeg", "webp"],
+            "title": "Format",
+            "type": "string"
+          },
+          "max_frames": {
+            "maximum": 2147483647,
+            "minimum": 1,
+            "title": "Max Frames",
+            "type": "integer"
+          },
+          "step": {
+            "default": 1,
+            "maximum": 2147483647,
+            "minimum": 1,
+            "title": "Step",
+            "type": "integer"
+          },
+          "width": {
+            "default": 1280,
+            "maximum": 4096,
+            "minimum": 1,
+            "title": "Width",
+            "type": "integer"
+          }
+        },
+        "required": ["max_frames"],
+        "title": "FrameSampling",
+        "type": "object"
+      },
+      "FrameTimeEntry": {
+        "additionalProperties": false,
+        "properties": {
+          "frame_index": {
+            "maximum": 2147483647,
+            "minimum": 0,
+            "title": "Frame Index",
+            "type": "integer"
+          },
+          "is_keyframe": {
+            "title": "Is Keyframe",
+            "type": "boolean"
+          },
+          "ordinal": {
+            "maximum": 9007199254740991,
+            "minimum": 1,
+            "title": "Ordinal",
+            "type": "integer"
+          },
+          "pts_ms": {
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "title": "Pts Ms",
+            "type": "integer"
+          }
+        },
+        "required": ["ordinal", "frame_index", "pts_ms", "is_keyframe"],
+        "title": "FrameTimeEntry",
+        "type": "object"
+      },
+      "FrameTimePage": {
+        "additionalProperties": false,
+        "properties": {
+          "cursor": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "title": "Cursor",
+            "type": "integer"
+          },
+          "entries": {
+            "items": {
+              "$ref": "#/components/schemas/FrameTimeEntry"
+            },
+            "maxItems": 100,
+            "title": "Entries",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          },
+          "plan": {
+            "$ref": "#/components/schemas/FrozenFramePlan"
+          }
+        },
+        "required": ["plan", "cursor", "next_cursor", "entries"],
+        "title": "FrameTimePage",
+        "type": "object"
+      },
+      "FrozenFramePlan": {
+        "additionalProperties": false,
+        "properties": {
+          "input": {
+            "$ref": "#/components/schemas/FrozenVideoInput"
+          },
+          "plan_digest": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Plan Digest",
+            "type": "string"
+          },
+          "sampling": {
+            "$ref": "#/components/schemas/FrameSampling"
+          },
+          "selected_count": {
+            "maximum": 9007199254740991,
+            "minimum": 1,
+            "title": "Selected Count",
+            "type": "integer"
+          },
+          "timebase_digest": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Timebase Digest",
+            "type": "string"
+          }
+        },
+        "required": ["input", "sampling", "selected_count", "timebase_digest", "plan_digest"],
+        "title": "FrozenFramePlan",
+        "type": "object"
+      },
+      "FrozenVideoInput": {
+        "additionalProperties": false,
+        "properties": {
+          "actor_id": {
+            "format": "uuid",
+            "title": "Actor Id",
+            "type": "string"
+          },
+          "blob": {
+            "$ref": "#/components/schemas/VideoBlob"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "input_id": {
+            "format": "uuid",
+            "title": "Input Id",
+            "type": "string"
+          },
+          "job_id": {
+            "format": "uuid",
+            "title": "Job Id",
+            "type": "string"
+          },
+          "source": {
+            "$ref": "#/components/schemas/VideoSourceSnapshot"
+          },
+          "task": {
+            "$ref": "#/components/schemas/TaskVideoBinding"
+          },
+          "video": {
+            "$ref": "#/components/schemas/VideoFacts"
+          }
+        },
+        "required": [
+          "input_id",
+          "job_id",
+          "actor_id",
+          "task",
+          "source",
+          "blob",
+          "video",
+          "created_at"
+        ],
+        "title": "FrozenVideoInput",
+        "type": "object"
+      },
+      "LockVideoInputRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "actor_id": {
+            "format": "uuid",
+            "title": "Actor Id",
+            "type": "string"
+          },
+          "input_id": {
+            "format": "uuid",
+            "title": "Input Id",
+            "type": "string"
+          },
+          "job_id": {
+            "format": "uuid",
+            "title": "Job Id",
+            "type": "string"
+          },
+          "plan_digest": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Plan Digest",
+            "type": "string"
+          },
+          "task_id": {
+            "format": "uuid",
+            "title": "Task Id",
+            "type": "string"
+          }
+        },
+        "required": ["input_id", "job_id", "task_id", "actor_id", "plan_digest"],
+        "title": "LockVideoInputRequest",
+        "type": "object"
+      },
+      "ObjectIdentity": {
+        "additionalProperties": false,
+        "properties": {
+          "byte_size": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "title": "Byte Size",
+            "type": "integer"
+          },
+          "etag": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Etag",
+            "type": "string"
+          },
+          "version_id": {
+            "anyOf": [
+              {
+                "maxLength": 255,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Version Id"
+          }
+        },
+        "required": ["etag", "byte_size", "version_id"],
+        "title": "ObjectIdentity",
+        "type": "object"
+      },
+      "PrepareVideoMemberRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "actor_id": {
+            "format": "uuid",
+            "title": "Actor Id",
+            "type": "string"
+          },
+          "job_id": {
+            "format": "uuid",
+            "title": "Job Id",
+            "type": "string"
+          },
+          "ordinal": {
+            "maximum": 9007199254740991,
+            "minimum": 1,
+            "title": "Ordinal",
+            "type": "integer"
+          },
+          "project_id": {
+            "format": "uuid",
+            "title": "Project Id",
+            "type": "string"
+          },
+          "selection_digest": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Selection Digest",
+            "type": "string"
+          },
+          "task_id": {
+            "format": "uuid",
+            "title": "Task Id",
+            "type": "string"
+          }
+        },
+        "required": ["job_id", "actor_id", "project_id", "selection_digest", "ordinal", "task_id"],
+        "title": "PrepareVideoMemberRequest",
+        "type": "object"
+      },
+      "ReadVideoInputRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "actor_id": {
+            "format": "uuid",
+            "title": "Actor Id",
+            "type": "string"
+          },
+          "input_id": {
+            "format": "uuid",
+            "title": "Input Id",
+            "type": "string"
+          },
+          "job_id": {
+            "format": "uuid",
+            "title": "Job Id",
+            "type": "string"
+          },
+          "task_id": {
+            "format": "uuid",
+            "title": "Task Id",
+            "type": "string"
+          }
+        },
+        "required": ["input_id", "job_id", "task_id", "actor_id"],
+        "title": "ReadVideoInputRequest",
+        "type": "object"
+      },
+      "SealVideoManifestRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "actor_id": {
+            "format": "uuid",
+            "title": "Actor Id",
+            "type": "string"
+          },
+          "job_id": {
+            "format": "uuid",
+            "title": "Job Id",
+            "type": "string"
+          },
+          "project_id": {
+            "format": "uuid",
+            "title": "Project Id",
+            "type": "string"
+          },
+          "selection_digest": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Selection Digest",
+            "type": "string"
+          }
+        },
+        "required": ["job_id", "actor_id", "project_id", "selection_digest"],
+        "title": "SealVideoManifestRequest",
+        "type": "object"
+      },
+      "TaskVideoBinding": {
+        "additionalProperties": false,
+        "properties": {
+          "dataset_item_id": {
+            "format": "uuid",
+            "title": "Dataset Item Id",
+            "type": "string"
+          },
+          "file_path": {
+            "maxLength": 1024,
+            "title": "File Path",
+            "type": "string"
+          },
+          "file_type": {
+            "const": "video",
+            "title": "File Type",
+            "type": "string"
+          },
+          "project_id": {
+            "format": "uuid",
+            "title": "Project Id",
+            "type": "string"
+          },
+          "task_id": {
+            "format": "uuid",
+            "title": "Task Id",
+            "type": "string"
+          },
+          "task_source_generation": {
+            "maximum": 9007199254740991,
+            "minimum": 1,
+            "title": "Task Source Generation",
+            "type": "integer"
+          },
+          "task_source_snapshot": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Task Source Snapshot",
+            "type": "string"
+          },
+          "task_version": {
+            "maximum": 9007199254740991,
+            "minimum": 1,
+            "title": "Task Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "task_id",
+          "project_id",
+          "task_version",
+          "task_source_generation",
+          "dataset_item_id",
+          "task_source_snapshot",
+          "file_path",
+          "file_type"
+        ],
+        "title": "TaskVideoBinding",
+        "type": "object"
+      },
+      "VideoBlob": {
+        "additionalProperties": false,
+        "properties": {
+          "byte_size": {
+            "maximum": 9007199254740991,
+            "minimum": 1,
+            "title": "Byte Size",
+            "type": "integer"
+          },
+          "etag": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Etag",
+            "type": "string"
+          },
+          "key": {
+            "maxLength": 2048,
+            "pattern": "^accepted-video-inputs/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g[1-9][0-9]*/a[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/source$",
+            "title": "Key",
+            "type": "string"
+          },
+          "sha256": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Sha256",
+            "type": "string"
+          },
+          "version_id": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Version Id",
+            "type": "string"
+          }
+        },
+        "required": ["key", "version_id", "etag", "byte_size", "sha256"],
+        "title": "VideoBlob",
+        "type": "object"
+      },
+      "VideoCaptureSource": {
+        "additionalProperties": false,
+        "description": "Only the Assets facts needed to retain the admitted original bytes.",
+        "properties": {
+          "content_hash": {
+            "anyOf": [
+              {
+                "maxLength": 255,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Content Hash"
+          },
+          "dataset_id": {
+            "format": "uuid",
+            "title": "Dataset Id",
+            "type": "string"
+          },
+          "dataset_item_id": {
+            "format": "uuid",
+            "title": "Dataset Item Id",
+            "type": "string"
+          },
+          "file_path": {
+            "maxLength": 1024,
+            "minLength": 1,
+            "title": "File Path",
+            "type": "string"
+          },
+          "file_size": {
+            "anyOf": [
+              {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "File Size"
+          },
+          "file_type": {
+            "const": "video",
+            "title": "File Type",
+            "type": "string"
+          },
+          "object_identity": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ObjectIdentity"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "source_drifted": {
+            "title": "Source Drifted",
+            "type": "boolean"
+          },
+          "source_generation": {
+            "maximum": 9007199254740991,
+            "minimum": 1,
+            "title": "Source Generation",
+            "type": "integer"
+          },
+          "source_snapshot": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Source Snapshot",
+            "type": "string"
+          },
+          "timetable_revision": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "title": "Timetable Revision",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "dataset_item_id",
+          "dataset_id",
+          "source_generation",
+          "source_snapshot",
+          "timetable_revision",
+          "object_identity",
+          "source_drifted",
+          "file_path",
+          "file_type",
+          "file_size",
+          "content_hash"
+        ],
+        "title": "VideoCaptureSource",
+        "type": "object"
+      },
+      "VideoFacts": {
+        "additionalProperties": false,
+        "description": "Measured from the retained bytes, not copied from mutable item metadata.",
+        "properties": {
+          "duration_ms": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "title": "Duration Ms",
+            "type": "integer"
+          },
+          "frame_count": {
+            "maximum": 9007199254740991,
+            "minimum": 1,
+            "title": "Frame Count",
+            "type": "integer"
+          },
+          "height": {
+            "maximum": 9007199254740991,
+            "minimum": 1,
+            "title": "Height",
+            "type": "integer"
+          },
+          "video_stream": {
+            "default": 0,
+            "maximum": 0,
+            "minimum": 0,
+            "title": "Video Stream",
+            "type": "integer"
+          },
+          "width": {
+            "maximum": 9007199254740991,
+            "minimum": 1,
+            "title": "Width",
+            "type": "integer"
+          }
+        },
+        "required": ["frame_count", "width", "height", "duration_ms"],
+        "title": "VideoFacts",
+        "type": "object"
+      },
+      "VideoFrameRecord": {
+        "additionalProperties": false,
+        "properties": {
+          "blob": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FrameBlob"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "entry": {
+            "$ref": "#/components/schemas/FrameTimeEntry"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "enum": [
+                  "invalid_request",
+                  "invalid_response",
+                  "storage_unavailable",
+                  "account_not_active",
+                  "account_busy",
+                  "invalid_account_role",
+                  "task_not_visible",
+                  "task_busy",
+                  "permission_denied",
+                  "source_missing",
+                  "source_changed",
+                  "source_not_ready",
+                  "not_video",
+                  "job_busy",
+                  "job_not_active",
+                  "manifest_scope_mismatch",
+                  "source_busy",
+                  "metadata_not_ready",
+                  "invalid_frame_range",
+                  "asset_missing",
+                  "operation_conflict",
+                  "operation_busy",
+                  "lease_lost",
+                  "dependency_changed",
+                  "resource_budget_exceeded",
+                  "object_missing",
+                  "input_missing",
+                  "input_scope_mismatch",
+                  "input_not_ready",
+                  "input_expired",
+                  "input_corrupt",
+                  "input_busy",
+                  "manifest_missing",
+                  "manifest_busy",
+                  "manifest_not_ready",
+                  "manifest_cursor_invalid",
+                  "task_scope_changed",
+                  "unsupported_media",
+                  "timebase_changed",
+                  "timebase_incomplete",
+                  "frame_missing",
+                  "frame_not_ready",
+                  "frame_busy",
+                  "versioning_required",
+                  "resource_limit",
+                  "timeout",
+                  "processing_failed",
+                  "reference_busy"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "frame_id": {
+            "format": "uuid",
+            "title": "Frame Id",
+            "type": "string"
+          },
+          "plan": {
+            "$ref": "#/components/schemas/FrozenFramePlan"
+          },
+          "status": {
+            "enum": ["pending", "materializing", "ready", "failed", "expired"],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": ["frame_id", "plan", "entry", "status", "blob", "error", "created_at"],
+        "title": "VideoFrameRecord",
+        "type": "object"
+      },
+      "VideoFrameRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "actor_id": {
+            "format": "uuid",
+            "title": "Actor Id",
+            "type": "string"
+          },
+          "input_id": {
+            "format": "uuid",
+            "title": "Input Id",
+            "type": "string"
+          },
+          "job_id": {
+            "format": "uuid",
+            "title": "Job Id",
+            "type": "string"
+          },
+          "ordinal": {
+            "maximum": 9007199254740991,
+            "minimum": 1,
+            "title": "Ordinal",
+            "type": "integer"
+          },
+          "plan_digest": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Plan Digest",
+            "type": "string"
+          },
+          "task_id": {
+            "format": "uuid",
+            "title": "Task Id",
+            "type": "string"
+          }
+        },
+        "required": ["actor_id", "job_id", "task_id", "input_id", "plan_digest", "ordinal"],
+        "title": "VideoFrameRequest",
+        "type": "object"
+      },
+      "VideoInputControlError": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "invalid_request",
+              "invalid_response",
+              "storage_unavailable",
+              "account_not_active",
+              "account_busy",
+              "invalid_account_role",
+              "task_not_visible",
+              "task_busy",
+              "permission_denied",
+              "source_missing",
+              "source_changed",
+              "source_not_ready",
+              "not_video",
+              "job_busy",
+              "job_not_active",
+              "manifest_scope_mismatch",
+              "source_busy",
+              "metadata_not_ready",
+              "invalid_frame_range",
+              "asset_missing",
+              "operation_conflict",
+              "operation_busy",
+              "lease_lost",
+              "dependency_changed",
+              "resource_budget_exceeded",
+              "object_missing",
+              "input_missing",
+              "input_scope_mismatch",
+              "input_not_ready",
+              "input_expired",
+              "input_corrupt",
+              "input_busy",
+              "manifest_missing",
+              "manifest_busy",
+              "manifest_not_ready",
+              "manifest_cursor_invalid",
+              "task_scope_changed",
+              "unsupported_media",
+              "timebase_changed",
+              "timebase_incomplete",
+              "frame_missing",
+              "frame_not_ready",
+              "frame_busy",
+              "versioning_required",
+              "resource_limit",
+              "timeout",
+              "processing_failed",
+              "reference_busy"
+            ],
+            "title": "Code",
+            "type": "string"
+          }
+        },
+        "required": ["code"],
+        "title": "VideoInputControlError",
+        "type": "object"
+      },
+      "VideoInputRecord": {
+        "additionalProperties": false,
+        "properties": {
+          "actor_id": {
+            "format": "uuid",
+            "title": "Actor Id",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "enum": [
+                  "invalid_request",
+                  "invalid_response",
+                  "storage_unavailable",
+                  "account_not_active",
+                  "account_busy",
+                  "invalid_account_role",
+                  "task_not_visible",
+                  "task_busy",
+                  "permission_denied",
+                  "source_missing",
+                  "source_changed",
+                  "source_not_ready",
+                  "not_video",
+                  "job_busy",
+                  "job_not_active",
+                  "manifest_scope_mismatch",
+                  "source_busy",
+                  "metadata_not_ready",
+                  "invalid_frame_range",
+                  "asset_missing",
+                  "operation_conflict",
+                  "operation_busy",
+                  "lease_lost",
+                  "dependency_changed",
+                  "resource_budget_exceeded",
+                  "object_missing",
+                  "input_missing",
+                  "input_scope_mismatch",
+                  "input_not_ready",
+                  "input_expired",
+                  "input_corrupt",
+                  "input_busy",
+                  "manifest_missing",
+                  "manifest_busy",
+                  "manifest_not_ready",
+                  "manifest_cursor_invalid",
+                  "task_scope_changed",
+                  "unsupported_media",
+                  "timebase_changed",
+                  "timebase_incomplete",
+                  "frame_missing",
+                  "frame_not_ready",
+                  "frame_busy",
+                  "versioning_required",
+                  "resource_limit",
+                  "timeout",
+                  "processing_failed",
+                  "reference_busy"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "input_id": {
+            "format": "uuid",
+            "title": "Input Id",
+            "type": "string"
+          },
+          "job_id": {
+            "format": "uuid",
+            "title": "Job Id",
+            "type": "string"
+          },
+          "plan": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FrozenFramePlan"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "retire_after": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retire After"
+          },
+          "sampling": {
+            "$ref": "#/components/schemas/FrameSampling"
+          },
+          "source": {
+            "$ref": "#/components/schemas/VideoSourceSnapshot"
+          },
+          "status": {
+            "enum": ["pending", "materializing", "ready", "failed", "expired"],
+            "title": "Status",
+            "type": "string"
+          },
+          "task": {
+            "$ref": "#/components/schemas/TaskVideoBinding"
+          }
+        },
+        "required": [
+          "input_id",
+          "job_id",
+          "actor_id",
+          "task",
+          "source",
+          "sampling",
+          "status",
+          "plan",
+          "error",
+          "created_at",
+          "retire_after"
+        ],
+        "title": "VideoInputRecord",
+        "type": "object"
+      },
+      "VideoManifestHeader": {
+        "additionalProperties": false,
+        "description": "actor_id attributes admission; read requests carry the current actor.",
+        "properties": {
+          "actor_id": {
+            "format": "uuid",
+            "title": "Actor Id",
+            "type": "string"
+          },
+          "candidate_count": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "title": "Candidate Count",
+            "type": "integer"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "failed_count": {
+            "anyOf": [
+              {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Failed Count"
+          },
+          "job_id": {
+            "format": "uuid",
+            "title": "Job Id",
+            "type": "string"
+          },
+          "prepared_count": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "title": "Prepared Count",
+            "type": "integer"
+          },
+          "project_id": {
+            "format": "uuid",
+            "title": "Project Id",
+            "type": "string"
+          },
+          "ready_count": {
+            "anyOf": [
+              {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ready Count"
+          },
+          "sealed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sealed At"
+          },
+          "sealed_digest": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sealed Digest"
+          },
+          "selected_count": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "title": "Selected Count",
+            "type": "integer"
+          },
+          "selection": {
+            "$ref": "#/components/schemas/VideoSelection"
+          },
+          "selection_digest": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Selection Digest",
+            "type": "string"
+          },
+          "status": {
+            "enum": ["preparing", "sealed"],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "job_id",
+          "actor_id",
+          "project_id",
+          "selection",
+          "selection_digest",
+          "candidate_count",
+          "selected_count",
+          "prepared_count",
+          "status",
+          "ready_count",
+          "failed_count",
+          "sealed_digest",
+          "created_at",
+          "sealed_at"
+        ],
+        "title": "VideoManifestHeader",
+        "type": "object"
+      },
+      "VideoManifestMember": {
+        "additionalProperties": false,
+        "properties": {
+          "error": {
+            "anyOf": [
+              {
+                "enum": [
+                  "invalid_request",
+                  "invalid_response",
+                  "storage_unavailable",
+                  "account_not_active",
+                  "account_busy",
+                  "invalid_account_role",
+                  "task_not_visible",
+                  "task_busy",
+                  "permission_denied",
+                  "source_missing",
+                  "source_changed",
+                  "source_not_ready",
+                  "not_video",
+                  "job_busy",
+                  "job_not_active",
+                  "manifest_scope_mismatch",
+                  "source_busy",
+                  "metadata_not_ready",
+                  "invalid_frame_range",
+                  "asset_missing",
+                  "operation_conflict",
+                  "operation_busy",
+                  "lease_lost",
+                  "dependency_changed",
+                  "resource_budget_exceeded",
+                  "object_missing",
+                  "input_missing",
+                  "input_scope_mismatch",
+                  "input_not_ready",
+                  "input_expired",
+                  "input_corrupt",
+                  "input_busy",
+                  "manifest_missing",
+                  "manifest_busy",
+                  "manifest_not_ready",
+                  "manifest_cursor_invalid",
+                  "task_scope_changed",
+                  "unsupported_media",
+                  "timebase_changed",
+                  "timebase_incomplete",
+                  "frame_missing",
+                  "frame_not_ready",
+                  "frame_busy",
+                  "versioning_required",
+                  "resource_limit",
+                  "timeout",
+                  "processing_failed",
+                  "reference_busy"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "input": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/VideoInputRecord"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "ordinal": {
+            "maximum": 9007199254740991,
+            "minimum": 1,
+            "title": "Ordinal",
+            "type": "integer"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/VideoCaptureSource"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "state": {
+            "enum": ["unprepared", "preparing", "ready", "failed"],
+            "title": "State",
+            "type": "string"
+          },
+          "task": {
+            "$ref": "#/components/schemas/CapturedVideoTask"
+          }
+        },
+        "required": ["ordinal", "task", "source", "state", "input", "error"],
+        "title": "VideoManifestMember",
+        "type": "object"
+      },
+      "VideoManifestPage": {
+        "additionalProperties": false,
+        "properties": {
+          "cursor": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "title": "Cursor",
+            "type": "integer"
+          },
+          "manifest": {
+            "$ref": "#/components/schemas/VideoManifestHeader"
+          },
+          "members": {
+            "items": {
+              "$ref": "#/components/schemas/VideoManifestMember"
+            },
+            "maxItems": 100,
+            "title": "Members",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          }
+        },
+        "required": ["manifest", "cursor", "next_cursor", "members"],
+        "title": "VideoManifestPage",
+        "type": "object"
+      },
+      "VideoManifestPageRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "actor_id": {
+            "format": "uuid",
+            "title": "Actor Id",
+            "type": "string"
+          },
+          "cursor": {
+            "default": 0,
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "title": "Cursor",
+            "type": "integer"
+          },
+          "job_id": {
+            "format": "uuid",
+            "title": "Job Id",
+            "type": "string"
+          },
+          "page_size": {
+            "default": 100,
+            "maximum": 100,
+            "minimum": 1,
+            "title": "Page Size",
+            "type": "integer"
+          },
+          "project_id": {
+            "format": "uuid",
+            "title": "Project Id",
+            "type": "string"
+          },
+          "sealed_digest": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Sealed Digest"
+          },
+          "selection_digest": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Selection Digest",
+            "type": "string"
+          }
+        },
+        "required": ["job_id", "actor_id", "project_id", "selection_digest"],
+        "title": "VideoManifestPageRequest",
+        "type": "object"
+      },
+      "VideoManifestScope": {
+        "additionalProperties": false,
+        "properties": {
+          "actor_id": {
+            "format": "uuid",
+            "title": "Actor Id",
+            "type": "string"
+          },
+          "job_id": {
+            "format": "uuid",
+            "title": "Job Id",
+            "type": "string"
+          },
+          "project_id": {
+            "format": "uuid",
+            "title": "Project Id",
+            "type": "string"
+          }
+        },
+        "required": ["job_id", "actor_id", "project_id"],
+        "title": "VideoManifestScope",
+        "type": "object"
+      },
+      "VideoMemberReceipt": {
+        "additionalProperties": false,
+        "properties": {
+          "manifest": {
+            "$ref": "#/components/schemas/VideoManifestHeader"
+          },
+          "member": {
+            "$ref": "#/components/schemas/VideoManifestMember"
+          }
+        },
+        "required": ["manifest", "member"],
+        "title": "VideoMemberReceipt",
+        "type": "object"
+      },
+      "VideoSelection": {
+        "additionalProperties": false,
+        "properties": {
+          "batch_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Batch Id"
+          },
+          "execution_scope": {
+            "enum": ["bulk", "workbench"],
+            "title": "Execution Scope",
+            "type": "string"
+          },
+          "predict_mode": {
+            "enum": ["skip_predicted", "overwrite", "append"],
+            "title": "Predict Mode",
+            "type": "string"
+          },
+          "sampling": {
+            "$ref": "#/components/schemas/FrameSampling"
+          },
+          "task_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                "maxItems": 200,
+                "minItems": 1,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Task Ids"
+          }
+        },
+        "required": ["batch_id", "task_ids", "predict_mode", "execution_scope", "sampling"],
+        "title": "VideoSelection",
+        "type": "object"
+      },
+      "VideoSourceSnapshot": {
+        "additionalProperties": false,
+        "properties": {
+          "dataset_id": {
+            "format": "uuid",
+            "title": "Dataset Id",
+            "type": "string"
+          },
+          "dataset_item_id": {
+            "format": "uuid",
+            "title": "Dataset Item Id",
+            "type": "string"
+          },
+          "object_identity": {
+            "$ref": "#/components/schemas/ObjectIdentity"
+          },
+          "source_generation": {
+            "maximum": 9007199254740991,
+            "minimum": 1,
+            "title": "Source Generation",
+            "type": "integer"
+          },
+          "source_snapshot": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Source Snapshot",
+            "type": "string"
+          },
+          "timetable_revision": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "title": "Timetable Revision",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "dataset_item_id",
+          "dataset_id",
+          "source_generation",
+          "source_snapshot",
+          "timetable_revision",
+          "object_identity"
+        ],
+        "title": "VideoSourceSnapshot",
+        "type": "object"
+      }
+    },
+    "securitySchemes": {
+      "serviceToken": {
+        "scheme": "bearer",
+        "type": "http"
+      }
+    }
+  },
+  "info": {
+    "title": "Retained video input control",
+    "version": "1"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/v1/video-inputs/frame": {
+      "post": {
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VideoFrameRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/VideoFrameRecord"
+                    },
+                    "ok": {
+                      "const": true
+                    },
+                    "schema": {
+                      "const": "aap-assets-video-input-control/v1"
+                    }
+                  },
+                  "required": ["schema", "ok", "data"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Retained video input control result"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "$ref": "#/components/schemas/VideoInputControlError"
+                    },
+                    "ok": {
+                      "const": false
+                    },
+                    "schema": {
+                      "const": "aap-assets-video-input-control/v1"
+                    }
+                  },
+                  "required": ["schema", "ok", "error"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Video input control failure"
+          }
+        }
+      }
+    },
+    "/v1/video-inputs/input": {
+      "post": {
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReadVideoInputRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/VideoInputRecord"
+                    },
+                    "ok": {
+                      "const": true
+                    },
+                    "schema": {
+                      "const": "aap-assets-video-input-control/v1"
+                    }
+                  },
+                  "required": ["schema", "ok", "data"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Retained video input control result"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "$ref": "#/components/schemas/VideoInputControlError"
+                    },
+                    "ok": {
+                      "const": false
+                    },
+                    "schema": {
+                      "const": "aap-assets-video-input-control/v1"
+                    }
+                  },
+                  "required": ["schema", "ok", "error"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Video input control failure"
+          }
+        }
+      }
+    },
+    "/v1/video-inputs/manifest": {
+      "post": {
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VideoManifestScope"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/VideoManifestHeader"
+                    },
+                    "ok": {
+                      "const": true
+                    },
+                    "schema": {
+                      "const": "aap-assets-video-input-control/v1"
+                    }
+                  },
+                  "required": ["schema", "ok", "data"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Retained video input control result"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "$ref": "#/components/schemas/VideoInputControlError"
+                    },
+                    "ok": {
+                      "const": false
+                    },
+                    "schema": {
+                      "const": "aap-assets-video-input-control/v1"
+                    }
+                  },
+                  "required": ["schema", "ok", "error"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Video input control failure"
+          }
+        }
+      }
+    },
+    "/v1/video-inputs/members": {
+      "post": {
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VideoManifestPageRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/VideoManifestPage"
+                    },
+                    "ok": {
+                      "const": true
+                    },
+                    "schema": {
+                      "const": "aap-assets-video-input-control/v1"
+                    }
+                  },
+                  "required": ["schema", "ok", "data"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Retained video input control result"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "$ref": "#/components/schemas/VideoInputControlError"
+                    },
+                    "ok": {
+                      "const": false
+                    },
+                    "schema": {
+                      "const": "aap-assets-video-input-control/v1"
+                    }
+                  },
+                  "required": ["schema", "ok", "error"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Video input control failure"
+          }
+        }
+      }
+    },
+    "/v1/video-inputs/prepare": {
+      "post": {
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PrepareVideoMemberRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/VideoMemberReceipt"
+                    },
+                    "ok": {
+                      "const": true
+                    },
+                    "schema": {
+                      "const": "aap-assets-video-input-control/v1"
+                    }
+                  },
+                  "required": ["schema", "ok", "data"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Retained video input control result"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "$ref": "#/components/schemas/VideoInputControlError"
+                    },
+                    "ok": {
+                      "const": false
+                    },
+                    "schema": {
+                      "const": "aap-assets-video-input-control/v1"
+                    }
+                  },
+                  "required": ["schema", "ok", "error"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Video input control failure"
+          }
+        }
+      }
+    },
+    "/v1/video-inputs/reference": {
+      "post": {
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VideoFrameRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/FrameReference"
+                    },
+                    "ok": {
+                      "const": true
+                    },
+                    "schema": {
+                      "const": "aap-assets-video-input-control/v1"
+                    }
+                  },
+                  "required": ["schema", "ok", "data"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Retained video input control result"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "$ref": "#/components/schemas/VideoInputControlError"
+                    },
+                    "ok": {
+                      "const": false
+                    },
+                    "schema": {
+                      "const": "aap-assets-video-input-control/v1"
+                    }
+                  },
+                  "required": ["schema", "ok", "error"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Video input control failure"
+          }
+        }
+      }
+    },
+    "/v1/video-inputs/require-frame": {
+      "post": {
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VideoFrameRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/VideoFrameRecord"
+                    },
+                    "ok": {
+                      "const": true
+                    },
+                    "schema": {
+                      "const": "aap-assets-video-input-control/v1"
+                    }
+                  },
+                  "required": ["schema", "ok", "data"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Retained video input control result"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "$ref": "#/components/schemas/VideoInputControlError"
+                    },
+                    "ok": {
+                      "const": false
+                    },
+                    "schema": {
+                      "const": "aap-assets-video-input-control/v1"
+                    }
+                  },
+                  "required": ["schema", "ok", "error"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Video input control failure"
+          }
+        }
+      }
+    },
+    "/v1/video-inputs/seal": {
+      "post": {
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SealVideoManifestRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/VideoManifestHeader"
+                    },
+                    "ok": {
+                      "const": true
+                    },
+                    "schema": {
+                      "const": "aap-assets-video-input-control/v1"
+                    }
+                  },
+                  "required": ["schema", "ok", "data"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Retained video input control result"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "$ref": "#/components/schemas/VideoInputControlError"
+                    },
+                    "ok": {
+                      "const": false
+                    },
+                    "schema": {
+                      "const": "aap-assets-video-input-control/v1"
+                    }
+                  },
+                  "required": ["schema", "ok", "error"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Video input control failure"
+          }
+        }
+      }
+    },
+    "/v1/video-inputs/times": {
+      "post": {
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FramePageRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/FrameTimePage"
+                    },
+                    "ok": {
+                      "const": true
+                    },
+                    "schema": {
+                      "const": "aap-assets-video-input-control/v1"
+                    }
+                  },
+                  "required": ["schema", "ok", "data"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Retained video input control result"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "$ref": "#/components/schemas/VideoInputControlError"
+                    },
+                    "ok": {
+                      "const": false
+                    },
+                    "schema": {
+                      "const": "aap-assets-video-input-control/v1"
+                    }
+                  },
+                  "required": ["schema", "ok", "error"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Video input control failure"
+          }
+        }
+      }
+    },
+    "/v1/video-inputs/verify": {
+      "post": {
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LockVideoInputRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/VideoInputRecord"
+                    },
+                    "ok": {
+                      "const": true
+                    },
+                    "schema": {
+                      "const": "aap-assets-video-input-control/v1"
+                    }
+                  },
+                  "required": ["schema", "ok", "data"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Retained video input control result"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "$ref": "#/components/schemas/VideoInputControlError"
+                    },
+                    "ok": {
+                      "const": false
+                    },
+                    "schema": {
+                      "const": "aap-assets-video-input-control/v1"
+                    }
+                  },
+                  "required": ["schema", "ok", "error"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Video input control failure"
+          }
+        }
+      }
+    }
+  },
+  "security": [
+    {
+      "serviceToken": []
+    }
+  ],
+  "x-budgets": {
+    "page_size": 100,
+    "reply_bytes": 2097152,
+    "request_bytes": 65536
+  },
+  "x-control-schema": "aap-assets-video-input-control/v1"
+}
