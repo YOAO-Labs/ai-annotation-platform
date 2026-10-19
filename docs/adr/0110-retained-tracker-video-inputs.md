@@ -80,6 +80,7 @@ positions and the sealed frame count, preserving valid context outside the core.
 Evidence follows Annotation lineage and protects the original copy independently
 of a later deletion of the canonical Job. Immutable scope and evidence identities
 do not add live foreign keys that would block existing Task/Project cleanup.
+Tracker evidence copies remain within the same Task and video segment.
 The Job's accepted status, touched IDs and Annotation pins are written in one
 transaction. Later partial decisions may extend their version map only with
 output Annotations already pinned to that same input.

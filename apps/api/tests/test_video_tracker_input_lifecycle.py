@@ -756,11 +756,12 @@ async def test_tracker_pins_follow_late_attachment_reparenting_and_job_deletion(
         _stage_lock_request(actor, job, captured, plan),
     )
 
-    async def annotation(parent=None):
+    async def annotation(parent=None, *, other_task=None, segment_id=None):
         row = Annotation(
-            task_id=task_id,
+            task_id=other_task or task_id,
             project_id=project.id,
             user_id=actor,
+            video_segment_id=segment_id,
             parent_annotation_id=parent.id if parent is not None else None,
             annotation_type="bbox",
             class_name="person",
@@ -798,6 +799,62 @@ async def test_tracker_pins_follow_late_attachment_reparenting_and_job_deletion(
             {"input": captured.input_id},
         )
 
+    assert await pin_count() == 3
+    source_task = await db_session.get(Task, task_id)
+    other_task = Task(
+        project_id=project.id,
+        dataset_item_id=source_task.dataset_item_id,
+        display_id=f"T-TRACKER-LINEAGE-{uuid.uuid4().hex[:12]}",
+        file_name="other.mp4",
+        file_path="other.mp4",
+        file_type="video",
+    )
+    segment = VideoSegment(
+        dataset_item_id=source_task.dataset_item_id,
+        segment_index=0,
+        start_frame=0,
+        end_frame=5,
+    )
+    db_session.add_all([other_task, segment])
+    await db_session.flush()
+    for candidate in (
+        await annotation(other_task=other_task.id),
+        await annotation(segment_id=segment.id),
+    ):
+        with pytest.raises(DBAPIError, match="one task and video segment"):
+            async with db_session.begin_nested():
+                await db_session.execute(
+                    text(
+                        "UPDATE public.annotations SET parent_annotation_id=:parent WHERE id=:target"
+                    ),
+                    {"parent": parent.id, "target": candidate.id},
+                )
+        await _expect_error(
+            db_session,
+            "copy_annotation_video_tracker_input_sources",
+            c.CopyTrackerVideoInputSourcesRequest(
+                actor_id=actor,
+                source_annotation_id=parent.id,
+                target_annotation_id=candidate.id,
+            ),
+            "task_scope_changed",
+        )
+        job.prompt = {
+            **job.prompt,
+            "touched_annotation_ids": [str(parent.id), str(candidate.id)],
+        }
+        await db_session.flush()
+        await _expect_error(
+            db_session,
+            "attach_annotation_video_tracker_input_source",
+            c.AttachTrackerVideoInputSourceRequest(
+                actor_id=actor,
+                tracker_job_id=job.id,
+                annotation_id=candidate.id,
+                evidence=acceptance.evidence,
+            ),
+            "task_scope_changed",
+        )
     assert await pin_count() == 3
     await db_session.execute(
         text("DELETE FROM public.video_tracker_jobs WHERE id=:job"), {"job": job.id}

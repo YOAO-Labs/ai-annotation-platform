@@ -1904,11 +1904,13 @@ BEGIN
         v_code := COALESCE(v_reply #>> '{error,code}','invalid_response');
         RETURN aap_labeling_v1._video_tracker_input_reply(NULL,v_code);
     END IF;
-    SELECT annotation.id,annotation.task_id,annotation.project_id,annotation.is_active,annotation.was_cancelled
+    SELECT annotation.id,annotation.task_id,annotation.project_id,annotation.video_segment_id,
+        annotation.is_active,annotation.was_cancelled
     INTO v_annotation FROM public.annotations AS annotation
     WHERE annotation.id=p_annotation_id FOR SHARE NOWAIT;
     IF NOT FOUND OR v_annotation.task_id<>v_scope.task_id
        OR v_annotation.project_id<>v_scope.project_id
+       OR v_annotation.video_segment_id IS DISTINCT FROM v_job.segment_id
        OR NOT v_annotation.is_active OR v_annotation.was_cancelled THEN
         RETURN aap_labeling_v1._video_tracker_input_reply(NULL,'task_scope_changed');
     END IF;
@@ -1958,15 +1960,18 @@ BEGIN
     IF p_actor_id IS NULL OR p_source_annotation_id IS NULL OR p_target_annotation_id IS NULL THEN
         RETURN aap_labeling_v1._video_tracker_input_reply(NULL,'invalid_request');
     END IF;
-    SELECT annotation.id,annotation.task_id,annotation.project_id,annotation.is_active,annotation.was_cancelled
+    SELECT annotation.id,annotation.task_id,annotation.project_id,annotation.video_segment_id,
+        annotation.is_active,annotation.was_cancelled
     INTO v_source FROM public.annotations AS annotation
     WHERE annotation.id=p_source_annotation_id FOR SHARE NOWAIT;
-    SELECT annotation.id,annotation.task_id,annotation.project_id,annotation.is_active,annotation.was_cancelled
+    SELECT annotation.id,annotation.task_id,annotation.project_id,annotation.video_segment_id,
+        annotation.is_active,annotation.was_cancelled
     INTO v_target FROM public.annotations AS annotation
     WHERE annotation.id=p_target_annotation_id FOR SHARE NOWAIT;
     IF NOT FOUND OR v_source.id IS NULL OR v_target.id IS NULL
        OR v_source.task_id IS DISTINCT FROM v_target.task_id
        OR v_source.project_id IS DISTINCT FROM v_target.project_id
+       OR v_source.video_segment_id IS DISTINCT FROM v_target.video_segment_id
        OR NOT v_target.is_active OR v_target.was_cancelled THEN
         RETURN aap_labeling_v1._video_tracker_input_reply(NULL,'task_scope_changed');
     END IF;
@@ -2043,16 +2048,22 @@ SET search_path = pg_catalog, pg_temp AS $function$
 DECLARE v_descendant record;
 BEGIN
     FOR v_descendant IN
-        WITH RECURSIVE descendants(annotation_id,project_id,path) AS (
-            SELECT child.id,child.project_id,ARRAY[(p_pin).annotation_id,child.id]::uuid[]
-            FROM public.annotations AS child
-            WHERE child.parent_annotation_id=(p_pin).annotation_id
-              AND child.project_id=(p_pin).project_id
+        WITH RECURSIVE descendants(annotation_id,project_id,task_id,video_segment_id,path) AS (
+            SELECT child.id,child.project_id,child.task_id,child.video_segment_id,
+                ARRAY[(p_pin).annotation_id,child.id]::uuid[]
+            FROM public.annotations AS parent JOIN public.annotations AS child
+              ON child.parent_annotation_id=parent.id AND child.project_id=parent.project_id
+             AND child.task_id=parent.task_id
+             AND child.video_segment_id IS NOT DISTINCT FROM parent.video_segment_id
+            WHERE parent.id=(p_pin).annotation_id AND parent.project_id=(p_pin).project_id
+              AND parent.task_id=(p_pin).task_id
             UNION ALL
-            SELECT child.id,child.project_id,descendants.path||child.id
+            SELECT child.id,child.project_id,child.task_id,child.video_segment_id,descendants.path||child.id
             FROM public.annotations AS child JOIN descendants
               ON child.parent_annotation_id=descendants.annotation_id
              AND child.project_id=descendants.project_id
+             AND child.task_id=descendants.task_id
+             AND child.video_segment_id IS NOT DISTINCT FROM descendants.video_segment_id
             WHERE NOT child.id=ANY(descendants.path)
         ) SELECT annotation_id FROM descendants
     LOOP
@@ -2085,14 +2096,21 @@ RETURNS trigger LANGUAGE plpgsql VOLATILE PARALLEL UNSAFE SECURITY DEFINER
 SET search_path = pg_catalog, pg_temp AS $function$
 DECLARE
     v_parent_project_id uuid;
+    v_parent_task_id uuid;
+    v_parent_segment_id uuid;
     v_pin public.annotation_video_tracker_input_sources%ROWTYPE;
 BEGIN
     IF NEW.parent_annotation_id IS NULL THEN RETURN NEW; END IF;
-    SELECT parent.project_id INTO v_parent_project_id FROM public.annotations AS parent
+    IF NOT EXISTS (SELECT 1 FROM public.annotation_video_tracker_input_sources AS pin
+        WHERE pin.annotation_id=NEW.parent_annotation_id) THEN RETURN NEW; END IF;
+    SELECT parent.project_id,parent.task_id,parent.video_segment_id
+    INTO v_parent_project_id,v_parent_task_id,v_parent_segment_id FROM public.annotations AS parent
     WHERE parent.id=NEW.parent_annotation_id;
-    IF NOT FOUND OR NEW.task_id IS NULL OR NEW.project_id IS DISTINCT FROM v_parent_project_id THEN
+    IF NOT FOUND OR NEW.project_id IS DISTINCT FROM v_parent_project_id
+       OR NEW.task_id IS DISTINCT FROM v_parent_task_id
+       OR NEW.video_segment_id IS DISTINCT FROM v_parent_segment_id THEN
         RAISE EXCEPTION USING ERRCODE='23514',
-            MESSAGE='annotation tracker input lineage must stay within one project';
+            MESSAGE='annotation tracker input lineage must stay within one task and video segment';
     END IF;
     FOR v_pin IN SELECT pin.* FROM public.annotation_video_tracker_input_sources AS pin
         WHERE pin.annotation_id=NEW.parent_annotation_id ORDER BY pin.input_id
