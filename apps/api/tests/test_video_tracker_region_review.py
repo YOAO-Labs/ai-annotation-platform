@@ -20,6 +20,12 @@ from app.services.video_tracking import runner
 from app.utils.raster_mask_rle import decode_coco_rle, encode_coco_rle
 from tests.test_video_tracker_jobs_list import _bearer, _make_video_task
 from tests.factory import create_membership
+from tests.tracker_input_test_ports import seed_staged_tracker_input
+
+
+@pytest.fixture(autouse=True)
+def _tracker_input_owner_test_port(tracker_input_owner_fakes):
+    return tracker_input_owner_fakes
 
 
 def test_decision_selectors_are_mutually_exclusive() -> None:
@@ -156,7 +162,6 @@ async def _seed_region_review(
             "results": [candidate_row],
             "grid_step": 1,
             "output_geometry": "mask",
-            "source_instance_id": "1",
         },
         event_channel="video-tracker-job:test-region",
     )
@@ -181,6 +186,8 @@ async def _seed_region_review(
         source={},
     )
     db.add_all([job, issue])
+    await db.flush()
+    seed_staged_tracker_input(job, task, {"1": annotation.id})
     await db.commit()
     return task, item, annotation, job, issue, candidate_row
 
@@ -522,8 +529,8 @@ async def test_claimed_reviewer_can_decide_job_created_by_annotator(
         "results": [row],
         "grid_step": 1,
         "output_geometry": "mask",
-        "source_instance_id": "1",
     }
+    seed_staged_tracker_input(job, task, {"1": annotation.id})
     task.reviewer_claimed_at = None
     await db_session.commit()
     response = await httpx_client.post(

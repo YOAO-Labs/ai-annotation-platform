@@ -1,5 +1,6 @@
 import pytest
 import uuid
+import httpx
 from datetime import datetime, timezone
 
 from app.config import settings
@@ -14,6 +15,12 @@ from app.services.video_tracking.adapters import TrackerContext, TrackerFrameRes
 from app.services.video_tracking.runner import accept_tracker_job, run_tracker_job
 from tests.conftest import create_registry_with_pool
 from tests.factory import build_tool_bindings
+from tests.tracker_input_test_ports import seed_staged_tracker_input
+
+
+@pytest.fixture(autouse=True)
+def _tracker_input_owner_test_port(tracker_input_owner_fakes):
+    return tracker_input_owner_fakes
 
 
 async def _make_video_task(db_session, owner_id):
@@ -137,6 +144,149 @@ async def test_tracker_worker_completes_mock_bbox_job_and_writes_video_track(
     assert [kf["frame_index"] for kf in annotation.geometry["keyframes"]] == [0, 1, 2]
     assert annotation.geometry["keyframes"][0]["source"] == "manual"
     assert annotation.geometry["keyframes"][1]["source"] == "prediction"
+
+
+async def test_stage_source_busy_retries_held_results_without_reinference(
+    db_session, super_admin, monkeypatch, tracker_input_owner_fakes
+):
+    from aap_assets_video_inputs.tracker import TrackerFailure
+    from app.services.video_tracking import runner
+
+    user, _ = super_admin
+    task, item = await _make_video_task(db_session, user.id)
+    annotation = Annotation(
+        task_id=task.id,
+        project_id=task.project_id,
+        user_id=user.id,
+        annotation_type="bbox",
+        class_name="car",
+        geometry={"type": "bbox", "x": 1, "y": 2, "w": 10, "h": 12},
+    )
+    db_session.add(annotation)
+    await db_session.flush()
+    job = VideoTrackerJob(
+        task_id=task.id,
+        dataset_item_id=item.id,
+        annotation_id=annotation.id,
+        created_by=user.id,
+        status=VideoTrackerJobStatus.QUEUED.value,
+        model_key="mock_bbox",
+        direction="forward",
+        from_frame=0,
+        to_frame=0,
+        prompt={
+            "type": "bbox",
+            "geometry": annotation.geometry,
+            "expected_source_versions": {str(annotation.id): int(annotation.version)},
+        },
+        event_channel="video-tracker-job:test",
+    )
+    db_session.add(job)
+    await db_session.commit()
+
+    class CountingAdapter:
+        def __init__(self):
+            self.calls = 0
+
+        async def propagate(self, context):
+            self.calls += 1
+            yield TrackerFrameResult(
+                frame_index=context.from_frame,
+                geometry={
+                    "type": "bbox",
+                    "x": 2.0,
+                    "y": 2.0,
+                    "w": 10.0,
+                    "h": 12.0,
+                },
+                confidence=0.9,
+                outside=False,
+            )
+
+    adapter = CountingAdapter()
+    monkeypatch.setattr(runner, "get_tracker_adapter", lambda _capability: adapter)
+    stage_attempts = 0
+
+    async def busy_then_success():
+        nonlocal stage_attempts
+        stage_attempts += 1
+        if stage_attempts == 1:
+            raise TrackerFailure("source_busy")
+        return tracker_input_owner_fakes.acceptance
+
+    tracker_input_owner_fakes.stage_lock_impl = busy_then_success
+
+    async def _noop(_channel: str, _payload: dict) -> None:
+        return None
+
+    await run_tracker_job(db_session, job.id, publisher=_noop)
+    await db_session.refresh(job)
+
+    assert job.status == "pending_review"
+    assert adapter.calls == 1
+    assert stage_attempts == 2
+    assert job.staged_result["tracker_input_evidence"]["input_id"] == str(
+        tracker_input_owner_fakes.acceptance.evidence.input_id
+    )
+
+
+async def test_tracker_http_error_redacts_signed_source_url_from_logs_and_job(
+    db_session, super_admin, monkeypatch, caplog
+):
+    import logging
+
+    from app.services.video_tracking import runner
+
+    user, _ = super_admin
+    task, item = await _make_video_task(db_session, user.id)
+    job = VideoTrackerJob(
+        task_id=task.id,
+        dataset_item_id=item.id,
+        annotation_id=None,
+        target_class_name="car",
+        target_tool_unit_id="bbox",
+        created_by=user.id,
+        status=VideoTrackerJobStatus.QUEUED.value,
+        model_key="mock_bbox",
+        direction="forward",
+        from_frame=0,
+        to_frame=0,
+        prompt={},
+        event_channel="video-tracker-job:test",
+    )
+    db_session.add(job)
+    await db_session.commit()
+    signed_url = "https://source.test/clip.mp4?X-Amz-Signature=tracker-secret-123"
+
+    class FailingAdapter:
+        async def propagate(self, _context):
+            request = httpx.Request("GET", signed_url)
+            response = httpx.Response(502, request=request)
+            raise httpx.HTTPStatusError(
+                f"model fetch failed for {signed_url}",
+                request=request,
+                response=response,
+            )
+            yield  # pragma: no cover - makes this an async generator
+
+    monkeypatch.setattr(
+        runner, "get_tracker_adapter", lambda _capability: FailingAdapter()
+    )
+    events: list[dict] = []
+
+    async def collect(_channel: str, payload: dict) -> None:
+        events.append(payload)
+
+    with caplog.at_level(logging.ERROR, logger="app.services.video_tracking.runner"):
+        await run_tracker_job(db_session, job.id, publisher=collect)
+
+    await db_session.refresh(job)
+    assert job.status == "failed"
+    assert "[URL redacted]" in (job.error_message or "")
+    assert "tracker-secret-123" not in (job.error_message or "")
+    assert "tracker-secret-123" not in str(events)
+    assert "tracker-secret-123" not in caplog.text
+    assert "exception_type=HTTPStatusError" in caplog.text
 
 
 async def test_tracker_worker_marks_unknown_model_failed(db_session, super_admin):
@@ -1326,6 +1476,8 @@ async def test_accept_mask_candidate_validates_source_dimensions_before_commit(
         },
     )
     db_session.add(job)
+    await db_session.flush()
+    seed_staged_tracker_input(job, task, {"1": annotation.id})
     await db_session.commit()
 
     async def _noop(_channel: str, _payload: dict) -> None:

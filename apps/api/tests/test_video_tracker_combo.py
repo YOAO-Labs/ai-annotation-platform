@@ -23,6 +23,11 @@ from app.services.video_tracking.runner import (
 from tests.test_video_tracker_multi_instance import _make_video_task
 
 
+@pytest.fixture(autouse=True)
+def _tracker_input_owner_test_port(tracker_input_owner_fakes):
+    return tracker_input_owner_fakes
+
+
 # ── 纯函数: 发现框 → PVS 种子铸造 ──────────────────────────────────────────
 
 
