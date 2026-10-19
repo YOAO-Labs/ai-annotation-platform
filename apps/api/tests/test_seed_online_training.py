@@ -4,6 +4,7 @@ import hashlib
 import io
 import json
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import AsyncMock
 import zipfile
@@ -15,12 +16,14 @@ import pytest
 from sqlalchemy import func, select
 
 from app.db.models.annotation import Annotation
+from app.db.models.async_job import AsyncJob
 from app.db.models.dataset import DatasetItem
 from app.db.models.project import Project
 from app.db.models.task import Task
 from app.db.models.training_dataset import TrainingDatasetVersion
 from app.services.storage import storage_service
-from app.services.training_dataset_bridge import assign_splits
+from app.services import async_job as jobs
+from app.services.training_dataset_bridge import TrainingDatasetError, assign_splits
 from app.workers import training_dataset as worker
 from scripts import seed_online_training as fixture_seed
 from scripts.seed_assets import SeedAssetError
@@ -92,6 +95,7 @@ def memory_storage(monkeypatch):
 
     client = Client()
     monkeypatch.setattr(storage_service, "client", client)
+    monkeypatch.setattr(storage_service, "delete_prefix", lambda *args, **kwargs: 0)
     monkeypatch.setattr(worker, "notify_job_terminal", AsyncMock())
     return client
 
@@ -184,6 +188,120 @@ async def test_fixture_materializes_reviewed_input_and_preserves_edits(
         )
         == 1
     )
+
+
+@pytest.fixture
+async def baseline(db_session, super_admin, annotator, reviewer, coco8, memory_storage):
+    owner, _ = super_admin
+    anno, _ = annotator
+    qa, _ = reviewer
+    project, _ = await fixture_seed.seed_online_training(
+        db_session,
+        fixture=coco8,
+        owner_id=owner.id,
+        annotator_id=anno.id,
+        reviewer_id=qa.id,
+    )
+    version = await fixture_seed.prepare_baseline(db_session, project)
+    await db_session.commit()
+    return project, version
+
+
+@pytest.mark.parametrize("status", ["failed", "cancelled", "running"])
+async def test_baseline_rerun_recovers_unfinished_build(
+    db_session, baseline, memory_storage, monkeypatch, status
+):
+    project, version = baseline
+    version_id, job_id, attempt_id = (
+        version.id,
+        version.async_job_id,
+        version.attempt_id,
+    )
+    snapshot, digest = version.snapshot, version.snapshot_digest
+
+    @asynccontextmanager
+    async def sessions():
+        yield db_session
+
+    if status == "failed":
+
+        def temporary_failure(*args, **kwargs):
+            raise TrainingDatasetError(
+                "temporary_failure", "Temporary packaging failure"
+            )
+
+        with monkeypatch.context() as patch:
+            patch.setattr(worker, "build_training_package", temporary_failure)
+            await worker.build_dataset(version_id, job_id, attempt_id, sessions)
+        await db_session.refresh(version)
+        assert version.status == "failed"
+        assert version.error_code == "temporary_failure"
+    else:
+        version.status = status
+        version.progress_pct = 40
+        await jobs.mark_running(db_session, job_id)
+        if status == "cancelled":
+            version.completed_at = datetime.now(timezone.utc)
+            await jobs.mark_cancelled(db_session, job_id)
+        await db_session.commit()
+
+    retried = await fixture_seed.prepare_baseline(db_session, project)
+    await db_session.commit()
+    assert retried is version and retried.id == version_id
+    assert retried.status == "pending"
+    assert retried.async_job_id != job_id and retried.attempt_id != attempt_id
+    assert retried.snapshot == snapshot and retried.snapshot_digest == digest
+    assert retried.progress_pct == 0
+    assert retried.error_code is None and retried.error_message is None
+    assert retried.completed_at is None
+    old_job = await db_session.get(AsyncJob, job_id)
+    assert old_job.status == ("cancelled" if status == "cancelled" else "failed")
+    assert old_job.completed_at is not None
+    assert await fixture_seed.prepare_baseline(db_session, project) is version
+    assert await db_session.scalar(select(func.count()).select_from(AsyncJob)) == 2
+    assert (
+        await db_session.scalar(
+            select(func.count()).select_from(TrainingDatasetVersion)
+        )
+        == 1
+    )
+
+    # The test's outer transaction retains the retry lock across session commits.
+    # Exercise the builder directly, as after the CLI commits its transaction.
+    writes = memory_storage.writes
+    await worker._build_dataset(version_id, job_id, attempt_id, sessions)
+    await db_session.refresh(version)
+    assert memory_storage.writes == writes and version.status == "pending"
+    await worker._build_dataset(
+        version_id, version.async_job_id, version.attempt_id, sessions
+    )
+    await db_session.refresh(version)
+    assert version.status == "ready", version.error_message
+    assert version.snapshot == snapshot and version.manifest["summary"]["objects"] == 8
+
+
+@pytest.mark.parametrize("status", ["failed", "cancelled", "running"])
+async def test_baseline_rerun_does_not_replace_an_active_attempt(
+    db_session, test_engine, baseline, status
+):
+    project, version = baseline
+    version.status = status
+    await db_session.commit()
+    job_id, attempt_id = version.async_job_id, version.attempt_id
+    key = func.hashtextextended(str(version.id), 1)
+    async with test_engine.connect() as execution:
+        await execution.execute(select(func.pg_advisory_lock(key)))
+        await execution.commit()
+        try:
+            with pytest.raises(SeedAssetError, match="稍后重试"):
+                await fixture_seed.prepare_baseline(db_session, project)
+        finally:
+            await execution.execute(select(func.pg_advisory_unlock(key)))
+            await execution.commit()
+    await db_session.refresh(version)
+    assert version.status == status
+    assert version.async_job_id == job_id and version.attempt_id == attempt_id
+    assert await db_session.scalar(select(func.count()).select_from(AsyncJob)) == 1
 
 
 async def test_fixture_refuses_unrelated_project(

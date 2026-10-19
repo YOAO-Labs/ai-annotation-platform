@@ -19,10 +19,11 @@ from app.db.models.project import Project
 from app.db.models.task import Task
 from app.db.models.training_dataset import TrainingDatasetVersion
 from app.schemas.training_dataset import TrainingDatasetSelection
-from app.services import project_task_dataset, training_datasets
+from app.services import async_job as jobs, project_task_dataset, training_datasets
 from app.services.annotation_evidence import freeze_review_contributor_evidence
 from app.services.storage import storage_service
 from app.services.training_dataset_bridge import (
+    TrainingDatasetError,
     assign_splits,
     content_digest,
     detection_labels,
@@ -247,6 +248,20 @@ async def prepare_baseline(
         )
     )
     if existing is not None:
+        if existing.status in {"failed", "cancelled", "running"}:
+            try:
+                await training_datasets.lock_dataset_execution(db, existing.id)
+            except TrainingDatasetError as exc:
+                raise SeedAssetError(str(exc)) from exc
+            await db.refresh(existing, with_for_update=True)
+            # A live builder holds this execution lock until its writes finish.
+            # A running version without the lock belongs to an interrupted build.
+            if existing.status == "running":
+                await jobs.mark_failed(
+                    db, existing.async_job_id, error="种子构建已中断，重新构建同一快照"
+                )
+            if existing.status in {"failed", "cancelled", "running"}:
+                await training_datasets.enqueue_dataset(db, existing)
         return existing
     selection = TrainingDatasetSelection(seed=SPLIT_SEED, validation_fraction=0.5)
     snapshot, report = await training_datasets.freeze_selection(
