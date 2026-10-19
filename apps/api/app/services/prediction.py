@@ -547,6 +547,11 @@ def _remap_track_ids(result: list[dict]) -> list[dict]:
     return out
 
 
+def remap_prediction_track_ids(result: list[dict]) -> list[dict]:
+    """Return the stable stored form so a retried result bundle stays identical."""
+    return _remap_track_ids(result)
+
+
 class PredictionService:
     def __init__(self, db: AsyncSession) -> None:
         self.db = db
@@ -604,6 +609,7 @@ class PredictionService:
                     "prediction_import",
                     "prediction_retry",
                 ),
+                accepted_input_job_id=request.accepted_input_job_id,
             )
         except RasterMaskContractError as exc:
             raise _apply_prediction_error(exc) from exc
@@ -619,6 +625,74 @@ class PredictionService:
             )
         except RasterMaskContractError as exc:
             raise _apply_prediction_error(exc) from exc
+        return await self._persist_prediction_result(request, task, result)
+
+    async def apply_prediction_result_bundle(
+        self, requests: tuple[ApplyPredictionResultRequest, ...]
+    ) -> tuple[ApplyPredictionResultReceipt, ...]:
+        """Verify mask content before locks, then persist the entire Task bundle atomically."""
+        if not requests:
+            return ()
+        first = requests[0]
+        scope = first.write_scope
+        if any(
+            request.task_id != first.task_id
+            or request.project_id != first.project_id
+            or request.write_scope != scope
+            or request.accepted_input_job_id != first.accepted_input_job_id
+            for request in requests
+        ):
+            raise ValueError("prediction result bundle must share one Task write scope")
+        if scope.task_id != first.task_id or scope.project_id != first.project_id:
+            raise ValueError("prediction write scope does not match its target")
+        preflight_task = await self.db.get(Task, first.task_id, populate_existing=True)
+        normalized_results = [_remap_track_ids(request.result) for request in requests]
+        verified_contents = []
+        try:
+            for result in normalized_results:
+                verified_contents.append(
+                    await preflight_mask_payload_for_write(
+                        self.db, preflight_task, result
+                    )
+                )
+            task, _actor, _access = await lock_labeling_write(
+                self.db,
+                scope,
+                operations=(
+                    "interactive_frame_prediction",
+                    "interactive_mask_accept",
+                    "mask_repair",
+                    "preannotation",
+                    "prediction_import",
+                    "prediction_retry",
+                ),
+                accepted_input_job_id=first.accepted_input_job_id,
+            )
+            for result, verified_content in zip(
+                normalized_results, verified_contents, strict=True
+            ):
+                await prepare_mask_payload_for_write(
+                    self.db,
+                    task,
+                    result,
+                    verified_content=verified_content,
+                    require_verified_content=True,
+                )
+        except RasterMaskContractError as exc:
+            raise _apply_prediction_error(exc) from exc
+        except HTTPException as exc:
+            raise _apply_prediction_error(exc) from exc
+
+        receipts = []
+        for request, result in zip(requests, normalized_results, strict=True):
+            receipts.append(
+                await self._persist_prediction_result(request, task, result)
+            )
+        return tuple(receipts)
+
+    async def _persist_prediction_result(
+        self, request: ApplyPredictionResultRequest, task: Task, result: list[dict]
+    ) -> ApplyPredictionResultReceipt:
         prediction = Prediction(
             id=uuid.uuid4(),
             task_id=request.task_id,

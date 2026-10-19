@@ -375,6 +375,223 @@ async def test_run_batch_accumulates_total_cost(
 
 
 @pytest.mark.asyncio
+async def test_manifest_page_failure_after_success_marks_job_failed_with_progress(
+    db_session: AsyncSession, monkeypatch, super_admin
+):
+    from types import SimpleNamespace
+
+    from aap_assets_input_manifests.contract import ManifestScope
+    from app.application.preannotation_contract import BatchPredictionRequest
+    from app.application.preannotation_execution import (
+        _PreparedAcceptedManifest,
+        _execute_preannotation,
+    )
+    from app.db.models.prediction import Prediction
+    from app.db.models.task import Task
+    from app.services.ml_client import PredictionResult
+    from app.services.prediction import PredictionService
+
+    user, _ = super_admin
+    project, backend = await _seed_project_and_backend(db_session, user.id)
+    first_task, second_task = [
+        Task(
+            id=uuid.uuid4(),
+            project_id=project.id,
+            display_id=f"T-MANIFEST-{index}",
+            file_name=f"{index}.jpg",
+            file_path=f"/legacy/{index}.jpg",
+            file_type="image",
+            status="pending",
+        )
+        for index in (1, 2)
+    ]
+    db_session.add_all([first_task, second_task])
+    await db_session.flush()
+
+    job_id = uuid.uuid4()
+    digest = "c" * 64
+    job = AsyncJob(
+        id=job_id,
+        kind="batch_predict",
+        project_id=project.id,
+        user_id=user.id,
+        status=AsyncJobStatus.PENDING.value,
+        payload={
+            "batch_id": None,
+            "execution_scope": "bulk",
+            "total_tasks": 2,
+            "accepted_input_manifest_protocol": "aap-assets-input-manifest/v1",
+            "accepted_input_manifest_id": str(job_id),
+            "accepted_input_manifest_digest": digest,
+            "input_selection": {
+                "batch_id": None,
+                "task_ids": None,
+                "predict_mode": "append",
+            },
+        },
+    )
+    db_session.add(job)
+    await db_session.flush()
+
+    input_id = uuid.uuid4()
+    input_record = SimpleNamespace(
+        input_id=input_id,
+        job_id=job_id,
+        task_id=first_task.id,
+        project_id=project.id,
+        actor_id=user.id,
+        task_version=first_task.version,
+        task_source_generation=first_task.media_source_generation or 1,
+        dataset_item_id=first_task.dataset_item_id,
+        task_source_snapshot="a" * 64,
+        source_owner=SimpleNamespace(kind="task", id=first_task.id),
+        source_generation=1,
+        source_snapshot="b" * 64,
+        status="ready",
+        sha256="d" * 64,
+        byte_size=6,
+    )
+    reference = SimpleNamespace(
+        input=input_record,
+        url="https://inputs.test/source?versionId=frozen-v1",
+    )
+    member = SimpleNamespace(
+        ordinal=1,
+        task_id=first_task.id,
+        input=input_record,
+        state="ready",
+        error=None,
+    )
+
+    class Header:
+        selected_count = 2
+        candidate_count = 2
+        sealed_digest = "e" * 64
+
+        def model_dump(self, *, mode):
+            return {"sealed": True, "mode": mode}
+
+    header = Header()
+    page_calls = []
+
+    class InputGateway:
+        async def ensure_reference(self, _request):
+            return reference
+
+        async def download(self, _reference, destination):
+            destination.write_bytes(b"frozen")
+
+        async def verify_source(self, _request):
+            return input_record
+
+    class ManifestGateway:
+        inputs = InputGateway()
+
+        async def page(self, _request):
+            page_calls.append(True)
+            if len(page_calls) > 1:
+                raise RuntimeError("control page transport unavailable")
+            return SimpleNamespace(
+                manifest=header,
+                cursor=0,
+                next_cursor=1,
+                members=[member],
+            )
+
+    scope = ManifestScope(job_id=job_id, actor_id=user.id, project_id=project.id)
+    accepted_manifest = _PreparedAcceptedManifest(
+        gateway=ManifestGateway(),
+        scope=scope,
+        header=header,
+        selection_digest=digest,
+    )
+    request = BatchPredictionRequest(
+        project_id=str(project.id),
+        ml_backend_id=str(backend.id),
+        task_ids=None,
+        user_id=str(user.id),
+        predict_mode="append",
+        execution_scope="bulk",
+        async_job_id=str(job_id),
+        accepted_input_manifest_protocol="aap-assets-input-manifest/v1",
+        accepted_input_manifest_id=str(job_id),
+        accepted_input_manifest_digest=digest,
+    )
+
+    class RoutedClient:
+        def __init__(self, _db, routed_backend, **_kwargs):
+            self.last_instance_id = routed_backend.id
+            self.pool_id = None
+
+    async def fake_pipeline(task, _stages, _clients, _contexts, **kwargs):
+        assert kwargs["resolve_url"](task) == reference.url
+        assert kwargs["input_image_path"].read_bytes() == b"frozen"
+        return (
+            [
+                PredictionResult(
+                    task_id=str(task.id),
+                    result=[],
+                    score=0.9,
+                    model_version="frozen-v1",
+                    inference_time_ms=1,
+                    meta={},
+                )
+            ],
+            {},
+            None,
+        )
+
+    async def persist_success(self, write_request):
+        assert write_request.accepted_input_job_id == job_id
+        prediction = Prediction(
+            task_id=write_request.task_id,
+            project_id=write_request.project_id,
+            ml_backend_id=write_request.ml_backend_id,
+            result=write_request.result,
+        )
+        db_session.add(prediction)
+        task = await db_session.get(Task, write_request.task_id)
+        task.total_predictions = (task.total_predictions or 0) + 1
+        await db_session.flush()
+        return SimpleNamespace(id=prediction.id)
+
+    monkeypatch.setattr(
+        "app.services.ml_routing.client.RoutedMLBackendClient", RoutedClient
+    )
+    monkeypatch.setattr(
+        "app.application.preannotation_execution._run_task_pipeline", fake_pipeline
+    )
+    monkeypatch.setattr(PredictionService, "apply_prediction_result", persist_success)
+
+    _fake_engine, fake_factory = _passthrough_engine_and_factory(db_session)
+    await _execute_preannotation(
+        request,
+        execution_id=str(job_id),
+        frame_dispatcher=None,
+        SessionLocal=fake_factory,
+        accepted_manifest=accepted_manifest,
+    )
+
+    await db_session.refresh(job)
+    assert job.status == AsyncJobStatus.FAILED.value
+    assert job.error_message == "manifest_page_unavailable"
+    assert job.result["success_count"] == 1
+    assert job.result["failed_count"] == 0
+    assert job.result["last_completed_ordinal"] == 1
+    assert job.result["unprocessed_count"] == 1
+    assert job.result["unprocessed_failure_records"] == 0
+    assert (
+        await db_session.scalar(
+            select(func.count())
+            .select_from(Prediction)
+            .where(Prediction.task_id == first_task.id)
+        )
+        == 1
+    )
+    assert len(page_calls) == 2
+
+
+@pytest.mark.asyncio
 async def test_run_batch_all_failed_marks_job_failed(
     db_session: AsyncSession, monkeypatch, super_admin
 ):

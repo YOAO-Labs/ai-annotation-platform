@@ -10,8 +10,10 @@ from aap_assets_inputs import contract as c
 from app.application.preannotation_contract import BatchPredictionRequest
 from app.application.preannotation_execution import (
     PreannotationInputDeferred,
+    _apply_prediction_result_bundle_with_retries,
     _apply_prediction_result_with_retries,
     _prepare_accepted_input,
+    _prepare_accepted_input_manifest,
 )
 from app.services.labeling_prediction_contract import ApplyPredictionResultError
 
@@ -76,6 +78,183 @@ def _request(*, protocol=c.INPUT_SCHEMA, input_ids=None):
 
 def _session_factory(job, task):
     return lambda: _Session(job, task)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("with_job_id", [False, True])
+async def test_bulk_image_without_manifest_identity_fails_closed(with_job_id):
+    from app.db.models.async_job import AsyncJobStatus
+
+    project_id = uuid.uuid4()
+    job_id = uuid.uuid4() if with_job_id else None
+    actor_id = uuid.uuid4()
+    project = SimpleNamespace(data_type="image")
+    job = SimpleNamespace(
+        kind="batch_predict",
+        project_id=project_id,
+        user_id=actor_id,
+        status=AsyncJobStatus.PENDING.value,
+    )
+
+    class Session:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def get(self, model, _identity, **_kwargs):
+            if model.__name__ == "Project":
+                return project
+            if model.__name__ == "AsyncJob" and with_job_id:
+                return job
+            return None
+
+    request = BatchPredictionRequest(
+        project_id=str(project_id),
+        ml_backend_id=str(uuid.uuid4()),
+        user_id=str(actor_id),
+        execution_scope="bulk",
+        async_job_id=str(job_id) if job_id else None,
+    )
+
+    with pytest.raises(ValueError, match="no frozen input manifest identity"):
+        async with _prepare_accepted_input_manifest(request, lambda: Session()):
+            pytest.fail("bulk image work must not fall back to current Task URLs")
+
+
+@pytest.mark.asyncio
+async def test_running_legacy_bulk_image_job_is_drained(monkeypatch):
+    project_id, job_id, actor_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+    project = SimpleNamespace(data_type="image")
+    job = SimpleNamespace(
+        id=job_id,
+        kind="batch_predict",
+        project_id=project_id,
+        user_id=actor_id,
+        status="running",
+        payload={"execution_scope": "bulk"},
+        completed_at=None,
+        error_message=None,
+    )
+
+    class Session:
+        commits = 0
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def get(self, model, _identity, **_kwargs):
+            if model.__name__ == "Project":
+                return project
+            if model.__name__ == "AsyncJob":
+                return job
+            return None
+
+        async def commit(self):
+            self.commits += 1
+
+    session = Session()
+
+    async def no_notify(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr("app.services.async_job_notify.notify_job_terminal", no_notify)
+    request = BatchPredictionRequest(
+        project_id=str(project_id),
+        ml_backend_id=str(uuid.uuid4()),
+        user_id=str(actor_id),
+        execution_scope="bulk",
+        async_job_id=str(job_id),
+    )
+
+    async with _prepare_accepted_input_manifest(request, lambda: session):
+        pass
+
+    assert job.status == "failed"
+    assert job.error_message == ("legacy_bulk_image_job_requires_frozen_input_manifest")
+    assert session.commits == 1
+
+
+@pytest.mark.asyncio
+async def test_unsealed_manifest_defers_before_job_claim(monkeypatch):
+    from contextlib import asynccontextmanager
+    from types import ModuleType
+    import sys
+
+    from aap_assets_input_manifests import contract as manifests
+
+    job_id, actor_id, project_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+    digest = "f" * 64
+    selection = manifests.ManifestSelection(
+        batch_id=None, task_ids=None, predict_mode="append"
+    )
+    job = SimpleNamespace(
+        status="pending",
+        kind="batch_predict",
+        project_id=project_id,
+        user_id=actor_id,
+        payload={
+            "execution_scope": "bulk",
+            "batch_id": None,
+            "input_selection": selection.model_dump(mode="json"),
+            "accepted_input_manifest_protocol": manifests.MANIFEST_SCHEMA,
+            "accepted_input_manifest_id": str(job_id),
+            "accepted_input_manifest_digest": digest,
+            "total_tasks": 1,
+            "input_candidate_count": 1,
+        },
+    )
+    request = BatchPredictionRequest(
+        project_id=str(project_id),
+        ml_backend_id=str(uuid.uuid4()),
+        task_ids=None,
+        user_id=str(actor_id),
+        execution_scope="bulk",
+        predict_mode="append",
+        async_job_id=str(job_id),
+        accepted_input_manifest_protocol=manifests.MANIFEST_SCHEMA,
+        accepted_input_manifest_id=str(job_id),
+        accepted_input_manifest_digest=digest,
+    )
+
+    class Gateway:
+        async def ensure_sealed(self, _scope, *, selection_digest):
+            assert selection_digest == digest
+            raise manifests.ManifestFailure("manifest_not_ready")
+
+    @asynccontextmanager
+    async def gateway(**_kwargs):
+        yield Gateway()
+
+    bridge = ModuleType("app.services.accepted_input_manifests")
+    bridge.input_manifest_gateway = gateway
+    monkeypatch.setitem(sys.modules, bridge.__name__, bridge)
+
+    with pytest.raises(PreannotationInputDeferred, match="manifest_not_ready"):
+        async with _prepare_accepted_input_manifest(
+            request, _session_factory(job, None)
+        ):
+            pytest.fail("an unsealed manifest cannot claim the durable Job")
+
+    assert job.status == "pending"
+
+
+@pytest.mark.asyncio
+async def test_bulk_text_stage_is_outside_image_manifest_drain_guard():
+    project_id = uuid.uuid4()
+    request = BatchPredictionRequest(
+        project_id=str(project_id),
+        ml_backend_id=str(uuid.uuid4()),
+        execution_scope="bulk",
+        pipeline_stages=[{"stage": 1, "task": "text"}],
+    )
+
+    async with _prepare_accepted_input_manifest(request, lambda: pytest.fail()):
+        pass
 
 
 @pytest.mark.asyncio
@@ -310,6 +489,120 @@ async def test_busy_write_retries_the_same_model_result_after_rollback(monkeypat
     assert calls == [request, request, request]
     assert all(received is request for received in calls)
     assert session.rollbacks == 2
+
+
+@pytest.mark.asyncio
+async def test_busy_bundle_write_retries_the_whole_same_result_tuple(monkeypatch):
+    requests = (
+        SimpleNamespace(result=[{"class_name": "car", "index": 1}]),
+        SimpleNamespace(result=[{"class_name": "car", "index": 2}]),
+    )
+    calls = []
+
+    class Writer:
+        async def apply_prediction_result_bundle(self, received):
+            calls.append(received)
+            if len(calls) == 1:
+                received[0].result[0]["class_name"] = "mutated by failed attempt"
+                raise ApplyPredictionResultError(
+                    code="input_busy",
+                    status_code=409,
+                    detail={"reason": "input_busy"},
+                )
+            return ("first", "second")
+
+    class Session:
+        rollbacks = 0
+
+        async def rollback(self):
+            self.rollbacks += 1
+
+    async def no_sleep(_delay):
+        return None
+
+    import app.application.preannotation_execution as execution
+
+    monkeypatch.setattr(execution.asyncio, "sleep", no_sleep)
+    session = Session()
+    result = await _apply_prediction_result_bundle_with_retries(
+        Writer(), session, requests
+    )
+
+    assert result == ("first", "second")
+    assert len(calls) == 2
+    assert calls[0] is not calls[1]
+    assert calls[1][0].result == [{"class_name": "car", "index": 1}]
+    assert calls[1][1].result == [{"class_name": "car", "index": 2}]
+    assert requests[0].result == [{"class_name": "car", "index": 1}]
+    assert session.rollbacks == 1
+
+
+@pytest.mark.asyncio
+async def test_bundle_write_rejects_target_scope_mismatch_before_mask_io():
+    from app.services.labeling_prediction_contract import ApplyPredictionResultRequest
+    from app.services.prediction import PredictionService
+
+    task_id, other_task_id, project_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+    scope = SimpleNamespace(task_id=task_id, project_id=project_id)
+    request = ApplyPredictionResultRequest(
+        task_id=other_task_id,
+        project_id=project_id,
+        ml_backend_id=None,
+        result=[{"type": "bbox", "class_name": "car"}],
+        write_scope=scope,
+    )
+
+    class Session:
+        async def get(self, *_args, **_kwargs):
+            pytest.fail("bundle scope must be checked before mask preflight")
+
+    with pytest.raises(ValueError, match="write scope does not match its target"):
+        await PredictionService(Session()).apply_prediction_result_bundle((request,))
+
+
+@pytest.mark.asyncio
+async def test_manifest_failed_prediction_without_input_cannot_resolve_current_url():
+    from app.workers.predictions_retry import _prepare_retry_input
+
+    failed_id = uuid.uuid4()
+    task_id, project_id, backend_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+    task = SimpleNamespace(id=task_id, file_type="image")
+    backend = SimpleNamespace(id=backend_id)
+    failed = SimpleNamespace(
+        task_id=task_id,
+        project_id=project_id,
+        ml_backend_id=backend_id,
+        extra={
+            "execution_scope": "bulk",
+            "accepted_input_manifest": {
+                "protocol": "aap-assets-input-manifest/v1",
+                "manifest_id": str(uuid.uuid4()),
+                "ordinal": 4,
+            },
+        },
+    )
+
+    class Session:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def get(self, model, _identity):
+            if model.__name__ == "FailedPrediction":
+                return failed
+            if model.__name__ == "Task":
+                return task
+            if model.__name__ == "MLBackendRegistry":
+                return backend
+            return None
+
+    async with _prepare_retry_input(lambda: Session(), str(failed_id)) as prepared:
+        assert prepared.accepted_input is None
+        assert prepared.terminal_error is not None
+        assert "no retained accepted input" in str(prepared.terminal_error)
+        assert prepared.gateway is None
 
 
 @pytest.mark.asyncio

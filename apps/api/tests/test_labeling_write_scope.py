@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict
+from types import SimpleNamespace
 import uuid
 
 import pytest
@@ -76,6 +77,76 @@ async def test_changed_input_source_is_not_mapped_to_contention(monkeypatch):
 
     assert exc_info.value.status_code == 409
     assert exc_info.value.detail == {"reason": "prediction_source_changed"}
+
+
+@pytest.mark.asyncio
+async def test_manifest_source_fence_checks_actual_input_origin_job(monkeypatch):
+    expected_job_id, actual_job_id = uuid.uuid4(), uuid.uuid4()
+    input_id, task_id, project_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+    scope = SimpleNamespace(
+        accepted_input_id=input_id,
+        task_id=task_id,
+        project_id=project_id,
+    )
+    observed = []
+
+    async def lock_source(_db, **kwargs):
+        observed.append(kwargs)
+        return SimpleNamespace(job_id=actual_job_id)
+
+    monkeypatch.setattr("app.services.accepted_inputs.lock_input_source", lock_source)
+
+    with pytest.raises(HTTPException) as exc_info:
+        await labeling_write_guard._lock_accepted_input_source(
+            None, scope, expected_job_id=expected_job_id
+        )
+
+    assert exc_info.value.status_code == 409
+    assert exc_info.value.detail == {
+        "reason": "prediction_input_manifest_origin_mismatch"
+    }
+    assert observed == [
+        {"input_id": input_id, "task_id": task_id, "project_id": project_id}
+    ]
+
+
+@pytest.mark.asyncio
+async def test_manifest_job_batch_final_guard_does_not_require_task_input():
+    scope = LabelingBatchWriteScope(
+        batch_id=uuid.uuid4(),
+        project_id=uuid.uuid4(),
+        actor_id=uuid.uuid4(),
+        actor_known=True,
+        operation="preannotation",
+        execution_scope="bulk",
+        execution_scope_known=True,
+        job_id=uuid.uuid4(),
+        job_id_known=True,
+    )
+    job = SimpleNamespace(
+        id=scope.job_id,
+        project_id=scope.project_id,
+        user_id=scope.actor_id,
+        kind="batch_predict",
+        status="running",
+        payload={
+            "batch_id": str(scope.batch_id),
+            "execution_scope": "bulk",
+            "accepted_input_manifest_protocol": "aap-assets-input-manifest/v1",
+        },
+    )
+
+    class Result:
+        def scalar_one_or_none(self):
+            return job
+
+    class Session:
+        async def execute(self, _statement):
+            return Result()
+
+    await labeling_write_guard._assert_execution_current(
+        Session(), scope, task_id=None, batch_id=scope.batch_id
+    )
 
 
 async def _scope_fixture(db, owner):

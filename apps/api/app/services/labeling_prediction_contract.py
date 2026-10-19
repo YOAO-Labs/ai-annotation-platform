@@ -38,6 +38,7 @@ class ApplyPredictionResultRequest:
     pipeline_extra: dict[str, Any] | None = None
     ml_backend_pool_id: uuid.UUID | None = None
     model_provenance: dict[str, Any] | None = None
+    accepted_input_job_id: uuid.UUID | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -54,6 +55,11 @@ class ApplyPredictionResultPort(Protocol):
         self, request: ApplyPredictionResultRequest
     ) -> ApplyPredictionResultReceipt:
         """Write in the already-open caller transaction; never commit it."""
+
+    async def apply_prediction_result_bundle(
+        self, requests: tuple[ApplyPredictionResultRequest, ...]
+    ) -> tuple[ApplyPredictionResultReceipt, ...]:
+        """Atomically preflight and persist one immutable Task result bundle."""
 
 
 class ApplyPredictionResultError(Exception):

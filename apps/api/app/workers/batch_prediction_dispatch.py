@@ -39,6 +39,16 @@ class CeleryBatchPredictionDispatcher:
             kwargs["accepted_inputs_protocol"] = request.accepted_inputs_protocol
         if request.accepted_input_ids is not None:
             kwargs["accepted_input_ids"] = request.accepted_input_ids
+        if request.accepted_input_manifest_protocol is not None:
+            kwargs["accepted_input_manifest_protocol"] = (
+                request.accepted_input_manifest_protocol
+            )
+        if request.accepted_input_manifest_id is not None:
+            kwargs["accepted_input_manifest_id"] = request.accepted_input_manifest_id
+        if request.accepted_input_manifest_digest is not None:
+            kwargs["accepted_input_manifest_digest"] = (
+                request.accepted_input_manifest_digest
+            )
 
         options: dict[str, str | int] = {"queue": queue}
         if request.async_job_id is not None:

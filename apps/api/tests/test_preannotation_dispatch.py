@@ -151,11 +151,47 @@ def test_pending_input_deferral_retries_after_default_retry_budget(monkeypatch):
             )
     finally:
         batch_predict.pop_request()
-
     assert captured["retries"] == 8
     assert isinstance(captured["exception"], PreannotationInputDeferred)
     assert captured["countdown"] == 30
     assert captured["max_retries"] is None
+
+
+def test_worker_builds_manifest_request_from_celery_arguments(monkeypatch):
+    import asyncio
+
+    from app.workers import tasks
+    from app.workers.tasks import batch_predict
+
+    captured = {}
+    original_run = asyncio.run
+
+    async def fake_run_preannotation(request, **_kwargs):
+        captured["request"] = request
+
+    monkeypatch.setattr(tasks, "run_preannotation", fake_run_preannotation)
+    monkeypatch.setattr(tasks.asyncio, "run", original_run)
+    batch_predict.push_request(id="manifest-job-id")
+    try:
+        batch_predict.run(
+            "project-id",
+            "backend-id",
+            task_ids=None,
+            batch_id="batch-id",
+            user_id="actor-id",
+            execution_scope="bulk",
+            async_job_id="manifest-job-id",
+            accepted_input_manifest_protocol="aap-assets-input-manifest/v1",
+            accepted_input_manifest_id="manifest-job-id",
+            accepted_input_manifest_digest="b" * 64,
+        )
+    finally:
+        batch_predict.pop_request()
+
+    request = captured["request"]
+    assert request.accepted_input_manifest_protocol == "aap-assets-input-manifest/v1"
+    assert request.accepted_input_manifest_id == "manifest-job-id"
+    assert request.accepted_input_manifest_digest == "b" * 64
 
 
 def test_celery_dispatch_omits_unset_durable_options(monkeypatch):
@@ -179,8 +215,49 @@ def test_celery_dispatch_omits_unset_durable_options(monkeypatch):
     assert "frozen_model_ref" not in captured["kwargs"]
     assert "accepted_inputs_protocol" not in captured["kwargs"]
     assert "accepted_input_ids" not in captured["kwargs"]
+    assert "accepted_input_manifest_protocol" not in captured["kwargs"]
+    assert "accepted_input_manifest_id" not in captured["kwargs"]
+    assert "accepted_input_manifest_digest" not in captured["kwargs"]
     assert "task_type" not in captured["kwargs"]
     assert captured["options"] == {"queue": "ml"}
+
+
+def test_celery_dispatch_preserves_manifest_identity_without_member_payload(
+    monkeypatch,
+):
+    from app.workers.tasks import batch_predict
+
+    captured = {}
+
+    def fake_apply_async(*, args, kwargs, **options):
+        captured.update(args=args, kwargs=kwargs, options=options)
+        return SimpleNamespace(id="manifest-job-id")
+
+    monkeypatch.setattr(batch_predict, "apply_async", fake_apply_async)
+    request = BatchPredictionRequest(
+        project_id="project-id",
+        ml_backend_id="backend-id",
+        task_ids=None,
+        batch_id="batch-id",
+        user_id="actor-id",
+        predict_mode="overwrite",
+        execution_scope="bulk",
+        async_job_id="manifest-job-id",
+        accepted_input_manifest_protocol="aap-assets-input-manifest/v1",
+        accepted_input_manifest_id="manifest-job-id",
+        accepted_input_manifest_digest="a" * 64,
+    )
+
+    CeleryBatchPredictionDispatcher().dispatch(request, queue="ml")
+
+    assert captured["kwargs"]["accepted_input_manifest_protocol"] == (
+        "aap-assets-input-manifest/v1"
+    )
+    assert captured["kwargs"]["accepted_input_manifest_id"] == "manifest-job-id"
+    assert captured["kwargs"]["accepted_input_manifest_digest"] == "a" * 64
+    assert "accepted_input_ids" not in captured["kwargs"]
+    assert captured["args"] == ["project-id", "backend-id", None]
+    assert captured["options"]["task_id"] == "manifest-job-id"
 
 
 @pytest.mark.asyncio

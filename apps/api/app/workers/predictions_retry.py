@@ -174,6 +174,10 @@ async def _prepare_retry_input(session_factory, failed_id: str):
                         )
                     except (TypeError, ValueError) as exc:
                         terminal_error = exc
+            elif "accepted_input_manifest" in extra:
+                terminal_error = ValueError(
+                    "bulk image manifest retry has no retained accepted input"
+                )
             elif (
                 extra.get("execution_scope") == "workbench"
                 and extra.get("execution_unit") not in {"frame", "video", "scene"}
@@ -465,6 +469,10 @@ async def _run_retry_attempt(
         elif accepted_input is not None:
             prepared_error = prepared_error or ValueError(
                 "accepted input retry metadata disappeared"
+            )
+        elif "accepted_input_manifest" in failure_extra:
+            prepared_error = prepared_error or ValueError(
+                "bulk image manifest retry has no retained accepted input"
             )
         elif (
             failure_extra.get("execution_scope") == "workbench"

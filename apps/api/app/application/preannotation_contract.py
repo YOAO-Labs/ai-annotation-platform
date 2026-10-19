@@ -39,6 +39,9 @@ class BatchPredictionRequest:
     frozen_model_ref: dict[str, Any] | None = None
     accepted_inputs_protocol: str | None = None
     accepted_input_ids: dict[str, str] | None = None
+    accepted_input_manifest_protocol: str | None = None
+    accepted_input_manifest_id: str | None = None
+    accepted_input_manifest_digest: str | None = None
     task: str | None = None
     prompt_type: str | None = None
 

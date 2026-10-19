@@ -38,7 +38,10 @@ _JOB_KINDS = {
 
 
 async def _lock_accepted_input_source(
-    db: AsyncSession, scope: LabelingWriteScope
+    db: AsyncSession,
+    scope: LabelingWriteScope,
+    *,
+    expected_job_id: uuid.UUID | None = None,
 ) -> None:
     """Run the source-only native fence inside this Labeling transaction."""
     from aap_assets_inputs.contract import InputFailure
@@ -46,12 +49,14 @@ async def _lock_accepted_input_source(
     from app.services.accepted_inputs import lock_input_source
 
     try:
-        await lock_input_source(
+        record = await lock_input_source(
             db,
             input_id=scope.accepted_input_id,
             task_id=scope.task_id,
             project_id=scope.project_id,
         )
+        if expected_job_id is not None and record.job_id != expected_job_id:
+            raise _conflict("prediction_input_manifest_origin_mismatch")
     except InputFailure as exc:
         if exc.code in {"input_busy", "source_busy", "reference_busy", "job_busy"}:
             raise _conflict("input_busy") from exc
@@ -85,6 +90,7 @@ async def _assert_execution_current(
     *,
     task_id: uuid.UUID | None,
     batch_id: uuid.UUID | None,
+    accepted_input_job_id: uuid.UUID | None = None,
 ) -> None:
     if scope.job_id is None:
         return
@@ -127,6 +133,16 @@ async def _assert_execution_current(
         or (task_id is not None and str(task_id) not in selected)
     ):
         raise _conflict("prediction_execution_scope_mismatch")
+    manifest_protocol = payload.get("accepted_input_manifest_protocol")
+    if manifest_protocol == "aap-assets-input-manifest/v1" and task_id is not None:
+        if (
+            accepted_input_job_id != job.id
+            or scope.job_id != job.id
+            or scope.accepted_input_id is None
+        ):
+            raise _conflict("prediction_input_manifest_origin_mismatch")
+    elif accepted_input_job_id is not None:
+        raise _conflict("prediction_input_manifest_origin_mismatch")
 
 
 async def lock_labeling_write(
@@ -134,6 +150,7 @@ async def lock_labeling_write(
     scope: LabelingWriteScope,
     *,
     operations: tuple[LabelingWriteOperation, ...],
+    accepted_input_job_id: uuid.UUID | None = None,
 ) -> tuple[Task, User, ProjectAccess]:
     """Hold current authority and target locks through the caller's transaction.
 
@@ -142,6 +159,12 @@ async def lock_labeling_write(
     """
     if scope.operation not in operations:
         raise _conflict("labeling_write_scope_mismatch")
+    if accepted_input_job_id is not None and (
+        scope.operation != "preannotation"
+        or scope.job_id != accepted_input_job_id
+        or scope.accepted_input_id is None
+    ):
+        raise _conflict("prediction_input_manifest_origin_mismatch")
     if not scope.actor_known or scope.actor_id is None:
         raise HTTPException(status_code=401, detail="Authentication required")
     if (
@@ -266,10 +289,22 @@ async def lock_labeling_write(
             if source.version != scope.source_annotation_version:
                 raise _conflict("annotation_version_conflict")
         await _assert_execution_current(
-            db, scope, task_id=task.id, batch_id=task.batch_id
+            db,
+            scope,
+            task_id=task.id,
+            batch_id=task.batch_id,
+            accepted_input_job_id=accepted_input_job_id,
         )
         if scope.accepted_input_id is not None:
-            await _lock_accepted_input_source(db, scope)
+            await _lock_accepted_input_source(
+                db,
+                scope,
+                expected_job_id=(
+                    accepted_input_job_id
+                    if scope.operation == "preannotation"
+                    else None
+                ),
+            )
     return task, actor, access
 
 

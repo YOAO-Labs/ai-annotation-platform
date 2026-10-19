@@ -97,6 +97,9 @@ def batch_predict(
     prompt_type: str | None = None,
     accepted_inputs_protocol: str | None = None,
     accepted_input_ids: dict[str, str] | None = None,
+    accepted_input_manifest_protocol: str | None = None,
+    accepted_input_manifest_id: str | None = None,
+    accepted_input_manifest_digest: str | None = None,
 ):
     frame_dispatcher = None
     if execution_unit == "frame":
@@ -125,6 +128,9 @@ def batch_predict(
         frozen_model_ref=frozen_model_ref,
         accepted_inputs_protocol=accepted_inputs_protocol,
         accepted_input_ids=accepted_input_ids,
+        accepted_input_manifest_protocol=accepted_input_manifest_protocol,
+        accepted_input_manifest_id=accepted_input_manifest_id,
+        accepted_input_manifest_digest=accepted_input_manifest_digest,
         task=task,
         prompt_type=prompt_type,
     )

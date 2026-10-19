@@ -100,13 +100,357 @@ class _PreparedAcceptedInput:
         return record
 
 
+@dataclass(frozen=True, slots=True)
+class _PreparedAcceptedManifest:
+    gateway: object
+    scope: object
+    header: object
+    selection_digest: str
+
+
+@dataclass(frozen=True, slots=True)
+class _PreparedManifestMember:
+    reference: object | None
+    local_path: Path | None
+    input_metadata: dict | None
+    error: str | None
+
+
+class _ManifestPageReadFailure(RuntimeError):
+    def __init__(self, cursor: int):
+        self.cursor = cursor
+        super().__init__("manifest_page_unavailable")
+
+
+def _manifest_selection_json(request: BatchPredictionRequest, contract) -> dict:
+    try:
+        batch_id = uuid.UUID(request.batch_id) if request.batch_id is not None else None
+        task_ids = (
+            [uuid.UUID(task_id) for task_id in request.task_ids]
+            if request.task_ids is not None
+            else None
+        )
+        selection = contract.ManifestSelection(
+            batch_id=batch_id,
+            task_ids=task_ids,
+            predict_mode=request.predict_mode,
+        )
+    except (TypeError, ValueError, AttributeError) as exc:
+        raise ValueError("accepted input manifest selection is malformed") from exc
+    return selection.model_dump(mode="json")
+
+
+def _bulk_image_manifest_candidate(request: BatchPredictionRequest) -> bool:
+    return (
+        request.execution_scope == "bulk"
+        and request.execution_unit not in {"frame", "video", "scene"}
+        and request.task not in {"text", "tracker"}
+        and request.task_type not in {"text", "tracker"}
+        and not any(
+            isinstance(stage, dict) and stage.get("task") in {"text", "tracker"}
+            for stage in (request.pipeline_stages or [])
+        )
+    )
+
+
+@asynccontextmanager
+async def _prepare_accepted_input_manifest(
+    request: BatchPredictionRequest, SessionLocal
+):
+    """Validate the durable selection and seal it before the existing Job claim."""
+    from aap_assets_input_manifests import contract as c
+    from app.db.models.async_job import AsyncJob, AsyncJobStatus
+
+    fields = (
+        request.accepted_input_manifest_protocol,
+        request.accepted_input_manifest_id,
+        request.accepted_input_manifest_digest,
+    )
+    if all(value is None for value in fields):
+        if _bulk_image_manifest_candidate(request):
+            from app.db.models.project import Project
+
+            try:
+                project_id = uuid.UUID(request.project_id)
+                job_id = (
+                    uuid.UUID(request.async_job_id)
+                    if request.async_job_id is not None
+                    else None
+                )
+            except (TypeError, ValueError, AttributeError) as exc:
+                if request.async_job_id is None:
+                    yield None
+                    return
+                raise ValueError("legacy bulk Job identity is malformed") from exc
+            already_claimed = False
+            async with SessionLocal() as db:
+                project = await db.get(Project, project_id, populate_existing=True)
+                if project is not None and project.data_type == "image":
+                    job = (
+                        await db.get(AsyncJob, job_id, populate_existing=True)
+                        if job_id is not None
+                        else None
+                    )
+                    if job_id is None:
+                        raise ValueError(
+                            "bulk image Job has no frozen input manifest identity"
+                        )
+                    if job is None:
+                        # A stale or foreign durable identity must not mutate a Job.
+                        already_claimed = True
+                    else:
+                        try:
+                            request_actor_id = uuid.UUID(request.user_id)
+                        except (TypeError, ValueError, AttributeError):
+                            request_actor_id = None
+                        if (
+                            job.kind != "batch_predict"
+                            or job.project_id != project_id
+                            or request_actor_id is None
+                            or job.user_id != request_actor_id
+                        ):
+                            # The failure hook must never be reached for a foreign Job.
+                            already_claimed = True
+                        elif job.status != AsyncJobStatus.PENDING.value:
+                            payload = (
+                                job.payload if isinstance(job.payload, dict) else {}
+                            )
+                            if (
+                                payload.get("accepted_input_manifest_protocol")
+                                == c.MANIFEST_SCHEMA
+                            ):
+                                already_claimed = True
+                            elif job.status == AsyncJobStatus.RUNNING.value:
+                                from app.services import async_job as async_job_svc
+                                from app.services.async_job_notify import (
+                                    notify_job_terminal,
+                                )
+
+                                await async_job_svc.mark_failed(
+                                    db,
+                                    job.id,
+                                    error=(
+                                        "legacy_bulk_image_job_requires_frozen_input_manifest"
+                                    ),
+                                )
+                                await notify_job_terminal(db, job_id=job.id)
+                                await db.commit()
+                                already_claimed = True
+                            else:
+                                already_claimed = True
+                        else:
+                            raise ValueError(
+                                "bulk image Job has no frozen input manifest identity"
+                            )
+            if already_claimed:
+                yield None
+                return
+        yield None
+        return
+    if any(not isinstance(value, str) or not value for value in fields):
+        raise ValueError("accepted input manifest identity is incomplete")
+    if (
+        request.accepted_inputs_protocol is not None
+        or request.accepted_input_ids is not None
+    ):
+        raise ValueError("single input and manifest identities are mutually exclusive")
+    if (
+        fields[0] != c.MANIFEST_SCHEMA
+        or not _bulk_image_manifest_candidate(request)
+        or request.async_job_id is None
+        or request.user_id is None
+    ):
+        raise ValueError("accepted input manifest is outside bulk image scope")
+
+    try:
+        job_id = uuid.UUID(request.async_job_id)
+        manifest_id = uuid.UUID(request.accepted_input_manifest_id)
+        actor_id = uuid.UUID(request.user_id)
+        project_id = uuid.UUID(request.project_id)
+    except (TypeError, ValueError, AttributeError) as exc:
+        raise ValueError("accepted input manifest scope is malformed") from exc
+    if manifest_id != job_id:
+        raise ValueError("accepted input manifest ID must equal its Job ID")
+    selection = _manifest_selection_json(request, c)
+    from app.services.accepted_input_manifests import input_manifest_gateway
+
+    already_claimed = False
+    async with SessionLocal() as db:
+        job = await db.get(AsyncJob, job_id, populate_existing=True)
+        if (
+            job is None
+            or job.kind != "batch_predict"
+            or job.project_id != project_id
+            or job.user_id != actor_id
+        ):
+            raise ValueError("accepted input manifest durable Job scope is unavailable")
+        if job.status != AsyncJobStatus.PENDING.value:
+            # The locked claim check is authoritative. A redelivery of an already
+            # claimed Job does not need to reopen a retained manifest receipt.
+            already_claimed = True
+        else:
+            payload = job.payload if isinstance(job.payload, dict) else {}
+            if (
+                payload.get("accepted_input_manifest_protocol") != c.MANIFEST_SCHEMA
+                or payload.get("accepted_input_manifest_id") != str(job_id)
+                or payload.get("accepted_input_manifest_digest")
+                != request.accepted_input_manifest_digest
+                or payload.get("input_selection") != selection
+                or payload.get("execution_scope") != "bulk"
+                or payload.get("batch_id") != selection["batch_id"]
+            ):
+                raise ValueError(
+                    "accepted input manifest differs from durable Job facts"
+                )
+    if already_claimed:
+        yield None
+        return
+
+    scope = c.ManifestScope(job_id=job_id, actor_id=actor_id, project_id=project_id)
+    async with input_manifest_gateway(session_factory=SessionLocal) as gateway:
+        try:
+            header = await gateway.ensure_sealed(
+                scope, selection_digest=request.accepted_input_manifest_digest
+            )
+        except c.ManifestFailure as exc:
+            if exc.code in {
+                "manifest_not_ready",
+                "manifest_busy",
+                "input_busy",
+                "source_busy",
+                "job_busy",
+                "storage_unavailable",
+            }:
+                raise PreannotationInputDeferred(exc.code) from exc
+            raise
+        if (
+            header.job_id != job_id
+            or header.actor_id != actor_id
+            or header.project_id != project_id
+            or header.selection.model_dump(mode="json") != selection
+            or header.selection_digest != request.accepted_input_manifest_digest
+            or header.status != "sealed"
+            or header.sealed_digest is None
+        ):
+            raise ValueError("sealed manifest receipt differs from durable Job facts")
+        async with SessionLocal() as db:
+            job = await db.get(AsyncJob, job_id, populate_existing=True)
+            payload = (
+                job.payload if job is not None and isinstance(job.payload, dict) else {}
+            )
+            if (
+                job is None
+                or job.status != AsyncJobStatus.PENDING.value
+                or payload.get("total_tasks") != header.selected_count
+                or (
+                    "input_candidate_count" in payload
+                    and payload.get("input_candidate_count") != header.candidate_count
+                )
+            ):
+                raise ValueError("sealed manifest counts differ from durable Job facts")
+        yield _PreparedAcceptedManifest(
+            gateway=gateway,
+            scope=scope,
+            header=header,
+            selection_digest=request.accepted_input_manifest_digest,
+        )
+
+
+@asynccontextmanager
+async def _prepare_manifest_member(manifest: _PreparedAcceptedManifest, member):
+    """Materialize one sealed member at a time, retaining its original Input ID."""
+    from aap_assets_inputs import contract as c
+
+    input_record = member.input
+    input_metadata = None
+    if input_record is not None:
+        input_metadata = {
+            "input_id": str(input_record.input_id),
+            "job_id": str(input_record.job_id),
+            "task_id": str(input_record.task_id),
+            "sha256": input_record.sha256,
+            "byte_size": input_record.byte_size,
+        }
+    if member.state != "ready" or input_record is None:
+        yield _PreparedManifestMember(
+            reference=None,
+            local_path=None,
+            input_metadata=input_metadata,
+            error=str(member.error or "input_not_ready"),
+        )
+        return
+
+    input_request = c.InputRequest(
+        input_id=input_record.input_id,
+        job_id=manifest.scope.job_id,
+        task_id=member.task_id,
+    )
+    try:
+        temporary_directory = tempfile.TemporaryDirectory(prefix="aap-manifest-input-")
+    except OSError:
+        yield _PreparedManifestMember(
+            reference=None,
+            local_path=None,
+            input_metadata=input_metadata,
+            error="storage_unavailable",
+        )
+        return
+    with temporary_directory as directory:
+        local_path = Path(directory) / "source"
+        reference = None
+        error = None
+        try:
+            reference = await manifest.gateway.inputs.ensure_reference(input_request)
+            receipt = reference.input
+            if (
+                receipt.input_id != input_record.input_id
+                or receipt.job_id != manifest.scope.job_id
+                or receipt.task_id != member.task_id
+                or receipt.project_id != manifest.scope.project_id
+                or receipt.actor_id != manifest.scope.actor_id
+                or receipt.sha256 != input_record.sha256
+                or receipt.byte_size != input_record.byte_size
+            ):
+                raise c.InputFailure("input_corrupt")
+            await manifest.gateway.inputs.download(reference, local_path)
+            prepared = _PreparedAcceptedInput(
+                gateway=manifest.gateway.inputs,
+                reference=reference,
+                local_path=local_path,
+            )
+            verified = await _verify_accepted_input_source(prepared)
+            if (
+                verified.input_id != input_record.input_id
+                or verified.job_id != manifest.scope.job_id
+                or verified.task_id != member.task_id
+                or verified.project_id != manifest.scope.project_id
+                or verified.actor_id != manifest.scope.actor_id
+                or verified.sha256 != input_record.sha256
+                or verified.byte_size != input_record.byte_size
+            ):
+                raise c.InputFailure("input_corrupt")
+        except c.InputFailure as exc:
+            error = exc.code
+        except OSError:
+            error = "storage_unavailable"
+        except Exception:
+            # A post-seal transport/storage error is a recoverable item failure;
+            # it must never strand a running root Job in the readiness retry path.
+            error = "storage_unavailable"
+        yield _PreparedManifestMember(
+            reference=reference if error is None else None,
+            local_path=local_path if error is None else None,
+            input_metadata=input_metadata,
+            error=error,
+        )
+
+
 async def _verify_accepted_input_source(prepared: _PreparedAcceptedInput) -> None:
     from aap_assets_inputs.contract import InputFailure
 
     for attempt in range(_WRITE_ATTEMPTS):
         try:
-            await prepared.verify_source()
-            return
+            return await prepared.verify_source()
         except InputFailure as exc:
             if (
                 exc.code
@@ -134,6 +478,24 @@ async def _apply_prediction_result_with_retries(writer, db, request):
             await db.rollback()
             await asyncio.sleep(0.05 * 2**attempt)
     raise AssertionError("unreachable prediction write retry state")
+
+
+async def _apply_prediction_result_bundle_with_retries(writer, db, requests):
+    """Retry one immutable Task result bundle after rolling back the whole attempt."""
+    from copy import deepcopy
+
+    original_requests = deepcopy(tuple(requests))
+    for attempt in range(_WRITE_ATTEMPTS):
+        try:
+            return await writer.apply_prediction_result_bundle(
+                deepcopy(original_requests)
+            )
+        except ApplyPredictionResultError as exc:
+            if not exc.retryable or attempt == _WRITE_ATTEMPTS - 1:
+                raise
+            await db.rollback()
+            await asyncio.sleep(0.05 * 2**attempt)
+    raise AssertionError("unreachable prediction result bundle retry state")
 
 
 def _workbench_single_task_candidate(request: BatchPredictionRequest) -> bool:
@@ -712,13 +1074,17 @@ async def run_preannotation(
             engine, class_=AsyncSession, expire_on_commit=False
         )
         async with _prepare_accepted_input(request, session_factory) as accepted_input:
-            await _execute_preannotation(
-                request,
-                execution_id=execution_id,
-                frame_dispatcher=frame_dispatcher,
-                SessionLocal=session_factory,
-                accepted_input=accepted_input,
-            )
+            async with _prepare_accepted_input_manifest(
+                request, session_factory
+            ) as accepted_manifest:
+                await _execute_preannotation(
+                    request,
+                    execution_id=execution_id,
+                    frame_dispatcher=frame_dispatcher,
+                    SessionLocal=session_factory,
+                    accepted_input=accepted_input,
+                    accepted_manifest=accepted_manifest,
+                )
     finally:
         await engine.dispose()
 
@@ -730,6 +1096,7 @@ async def _execute_preannotation(
     frame_dispatcher: FramePreannotationDispatcher | None,
     SessionLocal,
     accepted_input: _PreparedAcceptedInput | None = None,
+    accepted_manifest: _PreparedAcceptedManifest | None = None,
 ) -> None:
     """Own the batch workflow while reusing the caller's request and DB session."""
     project_id = request.project_id
@@ -753,6 +1120,9 @@ async def _execute_preannotation(
     frozen_model_ref = request.frozen_model_ref
     accepted_inputs_protocol = request.accepted_inputs_protocol
     accepted_input_ids = request.accepted_input_ids
+    accepted_input_manifest_protocol = request.accepted_input_manifest_protocol
+    accepted_input_manifest_id = request.accepted_input_manifest_id
+    accepted_input_manifest_digest = request.accepted_input_manifest_digest
     task = request.task
     prompt_type = request.prompt_type
     semantic = normalize_task_fields(
@@ -870,6 +1240,26 @@ async def _execute_preannotation(
             # selected tasks a second time. The row lock serializes this check.
             if precreated_job.status != AsyncJobStatus.PENDING.value:
                 return
+            if accepted_input_manifest_protocol is not None:
+                from aap_assets_input_manifests.contract import MANIFEST_SCHEMA
+
+                manifest_payload = precreated_job.payload or {}
+                if (
+                    accepted_manifest is None
+                    or accepted_input_manifest_protocol != MANIFEST_SCHEMA
+                    or accepted_input_manifest_id != str(precreated_job.id)
+                    or manifest_payload.get("accepted_input_manifest_protocol")
+                    != accepted_input_manifest_protocol
+                    or manifest_payload.get("accepted_input_manifest_id")
+                    != accepted_input_manifest_id
+                    or manifest_payload.get("accepted_input_manifest_digest")
+                    != accepted_input_manifest_digest
+                    or manifest_payload.get("total_tasks")
+                    != accepted_manifest.header.selected_count
+                ):
+                    raise ValueError(
+                        "accepted input manifest differs from the locked durable Job"
+                    )
             saved_ref = (precreated_job.payload or {}).get("frozen_model_ref")
             if frozen_model_ref is not None and saved_ref != frozen_model_ref:
                 raise ValueError("Queued model identity differs from the durable job")
@@ -998,6 +1388,8 @@ async def _execute_preannotation(
             frozen_model_ref=frozen_model_ref,
         )
 
+        manifest_backed = accepted_manifest is not None
+
         # v0.11.24 · 幂等：skip_predicted 排除已预标 task；append/overwrite 不排除。
         skip_predicted = predict_mode == "skip_predicted"
         # base_conds 不含预标过滤, 供 total==0 时回数候选区分「批次本就空」vs「全已预标被跳过」。
@@ -1023,9 +1415,13 @@ async def _execute_preannotation(
         sel = select(Task).where(*base_conds)
         if skip_predicted:
             sel = sel.where(Task.total_predictions == 0)
-        result = await db.execute(sel)
-        tasks = list(result.scalars().all())
-        total = len(tasks)
+        if manifest_backed:
+            tasks = []
+            total = accepted_manifest.header.selected_count
+        else:
+            result = await db.execute(sel)
+            tasks = list(result.scalars().all())
+            total = len(tasks)
 
         if accepted_input is not None and any(
             task.id != accepted_input.reference.input.task_id
@@ -1039,7 +1435,7 @@ async def _execute_preannotation(
 
         # v0.11.24 · overwrite：预标前清掉这批 task 的旧预测（保留人工标注），避免叠加。
         # 不重置 task 状态（与删批次不同）——预标只换预测内容、不动流程。
-        if predict_mode == "overwrite" and tasks:
+        if predict_mode == "overwrite" and tasks and not manifest_backed:
             from app.services.batch import BatchService
             from app.services.labeling_write_guard import lock_labeling_write
 
@@ -1113,6 +1509,18 @@ async def _execute_preannotation(
         if accepted_inputs_protocol is not None:
             job_payload["accepted_inputs_protocol"] = accepted_inputs_protocol
             job_payload["accepted_input_ids"] = accepted_input_ids
+        if accepted_manifest is not None:
+            job_payload["accepted_input_manifest_protocol"] = (
+                accepted_input_manifest_protocol
+            )
+            job_payload["accepted_input_manifest_id"] = accepted_input_manifest_id
+            job_payload["accepted_input_manifest_digest"] = (
+                accepted_input_manifest_digest
+            )
+            job_payload["total_tasks"] = accepted_manifest.header.selected_count
+            job_payload["input_candidate_count"] = (
+                accepted_manifest.header.candidate_count
+            )
         if precreated_job is None:
             aj = await async_job_svc.create_job(
                 db,
@@ -1153,7 +1561,7 @@ async def _execute_preannotation(
             return bool((job_for_cancel.payload or {}).get("cancel_requested"))
 
         async def _finish_cancelled(cancelled_at_index: int) -> None:
-            processed_count = success_count + failed_count
+            processed_count = success_count + failed_count + runtime_skipped_count
             skipped_count = max(0, total - processed_count)
             duration_ms = int((time.perf_counter() - started_perf) * 1000)
             result = {
@@ -1204,9 +1612,27 @@ async def _execute_preannotation(
                 "duration_ms": duration_ms,
                 "total_cost": "0.0000",
             }
+            if accepted_manifest is not None:
+                result_payload["manifest"] = {
+                    "protocol": accepted_input_manifest_protocol,
+                    "manifest_id": accepted_input_manifest_id,
+                    "selection_digest": accepted_input_manifest_digest,
+                    "sealed_digest": accepted_manifest.header.sealed_digest,
+                    "selected_count": accepted_manifest.header.selected_count,
+                    "candidate_count": accepted_manifest.header.candidate_count,
+                }
             # skip_predicted 下 total==0 可能是「候选 task 全部已预标被跳过」而非批次本就空。
             # 回数不含预标过滤的候选, >0 即全被跳过 → 标 reason 供前端给明确文案。
-            if skip_predicted:
+            if skip_predicted and manifest_backed:
+                skipped_n = max(
+                    0,
+                    accepted_manifest.header.candidate_count
+                    - accepted_manifest.header.selected_count,
+                )
+                if skipped_n > 0:
+                    result_payload["skipped_count"] = skipped_n
+                    result_payload["reason"] = "all_predicted"
+            elif skip_predicted:
                 from sqlalchemy import func
 
                 cnt = await db.execute(
@@ -1406,10 +1832,152 @@ async def _execute_preannotation(
                 for k, v in s.items():
                     bucket[k] = bucket.get(k, 0) + v
 
-        for i, task in enumerate(tasks):
+        runtime_skipped_count = 0
+        last_completed_ordinal = 0
+
+        async def _execution_entries():
+            if accepted_manifest is None:
+                for ordinal, selected_task in enumerate(tasks, start=1):
+                    yield ordinal - 1, selected_task, None, None
+                return
+
+            from aap_assets_input_manifests.contract import ManifestPageRequest
+
+            cursor = 0
+            while cursor < accepted_manifest.header.selected_count:
+                try:
+                    page = await accepted_manifest.gateway.page(
+                        ManifestPageRequest(
+                            **accepted_manifest.scope.model_dump(mode="python"),
+                            selection_digest=accepted_manifest.selection_digest,
+                            sealed_digest=accepted_manifest.header.sealed_digest,
+                            cursor=cursor,
+                            page_size=100,
+                        )
+                    )
+                    if (
+                        page.manifest.model_dump(mode="json")
+                        != accepted_manifest.header.model_dump(mode="json")
+                        or page.cursor != cursor
+                    ):
+                        raise ValueError("manifest page changed its sealed header")
+                    if requested_task_ids is not None and any(
+                        member.task_id not in requested_task_ids
+                        for member in page.members
+                    ):
+                        raise ValueError("manifest page escaped explicit Task scope")
+                except Exception as exc:
+                    raise _ManifestPageReadFailure(cursor) from exc
+
+                page_task_ids = [member.task_id for member in page.members]
+                rows = (
+                    await db.execute(
+                        select(Task, TaskBatch)
+                        .outerjoin(TaskBatch, TaskBatch.id == Task.batch_id)
+                        .where(Task.id.in_(page_task_ids))
+                    )
+                ).all()
+                page_tasks = {row.id: (row, batch_row) for row, batch_row in rows}
+                for member in page.members:
+                    task_row, batch_row = page_tasks.get(member.task_id, (None, None))
+                    yield member.ordinal - 1, task_row, member, batch_row
+                cursor = (
+                    page.next_cursor
+                    if page.next_cursor is not None
+                    else accepted_manifest.header.selected_count
+                )
+
+        async def _skip_manifest_member(ordinal: int) -> None:
+            nonlocal runtime_skipped_count, last_completed_ordinal
+            runtime_skipped_count += 1
+            last_completed_ordinal = ordinal
+            processed = success_count + failed_count + runtime_skipped_count
+            prediction_progress.publish_progress(
+                project_id, processed, total, status="running", job_meta=job_meta_base
+            )
+            pct = int((processed / total) * 100) if total else 0
+            if total > 0 and (pct % 5 == 0 or processed == total):
+                try:
+                    await async_job_svc.update_progress(db, async_job_id, pct)
+                    await db.commit()
+                except Exception:
+                    await db.rollback()
+
+        async def _finish_manifest_page_failure(cursor: int) -> None:
+            processed = success_count + failed_count + runtime_skipped_count
+            unprocessed = max(0, total - processed)
+            duration_ms = int((time.perf_counter() - started_perf) * 1000)
+            result = {
+                "success_count": success_count,
+                "failed_count": failed_count,
+                "failed_prediction_ids": failed_prediction_ids,
+                "skipped_count": runtime_skipped_count,
+                "done_count": processed,
+                "unprocessed_count": unprocessed,
+                "unprocessed_failure_records": 0,
+                "last_completed_ordinal": last_completed_ordinal,
+                "manifest_page_cursor": cursor,
+                "manifest_page_error": "manifest_page_unavailable",
+                "manifest": {
+                    "protocol": accepted_input_manifest_protocol,
+                    "manifest_id": accepted_input_manifest_id,
+                    "selection_digest": accepted_input_manifest_digest,
+                    "sealed_digest": accepted_manifest.header.sealed_digest,
+                    "selected_count": accepted_manifest.header.selected_count,
+                    "candidate_count": accepted_manifest.header.candidate_count,
+                },
+                "duration_ms": duration_ms,
+                "total_cost": f"{running_total_cost:.4f}",
+            }
+            if gpu_arbiter_failures:
+                result["gpu_arbiter_failures"] = summarize_gpu_arbiter_failures(
+                    gpu_arbiter_failures
+                )
+            await async_job_svc.mark_failed(
+                db,
+                async_job_id,
+                error="manifest_page_unavailable",
+                result=result,
+            )
+            await notify_job_terminal(db, job_id=async_job_id)
+            await db.commit()
+            prediction_progress.publish_progress(
+                project_id,
+                processed,
+                total,
+                status="failed",
+                error="manifest_page_unavailable",
+                job_meta={
+                    **job_meta_base,
+                    "success_count": success_count,
+                    "failed_count": failed_count,
+                    "done_count": processed,
+                    "skipped_count": runtime_skipped_count,
+                    "unprocessed_count": unprocessed,
+                    "last_completed_ordinal": last_completed_ordinal,
+                },
+            )
+
+        entry_iter = _execution_entries().__aiter__()
+        while True:
+            try:
+                i, task, manifest_member, current_batch = await anext(entry_iter)
+            except StopAsyncIteration:
+                break
+            except _ManifestPageReadFailure as exc:
+                await _finish_manifest_page_failure(exc.cursor)
+                return
+
             if await _cancel_requested():
                 await _finish_cancelled(cancelled_at_index=i)
                 return
+            if task is None:
+                if requested_task_ids is not None:
+                    raise ValueError("explicit preannotation Task was deleted")
+                await _skip_manifest_member(
+                    manifest_member.ordinal if manifest_member is not None else i + 1
+                )
+                continue
             if inspect(task).expired:
                 await db.refresh(task)
             if inspect(backend).expired:
@@ -1435,21 +2003,41 @@ async def _execute_preannotation(
                 )
                 return
 
-            write_scope = capture_labeling_write_scope(
-                task,
-                actor_id=actor.id if actor is not None else None,
-                actor_known=actor is not None,
-                operation="preannotation",
-                execution_scope=execution_scope,
-                execution_scope_known=True,
-                job_id=async_job_id,
-                job_id_known=True,
-                accepted_input_id=(
-                    accepted_input.reference.input.input_id
-                    if accepted_input is not None
-                    else None
-                ),
-            )
+            if manifest_member is not None:
+                explicit_scope = requested_task_ids is not None
+                batch_id_uuid = uuid.UUID(batch_id) if batch_id is not None else None
+                scope_changed = (
+                    task.project_id != project_uuid
+                    or (batch_id_uuid is not None and task.batch_id != batch_id_uuid)
+                    or task.status != "pending"
+                    or (current_batch is not None and current_batch.admin_locked)
+                    or (
+                        current_batch is not None
+                        and not allows_bulk_preannotation(current_batch)
+                    )
+                    or (task.batch_id is not None and current_batch is None)
+                )
+                if scope_changed:
+                    if explicit_scope:
+                        raise ValueError(
+                            "explicit preannotation Task scope changed after capture"
+                        )
+                    await _skip_manifest_member(manifest_member.ordinal)
+                    continue
+                if skip_predicted and (task.total_predictions or 0) > 0:
+                    await _skip_manifest_member(manifest_member.ordinal)
+                    continue
+                current_locks = await TaskLockService(db).active_locks(task.id)
+                if current_locks:
+                    if explicit_scope:
+                        raise ValueError(
+                            "explicit preannotation Task is locked for editing"
+                        )
+                    await _skip_manifest_member(manifest_member.ordinal)
+                    continue
+
+            manifest_input_cm = None
+            prepared_manifest_member = None
             accepted_input_metadata = None
             if accepted_input is not None:
                 record = accepted_input.reference.input
@@ -1462,28 +2050,120 @@ async def _execute_preannotation(
                     "sha256": record.sha256,
                     "byte_size": record.byte_size,
                 }
+            elif manifest_member is not None and manifest_member.input is not None:
+                record = manifest_member.input
+                accepted_input_metadata = {
+                    "input_id": str(record.input_id),
+                    "job_id": str(record.job_id),
+                    "task_id": str(record.task_id),
+                    "sha256": record.sha256,
+                    "byte_size": record.byte_size,
+                }
+
+            manifest_provenance = None
+            if accepted_manifest is not None and manifest_member is not None:
+                manifest_provenance = {
+                    "protocol": accepted_input_manifest_protocol,
+                    "manifest_id": accepted_input_manifest_id,
+                    "selection_digest": accepted_input_manifest_digest,
+                    "ordinal": manifest_member.ordinal,
+                    "task_id": str(manifest_member.task_id),
+                    "member_error": manifest_member.error,
+                }
+
+            write_scope = capture_labeling_write_scope(
+                task,
+                actor_id=actor.id if actor is not None else None,
+                actor_known=actor is not None,
+                operation="preannotation",
+                execution_scope=execution_scope,
+                execution_scope_known=True,
+                job_id=async_job_id,
+                job_id_known=True,
+                accepted_input_id=(
+                    uuid.UUID(accepted_input_metadata["input_id"])
+                    if accepted_input_metadata is not None
+                    else None
+                ),
+            )
             final_write_started = False
 
             try:
+                if accepted_manifest is not None and manifest_member is not None:
+                    manifest_input_cm = _prepare_manifest_member(
+                        accepted_manifest, manifest_member
+                    )
+                    prepared_manifest_member = await manifest_input_cm.__aenter__()
+                    if manifest_provenance is not None:
+                        manifest_provenance["member_error"] = (
+                            prepared_manifest_member.error
+                        )
+                if (
+                    prepared_manifest_member is not None
+                    and prepared_manifest_member.error is not None
+                ):
+                    raise ValueError(prepared_manifest_member.error)
+                if manifest_member is not None and predict_mode == "overwrite":
+                    if (
+                        prepared_manifest_member is None
+                        or prepared_manifest_member.reference is None
+                        or accepted_input_metadata is None
+                    ):
+                        raise ValueError("overwrite requires the original ready Input")
+                    from app.services.batch import BatchService
+                    from app.services.labeling_write_guard import lock_labeling_write
+
+                    await lock_labeling_write(
+                        db,
+                        write_scope,
+                        operations=("preannotation",),
+                        accepted_input_job_id=uuid.UUID(
+                            accepted_input_metadata["job_id"]
+                        ),
+                    )
+                    await BatchService(db).clean_task_predictions(
+                        [task.id], actor_id=actor.id
+                    )
+                    await db.commit()
                 results, pipeline_extra, stage_stats = await _run_task_pipeline(
                     task,
                     stages,
                     stage_clients,
                     stage_contexts,
                     resolve_url=(
-                        (lambda _task: accepted_input.reference.url)
+                        (lambda _task: prepared_manifest_member.reference.url)
+                        if prepared_manifest_member is not None
+                        and prepared_manifest_member.reference is not None
+                        else (lambda _task: accepted_input.reference.url)
                         if accepted_input is not None
                         else _resolve_task_url
                     ),
                     upload_crop=crop_uploader,
                     stage_modes=stage_modes,
                     input_image_path=(
-                        accepted_input.local_path
+                        prepared_manifest_member.local_path
+                        if prepared_manifest_member is not None
+                        else accepted_input.local_path
                         if accepted_input is not None
                         else None
                     ),
                 )
-                if accepted_input is not None:
+                if prepared_manifest_member is not None:
+                    if accepted_input_metadata is None:
+                        raise ValueError("manifest member has no retained Input")
+                    await _verify_accepted_input_source(
+                        _PreparedAcceptedInput(
+                            gateway=accepted_manifest.gateway.inputs,
+                            reference=prepared_manifest_member.reference,
+                            local_path=prepared_manifest_member.local_path,
+                        )
+                    )
+                    pipeline_extra = {
+                        **(pipeline_extra or {}),
+                        "accepted_input": accepted_input_metadata,
+                        "accepted_input_manifest": manifest_provenance,
+                    }
+                elif accepted_input is not None:
                     await _verify_accepted_input_source(accepted_input)
                     pipeline_extra = {
                         **(pipeline_extra or {}),
@@ -1498,29 +2178,44 @@ async def _execute_preannotation(
                 executed_backend_id = stage_clients[0].last_instance_id or backend.id
                 executed_pool_id = stage_clients[0].pool_id or source_pool_id
                 final_write_started = True
-                for pred_result in results:
-                    await _apply_prediction_result_with_retries(
-                        prediction_writer,
-                        db,
-                        ApplyPredictionResultRequest(
-                            task_id=task.id,
-                            project_id=uuid.UUID(project_id),
-                            ml_backend_id=executed_backend_id,
-                            result=pred_result.result,
-                            score=pred_result.score,
-                            model_version=pred_result.model_version,
-                            inference_time_ms=pred_result.inference_time_ms,
-                            token_meta=pred_result.meta,
-                            pipeline_extra=pipeline_extra,
-                            ml_backend_pool_id=executed_pool_id,
-                            write_scope=write_scope,
-                            **(
-                                {"model_provenance": frozen_model_ref}
-                                if frozen_model_ref
-                                else {}
-                            ),
+                from app.services.prediction import remap_prediction_track_ids
+
+                write_requests = tuple(
+                    ApplyPredictionResultRequest(
+                        task_id=task.id,
+                        project_id=uuid.UUID(project_id),
+                        ml_backend_id=executed_backend_id,
+                        result=remap_prediction_track_ids(pred_result.result),
+                        score=pred_result.score,
+                        model_version=pred_result.model_version,
+                        inference_time_ms=pred_result.inference_time_ms,
+                        token_meta=pred_result.meta,
+                        pipeline_extra=pipeline_extra,
+                        ml_backend_pool_id=executed_pool_id,
+                        write_scope=write_scope,
+                        accepted_input_job_id=(
+                            uuid.UUID(accepted_input_metadata["job_id"])
+                            if manifest_provenance is not None
+                            and accepted_input_metadata is not None
+                            else None
+                        ),
+                        **(
+                            {"model_provenance": frozen_model_ref}
+                            if frozen_model_ref
+                            else {}
                         ),
                     )
+                    for pred_result in results
+                )
+                if len(write_requests) > 1:
+                    await _apply_prediction_result_bundle_with_retries(
+                        prediction_writer, db, write_requests
+                    )
+                elif write_requests:
+                    await _apply_prediction_result_with_retries(
+                        prediction_writer, db, write_requests[0]
+                    )
+                for pred_result in results:
                     # v0.9.11 · 单条 cost 累加到 job 级总费用
                     if pred_result.meta:
                         cost = pred_result.meta.get("total_cost")
@@ -1562,6 +2257,8 @@ async def _execute_preannotation(
                 failure_extra: dict = {}
                 if accepted_input_metadata is not None:
                     failure_extra["accepted_input"] = accepted_input_metadata
+                if manifest_provenance is not None:
+                    failure_extra["accepted_input_manifest"] = manifest_provenance
                 failure_extra["execution_scope"] = execution_scope
                 failure_extra["execution_unit"] = execution_unit
                 failure_extra["task"] = visual_task
@@ -1590,14 +2287,22 @@ async def _execute_preannotation(
                 failed_prediction_ids.append(str(failed.id))
                 await db.commit()
                 failed_count += 1
+            finally:
+                if manifest_input_cm is not None:
+                    await manifest_input_cm.__aexit__(None, None, None)
+
+            if manifest_member is not None:
+                last_completed_ordinal = manifest_member.ordinal
+            processed_count = success_count + failed_count + runtime_skipped_count
 
             # v0.18.6 · 逐阶段累加快照随进度推送 (多阶段才有), 让前端运行中实时更新卡上徽标。
             # 按 5% 步长 (或末条) 节流, 避免每条都塞快照; 阶段数少, payload 增量可忽略。
-            pct = int(((i + 1) / total) * 100) if total > 0 else 0
-            stage_step = pct % 5 == 0 or (i + 1) == total
+            completed = processed_count if manifest_member is not None else i + 1
+            pct = int((completed / total) * 100) if total > 0 else 0
+            stage_step = pct % 5 == 0 or completed == total
             prediction_progress.publish_progress(
                 project_id,
-                i + 1,
+                completed,
                 total,
                 pipeline_stages=(
                     _stage_totals_snapshot(pipeline_stage_totals)
@@ -1616,7 +2321,9 @@ async def _execute_preannotation(
                         await db.rollback()
 
         if await _cancel_requested():
-            await _finish_cancelled(cancelled_at_index=success_count + failed_count)
+            await _finish_cancelled(
+                cancelled_at_index=success_count + failed_count + runtime_skipped_count
+            )
             return
 
         # B-45 · 全部子项失败 → job 视为失败（避免「失败也显示已完成」），
@@ -1627,7 +2334,7 @@ async def _execute_preannotation(
         # issue #124 · 未分派人员的 draft 批次跑完保持 draft：不隐式推进生命周期、
         # 不隐式分派人员；预测挂在 task 上保留，管理员随后正常分派并 draft → active
         # 激活即可进入人工流程（激活不清预测）。all_failed 时任何状态都不推进。
-        if batch_id and not all_failed:
+        if batch_id and success_count > 0:
             from app.services.batch import BatchService
             from app.services.labeling_write_scope import LabelingBatchWriteScope
 
@@ -1658,6 +2365,19 @@ async def _execute_preannotation(
             # v0.9.11 · total_cost 接通 PredictionMeta.total_cost 累加
             "total_cost": f"{running_total_cost:.4f}",
         }
+        if accepted_manifest is not None:
+            result_stats["manifest"] = {
+                "protocol": accepted_input_manifest_protocol,
+                "manifest_id": accepted_input_manifest_id,
+                "selection_digest": accepted_input_manifest_digest,
+                "selected_count": accepted_manifest.header.selected_count,
+                "candidate_count": accepted_manifest.header.candidate_count,
+                "sealed_digest": accepted_manifest.header.sealed_digest,
+            }
+            result_stats["skipped_count"] = runtime_skipped_count
+            result_stats["done_count"] = (
+                success_count + failed_count + runtime_skipped_count
+            )
         # v0.18.2 · 多阶段预标: 逐阶段统计 (检出框数 / 各下游富集成功失败), 供前端逐阶段徽标。
         # v0.18.6 · 与运行中实时快照共用 _stage_totals_snapshot, 终态为最终真值。
         if pipeline_stage_totals:
