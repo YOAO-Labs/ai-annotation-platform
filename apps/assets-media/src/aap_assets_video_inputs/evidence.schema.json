@@ -1,0 +1,876 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aap-assets-video-input-evidence/v1",
+  "$defs": {
+    "FrameTimeEntry": {
+      "additionalProperties": false,
+      "properties": {
+        "ordinal": {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "title": "Ordinal",
+          "type": "integer"
+        },
+        "frame_index": {
+          "maximum": 2147483647,
+          "minimum": 0,
+          "title": "Frame Index",
+          "type": "integer"
+        },
+        "pts_ms": {
+          "maximum": 9007199254740991,
+          "minimum": -9007199254740991,
+          "title": "Pts Ms",
+          "type": "integer"
+        },
+        "is_keyframe": {
+          "title": "Is Keyframe",
+          "type": "boolean"
+        }
+      },
+      "required": ["ordinal", "frame_index", "pts_ms", "is_keyframe"],
+      "title": "FrameTimeEntry",
+      "type": "object"
+    },
+    "VideoInputEvidence": {
+      "additionalProperties": false,
+      "description": "Immutable provenance for a successfully retained decoded frame.",
+      "properties": {
+        "schema": {
+          "const": "aap-assets-video-input-evidence/v1",
+          "default": "aap-assets-video-input-evidence/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "input_id": {
+          "format": "uuid",
+          "title": "Input Id",
+          "type": "string"
+        },
+        "job_id": {
+          "format": "uuid",
+          "title": "Job Id",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "plan_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Plan Digest",
+          "type": "string"
+        },
+        "timebase_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Timebase Digest",
+          "type": "string"
+        },
+        "frame_id": {
+          "format": "uuid",
+          "title": "Frame Id",
+          "type": "string"
+        },
+        "entry": {
+          "$ref": "#/$defs/FrameTimeEntry"
+        },
+        "source_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Source Sha256",
+          "type": "string"
+        },
+        "frame_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Frame Sha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "input_id",
+        "job_id",
+        "task_id",
+        "project_id",
+        "plan_digest",
+        "timebase_digest",
+        "frame_id",
+        "entry",
+        "source_sha256",
+        "frame_sha256"
+      ],
+      "title": "VideoInputEvidence",
+      "type": "object"
+    },
+    "VideoInputFailureEvidence": {
+      "additionalProperties": false,
+      "description": "Original-video and selected-time provenance when frame output failed.",
+      "properties": {
+        "schema": {
+          "const": "aap-assets-video-input-failure/v1",
+          "default": "aap-assets-video-input-failure/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "input_id": {
+          "format": "uuid",
+          "title": "Input Id",
+          "type": "string"
+        },
+        "job_id": {
+          "format": "uuid",
+          "title": "Job Id",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "plan_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Plan Digest",
+          "type": "string"
+        },
+        "timebase_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Timebase Digest",
+          "type": "string"
+        },
+        "frame_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Frame Id"
+        },
+        "entry": {
+          "$ref": "#/$defs/FrameTimeEntry"
+        },
+        "source_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Source Sha256",
+          "type": "string"
+        },
+        "frame_sha256": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Frame Sha256"
+        }
+      },
+      "required": [
+        "input_id",
+        "job_id",
+        "task_id",
+        "project_id",
+        "plan_digest",
+        "timebase_digest",
+        "frame_id",
+        "entry",
+        "source_sha256",
+        "frame_sha256"
+      ],
+      "title": "VideoInputFailureEvidence",
+      "type": "object"
+    },
+    "LockVideoInputPinRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "evidence": {
+          "$ref": "#/$defs/VideoInputEvidence"
+        },
+        "actor_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Actor Id"
+        }
+      },
+      "required": ["task_id", "project_id", "evidence", "actor_id"],
+      "title": "LockVideoInputPinRequest",
+      "type": "object"
+    },
+    "FrameBlob": {
+      "additionalProperties": false,
+      "properties": {
+        "key": {
+          "maxLength": 2048,
+          "pattern": "^accepted-video-inputs/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g[1-9][0-9]*/a[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/frames/(0|[1-9][0-9]*)/w[1-9][0-9]*-(jpeg|webp)$",
+          "title": "Key",
+          "type": "string"
+        },
+        "version_id": {
+          "maxLength": 255,
+          "minLength": 1,
+          "title": "Version Id",
+          "type": "string"
+        },
+        "etag": {
+          "maxLength": 255,
+          "minLength": 1,
+          "title": "Etag",
+          "type": "string"
+        },
+        "byte_size": {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "title": "Byte Size",
+          "type": "integer"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        }
+      },
+      "required": ["key", "version_id", "etag", "byte_size", "sha256"],
+      "title": "FrameBlob",
+      "type": "object"
+    },
+    "FrameSampling": {
+      "additionalProperties": false,
+      "properties": {
+        "max_frames": {
+          "maximum": 2147483647,
+          "minimum": 1,
+          "title": "Max Frames",
+          "type": "integer"
+        },
+        "step": {
+          "default": 1,
+          "maximum": 2147483647,
+          "minimum": 1,
+          "title": "Step",
+          "type": "integer"
+        },
+        "width": {
+          "default": 1280,
+          "maximum": 4096,
+          "minimum": 1,
+          "title": "Width",
+          "type": "integer"
+        },
+        "format": {
+          "default": "jpeg",
+          "enum": ["jpeg", "webp"],
+          "title": "Format",
+          "type": "string"
+        }
+      },
+      "required": ["max_frames"],
+      "title": "FrameSampling",
+      "type": "object"
+    },
+    "FrozenFramePlan": {
+      "additionalProperties": false,
+      "properties": {
+        "input": {
+          "$ref": "#/$defs/FrozenVideoInput"
+        },
+        "sampling": {
+          "$ref": "#/$defs/FrameSampling"
+        },
+        "selected_count": {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "title": "Selected Count",
+          "type": "integer"
+        },
+        "timebase_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Timebase Digest",
+          "type": "string"
+        },
+        "plan_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Plan Digest",
+          "type": "string"
+        }
+      },
+      "required": ["input", "sampling", "selected_count", "timebase_digest", "plan_digest"],
+      "title": "FrozenFramePlan",
+      "type": "object"
+    },
+    "FrozenVideoInput": {
+      "additionalProperties": false,
+      "properties": {
+        "input_id": {
+          "format": "uuid",
+          "title": "Input Id",
+          "type": "string"
+        },
+        "job_id": {
+          "format": "uuid",
+          "title": "Job Id",
+          "type": "string"
+        },
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "task": {
+          "$ref": "#/$defs/TaskVideoBinding"
+        },
+        "source": {
+          "$ref": "#/$defs/VideoSourceSnapshot"
+        },
+        "blob": {
+          "$ref": "#/$defs/VideoBlob"
+        },
+        "video": {
+          "$ref": "#/$defs/VideoFacts"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "input_id",
+        "job_id",
+        "actor_id",
+        "task",
+        "source",
+        "blob",
+        "video",
+        "created_at"
+      ],
+      "title": "FrozenVideoInput",
+      "type": "object"
+    },
+    "ObjectIdentity": {
+      "additionalProperties": false,
+      "properties": {
+        "etag": {
+          "maxLength": 255,
+          "minLength": 1,
+          "title": "Etag",
+          "type": "string"
+        },
+        "byte_size": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "title": "Byte Size",
+          "type": "integer"
+        },
+        "version_id": {
+          "anyOf": [
+            {
+              "maxLength": 255,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Version Id"
+        }
+      },
+      "required": ["etag", "byte_size", "version_id"],
+      "title": "ObjectIdentity",
+      "type": "object"
+    },
+    "TaskVideoBinding": {
+      "additionalProperties": false,
+      "properties": {
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "task_version": {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "title": "Task Version",
+          "type": "integer"
+        },
+        "task_source_generation": {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "title": "Task Source Generation",
+          "type": "integer"
+        },
+        "dataset_item_id": {
+          "format": "uuid",
+          "title": "Dataset Item Id",
+          "type": "string"
+        },
+        "task_source_snapshot": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Task Source Snapshot",
+          "type": "string"
+        },
+        "file_path": {
+          "maxLength": 1024,
+          "title": "File Path",
+          "type": "string"
+        },
+        "file_type": {
+          "const": "video",
+          "title": "File Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "task_id",
+        "project_id",
+        "task_version",
+        "task_source_generation",
+        "dataset_item_id",
+        "task_source_snapshot",
+        "file_path",
+        "file_type"
+      ],
+      "title": "TaskVideoBinding",
+      "type": "object"
+    },
+    "VideoBlob": {
+      "additionalProperties": false,
+      "properties": {
+        "key": {
+          "maxLength": 2048,
+          "pattern": "^accepted-video-inputs/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g[1-9][0-9]*/a[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/source$",
+          "title": "Key",
+          "type": "string"
+        },
+        "version_id": {
+          "maxLength": 255,
+          "minLength": 1,
+          "title": "Version Id",
+          "type": "string"
+        },
+        "etag": {
+          "maxLength": 255,
+          "minLength": 1,
+          "title": "Etag",
+          "type": "string"
+        },
+        "byte_size": {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "title": "Byte Size",
+          "type": "integer"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        }
+      },
+      "required": ["key", "version_id", "etag", "byte_size", "sha256"],
+      "title": "VideoBlob",
+      "type": "object"
+    },
+    "VideoFacts": {
+      "additionalProperties": false,
+      "description": "Measured from the retained bytes, not copied from mutable item metadata.",
+      "properties": {
+        "frame_count": {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "title": "Frame Count",
+          "type": "integer"
+        },
+        "width": {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "title": "Width",
+          "type": "integer"
+        },
+        "height": {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "title": "Height",
+          "type": "integer"
+        },
+        "duration_ms": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "title": "Duration Ms",
+          "type": "integer"
+        },
+        "video_stream": {
+          "default": 0,
+          "maximum": 0,
+          "minimum": 0,
+          "title": "Video Stream",
+          "type": "integer"
+        }
+      },
+      "required": ["frame_count", "width", "height", "duration_ms"],
+      "title": "VideoFacts",
+      "type": "object"
+    },
+    "VideoFrameRecord": {
+      "additionalProperties": false,
+      "properties": {
+        "frame_id": {
+          "format": "uuid",
+          "title": "Frame Id",
+          "type": "string"
+        },
+        "plan": {
+          "$ref": "#/$defs/FrozenFramePlan"
+        },
+        "entry": {
+          "$ref": "#/$defs/FrameTimeEntry"
+        },
+        "status": {
+          "enum": ["pending", "materializing", "ready", "failed", "expired"],
+          "title": "Status",
+          "type": "string"
+        },
+        "blob": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FrameBlob"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "error": {
+          "anyOf": [
+            {
+              "enum": [
+                "invalid_request",
+                "invalid_response",
+                "storage_unavailable",
+                "account_not_active",
+                "account_busy",
+                "invalid_account_role",
+                "task_not_visible",
+                "task_busy",
+                "permission_denied",
+                "source_missing",
+                "source_changed",
+                "source_not_ready",
+                "not_video",
+                "job_busy",
+                "job_not_active",
+                "manifest_scope_mismatch",
+                "source_busy",
+                "metadata_not_ready",
+                "invalid_frame_range",
+                "asset_missing",
+                "operation_conflict",
+                "operation_busy",
+                "lease_lost",
+                "dependency_changed",
+                "resource_budget_exceeded",
+                "object_missing",
+                "input_missing",
+                "input_scope_mismatch",
+                "input_not_ready",
+                "input_expired",
+                "input_corrupt",
+                "input_busy",
+                "manifest_missing",
+                "manifest_busy",
+                "manifest_not_ready",
+                "manifest_cursor_invalid",
+                "task_scope_changed",
+                "unsupported_media",
+                "timebase_changed",
+                "timebase_incomplete",
+                "frame_missing",
+                "frame_not_ready",
+                "frame_busy",
+                "versioning_required",
+                "resource_limit",
+                "timeout",
+                "processing_failed",
+                "reference_busy"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Error"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        }
+      },
+      "required": ["frame_id", "plan", "entry", "status", "blob", "error", "created_at"],
+      "title": "VideoFrameRecord",
+      "type": "object"
+    },
+    "VideoSourceSnapshot": {
+      "additionalProperties": false,
+      "properties": {
+        "dataset_item_id": {
+          "format": "uuid",
+          "title": "Dataset Item Id",
+          "type": "string"
+        },
+        "dataset_id": {
+          "format": "uuid",
+          "title": "Dataset Id",
+          "type": "string"
+        },
+        "source_generation": {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "title": "Source Generation",
+          "type": "integer"
+        },
+        "source_snapshot": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Source Snapshot",
+          "type": "string"
+        },
+        "timetable_revision": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "title": "Timetable Revision",
+          "type": "integer"
+        },
+        "object_identity": {
+          "$ref": "#/$defs/ObjectIdentity"
+        }
+      },
+      "required": [
+        "dataset_item_id",
+        "dataset_id",
+        "source_generation",
+        "source_snapshot",
+        "timetable_revision",
+        "object_identity"
+      ],
+      "title": "VideoSourceSnapshot",
+      "type": "object"
+    },
+    "VideoInputPinRecord": {
+      "additionalProperties": false,
+      "properties": {
+        "frame": {
+          "$ref": "#/$defs/VideoFrameRecord"
+        }
+      },
+      "required": ["frame"],
+      "title": "VideoInputPinRecord",
+      "type": "object"
+    },
+    "AttachAnnotationVideoInputSourceRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "annotation_id": {
+          "format": "uuid",
+          "title": "Annotation Id",
+          "type": "string"
+        },
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "evidence": {
+          "$ref": "#/$defs/VideoInputEvidence"
+        }
+      },
+      "required": ["annotation_id", "actor_id", "evidence"],
+      "title": "AttachAnnotationVideoInputSourceRequest",
+      "type": "object"
+    },
+    "CopyAnnotationVideoInputSourcesRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "source_annotation_id": {
+          "format": "uuid",
+          "title": "Source Annotation Id",
+          "type": "string"
+        },
+        "target_annotation_id": {
+          "format": "uuid",
+          "title": "Target Annotation Id",
+          "type": "string"
+        }
+      },
+      "required": ["source_annotation_id", "target_annotation_id"],
+      "title": "CopyAnnotationVideoInputSourcesRequest",
+      "type": "object"
+    },
+    "VideoInputReferenceRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "input_id": {
+          "format": "uuid",
+          "title": "Input Id",
+          "type": "string"
+        }
+      },
+      "required": ["input_id"],
+      "title": "VideoInputReferenceRequest",
+      "type": "object"
+    },
+    "VideoInputReference": {
+      "additionalProperties": false,
+      "properties": {
+        "input_id": {
+          "format": "uuid",
+          "title": "Input Id",
+          "type": "string"
+        },
+        "referenced": {
+          "title": "Referenced",
+          "type": "boolean"
+        }
+      },
+      "required": ["input_id", "referenced"],
+      "title": "VideoInputReference",
+      "type": "object"
+    },
+    "AttachVideoInputEvidenceAck": {
+      "additionalProperties": false,
+      "properties": {
+        "annotation_id": {
+          "format": "uuid",
+          "title": "Annotation Id",
+          "type": "string"
+        },
+        "input_id": {
+          "format": "uuid",
+          "title": "Input Id",
+          "type": "string"
+        },
+        "plan_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Plan Digest",
+          "type": "string"
+        },
+        "ordinal": {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "title": "Ordinal",
+          "type": "integer"
+        },
+        "attached": {
+          "title": "Attached",
+          "type": "boolean"
+        }
+      },
+      "required": ["annotation_id", "input_id", "plan_digest", "ordinal", "attached"],
+      "title": "AttachVideoInputEvidenceAck",
+      "type": "object"
+    },
+    "CopyVideoInputEvidenceAck": {
+      "additionalProperties": false,
+      "properties": {
+        "source_annotation_id": {
+          "format": "uuid",
+          "title": "Source Annotation Id",
+          "type": "string"
+        },
+        "target_annotation_id": {
+          "format": "uuid",
+          "title": "Target Annotation Id",
+          "type": "string"
+        },
+        "copied": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "title": "Copied",
+          "type": "integer"
+        }
+      },
+      "required": ["source_annotation_id", "target_annotation_id", "copied"],
+      "title": "CopyVideoInputEvidenceAck",
+      "type": "object"
+    }
+  },
+  "oneOf": [
+    {
+      "$ref": "#/$defs/VideoInputEvidence"
+    },
+    {
+      "$ref": "#/$defs/VideoInputFailureEvidence"
+    }
+  ],
+  "x-prediction-extra-key": "accepted_video_input",
+  "x-native": {
+    "assets_pin": {
+      "signature": "aap_assets_v1._lock_accepted_video_input_pin(uuid,uuid,jsonb,uuid)",
+      "arguments": ["task_id", "project_id", "evidence", "actor_id"],
+      "request": "LockVideoInputPinRequest",
+      "result": "VideoInputPinRecord",
+      "role": "labeling",
+      "owner": "assets",
+      "private": true
+    },
+    "attach_annotation_video_input_source": {
+      "signature": "aap_labeling_v1.attach_annotation_video_input_source(uuid,uuid,jsonb)",
+      "arguments": ["annotation_id", "actor_id", "evidence"],
+      "request": "AttachAnnotationVideoInputSourceRequest",
+      "result": "AttachVideoInputEvidenceAck",
+      "role": "labeling"
+    },
+    "copy_annotation_video_input_sources": {
+      "signature": "aap_labeling_v1.copy_annotation_video_input_sources(uuid,uuid)",
+      "arguments": ["source_annotation_id", "target_annotation_id"],
+      "request": "CopyAnnotationVideoInputSourcesRequest",
+      "result": "CopyVideoInputEvidenceAck",
+      "role": "labeling"
+    },
+    "accepted_video_input_referenced": {
+      "signature": "aap_labeling_v1.accepted_video_input_referenced(uuid)",
+      "arguments": ["input_id"],
+      "request": "VideoInputReferenceRequest",
+      "result": "VideoInputReference",
+      "role": "labeling"
+    }
+  },
+  "x-budgets": {
+    "request_bytes": 65536,
+    "reply_bytes": 2097152
+  }
+}
