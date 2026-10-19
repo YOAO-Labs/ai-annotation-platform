@@ -28,6 +28,8 @@ last_reviewed: 2026-07-20
 
 SAM 系列特化(image embedding 缓存、prompt 路由)集中在 §1–§5。`yolo-backend` / `onnxtools-backend` / `rapidocr-backend` 的差异化说明放在 §6。
 
+全局注册实例的认证可独立轮换：数据库维护单调 `auth_revision`，认证变化时原子清除健康缓存，健康探测与携带端点快照的 GPU 控制证明按该修订号复核，阻断凭据改回原值后的旧结果回写。认证更新遵守 registry → resource → promotion barrier → current membership 锁序，但不改变 GPU membership 或 fence 计数；GPU 控制签名凭据独立于实例访问 Token。URL、GPU claim 与运行参数的变更仍走原退役保护。取消意图的持久指纹在认证修订号为零时保留原格式，以兼容迁移前尚未完成的恢复。
+
 ---
 
 ## 1. 部署拓扑

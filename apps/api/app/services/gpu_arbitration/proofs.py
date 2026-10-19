@@ -780,6 +780,7 @@ def _idle_eviction_runtime_subject_identity(
         subject.backend.url,
         subject.backend.auth_method,
         subject.backend.auth_token,
+        subject.backend.auth_revision or 0,
         subject.gpu_resource_id,
         subject.membership_epoch,
         subject.budget_mb,
@@ -1347,6 +1348,10 @@ def _eviction_cancel_source_fingerprint(
         "token_expires_at": _canonical_proof_timestamp(subject.token_expires_at),
         "require_idle": subject.require_idle,
     }
+    # Existing durable cancel intents predate credential rotation. Preserve their
+    # revision-zero fingerprint so repair can resume them after this migration.
+    if subject.backend.auth_revision:
+        payload["backend_auth_revision"] = subject.backend.auth_revision
     encoded = json.dumps(
         payload,
         ensure_ascii=False,
@@ -2117,6 +2122,8 @@ def _eviction_terminal_durable_reason(
         registry.url != expected_subject.backend.url
         or registry.auth_method != expected_subject.backend.auth_method
         or registry.auth_token != expected_subject.backend.auth_token
+        or (registry.auth_revision or 0)
+        != (expected_subject.backend.auth_revision or 0)
         or registry.gpu_resource_id != expected_subject.gpu_resource_id
         or registry.vram_budget_mb != expected_subject.budget_mb
         or registry.eviction_priority != expected_subject.eviction_priority
@@ -2938,6 +2945,7 @@ def _snapshot_gpu_mode_backend(registry: MLBackendRegistry) -> MLBackendRegistry
         state=registry.state,
         auth_method=registry.auth_method,
         auth_token=registry.auth_token,
+        auth_revision=registry.auth_revision or 0,
         extra_params=dict(registry.extra_params),
         gpu_resource_id=registry.gpu_resource_id,
         vram_budget_mb=registry.vram_budget_mb,

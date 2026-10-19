@@ -814,8 +814,6 @@ class MLBackendService:
 
         protected_values = {
             "url": row.url,
-            "auth_method": row.auth_method,
-            "auth_token": row.auth_token,
             "extra_params": row.extra_params,
             "gpu_resource_id": row.gpu_resource_id,
             "vram_budget_mb": row.vram_budget_mb,
@@ -824,6 +822,10 @@ class MLBackendService:
         protected_change = any(
             field in kwargs and kwargs[field] != previous
             for field, previous in protected_values.items()
+        )
+        auth_change = any(
+            field in kwargs and kwargs[field] != getattr(row, field)
+            for field in ("auth_method", "auth_token")
         )
         if protected_change:
             fence = await self.db.get(GPUBackendFence, registry_id)
@@ -845,9 +847,10 @@ class MLBackendService:
 
         for key, value in kwargs.items():
             setattr(row, key, value)
-        if protected_change:
+        if protected_change or auth_change:
             # Any membership/config epoch change invalidates the cached residency
-            # evidence, even when the endpoint and physical resource stay the same.
+            # evidence. Authentication rotation invalidates observations without
+            # changing GPU membership or its independent control credentials.
             row.state = "disconnected"
             row.health_meta = None
             row.last_checked_at = None
@@ -856,6 +859,8 @@ class MLBackendService:
             await self.db.flush()
         except IntegrityError as exc:
             _raise_managed_mutation_for_integrity(exc)
+        if auth_change:
+            await self.db.refresh(row)
         return row
 
     async def _count_running_predictions(self, registry_id: uuid.UUID) -> int:
@@ -1238,6 +1243,7 @@ class MLBackendService:
         requested_url = backend.url
         requested_auth_method = backend.auth_method
         requested_auth_token = backend.auth_token
+        requested_auth_revision = backend.auth_revision
         requested_gpu_resource_id = backend.gpu_resource_id
         requested_membership_epoch: int | None = None
         requested_membership_state: str | None = None
@@ -1357,6 +1363,7 @@ class MLBackendService:
             current_backend.url != requested_url
             or current_backend.auth_method != requested_auth_method
             or current_backend.auth_token != requested_auth_token
+            or current_backend.auth_revision != requested_auth_revision
             or current_backend.gpu_resource_id != requested_gpu_resource_id
         ):
             return False

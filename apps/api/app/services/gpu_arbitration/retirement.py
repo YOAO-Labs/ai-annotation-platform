@@ -69,6 +69,7 @@ class GPURetiredLiveProof:
     registry_auth_method: str
     registry_auth_token: str | None = dataclass_field(repr=False)
     residency: dict[str, Any]
+    registry_auth_revision: int = 0
 
 
 @dataclass(frozen=True)
@@ -101,6 +102,7 @@ def _retired_proof_fingerprint(
     registry_auth_method: str,
     registry_auth_token: str | None,
     residency: Mapping[str, Any],
+    registry_auth_revision: int = 0,
 ) -> str:
     document = {
         "schema": "gpu-arbiter-retired-proof/v1",
@@ -137,6 +139,8 @@ def _retired_proof_fingerprint(
         },
         "residency": residency,
     }
+    if registry_auth_revision:
+        document["route"]["auth_revision"] = registry_auth_revision
     return hashlib.sha256(
         json.dumps(
             document,
@@ -307,6 +311,7 @@ async def probe_retired_gpu_membership(
         registry_url=registry.url,
         registry_auth_method=registry.auth_method,
         registry_auth_token=registry.auth_token,
+        registry_auth_revision=registry.auth_revision or 0,
         residency=residency,
     )
     proof = GPURetiredLiveProof(
@@ -321,6 +326,7 @@ async def probe_retired_gpu_membership(
         registry_url=registry.url,
         registry_auth_method=registry.auth_method,
         registry_auth_token=registry.auth_token,
+        registry_auth_revision=registry.auth_revision or 0,
         residency=residency,
     )
     return GPURetiredProbeResult(
@@ -474,6 +480,7 @@ async def collect_gpu_backend_tombstone(
                 registry.url != proof.registry_url
                 or registry.auth_method != proof.registry_auth_method
                 or registry.auth_token != proof.registry_auth_token
+                or (registry.auth_revision or 0) != proof.registry_auth_revision
             ):
                 return GPUTombstoneCollectionResult(
                     backend_id,
@@ -530,6 +537,7 @@ async def collect_gpu_backend_tombstone(
                 registry_url=proof.registry_url,
                 registry_auth_method=proof.registry_auth_method,
                 registry_auth_token=proof.registry_auth_token,
+                registry_auth_revision=proof.registry_auth_revision,
                 residency=residency,
             )
             if fingerprint != proof.evidence_fingerprint:

@@ -42,7 +42,9 @@ URL 校验拒绝 host 精确为 `localhost / 127.0.0.1 / 0.0.0.0 / ::1`（[ADR 0
 
 ## 修改 / 删除
 
-编辑使用 `PUT /registry/:registry_id` 的部分字段请求体。受 GPU 管理的实例若已有运行时 epoch，修改 URL、鉴权、GPU claim 或 `extra_params` 前必须先完成 retirement。
+编辑使用 `PUT /registry/:registry_id` 的部分字段请求体。受 GPU 管理的实例若已有运行时 epoch，修改 URL、GPU claim、驱逐优先级或 `extra_params` 前必须先完成 retirement。
+
+仅修改 `auth_method` / `auth_token` 可直接保存，不推进 GPU membership epoch，不改变成员状态、运行计数或令牌有效期上限。认证实际变化时，数据库原子增加内部认证修订号，并清空 `state`（置为 `disconnected`）、`health_meta`、`last_checked_at` 与 `error_message`；随后应重新执行健康检查。与受保护字段混合修改仍返回 `409 gpu_backend_retirement_required`，认证及缓存变更一起回滚。认证修订号不可通过 API 设置或读取，旧凭据发起的探活不能回写新状态，即便凭据后来改回原值。
 
 删除不会把未知运行态当作空闲。若仍有运行中的预测任务、未完成 GPU retirement，或无法证明成员处于 `ML_BACKEND_ROUTER_MODE=enforce`、`draining` 且新鲜路由账本中的 exact `inflight=0`，接口返回 409/503 并保留记录。满足门禁后才解除服务池成员关系和项目主绑定；历史预测按外键策略继续保留可追溯性。
 
