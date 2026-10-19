@@ -102,23 +102,36 @@ async def test_reference_locks_are_sorted_deduplicated_and_verified(monkeypatch)
     import app.services.raster_mask_storage as module
 
     db = SimpleNamespace(execute=AsyncMock())
-    refs = [
-        {"object_key": "raster-masks/sha256/b.json", "sha256": "b"},
-        {"object_key": "raster-masks/sha256/a.json", "sha256": "a"},
-        {"object_key": "raster-masks/sha256/b.json", "sha256": "b"},
-    ]
+    first = module.build_rle_reference(
+        {"encoding": "coco_rle", "size": [1, 1], "counts": [0, 1]}
+    )
+    second = module.build_rle_reference(
+        {"encoding": "coco_rle", "size": [1, 1], "counts": [1]}
+    )
+    ordered = sorted((first, second), key=lambda reference: reference["object_key"])
+    refs = [ordered[1], ordered[0], ordered[1]]
+    keys = [reference["object_key"] for reference in ordered]
     load = AsyncMock()
-    monkeypatch.setattr(module, "load_coco_rle", load)
 
-    assert await lock_raster_mask_references(db, {"items": refs}) == [
-        "raster-masks/sha256/a.json",
-        "raster-masks/sha256/b.json",
-    ]
+    async def permit(actual_db, actual_keys):
+        assert actual_db is db
+        assert actual_keys == keys
+        assert db.execute.await_count == 2
+        load.assert_not_awaited()
+        return dict.fromkeys(keys, 0)
+
+    gate = AsyncMock(side_effect=permit)
+    monkeypatch.setattr(module, "load_coco_rle", load)
+    monkeypatch.setattr(module, "begin_mask_content_write", gate)
+
+    assert await lock_raster_mask_references(db, {"items": refs}) == keys
     assert [call.args[1]["key"] for call in db.execute.await_args_list] == [
-        "aap:raster-mask:raster-masks/sha256/a.json",
-        "aap:raster-mask:raster-masks/sha256/b.json",
+        f"aap:raster-mask:{key}" for key in keys
     ]
-    assert [call.args[0]["sha256"] for call in load.call_args_list] == ["a", "b"]
+    assert [call.args[0]["sha256"] for call in load.call_args_list] == [
+        reference["sha256"] for reference in ordered
+    ]
+    gate.assert_awaited_once()
 
 
 @pytest.mark.asyncio

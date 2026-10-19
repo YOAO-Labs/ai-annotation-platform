@@ -60,6 +60,7 @@ from app.services.raster_mask_storage import (
     build_rle_reference,
     resolve_mask_reference_objects,
     store_coco_rle,
+    store_generated_mask_content,
     store_mask_reference_objects,
     validate_mask_geometry_for_task,
 )
@@ -955,7 +956,9 @@ async def import_coco(
             object_key = str(geometry["mask"]["object_key"])
             stored = stored_rle_references.get(object_key)
             if stored is None:
-                stored = await store_coco_rle(rle)
+                stored = await store_generated_mask_content(
+                    db, rle, writer=store_coco_rle
+                )
                 if stored["object_key"] != object_key:
                     raise ValueError("stored COCO RLE does not match content reference")
                 stored_rle_references[object_key] = stored

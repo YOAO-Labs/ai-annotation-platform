@@ -48,6 +48,10 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     for artifact, signature in (
+        (
+            "0220_assets_images_state.sql",
+            "aap_assets_v1._cancel_image_source_work(",
+        ),
         ("0209_dataset_source_deletion.sql", "aap_assets_v1._delete_dataset_source("),
         (
             "0209_dataset_source_deletion.sql",

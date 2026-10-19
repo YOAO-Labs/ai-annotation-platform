@@ -3,8 +3,13 @@
 `aap-labeling-mask-gc` is an independently deployable Python worker for the
 Labeling-owned Mask deletion fence. Its portable package contains the frozen
 JSON contract, a small HTTP client, and the bounded coordinator. The runtime
-package calls only the eight allowlisted `aap_labeling_v1` JSONB functions and
+package calls only the five cleanup `aap_labeling_v1` JSONB functions and
 the private Mask GC HTTP service.
+
+The three write-epoch functions are part of the shared contract but are denied
+to the cleanup login. They belong to Labeling's business write transactions.
+The existing Celery collector has not been switched to this runtime; its remote
+destructive guard remains closed while consumer recovery is qualified.
 
 The process has no application imports, caller-owned SQL sessions, task model,
 Celery, Redis, or S3 client. The byte owner receives cleanup credentials; this

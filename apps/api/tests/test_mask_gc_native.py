@@ -95,7 +95,7 @@ async def _stage_one_old_candidate(db, key: str, *, expected_staged: int = 1):
             },
         },
     )
-    assert staged["ok"] is True
+    assert staged["ok"] is True, staged
     assert staged["data"]["staged"] == expected_staged
     return worker_id, last_modified
 

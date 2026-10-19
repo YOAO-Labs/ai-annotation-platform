@@ -35,7 +35,7 @@ test = [
 aap-labeling-mask-gc = "aap_labeling_mask_gc_runtime.__main__:main"
 
 [tool.uv.sources]
-aap-assets-mask-content = { path = "../assets-mask-content" }
+aap-assets-mask-content = { path = "../assets-mask-content", editable = true }
 
 [tool.setuptools.package-data]
 aap_labeling_mask_gc = ["protocol.schema.json", "openapi.snapshot.json"]

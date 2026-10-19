@@ -55,6 +55,7 @@ MODULE_ROLES = (
     "asset_media_control_client",
     "asset_media_worker_client",
     "asset_image_worker_client",
+    "labeling_mask_gc_client",
 )
 SQL_ARTIFACTS = (
     "0190_workspace_data_contract.sql",
@@ -122,6 +123,8 @@ SQL_ARTIFACTS = (
     "0226_video_input_claim_authority.sql",
     "0227_scene_image_input_manifests.sql",
     "0228_video_tracker_inputs.sql",
+    "0229_mask_gc.sql",
+    "0230_dataset_source_aux_retention.sql",
 )
 SCHEMA_ARTIFACTS = (
     "0191_task_append.schema.json",
@@ -160,6 +163,8 @@ SCHEMA_ARTIFACTS = (
     "0225_video_inputs.schema.json",
     "0225_video_input_evidence.schema.json",
     "0228_video_tracker_inputs.schema.json",
+    "0229_mask_gc.schema.json",
+    "0230_dataset_source_aux_retention.schema.json",
 )
 TEST_FILES = (
     "tests/test_workspace_data_contract.py",
@@ -210,6 +215,7 @@ TEST_FILES = (
     "tests/test_dataset_source_deletion.py",
     "tests/test_dataset_source_http.py",
     "tests/test_dataset_source_guards.py",
+    "tests/test_dataset_source_aux_retention.py",
     "tests/test_dataset_source_support.py",
     "tests/test_dataset_upload_data.py",
     "tests/test_dataset_upload_native.py",
@@ -286,6 +292,12 @@ TEST_FILES = (
     "tests/test_accepted_input_preannotation.py",
     "tests/test_prediction_retry_input_deferral.py",
     "tests/test_raster_mask_lock_boundary.py",
+    "tests/test_mask_gc_native.py",
+    "tests/test_mask_gc_protocol_native.py",
+    "tests/test_mask_gc_migration.py",
+    "tests/test_mask_gc_roles.py",
+    "tests/test_mask_gc_bindings.py",
+    "tests/test_mask_gc_live.py",
     "tests/test_assets_accepted_inputs_native.py",
     "tests/test_accepted_inputs_api_bridge.py",
     "tests/test_accepted_inputs_live.py",
@@ -1426,6 +1438,7 @@ def _create_module_roles(
     media_control_password: str,
     media_worker_password: str,
     image_worker_password: str,
+    mask_gc_password: str,
 ) -> None:
     _psql(
         container_id,
@@ -1488,6 +1501,9 @@ def _create_module_roles(
             "CREATE ROLE asset_image_worker_client LOGIN "
             f"PASSWORD '{image_worker_password}' NOSUPERUSER NOCREATEDB NOCREATEROLE "
             "NOINHERIT NOREPLICATION NOBYPASSRLS;\n"
+            "CREATE ROLE labeling_mask_gc_client LOGIN "
+            f"PASSWORD '{mask_gc_password}' NOSUPERUSER NOCREATEDB NOCREATEROLE "
+            "NOINHERIT NOREPLICATION NOBYPASSRLS;\n"
             'REVOKE TEMPORARY ON DATABASE :"expected_database" FROM PUBLIC;\n'
             'GRANT TEMPORARY ON DATABASE :"expected_database" TO '
             + ", ".join(
@@ -1501,6 +1517,7 @@ def _create_module_roles(
                         "asset_media_control_client",
                         "asset_media_worker_client",
                         "asset_image_worker_client",
+                        "labeling_mask_gc_client",
                     }
                 )
             )
@@ -1839,6 +1856,7 @@ def main(argv: list[str] | None = None) -> int:
         operator_grants_path = ROOT / "infra/docker/assets-operator-grants.sql"
         media_grants_path = ROOT / "infra/docker/assets-media-grants.sql"
         image_grants_path = ROOT / "infra/docker/assets-image-grants.sql"
+        mask_gc_grants_path = ROOT / "infra/docker/labeling-mask-gc-data-grants.sql"
         artifacts = tuple(
             ROOT / "apps/api/alembic/sql" / name for name in SQL_ARTIFACTS
         )
@@ -1853,6 +1871,7 @@ def main(argv: list[str] | None = None) -> int:
             or not operator_grants_path.is_file()
             or not media_grants_path.is_file()
             or not image_grants_path.is_file()
+            or not mask_gc_grants_path.is_file()
             or any(not path.is_file() for path in artifacts)
             or any(not path.is_file() for path in schema_paths)
         ):
@@ -1875,6 +1894,7 @@ def main(argv: list[str] | None = None) -> int:
         operator_grant_sql = operator_grants_path.read_text(encoding="utf-8")
         media_grant_sql = media_grants_path.read_text(encoding="utf-8")
         image_grant_sql = image_grants_path.read_text(encoding="utf-8")
+        mask_gc_grant_sql = mask_gc_grants_path.read_text(encoding="utf-8")
 
         from sqlalchemy.engine import URL
 
@@ -1896,6 +1916,7 @@ def main(argv: list[str] | None = None) -> int:
         media_control_password = f"media-control-{secrets.token_hex(16)}"
         media_worker_password = f"media-worker-{secrets.token_hex(16)}"
         image_worker_password = f"image-worker-{secrets.token_hex(16)}"
+        mask_gc_password = f"mask-gc-{secrets.token_hex(16)}"
         container_id = docker(
             "run",
             "-d",
@@ -1972,8 +1993,8 @@ def main(argv: list[str] | None = None) -> int:
         database = resources["database"]
         evidence["database"] = database
         _, heads = migration_graph(ROOT)
-        if heads != ["0228"]:
-            raise RuntimeError("module-data acceptance requires migration head 0228")
+        if heads != ["0230"]:
+            raise RuntimeError("module-data acceptance requires migration head 0230")
         evidence["migrations"]["head_before_downgrade"] = heads[0]
         phase = "downgrade-to-0189"
         _container_details(
@@ -2099,6 +2120,7 @@ def main(argv: list[str] | None = None) -> int:
             media_control_password,
             media_worker_password,
             image_worker_password,
+            mask_gc_password,
         )
         phase = "install-module-grants"
         _psql(
@@ -2127,6 +2149,24 @@ def main(argv: list[str] | None = None) -> int:
                 "notifications_owner": "notifications_code",
                 "workflow_role": "append_client",
                 "asset_cleanup_role": "asset_cleanup_client",
+                "mask_gc_role": "labeling_mask_gc_client",
+            },
+        )
+
+        phase = "install-mask-gc-grants"
+        _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="owner",
+            password=owner_password,
+            database=database,
+            sql=mask_gc_grant_sql,
+            variables={
+                "expected_database": database,
+                "migration_role": "owner",
+                "labeling_owner": "labeling_code",
+                "mask_gc_role": "labeling_mask_gc_client",
             },
         )
 
@@ -2289,6 +2329,7 @@ def main(argv: list[str] | None = None) -> int:
         if selected_test_paths & {
             "tests/test_mask_content_live.py",
             "tests/test_mask_content_containers.py",
+            "tests/test_mask_gc_live.py",
         }:
             mask_content_storage = _cleanup_storage_scope(backend)
             mask_content_storage["bucket"] = resources["buckets"]["MINIO_BUCKET"]
@@ -2367,6 +2408,14 @@ def main(argv: list[str] | None = None) -> int:
                 "AAP_MODULE_DATA_ASSET_MEDIA_CONTROL_URL": media_control_url,
                 "AAP_MODULE_DATA_ASSET_MEDIA_WORKER_URL": media_worker_url,
                 "AAP_MODULE_DATA_ASSET_IMAGE_WORKER_URL": image_worker_url,
+                "AAP_MODULE_DATA_LABELING_MASK_GC_URL": URL.create(
+                    "postgresql+asyncpg",
+                    username="labeling_mask_gc_client",
+                    password=mask_gc_password,
+                    host="127.0.0.1",
+                    port=port,
+                    database=database,
+                ).render_as_string(hide_password=False),
                 "ASSETS_MEDIA_INPUTS_BUCKET": resources["buckets"][
                     "MINIO_INPUTS_BUCKET"
                 ],

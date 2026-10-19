@@ -412,6 +412,7 @@ psql -v expected_database=annotation_test -v migration_role=owner \
   -v audit_owner=audit_code -v settings_owner=settings_code \
   -v notifications_owner=notifications_code -v workflow_role=append_client \
   -v asset_cleanup_role=asset_cleanup_client \
+  -v mask_gc_role=labeling_mask_gc_client \
   -f infra/docker/module-data-grants.sql
 ```
 
@@ -1073,7 +1074,7 @@ python scripts/mask_content_s3_policy.py --bucket annotations --role content
 python scripts/mask_content_s3_policy.py --bucket annotations --role cleanup
 ```
 
-`MASK_CONTENT_BUCKET` 必须与既有 `MINIO_BUCKET` 中的 Mask 对象一致。内容身份仅 Put/Get；清理身份仅按前缀 List、Get（用于 HEAD）和 DeleteObject；两者仅有 GetBucketLocation 用于就绪检查。这里删除当前逻辑键，历史 S3 版本回收仍由桶生命周期／独立清理责任处理。
+`MASK_CONTENT_BUCKET` 必须与既有 `MINIO_BUCKET` 中的 Mask 对象一致。内容身份仅 Put/Get；清理身份按 Mask 前缀 List、Get（用于 HEAD）和 DeleteObject，并在独立的 `raster-mask-gc/v1/*` 日志前缀获得 Get/Put，不能写入 Mask 内容或删除日志；两者仅有 GetBucketLocation 用于就绪检查。这里删除当前逻辑键，历史 S3 版本回收仍由桶生命周期／独立清理责任处理。
 
 可选 `docker-compose.assets-mask-content.yml` 不进入默认或生产 Compose。分别准备两组 token、access-key、secret-key 文件后显式启动；只暴露容器内 8770，普通内容进程不挂载清理 secret。宿主进程使用 `MASK_CONTENT_ROLE` 选择角色，token 和 S3 凭据支持 inline 与 `_FILE` 二选一：
 
@@ -1083,6 +1084,20 @@ docker compose -f docker-compose.assets-mask-content.yml up -d assets-mask-conte
 ```
 
 Labeling 在回收时仍持有内容 SQL 锁，保护宽限期内预约后移除过期预约并提交，再次加锁并复查当前引用和预约后才调用条件删除。同内容重传会续期预约，不能用旧对象时间判断刚上传的引用已过期。每个字节角色进程同时处理一个内容操作，忙时返回 503。接口、预算和现有引用兼容规则见[Mask 字节接口](docs-site/api/guides/mask-content.md)。
+
+### Mask 回收的独立实验运行时
+
+`apps/labeling-mask-gc` 提供持久删除围栏和回执协调；当前只用于隔离本地验收，尚未替换现有 Celery 回收器。应用迁移并完成 owner 授权后，为独立的 `labeling_mask_gc_client` LOGIN 安装五项 GC 精确授权：
+
+```bash
+psql -v expected_database=annotation_test -v migration_role=owner \
+  -v labeling_owner=labeling_code -v mask_gc_role=labeling_mask_gc_client \
+  -f infra/docker/labeling-mask-gc-data-grants.sql
+```
+
+该进程仅接收 `MASK_GC_DATABASE_URL`、`MASK_GC_TOKEN`、`MASK_GC_CONTENT_URL` 和 `MASK_GC_CONTENT_TOKEN`，四项均支持 `_FILE`；地址必须指向 cleanup 字节进程。运行 `uv run --project apps/labeling-mask-gc --extra server python -m aap_labeling_mask_gc_runtime --once` 执行一次有界协调，省略 `--once` 后提供轮询及私有 run/progress 路由。它不接收 S3、Celery 或 Redis 凭据。普通 API/worker 仅获得三项写入代次能力，不能使用 GC 登录创建业务写许可。
+
+日志和终态回执不设置自动过期或删除策略；没有回执的操作持续保留围栏，不能按租约或时间自动释放。完整普通批处理结果交接、新运行时镜像和部署容量仍需完成验证，现有远程业务删除保护保持关闭。详见 [ADR-0112](docs/adr/0112-durable-mask-gc-fences.md)。
 
 ## 视频媒体的独立控制与执行
 

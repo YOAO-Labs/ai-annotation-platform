@@ -11,15 +11,18 @@ from app.services import raster_mask_storage as storage
 
 
 RLE = {"encoding": "coco_rle", "size": [1, 1], "counts": [0, 1]}
-REFERENCE = {
-    "encoding": "coco_rle_ref",
-    "size": [1, 1],
-    "object_key": "raster-masks/sha256/ab/cd/" + "a" * 64 + ".json",
-    "sha256": "a" * 64,
-    "runs": 2,
-    "bytes": 42,
-}
+REFERENCE = storage.build_rle_reference(RLE)
 GEOMETRY = {"type": "raster_mask", "mask": REFERENCE}
+
+
+@pytest.fixture(autouse=True)
+def content_epochs(monkeypatch):
+    async def read_epochs(db, keys):
+        assert "task_lock" not in db.events
+        db.events.append("content_epoch")
+        return {key: 7 for key in keys}
+
+    monkeypatch.setattr(storage, "read_mask_write_epochs", read_epochs)
 
 
 class _Result:
@@ -70,20 +73,22 @@ async def test_rle_read_precedes_task_lock_and_final_registration_is_sql_only(
     async def validate(_db, _task, _geometry):
         return None
 
-    async def lock_references(_db, _value, *, verify=True, **_kwargs):
+    async def lock_references(_db, _value, *, verify=True, content_epochs, **_kwargs):
         assert verify is False
+        assert content_epochs == {REFERENCE["object_key"]: 7}
         db.events.append("sql_reference_lock")
         return [REFERENCE["object_key"]]
 
     monkeypatch.setattr(storage, "validate_mask_geometry_for_task", validate)
     monkeypatch.setattr(storage, "lock_raster_mask_references", lock_references)
 
-    verified = await storage.verify_mask_payload_content(GEOMETRY)
+    verified = await storage.verify_mask_payload_content(GEOMETRY, db=db)
     await storage.prepare_mask_payload_for_write(
         db, task, GEOMETRY, verified_content=verified
     )
 
     assert [event for event in db.events] == [
+        "content_epoch",
         "storage_get",
         "task_lock",
         "sql_reference_lock",
@@ -105,13 +110,13 @@ async def test_slow_or_failed_rle_read_never_holds_a_task_lock(monkeypatch):
         return RLE
 
     monkeypatch.setattr(storage, "load_coco_rle", slow_load)
-    pending = asyncio.create_task(storage.verify_mask_payload_content(GEOMETRY))
+    pending = asyncio.create_task(storage.verify_mask_payload_content(GEOMETRY, db=db))
     await started.wait()
-    assert db.events == ["storage_get"]
+    assert db.events == ["content_epoch", "storage_get"]
 
     release.set()
     await pending
-    assert db.events == ["storage_get"]
+    assert db.events == ["content_epoch", "storage_get"]
 
     async def failed_load(_reference):
         db.events.append("storage_failure")
@@ -119,10 +124,15 @@ async def test_slow_or_failed_rle_read_never_holds_a_task_lock(monkeypatch):
 
     monkeypatch.setattr(storage, "load_coco_rle", failed_load)
     with pytest.raises(storage.RasterMaskContractError) as captured:
-        await storage.verify_mask_payload_content(GEOMETRY)
+        await storage.verify_mask_payload_content(GEOMETRY, db=db)
     assert captured.value.status_code == 503
     assert captured.value.detail["reason"] == "mask_storage_unavailable"
-    assert db.events == ["storage_get", "storage_failure"]
+    assert db.events == [
+        "content_epoch",
+        "storage_get",
+        "content_epoch",
+        "storage_failure",
+    ]
 
 
 @pytest.mark.asyncio
@@ -146,7 +156,7 @@ async def test_verified_membership_compares_full_canonical_reference_pairs(
     monkeypatch,
 ):
     reference = storage.build_rle_reference(RLE)
-    alias = {**reference, "encoding": storage.COCO_RLE_GZIP_ENCODING}
+    alias = {**reference, "storage_encoding": "identity"}
     storage.validate_reference_for_rle(alias, RLE)
     geometry = {"type": "raster_mask", "mask": reference}
     task = SimpleNamespace(id="task", project_id="project")
@@ -169,7 +179,7 @@ async def test_verified_membership_compares_full_canonical_reference_pairs(
     monkeypatch.setattr(storage, "validate_mask_geometry_for_task", validate)
     monkeypatch.setattr(storage, "lock_raster_mask_references", lock_references)
     verified = await storage.verify_mask_payload_content(
-        geometry, reference_value=[reference, alias]
+        geometry, db=db, reference_value=[reference, alias]
     )
 
     assert len(verified.reference_signature) == 2
@@ -183,3 +193,42 @@ async def test_verified_membership_compares_full_canonical_reference_pairs(
     )
 
     assert accepted == [[alias]]
+
+
+@pytest.mark.asyncio
+async def test_active_collection_fence_rejects_preflight_before_reading_bytes(
+    monkeypatch,
+):
+    db = _Database(SimpleNamespace(id="task", project_id="project"))
+    load = AsyncMock(return_value=RLE)
+
+    async def fenced(_db, _keys):
+        raise storage.RasterMaskContractError(
+            status_code=409,
+            reason="mask_content_deleting",
+            message="Collection is pending",
+            retryable=True,
+        )
+
+    monkeypatch.setattr(storage, "read_mask_write_epochs", fenced)
+    monkeypatch.setattr(storage, "load_coco_rle", load)
+    with pytest.raises(storage.RasterMaskContractError) as rejected:
+        await storage.verify_mask_payload_content(GEOMETRY, db=db)
+    assert rejected.value.status_code == 409
+    assert rejected.value.detail["retryable"] is True
+    assert db.events == []
+    load.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_final_reference_gate_cannot_recapture_missing_epoch(monkeypatch):
+    db = _Database(SimpleNamespace(id="task", project_id="project"))
+    begin = AsyncMock()
+    load = AsyncMock(return_value=RLE)
+    monkeypatch.setattr(storage, "begin_mask_content_write", begin)
+    monkeypatch.setattr(storage, "load_coco_rle", load)
+    with pytest.raises(storage.RasterMaskContractError) as rejected:
+        await storage.lock_raster_mask_references(db, GEOMETRY, content_epochs={})
+    assert rejected.value.detail["reason"] == "mask_content_epoch_changed"
+    begin.assert_not_awaited()
+    load.assert_not_awaited()

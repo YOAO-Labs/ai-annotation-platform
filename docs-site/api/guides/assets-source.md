@@ -22,6 +22,8 @@ last_reviewed: 2026-10-19
 
 内部请求使用可信网关 bearer，账号 UUID 从公开 API 的当前认证结果取得；原生能力再次检查当前活跃账号、上传归属或全局素材库管理权。来源服务不读取 API 的 JWT、Redis 或 Celery 配置。普通上传和 ZIP 入库允许符合现有策略的活跃账号；ZIP 只要求 `datasets:write`，不要求素材库管理员。来源删除仍仅允许全局素材库管理员。扫描保留现有 `super_admin`、`project_admin` 管理员集合并要求 `datasets:write`。引用中的来源返回 409，须先在对应项目或功能中解除引用。
 
+来源删除同时检查单条素材所在场景的轨迹、轨迹操作和质量历史，以及视频章节、活跃视频媒体作业、未完成清单和仍被保留的图片／视频输入。检查通过前不删除素材、不取消视频作业，也不写入成功审计、删除回执或存储清理任务。场景锁先于素材锁取得，竞争返回可重试冲突。终态且已过保留期的无引用输入不会因旧回执永久阻止删除。
+
 普通来源操作使用 `aap-assets-source/v1` 信封：成功仅含 `schema,ok:true,data`，失败仅含 `schema,ok:false,error:{code}`。批量导入使用独立的 `aap-dataset-source-ingest/v1` 数据合同。完整 JSON Schema 随纯合同 wheel 分发，位于 `apps/assets-source/src/aap_assets_source/protocol.schema.json`。调用方检查 actor、父子与操作 UUID，未知版本、字段、错误或错误 scope 明确失败，不接受部分结果。JSON 请求/响应默认上限为 1/16 MiB；ZIP 使用单独的归档预算。
 
 ## 存储连接器管理

@@ -161,8 +161,8 @@ BEGIN
         '^raster-masks/sha256/([0-9a-f]{2})/([0-9a-f]{2})/([0-9a-f]{64})[.]json([.]gz)?$'
     );
     RETURN v_parts IS NOT NULL
-        AND v_parts[1] = pg_catalog.substring(v_parts[3] FROM 1 FOR 2)
-        AND v_parts[2] = pg_catalog.substring(v_parts[3] FROM 3 FOR 2);
+        AND v_parts[1] = pg_catalog.substr(v_parts[3], 1, 2)
+        AND v_parts[2] = pg_catalog.substr(v_parts[3], 3, 2);
 END
 $function$;
 -- aap-statement-break
@@ -559,7 +559,7 @@ DECLARE
     v_key text;
 BEGIN
     FOR v_key IN
-        SELECT DISTINCT requested.key
+        SELECT DISTINCT requested.key COLLATE "C"
         FROM pg_catalog.unnest(p_keys) AS requested(key)
         ORDER BY requested.key COLLATE "C"
     LOOP
@@ -663,7 +663,7 @@ BEGIN
 
     IF p_new_row IS NULL OR p_new_id IS NULL THEN RETURN; END IF;
     FOR v_ref IN
-        SELECT DISTINCT ref.object_key, ref.valid_until
+        SELECT DISTINCT ref.object_key COLLATE "C" AS object_key, ref.valid_until
         FROM aap_labeling_v1._mask_gc_row_refs(p_root_kind, p_new_row) AS ref
         ORDER BY ref.object_key COLLATE "C"
     LOOP
@@ -1388,7 +1388,7 @@ BEGIN
                 OR pg_catalog.octet_length(p_payload ->> 'after_key') > 1024
                 OR (p_payload ->> 'after_key') NOT LIKE 'raster-masks/sha256/%'))
        OR pg_catalog.jsonb_typeof(p_payload -> 'page') IS DISTINCT FROM 'object'
-       OR (p_payload -> 'page' - ARRAY['items', 'after_key', 'complete'])
+       OR ((p_payload -> 'page') - ARRAY['items', 'after_key', 'complete'])
             IS DISTINCT FROM '{}'::jsonb
        OR NOT (p_payload -> 'page' ?& ARRAY['items', 'after_key', 'complete'])
        OR pg_catalog.jsonb_typeof(p_payload #> '{page,items}') IS DISTINCT FROM 'array'
@@ -1581,14 +1581,9 @@ BEGIN
             updated_at = EXCLUDED.updated_at;
     END LOOP;
 
-    UPDATE public.mask_gc_sweeps
-    SET after_key = v_page_after_key,
-        complete = v_complete,
-        last_page_input_after_key = v_input_after_key,
-        last_page_digest = v_page_digest,
-        updated_at = v_now
-    WHERE sweep_id = v_sweep.sweep_id
-    RETURNING * INTO v_sweep;
+    v_sweep.after_key := v_page_after_key;
+    v_sweep.complete := v_complete;
+    v_sweep.updated_at := v_now;
     v_page_result := aap_labeling_v1._mask_gc_reply(
         pg_catalog.jsonb_build_object(
             'sweep', aap_labeling_v1._mask_gc_sweep_claim(v_sweep),
@@ -1599,7 +1594,12 @@ BEGIN
         NULL
     );
     UPDATE public.mask_gc_sweeps
-    SET last_page_result = v_page_result
+    SET after_key = v_page_after_key,
+        complete = v_complete,
+        last_page_input_after_key = v_input_after_key,
+        last_page_digest = v_page_digest,
+        last_page_result = v_page_result,
+        updated_at = v_now
     WHERE sweep_id = v_sweep.sweep_id;
     RETURN v_page_result;
 EXCEPTION WHEN OTHERS THEN
@@ -1785,7 +1785,8 @@ BEGIN
     v_now := pg_catalog.clock_timestamp();
     IF v_intent.state = 'completed'
        OR v_intent.claim_generation <> v_generation
-       OR v_intent.claim_lease_token <> v_lease_token
+       OR v_intent.claim_lease_token IS DISTINCT FROM v_lease_token
+       OR v_intent.claim_lease_expires_at IS NULL
        OR v_intent.claim_lease_expires_at <= v_now THEN
         RETURN aap_labeling_v1._mask_gc_reply(NULL, 'lease_lost');
     END IF;

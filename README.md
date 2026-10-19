@@ -162,6 +162,8 @@ Ultralytics YOLO11 的配置页可生成原生增强预览，对照冻结原图�
 
 Mask 内容读写提供可选独立工件 `apps/assets-mask-content`，沿用现有引用和业务权限；远程清单可用于 dry-run，业务回收远程删除等待持久删除栅栏。部署与配置见 [DEV.md](./DEV.md#mask-内容的独立字节服务)，协议见 [Mask 字节接口](./docs-site/api/guides/mask-content.md)。
 
+Mask 的持久删除围栏、代次校验与不可变回执已有隔离本地实现和故障验证，独立协调工件为 `apps/labeling-mask-gc`；现有业务回收器尚未切换。素材仍被相机链接、场景轨迹、视频执行或保留输入引用时，删除返回 409，须先在对应功能中解除引用，见[素材删除规则](./docs-site/user-guide/datasets/index.md#删除素材或数据集)。
+
 工作台单张图片预标使用同一媒体工件提供的版本化输入副本，整图模型和 ROI 读取同一版本。独立运行需配置专用的 `MINIO_INPUTS_BUCKET` 并启用版本管理；启动和权限要求见 [DEV.md](./DEV.md#图片金字塔的独立控制与执行)，其余消费路径见[媒体输入边界](./docs-site/dev/concepts/accepted-media-inputs.md)。
 
 项目成员可在工作台阅读[标注指引](./docs-site/user-guide/projects/index.md#编写标注指引)及示例图；指引编辑和图片上传、删除由项目负责人或超级管理员管理。

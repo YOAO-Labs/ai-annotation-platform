@@ -262,15 +262,23 @@ BEGIN
               )
               OR (
                   job.kind = 'video_backfill'
-                  AND (
+                  AND EXISTS (
+                    SELECT 1
+                    FROM aap_assets_v1.dataset_item_references(
+                        p_dataset_id, p_item_id
+                    ) AS source_item
+                    JOIN public.dataset_items AS selected_source
+                      ON selected_source.id = source_item.item_id
+                    WHERE selected_source.file_type = 'video'
+                      AND selected_source.created_at <= job.backfill_cutoff
+                      AND (
+                      job.spec #> '{selection,all_items}' = 'true'::jsonb
+                      OR
                       pg_catalog.lower(job.spec #>> '{selection,dataset_id}')
                           = p_dataset_id::text
                       OR EXISTS (
                           SELECT 1
-                          FROM aap_assets_v1.dataset_item_references(
-                              p_dataset_id, p_item_id
-                          ) AS source_item
-                          CROSS JOIN LATERAL pg_catalog.jsonb_array_elements_text(
+                          FROM pg_catalog.jsonb_array_elements_text(
                               COALESCE(
                                   job.spec #> '{selection,dataset_item_ids}',
                                   '[]'::jsonb
@@ -278,6 +286,7 @@ BEGIN
                           ) AS selected(item_id)
                           WHERE pg_catalog.lower(selected.item_id)
                               = source_item.item_id::text
+                      )
                       )
                   )
               )
@@ -773,4 +782,92 @@ END;
 $function$;
 -- aap-statement-break
 REVOKE ALL ON FUNCTION aap_assets_v1._delete_dataset_source(uuid, uuid, uuid, uuid, text, jsonb) FROM PUBLIC;
+-- aap-statement-break
+
+CREATE OR REPLACE FUNCTION aap_assets_v1._cancel_image_source_work(
+    p_owner_kind text, p_owner_id uuid, p_reason text
+)
+RETURNS timestamptz
+LANGUAGE plpgsql VOLATILE PARALLEL UNSAFE SECURITY DEFINER
+SET search_path = pg_catalog, pg_temp
+AS $function$
+DECLARE
+    v_job public.asset_image_jobs%ROWTYPE;
+    v_asset public.image_pyramid_assets%ROWTYPE;
+    v_generation public.image_pyramid_generations%ROWTYPE;
+    v_deadline timestamptz := pg_catalog.statement_timestamp();
+    v_prefix text;
+    v_grace integer;
+BEGIN
+    IF p_owner_kind IS NULL OR p_owner_kind NOT IN ('dataset_item', 'task')
+       OR p_owner_id IS NULL OR p_reason IS NULL
+       OR pg_catalog.char_length(p_reason) NOT BETWEEN 1 AND 64 THEN
+        RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'invalid image cancellation scope';
+    END IF;
+    FOR v_job IN
+        SELECT job.* FROM public.asset_image_jobs AS job
+        WHERE job.owner_kind = p_owner_kind AND job.owner_id = p_owner_id
+        ORDER BY job.job_id FOR UPDATE NOWAIT
+    LOOP
+        v_deadline := GREATEST(v_deadline, COALESCE(v_job.lease_expires_at, v_deadline));
+        IF v_job.output_prefix IS NOT NULL THEN
+            PERFORM aap_assets_v1._queue_image_garbage(
+                v_job.output_prefix, p_reason,
+                GREATEST(pg_catalog.statement_timestamp(), v_job.lease_expires_at)
+            );
+        END IF;
+        IF v_job.status IN ('pending', 'running') THEN
+            UPDATE public.asset_image_jobs AS job
+            SET status = 'canceled', error_code = 'source_changed',
+                error_detail = p_reason, completed_at = pg_catalog.clock_timestamp(),
+                updated_at = pg_catalog.clock_timestamp(),
+                last_lease_token = CASE WHEN v_job.lease_token IS NOT NULL
+                    THEN v_job.lease_token ELSE job.last_lease_token END,
+                last_outcome = CASE WHEN v_job.lease_token IS NOT NULL
+                    THEN 'source_changed' ELSE job.last_outcome END,
+                lease_owner = NULL, lease_token = NULL, lease_expires_at = NULL
+            WHERE job.job_id = v_job.job_id;
+        END IF;
+    END LOOP;
+    FOR v_asset IN
+        SELECT asset.* FROM public.image_pyramid_assets AS asset
+        WHERE (p_owner_kind = 'dataset_item' AND asset.dataset_item_id = p_owner_id)
+           OR (p_owner_kind = 'task' AND asset.task_id = p_owner_id)
+        ORDER BY asset.id FOR UPDATE NOWAIT
+    LOOP
+        FOR v_generation IN
+            SELECT generation.* FROM public.image_pyramid_generations AS generation
+            WHERE generation.asset_id = v_asset.id
+            ORDER BY generation.generation FOR UPDATE NOWAIT
+        LOOP
+            IF v_generation.status = 'building'
+               AND v_generation.lease_expires_at IS NULL THEN
+                RAISE lock_not_available USING MESSAGE = 'pyramid writer lease is unproven';
+            END IF;
+            v_deadline := GREATEST(v_deadline, COALESCE(v_generation.lease_expires_at, v_deadline));
+            v_prefix := COALESCE(v_generation.output_prefix,
+                'image-pyramids/' || v_asset.id::text || '/g' || v_generation.generation::text || '/');
+            v_grace := COALESCE((v_generation.policy ->> 'gc_grace_hours')::integer, 24);
+            PERFORM aap_assets_v1._queue_image_garbage(v_prefix, p_reason,
+                GREATEST(v_deadline,
+                    pg_catalog.statement_timestamp() + pg_catalog.make_interval(hours => v_grace))
+            );
+            IF v_generation.status IN ('pending', 'building') THEN
+                UPDATE public.image_pyramid_generations AS generation
+                SET status = 'failed', error_code = 'source_changed',
+                    updated_at = pg_catalog.clock_timestamp()
+                WHERE generation.asset_id = v_asset.id
+                  AND generation.generation = v_generation.generation;
+            END IF;
+        END LOOP;
+        UPDATE public.image_pyramid_assets AS asset
+        SET active_generation = NULL, building_generation = NULL,
+            updated_at = pg_catalog.clock_timestamp()
+        WHERE asset.id = v_asset.id;
+    END LOOP;
+    RETURN v_deadline;
+END;
+$function$;
+-- aap-statement-break
+REVOKE ALL ON FUNCTION aap_assets_v1._cancel_image_source_work(text, uuid, text) FROM PUBLIC;
 -- aap-statement-break

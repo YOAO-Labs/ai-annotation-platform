@@ -47,7 +47,6 @@ def _expected_signatures(role: str) -> tuple[str, ...]:
         operation_sets = (
             (IMAGE_OPERATIONS, {"worker"}),
             (INPUT_OPERATIONS, {"worker"}),
-            (TRACKER_OPERATIONS, {"worker"}),
         )
     elif role == "control":
         operation_sets = (

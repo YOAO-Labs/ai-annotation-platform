@@ -1,0 +1,997 @@
+{
+  "$defs": {
+    "BeginMaskContentWriteRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "object_keys": {
+          "items": {
+            "maxLength": 255,
+            "minLength": 1,
+            "type": "string"
+          },
+          "title": "Object Keys",
+          "type": "array"
+        }
+      },
+      "required": ["object_keys"],
+      "title": "BeginMaskContentWriteRequest",
+      "type": "object"
+    },
+    "ClaimMaskGcDeletesRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "lease_seconds": {
+          "default": 30,
+          "maximum": 300,
+          "minimum": 5,
+          "title": "Lease Seconds",
+          "type": "integer"
+        },
+        "limit": {
+          "default": 100,
+          "maximum": 100,
+          "minimum": 1,
+          "title": "Limit",
+          "type": "integer"
+        },
+        "worker_id": {
+          "format": "uuid",
+          "title": "Worker Id",
+          "type": "string"
+        }
+      },
+      "required": ["worker_id"],
+      "title": "ClaimMaskGcDeletesRequest",
+      "type": "object"
+    },
+    "ClaimMaskGcDeletesResult": {
+      "additionalProperties": false,
+      "properties": {
+        "items": {
+          "items": {
+            "$ref": "#/$defs/DeleteClaim"
+          },
+          "title": "Items",
+          "type": "array"
+        }
+      },
+      "required": ["items"],
+      "title": "ClaimMaskGcDeletesResult",
+      "type": "object"
+    },
+    "ClaimMaskGcSweepRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "lease_seconds": {
+          "default": 30,
+          "maximum": 300,
+          "minimum": 5,
+          "title": "Lease Seconds",
+          "type": "integer"
+        },
+        "worker_id": {
+          "format": "uuid",
+          "title": "Worker Id",
+          "type": "string"
+        }
+      },
+      "required": ["worker_id"],
+      "title": "ClaimMaskGcSweepRequest",
+      "type": "object"
+    },
+    "ClaimMaskGcSweepResult": {
+      "additionalProperties": false,
+      "properties": {
+        "sweep": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SweepClaim"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": ["sweep"],
+      "title": "ClaimMaskGcSweepResult",
+      "type": "object"
+    },
+    "CycleStats": {
+      "additionalProperties": false,
+      "properties": {
+        "completed": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Completed",
+          "type": "integer"
+        },
+        "content_changed": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Content Changed",
+          "type": "integer"
+        },
+        "data_errors": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Data Errors",
+          "type": "integer"
+        },
+        "delete_claims": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Delete Claims",
+          "type": "integer"
+        },
+        "deleted": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Deleted",
+          "type": "integer"
+        },
+        "durable_uncertainties": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Durable Uncertainties",
+          "type": "integer"
+        },
+        "finish_errors": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Finish Errors",
+          "type": "integer"
+        },
+        "indeterminate": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Indeterminate",
+          "type": "integer"
+        },
+        "missing": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Missing",
+          "type": "integer"
+        },
+        "pending": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Pending",
+          "type": "integer"
+        },
+        "scan_errors": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Scan Errors",
+          "type": "integer"
+        },
+        "scan_pages": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Scan Pages",
+          "type": "integer"
+        },
+        "scanned": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Scanned",
+          "type": "integer"
+        },
+        "skipped": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Skipped",
+          "type": "integer"
+        },
+        "staged": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Staged",
+          "type": "integer"
+        }
+      },
+      "title": "CycleStats",
+      "type": "object"
+    },
+    "DeleteClaim": {
+      "additionalProperties": false,
+      "properties": {
+        "byte_size": {
+          "minimum": 0,
+          "title": "Byte Size",
+          "type": "integer"
+        },
+        "epoch": {
+          "minimum": 0,
+          "title": "Epoch",
+          "type": "integer"
+        },
+        "etag": {
+          "maxLength": 255,
+          "minLength": 1,
+          "title": "Etag",
+          "type": "string"
+        },
+        "generation": {
+          "minimum": 1,
+          "title": "Generation",
+          "type": "integer"
+        },
+        "last_modified": {
+          "format": "date-time",
+          "title": "Last Modified",
+          "type": "string"
+        },
+        "lease_expires_at": {
+          "format": "date-time",
+          "title": "Lease Expires At",
+          "type": "string"
+        },
+        "lease_token": {
+          "format": "uuid",
+          "title": "Lease Token",
+          "type": "string"
+        },
+        "object_key": {
+          "maxLength": 255,
+          "minLength": 1,
+          "title": "Object Key",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "operation_id",
+        "object_key",
+        "etag",
+        "last_modified",
+        "byte_size",
+        "epoch",
+        "generation",
+        "lease_token",
+        "lease_expires_at"
+      ],
+      "title": "DeleteClaim",
+      "type": "object"
+    },
+    "DeleteOperationRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "etag": {
+          "maxLength": 255,
+          "minLength": 1,
+          "pattern": "^[\\x21\\x23-\\x7e]+$",
+          "title": "Etag",
+          "type": "string"
+        },
+        "last_modified": {
+          "format": "date-time",
+          "title": "Last Modified",
+          "type": "string"
+        },
+        "object_key": {
+          "maxLength": 255,
+          "minLength": 1,
+          "pattern": "^raster-masks/sha256/[0-9a-f]{2}/[0-9a-f]{2}/[0-9a-f]{64}\\.json(?:\\.gz)?$",
+          "title": "Object Key",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        }
+      },
+      "required": ["operation_id", "object_key", "etag", "last_modified"],
+      "title": "DeleteOperationRequest",
+      "type": "object"
+    },
+    "DeleteOperationStatus": {
+      "additionalProperties": false,
+      "properties": {
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "outcome": {
+          "anyOf": [
+            {
+              "enum": ["deleted", "missing", "content_changed"],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Outcome"
+        },
+        "request": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DeleteOperationRequest"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "state": {
+          "enum": ["not_found", "pending", "indeterminate", "completed"],
+          "title": "State",
+          "type": "string"
+        }
+      },
+      "required": ["operation_id", "request", "state", "outcome"],
+      "title": "DeleteOperationStatus",
+      "type": "object"
+    },
+    "FinishMaskGcDeleteRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "error_code": {
+          "anyOf": [
+            {
+              "enum": ["peer_unavailable", "invalid_response"],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Error Code"
+        },
+        "generation": {
+          "minimum": 1,
+          "title": "Generation",
+          "type": "integer"
+        },
+        "lease_token": {
+          "format": "uuid",
+          "title": "Lease Token",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "receipt": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DeleteOperationStatus"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": ["operation_id", "generation", "lease_token", "receipt", "error_code"],
+      "title": "FinishMaskGcDeleteRequest",
+      "type": "object"
+    },
+    "FinishMaskGcDeleteResult": {
+      "additionalProperties": false,
+      "properties": {
+        "completed": {
+          "title": "Completed",
+          "type": "boolean"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "state": {
+          "enum": ["pending", "indeterminate", "completed"],
+          "title": "State",
+          "type": "string"
+        }
+      },
+      "required": ["operation_id", "state", "completed"],
+      "title": "FinishMaskGcDeleteResult",
+      "type": "object"
+    },
+    "GcCandidate": {
+      "additionalProperties": false,
+      "properties": {
+        "byte_size": {
+          "minimum": 0,
+          "title": "Byte Size",
+          "type": "integer"
+        },
+        "etag": {
+          "maxLength": 255,
+          "minLength": 1,
+          "pattern": "^[\\x21\\x23-\\x7e]+$",
+          "title": "Etag",
+          "type": "string"
+        },
+        "last_modified": {
+          "format": "date-time",
+          "title": "Last Modified",
+          "type": "string"
+        },
+        "object_key": {
+          "maxLength": 255,
+          "minLength": 1,
+          "pattern": "^raster-masks/sha256/[0-9a-f]{2}/[0-9a-f]{2}/[0-9a-f]{64}\\.json(?:\\.gz)?$",
+          "title": "Object Key",
+          "type": "string"
+        }
+      },
+      "required": ["object_key", "etag", "last_modified", "byte_size"],
+      "title": "GcCandidate",
+      "type": "object"
+    },
+    "GcScanPage": {
+      "additionalProperties": false,
+      "properties": {
+        "after_key": {
+          "anyOf": [
+            {
+              "maxLength": 1024,
+              "minLength": 1,
+              "pattern": "^raster-masks/sha256/",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "After Key"
+        },
+        "complete": {
+          "title": "Complete",
+          "type": "boolean"
+        },
+        "items": {
+          "items": {
+            "$ref": "#/$defs/GcCandidate"
+          },
+          "maxItems": 1000,
+          "title": "Items",
+          "type": "array"
+        }
+      },
+      "required": ["items", "after_key", "complete"],
+      "title": "GcScanPage",
+      "type": "object"
+    },
+    "LockMaskWriteEpochsRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "items": {
+          "items": {
+            "$ref": "#/$defs/MaskWriteEpoch"
+          },
+          "title": "Items",
+          "type": "array"
+        }
+      },
+      "required": ["items"],
+      "title": "LockMaskWriteEpochsRequest",
+      "type": "object"
+    },
+    "MaskWriteEpoch": {
+      "additionalProperties": false,
+      "properties": {
+        "epoch": {
+          "minimum": 0,
+          "title": "Epoch",
+          "type": "integer"
+        },
+        "object_key": {
+          "maxLength": 255,
+          "minLength": 1,
+          "title": "Object Key",
+          "type": "string"
+        }
+      },
+      "required": ["object_key", "epoch"],
+      "title": "MaskWriteEpoch",
+      "type": "object"
+    },
+    "MaskWriteEpochs": {
+      "additionalProperties": false,
+      "properties": {
+        "items": {
+          "items": {
+            "$ref": "#/$defs/MaskWriteEpoch"
+          },
+          "title": "Items",
+          "type": "array"
+        }
+      },
+      "required": ["items"],
+      "title": "MaskWriteEpochs",
+      "type": "object"
+    },
+    "ProgressRequest": {
+      "additionalProperties": false,
+      "properties": {},
+      "title": "ProgressRequest",
+      "type": "object"
+    },
+    "ReadMaskGcProgressRequest": {
+      "additionalProperties": false,
+      "properties": {},
+      "title": "ReadMaskGcProgressRequest",
+      "type": "object"
+    },
+    "ReadMaskGcProgressResult": {
+      "additionalProperties": false,
+      "properties": {
+        "active_intents": {
+          "minimum": 0,
+          "title": "Active Intents",
+          "type": "integer"
+        },
+        "completed_intents": {
+          "minimum": 0,
+          "title": "Completed Intents",
+          "type": "integer"
+        },
+        "indeterminate_intents": {
+          "minimum": 0,
+          "title": "Indeterminate Intents",
+          "type": "integer"
+        },
+        "sweep": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SweepClaim"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": ["active_intents", "indeterminate_intents", "completed_intents", "sweep"],
+      "title": "ReadMaskGcProgressResult",
+      "type": "object"
+    },
+    "ReadMaskWriteEpochsRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "object_keys": {
+          "items": {
+            "maxLength": 255,
+            "minLength": 1,
+            "type": "string"
+          },
+          "title": "Object Keys",
+          "type": "array"
+        }
+      },
+      "required": ["object_keys"],
+      "title": "ReadMaskWriteEpochsRequest",
+      "type": "object"
+    },
+    "RunRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "delete_limit": {
+          "default": 100,
+          "maximum": 100,
+          "minimum": 1,
+          "title": "Delete Limit",
+          "type": "integer"
+        },
+        "scan_pages": {
+          "default": 1,
+          "maximum": 20,
+          "minimum": 1,
+          "title": "Scan Pages",
+          "type": "integer"
+        }
+      },
+      "title": "RunRequest",
+      "type": "object"
+    },
+    "StageMaskGcPageRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "after_key": {
+          "anyOf": [
+            {
+              "maxLength": 1024,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "After Key"
+        },
+        "generation": {
+          "minimum": 1,
+          "title": "Generation",
+          "type": "integer"
+        },
+        "lease_token": {
+          "format": "uuid",
+          "title": "Lease Token",
+          "type": "string"
+        },
+        "page": {
+          "$ref": "#/$defs/GcScanPage"
+        },
+        "sweep_id": {
+          "format": "uuid",
+          "title": "Sweep Id",
+          "type": "string"
+        }
+      },
+      "required": ["sweep_id", "generation", "lease_token", "after_key", "page"],
+      "title": "StageMaskGcPageRequest",
+      "type": "object"
+    },
+    "StageMaskGcPageResult": {
+      "additionalProperties": false,
+      "properties": {
+        "scanned": {
+          "minimum": 0,
+          "title": "Scanned",
+          "type": "integer"
+        },
+        "skipped": {
+          "minimum": 0,
+          "title": "Skipped",
+          "type": "integer"
+        },
+        "staged": {
+          "minimum": 0,
+          "title": "Staged",
+          "type": "integer"
+        },
+        "sweep": {
+          "$ref": "#/$defs/SweepClaim"
+        }
+      },
+      "required": ["sweep", "scanned", "staged", "skipped"],
+      "title": "StageMaskGcPageResult",
+      "type": "object"
+    },
+    "SweepClaim": {
+      "additionalProperties": false,
+      "properties": {
+        "after_key": {
+          "anyOf": [
+            {
+              "maxLength": 1024,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "After Key"
+        },
+        "complete": {
+          "title": "Complete",
+          "type": "boolean"
+        },
+        "cutoff": {
+          "format": "date-time",
+          "title": "Cutoff",
+          "type": "string"
+        },
+        "generation": {
+          "minimum": 1,
+          "title": "Generation",
+          "type": "integer"
+        },
+        "lease_expires_at": {
+          "format": "date-time",
+          "title": "Lease Expires At",
+          "type": "string"
+        },
+        "lease_token": {
+          "format": "uuid",
+          "title": "Lease Token",
+          "type": "string"
+        },
+        "sweep_id": {
+          "format": "uuid",
+          "title": "Sweep Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "sweep_id",
+        "generation",
+        "lease_token",
+        "lease_expires_at",
+        "cutoff",
+        "after_key",
+        "complete"
+      ],
+      "title": "SweepClaim",
+      "type": "object"
+    },
+    "_ErrorEnvelope": {
+      "additionalProperties": false,
+      "properties": {
+        "error": {
+          "$ref": "#/$defs/_HttpError"
+        },
+        "ok": {
+          "const": false
+        },
+        "schema": {
+          "const": "aap-labeling-mask-gc/v1"
+        }
+      },
+      "required": ["schema", "ok", "error"],
+      "type": "object"
+    },
+    "_HttpError": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "enum": [
+            "content_deleting",
+            "content_epoch_changed",
+            "cursor_conflict",
+            "idempotency_conflict",
+            "invalid_request",
+            "invalid_response",
+            "lease_lost",
+            "permission_denied",
+            "storage_unavailable"
+          ],
+          "type": "string"
+        }
+      },
+      "required": ["code"],
+      "type": "object"
+    },
+    "_NativeError": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "enum": [
+            "invalid_request",
+            "invalid_response",
+            "content_deleting",
+            "content_epoch_changed",
+            "lease_lost",
+            "cursor_conflict",
+            "idempotency_conflict",
+            "storage_unavailable"
+          ],
+          "title": "Code",
+          "type": "string"
+        }
+      },
+      "required": ["code"],
+      "title": "_NativeError",
+      "type": "object"
+    },
+    "_SuccessEnvelope": {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/MaskWriteEpochs"
+            },
+            {
+              "$ref": "#/$defs/ClaimMaskGcSweepResult"
+            },
+            {
+              "$ref": "#/$defs/StageMaskGcPageResult"
+            },
+            {
+              "$ref": "#/$defs/ClaimMaskGcDeletesResult"
+            },
+            {
+              "$ref": "#/$defs/FinishMaskGcDeleteResult"
+            },
+            {
+              "$ref": "#/$defs/ReadMaskGcProgressResult"
+            },
+            {
+              "$ref": "#/$defs/CycleStats"
+            }
+          ]
+        },
+        "ok": {
+          "const": true
+        },
+        "schema": {
+          "const": "aap-labeling-mask-gc/v1"
+        }
+      },
+      "required": ["schema", "ok", "data"],
+      "type": "object"
+    }
+  },
+  "$id": "https://schemas.aap.invalid/labeling-mask-gc/v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/ReadMaskWriteEpochsRequest"
+    },
+    {
+      "$ref": "#/$defs/BeginMaskContentWriteRequest"
+    },
+    {
+      "$ref": "#/$defs/LockMaskWriteEpochsRequest"
+    },
+    {
+      "$ref": "#/$defs/ClaimMaskGcSweepRequest"
+    },
+    {
+      "$ref": "#/$defs/StageMaskGcPageRequest"
+    },
+    {
+      "$ref": "#/$defs/ClaimMaskGcDeletesRequest"
+    },
+    {
+      "$ref": "#/$defs/FinishMaskGcDeleteRequest"
+    },
+    {
+      "$ref": "#/$defs/ReadMaskGcProgressRequest"
+    },
+    {
+      "$ref": "#/$defs/RunRequest"
+    },
+    {
+      "$ref": "#/$defs/ProgressRequest"
+    },
+    {
+      "$ref": "#/$defs/_SuccessEnvelope"
+    },
+    {
+      "$ref": "#/$defs/_ErrorEnvelope"
+    }
+  ],
+  "title": "AAP Labeling Mask GC native and HTTP calls",
+  "x-aap-schema": "aap-labeling-mask-gc/v1",
+  "x-budgets": {
+    "delete_claims_per_cycle": 100,
+    "gc_page": 1000,
+    "object_keys": 1000,
+    "request_bytes": 1048576,
+    "response_bytes": 1048576,
+    "scan_pages_per_cycle": 20
+  },
+  "x-http-operations": {
+    "progress": {
+      "method": "POST",
+      "path": "/v1/mask-gc/progress",
+      "request": "ProgressRequest",
+      "result": "ReadMaskGcProgressResult"
+    },
+    "run": {
+      "method": "POST",
+      "path": "/v1/mask-gc/run",
+      "request": "RunRequest",
+      "result": "CycleStats"
+    }
+  },
+  "x-native-operations": {
+    "begin_mask_content_write": {
+      "arguments": ["payload"],
+      "request": "BeginMaskContentWriteRequest",
+      "result": "MaskWriteEpochs",
+      "role": "labeling",
+      "sql_types": ["jsonb"]
+    },
+    "claim_mask_gc_deletes": {
+      "arguments": ["payload"],
+      "request": "ClaimMaskGcDeletesRequest",
+      "result": "ClaimMaskGcDeletesResult",
+      "role": "cleanup",
+      "sql_types": ["jsonb"]
+    },
+    "claim_mask_gc_sweep": {
+      "arguments": ["payload"],
+      "request": "ClaimMaskGcSweepRequest",
+      "result": "ClaimMaskGcSweepResult",
+      "role": "cleanup",
+      "sql_types": ["jsonb"]
+    },
+    "finish_mask_gc_delete": {
+      "arguments": ["payload"],
+      "request": "FinishMaskGcDeleteRequest",
+      "result": "FinishMaskGcDeleteResult",
+      "role": "cleanup",
+      "sql_types": ["jsonb"]
+    },
+    "lock_mask_write_epochs": {
+      "arguments": ["payload"],
+      "request": "LockMaskWriteEpochsRequest",
+      "result": "MaskWriteEpochs",
+      "role": "labeling",
+      "sql_types": ["jsonb"]
+    },
+    "read_mask_gc_progress": {
+      "arguments": ["payload"],
+      "request": "ReadMaskGcProgressRequest",
+      "result": "ReadMaskGcProgressResult",
+      "role": "cleanup",
+      "sql_types": ["jsonb"]
+    },
+    "read_mask_write_epochs": {
+      "arguments": ["payload"],
+      "request": "ReadMaskWriteEpochsRequest",
+      "result": "MaskWriteEpochs",
+      "role": "labeling",
+      "sql_types": ["jsonb"]
+    },
+    "stage_mask_gc_page": {
+      "arguments": ["payload"],
+      "request": "StageMaskGcPageRequest",
+      "result": "StageMaskGcPageResult",
+      "role": "cleanup",
+      "sql_types": ["jsonb"]
+    }
+  },
+  "x-requests": [
+    {
+      "$ref": "#/$defs/ReadMaskWriteEpochsRequest"
+    },
+    {
+      "$ref": "#/$defs/BeginMaskContentWriteRequest"
+    },
+    {
+      "$ref": "#/$defs/LockMaskWriteEpochsRequest"
+    },
+    {
+      "$ref": "#/$defs/ClaimMaskGcSweepRequest"
+    },
+    {
+      "$ref": "#/$defs/StageMaskGcPageRequest"
+    },
+    {
+      "$ref": "#/$defs/ClaimMaskGcDeletesRequest"
+    },
+    {
+      "$ref": "#/$defs/FinishMaskGcDeleteRequest"
+    },
+    {
+      "$ref": "#/$defs/ReadMaskGcProgressRequest"
+    },
+    {
+      "$ref": "#/$defs/RunRequest"
+    },
+    {
+      "$ref": "#/$defs/ProgressRequest"
+    }
+  ],
+  "x-results": [
+    {
+      "$ref": "#/$defs/MaskWriteEpochs"
+    },
+    {
+      "$ref": "#/$defs/ClaimMaskGcSweepResult"
+    },
+    {
+      "$ref": "#/$defs/StageMaskGcPageResult"
+    },
+    {
+      "$ref": "#/$defs/ClaimMaskGcDeletesResult"
+    },
+    {
+      "$ref": "#/$defs/FinishMaskGcDeleteResult"
+    },
+    {
+      "$ref": "#/$defs/ReadMaskGcProgressResult"
+    },
+    {
+      "$ref": "#/$defs/CycleStats"
+    }
+  ]
+}

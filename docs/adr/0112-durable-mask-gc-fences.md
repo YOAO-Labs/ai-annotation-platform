@@ -1,0 +1,66 @@
+# 0112 — Durable Mask deletion fences and terminal receipts
+
+- Status: Accepted; isolated local qualification, business cutover pending
+- Date: 2026-10-20
+- Deciders: Maintainers
+- Supersedes: The deferred GC protocol design in ADR-0111; the byte contract remains unchanged
+
+## Context
+
+A request-local SQL lock cannot protect a new Mask reference after an HTTP
+timeout if the remote deletion is still running. Same-content uploads preserve
+their ETag. A missing object observed later cannot prove an earlier deletion
+has finished. The old bounded eligible prefix also prevents fair progress when
+its deletions keep failing.
+
+## Decision
+
+Labeling owns durable per-key epochs, deletion intents, producer grace, roots
+and a sweep cursor in migration 0229. Eight closed JSON operations use
+`aap-labeling-mask-gc/v1`. The cleanup login receives only five GC operations;
+three write gates remain part of the business writer's transaction. Native
+triggers backstop every retained Mask root, including tracker snapshots and
+review scopes. The byte owner never reads business tables.
+
+Preflight captures the epoch before reading bytes. Final registration checks
+that exact epoch under the content lock and registers a transaction-bound,
+authenticated permit. Collection increments the epoch and holds a durable
+fence through every uncertain outcome. Completion clears the active operation
+without resetting its epoch, so old verified content cannot become a new root.
+Producers renew persisted grace before object I/O; read and final checks do not
+renew it.
+
+The cleanup byte process adds `aap-assets-mask-gc/v1` scan/execute/status
+operations. An immutable conditional request object claims a stable operation
+ID once. Only that claimant can issue the single conditional payload deletion;
+matching replays read the receipt and never delete again. The SDK makes one
+attempt with explicit deadlines. No receipt means indeterminate, even when
+HEAD would show missing or changed content. A successful terminal receipt is
+immutable and survives restart. Journal objects live in
+`raster-mask-gc/v1/`, with narrowly scoped Get/Put and no Delete permission.
+They must not expire independently of the replay guarantee.
+
+Only an exact terminal receipt under the current native claim can release the
+fence. Lease expiry, a cleared token, old generations, transport errors and
+HEAD absence are insufficient. Scan pages advance independently of deletion
+results, while unresolved intents have a later recheck time. Page cursor and
+replay receipt are updated atomically.
+
+`apps/labeling-mask-gc` contains the portable contract, coordinator and client,
+plus a separate runtime using function-only PostgreSQL and cleanup HTTP. It
+has no application, Celery, Redis or S3 imports. The existing Celery collector
+retains its remote destructive guard until business consumer recovery and
+deployment qualification are complete. This is no production or Go cutover.
+
+## Consequences
+
+The native authority and byte journal permit independent execution and safe
+reconciliation after lost replies. They add persistent epochs and journals;
+uncertain operations can hold a key indefinitely until definitive evidence is
+available. Releasing them by elapsed time would lose the safety guarantee.
+
+Local tests cover native privileges, stale claims and epochs, fair progress
+past a failed first thousand keys, actual S3 reply loss, late HTTP completion
+and byte-process restart. They do not qualify production capacity, the new
+runtime image, complete Labeling deployment, or durable ordinary-batch result
+handoff. Those remain explicit gates before changing the existing collector.

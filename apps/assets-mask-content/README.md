@@ -24,8 +24,9 @@ immutably at `raster-mask-gc/v1/{operation_id}/receipt.json`; neither journal
 object is expired or deleted. A repeated matching request only checks status,
 and a different request with the same operation ID returns
 `idempotency_conflict`. Unresolved timeouts and uncertain replies remain
-pending or indeterminate unless a later HEAD proves a terminal missing or
-changed state; they never authorize a second payload delete. Status can recover
+pending or indeterminate until the exact operation's durable terminal receipt
+exists; current HEAD facts alone cannot resolve them. They never authorize a
+second payload delete. Status can recover
 a durable receipt without reading the payload again.
 
 Objects use the existing key namespace

@@ -206,6 +206,33 @@ async def test_unavailable_status_is_durably_recorded_without_terminal_receipt()
 
 
 @pytest.mark.asyncio
+async def test_missing_journal_after_two_failed_executes_records_uncertainty():
+    claim = _claim(OP_A, KEY_A)
+    data = FakeData((claim,))
+
+    class MissingJournal(FakeStorage):
+        def status(self, request):
+            self.status_ids.append(request.operation_id)
+            return byte.DeleteOperationStatus(
+                operation_id=request.operation_id,
+                request=None,
+                state="not_found",
+                outcome=None,
+            )
+
+    storage = MissingJournal(fail_execute_ids={OP_A})
+    stats = await run_cycle(data, storage, worker_id=WORKER_ID, delete_limit=1)
+    finish = [
+        request for name, request in data.calls if name == "finish_mask_gc_delete"
+    ][0]
+    assert storage.execute_ids == [OP_A, OP_A]
+    assert finish.receipt is None
+    assert finish.error_code == "peer_unavailable"
+    assert stats.durable_uncertainties == 1
+    assert stats.finish_errors == 0
+
+
+@pytest.mark.asyncio
 async def test_mismatched_status_identity_records_uncertainty_and_moves_on():
     claims = (_claim(OP_A, KEY_A), _claim(OP_B, KEY_B))
     data = FakeData(claims)

@@ -32,7 +32,15 @@ from app.db.models.task import Task
 from app.config import settings
 from app.observability.metrics import record_raster_mask_content_operation
 from app.services.raster_mask_capabilities import evaluate_raster_mask_capabilities
+from app.services.raster_mask_contract import (
+    RasterMaskContractError as RasterMaskContractError,
+)
 from app.services.mask_content import mask_content_owner
+from app.services.mask_gc import (
+    begin_mask_content_write,
+    lock_mask_write_epochs,
+    read_mask_write_epochs,
+)
 from app.services.storage import StorageService, storage_service
 from app.services.video_context import VideoContext
 from app.utils.raster_mask_gzip import (
@@ -67,27 +75,12 @@ _T = TypeVar("_T")
 _log = logging.getLogger(__name__)
 
 
-class RasterMaskContractError(ValueError):
-    """Stable API-facing rejection raised at the mask persistence boundary."""
-
-    def __init__(
-        self,
-        *,
-        status_code: int,
-        reason: str,
-        message: str,
-        **detail: Any,
-    ):
-        super().__init__(message)
-        self.status_code = status_code
-        self.detail = {"reason": reason, "message": message, **detail}
-
-
 @dataclass(frozen=True, slots=True)
 class _VerifiedMaskContent:
     reference_signature: tuple[tuple[str, str], ...]
     foreground_keys: tuple[str, ...]
     rle_cache: tuple[tuple[str, dict[str, Any]], ...] = ()
+    content_epochs: tuple[tuple[str, int], ...] = ()
 
 
 def _unique_mask_references(value: Any) -> list[dict[str, Any]]:
@@ -128,7 +121,7 @@ def _mask_content_signature(
 
 
 async def verify_mask_payload_content(
-    value: Any, *, reference_value: Any | None = None
+    value: Any, *, db: AsyncSession, reference_value: Any | None = None
 ) -> _VerifiedMaskContent:
     """Verify immutable RLE objects before callers acquire business-row locks."""
     try:
@@ -145,6 +138,9 @@ async def verify_mask_payload_content(
     )
     rle_cache: dict[str, dict[str, Any]] = {}
     try:
+        epochs = await read_mask_write_epochs(
+            db, (str(reference["object_key"]) for reference in references)
+        )
         for reference in references:
             key = str(reference["object_key"])
             payload = await _observe_content_operation(
@@ -177,6 +173,7 @@ async def verify_mask_payload_content(
         verified.reference_signature,
         verified.foreground_keys,
         tuple(sorted(rle_cache.items())),
+        tuple(sorted(epochs.items())),
     )
 
 
@@ -207,7 +204,9 @@ async def preflight_mask_payload_for_write(
             message="mask persistence requires an existing task",
         )
     await _validate_mask_payload_for_task(db, current_task, geometries)
-    return await verify_mask_payload_content(value, reference_value=reference_value)
+    return await verify_mask_payload_content(
+        value, db=db, reference_value=reference_value
+    )
 
 
 async def _validate_mask_payload_for_task(
@@ -413,17 +412,33 @@ async def lock_raster_mask_references(
     task_id: Any | None = None,
     require_raster_foreground: bool = False,
     foreground_object_keys: set[str] | None = None,
+    content_epochs: dict[str, int] | None = None,
+    for_collection: bool = False,
 ) -> list[str]:
     """Serialize reference commits with GC until the current DB transaction ends."""
     references = {
         str(reference["object_key"]): reference
         for reference in collect_mask_references(value)
     }
-    for key in sorted(references):
+    keys = sorted(references)
+    for key in keys:
         await db.execute(
             text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
             {"key": f"aap:raster-mask:{key}"},
         )
+    if keys and not for_collection:
+        if content_epochs is None:
+            await begin_mask_content_write(db, keys)
+        else:
+            if any(key not in content_epochs for key in keys):
+                raise RasterMaskContractError(
+                    status_code=409,
+                    reason="mask_content_epoch_changed",
+                    message="Mask verification is missing its content epoch",
+                    retryable=True,
+                )
+            await lock_mask_write_epochs(db, {key: content_epochs[key] for key in keys})
+    for key in keys:
         if verify:
             await _observe_content_operation(
                 "verify",
@@ -472,6 +487,17 @@ async def store_mask_reference_objects(
     await lock_raster_mask_references(db, value, task_id=task_id)
 
 
+async def store_generated_mask_content(db, rle: dict[str, Any], *, writer=None):
+    """Renew durable producer grace before storing bytes and linking their root."""
+    expected = build_rle_reference(rle)
+    await lock_raster_mask_references(db, expected, verify=False)
+    reference = await (writer or store_coco_rle)(rle)
+    validate_reference_for_rle(reference, rle)
+    if reference["object_key"] != expected["object_key"]:
+        raise ValueError("generated Mask storage changed its content address")
+    return reference
+
+
 async def reserve_raster_mask_upload(
     db: AsyncSession,
     *,
@@ -480,6 +506,7 @@ async def reserve_raster_mask_upload(
     limit: int,
 ) -> int:
     """Reserve one task-owned anonymous upload under a transaction-scoped lock."""
+    await begin_mask_content_write(db, [object_key])
     await db.execute(
         text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
         {"key": f"aap:raster-mask-upload:{task_id}"},
@@ -531,7 +558,9 @@ async def _delete_unreferenced_mask_candidate(
     db, candidate, owner, is_referenced, cutoff
 ) -> bool:
     key = candidate.key
-    await lock_raster_mask_references(db, {"object_key": key}, verify=False)
+    await lock_raster_mask_references(
+        db, {"object_key": key}, verify=False, for_collection=True
+    )
     if await is_referenced(db, key):
         await db.commit()
         return False
@@ -552,7 +581,9 @@ async def _delete_unreferenced_mask_candidate(
     await db.execute(delete(RasterMaskUpload).where(RasterMaskUpload.object_key == key))
     # Retire reservations first; a failed object deletion remains a recoverable orphan.
     await db.commit()
-    await lock_raster_mask_references(db, {"object_key": key}, verify=False)
+    await lock_raster_mask_references(
+        db, {"object_key": key}, verify=False, for_collection=True
+    )
     upload_exists = (
         await db.execute(
             select(RasterMaskUpload.id)
@@ -876,6 +907,7 @@ async def prepare_mask_payload_for_write(
             references_to_commit,
             verify=False,
             foreground_object_keys=foreground_keys,
+            content_epochs=dict(verified_content.content_epochs),
         )
         required = sorted(required_upload_keys or set())
         if required:

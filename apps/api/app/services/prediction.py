@@ -9,6 +9,7 @@ from typing import Any
 from fastapi import HTTPException
 from sqlalchemy import delete, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.sql.selectable import Select
 
 from aap_assets_video_inputs.evidence import VideoInputEvidence
@@ -27,6 +28,7 @@ from app.services.labeling_prediction_contract import (
     ApplyPredictionResultReceipt,
     ApplyPredictionResultRequest,
 )
+from app.services.mask_gc import mask_fence_error
 from app.services.test_seed_access import assert_isolated_test_seed_database
 from app.services.project_access import resolve_project_access
 from app.services.raster_mask_storage import (
@@ -815,7 +817,13 @@ class PredictionService:
             source=request.source,
         )
         self.db.add(prediction)
-        await self.db.flush()
+        try:
+            await self.db.flush()
+        except SQLAlchemyError as exc:
+            rejection = mask_fence_error(exc)
+            if rejection is None:
+                raise
+            raise _apply_prediction_error(rejection) from None
 
         meta_data = request.token_meta or {}
         meta = PredictionMeta(

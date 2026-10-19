@@ -157,3 +157,4 @@
 - [ADR-0109: Retained video inputs and source-bound frame plans](0109-retained-video-inputs-and-frame-plans.md)
 - [0110 — 跟踪作业固定原始视频输入](0110-retained-tracker-video-inputs.md)
 - [0111 — 独立 Mask 内容字节边界](0111-independent-mask-content.md)
+- [0112 — Durable Mask deletion fences and terminal receipts](0112-durable-mask-gc-fences.md)

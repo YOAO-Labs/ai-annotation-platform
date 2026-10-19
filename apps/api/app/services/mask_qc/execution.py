@@ -31,7 +31,11 @@ from app.services.mask_qc.service import (
     issue_dedupe_key,
 )
 from app.services.quality_job_lifecycle import QualityJobLifecycle
-from app.services.raster_mask_storage import load_coco_rle, store_coco_rle
+from app.services.raster_mask_storage import (
+    load_coco_rle,
+    store_coco_rle,
+    store_generated_mask_content,
+)
 from app.services.video_tracks import resolve_mask_track_state_at_frame
 from app.utils.raster_mask_rle import coco_rle_bbox_norm
 
@@ -176,7 +180,11 @@ async def _persist_issue(
     seen_keys: set[str],
 ) -> None:
     source_versions = _source_versions(primary, *related)
-    region_ref = await store_coco_rle(region_rle) if region_rle is not None else None
+    region_ref = (
+        await store_generated_mask_content(db, region_rle, writer=store_coco_rle)
+        if region_rle is not None
+        else None
+    )
     region_digest = str(region_ref["sha256"]) if region_ref else None
     related_ids = sorted(
         {primary.annotation_id, *(item.annotation_id for item in related)}, key=str

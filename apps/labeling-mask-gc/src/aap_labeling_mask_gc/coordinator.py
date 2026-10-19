@@ -160,7 +160,7 @@ async def _resolve_delete(
     except Exception as retry_error:
         if _controlled_error(retry_error) == "invalid_response":
             error_code = "invalid_response"
-    return status, None
+    return None, error_code
 
 
 def _add(stats: dict[str, int], name: str, amount: int) -> None:

@@ -372,6 +372,7 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON
     public.mask_gc_roots
     TO :"labeling_owner";
 GRANT SELECT ON public.mask_gc_write_permit_secrets TO :"labeling_owner";
+GRANT SELECT (dataset_item_id) ON public.video_chapters TO :"labeling_owner";
 GRANT SELECT (id, project_id, task_id, retry_count, dismissed_at, extra), DELETE
     ON public.failed_predictions TO :"labeling_owner";
 GRANT SELECT (prediction_id, failed_prediction_id, extra), DELETE
@@ -678,6 +679,8 @@ GRANT EXECUTE ON FUNCTION
     TO :"workflow_role";
 GRANT EXECUTE ON FUNCTION aap_assets_v1.dataset_item_references(uuid, uuid)
     TO :"labeling_owner", :"learning_owner";
+GRANT EXECUTE ON FUNCTION aap_assets_v1.dataset_item_scene_references(uuid, uuid)
+    TO :"labeling_owner";
 GRANT EXECUTE ON FUNCTION aap_assets_v1.dataset_scene_references(uuid),
     aap_assets_v1.dataset_association_references(uuid)
     TO :"labeling_owner";
@@ -848,6 +851,10 @@ ALTER FUNCTION aap_assets_v1.lock_scene_source_references(uuid[])
 ALTER FUNCTION aap_assets_v1.delete_project_owned_records(uuid)
     OWNER TO :"assets_owner";
 ALTER FUNCTION aap_assets_v1.dataset_item_references(uuid, uuid)
+    OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1.dataset_item_scene_references(uuid, uuid)
+    OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1.guard_dataset_source_auxiliary_retention(uuid, uuid)
     OWNER TO :"assets_owner";
 ALTER FUNCTION aap_assets_v1.dataset_scene_references(uuid)
     OWNER TO :"assets_owner";

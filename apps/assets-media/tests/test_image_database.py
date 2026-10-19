@@ -257,7 +257,7 @@ def test_native_binding_enforces_per_page_record_budget(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_capability_preflight_requires_exact_image_input_tracker_worker_oids():
+async def test_capability_preflight_requires_only_image_and_image_input_worker_oids():
     signatures = {
         "aap_assets_v1." + name + "(" + ", ".join(operation.sql_types) + ")": index
         for index, (name, operation) in enumerate(
@@ -266,7 +266,6 @@ async def test_capability_preflight_requires_exact_image_input_tracker_worker_oi
                 for operation_set in (
                     OPERATIONS,
                     INPUT_OPERATIONS,
-                    TRACKER_OPERATIONS,
                 )
                 for name, operation in operation_set.items()
                 if operation.role == "worker"
@@ -275,7 +274,7 @@ async def test_capability_preflight_requires_exact_image_input_tracker_worker_oi
         )
     }
     rows = [{"oid": oid, "prosecdef": True} for oid in signatures.values()]
-    assert len(signatures) == 16
+    assert len(signatures) == 10
     connection = _HealthConnection(
         identity_ok=True,
         signatures=signatures,

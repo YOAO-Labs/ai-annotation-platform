@@ -1276,18 +1276,31 @@ async def test_worker_syncs_async_job_completed(db_session, super_admin, monkeyp
 
 
 async def test_materialize_tracker_mask_result_stores_rle_and_adds_aabb(monkeypatch):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    from app.services import raster_mask_storage as storage
     from app.services.video_tracking.runner import _materialize_tracker_mask_result
 
-    reference = {
-        "encoding": "coco_rle_ref",
-        "size": [2, 3],
-        "object_key": "raster-masks/sha256/aa/aa/" + "a" * 64 + ".json",
-        "sha256": "a" * 64,
-        "runs": 3,
-        "bytes": 58,
-    }
+    rle = {"encoding": "coco_rle", "size": [2, 3], "counts": [2, 2, 2]}
+    reference = storage.build_rle_reference(rle)
+    events = []
+
+    async def commit():
+        events.append("commit_grace")
+
+    db = SimpleNamespace(commit=AsyncMock(side_effect=commit))
+
+    async def lock_content(actual_db, value, *, verify):
+        assert actual_db is db
+        assert value == reference
+        assert verify is False
+        events.append("content_write_lock")
+
+    monkeypatch.setattr(storage, "lock_raster_mask_references", lock_content)
 
     async def _fake_store(rle):
+        events.append("storage_put")
         return reference
 
     monkeypatch.setattr(
@@ -1298,12 +1311,65 @@ async def test_materialize_tracker_mask_result_stores_rle_and_adds_aabb(monkeypa
             frame_index=3,
             geometry={
                 "type": "mask",
-                "rle": {"encoding": "coco_rle", "size": [2, 3], "counts": [2, 2, 2]},
+                "rle": rle,
             },
-        )
+        ),
+        db=db,
     )
     assert result.geometry["mask"] == reference
     assert result.geometry["bbox"] == {"x": 1 / 3, "y": 0, "w": 1 / 3, "h": 1}
+    assert events == ["content_write_lock", "storage_put", "commit_grace"]
+
+
+@pytest.mark.parametrize("cancelled", [False, True])
+async def test_materialize_tracker_mask_keeps_raw_result_during_fence(
+    monkeypatch, cancelled
+):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    from app.services import raster_mask_storage as storage
+    from app.services.video_tracking import runner
+
+    rle = {"encoding": "coco_rle", "size": [1, 1], "counts": [0, 1]}
+    reference = storage.build_rle_reference(rle)
+    attempts = []
+
+    async def store(actual_db, actual_rle, *, writer):
+        assert actual_db is db
+        assert actual_rle is rle
+        attempts.append(actual_rle)
+        if len(attempts) <= 5:
+            raise storage.RasterMaskContractError(
+                status_code=409,
+                reason="mask_content_deleting",
+                message="Collection is pending",
+                retryable=True,
+            )
+        return reference
+
+    db = SimpleNamespace(commit=AsyncMock(), rollback=AsyncMock())
+    running = AsyncMock(return_value=not cancelled)
+    monkeypatch.setattr(runner, "store_generated_mask_content", store)
+    monkeypatch.setattr(runner.asyncio, "sleep", AsyncMock())
+    held = TrackerFrameResult(frame_index=3, geometry={"type": "mask", "rle": rle})
+    if cancelled:
+        with pytest.raises(runner.TrackerMaskWriteCancelled):
+            await runner._materialize_tracker_mask_result(
+                held, db=db, still_running=running
+            )
+        assert len(attempts) == 1
+        db.commit.assert_not_awaited()
+        db.rollback.assert_awaited_once()
+    else:
+        result = await runner._materialize_tracker_mask_result(
+            held, db=db, still_running=running
+        )
+        assert len(attempts) == 6
+        assert db.rollback.await_count == 5
+        db.commit.assert_awaited_once()
+        assert result.geometry["mask"] == reference
+    assert held.geometry["rle"] is rle
 
 
 def test_apply_tracker_results_converts_source_to_mask_track():

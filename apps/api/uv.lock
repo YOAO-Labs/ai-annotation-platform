@@ -196,6 +196,41 @@ requires-dist = [
 provides-extras = ["test"]
 
 [[package]]
+name = "aap-labeling-mask-gc"
+version = "0.1.0"
+source = { editable = "../labeling-mask-gc" }
+dependencies = [
+    { name = "aap-assets-mask-content" },
+    { name = "pydantic" },
+]
+
+[package.optional-dependencies]
+client = [
+    { name = "httpx" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "aap-assets-mask-content", editable = "../assets-mask-content" },
+    { name = "asyncpg", marker = "extra == 'runtime'", specifier = ">=0.30.0" },
+    { name = "asyncpg", marker = "extra == 'server'", specifier = ">=0.30.0" },
+    { name = "asyncpg", marker = "extra == 'test'", specifier = ">=0.30.0" },
+    { name = "fastapi", marker = "extra == 'server'", specifier = ">=0.115.0" },
+    { name = "fastapi", marker = "extra == 'test'", specifier = ">=0.115.0" },
+    { name = "httpx", marker = "extra == 'client'", specifier = ">=0.27.0" },
+    { name = "httpx", marker = "extra == 'runtime'", specifier = ">=0.27.0" },
+    { name = "httpx", marker = "extra == 'server'", specifier = ">=0.27.0" },
+    { name = "httpx", marker = "extra == 'test'", specifier = ">=0.27.0" },
+    { name = "pydantic", specifier = ">=2.10.0" },
+    { name = "pytest", marker = "extra == 'test'", specifier = ">=8.3.0" },
+    { name = "pytest-asyncio", marker = "extra == 'test'", specifier = ">=0.24.0" },
+    { name = "ruff", marker = "extra == 'test'", specifier = "==0.15.22" },
+    { name = "uvicorn", marker = "extra == 'server'", specifier = ">=0.34.0" },
+    { name = "uvicorn", marker = "extra == 'test'", specifier = ">=0.34.0" },
+]
+provides-extras = ["client", "runtime", "server", "test"]
+
+[[package]]
 name = "aap-media-probe"
 version = "0.1.0"
 source = { editable = "../media-probe" }
@@ -312,6 +347,7 @@ dependencies = [
     { name = "aap-assets-media", extra = ["client", "runtime"] },
     { name = "aap-assets-source" },
     { name = "aap-audit-contract" },
+    { name = "aap-labeling-mask-gc", extra = ["client"] },
     { name = "aap-media-probe", extra = ["client"] },
     { name = "aap-protocol-v2" },
     { name = "aap-task-contract" },
@@ -364,6 +400,7 @@ requires-dist = [
     { name = "aap-assets-media", extras = ["client", "runtime"], editable = "../assets-media" },
     { name = "aap-assets-source", editable = "../assets-source" },
     { name = "aap-audit-contract", editable = "../_shared/audit_contract" },
+    { name = "aap-labeling-mask-gc", extras = ["client"], editable = "../labeling-mask-gc" },
     { name = "aap-media-probe", extras = ["client"], editable = "../media-probe" },
     { name = "aap-protocol-v2", editable = "../_shared/protocol_v2" },
     { name = "aap-task-contract", editable = "../_shared/task_contract" },

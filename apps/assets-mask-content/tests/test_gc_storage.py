@@ -46,6 +46,7 @@ class FakeS3:
         self.payload_head_count = 0
         self.fail_next_delete_reply = False
         self.fail_next_receipt_put = False
+        self.lose_next_receipt_reply = False
         self.change_before_delete = False
 
     def seed(self, key, body, *, etag=None, last_modified=_NOW):
@@ -65,6 +66,9 @@ class FakeS3:
         if Key in self.objects:
             raise _s3_error("PreconditionFailed", "PutObject", 412)
         self.seed(Key, Body)
+        if self.lose_next_receipt_reply and Key.endswith("/receipt.json"):
+            self.lose_next_receipt_reply = False
+            raise EndpointConnectionError(endpoint_url="https://storage.invalid")
 
     def get_object(self, *, Bucket, Key):
         self.calls.append(("get", Key))
@@ -251,7 +255,7 @@ def test_status_reloads_completed_receipt_without_reading_payload():
     assert all(key.startswith("raster-mask-gc/") for operation, key in s3.calls)
 
 
-def test_ambiguous_delete_is_never_retried_and_status_settles_missing():
+def test_ambiguous_delete_is_never_retried_or_settled_by_missing_payload():
     s3 = FakeS3()
     key = codec.rle_object_key("a" * 64)
     s3.seed(key, b"payload")
@@ -266,8 +270,8 @@ def test_ambiguous_delete_is_never_retried_and_status_settles_missing():
     replay = _store(s3).execute(request)
     status = _store(s3).status(DeleteStatusRequest(operation_id=_OPERATION_ID))
 
-    assert replay.state == "completed"
-    assert replay.outcome == "missing"
+    assert replay.state == "indeterminate"
+    assert replay.outcome is None
     assert status == replay
     assert s3.delete_attempts == 1
 
@@ -360,7 +364,7 @@ def test_unsafe_sdk_config_is_rejected_before_claiming_operation():
     assert s3.delete_attempts == 0
 
 
-def test_receipt_write_failure_does_not_claim_completion_and_restart_recovers():
+def test_missing_receipt_remains_indeterminate_after_restart():
     s3 = FakeS3()
     key = codec.rle_object_key("a" * 64)
     s3.seed(key, b"payload")
@@ -374,9 +378,25 @@ def test_receipt_write_failure_does_not_claim_completion_and_restart_recovers():
     assert s3.delete_attempts == 1
     assert key not in s3.objects
     recovered = _store(s3).status(DeleteStatusRequest(operation_id=_OPERATION_ID))
-    assert recovered.state == "completed"
-    assert recovered.outcome == "missing"
+    assert recovered.state == "indeterminate"
+    assert recovered.outcome is None
     assert s3.delete_attempts == 1
+
+
+def test_durable_receipt_survives_its_lost_put_reply_and_process_restart():
+    s3 = FakeS3()
+    key = codec.rle_object_key("a" * 64)
+    s3.seed(key, b"payload")
+    request = _request(s3, key=key)
+    s3.lose_next_receipt_reply = True
+    with pytest.raises(MaskGcFailure):
+        _store(s3).execute(request)
+    s3.payload_head_count = 0
+    recovered = _store(s3).status(DeleteStatusRequest(operation_id=_OPERATION_ID))
+    assert recovered.state == "completed"
+    assert recovered.outcome == "deleted"
+    assert s3.delete_attempts == 1
+    assert s3.payload_head_count == 0
 
 
 def test_client_error_outside_definitive_delete_outcomes_stays_unresolved():

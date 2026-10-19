@@ -4,6 +4,7 @@
   "title": "Dataset source auxiliary-retention guards v1",
   "description": "Source deletion checks scene history, active media work and retained accepted-input evidence before any source rows or receipts are changed.",
   "x-postgresql-functions": [
+    "aap_assets_v1._cancel_image_source_work(text, uuid, text)",
     "aap_assets_v1.dataset_item_scene_references(uuid, uuid)",
     "aap_labeling_v1.guard_dataset_source_deletion(uuid, uuid)",
     "aap_assets_v1.guard_dataset_source_auxiliary_retention(uuid, uuid)",
@@ -27,26 +28,52 @@
       "const": "aap_assets_v1.guard_dataset_source_auxiliary_retention(uuid, uuid)"
     },
     "arguments": {
+      "$ref": "#/$defs/GuardArguments"
+    },
+    "result": {
+      "$ref": "#/$defs/GuardResult"
+    }
+  },
+  "$defs": {
+    "GuardArguments": {
       "type": "object",
       "additionalProperties": false,
       "required": ["p_dataset_id", "p_item_id"],
       "properties": {
-        "p_dataset_id": { "type": "string", "format": "uuid" },
+        "p_dataset_id": {
+          "type": "string",
+          "format": "uuid"
+        },
         "p_item_id": {
-          "anyOf": [{ "type": "string", "format": "uuid" }, { "type": "null" }]
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "uuid"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       }
     },
-    "result": {
+    "GuardResult": {
       "oneOf": [
         {
           "type": "object",
           "additionalProperties": false,
           "required": ["schema", "ok", "data"],
           "properties": {
-            "schema": { "const": "aap-source-retention/v1" },
-            "ok": { "const": true },
-            "data": { "type": "object", "additionalProperties": false }
+            "schema": {
+              "const": "aap-source-retention/v1"
+            },
+            "ok": {
+              "const": true
+            },
+            "data": {
+              "type": "object",
+              "additionalProperties": false
+            }
           }
         },
         {
@@ -54,8 +81,12 @@
           "additionalProperties": false,
           "required": ["schema", "ok", "error"],
           "properties": {
-            "schema": { "const": "aap-source-retention/v1" },
-            "ok": { "const": false },
+            "schema": {
+              "const": "aap-source-retention/v1"
+            },
+            "ok": {
+              "const": false
+            },
             "error": {
               "type": "object",
               "additionalProperties": false,

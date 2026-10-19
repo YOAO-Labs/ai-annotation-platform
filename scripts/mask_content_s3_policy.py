@@ -28,9 +28,20 @@ def mask_content_policy(bucket: str, *, cleanup: bool = False) -> dict:
         statements.append(
             {
                 "Effect": "Allow",
+                "Action": ["s3:GetObject", "s3:PutObject"],
+                "Resource": [f"{arn}/raster-mask-gc/v1/*"],
+            }
+        )
+        statements.append(
+            {
+                "Effect": "Allow",
                 "Action": ["s3:ListBucket"],
                 "Resource": [arn],
-                "Condition": {"StringLike": {"s3:prefix": ["raster-masks/sha256/*"]}},
+                "Condition": {
+                    "StringLike": {
+                        "s3:prefix": ["raster-masks/sha256/*", "raster-mask-gc/v1/*"]
+                    }
+                },
             }
         )
     return {"Version": "2012-10-17", "Statement": statements}

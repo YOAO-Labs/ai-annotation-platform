@@ -405,6 +405,8 @@ async def upload_task_mask_content(
                 object_key=expected["object_key"],
                 limit=MAX_MASK_OBJECTS_PER_TASK,
             )
+        except RasterMaskContractError:
+            raise
         except ValueError:
             current = await _count_task_mask_references(db, task_id)
             raise HTTPException(

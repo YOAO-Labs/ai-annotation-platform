@@ -23,7 +23,7 @@ last_reviewed: 2026-10-19
 
 成功响应为 `{ "schema": "aap-assets-mask-content/v1", "ok": true, "data": ... }`；错误为同一 schema、`ok: false` 与封闭的 `error.code`。HTTP 与 JSON 错误都经过字节预算和响应范围校验。服务错误不包含对象存储凭据、URL 或供应商异常正文。
 
-普通内容进程不能列举或删除，清理进程不能写入。两个进程均不接收用户、Task、Annotation、QC 或 repair 的 SQL 连接，也不判定业务引用是否存活。配置与部署范围见[独立部署台账](/dev/concepts/module-deployment)。
+普通内容进程不能列举或删除，清理进程不能写入 Mask 内容；它仅可在独立日志前缀写入操作与回执。两个进程均不接收用户、Task、Annotation、QC 或 repair 的 SQL 连接，也不判定业务引用是否存活。配置与部署范围见[独立部署台账](/dev/concepts/module-deployment)。
 
 ## 内容与兼容
 
@@ -50,3 +50,13 @@ last_reviewed: 2026-10-19
 显式远程配置失败时保持失败，不切回本地 S3。调用方可按既有业务规则重试；重复 put 校验同一内容，重复 delete 对已不存在的键返回未删除。公开上传在写入失败时回滚预约与配额，不把未提交预约视为成功上传。
 
 这条协议提供 Mask 字节边界；完整 Labeling 业务写入、预约与 GC 协调运行时仍需各自完成模块协议。
+
+## 持久回收协议
+
+隔离的回收实验使用 `aap-assets-mask-gc/v1`，提供 cleanup 专用的 `POST /v1/mask-gc/scan`、`execute` 和 `status`。每页最多 1000 项，消息至多 1 MiB；游标是最后访问的物理键，包含被跳过的旧格式文件名。删除请求固定操作 UUID、内容键、ETag 和观测修改时间。
+
+`raster-mask-gc/v1/<operation_id>/request.json` 通过条件创建声明唯一执行权；相同操作只读取回执，不再次删除。`receipt.json` 保存明确的 `deleted`、`missing` 或 `content_changed` 终态。两类日志不可变且不能独立过期。SDK 删除只尝试一次；丢失回包、崩溃、回执保存失败都保留待定状态，不能根据后续 HEAD 不存在而补造成功回执。
+
+Labeling 的 `aap-labeling-mask-gc/v1` 以原生每键代次、删除意图与完整引用根管理业务授权。内容预检先读取代次，最终写入检查原代次；已开始删除、待定或代次变化会返回可重试的 409。只有匹配当前执行凭据的明确终态回执可以解除围栏，代次本身继续保留。独立协调运行时不持有 S3 凭据。
+
+该协议已有本地数据库与真实对象存储的故障验收。现有 Celery 回收器尚未切换，远程业务删除仍受保护；新运行时镜像、普通批处理恢复和部署容量是后续验收项。

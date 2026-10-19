@@ -357,7 +357,7 @@ async def test_scene_fence_busy_prevents_item_delete_before_any_receipt(test_eng
 
 
 @pytest.mark.parametrize(
-    "job_kind", ["video_metadata", "backfill_dataset", "backfill_items"]
+    "job_kind", ["video_metadata", "backfill_dataset", "backfill_items", "backfill_all"]
 )
 async def test_active_media_job_rejects_delete_without_canceling_or_writing_receipts(
     test_engine, job_kind: str
@@ -367,6 +367,10 @@ async def test_active_media_job_rejects_delete_without_canceling_or_writing_rece
     operation_id = uuid.uuid4()
     try:
         async with maker.begin() as setup:
+            await setup.execute(
+                text("UPDATE dataset_items SET file_type='video' WHERE id=:id"),
+                {"id": fixture["item_ids"][0]},
+            )
             if job_kind == "video_metadata":
                 kind = "video_metadata"
                 dataset_item_id = fixture["item_ids"][0]
@@ -378,13 +382,17 @@ async def test_active_media_job_rejects_delete_without_canceling_or_writing_rece
                     "kind": "video_backfill",
                     "selection": {"dataset_id": str(fixture["dataset_id"])},
                 }
-            else:
+            elif job_kind == "backfill_items":
                 kind = "video_backfill"
                 dataset_item_id = None
                 spec = {
                     "kind": "video_backfill",
                     "selection": {"dataset_item_ids": [str(fixture["item_ids"][0])]},
                 }
+            else:
+                kind = "video_backfill"
+                dataset_item_id = None
+                spec = {"kind": "video_backfill", "selection": {"all_items": True}}
             await setup.execute(
                 text(
                     "INSERT INTO public.asset_media_jobs("
@@ -465,6 +473,48 @@ async def test_active_media_job_rejects_delete_without_canceling_or_writing_rece
                 {"job": fixture["job_id"]},
             )
         await _cleanup_source(test_engine, fixture)
+
+
+@pytest.mark.parametrize("selection", ["all", "dataset", "items"])
+async def test_backfill_retains_only_videos_within_its_frozen_cutoff(
+    db_session, selection
+):
+    _owner, _project, dataset, item, _scene = await _seed_source(db_session)
+    selector = (
+        {"all_items": True}
+        if selection == "all"
+        else {"dataset_id": str(dataset.id)}
+        if selection == "dataset"
+        else {"dataset_item_ids": [str(item.id)]}
+    )
+    job_id = uuid.uuid4()
+    await db_session.execute(
+        text(
+            "INSERT INTO asset_media_jobs(job_id,kind,slot_key,spec,status,backfill_selection,backfill_cutoff) "
+            "VALUES (:job,'video_backfill',:slot,CAST(:spec AS jsonb),'pending',CAST(:selection AS jsonb),clock_timestamp()-interval '1 hour')"
+        ),
+        {
+            "job": job_id,
+            "slot": str(job_id),
+            "spec": json.dumps({"kind": "video_backfill", "selection": selector}),
+            "selection": json.dumps(selector),
+        },
+    )
+    await db_session.execute(
+        text("UPDATE dataset_items SET file_type='video' WHERE id=:id"), {"id": item.id}
+    )
+    assert await _auxiliary_guard(db_session, dataset.id, item.id) == _clear()
+    await db_session.execute(
+        text(
+            "UPDATE dataset_items SET created_at=(SELECT backfill_cutoff-interval '1 second' FROM asset_media_jobs WHERE job_id=:job) WHERE id=:id"
+        ),
+        {"id": item.id, "job": job_id},
+    )
+    assert await _auxiliary_guard(db_session, dataset.id, item.id) == _blocked()
+    await db_session.execute(
+        text("UPDATE dataset_items SET file_type='image' WHERE id=:id"), {"id": item.id}
+    )
+    assert await _auxiliary_guard(db_session, dataset.id, item.id) == _clear()
 
 
 async def test_image_input_remains_protected_until_its_authoritative_expiry(db_session):

@@ -2011,3 +2011,45 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   establish sustained production capacity or complete application migration.
   The primary runtime remains on the qualified bulk-image implementation; the
   complete video slice and overall independent-module goal remain active.
+
+### Native Mask collection fences and source auxiliary retention
+
+- The local integration branch adds Labeling-owned persistent key epochs,
+  deletion intents, producer grace, retained roots and fair scan cursors. Eight
+  closed JSON operations keep three write gates in the caller transaction and
+  give the cleanup login only five GC capabilities. Preflight captures the epoch
+  before reading bytes; final linking rejects stale epochs and active fences.
+  Generated QC, COCO import and tracker Mask writes renew producer grace.
+- The byte cleanup process adds a separate scan/execute/status protocol and
+  immutable S3 request/receipt journal. A stable operation can issue one payload
+  deletion only. Missing receipts remain indeterminate across restart, even if
+  the payload is absent; only an exact terminal receipt under the current claim
+  can clear the native fence. Invalid timestamps, exhausted epochs, final-page
+  replay, timezone-independent roots and cleared-lease token checks are covered.
+- Local qualification includes 33 native/role/writer checks, three real-S3 and
+  delayed-HTTP/restart cases, 31 coordinator/runtime package tests and 66 tracker,
+  QC and frame-persistence regressions. The selected 152 consumer cases are
+  green after correcting one legacy fake-key fixture and rerunning that case;
+  its original combined JUnit remains a failed historical report. Installed
+  wheels load outside the source tree with matching schemas and no API/ORM,
+  Celery, Redis or S3 imports in the Labeling runtime. Architecture and focused
+  bindings pass 313 cases with 122 existing lazy-root exclusions. The standalone
+  runtime image and sustained capacity have not been qualified.
+- The selected source-deletion policy is now additive native contract 0230:
+  camera links, selected-item Scene history, video chapters, active video media
+  work and live retained inputs return the existing 409 before deletion, audit,
+  receipt or cleanup writes. Scene locks precede Item locks. Global backfill
+  protection follows its frozen video selection/cutoff. Sixty-one source guard,
+  deletion and HTTP regressions pass, plus three cutoff/type boundary cases.
+  Unknown pyramid writer leases are rejected before cancellation can erase
+  their building state. The independent image worker health check also matches
+  its actual ten-function grant set; the corrected real-role cases pass.
+- Migration installation, downgrade to 0189, frozen-SQL rollback/reinstallation
+  and exact grants pass on verifier-owned resources; all attempts clean up their
+  resources. Documentation builds and locked dependency checks pass. Primary
+  development remains on the previous qualified Mask-byte checkpoint. The
+  existing Celery collector retains its remote destructive guard. Durable
+  ordinary-batch accepted-result handoff, remaining generated-Mask consumers,
+  collector binding and installed runtime/image qualification remain before a
+  business cutover. This is local integration, with no production or Go change;
+  the all-module deployment/language-replacement goal remains active.

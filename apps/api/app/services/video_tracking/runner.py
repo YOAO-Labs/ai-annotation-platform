@@ -46,8 +46,10 @@ from app.services.ml_routing.contracts import (
     RoutingError,
 )
 from app.services.raster_mask_storage import (
+    RasterMaskContractError,
     load_coco_rle,
     store_coco_rle,
+    store_generated_mask_content,
     validate_mask_geometry_for_task,
     lock_raster_mask_references,
 )
@@ -148,8 +150,15 @@ def _normalize_points(geometry: dict) -> list[list[float]]:
     return [[float(p[0]), float(p[1])] for p in points if len(p) >= 2]
 
 
+class TrackerMaskWriteCancelled(Exception):
+    pass
+
+
 async def _materialize_tracker_mask_result(
     result: TrackerFrameResult,
+    *,
+    db: AsyncSession,
+    still_running: Callable[[], Awaitable[bool]] | None = None,
 ) -> TrackerFrameResult:
     geometry = result.geometry or {}
     if geometry.get("type") != "mask":
@@ -157,7 +166,25 @@ async def _materialize_tracker_mask_result(
     rle = geometry.get("rle")
     if not isinstance(rle, dict):
         raise ValueError("tracker mask result requires geometry.rle")
-    reference = await store_coco_rle(rle)
+    while True:
+        try:
+            reference = await store_generated_mask_content(
+                db, rle, writer=store_coco_rle
+            )
+            break
+        except RasterMaskContractError as exc:
+            if (
+                exc.detail.get("reason")
+                not in {"mask_content_deleting", "mask_content_epoch_changed"}
+                or still_running is None
+            ):
+                raise
+            await db.rollback()
+            if not await still_running():
+                raise TrackerMaskWriteCancelled from None
+            await asyncio.sleep(0.2)
+    # A later window can commit before final staging; retain producer grace now.
+    await db.commit()
     bbox = coco_rle_bbox_norm(rle)
     return replace(
         result,
@@ -2148,7 +2175,9 @@ async def _decide_tracker_issue_region(
                 primary=bool(selected_row.get("primary", False)),
             )
         else:
-            result_reference = await store_coco_rle(after_rle)
+            result_reference = await store_generated_mask_content(
+                db, after_rle, writer=store_coco_rle
+            )
             result = TrackerFrameResult(
                 frame_index=frame_index,
                 geometry={
@@ -2198,7 +2227,9 @@ async def _decide_tracker_issue_region(
         if decision == "accept":
             remaining.append(row)
             continue
-        residual_reference = await store_coco_rle(residual_rle)
+        residual_reference = await store_generated_mask_content(
+            db, residual_rle, writer=store_coco_rle
+        )
         residual_geometry = {
             **(row.get("geometry") or {}),
             "mask": residual_reference,
@@ -3447,6 +3478,26 @@ async def run_tracker_job(
             await publisher(job.event_channel, _event(job, "job_cancelled"))
             return job
 
+        async def mask_write_still_running() -> bool:
+            if heartbeat_failed:
+                raise RuntimeError("tracker route lease heartbeat failed")
+            if not await _tracker_work_authorized_and_running(
+                db, job_id=job_id, actor_id=actor_id
+            ):
+                return False
+            await db.refresh(job)
+            await db.refresh(task)
+            current_source = await _refresh_tracker_source_reference(
+                tracker_input_gateway,
+                tracker_input_status,
+                db=db,
+                job=job,
+                actor_id=actor_id,
+                task_id=task.id,
+                expected_source_version=tracker_input_source_version,
+            )
+            return current_source is not None
+
         # v0.22.2 · B-combo · 发现趟 (先于追踪窗循环, 串行 → 中间 idle 可卸载 multiplex 再载
         # PVS, 避两模型同容峰值)。multiplex 在种子帧按 text 检测 → per-obj 框 → 铸成 PVS 种子
         # (无源, 落库全新建)。发现不到目标即失败 (无种子无法追踪)。
@@ -3500,7 +3551,14 @@ async def run_tracker_job(
             discovery_adapter = get_tracker_adapter("sam3_video")
             discovery_results: list[TrackerFrameResult] = []
             async for r in discovery_adapter.propagate(discovery_ctx):
-                discovery_results.append(await _materialize_tracker_mask_result(r))
+                try:
+                    discovery_results.append(
+                        await _materialize_tracker_mask_result(
+                            r, db=db, still_running=mask_write_still_running
+                        )
+                    )
+                except TrackerMaskWriteCancelled:
+                    return await finalize_cancelled_tracker()
             prompt_seeds = _combo_seeds_from_discovery(
                 discovery_results, seed_frame=execution.from_frame
             )
@@ -3605,7 +3663,12 @@ async def run_tracker_job(
                     raise RuntimeError("tracker route lease heartbeat failed")
                 if is_correction and result.frame_index == execution.correction_frame:
                     continue
-                result = await _materialize_tracker_mask_result(result)
+                try:
+                    result = await _materialize_tracker_mask_result(
+                        result, db=db, still_running=mask_write_still_running
+                    )
+                except TrackerMaskWriteCancelled:
+                    return await finalize_cancelled_tracker()
                 staged_bytes += _tracker_result_json_bytes(result)
                 if staged_bytes > MAX_TRACKER_STAGED_BYTES:
                     raise ValueError(

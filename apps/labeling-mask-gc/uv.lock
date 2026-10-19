@@ -5,7 +5,7 @@ requires-python = ">=3.11"
 [[package]]
 name = "aap-assets-mask-content"
 version = "0.1.0"
-source = { directory = "../assets-mask-content" }
+source = { editable = "../assets-mask-content" }
 dependencies = [
     { name = "pydantic" },
 ]
@@ -62,7 +62,7 @@ test = [
 
 [package.metadata]
 requires-dist = [
-    { name = "aap-assets-mask-content", directory = "../assets-mask-content" },
+    { name = "aap-assets-mask-content", editable = "../assets-mask-content" },
     { name = "asyncpg", marker = "extra == 'runtime'", specifier = ">=0.30.0" },
     { name = "asyncpg", marker = "extra == 'server'", specifier = ">=0.30.0" },
     { name = "asyncpg", marker = "extra == 'test'", specifier = ">=0.30.0" },

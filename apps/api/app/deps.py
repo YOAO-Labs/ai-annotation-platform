@@ -5,6 +5,7 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import JWTError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from sqlalchemy.exc import SQLAlchemyError
 from app.db.base import async_session
 from app.db.models.user import User
 from app.db.models.project import Project
@@ -37,7 +38,18 @@ bearer_scheme = HTTPBearer()
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
     async with async_session() as session:
-        yield session
+        try:
+            yield session
+        except SQLAlchemyError as exc:
+            from app.services.mask_gc import mask_fence_error
+
+            rejection = mask_fence_error(exc)
+            if rejection is None:
+                raise
+            await session.rollback()
+            raise HTTPException(
+                status_code=rejection.status_code, detail=rejection.detail
+            ) from None
 
 
 def get_gpu_shadow_session_factory() -> GPUShadowSessionFactory:

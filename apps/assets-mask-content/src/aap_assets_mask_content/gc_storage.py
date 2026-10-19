@@ -234,15 +234,8 @@ class S3MaskGcStore:
                 raise gc.MaskGcFailure("invalid_response")
             return receipt
 
-        # No receipt means DeleteObject must never be retried. A fresh HEAD can
-        # safely settle an already-missing or changed object; a still-matching
-        # object is indeterminate because the first process may have been in
-        # flight when its reply was lost.
-        outcome = self._inspect_payload(request)
-        if outcome == "same":
-            return _status(request, "indeterminate")
-        terminal = _status(request, "completed", outcome)
-        return self._put_or_read_receipt(receipt_key, request, terminal)
+        # Current object facts cannot prove an earlier in-flight delete is terminal.
+        return _status(request, "indeterminate")
 
     def _inspect_payload(self, request: gc.DeleteOperationRequest) -> str:
         try:

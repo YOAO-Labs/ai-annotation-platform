@@ -21,7 +21,8 @@ def test_mask_content_and_cleanup_have_disjoint_mutations_and_fixed_prefix():
             "s3:DeleteObject" if cleanup else "s3:PutObject",
         }
         assert all(
-            resource in {arn, arn + "/raster-masks/sha256/*"}
+            resource
+            in {arn, arn + "/raster-masks/sha256/*", arn + "/raster-mask-gc/v1/*"}
             for item in statements
             for resource in item["Resource"]
         )
@@ -32,8 +33,19 @@ def test_mask_content_and_cleanup_have_disjoint_mutations_and_fixed_prefix():
         assert bool(listings) is cleanup
         if cleanup:
             assert listings[0]["Condition"] == {
-                "StringLike": {"s3:prefix": ["raster-masks/sha256/*"]}
+                "StringLike": {
+                    "s3:prefix": ["raster-masks/sha256/*", "raster-mask-gc/v1/*"]
+                }
             }
+        journal_actions = {
+            action
+            for item in statements
+            if item["Resource"] == [arn + "/raster-mask-gc/v1/*"]
+            for action in item["Action"]
+        }
+        assert journal_actions == (
+            {"s3:GetObject", "s3:PutObject"} if cleanup else set()
+        )
 
 
 @pytest.mark.parametrize("bucket", ["", "*", "annotations/*", "arn:aws:s3:::other"])
