@@ -263,6 +263,7 @@ async def test_real_retry_terminal_receipt_survives_redelivery_without_another_m
         "missing_task",
         "invalid_result",
         "model_http",
+        "invalid_metadata",
     ],
 )
 async def test_permanent_failure_is_charged_once_and_replayed_exactly(
@@ -280,6 +281,17 @@ async def test_permanent_failure_is_charged_once_and_replayed_exactly(
             returned_task=uuid.uuid4() if failure == "wrong_task" else None,
             count=2 if failure == "extra_result" else 1,
         )
+        if failure == "invalid_metadata":
+            from app.services.ml_routing.client import RoutedMLBackendClient
+
+            predict = RoutedMLBackendClient.predict
+
+            async def invalid_metadata(client, tasks, **kwargs):
+                results = await predict(client, tasks, **kwargs)
+                results[0].score = "not a numeric score"
+                return results
+
+            monkeypatch.setattr(RoutedMLBackendClient, "predict", invalid_metadata)
         if failure == "model_http":
             from fastapi import HTTPException
 

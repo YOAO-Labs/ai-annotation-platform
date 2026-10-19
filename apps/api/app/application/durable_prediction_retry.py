@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from copy import deepcopy
 from decimal import Decimal
+import math
 from types import SimpleNamespace
 import uuid
 
@@ -155,6 +156,22 @@ def _one_result(results, task_id):
         raise ValueError("retry backend returned an invalid task identity") from None
     if returned != task_id:
         raise ValueError("retry backend returned another task's result")
+    if not isinstance(first.result, list) or any(
+        not isinstance(item, dict) for item in first.result
+    ):
+        raise ValueError("retry backend returned invalid result objects")
+    if first.score is not None and (
+        type(first.score) not in {int, float} or not math.isfinite(first.score)
+    ):
+        raise ValueError("retry backend returned an invalid score")
+    if first.model_version is not None and not isinstance(first.model_version, str):
+        raise ValueError("retry backend returned an invalid model version")
+    if first.inference_time_ms is not None and (
+        type(first.inference_time_ms) is not int or first.inference_time_ms < 0
+    ):
+        raise ValueError("retry backend returned an invalid inference duration")
+    if first.meta is not None and not isinstance(first.meta, dict):
+        raise ValueError("retry backend returned invalid metadata")
     return first
 
 

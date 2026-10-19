@@ -255,7 +255,7 @@ Python 实现复用现有编解码与 S3 栈，Node 测试提供方验证实际 
 
 独立执行角色仅能调用十二项 Jobs 和五项 Labeling 能力（含重试读取与派发），不能直接读取私有表或完成业务写入。`PREANNOTATION_RESULTS_DATABASE_URL` 或 `_FILE` 可选择该连接；默认仍由现有应用连接装配。原始字节完整后，即使 Mask 根登记遇到围栏，也必须继续恢复同一份结果。每条传输最多 2 MiB、单块最多 512 KiB，不对整题结果增加 16 MiB 或结果数量限制。
 
-当前正在隔离本地核验实际消费者、受限身份、提交回包丢失与真实 Celery 重投递；证据不等于完整 Labeling、Inference 或 Jobs 服务已独立部署。失败预测重试已接入相同结果账本及单独 outbox；运行中跟踪输出增加持久根，结束时同事务转交待审根。完整消费者、collector 切换及运行时容量继续推进。协议见[同库数据接口](/api/guides/module-data#普通批量结果检查点)与 [ADR-0113](/dev/adr/0113-durable-preannotation-results)。
+普通批量与重试的实际消费者、受限身份、提交回包丢失及真实 Celery 中断重投已有隔离本地证据；独立 wheel 和受限容器已核验，完整 Labeling、Inference 或 Jobs 服务仍有未迁移操作。失败预测重试已接入相同结果账本及单独 outbox；运行中跟踪输出增加持久根，结束时同事务转交待审根。完整消费者、collector 切换及运行时容量继续推进。协议见[同库数据接口](/api/guides/module-data#普通批量结果检查点)与 [ADR-0113](/dev/adr/0113-durable-preannotation-results)。
 
 ## 来源删除的辅助引用
 

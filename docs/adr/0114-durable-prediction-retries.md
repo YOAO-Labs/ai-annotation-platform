@@ -1,6 +1,6 @@
 # 0114 — Durable failed-prediction retries and running tracker roots
 
-- Status: Accepted; isolated local qualification in progress
+- Status: Accepted; isolated local qualification complete
 - Date: 2026-10-20
 - Deciders: Maintainers
 - Extends: ADR-0112 and ADR-0113
@@ -66,6 +66,17 @@ the same transaction; other terminal states release the temporary roots. Job
 lock contention retries the held RLE. After rollback, relinking checks the
 original byte epoch; an intervening collection requires publishing the held RLE
 again under the new epoch. The GC LOGIN cannot register these producer roots.
+
+Local qualification covers isolated role boundaries and migration round trips,
+ambiguous publication, missing inputs, strict target/result metadata, stale leases,
+atomic model-failure charges and abandonment, lost business commit acknowledgements,
+C/psql handoff, and real Celery child SIGKILL/redelivery for new and legacy Jobs.
+Real retained image and video consumers pass against independently installed media
+processes. The installed wheel and nonroot/read-only executor image expose only
+public checkpoint, read and delivery capabilities without application dependencies.
+Running-root tests expire producer grace, prove active retention, transfer staged
+roots and release terminal roots; epoch-change retries republish the held RLE.
+These are disposable local checks, not production or full-module capacity claims.
 
 ## Consequences
 
