@@ -881,80 +881,80 @@ FROM (
            refs.object_key, refs.valid_until
     FROM public.annotations AS source
     CROSS JOIN LATERAL aap_labeling_v1._mask_gc_row_refs(
-        'annotations', pg_catalog.to_jsonb(source)
+        'annotations', pg_catalog.to_jsonb(source.*)
     ) AS refs
     UNION ALL
     SELECT 'predictions',
            aap_labeling_v1._mask_gc_row_identity(
-               ARRAY['id', 'created_at'], pg_catalog.to_jsonb(source)
+               ARRAY['id', 'created_at'], pg_catalog.to_jsonb(source.*)
            ),
            refs.object_key, refs.valid_until
     FROM public.predictions AS source
     CROSS JOIN LATERAL aap_labeling_v1._mask_gc_row_refs(
-        'predictions', pg_catalog.to_jsonb(source)
+        'predictions', pg_catalog.to_jsonb(source.*)
     ) AS refs
     UNION ALL
     SELECT 'raster_mask_uploads', source.id::text,
            refs.object_key, refs.valid_until
     FROM public.raster_mask_uploads AS source
     CROSS JOIN LATERAL aap_labeling_v1._mask_gc_row_refs(
-        'raster_mask_uploads', pg_catalog.to_jsonb(source)
+        'raster_mask_uploads', pg_catalog.to_jsonb(source.*)
     ) AS refs
     UNION ALL
     SELECT 'video_tracker_jobs', source.id::text,
            refs.object_key, refs.valid_until
     FROM public.video_tracker_jobs AS source
     CROSS JOIN LATERAL aap_labeling_v1._mask_gc_row_refs(
-        'video_tracker_jobs', pg_catalog.to_jsonb(source)
+        'video_tracker_jobs', pg_catalog.to_jsonb(source.*)
     ) AS refs
     UNION ALL
     SELECT 'ai_mask_accept_decisions', source.id::text,
            refs.object_key, refs.valid_until
     FROM public.ai_mask_accept_decisions AS source
     CROSS JOIN LATERAL aap_labeling_v1._mask_gc_row_refs(
-        'ai_mask_accept_decisions', pg_catalog.to_jsonb(source)
+        'ai_mask_accept_decisions', pg_catalog.to_jsonb(source.*)
     ) AS refs
     UNION ALL
     SELECT 'mask_annotation_revisions', source.id::text,
            refs.object_key, refs.valid_until
     FROM public.mask_annotation_revisions AS source
     CROSS JOIN LATERAL aap_labeling_v1._mask_gc_row_refs(
-        'mask_annotation_revisions', pg_catalog.to_jsonb(source)
+        'mask_annotation_revisions', pg_catalog.to_jsonb(source.*)
     ) AS refs
     UNION ALL
     SELECT 'mask_qc_runs', source.id::text,
            refs.object_key, refs.valid_until
     FROM public.mask_qc_runs AS source
     CROSS JOIN LATERAL aap_labeling_v1._mask_gc_row_refs(
-        'mask_qc_runs', pg_catalog.to_jsonb(source)
+        'mask_qc_runs', pg_catalog.to_jsonb(source.*)
     ) AS refs
     UNION ALL
     SELECT 'mask_qc_issues', source.id::text,
            refs.object_key, refs.valid_until
     FROM public.mask_qc_issues AS source
     CROSS JOIN LATERAL aap_labeling_v1._mask_gc_row_refs(
-        'mask_qc_issues', pg_catalog.to_jsonb(source)
+        'mask_qc_issues', pg_catalog.to_jsonb(source.*)
     ) AS refs
     UNION ALL
     SELECT 'mask_review_scopes', source.id::text,
            refs.object_key, refs.valid_until
     FROM public.mask_review_scopes AS source
     CROSS JOIN LATERAL aap_labeling_v1._mask_gc_row_refs(
-        'mask_review_scopes', pg_catalog.to_jsonb(source)
+        'mask_review_scopes', pg_catalog.to_jsonb(source.*)
     ) AS refs
     UNION ALL
     SELECT 'video_tracker_input_scopes', source.tracker_job_id::text,
            refs.object_key, refs.valid_until
     FROM public.video_tracker_input_scopes AS source
     CROSS JOIN LATERAL aap_labeling_v1._mask_gc_row_refs(
-        'video_tracker_input_scopes', pg_catalog.to_jsonb(source)
+        'video_tracker_input_scopes', pg_catalog.to_jsonb(source.*)
     ) AS refs
     UNION ALL
     SELECT 'mask_repair_batches', source.id::text,
            refs.object_key, refs.valid_until
     FROM public.mask_repair_batches AS source
     CROSS JOIN LATERAL aap_labeling_v1._mask_gc_row_refs(
-        'mask_repair_batches', pg_catalog.to_jsonb(source)
+        'mask_repair_batches', pg_catalog.to_jsonb(source.*)
     ) AS refs
 ) AS roots
 WHERE aap_labeling_v1._mask_gc_key_valid(roots.object_key)

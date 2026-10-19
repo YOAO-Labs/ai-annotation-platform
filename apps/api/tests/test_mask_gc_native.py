@@ -14,6 +14,7 @@ import pytest
 
 from app.db.models.annotation import Annotation
 from app.db.models.prediction import Prediction
+from app.db.models.mask_qc import MaskQCIssue
 from tests.test_video_tracker_jobs_list import _make_video_task
 
 
@@ -568,6 +569,73 @@ async def test_prediction_root_identity_is_stable_across_session_timezones(
     ).scalar_one() == 0
 
 
+async def test_backfill_uses_whole_rows_when_a_source_column_shadows_the_alias(
+    db_session, super_admin
+):
+    user, _ = super_admin
+    task, _ = await _make_video_task(db_session, user.id)
+    annotation_key, prediction_key, issue_key = [_key() for _ in range(3)]
+    annotation = _annotation(task, user.id, annotation_key)
+    prediction = Prediction(
+        task_id=task.id,
+        project_id=task.project_id,
+        source="ml_backend",
+        result={"candidate": {"object_key": prediction_key}},
+    )
+    db_session.add_all([annotation, prediction])
+    await db_session.flush()
+    issue = MaskQCIssue(
+        project_id=task.project_id,
+        task_id=task.id,
+        annotation_id=annotation.id,
+        annotation_version=1,
+        source_versions={},
+        source={"origin": "legacy-qc"},
+        code="tiny_region",
+        severity="info",
+        severity_rank=2,
+        dedupe_key=uuid.uuid4().hex * 2,
+        region_mask_ref={"object_key": issue_key},
+    )
+    db_session.add(issue)
+    await db_session.flush()
+    keys = [annotation_key, prediction_key, issue_key]
+
+    async def roots():
+        return set(
+            (
+                await db_session.execute(
+                    text(
+                        "SELECT root_kind,root_id,object_key FROM mask_gc_roots WHERE object_key=ANY(:keys)"
+                    ),
+                    {"keys": keys},
+                )
+            ).all()
+        )
+
+    expected = await roots()
+    assert {row[0] for row in expected} == {
+        "annotations",
+        "predictions",
+        "mask_qc_issues",
+    }
+    await db_session.execute(
+        text("DELETE FROM mask_gc_roots WHERE object_key=ANY(:keys)"), {"keys": keys}
+    )
+    assert await roots() == set()
+    statement = next(
+        part.strip()
+        for part in SQL.read_text().split("-- aap-statement-break")
+        if part.strip().startswith("INSERT INTO public.mask_gc_roots(")
+    )
+    await db_session.execute(text("SET LOCAL TIME ZONE 'Pacific/Honolulu'"))
+    for _ in range(2):
+        await db_session.execute(text(statement))
+        assert await roots() == expected
+    assert annotation.source == "manual" and prediction.source == "ml_backend"
+    assert issue.source == {"origin": "legacy-qc"}
+
+
 def test_native_roots_cover_retained_mask_sources_and_expiry_rules():
     sql = SQL.read_text(encoding="utf-8")
     for trigger in (
@@ -610,7 +678,7 @@ def test_prediction_root_backfill_and_triggers_share_utc_identity():
     assert "AT TIME ZONE 'UTC'" in sql
     assert (
         "aap_labeling_v1._mask_gc_row_identity(\n"
-        "               ARRAY['id', 'created_at'], pg_catalog.to_jsonb(source)" in sql
+        "               ARRAY['id', 'created_at'], pg_catalog.to_jsonb(source.*)" in sql
     )
     assert (
         "aap_labeling_v1._mask_gc_sync_root_trigger('predictions', 'id', 'created_at')"

@@ -2080,8 +2080,20 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   visible ASCII range. The focused native/process repair report has fourteen
   passing cases; the separately qualified preview and embedded consumer retain
   their original reports. Failed preliminary fixture reports remain historical.
-- Nonroot, read-only runtime images retain only installed environments. Their
-  current bounded local-capacity gate and a cold local cutover rehearsal follow
-  this implementation checkpoint. Primary development remains unchanged until
-  qualification; the complete module deployment/language-replacement goal stays
-  active, with no production, release, remote CI, push or Go expansion.
+- Both installed-only, nonroot/read-only images pass actual local execution:
+  1001 retained objects plus seven orphans scan as1000+8; a delete budget of
+  three yields3,3,1 exact deletions. The measured coordination work takes3.419s
+  excluding startup/seeding; cgroup peaks are88,784,896 and67,403,776 bytes.
+  Installed source hashes match16byte and23GC files. This is a bounded local
+  qualification, not production capacity.
+- Cold0228->0234 migration found that a bare to_jsonb(source) backfill reads the
+  existing source column instead of the row. Explicit whole-row serialization
+  fixes all branches. A three-type annotation/prediction/QC regression verifies
+  timezone-stable identity and idempotency. Legacy-row preservation, read-only
+  root inspection, refusal of destructive downgrade and additive preview
+  rollback/roll-forward all pass. The raw cold report retains its later test
+  collection failure from a corrected model-name fixture; the cold proof and
+  three selected follow-up cases are separate passing evidence.
+- Primary development remains unchanged. All new disposable resources are
+  cleaned after acceptance. The complete module deployment/language-replacement
+  goal remains active, with no production, release, remote CI, push or Go expansion.

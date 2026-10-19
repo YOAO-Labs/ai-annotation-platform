@@ -74,7 +74,18 @@ available. Releasing them by elapsed time would lose the safety guarantee.
 
 Local tests cover native privileges, stale claims and epochs, fair progress
 past a failed first thousand keys, actual S3 reply loss, late HTTP completion
-and byte-process restart. They do not qualify production capacity, the new
-runtime image or complete Labeling deployment. Current runtime and bounded local
-capacity gates remain separate from production qualification. Durable batch and
-retry checkpoints retain their own execution, source and terminal-receipt gates.
+and byte-process restart. Installed processes, a Node consumer, both nonroot
+read-only images and a bounded local sample are qualified. The sample preserves
+1001 referenced objects and deletes seven orphans with a three-operation budget.
+These results do not qualify production capacity or complete Labeling deployment.
+Durable batch and retry checkpoints retain their separate execution, source and
+terminal-receipt gates.
+
+Cold migration qualification found that a bare `to_jsonb(source)` backfill can
+serialize an existing `source` column instead of the row. The unreleased 0229
+artifact now uses explicit whole-row references for every branch, covering
+Annotation, Prediction and QC issue roots as well as timezone-stable identities.
+The primary checkout remains before this migration. Once roots, epochs, intents
+or sweeps exist, downgrade refuses to remove the native safety state. Reverting
+the additive preview function leaves those facts intact; recovery rolls forward
+and reinstalls exact owner/runtime grants instead of clearing state.
