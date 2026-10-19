@@ -2131,3 +2131,23 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   complete module deployment, least privilege, or production capacity. Identity
   credential/principal extraction and the remaining module matrix stay active;
   no production, Go expansion, push, release or remote CI is involved.
+
+### Source-retention public contract reconciliation
+
+- The confirmed 409 policy needs no second native implementation: current 0230
+  guards precede source writes and preserve Task, annotation, Learning and
+  auxiliary evidence. Existing 61-case isolated source qualification is retained.
+- Both public source DELETE operations now declare their existing 409 response
+  in OpenAPI. Structural comparison verifies these are the only two snapshot
+  changes. The API contract has two passing cases; SDK dataset/coverage checks
+  have 54 passing cases. Web client generation and documentation build pass.
+- The docs distinguish reference retention, transient busy locks and operation
+  ID conflicts. Cancelled trackers, terminated tracks and soft-deleted camera
+  annotations may still retain source references; several auxiliary owners lack
+  a separate unreference command. Project unlink deletes Task/Annotation rows
+  and cannot replace evidence-preserving unreference.
+- The existing whole-database `reset_datasets.py` path still bypasses ordinary
+  source-retention guards and may cascade auxiliary rows. Its scope is now
+  explicit in the architecture and import guide; it is not qualified as an
+  independent owner operation. No reset command or destructive primary test is
+  run. These lifecycle/ops gaps remain part of the active full-module goal.

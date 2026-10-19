@@ -164,7 +164,7 @@ Ultralytics YOLO11 的配置页可生成原生增强预览，对照冻结原图�
 
 Mask 内容读写提供可选独立工件 `apps/assets-mask-content`，沿用现有引用和业务权限；回收统一使用持久删除围栏与不可变回执，可本地装配或调用独立协调服务。部署与配置见 [DEV.md](./DEV.md#mask-内容的独立字节服务)，协议见 [Mask 字节接口](./docs-site/api/guides/mask-content.md)。
 
-Mask 独立协调工件为 `apps/labeling-mask-gc`；预览返回续扫位置，扫描页数与删除数分别限额，未知删除结果继续保留围栏。素材仍被相机链接、场景轨迹、视频执行或保留输入引用时，删除返回 409，须先在对应功能中解除引用，见[素材删除规则](./docs-site/user-guide/datasets/index.md#删除素材或数据集)。
+Mask 独立协调工件为 `apps/labeling-mask-gc`；预览返回续扫位置，扫描页数与删除数分别限额，未知删除结果继续保留围栏。素材仍被相机链接、场景轨迹、视频执行或保留输入引用时，删除返回 409，公开 OpenAPI 已列出该冲突响应。须先在对应功能中解除引用；取消执行仍保留历史引用时会继续拒绝删除，见[素材删除规则](./docs-site/user-guide/datasets/index.md#删除素材或数据集)。
 
 普通批量与失败项重试保存推理结果和精确写入回执；发布不确定、写锁竞争或 worker 中断后继续原作业与已保存输出。重试、派发和结果读取使用独立 SQL 合同，部署边界见[结果检查点](./docs-site/dev/concepts/module-deployment.md#普通批量结果检查点)。
 

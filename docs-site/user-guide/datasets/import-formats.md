@@ -226,6 +226,8 @@ PYTHONPATH=. uv run python scripts/import_nuscenes_scene.py \
 
 > **数据库与对象存储不是同一事务**：导入失败时 PostgreSQL 写入会回滚，但已上传或覆盖的 MinIO 对象不会回滚。`apps/api/scripts/reset_datasets.py` 只清除数据库中的数据集、素材、项目关联并解除任务素材引用，不删除 MinIO 对象；不要把它当作对象存储清理命令。
 
+该脚本是整体数据库重置：它绕过普通素材删除的引用检查，可能级联清理相机、场景或视频的辅助记录。需要保留项目引用与历史证据时，应使用常规删除接口并处理其 409 原因。
+
 > **逐帧 ego pose 回填(v0.15.0)**:脚本会顺带把每帧的车体位姿(nuScenes `ego_pose.json` 的 ego→global translation/rotation)与 LIDAR_TOP 时间戳落到 `scene_frame_poses` 表,作为跨帧自动化(运动补偿 / 插值)的数据地基。v0.15.0 之前导入的 nuScenes 数据集没有这些行,用回填脚本补:
 >
 > ```bash

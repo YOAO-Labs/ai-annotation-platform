@@ -429,7 +429,14 @@ async def sniff_axis_convention(
                     "schema": {"type": "string", "format": "uuid"},
                 }
             }
-        }
+        },
+        409: {
+            "description": (
+                "Source is referenced or busy, or the idempotency key conflicts. "
+                "For source_in_use, remove references in the owning project or "
+                "feature before retrying; the source and stored objects are retained."
+            )
+        },
     },
 )
 async def delete_dataset(
@@ -959,7 +966,14 @@ async def backfill_scenes_endpoint(
                     "schema": {"type": "string", "format": "uuid"},
                 }
             }
-        }
+        },
+        409: {
+            "description": (
+                "Source is referenced or busy, or the idempotency key conflicts. "
+                "For source_in_use, remove references in the owning project or "
+                "feature before retrying; the source and stored objects are retained."
+            )
+        },
     },
 )
 async def delete_item(

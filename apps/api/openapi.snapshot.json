@@ -57921,6 +57921,9 @@
               }
             }
           },
+          "409": {
+            "description": "Source is referenced or busy, or the idempotency key conflicts. For source_in_use, remove references in the owning project or feature before retrying; the source and stored objects are retained."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -58778,6 +58781,9 @@
                 }
               }
             }
+          },
+          "409": {
+            "description": "Source is referenced or busy, or the idempotency key conflicts. For source_in_use, remove references in the owning project or feature before retrying; the source and stored objects are retained."
           },
           "422": {
             "content": {
