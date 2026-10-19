@@ -135,7 +135,11 @@ async def frame_world(test_engine):
             async def frame(self, request):
                 return frames[request.ordinal]
 
-        backend = MLBackendRegistry(name="frame-test", url="http://frame.test")
+        backend_suffix = uuid.uuid4().hex
+        backend = MLBackendRegistry(
+            name=f"frame-test-{backend_suffix[:8]}",
+            url=f"http://frame-{backend_suffix}.test",
+        )
         db.add(backend)
         job = await db.get(AsyncJob, plan.input.job_id)
         manifest = (
@@ -224,50 +228,8 @@ async def frame_world(test_engine):
                     FailedPrediction.task_id == world.task_id
                 )
             )
-            await db.execute(
-                text(
-                    "DELETE FROM public.asset_accepted_video_frame_attempts "
-                    "WHERE input_id=:input"
-                ),
-                {"input": world.input_id},
-            )
-            await db.execute(
-                text(
-                    "DELETE FROM public.asset_accepted_video_frames WHERE input_id=:input"
-                ),
-                {"input": world.input_id},
-            )
-            await db.execute(
-                text(
-                    "DELETE FROM public.asset_accepted_video_times WHERE input_id=:input"
-                ),
-                {"input": world.input_id},
-            )
-            await db.execute(
-                text(
-                    "DELETE FROM public.asset_accepted_video_input_attempts "
-                    "WHERE input_id=:input"
-                ),
-                {"input": world.input_id},
-            )
-            await db.execute(
-                text(
-                    "DELETE FROM public.asset_accepted_video_inputs WHERE input_id=:input"
-                ),
-                {"input": world.input_id},
-            )
-            await db.execute(
-                text(
-                    "DELETE FROM public.asset_accepted_video_members WHERE job_id=:job"
-                ),
-                {"job": world.job_id},
-            )
-            await db.execute(
-                text(
-                    "DELETE FROM public.asset_accepted_video_manifests WHERE job_id=:job"
-                ),
-                {"job": world.job_id},
-            )
+            # Accepted video receipts are immutable audit records. Keep them
+            # until the disposable test database is destroyed.
             await db.execute(delete(AsyncJob).where(AsyncJob.id == world.job_id))
             await db.execute(delete(Task).where(Task.id == world.task_id))
             await db.execute(delete(DatasetItem).where(DatasetItem.id == world.item_id))
