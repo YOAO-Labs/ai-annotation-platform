@@ -3,7 +3,7 @@ title: 超大图金字塔派生资产
 audience: [dev]
 type: explanation
 status: stable
-last_reviewed: 2026-07-31
+last_reviewed: 2026-10-19
 ---
 
 # 超大图金字塔派生资产
@@ -97,10 +97,6 @@ Task 层先把图片解析成 `single`、`pyramid`、`pyramid-pending` 或 `pyra
 building/failed 或客户端 gate 关闭时只使用 overview、thumbnail 或 blurhash，不自动请求 original；
 optional 图片可以继续使用有界的 single-image 路径。
 
-ready pyramid 的 level 由 `viewport scale × scaleFactor × devicePixelRatio` 决定，当前 level 在
-`0.75..1.25` 的采样区间内保持，避免连续缩放时跨阈值抖动。tile node 仍占 full-resolution world rect；
-1px 存储 overlap 只用于 crop，不改变标注、Mask、Issue 或 Minimap 坐标。
-
 调度器分两阶段工作：
 
 ```text
@@ -110,15 +106,13 @@ ready pyramid 的 level 由 `viewport scale × scaleFactor × devicePixelRatio` 
         └─ 失败时 HTMLImageElement + ObjectURL
 ```
 
-低、标准、高设备档位的 decoded tile budget 分别为 32/64/128 MiB，并发为 2/4/6。成本按
-`decodedWidth × decodedHeight × 4` 计算；可见 tile pin，非可见 tile 按 LRU 淘汰。
-`ImageBitmap.close()`、ObjectURL revoke、请求 abort、reservation 和 stale commit 都进入 resource
-snapshot。overview 与已缓存的粗层级在目标 tile 到达前保持，单 tile 失败不会制造空白棋盘。
-短期 tile URL 过期或首次拉取失败时只重新批签一次；仍失败的可见区域由 overview/粗层级覆盖，
-并在五秒冷却结束后自动重试，无需用户平移或缩放视口。
-
-异步 Konva 绘制从调度器读取当前仍存活的 tile，不持有 React 提交前的 bitmap 快照。淘汰会先移除可绘制列表，
-再同步关闭 bitmap；tile 变化重新调度绘制，避免缩放或平移后继续访问已释放资源而冻结画布。
+| 调度维度                       | 取值与规则                                                                            | 设计目的                                       |
+| :----------------------------- | :------------------------------------------------------------------------------------ | :--------------------------------------------- |
+| **LOD 选择与滞回区间**         | `viewport scale × scaleFactor × devicePixelRatio`，在 `0.75..1.25` 区间内保持当前层级 | 避免连续缩放视口时跨阈值频繁抖动               |
+| **解码缓存预算（低/标/高档）** | `32 MiB` / `64 MiB` / `128 MiB`（按 `decodedWidth × decodedHeight × 4` 计费）         | 可见 tile 固定（pin），非可见 tile 按 LRU 淘汰 |
+| **请求并发与批签上限**         | 并发 `2` / `4` / `6`，单次 `asset-urls` 批签最多 `128` 项                             | 控制连接池占用并减少签名往返                   |
+| **降级覆盖与失败重试**         | 目标 tile 到达前保持 overview 或已缓存粗层级；拉取失败重签一次，5 秒冷却后自动重试    | 杜绝缩放平移时出现空白棋盘格                   |
+| **Konva 生命周期对账**         | 淘汰时先移出可绘制列表再同步执行 `ImageBitmap.close()` / `revokeObjectURL`            | 防止异步重绘访问已释放位图导致画布冻结         |
 
 背景路径不读取 `navigator.gpu`。Raster Mask 的 WebGPU/CPU 计算与图片 tile 保持独立 owner 和释放语义，
 但共同进入当前 Task 的[栅格资源协调账本](./raster-resource-coordination)。前台 Mask 运算会暂停背景预取，
@@ -158,9 +152,9 @@ Minimap、评论画布和相邻任务预取只消费 thumbnail/overview；审核
   → 事务发布 active generation
 ```
 
-像素、单边尺寸、source/derived/temp bytes、tile 数和 wall time都有硬限制。每日 reconciliation 回收过期
+像素、单边尺寸、source/derived/temp bytes、tile 数和 wall time 都有硬限制。每日 reconciliation 回收过期
 lease、非 active 旧代次和孤儿前缀。source 或 owner 删除时同步清理对应派生对象；`image-pyramids/`
 不使用普通媒体缓存的固定期限 lifecycle。
 
 相关运维步骤见[图片金字塔运行手册](/ops/runbooks/image-pyramid)。
-客户端背景选择见 [ADR-0063](https://github.com/yyq19990828/ai-annotation-platform/blob/main/docs/adr/archive/0063-konva-viewport-image-tiles.md)，联合资源决策见 [ADR-0064](https://github.com/yyq19990828/ai-annotation-platform/blob/main/docs/adr/archive/0064-task-scoped-raster-resource-coordination.md)。
+客户端背景选择见 [ADR 0063](../adr/archive/0063-konva-viewport-image-tiles)，联合资源决策见 [ADR 0064](../adr/archive/0064-task-scoped-raster-resource-coordination)。

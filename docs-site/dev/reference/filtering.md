@@ -1,8 +1,9 @@
 ---
-audience: [developer]
+title: 筛选状态与结果范围
+audience: [dev]
 type: reference
 status: stable
-last_reviewed: 2026-09-12
+last_reviewed: 2026-10-19
 ---
 
 # 筛选状态与结果范围

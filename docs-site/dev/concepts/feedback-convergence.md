@@ -1,9 +1,8 @@
 ---
 audience: [dev]
 type: explanation
-since: v0.11.0
 status: stable
-last_reviewed: 2026-07-29
+last_reviewed: 2026-10-19
 ---
 
 # 反馈收敛与双写对账
@@ -83,7 +82,7 @@ ADR-0027 立新表 `annotation_feedbacks`，用 `anchor_type`（project / task /
 无专有环境变量，复用通用 celery broker/backend 配置（`settings.effective_celery_broker`）。
 
 ::: tip 改 worker 业务代码后要重启
-Celery 没有 `--reload`，编辑 `apps/api/app/workers/**` 后需 `docker restart ai-annotation-platform-celery-beat-1`（及 worker）才会生效。见仓库根 `CLAUDE.md §8`。
+Celery 没有 `--reload`，编辑 `apps/api/app/workers/**` 后需重启受影响的 Celery worker / beat 容器才会生效。详见 [Docker rebuild vs restart](../troubleshooting/docker-rebuild-vs-restart)。
 :::
 
 ## 发现漂移时会发生什么
@@ -110,8 +109,6 @@ drift=0 时只写 `log.info`，不打扰任何人。
 - drift 持续为 0 后，删旧写路径、旧表保留只读一个版本作回退
 
 切单源完成后该任务仍可保留为回归守卫；旧表彻底下线后再考虑移除。
-
-<!-- history: this page was originally scoped to the v0.11 feedback convergence slice; visible text now describes the current migration state. -->
 
 ## 相关文档
 

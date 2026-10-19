@@ -1,10 +1,10 @@
 ---
 title: 更新文档截图
 description: 如何新增场景、更新现有截图、维护视觉回归基线
-audience: [developer]
+audience: [dev]
 type: how-to
 status: stable
-last_reviewed: 2026-10-16
+last_reviewed: 2026-10-19
 ---
 
 # 更新文档截图

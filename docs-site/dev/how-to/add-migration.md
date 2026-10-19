@@ -1,9 +1,9 @@
 ---
+title: 新增数据库迁移
 audience: [dev]
 type: how-to
-since: v0.1.0
 status: stable
-last_reviewed: 2026-05-09
+last_reviewed: 2026-10-19
 ---
 
 # How-to：Alembic 迁移

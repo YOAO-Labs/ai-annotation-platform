@@ -367,7 +367,7 @@ import { Button, Badge, Card, Avatar, StatCard, Icon } from "@/components/ui";
 
 ### 页面路由与数据访问
 
-页面路由由 React Router 定义在 `apps/web/src/App.tsx`，不是 Zustand page switch。`/projects/:id/annotate` 与 `/projects/:id/review` 使用全屏工作台；Dashboard、数据集、存储、`/ai-pre`、模型市场、项目设置、审核、用户与系统管理等页面通过 `AppShell` 路由承载。`/training` 仍是唯一明确的占位入口。
+页面路由由 React Router 定义在 `apps/web/src/App.tsx`，不是 Zustand page switch。`/projects/:id/annotate` 与 `/projects/:id/review` 使用全屏工作台；Dashboard、数据集、存储、`/ai-pre`、模型市场、在线学习训练数据集（`/training` 与 `/training/:id`）、项目设置、审核、用户与系统管理等页面通过 `AppShell` 路由承载。
 
 业务数据通过 `apps/web/src/api/` 的 API client 和 React Query 获取；Zustand 仅保存认证、界面偏好和短生命周期交互状态。测试 fixture 不能作为运行时数据来源。
 

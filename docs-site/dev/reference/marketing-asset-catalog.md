@@ -1,10 +1,10 @@
 ---
 title: 高清营销资产目录
 description: 营销录屏的主题、分镜、时长规格与 Agent 后期制作约定
-audience: [developer]
+audience: [dev]
 type: reference
 status: stable
-last_reviewed: 2026-09-13
+last_reviewed: 2026-10-19
 ---
 
 # 高清营销资产目录

@@ -2,9 +2,8 @@
 title: ML Backend 接入教程
 audience: [dev]
 type: tutorial
-since: v0.15.2
 status: stable
-last_reviewed: 2026-06-11
+last_reviewed: 2026-10-19
 ---
 
 # ML Backend 接入教程：从 echo 示例到真实模型
@@ -27,7 +26,7 @@ last_reviewed: 2026-06-11
 
 ## Step 1：跑通 echo 示例
 
-echo 示例在 [`docs-site/dev/examples/echo-ml-backend/`](https://github.com/yyq19990828/ai-annotation-platform/tree/main/docs-site/dev/examples/echo-ml-backend)，不到 100 行、零外部依赖（仅 fastapi + pydantic），整目录拷走即可当 starter：
+echo 示例位于仓库 `docs-site/dev/examples/echo-ml-backend/`，不到 100 行、零外部重依赖（仅 `fastapi` + `pydantic`），整目录拷贝即可作为 starter：
 
 ```bash
 cd docs-site/dev/examples/echo-ml-backend
@@ -141,7 +140,7 @@ async def predict(req: PredictRequest):
     return {"results": results}
 ```
 
-至此就是一个能在平台跑批量预标注的真实 OCR backend。固定 demo 输出的 mock 版本可对照 [`mock-v2-backend/`](https://github.com/yyq19990828/ai-annotation-platform/tree/main/docs-site/dev/examples/mock-v2-backend) 的 `ppocr` 条目与 `_demo_shapes("ocr")`。
+至此就是一个能在平台跑批量预标注的真实 OCR backend。固定 demo 输出的 mock 版本可对照 `docs-site/dev/examples/mock-v2-backend/` 的 `ppocr` 条目与 `_demo_shapes("ocr")`。
 
 > 建议同步给自己的 backend 写 contract tests（fastapi `TestClient` 即可，无需起服务），两个示例目录下的 `tests/test_contract.py` 可直接当模板抄。
 
@@ -154,17 +153,17 @@ async def predict(req: PredictRequest):
 - **预热与运行时观测**：`/setup.warmup_endpoint: true` + `POST /warmup`；`/predict` 响应带 `cache_hit` / `model_load_ms`，前端据此区分「加载中」与「推理中」（协议 §4.2 / §4.4）。
 - **标准错误形态**：非法 variant → 422 `variant_not_supported`；权重缺失 / 显存不可服务 → 503 `model_unavailable` + `Retry-After`（协议 §6）。
 
-**生产建议**：直接依赖共享库 [`apps/_shared/protocol_v2/`](https://github.com/yyq19990828/ai-annotation-platform/tree/main/apps/_shared/protocol_v2)（`aap_protocol_v2`），它提供 `PredictionResult` / `BatchPredictResponse` / `PoolStatus` / `WarmupResponse` 等协议 Pydantic 模型、`VariantNotSupportedError` / `ModelUnavailableError` 标准错误类，以及旧 variant 字段的 normalize 工具——三个生产 backend（yolo / sam3 / grounded-sam2）均已依赖。真实推理 backend 的完整组织方式（ModelPool、observability、tests）首选参考 [`apps/yolo-backend/`](https://github.com/yyq19990828/ai-annotation-platform/tree/main/apps/yolo-backend)。
+**生产建议**：直接依赖共享库 `apps/_shared/protocol_v2/`（`aap_protocol_v2`），它提供 `PredictionResult` / `BatchPredictResponse` / `PoolStatus` / `WarmupResponse` 等协议 Pydantic 模型、`VariantNotSupportedError` / `ModelUnavailableError` 标准错误类，以及旧 variant 字段的 normalize 工具——各第一方生产 backend（`yolo-backend` / `sam3-backend` / `grounded-sam2-backend`）均已依赖。真实推理 backend 的完整组织方式（ModelPool、observability、tests）首选参考 `apps/yolo-backend/`。
 
-本教程的 OCR 主题，真实推理参考 [`apps/rapidocr-backend/`](https://github.com/yyq19990828/ai-annotation-platform/tree/main/apps/rapidocr-backend)：它把 RapidOCR 的 det→cls→rec 拆为**原子能力 + 端到端 composite** 三个 model（`ocr-det` / `ocr-rec` / `ocr-e2e`），示范一个 backend 如何既暴露可被 pipeline 编排的原子阶段、又提供一次跑完的便捷入口，并输出 `attributes.text` / `orientation` / `language` 富属性（协议 §4.1.8）。
+本教程的 OCR 主题，真实推理参考 `apps/rapidocr-backend/`：它把 RapidOCR 的 det→cls→rec 拆为**原子能力 + 端到端 composite** 三个 model（`ocr-det` / `ocr-rec` / `ocr-e2e`），示范一个 backend 如何既暴露可被 pipeline 编排的原子阶段、又提供一次跑完的便捷入口，并输出 `attributes.text` / `orientation` / `language` 富属性（协议 §4.1.8）。
 
-## Step 5：注册到平台并对项目启用
+## Step 5：全局注册并对项目启用
 
-backend 跑起来后：
+backend 跑起来后，按两层模型接入平台：
 
-1. 项目设置 → ML Backends 添加 backend URL（平台跑 Docker 时填 `http://host.docker.internal:8000`），点「测试连接」；
-2. 连接成功后在批次详情页触发「AI 预标注」，预测结果落到任务上;
-3. 交互式 backend（`/setup.is_interactive: true`）会自动出现在工作台 AI 工具中。
+1. **全局注册（超级管理员）**：进入「模型市场 → 注册管理」，添加 backend URL（平台跑在 Docker 时填 `http://host.docker.internal:8000`），点击「测试连接」拉取 `/setup` 能力快照；
+2. **项目启用（项目管理员）**：进入目标项目的「项目设置 → ML 模型」，勾选启用该服务池并按需设置项目主模型；
+3. **触发推理**：在批次详情页或预标注编排面板触发「AI 预标注」；若为交互式 backend（`/setup.is_interactive: true`），还会自动出现在工作台 AI 助手工具栏中。
 
 操作细节见用户手册：[ML 后端绑定](/user-guide/projects/ml-backends)、[AI 预标注](/user-guide/projects/ai-preannotate)；超管全局视角见 [ML Backend 注册](/user-guide/superadmin/ml-backend-registry)。
 

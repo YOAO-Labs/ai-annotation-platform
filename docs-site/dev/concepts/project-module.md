@@ -1,9 +1,8 @@
 ---
 audience: [dev]
 type: explanation
-since: v0.9.14
 status: stable
-last_reviewed: 2026-09-19
+last_reviewed: 2026-10-19
 ---
 
 # 项目模块
@@ -15,8 +14,8 @@ last_reviewed: 2026-09-19
 - 项目创建 / 更新 / 删除
 - 项目成员与 owner
 - 类目、属性 schema、采样配置
-- ML backend 绑定
-- 项目级统计、导出、预标注入口
+- ML backend 绑定与项目发布模型选择
+- 项目级统计、导出、预标注与在线学习入口
 
 先读这页。
 
@@ -96,25 +95,18 @@ pending_review
 archived
 ```
 
-这些状态更多用于项目列表与总览展示，不像 task / batch 那样承载细粒度工作流。
-
-经验上：
-
-- 日常开发里更常碰的是 batch / task 状态机
-- project.status 更接近“管理看板状态”，而不是驱动工作台细节的唯一真值
+这些状态更多用于项目列表与总览展示，不像 task / batch 那样承载细粒度工作流。但需要注意：**`archived` 状态会阻断项目级在线学习的新增写操作**（如创建训练数据集、启动训练、切换项目发布模型、发起样本评估或主动学习轮次）。
 
 ## Project 负责哪些配置
 
 ### 1. 标注 schema（按工具单位拆分）
 
-项目定义:
+项目定义：
 
-- 启用哪些**工具单位** (tool_unit) 与各 unit 持有的类别 / 属性 schema: `tool_bindings` (唯一存储真值)
-- 响应 / 导出按需从 `tool_bindings` **读时派生**的扁平投影: `classes` / `classes_config` / `attribute_schema`
+- 启用哪些**工具单位**（`tool_unit`）与各 unit 持有的类别 / 属性 schema：`tool_bindings`（唯一存储真值）
+- 响应 / 导出按需从 `tool_bindings` **读时派生**的扁平投影：`classes` / `classes_config` / `attribute_schema`
 
-<!-- history: tool_bindings replaced the older flat project schema across the v0.10 tool-unit slices. -->
-
-`tool_bindings` 结构示例:
+`tool_bindings` 结构示例：
 
 ```json
 {
@@ -128,11 +120,11 @@ archived
 }
 ```
 
-工具单位枚举与 `app/schemas/_jsonb_types.ToolUnitId` Literal 对齐：`bbox` / `polyline` / `region` / `lidar_box_3d` / `rotated_bbox` / `keypoint` / `point_mask_3d`。交互式 AI 不是几何工具单位：smart-point / smart-box / exemplar 的多边形归 `region`，Magic Box 的矩形框归 `bbox`；项目级 `ai_interactive_enabled` 只控制能力是否开放。**强隔离决策**: 不同工具的同名类是两条独立记录, 详见 [ADR-0026](../adr/archive/0026-tool-unit-class-and-attribute-binding)。
+工具单位枚举与 `app/schemas/_jsonb_types.ToolUnitId` Literal 对齐：`bbox` / `polyline` / `region` / `lidar_box_3d` / `rotated_bbox` / `keypoint` / `point_mask_3d`。交互式 AI 不是几何工具单位：smart-point / smart-box / exemplar 的多边形归 `region`，Magic Box 的矩形框归 `bbox`；项目级 `ai_interactive_enabled` 只控制能力是否开放。**强隔离决策**：不同工具的同名类是两条独立记录，详见 [ADR-0026](../adr/archive/0026-tool-unit-class-and-attribute-binding)。
 
-如果你改的是「标注长什么样」, 十有八九要从 project.tool_bindings 入手, 而不是 task。
+如果你改的是「标注长什么样」，十有八九要从 `project.tool_bindings` 入手，而不是 `task`。
 
-写入路径: `apps/api/app/api/v1/projects.py` 的 `create_project` / `update_project` 调用 `coalesce_legacy_into_tool_bindings` (旧客户端只传扁平字段时反向派生到对应 unit), 之后剔除扁平 key —— `tool_bindings` 是唯一写入目标。读出路径由 `ProjectOut` 的 `model_validator` 用 `derive_*` 从 `tool_bindings` 派生扁平投影。详细 helper 实现见 `apps/api/app/services/project.py`。
+写入路径：`apps/api/app/api/v1/projects.py` 的 `create_project` / `update_project` 调用 `coalesce_legacy_into_tool_bindings`（旧客户端只传扁平字段时反向派生到对应 unit），之后剔除扁平 key —— `tool_bindings` 是唯一写入目标。读出路径由 `ProjectOut` 的 `model_validator` 用 `derive_*` 从 `tool_bindings` 派生扁平投影。详细 helper 实现见 `apps/api/app/services/project.py`。
 
 前端项目设置的归属：`基本信息` 只维护名称、状态、截止日期和类型展示；`类别与属性` 是 `tool_bindings` 的唯一编辑入口，同一个工具单位 tab 下同时维护类别、关键点骨骼模板与属性 schema。
 
@@ -165,6 +157,14 @@ scene 模式项目额外多一层连续派题逻辑：打开 `prefer_same_scene_
 AI 能力是 project 级开关，不是 batch 或 task 私有配置。
 
 前端项目设置的归属：这些 AI 字段统一在 `ML 模型` 页维护。该页上方是项目级 AI 预标注设置（选主服务池时同步启用、去重阈值），下方是**对全局服务池的启用 / 禁用清单**；物理 registry 由服务池成员承载，项目只管理哪些池可用以及哪个池是主池。per-backend 阈值覆盖已退役：推理参数运行时按 `/setup.params` 通用渲染，项目级 `box_threshold` 仅作兜底。物理注册与健康检查归超管在模型市场维护。
+
+### 4. 项目级在线学习与发布模型绑定
+
+图片项目拥有独立的在线学习工作台（`/projects/:id/learning`），覆盖「模型与血缘 / 训练数据集 / 评估与难例 / 主动学习」四个标签页：
+
+- **项目发布模型选择（`ProjectModelSelection`）**：项目管理员可在 `GET/PUT/DELETE /api/v1/projects/{id}/model-selection` 中将已通过资格验证的 `TrainedModelVersion` 设为项目当前发布模型。
+- **预标注流水线路由（`project-release`）**：在预标注流水线编排中选择 `model_source = "project-release"` 的阶段，入队时会冻结该项目当前的 `ProjectModelSelection`（写入 `frozen_model_ref` 并路由到 `model_id = "trained:{version_id}"`）。
+- 完整架构与契约见 [在线学习与训练体系](./training-datasets)。
 
 ## 成员与权限边界
 
@@ -258,11 +258,11 @@ Project 模型本身保留了多种聚合字段：
 | 你想改什么                                                                                                    | 先看哪里                                                                                                                         |
 | ------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
 | 新增项目配置字段                                                                                              | `db/models/project.py` + `schemas/project.py` + `api/v1/projects.py`                                                             |
-| 改项目权限                                                                                                    | `deps.py` + `api/v1/projects.py`                                                                                                 |
+| 改项目权限                                                                                                    | `services/project_access.py` + `deps.py` + `api/v1/projects.py`                                                                  |
 | 改派题策略                                                                                                    | `db/models/project.py` + `services/scheduler.py`                                                                                 |
 | 改 scene 模式 / 连续派题（`scene_mode` / `prefer_same_scene_continuation` / `scene_continuation_window_min`） | `db/models/project.py` + `schemas/project.py` + `services/project_kind.py`（`scene_mode_allowed` 门禁）+ `services/scheduler.py` |
 | 改 AI 默认参数                                                                                                | `schemas/project.py` + `projects.py` + 相关前端表单                                                                              |
-| 改项目统计                                                                                                    | `dashboard/`(admin/reviewer/annotator)+ 相关 service / counter 回写                                                              |
+| 改项目统计                                                                                                    | `dashboard/`（admin/reviewer/annotator）+ 相关 service / counter 回写                                                            |
 
 ## 测试与联动点
 
