@@ -5,6 +5,7 @@ from __future__ import annotations
 from uuid import uuid4
 
 import pytest
+from sqlalchemy import text
 
 from aap_assets_input_manifests import contract as manifests
 from app.db.models.async_job import AsyncJob
@@ -16,6 +17,7 @@ from app.services.accepted_input_manifests import (
 from tests.factory import create_project, create_task
 from tests.test_assets_catalog_native import _seed_actor, _seed_dataset
 from tests.test_assets_images_execution import _seed_image
+from tests.test_scene_image_input_manifests_migration import _migration
 
 pytestmark = pytest.mark.asyncio
 
@@ -118,6 +120,10 @@ async def test_scene_mode_image_task_is_captured_as_its_own_image_input(db_sessi
     assert member.file_type == "image"
     assert member.source is not None
     assert page.manifest == header
+    retained_scene_manifest_count = await db_session.scalar(
+        text(_migration()._UNSUPPORTED_RETAINED_MANIFEST_COUNT)
+    )
+    assert retained_scene_manifest_count == 1
 
     non_image_task = await create_task(db_session, project_id=project.id)
     non_image_task.file_type = "lidar"
@@ -146,3 +152,96 @@ async def test_scene_mode_lidar_project_cannot_use_an_image_manifest(db_session)
             project_id=project.id,
             task_id=task.id,
         )
+
+
+async def test_0227_drain_query_classifies_legacy_scene_image_jobs(db_session):
+    actor_id = await _seed_actor(db_session)
+    scene_project = await create_project(db_session, owner_id=actor_id)
+    scene_project.scene_mode = True
+    normal_project = await create_project(db_session, owner_id=actor_id)
+    lidar_project = await create_project(db_session, owner_id=actor_id)
+    lidar_project.data_type = "lidar"
+    lidar_project.scene_mode = True
+    await db_session.flush()
+
+    def job(project, *, status="pending", payload=None):
+        job_id = uuid4()
+        return AsyncJob(
+            id=job_id,
+            kind="batch_predict",
+            project_id=project.id,
+            user_id=actor_id,
+            status=status,
+            celery_task_id=str(job_id),
+            payload={"batch_id": None, **(payload or {})},
+            result={},
+        )
+
+    jobs = [
+        job(scene_project, payload={"execution_scope": "bulk"}),
+        job(
+            scene_project,
+            status="running",
+            payload={"execution_scope": "bulk", "task": "detect"},
+        ),
+        *[
+            job(
+                scene_project,
+                payload={
+                    "execution_scope": "bulk",
+                    "execution_unit": unit,
+                },
+            )
+            for unit in ("scene", "frame", "video")
+        ],
+        *[
+            job(
+                scene_project,
+                payload={"execution_scope": "bulk", "task": task},
+            )
+            for task in ("text", "tracker")
+        ],
+        *[
+            job(
+                scene_project,
+                payload={
+                    "execution_scope": "bulk",
+                    "pipeline_stages": [{"stage": 1, "task": task}],
+                },
+            )
+            for task in ("text", "tracker")
+        ],
+        *[
+            job(
+                scene_project,
+                payload={
+                    "execution_scope": "bulk",
+                    "pipeline_stages": [
+                        {
+                            "stage": 1,
+                            "source": {"kind": "dataset", "execution_unit": unit},
+                        }
+                    ],
+                },
+            )
+            for unit in ("scene", "frame", "video")
+        ],
+        job(
+            scene_project,
+            payload={
+                "execution_scope": "bulk",
+                "accepted_input_manifest_protocol": manifests.MANIFEST_SCHEMA,
+            },
+        ),
+        job(scene_project, status="completed", payload={"execution_scope": "bulk"}),
+        job(scene_project, payload={"execution_scope": "workbench"}),
+        job(normal_project, payload={"execution_scope": "bulk"}),
+        job(lidar_project, payload={"execution_scope": "bulk"}),
+    ]
+    db_session.add_all(jobs)
+    await db_session.flush()
+
+    active_legacy_jobs = await db_session.scalar(
+        text(_migration()._LEGACY_SCENE_IMAGE_JOB_COUNT)
+    )
+    assert active_legacy_jobs == 2

@@ -76,6 +76,7 @@ def test_0227_gate_counts_only_unmanifested_ordinary_scene_image_bulk_jobs():
     ) in query
     assert "NOT IN ('frame', 'video', 'scene')" in query
     assert "NOT IN ('text', 'tracker')" in query
+    assert "stage #>> '{source,execution_unit}' IN ('frame', 'video', 'scene')" in query
     assert "jsonb_array_elements" in query
     assert (
         "Drain or explicitly fail those Scene-image Jobs first."
