@@ -13,6 +13,21 @@ Requests use a bearer service token. S3 bucket and credentials are supplied
 separately to each process; no provider details or credentials are returned in
 errors or logged by this package.
 
+Durable deletion uses the separate `aap-assets-mask-gc/v1` schema and the
+cleanup-only `POST /v1/mask-gc/scan`, `/execute`, and `/status` routes. The
+cleanup process shares one admission limit across both protocols. Scan cursors
+advance by the last physical Mask-prefix key, even when a legacy filename is
+not a deletable candidate. Execute claims
+`raster-mask-gc/v1/{operation_id}/request.json` with a conditional write before
+it can issue one conditional payload delete. A terminal receipt is stored
+immutably at `raster-mask-gc/v1/{operation_id}/receipt.json`; neither journal
+object is expired or deleted. A repeated matching request only checks status,
+and a different request with the same operation ID returns
+`idempotency_conflict`. Unresolved timeouts and uncertain replies remain
+pending or indeterminate unless a later HEAD proves a terminal missing or
+changed state; they never authorize a second payload delete. Status can recover
+a durable receipt without reading the payload again.
+
 Objects use the existing key namespace
 `raster-masks/sha256/{first-two}/{next-two}/{sha256}.json[.gz]`. The SHA-256
 digest and reference byte count cover the canonical uncompressed UTF-8 JSON
@@ -32,15 +47,17 @@ exclusive `*_FILE` alternatives for container secrets; files are bounded to
 4 KiB and one final newline is removed. Start with
 `python -m aap_assets_mask_content_runtime`.
 
-The S3 principals should be limited to this fixed object prefix. The content
-role needs GetObject, PutObject, and bucket-location readiness access. The
-cleanup role needs GetObject/HeadObject, prefix-scoped ListBucket/DeleteObject,
-and bucket-location readiness access; it gets no PutObject permission. Labeling
-must own a durable per-object deletion fence as well as checking live references
-and upload reservations before cutting business GC over to remote delete. The
-API currently admits only remote dry-run inventories; business GC deletion stays
-embedded. An HTTP timeout can release a request's SQL lock while remote storage
-work is still running, so that lock alone is insufficient for remote deletion.
+The S3 principals should be limited to these fixed prefixes. The content role
+needs GetObject, PutObject, and bucket-location readiness access. The cleanup
+role needs GetObject/HeadObject and prefix-scoped ListBucket/DeleteObject on
+`raster-masks/sha256/`, plus GetObject/PutObject on
+`raster-mask-gc/v1/` and bucket-location readiness access. It gets no payload
+PutObject or version-delete permission. This byte owner does not know business
+roots, grace periods, leases, or write epochs. Labeling must claim and retain a
+durable per-object deletion fence while checking live references and upload
+reservations; only a matching completed receipt can clear that fence. An HTTP
+timeout can release a request's SQL lock while remote storage work is still
+running, so that lock alone is insufficient for remote deletion.
 
 Each role admits one operation before receiving and parsing the request body;
 additional requests return 503. The admission remains held until outstanding

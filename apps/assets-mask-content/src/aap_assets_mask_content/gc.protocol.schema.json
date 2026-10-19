@@ -1,0 +1,269 @@
+{
+  "$defs": {
+    "DeleteOperationRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "etag": {
+          "maxLength": 255,
+          "minLength": 1,
+          "pattern": "^[\\x21\\x23-\\x7e]+$",
+          "title": "Etag",
+          "type": "string"
+        },
+        "last_modified": {
+          "format": "date-time",
+          "title": "Last Modified",
+          "type": "string"
+        },
+        "object_key": {
+          "maxLength": 255,
+          "minLength": 1,
+          "pattern": "^raster-masks/sha256/[0-9a-f]{2}/[0-9a-f]{2}/[0-9a-f]{64}\\.json(?:\\.gz)?$",
+          "title": "Object Key",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        }
+      },
+      "required": ["operation_id", "object_key", "etag", "last_modified"],
+      "title": "DeleteOperationRequest",
+      "type": "object"
+    },
+    "DeleteOperationStatus": {
+      "additionalProperties": false,
+      "properties": {
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "outcome": {
+          "anyOf": [
+            {
+              "enum": ["deleted", "missing", "content_changed"],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Outcome"
+        },
+        "request": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DeleteOperationRequest"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "state": {
+          "enum": ["not_found", "pending", "indeterminate", "completed"],
+          "title": "State",
+          "type": "string"
+        }
+      },
+      "required": ["operation_id", "request", "state", "outcome"],
+      "title": "DeleteOperationStatus",
+      "type": "object"
+    },
+    "DeleteStatusRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        }
+      },
+      "required": ["operation_id"],
+      "title": "DeleteStatusRequest",
+      "type": "object"
+    },
+    "GcCandidate": {
+      "additionalProperties": false,
+      "properties": {
+        "byte_size": {
+          "minimum": 0,
+          "title": "Byte Size",
+          "type": "integer"
+        },
+        "etag": {
+          "maxLength": 255,
+          "minLength": 1,
+          "pattern": "^[\\x21\\x23-\\x7e]+$",
+          "title": "Etag",
+          "type": "string"
+        },
+        "last_modified": {
+          "format": "date-time",
+          "title": "Last Modified",
+          "type": "string"
+        },
+        "object_key": {
+          "maxLength": 255,
+          "minLength": 1,
+          "pattern": "^raster-masks/sha256/[0-9a-f]{2}/[0-9a-f]{2}/[0-9a-f]{64}\\.json(?:\\.gz)?$",
+          "title": "Object Key",
+          "type": "string"
+        }
+      },
+      "required": ["object_key", "etag", "last_modified", "byte_size"],
+      "title": "GcCandidate",
+      "type": "object"
+    },
+    "GcScanPage": {
+      "additionalProperties": false,
+      "properties": {
+        "after_key": {
+          "anyOf": [
+            {
+              "maxLength": 1024,
+              "minLength": 1,
+              "pattern": "^raster-masks/sha256/",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "After Key"
+        },
+        "complete": {
+          "title": "Complete",
+          "type": "boolean"
+        },
+        "items": {
+          "items": {
+            "$ref": "#/$defs/GcCandidate"
+          },
+          "maxItems": 1000,
+          "title": "Items",
+          "type": "array"
+        }
+      },
+      "required": ["items", "after_key", "complete"],
+      "title": "GcScanPage",
+      "type": "object"
+    },
+    "GcScanRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "after_key": {
+          "anyOf": [
+            {
+              "maxLength": 1024,
+              "minLength": 1,
+              "pattern": "^raster-masks/sha256/",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "After Key"
+        },
+        "limit": {
+          "default": 1000,
+          "maximum": 1000,
+          "minimum": 1,
+          "title": "Limit",
+          "type": "integer"
+        }
+      },
+      "title": "GcScanRequest",
+      "type": "object"
+    },
+    "_GcError": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "enum": [
+            "invalid_request",
+            "idempotency_conflict",
+            "resource_limit",
+            "storage_unavailable",
+            "invalid_response",
+            "permission_denied"
+          ],
+          "title": "Code",
+          "type": "string"
+        }
+      },
+      "required": ["code"],
+      "title": "_GcError",
+      "type": "object"
+    }
+  },
+  "$id": "https://schemas.aap.invalid/assets-mask-gc/v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/GcScanRequest"
+    },
+    {
+      "$ref": "#/$defs/DeleteOperationRequest"
+    },
+    {
+      "$ref": "#/$defs/DeleteStatusRequest"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/GcScanPage"
+            },
+            {
+              "$ref": "#/$defs/DeleteOperationStatus"
+            }
+          ]
+        },
+        "ok": {
+          "const": true
+        },
+        "schema": {
+          "const": "aap-assets-mask-gc/v1"
+        }
+      },
+      "required": ["schema", "ok", "data"],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "error": {
+          "$ref": "#/$defs/_GcError"
+        },
+        "ok": {
+          "const": false
+        },
+        "schema": {
+          "const": "aap-assets-mask-gc/v1"
+        }
+      },
+      "required": ["schema", "ok", "error"],
+      "type": "object"
+    }
+  ],
+  "title": "AAP Mask garbage collection request and response messages",
+  "x-aap-schema": "aap-assets-mask-gc/v1",
+  "x-budgets": {
+    "max_cursor_bytes": 1024,
+    "max_page": 1000,
+    "request_bytes": 1048576,
+    "response_bytes": 1048576
+  },
+  "x-operation-roles": {
+    "execute": "cleanup",
+    "scan": "cleanup",
+    "status": "cleanup"
+  }
+}
