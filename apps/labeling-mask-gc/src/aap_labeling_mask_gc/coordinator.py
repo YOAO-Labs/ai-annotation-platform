@@ -169,6 +169,95 @@ def _add(stats: dict[str, int], name: str, amount: int) -> None:
     stats[name] += amount
 
 
+def _validate_scan_page(request: byte.GcScanRequest, page: byte.GcScanPage) -> None:
+    if len(page.items) > request.limit:
+        raise byte.MaskGcFailure("invalid_response")
+    if request.after_key is None:
+        return
+    previous = request.after_key.encode("utf-8")
+    if (
+        not page.complete
+        and page.after_key is not None
+        and page.after_key.encode("utf-8") <= previous
+    ):
+        raise byte.MaskGcFailure("invalid_response")
+    if any(item.object_key.encode("utf-8") <= previous for item in page.items):
+        raise byte.MaskGcFailure("invalid_response")
+
+
+async def _inspect_page(
+    data: NativeMaskGcData,
+    after_key: str | None,
+    page: byte.GcScanPage,
+    *,
+    include_reference_count: bool,
+) -> c.InspectMaskGcPageResult:
+    request = c.InspectMaskGcPageRequest(
+        after_key=after_key,
+        page=page,
+        include_reference_count=include_reference_count,
+    )
+    result = await _data_call(data, "inspect_mask_gc_page", request)
+    if not isinstance(result, c.InspectMaskGcPageResult):
+        result = c.InspectMaskGcPageResult.model_validate(result)
+    c.validate_scope("inspect_mask_gc_page", request, result)
+    return result
+
+
+async def _run_preview(
+    data: NativeMaskGcData,
+    storage: MaskGcStorage,
+    *,
+    scan_pages: int,
+    after_key: str | None,
+) -> c.CycleStats:
+    stats = c.CycleStats(dry_run=True).model_dump()
+    stats["next_after_key"] = after_key
+    cursor = after_key
+    reference_count_pending = True
+
+    for _ in range(scan_pages):
+        try:
+            scan_request = byte.GcScanRequest(
+                after_key=cursor,
+                limit=byte.MAX_GC_PAGE,
+            )
+            page = await _storage_call(storage, "scan", scan_request)
+            page = byte.GcScanPage.model_validate(page)
+            _validate_scan_page(scan_request, page)
+        except Exception:
+            stats["scan_errors"] += 1
+            break
+
+        try:
+            inspection = await _inspect_page(
+                data,
+                cursor,
+                page,
+                include_reference_count=reference_count_pending,
+            )
+        except Exception:
+            stats["data_errors"] += 1
+            break
+
+        if reference_count_pending:
+            stats["referenced"] = inspection.referenced
+            reference_count_pending = False
+        _add(stats, "scan_pages", 1)
+        _add(stats, "scanned", inspection.scanned)
+        _add(stats, "eligible", inspection.eligible)
+        # Dry-run has no separate retained counter; skipped carries the preview's
+        # retained count while staged remains zero.
+        _add(stats, "skipped", inspection.retained)
+        cursor = page.after_key
+        stats["next_after_key"] = cursor
+        stats["scan_complete"] = page.complete
+        if page.complete:
+            break
+
+    return c.CycleStats(**stats)
+
+
 async def run_cycle(
     data: NativeMaskGcData,
     storage: MaskGcStorage,
@@ -176,8 +265,10 @@ async def run_cycle(
     worker_id: UUID,
     scan_pages: int = 1,
     delete_limit: int = 100,
+    dry_run: bool = False,
+    after_key: str | None = None,
 ) -> c.CycleStats:
-    """Stage a bounded inventory page, then reconcile independent delete claims.
+    """Preview inventory or stage a bounded page and reconcile delete claims.
 
     Byte-owner failures never cause a terminal native result to be fabricated.
     Unresolved operation IDs are passed to the native finisher with either the
@@ -185,12 +276,24 @@ async def run_cycle(
     """
     if not isinstance(worker_id, UUID):
         raise c.MaskGcFailure("invalid_request")
-    if type(scan_pages) is not int or not 1 <= scan_pages <= c.MAX_SCAN_PAGES:
+    try:
+        request = c.RunRequest(
+            scan_pages=scan_pages,
+            delete_limit=delete_limit,
+            dry_run=dry_run,
+            after_key=after_key,
+        )
+    except (TypeError, ValueError):
         raise c.MaskGcFailure("invalid_request")
-    if type(delete_limit) is not int or not 1 <= delete_limit <= c.MAX_DELETE_LIMIT:
-        raise c.MaskGcFailure("invalid_request")
+    if request.dry_run:
+        return await _run_preview(
+            data,
+            storage,
+            scan_pages=request.scan_pages,
+            after_key=request.after_key,
+        )
 
-    stats = {name: 0 for name in c.CycleStats.model_fields}
+    stats = c.CycleStats().model_dump()
 
     # A failed inventory pass leaves the durable cursor untouched. Continue to
     # reconcile already-staged operations in this same cycle.
@@ -204,10 +307,14 @@ async def run_cycle(
         if not isinstance(claimed, c.ClaimMaskGcSweepResult):
             claimed = c.ClaimMaskGcSweepResult.model_validate(claimed)
         sweep = claimed.sweep
+        if sweep is not None:
+            stats["next_after_key"] = sweep.after_key
+            stats["scan_complete"] = sweep.complete
     except Exception:
         stats["data_errors"] += 1
 
-    for _ in range(scan_pages):
+    reference_count_pending = True
+    for _ in range(request.scan_pages):
         if sweep is None or sweep.complete:
             break
         try:
@@ -217,46 +324,44 @@ async def run_cycle(
             )
             page = await _storage_call(storage, "scan", scan_request)
             page = byte.GcScanPage.model_validate(page)
-            if len(page.items) > scan_request.limit:
-                raise byte.MaskGcFailure("invalid_response")
-            if sweep.after_key is not None:
-                previous = sweep.after_key.encode("utf-8")
-                if (
-                    not page.complete
-                    and page.after_key is not None
-                    and page.after_key.encode("utf-8") <= previous
-                ):
-                    raise byte.MaskGcFailure("invalid_response")
-                if any(
-                    item.object_key.encode("utf-8") <= previous for item in page.items
-                ):
-                    raise byte.MaskGcFailure("invalid_response")
+            _validate_scan_page(scan_request, page)
+            if reference_count_pending:
+                try:
+                    inspection = await _inspect_page(
+                        data,
+                        sweep.after_key,
+                        page,
+                        include_reference_count=True,
+                    )
+                    stats["referenced"] = inspection.referenced
+                    reference_count_pending = False
+                except Exception:
+                    # The preview count is observational. Its failure must not
+                    # prevent the durable staging and replay path from running.
+                    stats["data_errors"] += 1
+            stage_request = c.StageMaskGcPageRequest(
+                sweep_id=sweep.sweep_id,
+                generation=sweep.generation,
+                lease_token=sweep.lease_token,
+                after_key=sweep.after_key,
+                page=page,
+            )
             staged = await _data_call(
                 data,
                 "stage_mask_gc_page",
-                c.StageMaskGcPageRequest(
-                    sweep_id=sweep.sweep_id,
-                    generation=sweep.generation,
-                    lease_token=sweep.lease_token,
-                    after_key=sweep.after_key,
-                    page=page,
-                ),
+                stage_request,
             )
             if not isinstance(staged, c.StageMaskGcPageResult):
                 staged = c.StageMaskGcPageResult.model_validate(staged)
-            if (
-                staged.sweep.sweep_id != sweep.sweep_id
-                or staged.sweep.generation != sweep.generation
-                or staged.sweep.lease_token != sweep.lease_token
-                or staged.sweep.after_key != page.after_key
-                or staged.sweep.complete != page.complete
-            ):
-                raise c.MaskGcFailure("invalid_response")
+            c.validate_scope("stage_mask_gc_page", stage_request, staged)
             _add(stats, "scan_pages", 1)
             _add(stats, "scanned", staged.scanned)
+            _add(stats, "eligible", staged.staged)
             _add(stats, "staged", staged.staged)
             _add(stats, "skipped", staged.skipped)
             sweep = staged.sweep
+            stats["next_after_key"] = sweep.after_key
+            stats["scan_complete"] = sweep.complete
             if page.complete:
                 break
         except Exception:
@@ -269,13 +374,13 @@ async def run_cycle(
             "claim_mask_gc_deletes",
             c.ClaimMaskGcDeletesRequest(
                 worker_id=worker_id,
-                limit=delete_limit,
+                limit=request.delete_limit,
                 lease_seconds=30,
             ),
         )
         if not isinstance(delete_claims, c.ClaimMaskGcDeletesResult):
             delete_claims = c.ClaimMaskGcDeletesResult.model_validate(delete_claims)
-        if len(delete_claims.items) > delete_limit:
+        if len(delete_claims.items) > request.delete_limit:
             raise c.MaskGcFailure("invalid_response")
     except Exception:
         stats["data_errors"] += 1

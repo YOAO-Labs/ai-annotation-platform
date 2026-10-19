@@ -81,3 +81,30 @@ def test_http_client_preserves_safe_service_error_code():
             gc_client.progress()
     client.close()
     assert error.value.code == "storage_unavailable"
+
+
+@pytest.mark.parametrize(
+    "result",
+    [
+        c.CycleStats(dry_run=False),
+        c.CycleStats(dry_run=True, scan_pages=2),
+        c.CycleStats(delete_claims=2),
+    ],
+)
+def test_http_client_rejects_run_stats_outside_request_scope(result):
+    def handler(_request):
+        return httpx.Response(
+            200,
+            json={
+                "schema": c.SCHEMA,
+                "ok": True,
+                "data": result.model_dump(mode="json"),
+            },
+        )
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    with LabelingMaskGcClient("http://mask-gc:8771", TOKEN, client=client) as gc_client:
+        with pytest.raises(LabelingMaskGcClientFailure) as error:
+            gc_client.run(c.RunRequest(scan_pages=1, delete_limit=1, dry_run=True))
+    client.close()
+    assert error.value.code == "invalid_response"

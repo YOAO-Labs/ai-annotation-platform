@@ -34,10 +34,21 @@
             "title": "Deleted",
             "type": "integer"
           },
+          "dry_run": {
+            "default": false,
+            "title": "Dry Run",
+            "type": "boolean"
+          },
           "durable_uncertainties": {
             "default": 0,
             "minimum": 0,
             "title": "Durable Uncertainties",
+            "type": "integer"
+          },
+          "eligible": {
+            "default": 0,
+            "minimum": 0,
+            "title": "Eligible",
             "type": "integer"
           },
           "finish_errors": {
@@ -58,11 +69,44 @@
             "title": "Missing",
             "type": "integer"
           },
+          "next_after_key": {
+            "anyOf": [
+              {
+                "maxLength": 1024,
+                "minLength": 1,
+                "pattern": "^raster-masks/sha256/",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Next After Key"
+          },
           "pending": {
             "default": 0,
             "minimum": 0,
             "title": "Pending",
             "type": "integer"
+          },
+          "referenced": {
+            "anyOf": [
+              {
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Referenced"
+          },
+          "scan_complete": {
+            "default": false,
+            "title": "Scan Complete",
+            "type": "boolean"
           },
           "scan_errors": {
             "default": 0,
@@ -139,12 +183,32 @@
       "RunRequest": {
         "additionalProperties": false,
         "properties": {
+          "after_key": {
+            "anyOf": [
+              {
+                "maxLength": 1024,
+                "minLength": 1,
+                "pattern": "^raster-masks/sha256/",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "After Key"
+          },
           "delete_limit": {
             "default": 100,
             "maximum": 100,
             "minimum": 1,
             "title": "Delete Limit",
             "type": "integer"
+          },
+          "dry_run": {
+            "default": false,
+            "title": "Dry Run",
+            "type": "boolean"
           },
           "scan_pages": {
             "default": 1,

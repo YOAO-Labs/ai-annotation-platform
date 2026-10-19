@@ -24,6 +24,7 @@ from pydantic import (
 from aap_assets_mask_content.contract import validate_object_key
 from aap_assets_mask_content.gc_contract import (
     DeleteOperationStatus,
+    GcCursor,
     GcScanPage,
     GcScanRequest,
     MAX_GC_PAGE,
@@ -288,6 +289,45 @@ class StageMaskGcPageResult(Value):
         return self
 
 
+class InspectMaskGcPageRequest(Value):
+    after_key: GcCursor | None = None
+    page: GcScanPage
+    include_reference_count: StrictBool = False
+
+    @field_validator("after_key")
+    @classmethod
+    def bounded_cursor(cls, value):
+        return _cursor(value)
+
+    @model_validator(mode="after")
+    def page_follows_cursor(self):
+        if self.after_key is None:
+            return self
+        previous = self.after_key.encode("utf-8")
+        if any(item.object_key.encode("utf-8") <= previous for item in self.page.items):
+            raise ValueError("page candidates must follow the physical cursor")
+        if (
+            not self.page.complete
+            and self.page.after_key is not None
+            and self.page.after_key.encode("utf-8") <= previous
+        ):
+            raise ValueError("a nonfinal page must advance the physical cursor")
+        return self
+
+
+class InspectMaskGcPageResult(Value):
+    scanned: Annotated[StrictInt, Field(ge=0)]
+    eligible: Annotated[StrictInt, Field(ge=0)]
+    retained: Annotated[StrictInt, Field(ge=0)]
+    referenced: Annotated[StrictInt, Field(ge=0)] | None
+
+    @model_validator(mode="after")
+    def counts_match_scan(self):
+        if self.eligible + self.retained != self.scanned:
+            raise ValueError("eligible and retained counts must match scanned")
+        return self
+
+
 class ClaimMaskGcDeletesRequest(Value):
     worker_id: UUID
     limit: Annotated[StrictInt, Field(ge=1, le=MAX_DELETE_LIMIT)] = 100
@@ -447,6 +487,9 @@ OPERATIONS = MappingProxyType(
         "stage_mask_gc_page": NativeOperation(
             StageMaskGcPageRequest, StageMaskGcPageResult, "cleanup"
         ),
+        "inspect_mask_gc_page": NativeOperation(
+            InspectMaskGcPageRequest, InspectMaskGcPageResult, "cleanup"
+        ),
         "claim_mask_gc_deletes": NativeOperation(
             ClaimMaskGcDeletesRequest, ClaimMaskGcDeletesResult, "cleanup"
         ),
@@ -463,6 +506,19 @@ OPERATIONS = MappingProxyType(
 class RunRequest(Value):
     scan_pages: Annotated[StrictInt, Field(ge=1, le=MAX_SCAN_PAGES)] = 1
     delete_limit: Annotated[StrictInt, Field(ge=1, le=MAX_DELETE_LIMIT)] = 100
+    dry_run: StrictBool = False
+    after_key: GcCursor | None = None
+
+    @field_validator("after_key")
+    @classmethod
+    def bounded_cursor(cls, value):
+        return _cursor(value)
+
+    @model_validator(mode="after")
+    def cursor_only_for_preview(self):
+        if self.after_key is not None and not self.dry_run:
+            raise ValueError("after_key is available only for dry runs")
+        return self
 
 
 class ProgressRequest(Value):
@@ -470,6 +526,11 @@ class ProgressRequest(Value):
 
 
 class CycleStats(Value):
+    dry_run: StrictBool = False
+    eligible: NonnegativeInt = 0
+    referenced: NonnegativeInt | None = None
+    next_after_key: GcCursor | None = None
+    scan_complete: StrictBool = False
     scan_pages: NonnegativeInt = 0
     scanned: NonnegativeInt = 0
     staged: NonnegativeInt = 0
@@ -485,6 +546,46 @@ class CycleStats(Value):
     durable_uncertainties: NonnegativeInt = 0
     finish_errors: NonnegativeInt = 0
     data_errors: NonnegativeInt = 0
+
+    @field_validator("next_after_key")
+    @classmethod
+    def bounded_cursor(cls, value):
+        return _cursor(value)
+
+    @model_validator(mode="after")
+    def counters_match_mode(self):
+        if self.dry_run:
+            if any(
+                (
+                    self.staged,
+                    self.delete_claims,
+                    self.completed,
+                    self.deleted,
+                    self.missing,
+                    self.content_changed,
+                    self.pending,
+                    self.indeterminate,
+                    self.durable_uncertainties,
+                    self.finish_errors,
+                )
+            ):
+                raise ValueError("dry-run stats cannot include mutations")
+            if self.eligible + self.skipped != self.scanned:
+                raise ValueError("dry-run eligible and retained counts must match")
+        elif self.eligible != self.staged:
+            raise ValueError("normal-run eligible count must match staged count")
+        return self
+
+
+def validate_run_stats(request: RunRequest, result: CycleStats) -> None:
+    if type(request) is not RunRequest or type(result) is not CycleStats:
+        raise MaskGcFailure("invalid_response")
+    if (
+        request.dry_run != result.dry_run
+        or result.scan_pages > request.scan_pages
+        or result.delete_claims > request.delete_limit
+    ):
+        raise MaskGcFailure("invalid_response")
 
 
 def _reject_constant(_value: str):
@@ -578,6 +679,11 @@ def validate_scope(operation: str, request: BaseModel, result: BaseModel) -> Non
         ):
             raise MaskGcFailure("invalid_response")
         if result.scanned < len(request.page.items):
+            raise MaskGcFailure("invalid_response")
+    elif operation == "inspect_mask_gc_page":
+        if result.scanned != len(request.page.items):
+            raise MaskGcFailure("invalid_response")
+        if request.include_reference_count != (result.referenced is not None):
             raise MaskGcFailure("invalid_response")
     elif operation == "register_tracker_running_mask_root":
         if (

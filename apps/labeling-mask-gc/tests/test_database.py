@@ -84,6 +84,29 @@ async def test_native_call_uses_one_committed_transaction_and_allowlisted_sql():
 
 
 @pytest.mark.asyncio
+async def test_inspection_uses_the_cleanup_native_operation_without_writes():
+    request = c.InspectMaskGcPageRequest(
+        page={"items": [], "after_key": None, "complete": True},
+        include_reference_count=True,
+    )
+    reply = {
+        "schema": c.SCHEMA,
+        "ok": True,
+        "data": {"scanned": 0, "eligible": 0, "retained": 0, "referenced": 3},
+    }
+    pool = FakePool(json.dumps(reply))
+    database = AsyncpgMaskGcData(pool)
+
+    result = await database.call("inspect_mask_gc_page", request)
+
+    assert result.referenced == 3
+    assert pool.connection.commits == 1
+    assert pool.connection.statements[1][0] == (
+        "SELECT aap_labeling_v1.inspect_mask_gc_page($1::jsonb)"
+    )
+
+
+@pytest.mark.asyncio
 async def test_runtime_adapter_does_not_expose_write_gate_functions():
     pool = FakePool("unused")
     database = AsyncpgMaskGcData(pool)

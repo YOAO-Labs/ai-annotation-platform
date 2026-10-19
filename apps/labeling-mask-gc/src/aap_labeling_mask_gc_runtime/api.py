@@ -152,7 +152,10 @@ def create_app(
                     worker_id=process_worker_id,
                     scan_pages=body.scan_pages,
                     delete_limit=body.delete_limit,
+                    dry_run=body.dry_run,
+                    after_key=body.after_key,
                 )
+                c.validate_run_stats(body, result)
                 return _reply(result)
             except c.MaskGcFailure as exc:
                 return _reply(error=exc.code, status=_status_for(exc.code))

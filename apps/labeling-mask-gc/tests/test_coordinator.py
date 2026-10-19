@@ -48,12 +48,22 @@ def _claim(operation_id, key):
 
 
 class FakeData:
-    def __init__(self, claims=()):
+    def __init__(self, claims=(), *, fail_inspect=False):
         self.calls = []
         self.claims = tuple(claims)
+        self.fail_inspect = fail_inspect
 
     async def call(self, operation, request):
         self.calls.append((operation, request))
+        if operation == "inspect_mask_gc_page":
+            if self.fail_inspect:
+                raise c.MaskGcFailure("storage_unavailable")
+            return c.InspectMaskGcPageResult(
+                scanned=len(request.page.items),
+                eligible=0,
+                retained=len(request.page.items),
+                referenced=7 if request.include_reference_count else None,
+            )
         if operation == "claim_mask_gc_sweep":
             return c.ClaimMaskGcSweepResult(sweep=_sweep())
         if operation == "stage_mask_gc_page":
@@ -85,17 +95,32 @@ class FakeData:
 
 
 class FakeStorage:
-    def __init__(self, *, fail_scan=False, fail_execute_ids=(), fail_status_ids=()):
+    def __init__(
+        self,
+        *,
+        fail_scan=False,
+        fail_execute_ids=(),
+        fail_status_ids=(),
+        pages=None,
+    ):
         self.fail_scan = fail_scan
         self.fail_execute_ids = set(fail_execute_ids)
         self.fail_status_ids = set(fail_status_ids)
         self.execute_ids = []
         self.status_ids = []
+        self.scan_requests = []
+        self.pages = tuple(pages or ())
+        self.page_index = 0
         self.page = byte.GcScanPage(items=(), after_key=KEY_B, complete=True)
 
     def scan(self, request):
+        self.scan_requests.append(request)
         if self.fail_scan:
             raise byte.MaskGcFailure("storage_unavailable")
+        if self.pages:
+            page = self.pages[self.page_index]
+            self.page_index += 1
+            return page
         return self.page
 
     def execute(self, request):
@@ -154,9 +179,10 @@ async def test_stages_inventory_then_continues_after_ambiguous_item():
     names = [operation for operation, _request in data.calls]
     assert names[:3] == [
         "claim_mask_gc_sweep",
+        "inspect_mask_gc_page",
         "stage_mask_gc_page",
-        "claim_mask_gc_deletes",
     ]
+    assert names[3] == "claim_mask_gc_deletes"
     assert storage.execute_ids == [OP_A, OP_B]
     assert storage.status_ids == [OP_A]
     assert [
@@ -165,6 +191,8 @@ async def test_stages_inventory_then_continues_after_ambiguous_item():
         if name == "finish_mask_gc_delete"
     ] == [OP_A, OP_B]
     assert stats.delete_claims == 2
+    assert stats.eligible == stats.staged == 0
+    assert stats.referenced == 7
     assert stats.indeterminate == 1
     assert stats.completed == 1
     assert stats.deleted == 1
@@ -183,6 +211,176 @@ async def test_inventory_failure_does_not_skip_existing_delete_reconciliation():
     assert "finish_mask_gc_delete" in names
     assert stats.scan_errors == 1
     assert stats.completed == 1
+
+
+@pytest.mark.asyncio
+async def test_inspection_failure_does_not_stop_durable_staging_or_reconciliation():
+    claim = _claim(OP_B, KEY_B)
+    data = FakeData((claim,), fail_inspect=True)
+    storage = FakeStorage()
+
+    stats = await run_cycle(data, storage, worker_id=WORKER_ID, delete_limit=1)
+
+    names = [operation for operation, _request in data.calls]
+    assert "stage_mask_gc_page" in names
+    assert "claim_mask_gc_deletes" in names
+    assert stats.data_errors == 1
+    assert stats.scan_pages == 1
+    assert stats.referenced is None
+
+
+@pytest.mark.asyncio
+async def test_dry_run_continues_with_physical_cursor_without_mutating_calls():
+    candidate_a = byte.GcCandidate(
+        object_key=KEY_A,
+        etag="a-etag",
+        last_modified=STAMP,
+        byte_size=10,
+    )
+    candidate_b = byte.GcCandidate(
+        object_key=KEY_B,
+        etag="b-etag",
+        last_modified=STAMP,
+        byte_size=20,
+    )
+    cursor_a = KEY_A + "~cursor"
+    cursor_b = KEY_B + "~cursor"
+    pages = (
+        byte.GcScanPage(items=(candidate_a,), after_key=cursor_a, complete=False),
+        byte.GcScanPage(items=(candidate_b,), after_key=cursor_b, complete=False),
+    )
+
+    class PreviewData(FakeData):
+        async def call(self, operation, request):
+            self.calls.append((operation, request))
+            assert operation == "inspect_mask_gc_page"
+            count = len(request.page.items)
+            retained = (
+                count
+                if request.page.items and request.page.items[0].object_key == KEY_A
+                else 0
+            )
+            return c.InspectMaskGcPageResult(
+                scanned=count,
+                eligible=count - retained,
+                retained=retained,
+                referenced=9 if request.include_reference_count else None,
+            )
+
+    data = PreviewData()
+    storage = FakeStorage(pages=pages)
+    stats = await run_cycle(
+        data,
+        storage,
+        worker_id=WORKER_ID,
+        scan_pages=2,
+        delete_limit=1,
+        dry_run=True,
+    )
+
+    assert stats.dry_run is True
+    assert (stats.scanned, stats.eligible, stats.skipped, stats.staged) == (2, 1, 1, 0)
+    assert stats.referenced == 9
+    assert stats.next_after_key == cursor_b
+    assert stats.scan_complete is False
+    assert [request.after_key for request in storage.scan_requests] == [None, cursor_a]
+    assert [name for name, _request in data.calls] == [
+        "inspect_mask_gc_page",
+        "inspect_mask_gc_page",
+    ]
+    assert [request.include_reference_count for _name, request in data.calls] == [
+        True,
+        False,
+    ]
+    assert storage.execute_ids == []
+    assert storage.status_ids == []
+
+    final = byte.GcScanPage(items=(), after_key=None, complete=True)
+    continuation = FakeStorage(pages=(final,))
+    complete_stats = await run_cycle(
+        data,
+        continuation,
+        worker_id=WORKER_ID,
+        scan_pages=1,
+        dry_run=True,
+        after_key=cursor_b,
+    )
+    assert continuation.scan_requests[0].after_key == cursor_b
+    assert complete_stats.scan_complete is True
+    assert complete_stats.next_after_key is None
+    assert [name for name, _request in data.calls] == [
+        "inspect_mask_gc_page",
+        "inspect_mask_gc_page",
+        "inspect_mask_gc_page",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_normal_eligible_uses_staged_count_and_reports_durable_checkpoint():
+    candidate = byte.GcCandidate(
+        object_key=KEY_A,
+        etag="opaque-etag",
+        last_modified=STAMP,
+        byte_size=10,
+    )
+    cursor = KEY_A + "~physical-cursor"
+    storage = FakeStorage(
+        pages=(byte.GcScanPage(items=(candidate,), after_key=cursor, complete=False),)
+    )
+    data = FakeData()
+
+    stats = await run_cycle(data, storage, worker_id=WORKER_ID)
+
+    assert stats.staged == stats.eligible == 1
+    assert stats.skipped == 0
+    assert stats.next_after_key == cursor
+    assert stats.scan_complete is False
+
+
+@pytest.mark.asyncio
+async def test_dry_run_failure_keeps_last_completed_checkpoint_and_never_mutates():
+    page = byte.GcScanPage(items=(), after_key=KEY_A, complete=False)
+
+    class FailsSecondScan(FakeStorage):
+        def scan(self, request):
+            self.scan_requests.append(request)
+            if len(self.scan_requests) == 1:
+                return page
+            raise byte.MaskGcFailure("storage_unavailable")
+
+    storage = FailsSecondScan()
+    data = FakeData()
+    stats = await run_cycle(
+        data,
+        storage,
+        worker_id=WORKER_ID,
+        scan_pages=2,
+        dry_run=True,
+    )
+    assert stats.scan_pages == 1
+    assert stats.scan_errors == 1
+    assert stats.next_after_key == KEY_A
+    assert stats.scan_complete is False
+    assert [name for name, _request in data.calls] == ["inspect_mask_gc_page"]
+
+
+@pytest.mark.asyncio
+async def test_run_cycle_validates_typed_bounds_and_cursor_mode_before_io():
+    data = FakeData()
+    storage = FakeStorage()
+    with pytest.raises(c.MaskGcFailure) as error:
+        await run_cycle(
+            data,
+            storage,
+            worker_id=WORKER_ID,
+            dry_run=1,
+        )
+    assert error.value.code == "invalid_request"
+    with pytest.raises(c.MaskGcFailure) as error:
+        await run_cycle(data, storage, worker_id=WORKER_ID, after_key=KEY_A)
+    assert error.value.code == "invalid_request"
+    assert data.calls == []
+    assert storage.scan_requests == []
 
 
 @pytest.mark.asyncio

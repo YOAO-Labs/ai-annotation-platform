@@ -19,8 +19,17 @@ class FakeData:
     def __init__(self):
         self.entered = asyncio.Event()
         self.release = asyncio.Event()
+        self.calls = []
 
-    async def call(self, operation, _request):
+    async def call(self, operation, request):
+        self.calls.append((operation, request))
+        if operation == "inspect_mask_gc_page":
+            return c.InspectMaskGcPageResult(
+                scanned=len(request.page.items),
+                eligible=len(request.page.items),
+                retained=0,
+                referenced=2 if request.include_reference_count else None,
+            )
         if operation == "claim_mask_gc_sweep":
             self.entered.set()
             await self.release.wait()
@@ -84,12 +93,38 @@ def test_run_rejects_unexpected_fields_and_oversized_body():
         assert invalid.status_code == 422
         assert invalid.json()["error"]["code"] == "invalid_request"
 
+        invalid_cursor = client.post(
+            "/v1/mask-gc/run",
+            json={"after_key": "raster-masks/sha256/a0/a0/key"},
+            headers=headers,
+        )
+        assert invalid_cursor.status_code == 422
+        assert invalid_cursor.json()["error"]["code"] == "invalid_request"
+
         oversized = client.post(
             "/v1/mask-gc/run",
             content=b" " * (c.MAX_REQUEST_BYTES + 1),
             headers={**headers, "Content-Type": "application/json"},
         )
         assert oversized.status_code == 413
+
+
+def test_run_dry_run_returns_preview_without_mutating_native_calls():
+    data = FakeData()
+    app = create_app(data, FakeStorage(), TOKEN, worker_id=WORKER)
+    with TestClient(app) as client:
+        response = client.post(
+            "/v1/mask-gc/run",
+            json={"dry_run": True, "scan_pages": 1, "delete_limit": 1},
+            headers={"Authorization": f"Bearer {TOKEN}"},
+        )
+
+    assert response.status_code == 200
+    stats = response.json()["data"]
+    assert stats["dry_run"] is True
+    assert stats["referenced"] == 2
+    assert [name for name, _request in data.calls] == ["inspect_mask_gc_page"]
+    assert data.calls[0][1].include_reference_count is True
 
 
 @pytest.mark.asyncio

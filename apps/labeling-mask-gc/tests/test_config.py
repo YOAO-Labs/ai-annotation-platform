@@ -26,6 +26,7 @@ def test_configuration_is_immutable_and_redacts_credentials():
     config = load_config(_environment())
     assert config.content_url == "http://mask-cleanup:8770"
     assert config.poll_seconds == 2.5
+    assert config.poll_enabled is True
     rendered = repr(config)
     assert "secret" not in rendered
     assert TOKEN not in rendered
@@ -72,3 +73,14 @@ def test_secret_file_size_is_bounded(tmp_path):
     environment["MASK_GC_TOKEN_FILE"] = str(token_file)
     with pytest.raises(ConfigurationError):
         load_config(environment)
+
+
+def test_background_polling_can_be_disabled_without_changing_server_config():
+    environment = _environment()
+    environment["MASK_GC_POLL_ENABLED"] = "false"
+    assert load_config(environment).poll_enabled is False
+
+    for value in ("TRUE", "False", "1", "", " true"):
+        environment["MASK_GC_POLL_ENABLED"] = value
+        with pytest.raises(ConfigurationError, match="MASK_GC_POLL_ENABLED"):
+            load_config(environment)

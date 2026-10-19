@@ -3,6 +3,7 @@ FROM python:3.12-slim-bookworm@sha256:782412e85d0f0984994c290652577d4018aff08145
 ENV VIRTUAL_ENV=/opt/venv \
     UV_PROJECT_ENVIRONMENT=/opt/venv \
     PATH="/opt/venv/bin:$PATH" \
+    HOME=/nonexistent \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     MASK_GC_HOST=0.0.0.0 \

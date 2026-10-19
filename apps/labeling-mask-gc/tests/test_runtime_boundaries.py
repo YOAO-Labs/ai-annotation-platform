@@ -38,3 +38,5 @@ def test_image_runs_nonroot_and_contains_no_app_source_mount_or_s3_secrets():
     assert "COPY apps/api" not in dockerfile
     assert "AWS_ACCESS_KEY_ID" not in dockerfile
     assert "AWS_SECRET_ACCESS_KEY" not in dockerfile
+    assert "uv sync --locked --no-dev --extra server --no-editable" in dockerfile
+    assert "PYTHONDONTWRITEBYTECODE=1" in dockerfile
