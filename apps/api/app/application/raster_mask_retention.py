@@ -44,6 +44,13 @@ _MASK_REFERENCE_QUERIES = (
     """,
     """
     SELECT DISTINCT value #>> '{}' AS object_key
+    FROM batch_result_payloads,
+         LATERAL jsonb_path_query(body, '$.**.object_key') value
+    WHERE complete IS TRUE AND body IS NOT NULL
+      AND value #>> '{}' LIKE 'raster-masks/sha256/%'
+    """,
+    """
+    SELECT DISTINCT value #>> '{}' AS object_key
     FROM video_tracker_jobs,
          LATERAL jsonb_path_query(staged_result, '$.**.object_key') value
     WHERE staged_result IS NOT NULL
@@ -114,6 +121,14 @@ _MASK_REFERENCE_EXISTS_QUERIES = (
         SELECT 1
         FROM predictions, LATERAL jsonb_path_query(result, '$.**.object_key') value
         WHERE value #>> '{}' = :key
+    )
+    """,
+    """
+    SELECT EXISTS (
+        SELECT 1 FROM batch_result_payloads,
+             LATERAL jsonb_path_query(body, '$.**.object_key') value
+        WHERE complete IS TRUE AND body IS NOT NULL
+          AND value #>> '{}' = :key
     )
     """,
     """

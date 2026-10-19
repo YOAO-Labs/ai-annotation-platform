@@ -1,5 +1,6 @@
 """Failed-prediction retry admission, claim commits and dispatch compensation."""
 
+import json
 import uuid
 
 from fastapi import HTTPException
@@ -144,7 +145,7 @@ class SqlPredictionRetry(PredictionRetryPort):
                     detail=f"kind={job.kind} does not support failed item retry",
                 )
 
-            failed_ids = _payload_uuid_list(job.result or {}, "failed_prediction_ids")
+            failed_ids = await _recorded_failed_ids(db, job)
             if not failed_ids:
                 raise HTTPException(
                     status_code=409,
@@ -188,6 +189,56 @@ class SqlPredictionRetry(PredictionRetryPort):
             raise AsyncJobOperationFailure(
                 exc.status_code, exc.detail, headers=exc.headers
             ) from exc
+
+
+async def _recorded_failed_ids(db: AsyncSession, job: AsyncJob) -> list[uuid.UUID]:
+    result = job.result or {}
+    if "batch_result_scope" not in result:
+        return _payload_uuid_list(result, "failed_prediction_ids")
+    from aap_preannotation_results.contract import (
+        BatchResultFailure,
+        ReadBatchResultExecutionRequest,
+        Scope,
+    )
+    from pydantic import ValidationError
+    from app.services.batch_result_data import SqlAlchemyBatchResultData
+
+    try:
+        scope = Scope.model_validate_json(json.dumps(result["batch_result_scope"]))
+    except (ValidationError, TypeError, ValueError):
+        raise HTTPException(
+            status_code=409, detail="batch result history is invalid"
+        ) from None
+    if scope.job_id != job.id or scope.project_id != (
+        job.project_id or job.retained_project_id
+    ):
+        raise HTTPException(
+            status_code=409, detail="batch result history scope changed"
+        )
+    ids = []
+    cursor = 0
+    try:
+        while True:
+            page = await SqlAlchemyBatchResultData(db).call(
+                "read_batch_result_execution",
+                ReadBatchResultExecutionRequest(
+                    **scope.model_dump(),
+                    after_ordinal=cursor,
+                    limit=100,
+                ),
+            )
+            ids.extend(
+                member.failed_prediction_id
+                for member in page.members
+                if member.failed_prediction_id is not None
+            )
+            if page.next_ordinal is None:
+                return ids
+            cursor = page.next_ordinal
+    except BatchResultFailure:
+        raise HTTPException(
+            status_code=503, detail="batch result history unavailable"
+        ) from None
 
 
 def _payload_uuid_list(payload: dict, key: str) -> list[uuid.UUID]:

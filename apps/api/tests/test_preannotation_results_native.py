@@ -404,15 +404,15 @@ async def test_selection_replay_lease_takeover_and_cooperative_cancel(
             db_session, "aap_jobs_v1", "start_batch_result_execution", new_lease
         )
     )
-    started_member = _assert_ok(await _start_member(db_session, new_lease, 1))
+    started_member = await _start_member(db_session, new_lease, 1)
     assert started_member["member"]["state"] == "prepared"
     await db_session.execute(
         text(
-            "UPDATE public.async_jobs SET payload=payload || '{\"cancel_requested\":true}'::jsonb WHERE id=:job"
+            "UPDATE public.async_jobs SET payload=payload || jsonb_build_object('cancel_requested',true) WHERE id=:job"
         ),
         {"job": job_id},
     )
-    current_replay = _assert_ok(await _start_member(db_session, new_lease, 1))
+    current_replay = await _start_member(db_session, new_lease, 1)
     assert current_replay["member"]["state"] == "prepared"
     skipped = _assert_ok(
         await _native(
@@ -1111,9 +1111,9 @@ async def test_final_writer_proves_multi_result_prediction_rows_and_receipts(
             )
         await db_session.flush()
 
-    async with db_session.begin_nested():
-        await insert_predictions(wrong_first=True)
-        with pytest.raises(DBAPIError) as rejected:
+    with pytest.raises(DBAPIError) as rejected:
+        async with db_session.begin_nested():
+            await insert_predictions(wrong_first=True)
             await _native(
                 db_session,
                 "aap_labeling_v1",
@@ -1125,7 +1125,7 @@ async def test_final_writer_proves_multi_result_prediction_rows_and_receipts(
                     "prepared_digest": prepared_digest,
                 },
             )
-        assert getattr(rejected.value.orig, "sqlstate", None) == "P0001"
+    assert getattr(rejected.value.orig, "sqlstate", None) == "P0001"
     unchanged = await db_session.scalar(
         text("SELECT state FROM public.batch_result_bundles WHERE result_id=:result"),
         {"result": begun["result"]["result_id"]},

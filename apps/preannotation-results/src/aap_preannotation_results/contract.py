@@ -107,8 +107,22 @@ UtcDateTime = Annotated[AwareDatetime, BeforeValidator(_utc_datetime)]
 Digest = Annotated[StrictStr, Field(pattern=r"^[0-9a-f]{64}$")]
 Base64Part = Annotated[
     StrictStr,
-    Field(min_length=1, max_length=MAX_PART_BASE64_CHARS),
+    Field(
+        min_length=1,
+        max_length=MAX_PART_BASE64_CHARS,
+        json_schema_extra={
+            "contentEncoding": "base64",
+            "pattern": r"^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/][AQgw]==|[A-Za-z0-9+/]{2}[AEIMQUYcgkosw048]=)?$",
+            "allOf": [
+                {
+                    "if": {"minLength": MAX_PART_BASE64_CHARS},
+                    "then": {"pattern": "=$"},
+                }
+            ],
+        },
+    ),
 ]
+NonemptyString = Annotated[StrictStr, Field(min_length=1)]
 PositiveInt = Annotated[StrictInt, Field(ge=1, le=MAX_INT8)]
 NonnegativeInt = Annotated[StrictInt, Field(ge=0, le=MAX_INT8)]
 LeaseSeconds = Annotated[StrictInt, Field(ge=MIN_LEASE_SECONDS, le=MAX_LEASE_SECONDS)]
@@ -206,7 +220,7 @@ class LeaseScope(Scope):
 
 class Lease(LeaseScope):
     worker_id: CanonicalUUID
-    execution_id: StrictStr | None
+    execution_id: NonemptyString | None
     lease_expires_at: UtcDateTime
 
 
@@ -217,7 +231,7 @@ class Progress(Value):
     selection_cursor: NonnegativeInt
     selection_complete: StrictBool
     next_ordinal: PositiveInt = Field(
-        description="Current work ordinal; terminal executions use total + 1."
+        description="Current work ordinal; completed executions use total + 1. Cancelled or failed executions can retain an unfinished member."
     )
     bulk_overwrite_done: StrictBool
     success_count: NonnegativeInt
@@ -320,10 +334,24 @@ class Result(Value):
 class Receipt(Value):
     id: CanonicalUUID
     created_at: UtcDateTime
-    tool_unit_id: StrictStr
+    tool_unit_id: NonemptyString
+
+
+_STAGE_TOOL_SCHEMA = {
+    "allOf": [
+        {
+            "if": {"properties": {"stage": {"const": "raw"}}, "required": ["stage"]},
+            "then": {"properties": {"tool_unit_id": {"type": "null"}}},
+            "else": {
+                "properties": {"tool_unit_id": {"type": "string", "minLength": 1}}
+            },
+        }
+    ],
+}
 
 
 class Payload(Value):
+    model_config = ConfigDict(json_schema_extra=_STAGE_TOOL_SCHEMA)
     payload_id: CanonicalUUID
     request_index: NonnegativeInt
     prediction_id: CanonicalUUID
@@ -336,18 +364,19 @@ class Payload(Value):
     tool_unit_id: StrictStr | None
     receipt: Receipt | None
 
+    @model_validator(mode="after")
+    def stage_tool_metadata(self):
+        if self.stage == "raw" and self.tool_unit_id is not None:
+            raise ValueError("raw payload cannot carry prepared tool metadata")
+        if self.stage == "prepared" and not self.tool_unit_id:
+            raise ValueError("prepared payload requires a tool unit")
+        return self
+
 
 class ClaimBatchResultExecutionRequest(Scope):
     worker_id: CanonicalUUID
-    execution_id: StrictStr | None
+    execution_id: NonemptyString | None
     lease_seconds: LeaseSeconds = DEFAULT_LEASE_SECONDS
-
-    @field_validator("execution_id")
-    @classmethod
-    def nonempty_execution_id(cls, value):
-        if value is not None and not value:
-            raise ValueError("execution_id must not be empty")
-        return value
 
 
 class ClaimBatchResultExecutionResult(Value):
@@ -524,6 +553,7 @@ class BeginBatchResultResult(Value):
 
 
 class PutBatchResultPartRequest(LeaseScope):
+    model_config = ConfigDict(json_schema_extra=_STAGE_TOOL_SCHEMA)
     ordinal: PositiveInt
     stage: Stage
     request_index: NonnegativeInt
@@ -553,6 +583,8 @@ class PutBatchResultPartRequest(LeaseScope):
             raise ValueError("part sizes do not match the declared payload size")
         if self.stage == "raw" and self.tool_unit_id is not None:
             raise ValueError("raw requests cannot carry prepared tool metadata")
+        if self.stage == "prepared" and not self.tool_unit_id:
+            raise ValueError("prepared requests require a tool unit")
         return self
 
 
@@ -1156,7 +1188,7 @@ def contract_document() -> dict[str, Any]:
         "properties": {
             "schema": {"const": SCHEMA},
             "ok": {"const": True},
-            "data": {"oneOf": [{"$ref": f"#/$defs/{name}"} for name in result_names]},
+            "data": {"anyOf": [{"$ref": f"#/$defs/{name}"} for name in result_names]},
         },
     }
     definitions["_ErrorEnvelope"] = {
@@ -1173,7 +1205,7 @@ def contract_document() -> dict[str, Any]:
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "$id": "https://schemas.aap.invalid/preannotation-results/v1",
         "title": "AAP durable preannotation batch results",
-        "oneOf": [
+        "anyOf": [
             *[{"$ref": f"#/$defs/{name}"} for name in request_names],
             {"$ref": "#/$defs/_SuccessEnvelope"},
             {"$ref": "#/$defs/_ErrorEnvelope"},

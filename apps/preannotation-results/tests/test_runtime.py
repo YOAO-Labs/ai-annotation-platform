@@ -30,6 +30,34 @@ def read_request():
     )
 
 
+def test_cli_configuration_failure_returns_error_and_nonzero_exit():
+    import os
+    import subprocess
+    import sys
+
+    environment = {
+        key: value
+        for key, value in os.environ.items()
+        if not key.startswith("PREANNOTATION_RESULTS_DATABASE_URL")
+    }
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "aap_preannotation_results_runtime",
+            "read_batch_result_execution",
+        ],
+        input=c.json_bytes(read_request()),
+        capture_output=True,
+        env=environment,
+        timeout=15,
+        check=False,
+    )
+    assert result.returncode == 1
+    assert json.loads(result.stdout) == c.error_envelope("storage_unavailable")
+    assert result.stderr == b""
+
+
 def read_result(progress_override=None):
     values = {
         "job_id": JOB_ID,

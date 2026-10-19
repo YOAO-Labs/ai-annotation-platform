@@ -242,6 +242,43 @@ def test_put_part_checks_decoded_limit_before_base64_transport():
         )
 
 
+@pytest.mark.parametrize("tool_unit_id", [None, ""])
+def test_prepared_part_requires_the_final_nonempty_tool_unit(tool_unit_id):
+    with pytest.raises(ValidationError):
+        c.PutBatchResultPartRequest.model_validate(
+            {
+                **lease_values(),
+                "ordinal": 1,
+                "stage": "prepared",
+                "request_index": 0,
+                "sha256": PAYLOAD_DIGEST,
+                "byte_size": 1,
+                "part_count": 1,
+                "part_index": 0,
+                "content": "eA==",
+                "tool_unit_id": tool_unit_id,
+            }
+        )
+
+
+@pytest.mark.parametrize("tool_unit_id", [None, ""])
+def test_prepared_read_metadata_cannot_omit_the_final_tool_unit(tool_unit_id):
+    with pytest.raises(ValidationError):
+        c.Payload(
+            payload_id=uuid4(),
+            request_index=0,
+            prediction_id=uuid4(),
+            prediction_created_at=datetime.now(timezone.utc),
+            stage="prepared",
+            sha256=PAYLOAD_DIGEST,
+            byte_size=1,
+            part_count=1,
+            complete=True,
+            tool_unit_id=tool_unit_id,
+            receipt=None,
+        )
+
+
 def test_native_reply_validates_closed_envelope_and_payload_echoes():
     body = b'{"x":1}'
     digest = hashlib.sha256(body).hexdigest()

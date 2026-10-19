@@ -111,6 +111,7 @@
         "execution_id": {
           "anyOf": [
             {
+              "minLength": 1,
               "type": "string"
             },
             {
@@ -738,6 +739,7 @@
         "execution_id": {
           "anyOf": [
             {
+              "minLength": 1,
               "type": "string"
             },
             {
@@ -1112,6 +1114,33 @@
     },
     "Payload": {
       "additionalProperties": false,
+      "allOf": [
+        {
+          "else": {
+            "properties": {
+              "tool_unit_id": {
+                "minLength": 1,
+                "type": "string"
+              }
+            }
+          },
+          "if": {
+            "properties": {
+              "stage": {
+                "const": "raw"
+              }
+            },
+            "required": ["stage"]
+          },
+          "then": {
+            "properties": {
+              "tool_unit_id": {
+                "type": "null"
+              }
+            }
+          }
+        }
+      ],
       "properties": {
         "byte_size": {
           "maximum": 9223372036854775807,
@@ -1225,7 +1254,7 @@
           "type": "string"
         },
         "next_ordinal": {
-          "description": "Current work ordinal; terminal executions use total + 1.",
+          "description": "Current work ordinal; completed executions use total + 1. Cancelled or failed executions can retain an unfinished member.",
           "maximum": 9223372036854775807,
           "minimum": 1,
           "title": "Next Ordinal",
@@ -1308,6 +1337,33 @@
     },
     "PutBatchResultPartRequest": {
       "additionalProperties": false,
+      "allOf": [
+        {
+          "else": {
+            "properties": {
+              "tool_unit_id": {
+                "minLength": 1,
+                "type": "string"
+              }
+            }
+          },
+          "if": {
+            "properties": {
+              "stage": {
+                "const": "raw"
+              }
+            },
+            "required": ["stage"]
+          },
+          "then": {
+            "properties": {
+              "tool_unit_id": {
+                "type": "null"
+              }
+            }
+          }
+        }
+      ],
       "properties": {
         "actor_id": {
           "format": "uuid",
@@ -1321,8 +1377,20 @@
           "type": "integer"
         },
         "content": {
+          "allOf": [
+            {
+              "if": {
+                "minLength": 699052
+              },
+              "then": {
+                "pattern": "=$"
+              }
+            }
+          ],
+          "contentEncoding": "base64",
           "maxLength": 699052,
           "minLength": 1,
+          "pattern": "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/][AQgw]==|[A-Za-z0-9+/]{2}[AEIMQUYcgkosw048]=)?$",
           "title": "Content",
           "type": "string"
         },
@@ -1574,8 +1642,20 @@
         "content": {
           "anyOf": [
             {
+              "allOf": [
+                {
+                  "if": {
+                    "minLength": 699052
+                  },
+                  "then": {
+                    "pattern": "=$"
+                  }
+                }
+              ],
+              "contentEncoding": "base64",
               "maxLength": 699052,
               "minLength": 1,
+              "pattern": "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/][AQgw]==|[A-Za-z0-9+/]{2}[AEIMQUYcgkosw048]=)?$",
               "type": "string"
             },
             {
@@ -1623,6 +1703,7 @@
           "type": "string"
         },
         "tool_unit_id": {
+          "minLength": 1,
           "title": "Tool Unit Id",
           "type": "string"
         }
@@ -2234,7 +2315,7 @@
       "additionalProperties": false,
       "properties": {
         "data": {
-          "oneOf": [
+          "anyOf": [
             {
               "$ref": "#/$defs/ClaimBatchResultExecutionResult"
             },
@@ -2301,7 +2382,7 @@
   },
   "$id": "https://schemas.aap.invalid/preannotation-results/v1",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "oneOf": [
+  "anyOf": [
     {
       "$ref": "#/$defs/ClaimBatchResultExecutionRequest"
     },

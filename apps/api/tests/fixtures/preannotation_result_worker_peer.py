@@ -60,7 +60,29 @@ def install() -> None:
             "heartbeat_batch_result_execution",
         }:
             values["lease_seconds"] = 5
-        result = await original_call(self, operation, leased=leased, db=db, **values)
+        _append_json(
+            "AAP_TEST_BATCH_RESULT_NATIVE_EVENTS_PATH",
+            {"pid": os.getpid(), "operation": operation, "event": "start"},
+        )
+        try:
+            result = await original_call(
+                self, operation, leased=leased, db=db, **values
+            )
+        except Exception as exc:
+            _append_json(
+                "AAP_TEST_BATCH_RESULT_NATIVE_EVENTS_PATH",
+                {
+                    "pid": os.getpid(),
+                    "operation": operation,
+                    "event": "error",
+                    "code": str(exc),
+                },
+            )
+            raise
+        _append_json(
+            "AAP_TEST_BATCH_RESULT_NATIVE_EVENTS_PATH",
+            {"pid": os.getpid(), "operation": operation, "event": "done"},
+        )
         if operation == "claim_batch_result_execution":
             _append_json(
                 "AAP_TEST_BATCH_RESULT_CLAIMS_PATH",
@@ -125,7 +147,7 @@ def install() -> None:
                     score=0.91,
                     model_version="worker-recovery-fixture",
                     inference_time_ms=7,
-                    meta={"total_cost": "0.0042"},
+                    meta={"total_cost": 0.0042},
                 )
             ],
             None,

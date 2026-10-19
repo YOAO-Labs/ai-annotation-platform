@@ -372,6 +372,14 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON
     public.mask_gc_roots
     TO :"labeling_owner";
 GRANT SELECT ON public.mask_gc_write_permit_secrets TO :"labeling_owner";
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.batch_result_bundles,
+    public.batch_result_payloads, public.batch_result_parts TO :"labeling_owner";
+GRANT SELECT ON public.predictions, public.prediction_metas,
+    public.failed_predictions TO :"labeling_owner";
+-- FOR KEY SHARE in the failure proof needs UPDATE on one column.
+GRANT UPDATE (id) ON public.failed_predictions TO :"labeling_owner";
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.batch_result_executions,
+    public.batch_result_members TO :"jobs_owner";
 GRANT SELECT (dataset_item_id) ON public.video_chapters TO :"labeling_owner";
 GRANT SELECT (id, project_id, task_id, retry_count, dismissed_at, extra), DELETE
     ON public.failed_predictions TO :"labeling_owner";
@@ -1587,4 +1595,42 @@ BEGIN
         RAISE EXCEPTION 'Caller is missing a public Assets source or upload capability';
     END IF;
 END $$;
+
+-- Durable result data stays with its Jobs/Labeling owner. Cross-owner calls
+-- expose only scoped capabilities; the inference executor receives no tables.
+GRANT CREATE ON SCHEMA aap_jobs_v1 TO :"jobs_owner";
+GRANT CREATE ON SCHEMA aap_labeling_v1 TO :"labeling_owner";
+DO $$
+DECLARE
+    target record;
+    owner_name text;
+BEGIN
+    FOR target IN
+        SELECT proc.oid::regprocedure AS signature, namespace.nspname
+        FROM pg_catalog.pg_proc AS proc
+        JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid = proc.pronamespace
+        WHERE namespace.nspname IN ('aap_jobs_v1', 'aap_labeling_v1')
+          AND proc.prokind = 'f' AND proc.proname LIKE '%batch_result%'
+    LOOP
+        owner_name := CASE target.nspname
+            WHEN 'aap_jobs_v1' THEN current_setting('aap.jobs_owner')
+            ELSE current_setting('aap.labeling_owner') END;
+        EXECUTE pg_catalog.format('ALTER FUNCTION %s OWNER TO %I', target.signature, owner_name);
+    END LOOP;
+END $$;
+REVOKE CREATE ON SCHEMA aap_jobs_v1 FROM :"jobs_owner";
+REVOKE CREATE ON SCHEMA aap_labeling_v1 FROM :"labeling_owner";
+GRANT EXECUTE ON FUNCTION
+    aap_jobs_v1._batch_result_scope_valid(jsonb, boolean),
+    aap_jobs_v1.read_batch_result_execution(jsonb),
+    aap_jobs_v1.lock_batch_result_execution(jsonb),
+    aap_jobs_v1.record_batch_result_member(jsonb),
+    aap_jobs_v1.advance_batch_result_member(jsonb),
+    aap_jobs_v1.batch_result_execution_referenced(jsonb)
+    TO :"labeling_owner";
+GRANT EXECUTE ON FUNCTION
+    aap_labeling_v1.batch_result_commit_proof(jsonb),
+    aap_labeling_v1.batch_result_referenced(jsonb),
+    aap_labeling_v1.retire_batch_results(jsonb)
+    TO :"jobs_owner";
 COMMIT;

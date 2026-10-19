@@ -56,6 +56,7 @@ MODULE_ROLES = (
     "asset_media_worker_client",
     "asset_image_worker_client",
     "labeling_mask_gc_client",
+    "preannotation_result_client",
 )
 SQL_ARTIFACTS = (
     "0190_workspace_data_contract.sql",
@@ -125,6 +126,8 @@ SQL_ARTIFACTS = (
     "0228_video_tracker_inputs.sql",
     "0229_mask_gc.sql",
     "0230_dataset_source_aux_retention.sql",
+    "0231_preannotation_results.sql",
+    "0231_preannotation_result_mask_roots.sql",
 )
 SCHEMA_ARTIFACTS = (
     "0191_task_append.schema.json",
@@ -165,6 +168,7 @@ SCHEMA_ARTIFACTS = (
     "0228_video_tracker_inputs.schema.json",
     "0229_mask_gc.schema.json",
     "0230_dataset_source_aux_retention.schema.json",
+    "0231_preannotation_results.schema.json",
 )
 TEST_FILES = (
     "tests/test_workspace_data_contract.py",
@@ -290,6 +294,16 @@ TEST_FILES = (
     "tests/test_video_input_s3_scope.py",
     "tests/test_native_schema_autogeneration.py",
     "tests/test_accepted_input_preannotation.py",
+    "tests/test_preannotation_result_consumer.py",
+    "tests/test_preannotation_results_native.py",
+    "tests/test_preannotation_results_migration.py",
+    "tests/test_preannotation_result_roles.py",
+    "tests/test_batch_result_consumers_native.py",
+    "tests/test_batch_result_native_peer.py",
+    "tests/test_preannotation_result_mask_roots.py",
+    "tests/test_batch_result_reset.py",
+    "tests/test_batch_result_worker_live.py",
+    "tests/test_preannotation_results_runtime_image.py",
     "tests/test_prediction_retry_input_deferral.py",
     "tests/test_raster_mask_lock_boundary.py",
     "tests/test_mask_gc_native.py",
@@ -1439,6 +1453,7 @@ def _create_module_roles(
     media_worker_password: str,
     image_worker_password: str,
     mask_gc_password: str,
+    result_password: str,
 ) -> None:
     _psql(
         container_id,
@@ -1504,6 +1519,9 @@ def _create_module_roles(
             "CREATE ROLE labeling_mask_gc_client LOGIN "
             f"PASSWORD '{mask_gc_password}' NOSUPERUSER NOCREATEDB NOCREATEROLE "
             "NOINHERIT NOREPLICATION NOBYPASSRLS;\n"
+            "CREATE ROLE preannotation_result_client LOGIN "
+            f"PASSWORD '{result_password}' NOSUPERUSER NOCREATEDB NOCREATEROLE "
+            "NOINHERIT NOREPLICATION NOBYPASSRLS;\n"
             'REVOKE TEMPORARY ON DATABASE :"expected_database" FROM PUBLIC;\n'
             'GRANT TEMPORARY ON DATABASE :"expected_database" TO '
             + ", ".join(
@@ -1518,6 +1536,7 @@ def _create_module_roles(
                         "asset_media_worker_client",
                         "asset_image_worker_client",
                         "labeling_mask_gc_client",
+                        "preannotation_result_client",
                     }
                 )
             )
@@ -1857,6 +1876,7 @@ def main(argv: list[str] | None = None) -> int:
         media_grants_path = ROOT / "infra/docker/assets-media-grants.sql"
         image_grants_path = ROOT / "infra/docker/assets-image-grants.sql"
         mask_gc_grants_path = ROOT / "infra/docker/labeling-mask-gc-data-grants.sql"
+        result_grants_path = ROOT / "infra/docker/preannotation-result-data-grants.sql"
         artifacts = tuple(
             ROOT / "apps/api/alembic/sql" / name for name in SQL_ARTIFACTS
         )
@@ -1872,6 +1892,7 @@ def main(argv: list[str] | None = None) -> int:
             or not media_grants_path.is_file()
             or not image_grants_path.is_file()
             or not mask_gc_grants_path.is_file()
+            or not result_grants_path.is_file()
             or any(not path.is_file() for path in artifacts)
             or any(not path.is_file() for path in schema_paths)
         ):
@@ -1895,6 +1916,7 @@ def main(argv: list[str] | None = None) -> int:
         media_grant_sql = media_grants_path.read_text(encoding="utf-8")
         image_grant_sql = image_grants_path.read_text(encoding="utf-8")
         mask_gc_grant_sql = mask_gc_grants_path.read_text(encoding="utf-8")
+        result_grant_sql = result_grants_path.read_text(encoding="utf-8")
 
         from sqlalchemy.engine import URL
 
@@ -1917,6 +1939,7 @@ def main(argv: list[str] | None = None) -> int:
         media_worker_password = f"media-worker-{secrets.token_hex(16)}"
         image_worker_password = f"image-worker-{secrets.token_hex(16)}"
         mask_gc_password = f"mask-gc-{secrets.token_hex(16)}"
+        result_password = f"batch-result-{secrets.token_hex(16)}"
         container_id = docker(
             "run",
             "-d",
@@ -1993,8 +2016,8 @@ def main(argv: list[str] | None = None) -> int:
         database = resources["database"]
         evidence["database"] = database
         _, heads = migration_graph(ROOT)
-        if heads != ["0230"]:
-            raise RuntimeError("module-data acceptance requires migration head 0230")
+        if heads != ["0231"]:
+            raise RuntimeError("module-data acceptance requires migration head 0231")
         evidence["migrations"]["head_before_downgrade"] = heads[0]
         phase = "downgrade-to-0189"
         _container_details(
@@ -2121,6 +2144,7 @@ def main(argv: list[str] | None = None) -> int:
             media_worker_password,
             image_worker_password,
             mask_gc_password,
+            result_password,
         )
         phase = "install-module-grants"
         _psql(
@@ -2167,6 +2191,24 @@ def main(argv: list[str] | None = None) -> int:
                 "migration_role": "owner",
                 "labeling_owner": "labeling_code",
                 "mask_gc_role": "labeling_mask_gc_client",
+            },
+        )
+
+        phase = "install-batch-result-grants"
+        _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="owner",
+            password=owner_password,
+            database=database,
+            sql=result_grant_sql,
+            variables={
+                "expected_database": database,
+                "migration_role": "owner",
+                "jobs_owner": "jobs_code",
+                "labeling_owner": "labeling_code",
+                "result_role": "preannotation_result_client",
             },
         )
 
@@ -2408,6 +2450,14 @@ def main(argv: list[str] | None = None) -> int:
                 "AAP_MODULE_DATA_ASSET_MEDIA_CONTROL_URL": media_control_url,
                 "AAP_MODULE_DATA_ASSET_MEDIA_WORKER_URL": media_worker_url,
                 "AAP_MODULE_DATA_ASSET_IMAGE_WORKER_URL": image_worker_url,
+                "AAP_MODULE_DATA_PREANNOTATION_RESULT_URL": URL.create(
+                    "postgresql+asyncpg",
+                    username="preannotation_result_client",
+                    password=result_password,
+                    host="127.0.0.1",
+                    port=port,
+                    database=database,
+                ).render_as_string(hide_password=False),
                 "AAP_MODULE_DATA_LABELING_MASK_GC_URL": URL.create(
                     "postgresql+asyncpg",
                     username="labeling_mask_gc_client",

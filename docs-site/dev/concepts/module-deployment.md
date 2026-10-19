@@ -249,6 +249,14 @@ Python 实现复用现有编解码与 S3 栈，Node 测试提供方验证实际 
 
 本地验收覆盖受限账号、旧凭据和过期代次拒绝、失败前缀后的扫描推进，以及真实 S3 丢回包、HTTP 超时后迟到完成、字节进程重启与同键重传保护。没有终态回执时持续隔离该键，不按 HEAD 不存在或租约过期解除。现有 Celery collector 的远程删除保护仍保留；完整批处理结果交接、运行时镜像和生产容量继续验收，不能据此认定 Labeling 全模块已独立部署。设计见 [ADR-0112](/dev/adr/0112-durable-mask-gc-fences)。
 
+## 普通批量结果检查点
+
+`apps/preannotation-results` 提供 `aap-preannotation-results/v1`、独立包和函数专用 PostgreSQL CLI。Jobs 的两张 native 表持有执行租约、固定成员、覆盖标记和汇总；Labeling 的三张表按模型响应保存分块原始／准备结果、稳定 Prediction 身份和精确回执。最终 Prediction、Meta、回执、引用根释放和成员游标在同一事务提交，跨进程恢复不重做已完成推理、覆盖或计数。
+
+独立执行角色仅能调用十项 Jobs 和四项 Labeling 能力，不能直接读取私有表或完成业务写入。`PREANNOTATION_RESULTS_DATABASE_URL` 或 `_FILE` 可选择该连接；默认仍由现有应用连接装配。原始字节完整后，即使 Mask 根登记遇到围栏，也必须继续恢复同一份结果。每条传输最多 2 MiB、单块最多 512 KiB，不对整题结果增加 16 MiB 或结果数量限制。
+
+当前正在隔离本地核验实际消费者、受限身份、提交回包丢失与真实 Celery 重投递；证据不等于完整 Labeling、Inference 或 Jobs 服务已独立部署。单独的失败预测重试 worker、其余生成 Mask 路径、collector 切换及运行时容量继续推进。协议见[同库数据接口](/api/guides/module-data#普通批量结果检查点)与 [ADR-0113](/dev/adr/0113-durable-preannotation-results)。
+
 ## 来源删除的辅助引用
 
 Assets 的删除事务通过所属模块能力检查引用：相机链接、场景轨迹／质量历史、视频章节、媒体执行和保留输入会阻止来源删除；单条素材也检查所在场景。Assets 仅向 Labeling 提供素材到场景的投影，不开放来源表；原任务、标注和主动学习证据继续保留。当前项目或功能先解除引用，来源删除才能提交，旧 FK 的级联不会代为移除这些记录。迁移通过新增合同安装该规则；现有公开删除和幂等回执接口保持不变。

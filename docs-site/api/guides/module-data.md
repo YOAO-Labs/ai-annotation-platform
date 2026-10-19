@@ -382,3 +382,20 @@ Assets 只通过 Labeling 当前相机/共享与受理范围、Workspace 当前�
 Labeling 的源检查必须和当前 Task/批次/编辑锁、实际执行作业权威一起使用。历史原始 Job 一致性不代替当前重试 Job；合法历史读取和后续采纳可以继续使用原输入。强类型视频证据及 Annotation 引用合同固定在 `0225_video_input_evidence.schema.json`。同项目的受信任标注复制保留原始来源 Task，直接附加新证据仍需匹配目标 Task。仍被有效候选、可重试失败或标注引用的输入不会回收；无引用且原作业终止后先保留 30 天，回收只领取原始/帧尝试的精确前缀。
 
 原生账本、租约、证据、十项 HTTP 控制、独立视频 Worker 和 Cleanup 已完成隔离的本地数据库及真实 S3 联调；业务预测消费者尚未接通。完整切片状态见 [ADR-0109](/dev/adr/0109-retained-video-inputs-and-frame-plans)。
+
+## 普通批量结果检查点
+
+`aap-preannotation-results/v1` 用单个 JSONB 请求和封闭成功／错误信封提供十七项能力。冻结模式见 `apps/api/alembic/sql/0231_preannotation_results.schema.json`，可独立安装的客户端、编解码器和 CLI 位于 `apps/preannotation-results`。它使用标准 PostgreSQL 传输，无需交换 Python Session 或 ORM 对象。
+
+| 所有者   | 执行角色可调用                                                                                                       | 仅业务写入方可调用                       |
+| -------- | -------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- |
+| Jobs     | claim、heartbeat、release、stage/read members、start execution/member、mark overwrite、skip member、finish execution | owner 内部的成员状态与完成证明组合       |
+| Labeling | begin result、put part、seal、read result                                                                            | lock write、finish write、finish failure |
+
+Scope 固定 Job、actor、project 和完整排队参数的 SHA-256；租约额外绑定 generation 与 token。成员顺序不可改变，重放保留原始 Labeling 作用域。原始／准备请求按各自 SHA-256 和顺序摘要链保存；每块解码后最多 512 KiB，原生请求／响应最多 2 MiB。整题没有新增结果总字节或数量上限，仍遵循单个 RLE 与 PostgreSQL 值类型的既有上限。
+
+最后一块完整提交后，即使引用根尚不能封存，也不得重置原始数据。重启先恢复完整数据；最终业务写入完成后保留精确 ID／时间／工具单位回执，释放大字段、分块和临时根。写入、Meta、回执、成员 outcome、计费和游标共同提交；丢提交确认通过回执解决。`storage_unavailable`、`execution_busy`、`lease_lost` 和内容围栏等待续写；作用域或实际 Prediction／Meta 证明不一致拒绝完成，不能据此推断原始结果可以丢弃。
+
+成员结算与 `progress_pct` 同事务更新。作业摘要的 `failed_prediction_ids` 最多保留前 100 项，并用 `failed_prediction_ids_truncated` 标记截断；`batch_result_scope` 指向完整成员账本。按作业重试从该账本分页读取所有失败 ID，保持既有完整重试行为。prepared 数据及读回元数据必须包含非空工具单位；原始数据不携带工具单位。输出模式只允许作为重试请求上下文中的有界字符串保留。
+
+专用 `preannotation_result_client` 没有私表、DDL、TEMP 或角色成员权限，只能调用十项 Jobs 与四项 Labeling 能力。最终写入仍由 Labeling 调用方事务完成。该合同不迁移整个 Inference／Jobs 服务，也不改变单独的失败项重试协议；部署和验收范围见 [ADR-0113](/dev/adr/0113-durable-preannotation-results)。

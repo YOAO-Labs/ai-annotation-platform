@@ -212,6 +212,9 @@ async def test_prefork_loss_resumes_captured_result_without_second_inference(
     result_database_url = result_url.set(
         drivername="postgresql+asyncpg"
     ).render_as_string(hide_password=False)
+    result_runtime_url = result_url.set(drivername="postgresql").render_as_string(
+        hide_password=False
+    )
     legacy_engine = create_async_engine(legacy_database_url, echo=False)
     result_engine = create_async_engine(result_database_url, echo=False)
     legacy_sessions = async_sessionmaker(legacy_engine, expire_on_commit=False)
@@ -227,6 +230,7 @@ async def test_prefork_loss_resumes_captured_result_without_second_inference(
     model_calls_path = tmp_path / "model-calls.jsonl"
     claims_path = tmp_path / "claims.jsonl"
     deliveries_path = tmp_path / "deliveries.jsonl"
+    native_events_path = tmp_path / "native-events.jsonl"
     worker_ready_path = tmp_path / "worker-ready"
     worker_log_path = tmp_path / "celery-worker.log"
     environment = {
@@ -234,18 +238,20 @@ async def test_prefork_loss_resumes_captured_result_without_second_inference(
         "DATABASE_URL": legacy_database_url,
         "MIGRATION_DATABASE_URL": "",
         "TEST_DATABASE_URL": "",
-        "PREANNOTATION_RESULTS_DATABASE_URL": result_database_url,
+        "PREANNOTATION_RESULTS_DATABASE_URL": result_runtime_url,
         "PREANNOTATION_RESULTS_DATABASE_URL_FILE": "",
         "AAP_TEST_BATCH_RESULT_CAPTURED_PATH": str(captured_path),
         "AAP_TEST_BATCH_RESULT_MODEL_CALLS_PATH": str(model_calls_path),
         "AAP_TEST_BATCH_RESULT_CLAIMS_PATH": str(claims_path),
         "AAP_TEST_BATCH_RESULT_DELIVERIES_PATH": str(deliveries_path),
+        "AAP_TEST_BATCH_RESULT_NATIVE_EVENTS_PATH": str(native_events_path),
         "AAP_TEST_BATCH_RESULT_WORKER_READY_PATH": str(worker_ready_path),
     }
     worker = None
     worker_log = None
     delivery = None
     seeded = False
+    succeeded = False
     try:
         async with owner_sessions.begin() as db:
             db.add(
@@ -254,9 +260,11 @@ async def test_prefork_loss_resumes_captured_result_without_second_inference(
                     email=f"batch-result-{suffix}@example.invalid",
                     name="Batch result acceptance",
                     password_hash="acceptance-only",
+                    role="project_admin",
                     is_active=True,
                 )
             )
+            await db.flush()
             db.add(
                 Project(
                     id=project_id,
@@ -278,6 +286,7 @@ async def test_prefork_loss_resumes_captured_result_without_second_inference(
                     is_interactive=True,
                 )
             )
+            await db.flush()
             db.add(
                 Task(
                     id=task_id,
@@ -289,6 +298,7 @@ async def test_prefork_loss_resumes_captured_result_without_second_inference(
                     status="pending",
                 )
             )
+            await db.flush()
             db.add(
                 AsyncJob(
                     id=job_id,
@@ -323,7 +333,7 @@ async def test_prefork_loss_resumes_captured_result_without_second_inference(
             "--without-gossip",
             "--without-mingle",
             "--without-heartbeat",
-            "--loglevel=WARNING",
+            "--loglevel=INFO",
             cwd=Path(__file__).resolve().parents[1],
             env=environment,
             stdout=worker_log,
@@ -429,6 +439,7 @@ async def test_prefork_loss_resumes_captured_result_without_second_inference(
         assert saved.payload.receipt.id == prediction.id
         assert saved.payload.receipt.created_at == prediction.created_at
         assert saved.payload.receipt.tool_unit_id == prediction.tool_unit_id
+        succeeded = True
     finally:
         if worker is not None and worker.returncode is None:
             try:
@@ -456,6 +467,14 @@ async def test_prefork_loss_resumes_captured_result_without_second_inference(
         worker_closed = worker is None or worker.returncode is not None
         if worker_log is not None:
             worker_log.close()
+        if not succeeded and worker_log_path.exists():
+            diagnostic = worker_log_path.read_text(encoding="utf-8", errors="replace")
+            for role_url in (legacy_url, result_url):
+                if role_url.password:
+                    diagnostic = diagnostic.replace(role_url.password, "<redacted>")
+            print("Owned worker diagnostic:\n" + diagnostic[-20_000:])
+            print("Native events:", _read_json_lines(native_events_path)[-40:])
+            print("Model calls:", _read_json_lines(model_calls_path))
         cleanup_errors = []
         if delivery is not None:
             try:

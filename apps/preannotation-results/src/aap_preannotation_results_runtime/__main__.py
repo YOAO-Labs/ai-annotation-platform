@@ -67,13 +67,16 @@ def main(argv=None) -> None:
         result = asyncio.run(_invoke(config, arguments.operation, request))
         status = _write(c.success_envelope(result))
     except ConfigurationError:
-        status = _write(c.error_envelope("storage_unavailable"))
+        _write(c.error_envelope("storage_unavailable"))
+        status = 1
     except c.BatchResultFailure as exc:
-        status = _write(c.error_envelope(exc.code))
+        _write(c.error_envelope(exc.code))
+        status = 1
     except KeyboardInterrupt:
         raise SystemExit(130) from None
     except Exception:
-        status = _write(c.error_envelope("storage_unavailable"))
+        _write(c.error_envelope("storage_unavailable"))
+        status = 1
     if status:
         raise SystemExit(status)
 

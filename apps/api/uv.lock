@@ -256,6 +256,23 @@ requires-dist = [
 provides-extras = ["client", "server", "test"]
 
 [[package]]
+name = "aap-preannotation-results"
+version = "0.1.0"
+source = { editable = "../preannotation-results" }
+dependencies = [
+    { name = "pydantic" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "asyncpg", marker = "extra == 'postgres'", specifier = ">=0.30.0" },
+    { name = "pydantic", specifier = ">=2.10.0" },
+    { name = "pytest", marker = "extra == 'test'", specifier = ">=8.3.0" },
+    { name = "ruff", marker = "extra == 'test'", specifier = "==0.15.22" },
+]
+provides-extras = ["postgres", "test"]
+
+[[package]]
 name = "aap-protocol-v2"
 version = "0.2.0"
 source = { editable = "../_shared/protocol_v2" }
@@ -349,6 +366,7 @@ dependencies = [
     { name = "aap-audit-contract" },
     { name = "aap-labeling-mask-gc", extra = ["client"] },
     { name = "aap-media-probe", extra = ["client"] },
+    { name = "aap-preannotation-results" },
     { name = "aap-protocol-v2" },
     { name = "aap-task-contract" },
     { name = "aap-training-contract" },
@@ -402,6 +420,7 @@ requires-dist = [
     { name = "aap-audit-contract", editable = "../_shared/audit_contract" },
     { name = "aap-labeling-mask-gc", extras = ["client"], editable = "../labeling-mask-gc" },
     { name = "aap-media-probe", extras = ["client"], editable = "../media-probe" },
+    { name = "aap-preannotation-results", editable = "../preannotation-results" },
     { name = "aap-protocol-v2", editable = "../_shared/protocol_v2" },
     { name = "aap-task-contract", editable = "../_shared/task_contract" },
     { name = "aap-training-contract", editable = "../_shared/training_contract" },

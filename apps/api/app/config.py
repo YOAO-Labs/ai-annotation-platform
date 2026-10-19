@@ -248,6 +248,8 @@ class Settings(BaseSettings):
     assets_mask_cleanup_url: str = ""
     assets_mask_cleanup_token: str = Field(default="", repr=False)
     assets_mask_content_timeout_seconds: float = Field(default=30, gt=0, le=300)
+    preannotation_results_database_url: str = Field(default="", repr=False)
+    preannotation_results_database_url_file: str = ""
 
     # 超大图不可变 tile pyramid。服务端可先发布 schema/API；自动入队默认关闭，
     # 待容量验收后再由部署显式打开。所有 byte/pixel/tile 限额均在 worker 实际生成前后复核。

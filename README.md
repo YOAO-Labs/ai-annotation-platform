@@ -146,6 +146,8 @@ Ultralytics YOLO11 的配置页可生成原生增强预览，对照冻结原图�
 
 普通图片批量预标（含 Scene 模式中的单图任务）在提交时固定任务与来源清单，准备原图后再执行；同一幂等请求复用原清单，后续新增任务不会进入原作业。范围与计数规则见[项目 API 指南](./docs-site/api/guides/projects.md)。
 
+普通批量预标保存已推理结果和处理进度，写入繁忙或工作进程重启后继续保存原结果；已提交结果、覆盖清理和费用不会重复累计。权限或来源变化仍会拒绝迟到写入。
+
 图片尺寸、缩略图和超大图金字塔使用同一媒体控制服务及独立图片执行进程；中断后可接管已受理作业。重试支持 UUID 幂等键和持久作业 ID，必需的高清切片缺失时工作台保留安全预览。接口见[图片与视频媒体](docs-site/api/guides/assets-media.md)，部署见[图片运行手册](docs-site/ops/runbooks/image-pyramid.md)。
 
 目录的列表、详情、文件分页、创建/更新及数据集与项目的双向关联列表可显式交由独立 Assets 服务处理；默认本地模式使用相同 SQL 合同。创建和更新可附带 UUID `Idempotency-Key`，响应中断后复用该键确认原结果。协议与权限见[独立素材目录](./docs-site/api/guides/assets-catalog.md)。Scene、位姿、标定与点云素材准备复用同一工件，保留标定 CAS、同事务审计和导入回滚；见[空间素材协议](./docs-site/api/guides/assets-spatial.md)。

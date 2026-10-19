@@ -2766,6 +2766,33 @@ async def trigger_preannotation(
         accepted_video_selection_digest=accepted_video_selection_digest,
         accepted_video_selection=accepted_video_selection,
     )
+    if precreated_job is not None and execution_unit not in {"frame", "video", "scene"}:
+        from app.application.preannotation_results import preannotation_request_digest
+
+        digest = preannotation_request_digest(batch_request)
+        locked_job = (
+            await db.execute(
+                select(AsyncJob)
+                .where(AsyncJob.id == precreated_job.id)
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            )
+        ).scalar_one()
+        previous_digest = (locked_job.payload or {}).get("preannotation_request_digest")
+        if previous_digest is not None and previous_digest != digest:
+            raise HTTPException(
+                status_code=409, detail="排队参数已冻结，请重新发起作业"
+            )
+        await async_job_svc.update_payload(
+            db,
+            locked_job.id,
+            {
+                "preannotation_request_digest": digest,
+                "predict_mode": batch_request.predict_mode,
+            },
+        )
+        # Bind the complete queued configuration before publishing to the broker.
+        await db.commit()
     try:
         dispatched_id = batch_dispatcher.dispatch(
             batch_request,

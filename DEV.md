@@ -1099,6 +1099,23 @@ psql -v expected_database=annotation_test -v migration_role=owner \
 
 日志和终态回执不设置自动过期或删除策略；没有回执的操作持续保留围栏，不能按租约或时间自动释放。完整普通批处理结果交接、新运行时镜像和部署容量仍需完成验证，现有远程业务删除保护保持关闭。详见 [ADR-0112](docs/adr/0112-durable-mask-gc-fences.md)。
 
+## 普通批量结果检查点
+
+安装当前迁移和 `module-data-grants.sql` 后，为预先创建、无角色成员关系的 `preannotation_result_client` LOGIN 安装精确能力。数据库初始化必须已撤销 PUBLIC 的 TEMP，并按需给现有角色单独重授；授权脚本会核验此项，不隐式修改 PUBLIC ACL。本地一次性验收器执行该初始化：
+
+```bash
+psql -v expected_database=annotation_test -v migration_role=owner \
+  -v jobs_owner=jobs_code -v labeling_owner=labeling_code \
+  -v result_role=preannotation_result_client \
+  -f infra/docker/preannotation-result-data-grants.sql
+```
+
+API／worker 默认用现有数据库连接保存检查点；设置 `PREANNOTATION_RESULTS_DATABASE_URL` 或 `PREANNOTATION_RESULTS_DATABASE_URL_FILE` 后，独立调用切到该函数专用 LOGIN。两项二选一，连接使用 `postgresql://` 格式；最终 Prediction／Meta／回执事务仍使用原 `DATABASE_URL`。Secret 文件最多 4096 字节，读取错误不会回退到原角色。
+
+运行 `uv run --project apps/preannotation-results --extra postgres python -m aap_preannotation_results_runtime read_batch_result_execution < request.json`，请求文件仅包含对应冻结 DTO。CLI 的独立依赖只有 Pydantic 和 asyncpg，不读取应用、队列或 S3 凭据；业务写入操作不对执行 CLI 开放。读取大结果时使用固定块和摘要，不能把交互接口的 16 MiB 限额套给整个批量结果。
+
+本地真实重投递验收由 `scripts/verify_module_data_boundary.py` 的一次性资源承载；`RUN_BATCH_RESULT_WORKER_LIVE_TEST=1` 显式启用强制终止子进程用例。不要在日常开发库或共享 worker 上运行该用例。当前主环境和 Mask collector 的切换仍须等待完整验收；Go 不加入正常运行路径。
+
 ## 视频媒体的独立控制与执行
 
 `apps/assets-media` 定义 `aap-assets-media/v1` 与 `aap-assets-images/v1` 契约。视频与图片共用控制进程；视频和图片分别由独立 Worker 执行，图片通过固定 SQL 能力与来源/派生对象身份完成受理、发布和清理。视频控制/执行已通过隔离本地进程和受限容器联调；图片的可选运行方式与验证边界见下文及[图片金字塔运行手册](docs-site/ops/runbooks/image-pyramid.md)。Go 实验不进入这些默认运行路径。

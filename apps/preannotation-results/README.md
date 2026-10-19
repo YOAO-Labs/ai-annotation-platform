@@ -26,4 +26,14 @@ temporary file.
 For paged member reads, `after_ordinal` is exclusive and the response cursor is
 the last returned ordinal when another page exists; `null` means the selection
 is drained. `Progress.next_ordinal` is a separate work cursor for the current
-member, and a terminal execution stores `total + 1` there.
+member. A completed execution stores `total + 1`; cancellation or failure can
+leave an unfinished member at that cursor.
+
+Raw payload metadata has no tool unit. Prepared payload metadata requires the
+final nonempty tool unit, including when read back or replayed. The schema
+expresses these stage conditions and canonical Base64 constraints; request and
+reply validation also checks byte sizes, hashes and scope echoes.
+
+Job summaries keep at most 100 failed prediction IDs and flag a truncated list.
+The complete failure history is paged through execution members; the application
+uses that history when retrying a Job's failed items.

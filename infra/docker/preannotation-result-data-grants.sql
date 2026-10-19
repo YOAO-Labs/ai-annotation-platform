@@ -1,6 +1,6 @@
 -- The ordinary preannotation executor receives only its public result protocol.
 -- Run after migrations and module-data-grants as the migration role.
--- module-data-grants must revoke PUBLIC TEMP on the owned test database first.
+-- Database provisioning must revoke PUBLIC TEMP first; this script changes no PUBLIC ACL.
 -- psql -v expected_database=annotation_test -v migration_role=owner \
 --   -v jobs_owner=jobs_code -v labeling_owner=labeling_code \
 --   -v result_role=preannotation_result_client \

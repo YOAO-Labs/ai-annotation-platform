@@ -9,12 +9,13 @@ from app.application.preannotation_execution import (
     PreannotationInputDeferred,
     run_preannotation,
 )
+from app.application.preannotation_results import PreannotationResultDeferred
 from app.config import settings
 from app.services import prediction_progress
 from app.workers.celery_app import celery_app
 
 
-async def _mark_job_failed(celery_task_id: str, error_message: str) -> None:
+async def _mark_job_failed(celery_task_id: str, error_message: str) -> bool:
     """Persist an uncaught Celery task failure to its durable async job."""
     from sqlalchemy.ext.asyncio import (
         AsyncSession,
@@ -24,6 +25,8 @@ async def _mark_job_failed(celery_task_id: str, error_message: str) -> None:
 
     from app.services import async_job as async_job_svc
     from app.services.async_job_notify import notify_job_terminal
+    from app.db.models.async_job import AsyncJob
+    from sqlalchemy import select
 
     engine = create_async_engine(settings.database_url, echo=False)
     SessionLocal = async_sessionmaker(
@@ -33,10 +36,29 @@ async def _mark_job_failed(celery_task_id: str, error_message: str) -> None:
         async with SessionLocal() as db:
             job = await async_job_svc.find_by_celery_task_id(db, celery_task_id)
             if job is None:
-                return
+                return False
+            if job.kind != "batch_predict":
+                return False
+            job = (
+                await db.execute(
+                    select(AsyncJob)
+                    .where(AsyncJob.id == job.id)
+                    .with_for_update()
+                    .execution_options(populate_existing=True)
+                )
+            ).scalar_one()
+            if job.status not in {"pending", "running"}:
+                return job.status == "failed"
+            digest = (job.payload or {}).get("preannotation_request_digest")
+            if isinstance(digest, str):
+                # A broker task ID cannot prove the request digest or current
+                # lease owner. Only the fenced workflow may terminalize a bound
+                # Job, including a rejected delivery before its first claim.
+                return False
             await async_job_svc.mark_failed(db, job.id, error=error_message)
             await notify_job_terminal(db, job_id=job.id)
             await db.commit()
+            return True
     finally:
         await engine.dispose()
 
@@ -47,7 +69,11 @@ class _BatchPredictTask(celery_app.Task):
     def on_failure(self, exc, task_id, args, kwargs, einfo):  # noqa: ARG002
         project_id = kwargs.get("project_id") or (args[0] if args else None)
         error_message = f"{type(exc).__name__}: {exc}"
-        if project_id:
+        try:
+            failed = asyncio.run(_mark_job_failed(task_id, error_message))
+        except Exception:
+            failed = False
+        if project_id and failed:
             try:
                 prediction_progress.publish_progress(
                     str(project_id),
@@ -59,19 +85,17 @@ class _BatchPredictTask(celery_app.Task):
                 )
             except Exception:
                 pass
-        try:
-            asyncio.run(_mark_job_failed(task_id, error_message))
-        except Exception:
-            pass
 
 
 @celery_app.task(
     bind=True,
     base=_BatchPredictTask,
-    # Only the explicit pending-input deferral calls Task.retry. A None budget
-    # lets that durable readiness wait exceed Celery's default three retries.
+    # Input readiness and saved-result contention defer the same durable Job.
+    # The wait can exceed Celery's default three retries without losing output.
     max_retries=None,
     default_retry_delay=30,
+    acks_late=True,
+    reject_on_worker_lost=True,
 )
 def batch_predict(
     self,
@@ -150,5 +174,5 @@ def batch_predict(
                 frame_dispatcher=frame_dispatcher,
             )
         )
-    except PreannotationInputDeferred as exc:
+    except (PreannotationInputDeferred, PreannotationResultDeferred) as exc:
         raise self.retry(exc=exc, countdown=30, max_retries=None) from exc

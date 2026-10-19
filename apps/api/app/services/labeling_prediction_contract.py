@@ -23,6 +23,7 @@ RETRYABLE_APPLY_PREDICTION_CODES = frozenset(
         "input_busy",
         "mask_content_deleting",
         "mask_content_epoch_changed",
+        "mask_storage_unavailable",
     }
 )
 

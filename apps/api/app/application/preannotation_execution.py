@@ -13,7 +13,7 @@ import time
 import uuid
 import tempfile
 from contextlib import asynccontextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from app.config import settings
@@ -1364,27 +1364,203 @@ async def run_preannotation(
     )
 
     engine = create_async_engine(settings.database_url, echo=False)
+    executor_engine = None
     try:
         session_factory = async_sessionmaker(
             engine, class_=AsyncSession, expire_on_commit=False
         )
-        async with _prepare_accepted_input(request, session_factory) as accepted_input:
-            async with _prepare_accepted_input_manifest(
+
+        async def execute(batch_results=None):
+            if batch_results is not None and batch_results.progress.selection_complete:
+                await _execute_preannotation(
+                    request,
+                    execution_id=execution_id,
+                    frame_dispatcher=frame_dispatcher,
+                    SessionLocal=session_factory,
+                    batch_results=batch_results,
+                )
+                return
+            async with _prepare_accepted_input(
                 request, session_factory
-            ) as accepted_manifest:
-                async with _prepare_accepted_video_manifest(
+            ) as accepted_input:
+                async with _prepare_accepted_input_manifest(
                     request, session_factory
-                ) as accepted_video_manifest:
-                    await _execute_preannotation(
-                        request,
-                        execution_id=execution_id,
-                        frame_dispatcher=frame_dispatcher,
-                        SessionLocal=session_factory,
-                        accepted_input=accepted_input,
-                        accepted_manifest=accepted_manifest,
-                        accepted_video_manifest=accepted_video_manifest,
+                ) as accepted_manifest:
+                    async with _prepare_accepted_video_manifest(
+                        request, session_factory
+                    ) as accepted_video_manifest:
+                        await _execute_preannotation(
+                            request,
+                            execution_id=execution_id,
+                            frame_dispatcher=frame_dispatcher,
+                            SessionLocal=session_factory,
+                            accepted_input=accepted_input,
+                            accepted_manifest=accepted_manifest,
+                            accepted_video_manifest=accepted_video_manifest,
+                            batch_results=batch_results,
+                        )
+
+        if request.execution_unit in {"frame", "video", "scene"}:
+            await execute()
+            return
+        from app.application.preannotation_results import (
+            batch_result_execution,
+            preannotation_request_digest,
+        )
+        from app.db.models.async_job import AsyncJob
+        from app.services import async_job as jobs
+
+        executor_session_factory = None
+        if (
+            settings.preannotation_results_database_url
+            or settings.preannotation_results_database_url_file
+        ):
+            from aap_preannotation_results_runtime.config import (
+                ConfigurationError,
+                load_config,
+            )
+            from sqlalchemy.engine import make_url
+            from app.application.preannotation_results import (
+                PreannotationResultDeferred,
+            )
+
+            try:
+                config = load_config(
+                    {
+                        "PREANNOTATION_RESULTS_DATABASE_URL": settings.preannotation_results_database_url,
+                        "PREANNOTATION_RESULTS_DATABASE_URL_FILE": settings.preannotation_results_database_url_file,
+                    }
+                )
+            except ConfigurationError:
+                raise PreannotationResultDeferred("storage_unavailable") from None
+            executor_engine = create_async_engine(
+                make_url(config.database_url).set(drivername="postgresql+asyncpg"),
+                echo=False,
+            )
+            executor_session_factory = async_sessionmaker(
+                executor_engine, class_=AsyncSession, expire_on_commit=False
+            )
+
+        async with session_factory() as db:
+            if request.async_job_id is None:
+                previous = (
+                    await jobs.find_by_celery_task_id(db, execution_id)
+                    if execution_id is not None
+                    else None
+                )
+                if previous is not None:
+                    if (
+                        previous.kind != "batch_predict"
+                        or previous.project_id != uuid.UUID(request.project_id)
+                        or previous.user_id != uuid.UUID(request.user_id)
+                        or (previous.payload or {}).get("preannotation_request_digest")
+                        not in {None, preannotation_request_digest(request)}
+                    ):
+                        raise ValueError("legacy preannotation execution scope changed")
+                    request = replace(request, async_job_id=str(previous.id))
+                    if previous.status not in {"pending", "running"}:
+                        return
+            if request.async_job_id is None:
+                payload = {
+                    "batch_id": request.batch_id,
+                    "execution_scope": request.execution_scope,
+                    "predict_mode": request.predict_mode,
+                    "preannotation_request_digest": preannotation_request_digest(
+                        request
+                    ),
+                }
+                if request.task_ids is not None:
+                    payload.update(
+                        task_ids=request.task_ids, scope={"task_ids": request.task_ids}
                     )
+                if request.frozen_model_ref is not None:
+                    payload["frozen_model_ref"] = request.frozen_model_ref
+                job = await jobs.create_job(
+                    db,
+                    kind="batch_predict",
+                    user_id=uuid.UUID(request.user_id),
+                    project_id=uuid.UUID(request.project_id),
+                    payload=payload,
+                    celery_task_id=execution_id,
+                )
+                await db.commit()
+                request = replace(request, async_job_id=str(job.id))
+            else:
+                job = await db.get(AsyncJob, uuid.UUID(request.async_job_id))
+                if job is not None and (
+                    job.project_id != uuid.UUID(request.project_id)
+                    or job.user_id != uuid.UUID(request.user_id)
+                    or job.kind != "batch_predict"
+                ):
+                    raise ValueError("preannotation async Job scope is unavailable")
+                if job is not None and job.status not in {"pending", "running"}:
+                    return
+        async with batch_result_execution(
+            request,
+            session_factory,
+            execution_id=execution_id,
+            executor_session_factory=executor_session_factory,
+        ) as batch_results:
+            try:
+                await execute(batch_results)
+            except PreannotationInputDeferred:
+                raise
+            except Exception as exc:
+                from fastapi import HTTPException
+                from sqlalchemy.exc import SQLAlchemyError
+                from app.application.preannotation_results import (
+                    PreannotationResultDeferred,
+                )
+
+                if isinstance(exc, PreannotationResultDeferred):
+                    raise
+                if (
+                    isinstance(exc, SQLAlchemyError)
+                    or (isinstance(exc, HTTPException) and exc.status_code >= 500)
+                    or getattr(exc, "code", None)
+                    in {"storage_unavailable", "invalid_response", "timeout"}
+                ):
+                    raise PreannotationResultDeferred("storage_unavailable") from None
+                async with session_factory() as db:
+                    job = await db.get(
+                        AsyncJob, batch_results.scope["job_id"], populate_existing=True
+                    )
+                    if job is not None and job.status not in {"pending", "running"}:
+                        return
+                    await batch_results.call(
+                        "finish_batch_result_execution",
+                        db=db,
+                        status="failed",
+                        error_code=type(exc).__name__,
+                        result_extra={},
+                    )
+                    from app.services.async_job_notify import notify_job_terminal
+
+                    await db.get(
+                        AsyncJob, batch_results.scope["job_id"], populate_existing=True
+                    )
+                    await notify_job_terminal(db, job_id=batch_results.scope["job_id"])
+                    try:
+                        await db.commit()
+                    except Exception:
+                        await db.rollback()
+                        raise PreannotationResultDeferred(
+                            "storage_unavailable"
+                        ) from None
+                raise
+    except Exception as exc:
+        from sqlalchemy.exc import SQLAlchemyError
+
+        if isinstance(exc, SQLAlchemyError):
+            from app.application.preannotation_results import (
+                PreannotationResultDeferred,
+            )
+
+            raise PreannotationResultDeferred("storage_unavailable") from None
+        raise
     finally:
+        if executor_engine is not None:
+            await executor_engine.dispose()
         await engine.dispose()
 
 
@@ -1397,6 +1573,7 @@ async def _execute_preannotation(
     accepted_input: _PreparedAcceptedInput | None = None,
     accepted_manifest: _PreparedAcceptedManifest | None = None,
     accepted_video_manifest: _PreparedAcceptedVideoManifest | None = None,
+    batch_results=None,
 ) -> None:
     """Own the batch workflow while reusing the caller's request and DB session."""
     project_id = request.project_id
@@ -1423,6 +1600,9 @@ async def _execute_preannotation(
     accepted_input_manifest_protocol = request.accepted_input_manifest_protocol
     accepted_input_manifest_id = request.accepted_input_manifest_id
     accepted_input_manifest_digest = request.accepted_input_manifest_digest
+    resuming_results = (
+        batch_results is not None and batch_results.progress.selection_complete
+    )
     task = request.task
     prompt_type = request.prompt_type
     semantic = normalize_task_fields(
@@ -1472,6 +1652,8 @@ async def _execute_preannotation(
     async with SessionLocal() as db:
         backend = await db.get(MLBackend, uuid.UUID(ml_backend_id))
         if not backend:
+            if batch_results is not None:
+                raise ValueError("ML Backend not found")
             if async_job_id is not None:
                 try:
                     failed_job_id = uuid.UUID(async_job_id)
@@ -1539,9 +1721,12 @@ async def _execute_preannotation(
                 raise ValueError("preannotation async job scope is unavailable")
             # A redelivery/retry for a job that already started must not run the
             # selected tasks a second time. The row lock serializes this check.
-            if precreated_job.status != AsyncJobStatus.PENDING.value:
+            if precreated_job.status != AsyncJobStatus.PENDING.value and not (
+                batch_results is not None
+                and precreated_job.status == AsyncJobStatus.RUNNING.value
+            ):
                 return
-            if accepted_input_manifest_protocol is not None:
+            if accepted_input_manifest_protocol is not None and not resuming_results:
                 from aap_assets_input_manifests.contract import MANIFEST_SCHEMA
 
                 manifest_payload = precreated_job.payload or {}
@@ -1585,14 +1770,14 @@ async def _execute_preannotation(
                 raise ValueError("Queued model identity differs from the durable job")
             frozen_model_ref = saved_ref
             async_job_svc.bind_execution_id(precreated_job, celery_task_id)
-            if not defer_video_job_claim:
+            if not defer_video_job_claim and batch_results is None:
                 await async_job_svc.mark_running(
                     db, precreated_job.id, celery_task_id=celery_task_id
                 )
             # Release the initial row lock before video source verification and
             # timebase paging. The video Job is claimed only after that barrier.
             await db.commit()
-        if batch_id:
+        if batch_id and not resuming_results:
             selected_batch = await db.get(TaskBatch, uuid.UUID(batch_id))
             if (
                 selected_batch is None
@@ -1605,7 +1790,7 @@ async def _execute_preannotation(
         # issue #121 · 工作台单题交互执行 (execution_scope=workbench) 允许 in_progress / draft,
         # 但批次管理员锁、他人编辑锁、终态任务与越权仍在此兜底; bulk 保持原批量前置条件。
         workbench_scope = execution_scope == "workbench"
-        if requested_task_ids is not None:
+        if requested_task_ids is not None and not resuming_results:
             scope_rows = (
                 await db.execute(
                     select(Task, TaskBatch)
@@ -1744,7 +1929,10 @@ async def _execute_preannotation(
         video_fixed_failures: list[dict] = []
         video_skipped_task_count = 0
         video_members = []
-        if video_manifest_backed:
+        if resuming_results:
+            tasks = []
+            total = batch_results.progress.total
+        elif video_manifest_backed:
             if pipeline_stages and len(pipeline_stages) > 1:
                 raise ValueError("frame preannotation supports one detection stage")
             video_members = await _accepted_video_members(accepted_video_manifest)
@@ -1990,6 +2178,7 @@ async def _execute_preannotation(
             and tasks
             and not manifest_backed
             and not video_manifest_backed
+            and batch_results is None
         ):
             from app.services.batch import BatchService
             from app.services.labeling_write_guard import lock_labeling_write
@@ -2031,6 +2220,7 @@ async def _execute_preannotation(
         job_payload: dict = {
             "batch_id": batch_id,
             "execution_scope": execution_scope,
+            "predict_mode": predict_mode,
             "batch_display_id": batch.display_id if batch else None,
             "ml_backend_id": ml_backend_id,
             # job payload 保留请求入口 registry 与逻辑池；逐条 Prediction 另记实际执行实例。
@@ -2075,6 +2265,9 @@ async def _execute_preannotation(
             job_payload["total_tasks"] = accepted_manifest.header.selected_count
             job_payload["input_candidate_count"] = (
                 accepted_manifest.header.candidate_count
+            )
+            job_payload["accepted_input_manifest_sealed_digest"] = (
+                accepted_manifest.header.sealed_digest
             )
         if video_manifest_backed:
             job_payload["accepted_video_inputs_protocol"] = (
@@ -2289,7 +2482,7 @@ async def _execute_preannotation(
                 },
             )
 
-        if total == 0:
+        if total == 0 and batch_results is None:
             duration_ms = int((time.perf_counter() - started_perf) * 1000)
             result_payload: dict = {
                 "success_count": 0,
@@ -2636,6 +2829,239 @@ async def _execute_preannotation(
                     if page.next_cursor is not None
                     else accepted_manifest.header.selected_count
                 )
+
+        if batch_results is not None:
+            from decimal import Decimal
+            from app.application.durable_preannotation import run_durable_batch
+            from app.services.prediction import remap_prediction_track_ids
+
+            def durable_failure_facts(frozen_member, ordinal, task_id):
+                record = (
+                    frozen_member.get("input") if frozen_member is not None else None
+                )
+                metadata = (
+                    {
+                        key: record[key]
+                        for key in (
+                            "input_id",
+                            "job_id",
+                            "task_id",
+                            "sha256",
+                            "byte_size",
+                        )
+                    }
+                    if isinstance(record, dict)
+                    else None
+                )
+                provenance = (
+                    {
+                        "protocol": accepted_input_manifest_protocol,
+                        "manifest_id": accepted_input_manifest_id,
+                        "selection_digest": accepted_input_manifest_digest,
+                        "ordinal": ordinal,
+                        "task_id": str(task_id),
+                        "member_error": frozen_member.get("error"),
+                    }
+                    if accepted_input_manifest_protocol is not None
+                    and frozen_member is not None
+                    else None
+                )
+                executed_pool = stage_clients[0].pool_id or source_pool_id
+                return {
+                    "ml_backend_id": str(
+                        stage_clients[0].last_instance_id or uuid.UUID(ml_backend_id)
+                    ),
+                    "ml_backend_pool_id": str(executed_pool)
+                    if executed_pool is not None
+                    else None,
+                    "failure_extra": {
+                        "execution_scope": execution_scope,
+                        "execution_unit": execution_unit,
+                        "task": visual_task,
+                        **(
+                            {"request_context": retry_request_context}
+                            if retry_request_context is not None
+                            else {}
+                        ),
+                        **(
+                            {"accepted_input": metadata} if metadata is not None else {}
+                        ),
+                        **(
+                            {"accepted_input_manifest": provenance}
+                            if provenance is not None
+                            else {}
+                        ),
+                    },
+                }
+
+            async def infer_batch_member(
+                task, write_scope, retained, frozen_member, ordinal
+            ):
+                # A preceding member failure rolls back and expires every ORM
+                # backend retained by the stage clients. Refresh before reuse.
+                for stage in stages:
+                    await db.get(
+                        MLBackend,
+                        uuid.UUID(stage["ml_backend_id"]),
+                        populate_existing=True,
+                    )
+                results, pipeline_extra, stage_stats = await _run_task_pipeline(
+                    task,
+                    stages,
+                    stage_clients,
+                    stage_contexts,
+                    resolve_url=(
+                        (lambda _task: retained.reference.url)
+                        if retained is not None
+                        else _resolve_task_url
+                    ),
+                    upload_crop=crop_uploader,
+                    stage_modes=stage_modes,
+                    input_image_path=retained.local_path
+                    if retained is not None
+                    else None,
+                )
+                metadata = retained.metadata if retained is not None else None
+                provenance = (
+                    {
+                        "protocol": accepted_input_manifest_protocol,
+                        "manifest_id": accepted_input_manifest_id,
+                        "selection_digest": accepted_input_manifest_digest,
+                        "ordinal": ordinal,
+                        "task_id": str(task.id),
+                        "member_error": frozen_member.get("error"),
+                    }
+                    if accepted_input_manifest_protocol is not None
+                    and frozen_member is not None
+                    else None
+                )
+                if metadata is not None:
+                    pipeline_extra = {
+                        **(pipeline_extra or {}),
+                        "accepted_input": metadata,
+                    }
+                if provenance is not None:
+                    pipeline_extra = {
+                        **(pipeline_extra or {}),
+                        "accepted_input_manifest": provenance,
+                    }
+                executed_backend_id = stage_clients[0].last_instance_id or uuid.UUID(
+                    ml_backend_id
+                )
+                executed_pool_id = stage_clients[0].pool_id or source_pool_id
+                requests = tuple(
+                    ApplyPredictionResultRequest(
+                        task_id=task.id,
+                        project_id=project_uuid,
+                        ml_backend_id=executed_backend_id,
+                        result=remap_prediction_track_ids(result.result),
+                        score=result.score,
+                        model_version=result.model_version,
+                        inference_time_ms=result.inference_time_ms,
+                        token_meta=result.meta,
+                        pipeline_extra=pipeline_extra,
+                        ml_backend_pool_id=executed_pool_id,
+                        write_scope=write_scope,
+                        accepted_input_job_id=(
+                            batch_results.scope["job_id"]
+                            if metadata is not None
+                            and accepted_input_manifest_protocol is not None
+                            else None
+                        ),
+                        model_provenance=frozen_model_ref,
+                    )
+                    for result in results
+                )
+                return requests, {
+                    "task_id": str(task.id),
+                    **durable_failure_facts(frozen_member, ordinal, task.id),
+                    "pipeline_stages": {
+                        str(key): value for key, value in (stage_stats or {}).items()
+                    },
+                    "gpu_arbiter_failures": (pipeline_extra or {})
+                    .get("pipeline", {})
+                    .get("gpu_arbiter_failures", []),
+                    "total_cost": format(
+                        sum(
+                            (
+                                Decimal(str((result.meta or {}).get("total_cost") or 0))
+                                for result in results
+                            ),
+                            Decimal(0),
+                        ),
+                        "f",
+                    ),
+                    "failure_extra": {
+                        "execution_scope": execution_scope,
+                        "execution_unit": execution_unit,
+                        "task": visual_task,
+                        **(
+                            {"request_context": retry_request_context}
+                            if retry_request_context is not None
+                            else {}
+                        ),
+                        **(
+                            {"accepted_input": metadata} if metadata is not None else {}
+                        ),
+                        **(
+                            {"accepted_input_manifest": provenance}
+                            if provenance is not None
+                            else {}
+                        ),
+                    },
+                }
+
+            async def finish_durable_batch():
+                if batch_id is None:
+                    return
+                from app.services.batch import BatchService
+                from app.services.labeling_write_scope import LabelingBatchWriteScope
+
+                await BatchService(db).mark_preannotated_after_prediction(
+                    LabelingBatchWriteScope(
+                        batch_id=uuid.UUID(batch_id),
+                        project_id=project_uuid,
+                        actor_id=batch_results.scope["actor_id"],
+                        actor_known=True,
+                        operation="preannotation",
+                        execution_scope=execution_scope,
+                        execution_scope_known=True,
+                        job_id=async_job_id,
+                        job_id_known=True,
+                    )
+                )
+
+            summary = {}
+            if accepted_input_manifest_protocol is not None:
+                saved_payload = aj.payload or {}
+                summary["manifest"] = {
+                    "protocol": accepted_input_manifest_protocol,
+                    "manifest_id": accepted_input_manifest_id,
+                    "selection_digest": accepted_input_manifest_digest,
+                    "selected_count": total,
+                    "candidate_count": saved_payload.get(
+                        "input_candidate_count", total
+                    ),
+                    "sealed_digest": saved_payload.get(
+                        "accepted_input_manifest_sealed_digest"
+                    ),
+                }
+            await run_durable_batch(
+                batch_results,
+                db,
+                request,
+                entries=_execution_entries(),
+                accepted_input=accepted_input,
+                infer=infer_batch_member,
+                writer=pred_svc,
+                job_meta=job_meta_base,
+                result_extra=summary,
+                finish_batch=finish_durable_batch,
+                failure_context=lambda member: durable_failure_facts(
+                    member.manifest_member, member.ordinal, member.task_id
+                ),
+            )
+            return
 
         async def _skip_manifest_member(ordinal: int) -> None:
             nonlocal runtime_skipped_count, last_completed_ordinal

@@ -4,7 +4,7 @@ audience: [dev, ops]
 type: reference
 since: v0.9.0
 status: stable
-last_reviewed: 2026-10-19
+last_reviewed: 2026-10-20
 ---
 
 # 环境变量参考
@@ -539,6 +539,8 @@ last_reviewed: 2026-10-19
 | `ASSETS_MASK_CLEANUP_URL` | `—` | — |
 | `ASSETS_MASK_CLEANUP_TOKEN` | `—` | — |
 | `ASSETS_MASK_CONTENT_TIMEOUT_SECONDS` | `30` | — |
+| `PREANNOTATION_RESULTS_DATABASE_URL` | `—` | Optional function-only LOGIN for batch result checkpoints; final Labeling writes keep the normal application transaction. Empty uses DATABASE_URL. |
+| `PREANNOTATION_RESULTS_DATABASE_URL_FILE` | `—` | — |
 | `MASK_CONTENT_S3_ENDPOINT_URL` | `—` | 运行工件无数据库凭据；两个进程只共享固定桶/前缀，各用自己的 S3 身份。 |
 | `MASK_CONTENT_BUCKET` | `—` | — |
 | `MASK_CONTENT_REGION` | `us-east-1` | — |

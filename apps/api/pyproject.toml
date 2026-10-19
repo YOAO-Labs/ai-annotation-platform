@@ -7,6 +7,7 @@ dependencies = [
     "aap-assets-media[client,runtime]",
     "aap-assets-mask-content[client,storage]",
     "aap-labeling-mask-gc[client]",
+    "aap-preannotation-results",
     "aap-assets-cleanup",
     "aap-assets-source",
     "aap-audit-contract",
@@ -56,6 +57,7 @@ aap-assets-catalog = { path = "../assets-catalog", editable = true }
 aap-assets-media = { path = "../assets-media", editable = true }
 aap-assets-mask-content = { path = "../assets-mask-content", editable = true }
 aap-labeling-mask-gc = { path = "../labeling-mask-gc", editable = true }
+aap-preannotation-results = { path = "../preannotation-results", editable = true }
 aap-assets-cleanup = { path = "../assets-cleanup", editable = true }
 aap-assets-source = { path = "../assets-source", editable = true }
 aap-audit-contract = { path = "../_shared/audit_contract", editable = true }

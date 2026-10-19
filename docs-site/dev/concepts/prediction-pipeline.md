@@ -94,6 +94,14 @@ HTTP 入口对普通批量、Data Manager、工作台和受控模型请求统一
 
 详见 [annotation-module · 工具单位](./annotation-module#工具单位tool_unit维度) 与 [ADR-0026](../adr/archive/0026-tool-unit-class-and-attribute-binding)。
 
+## 普通逐题批量的结果恢复
+
+普通 `batch_predict` 在开始推理前冻结完整处理成员和原始 `LabelingWriteScope`。Jobs 持有工作进程、代次、令牌和到期时间，以及覆盖清理、游标、费用与阶段统计；Labeling 持有分块原始结果、规范化后的准备结果和稳定 Prediction ID／创建时间。原始结果字节完整后，Mask 字节生成、引用登记和最终写入均可继续重试，不能因短暂竞争把它改记为失败。
+
+最终写入继续经过当前账号／项目／Task／来源／编辑锁／Job 准入。Prediction、Meta、精确回执、快照和根释放及成员进度共用一次提交；提交确认丢失时读取回执，不再创建候选或失败行。正常写入每轮三次快速重试，仍忙则延后同一 Celery 消息；late ack 和 worker-loss redelivery 从已存原始或准备结果恢复，不重新选择任务、清理覆盖或调用模型。尚未完整存下原始字节的计算不提供一次执行保证。
+
+原始／准备结果按单个模型响应保存，512 KiB 分块和 2 MiB 请求／响应只限制传输，不限制整题结果总量。待保存的 Mask 引用同时被当前内嵌 collector 和 native 根表保护。协作取消阻止下一成员，当前已开始成员可先完成；真实终态拒绝新写入。独立失败预测重试、逐帧和场景路径继续持有各自协议。完整契约与受限执行角色见[同库数据接口](/api/guides/module-data#普通批量结果检查点)。
+
 ## WebSocket 通道
 
 | 通道                         | 谁订阅        | 内容                                         |
@@ -106,7 +114,7 @@ HTTP 入口对普通批量、Data Manager、工作台和受控模型请求统一
 
 ## 失败兜底（B-1 教训）
 
-`_BatchPredictTask.on_failure` 会尽力把未捕获异常推到 `project:{id}:preannotate`，并在已建档时通过 `celery_task_id` 反查、置 `async_jobs=failed`。当前 HTTP 请求已在派发前持久化作业，推理前的复校验失败也有可反查的行。内部旧调用若未提供预建 ID，早期失败仍可能没有历史行；进程硬崩或 frame fan-out callback 缺口也可能遗留 `running`，当前没有 stale-job watchdog。
+`_BatchPredictTask.on_failure` 尽力推送未捕获异常；只有尚未绑定持久执行摘要的旧调用才按 `celery_task_id` 反查并置失败。普通批量的终态由持有当前原生租约的工作流写入，broker task ID 不能代替执行权证明。存储或回执不确定时保留检查点并延后；当前没有覆盖全部作业类型的 stale-job watchdog，逐帧 callback 等独立路径仍按自身恢复协议处理。
 
 详见 [Docker rebuild vs restart](../troubleshooting/docker-rebuild-vs-restart)。
 

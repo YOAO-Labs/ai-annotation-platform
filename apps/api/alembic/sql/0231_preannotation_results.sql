@@ -452,7 +452,7 @@ BEGIN
         END IF;
     END IF;
     IF v_old_body IS NOT NULL THEN
-        SELECT COALESCE(pg_catalog.array_agg(DISTINCT keys.object_key COLLATE "C" ORDER BY keys.object_key COLLATE "C"), ARRAY[]::text[])
+        SELECT COALESCE(pg_catalog.array_agg(DISTINCT all_keys.object_key COLLATE "C" ORDER BY all_keys.object_key COLLATE "C"), ARRAY[]::text[])
         INTO v_keys
         FROM (
             SELECT unnest(v_keys) AS object_key
@@ -665,7 +665,7 @@ BEGIN
     v_execution_id := CASE WHEN p_payload -> 'execution_id' = 'null'::jsonb
         THEN NULL ELSE p_payload ->> 'execution_id' END;
     v_seconds := (p_payload ->> 'lease_seconds')::integer;
-    IF v_seconds < 5 OR v_seconds > 300 THEN
+    IF v_seconds < 5 OR v_seconds > 300 OR v_execution_id = '' THEN
         RETURN aap_jobs_v1._batch_result_reply(NULL, 'invalid_request');
     END IF;
     BEGIN
@@ -694,8 +694,7 @@ BEGIN
        AND v_job.payload ->> 'preannotation_request_digest' IS DISTINCT FROM p_payload ->> 'request_digest' THEN
         RETURN aap_jobs_v1._batch_result_reply(NULL, 'selection_conflict');
     END IF;
-    IF v_job.status NOT IN ('pending', 'running')
-       OR COALESCE(v_job.payload -> 'cancel_requested', 'false'::jsonb) = 'true'::jsonb THEN
+    IF v_job.status NOT IN ('pending', 'running') THEN
         RETURN aap_jobs_v1._batch_result_reply(NULL, 'job_not_writable');
     END IF;
     BEGIN
@@ -1129,13 +1128,13 @@ BEGIN
        OR v_execution.total IS NULL THEN
         RETURN aap_jobs_v1._batch_result_reply(NULL, 'selection_conflict');
     END IF;
-    IF COALESCE(v_job.payload -> 'cancel_requested', 'false'::jsonb) = 'true'::jsonb THEN
-        RETURN aap_jobs_v1._batch_result_reply(NULL, 'job_not_writable');
-    END IF;
     IF v_execution.state = 'running' AND v_job.status = 'running' THEN
         RETURN aap_jobs_v1._batch_result_reply(
             pg_catalog.jsonb_build_object('progress', aap_jobs_v1._batch_result_progress(v_job.id)), NULL
         );
+    END IF;
+    IF COALESCE(v_job.payload -> 'cancel_requested', 'false'::jsonb) = 'true'::jsonb THEN
+        RETURN aap_jobs_v1._batch_result_reply(NULL, 'job_not_writable');
     END IF;
     IF v_execution.state <> 'preparing' OR v_job.status NOT IN ('pending', 'running') THEN
         RETURN aap_jobs_v1._batch_result_reply(NULL, 'job_not_writable');
@@ -1235,7 +1234,7 @@ BEGIN
     END IF;
     RETURN aap_jobs_v1._batch_result_reply(
         pg_catalog.jsonb_build_object(
-            'progress', aap_jobs_v1._batch_result_progress(v_job.id),
+            'progress', aap_jobs_v1._batch_result_progress(v_execution.job_id),
             'members', v_members, 'next_ordinal', v_next
         ), NULL
     );
@@ -1312,7 +1311,7 @@ BEGIN
             pg_catalog.jsonb_build_object('progress', aap_jobs_v1._batch_result_progress(v_execution.job_id), 'member', aap_jobs_v1._batch_result_member_json(v_member)), NULL
         );
     END IF;
-    IF v_member.state <> 'planned'
+    IF v_member.state NOT IN ('planned', 'prepared') OR v_member.result_id IS NOT NULL
        OR COALESCE(
             (SELECT job.payload ->> 'predict_mode' FROM public.async_jobs AS job WHERE job.id = v_execution.job_id),
             (SELECT job.payload #>> '{input_selection,predict_mode}' FROM public.async_jobs AS job WHERE job.id = v_execution.job_id),
@@ -1471,6 +1470,13 @@ BEGIN
         updated_at = pg_catalog.clock_timestamp()
     WHERE job_id = v_execution.job_id
     RETURNING * INTO v_execution;
+    UPDATE public.async_jobs
+    SET progress_pct = CASE WHEN v_execution.total > 0 THEN
+        pg_catalog.floor(100::numeric * (
+            v_execution.success_count + v_execution.failed_count + v_execution.skipped_count
+        ) / v_execution.total)::integer ELSE 0 END,
+        updated_at = pg_catalog.clock_timestamp()
+    WHERE id = v_execution.job_id;
     RETURN aap_jobs_v1._batch_result_reply(
         pg_catalog.jsonb_build_object('progress', aap_jobs_v1._batch_result_progress(v_execution.job_id)), NULL
     );
@@ -1877,6 +1883,13 @@ BEGIN
         updated_at = pg_catalog.clock_timestamp()
     WHERE job_id = v_execution.job_id
     RETURNING * INTO v_execution;
+    UPDATE public.async_jobs
+    SET progress_pct = CASE WHEN v_execution.total > 0 THEN
+        pg_catalog.floor(100::numeric * (
+            v_execution.success_count + v_execution.failed_count + v_execution.skipped_count
+        ) / v_execution.total)::integer ELSE 0 END,
+        updated_at = pg_catalog.clock_timestamp()
+    WHERE id = v_execution.job_id;
     RETURN aap_jobs_v1._batch_result_reply(
         pg_catalog.jsonb_build_object('progress', aap_jobs_v1._batch_result_progress(v_execution.job_id)), NULL
     );
@@ -1991,27 +2004,11 @@ BEGIN
           AND bundle.state IN ('capturing','captured','ready')
           AND bundle.receipt_count=0
         RETURNING bundle.result_id,bundle.ordinal
-    ), payload_rows AS (
-        SELECT payload.payload_id
-        FROM public.batch_result_payloads AS payload
-        JOIN retired USING (result_id)
-    ), deleted_parts AS (
-        DELETE FROM public.batch_result_parts AS part
-        USING payload_rows AS payload
-        WHERE part.payload_id=payload.payload_id
-        RETURNING part.payload_id
     ), deleted_payloads AS (
         DELETE FROM public.batch_result_payloads AS payload
         USING retired
         WHERE payload.result_id=retired.result_id
         RETURNING payload.payload_id
-    ), marked_members AS (
-        UPDATE public.batch_result_members AS member
-        SET error_code='job_terminal', updated_at=pg_catalog.clock_timestamp()
-        FROM retired
-        WHERE member.job_id=v_job_id AND member.ordinal=retired.ordinal
-          AND member.state IN ('planned','prepared','capturing','captured','ready')
-        RETURNING member.ordinal
     )
     SELECT count(*)::bigint INTO v_retired FROM retired;
     RETURN aap_labeling_v1._batch_result_reply(
@@ -2174,8 +2171,11 @@ BEGIN
         pg_catalog.jsonb_agg(member.failed_prediction_id ORDER BY member.ordinal),
         '[]'::jsonb
     ) INTO v_failed_ids
-    FROM public.batch_result_members AS member
-    WHERE member.job_id = v_job.id AND member.failed_prediction_id IS NOT NULL;
+    FROM (
+        SELECT ordinal, failed_prediction_id FROM public.batch_result_members
+        WHERE job_id = v_job.id AND failed_prediction_id IS NOT NULL
+        ORDER BY ordinal LIMIT 100
+    ) AS member;
     v_duration_ms := GREATEST(
         0,
         pg_catalog.floor(
@@ -2189,6 +2189,17 @@ BEGIN
         'failed_count', v_execution.failed_count,
         'skipped_count', v_execution.skipped_count,
         'failed_prediction_ids', v_failed_ids,
+        'failed_prediction_ids_truncated', (
+            EXISTS (
+                SELECT 1 FROM public.batch_result_members AS member
+                WHERE member.job_id = v_job.id AND member.failed_prediction_id IS NOT NULL
+                OFFSET 100 LIMIT 1
+            )
+        ),
+        'batch_result_scope', pg_catalog.jsonb_build_object(
+            'job_id', v_execution.job_id, 'actor_id', v_execution.actor_id,
+            'project_id', v_execution.project_id, 'request_digest', v_execution.request_digest
+        ),
         'duration_ms', v_duration_ms,
         'total_cost', COALESCE(
             v_extra -> 'total_cost', v_job.result -> 'total_cost',
@@ -2546,7 +2557,13 @@ BEGIN
        OR pg_catalog.jsonb_path_exists(p_payload -> 'context', '$.**.results')
        OR pg_catalog.jsonb_path_exists(p_payload -> 'context', '$.**.predictions')
        OR pg_catalog.jsonb_path_exists(p_payload -> 'context', '$.**.write_requests')
-       OR pg_catalog.jsonb_path_exists(p_payload -> 'context', '$.**.output') THEN
+       OR pg_catalog.jsonb_path_exists(
+            (p_payload -> 'context') #- '{failure_extra,request_context,output}', '$.**.output'
+       )
+       OR (p_payload #> '{context,failure_extra,request_context,output}' IS NOT NULL AND (
+            pg_catalog.jsonb_typeof(p_payload #> '{context,failure_extra,request_context,output}') IS DISTINCT FROM 'string'
+            OR pg_catalog.octet_length(p_payload #>> '{context,failure_extra,request_context,output}') > 256
+       )) THEN
         RETURN aap_labeling_v1._batch_result_reply(NULL, 'invalid_request');
     END IF;
     v_scope := p_payload - ARRAY[
@@ -2744,7 +2761,12 @@ BEGIN
        OR pg_catalog.jsonb_typeof(p_payload -> 'content') IS DISTINCT FROM 'string'
        OR pg_catalog.octet_length(p_payload ->> 'content') > 699052
        OR (p_payload ->> 'content') !~ '^[A-Za-z0-9+/]*={0,2}$'
-       OR (pg_catalog.jsonb_typeof(p_payload -> 'tool_unit_id') NOT IN ('string','null')) THEN
+       OR (pg_catalog.jsonb_typeof(p_payload -> 'tool_unit_id') NOT IN ('string','null'))
+       OR (p_payload ->> 'stage' = 'raw' AND p_payload -> 'tool_unit_id' <> 'null'::jsonb)
+       OR (p_payload ->> 'stage' = 'prepared' AND (
+            pg_catalog.jsonb_typeof(p_payload -> 'tool_unit_id') IS DISTINCT FROM 'string'
+            OR p_payload ->> 'tool_unit_id' = ''
+       )) THEN
         RETURN aap_labeling_v1._batch_result_reply(NULL, 'invalid_request');
     END IF;
     v_scope := p_payload - ARRAY[
@@ -3534,6 +3556,8 @@ BEGIN
             'ordinal',v_ordinal,
             'task_id',v_bundle.task_id,
             'result_id',v_result,
+            'failed_prediction_id',NULL,
+            'error_code',NULL,
             'outcome','applied',
             'context',v_bundle.context
         )
@@ -3604,7 +3628,13 @@ BEGIN
        OR pg_catalog.jsonb_path_exists(p_payload -> 'context', '$.**.results')
        OR pg_catalog.jsonb_path_exists(p_payload -> 'context', '$.**.predictions')
        OR pg_catalog.jsonb_path_exists(p_payload -> 'context', '$.**.write_requests')
-       OR pg_catalog.jsonb_path_exists(p_payload -> 'context', '$.**.output') THEN
+       OR pg_catalog.jsonb_path_exists(
+            (p_payload -> 'context') #- '{failure_extra,request_context,output}', '$.**.output'
+       )
+       OR (p_payload #> '{context,failure_extra,request_context,output}' IS NOT NULL AND (
+            pg_catalog.jsonb_typeof(p_payload #> '{context,failure_extra,request_context,output}') IS DISTINCT FROM 'string'
+            OR pg_catalog.octet_length(p_payload #>> '{context,failure_extra,request_context,output}') > 256
+       )) THEN
         RAISE EXCEPTION USING ERRCODE='P0001', MESSAGE='invalid_request';
     END IF;
     v_scope := p_payload - ARRAY[

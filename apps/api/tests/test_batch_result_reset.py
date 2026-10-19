@@ -46,6 +46,9 @@ async def test_delete_batch_predict_jobs_rolls_back_and_retains_applied_receipt(
         write_scope=scopes[0],
         result=[{"type": "choices", "value": {"choices": ["accepted"]}}],
     )
+    from app.services.prediction import derive_tool_unit_from_result
+
+    tool_unit = derive_tool_unit_from_result(body["result"])
     body_bytes = json.dumps(
         body, ensure_ascii=False, separators=(",", ":"), sort_keys=True
     ).encode()
@@ -106,7 +109,7 @@ async def test_delete_batch_predict_jobs_rolls_back_and_retains_applied_receipt(
                     "part_count": 1,
                     "part_index": 0,
                     "content": base64.b64encode(body_bytes).decode("ascii"),
-                    "tool_unit_id": None,
+                    "tool_unit_id": tool_unit if stage == "prepared" else None,
                 },
             )
         )
@@ -155,7 +158,7 @@ async def test_delete_batch_predict_jobs_rolls_back_and_retains_applied_receipt(
             ml_backend_pool_id=None,
             model_version=None,
             score=None,
-            tool_unit_id=None,
+            tool_unit_id=tool_unit,
             result=body["result"],
             source="ml_backend",
         )
