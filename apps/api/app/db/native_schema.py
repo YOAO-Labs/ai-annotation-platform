@@ -23,6 +23,11 @@ NATIVE_MANAGED_TABLES = frozenset(
         "mask_gc_sweeps",
         "mask_gc_roots",
         "mask_gc_write_permit_secrets",
+        "batch_result_executions",
+        "batch_result_members",
+        "batch_result_bundles",
+        "batch_result_payloads",
+        "batch_result_parts",
     }
 )
 
