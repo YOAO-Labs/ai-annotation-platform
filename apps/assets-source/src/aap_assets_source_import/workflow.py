@@ -190,18 +190,19 @@ class LeaseKeeper:
                     self._stop_unavailable()
                     return
                 try:
-                    async with self._database.transaction() as data:
-                        if self._shutdown.is_set():
-                            self._thread_stop.set()
-                            return
-                        renewed = await data.heartbeat(
-                            self._state.job_id,
-                            self._state.lease_token,
-                            self._config.lease_seconds,
-                        )
-                        if renewed.lease_token != self._state.lease_token:
-                            raise ImportFailure("lease_lost")
-                        _require_same_scope(self._state, renewed)
+                    async with asyncio.timeout_at(self._lease_deadline):
+                        async with self._database.transaction() as data:
+                            if self._shutdown.is_set():
+                                self._thread_stop.set()
+                                return
+                            renewed = await data.heartbeat(
+                                self._state.job_id,
+                                self._state.lease_token,
+                                self._config.lease_seconds,
+                            )
+                            if renewed.lease_token != self._state.lease_token:
+                                raise ImportFailure("lease_lost")
+                            _require_same_scope(self._state, renewed)
                     if renewed.lease_expires_at is None:
                         raise ImportFailure("lease_lost")
                     self._lease_deadline = self._deadline_for(renewed.lease_expires_at)
@@ -216,6 +217,9 @@ class LeaseKeeper:
                     failures += 1
                     if not await self._retry_delay(failures):
                         return
+                except TimeoutError:
+                    self._stop_unavailable()
+                    return
                 except Exception:
                     # Transport and unknown errors leave ownership uncertain.
                     self._stop_unavailable()

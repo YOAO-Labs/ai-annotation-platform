@@ -924,6 +924,22 @@ class _HeartbeatDatabase:
         yield self.data
 
 
+class _BlockedHeartbeatData(_HeartbeatData):
+    def __init__(self) -> None:
+        super().__init__()
+        self.cancelled = asyncio.Event()
+
+    async def heartbeat(self, job_id, lease_token, lease_seconds):
+        self.heartbeat_calls += 1
+        self.heartbeat_arguments.append((job_id, lease_token, lease_seconds))
+        self.called.set()
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            self.cancelled.set()
+            raise
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "failure_code", ["import_cancelled", "job_terminal", "lease_lost"]
@@ -1011,6 +1027,30 @@ async def test_persistent_dataset_busy_stops_before_known_lease_expiry() -> None
     assert stopped_before_expiry
     assert asyncio.get_running_loop().time() - started < 2.5
     assert data.succeeded.is_set() is False
+
+
+@pytest.mark.asyncio
+async def test_blocked_heartbeat_is_cancelled_at_known_lease_expiry() -> None:
+    lease_expires_at = datetime.now(timezone.utc) + timedelta(seconds=0.1)
+    state = _replace_state(_state(stage="importing"), lease_expires_at=lease_expires_at)
+    data = _BlockedHeartbeatData()
+    keeper = LeaseKeeper(
+        _HeartbeatDatabase(data, state),
+        SimpleNamespace(heartbeat_seconds=0.001, lease_seconds=120),
+        state,
+        asyncio.Event(),
+    )
+    started = asyncio.get_running_loop().time()
+
+    async with keeper:
+        await asyncio.wait_for(data.called.wait(), timeout=0.2)
+        await asyncio.wait_for(data.cancelled.wait(), timeout=0.3)
+        with pytest.raises(LeaseUnavailable):
+            keeper.check()
+        assert keeper.stop_requested_from_thread()
+
+    assert data.heartbeat_calls == 1
+    assert asyncio.get_running_loop().time() - started < 0.5
 
 
 @pytest.mark.asyncio
