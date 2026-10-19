@@ -295,6 +295,18 @@ def test_native_claim_echo_and_nullable_lease_values():
         {**scope_values(), "worker_id": WORKER_ID, "execution_id": "worker-1"}
     )
     assert request.lease_seconds == 120
+    unowned_request = c.ClaimBatchResultExecutionRequest.model_validate(
+        {**scope_values(), "worker_id": WORKER_ID, "execution_id": None}
+    )
+    assert unowned_request.execution_id is None
+    with pytest.raises(ValidationError):
+        c.ClaimBatchResultExecutionRequest.model_validate(
+            {**scope_values(), "worker_id": WORKER_ID}
+        )
+    with pytest.raises(ValidationError):
+        c.ClaimBatchResultExecutionRequest.model_validate(
+            {**scope_values(), "worker_id": WORKER_ID, "execution_id": ""}
+        )
     lease = c.Lease(
         **scope_values(),
         generation=3,

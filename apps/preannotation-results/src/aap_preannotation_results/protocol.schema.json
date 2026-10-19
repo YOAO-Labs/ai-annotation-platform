@@ -109,8 +109,15 @@
           "type": "string"
         },
         "execution_id": {
-          "title": "Execution Id",
-          "type": "string"
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Execution Id"
         },
         "job_id": {
           "format": "uuid",

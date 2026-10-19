@@ -339,13 +339,13 @@ class Payload(Value):
 
 class ClaimBatchResultExecutionRequest(Scope):
     worker_id: CanonicalUUID
-    execution_id: StrictStr
+    execution_id: StrictStr | None
     lease_seconds: LeaseSeconds = DEFAULT_LEASE_SECONDS
 
     @field_validator("execution_id")
     @classmethod
     def nonempty_execution_id(cls, value):
-        if not value:
+        if value is not None and not value:
             raise ValueError("execution_id must not be empty")
         return value
 
