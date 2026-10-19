@@ -500,6 +500,7 @@ class AnnotationService:
         )
         accepted_input_id = None
         accepted_input_sha256 = None
+        accepted_video_input = None
         if "accepted_input" in meta_extra:
             from aap_assets_inputs import contract as accepted_inputs_contract
             from aap_assets_inputs.contract import InputFailure
@@ -568,6 +569,82 @@ class AnnotationService:
             accepted_input_id = input_id
             accepted_input_sha256 = sha256
             write_scope = replace(write_scope, accepted_input_id=accepted_input_id)
+        if "accepted_video_input" in meta_extra:
+            from aap_assets_video_inputs import execution as video_execution
+            from aap_assets_video_inputs.evidence import (
+                VideoEvidenceFailure,
+                VideoInputEvidence,
+                parse_prediction_evidence,
+                ready_evidence,
+            )
+
+            if accepted_input_id is not None:
+                raise HTTPException(
+                    status_code=409,
+                    detail={"reason": "accepted_video_input_unavailable"},
+                )
+            try:
+                accepted_video_input = parse_prediction_evidence(
+                    meta_extra["accepted_video_input"]
+                )
+                raw_execution_job_id = meta_extra["accepted_video_execution_job_id"]
+                execution_job_id = uuid.UUID(raw_execution_job_id)
+                if (
+                    type(accepted_video_input) is not VideoInputEvidence
+                    or accepted_video_input.task_id != prediction.task_id
+                    or accepted_video_input.project_id != prediction.project_id
+                    or raw_execution_job_id != str(execution_job_id)
+                ):
+                    raise ValueError(
+                        "accepted video metadata does not match prediction"
+                    )
+            except (KeyError, TypeError, ValueError, VideoEvidenceFailure) as exc:
+                raise HTTPException(
+                    status_code=409,
+                    detail={"reason": "accepted_video_input_unavailable"},
+                ) from exc
+            from app.services.accepted_video_inputs import video_input_gateway
+
+            video_request = video_execution.VideoFrameRequest(
+                actor_id=user_id,
+                job_id=accepted_video_input.job_id,
+                task_id=accepted_video_input.task_id,
+                input_id=accepted_video_input.input_id,
+                plan_digest=accepted_video_input.plan_digest,
+                ordinal=accepted_video_input.entry.ordinal,
+            )
+            try:
+                async with video_input_gateway() as gateway:
+                    reference = await gateway.ensure_reference(video_request)
+                    frame = await gateway.frame(video_request)
+            except video_execution.VideoInputFailure as exc:
+                if exc.code in {
+                    "input_busy",
+                    "source_busy",
+                    "reference_busy",
+                    "manifest_busy",
+                    "frame_busy",
+                    "job_busy",
+                }:
+                    reason = "input_busy"
+                elif exc.code in {"source_changed", "task_scope_changed"}:
+                    reason = "prediction_source_changed"
+                else:
+                    reason = "accepted_video_input_unavailable"
+                raise HTTPException(
+                    status_code=409,
+                    detail={"reason": reason, "code": exc.code},
+                ) from exc
+            if (
+                reference.plan != frame.plan
+                or reference.entry != frame.entry
+                or reference.blob != frame.blob
+                or ready_evidence(frame.plan, frame) != accepted_video_input
+            ):
+                raise HTTPException(
+                    status_code=409,
+                    detail={"reason": "accepted_video_input_unavailable"},
+                )
         # Convert and validate every selected geometry before constructing or adding
         # any Annotation row.  This closes the accept path that previously bypassed
         # the raster create gate and linked uploads immediately before flush.
@@ -791,6 +868,42 @@ class AnnotationService:
                     input_id=accepted_input_id,
                     sha256=accepted_input_sha256,
                 )
+        if accepted_video_input is not None:
+            from aap_assets_video_inputs.evidence import VideoEvidenceFailure
+            from app.services.accepted_video_inputs import (
+                attach_annotation_video_input_source,
+            )
+
+            for annotation in anns:
+                try:
+                    await attach_annotation_video_input_source(
+                        self.db,
+                        annotation_id=annotation.id,
+                        actor_id=user_id,
+                        evidence=accepted_video_input,
+                    )
+                except VideoEvidenceFailure as exc:
+                    if exc.code in {
+                        "input_busy",
+                        "source_busy",
+                        "reference_busy",
+                        "manifest_busy",
+                        "frame_busy",
+                        "job_busy",
+                    }:
+                        reason = "input_busy"
+                    elif exc.code in {
+                        "source_changed",
+                        "task_scope_changed",
+                        "input_scope_mismatch",
+                    }:
+                        reason = "prediction_source_changed"
+                    else:
+                        reason = "accepted_video_input_unavailable"
+                    raise HTTPException(
+                        status_code=409,
+                        detail={"reason": reason, "code": exc.code},
+                    ) from exc
         await self._update_task_stats(prediction.task_id)
         return anns
 

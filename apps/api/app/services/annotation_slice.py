@@ -247,6 +247,16 @@ class AnnotationSliceService:
             source_annotation_id=source.id,
             target_annotation_id=created.id,
         )
+        if task.file_type == "video":
+            from app.services.accepted_video_inputs import (
+                copy_annotation_video_input_sources,
+            )
+
+            await copy_annotation_video_input_sources(
+                self.db,
+                source_annotation_id=source.id,
+                target_annotation_id=created.id,
+            )
         before[str(created.id)] = {
             "geometry": deepcopy(created_geometry),
             "active": False,

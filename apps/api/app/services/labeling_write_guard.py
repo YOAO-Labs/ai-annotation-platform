@@ -2,12 +2,21 @@
 
 from __future__ import annotations
 
+import re
 import uuid
 
 from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from aap_assets_video_inputs.evidence import VideoEvidenceFailure, VideoInputEvidence
+from aap_assets_video_inputs.execution import (
+    FrozenFramePlan,
+    LockVideoInputRequest,
+    VideoInputFailure,
+)
+from aap_assets_video_inputs.values import VIDEO_INPUT_SCHEMA
 
 from app.db.enums import WORKBENCH_AI_EDITABLE_TASK_STATUSES
 from app.db.models.annotation import Annotation
@@ -68,6 +77,103 @@ async def _lock_accepted_input_source(
         ) from exc
 
 
+async def _lock_accepted_video_input_pin(
+    db: AsyncSession,
+    scope: LabelingWriteScope,
+    evidence: VideoInputEvidence,
+) -> None:
+    """Pin the exact retained frame inside the final Labeling transaction."""
+    if type(evidence) is not VideoInputEvidence:
+        raise _conflict("accepted_video_input_unavailable")
+    if (
+        evidence.task_id != scope.task_id
+        or evidence.project_id != scope.project_id
+        or scope.job_id is None
+        or scope.accepted_input_id is not None
+        or scope.operation not in {"preannotation", "prediction_retry"}
+    ):
+        raise _conflict("prediction_source_changed")
+    from app.services.accepted_video_inputs import lock_video_input_pin
+
+    try:
+        await lock_video_input_pin(
+            db,
+            task_id=scope.task_id,
+            project_id=scope.project_id,
+            evidence=evidence,
+            actor_id=scope.actor_id,
+        )
+    except VideoEvidenceFailure as exc:
+        if exc.code in {
+            "input_busy",
+            "source_busy",
+            "reference_busy",
+            "manifest_busy",
+            "frame_busy",
+            "job_busy",
+        }:
+            raise _conflict("input_busy") from exc
+        if exc.code in {"source_changed", "task_scope_changed", "input_scope_mismatch"}:
+            raise _conflict("prediction_source_changed") from exc
+        raise HTTPException(
+            status_code=409,
+            detail={"reason": "accepted_video_input_unavailable", "code": exc.code},
+        ) from exc
+
+
+async def _lock_accepted_video_input_source(
+    db: AsyncSession,
+    scope: LabelingWriteScope,
+    plan: FrozenFramePlan,
+) -> None:
+    """Fence an overwrite against its original retained video plan."""
+    if type(plan) is not FrozenFramePlan:
+        raise _conflict("accepted_video_input_unavailable")
+    frozen = plan.input
+    if (
+        scope.actor_id is None
+        or frozen.job_id != scope.job_id
+        or frozen.task.task_id != scope.task_id
+        or frozen.task.project_id != scope.project_id
+        or frozen.task.task_version != scope.task_version
+        or frozen.task.task_source_generation != scope.task_source_generation
+        or frozen.task.dataset_item_id != scope.source_dataset_item_id
+        or frozen.task.file_path != scope.source_file_path
+        or frozen.task.file_type != scope.source_file_type
+    ):
+        raise _conflict("prediction_source_changed")
+    from app.services.accepted_video_inputs import lock_video_input_source
+
+    try:
+        record = await lock_video_input_source(
+            db,
+            LockVideoInputRequest(
+                input_id=frozen.input_id,
+                job_id=frozen.job_id,
+                task_id=frozen.task.task_id,
+                actor_id=scope.actor_id,
+                plan_digest=plan.plan_digest,
+            ),
+        )
+    except VideoInputFailure as exc:
+        if exc.code in {
+            "input_busy",
+            "source_busy",
+            "reference_busy",
+            "manifest_busy",
+            "job_busy",
+        }:
+            raise _conflict("input_busy") from exc
+        if exc.code in {"source_changed", "task_scope_changed"}:
+            raise _conflict("prediction_source_changed") from exc
+        raise HTTPException(
+            status_code=409,
+            detail={"reason": "accepted_video_input_unavailable", "code": exc.code},
+        ) from exc
+    if record.plan != plan:
+        raise _conflict("prediction_source_changed")
+
+
 def _conflict(reason: str) -> HTTPException:
     return HTTPException(status_code=409, detail={"reason": reason})
 
@@ -91,6 +197,8 @@ async def _assert_execution_current(
     task_id: uuid.UUID | None,
     batch_id: uuid.UUID | None,
     accepted_input_job_id: uuid.UUID | None = None,
+    accepted_video_input: VideoInputEvidence | None = None,
+    accepted_video_plan: FrozenFramePlan | None = None,
 ) -> None:
     if scope.job_id is None:
         return
@@ -143,6 +251,50 @@ async def _assert_execution_current(
             raise _conflict("prediction_input_manifest_origin_mismatch")
     elif accepted_input_job_id is not None:
         raise _conflict("prediction_input_manifest_origin_mismatch")
+    video_protocol = payload.get("accepted_video_inputs_protocol")
+    video_payload_fields = {
+        "accepted_video_manifest_id",
+        "accepted_video_selection_digest",
+        "accepted_video_selection",
+    }
+    if video_protocol is None:
+        if (
+            video_payload_fields.intersection(payload)
+            or accepted_video_input is not None
+            or accepted_video_plan is not None
+        ):
+            raise _conflict("prediction_video_manifest_origin_mismatch")
+        return
+    if (
+        video_protocol != VIDEO_INPUT_SCHEMA
+        or payload.get("accepted_video_manifest_id") != str(job.id)
+        or not isinstance(payload.get("accepted_video_selection"), dict)
+        or not isinstance(payload.get("accepted_video_selection_digest"), str)
+        or re.fullmatch(
+            r"[0-9a-f]{64}", payload.get("accepted_video_selection_digest", "")
+        )
+        is None
+        or payload.get("accepted_inputs_protocol") is not None
+        or payload.get("accepted_input_manifest_protocol") is not None
+        or accepted_input_job_id is not None
+        or (accepted_video_input is None) == (accepted_video_plan is None)
+        or task_id is None
+    ):
+        raise _conflict("prediction_video_manifest_origin_mismatch")
+    if accepted_video_input is not None and (
+        type(accepted_video_input) is not VideoInputEvidence
+        or accepted_video_input.job_id != job.id
+        or accepted_video_input.task_id != task_id
+        or accepted_video_input.project_id != scope.project_id
+    ):
+        raise _conflict("prediction_video_manifest_origin_mismatch")
+    if accepted_video_plan is not None and (
+        type(accepted_video_plan) is not FrozenFramePlan
+        or accepted_video_plan.input.job_id != job.id
+        or accepted_video_plan.input.task.task_id != task_id
+        or accepted_video_plan.input.task.project_id != scope.project_id
+    ):
+        raise _conflict("prediction_video_manifest_origin_mismatch")
 
 
 async def lock_labeling_write(
@@ -151,6 +303,8 @@ async def lock_labeling_write(
     *,
     operations: tuple[LabelingWriteOperation, ...],
     accepted_input_job_id: uuid.UUID | None = None,
+    accepted_video_input: VideoInputEvidence | None = None,
+    accepted_video_plan: FrozenFramePlan | None = None,
 ) -> tuple[Task, User, ProjectAccess]:
     """Hold current authority and target locks through the caller's transaction.
 
@@ -165,6 +319,24 @@ async def lock_labeling_write(
         or scope.accepted_input_id is None
     ):
         raise _conflict("prediction_input_manifest_origin_mismatch")
+    if accepted_video_input is not None and (
+        type(accepted_video_input) is not VideoInputEvidence
+        or accepted_video_input.task_id != scope.task_id
+        or accepted_video_input.project_id != scope.project_id
+        or scope.accepted_input_id is not None
+        or scope.job_id is None
+        or scope.operation not in {"preannotation", "prediction_retry"}
+    ):
+        raise _conflict("accepted_video_input_unavailable")
+    if accepted_video_plan is not None and (
+        type(accepted_video_plan) is not FrozenFramePlan
+        or scope.operation != "preannotation"
+        or accepted_video_input is not None
+        or accepted_input_job_id is not None
+        or scope.accepted_input_id is not None
+        or scope.job_id is None
+    ):
+        raise _conflict("accepted_video_input_unavailable")
     if not scope.actor_known or scope.actor_id is None:
         raise HTTPException(status_code=401, detail="Authentication required")
     if (
@@ -294,6 +466,8 @@ async def lock_labeling_write(
             task_id=task.id,
             batch_id=task.batch_id,
             accepted_input_job_id=accepted_input_job_id,
+            accepted_video_input=accepted_video_input,
+            accepted_video_plan=accepted_video_plan,
         )
         if scope.accepted_input_id is not None:
             await _lock_accepted_input_source(
@@ -305,6 +479,10 @@ async def lock_labeling_write(
                     else None
                 ),
             )
+        if accepted_video_input is not None:
+            await _lock_accepted_video_input_pin(db, scope, accepted_video_input)
+        if accepted_video_plan is not None:
+            await _lock_accepted_video_input_source(db, scope, accepted_video_plan)
     return task, actor, access
 
 
