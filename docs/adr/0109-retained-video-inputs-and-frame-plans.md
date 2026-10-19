@@ -1,6 +1,6 @@
 # ADR-0109: Retained video inputs and source-bound frame plans
 
-- Status: Accepted; implementation in progress, values foundation only
+- Status: Accepted; implementation in progress
 - Date: 2026-10-19
 - Deciders: implementation team
 
@@ -77,10 +77,13 @@ race qualification as image inputs. Keep Cleanup's narrow ownership.
 
 ## Portable value foundation
 
-The current implementation publishes values and their JSON Schema only; native
-admission, HTTP operations and consumer migration are still required. No video
-path is activated by importing the package. All SQL through 0222 stays frozen;
-new native capabilities start at 0223 or later.
+The current foundation publishes values, their JSON Schema and an optional
+video/frame versioned storage adapter. The adapter shares the existing binary
+transfer implementation while retaining a separate video key/prefix allowlist
+and typed video/frame receipts. The existing image adapter does not gain video
+write or cleanup scope. Native admission, HTTP operations and consumer migration
+are still required; no video path is activated by importing the package. All SQL
+through 0222 stays frozen; new native capabilities start at 0223 or later.
 
 Values include a ready original input, measured video facts, sampling policy,
 sealed frame plan, complete ordered time entries/pages and exact-version frame

@@ -78,6 +78,12 @@ def _check_stop(stop):
 
 
 class S3InputStorage:
+    _check_key = staticmethod(_check_key)
+    _check_prefix = staticmethod(_check_prefix)
+
+    def _blob(self, **values):
+        return c.InputBlob(**values)
+
     def __init__(self, config, *, source_storage, client=None, signer=None):
         if config.inputs_bucket in {
             config.datasets_bucket,
@@ -147,7 +153,7 @@ class S3InputStorage:
         return await self.source_storage.head_source(source)
 
     def _head_blob(self, stop, blob):
-        _check_key(blob.key)
+        self._check_key(blob.key)
         _check_stop(stop)
         try:
             value = self._client.head_object(
@@ -171,7 +177,7 @@ class S3InputStorage:
         await _run(self._head_blob, blob)
 
     def _read_blob(self, stop, blob, destination):
-        _check_key(blob.key)
+        self._check_key(blob.key)
         body, output = None, None
         created = False
         try:
@@ -231,7 +237,7 @@ class S3InputStorage:
         await _run(self._read_blob, blob, destination)
 
     def _upload_blob(self, stop, path, key, sha256, byte_size):
-        _check_key(key)
+        self._check_key(key)
         self._assert_versioning(stop)
         digest = hashlib.sha256()
         with path.open("rb") as source:
@@ -291,7 +297,7 @@ class S3InputStorage:
                     IfNoneMatch="*",
                 )
                 upload_id = None
-            blob = c.InputBlob(
+            blob = self._blob(
                 key=key,
                 version_id=_version(response.get("VersionId")),
                 etag=_etag(response.get("ETag")),
@@ -318,7 +324,7 @@ class S3InputStorage:
         return await _run(self._upload_blob, path, key, sha256, byte_size)
 
     async def sign_blob(self, blob: c.InputBlob, *, expires_in: int = 900):
-        _check_key(blob.key)
+        self._check_key(blob.key)
         if type(expires_in) is not int or not 1 <= expires_in <= 3600:
             raise c.InputFailure("invalid_request")
         try:
@@ -335,7 +341,7 @@ class S3InputStorage:
             raise c.InputFailure("storage_unavailable") from None
 
     def _delete_prefix(self, stop, prefix):
-        _check_prefix(prefix)
+        self._check_prefix(prefix)
         deleted = 0
         try:
             while True:

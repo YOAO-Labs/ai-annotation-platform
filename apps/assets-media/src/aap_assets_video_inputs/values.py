@@ -32,6 +32,9 @@ Digest = Annotated[StrictStr, Field(pattern=r"^[0-9a-f]{64}$")]
 Format = Literal["jpeg", "webp"]
 _UUID = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
 _PREFIX = rf"accepted-video-inputs/{_UUID}/g[1-9][0-9]*/a{_UUID}/"
+ATTEMPT_PREFIX_PATTERN = rf"^{_PREFIX}$"
+VIDEO_BLOB_KEY_PATTERN = rf"^{_PREFIX}source$"
+FRAME_BLOB_KEY_PATTERN = rf"^{_PREFIX}frames/(0|[1-9][0-9]*)/w[1-9][0-9]*-(jpeg|webp)$"
 
 
 class Value(BaseModel):
@@ -93,7 +96,7 @@ class BlobIdentity(Value):
 
 
 class VideoBlob(BlobIdentity):
-    key: Annotated[StrictStr, Field(max_length=2048, pattern=rf"^{_PREFIX}source$")]
+    key: Annotated[StrictStr, Field(max_length=2048, pattern=VIDEO_BLOB_KEY_PATTERN)]
 
 
 class FrameBlob(BlobIdentity):
@@ -101,7 +104,7 @@ class FrameBlob(BlobIdentity):
         StrictStr,
         Field(
             max_length=2048,
-            pattern=rf"^{_PREFIX}frames/(0|[1-9][0-9]*)/w[1-9][0-9]*-(jpeg|webp)$",
+            pattern=FRAME_BLOB_KEY_PATTERN,
         ),
     ]
 
