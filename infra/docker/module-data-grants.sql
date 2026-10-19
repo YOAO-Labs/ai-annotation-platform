@@ -254,6 +254,8 @@ GRANT SELECT, INSERT, UPDATE ON public.asset_accepted_video_manifests,
     public.asset_accepted_video_input_attempts, public.asset_accepted_video_frames,
     public.asset_accepted_video_frame_attempts TO :"assets_owner";
 GRANT SELECT, INSERT ON public.asset_accepted_video_times TO :"assets_owner";
+GRANT SELECT, INSERT, UPDATE ON public.video_tracker_input_scopes TO :"labeling_owner";
+GRANT SELECT, INSERT ON public.annotation_video_tracker_input_sources TO :"labeling_owner";
 GRANT SELECT, INSERT, UPDATE ON public.scene_frame_poses TO :"assets_owner";
 GRANT SELECT, INSERT ON public.sensor_calibration_revisions,
     public.dataset_spatial_operations TO :"assets_owner";
@@ -286,6 +288,9 @@ BEGIN
             (current_setting('aap.assets_owner'), 'public.task_batches'),
             (current_setting('aap.assets_owner'), 'public.task_dataset_item_links'),
             (current_setting('aap.assets_owner'), 'public.annotations'),
+            (current_setting('aap.assets_owner'), 'public.video_tracker_jobs'),
+            (current_setting('aap.assets_owner'), 'public.video_tracker_input_scopes'),
+            (current_setting('aap.assets_owner'), 'public.annotation_video_tracker_input_sources'),
             (current_setting('aap.labeling_owner'), 'public.users'),
             (current_setting('aap.labeling_owner'), 'public.project_members'),
             (current_setting('aap.labeling_owner'), 'public.datasets'),
@@ -370,6 +375,20 @@ GRANT SELECT (project_id, scene_id), DELETE ON public.scene_tracks TO :"labeling
 GRANT SELECT (scene_id) ON public.scene_track_operations TO :"labeling_owner";
 GRANT SELECT (dataset_item_id) ON public.video_segments,
     public.video_tracker_jobs TO :"labeling_owner";
+GRANT SELECT (
+    id, task_id, dataset_item_id, annotation_id, segment_id, target_class_name,
+    target_tool_unit_id, created_by, status, job_kind, track_id_snapshot,
+    correction_frame, model_key, direction, from_frame, to_frame, prompt,
+    staged_result, revision, cancel_requested_at, started_at, created_at, completed_at
+) ON public.video_tracker_jobs TO :"labeling_owner";
+GRANT SELECT (
+    id, task_id, project_id, geometry, track_id, video_segment_id, is_active,
+    was_cancelled, version
+) ON public.annotations TO :"labeling_owner";
+GRANT SELECT (
+    id, dataset_item_id, start_frame, end_frame, segment_index, status,
+    assignee_id, locked_by, lock_expires_at
+) ON public.video_segments TO :"labeling_owner";
 GRANT INSERT (
     id, project_id, dataset_item_id, display_id, file_name, file_path, file_type,
     tags, status, assignee_is_override, is_labeled, overlap, total_annotations,
@@ -541,6 +560,15 @@ GRANT EXECUTE ON FUNCTION aap_labeling_v1.project_dataset_task_counts(uuid)
     TO :"assets_owner";
 GRANT EXECUTE ON FUNCTION aap_jobs_v1.project_accepted_image_input_job(uuid, uuid, uuid, boolean)
     TO :"assets_owner";
+GRANT EXECUTE ON FUNCTION
+    aap_labeling_v1.project_video_tracker_input(uuid,uuid,uuid,uuid,text,boolean,boolean,boolean),
+    aap_labeling_v1.fail_video_tracker_input_preparation(uuid,uuid,uuid,uuid,text,text),
+    aap_labeling_v1.video_tracker_input_referenced(uuid)
+    TO :"assets_owner";
+GRANT EXECUTE ON FUNCTION
+    aap_assets_v1.read_video_tracker_task_source(uuid,uuid,jsonb),
+    aap_assets_v1._lock_video_tracker_input_plan(uuid,uuid,uuid,uuid,text,text,boolean)
+    TO :"labeling_owner";
 GRANT EXECUTE ON FUNCTION aap_jobs_v1.accepted_image_input_job_consistency(uuid, uuid, uuid, uuid)
     TO :"assets_owner";
 GRANT EXECUTE ON FUNCTION
@@ -1079,6 +1107,7 @@ BEGIN
                OR proc.proname LIKE '%media%'
                OR (ns.nspname = 'aap_assets_v1' AND proc.proname LIKE '%video_%')
                OR (ns.nspname = 'aap_labeling_v1' AND proc.proname LIKE '%video_input%')
+               OR (ns.nspname = 'aap_labeling_v1' AND proc.proname LIKE '%video_tracker%')
                OR ns.nspname IN ('aap_settings_v1','aap_notifications_v1'))
     LOOP
         EXECUTE pg_catalog.format('ALTER FUNCTION %s OWNER TO %I',
@@ -1191,6 +1220,8 @@ BEGIN
         'public.asset_accepted_video_frames',
         'public.asset_accepted_video_frame_attempts',
         'public.annotation_video_input_sources',
+        'public.video_tracker_input_scopes',
+        'public.annotation_video_tracker_input_sources',
         'public.tasks', 'public.task_batches', 'public.task_locks',
         'public.predictions', 'public.prediction_metas', 'public.failed_predictions',
         'public.annotations', 'public.annotation_feedbacks', 'public.annotation_drafts',

@@ -168,7 +168,10 @@ GRANT EXECUTE ON FUNCTION
     aap_assets_v1.read_accepted_video_input_work(uuid,uuid,uuid,uuid),
     aap_assets_v1.read_accepted_video_times(uuid,uuid,uuid,uuid,text,bigint,integer),
     aap_assets_v1.require_accepted_video_frame(uuid,uuid,uuid,uuid,text,bigint),
-    aap_assets_v1.read_accepted_video_frame(uuid,uuid,uuid,uuid,text,bigint)
+    aap_assets_v1.read_accepted_video_frame(uuid,uuid,uuid,uuid,text,bigint),
+    aap_assets_v1.read_video_tracker_input(uuid,uuid,uuid),
+    aap_assets_v1.prepare_video_tracker_input(uuid,uuid,uuid,uuid,text,text,bigint,jsonb,text),
+    aap_assets_v1.reference_video_tracker_source(uuid,uuid,uuid,uuid,text,text)
     TO :"asset_media_control_role";
 GRANT EXECUTE ON FUNCTION
     aap_assets_v1.claim_video_media(uuid,uuid,integer,text[]),
@@ -190,7 +193,13 @@ GRANT EXECUTE ON FUNCTION
     aap_assets_v1.heartbeat_accepted_video_frame(uuid,bigint,uuid,integer),
     aap_assets_v1.finish_accepted_video_frame(uuid,bigint,uuid,jsonb),
     aap_assets_v1.fail_accepted_video_frame(uuid,bigint,uuid,text),
-    aap_assets_v1.sweep_accepted_video_inputs(integer)
+    aap_assets_v1.sweep_accepted_video_inputs(integer),
+    aap_assets_v1.claim_video_tracker_input(uuid,uuid,integer),
+    aap_assets_v1.heartbeat_video_tracker_input(uuid,bigint,uuid,integer),
+    aap_assets_v1.stage_video_tracker_times(uuid,bigint,uuid,bigint,jsonb),
+    aap_assets_v1.finish_video_tracker_input(uuid,bigint,uuid,jsonb),
+    aap_assets_v1.fail_video_tracker_input(uuid,bigint,uuid,text),
+    aap_assets_v1.sweep_video_tracker_inputs(integer)
     TO :"asset_media_worker_role";
 
 DO $$
@@ -254,7 +263,10 @@ DECLARE
         pg_catalog.to_regprocedure('aap_assets_v1.read_accepted_video_input_work(uuid,uuid,uuid,uuid)')::oid,
         pg_catalog.to_regprocedure('aap_assets_v1.read_accepted_video_times(uuid,uuid,uuid,uuid,text,bigint,integer)')::oid,
         pg_catalog.to_regprocedure('aap_assets_v1.require_accepted_video_frame(uuid,uuid,uuid,uuid,text,bigint)')::oid,
-        pg_catalog.to_regprocedure('aap_assets_v1.read_accepted_video_frame(uuid,uuid,uuid,uuid,text,bigint)')::oid
+        pg_catalog.to_regprocedure('aap_assets_v1.read_accepted_video_frame(uuid,uuid,uuid,uuid,text,bigint)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.read_video_tracker_input(uuid,uuid,uuid)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.prepare_video_tracker_input(uuid,uuid,uuid,uuid,text,text,bigint,jsonb,text)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.reference_video_tracker_source(uuid,uuid,uuid,uuid,text,text)')::oid
     ];
     worker_functions oid[] := ARRAY[
         pg_catalog.to_regprocedure('aap_assets_v1.claim_video_media(uuid,uuid,integer,text[])')::oid,
@@ -276,7 +288,13 @@ DECLARE
         pg_catalog.to_regprocedure('aap_assets_v1.heartbeat_accepted_video_frame(uuid,bigint,uuid,integer)')::oid,
         pg_catalog.to_regprocedure('aap_assets_v1.finish_accepted_video_frame(uuid,bigint,uuid,jsonb)')::oid,
         pg_catalog.to_regprocedure('aap_assets_v1.fail_accepted_video_frame(uuid,bigint,uuid,text)')::oid,
-        pg_catalog.to_regprocedure('aap_assets_v1.sweep_accepted_video_inputs(integer)')::oid
+        pg_catalog.to_regprocedure('aap_assets_v1.sweep_accepted_video_inputs(integer)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.claim_video_tracker_input(uuid,uuid,integer)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.heartbeat_video_tracker_input(uuid,bigint,uuid,integer)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.stage_video_tracker_times(uuid,bigint,uuid,bigint,jsonb)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.finish_video_tracker_input(uuid,bigint,uuid,jsonb)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.fail_video_tracker_input(uuid,bigint,uuid,text)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.sweep_video_tracker_inputs(integer)')::oid
     ];
 BEGIN
     IF pg_catalog.has_database_privilege(control_oid, current_database(), 'CREATE')

@@ -16,6 +16,8 @@ NATIVE_MANAGED_TABLES = frozenset(
         "asset_accepted_video_frames",
         "asset_accepted_video_frame_attempts",
         "annotation_video_input_sources",
+        "video_tracker_input_scopes",
+        "annotation_video_tracker_input_sources",
     }
 )
 

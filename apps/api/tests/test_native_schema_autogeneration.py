@@ -15,6 +15,10 @@ from app.db.native_schema import NATIVE_MANAGED_TABLES, include_orm_schema_objec
 async def test_native_ledgers_are_retained_while_unmapped_orm_drops_still_surface(
     test_engine,
 ):
+    assert {
+        "video_tracker_input_scopes",
+        "annotation_video_tracker_input_sources",
+    } <= NATIVE_MANAGED_TABLES
     control = "test_autogen_control_" + uuid4().hex
 
     def proposed_drops(connection, include_object=None):
