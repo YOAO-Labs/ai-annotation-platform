@@ -10,6 +10,17 @@ from app.services.labeling_write_scope import LabelingWriteScope
 
 
 RLE = {"encoding": "coco_rle", "size": [2, 2], "counts": [0, 1, 3]}
+REFERENCE = {
+    "encoding": "coco_rle_ref",
+    "size": [2, 2],
+    "object_key": (
+        "raster-masks/sha256/00/00/"
+        "0000000000000000000000000000000000000000000000000000000000000000.json"
+    ),
+    "sha256": "0" * 64,
+    "runs": 3,
+    "bytes": 20,
+}
 
 
 def _scope(task_id: uuid.UUID, project_id: uuid.UUID) -> LabelingWriteScope:
@@ -64,8 +75,18 @@ async def test_normalize_externalizes_inline_and_native_masks_once(monkeypatch):
         "geometry": {"type": "raster_mask", "mask": dict(RLE)},
         "confidence": 0.7,
         "track_id": "trk_keep",
+        "attributes": {"source": "backend"},
     }
-    request = _request([candidate, inline])
+    reference_shape = {
+        "id": "shape-ref",
+        "type": "raster_mask",
+        "class_name": "road",
+        "geometry": {"type": "raster_mask", "mask": REFERENCE},
+        "confidence": 0.6,
+        "track_id": "trk_ref",
+        "attributes": {"source": "existing-reference"},
+    }
+    request = _request([candidate, inline, reference_shape])
     task = SimpleNamespace(id=request.task_id, project_id=request.project_id)
     project = SimpleNamespace(id=request.project_id)
     lookups = []
@@ -99,7 +120,7 @@ async def test_normalize_externalizes_inline_and_native_masks_once(monkeypatch):
         Session(), (request,)
     )
 
-    candidate_result, inline_result = prepared.result
+    candidate_result, inline_result, unchanged_reference_shape = prepared.result
     expected_reference = build_rle_reference(RLE)
     assert candidate_result == {
         "type": "raster_mask",
@@ -114,11 +135,14 @@ async def test_normalize_externalizes_inline_and_native_masks_once(monkeypatch):
     assert inline_result["class_name"] == "road"
     assert inline_result["confidence"] == 0.7
     assert inline_result["track_id"] == "trk_keep"
+    assert inline_result["attributes"] == {"source": "backend"}
     assert inline_result["geometry"]["mask"] == expected_reference
+    assert unchanged_reference_shape is reference_shape
+    assert unchanged_reference_shape["geometry"]["mask"] is REFERENCE
     assert len(stores) == 1
     assert len(geometry_checks) == 2
     assert {name for name, _identity in lookups} == {"Task", "Project"}
-    assert request.result == [candidate, inline]
+    assert request.result == [candidate, inline, reference_shape]
     assert prepared.result is not request.result
 
 
@@ -126,20 +150,12 @@ async def test_normalize_externalizes_inline_and_native_masks_once(monkeypatch):
 async def test_normalize_leaves_reference_masks_and_nonmask_requests_untouched():
     from app.services.batch_result_masks import normalize_batch_prediction_masks
 
-    reference = {
-        "encoding": "coco_rle_ref",
-        "size": [2, 2],
-        "object_key": "raster-masks/sha256/00/00/0000000000000000000000000000000000000000000000000000000000000000.json",
-        "sha256": "0" * 64,
-        "runs": 3,
-        "bytes": 20,
-    }
     request = _request(
         [
             {
                 "type": "raster_mask",
                 "class_name": "car",
-                "geometry": {"type": "raster_mask", "mask": reference},
+                "geometry": {"type": "raster_mask", "mask": REFERENCE},
             }
         ]
     )
@@ -150,6 +166,22 @@ async def test_normalize_leaves_reference_masks_and_nonmask_requests_untouched()
 
     (prepared,) = await normalize_batch_prediction_masks(Session(), (request,))
     assert prepared is request
+
+
+@pytest.mark.parametrize("field", ["id", "track_id", "attributes"])
+def test_native_mask_candidate_rejects_unmodeled_prediction_metadata(field):
+    from aap_protocol_v2 import NativeMaskCandidate
+    from pydantic import ValidationError
+
+    candidate = {
+        "type": "mask",
+        "value": {"rle": RLE, "masklabels": ["car"]},
+        "score": 0.875,
+        "candidate_id": "sha256:" + "a" * 64,
+        field: {"backend": "extra"} if field == "attributes" else "extra",
+    }
+    with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+        NativeMaskCandidate.model_validate(candidate)
 
 
 @pytest.mark.asyncio
