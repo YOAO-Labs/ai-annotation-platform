@@ -783,6 +783,10 @@ async def test_live_mask_gc_rechecks_a_committed_reservation_after_retiring_old_
             credentials=cleanup_credentials,
             tmp_path=tmp_path,
         )
+        monkeypatch.setattr(settings, "assets_mask_content_url", content_origin)
+        monkeypatch.setattr(settings, "assets_mask_content_token", content_token)
+        monkeypatch.setattr(settings, "assets_mask_cleanup_url", cleanup_origin)
+        monkeypatch.setattr(settings, "assets_mask_cleanup_token", cleanup_token)
         content_client = MaskContentClient(content_origin, content_token)
         rle = _rle(uuid4().hex)
         reference = content_client.put(PutRequest(content=rle)).reference
@@ -848,6 +852,8 @@ async def test_live_mask_gc_rechecks_a_committed_reservation_after_retiring_old_
         from app.services import raster_mask_storage
         from app.services.raster_mask_storage import (
             purge_unreferenced_raster_mask_objects,
+            reserve_raster_mask_upload,
+            store_coco_rle,
         )
 
         async with sessions() as gc_db:
@@ -871,12 +877,19 @@ async def test_live_mask_gc_rechecks_a_committed_reservation_after_retiring_old_
                 race_lock_calls += 1
                 if race_lock_calls == 2:
                     async with sessions.begin() as racer:
-                        racer.add(
-                            RasterMaskUpload(
-                                task_id=task_id,
-                                object_key=reference.object_key,
-                            )
+                        await original_lock(
+                            racer,
+                            {"object_key": reference.object_key},
+                            verify=False,
                         )
+                        await reserve_raster_mask_upload(
+                            racer,
+                            task_id=task_id,
+                            object_key=reference.object_key,
+                            limit=256,
+                        )
+                        replayed = await store_coco_rle(rle)
+                        assert replayed["object_key"] == reference.object_key
             return await original_lock(db, references, **kwargs)
 
         monkeypatch.setattr(
