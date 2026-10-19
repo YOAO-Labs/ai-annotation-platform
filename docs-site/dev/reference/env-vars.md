@@ -4,7 +4,7 @@ audience: [dev, ops]
 type: reference
 since: v0.9.0
 status: stable
-last_reviewed: 2026-10-16
+last_reviewed: 2026-10-19
 ---
 
 # 环境变量参考
@@ -67,7 +67,7 @@ last_reviewed: 2026-10-16
 
 | 变量 | 默认值 | 说明 |
 |---|---|---|
-| `TRAINING_ENABLED` | `false` | — |
+| `TRAINING_ENABLED` | `false` | default worker 同步以下开关、凭据、资源与目录；更改后需重新创建该服务。 |
 | `TRAINING_EXECUTOR_TOKEN` | `—` | — |
 | `TRAINING_NODE_ID` | `local` | — |
 | `TRAINING_GPU_UUID` | `—` | — |

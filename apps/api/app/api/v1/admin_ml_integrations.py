@@ -24,6 +24,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.concurrency import run_in_threadpool
 
 from app.config import GPUArbiterMode, settings
 from app.db.enums import UserRole
@@ -154,7 +155,7 @@ async def get_overview(
     items: list[BucketSummary] = []
     for b, role in bucket_roles.items():
         try:
-            summary = storage_service.summarize_bucket(b)
+            summary = await run_in_threadpool(storage_service.summarize_bucket, b)
             items.append(BucketSummary(role=role, **summary))
         except Exception as e:
             items.append(

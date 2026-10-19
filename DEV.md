@@ -165,7 +165,9 @@ pnpm dev:worktree -- exec --mode dev -- sh -c 'cd apps/api && .venv/bin/python s
 
 ### 训练执行器配置
 
-受控训练默认关闭。配置 `TRAINING_ENABLED`、随机 `TRAINING_EXECUTOR_TOKEN`、`TRAINING_NODE_ID`、单张物理 `TRAINING_GPU_UUID` 及 `TRAINING_CATALOG_JSON` 后刷新 API。目录中的框架版本、镜像身份和基础权重 SHA-256 必须与实际执行器一致。构建输入位于 `apps/training-executor`，使用锁定依赖和独立虚拟环境；PyTorch 的 CUDA 版本需满足宿主驱动要求。
+受控训练默认关闭。配置 `TRAINING_ENABLED`、随机 `TRAINING_EXECUTOR_TOKEN`、`TRAINING_NODE_ID`、单张物理 `TRAINING_GPU_UUID` 及 `TRAINING_CATALOG_JSON` 后刷新 API，并重新创建 `celery-worker`，使定期策略检查使用同一训练目录。目录中的框架版本、镜像身份和基础权重 SHA-256 必须与实际执行器一致。构建输入位于 `apps/training-executor`，使用锁定依赖和独立虚拟环境；PyTorch 的 CUDA 版本需满足宿主驱动要求。
+
+主开发 API 仅监听宿主 `127.0.0.1:8000` 时，训练执行器的本机 Compose override 需设置 `network_mode: host`，并将 `TRAINING_API_URL` 指向 `http://127.0.0.1:8000/api/v1/internal/training`。凭据文件保持 `0600`，将执行器 `user` 配置为其所有者的 UID/GID，并让持久 `/state` 卷归该用户所有；执行器移除了全部 capabilities，不能依靠 root 绕过文件权限。该 override 只用于独立训练 Compose 项目，不加入核心 worker 的 Compose 配置。
 
 已验证适配器为 Ultralytics 8.4.177 与 LibreYOLO 1.6.0；两者支持图片检测，Ultralytics 还支持受控 `yolo11n-seg` 简单多边形实例分割。LibreYOLO 目录项使用同样的 `version`、`image_digest` 和 `base_models` 结构，基础模型 ID 为 `LibreYOLO9t`，文件名 `LibreYOLO9t.pt`。官方模型来自 `LibreYOLO/LibreYOLO9t` 的固定修订 `66ac39d1ac9b880076b96ad4674ef9235ca1a15e`，大小 8,645,036 字节，SHA-256 为 `b4d7e93f9e0393830fb42e6135c0e3464b2673b05e5ecf4b7f2374ec18e39eb2`。先下载并核验字节和原生加载，再将只读文件及实际镜像身份配置到目录；执行器不会自动下载基础权重。
 
