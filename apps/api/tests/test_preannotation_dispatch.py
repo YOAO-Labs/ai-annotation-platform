@@ -194,6 +194,93 @@ def test_worker_builds_manifest_request_from_celery_arguments(monkeypatch):
     assert request.accepted_input_manifest_digest == "b" * 64
 
 
+def test_celery_dispatch_preserves_video_manifest_identity(monkeypatch):
+    from app.workers.tasks import batch_predict
+
+    captured = {}
+
+    def fake_apply_async(*, args, kwargs, **options):
+        captured.update(args=args, kwargs=kwargs, options=options)
+        return SimpleNamespace(id="video-manifest-job-id")
+
+    monkeypatch.setattr(batch_predict, "apply_async", fake_apply_async)
+    selection = {
+        "batch_id": None,
+        "task_ids": ["task-id"],
+        "predict_mode": "overwrite",
+        "execution_scope": "workbench",
+        "sampling": {
+            "max_frames": 24,
+            "step": 1,
+            "width": 1280,
+            "format": "jpeg",
+        },
+    }
+    request = BatchPredictionRequest(
+        project_id="project-id",
+        ml_backend_id="backend-id",
+        task_ids=["task-id"],
+        execution_unit="frame",
+        execution_scope="workbench",
+        async_job_id="video-manifest-job-id",
+        accepted_video_inputs_protocol="aap-assets-video-inputs/v1",
+        accepted_video_manifest_id="video-manifest-job-id",
+        accepted_video_selection_digest="c" * 64,
+        accepted_video_selection=selection,
+    )
+
+    CeleryBatchPredictionDispatcher().dispatch(request, queue="ml")
+
+    assert captured["args"] == ["project-id", "backend-id", ["task-id"]]
+    assert captured["kwargs"]["accepted_video_inputs_protocol"] == (
+        "aap-assets-video-inputs/v1"
+    )
+    assert captured["kwargs"]["accepted_video_manifest_id"] == ("video-manifest-job-id")
+    assert captured["kwargs"]["accepted_video_selection_digest"] == "c" * 64
+    assert captured["kwargs"]["accepted_video_selection"] == selection
+    assert captured["options"]["task_id"] == "video-manifest-job-id"
+
+
+def test_worker_builds_video_manifest_request_from_celery_arguments(monkeypatch):
+    import asyncio
+
+    from app.workers import tasks
+    from app.workers.tasks import batch_predict
+
+    captured = {}
+    original_run = asyncio.run
+
+    async def fake_run_preannotation(request, **_kwargs):
+        captured["request"] = request
+
+    monkeypatch.setattr(tasks, "run_preannotation", fake_run_preannotation)
+    monkeypatch.setattr(tasks.asyncio, "run", original_run)
+    selection = {"sampling": {"max_frames": 9}}
+    batch_predict.push_request(id="video-manifest-job-id")
+    try:
+        batch_predict.run(
+            "project-id",
+            "backend-id",
+            task_ids=None,
+            user_id="actor-id",
+            execution_unit="frame",
+            execution_scope="bulk",
+            async_job_id="video-manifest-job-id",
+            accepted_video_inputs_protocol="aap-assets-video-inputs/v1",
+            accepted_video_manifest_id="video-manifest-job-id",
+            accepted_video_selection_digest="d" * 64,
+            accepted_video_selection=selection,
+        )
+    finally:
+        batch_predict.pop_request()
+
+    request = captured["request"]
+    assert request.accepted_video_inputs_protocol == "aap-assets-video-inputs/v1"
+    assert request.accepted_video_manifest_id == "video-manifest-job-id"
+    assert request.accepted_video_selection_digest == "d" * 64
+    assert request.accepted_video_selection == selection
+
+
 def test_celery_dispatch_omits_unset_durable_options(monkeypatch):
     from app.workers.tasks import batch_predict
 
@@ -218,6 +305,10 @@ def test_celery_dispatch_omits_unset_durable_options(monkeypatch):
     assert "accepted_input_manifest_protocol" not in captured["kwargs"]
     assert "accepted_input_manifest_id" not in captured["kwargs"]
     assert "accepted_input_manifest_digest" not in captured["kwargs"]
+    assert "accepted_video_inputs_protocol" not in captured["kwargs"]
+    assert "accepted_video_manifest_id" not in captured["kwargs"]
+    assert "accepted_video_selection_digest" not in captured["kwargs"]
+    assert "accepted_video_selection" not in captured["kwargs"]
     assert "task_type" not in captured["kwargs"]
     assert captured["options"] == {"queue": "ml"}
 

@@ -100,6 +100,10 @@ def batch_predict(
     accepted_input_manifest_protocol: str | None = None,
     accepted_input_manifest_id: str | None = None,
     accepted_input_manifest_digest: str | None = None,
+    accepted_video_inputs_protocol: str | None = None,
+    accepted_video_manifest_id: str | None = None,
+    accepted_video_selection_digest: str | None = None,
+    accepted_video_selection: dict | None = None,
 ):
     frame_dispatcher = None
     if execution_unit == "frame":
@@ -131,6 +135,10 @@ def batch_predict(
         accepted_input_manifest_protocol=accepted_input_manifest_protocol,
         accepted_input_manifest_id=accepted_input_manifest_id,
         accepted_input_manifest_digest=accepted_input_manifest_digest,
+        accepted_video_inputs_protocol=accepted_video_inputs_protocol,
+        accepted_video_manifest_id=accepted_video_manifest_id,
+        accepted_video_selection_digest=accepted_video_selection_digest,
+        accepted_video_selection=accepted_video_selection,
         task=task,
         prompt_type=prompt_type,
     )
