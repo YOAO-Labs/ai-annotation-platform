@@ -154,3 +154,4 @@
 - [ADR-0106: Independent image materialization and source-bound delivery](0106-independent-image-media-owner.md)
 - [ADR-0107: Versioned media inputs for accepted inference](0107-versioned-accepted-media-inputs.md)
 - [ADR-0108: Durable bulk image input manifests](0108-bulk-image-input-manifests.md)
+- [ADR-0109: Retained video inputs and source-bound frame plans](0109-retained-video-inputs-and-frame-plans.md)

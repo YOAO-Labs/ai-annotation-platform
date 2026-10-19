@@ -1899,3 +1899,25 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   does not add general execution leases, whole-process takeover or exactly-once
   external inference. Go stays isolated; no production, push or release follows
   from local qualification.
+
+## Accepted video inputs — active implementation
+
+- Frame consumer/native audits confirm late current-Task/item selection, mutable
+  per-frame references, overwrite before preparation, source-blind frame-index
+  deduplication and absent retained per-frame failure provenance. Existing image
+  input and manifest contracts remain image-only; DatasetItem source snapshots
+  also omit timetable revisions. The next slice captures Task/media/timebase
+  facts, retains original video bytes and derives accepted frames from them.
+- ADR-0109 defines the complete barrier, write/retry/evidence/GC requirements.
+  The portable `aap_assets_video_inputs` values foundation is implemented in the
+  integration checkout. It uses exact versions, measured video facts, bounded
+  selected-ordinal/PTS pages and streamable timebase/plan digests. Its 40 cases
+  and the existing portable Media/Image/Input/manifest values pass together:
+  114 passed, zero skips. Node reproduces both digests for ordinary and maximum
+  exact-JSON-integer frame counts; signed, repeated and nonmonotonic PTS remain
+  evidence rather than being inferred from FPS. A cold base wheel imports
+  without API, ORM, HTTP, database or task-runtime dependencies and contains the
+  current value schema. Documentation builds in 12.99 seconds; locked dependency,
+  Ruff, Node syntax and diff checks pass. Native/HTTP, worker and real consumer
+  qualification remain required before promotion; the primary runtime stays
+  unchanged at the qualified bulk-image implementation.

@@ -1,0 +1,520 @@
+{
+  "$defs": {
+    "FrameBlob": {
+      "additionalProperties": false,
+      "properties": {
+        "byte_size": {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "title": "Byte Size",
+          "type": "integer"
+        },
+        "etag": {
+          "maxLength": 255,
+          "minLength": 1,
+          "title": "Etag",
+          "type": "string"
+        },
+        "key": {
+          "maxLength": 2048,
+          "pattern": "^accepted-video-inputs/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g[1-9][0-9]*/a[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/frames/(0|[1-9][0-9]*)/w[1-9][0-9]*-(jpeg|webp)$",
+          "title": "Key",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "version_id": {
+          "maxLength": 255,
+          "minLength": 1,
+          "title": "Version Id",
+          "type": "string"
+        }
+      },
+      "required": ["key", "version_id", "etag", "byte_size", "sha256"],
+      "title": "FrameBlob",
+      "type": "object"
+    },
+    "FramePageRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "cursor": {
+          "default": 0,
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "title": "Cursor",
+          "type": "integer"
+        },
+        "input_id": {
+          "format": "uuid",
+          "title": "Input Id",
+          "type": "string"
+        },
+        "job_id": {
+          "format": "uuid",
+          "title": "Job Id",
+          "type": "string"
+        },
+        "page_size": {
+          "default": 100,
+          "maximum": 100,
+          "minimum": 1,
+          "title": "Page Size",
+          "type": "integer"
+        },
+        "plan_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Plan Digest",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        }
+      },
+      "required": ["actor_id", "job_id", "task_id", "input_id", "plan_digest"],
+      "title": "FramePageRequest",
+      "type": "object"
+    },
+    "FrameReference": {
+      "additionalProperties": false,
+      "properties": {
+        "blob": {
+          "$ref": "#/$defs/FrameBlob"
+        },
+        "entry": {
+          "$ref": "#/$defs/FrameTimeEntry"
+        },
+        "expires_in": {
+          "maximum": 3600,
+          "minimum": 1,
+          "title": "Expires In",
+          "type": "integer"
+        },
+        "plan": {
+          "$ref": "#/$defs/FrozenFramePlan"
+        },
+        "url": {
+          "maxLength": 16384,
+          "minLength": 1,
+          "title": "Url",
+          "type": "string"
+        }
+      },
+      "required": ["plan", "entry", "blob", "url", "expires_in"],
+      "title": "FrameReference",
+      "type": "object"
+    },
+    "FrameSampling": {
+      "additionalProperties": false,
+      "properties": {
+        "format": {
+          "default": "jpeg",
+          "enum": ["jpeg", "webp"],
+          "title": "Format",
+          "type": "string"
+        },
+        "max_frames": {
+          "maximum": 2147483647,
+          "minimum": 1,
+          "title": "Max Frames",
+          "type": "integer"
+        },
+        "step": {
+          "default": 1,
+          "maximum": 2147483647,
+          "minimum": 1,
+          "title": "Step",
+          "type": "integer"
+        },
+        "width": {
+          "default": 1280,
+          "maximum": 4096,
+          "minimum": 1,
+          "title": "Width",
+          "type": "integer"
+        }
+      },
+      "required": ["max_frames"],
+      "title": "FrameSampling",
+      "type": "object"
+    },
+    "FrameTimeEntry": {
+      "additionalProperties": false,
+      "properties": {
+        "frame_index": {
+          "maximum": 2147483647,
+          "minimum": 0,
+          "title": "Frame Index",
+          "type": "integer"
+        },
+        "is_keyframe": {
+          "title": "Is Keyframe",
+          "type": "boolean"
+        },
+        "ordinal": {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "title": "Ordinal",
+          "type": "integer"
+        },
+        "pts_ms": {
+          "maximum": 9007199254740991,
+          "minimum": -9007199254740991,
+          "title": "Pts Ms",
+          "type": "integer"
+        }
+      },
+      "required": ["ordinal", "frame_index", "pts_ms", "is_keyframe"],
+      "title": "FrameTimeEntry",
+      "type": "object"
+    },
+    "FrameTimePage": {
+      "additionalProperties": false,
+      "properties": {
+        "cursor": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "title": "Cursor",
+          "type": "integer"
+        },
+        "entries": {
+          "items": {
+            "$ref": "#/$defs/FrameTimeEntry"
+          },
+          "maxItems": 100,
+          "title": "Entries",
+          "type": "array"
+        },
+        "next_cursor": {
+          "anyOf": [
+            {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Next Cursor"
+        },
+        "plan": {
+          "$ref": "#/$defs/FrozenFramePlan"
+        }
+      },
+      "required": ["plan", "cursor", "next_cursor", "entries"],
+      "title": "FrameTimePage",
+      "type": "object"
+    },
+    "FrozenFramePlan": {
+      "additionalProperties": false,
+      "properties": {
+        "input": {
+          "$ref": "#/$defs/FrozenVideoInput"
+        },
+        "plan_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Plan Digest",
+          "type": "string"
+        },
+        "sampling": {
+          "$ref": "#/$defs/FrameSampling"
+        },
+        "selected_count": {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "title": "Selected Count",
+          "type": "integer"
+        },
+        "timebase_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Timebase Digest",
+          "type": "string"
+        }
+      },
+      "required": ["input", "sampling", "selected_count", "timebase_digest", "plan_digest"],
+      "title": "FrozenFramePlan",
+      "type": "object"
+    },
+    "FrozenVideoInput": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "blob": {
+          "$ref": "#/$defs/VideoBlob"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "input_id": {
+          "format": "uuid",
+          "title": "Input Id",
+          "type": "string"
+        },
+        "job_id": {
+          "format": "uuid",
+          "title": "Job Id",
+          "type": "string"
+        },
+        "source": {
+          "$ref": "#/$defs/VideoSourceSnapshot"
+        },
+        "task": {
+          "$ref": "#/$defs/TaskVideoBinding"
+        },
+        "video": {
+          "$ref": "#/$defs/VideoFacts"
+        }
+      },
+      "required": [
+        "input_id",
+        "job_id",
+        "actor_id",
+        "task",
+        "source",
+        "blob",
+        "video",
+        "created_at"
+      ],
+      "title": "FrozenVideoInput",
+      "type": "object"
+    },
+    "ObjectIdentity": {
+      "additionalProperties": false,
+      "properties": {
+        "byte_size": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "title": "Byte Size",
+          "type": "integer"
+        },
+        "etag": {
+          "maxLength": 255,
+          "minLength": 1,
+          "title": "Etag",
+          "type": "string"
+        },
+        "version_id": {
+          "anyOf": [
+            {
+              "maxLength": 255,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Version Id"
+        }
+      },
+      "required": ["etag", "byte_size", "version_id"],
+      "title": "ObjectIdentity",
+      "type": "object"
+    },
+    "TaskVideoBinding": {
+      "additionalProperties": false,
+      "properties": {
+        "dataset_item_id": {
+          "format": "uuid",
+          "title": "Dataset Item Id",
+          "type": "string"
+        },
+        "file_path": {
+          "maxLength": 1024,
+          "title": "File Path",
+          "type": "string"
+        },
+        "file_type": {
+          "const": "video",
+          "title": "File Type",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "task_source_generation": {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "title": "Task Source Generation",
+          "type": "integer"
+        },
+        "task_source_snapshot": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Task Source Snapshot",
+          "type": "string"
+        },
+        "task_version": {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "title": "Task Version",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "task_id",
+        "project_id",
+        "task_version",
+        "task_source_generation",
+        "dataset_item_id",
+        "task_source_snapshot",
+        "file_path",
+        "file_type"
+      ],
+      "title": "TaskVideoBinding",
+      "type": "object"
+    },
+    "VideoBlob": {
+      "additionalProperties": false,
+      "properties": {
+        "byte_size": {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "title": "Byte Size",
+          "type": "integer"
+        },
+        "etag": {
+          "maxLength": 255,
+          "minLength": 1,
+          "title": "Etag",
+          "type": "string"
+        },
+        "key": {
+          "maxLength": 2048,
+          "pattern": "^accepted-video-inputs/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g[1-9][0-9]*/a[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/source$",
+          "title": "Key",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "version_id": {
+          "maxLength": 255,
+          "minLength": 1,
+          "title": "Version Id",
+          "type": "string"
+        }
+      },
+      "required": ["key", "version_id", "etag", "byte_size", "sha256"],
+      "title": "VideoBlob",
+      "type": "object"
+    },
+    "VideoFacts": {
+      "additionalProperties": false,
+      "description": "Measured from the retained bytes, not copied from mutable item metadata.",
+      "properties": {
+        "duration_ms": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "title": "Duration Ms",
+          "type": "integer"
+        },
+        "frame_count": {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "title": "Frame Count",
+          "type": "integer"
+        },
+        "height": {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "title": "Height",
+          "type": "integer"
+        },
+        "video_stream": {
+          "default": 0,
+          "maximum": 0,
+          "minimum": 0,
+          "title": "Video Stream",
+          "type": "integer"
+        },
+        "width": {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "title": "Width",
+          "type": "integer"
+        }
+      },
+      "required": ["frame_count", "width", "height", "duration_ms"],
+      "title": "VideoFacts",
+      "type": "object"
+    },
+    "VideoSourceSnapshot": {
+      "additionalProperties": false,
+      "properties": {
+        "dataset_id": {
+          "format": "uuid",
+          "title": "Dataset Id",
+          "type": "string"
+        },
+        "dataset_item_id": {
+          "format": "uuid",
+          "title": "Dataset Item Id",
+          "type": "string"
+        },
+        "object_identity": {
+          "$ref": "#/$defs/ObjectIdentity"
+        },
+        "source_generation": {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "title": "Source Generation",
+          "type": "integer"
+        },
+        "source_snapshot": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Source Snapshot",
+          "type": "string"
+        },
+        "timetable_revision": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "title": "Timetable Revision",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "dataset_item_id",
+        "dataset_id",
+        "source_generation",
+        "source_snapshot",
+        "timetable_revision",
+        "object_identity"
+      ],
+      "title": "VideoSourceSnapshot",
+      "type": "object"
+    }
+  },
+  "$id": "aap-assets-video-inputs/v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "x-budgets": {
+    "page_size": 100,
+    "reply_bytes": 2097152,
+    "request_bytes": 65536
+  },
+  "x-digest": "SHA-256 of ordered ASCII fields separated and terminated by LF; see ADR-0109",
+  "x-stage": "values-only; native and HTTP admission not activated"
+}
