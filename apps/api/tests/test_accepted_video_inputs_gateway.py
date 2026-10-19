@@ -126,6 +126,35 @@ async def test_preparation_is_bounded_and_a_different_manifest_never_reaches_io(
         VideoInputGateway(owner, preparation_limit=True)
 
 
+async def test_preparation_budget_defers_remaining_members_without_sealing():
+    scope, header, members, sealed = facts()
+    ready = members[0]
+    pending = ready.model_copy(
+        update={
+            "state": "preparing",
+            "input": ready.input.model_copy(update={"status": "pending", "plan": None}),
+        }
+    )
+    other_task = ready.task.model_copy(update={"task_id": uuid4()})
+    other = pending.model_copy(
+        update={
+            "ordinal": 2,
+            "task": other_task,
+            "input": pending.input.model_copy(update={"task": other_task.binding()}),
+        }
+    )
+    owner = provider(
+        header.model_copy(update={"prepared_count": 0}), (pending, other), sealed
+    )
+    executor = SimpleNamespace(execute_once=AsyncMock())
+    with pytest.raises(c.VideoInputFailure, match="manifest_not_ready"):
+        await VideoInputGateway(
+            owner, executor=executor, preparation_limit=1
+        ).ensure_sealed(scope, selection_digest=header.selection_digest)
+    executor.execute_once.assert_awaited_once_with(input_id=pending.input.input_id)
+    owner.seal.assert_not_awaited()
+
+
 async def test_frame_reference_materializes_only_the_retained_frame_and_checks_scope():
     _scope, _header, members, _sealed = facts()
     plan = members[0].input.plan
@@ -249,3 +278,54 @@ async def test_bad_native_receipt_rolls_back_independent_transaction():
     assert db.rolled_back_savepoint
     db.rollback.assert_awaited_once()
     db.commit.assert_not_awaited()
+
+
+@pytest.mark.parametrize("fail_at", ["config", "storage", "policy", "body"])
+async def test_local_gateway_closes_owned_clients_when_setup_or_body_fails(
+    monkeypatch, fail_at
+):
+    from aap_assets_images_runtime.config import ImageStorageConfig
+    from app.config import settings
+    from app.services.accepted_video_inputs import video_input_gateway
+
+    config = ImageStorageConfig(
+        endpoint="http://objects.test",
+        public_endpoint="http://objects.test",
+        region="us-east-1",
+        datasets_bucket="datasets",
+        legacy_bucket="legacy",
+        cache_bucket="cache",
+        inputs_bucket="inputs",
+        access_key="fixture",
+        secret_key="fixture",
+    )
+    source = SimpleNamespace(config=config, close=AsyncMock())
+    storage = SimpleNamespace(close=AsyncMock())
+
+    def make_storage(*_args, **_kwargs):
+        if fail_at == "storage":
+            raise RuntimeError("fixture setup failure")
+        return storage
+
+    def policy():
+        if fail_at == "policy":
+            raise RuntimeError("fixture setup failure")
+        return SimpleNamespace(url_expiry_seconds=900)
+
+    if fail_at == "config":
+        source.config = object()
+    monkeypatch.setattr(settings, "assets_media_url", "")
+    monkeypatch.setattr("app.services.assets_images.image_storage", lambda: source)
+    monkeypatch.setattr("app.services.assets_images.image_policy", policy)
+    monkeypatch.setattr(
+        "aap_assets_video_inputs_runtime.storage.S3VideoInputStorage", make_storage
+    )
+    with pytest.raises((TypeError, AttributeError, RuntimeError)):
+        async with video_input_gateway():
+            assert fail_at == "body"
+            raise RuntimeError("fixture body failure")
+    source.close.assert_awaited_once()
+    if fail_at in {"policy", "body"}:
+        storage.close.assert_awaited_once()
+    else:
+        storage.close.assert_not_awaited()

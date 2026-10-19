@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from contextlib import asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager
 from dataclasses import replace
 from typing import Protocol
 
@@ -242,30 +242,27 @@ async def video_input_gateway(*, session_factory=None):
     from aap_assets_video_inputs_runtime.worker import VideoInputExecutor
     from app.services.assets_images import image_policy, image_storage
 
-    source = image_storage()
-    scheme = "https" if settings.minio_use_ssl else "http"
-    config = replace(
-        source.config,
-        inputs_bucket=settings.minio_inputs_bucket,
-        public_endpoint=(
-            f"{scheme}://{settings.ml_backend_storage_host}"
-            if settings.ml_backend_storage_host
-            else source.config.public_endpoint
-        ),
-    )
-    storage = S3VideoInputStorage(config, source_storage=VideoSourceStorage(source))
-    database = _IndependentVideoDatabase(session_factory)
-    policy = image_policy()
-    control = VideoInputControl(
-        database, storage, url_expiry_seconds=min(policy.url_expiry_seconds, 3600)
-    )
-    try:
+    async with AsyncExitStack() as resources:
+        source = image_storage()
+        resources.push_async_callback(source.close)
+        scheme = "https" if settings.minio_use_ssl else "http"
+        config = replace(
+            source.config,
+            inputs_bucket=settings.minio_inputs_bucket,
+            public_endpoint=(
+                f"{scheme}://{settings.ml_backend_storage_host}"
+                if settings.ml_backend_storage_host
+                else source.config.public_endpoint
+            ),
+        )
+        storage = S3VideoInputStorage(config, source_storage=VideoSourceStorage(source))
+        resources.push_async_callback(storage.close)
+        database = _IndependentVideoDatabase(session_factory)
+        policy = image_policy()
+        control = VideoInputControl(
+            database, storage, url_expiry_seconds=min(policy.url_expiry_seconds, 3600)
+        )
         yield VideoInputGateway(control, executor=VideoInputExecutor(database, storage))
-    finally:
-        try:
-            await storage.close()
-        finally:
-            await source.close()
 
 
 async def lock_video_input_source(db, request: c.LockVideoInputRequest):
