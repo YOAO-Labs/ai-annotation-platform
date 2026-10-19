@@ -9,11 +9,18 @@ from typing import Protocol
 from aap_assets_inputs_runtime.database import AsyncpgInputDatabase
 from aap_assets_inputs_runtime.storage import S3InputStorage
 from aap_assets_inputs_runtime.worker import InputGarbageCollector
+from aap_assets_video_inputs_runtime.database import AsyncpgVideoInputDatabase
+from aap_assets_video_inputs_runtime.garbage import VideoGarbageCollector
+from aap_assets_video_inputs_runtime.storage import S3VideoInputStorage
 
 from .config import CleanupConfig
 
 
 class InputCollectorPort(Protocol):
+    async def collect_once(self) -> int: ...
+
+
+class VideoInputCollectorPort(Protocol):
     async def collect_once(self) -> int: ...
 
 
@@ -24,11 +31,16 @@ def build_input_garbage_collector(config: CleanupConfig, pool):
     return InputGarbageCollector(database, storage), storage
 
 
-async def collect_inputs_before_stop(
-    collector: InputCollectorPort,
-    stop: asyncio.Event,
-) -> int:
-    """Cancel between bounded S3 calls and leave the current lease unacknowledged."""
+def build_video_garbage_collector(config: CleanupConfig, pool):
+    """Build the cleanup-only video client with its video-only prefix allowlist."""
+    database = AsyncpgVideoInputDatabase(
+        pool, allowed_roles={"cleanup"}, timeout_seconds=5
+    )
+    storage = S3VideoInputStorage(config.inputs_storage, source_storage=None)
+    return VideoGarbageCollector(database, storage), storage
+
+
+async def _collect_before_stop(collector, stop: asyncio.Event) -> int:
     if stop.is_set():
         return 0
     work = asyncio.create_task(collector.collect_once())
@@ -48,3 +60,19 @@ async def collect_inputs_before_stop(
             stopping.cancel()
         with suppress(asyncio.CancelledError):
             await stopping
+
+
+async def collect_inputs_before_stop(
+    collector: InputCollectorPort,
+    stop: asyncio.Event,
+) -> int:
+    """Cancel between bounded S3 calls and leave the current lease unacknowledged."""
+    return await _collect_before_stop(collector, stop)
+
+
+async def collect_video_inputs_before_stop(
+    collector: VideoInputCollectorPort,
+    stop: asyncio.Event,
+) -> int:
+    """Cancel between version-scoped S3 calls without acknowledging a partial sweep."""
+    return await _collect_before_stop(collector, stop)

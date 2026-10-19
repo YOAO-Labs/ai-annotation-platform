@@ -23,7 +23,9 @@ from .data import DataContractError, StorageDeletionData
 from .health import HealthState, start_health_server
 from .input_gc import (
     build_input_garbage_collector,
+    build_video_garbage_collector,
     collect_inputs_before_stop,
+    collect_video_inputs_before_stop,
 )
 from .object_store import CleanupStopped, S3PrefixDeleter
 
@@ -211,11 +213,103 @@ async def drain_image_garbage(
     return {"completed": completed, "failed": failed, "batches": batches}
 
 
+async def run_cleanup_round(
+    data: CleanupDataPort,
+    storage: PrefixDeletePort,
+    *,
+    bucket: str,
+    page_size: int,
+    worker_id: UUID,
+    input_collector,
+    video_collector,
+    stop: asyncio.Event,
+    storage_stop: threading.Event,
+    health: HealthState | None = None,
+) -> dict[str, int]:
+    """Run every independent cleanup lane once, even when one lane fails."""
+    completed = failed = lane_failures = 0
+
+    async def run_lane(name: str, operation) -> None:
+        nonlocal completed, failed, lane_failures
+        if stop.is_set():
+            return
+        try:
+            result = await operation()
+        except Exception as exc:  # noqa: BLE001 - independent lanes keep moving.
+            lane_failures += 1
+            failed += 1
+            code = getattr(exc, "code", type(exc).__name__)
+            log.warning("Cleanup lane failed lane=%s code=%s", name, str(code)[:64])
+            return
+        if isinstance(result, dict):
+            completed += result.get("completed", 0)
+            failed += result.get("failed", 0)
+        else:
+            completed += result
+
+    await run_lane(
+        "outbox",
+        lambda: drain_pending(
+            data,
+            storage,
+            bucket=bucket,
+            page_size=page_size,
+            stop=stop,
+            storage_stop=storage_stop,
+            health=health,
+        ),
+    )
+    await run_lane(
+        "image_garbage",
+        lambda: drain_image_garbage(
+            data,
+            storage,
+            worker_id=worker_id,
+            batch_size=min(page_size, 500),
+            lease_seconds=3600,
+            stop=stop,
+            storage_stop=storage_stop,
+            health=health,
+        ),
+    )
+    await run_lane(
+        "accepted_image_inputs",
+        lambda: collect_inputs_before_stop(input_collector, stop),
+    )
+    await run_lane(
+        "accepted_video_inputs",
+        lambda: collect_video_inputs_before_stop(video_collector, stop),
+    )
+    return {
+        "completed": completed,
+        "failed": failed,
+        "lane_failures": lane_failures,
+    }
+
+
 async def _sleep_or_stop(stop: asyncio.Event, duration: float) -> None:
     try:
         await asyncio.wait_for(stop.wait(), timeout=duration)
     except TimeoutError:
         return
+
+
+async def close_input_storages(input_storage, video_storage) -> None:
+    """Close each owned S3 adapter independently so one close failure cannot leak the other."""
+    for lane, storage in (
+        ("accepted-image", input_storage),
+        ("accepted-video", video_storage),
+    ):
+        if storage is None:
+            continue
+        try:
+            await asyncio.wait_for(storage.close(), timeout=10)
+        except Exception as exc:  # noqa: BLE001 - close the other adapter as well.
+            log.warning(
+                "%s input storage close failed code=%s",
+                lane.capitalize(),
+                str(getattr(exc, "code", type(exc).__name__))[:64],
+            )
 
 
 async def run_worker(config: CleanupConfig) -> None:
@@ -234,6 +328,7 @@ async def run_worker(config: CleanupConfig) -> None:
     health_server = None
     pool: asyncpg.Pool | None = None
     input_storage = None
+    video_storage = None
     worker_id = uuid4()
     try:
         pool = await asyncpg.create_pool(
@@ -248,8 +343,10 @@ async def run_worker(config: CleanupConfig) -> None:
         storage = S3PrefixDeleter(config)
         await data.verify_role_scope()
         input_collector, input_storage = build_input_garbage_collector(config, pool)
+        video_collector, video_storage = build_video_garbage_collector(config, pool)
         await asyncio.to_thread(storage.probe)
         await input_storage.assert_versioning()
+        await video_storage.assert_versioning()
         health_server = start_health_server(
             health, config.health_host, config.health_port
         )
@@ -257,58 +354,38 @@ async def run_worker(config: CleanupConfig) -> None:
 
         while not stop.is_set():
             health.heartbeat()
+            probe_failed = 0
             try:
                 await asyncio.to_thread(storage.probe)
-                result = await drain_pending(
-                    data,
-                    storage,
-                    bucket=config.bucket,
-                    page_size=config.page_size,
-                    stop=stop,
-                    storage_stop=storage_stop,
-                    health=health,
-                )
-                image_result = await drain_image_garbage(
-                    data,
-                    storage,
-                    worker_id=worker_id,
-                    batch_size=min(config.page_size, 500),
-                    lease_seconds=3600,
-                    stop=stop,
-                    storage_stop=storage_stop,
-                    health=health,
-                )
-                input_completed = await collect_inputs_before_stop(
-                    input_collector, stop
-                )
-                health.add_result(
-                    completed=(
-                        result["completed"]
-                        + image_result["completed"]
-                        + input_completed
-                    ),
-                    failed=result["failed"] + image_result["failed"],
-                )
-                health.set_ready(True)
             except Exception as exc:  # noqa: BLE001 - retain rows and retry next poll.
-                health.set_ready(False)
+                probe_failed = 1
                 log.warning(
-                    "Cleanup poll failed code=%s",
+                    "Cleanup image storage probe failed code=%s",
                     str(getattr(exc, "code", type(exc).__name__))[:64],
                 )
+            result = await run_cleanup_round(
+                data,
+                storage,
+                bucket=config.bucket,
+                page_size=config.page_size,
+                worker_id=worker_id,
+                input_collector=input_collector,
+                video_collector=video_collector,
+                stop=stop,
+                storage_stop=storage_stop,
+                health=health,
+            )
+            health.add_result(
+                completed=result["completed"],
+                failed=result["failed"] + probe_failed,
+            )
+            health.set_ready(result["lane_failures"] == 0 and probe_failed == 0)
             if not stop.is_set():
                 await _sleep_or_stop(stop, config.poll_seconds)
     finally:
         request_stop()
         health.stop()
-        if input_storage is not None:
-            try:
-                await asyncio.wait_for(input_storage.close(), timeout=10)
-            except Exception as exc:  # noqa: BLE001 - continue closing the shared pool.
-                log.warning(
-                    "Input storage close failed code=%s",
-                    str(getattr(exc, "code", type(exc).__name__))[:64],
-                )
+        await close_input_storages(input_storage, video_storage)
         if pool is not None:
             try:
                 await asyncio.wait_for(pool.close(), timeout=15)

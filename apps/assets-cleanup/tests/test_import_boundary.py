@@ -41,4 +41,26 @@ def test_docker_installs_only_portable_asset_contracts_not_media_runtime_extras(
     assert "apps/assets-media/src/aap_assets_images/" in dockerfile
     assert "apps/assets-media/src/aap_assets_inputs/" in dockerfile
     assert "apps/assets-media/src/aap_assets_inputs_runtime/" in dockerfile
+    assert "apps/assets-media/src/aap_assets_media/contract.py" in dockerfile
+    assert "apps/assets-media/src/aap_assets_video_inputs/" in dockerfile
+    for module in ("__init__.py", "database.py", "garbage.py", "storage.py"):
+        assert (
+            f"apps/assets-media/src/aap_assets_video_inputs_runtime/{module}"
+            in dockerfile
+        )
+    assert (
+        "apps/assets-media/src/aap_assets_video_inputs_runtime/worker.py"
+        not in dockerfile
+    )
+    assert (
+        "apps/assets-media/src/aap_assets_video_inputs_runtime/processing.py"
+        not in dockerfile
+    )
     assert "aap_assets_images_runtime" not in dockerfile
+    assert "accepted-video-inputs/*" in (
+        root / "apps/assets-cleanup/README.md"
+    ).read_text(encoding="utf-8")
+    image_deleter = (
+        root / "apps/assets-cleanup/src/aap_assets_cleanup/object_store.py"
+    ).read_text(encoding="utf-8")
+    assert "accepted-video-inputs" not in image_deleter
