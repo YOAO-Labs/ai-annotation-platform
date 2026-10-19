@@ -301,6 +301,7 @@ class RuntimeHints(BaseModel):
     """v0.9.6 · 前端 modal 启动时一次性查; 提供注册 form 的 placeholder hint."""
 
     ml_backend_default_url: str | None = None
+    managed_backend_urls: dict[str, str] = Field(default_factory=dict)
 
 
 @router.get("/runtime-hints", response_model=RuntimeHints)
@@ -309,10 +310,202 @@ async def runtime_hints(
 ):
     return RuntimeHints(
         ml_backend_default_url=settings.ml_backend_default_url or None,
+        managed_backend_urls=settings.ml_managed_backend_urls,
     )
 
 
 # ─── v0.9.7 · 全局 backend 列表 ────────────────────────────────────────
+
+
+ManagedProvider = Literal["gsam2", "sam3", "yolo", "onnxtools", "rapidocr"]
+
+
+class ManagedAuthRegistry(BaseModel):
+    id: UUID
+    name: str
+    auth_method: str
+    state: str
+
+
+class ManagedAuthItem(BaseModel):
+    provider: ManagedProvider
+    service_name: str
+    url: str
+    credential_state: Literal["missing", "ready", "invalid"]
+    registries: list[ManagedAuthRegistry] = Field(default_factory=list)
+    outcome: (
+        Literal["synced", "initialized", "unavailable", "manual_preserved", "error"]
+        | None
+    ) = None
+    message: str | None = None
+
+
+class ManagedAuthStatus(BaseModel):
+    items: list[ManagedAuthItem]
+
+
+class ManagedAuthInitialize(BaseModel):
+    model_config = {"extra": "forbid"}
+    providers: list[ManagedProvider] | None = Field(
+        default=None, min_length=1, max_length=5
+    )
+
+
+async def _managed_auth_status(db: AsyncSession) -> ManagedAuthStatus:
+    from aap_protocol_v2.backend_auth import BACKEND_SERVICES
+    from aap_protocol_v2.managed_credential import CredentialFileError, read_credential
+    from app.services.managed_inference_auth import (
+        configured_backends,
+        credential_directory,
+        provider_for_url,
+    )
+
+    rows = (await db.scalars(select(MLBackendRegistry))).all()
+    items = []
+    for provider, url in configured_backends().items():
+        directory = credential_directory(provider)
+        try:
+            if not (directory / "token").exists():
+                state = "missing"
+            else:
+                read_credential(directory)
+                state = "ready"
+        except (OSError, CredentialFileError):
+            state = "invalid"
+        items.append(
+            ManagedAuthItem(
+                provider=provider,
+                service_name=BACKEND_SERVICES[provider],
+                url=url,
+                credential_state=state,
+                registries=[
+                    ManagedAuthRegistry.model_validate(row, from_attributes=True)
+                    for row in rows
+                    if provider_for_url(row.url) == provider
+                ],
+            )
+        )
+    return ManagedAuthStatus(items=items)
+
+
+@router.get("/managed-auth", response_model=ManagedAuthStatus)
+async def managed_auth_status(
+    db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(require_roles(UserRole.SUPER_ADMIN)),
+):
+    """Inspect private local defaults without revealing or sending credentials."""
+    return await _managed_auth_status(db)
+
+
+@router.post("/managed-auth/initialize", response_model=ManagedAuthStatus)
+async def initialize_managed_backends(
+    payload: ManagedAuthInitialize,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_roles(UserRole.SUPER_ADMIN)),
+):
+    from aap_protocol_v2.backend_auth import managed_provider
+    from aap_protocol_v2.managed_credential import (
+        CredentialFileError,
+        ensure_credential,
+    )
+    from app.services.managed_inference_auth import (
+        configured_backends,
+        credential_directory,
+    )
+
+    status = await _managed_auth_status(db)
+    selected = set(
+        payload.providers if payload.providers is not None else configured_backends()
+    )
+    if selected - configured_backends().keys():
+        raise HTTPException(422, "所选内置服务未在当前部署的可信地址映射中配置。")
+    for item in status.items:
+        if item.provider not in selected:
+            continue
+        try:
+            ensure_credential(credential_directory(item.provider))
+            item.credential_state = "ready"
+        except (OSError, CredentialFileError):
+            item.outcome = "error"
+            item.message = "本地凭据目录不可用，请检查归属、私有权限和文件完整性。"
+            continue
+        if not item.registries:
+            item.outcome = "initialized"
+            item.message = "默认凭据已初始化；尚未注册此服务，没有实例需要同步。"
+            continue
+        synced = 0
+        preserved = 0
+        failures: list[str] = []
+        for registry in item.registries:
+            if (
+                registry.auth_method != "none"
+                and managed_provider(registry.auth_method) is None
+            ):
+                preserved += 1
+                continue
+            try:
+                async with db.begin_nested():
+                    updated = await MLBackendService(db).update(
+                        registry.id,
+                        preserve_manual_auth=True,
+                        auth_method=f"managed:{item.provider}",
+                    )
+                    if updated is None:
+                        raise HTTPException(409, "实例已删除，请刷新后重试。")
+                    await AuditService.log(
+                        db,
+                        actor=admin,
+                        action="ml_registry.managed_auth_synced",
+                        target_type="ml_backend",
+                        target_id=str(registry.id),
+                        request=request,
+                        status_code=200,
+                        detail={"provider": item.provider},
+                    )
+                    registry.auth_method = updated.auth_method
+                    registry.state = updated.state
+                await db.commit()
+                synced += 1
+            except HTTPException as exc:
+                manual = (
+                    isinstance(exc.detail, dict)
+                    and exc.detail.get("error_code") == "manual_auth_preserved"
+                )
+                if manual:
+                    preserved += 1
+                else:
+                    failures.append(str(exc.detail))
+        if failures:
+            item.outcome = "unavailable"
+            item.message = (
+                f"已同步 {synced} 个实例，保留 {preserved} 个手动认证实例；"
+                f"{len(failures)} 个实例未完成同步：{failures[0]}"
+            )
+        elif preserved:
+            item.outcome = "manual_preserved"
+            item.message = (
+                f"已同步 {synced} 个实例，保留 {preserved} 个手动认证实例；"
+                "如需改用系统托管，请在实例编辑中明确切换。"
+            )
+        else:
+            item.outcome = "synced"
+            item.message = (
+                f"已验证并同步 {synced} 个实例的认证；"
+                "请执行实例健康检查以更新服务状态。"
+            )
+    await AuditService.log(
+        db,
+        actor=admin,
+        action="ml_registry.managed_auth_initialized",
+        target_type="ml_backend",
+        target_id="managed",
+        request=request,
+        status_code=200,
+        detail={"providers": sorted(selected)},
+    )
+    await db.commit()
+    return status
 
 
 class GlobalBackendItem(BaseModel):
@@ -862,7 +1055,11 @@ async def create_registry(
             url=data.url,
             source="manual",
             is_interactive=data.is_interactive,
-            auth_method=data.auth_method,
+            **(
+                {"auth_method": data.auth_method}
+                if "auth_method" in data.model_fields_set
+                else {}
+            ),
             auth_token=data.auth_token,
             extra_params=data.extra_params,
             gpu_resource_id=data.gpu_resource_id,
@@ -1094,8 +1291,8 @@ async def unload_registry_backend(
 # ─── v0.10.26 · 容器直连观测 (与项目注册解耦) ──────────────────────────────
 #
 # 即使没有任何项目注册 backend, 运维也能直连 env 配的 ML_BACKEND_OBSERVE_URLS
-# 看健康度 / 变体目录 / 试启动。观测 URL 假定免鉴权 (内网 / dev); 带 token 的
-# backend 仍走项目注册路径。
+# Read-only discovery uses registered authentication when present. Only deployment-
+# pinned, unregistered first-party targets may use an existing local credential.
 
 
 def _observe_urls() -> list[str]:
@@ -1182,7 +1379,11 @@ def _extract_supported_variants(setup: dict | None) -> list[dict]:
     return list(merged.values())
 
 
-async def _probe_one(client: httpx.AsyncClient, base: str) -> ObserveTarget:
+async def _probe_one(
+    client: httpx.AsyncClient,
+    base: str,
+    backend: MLBackendRegistry | None = None,
+) -> ObserveTarget:
     """并发探测单个观测 URL 的 /health (+ /setup 取变体目录)。"""
     start = time.monotonic()
     try:
@@ -1214,7 +1415,14 @@ async def _probe_one(client: httpx.AsyncClient, base: str) -> ObserveTarget:
 
     setup: dict | None = None
     try:
-        sresp = await client.get(f"{base}/setup")
+        from app.services.managed_inference_auth import local_managed_headers
+
+        headers = (
+            MLBackendClient(backend)._headers()
+            if backend is not None
+            else local_managed_headers(base)
+        )
+        sresp = await client.get(f"{base}/setup", headers=headers)
         if sresp.status_code == 200:
             setup = sresp.json()
     except Exception:  # noqa: BLE001 — /setup 可选, 失败不影响观测
@@ -1253,18 +1461,30 @@ async def observe_backends(
     if not urls:
         return ObserveResponse(targets=[], configured_count=0)
 
-    async with httpx.AsyncClient(timeout=settings.ml_health_timeout) as client:
-        targets = await asyncio.gather(*[_probe_one(client, u) for u in urls])
+    from aap_protocol_v2.backend_auth import normalized_backend_url
 
-    # v0.19.0 ADR-0044 · 标注哪些观测 URL 已在全局注册表 (含 env 自动 upsert / manual)。
-    res = await db.execute(select(MLBackendRegistry.url, MLBackendRegistry.source))
-    src_by_url: dict[str, str] = {url.rstrip("/"): src for url, src in res.all()}
+    rows = list((await db.execute(select(MLBackendRegistry))).scalars().all())
+    await db.commit()
+    by_url = {row.url.rstrip("/"): row for row in rows}
+    by_origin = {
+        origin: row for row in rows if (origin := normalized_backend_url(row.url))
+    }
+    registered = {
+        url: by_url.get(url) or by_origin.get(normalized_backend_url(url))
+        for url in urls
+    }
+    async with httpx.AsyncClient(
+        timeout=settings.ml_health_timeout, trust_env=False, follow_redirects=False
+    ) as client:
+        targets = await asyncio.gather(
+            *[_probe_one(client, url, registered[url]) for url in urls]
+        )
 
     for t in targets:
-        src = src_by_url.get(t.url.rstrip("/"))
-        if src:
+        backend = registered[t.url]
+        if backend is not None:
             t.registered = True
-            t.registered_label = f"已注册 ({src})"
+            t.registered_label = f"已注册 ({backend.source})"
 
     return ObserveResponse(targets=list(targets), configured_count=len(urls))
 
@@ -1342,7 +1562,14 @@ async def smoke_test_backend(
         )
         await db.commit()
 
-    async with httpx.AsyncClient(timeout=settings.ml_predict_timeout) as client:
+    from app.services.managed_inference_auth import local_managed_headers
+
+    async with httpx.AsyncClient(
+        timeout=settings.ml_predict_timeout,
+        trust_env=False,
+        follow_redirects=False,
+        headers=local_managed_headers(base) if registered_backend is None else {},
+    ) as client:
         if generic_variant:
             r = SmokeTestResponse(
                 ok=True,

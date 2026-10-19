@@ -1,16 +1,14 @@
 ---
+title: 视频后端帧服务
 audience: [dev, ops]
 type: reference
-since: v0.9.25
 status: stable
-last_reviewed: 2026-07-29
+last_reviewed: 2026-10-19
 ---
 
 # 视频后端帧服务
 
 视频帧服务把视频帧作为后端一等资源暴露，服务于长视频 chunk 拉取、单帧 thumbnail / AI 推理复用，以及 manifest v2。旧的 `GET /api/v1/tasks/{task_id}/video/manifest` 保持不变。
-
-<!-- history: versioned video frame service rollout notes are folded into the current API reference. -->
 
 ## 资源模型
 
@@ -115,18 +113,10 @@ GET /api/v1/videos/{dataset_item_id}/chunks/{chunk_id}/samples
 }
 ```
 
-`samples` 数组按解码顺序排列（满足 `VideoDecoder` 喂入要求），`frame_index` 按 pts 展示顺序（presentation rank）+ chunk `start_frame` 推算。前端默认尝试 WebCodecs 精确解码；`?webcodecs=0` 或 localStorage `video.experimental.webcodecs=0` 可在当前客户端显式关闭，统一工作台设置窗口的「性能与实验」也提供同一本机入口。启用时，`VideoKonvaStage` 经 `useVideoPreciseFrame` 按当前帧定位 chunk → 拉 samples → 从 chunk 字节切出「GOP 起点关键帧 → 目标帧」的 GOP plan → 由有状态 GOP decoder session 构造 `EncodedVideoChunk[]` 交 `useVideoChunkDecoder` 精确解码。decoder 优先请求硬件加速，浏览器拒绝该偏好但支持 codec 时会去掉偏好安全重试；同 GOP 逐帧只提交增量，前台后退 / 跨 GOP 可确定性重建，后台预取若需要 reset 则直接跳过，不能反向阻塞当前可见帧。已缓存的目标位图可在原生 `<video>` seek 尚未结算时立即交给 Konva；codec 不支持、chunk pending / failed、缺 samples / description、signed URL 过期或字节越界都安全回退到原生 `<video>` / 位图，不阻断标注。
-
-`VideoDecoder` 与后续 Canvas / WebGPU 都运行在打开工作台的客户端浏览器，使用客户端机器的 CPU /
-GPU；Linux 部署服务器只提供 API、demux metadata、chunk bytes 与对象存储，不会替客户端执行这些
-浏览器 API。客户端没有硬解 profile 时允许软件解码或安全回退，不能从服务端是否有 GPU 推断浏览器
-实际解码路径。
-
-严格资格不能从静态 GPU profile 推断实际 decoder。Apple Silicon Chrome 可通过 CDP Media domain 把
-`WebCodecs::VideoDecoder` player 与隐藏原生 `<video>` 分开，并要求 initialized player 发布
-`VideoToolboxVideoDecoder` 和 platform decoder 标记；缺失或矛盾证据保持 `inconclusive`。
-
-manifest 还带 `description`（base64）：后端直读 chunk mp4 的 `avcC`/`hvcC` box，取出 `AVC/HEVCDecoderConfigurationRecord`（含 SPS/PPS），前端解码后填入 `VideoDecoderConfig.description`；`codec_string` 也由该 record 的字节派生（`avc1.PPCCLL` / `hvc1.…`），不再硬编码。这两项是 AVCC 长度前缀样本能被 `VideoDecoder` 正确解码的前提——缺 `description` 时浏览器按 Annex-B 解析必失败。旧 chunk（`diagnostics` 无 `description`）则降级。
+- **解码顺序与 GOP 计划**：`samples` 数组按解码顺序排列（满足浏览器 `VideoDecoder` 喂入要求），`frame_index` 按 PTS 展示顺序（presentation rank）加 chunk `start_frame` 推算。前端默认尝试 WebCodecs 精确解码（可通过 `?webcodecs=0`、`localStorage["video.experimental.webcodecs"]=0` 或工作台设置「性能与实验」关闭）。启用时，`VideoKonvaStage` 经 `useVideoPreciseFrame` 定位 chunk → 拉取 samples → 切出「GOP 起点关键帧 → 目标帧」的 GOP 计划 → 由有状态 GOP decoder session 构造 `EncodedVideoChunk[]` 交由 `useVideoChunkDecoder` 解码。
+- **硬件加速偏好与无损回退**：解码器优先请求硬件加速，若浏览器拒绝该偏好但支持对应 codec 则自动去掉偏好重试；同 GOP 逐帧前进只提交增量包，后退或跨 GOP 确定性重建，后台预取若需 reset 则直接跳过以免阻塞当前可见帧。任何 codec 不支持、chunk 未就绪、缺失 `samples` / `description` 或 URL 过期均安全回退至原生 `<video>` / 单帧位图。
+- **客户端执行边界**：`VideoDecoder` 与 Canvas / WebGPU 均运行在客户端浏览器并消费客户端机器的 CPU/GPU；Linux 服务端仅提供 API、解复用元数据与分片字节流。Apple Silicon Chrome 严格资格验收通过 CDP Media 域区分 `WebCodecs::VideoDecoder` 与隐藏原生 `<video>`，并核验 `VideoToolboxVideoDecoder` 及平台硬解标记。
+- **AVCC/HVCC `description` 注入**：manifest 同时返回 base64 编码的 `description`（后端直接读取 chunk MP4 的 `avcC`/`hvcC` box 提取 `AVC/HEVCDecoderConfigurationRecord` 含 SPS/PPS，并派生准确的 `codec_string`），确保 AVCC 长度前缀样本能被浏览器 `VideoDecoder` 正确解析。
 
 MinIO key：
 

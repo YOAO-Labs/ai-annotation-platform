@@ -21,6 +21,7 @@ from typing import Any
 
 import httpx
 from PIL import Image, ImageDraw
+from aap_backend_runtime.backend_auth import backend_auth_headers
 from aap_backend_runtime import (
     REQUIRED_CONTRACT_CHECKS,
     artifact_evidence,
@@ -323,6 +324,7 @@ async def _run() -> dict[str, Any]:
             transport = httpx.ASGITransport(app=main.app)
             async with httpx.AsyncClient(
                 transport=transport,
+                headers=backend_auth_headers("rapidocr"),
                 base_url="http://rapidocr-validation",
                 timeout=900,
             ) as client:

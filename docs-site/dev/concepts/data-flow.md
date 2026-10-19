@@ -1,14 +1,13 @@
 ---
 audience: [dev]
 type: explanation
-since: v0.1.0
 status: stable
-last_reviewed: 2026-07-29
+last_reviewed: 2026-10-19
 ---
 
 # 数据流
 
-每张序列图配套关键代码路径——点 GitHub 或 IDE 跳转直达函数。
+本页通过五条核心业务序列图与精确代码索引，展示请求在前端、API、数据库、对象存储、Celery 队列与独立执行器之间的流转路径。
 
 ## 标注一条任务的完整链路
 
@@ -51,12 +50,12 @@ API 成功派发时返回 HTTP 200，`job_id` 是 Celery task ID；worker 后续
 
 - 触发端点：`apps/api/app/api/v1/projects.py:trigger_preannotation`
 - 服务池路由与 ML client：`apps/api/app/services/ml_routing/client.py:RoutedMLBackendClient`
-- ML 协议契约：[`docs-site/dev/ml-backend-protocol.md`](../reference/ml-backend-protocol)
+- ML 协议契约：[`docs-site/dev/reference/ml-backend-protocol.md`](../reference/ml-backend-protocol)
 - Worker：`apps/api/app/workers/tasks.py:batch_predict / _run_batch`
 - 对象存储签名 URL：`apps/api/app/services/storage.py:resolve_task_url`
-- 项目 WS 中继：`apps/api/app/api/v1/ws.py:preannotate_progress`（当前无鉴权）
+- 项目 WS 中继：`apps/api/app/api/v1/ws.py:preannotate_progress`
 - 全局 admin WS：`apps/api/app/api/v1/ws.py:prediction_jobs_socket`
-- WS 协议：[`docs-site/dev/ws-protocol.md`](../reference/ws-protocol)
+- WS 协议：[`docs-site/dev/reference/ws-protocol.md`](../reference/ws-protocol)
 
 ---
 
@@ -102,6 +101,33 @@ consumer 闭环验证前保持关闭；capability 响应不会把未验证 adapt
 
 ---
 
+## 在线学习闭环
+
+<ExcalidrawDiagram
+  src="/diagrams/dev/concepts/online-learning-loop.svg"
+  alt="在线学习端到端闭环架构：从审核标注到数据版本快照、独立执行器训练、逐样本评估、模型注册发布、动态回流预标注，再到主动选样与自动触发策略"
+  caption="在线学习端到端闭环数据流全景"
+/>
+
+在线学习实现了从高质量标注产出到预标注模型迭代的双向自增益循环：
+
+1. **快照物化**：单语句查询冻结已审核标注，Celery export worker 下载原图、校验 SHA-256 并物化至 MinIO `training` 存储桶。
+2. **独立调度**：独立拉取式执行器通过共享状态目录的 OS `flock` 文件锁排他独占物理 GPU，守护原生训练子进程，实时向平台推送观测指标与脱敏日志。
+3. **评估决策**：训练完成后对最佳权重执行逐样本贪心评估，将不可变权重登记入模型谱系，由管理员追加处置决策并发布。
+4. **预标注回流**：YOLO backend 通过 `/managed-models` 端点动态挂载发布权重，双向核验收据协议后直接服务于工作台预标注与批跑流水线。
+5. **主动选样**：通过启发式难例挖掘（`max(1 - score)`）结合随机探索圈选新批次，驱动下一轮数据沉淀。
+
+代码索引：
+
+- 数据集版本化与物化：`apps/api/app/services/training_datasets.py`、`apps/api/app/workers/training_dataset.py`
+- 算力租约与调度：`apps/api/app/services/training_runs.py`、`apps/api/app/services/training_studies.py`
+- 独立执行器：`apps/training-executor/training_executor/`
+- 模型谱系、决策与发布：`apps/api/app/services/model_lineage.py`、`apps/api/app/api/v1/model_lineage.py`、`apps/api/app/api/v1/trained_models.py`
+- 模型回流与受控评估端点：`apps/yolo-backend/managed_models.py`、`apps/yolo-backend/sample_evaluations.py`
+- 架构总览：[在线学习与训练体系](./training-datasets)
+
+---
+
 ## 实时通知
 
 <ExcalidrawDiagram
@@ -116,14 +142,14 @@ consumer 闭环验证前保持关闭；capability 响应不会把未验证 adapt
 
 服务端 push 主要事件：
 
-- 任务通过、驳回或重开（type=`task.approved` / `task.rejected` / `task.reopened`）
-- 导出完成或失败（type=`export.ready` / `export.failed`）
-- 用户发起的白名单后台作业终态（type=`job.completed` / `job.failed` / `job.cancelled`）
+- 任务通过、驳回或重开（`type = "task.approved" | "task.rejected" | "task.reopened"`）
+- 导出完成或失败（`type = "export.ready" | "export.failed"`）
+- 用户发起的白名单后台作业终态（`type = "job.completed" | "job.failed" | "job.cancelled"`，涵盖预标注、导出、训练数据集版本构建 `training_dataset`、训练实验 `training_run`、逐样本评估 `sample_evaluation` 与主动学习轮次 `active_learning_round`，并自动解析附带对应资源名称）
 
 代码索引：
 
 - WS 端点：`apps/api/app/api/v1/ws.py:notifications_socket`
-- 通知服务：`apps/api/app/services/notification.py:NotificationService.notify`
+- 通知服务：`apps/api/app/services/notification.py:NotificationService.notify`、`apps/api/app/services/async_job.py`
 - 通知模型：`apps/api/app/db/models/notification.py`
 - 前端 hook：`apps/web/src/hooks/useNotificationSocket.ts`
-- WS 协议详细：[`docs-site/dev/ws-protocol.md`](../reference/ws-protocol)
+- WS 协议详细：[`docs-site/dev/reference/ws-protocol.md`](../reference/ws-protocol)

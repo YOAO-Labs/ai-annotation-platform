@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from aap_protocol_v2.backend_auth import managed_provider
+
 from aap_task_contract import normalize_task_fields
 from training_contract.dataset import config_task
 
@@ -207,16 +209,20 @@ async def enabled_backend(db, project_id, registry_id):
     ):
         raise HTTPException(status_code=404, detail="推理实例未在当前项目启用")
     if (
-        backend.auth_method != "token"
+        (
+            backend.auth_method != "token"
+            and managed_provider(backend.auth_method) != "yolo"
+        )
         or not backend.auth_token
         or len(backend.auth_token) < 32
     ):
         raise HTTPException(
             status_code=422,
             detail=(
-                "推理实例需使用 Token 认证，并保存至少 32 个字符的令牌。"
-                "请在「模型市场 → 注册管理 → 实例 → 编辑」填写与服务端 "
-                "YOLO_MANAGED_MODELS_TOKEN 一致的 Token；留空不会自动生成。"
+                "推理实例需使用系统托管或手动 Token 认证。"
+                "请在「模型市场 → 注册管理 → 实例 → 编辑」选择系统托管并保存；"
+                "远程或自行配置的 YOLO 需填写与服务端 YOLO_MANAGED_MODELS_TOKEN "
+                "一致且至少 32 个字符的 Token。"
             ),
         )
     return backend

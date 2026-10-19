@@ -56,6 +56,17 @@ async def _probe_setup(client: httpx.AsyncClient, base: str) -> dict | None:
     return None
 
 
+async def _probe_registry_setup(client, backend):
+    if backend.auth_method == "none":
+        return await _probe_setup(client, backend.url.rstrip("/"))
+    from app.services.ml_client import MLBackendClient
+
+    try:
+        return await MLBackendClient(backend).setup()
+    except Exception:
+        return None
+
+
 def _shape_models(caps: dict | None) -> list[dict]:
     """从 extract_capabilities 返回值取 models[], 字段裁剪到能力相关。
 
@@ -145,10 +156,7 @@ async def load_capability_instances(db: AsyncSession) -> list[dict]:
         timeout = httpx.Timeout(float(settings.ml_health_timeout))
         async with httpx.AsyncClient(timeout=timeout) as client:
             setups = await asyncio.gather(
-                *[
-                    _probe_setup(client, backends[i].url.rstrip("/"))
-                    for i in needs_probe
-                ]
+                *[_probe_registry_setup(client, backends[i]) for i in needs_probe]
             )
         for i, setup in zip(needs_probe, setups):
             snapshots[i] = extract_capabilities(setup) if setup else None

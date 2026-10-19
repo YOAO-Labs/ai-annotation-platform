@@ -620,11 +620,11 @@ it("explains unenabled and unauthenticated services instead of silently filterin
   mount("/projects/project-1/learning/models/model-1");
   expect(await screen.findByText("本项目尚未启用推理服务，暂时无法加载此模型。")).toBeVisible();
   const service = screen.getByRole("option", {
-    name: /yolo-backend · 项目未启用、未配置 Token 认证/,
+    name: /yolo-backend · 项目未启用、未配置推理认证/,
   });
   expect(service).toBeDisabled();
   expect(screen.getByRole("list", { name: "已注册推理服务状态" })).toHaveTextContent(
-    "yolo-backend · 项目未启用、未配置 Token 认证",
+    "yolo-backend · 项目未启用、未配置推理认证",
   );
   expect(screen.getByRole("button", { name: "加载模型并试用" })).toBeDisabled();
   expect(trainedModelsApi.deploy).not.toHaveBeenCalled();
@@ -673,7 +673,7 @@ it("explains missing authentication on an enabled and connected service", async 
   } as never);
   mount("/projects/project-1/learning/models/model-1");
   expect(
-    await screen.findByText("已启用的推理服务尚未配置 Token 认证，无法加载训练权重。"),
+    await screen.findByText("已启用的推理服务尚未配置系统托管或 Token 认证，无法加载训练权重。"),
   ).toBeVisible();
   expect(screen.getByRole("button", { name: "加载模型并试用" })).toBeDisabled();
   expect(trainedModelsApi.deploy).not.toHaveBeenCalled();

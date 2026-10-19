@@ -1,9 +1,8 @@
 ---
 audience: [dev, ops]
 type: reference
-since: v0.11.14
 status: stable
-last_reviewed: 2026-08-14
+last_reviewed: 2026-10-19
 ---
 
 # 连接器安全与部署配置

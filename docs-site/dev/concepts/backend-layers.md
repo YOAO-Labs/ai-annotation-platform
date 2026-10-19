@@ -1,90 +1,74 @@
 ---
 audience: [dev]
 type: explanation
-since: v0.1.0
 status: stable
-last_reviewed: 2026-07-20
+last_reviewed: 2026-10-19
 ---
 
 # 后端分层
 
 ## 分层规则
 
-```
+```text
 HTTP → 路由 (api/v1) → 服务 (services) → 模型 (db/models)
                 ↓
-              Schemas (pydantic) — 请求/响应边界
+              Schemas (pydantic) — 请求/响应契约边界
 ```
 
-**单向依赖**：路由可调服务，服务可调模型；反向调用禁止。
+**单向依赖原则**：路由层调用服务层，服务层读写 ORM 模型；严禁反向调用或跨层循环导入。
 
-## 路由（api/v1）
+## 路由层（`api/v1`）
 
-- 薄壳：解析参数、调权限、调服务、序列化响应
-- 不写业务逻辑
-- 必须有 docstring（被 OpenAPI 拾取）
-- 必须给所有响应码写 `responses={}` 类型
+- **薄壳职责**：解析请求参数、执行权限守卫（`resolve_project_access` / `get_current_user`）、调用服务层、序列化响应。
+- **零业务推导**：路由层不直接拼装复杂业务 SQL 或状态迁移分支。
+- **OpenAPI 契约完备**：每个端点必须提供清晰的 docstring，并为所有非 200 状态码显式声明 `responses={}` 类型。
 
-## 服务（services）
+## 服务层（`services`）
 
-- 业务逻辑核心：状态机、规则、跨表事务
-- 可调 db 也可调外部 HTTP（结合 httpx）
-- 单测主要打这里
+服务层承载核心状态机、业务规则、跨表事务与外部 HTTP 通信（如调用 ML Backend）。规模较大的业务按领域拆分为独立子包（Domain Packages）：
 
-规模较大的业务不再堆在 `services/` 根目录的单个平铺文件中，而是放入领域 package：
+| 领域子包                   | 核心职责                                                     | 内部模块分层与边界                                                                                                                                                   |
+| :------------------------- | :----------------------------------------------------------- | :------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **`gpu_arbitration/`**     | GPU 显存契约、租约账本、Redis Fence、静默卸载与抢占编排      | `contracts` / `policy` 为无环叶模块；`fences` / `proofs` / `reconciliation` / `retirement` 居中；`dispatch` / `membership_activation` / `rollout_control` 为高层编排 |
+| **`ml_routing/`**          | 服务池能力指纹、加权轮询（SWRR）、路由租约账本与排空安全校验 | `contracts` / `capability` / `policy` 为纯函数叶模块；`ledger` 维护 Redis 原子租约与被动熔断；`router` / `safety` / `diagnostics` 编排拓扑与快照                     |
+| **`video_tracking/`**      | 视频 AI 追踪适配器、分窗身份与候选暂存审阅                   | `adapter` / `job` / `runner` 单向协作，不反向耦合 WebSocket 路由                                                                                                     |
+| **`exporting/`**           | 项目/批次异步导出缓存、单飞锁与多格式归档打包                | `cache` / `service` / 格式导出器                                                                                                                                     |
+| **`data_management/`**     | Data Manager 多维过滤、聚合统计与批量任务操作                | `schemas` / 查询原语 / 高层批量服务                                                                                                                                  |
+| **`mask_formats/`**        | 光栅掩码（Raster Mask）导入导出格式注册表、预检与流式校验    | 统一管理 COCO RLE / PNG 等掩码格式转换契约                                                                                                                           |
+| **`mask_qc/`**             | 提交期与抽样光栅掩码质检（几何连通性、空洞与边界核验）       | 异步质检计算与质检报告持久化                                                                                                                                         |
+| **`point_cloud_quality/`** | 3D 点云场景与立体框质量度量                                  | 点云稀疏度、框体尺寸与跨帧一致性检查                                                                                                                                 |
+| **`sources/`**             | 外部对象存储连接器（S3/MinIO）安全校验、凭证解密与只读列举   | SSRF 防护、DNS 重绑定校验与流式导入                                                                                                                                  |
 
-```text
-services/
-├── gpu_arbitration/  # 契约、策略、ledger、proof、fence 与 orchestration
-├── ml_routing/       # 服务池路由：capability 指纹、SWRR、route-lease ledger、router
-├── video_tracking/   # adapter、job 与 runner
-├── exporting/       # 导出服务、打包和格式实现
-└── data_management/  # schema、查询 primitive 和高层服务
-```
+此外，在线学习与训练相关服务（`training_datasets.py`、`training_runs.py`、`training_studies.py`、`training_observability.py`、`trained_models.py`、`sample_evaluations.py`、`active_learning.py`、`learning_policies.py`、`model_lineage.py`）围绕共享契约包 `apps/_shared/task_contract` 与 `apps/_shared/training_contract` 构建。
 
-领域内依赖保持单向：稳定契约和 primitive 不反向导入高层 orchestration，package `__init__.py` 不为了使用便利而 eager-import 整个高层图。服务不得反向导入 `app.api` 或 `app.workers`；需要派发 Celery 任务时使用稳定注册名，或由路由层调用 worker 边界。
+### 领域子包架构守卫
 
-`gpu_arbitration` 内部按职责分层：`contracts`（dispatch 请求/grant/错误与失败记录）和 `policy`（mode/claim/shadow 决策）是 cycle-safe 叶模块；`fences`、`proofs`、`control_preparation`、`reconciliation`、`retirement`、`diagnostics` 依次构建在低层之上；`dispatch`、`membership_activation`、`rollout_control` 是允许依赖 `ml_client` 的高层编排模块。`ml_client` 只依赖 `contracts`、`policy`、`rollout_state`。
+1. **单向导入**：稳定契约（`contracts`）与底层原语不反向导入高层编排模块；子包 `__init__.py` 保持轻量，避免 eager-import 整个依赖图。
+2. **禁止反向依赖**：`app.services.*` 不得导入 `app.api` 或 `app.workers`；派发 Celery 任务时使用稳定任务注册名或由路由层触发。
+3. **服务端角色裁剪**：如 `ml_routing.diagnostics` 构建的 `TopologyResponse` 与 `RuntimeSnapshotResponse` 按角色在服务端完成字段裁剪（非超管隐藏物理权重与底层实例状态），并携带 freshness 信封（`observed_at` / `partial` / `sources[]`），前端只做展示合并而不猜测业务真值。
+4. **移除模块防回流**：历史平铺兼容层已彻底物理删除，由 `tests/test_domain_package_architecture.py`、`tests/test_compat_facades.py` 与 `scripts/check_removed_service_modules.mjs` 在 CI 中强制拦截。
 
-`ml_routing` 实现服务池请求路由（ADR-0050）：`contracts`（pool/instance 双 ID、route lease、outcome/rejection、error code）和 `capability`（canonical 指纹 + diff，前后端单一真值）是纯数据叶模块；`policy`（smooth weighted round robin 纯核）无副作用；`ledger`（Redis acquire/heartbeat/finish/cancel 原子 Lua + 被动熔断，namespace `ml-router:v1`）独立于 `gpu_arbitration` ledger；`router`（`MLBackendRouter` 编排 DB 拓扑 + ledger，off/observe 返回 legacy instance、enforce fail-closed）、`safety`（卸载、成员移除和 registry 删除共用的 quiescence 校验）、`diagnostics`（topology/runtime-snapshot 读模型）、`metrics`（Prometheus）是高层模块。`safety` 只有在 router enforce、成员精确 draining、账本可读且清理过期 lease 后 exact inflight=0 时放行，未知状态失败关闭。`router` 不发 HTTP；选中实例后单向交给 `MLBackendClient`。GPU 仲裁不导入 `ml_routing`；路由选择完成后单向调用实例 client。
+## 模型层（`db/models`）
 
-`diagnostics.build_topology` / `build_runtime_snapshot` 返回 typed Pydantic 模型（`app.schemas.ml_routing.TopologyResponse` / `RuntimeSnapshotResponse`），OpenAPI snapshot 与前端 generated TS 类型一致。topology 按 `super_admin` 标志做服务端角色裁剪：Project Admin 的 `routing_policy` 为 `"unknown"`、member 的 `weight` / `state` / `last_checked_at` / `gpu_resource_id` 为 `None`；这不是前端隐藏，是响应体内的真值。runtime-snapshot 带 freshness 信封（`observed_at` / `partial` / `partial_reason` / `sources[]`），单个来源失败不抹掉其它可信数据（ADR-0051）。前端在 `apps/web/src/pages/ModelMarket/runtimeTopology.ts` 用纯函数把两个读模型按稳定 ID 合并为页面 view model，保留 unknown / stale / partial，不做业务真值猜测；路由可用性、池健康与 drain 安全判定仍由后端合同给出，view-model 只负责显示。
+- 仅包含 SQLAlchemy 2.0 表结构定义、索引约束与轻量级 `@hybrid_property`。
+- 不在 ORM 模型内编写跨表查询或业务状态变更方法。
 
-`app.services.*` 是应用内部实现，不是公共 API。领域 package 是唯一的实现和导入边界；旧平铺路径已在 v0.23.2 中物理删除，永久守卫（`tests/test_compat_facades.py` 的 `REMOVED_MODULE_SPECS`、`tests/test_domain_package_architecture.py` 的 `REMOVED_MODULES` 与 `scripts/check_removed_service_modules.mjs`）阻止旧路径以任何形式回流。
+## 契约层（`schemas`）
 
-## 模型（db/models）
+- 请求模型（`*In` / `*Create` / `*Update`）与响应模型（`*Out` / `*Response`）严格分离。
+- 禁止直接将 SQLAlchemy ORM 实例原样暴露为未声明 schema 的字典。
+- 嵌套结构必须显式定义为强类型 Pydantic 子模型（例如使用 `ProjectBatchSummary` 而非裸 `dict`），确保 `@hey-api/openapi-ts` 生成精确的前端 TypeScript 类型。
 
-- 仅 SQLAlchemy 模型定义 + 简单的 `@hybrid_property`
-- **不**在模型里写业务方法
+## 中间件与异步任务（`middleware` & `workers`）
 
-## Schemas（pydantic）
-
-- 请求模型（`*In`）和响应模型（`*Out`）严格区分
-- 不要复用 SQLAlchemy 模型当响应（避免泄露 ORM 字段）
-- 嵌套响应优先显式定义，不依赖 Pydantic 推导
-
-> 反例：`ProjectOut.batch_summary: dict` → 改为 `ProjectBatchSummary` 显式模型
-
-## Middleware
-
-- 限流：`slowapi`，按 IP / 用户
-- 审计：写 `audit_logs` 表
-- 请求 ID：注入 `X-Request-ID` 到日志
-
-## Workers（Celery）
-
-- 任务定义在 `app/workers/`
-- broker = Redis；result backend = Redis
-- 长任务（导出 / AI 预标注）必走异步
-- 短任务（发邮件）也走异步避免阻塞 HTTP
+- **Middleware**：负责 `slowapi` 速率限制、请求级 `X-Request-ID` 注入与结构化访问日志。
+- **Workers（Celery）**：定义于 `app/workers/`，以 Redis 为 broker 与 result backend，按 7 类专职队列隔离消费（详见[后端基础设施](./backend-infrastructure)）。
 
 ## 测试映射
 
-| 层      | 测试位置                                     |
-| ------- | -------------------------------------------- |
-| 路由    | `tests/test_<feature>.py` 用 `httpx_client`  |
-| 服务    | `tests/test_<service>_service.py` 直接调函数 |
-| 模型    | 不单独测，由路由 / 服务测试覆盖              |
-| Workers | `tests/test_<task>.py`，用 eager mode        |
-
-领域结构额外由 `tests/test_domain_package_architecture.py` 检查依赖方向、相对导入、package root 和模块环；`tests/test_compat_facades.py` 对每个兼容 facade 的全部公开符号执行 identity 与冷导入验证。
+| 层级         | 测试位置与方式                                                                            |
+| :----------- | :---------------------------------------------------------------------------------------- |
+| **路由层**   | `apps/api/tests/test_<feature>.py`，使用异步 `httpx.AsyncClient` 测试完整 HTTP 契约与权限 |
+| **服务层**   | `apps/api/tests/test_<service>_service.py`，直接验证业务状态机、锁顺序与边界条件          |
+| **领域架构** | `apps/api/tests/test_domain_package_architecture.py`，静态校验子包依赖方向与无环约束      |
+| **Workers**  | `apps/api/tests/test_<task>.py`，验证任务幂等性、失败回滚与终态通知                       |

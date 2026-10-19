@@ -26,6 +26,7 @@ watched_tags = ["projects", "datasets", "batches", "tasks", "annotations", "anno
 "DELETE /api/v1/tasks/{task_id}/point-cloud/camera-members/{member_id}" = { status = "excluded", reason = "workbench-internal" }
 "GET /api/v1/admin/ml-integrations/all" = { status = "covered" }
 "GET /api/v1/admin/ml-integrations/gpu-resources" = { status = "excluded", reason = "no-external-demand" }
+"GET /api/v1/admin/ml-integrations/managed-auth" = { status = "excluded", reason = "web-only" }
 "GET /api/v1/admin/ml-integrations/observe" = { status = "excluded", reason = "no-external-demand" }
 "GET /api/v1/admin/ml-integrations/overview" = { status = "excluded", reason = "no-external-demand" }
 "GET /api/v1/admin/ml-integrations/runtime-hints" = { status = "excluded", reason = "no-external-demand" }
@@ -105,6 +106,7 @@ watched_tags = ["projects", "datasets", "batches", "tasks", "annotations", "anno
 "PATCH /api/v1/tasks/{task_id}/video/tracks/{annotation_id}/mask-keyframes/{frame_index}" = { status = "excluded", reason = "workbench-internal" }
 "POST /api/v1/admin/ml-integrations/observe/smoke-test" = { status = "excluded", reason = "no-external-demand" }
 "POST /api/v1/admin/ml-integrations/probe" = { status = "excluded", reason = "no-external-demand" }
+"POST /api/v1/admin/ml-integrations/managed-auth/initialize" = { status = "excluded", reason = "web-only" }
 "POST /api/v1/admin/ml-integrations/registry" = { status = "covered" }
 "POST /api/v1/admin/ml-integrations/registry/{registry_id}/health" = { status = "covered" }
 "POST /api/v1/admin/ml-integrations/registry/{registry_id}/unload" = { status = "covered" }

@@ -44,6 +44,7 @@ import type { UserRole } from "@/types";
 import { PageContainer } from "@/components/layout/PageContainer";
 import { getPasswordValidationErrors, isPasswordStrong } from "@/utils/password";
 import { SystemSettingsSection } from "./SystemSettingsSection";
+import { MLBackendOperationsSection } from "./MLBackendOperationsSection";
 import { useUnsavedSettingsGuard } from "./useUnsavedSettingsGuard";
 
 type SectionKey = "profile" | "workbench" | "apikeys" | "feedback" | "notifications" | "system";
@@ -131,6 +132,7 @@ export function SettingsPage() {
           {section === "system" && isAdmin && (
             <div className="flex flex-col gap-4">
               <SystemSettingsSection key={currentUserId} onDirtyChange={setSystemDirty} />
+              <MLBackendOperationsSection />
               <ConnectorAllowlistSettings />
             </div>
           )}

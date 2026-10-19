@@ -15,7 +15,10 @@ export const opsSidebar: DefaultTheme.SidebarItem[] = [
   {
     text: "升级维护",
     collapsed: true,
-    items: [{ text: "升级指南", link: "/ops/upgrade-guide" }],
+    items: [
+      { text: "升级指南", link: "/ops/upgrade-guide" },
+      { text: "本机 ML 服务维护", link: "/ops/deploy/ml-backend-maintenance" },
+    ],
   },
   {
     text: "监控与安全",

@@ -6,6 +6,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
+from aap_protocol_v2.backend_auth import managed_provider
 from aap_protocol_v2.lifecycle import managed_lifecycle_capability_sha256
 from fastapi import HTTPException
 from sqlalchemy import func, select, text, update
@@ -176,6 +177,26 @@ class MLBackendService:
             kwargs.get("vram_budget_mb"),
             extra_params=kwargs.get("extra_params"),
         )
+        env_managed_default = False
+        if "auth_method" not in kwargs:
+            from app.services.managed_inference_auth import provider_for_url
+
+            provider = provider_for_url(url)
+            if provider:
+                kwargs["auth_method"] = f"managed:{provider}"
+                env_managed_default = source == "env"
+        if managed_provider(kwargs.get("auth_method")) is not None:
+            if env_managed_default:
+                from aap_protocol_v2.managed_credential import ensure_credential
+                from app.services.managed_inference_auth import credential_directory
+
+                kwargs["auth_token"] = ensure_credential(credential_directory(provider))
+            else:
+                from app.services.managed_inference_auth import initialize_managed_auth
+
+                kwargs["auth_token"] = await initialize_managed_auth(
+                    url, kwargs.get("auth_token"), kwargs["auth_method"]
+                )
         row = MLBackendRegistry(
             id=uuid.uuid4(), name=name, url=url.rstrip("/"), source=source, **kwargs
         )
@@ -793,11 +814,24 @@ class MLBackendService:
         return list(result.scalars().all())
 
     async def update(
-        self, registry_id: uuid.UUID, **kwargs
+        self, registry_id: uuid.UUID, *, preserve_manual_auth: bool = False, **kwargs
     ) -> MLBackendRegistry | None:
         row = await self.get(registry_id)
         if not row:
             return None
+        if (
+            preserve_manual_auth
+            and row.auth_method != "none"
+            and managed_provider(row.auth_method) is None
+        ):
+            raise HTTPException(
+                409,
+                detail={
+                    "error_code": "manual_auth_preserved",
+                    "message": "实例已改为手动认证，已保留该配置；请刷新后查看。",
+                },
+            )
+        requested_identity = (row.url, row.auth_revision)
         unknown = set(kwargs) - _REGISTRY_MUTABLE_FIELDS
         if unknown:
             raise TypeError(f"unsupported ML backend fields: {sorted(unknown)}")
@@ -811,6 +845,39 @@ class MLBackendService:
             if conflict is not None and conflict.id != row.id:
                 raise MLBackendURLConflict(conflict.name)
             kwargs["url"] = normalized_url
+
+        next_method = kwargs.get("auth_method", row.auth_method)
+        if managed_provider(next_method) is not None and (
+            "auth_method" in kwargs or "url" in kwargs or "auth_token" in kwargs
+        ):
+            from app.services.managed_inference_auth import initialize_managed_auth
+
+            kwargs["auth_token"] = await initialize_managed_auth(
+                kwargs.get("url", row.url), kwargs.get("auth_token"), next_method
+            )
+
+        # Do not hold a row lock across the authentication handshake. Recheck the
+        # final identity under the same lock used by concurrent configuration writes.
+        row = await self.db.scalar(
+            select(MLBackendRegistry)
+            .where(MLBackendRegistry.id == registry_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        if row is None:
+            return None
+        if (row.url, row.auth_revision) != requested_identity:
+            raise HTTPException(409, "服务地址或认证已被其他操作修改，请刷新后重试。")
+        if (
+            managed_provider(row.auth_method) is not None
+            and managed_provider(next_method) is None
+        ):
+            if next_method == "token" and not kwargs.get("auth_token"):
+                raise HTTPException(
+                    422, "改用手动 Token 时必须填写服务端令牌；系统托管凭据不能沿用。"
+                )
+            if next_method != "token":
+                kwargs["auth_token"] = None
 
         protected_values = {
             "url": row.url,

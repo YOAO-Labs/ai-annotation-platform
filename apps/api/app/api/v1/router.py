@@ -5,6 +5,7 @@ from app.api.v1 import (
     admin_ml_integrations,
     admin_preannotate,
     admin_system_health,
+    admin_backend_operations,
     api_keys,
     async_jobs,
     auth,
@@ -64,6 +65,7 @@ from app.api.v1 import (
 )
 
 api_router = APIRouter()
+api_router.include_router(admin_backend_operations.router)
 api_router.include_router(auth.router, prefix="/auth", tags=["auth"])
 api_router.include_router(invitations.router, prefix="/auth", tags=["auth"])
 api_router.include_router(

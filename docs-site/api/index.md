@@ -25,6 +25,10 @@ last_reviewed: 2026-07-12
 - **错误格式**：`{"detail": "<message>"}` 或 Pydantic 校验数组
 - **限流**：用户级，超出返回 `429 Too Many Requests`
 
+超管可通过 `GET /api/v1/admin/ml-integrations/managed-auth` 查看五个内置服务的私有凭据状态与已注册实例，通过 `POST /api/v1/admin/ml-integrations/managed-auth/initialize` 初始化并同步指定服务。请求可传 `providers`（`gsam2`、`sam3`、`yolo`、`onnxtools`、`rapidocr`）；省略表示全部部署配置中的服务。响应不包含凭据内容或文件路径，`credential_state=ready` 仅表示本地凭据已保存。已有手动认证保留，未注册服务不会被自动注册或启用到项目。服务认证仍由额外受认证握手确认。
+
+本机服务维护使用 `GET /api/v1/admin/ml-backend-operations/status` 获取可用性和目标身份，再以 `POST /api/v1/admin/ml-backend-operations/jobs` 提交 `provider`、`expected_deployment` 和 `expected_runner_id`，通过 `GET /api/v1/admin/ml-backend-operations/jobs/{id}` 查看阶段。接口仅限超管；目标变化返回 `409`，不可自动重试。执行前须安装[宿主机维护程序](/ops/deploy/ml-backend-maintenance)。API 不接受命令、Compose 文件或容器名，响应不返回原始构建日志。
+
 ### 第一次接入
 
 1. 调用 `POST /api/v1/auth/login` 获取 JWT Bearer Token。

@@ -23,6 +23,7 @@ import cv2
 import httpx
 import numpy as np
 from PIL import Image, ImageDraw
+from aap_backend_runtime.backend_auth import backend_auth_headers
 from aap_backend_runtime import (
     REQUIRED_CONTRACT_CHECKS,
     artifact_evidence,
@@ -325,6 +326,7 @@ async def _run() -> dict[str, Any]:
             transport = httpx.ASGITransport(app=main.app)
             async with httpx.AsyncClient(
                 transport=transport,
+                headers=backend_auth_headers("yolo"),
                 base_url="http://yolo-validation",
                 timeout=600,
             ) as client:

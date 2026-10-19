@@ -1,8 +1,9 @@
 ---
+title: 独立工作树开发环境
 audience: [dev]
 type: how-to
 status: stable
-last_reviewed: 2026-09-12
+last_reviewed: 2026-10-19
 ---
 
 # 独立工作树开发环境

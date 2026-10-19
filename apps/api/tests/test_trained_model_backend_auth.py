@@ -27,11 +27,12 @@ async def test_missing_controlled_auth_explains_where_to_configure(
     assert error.value.status_code == 422
     assert "至少 32 个字符" in error.value.detail
     assert "YOLO_MANAGED_MODELS_TOKEN" in error.value.detail
-    assert "留空不会自动生成" in error.value.detail
+    assert "系统托管" in error.value.detail
 
 
-async def test_configured_controlled_auth_keeps_backend_usable(monkeypatch):
-    backend = SimpleNamespace(auth_method="token", auth_token="a" * 64)
+@pytest.mark.parametrize("method", ["token", "managed:yolo"])
+async def test_configured_controlled_auth_keeps_backend_usable(monkeypatch, method):
+    backend = SimpleNamespace(auth_method=method, auth_token="a" * 64)
     db = AsyncMock()
     db.get.return_value = backend
     monkeypatch.setattr(MLBackendService, "is_enabled", AsyncMock(return_value=True))

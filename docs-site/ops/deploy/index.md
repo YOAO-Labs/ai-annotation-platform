@@ -3,7 +3,7 @@ audience: [dev, ops]
 type: explanation
 since: v0.15.17
 status: stable
-last_reviewed: 2026-06-12
+last_reviewed: 2026-10-19
 ---
 
 # 部署总览
@@ -12,13 +12,14 @@ last_reviewed: 2026-06-12
 
 ## 先选形态
 
-| 你要做的                                   | 去哪                                               |
-| ------------------------------------------ | -------------------------------------------------- |
-| 在本机跑起来做开发 / 联调                  | [开发部署（本地）](/ops/deploy/development)        |
-| 搬到 staging / 生产                        | [生产部署](/ops/deploy/docker-compose)             |
-| 复用现有基础设施，另建局域网生产数据和账号 | [局域网生产部署](/ops/deploy/lan-production)       |
-| 把平台 / API 暴露给团队或远程 SDK 调用方   | [端口暴露与网络安全](/ops/deploy/network-security) |
-| 升级版本 / 跑迁移 / rebuild 还是 restart   | [升级指南](/ops/upgrade-guide)                     |
+| 你要做的                                   | 去哪                                                   |
+| ------------------------------------------ | ------------------------------------------------------ |
+| 在本机跑起来做开发 / 联调                  | [开发部署（本地）](/ops/deploy/development)            |
+| 搬到 staging / 生产                        | [生产部署](/ops/deploy/docker-compose)                 |
+| 复用现有基础设施，另建局域网生产数据和账号 | [局域网生产部署](/ops/deploy/lan-production)           |
+| 把平台 / API 暴露给团队或远程 SDK 调用方   | [端口暴露与网络安全](/ops/deploy/network-security)     |
+| 升级版本 / 跑迁移 / rebuild 还是 restart   | [升级指南](/ops/upgrade-guide)                         |
+| 配置超管页面的一键重建 ML 服务             | [本机 ML 服务维护](/ops/deploy/ml-backend-maintenance) |
 
 ## 开发态 vs 生产态：一句话区别
 

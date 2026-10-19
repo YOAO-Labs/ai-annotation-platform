@@ -2,9 +2,8 @@
 title: aap CLI 参考
 audience: [dev]
 type: reference
-since: v0.15.2
 status: beta
-last_reviewed: 2026-06-11
+last_reviewed: 2026-10-19
 ---
 
 # aap CLI 参考

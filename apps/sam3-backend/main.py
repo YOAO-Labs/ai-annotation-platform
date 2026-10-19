@@ -86,6 +86,7 @@ from aap_protocol_v2.lifecycle import (
     parse_gpu_admission_header_values,
     parse_gpu_control_token_header_values,
 )
+from aap_backend_runtime.backend_auth import install_backend_auth
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse, Response
 from fastapi.routing import APIRoute
@@ -143,6 +144,8 @@ MANAGED_LIFECYCLE_VERIFIED = deployment_verified_flag("SAM3_MANAGED_LIFECYCLE_VE
 MAX_PREDICT_REQUEST_BYTES = 6 * 1024 * 1024
 
 app = FastAPI(title="sam3-backend", version=BACKEND_VERSION)
+
+install_backend_auth(app, "sam3")
 
 
 async def _buffer_bounded_predict_body(request: Request) -> None:

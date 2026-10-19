@@ -16,6 +16,7 @@ from urllib.parse import urlsplit
 import httpx
 from fastapi import HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+from aap_backend_runtime.backend_auth import backend_credential
 from training_contract.model_return import LIBRE_FORMAT, LIBRE_RUNTIME, libre_identity
 
 
@@ -84,7 +85,7 @@ class InstallRequest(ManagedModelRef):
 
 
 def authenticate(request: Request):
-    expected = os.environ.get("YOLO_MANAGED_MODELS_TOKEN", "")
+    expected = backend_credential("yolo")
     supplied = request.headers.get("Authorization", "")
     if len(expected) < 32 or not secrets.compare_digest(supplied, f"Bearer {expected}"):
         raise HTTPException(

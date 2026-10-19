@@ -13572,6 +13572,34 @@
         "title": "EvaluationSpec",
         "type": "object"
       },
+      "Event": {
+        "properties": {
+          "at": {
+            "title": "At",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "info",
+              "success",
+              "error"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          }
+        },
+        "required": [
+          "at",
+          "message",
+          "kind"
+        ],
+        "title": "Event",
+        "type": "object"
+      },
       "ExecutorClaim": {
         "additionalProperties": false,
         "properties": {
@@ -18216,6 +18244,91 @@
         "title": "InvitationStats",
         "type": "object"
       },
+      "Job": {
+        "properties": {
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "deployment": {
+            "title": "Deployment",
+            "type": "string"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "events": {
+            "items": {
+              "$ref": "#/components/schemas/Event"
+            },
+            "title": "Events",
+            "type": "array"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "phase": {
+            "enum": [
+              "queued",
+              "validating",
+              "building",
+              "stopping",
+              "recreating",
+              "checking",
+              "complete"
+            ],
+            "title": "Phase",
+            "type": "string"
+          },
+          "provider": {
+            "enum": [
+              "gsam2",
+              "sam3",
+              "yolo",
+              "onnxtools",
+              "rapidocr"
+            ],
+            "title": "Provider",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "queued",
+              "running",
+              "succeeded",
+              "failed",
+              "interrupted"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "updated_at": {
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "provider",
+          "status",
+          "phase",
+          "created_at",
+          "updated_at",
+          "deployment",
+          "events"
+        ],
+        "title": "Job",
+        "type": "object"
+      },
       "JsonValue": {},
       "Keypoint": {
         "additionalProperties": false,
@@ -20026,6 +20139,157 @@
         "title": "MLIntegrationsOverview",
         "type": "object"
       },
+      "ManagedAuthInitialize": {
+        "additionalProperties": false,
+        "properties": {
+          "providers": {
+            "anyOf": [
+              {
+                "items": {
+                  "enum": [
+                    "gsam2",
+                    "sam3",
+                    "yolo",
+                    "onnxtools",
+                    "rapidocr"
+                  ],
+                  "type": "string"
+                },
+                "maxItems": 5,
+                "minItems": 1,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Providers"
+          }
+        },
+        "title": "ManagedAuthInitialize",
+        "type": "object"
+      },
+      "ManagedAuthItem": {
+        "properties": {
+          "credential_state": {
+            "enum": [
+              "missing",
+              "ready",
+              "invalid"
+            ],
+            "title": "Credential State",
+            "type": "string"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message"
+          },
+          "outcome": {
+            "anyOf": [
+              {
+                "enum": [
+                  "synced",
+                  "initialized",
+                  "unavailable",
+                  "manual_preserved",
+                  "error"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Outcome"
+          },
+          "provider": {
+            "enum": [
+              "gsam2",
+              "sam3",
+              "yolo",
+              "onnxtools",
+              "rapidocr"
+            ],
+            "title": "Provider",
+            "type": "string"
+          },
+          "registries": {
+            "items": {
+              "$ref": "#/components/schemas/ManagedAuthRegistry"
+            },
+            "title": "Registries",
+            "type": "array"
+          },
+          "service_name": {
+            "title": "Service Name",
+            "type": "string"
+          },
+          "url": {
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "provider",
+          "service_name",
+          "url",
+          "credential_state"
+        ],
+        "title": "ManagedAuthItem",
+        "type": "object"
+      },
+      "ManagedAuthRegistry": {
+        "properties": {
+          "auth_method": {
+            "title": "Auth Method",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "state": {
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "auth_method",
+          "state"
+        ],
+        "title": "ManagedAuthRegistry",
+        "type": "object"
+      },
+      "ManagedAuthStatus": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ManagedAuthItem"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "ManagedAuthStatus",
+        "type": "object"
+      },
       "ManagedLifecycleCapabilities": {
         "additionalProperties": false,
         "description": "Additive ``/setup.managed_lifecycle`` capability declaration.",
@@ -20086,6 +20350,71 @@
           }
         },
         "title": "ManagedLifecycleCapabilities",
+        "type": "object"
+      },
+      "ManagerStatus": {
+        "properties": {
+          "available": {
+            "title": "Available",
+            "type": "boolean"
+          },
+          "deployment": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deployment"
+          },
+          "jobs": {
+            "items": {
+              "$ref": "#/components/schemas/Job"
+            },
+            "title": "Jobs",
+            "type": "array"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "runner_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Runner Id"
+          },
+          "services": {
+            "items": {
+              "$ref": "#/components/schemas/Service"
+            },
+            "title": "Services",
+            "type": "array"
+          }
+        },
+        "required": [
+          "available",
+          "reason",
+          "deployment",
+          "runner_id",
+          "services",
+          "jobs"
+        ],
+        "title": "ManagerStatus",
         "type": "object"
       },
       "MaskCompareMetrics": {
@@ -34436,6 +34765,13 @@
       "RuntimeHints": {
         "description": "v0.9.6 · 前端 modal 启动时一次性查; 提供注册 form 的 placeholder hint.",
         "properties": {
+          "managed_backend_urls": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Managed Backend Urls",
+            "type": "object"
+          },
           "ml_backend_default_url": {
             "anyOf": [
               {
@@ -36587,6 +36923,43 @@
         "title": "SensorCalibrationUpdate",
         "type": "object"
       },
+      "Service": {
+        "properties": {
+          "can_rebuild": {
+            "title": "Can Rebuild",
+            "type": "boolean"
+          },
+          "provider": {
+            "enum": [
+              "gsam2",
+              "sam3",
+              "yolo",
+              "onnxtools",
+              "rapidocr"
+            ],
+            "title": "Provider",
+            "type": "string"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "required": [
+          "provider",
+          "can_rebuild",
+          "reason"
+        ],
+        "title": "Service",
+        "type": "object"
+      },
       "ServicePoolAdminItem": {
         "properties": {
           "capability_fingerprint": {
@@ -37494,6 +37867,37 @@
           "max_native_seconds"
         ],
         "title": "StudyBudgets",
+        "type": "object"
+      },
+      "Submission": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_deployment": {
+            "title": "Expected Deployment",
+            "type": "string"
+          },
+          "expected_runner_id": {
+            "title": "Expected Runner Id",
+            "type": "string"
+          },
+          "provider": {
+            "enum": [
+              "gsam2",
+              "sam3",
+              "yolo",
+              "onnxtools",
+              "rapidocr"
+            ],
+            "title": "Provider",
+            "type": "string"
+          }
+        },
+        "required": [
+          "provider",
+          "expected_deployment",
+          "expected_runner_id"
+        ],
+        "title": "Submission",
         "type": "object"
       },
       "SuggestedBackendItem": {
@@ -51504,6 +51908,126 @@
         ]
       }
     },
+    "/api/v1/admin/ml-backend-operations/jobs": {
+      "post": {
+        "operationId": "submit_job_api_v1_admin_ml_backend_operations_jobs_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Submission"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Job"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Submit Job",
+        "tags": [
+          "admin-ml-backend-operations"
+        ]
+      }
+    },
+    "/api/v1/admin/ml-backend-operations/jobs/{job_id}": {
+      "get": {
+        "operationId": "read_job_api_v1_admin_ml_backend_operations_jobs__job_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Job Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Job"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Read Job",
+        "tags": [
+          "admin-ml-backend-operations"
+        ]
+      }
+    },
+    "/api/v1/admin/ml-backend-operations/status": {
+      "get": {
+        "operationId": "manager_status_api_v1_admin_ml_backend_operations_status_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ManagerStatus"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Manager Status",
+        "tags": [
+          "admin-ml-backend-operations"
+        ]
+      }
+    },
     "/api/v1/admin/ml-integrations/all": {
       "get": {
         "description": "v0.19.0 ADR-0044 · 列全局注册表所有 backend。\n\n用于 CreateProjectWizard step 4 让用户选「为新项目启用一个已注册 backend」;\n复用时 create_project 端点为新项目建启用关联 (复用同一全局 registry id)。\nsource_project_* 字段保留兼容: 现以 source ('manual'/'env') 作来源标签。",
@@ -51553,6 +52077,79 @@
           }
         ],
         "summary": "List Gpu Resources",
+        "tags": [
+          "admin-ml-integrations"
+        ]
+      }
+    },
+    "/api/v1/admin/ml-integrations/managed-auth": {
+      "get": {
+        "description": "Inspect private local defaults without revealing or sending credentials.",
+        "operationId": "managed_auth_status_api_v1_admin_ml_integrations_managed_auth_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ManagedAuthStatus"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Managed Auth Status",
+        "tags": [
+          "admin-ml-integrations"
+        ]
+      }
+    },
+    "/api/v1/admin/ml-integrations/managed-auth/initialize": {
+      "post": {
+        "operationId": "initialize_managed_backends_api_v1_admin_ml_integrations_managed_auth_initialize_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ManagedAuthInitialize"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ManagedAuthStatus"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Initialize Managed Backends",
         "tags": [
           "admin-ml-integrations"
         ]

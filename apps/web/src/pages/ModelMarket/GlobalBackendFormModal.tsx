@@ -15,6 +15,7 @@ import { useToastStore } from "@/components/ui/Toast";
 import {
   adminMlIntegrationsApi,
   type GPUArbiterResourceItem,
+  type MLBackendAuthMethod,
   type GPUConfigDiagnostic,
   type ProbeResponse,
   type MLBackendRegistryCreatePayload,
@@ -45,6 +46,13 @@ const INPUT_CLASS =
   "box-border w-full appearance-none rounded-md border border-border bg-muted px-2.5 py-2 text-sm text-foreground outline-none [font-family:inherit]";
 const MONO_INPUT_CLASS = "font-mono text-xs";
 const HELP_CLASS = "mt-1 text-2xs text-muted-foreground";
+const MANAGED_LABELS: Record<string, string> = {
+  gsam2: "Grounded SAM 2",
+  sam3: "SAM 3",
+  yolo: "YOLO",
+  onnxtools: "ONNXTools",
+  rapidocr: "RapidOCR",
+};
 
 function resourceOptionLabel(resource: GPUArbiterResourceItem) {
   return `${resource.gpu_resource_id} · ${resource.claimed_budget_mb}/${resource.allocatable_mb} MiB · ${resource.desired_mode}→${resource.effective_mode}`;
@@ -58,8 +66,9 @@ export function GlobalBackendFormModal({ open, backend, onClose }: Props) {
 
   const [name, setName] = useState("");
   const [url, setUrl] = useState("");
-  const [authMethod, setAuthMethod] = useState<"none" | "token">("none");
+  const [authMethod, setAuthMethod] = useState<MLBackendAuthMethod>("none");
   const [authToken, setAuthToken] = useState("");
+  const [authTouched, setAuthTouched] = useState(false);
   const [maxConcurrency, setMaxConcurrency] = useState("");
   const [extraText, setExtraText] = useState("");
   const [extraOpen, setExtraOpen] = useState(false);
@@ -75,6 +84,9 @@ export function GlobalBackendFormModal({ open, backend, onClose }: Props) {
     staleTime: Infinity,
     enabled: open,
   });
+  const managedUrls = hintsQ.data?.managed_backend_urls ?? {};
+  const managedProvider = authMethod.startsWith("managed:") ? authMethod.slice(8) : null;
+  const managedUrl = managedProvider ? managedUrls[managedProvider] : undefined;
   const urlPlaceholder = hintsQ.data?.ml_backend_default_url ?? "http://172.17.0.1:8001";
   const resourcesQ = useQuery({
     queryKey: ["admin", "ml-integrations", "gpu-resources"],
@@ -93,7 +105,16 @@ export function GlobalBackendFormModal({ open, backend, onClose }: Props) {
   const [probing, setProbing] = useState(false);
   const [probeResult, setProbeResult] = useState<ProbeResponse | null>(null);
 
+  useEffect(() => {
+    if (!open || backend || authTouched || !hintsQ.data?.managed_backend_urls) return;
+    const provider = Object.entries(hintsQ.data.managed_backend_urls).find(
+      ([, target]) => target.replace(/\/$/, "") === url.replace(/\/$/, ""),
+    )?.[0];
+    setAuthMethod(provider ? (`managed:${provider}` as MLBackendAuthMethod) : "none");
+  }, [open, backend, authTouched, hintsQ.data, url]);
+
   const onProbe = async () => {
+    if (managedProvider) return;
     const trimmedUrl = url.trim();
     if (!trimmedUrl) {
       setProbeResult({ ok: false, latency_ms: 0, error: "请先填 URL" });
@@ -108,7 +129,7 @@ export function GlobalBackendFormModal({ open, backend, onClose }: Props) {
     try {
       const res = await adminMlIntegrationsApi.probe({
         url: trimmedUrl,
-        auth_method: authMethod,
+        auth_method: authMethod as "none" | "token",
         auth_token: authMethod === "token" && authToken.trim() ? authToken.trim() : null,
       });
       setProbeResult(res);
@@ -124,10 +145,11 @@ export function GlobalBackendFormModal({ open, backend, onClose }: Props) {
     setError(null);
     setGpuDiagnostics([]);
     setProbeResult(null);
+    setAuthTouched(false);
     if (backend) {
       setName(backend.name);
       setUrl(backend.url);
-      setAuthMethod((backend.auth_method as "none" | "token") ?? "none");
+      setAuthMethod((backend.auth_method as MLBackendAuthMethod) ?? "none");
       setAuthToken("");
       // GlobalBackendItem 不含 extra_params，编辑时留空，提交时不下发以保留后端原值。
       setMaxConcurrency("");
@@ -323,7 +345,14 @@ export function GlobalBackendFormModal({ open, backend, onClose }: Props) {
             id="global-backend-url"
             value={url}
             onChange={(e) => {
-              setUrl(e.target.value);
+              const nextUrl = e.target.value;
+              setUrl(nextUrl);
+              if (!backend && !authTouched) {
+                const provider = Object.entries(managedUrls).find(
+                  ([, target]) => target.replace(/\/$/, "") === nextUrl.replace(/\/$/, ""),
+                )?.[0];
+                setAuthMethod(provider ? (`managed:${provider}` as MLBackendAuthMethod) : "none");
+              }
               setProbeResult(null);
             }}
             placeholder={urlPlaceholder}
@@ -334,7 +363,12 @@ export function GlobalBackendFormModal({ open, backend, onClose }: Props) {
             <span className="font-mono">172.17.0.1</span>。
           </div>
           <div className="mt-2 flex flex-wrap items-center gap-2">
-            <Button size="sm" variant="ghost" onClick={onProbe} disabled={probing}>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={onProbe}
+              disabled={probing || !!managedProvider}
+            >
               {probing ? (
                 <Icon name="loader2" size={11} className="spin" />
               ) : (
@@ -477,12 +511,52 @@ export function GlobalBackendFormModal({ open, backend, onClose }: Props) {
           <select
             id="global-backend-auth-method"
             value={authMethod}
-            onChange={(e) => setAuthMethod(e.target.value as "none" | "token")}
+            onChange={(e) => {
+              setAuthMethod(e.target.value as MLBackendAuthMethod);
+              setAuthTouched(true);
+              setProbeResult(null);
+            }}
             className={clsx(INPUT_CLASS, "cursor-pointer")}
           >
             <option value="none">none（无认证）</option>
-            <option value="token">token（Bearer header）</option>
+            {Object.entries(MANAGED_LABELS).map(([provider, label]) => (
+              <option key={provider} value={`managed:${provider}`}>
+                系统托管（{label}）
+              </option>
+            ))}
+            <option value="token">token（手动 Bearer Token）</option>
           </select>
+          {managedProvider && (
+            <div className="mt-2 rounded-md bg-muted p-2.5 text-xs text-muted-foreground">
+              <p>
+                {backend?.auth_method?.startsWith("managed:")
+                  ? "已保存系统托管认证。"
+                  : "保存时自动初始化认证。"}
+                平台会生成或复用私有凭据，与指定内置服务验证后同步保存，无需复制 Token。
+              </p>
+              <p className="mt-1">
+                部署指定的服务地址：
+                <span className="font-mono">{managedUrl || "未配置"}</span>。
+                认证在保存时验证；普通健康检查不代表认证已就绪。
+              </p>
+              <p className="mt-1">
+                旧服务需先升级共享目录挂载；已手动配置服务端 Token 的实例请继续使用手动认证。
+              </p>
+              {managedUrl && url !== managedUrl && (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="mt-1"
+                  onClick={() => {
+                    setUrl(managedUrl!);
+                    setProbeResult(null);
+                  }}
+                >
+                  使用部署指定的服务地址
+                </Button>
+              )}
+            </div>
+          )}
           {authMethod === "token" && (
             <div className="mt-2">
               <label htmlFor="global-backend-auth-token" className={LABEL_CLASS}>
@@ -502,10 +576,8 @@ export function GlobalBackendFormModal({ open, backend, onClose }: Props) {
                 className={INPUT_CLASS}
               />
               <div id="global-backend-auth-help" className={HELP_CLASS}>
-                Token 由服务管理员自行生成，平台不会自动生成或修改服务端配置。 YOLO 模型回流可运行{" "}
-                <code className="font-mono">openssl rand -hex 32</code>
-                生成 64 个字符的随机令牌，将同一值配置到服务端的 YOLO_MANAGED_MODELS_TOKEN，
-                重新创建 YOLO 服务容器后填到这里。默认空值表示关闭模型回流。
+                用于远程或自行配置的服务，填写与服务端相同的 Token。 YOLO 模型回流要求至少 32
+                个字符，并与 YOLO_MANAGED_MODELS_TOKEN 一致。 内置服务可改选「系统托管」自动初始化。
                 {backend?.auth_method === "token" &&
                   "留空仅保留已保存的令牌；若原本未配置，仍需填写。"}
               </div>

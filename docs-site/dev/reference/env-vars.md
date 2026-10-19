@@ -152,7 +152,11 @@ last_reviewed: 2026-10-19
 |---|---|---|
 | `YOLO_DEVICE` | `cuda:0` | profile gpu-yolo · 与 grounded-sam2 / sam3 三 backend 独立启停 |
 | `YOLO_MODEL_POOL_CAP` | `2` | — |
-| `YOLO_MANAGED_MODELS_TOKEN` | `—` | Controlled model installation/prediction credential; at least 32 random characters. Configure the same token on the platform's YOLO inference registry. Empty disables this path. |
+| `YOLO_MANAGED_MODELS_TOKEN` | `—` | Optional manual override. Empty uses the system-managed per-service credential. Existing manual credentials are never overwritten; use the same Token in its registry. |
+| `ML_MANAGED_AUTH_DIR` | `./data/inference-auth` | Private shared defaults for five first-party inference services; no token values go in .env. |
+| `ML_MANAGED_BACKEND_URLS` | `—` | Deployment-owned trust map. Leave unset for built-in host/Compose defaults; never a UI URL allowlist. |
+| `ML_MANAGED_BACKEND_URLS` | `{"gsam2":"http://172.17.0.1:8001","sam3":"http://172.17.0.1:8002","yolo":"http://172.17.0.1:8003","onnxtools":"http://172.17.0.1:8004","rapidocr":"http://172.17.0.1:8005"}` | — |
+| `ML_BACKEND_OPERATIONS_DIR` | `./data/backend-manager` | Restricted local operation queue; the separate host runner owns Docker access. |
 | `YOLO_BUILD_TIMEOUT` | `30` | — |
 | `YOLO_IDLE_UNLOAD_SECONDS` | `600` | — |
 | `YOLO_IDLE_CHECK_INTERVAL` | `60` | — |

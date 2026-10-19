@@ -1,9 +1,9 @@
 ---
 title: 图片工作台栅格资源协调
-audience: [developer, operator]
+audience: [dev, ops]
 type: explanation
 status: stable
-last_reviewed: 2026-07-31
+last_reviewed: 2026-10-19
 ---
 
 # 图片工作台栅格资源协调
@@ -28,9 +28,10 @@ soft budget 用于暂停预取和释放低价值缓存；hard budget 是同步�
 committedBytes + reservedBytes <= hardBudgetBytes
 ```
 
-P0 是 dirty edit、current revision 和 history 等不可重建真值；P1/P2 是最低背景覆盖、可见编辑 tile、
-目标 LOD 与当前 Mask；P3 是 overview、compare 和空闲 scratch；P4/P5 是 overscan、预取和可重建缓存增长。
-前台 Mask operation 开始后会暂停 P4/P5，完成后只按当前 generation 重建队列。
+- **P0（不可淘汰真值）**：dirty edit、current revision 与撤销历史。
+- **P1 / P2（核心视口层）**：最低背景覆盖、可见编辑 tile、目标 LOD 与当前选中 Mask。
+- **P3（辅助交互层）**：overview、compare 预览与空闲 scratch。
+- **P4 / P5（弹性预取层）**：overscan、后台预取与可重建缓存增长。前台 Mask 运算开始后会暂停 P4/P5，完成后按当前 generation 重建队列。
 
 ## Owner 接入合同
 
@@ -99,5 +100,4 @@ dispose 后 chargedBytes == 0
 测试可通过 hook 的显式 budget 覆盖档位；生产没有运行时“无限放大预算”开关。调整默认值必须同时重跑
 randomized ledger、背景/Mask 联合 E2E、hidden/BFCache、Worker crash、两页签和 dispose 归零门。
 
-相关决策见
-[ADR-0064](https://github.com/yyq19990828/ai-annotation-platform/blob/main/docs/adr/archive/0064-task-scoped-raster-resource-coordination.md)。
+相关决策见 [ADR 0064](../adr/archive/0064-task-scoped-raster-resource-coordination)。

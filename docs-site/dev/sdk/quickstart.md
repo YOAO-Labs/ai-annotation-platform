@@ -2,9 +2,8 @@
 title: Python SDK / CLI 快速上手
 audience: [dev]
 type: tutorial
-since: v0.15.2
 status: beta
-last_reviewed: 2026-06-11
+last_reviewed: 2026-10-19
 ---
 
 # Python SDK / CLI 快速上手

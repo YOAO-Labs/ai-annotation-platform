@@ -160,6 +160,10 @@ vi.mock("@/components/connections/ConnectorAllowlistSettings", () => ({
   ConnectorAllowlistSettings: () => <div>连接器主机白名单</div>,
 }));
 
+vi.mock("./MLBackendOperationsSection", () => ({
+  MLBackendOperationsSection: () => <div>ML 服务认证与维护</div>,
+}));
+
 import { SettingsPage } from "./SettingsPage";
 
 function renderUI(initialEntry = "/settings") {
@@ -330,6 +334,7 @@ describe("SettingsPage", () => {
     expect(screen.getByText(/开放注册/)).toBeInTheDocument();
     expect(screen.getByText(/SMTP 邮件/)).toBeInTheDocument();
     expect(screen.getByText("连接器主机白名单")).toBeInTheDocument();
+    expect(screen.getByText("ML 服务认证与维护")).toBeInTheDocument();
   });
 
   it("系统设置 - 系统设置 tab 加载中状态", () => {

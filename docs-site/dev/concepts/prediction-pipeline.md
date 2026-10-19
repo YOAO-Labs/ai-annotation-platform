@@ -1,9 +1,8 @@
 ---
 audience: [dev]
 type: explanation
-since: v0.9.0
 status: stable
-last_reviewed: 2026-07-29
+last_reviewed: 2026-10-19
 ---
 
 # 预标注流水线（Prediction Pipeline）
@@ -11,8 +10,6 @@ last_reviewed: 2026-07-29
 AI 预标注流水线在 worker 建档后以 `async_jobs(kind=batch_predict)` 作为用户可见任务真值，以 `predictions` / `failed_predictions` 保存可采纳结果和失败项。本页讲清 Celery 派发边界、持久化五态、写入时点与下游表的关系。
 
 > 决策依据：[ADR 0014 — Prediction Jobs 历史表](../adr/archive/0014-prediction-jobs-table)
-
-<!-- history: prediction_jobs was the early dedicated table; current docs describe async_jobs as the single job source. -->
 
 ## 状态机
 
@@ -42,7 +39,7 @@ AI 预标注流水线在 worker 建档后以 `async_jobs(kind=batch_predict)` �
   caption="批量预标端到端主链，共享同一份 canonical 可编辑资产"
 />
 
-触发端点返回 HTTP 200 和 Celery task ID，不是 `async_jobs.id`。worker 后续创建的 AsyncJob UUID 才出现在全局 WS 终端消息与作业列表里。当前 `ProjectDetailPanel` 会把触发返回 ID 交给 `GET /async-jobs/{id}` 轮询，两类 ID 不同会使该详情轮询无法命中；这是当前实现缺口，文档不把它描述成已打通。
+触发端点返回 HTTP 200 和 Celery task ID，不是 `async_jobs.id`。worker 后续创建的 AsyncJob UUID 才出现在全局 WS 终端消息与作业列表里；前端 `ProjectDetailPanel` / `RunStatusPanel` 通过订阅 `project:{id}:preannotate` WebSocket 频道接收实时进度与阶段统计。
 
 ## 与 `predictions` 表的边界
 
@@ -59,13 +56,13 @@ AI 预标注流水线在 worker 建档后以 `async_jobs(kind=batch_predict)` �
 
 `predictions.tool_unit_id String(30)` 是必填字段：
 
-- 写入时由 `PredictionService.create_from_ml_result` 调 [`derive_tool_unit_from_result`](../../../apps/api/app/services/prediction.py) 按 `result[0].type` 派生:
+- 写入时由 `PredictionService.create_from_ml_result` 调 [`derive_tool_unit_from_result`](../../../apps/api/app/services/prediction.py) 按 `result[0].type` 派生：
   - `polygonlabels` / `brushlabels` / `multi_polygon` → `region`
   - `polylinelabels` → `polyline`
-  - `rectanglelabels` → `bbox`; 若 `value.rotation` 字段存在 → `rotated_bbox`
-  - `keypointlabels` → `keypoint`; 其它未知 LS type → `bbox` 占位
-- `to_internal_shape()` 出参也带 `tool_unit_id`, 供前端候选层 / AAP JSON 导出消费
-- `accept_prediction()` 创建的 annotation 沿用 prediction 的 `tool_unit_id` (与项目 `tool_bindings[unit].classes` 软校验保一致)
+  - `rectanglelabels` → `bbox`；若 `value.rotation` 字段存在 → `rotated_bbox`
+  - `keypointlabels` → `keypoint`；其它未知 LS type → `bbox` 占位
+- `to_internal_shape()` 出参也带 `tool_unit_id`，供前端候选层 / AAP JSON 导出消费
+- `accept_prediction()` 创建的 annotation 沿用 prediction 的 `tool_unit_id`（与项目 `tool_bindings[unit].classes` 软校验保一致）
 
 详见 [annotation-module · 工具单位](./annotation-module#工具单位tool_unit维度) 与 [ADR-0026](../adr/archive/0026-tool-unit-class-and-attribute-binding)。
 
@@ -110,11 +107,11 @@ AI 预标注流水线在 worker 建档后以 `async_jobs(kind=batch_predict)` �
 
 `/ai-pre` 执行页按项目 `data_type` 在前端分流，不再统一进入批量预标流水线：
 
-| `data_type` | `/ai-pre` 行为                                                                                      |
-| ----------- | --------------------------------------------------------------------------------------------------- |
-| `image`     | 文本批量预标面板 → 走本页描述的 `batch_predict` 流水线                                              |
-| `video`     | 引导卡片（`VideoPreannotateGuide`）→ 跳工作台逐轨迹 Shift+T 发起追踪，**不进入批量 predict 流水线** |
-| `lidar`     | 显示占位提示，批量预标注入口暂不执行                                                                |
+| `data_type` | `/ai-pre` 行为                                                                |
+| ----------- | ----------------------------------------------------------------------------- |
+| `image`     | 批量预标与多阶段流水线面板 → 走本页描述的 `batch_predict` 流水线              |
+| `video`     | 视频引导提示 → 跳工作台逐轨迹 Shift+T 发起追踪，**不进入批量 predict 流水线** |
+| `lidar`     | 显示占位提示，批量预标注入口暂不执行                                          |
 
 视频项目的 AI 标注通过工作台 video tracker 发起，运行态保留 `video_tracker_jobs` 专表；历史汇总在 `/ai-pre/jobs?tab=video`，由 `async_jobs(kind=video_tracker)` 提供。
 
@@ -254,9 +251,9 @@ crop 模式默认走 **presigned URL** 而非 `data:` base64：平台把裁好�
 
 ### 逐阶段统计：实时快照 + 终态真值
 
-worker 累加各阶段 stats（源阶段 `{detected}`、下游 `{targeted, ok, failed, skipped_geometry}`），有两条通道:
+worker 累加各阶段 stats（源阶段 `{detected}`、下游 `{targeted, ok, failed, skipped_geometry}`），有两条通道：
 
-- **运行中实时快照**：按 5% 步长把当前累加 `pipeline_stages` 随进度推上 WS `project:{id}:preannotate`（复用现有通道，不新增）。前端阶段卡实时下放，显「待运行 / 运行中 / 已完成」徽标 + 计数 +`ProgressBar`。
+- **运行中实时快照**：按 5% 步长把当前累加 `pipeline_stages` 随进度推上 WS `project:{id}:preannotate`（复用现有通道，不新增）。前端阶段卡实时下放，显「待运行 / 运行中 / 已完成」徽标 + 计数 + `ProgressBar`。
 - **终态真值**：`async_jobs.result.pipeline_stages` 落库（job 终态写一次）。WS 重连或运行后回看一律走终态字段，不丢。
 
 若 GPU 仲裁在下游派发前拒绝，阶段仍按配置的 `keep_parent|drop_box` 处理，同时把完整根因记入 `PredictionMeta.extra.pipeline.gpu_arbiter_failures`。作业终态的 `async_jobs.result.gpu_arbiter_failures` 则按稳定错误码聚合 `status_code` / `retry_after_s` / `count`；`count` 表示被拒绝的派发次数，不替代 `pipeline_stages[].failed` 的受影响 ROI 计数。
@@ -290,20 +287,15 @@ worker 累加各阶段 stats（源阶段 `{detected}`、下游 `{targeted, ok, f
 
 这框的某属性来自哪个 backend / model 可逐条追溯——不改表（仍在 `PredictionMeta.extra` JSONB 内），`stage_count` / `enriched_attr_keys` 收口进同一 namespace。
 
-### backend 来源与显存保护
+### backend 来源、自训练模型与显存保护
 
-backend 走**全局注册 + 项目启用**：一个物理 backend 全局只注册一行，项目按需勾选启用，**没有项目级数量上限**（跨 backend 编排天然需 detect + classify ≥ 2，多阶段 DAG 还会更多）。每个全局注册行的 `max_concurrency`（`extra_params.max_concurrency`）始终限制单进程 / 事件循环的并行请求；`ML_BACKEND_ROUTER_MODE=off|observe` 时 API 与多个 Celery worker 仍会叠加，路由模式为 `enforce` 时再由 Redis route lease 收口为跨进程实例上限。GPU 仲裁 effective mode 只负责显存准入与驱逐。
-
-设置 `GPU_ARBITER_MODE=observe` 后，平台会在所有可加载端点的 HTTP 发送前，按稳定
-`gpu_resource_id` 对同卡预算和新鲜 residency 快照计算 `would-*` 决策。该阶段只写结构化日志，
-旁路查询有严格短超时并在失败时放行业务请求，不会改变请求结果。所有生产派发口已注入惰性
-authority，effective `enforce` 下可使用 Redis lease 执行 Resident 快路与 cold admission。cold token
-暴露后，完整 HTTP 响应会触发新 challenge 探测，并在逐卡持久锁内立即把 Loading 收口为
-Resident、CPU fallback、Unloaded 或保守 Unknown。容量不足时，authority 会在 target cold intent
-之前按优先级 + LRU 依次驱逐同一完整资源 ID 上的空闲 victim，只在严格 drain ACK、
-新鲜 health proof 与终态 CAS 都成功后释放预算；不确定结果保守收口 Unknown 并停止后续驱逐。
-空闲和 busy victim 的等待、驱逐与取消路径均已接通；effective `enforce` 只有在运维显式开启 release latch、
-且逐资源 rollout 成功收敛为 `enforcing` 后才会生效。legacy unload 仍不能作为显存已释放或预算已减账的证据。
+- **全局注册 + 项目启用**：一个物理 backend 全局只注册一行，项目按需勾选启用，**没有项目级数量上限**（跨 backend 编排天然需 detect + classify ≥ 2）。
+- **项目自训练模型路由（`project-release`）**：当项目通过 `ProjectModelSelection`（`model_source="project_release"`）选用在线训练并已发布（`Active`）的模型版本时，预标注与主动学习刷新会将其路由至已挂载受管权重的 `yolo-backend`（`model_id = "managed:{version_id}"`），与内置目录模型共享同一预标注流水线（详见 [在线学习与训练体系](./training-datasets#模型回流与托管注册表)）。
+- **并发限速（`max_concurrency`）**：每个全局注册行的 `extra_params.max_concurrency` 始终限制单进程 / 事件循环的并行请求；`ML_BACKEND_ROUTER_MODE=off|observe` 时 API 与多个 Celery worker 仍会叠加，路由模式为 `enforce` 时再由 Redis route lease 收口为跨进程实例上限。
+- **GPU 显存仲裁（`GPU_ARBITER_MODE`）**：
+  - `observe` 模式：在所有可加载端点的 HTTP 发送前，按稳定 `gpu_resource_id` 对同卡预算和新鲜 residency 快照计算 `would-*` 决策，只写结构化日志且旁路短超时放行，不改变业务请求结果。
+  - `enforce` 模式：使用 Redis lease 执行 Resident 快路与 cold admission；cold token 暴露后，完整 HTTP 响应触发新 challenge 探测，在逐卡持久锁内将 `Loading` 收口为 `Resident`、CPU fallback、`Unloaded` 或保守 `Unknown`。
+  - **容量不足时的驱逐策略**：authority 在 target cold intent 之前按「优先级 + LRU」依次驱逐同一完整资源 ID 上的空闲 victim，仅在严格 drain ACK、新鲜 health proof 与终态 CAS 全部成功后释放预算；不确定结果保守收口为 `Unknown` 并停止后续驱逐。
 
 ## 代码索引
 
@@ -311,7 +303,7 @@ Resident、CPU fallback、Unloaded 或保守 Unknown。容量不足时，authori
 - Worker：`apps/api/app/workers/tasks.py::batch_predict` / `_run_batch` / `_run_task_pipeline` / `_resolve_input_mode`
 - ROI 路由：`apps/api/app/workers/roi.py`（`crop_inputs_from_boxes` / `geometry_prompts_from_boxes` / `merge_classify_attributes`）
 - async job service：`apps/api/app/services/async_job.py`
-- 端点：`apps/api/app/api/v1/predictions.py`（结果查询 + `POST /tasks/{id}/predictions/{pid}/accept` `attribute_overrides`）、`apps/api/app/api/v1/projects.py::trigger_preannotation`（触发）
+- 端点：`apps/api/app/api/v1/tasks/predictions.py`（结果查询 + `POST /tasks/{id}/predictions/{pid}/accept` `attribute_overrides`）、`apps/api/app/api/v1/projects.py::trigger_preannotation`（触发）
 - 能力协商：`apps/api/app/services/ml_capabilities.py`（`extract_capabilities` / `derive_modalities`，含 `output_attribute_schema` / `composition` 字段）
-- 前端：`apps/web/src/pages/AIPreAnnotate/`、`hooks/useGlobalPreannotationJobs.ts`、`pages/AIPreAnnotate/components/StageCard.tsx`（多阶段编排 UI）
+- 前端：`apps/web/src/pages/AIPreAnnotate/`、`apps/web/src/hooks/useGlobalPreannotationJobs.ts`、`apps/web/src/pages/AIPreAnnotate/components/StageCard.tsx`（多阶段编排 UI）
 - 迁移：`apps/api/alembic/versions/0085_drop_prediction_jobs.py`
