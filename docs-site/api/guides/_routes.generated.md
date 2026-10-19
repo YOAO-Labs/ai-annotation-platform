@@ -34,6 +34,14 @@
 |---|---|
 | GET | `/{panel_name}` |
 
+## `admin_backend_operations.py`
+
+| Method | Path |
+|---|---|
+| GET | `/status` |
+| POST | `/jobs` |
+| GET | `/jobs/{job_id}` |
+
 ## `admin_ml_integrations.py`
 
 | Method | Path |
@@ -898,4 +906,4 @@
 
 ---
 
-_共 82 模块 / 511 路由_
+_共 83 模块 / 514 路由_

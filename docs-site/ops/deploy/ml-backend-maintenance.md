@@ -1,3 +1,10 @@
+---
+audience: [ops, super_admin]
+type: how-to
+status: stable
+last_reviewed: 2026-10-19
+---
+
 # 本机 ML 服务维护
 
 系统配置中的「重建镜像与容器」只面向当前部署的 Grounded SAM2、SAM3、YOLO、ONNXTools、RapidOCR。操作会短暂停止目标服务；已接受的推理请求和后台模型构建先完成，再退出。空闲视频追踪会话及内存缓存会清空，用户可能需要重新开始追踪。权重卷、模型目录、数据库中的标注与 GPU fence 高水位保留。

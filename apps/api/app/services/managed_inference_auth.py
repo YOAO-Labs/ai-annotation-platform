@@ -9,7 +9,11 @@ from aap_protocol_v2.backend_auth import (
     normalized_backend_url,
     validate_backend_urls,
 )
-from aap_protocol_v2.managed_credential import CredentialFileError, ensure_credential
+from aap_protocol_v2.managed_credential import (
+    CredentialFileError,
+    ensure_credential,
+    read_credential,
+)
 from fastapi import HTTPException
 
 from app.config import settings
@@ -51,6 +55,18 @@ def initialize_default_credentials() -> dict[str, str]:
         except (OSError, CredentialFileError):
             results[provider] = "invalid"
     return results
+
+
+def local_managed_headers(url: str) -> dict[str, str]:
+    """Read existing defaults only for an unregistered, deployment-pinned target."""
+    provider = provider_for_url(url)
+    if provider is None:
+        return {}
+    try:
+        token = read_credential(credential_directory(provider))
+    except (OSError, CredentialFileError):
+        return {}
+    return {"Authorization": f"Bearer {token}"}
 
 
 async def verify_managed_auth(url: str, token: str, provider: str) -> None:

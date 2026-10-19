@@ -1281,8 +1281,8 @@ async def unload_registry_backend(
 # ─── v0.10.26 · 容器直连观测 (与项目注册解耦) ──────────────────────────────
 #
 # 即使没有任何项目注册 backend, 运维也能直连 env 配的 ML_BACKEND_OBSERVE_URLS
-# 看健康度 / 变体目录 / 试启动。观测 URL 假定免鉴权 (内网 / dev); 带 token 的
-# backend 仍走项目注册路径。
+# Read-only discovery uses registered authentication when present. Only deployment-
+# pinned, unregistered first-party targets may use an existing local credential.
 
 
 def _observe_urls() -> list[str]:
@@ -1369,7 +1369,11 @@ def _extract_supported_variants(setup: dict | None) -> list[dict]:
     return list(merged.values())
 
 
-async def _probe_one(client: httpx.AsyncClient, base: str) -> ObserveTarget:
+async def _probe_one(
+    client: httpx.AsyncClient,
+    base: str,
+    backend: MLBackendRegistry | None = None,
+) -> ObserveTarget:
     """并发探测单个观测 URL 的 /health (+ /setup 取变体目录)。"""
     start = time.monotonic()
     try:
@@ -1401,7 +1405,14 @@ async def _probe_one(client: httpx.AsyncClient, base: str) -> ObserveTarget:
 
     setup: dict | None = None
     try:
-        sresp = await client.get(f"{base}/setup")
+        from app.services.managed_inference_auth import local_managed_headers
+
+        headers = (
+            MLBackendClient(backend)._headers()
+            if backend is not None
+            else local_managed_headers(base)
+        )
+        sresp = await client.get(f"{base}/setup", headers=headers)
         if sresp.status_code == 200:
             setup = sresp.json()
     except Exception:  # noqa: BLE001 — /setup 可选, 失败不影响观测
@@ -1440,18 +1451,32 @@ async def observe_backends(
     if not urls:
         return ObserveResponse(targets=[], configured_count=0)
 
-    async with httpx.AsyncClient(timeout=settings.ml_health_timeout) as client:
-        targets = await asyncio.gather(*[_probe_one(client, u) for u in urls])
+    from aap_protocol_v2.backend_auth import normalized_backend_url
 
-    # v0.19.0 ADR-0044 · 标注哪些观测 URL 已在全局注册表 (含 env 自动 upsert / manual)。
-    res = await db.execute(select(MLBackendRegistry.url, MLBackendRegistry.source))
-    src_by_url: dict[str, str] = {url.rstrip("/"): src for url, src in res.all()}
+    rows = list((await db.execute(select(MLBackendRegistry))).scalars().all())
+    await db.commit()
+    by_url = {row.url.rstrip("/"): row for row in rows}
+    by_origin = {
+        origin: row
+        for row in rows
+        if (origin := normalized_backend_url(row.url)) is not None
+    }
+    registered = {
+        url: by_url.get(url) or by_origin.get(normalized_backend_url(url))
+        for url in urls
+    }
+    async with httpx.AsyncClient(
+        timeout=settings.ml_health_timeout, trust_env=False, follow_redirects=False
+    ) as client:
+        targets = await asyncio.gather(
+            *[_probe_one(client, url, registered[url]) for url in urls]
+        )
 
     for t in targets:
-        src = src_by_url.get(t.url.rstrip("/"))
-        if src:
+        backend = registered[t.url]
+        if backend is not None:
             t.registered = True
-            t.registered_label = f"已注册 ({src})"
+            t.registered_label = f"已注册 ({backend.source})"
 
     return ObserveResponse(targets=list(targets), configured_count=len(urls))
 
@@ -1529,7 +1554,14 @@ async def smoke_test_backend(
         )
         await db.commit()
 
-    async with httpx.AsyncClient(timeout=settings.ml_predict_timeout) as client:
+    from app.services.managed_inference_auth import local_managed_headers
+
+    async with httpx.AsyncClient(
+        timeout=settings.ml_predict_timeout,
+        trust_env=False,
+        follow_redirects=False,
+        headers=local_managed_headers(base) if registered_backend is None else {},
+    ) as client:
         if generic_variant:
             r = SmokeTestResponse(
                 ok=True,

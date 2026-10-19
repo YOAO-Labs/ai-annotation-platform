@@ -4,7 +4,7 @@ aside: false
 audience: [ops]
 type: explanation
 status: stable
-last_reviewed: 2026-07-12
+last_reviewed: 2026-10-19
 ---
 
 # 部署与运维
@@ -33,6 +33,7 @@ last_reviewed: 2026-07-12
 ## 升级与健康检查
 
 - [升级指南](/ops/upgrade-guide) — 镜像 rebuild / restart、数据库迁移与版本升级检查
+- [本机 ML 服务维护](/ops/deploy/ml-backend-maintenance) — 安装宿主机维护程序，从系统设置重建指定服务
 - [生产部署：健康检查端点](/ops/deploy/docker-compose#_7-健康检查端点) — 验证 API、Worker、数据库和依赖服务
 
 ## 可观测性
