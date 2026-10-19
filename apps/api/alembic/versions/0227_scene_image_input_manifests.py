@@ -45,6 +45,7 @@ WHERE job.kind = 'batch_predict'
           END
       ) AS stage
       WHERE stage ->> 'task' IN ('text', 'tracker')
+         OR stage #>> '{source,execution_unit}' IN ('frame', 'video', 'scene')
   )
 """
 _UNSUPPORTED_RETAINED_MANIFEST_COUNT = """
