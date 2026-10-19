@@ -5,7 +5,7 @@ import uuid
 from unittest.mock import AsyncMock
 
 import pytest
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 
 from app.config import settings
 from app.application.candidate_decision import bind_candidate_decision_port
@@ -135,6 +135,51 @@ async def test_manual_mask_write_requires_current_annotation_capability(
         .where(Annotation.task_id == task_id)
     )
     assert count == int(operation == "update")
+
+
+@pytest.mark.asyncio
+async def test_final_mask_dimensions_refresh_preflight_orm_cache(
+    db_session, httpx_client, super_admin, monkeypatch
+):
+    owner, token = super_admin
+    _project, task = await _seed_image_task(db_session, owner.id)
+    item = await db_session.get(DatasetItem, task.dataset_item_id)
+    reference = build_rle_reference(FOREGROUND_RLE)
+    upload = await _seed_upload(db_session, task.id, reference)
+
+    async def changed_dimensions(_reference):
+        await db_session.execute(
+            update(DatasetItem)
+            .where(DatasetItem.id == task.dataset_item_id)
+            .values(width=4)
+            .execution_options(synchronize_session=False)
+        )
+        assert item.width == 3
+        return FOREGROUND_RLE
+
+    load = AsyncMock(side_effect=changed_dimensions)
+    monkeypatch.setattr("app.services.raster_mask_storage.load_coco_rle", load)
+    monkeypatch.setattr(settings, "raster_mask_read_enabled", True)
+    monkeypatch.setattr(settings, "raster_mask_create_enabled", True)
+    response = await httpx_client.post(
+        f"/api/v1/tasks/{task.id}/annotations",
+        json={
+            "annotation_type": "raster_mask",
+            "tool_unit_id": "region",
+            "class_name": "object",
+            "geometry": {"type": "raster_mask", "mask": reference},
+        },
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 422, response.text
+    assert response.json()["detail"]["reason"] == "raster_mask_size_mismatch"
+    load.assert_awaited_once()
+    await db_session.refresh(upload)
+    assert upload.linked_at is None
+    assert not await db_session.scalar(
+        select(Annotation.id).where(Annotation.task_id == task.id)
+    )
 
 
 def _prediction_write_scope(task, actor_id):

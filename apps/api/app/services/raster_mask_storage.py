@@ -594,7 +594,7 @@ async def validate_mask_geometry_for_task(
                 reason="raster_mask_dataset_item_required",
                 message="raster mask requires a primary dataset item",
             )
-        item = await db.get(DatasetItem, task.dataset_item_id)
+        item = await db.get(DatasetItem, task.dataset_item_id, populate_existing=True)
         if item is None or item.file_type != "image":
             raise RasterMaskContractError(
                 status_code=422,
