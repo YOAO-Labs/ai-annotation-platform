@@ -1,0 +1,1240 @@
+{
+  "$defs": {
+    "ClaimInputGarbageRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "lease_seconds": {
+          "default": 600,
+          "maximum": 7200,
+          "minimum": 60,
+          "title": "Lease Seconds",
+          "type": "integer"
+        },
+        "page_size": {
+          "default": 100,
+          "maximum": 100,
+          "minimum": 1,
+          "title": "Page Size",
+          "type": "integer"
+        },
+        "worker_id": {
+          "format": "uuid",
+          "title": "Worker Id",
+          "type": "string"
+        }
+      },
+      "required": ["worker_id"],
+      "title": "ClaimInputGarbageRequest",
+      "type": "object"
+    },
+    "ClaimInputRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "input_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Input Id"
+        },
+        "lease_seconds": {
+          "default": 2100,
+          "maximum": 7200,
+          "minimum": 60,
+          "title": "Lease Seconds",
+          "type": "integer"
+        },
+        "worker_id": {
+          "format": "uuid",
+          "title": "Worker Id",
+          "type": "string"
+        }
+      },
+      "required": ["worker_id"],
+      "title": "ClaimInputRequest",
+      "type": "object"
+    },
+    "ClaimedInput": {
+      "additionalProperties": false,
+      "properties": {
+        "claim": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/InputClaim"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": ["claim"],
+      "title": "ClaimedInput",
+      "type": "object"
+    },
+    "CompleteInputGarbageRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "garbage_id": {
+          "format": "uuid",
+          "title": "Garbage Id",
+          "type": "string"
+        },
+        "lease_token": {
+          "format": "uuid",
+          "title": "Lease Token",
+          "type": "string"
+        }
+      },
+      "required": ["garbage_id", "lease_token"],
+      "title": "CompleteInputGarbageRequest",
+      "type": "object"
+    },
+    "FailInputRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "error_code": {
+          "enum": [
+            "invalid_request",
+            "invalid_response",
+            "storage_unavailable",
+            "account_not_active",
+            "account_busy",
+            "invalid_account_role",
+            "source_missing",
+            "source_changed",
+            "source_busy",
+            "source_not_ready",
+            "task_not_visible",
+            "task_busy",
+            "permission_denied",
+            "not_image",
+            "asset_missing",
+            "already_ready",
+            "not_eligible",
+            "retry_cooldown",
+            "operation_conflict",
+            "operation_busy",
+            "lease_lost",
+            "dependency_changed",
+            "resource_budget_exceeded",
+            "object_missing",
+            "owner_changed",
+            "unsupported_dimensions",
+            "resource_limit",
+            "invalid_coordinate",
+            "timeout",
+            "source_unavailable",
+            "color_profile_unavailable",
+            "multi_page_unsupported",
+            "dimension_mismatch",
+            "generator_unavailable",
+            "decode_failed",
+            "encode_failed",
+            "tile_grid_mismatch",
+            "upload_verification_failed",
+            "inconsistent_ready",
+            "input_missing",
+            "input_scope_mismatch",
+            "input_not_ready",
+            "input_expired",
+            "input_corrupt",
+            "input_busy",
+            "job_not_active",
+            "job_busy",
+            "reference_busy",
+            "versioning_required"
+          ],
+          "title": "Error Code",
+          "type": "string"
+        },
+        "generation": {
+          "maximum": 9223372036854775807,
+          "minimum": 1,
+          "title": "Generation",
+          "type": "integer"
+        },
+        "input_id": {
+          "format": "uuid",
+          "title": "Input Id",
+          "type": "string"
+        },
+        "lease_token": {
+          "format": "uuid",
+          "title": "Lease Token",
+          "type": "string"
+        }
+      },
+      "required": ["input_id", "generation", "lease_token", "error_code"],
+      "title": "FailInputRequest",
+      "type": "object"
+    },
+    "FindInputRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "job_id": {
+          "format": "uuid",
+          "title": "Job Id",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        }
+      },
+      "required": ["job_id", "task_id", "actor_id"],
+      "title": "FindInputRequest",
+      "type": "object"
+    },
+    "FinishInputRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "blob": {
+          "$ref": "#/$defs/InputBlob"
+        },
+        "generation": {
+          "maximum": 9223372036854775807,
+          "minimum": 1,
+          "title": "Generation",
+          "type": "integer"
+        },
+        "input_id": {
+          "format": "uuid",
+          "title": "Input Id",
+          "type": "string"
+        },
+        "lease_token": {
+          "format": "uuid",
+          "title": "Lease Token",
+          "type": "string"
+        }
+      },
+      "required": ["input_id", "generation", "lease_token", "blob"],
+      "title": "FinishInputRequest",
+      "type": "object"
+    },
+    "FoundInput": {
+      "additionalProperties": false,
+      "properties": {
+        "input": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/InputRecord"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": ["input"],
+      "title": "FoundInput",
+      "type": "object"
+    },
+    "HeartbeatInputRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "generation": {
+          "maximum": 9223372036854775807,
+          "minimum": 1,
+          "title": "Generation",
+          "type": "integer"
+        },
+        "input_id": {
+          "format": "uuid",
+          "title": "Input Id",
+          "type": "string"
+        },
+        "lease_seconds": {
+          "default": 2100,
+          "maximum": 7200,
+          "minimum": 60,
+          "title": "Lease Seconds",
+          "type": "integer"
+        },
+        "lease_token": {
+          "format": "uuid",
+          "title": "Lease Token",
+          "type": "string"
+        }
+      },
+      "required": ["input_id", "generation", "lease_token"],
+      "title": "HeartbeatInputRequest",
+      "type": "object"
+    },
+    "ImageOwner": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "enum": ["dataset_item", "task"],
+          "title": "Kind",
+          "type": "string"
+        }
+      },
+      "required": ["kind", "id"],
+      "title": "ImageOwner",
+      "type": "object"
+    },
+    "ImageSource": {
+      "additionalProperties": false,
+      "description": "Current source facts plus separate freshness facts for derived media.",
+      "properties": {
+        "blurhash": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Blurhash"
+        },
+        "bucket_kind": {
+          "enum": ["datasets", "legacy"],
+          "title": "Bucket Kind",
+          "type": "string"
+        },
+        "content_hash": {
+          "anyOf": [
+            {
+              "maxLength": 255,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Content Hash"
+        },
+        "dataset_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Dataset Id"
+        },
+        "file_name": {
+          "maxLength": 512,
+          "minLength": 1,
+          "title": "File Name",
+          "type": "string"
+        },
+        "file_path": {
+          "maxLength": 1024,
+          "minLength": 1,
+          "title": "File Path",
+          "type": "string"
+        },
+        "file_size": {
+          "anyOf": [
+            {
+              "maximum": 9223372036854775807,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "File Size"
+        },
+        "file_type": {
+          "const": "image",
+          "title": "File Type",
+          "type": "string"
+        },
+        "height": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "maximum": 2147483647,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Height"
+        },
+        "item_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Item Id"
+        },
+        "object_identity": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ObjectIdentity"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "owner": {
+          "$ref": "#/$defs/ImageOwner"
+        },
+        "project_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Project Id"
+        },
+        "source_drifted": {
+          "title": "Source Drifted",
+          "type": "boolean"
+        },
+        "source_generation": {
+          "maximum": 9223372036854775807,
+          "minimum": 1,
+          "title": "Source Generation",
+          "type": "integer"
+        },
+        "source_snapshot": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Source Snapshot",
+          "type": "string"
+        },
+        "task_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Task Id"
+        },
+        "thumbnail_error": {
+          "anyOf": [
+            {
+              "maxLength": 2000,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Thumbnail Error"
+        },
+        "thumbnail_path": {
+          "anyOf": [
+            {
+              "maxLength": 1024,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Thumbnail Path"
+        },
+        "thumbnail_source_generation": {
+          "anyOf": [
+            {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Thumbnail Source Generation"
+        },
+        "upload_ready": {
+          "title": "Upload Ready",
+          "type": "boolean"
+        },
+        "width": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "maximum": 2147483647,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Width"
+        }
+      },
+      "required": [
+        "owner",
+        "task_id",
+        "project_id",
+        "dataset_id",
+        "item_id",
+        "source_generation",
+        "source_snapshot",
+        "object_identity",
+        "source_drifted",
+        "upload_ready",
+        "file_path",
+        "file_name",
+        "file_type",
+        "bucket_kind",
+        "file_size",
+        "content_hash",
+        "width",
+        "height",
+        "thumbnail_path",
+        "blurhash",
+        "thumbnail_source_generation",
+        "thumbnail_error"
+      ],
+      "title": "ImageSource",
+      "type": "object"
+    },
+    "InputBlob": {
+      "additionalProperties": false,
+      "description": "Private exact object version; consumers receive a signed reference instead.",
+      "properties": {
+        "byte_size": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Byte Size",
+          "type": "integer"
+        },
+        "etag": {
+          "maxLength": 255,
+          "minLength": 1,
+          "title": "Etag",
+          "type": "string"
+        },
+        "key": {
+          "maxLength": 2048,
+          "minLength": 1,
+          "pattern": "^accepted-inputs/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g[1-9][0-9]*/a[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/source$",
+          "title": "Key",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "version_id": {
+          "maxLength": 255,
+          "minLength": 1,
+          "title": "Version Id",
+          "type": "string"
+        }
+      },
+      "required": ["key", "version_id", "etag", "byte_size", "sha256"],
+      "title": "InputBlob",
+      "type": "object"
+    },
+    "InputClaim": {
+      "additionalProperties": false,
+      "properties": {
+        "blob_key": {
+          "title": "Blob Key",
+          "type": "string"
+        },
+        "generation": {
+          "maximum": 9223372036854775807,
+          "minimum": 1,
+          "title": "Generation",
+          "type": "integer"
+        },
+        "input": {
+          "$ref": "#/$defs/InputRecord"
+        },
+        "lease_expires_at": {
+          "format": "date-time",
+          "title": "Lease Expires At",
+          "type": "string"
+        },
+        "lease_token": {
+          "format": "uuid",
+          "title": "Lease Token",
+          "type": "string"
+        },
+        "source": {
+          "$ref": "#/$defs/ImageSource"
+        }
+      },
+      "required": ["input", "source", "generation", "lease_token", "lease_expires_at", "blob_key"],
+      "title": "InputClaim",
+      "type": "object"
+    },
+    "InputGarbage": {
+      "additionalProperties": false,
+      "properties": {
+        "garbage_id": {
+          "format": "uuid",
+          "title": "Garbage Id",
+          "type": "string"
+        },
+        "lease_token": {
+          "format": "uuid",
+          "title": "Lease Token",
+          "type": "string"
+        },
+        "prefix": {
+          "pattern": "^accepted-inputs/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g[1-9][0-9]*/a[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/$",
+          "title": "Prefix",
+          "type": "string"
+        }
+      },
+      "required": ["garbage_id", "prefix", "lease_token"],
+      "title": "InputGarbage",
+      "type": "object"
+    },
+    "InputGarbageAck": {
+      "additionalProperties": false,
+      "properties": {
+        "completed": {
+          "title": "Completed",
+          "type": "boolean"
+        },
+        "garbage_id": {
+          "format": "uuid",
+          "title": "Garbage Id",
+          "type": "string"
+        }
+      },
+      "required": ["garbage_id", "completed"],
+      "title": "InputGarbageAck",
+      "type": "object"
+    },
+    "InputGarbageBatch": {
+      "additionalProperties": false,
+      "properties": {
+        "items": {
+          "items": {
+            "$ref": "#/$defs/InputGarbage"
+          },
+          "maxItems": 100,
+          "title": "Items",
+          "type": "array"
+        }
+      },
+      "required": ["items"],
+      "title": "InputGarbageBatch",
+      "type": "object"
+    },
+    "InputLease": {
+      "additionalProperties": false,
+      "properties": {
+        "generation": {
+          "maximum": 9223372036854775807,
+          "minimum": 1,
+          "title": "Generation",
+          "type": "integer"
+        },
+        "input_id": {
+          "format": "uuid",
+          "title": "Input Id",
+          "type": "string"
+        },
+        "lease_expires_at": {
+          "format": "date-time",
+          "title": "Lease Expires At",
+          "type": "string"
+        },
+        "lease_token": {
+          "format": "uuid",
+          "title": "Lease Token",
+          "type": "string"
+        }
+      },
+      "required": ["input_id", "generation", "lease_token", "lease_expires_at"],
+      "title": "InputLease",
+      "type": "object"
+    },
+    "InputRecord": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "byte_size": {
+          "anyOf": [
+            {
+              "maximum": 9223372036854775807,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Byte Size"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "dataset_item_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Dataset Item Id"
+        },
+        "error": {
+          "anyOf": [
+            {
+              "enum": [
+                "invalid_request",
+                "invalid_response",
+                "storage_unavailable",
+                "account_not_active",
+                "account_busy",
+                "invalid_account_role",
+                "source_missing",
+                "source_changed",
+                "source_busy",
+                "source_not_ready",
+                "task_not_visible",
+                "task_busy",
+                "permission_denied",
+                "not_image",
+                "asset_missing",
+                "already_ready",
+                "not_eligible",
+                "retry_cooldown",
+                "operation_conflict",
+                "operation_busy",
+                "lease_lost",
+                "dependency_changed",
+                "resource_budget_exceeded",
+                "object_missing",
+                "owner_changed",
+                "unsupported_dimensions",
+                "resource_limit",
+                "invalid_coordinate",
+                "timeout",
+                "source_unavailable",
+                "color_profile_unavailable",
+                "multi_page_unsupported",
+                "dimension_mismatch",
+                "generator_unavailable",
+                "decode_failed",
+                "encode_failed",
+                "tile_grid_mismatch",
+                "upload_verification_failed",
+                "inconsistent_ready",
+                "input_missing",
+                "input_scope_mismatch",
+                "input_not_ready",
+                "input_expired",
+                "input_corrupt",
+                "input_busy",
+                "job_not_active",
+                "job_busy",
+                "reference_busy",
+                "versioning_required"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Error"
+        },
+        "input_id": {
+          "format": "uuid",
+          "title": "Input Id",
+          "type": "string"
+        },
+        "job_id": {
+          "format": "uuid",
+          "title": "Job Id",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "retire_after": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Retire After"
+        },
+        "sha256": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Sha256"
+        },
+        "source_generation": {
+          "maximum": 9223372036854775807,
+          "minimum": 1,
+          "title": "Source Generation",
+          "type": "integer"
+        },
+        "source_owner": {
+          "$ref": "#/$defs/ImageOwner"
+        },
+        "source_snapshot": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Source Snapshot",
+          "type": "string"
+        },
+        "status": {
+          "enum": ["pending", "materializing", "ready", "failed", "expired"],
+          "title": "Status",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "task_source_generation": {
+          "maximum": 9223372036854775807,
+          "minimum": 1,
+          "title": "Task Source Generation",
+          "type": "integer"
+        },
+        "task_source_snapshot": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Task Source Snapshot",
+          "type": "string"
+        },
+        "task_version": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Task Version",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "input_id",
+        "job_id",
+        "task_id",
+        "project_id",
+        "actor_id",
+        "status",
+        "task_version",
+        "task_source_generation",
+        "dataset_item_id",
+        "task_source_snapshot",
+        "source_owner",
+        "source_generation",
+        "source_snapshot",
+        "byte_size",
+        "sha256",
+        "error",
+        "created_at",
+        "retire_after"
+      ],
+      "title": "InputRecord",
+      "type": "object"
+    },
+    "InputReference": {
+      "additionalProperties": false,
+      "properties": {
+        "expires_in": {
+          "maximum": 3600,
+          "minimum": 1,
+          "title": "Expires In",
+          "type": "integer"
+        },
+        "input": {
+          "$ref": "#/$defs/InputRecord"
+        },
+        "url": {
+          "maxLength": 16384,
+          "minLength": 1,
+          "title": "Url",
+          "type": "string"
+        },
+        "version_id": {
+          "maxLength": 255,
+          "minLength": 1,
+          "title": "Version Id",
+          "type": "string"
+        }
+      },
+      "required": ["input", "url", "version_id", "expires_in"],
+      "title": "InputReference",
+      "type": "object"
+    },
+    "InputRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "input_id": {
+          "format": "uuid",
+          "title": "Input Id",
+          "type": "string"
+        },
+        "job_id": {
+          "format": "uuid",
+          "title": "Job Id",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        }
+      },
+      "required": ["input_id", "job_id", "task_id"],
+      "title": "InputRequest",
+      "type": "object"
+    },
+    "InputSweepResult": {
+      "additionalProperties": false,
+      "properties": {
+        "retired": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Retired",
+          "type": "integer"
+        }
+      },
+      "required": ["retired"],
+      "title": "InputSweepResult",
+      "type": "object"
+    },
+    "InputWork": {
+      "additionalProperties": false,
+      "properties": {
+        "blob": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/InputBlob"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "input": {
+          "$ref": "#/$defs/InputRecord"
+        },
+        "source": {
+          "$ref": "#/$defs/ImageSource"
+        }
+      },
+      "required": ["input", "source", "blob"],
+      "title": "InputWork",
+      "type": "object"
+    },
+    "LockInputRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "input_id": {
+          "format": "uuid",
+          "title": "Input Id",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        }
+      },
+      "required": ["input_id", "task_id", "project_id"],
+      "title": "LockInputRequest",
+      "type": "object"
+    },
+    "ObjectIdentity": {
+      "additionalProperties": false,
+      "properties": {
+        "byte_size": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Byte Size",
+          "type": "integer"
+        },
+        "etag": {
+          "maxLength": 255,
+          "minLength": 1,
+          "title": "Etag",
+          "type": "string"
+        },
+        "version_id": {
+          "anyOf": [
+            {
+              "maxLength": 255,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Version Id"
+        }
+      },
+      "required": ["etag", "byte_size"],
+      "title": "ObjectIdentity",
+      "type": "object"
+    },
+    "ReserveInputRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "job_id": {
+          "format": "uuid",
+          "title": "Job Id",
+          "type": "string"
+        },
+        "object_identity": {
+          "$ref": "#/$defs/ObjectIdentity"
+        },
+        "source_snapshot": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Source Snapshot",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        }
+      },
+      "required": ["job_id", "task_id", "actor_id", "source_snapshot", "object_identity"],
+      "title": "ReserveInputRequest",
+      "type": "object"
+    },
+    "SweepInputsRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "page_size": {
+          "default": 100,
+          "maximum": 100,
+          "minimum": 1,
+          "title": "Page Size",
+          "type": "integer"
+        }
+      },
+      "title": "SweepInputsRequest",
+      "type": "object"
+    },
+    "_Error": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "enum": [
+            "invalid_request",
+            "invalid_response",
+            "storage_unavailable",
+            "account_not_active",
+            "account_busy",
+            "invalid_account_role",
+            "source_missing",
+            "source_changed",
+            "source_busy",
+            "source_not_ready",
+            "task_not_visible",
+            "task_busy",
+            "permission_denied",
+            "not_image",
+            "asset_missing",
+            "already_ready",
+            "not_eligible",
+            "retry_cooldown",
+            "operation_conflict",
+            "operation_busy",
+            "lease_lost",
+            "dependency_changed",
+            "resource_budget_exceeded",
+            "object_missing",
+            "owner_changed",
+            "unsupported_dimensions",
+            "resource_limit",
+            "invalid_coordinate",
+            "timeout",
+            "source_unavailable",
+            "color_profile_unavailable",
+            "multi_page_unsupported",
+            "dimension_mismatch",
+            "generator_unavailable",
+            "decode_failed",
+            "encode_failed",
+            "tile_grid_mismatch",
+            "upload_verification_failed",
+            "inconsistent_ready",
+            "input_missing",
+            "input_scope_mismatch",
+            "input_not_ready",
+            "input_expired",
+            "input_corrupt",
+            "input_busy",
+            "job_not_active",
+            "job_busy",
+            "reference_busy",
+            "versioning_required"
+          ],
+          "title": "Code",
+          "type": "string"
+        }
+      },
+      "required": ["code"],
+      "title": "_Error",
+      "type": "object"
+    }
+  },
+  "$id": "aap-assets-inputs/v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "x-budgets": {
+    "batch_size": 100,
+    "reply_bytes": 2097152,
+    "request_bytes": 65536
+  },
+  "x-native": {
+    "claim_accepted_image_input": {
+      "arguments": ["worker_id", "input_id", "lease_seconds"],
+      "request": "ClaimInputRequest",
+      "result": "ClaimedInput",
+      "role": "worker",
+      "signature": "aap_assets_v1.claim_accepted_image_input(uuid,uuid,integer)"
+    },
+    "claim_accepted_input_garbage": {
+      "arguments": ["worker_id", "lease_seconds", "page_size"],
+      "request": "ClaimInputGarbageRequest",
+      "result": "InputGarbageBatch",
+      "role": "cleanup",
+      "signature": "aap_assets_v1.claim_accepted_input_garbage(uuid,integer,integer)"
+    },
+    "complete_accepted_input_garbage": {
+      "arguments": ["garbage_id", "lease_token"],
+      "request": "CompleteInputGarbageRequest",
+      "result": "InputGarbageAck",
+      "role": "cleanup",
+      "signature": "aap_assets_v1.complete_accepted_input_garbage(uuid,uuid)"
+    },
+    "fail_accepted_image_input": {
+      "arguments": ["input_id", "generation", "lease_token", "error_code"],
+      "request": "FailInputRequest",
+      "result": "InputRecord",
+      "role": "worker",
+      "signature": "aap_assets_v1.fail_accepted_image_input(uuid,bigint,uuid,text)"
+    },
+    "find_accepted_image_input": {
+      "arguments": ["job_id", "task_id", "actor_id"],
+      "request": "FindInputRequest",
+      "result": "FoundInput",
+      "role": "control",
+      "signature": "aap_assets_v1.find_accepted_image_input(uuid,uuid,uuid)"
+    },
+    "finish_accepted_image_input": {
+      "arguments": ["input_id", "generation", "lease_token", "blob"],
+      "request": "FinishInputRequest",
+      "result": "InputRecord",
+      "role": "worker",
+      "signature": "aap_assets_v1.finish_accepted_image_input(uuid,bigint,uuid,jsonb)"
+    },
+    "heartbeat_accepted_image_input": {
+      "arguments": ["input_id", "generation", "lease_token", "lease_seconds"],
+      "request": "HeartbeatInputRequest",
+      "result": "InputLease",
+      "role": "worker",
+      "signature": "aap_assets_v1.heartbeat_accepted_image_input(uuid,bigint,uuid,integer)"
+    },
+    "lock_accepted_image_input": {
+      "arguments": ["input_id", "task_id", "project_id"],
+      "request": "LockInputRequest",
+      "result": "InputRecord",
+      "role": "labeling",
+      "signature": "aap_assets_v1.lock_accepted_image_input(uuid,uuid,uuid)"
+    },
+    "read_accepted_image_input": {
+      "arguments": ["input_id", "job_id", "task_id"],
+      "request": "InputRequest",
+      "result": "InputRecord",
+      "role": "control",
+      "signature": "aap_assets_v1.read_accepted_image_input(uuid,uuid,uuid)"
+    },
+    "read_accepted_image_input_work": {
+      "arguments": ["input_id", "job_id", "task_id"],
+      "request": "InputRequest",
+      "result": "InputWork",
+      "role": "control",
+      "signature": "aap_assets_v1.read_accepted_image_input_work(uuid,uuid,uuid)"
+    },
+    "reserve_accepted_image_input": {
+      "arguments": ["job_id", "task_id", "actor_id", "source_snapshot", "object_identity"],
+      "request": "ReserveInputRequest",
+      "result": "InputRecord",
+      "role": "control",
+      "signature": "aap_assets_v1.reserve_accepted_image_input(uuid,uuid,uuid,text,jsonb)"
+    },
+    "sweep_accepted_image_inputs": {
+      "arguments": ["page_size"],
+      "request": "SweepInputsRequest",
+      "result": "InputSweepResult",
+      "role": "system",
+      "signature": "aap_assets_v1.sweep_accepted_image_inputs(integer)"
+    }
+  }
+}

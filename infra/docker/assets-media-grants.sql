@@ -151,7 +151,11 @@ GRANT EXECUTE ON FUNCTION
     aap_assets_v1.schedule_image_media(uuid,text,uuid,jsonb,boolean),
     aap_assets_v1.read_internal_image_work(uuid),
     aap_assets_v1.scan_image_backfill(jsonb,text,uuid,integer),
-    aap_assets_v1.read_image_usage()
+    aap_assets_v1.read_image_usage(),
+    aap_assets_v1.find_accepted_image_input(uuid,uuid,uuid),
+    aap_assets_v1.reserve_accepted_image_input(uuid,uuid,uuid,text,jsonb),
+    aap_assets_v1.read_accepted_image_input(uuid,uuid,uuid),
+    aap_assets_v1.read_accepted_image_input_work(uuid,uuid,uuid)
     TO :"asset_media_control_role";
 GRANT EXECUTE ON FUNCTION
     aap_assets_v1.claim_video_media(uuid,uuid,integer,text[]),
@@ -209,6 +213,12 @@ DECLARE
         pg_catalog.to_regprocedure('aap_assets_v1.read_internal_image_work(uuid)')::oid,
         pg_catalog.to_regprocedure('aap_assets_v1.scan_image_backfill(jsonb,text,uuid,integer)')::oid,
         pg_catalog.to_regprocedure('aap_assets_v1.read_image_usage()')::oid
+    ];
+    accepted_input_control_functions oid[] := ARRAY[
+        pg_catalog.to_regprocedure('aap_assets_v1.find_accepted_image_input(uuid,uuid,uuid)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.reserve_accepted_image_input(uuid,uuid,uuid,text,jsonb)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.read_accepted_image_input(uuid,uuid,uuid)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.read_accepted_image_input_work(uuid,uuid,uuid)')::oid
     ];
     worker_functions oid[] := ARRAY[
         pg_catalog.to_regprocedure('aap_assets_v1.claim_video_media(uuid,uuid,integer,text[])')::oid,
@@ -304,7 +314,10 @@ BEGIN
         WHERE ns.nspname ~ '^aap_[a-z0-9_]+_v1$'
           AND proc.prokind IN ('f', 'p')
           AND pg_catalog.has_function_privilege(control_oid, proc.oid, 'EXECUTE')
-          AND (ns.nspname <> 'aap_assets_v1' OR proc.oid <> ALL(control_functions))
+          AND (ns.nspname <> 'aap_assets_v1' OR (
+              proc.oid <> ALL(control_functions)
+              AND proc.oid <> ALL(accepted_input_control_functions)
+          ))
     ) OR EXISTS (
         SELECT 1 FROM pg_catalog.pg_namespace AS ns
         JOIN pg_catalog.pg_proc AS proc ON proc.pronamespace = ns.oid

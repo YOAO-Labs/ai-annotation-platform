@@ -244,6 +244,9 @@ GRANT UPDATE (
 GRANT SELECT, INSERT, UPDATE ON public.asset_image_jobs TO :"assets_owner";
 GRANT SELECT, INSERT ON public.asset_image_operations TO :"assets_owner";
 GRANT SELECT, INSERT, UPDATE ON public.asset_image_garbage TO :"assets_owner";
+GRANT SELECT, INSERT, UPDATE ON public.asset_accepted_image_inputs,
+    public.asset_accepted_image_input_attempts,
+    public.asset_accepted_input_garbage TO :"assets_owner";
 GRANT SELECT, INSERT, UPDATE ON public.scene_frame_poses TO :"assets_owner";
 GRANT SELECT, INSERT ON public.sensor_calibration_revisions,
     public.dataset_spatial_operations TO :"assets_owner";
@@ -318,15 +321,16 @@ GRANT SELECT (id, project_id, dataset_id, display_id, annotator_id, status),
     ON public.task_batches TO :"labeling_owner";
 GRANT SELECT (id, project_id, task_id), DELETE
     ON public.predictions TO :"labeling_owner";
-GRANT SELECT (id, project_id, task_id), DELETE
+GRANT SELECT (id, project_id, task_id, retry_count, dismissed_at, extra), DELETE
     ON public.failed_predictions TO :"labeling_owner";
-GRANT SELECT (prediction_id, failed_prediction_id), DELETE
+GRANT SELECT (prediction_id, failed_prediction_id, extra), DELETE
     ON public.prediction_metas TO :"labeling_owner";
 GRANT SELECT (
     id, project_id, task_id, parent_annotation_id, parent_prediction_id,
     sensor_dataset_item_id
 ), UPDATE (parent_annotation_id, parent_prediction_id), DELETE
     ON public.annotations TO :"labeling_owner";
+GRANT SELECT, INSERT ON public.annotation_input_sources TO :"labeling_owner";
 GRANT SELECT (id, project_id, task_id, annotation_id, thread_parent_id),
     UPDATE (thread_parent_id), DELETE
     ON public.annotation_feedbacks TO :"labeling_owner";
@@ -376,6 +380,7 @@ GRANT SELECT (
     media_source_generation, media_object_identity, media_source_drifted,
     thumbnail_path, blurhash
 ) ON public.tasks TO :"labeling_owner";
+GRANT SELECT (version) ON public.tasks TO :"labeling_owner";
 GRANT UPDATE (
     media_source_generation, media_object_identity, media_source_drifted,
     thumbnail_path, blurhash
@@ -523,6 +528,14 @@ GRANT SELECT ON aap_assets_v1.project_dataset_item_sources TO :"labeling_owner";
 GRANT SELECT ON aap_labeling_v1.project_catalog_counters TO :"assets_owner";
 GRANT EXECUTE ON FUNCTION aap_labeling_v1.project_dataset_task_counts(uuid)
     TO :"assets_owner";
+GRANT EXECUTE ON FUNCTION aap_jobs_v1.project_accepted_image_input_job(uuid, uuid, uuid, boolean)
+    TO :"assets_owner";
+GRANT EXECUTE ON FUNCTION aap_jobs_v1.accepted_image_input_job_consistency(uuid, uuid, uuid, uuid)
+    TO :"assets_owner";
+GRANT EXECUTE ON FUNCTION
+    aap_labeling_v1.project_accepted_image_input_task(uuid, uuid, boolean),
+    aap_labeling_v1.accepted_image_input_referenced(uuid)
+    TO :"assets_owner";
 GRANT EXECUTE ON FUNCTION aap_assets_v1.associate_project(uuid, uuid, uuid)
     TO :"workflow_role";
 GRANT EXECUTE ON FUNCTION aap_assets_v1.delete_project_owned_records(uuid)
@@ -537,6 +550,24 @@ GRANT EXECUTE ON FUNCTION
     aap_labeling_v1.scan_image_task_sources(jsonb, uuid, integer),
     aap_labeling_v1.invalidate_task_image_thumbnail(uuid, text, text)
     TO :"assets_owner";
+GRANT EXECUTE ON FUNCTION aap_assets_v1.lock_accepted_image_input(uuid, uuid, uuid)
+    TO :"workflow_role", :"labeling_owner";
+GRANT EXECUTE ON FUNCTION
+    aap_assets_v1._lock_accepted_image_input_receipt(uuid, uuid, uuid)
+    TO :"labeling_owner";
+GRANT EXECUTE ON FUNCTION
+    aap_assets_v1._lock_accepted_image_input_pin(uuid, uuid, text)
+    TO :"labeling_owner";
+GRANT EXECUTE ON FUNCTION aap_labeling_v1.attach_annotation_input_source(uuid, uuid, text)
+    TO :"workflow_role";
+GRANT EXECUTE ON FUNCTION aap_labeling_v1.copy_annotation_input_sources(uuid, uuid)
+    TO :"workflow_role";
+GRANT EXECUTE ON FUNCTION
+    aap_assets_v1.find_accepted_image_input(uuid, uuid, uuid),
+    aap_assets_v1.reserve_accepted_image_input(uuid, uuid, uuid, text, jsonb),
+    aap_assets_v1.read_accepted_image_input(uuid, uuid, uuid),
+    aap_assets_v1.read_accepted_image_input_work(uuid, uuid, uuid)
+    TO :"workflow_role";
 GRANT EXECUTE ON FUNCTION aap_assets_v1.dataset_item_references(uuid, uuid)
     TO :"labeling_owner", :"learning_owner";
 GRANT EXECUTE ON FUNCTION aap_assets_v1.dataset_scene_references(uuid),
@@ -622,7 +653,9 @@ GRANT EXECUTE ON FUNCTION aap_assets_v1.pending_storage_deletions_v2(
 ),
     aap_assets_v1.complete_storage_deletion(uuid, uuid),
     aap_assets_v1.claim_image_garbage(uuid, integer, integer),
-    aap_assets_v1.complete_image_garbage(uuid, uuid)
+    aap_assets_v1.complete_image_garbage(uuid, uuid),
+    aap_assets_v1.claim_accepted_input_garbage(uuid, integer, integer),
+    aap_assets_v1.complete_accepted_input_garbage(uuid, uuid)
     TO :"asset_cleanup_role";
 REVOKE ALL ON FUNCTION aap_assets_v1.pending_storage_deletions(uuid, integer)
     FROM :"asset_cleanup_role";
@@ -780,6 +813,12 @@ BEGIN
         );
     END LOOP;
 END $$;
+ALTER FUNCTION aap_assets_v1.claim_accepted_input_garbage(uuid, integer, integer)
+    OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1.complete_accepted_input_garbage(uuid, uuid)
+    OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1._accepted_input_garbage_immutable_scope()
+    OWNER TO :"assets_owner";
 REVOKE CREATE ON SCHEMA aap_assets_v1 FROM :"assets_owner";
 
 GRANT CREATE ON SCHEMA aap_labeling_v1 TO :"labeling_owner";
@@ -831,9 +870,27 @@ BEGIN
         );
     END LOOP;
 END $$;
+ALTER FUNCTION aap_labeling_v1.attach_annotation_input_source(uuid, uuid, text)
+    OWNER TO :"labeling_owner";
+ALTER FUNCTION aap_labeling_v1._annotation_input_sources_reply(jsonb, text)
+    OWNER TO :"labeling_owner";
+ALTER FUNCTION aap_labeling_v1.copy_annotation_input_sources(uuid, uuid)
+    OWNER TO :"labeling_owner";
+ALTER FUNCTION aap_labeling_v1._annotation_input_source_immutable()
+    OWNER TO :"labeling_owner";
+ALTER FUNCTION aap_labeling_v1._inherit_annotation_input_sources()
+    OWNER TO :"labeling_owner";
+ALTER FUNCTION aap_labeling_v1._propagate_annotation_input_source()
+    OWNER TO :"labeling_owner";
 REVOKE CREATE ON SCHEMA aap_labeling_v1 FROM :"labeling_owner";
 
 GRANT CREATE ON SCHEMA aap_jobs_v1 TO :"jobs_owner";
+ALTER FUNCTION aap_jobs_v1._accepted_image_input_job_reply(jsonb, text)
+    OWNER TO :"jobs_owner";
+ALTER FUNCTION aap_jobs_v1.project_accepted_image_input_job(uuid, uuid, uuid, boolean)
+    OWNER TO :"jobs_owner";
+ALTER FUNCTION aap_jobs_v1.accepted_image_input_job_consistency(uuid, uuid, uuid, uuid)
+    OWNER TO :"jobs_owner";
 ALTER FUNCTION aap_jobs_v1._task_creation_job_failure(text, text) OWNER TO :"jobs_owner";
 ALTER FUNCTION aap_jobs_v1._task_creation_job_payload_valid(uuid, jsonb) OWNER TO :"jobs_owner";
 ALTER FUNCTION aap_jobs_v1.create_task_creation_job(uuid, uuid, uuid, uuid, uuid) OWNER TO :"jobs_owner";
@@ -1039,6 +1096,10 @@ BEGIN
         'public.dataset_items', 'public.project_datasets',
         'public.storage_connections', 'public.storage_connection_operations',
         'public.image_pyramid_assets',
+        'public.asset_accepted_image_inputs',
+        'public.asset_accepted_image_input_attempts',
+        'public.asset_accepted_input_garbage',
+        'public.annotation_input_sources',
         'public.tasks', 'public.task_batches', 'public.task_locks',
         'public.predictions', 'public.prediction_metas', 'public.failed_predictions',
         'public.annotations', 'public.annotation_feedbacks', 'public.annotation_drafts',
@@ -1263,6 +1324,10 @@ BEGIN
         'aap_assets_v1.claim_image_garbage(uuid,integer,integer)', 'EXECUTE')
        OR NOT has_function_privilege(current_setting('aap.asset_cleanup_role'),
         'aap_assets_v1.complete_image_garbage(uuid,uuid)', 'EXECUTE')
+       OR NOT has_function_privilege(current_setting('aap.asset_cleanup_role'),
+        'aap_assets_v1.claim_accepted_input_garbage(uuid,integer,integer)', 'EXECUTE')
+       OR NOT has_function_privilege(current_setting('aap.asset_cleanup_role'),
+        'aap_assets_v1.complete_accepted_input_garbage(uuid,uuid)', 'EXECUTE')
        OR has_function_privilege(current_setting('aap.asset_cleanup_role'),
         'aap_assets_v1.pending_storage_deletions(uuid,integer)', 'EXECUTE')
        OR EXISTS (
@@ -1276,7 +1341,9 @@ BEGIN
                  'aap_assets_v1.pending_storage_deletions_v2(text,timestamptz,uuid,uuid,integer)'::pg_catalog.regprocedure,
                  'aap_assets_v1.complete_storage_deletion(uuid,uuid)'::pg_catalog.regprocedure,
                  'aap_assets_v1.claim_image_garbage(uuid,integer,integer)'::pg_catalog.regprocedure,
-                 'aap_assets_v1.complete_image_garbage(uuid,uuid)'::pg_catalog.regprocedure
+                 'aap_assets_v1.complete_image_garbage(uuid,uuid)'::pg_catalog.regprocedure,
+                 'aap_assets_v1.claim_accepted_input_garbage(uuid,integer,integer)'::pg_catalog.regprocedure,
+                 'aap_assets_v1.complete_accepted_input_garbage(uuid,uuid)'::pg_catalog.regprocedure
              )
        ) OR EXISTS (
            SELECT 1
