@@ -142,6 +142,9 @@ def test_role_preflight_rejects_direct_column_and_other_module_access():
     assert "complete_storage_deletion" in _PREFLIGHT_SQL
     assert "claim_image_garbage" in _PREFLIGHT_SQL
     assert "complete_image_garbage" in _PREFLIGHT_SQL
+    assert "claim_accepted_input_garbage" in _PREFLIGHT_SQL
+    assert "complete_accepted_input_garbage" in _PREFLIGHT_SQL
+    assert "sweep_accepted_image_inputs" not in _PREFLIGHT_SQL
 
 
 @pytest.mark.asyncio

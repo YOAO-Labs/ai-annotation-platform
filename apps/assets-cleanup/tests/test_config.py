@@ -10,6 +10,7 @@ def _environment():
         "ASSET_CLEANUP_S3_ENDPOINT": "http://minio:9000",
         "ASSET_CLEANUP_S3_ACCESS_KEY": "dedicated-user",
         "ASSET_CLEANUP_S3_SECRET_KEY": "dedicated-secret",
+        "ASSET_CLEANUP_INPUTS_BUCKET": "accepted-inputs",
     }
 
 
@@ -18,6 +19,10 @@ def test_load_config_requires_explicit_cleanup_credentials_and_uses_bounded_defa
 
     assert config.database_url.startswith("postgresql://asset_cleanup:")
     assert config.bucket == "media-cache"
+    assert config.inputs_storage.inputs_bucket == "accepted-inputs"
+    assert config.inputs_storage.cache_bucket == "media-cache"
+    assert config.inputs_storage.access_key == config.s3_access_key
+    assert config.inputs_storage.secret_key == config.s3_secret_key
     assert config.poll_seconds == 5
     assert config.page_size == 100
     assert config.health_host == "127.0.0.1"
@@ -78,4 +83,16 @@ def test_poll_interval_and_endpoint_are_bounded():
     environment = _environment()
     environment["ASSET_CLEANUP_S3_ENDPOINT"] = "https://minio.example/path"
     with pytest.raises(ConfigurationError, match="origin"):
+        load_config(environment)
+
+
+def test_input_garbage_bucket_is_required_and_separate_from_outbox_bucket():
+    environment = _environment()
+    del environment["ASSET_CLEANUP_INPUTS_BUCKET"]
+    with pytest.raises(ConfigurationError, match="ASSET_CLEANUP_INPUTS_BUCKET"):
+        load_config(environment)
+
+    environment = _environment()
+    environment["ASSET_CLEANUP_INPUTS_BUCKET"] = "media-cache"
+    with pytest.raises(ConfigurationError, match="separate"):
         load_config(environment)

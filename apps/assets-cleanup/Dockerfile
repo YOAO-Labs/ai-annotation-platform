@@ -13,8 +13,13 @@ RUN python -m pip install --no-cache-dir "uv==0.11.29" \
     && useradd --system --uid 10001 --gid assets-cleanup --home-dir /nonexistent assets-cleanup
 
 WORKDIR /app
-COPY apps/assets-cleanup/pyproject.toml apps/assets-cleanup/uv.lock ./
-COPY apps/assets-cleanup/src/ ./src/
+COPY apps/assets-cleanup/pyproject.toml apps/assets-cleanup/uv.lock ./apps/assets-cleanup/
+COPY apps/assets-cleanup/src/ ./apps/assets-cleanup/src/
+COPY apps/assets-media/pyproject.toml ./apps/assets-media/pyproject.toml
+COPY apps/assets-media/src/aap_assets_images/ ./apps/assets-media/src/aap_assets_images/
+COPY apps/assets-media/src/aap_assets_inputs/ ./apps/assets-media/src/aap_assets_inputs/
+COPY apps/assets-media/src/aap_assets_inputs_runtime/ ./apps/assets-media/src/aap_assets_inputs_runtime/
+WORKDIR /app/apps/assets-cleanup
 RUN uv venv /opt/venv \
     && uv sync --locked --no-dev --extra worker --no-editable \
     && chown -R 10001:10001 /app /opt/venv

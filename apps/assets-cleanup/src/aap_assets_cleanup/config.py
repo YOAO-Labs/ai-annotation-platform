@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from ipaddress import ip_address
 import math
 import os
@@ -45,6 +45,13 @@ def _secret(
     return value
 
 
+def _bucket_value(name: str, value: str) -> str:
+    try:
+        return _BUCKET_ADAPTER.validate_python(value)
+    except ValidationError as exc:
+        raise ConfigurationError(f"{name} is invalid") from exc
+
+
 def _positive_float(environment: Mapping[str, str], name: str, default: str) -> float:
     raw = environment.get(name, default)
     try:
@@ -70,6 +77,22 @@ def _page_size(environment: Mapping[str, str]) -> int:
 
 
 @dataclass(frozen=True)
+class InputGarbageStorageConfig:
+    endpoint: str
+    public_endpoint: str
+    region: str
+    inputs_bucket: str
+    datasets_bucket: str | None
+    legacy_bucket: str | None
+    cache_bucket: str | None
+    access_key: str = field(repr=False)
+    secret_key: str = field(repr=False)
+    connect_timeout: float = 3.0
+    read_timeout: float = 15.0
+    max_attempts: int = 2
+
+
+@dataclass(frozen=True)
 class CleanupConfig:
     database_url: str
     bucket: str
@@ -77,6 +100,7 @@ class CleanupConfig:
     s3_region: str
     s3_access_key: str
     s3_secret_key: str
+    inputs_storage: InputGarbageStorageConfig
     poll_seconds: float
     page_size: int
     health_host: str
@@ -122,6 +146,15 @@ def load_config(environment: Mapping[str, str] | None = None) -> CleanupConfig:
     except ValidationError as exc:
         raise ConfigurationError("ASSET_CLEANUP_BUCKET is invalid") from exc
 
+    inputs_bucket = _bucket_value(
+        "ASSET_CLEANUP_INPUTS_BUCKET",
+        source.get("ASSET_CLEANUP_INPUTS_BUCKET", "").strip(),
+    )
+    if inputs_bucket == bucket:
+        raise ConfigurationError(
+            "ASSET_CLEANUP_INPUTS_BUCKET must be separate from ASSET_CLEANUP_BUCKET"
+        )
+
     region = source.get("ASSET_CLEANUP_S3_REGION", "us-east-1").strip()
     if not region:
         raise ConfigurationError("ASSET_CLEANUP_S3_REGION must not be empty")
@@ -151,6 +184,17 @@ def load_config(environment: Mapping[str, str] | None = None) -> CleanupConfig:
         s3_region=region,
         s3_access_key=_secret(source, "ASSET_CLEANUP_S3_ACCESS_KEY"),
         s3_secret_key=_secret(source, "ASSET_CLEANUP_S3_SECRET_KEY"),
+        inputs_storage=InputGarbageStorageConfig(
+            endpoint=endpoint.rstrip("/"),
+            public_endpoint=endpoint.rstrip("/"),
+            region=region,
+            inputs_bucket=inputs_bucket,
+            datasets_bucket=None,
+            legacy_bucket=None,
+            cache_bucket=bucket,
+            access_key=_secret(source, "ASSET_CLEANUP_S3_ACCESS_KEY"),
+            secret_key=_secret(source, "ASSET_CLEANUP_S3_SECRET_KEY"),
+        ),
         poll_seconds=_positive_float(source, "ASSET_CLEANUP_POLL_SECONDS", "5"),
         page_size=_page_size(source),
         health_host=health_host,

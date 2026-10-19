@@ -11,6 +11,7 @@ from aap_assets_cleanup.contract import (
     PendingAssetStorageDeletion,
 )
 from aap_assets_cleanup.object_store import CleanupStopped
+from aap_assets_cleanup.input_gc import collect_inputs_before_stop
 from aap_assets_cleanup.worker import drain_image_garbage, drain_pending
 
 
@@ -313,3 +314,26 @@ async def test_image_garbage_shutdown_during_delete_does_not_ack_lease():
 
     assert result == {"completed": 0, "failed": 0, "batches": 1}
     assert data.ack_calls == []
+
+
+@pytest.mark.asyncio
+async def test_input_collection_cancels_before_ack_when_shutdown_arrives():
+    started = asyncio.Event()
+    cancelled = asyncio.Event()
+    stop = asyncio.Event()
+
+    class Collector:
+        async def collect_once(self):
+            started.set()
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                cancelled.set()
+                raise
+
+    work = asyncio.create_task(collect_inputs_before_stop(Collector(), stop))
+    await started.wait()
+    stop.set()
+
+    assert await work == 0
+    assert cancelled.is_set()

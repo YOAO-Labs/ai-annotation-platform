@@ -7,6 +7,7 @@ name = "aap-assets-cleanup"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "aap-assets-media" },
     { name = "pydantic" },
 ]
 
@@ -25,6 +26,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "aap-assets-media", directory = "../assets-media" },
     { name = "asyncpg", marker = "extra == 'worker'", specifier = ">=0.30.0" },
     { name = "boto3", marker = "extra == 'worker'", specifier = ">=1.43.77" },
     { name = "pydantic", specifier = ">=2.10.0" },
@@ -37,6 +39,35 @@ dev = [
     { name = "pytest-asyncio", specifier = ">=0.24.0" },
     { name = "ruff", specifier = "==0.15.22" },
 ]
+
+[[package]]
+name = "aap-assets-media"
+version = "0.1.0"
+source = { directory = "../assets-media" }
+dependencies = [
+    { name = "pydantic" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "aap-media-probe", extras = ["client"], marker = "extra == 'runtime'", editable = "../media-probe" },
+    { name = "asyncpg", marker = "extra == 'runtime'", specifier = ">=0.30.0" },
+    { name = "blurhash-python", marker = "extra == 'runtime'", specifier = ">=1.2.2" },
+    { name = "boto3", marker = "extra == 'runtime'", specifier = ">=1.43.77" },
+    { name = "fastapi", marker = "extra == 'server'", specifier = ">=0.115.0" },
+    { name = "fastapi", marker = "extra == 'test'", specifier = ">=0.115.0" },
+    { name = "httpx", marker = "extra == 'client'", specifier = ">=0.27.0" },
+    { name = "httpx", marker = "extra == 'runtime'", specifier = ">=0.27.0" },
+    { name = "httpx", marker = "extra == 'test'", specifier = ">=0.27.0" },
+    { name = "pillow", marker = "extra == 'runtime'", specifier = ">=10.0.0" },
+    { name = "pydantic", specifier = ">=2.10.0" },
+    { name = "pytest", marker = "extra == 'test'", specifier = ">=8.3.0" },
+    { name = "pytest-asyncio", marker = "extra == 'test'", specifier = ">=0.24.0" },
+    { name = "pyvips", marker = "extra == 'runtime'", specifier = ">=3.1.1" },
+    { name = "ruff", marker = "extra == 'test'", specifier = "==0.15.22" },
+    { name = "uvicorn", marker = "extra == 'server'", specifier = ">=0.34.0" },
+]
+provides-extras = ["runtime", "client", "server", "test"]
 
 [[package]]
 name = "annotated-types"

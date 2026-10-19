@@ -1,43 +1,54 @@
 # Assets cleanup worker
 
-This package independently consumes the Assets-owned, committed object-deletion outbox. It has no API application, ORM, Celery, Redis, or broker dependency. PostgreSQL is its only data contract: bucket-filtered keyset pages from `aap_assets_v1.pending_storage_deletions_v2`, acknowledgements through `aap_assets_v1.complete_storage_deletion`, and leased image-prefix claims through `aap_assets_v1.claim_image_garbage` / `aap_assets_v1.complete_image_garbage`. Existing whole-pyramid cleanup rows wait until their producer's `not_before` deadline and remain retained for periodic resweeps; image-attempt prefixes are deleted only from explicit owner-issued leases.
+This package independently consumes three Assets cleanup lanes: the committed object-deletion outbox, image-prefix garbage leases, and accepted-input attempt tombstones. It has no API application, ORM, Celery, Redis, or broker dependency. The function-only PostgreSQL LOGIN is limited to six owner capabilities: the four existing outbox/image-garbage functions and `claim_accepted_input_garbage` / `complete_accepted_input_garbage`. Input garbage claims use the portable `aap-assets-inputs/v1` contract and are materialized by the shared `InputGarbageCollector`; the native claim performs bounded retention sweeps internally, so cleanup has no system-sweep permission. Existing whole-pyramid cleanup rows wait until their producer's `not_before` deadline and remain retained for periodic resweeps; image and input attempt prefixes are deleted only from explicit owner-issued leases.
 
-The worker validates only `image-pyramids/{asset_id}/`, `image-pyramids/{asset_id}/gN/`, `image-pyramids/{asset_id}/gN/a{lease}/`, and `image-assets/{job_id}/gN/a{lease}/` prefixes. It lists and deletes at most 1,000 keys per S3 request, checks partial delete failures, and acknowledges only after the exact prefix is gone. It commits each database transaction before object-store IO. A failed request or acknowledgement leaves the whole-asset outbox row pending or the image lease unacknowledged; retries are safe and late attempt writes are removed by subsequent owner-issued sweeps. The keyset cursor advances past failed whole-asset rows during each scan so one persistent object error cannot block later records.
+The media-cache lane validates only `image-pyramids/{asset_id}/`, `image-pyramids/{asset_id}/gN/`, `image-pyramids/{asset_id}/gN/a{lease}/`, and `image-assets/{job_id}/gN/a{lease}/` prefixes. It lists/deletes in bounded pages of at most 1,000 keys, checks partial-delete failures, and acknowledges only after the exact prefix is gone. The accepted-input lane receives only native attempt prefixes and delegates version-aware cleanup to `S3InputStorage`: it aborts multipart uploads, lists versions and delete markers under that attempt, and sends individual VersionId-scoped deletes. It never deletes a current key.
+
+Each lane commits its database claim before object-store I/O and acknowledges only after its exact cleanup succeeds. Failed outbox rows or leases remain retryable; accepted-input tombstones are retained for later rescans, so late versions and abandoned multipart uploads are removed by subsequent owner-issued claims. The outbox keyset cursor advances past failed rows during each scan so one persistent object error cannot block later records.
 
 ## Configuration
 
 The process reads only these explicit settings. It never falls back to `DATABASE_URL`, general MinIO settings, ambient AWS credentials, or API configuration.
 
-| Setting                                                             | Required | Default     | Purpose                                              |
-| ------------------------------------------------------------------- | -------- | ----------- | ---------------------------------------------------- |
-| `ASSET_CLEANUP_DATABASE_URL` or `ASSET_CLEANUP_DATABASE_URL_FILE`   | yes      | —           | PostgreSQL URL for a minimal cleanup LOGIN.          |
-| `ASSET_CLEANUP_BUCKET`                                              | yes      | —           | The single bucket accepted from pending outbox rows. |
-| `ASSET_CLEANUP_S3_ENDPOINT`                                         | yes      | —           | Explicit S3-compatible HTTP(S) origin.               |
-| `ASSET_CLEANUP_S3_ACCESS_KEY` or `ASSET_CLEANUP_S3_ACCESS_KEY_FILE` | yes      | —           | Dedicated list/delete credential.                    |
-| `ASSET_CLEANUP_S3_SECRET_KEY` or `ASSET_CLEANUP_S3_SECRET_KEY_FILE` | yes      | —           | Dedicated secret for that credential.                |
-| `ASSET_CLEANUP_S3_REGION`                                           | no       | `us-east-1` | S3 signing region.                                   |
-| `ASSET_CLEANUP_POLL_SECONDS`                                        | no       | `5`         | Delay between full outbox scans.                     |
-| `ASSET_CLEANUP_PAGE_SIZE`                                           | no       | `100`       | Keyset page size, from 1 through 1000.               |
-| `ASSET_CLEANUP_HEALTH_HOST`                                         | no       | `127.0.0.1` | Health server bind address; must be IPv4 loopback.   |
-| `ASSET_CLEANUP_HEALTH_PORT`                                         | no       | `8765`      | Loopback-only readiness port.                        |
+| Setting                                                             | Required | Default     | Purpose                                                                                                                                                   |
+| ------------------------------------------------------------------- | -------- | ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ASSET_CLEANUP_DATABASE_URL` or `ASSET_CLEANUP_DATABASE_URL_FILE`   | yes      | —           | PostgreSQL URL for a minimal cleanup LOGIN.                                                                                                               |
+| `ASSET_CLEANUP_BUCKET`                                              | yes      | —           | Bucket accepted from existing pending outbox rows.                                                                                                        |
+| `ASSET_CLEANUP_INPUTS_BUCKET`                                       | yes      | —           | Versioned bucket used by the input runtime; match `ASSETS_MEDIA_INPUTS_BUCKET` and keep distinct from datasets, legacy, cache and `ASSET_CLEANUP_BUCKET`. |
+| `ASSET_CLEANUP_S3_ENDPOINT`                                         | yes      | —           | Explicit S3-compatible HTTP(S) origin.                                                                                                                    |
+| `ASSET_CLEANUP_S3_ACCESS_KEY` or `ASSET_CLEANUP_S3_ACCESS_KEY_FILE` | yes      | —           | Dedicated list/delete credential.                                                                                                                         |
+| `ASSET_CLEANUP_S3_SECRET_KEY` or `ASSET_CLEANUP_S3_SECRET_KEY_FILE` | yes      | —           | Dedicated secret for that credential.                                                                                                                     |
+| `ASSET_CLEANUP_S3_REGION`                                           | no       | `us-east-1` | S3 signing region.                                                                                                                                        |
+| `ASSET_CLEANUP_POLL_SECONDS`                                        | no       | `5`         | Delay between full outbox scans.                                                                                                                          |
+| `ASSET_CLEANUP_PAGE_SIZE`                                           | no       | `100`       | Keyset page size, from 1 through 1000.                                                                                                                    |
+| `ASSET_CLEANUP_HEALTH_HOST`                                         | no       | `127.0.0.1` | Health server bind address; must be IPv4 loopback.                                                                                                        |
+| `ASSET_CLEANUP_HEALTH_PORT`                                         | no       | `8765`      | Loopback-only readiness port.                                                                                                                             |
 
-Mount database and object-store credentials as files where the runtime supports secret mounts. The object-store policy needs `ListBucket` constrained to `image-assets/*` and `image-pyramids/*` in the configured bucket and `DeleteObject` under those two prefixes. It does not need object reads, writes, bucket administration, source access, or access to another bucket.
+Mount database and object-store credentials as files where the runtime supports secret mounts. The existing cleanup identity needs `ListBucket` constrained to `image-assets/*` and `image-pyramids/*` in the configured media bucket and `DeleteObject` under those prefixes. It does not need object reads, writes, bucket administration, source access, or access to another bucket.
 
-Each process scans one configured bucket. When changing the media-cache bucket, keep a cleanup process with its old bucket and credential available until all old-bucket outbox rows have completed; start the new bucket process alongside it for new work.
+The existing cleanup S3 identity may additionally access the separate `ASSET_CLEANUP_INPUTS_BUCKET`: `GetBucketVersioning`, `ListBucketVersions` and `ListBucketMultipartUploads` with the `accepted-inputs/*` prefix, plus `DeleteObjectVersion` and `AbortMultipartUpload` under that prefix. MinIO also requires `s3:DeleteObject` for version deletion; condition it on `s3:versionid` being present, nonempty and not `null`. Do not allow unversioned `DeleteObject`, multi-object delete, `GetObject`, `PutObject`, or access to any other bucket. The input bucket must have versioning enabled and must match the bucket configured on the Assets Media control/worker.
 
-At startup, the worker verifies that its login is a LOGIN without elevated attributes or role memberships, has no application table/sequence privileges, has no other module capability grants, and can execute exactly the cleanup pending/complete and image claim/complete functions. It also probes the configured bucket through the two allowed prefixes before reporting ready.
+The worker has separate bucket configuration for existing media-cache cleanup and accepted-input cleanup, while using the existing cleanup S3 credential identity with narrowly restricted actions on each bucket. The input cleanup bucket must equal `ASSETS_MEDIA_INPUTS_BUCKET` (normally sourced from `MINIO_INPUTS_BUCKET`) so the cleaner retires the same exact-version objects accepted and consumed by the image worker. When changing either cleanup bucket, keep its old bucket and applicable prefix permissions available until pending work and retained tombstones have drained; add the new bucket with its narrowly scoped policy before switching.
+
+At startup, the worker verifies that its login is a LOGIN without elevated attributes or role memberships, has no application table/sequence privileges, has no other module capability grants, and can execute exactly the six cleanup functions. It probes the media bucket through the two allowed image prefixes and verifies that the separate accepted-input bucket has versioning enabled before reporting ready.
 
 `GET /health/live` reports process liveness and `GET /health/ready` reports whether the loop has passed its database and storage checks. Both bind only to loopback inside the container. SIGTERM stops pagination between S3 pages and exits without acknowledging a partially deleted prefix.
 
 ## Build and run
 
-Build from the repository root so the independent image copies only this package:
+Build from the repository root. The image contains the cleanup worker plus the portable Assets image/input contract packages; it does not install the media image-generation extras such as Pillow or libvips:
 
 ```sh
 docker build -f apps/assets-cleanup/Dockerfile -t aap-assets-cleanup:local .
 ```
 
-Use the repository's module Compose overlay to connect the worker to the local PostgreSQL and MinIO services. The worker has no exposed host port; the loopback readiness endpoint is used by the container health check.
+For Compose, `ASSET_CLEANUP_INPUTS_BUCKET` follows `MINIO_INPUTS_BUCKET` (default `accepted-inputs`), matching the Assets Media workers. For a direct process, set `ASSET_CLEANUP_INPUTS_BUCKET` to the same dedicated, versioned bucket. Grant the existing cleanup S3 identity only the version-scoped input actions above. Then use the repository's Compose files to connect the worker to PostgreSQL and the S3-compatible service:
+
+```sh
+docker compose -f docker-compose.yml -f docker-compose.assets-cleanup.yml up -d --build assets-cleanup
+```
+
+The worker has no exposed host port; the loopback readiness endpoint is used by the container health check.
 
 ## Contract tests
 
@@ -49,4 +60,4 @@ uv run --locked --extra worker --group dev ruff check .
 uv run --locked --extra worker --group dev ruff format --check .
 ```
 
-The whole-asset protocol remains frozen in `../api/alembic/sql/0210_asset_storage_cleanup.schema.json`; its four-field row and timestamped keyset-page wire are unchanged. The image protocol is a strict `aap-assets-images/v1` JSON envelope carrying only a garbage ID, exact prefix and lease token; the worker never receives raw keys, source paths or arbitrary bucket names.
+The whole-asset protocol remains frozen in `../api/alembic/sql/0210_asset_storage_cleanup.schema.json`; its four-field row and timestamped keyset-page wire are unchanged. Image garbage uses strict `aap-assets-images/v1` claims with only a garbage ID, exact prefix and lease token. Accepted-input cleanup consumes strict `aap-assets-inputs/v1` garbage rows containing only a garbage ID, attempt prefix and lease token; the worker never receives source URLs, current source keys or arbitrary bucket names.

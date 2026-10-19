@@ -21,6 +21,10 @@ from .contract import (
 )
 from .data import DataContractError, StorageDeletionData
 from .health import HealthState, start_health_server
+from .input_gc import (
+    build_input_garbage_collector,
+    collect_inputs_before_stop,
+)
 from .object_store import CleanupStopped, S3PrefixDeleter
 
 log = logging.getLogger("aap.assets_cleanup")
@@ -229,6 +233,7 @@ async def run_worker(config: CleanupConfig) -> None:
     health = HealthState(poll_seconds=config.poll_seconds)
     health_server = None
     pool: asyncpg.Pool | None = None
+    input_storage = None
     worker_id = uuid4()
     try:
         pool = await asyncpg.create_pool(
@@ -242,7 +247,9 @@ async def run_worker(config: CleanupConfig) -> None:
         data = StorageDeletionData(pool)
         storage = S3PrefixDeleter(config)
         await data.verify_role_scope()
+        input_collector, input_storage = build_input_garbage_collector(config, pool)
         await asyncio.to_thread(storage.probe)
+        await input_storage.assert_versioning()
         health_server = start_health_server(
             health, config.health_host, config.health_port
         )
@@ -271,8 +278,15 @@ async def run_worker(config: CleanupConfig) -> None:
                     storage_stop=storage_stop,
                     health=health,
                 )
+                input_completed = await collect_inputs_before_stop(
+                    input_collector, stop
+                )
                 health.add_result(
-                    completed=result["completed"] + image_result["completed"],
+                    completed=(
+                        result["completed"]
+                        + image_result["completed"]
+                        + input_completed
+                    ),
                     failed=result["failed"] + image_result["failed"],
                 )
                 health.set_ready(True)
@@ -287,6 +301,14 @@ async def run_worker(config: CleanupConfig) -> None:
     finally:
         request_stop()
         health.stop()
+        if input_storage is not None:
+            try:
+                await asyncio.wait_for(input_storage.close(), timeout=10)
+            except Exception as exc:  # noqa: BLE001 - continue closing the shared pool.
+                log.warning(
+                    "Input storage close failed code=%s",
+                    str(getattr(exc, "code", type(exc).__name__))[:64],
+                )
         if pool is not None:
             try:
                 await asyncio.wait_for(pool.close(), timeout=15)
