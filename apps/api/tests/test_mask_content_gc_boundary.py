@@ -1,194 +1,228 @@
-"""Labeling keeps GC authority and refuses remote deletion without durable fences."""
+"""The application releases business transactions and uses only the GC owner."""
 
-from contextlib import contextmanager
-from datetime import datetime, timedelta, timezone
+import asyncio
+from threading import Event
 
+import httpx
 import pytest
 
-from aap_assets_mask_content.contract import (
-    Candidate,
-    CandidatePage,
-    DeleteResult,
-    MaskContentFailure,
-)
-from app.services import raster_mask_storage as masks
+from aap_assets_mask_content.gc_contract import MaskGcFailure
+from aap_labeling_mask_gc import contract as c
+from aap_labeling_mask_gc.client import LabelingMaskGcClient
+from app.application import raster_mask_retention as retention
 from app.config import settings
-
-KEY = "raster-masks/sha256/aa/aa/" + "a" * 64 + ".json"
-OTHER_KEY = "raster-masks/sha256/bb/bb/" + "b" * 64 + ".json"
-NOW = datetime.now(timezone.utc)
-
-
-class Result:
-    def __init__(self, value=None):
-        self.value = value
-
-    def scalar_one_or_none(self):
-        return self.value
+from app.services import mask_gc_collection as collection
+from app.services.mask_gc import IndependentMaskGcDatabase
+from app.services.raster_mask_contract import RasterMaskContractError
 
 
-class Database:
-    def __init__(self, *, upload_after_commit=False):
-        self.locked = False
-        self.events = []
-        self.reservation = False
-        self.upload_after_commit = upload_after_commit
-        self.commits = 0
-
-    async def execute(self, statement, parameters=None):
-        sql = str(statement)
-        if "pg_advisory_xact_lock" in sql:
-            self.locked = True
-            self.events.append("lock")
-        elif sql.startswith("DELETE"):
-            assert self.locked
-            self.events.append("retire_reservations")
-            self.reservation = False
-        elif "raster_mask_uploads.id" in sql:
-            assert self.locked
-            self.events.append("reservation_check")
-            return Result(1 if self.reservation else None)
-        return Result()
-
-    async def commit(self):
-        self.locked = False
-        self.commits += 1
-        self.events.append("commit")
-        if self.upload_after_commit and self.commits == 1:
-            self.reservation = True
-
-    async def rollback(self):
-        self.locked = False
-        self.events.append("rollback")
-
-
-def _candidate(key=KEY):
-    return Candidate(
-        key=key,
-        etag='"observed-etag"',
-        byte_size=56,
-        last_modified=NOW - timedelta(days=2),
+def _select_remote(monkeypatch, transport):
+    monkeypatch.setattr(settings, "labeling_mask_gc_url", "http://gc.test")
+    monkeypatch.setattr(settings, "labeling_mask_gc_token", "g" * 32)
+    monkeypatch.setattr(
+        collection,
+        "LabelingMaskGcClient",
+        lambda *args, **kwargs: LabelingMaskGcClient(
+            *args, **kwargs, client=httpx.Client(transport=transport)
+        ),
     )
-
-
-def _owner(monkeypatch, provider):
-    monkeypatch.setattr(settings, "assets_mask_cleanup_url", "")
-
-    @contextmanager
-    def selected(_storage, *, cleanup=False):
-        assert cleanup
-        yield provider
-
-    monkeypatch.setattr(masks, "mask_content_owner", selected)
-
-
-async def test_gc_refuses_remote_mutation_before_any_storage_or_sql(monkeypatch):
-    monkeypatch.setattr(settings, "assets_mask_cleanup_url", "http://cleanup.test")
 
     def forbidden(*args, **kwargs):
-        pytest.fail("unfenced remote GC accessed storage")
+        pytest.fail("remote collection attempted local DB or byte access")
 
-    monkeypatch.setattr(masks, "mask_content_owner", forbidden)
-    db = Database()
-    with pytest.raises(MaskContentFailure) as captured:
-        await masks.purge_unreferenced_raster_mask_objects(
-            db,
-            set(),
-            NOW,
-            is_referenced=forbidden,
+    monkeypatch.setattr(collection, "mask_gc_storage_owner", forbidden)
+    return forbidden
+
+
+async def test_collection_forwards_preview_and_keeps_owner_observations(monkeypatch):
+    seen = []
+
+    def handler(request):
+        seen.append(c.parse_json(request.content))
+        assert request.url == "http://gc.test/v1/mask-gc/run"
+        assert request.headers["Authorization"] == "Bearer " + "g" * 32
+        return httpx.Response(
+            200,
+            json={
+                "schema": c.SCHEMA,
+                "ok": True,
+                "data": c.CycleStats(
+                    dry_run=True,
+                    scan_pages=1,
+                    scanned=3,
+                    skipped=2,
+                    eligible=1,
+                    referenced=17,
+                    next_after_key="raster-masks/sha256/a",
+                ).model_dump(mode="json"),
+            },
         )
-    assert captured.value.code == "storage_unavailable"
-    assert db.events == []
+
+    forbidden = _select_remote(monkeypatch, httpx.MockTransport(handler))
+    request = c.RunRequest(dry_run=True, scan_pages=2, delete_limit=4)
+    result = await collection.collect_raster_masks(forbidden, request)
+    assert seen == [request.model_dump(mode="json")]
+    assert result.referenced == 17
+    assert result.eligible == 1 and result.staged == 0
+    assert result.next_after_key == "raster-masks/sha256/a"
 
 
-@pytest.mark.parametrize("race", ["none", "new_root", "new_upload", "recent_upload"])
-async def test_gc_rechecks_current_roots_and_uploads_before_locked_delete(
-    monkeypatch, race
-):
-    db = Database(upload_after_commit=race == "new_upload")
-    db.reservation = race == "recent_upload"
-    root_checks = 0
-    deleted = []
+@pytest.mark.parametrize("failure", ["http", "malformed", "partial_config"])
+async def test_collection_owner_failure_never_falls_back(monkeypatch, failure):
+    def handler(_request):
+        if failure == "http":
+            raise httpx.ConnectError("secret provider endpoint")
+        return httpx.Response(200, text="secret provider response")
 
-    async def referenced(_db, key):
-        nonlocal root_checks
-        assert _db is db and db.locked and key == KEY
-        root_checks += 1
-        db.events.append("root_check")
-        return race == "new_root" and root_checks == 2
-
-    class Owner:
-        def list(self, request):
-            assert request.cursor is None
-            return CandidatePage(items=(_candidate(),), cursor=None)
-
-        def delete(self, request):
-            assert db.locked and root_checks == 2
-            assert request.etag == '"observed-etag"'
-            assert request.last_modified == _candidate().last_modified
-            db.events.append("owner_delete")
-            deleted.append(request.object_key)
-            return DeleteResult(object_key=request.object_key, deleted=True)
-
-    _owner(monkeypatch, Owner())
-    result = await masks.purge_unreferenced_raster_mask_objects(
-        db, set(), NOW - timedelta(hours=24), is_referenced=referenced
-    )
-    assert result == {
-        "scanned": 1,
-        "eligible": 1,
-        "deleted": int(race == "none"),
-        "errors": 0,
-    }
-    assert deleted == ([KEY] if race == "none" else [])
-    assert db.events[:3] == ["lock", "root_check", "reservation_check"]
-    if race == "recent_upload":
-        assert "retire_reservations" not in db.events
-    else:
-        assert db.events[3:5] == ["retire_reservations", "commit"]
-    assert not db.locked
+    forbidden = _select_remote(monkeypatch, httpx.MockTransport(handler))
+    if failure == "partial_config":
+        monkeypatch.setattr(settings, "labeling_mask_gc_url", "")
+    with pytest.raises(RasterMaskContractError) as caught:
+        await collection.collect_raster_masks(forbidden, c.RunRequest())
+    assert caught.value.status_code == 503
+    assert caught.value.detail["reason"] == "mask_gc_unavailable"
+    assert "secret" not in str(caught.value)
 
 
-async def test_gc_pages_past_retained_objects_and_counts_conditional_refusal(
+async def test_cancelled_remote_call_keeps_transport_alive_until_inflight_finishes(
     monkeypatch,
 ):
-    db = Database()
-    cursors = []
-
-    async def referenced(_db, _key):
-        return False
+    entered, release, closed = Event(), Event(), Event()
 
     class Owner:
-        def list(self, request):
-            cursors.append(request.cursor)
-            if request.cursor is None:
-                return CandidatePage(items=(_candidate(),), cursor="next")
-            return CandidatePage(items=(_candidate(OTHER_KEY),), cursor=None)
+        def __init__(self, *args, **kwargs):
+            pass
 
-        def delete(self, _request):
-            assert db.locked
-            raise MaskContentFailure("content_changed")
+        def __enter__(self):
+            return self
 
-    _owner(monkeypatch, Owner())
-    result = await masks.purge_unreferenced_raster_mask_objects(
-        db, {KEY}, NOW - timedelta(hours=24), is_referenced=referenced
+        def __exit__(self, *args):
+            closed.set()
+
+        def run(self, request):
+            entered.set()
+            assert release.wait(5)
+            assert not closed.is_set()
+            return c.CycleStats(dry_run=request.dry_run)
+
+    monkeypatch.setattr(settings, "labeling_mask_gc_url", "http://gc.test")
+    monkeypatch.setattr(collection, "LabelingMaskGcClient", Owner)
+    task = asyncio.create_task(collection.collect_raster_masks(None, c.RunRequest()))
+    try:
+        assert await asyncio.to_thread(entered.wait, 5)
+        task.cancel()
+        await asyncio.sleep(0)
+        assert not task.done() and not closed.is_set()
+    finally:
+        release.set()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert closed.is_set()
+
+
+def test_partial_remote_byte_configuration_does_not_open_local_s3(monkeypatch):
+    monkeypatch.setattr(settings, "assets_mask_content_url", "http://content.test")
+    monkeypatch.setattr(settings, "assets_mask_cleanup_url", "")
+    monkeypatch.setattr(settings, "assets_mask_cleanup_token", "")
+
+    class NoLocalStorage:
+        @property
+        def client(self):
+            pytest.fail("partial remote configuration accessed local S3")
+
+    with pytest.raises(MaskGcFailure):
+        with collection.mask_gc_storage_owner(NoLocalStorage()):
+            pytest.fail("invalid cleanup owner was accepted")
+
+
+async def test_native_collector_opens_a_fresh_session_for_each_operation(monkeypatch):
+    events = []
+
+    class Session:
+        async def __aenter__(self):
+            events.append(("open", self))
+            return self
+
+        async def __aexit__(self, *args):
+            events.append(("close", self))
+
+    class Operation:
+        def __init__(self, db, *, commit):
+            assert commit is True
+            self.db = db
+
+        async def call(self, operation, request):
+            assert operation == "read_mask_gc_progress"
+            return c.ReadMaskGcProgressResult(
+                active_intents=0,
+                indeterminate_intents=0,
+                completed_intents=0,
+                sweep=None,
+            )
+
+    from app.services import mask_gc
+
+    monkeypatch.setattr(mask_gc, "SqlAlchemyMaskGcDatabase", Operation)
+    owner = IndependentMaskGcDatabase(Session)
+    for _ in range(2):
+        await owner.call("read_mask_gc_progress", c.ReadMaskGcProgressRequest())
+    assert [event for event, _ in events] == ["open", "close", "open", "close"]
+    assert events[0][1] is not events[2][1]
+
+
+async def test_retention_commits_expiry_and_releases_metrics_before_rpc(monkeypatch):
+    events = []
+
+    class Database:
+        active = True
+
+        async def commit(self):
+            events.append("commit_expiry")
+            self.active = False
+
+        async def rollback(self):
+            events.append("release_metrics")
+            self.active = False
+
+    db = Database()
+
+    async def expire(database):
+        assert database is db and db.active
+        events.append("expire")
+        return 2
+
+    async def metrics(database):
+        assert database is db and not db.active
+        events.append("metrics")
+        db.active = True
+
+    factory = object()
+
+    async def collect(session_factory, request):
+        assert session_factory is factory and not db.active
+        assert request == c.RunRequest(dry_run=True, scan_pages=3, delete_limit=7)
+        events.append("rpc")
+        return c.CycleStats(dry_run=True, scan_errors=1, referenced=None)
+
+    monkeypatch.setattr(retention.ai_mask_accept, "expire_accept_decisions", expire)
+    monkeypatch.setattr(retention, "expire_stale_tracker_candidates", expire)
+    monkeypatch.setattr(
+        retention.annotation_conversion, "expire_conversion_plans", expire
     )
-    assert cursors == [None, "next"]
-    assert result == {"scanned": 2, "eligible": 1, "deleted": 0, "errors": 1}
-    assert db.events[-1] == "rollback"
-
-
-async def test_gc_rejects_a_nonprogressing_owner_cursor(monkeypatch):
-    db = Database()
-
-    class Owner:
-        def list(self, _request):
-            return CandidatePage(items=(), cursor="same")
-
-    _owner(monkeypatch, Owner())
-    with pytest.raises(MaskContentFailure) as captured:
-        await masks.purge_unreferenced_raster_mask_objects(
-            db, set(), NOW, is_referenced=None, dry_run=True
-        )
-    assert captured.value.code == "invalid_response"
-    assert db.events == ["rollback"]
+    monkeypatch.setattr(retention, "expire_mask_annotation_revisions", expire)
+    monkeypatch.setattr(
+        retention, "refresh_raster_mask_active_geometries_safely", metrics
+    )
+    monkeypatch.setattr(retention, "collect_raster_masks", collect)
+    result = await retention.RasterMaskRetentionWorkflow(
+        db, session_factory=factory
+    ).purge_unreferenced_raster_masks(dry_run=True, scan_pages=3, delete_limit=7)
+    assert events == ["expire"] * 4 + [
+        "commit_expiry",
+        "metrics",
+        "release_metrics",
+        "rpc",
+    ]
+    assert result["referenced"] is None and result["errors"] == 1
+    assert result["expired_tracker_candidates"] == 2
+    assert result["deleted"] == 0 and result["dry_run"] is True

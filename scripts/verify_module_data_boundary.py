@@ -132,6 +132,7 @@ SQL_ARTIFACTS = (
     "0233_prediction_retry_state.sql",
     "0233_prediction_retry_result_scope.sql",
     "0233_prediction_retry_finalization.sql",
+    "0234_mask_gc_preview.sql",
 )
 SCHEMA_ARTIFACTS = (
     "0191_task_append.schema.json",
@@ -175,6 +176,7 @@ SCHEMA_ARTIFACTS = (
     "0231_preannotation_results.schema.json",
     "0233_prediction_retries.schema.json",
     "0233_preannotation_result_scope.schema.json",
+    "0234_mask_gc.schema.json",
 )
 TEST_FILES = (
     "tests/test_workspace_data_contract.py",
@@ -324,6 +326,11 @@ TEST_FILES = (
     "tests/test_mask_gc_roles.py",
     "tests/test_mask_gc_bindings.py",
     "tests/test_mask_gc_live.py",
+    "tests/test_mask_gc_preview_native.py",
+    "tests/test_mask_gc_preview_authority.py",
+    "tests/test_mask_gc_cutover_peer.py",
+    "tests/test_mask_gc_collection_live.py",
+    "tests/test_mask_gc_runtime_image.py",
     "tests/test_assets_accepted_inputs_native.py",
     "tests/test_accepted_inputs_api_bridge.py",
     "tests/test_accepted_inputs_live.py",
@@ -2028,8 +2035,8 @@ def main(argv: list[str] | None = None) -> int:
         database = resources["database"]
         evidence["database"] = database
         _, heads = migration_graph(ROOT)
-        if heads != ["0233"]:
-            raise RuntimeError("module-data acceptance requires migration head 0233")
+        if heads != ["0234"]:
+            raise RuntimeError("module-data acceptance requires migration head 0234")
         evidence["migrations"]["head_before_downgrade"] = heads[0]
         phase = "downgrade-to-0189"
         _container_details(
@@ -2384,6 +2391,9 @@ def main(argv: list[str] | None = None) -> int:
             "tests/test_mask_content_live.py",
             "tests/test_mask_content_containers.py",
             "tests/test_mask_gc_live.py",
+            "tests/test_mask_gc_cutover_peer.py",
+            "tests/test_mask_gc_collection_live.py",
+            "tests/test_mask_gc_runtime_image.py",
         }:
             mask_content_storage = _cleanup_storage_scope(backend)
             mask_content_storage["bucket"] = resources["buckets"]["MINIO_BUCKET"]

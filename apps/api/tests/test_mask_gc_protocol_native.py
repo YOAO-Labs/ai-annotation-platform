@@ -205,6 +205,7 @@ async def test_gc_login_has_only_cleanup_functions_and_no_write_permits():
                 "claim_mask_gc_deletes",
                 "finish_mask_gc_delete",
                 "read_mask_gc_progress",
+                "inspect_mask_gc_page",
             }
             assert (
                 await connection.fetchval(

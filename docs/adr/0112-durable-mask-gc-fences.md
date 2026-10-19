@@ -1,6 +1,6 @@
 # 0112 — Durable Mask deletion fences and terminal receipts
 
-- Status: Accepted; isolated local qualification, business cutover pending
+- Status: Accepted; business consumer bound, isolated deployment qualification
 - Date: 2026-10-20
 - Deciders: Maintainers
 - Supersedes: The deferred GC protocol design in ADR-0111; the byte contract remains unchanged
@@ -16,9 +16,9 @@ its deletions keep failing.
 ## Decision
 
 Labeling owns durable per-key epochs, deletion intents, producer grace, roots
-and a sweep cursor in migration 0229. Eight closed JSON operations use
-`aap-labeling-mask-gc/v1`. The cleanup login receives only five GC operations;
-three write gates remain part of the business writer's transaction. Native
+and a sweep cursor in migration 0229. The current ten closed JSON operations use
+`aap-labeling-mask-gc/v1`. The cleanup login receives only six GC operations;
+four producer gates remain part of the business writer's transaction. Native
 triggers backstop every retained Mask root, including tracker snapshots and
 review scopes. The byte owner never reads business tables.
 
@@ -48,9 +48,22 @@ replay receipt are updated atomically.
 
 `apps/labeling-mask-gc` contains the portable contract, coordinator and client,
 plus a separate runtime using function-only PostgreSQL and cleanup HTTP. It
-has no application, Celery, Redis or S3 imports. The existing Celery collector
-retains its remote destructive guard until business consumer recovery and
-deployment qualification are complete. This is no production or Go cutover.
+has no application, Celery, Redis or S3 imports. The Celery consumer now selects
+this owner through explicit HTTP configuration or embeds the same coordinator.
+Each native operation uses a fresh transaction in the current task loop; domain
+expiration commits and metric reads release their transaction before any RPC.
+Configured remote failures do not fall back to local SQL or S3. This is no
+production or Go cutover.
+
+Migration 0234 adds one read-only page-inspection function and no storage. The
+owner applies its own clock and fail-closed live-root rules without creating a
+sweep, intent, epoch, permit or cursor. A preview returns its physical cursor and
+global distinct live-root count; it does not grant deletion rights. Normal
+staging remains authoritative for eligibility. Each cycle has independent scan
+and delete budgets; pending delete reconciliation continues after scan failure.
+The standalone service can disable background polling while preserving manual
+HTTP and health routes. Its preview is fully observational, while the legacy
+Celery dry-run still commits the separate domain-expiration phase.
 
 ## Consequences
 
@@ -62,5 +75,6 @@ available. Releasing them by elapsed time would lose the safety guarantee.
 Local tests cover native privileges, stale claims and epochs, fair progress
 past a failed first thousand keys, actual S3 reply loss, late HTTP completion
 and byte-process restart. They do not qualify production capacity, the new
-runtime image, complete Labeling deployment, or durable ordinary-batch result
-handoff. Those remain explicit gates before changing the existing collector.
+runtime image or complete Labeling deployment. Current runtime and bounded local
+capacity gates remain separate from production qualification. Durable batch and
+retry checkpoints retain their own execution, source and terminal-receipt gates.

@@ -97,6 +97,10 @@ class EnvironmentTests(unittest.TestCase):
                 "CELERY_BROKER_URL": "redis://shared:6379/0",
                 "MINIO_BUCKET": "annotations",
                 "ASSETS_MEDIA_INPUTS_BUCKET": "shared-inputs",
+                "assets_mask_cleanup_url": "http://shared-cleanup.test",
+                "ASSETS_MASK_CONTENT_URL": "http://shared-content.test",
+                "LABELING_MASK_GC_URL": "http://shared-labeling.test",
+                "LABELING_MASK_GC_TOKEN": "shared-test-token",
                 "DUCKDB_PATH": "/shared/analytics.duckdb",
                 "MINIO_PUBLIC_URL": "http://localhost:9000",
                 "MINIO_PROXY_TARGET": "http://shared:9000",
@@ -131,6 +135,16 @@ class EnvironmentTests(unittest.TestCase):
             )
             self.assertTrue(env["DUCKDB_PATH"].startswith(resources["directory"]))
             self.assertEqual(env["ML_BACKEND_OBSERVE_URLS"], "[]")
+            self.assertNotIn("assets_mask_cleanup_url", env)
+            for key in (
+                "ASSETS_MASK_CONTENT_URL",
+                "ASSETS_MASK_CONTENT_TOKEN",
+                "ASSETS_MASK_CLEANUP_URL",
+                "ASSETS_MASK_CLEANUP_TOKEN",
+                "LABELING_MASK_GC_URL",
+                "LABELING_MASK_GC_TOKEN",
+            ):
+                self.assertEqual(env[key], "")
             self.assertEqual(env["PATH"], "/bin")
             self.assertEqual(inherited["MINIO_BUCKET"], "annotations")
             self.assertIn("PLAYWRIGHT_E2E_DATABASE_URL", env)

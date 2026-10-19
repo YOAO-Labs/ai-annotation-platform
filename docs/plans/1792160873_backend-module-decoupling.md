@@ -2053,3 +2053,35 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   collector binding and installed runtime/image qualification remain before a
   business cutover. This is local integration, with no production or Go change;
   the all-module deployment/language-replacement goal remains active.
+
+### Durable result recovery and Mask collector integration
+
+- The ordinary-batch and retry result checkpoints now preserve accepted input,
+  raw/prepared model output, exact Prediction identity and terminal receipts.
+  Persistence contention and transient input failures do not consume model
+  failure budgets. Running tracker outputs have explicit native roots before
+  producer commit; final results transfer or release those roots atomically.
+  Their previously qualified worker-loss, installed-runtime and source-fence
+  results remain separate evidence, without repeating unchanged acceptance.
+- The business Mask collector now uses the durable coordinator in every mode.
+  Explicit HTTP owner selection never falls back. Domain expiration commits,
+  metric transactions release, and each native GC operation owns a fresh
+  transaction in the current task loop. The old request-local deletion loop
+  and its collection-only write-gate bypass are removed.
+- Native 0234 adds read-only page inspection without storage or locks. Preview
+  continuation uses physical byte cursors; it never changes destructive sweep
+  state, intents, epochs, permits or byte journals. The cleanup login has six
+  functions; four producer gates stay outside it. Scan pages and delete claims
+  have independent budgets, with strict counter and request validation.
+- The installed standalone process and Node HTTP peer exercise the current
+  contract. Integration found and fixed a missing authenticated byte readiness
+  probe and aligned exact receipt checks with the inventory timestamp rather
+  than HTTP HEAD rounding. Native ETag validation uses the byte contract's
+  visible ASCII range. The focused native/process repair report has fourteen
+  passing cases; the separately qualified preview and embedded consumer retain
+  their original reports. Failed preliminary fixture reports remain historical.
+- Nonroot, read-only runtime images retain only installed environments. Their
+  current bounded local-capacity gate and a cold local cutover rehearsal follow
+  this implementation checkpoint. Primary development remains unchanged until
+  qualification; the complete module deployment/language-replacement goal stays
+  active, with no production, release, remote CI, push or Go expansion.

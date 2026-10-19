@@ -104,11 +104,12 @@ BEGIN
         IF NOT v_complete OR v_page_count > 0 THEN
             RETURN aap_labeling_v1._mask_gc_reply(NULL, 'cursor_conflict');
         END IF;
-    ELSIF NOT v_complete
-          AND v_input_after_key IS NOT NULL
-          AND v_page_after_key COLLATE "C"
-                <= v_input_after_key COLLATE "C" THEN
-        RETURN aap_labeling_v1._mask_gc_reply(NULL, 'cursor_conflict');
+    ELSIF v_input_after_key IS NOT NULL THEN
+        IF v_page_after_key COLLATE "C" < v_input_after_key COLLATE "C"
+           OR (NOT v_complete AND v_page_after_key COLLATE "C"
+                   = v_input_after_key COLLATE "C") THEN
+            RETURN aap_labeling_v1._mask_gc_reply(NULL, 'cursor_conflict');
+        END IF;
     END IF;
 
     -- Validate every candidate and the complete physical page boundary first.
@@ -146,7 +147,7 @@ BEGIN
             RETURN aap_labeling_v1._mask_gc_reply(NULL, 'invalid_request');
         END IF;
         IF pg_catalog.octet_length(v_item ->> 'etag') NOT BETWEEN 1 AND 255
-           OR (v_item ->> 'etag') !~ '^[!-#%-~]+$' THEN
+           OR (v_item ->> 'etag') COLLATE "C" !~ '^[!#-~]+$' THEN
             RETURN aap_labeling_v1._mask_gc_reply(NULL, 'invalid_request');
         END IF;
         IF (v_item ->> 'byte_size') !~ '^(0|[1-9][0-9]*)$'

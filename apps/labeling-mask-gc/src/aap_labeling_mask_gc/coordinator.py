@@ -175,6 +175,8 @@ def _validate_scan_page(request: byte.GcScanRequest, page: byte.GcScanPage) -> N
     if request.after_key is None:
         return
     previous = request.after_key.encode("utf-8")
+    if page.after_key is not None and page.after_key.encode("utf-8") < previous:
+        raise byte.MaskGcFailure("invalid_response")
     if (
         not page.complete
         and page.after_key is not None

@@ -12,7 +12,7 @@ import logging
 from app.application.raster_mask_retention import RasterMaskRetentionWorkflow
 from app.services.annotation_comment import AnnotationCommentService
 from app.services.storage import storage_service
-from app.workers._db import task_session
+from app.workers._db import task_session, task_session_factory
 from app.workers.celery_app import celery_app
 
 log = logging.getLogger(__name__)
@@ -67,15 +67,39 @@ async def _purge_async() -> dict:
 
 
 @celery_app.task(name="app.workers.cleanup.purge_unreferenced_raster_masks")
-def purge_unreferenced_raster_masks(dry_run: bool = False) -> dict:
+def purge_unreferenced_raster_masks(
+    dry_run: bool = False,
+    scan_pages: int = 1,
+    delete_limit: int = 100,
+    after_key: str | None = None,
+) -> dict:
     """Delete unreferenced content-addressed mask objects after a 24-hour grace."""
-    return asyncio.run(_run_raster_mask_retention(dry_run=dry_run))
+    return asyncio.run(
+        _run_raster_mask_retention(
+            dry_run=dry_run,
+            scan_pages=scan_pages,
+            delete_limit=delete_limit,
+            after_key=after_key,
+        )
+    )
 
 
-async def _run_raster_mask_retention(*, dry_run: bool = False) -> dict:
-    async with task_session() as db:
-        workflow = RasterMaskRetentionWorkflow(db)
-        return await workflow.purge_unreferenced_raster_masks(dry_run=dry_run)
+async def _run_raster_mask_retention(
+    *,
+    dry_run: bool = False,
+    scan_pages: int = 1,
+    delete_limit: int = 100,
+    after_key: str | None = None,
+) -> dict:
+    async with task_session_factory() as factory:
+        async with factory() as db:
+            workflow = RasterMaskRetentionWorkflow(db, session_factory=factory)
+            return await workflow.purge_unreferenced_raster_masks(
+                dry_run=dry_run,
+                scan_pages=scan_pages,
+                delete_limit=delete_limit,
+                after_key=after_key,
+            )
 
 
 @celery_app.task(name="app.workers.cleanup.refresh_user_perf_mv")

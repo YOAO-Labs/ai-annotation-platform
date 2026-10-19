@@ -13,10 +13,11 @@ EXPECTED_GC_FUNCTIONS = {
     "aap_labeling_v1.claim_mask_gc_deletes(jsonb)",
     "aap_labeling_v1.finish_mask_gc_delete(jsonb)",
     "aap_labeling_v1.read_mask_gc_progress(jsonb)",
+    "aap_labeling_v1.inspect_mask_gc_page(jsonb)",
 }
 
 
-def test_gc_login_receives_only_the_five_gc_operation_functions():
+def test_gc_login_receives_only_the_six_gc_operation_functions():
     script = GRANTS.read_text(encoding="utf-8")
     grant = re.search(
         r"(?is)GRANT EXECUTE ON FUNCTION\s+(.*?)\s+TO\s+:\"mask_gc_role\";",
@@ -49,7 +50,7 @@ def test_gc_login_is_revoked_from_raw_tables_schemas_and_other_functions():
         "REVOKE ALL ON ALL FUNCTIONS IN SCHEMA aap_labeling_v1 FROM PUBLIC;"
     ) in script
     assert "The Labeling Mask GC role must have no role memberships" in script
-    assert "v_callable <> 5" in script
+    assert "v_callable <> 6" in script
     assert "raw table privileges" in script
     for write_gate in (
         "read_mask_write_epochs",

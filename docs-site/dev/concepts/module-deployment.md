@@ -235,19 +235,21 @@ Media 控制增加 `input`、`prepare`、`reference` 三项私有 HTTP 操作，
 
 ## Mask 内容字节服务
 
-`apps/assets-mask-content` 提供 `aap-assets-mask-content/v1` 与独立运行工件。内容进程仅接受 `put/get`，清理进程仅接受分页 `list` 和条件 `delete`；两者使用各自的 token 与 S3 身份，固定到既有 Mask 桶的 `raster-masks/sha256/*`，不持有数据库、Celery 或 Redis 凭据。API 的 Mask 内容入口、导入、AI 采纳、修复、QC、追踪及导出继续使用既有包装函数，字节操作统一通过 owner。
+`apps/assets-mask-content` 提供 `aap-assets-mask-content/v1` 与独立运行工件。内容进程接受 `put/get`，清理进程提供兼容的 `list/delete` 及持久回收的 `scan/execute/status`；两者使用各自的 token 与 S3 身份，固定到既有 Mask 桶的内容与日志前缀，不持有数据库、Celery 或 Redis 凭据。API 的 Mask 内容入口、导入、AI 采纳、修复、QC、追踪及导出继续使用既有包装函数，字节操作统一通过 owner。
 
 内容地址、未压缩 SHA/长度以及旧 JSON/gzip 引用保持兼容。写入使用条件创建并验证已存在内容，读取复核引用和实际字节。显式远程配置不会回退到 API 的对象存储身份；未配置的开发模式装配同一实现。
 
-Labeling 继续拥有任务权限、业务尺寸与帧校验、上传配额／预约、引用连接及完整回收根集。本地回收在移除过期预约后重新加锁，复查引用与预约后条件删除；近期同内容重传会续期预约。远程 cleanup 目前仅接入 dry-run 清单，业务删除明确拒绝：HTTP 失败后迟到的删除需要 Labeling 持久每键删除栅栏与结果恢复协议保护。字节服务只比较对象事实，不读取业务表。当前逻辑键的删除与历史 S3 版本的物理回收仍是不同责任。
+Labeling 继续拥有任务权限、业务尺寸与帧校验、上传配额／预约、引用连接及完整回收根集。业务回收统一使用持久每键代次、删除意图与精确终态回执，不借用业务事务跨网络删除；近期同内容重传会续期预约并受生产宽限期保护。字节服务只比较对象事实，不读取业务表。当前逻辑键的删除与历史 S3 版本的物理回收仍是不同责任。
 
 Python 实现复用现有编解码与 S3 栈，Node 测试提供方验证实际 Python 客户端能够通过相同 wire 合同更换实现语言；该 peer 是合同夹具，不代表第二语言持久运行时的生产资格。完整 Labeling 预约、写入与 GC 协调协议、一般 Blob 和其余模块仍须推进。协议与配置见 [Mask 字节接口](/api/guides/mask-content)及 [ADR-0111](/dev/adr/0111-independent-mask-content)。
 
-## Mask 持久回收实验
+## Mask 持久回收协调
 
-`apps/labeling-mask-gc` 拥有独立 JSON 合同、函数专用 PostgreSQL 适配器、协调器和私有 HTTP/轮询入口。Labeling 原生 authority 保存每键代次、删除意图、生成内容宽限期、引用根和扫描游标；cleanup 登录仅能执行五项 GC 能力，业务写入的三项代次能力不向它开放。字节进程通过独立日志前缀保存一次性删除请求和不可变终态回执，不读取业务表。
+`apps/labeling-mask-gc` 拥有独立 JSON 合同、函数专用 PostgreSQL 适配器、协调器和私有 HTTP/轮询入口。Labeling 原生 authority 保存每键代次、删除意图、生成内容宽限期、引用根和扫描游标；cleanup 登录仅能执行六项 GC 能力，四项业务生产能力不向它开放。字节进程通过独立日志前缀保存一次性删除请求和不可变终态回执，不读取业务表。
 
-本地验收覆盖受限账号、旧凭据和过期代次拒绝、失败前缀后的扫描推进，以及真实 S3 丢回包、HTTP 超时后迟到完成、字节进程重启与同键重传保护。没有终态回执时持续隔离该键，不按 HEAD 不存在或租约过期解除。现有 Celery collector 的远程删除保护仍保留；完整批处理结果交接、运行时镜像和生产容量继续验收，不能据此认定 Labeling 全模块已独立部署。设计见 [ADR-0112](/dev/adr/0112-durable-mask-gc-fences)。
+Celery 消费者通过 `services/mask_gc_collection.py` 选择本地协调器或 `LABELING_MASK_GC_URL` 独立 HTTP 服务，显式远程失败不回退。领域过期命令先提交，指标读取事务随后释放；原生 GC 操作每次使用新事务。只读预览调用 `inspect_mask_gc_page`，不建立意图、日志或破坏性扫描游标；物理续扫位置和扫描／删除预算分别返回。
+
+本地验收覆盖受限账号、旧凭据和过期代次拒绝、失败前缀后的扫描推进，以及真实 S3 丢回包、HTTP 超时后迟到完成、字节进程重启与同键重传保护。没有终态回执时持续隔离该键，不按 HEAD 不存在或租约过期解除。当前切片的独立进程、跨语言消费和运行镜像按隔离本地门槛验证；完整 Labeling 与其他模块的独立部署、凭据收口及生产容量仍未完成。设计见 [ADR-0112](/dev/adr/0112-durable-mask-gc-fences)。
 
 ## 普通批量结果检查点
 

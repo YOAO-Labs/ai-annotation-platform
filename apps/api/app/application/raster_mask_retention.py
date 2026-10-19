@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta, timezone
+
+from aap_labeling_mask_gc import contract as c
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -11,11 +12,10 @@ from app.observability.raster_mask import (
 )
 from app.services import ai_mask_accept, annotation_conversion
 from app.services.mask_slice_restore import expire_mask_annotation_revisions
-from app.services.raster_mask_storage import purge_unreferenced_raster_mask_objects
+from app.services.mask_gc_collection import collect_raster_masks
 from app.services.video_tracking.jobs import expire_stale_tracker_candidates
 
 log = logging.getLogger(__name__)
-RASTER_MASK_OBJECT_GC_GRACE = timedelta(hours=24)
 
 _TRACKER_SCOPE_MASK_REFERENCES_SQL = """
     SELECT value #>> '{}' AS object_key
@@ -242,11 +242,24 @@ async def is_raster_mask_key_referenced(db: AsyncSession, key: str) -> bool:
 class RasterMaskRetentionWorkflow:
     """Compose domain retention commands with shared raster-mask storage GC."""
 
-    def __init__(self, db: AsyncSession) -> None:
+    def __init__(self, db: AsyncSession, *, session_factory) -> None:
         self.db = db
+        self.session_factory = session_factory
 
-    async def purge_unreferenced_raster_masks(self, *, dry_run: bool = False) -> dict:
-        cutoff = datetime.now(timezone.utc) - RASTER_MASK_OBJECT_GC_GRACE
+    async def purge_unreferenced_raster_masks(
+        self,
+        *,
+        dry_run: bool = False,
+        scan_pages: int = 1,
+        delete_limit: int = 100,
+        after_key: str | None = None,
+    ) -> dict:
+        request = c.RunRequest(
+            dry_run=dry_run,
+            scan_pages=scan_pages,
+            delete_limit=delete_limit,
+            after_key=after_key,
+        )
 
         await ai_mask_accept.expire_accept_decisions(self.db)
         expired_tracker_candidates = await expire_stale_tracker_candidates(self.db)
@@ -256,19 +269,18 @@ class RasterMaskRetentionWorkflow:
         expired_mask_revisions = await expire_mask_annotation_revisions(self.db)
         await self.db.commit()
         await refresh_raster_mask_active_geometries_safely(self.db)
-
-        referenced = await referenced_raster_mask_keys(self.db)
-        storage_result = await purge_unreferenced_raster_mask_objects(
-            self.db,
-            referenced,
-            cutoff,
-            is_referenced=is_raster_mask_key_referenced,
-            dry_run=dry_run,
-        )
+        # Metrics may open another read transaction. No caller connection or
+        # business lock stays borrowed while the collector contacts either owner.
+        await self.db.rollback()
+        storage_result = await collect_raster_masks(self.session_factory, request)
         result = {
-            "dry_run": dry_run,
-            "referenced": len(referenced),
-            **storage_result,
+            **storage_result.model_dump(mode="json"),
+            "errors": (
+                storage_result.scan_errors
+                + storage_result.finish_errors
+                + storage_result.data_errors
+                + storage_result.durable_uncertainties
+            ),
             "expired_tracker_candidates": expired_tracker_candidates,
             "expired_conversion_plans": expired_conversion_plans,
             "expired_mask_revisions": expired_mask_revisions,

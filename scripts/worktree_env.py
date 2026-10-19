@@ -195,6 +195,12 @@ def isolated_environment(
         "GPU_ARBITER_ROLLOUT_ENABLED": "false",
         "GPU_ARBITER_RESOURCES_JSON": "{}",
         "GPU_ARBITER_COLLECTOR_DATABASE_URL_FILE": "",
+        "ASSETS_MASK_CONTENT_URL": "",
+        "ASSETS_MASK_CONTENT_TOKEN": "",
+        "ASSETS_MASK_CLEANUP_URL": "",
+        "ASSETS_MASK_CLEANUP_TOKEN": "",
+        "LABELING_MASK_GC_URL": "",
+        "LABELING_MASK_GC_TOKEN": "",
         "SMTP_HOST": "",
         "SENTRY_DSN": "",
     }

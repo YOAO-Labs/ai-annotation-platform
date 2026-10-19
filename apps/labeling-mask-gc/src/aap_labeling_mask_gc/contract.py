@@ -574,6 +574,18 @@ class CycleStats(Value):
                 raise ValueError("dry-run eligible and retained counts must match")
         elif self.eligible != self.staged:
             raise ValueError("normal-run eligible count must match staged count")
+        elif self.staged + self.skipped != self.scanned:
+            raise ValueError(
+                "normal-run staged and skipped counts must match inventory"
+            )
+        if self.completed != self.deleted + self.missing + self.content_changed:
+            raise ValueError("completed count must match terminal outcomes")
+        if self.delete_claims != (
+            self.completed + self.pending + self.indeterminate + self.finish_errors
+        ):
+            raise ValueError("every deletion claim must have a reported outcome")
+        if self.durable_uncertainties != self.pending + self.indeterminate:
+            raise ValueError("uncertainty count must match unfinished operations")
         return self
 
 
@@ -584,6 +596,7 @@ def validate_run_stats(request: RunRequest, result: CycleStats) -> None:
         request.dry_run != result.dry_run
         or result.scan_pages > request.scan_pages
         or result.delete_claims > request.delete_limit
+        or result.scanned > result.scan_pages * MAX_GC_PAGE
     ):
         raise MaskGcFailure("invalid_response")
 

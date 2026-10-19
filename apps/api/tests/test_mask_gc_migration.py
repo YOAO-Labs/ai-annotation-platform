@@ -60,11 +60,11 @@ def test_revision_uses_one_new_native_artifact():
     assert (SQL / module._UPGRADE_ARTIFACTS[0]).is_file()
 
 
-def test_native_schema_matches_the_portable_gc_contract():
+def test_current_native_schema_matches_the_portable_gc_contract():
     from aap_labeling_mask_gc.contract import contract_document
 
     assert (
-        json.loads((SQL / "0229_mask_gc.schema.json").read_text())
+        json.loads((SQL / "0234_mask_gc.schema.json").read_text())
         == contract_document()
     )
 

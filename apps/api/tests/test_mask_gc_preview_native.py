@@ -94,7 +94,7 @@ def test_request_and_page_validation_are_closed_and_bounded():
     assert "WITH ORDINALITY AS entry(value, ordinal)" in sql
     assert "_mask_gc_key_valid(v_object_key)" in sql
     assert 'COLLATE "C"' in sql
-    assert "^[!-#%-~]+$" in sql
+    assert "COLLATE \"C\" !~ '^[!#-~]+$'" in sql
     assert "^(0|[1-9][0-9]*)$" in sql
     assert "9223372036854775807" in sql
     assert "T[0-9]{2}:[0-9]{2}:[0-9]{2}" in sql

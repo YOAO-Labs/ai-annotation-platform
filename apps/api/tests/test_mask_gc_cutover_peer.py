@@ -127,8 +127,14 @@ def _start_gc_runtime(test_engine, content_origin, content_token, tmp_path):
     }
     log_stream = (tmp_path / "mask-gc-cutover.log").open("wb")
     process = subprocess.Popen(
-        [sys.executable, "-m", "aap_labeling_mask_gc_runtime"],
-        cwd=ROOT / "apps" / "labeling-mask-gc" / "src",
+        [
+            os.environ.get("AAP_MASK_GC_RUNTIME_PYTHON", sys.executable),
+            "-m",
+            "aap_labeling_mask_gc_runtime",
+        ],
+        cwd=tmp_path
+        if os.environ.get("AAP_MASK_GC_RUNTIME_PYTHON")
+        else ROOT / "apps" / "labeling-mask-gc" / "src",
         env=environment,
         stdin=subprocess.DEVNULL,
         stdout=log_stream,
@@ -182,6 +188,20 @@ async def _gc_table_snapshot(test_engine) -> tuple[tuple[str, str], ...]:
             )
             snapshot.append((table, value))
         return tuple(snapshot)
+
+
+async def _reference_count(test_engine):
+    async with test_engine.connect() as db:
+        result = await _native_call(
+            db,
+            "inspect_mask_gc_page",
+            {
+                "page": {"items": [], "after_key": None, "complete": True},
+                "include_reference_count": True,
+            },
+        )
+    assert result["ok"] is True, result
+    return result["data"]["referenced"]
 
 
 def _list_s3_prefix(owner, bucket: str, prefix: str) -> list[dict]:
@@ -299,6 +319,7 @@ async def test_node_http_dry_run_continues_one_bounded_page_without_mutation(
             test_engine, content_origin, content_token, tmp_path
         )
         state_before = await _gc_table_snapshot(test_engine)
+        reference_count = await _reference_count(test_engine)
 
         result = _run_node_peer(
             gc_origin,
@@ -315,7 +336,7 @@ async def test_node_http_dry_run_continues_one_bounded_page_without_mutation(
         for stats in (first, second):
             assert stats["dry_run"] is True
             assert stats["scan_pages"] == 1
-            assert stats["referenced"] == 0
+            assert stats["referenced"] == reference_count
             assert stats["next_after_key"] is not None
         assert first["scanned"] == byte.MAX_GC_PAGE
         assert first["eligible"] == 0
@@ -370,6 +391,14 @@ async def test_node_http_run_deletes_staged_old_orphan_and_new_upload_is_retaine
             "cleanup", bucket=bucket, credentials=cleanup, tmp_path=tmp_path
         )
         dsn = _postgres_dsn(test_engine)
+        # The GC protocol preserves ListObjects' timestamp precision; HTTP HEAD
+        # can round it to seconds. Compare the receipt to its actual scan identity.
+        byte_client = MaskGcClient(content_origin, content_token)
+        observed = await asyncio.to_thread(
+            byte_client.scan, byte.GcScanRequest(after_key=cursor, limit=1)
+        )
+        assert len(observed.items) == 1 and observed.items[0].object_key == object_key
+        candidate = observed.items[0]
         pool = await asyncpg.create_pool(
             dsn=dsn,
             min_size=1,
@@ -409,6 +438,7 @@ async def test_node_http_run_deletes_staged_old_orphan_and_new_upload_is_retaine
         gc_process, gc_log, gc_origin, gc_token = _start_gc_runtime(
             test_engine, content_origin, content_token, tmp_path
         )
+        reference_count = await _reference_count(test_engine)
         result = _run_node_peer(
             gc_origin,
             gc_token,
@@ -426,7 +456,7 @@ async def test_node_http_run_deletes_staged_old_orphan_and_new_upload_is_retaine
         assert stats["delete_claims"] == 1
         assert stats["completed"] == 1
         assert stats["deleted"] == 1
-        assert stats["referenced"] == 0
+        assert stats["referenced"] == reference_count
         assert stats["scan_complete"] is True
         assert stats["next_after_key"] == candidate.object_key
         assert not _object_exists(owner, bucket, candidate.object_key)
@@ -450,7 +480,6 @@ async def test_node_http_run_deletes_staged_old_orphan_and_new_upload_is_retaine
             ).one()
         assert operation_id is not None
         assert epoch == 1 and active_operation is None
-        byte_client = MaskGcClient(content_origin, content_token)
         receipt = await asyncio.to_thread(
             byte_client.status,
             byte.DeleteStatusRequest(operation_id=operation_id),
@@ -496,7 +525,7 @@ async def test_node_http_run_deletes_staged_old_orphan_and_new_upload_is_retaine
         assert retained["dry_run"] is True
         assert retained["scanned"] == 1
         assert retained["eligible"] == 0
-        assert retained["referenced"] == 0
+        assert retained["referenced"] == reference_count
         assert retained["scan_complete"] is True
         assert retained["next_after_key"] == candidate.object_key
         assert await _gc_table_snapshot(test_engine) == state_before

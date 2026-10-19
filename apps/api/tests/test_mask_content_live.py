@@ -18,7 +18,6 @@ from uuid import uuid4
 import httpx
 import pytest
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from aap_assets_mask_content import codec
 from aap_assets_mask_content.client import MaskContentClient
@@ -36,7 +35,6 @@ from app.db.models.dataset import Dataset, DatasetItem, ProjectDataset
 from app.db.models.project import Project
 from app.db.models.raster_mask_upload import RasterMaskUpload
 from app.db.models.task import Task
-from app.db.models.user import User
 from tests.test_asset_storage_cleanup_runtime import (
     _expect_s3_denied,
     _local_s3_client,
@@ -496,7 +494,7 @@ async def _seed_mask_world(db, owner_id):
     return project, dataset, item, task, quota_task
 
 
-async def test_live_mask_api_and_embedded_gc_preserve_current_authority_and_roots(
+async def test_live_mask_api_preserves_current_authority_and_roots(
     test_engine,
     tmp_path,
     httpx_client,
@@ -690,242 +688,6 @@ async def test_live_mask_api_and_embedded_gc_preserve_current_authority_and_root
         )
         assert not _object_exists(owner_s3, bucket, failed_key)
 
-        # Remote deletion awaits a durable Labeling fence; exercise the current
-        # embedded GC against the same owned S3 objects after the API outage.
-        monkeypatch.setattr(settings, "assets_mask_content_url", "")
-        monkeypatch.setattr(settings, "assets_mask_cleanup_url", "")
-
-        db_session.add(
-            RasterMaskUpload(
-                task_id=task.id,
-                object_key=orphan_ref.object_key,
-                created_at=cutoff - timedelta(seconds=1),
-            )
-        )
-        await db_session.flush()
-
-        from app.application.raster_mask_retention import (
-            is_raster_mask_key_referenced,
-            referenced_raster_mask_keys,
-        )
-        from app.services.raster_mask_storage import (
-            purge_unreferenced_raster_mask_objects,
-        )
-
-        rooted = await referenced_raster_mask_keys(db_session)
-        assert root_ref.object_key in rooted
-        target_keys = {
-            recent_ref.object_key,
-            root_ref.object_key,
-            orphan_ref.object_key,
-        }
-        with MaskContentClient(cleanup_origin, cleanup_token) as cleanup:
-            candidates = _all_candidates(cleanup)
-        # The verifier-owned bucket may contain keys from earlier tests. Protect
-        # every non-fixture candidate so this case can retire only its own orphan.
-        rooted.update(item.key for item in candidates if item.key not in target_keys)
-        result = await purge_unreferenced_raster_mask_objects(
-            db_session,
-            rooted,
-            cutoff,
-            is_referenced=is_raster_mask_key_referenced,
-        )
-        assert result["errors"] == 0
-        assert result["deleted"] == 1
-        assert _object_exists(owner_s3, bucket, recent_ref.object_key)
-        assert _object_exists(owner_s3, bucket, root_ref.object_key)
-        assert not _object_exists(owner_s3, bucket, orphan_ref.object_key)
-        assert (
-            await db_session.scalar(
-                select(RasterMaskUpload.id).where(
-                    RasterMaskUpload.task_id == task.id,
-                    RasterMaskUpload.object_key == orphan_ref.object_key,
-                )
-            )
-            is None
-        )
-        assert (
-            await db_session.scalar(
-                select(RasterMaskUpload.id).where(
-                    RasterMaskUpload.task_id == task.id,
-                    RasterMaskUpload.object_key == recent_ref.object_key,
-                )
-            )
-            is not None
-        )
-    finally:
-        if content_client is not None:
-            content_client.close()
-        _stop_runtime(content_process, content_log)
-        _stop_runtime(cleanup_process, cleanup_log)
-
-
-async def test_live_mask_gc_rechecks_a_committed_reservation_after_retiring_old_one(
-    test_engine, tmp_path, monkeypatch
-):
-    (
-        _resources,
-        bucket,
-        _other_bucket,
-        owner_s3,
-        content_credentials,
-        cleanup_credentials,
-    ) = _owned_resources(test_engine)
-    sessions = async_sessionmaker(test_engine, expire_on_commit=False)
-    actor_id = uuid4()
-    task_id = uuid4()
-    content_process = cleanup_process = None
-    content_log = cleanup_log = None
-    content_client = None
-
-    try:
-        content_process, content_log, content_origin, content_token = _start_runtime(
-            "content",
-            bucket=bucket,
-            credentials=content_credentials,
-            tmp_path=tmp_path,
-        )
-        cleanup_process, cleanup_log, cleanup_origin, cleanup_token = _start_runtime(
-            "cleanup",
-            bucket=bucket,
-            credentials=cleanup_credentials,
-            tmp_path=tmp_path,
-        )
-        monkeypatch.setattr(settings, "assets_mask_content_url", content_origin)
-        monkeypatch.setattr(settings, "assets_mask_content_token", content_token)
-        monkeypatch.setattr(settings, "assets_mask_cleanup_url", cleanup_origin)
-        monkeypatch.setattr(settings, "assets_mask_cleanup_token", cleanup_token)
-        content_client = MaskContentClient(content_origin, content_token)
-        rle = _rle(uuid4().hex)
-        monkeypatch.setattr(settings, "assets_mask_content_url", content_origin)
-        monkeypatch.setattr(settings, "assets_mask_content_token", content_token)
-        monkeypatch.setattr(settings, "assets_mask_cleanup_url", cleanup_origin)
-        monkeypatch.setattr(settings, "assets_mask_cleanup_token", cleanup_token)
-        reference = content_client.put(PutRequest(content=rle)).reference
-
-        async with sessions.begin() as owner:
-            owner.add(
-                User(
-                    id=actor_id,
-                    email=f"mask-gc-race-{actor_id.hex}@example.test",
-                    name="Mask GC race owner",
-                    password_hash="test-only",
-                    role="project_admin",
-                    is_active=True,
-                )
-            )
-            await owner.flush()
-            project = Project(
-                id=uuid4(),
-                display_id=f"P-MCR-{actor_id.hex[:12]}",
-                name=f"mask-gc-race-{actor_id.hex[:12]}",
-                type_label="Image segmentation",
-                type_key="image-seg",
-                owner_id=actor_id,
-                raster_mask_native_editing_enabled=True,
-                tool_bindings={"region": {"enabled": True, "classes": ["object"]}},
-            )
-            owner.add(project)
-            await owner.flush()
-            task = Task(
-                id=task_id,
-                project_id=project.id,
-                display_id=f"T-MCR-{actor_id.hex[:12]}",
-                file_name="mask.png",
-                file_path=f"mask-gc-race/{actor_id.hex}.png",
-                file_type="image",
-                status="pending",
-            )
-            owner.add(task)
-
-        with MaskContentClient(cleanup_origin, cleanup_token) as cleanup:
-            candidate = _find_candidate(cleanup, reference.object_key)
-        assert candidate is not None
-        cutoff = candidate.last_modified + timedelta(seconds=1)
-        wait_seconds = (
-            cutoff + timedelta(seconds=2) - datetime.now(timezone.utc)
-        ).total_seconds()
-        if wait_seconds > 0:
-            await asyncio.sleep(wait_seconds)
-
-        async with sessions.begin() as owner:
-            owner.add(
-                RasterMaskUpload(
-                    task_id=task_id,
-                    object_key=reference.object_key,
-                    created_at=cutoff - timedelta(seconds=1),
-                )
-            )
-
-        from app.application.raster_mask_retention import is_raster_mask_key_referenced
-        from app.services import raster_mask_storage
-        from app.services.raster_mask_storage import (
-            _delete_unreferenced_mask_candidate,
-            reserve_raster_mask_upload,
-            store_coco_rle,
-        )
-        from aap_assets_mask_content.storage import S3MaskContentStore
-
-        local_cleanup = S3MaskContentStore(
-            _local_s3_client(settings, *cleanup_credentials), bucket
-        )
-        original_lock = raster_mask_storage.lock_raster_mask_references
-        race_lock_calls = 0
-
-        async def add_committed_reservation_before_second_lock(
-            db, references, **kwargs
-        ):
-            nonlocal race_lock_calls
-            if (
-                isinstance(references, dict)
-                and references.get("object_key") == reference.object_key
-            ):
-                race_lock_calls += 1
-                if race_lock_calls == 2:
-                    async with sessions.begin() as racer:
-                        await original_lock(
-                            racer,
-                            {"object_key": reference.object_key},
-                            verify=False,
-                        )
-                        await reserve_raster_mask_upload(
-                            racer,
-                            task_id=task_id,
-                            object_key=reference.object_key,
-                            limit=256,
-                        )
-                        replayed = await store_coco_rle(rle.model_dump(mode="json"))
-                        assert replayed["object_key"] == reference.object_key
-            return await original_lock(db, references, **kwargs)
-
-        monkeypatch.setattr(
-            raster_mask_storage,
-            "lock_raster_mask_references",
-            add_committed_reservation_before_second_lock,
-        )
-        async with sessions() as gc_db:
-            deleted = await _delete_unreferenced_mask_candidate(
-                gc_db,
-                candidate,
-                local_cleanup,
-                is_raster_mask_key_referenced,
-                cutoff,
-            )
-
-        assert candidate.last_modified < cutoff
-        assert race_lock_calls == 2
-        assert deleted is False
-        assert _object_exists(owner_s3, bucket, reference.object_key)
-        async with sessions() as query_db:
-            reservation = (
-                await query_db.execute(
-                    select(RasterMaskUpload).where(
-                        RasterMaskUpload.task_id == task_id,
-                        RasterMaskUpload.object_key == reference.object_key,
-                    )
-                )
-            ).scalar_one()
-            assert reservation.created_at >= cutoff
     finally:
         if content_client is not None:
             content_client.close()

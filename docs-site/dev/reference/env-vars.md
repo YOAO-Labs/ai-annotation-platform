@@ -534,11 +534,26 @@ last_reviewed: 2026-10-20
 
 | 变量 | 默认值 | 说明 |
 |---|---|---|
-| `ASSETS_MASK_CONTENT_URL` | `—` | 全部 URL 留空时本地装配同一实现；显式远程配置失败时不回退本地 S3。 远程 cleanup 仅允许 dry-run 清单；业务删除等待 Labeling 持久栅栏后再接入。 |
+| `ASSETS_MASK_CONTENT_URL` | `—` | 全部 URL 留空时本地装配同一实现；显式远程配置失败时不回退本地 S3。 cleanup 通过持久删除日志接收 Labeling 已建立围栏的操作。 |
 | `ASSETS_MASK_CONTENT_TOKEN` | `—` | — |
 | `ASSETS_MASK_CLEANUP_URL` | `—` | — |
 | `ASSETS_MASK_CLEANUP_TOKEN` | `—` | — |
 | `ASSETS_MASK_CONTENT_TIMEOUT_SECONDS` | `30` | — |
+| `LABELING_MASK_GC_URL` | `—` | Mask 回收协调服务；URL/token 全空时本地装配同一持久协调器。 显式远程配置失败时不回退；扫描页数和删除数分别受限。 |
+| `LABELING_MASK_GC_TOKEN` | `—` | — |
+| `LABELING_MASK_GC_TIMEOUT_SECONDS` | `300` | — |
+| `MASK_GC_DATABASE_URL` | `—` | 独立回收进程：只持有六项 GC 函数登录与 cleanup HTTP token。 |
+| `MASK_GC_DATABASE_URL_FILE` | `—` | — |
+| `MASK_GC_TOKEN` | `—` | — |
+| `MASK_GC_TOKEN_FILE` | `—` | — |
+| `MASK_GC_CONTENT_URL` | `—` | — |
+| `MASK_GC_CONTENT_URL_FILE` | `—` | — |
+| `MASK_GC_CONTENT_TOKEN` | `—` | — |
+| `MASK_GC_CONTENT_TOKEN_FILE` | `—` | — |
+| `MASK_GC_HOST` | `0.0.0.0` | — |
+| `MASK_GC_PORT` | `8771` | — |
+| `MASK_GC_POLL_SECONDS` | `5` | — |
+| `MASK_GC_POLL_ENABLED` | `true` | false 保留手动 HTTP 与健康检查，关闭后台回收轮询。 |
 | `PREANNOTATION_RESULTS_DATABASE_URL` | `—` | Optional function-only LOGIN for batch result checkpoints; final Labeling writes keep the normal application transaction. Empty uses DATABASE_URL. |
 | `PREANNOTATION_RESULTS_DATABASE_URL_FILE` | `—` | — |
 | `MASK_CONTENT_S3_ENDPOINT_URL` | `—` | 运行工件无数据库凭据；两个进程只共享固定桶/前缀，各用自己的 S3 身份。 |

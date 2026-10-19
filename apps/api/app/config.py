@@ -248,6 +248,9 @@ class Settings(BaseSettings):
     assets_mask_cleanup_url: str = ""
     assets_mask_cleanup_token: str = Field(default="", repr=False)
     assets_mask_content_timeout_seconds: float = Field(default=30, gt=0, le=300)
+    labeling_mask_gc_url: str = ""
+    labeling_mask_gc_token: str = Field(default="", repr=False)
+    labeling_mask_gc_timeout_seconds: float = Field(default=300, gt=0, le=3600)
     preannotation_results_database_url: str = Field(default="", repr=False)
     preannotation_results_database_url_file: str = ""
 

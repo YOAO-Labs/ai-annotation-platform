@@ -6,8 +6,9 @@ JSON contract, a small HTTP client, and the bounded coordinator. The runtime
 package calls only the six cleanup `aap_labeling_v1` JSONB functions and
 the private Mask GC HTTP service.
 
-The three write-epoch functions are part of the shared contract but are denied
-to the cleanup login. They belong to Labeling's business write transactions.
+The three write-epoch functions and the running-tracker root registration are
+part of the shared contract but denied to the cleanup login. These four producer
+gates belong to Labeling's business write transactions.
 
 The process has no application imports, caller-owned SQL sessions, task model,
 Celery, Redis, or S3 client. The byte owner receives cleanup credentials; this

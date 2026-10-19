@@ -138,6 +138,10 @@ class MaskGcClient:
         except (ValueError, UnicodeEncodeError):
             raise gc.MaskGcFailure("invalid_response") from None
 
+    def check_ready(self) -> None:
+        """Verify the authenticated cleanup protocol with one read-only entry."""
+        self.scan(gc.GcScanRequest(limit=1))
+
     def execute(self, request: gc.DeleteOperationRequest) -> gc.DeleteOperationStatus:
         request = self._validate_request(gc.DeleteOperationRequest, request)
         result = self._request("execute", request, gc.DeleteOperationStatus)

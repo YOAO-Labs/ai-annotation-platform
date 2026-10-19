@@ -16,7 +16,7 @@ TOKEN = "r" * 48
 
 def test_http_client_uses_closed_schema_and_service_token():
     calls = []
-    result = c.CycleStats(scan_pages=1, scanned=12)
+    result = c.CycleStats(scan_pages=1, scanned=12, skipped=12)
 
     def handler(request):
         calls.append(request)
@@ -88,7 +88,8 @@ def test_http_client_preserves_safe_service_error_code():
     [
         c.CycleStats(dry_run=False),
         c.CycleStats(dry_run=True, scan_pages=2),
-        c.CycleStats(delete_claims=2),
+        c.CycleStats(delete_claims=2, finish_errors=2),
+        c.CycleStats(dry_run=True, scan_pages=1, scanned=1001, skipped=1001),
     ],
 )
 def test_http_client_rejects_run_stats_outside_request_scope(result):

@@ -365,6 +365,20 @@ async def test_dry_run_failure_keeps_last_completed_checkpoint_and_never_mutates
 
 
 @pytest.mark.asyncio
+async def test_preview_rejects_a_final_empty_page_that_moves_the_cursor_backwards():
+    storage = FakeStorage(
+        pages=(byte.GcScanPage(items=(), after_key=KEY_A, complete=True),)
+    )
+    data = FakeData()
+    stats = await run_cycle(
+        data, storage, worker_id=WORKER_ID, dry_run=True, after_key=KEY_B
+    )
+    assert stats.scan_errors == 1 and stats.scan_pages == 0
+    assert stats.next_after_key == KEY_B and stats.scan_complete is False
+    assert data.calls == []
+
+
+@pytest.mark.asyncio
 async def test_run_cycle_validates_typed_bounds_and_cursor_mode_before_io():
     data = FakeData()
     storage = FakeStorage()

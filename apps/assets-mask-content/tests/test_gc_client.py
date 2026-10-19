@@ -91,6 +91,43 @@ def test_scan_sends_physical_cursor_and_accepts_bounded_page():
     assert result == page
 
 
+def test_readiness_authenticates_the_cleanup_scan_without_mutating():
+    calls = []
+
+    def handler(request):
+        calls.append(request.url.path)
+        assert request.headers["authorization"] == "Bearer " + _TOKEN
+        assert request.read() == b'{"after_key":null,"limit":1}'
+        return httpx.Response(
+            200,
+            json={
+                "schema": GC_SCHEMA,
+                "ok": True,
+                "data": {"items": [], "after_key": None, "complete": True},
+            },
+        )
+
+    with _client(handler) as client:
+        assert client.check_ready() is None
+    assert calls == ["/v1/mask-gc/scan"]
+
+
+def test_readiness_does_not_accept_unavailable_cleanup_permission():
+    with _client(
+        lambda request: httpx.Response(
+            403,
+            json={
+                "schema": GC_SCHEMA,
+                "ok": False,
+                "error": {"code": "permission_denied"},
+            },
+        )
+    ) as client:
+        with pytest.raises(MaskGcFailure) as caught:
+            client.check_ready()
+    assert caught.value.code == "permission_denied"
+
+
 def test_scan_rejects_candidate_before_the_requested_cursor():
     older_key = codec.rle_object_key("0" * 64)
     candidate = GcCandidate(

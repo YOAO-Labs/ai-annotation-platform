@@ -3,7 +3,7 @@ title: Mask 字节接口
 audience: [dev, ops]
 type: reference
 status: stable
-last_reviewed: 2026-10-19
+last_reviewed: 2026-10-20
 ---
 
 # Mask 字节接口
@@ -41,22 +41,35 @@ last_reviewed: 2026-10-19
 
 区域审核范围在关联 QC 问题删除后仍保留其区域掩码，直到范围本身退役。跟踪输入的来源标注、提示与修正掩码按原生输入保留规则继续保护，即使当前标注或提示已变化；保留查询异常时继续保留内容。
 
-业务回收仍在本地装配执行。远程 cleanup 只接入 dry-run 清单查询；配置远程地址时，执行删除的业务回收明确失败。HTTP 超时后删除可能继续执行，释放请求内 SQL 锁不足以阻止迟到的删除影响同内容重传。远程删除接入依赖 Labeling 的持久每键删除栅栏与结果恢复协议。
+业务回收在本地或独立 HTTP 服务中装配同一个持久协调器，字节操作统一使用下述 `scan/execute/status` 协议。原生意图先建立持久围栏并提交，再执行远程删除；HTTP 超时后围栏继续保留，避免迟到删除影响新引用。
 
-成功重传相同内容会续期该任务的上传预约，即使不可变对象的修改时间很旧；已关联的预约保留关联状态与配额语义。本地回收先保护宽限期内的预约，再移除旧预约并提交，重新加锁复查预约与当前引用后才删除。字节适配器通过 HEAD 核对 ETag 与修改时间，再以 `If-Match` 条件删除当前键；时间按 HEAD 的整秒精度比较。
+成功重传相同内容会续期该任务的上传预约，即使不可变对象的修改时间很旧；已关联的预约保留关联状态与配额语义。原生 owner 同时检查对象年龄、近期生产／上传事实、当前引用根和活动删除意图。内容预检与最终连接使用同一代次，已失效或正在回收的内容返回可重试冲突。
 
 `delete` 删除当前逻辑键；版本化桶中历史对象版本的物理回收仍依赖桶生命周期或独立清理责任。普通调用者不能通过本协议删除历史版本。
 
 显式远程配置失败时保持失败，不切回本地 S3。调用方可按既有业务规则重试；重复 put 校验同一内容，重复 delete 对已不存在的键返回未删除。公开上传在写入失败时回滚预约与配额，不把未提交预约视为成功上传。
 
-这条协议提供 Mask 字节边界；完整 Labeling 业务写入、预约与 GC 协调运行时仍需各自完成模块协议。
+这条协议提供 Mask 字节边界；完整 Labeling 业务写入及其他入口仍须完成各自模块协议。
 
 ## 持久回收协议
 
-隔离的回收实验使用 `aap-assets-mask-gc/v1`，提供 cleanup 专用的 `POST /v1/mask-gc/scan`、`execute` 和 `status`。每页最多 1000 项，消息至多 1 MiB；游标是最后访问的物理键，包含被跳过的旧格式文件名。删除请求固定操作 UUID、内容键、ETag 和观测修改时间。
+持久字节回收使用 `aap-assets-mask-gc/v1`，提供 cleanup 专用的 `POST /v1/mask-gc/scan`、`execute` 和 `status`。每页最多 1000 项，消息至多 1 MiB；游标是最后访问的物理键，包含被跳过的旧格式文件名。删除请求固定操作 UUID、内容键、ETag 和观测修改时间。兼容的 `mask-content/delete` 不参与业务回收协调。
 
 `raster-mask-gc/v1/<operation_id>/request.json` 通过条件创建声明唯一执行权；相同操作只读取回执，不再次删除。`receipt.json` 保存明确的 `deleted`、`missing` 或 `content_changed` 终态。两类日志不可变且不能独立过期。SDK 删除只尝试一次；丢失回包、崩溃、回执保存失败都保留待定状态，不能根据后续 HEAD 不存在而补造成功回执。
 
 Labeling 的 `aap-labeling-mask-gc/v1` 以原生每键代次、删除意图与完整引用根管理业务授权。内容预检先读取代次，最终写入检查原代次；已开始删除、待定或代次变化会返回可重试的 409。只有匹配当前执行凭据的明确终态回执可以解除围栏，代次本身继续保留。独立协调运行时不持有 S3 凭据。
 
-该协议已有本地数据库与真实对象存储的故障验收。现有 Celery 回收器尚未切换，远程业务删除仍受保护；新运行时镜像、普通批处理恢复和部署容量是后续验收项。
+`apps/labeling-mask-gc` 的独立运行时以 bearer token 提供 `POST /v1/mask-gc/run` 和 `progress`，只持有六项原生 GC 能力与 cleanup HTTP token。`MASK_GC_POLL_ENABLED=false` 关闭自动轮询，保留手动操作和健康检查。应用的 `LABELING_MASK_GC_URL/TOKEN` 选择该 owner；配置失败或不可用时不回退本地实现。
+
+| run 参数       | 默认值 | 规则                                         |
+| -------------- | ------ | -------------------------------------------- |
+| `scan_pages`   | 1      | 1–20 页，每页最多 1000 项                    |
+| `delete_limit` | 100    | 1–100，与扫描预算独立                        |
+| `dry_run`      | false  | true 时仅扫描和只读分类                      |
+| `after_key`    | null   | 仅 dry-run 可提供；使用前次 `next_after_key` |
+
+预览只调用 `inspect_mask_gc_page`，不改变 sweep、删除意图、代次、预约、业务根或字节日志。`next_after_key` 和 `scan_complete` 表示已完成的物理检查点；不完成的页不会推进。每次请求首次成功分类时返回全局当前存活引用键的去重数 `referenced`，无法观察时为 null；该计数不是删除授权。
+
+预览的 `eligible + skipped = scanned`，`staged` 保持 0。正式执行的 `eligible = staged`，只计实际建立的意图；`deleted/missing/content_changed` 对应明确终态回执。`pending/indeterminate`、`durable_uncertainties` 和 `finish_errors` 分别保留未完成、持久不确定和确认失败的事实。清单失败不阻止既有意图继续协调。
+
+Celery 消费者保留原任务名与 `cleanup` 路由，先提交领域过期记录并释放指标读取事务，再调用同一协调器；因此其 `dry_run` 仍会提交领域过期清理。独立服务的预览完全只读。现有故障证据覆盖本地数据库、真实对象存储、迟到回执及重启；本地容量验证不代表完整 Labeling 或生产容量资格。

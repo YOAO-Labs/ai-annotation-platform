@@ -4,21 +4,18 @@ import asyncio
 import hashlib
 import json
 import logging
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable
 from contextvars import ContextVar
 from dataclasses import dataclass
-from datetime import datetime
 from typing import Any, TypeVar
 
 from botocore.exceptions import BotoCoreError, ClientError
 from pydantic import ValidationError
-from sqlalchemy import delete, func, select, text, update
+from sqlalchemy import func, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from aap_assets_mask_content.contract import (
-    DeleteRequest,
     GetRequest,
-    ListRequest,
     MaskContentFailure,
     MaskReference,
     PutRequest,
@@ -29,7 +26,6 @@ from app.db.models.dataset import DatasetItem
 from app.db.models.project import Project
 from app.db.models.raster_mask_upload import RasterMaskUpload
 from app.db.models.task import Task
-from app.config import settings
 from app.observability.metrics import record_raster_mask_content_operation
 from app.services.raster_mask_capabilities import evaluate_raster_mask_capabilities
 from app.services.raster_mask_contract import (
@@ -413,7 +409,6 @@ async def lock_raster_mask_references(
     require_raster_foreground: bool = False,
     foreground_object_keys: set[str] | None = None,
     content_epochs: dict[str, int] | None = None,
-    for_collection: bool = False,
 ) -> list[str]:
     """Serialize reference commits with GC until the current DB transaction ends."""
     references = {
@@ -426,7 +421,7 @@ async def lock_raster_mask_references(
             text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
             {"key": f"aap:raster-mask:{key}"},
         )
-    if keys and not for_collection:
+    if keys:
         if content_epochs is None:
             await begin_mask_content_write(db, keys)
         else:
@@ -540,137 +535,6 @@ async def reserve_raster_mask_upload(
     db.add(RasterMaskUpload(task_id=task_id, object_key=object_key))
     await db.flush()
     return current + 1
-
-
-def _eligible_raster_mask_objects(
-    candidates: list[dict], referenced: set[str], cutoff: datetime
-) -> list[dict]:
-    return [
-        item
-        for item in candidates
-        if item["key"] not in referenced
-        and item.get("last_modified") is not None
-        and item["last_modified"] < cutoff
-    ][:1000]
-
-
-async def _delete_unreferenced_mask_candidate(
-    db, candidate, owner, is_referenced, cutoff
-) -> bool:
-    key = candidate.key
-    await lock_raster_mask_references(
-        db, {"object_key": key}, verify=False, for_collection=True
-    )
-    if await is_referenced(db, key):
-        await db.commit()
-        return False
-    recent_upload = (
-        await db.execute(
-            select(RasterMaskUpload.id)
-            .where(
-                RasterMaskUpload.object_key == key,
-                RasterMaskUpload.created_at >= cutoff,
-            )
-            .limit(1)
-        )
-    ).scalar_one_or_none()
-    if recent_upload is not None:
-        # Reusing an old immutable key does not refresh its S3 modification time.
-        await db.commit()
-        return False
-    await db.execute(delete(RasterMaskUpload).where(RasterMaskUpload.object_key == key))
-    # Retire reservations first; a failed object deletion remains a recoverable orphan.
-    await db.commit()
-    await lock_raster_mask_references(
-        db, {"object_key": key}, verify=False, for_collection=True
-    )
-    upload_exists = (
-        await db.execute(
-            select(RasterMaskUpload.id)
-            .where(RasterMaskUpload.object_key == key)
-            .limit(1)
-        )
-    ).scalar_one_or_none()
-    deleted = False
-    if upload_exists is None and not await is_referenced(db, key):
-        # Hold the owner lock through remote deletion so a reference cannot commit in between.
-        result = await asyncio.to_thread(
-            owner.delete,
-            DeleteRequest(
-                object_key=key,
-                etag=candidate.etag,
-                last_modified=candidate.last_modified,
-            ),
-        )
-        deleted = result.deleted
-    await db.commit()
-    return deleted
-
-
-async def purge_unreferenced_raster_mask_objects(
-    db: AsyncSession,
-    referenced: set[str],
-    cutoff: datetime,
-    *,
-    is_referenced: Callable[[AsyncSession, str], Awaitable[bool]],
-    dry_run: bool = False,
-) -> dict[str, int]:
-    """Keep Labeling's root/lock decisions while paging the byte owner's candidates."""
-    if not dry_run and settings.assets_mask_cleanup_url:
-        # An HTTP timeout can release SQL locks before a remote delete finishes.
-        # Keep destructive cutover closed until Labeling owns durable per-key fences.
-        raise MaskContentFailure("storage_unavailable")
-    scanned = eligible = deleted = errors = 0
-    cursor = None
-    seen_cursors = set()
-    try:
-        with mask_content_owner(storage_service, cleanup=True) as owner:
-            while True:
-                page = await asyncio.to_thread(
-                    owner.list, ListRequest(cursor=cursor, limit=1000)
-                )
-                scanned += len(page.items)
-                for candidate in page.items:
-                    if not _eligible_raster_mask_objects(
-                        [candidate.model_dump(mode="python")], referenced, cutoff
-                    ):
-                        continue
-                    eligible += 1
-                    if not dry_run:
-                        try:
-                            deleted += int(
-                                await _delete_unreferenced_mask_candidate(
-                                    db,
-                                    candidate,
-                                    owner,
-                                    is_referenced,
-                                    cutoff,
-                                )
-                            )
-                        except Exception as exc:
-                            await db.rollback()
-                            errors += 1
-                            _log.warning(
-                                "delete unreferenced raster mask failed; error_type=%s",
-                                type(exc).__name__,
-                            )
-                    if eligible == 1000:
-                        break
-                if eligible == 1000 or page.cursor is None:
-                    break
-                if page.cursor in seen_cursors or page.cursor == cursor:
-                    raise MaskContentFailure("invalid_response")
-                seen_cursors.add(page.cursor)
-                cursor = page.cursor
-    except MaskContentFailure as exc:
-        await db.rollback()
-        _mask_content_failure(exc)
-    return {
-        "scanned": scanned,
-        "eligible": eligible,
-        "deleted": deleted,
-        "errors": errors,
-    }
 
 
 async def validate_mask_geometry_for_task(

@@ -1063,9 +1063,9 @@ SQL 回滚不会撤销对象存储 I/O。图片上传和 nuScenes 文件写入/�
 
 `apps/assets-mask-content` 提供 `aap-assets-mask-content/v1`，仅处理现有内容地址 RLE 对象的字节。`content` 进程只提供 `put/get`；`cleanup` 进程只提供分页 `list` 与带 ETag、修改时间围栏的 `delete`。两个进程没有数据库、Celery 或 Redis 凭据。任务权限、图像／视频限制、上传预约和引用可达性继续由 Labeling 判断。
 
-API 与需要读写 Mask 的 worker 配置 `ASSETS_MASK_CONTENT_URL`、`ASSETS_MASK_CONTENT_TOKEN`；回收清单的 dry-run 查询另配 `ASSETS_MASK_CLEANUP_URL`、`ASSETS_MASK_CLEANUP_TOKEN`。全部地址留空时使用同一实现的本地装配；配置任何远程地址后，缺少所选角色的地址／token 或远程失败都会明确报错，不会改用 API 的 S3 凭据。
+API 与需要读写 Mask 的 worker 配置 `ASSETS_MASK_CONTENT_URL`、`ASSETS_MASK_CONTENT_TOKEN`；持久回收的字节端另配 `ASSETS_MASK_CLEANUP_URL`、`ASSETS_MASK_CLEANUP_TOKEN`。全部地址留空时使用同一实现的本地装配；配置任何远程地址后，缺少所选角色的地址／token 或远程失败都会明确报错，不会改用 API 的 S3 凭据。
 
-业务回收尚未切换为远程删除：配置远程 cleanup 时，非 dry-run 回收明确失败。HTTP 超时或断连后，远端删除可能继续执行，单靠请求期间的 SQL 锁无法保护随后重用相同内容的上传。Labeling 的持久每键删除栅栏及结果恢复协议完成前，保留本地业务回收；不要把可选字节工件的 `delete` 操作直接接到业务回收作业。
+业务回收统一使用 Labeling 持久协调器，通过字节端的 `scan/execute/status` 协议恢复。HTTP 超时或断连后，远端删除可能继续执行；原生每键围栏会一直保留，直到当前代次收到精确终态回执。业务回收不调用旧的条件 `delete` 接口。
 
 运行身份使用固定桶中的 `raster-masks/sha256/*`。根据角色生成策略并安装到各自的 S3 身份，不授予整个共享桶的对象权限：
 
@@ -1083,11 +1083,11 @@ uv run --project apps/assets-mask-content --extra server python -m aap_assets_ma
 docker compose -f docker-compose.assets-mask-content.yml up -d assets-mask-content assets-mask-cleanup
 ```
 
-Labeling 在回收时仍持有内容 SQL 锁，保护宽限期内预约后移除过期预约并提交，再次加锁并复查当前引用和预约后才调用条件删除。同内容重传会续期预约，不能用旧对象时间判断刚上传的引用已过期。每个字节角色进程同时处理一个内容操作，忙时返回 503。接口、预算和现有引用兼容规则见[Mask 字节接口](docs-site/api/guides/mask-content.md)。
+Labeling 的原生能力检查引用根、上传预约及内容生产宽限期，登记删除意图后释放 SQL 事务，再调用字节端。同内容重传会续期预约；已验证内容在最终连接时还须匹配原代次。每个字节角色进程同时处理一个内容操作，忙时返回 503。接口、预算和现有引用兼容规则见[Mask 字节接口](docs-site/api/guides/mask-content.md)。
 
-### Mask 回收的独立实验运行时
+### Mask 回收的独立运行时
 
-`apps/labeling-mask-gc` 提供持久删除围栏和回执协调；当前只用于隔离本地验收，尚未替换现有 Celery 回收器。应用迁移并完成 owner 授权后，为独立的 `labeling_mask_gc_client` LOGIN 安装五项 GC 精确授权：
+`apps/labeling-mask-gc` 提供持久删除围栏、只读预览和回执协调。Celery 回收器默认本地装配同一协调器；`LABELING_MASK_GC_URL`、`LABELING_MASK_GC_TOKEN` 显式选择独立 HTTP 服务，`LABELING_MASK_GC_TIMEOUT_SECONDS` 默认 300 秒。远程失败不回退。先应用迁移及 owner 授权，再为独立的 `labeling_mask_gc_client` LOGIN 安装六项 GC 精确授权：
 
 ```bash
 psql -v expected_database=annotation_test -v migration_role=owner \
@@ -1095,7 +1095,13 @@ psql -v expected_database=annotation_test -v migration_role=owner \
   -f infra/docker/labeling-mask-gc-data-grants.sql
 ```
 
-该进程仅接收 `MASK_GC_DATABASE_URL`、`MASK_GC_TOKEN`、`MASK_GC_CONTENT_URL` 和 `MASK_GC_CONTENT_TOKEN`，四项均支持 `_FILE`；地址必须指向 cleanup 字节进程。运行 `uv run --project apps/labeling-mask-gc --extra server python -m aap_labeling_mask_gc_runtime --once` 执行一次有界协调，省略 `--once` 后提供轮询及私有 run/progress 路由。它不接收 S3、Celery 或 Redis 凭据。普通 API/worker 仅获得三项写入代次能力，不能使用 GC 登录创建业务写许可。
+该进程仅接收 `MASK_GC_DATABASE_URL`、`MASK_GC_TOKEN`、`MASK_GC_CONTENT_URL` 和 `MASK_GC_CONTENT_TOKEN`，四项均支持 `_FILE`；内容地址必须指向 cleanup 字节进程。运行 `uv run --project apps/labeling-mask-gc --extra server python -m aap_labeling_mask_gc_runtime --once` 执行一次有界协调，省略 `--once` 后提供轮询及私有 run/progress 路由。`MASK_GC_POLL_ENABLED=false` 关闭后台轮询，保留手动 HTTP 操作与健康检查；默认值为 `true`。它不接收 S3、Celery 或 Redis 凭据。GC 登录没有四项业务生产能力；默认本地装配的受信任应用角色另持有六项 GC 能力，每次调用使用当前任务事件循环内的新事务。
+
+私有 `POST /v1/mask-gc/run` 接受 `scan_pages`（默认 1，上限 20）、`delete_limit`（默认及上限 100）、`dry_run` 和仅预览可用的 `after_key`。预览不创建 sweep、删除意图或字节日志，也不改变破坏性扫描游标；用结果的 `next_after_key` 继续，直到 `scan_complete=true`。`referenced` 是全局当前存活引用键的去重计数，无法观察时为 null，不代表删除许可。
+
+Celery 原任务仍在 `cleanup` 队列运行，兼容原 `dry_run` 参数，并支持上述三个预算／续扫参数。它先提交领域过期记录并释放指标读取事务，再调用协调器；因此 Celery 的 `dry_run` 仍会提交领域过期清理，独立服务的 dry-run 完全只读。`errors` 汇总扫描、数据、完成确认及持久不确定结果，须和 `deleted`、`pending`、`indeterminate` 一起判断；任务 `SUCCESS` 不等于所有删除成功。两类运行镜像均只保留已安装环境，可用只读根文件系统和非 root 用户运行。
+
+工作树启动器清空从共享配置继承的 Mask 服务 URL/token，防止一次性环境调用日常服务；需要跨进程验收时，在隔离命令内部显式提供本次服务地址。
 
 日志和终态回执不设置自动过期或删除策略；没有回执的操作持续保留围栏，不能按租约或时间自动释放。完整普通批处理结果交接、新运行时镜像和部署容量仍需完成验证，现有远程业务删除保护保持关闭。详见 [ADR-0112](docs/adr/0112-durable-mask-gc-fences.md)。
 

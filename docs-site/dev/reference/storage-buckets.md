@@ -56,7 +56,7 @@ MEDIA_CACHE_PREFIXES = ("thumbnails/", "videos/", "playback/", "image-pyramids/"
 | annotations：旧任务源对象   | `{project_id}/{task_id}/...`                                                                                                                                                | labeling 的历史任务源引用；通用项目/素材解绑不据此递归清空源字节                                        |
 | annotations：指南资产       | `projects/{project_id}/guide/` ＋ `{uuid}-{safe_name}`                                                                                                                      | workspace 登记/移除，应用工作流绑定对象传输与当前权威                                                   |
 | annotations：评论附件       | `comment-attachments/` ＋ `{annotation_id}/` ＋ `{uuid}-{safe_name}`                                                                                                        | labeling 评论所有者；软删行清理与桶生命周期分别执行                                                     |
-| annotations：内容寻址 Mask  | `raster-masks/sha256/` ＋ `{sha[:2]}/{sha[2:4]}/` ＋ `{sha}.json[.gz]`                                                                                                      | labeling；只按引用/预留及二次锁内确认 GC，不挂整桶过期                                                  |
+| annotations：内容寻址 Mask  | `raster-masks/sha256/` ＋ `{sha[:2]}/{sha[2:4]}/` ＋ `{sha}.json[.gz]`                                                                                                      | labeling；按原生引用根、生产宽限、持久围栏与精确回执 GC，不挂整桶过期                                   |
 | datasets：canonical 源文件  | `{dataset_name}/{relative_path}`；trusted 根为 `__aap_trusted_nuscenes__-` ＋ `{dataset_id.hex}/`，含 `_nuscenes/source/` 与 scene 媒体/标定                                | assets；Dataset 删除不等于递归删除 canonical 源对象，连接器外部源更不在删除授权内                       |
 | accepted-inputs：已受理输入 | `{input_id}/g{generation}/a{lease_id}/source`                                                                                                                               | Assets 固定具体 S3 `VersionId` 与对象摘要；Labeling 的预测/标注引用阻止过期回收，桶 versioning 不可关闭 |
 | media-cache：普通派生媒体   | `thumbnails/`、`playback/`、`videos/{item_id}/frames/`、`videos/{item_id}/chunks/`                                                                                          | assets；帧/chunk 可按需重生，playback/普通缩略图入库时物化，丢失需重新执行媒体物化                      |
@@ -106,28 +106,30 @@ MinIO 删除与数据库提交不是原子事务：所有附件行清空命令�
 
 原生 Mask 的普通 JSON 与 gzip 对象均保存在 `MINIO_BUCKET` 的 `raster-masks/sha256/` 下，不套用媒体缓存桶的生命周期。内容摘要地址由标注持有；共享 S3 transport 不决定是否可以删除。
 
-`RasterMaskRetentionWorkflow` 组合领域过期命令，再扫描以下八类引用。当前读取依赖本地 PostgreSQL，不是独立服务之间的保留协议。
+`RasterMaskRetentionWorkflow` 组合领域过期命令，再调用持久回收协调器。Labeling 原生根登记及存活检查保护以下记录，协调进程只调用函数能力，不直接扫描业务表。该边界仍依赖同一个 PostgreSQL owner 协议。
 
 | 引用来源                                   | 参与保护的记录                                                                                                |
 | ------------------------------------------ | ------------------------------------------------------------------------------------------------------------- |
 | 标注 `geometry`                            | `is_active=true`；不按标注类型、来源或取消标记另作排除                                                        |
 | 预测 `result`                              | 所有记录，包括已拒绝候选                                                                                      |
+| 未结算批量结果与运行中跟踪输出             | 已保存 raw/prepared 结果及 running Job 的临时根，直至结算、转移或原生终结释放                                 |
 | 视频追踪 `staged_result`                   | `pending_review`、`partially_reviewed`、`cancelled`                                                           |
 | AI Mask 采纳 `response_json`               | `expires_at > now()`                                                                                          |
 | Mask revision `geometry`                   | `expires_at > now()`，包括 PostgreSQL infinity                                                                |
 | Mask 质检 `source_snapshot`                | `pending`、`running`                                                                                          |
 | Mask 质检问题 `region_mask_ref.object_key` | 所有状态；解决问题不自动释放该引用                                                                            |
+| 审核范围与受理跟踪输入                     | 审核范围自身仍存在；输入按固定作业、候选或派生标注的原生保留规则判定，异常时保留                              |
 | Mask 修复 `plan_json`                      | `planned` 且回执未过期；`pending/running/rolling_back`；或 `completed/partial/rollback_failed` 且回滚期限未过 |
 
 采纳回执、转换计划和 revision 在自身截止时间小于等于当前时间时过期；追踪候选按 `completed_at <= now()-24h` 过期，完成时间缺失不参与。待确认/部分确认追踪改为 `discarded`，取消状态保留，候选清空且 revision 推进；修正轨迹的活动唯一索引随状态变化释放。切割历史通过 revision 的几何保护内容，恢复保留期只延长、不缩短，infinity 不改成有限期限。转换预检计划本身不作为额外对象根。
 
-原 Celery 清理任务仍路由到 `cleanup`，每天 03:20 UTC 触发。先过期记录并提交，再扫描引用与对象；**`dry_run=True` 只禁止对象删除，仍会提交过期记录。** `expired_tracker_candidates` 是受影响行数，不是新释放对象数；既有 `cancelled` 行的 JSON null 候选可能再次计入，不能把该计数当作唯一候选或物理删除数。
+原 Celery 清理任务仍路由到 `cleanup`，每天 03:20 UTC 触发。先过期记录并提交，释放指标读取事务，再调用协调器；**Celery 的 `dry_run=True` 仍会提交领域过期记录，独立回收服务的预览完全只读。** `expired_tracker_candidates` 是受影响行数，不是新释放对象数；既有 `cancelled` 行的 JSON null 候选可能再次计入，不能把该计数当作唯一候选或物理删除数。
 
-对象的 `LastModified` 必须严格早于 24 小时宽限截止；等于截止或时间未知的对象保留。每次最多处理 1000 个候选，但 S3 分页列表与根集合没有同样的内存上限。`eligible` 仅表示初筛通过，不等于物理删除成功。
+对象的 `LastModified` 必须严格早于原生 owner 的 24 小时宽限截止；等于截止或时间未知的对象保留。近期内容生产及上传预约另有同样宽限，活动意图和有效根始终保留。每轮扫描 1–20 页、每页最多 1000 项，独立领取 1–100 次删除，默认 1 页和 100 次。预览返回 `next_after_key` 与 `scan_complete`，正式执行的游标持久保存；保留或删除失败的前缀不阻塞后续扫描页。
 
-物理删除保持两阶段内容围栏：取得 advisory 锁并复查引用，删除旧 reservation 后先提交；随后重取同一锁，检查新 reservation 和当前引用，再持锁删除对象。首次 reservation 删除或其提交失败时回滚，不进入物理删除；首次提交之后的存储失败保留字节，但旧 reservation 已提交删除。物理删除之后的数据库提交失败不能恢复字节。新上传在首次提交之后落入的新 reservation 会阻止该次删除；**首次内容锁之前已提交的同 key 去重上传不具备独立的新鲜 reservation 保留保证**，不能把两阶段协议解释为所有新上传都安全的 TTL。
+原生操作先记录删除意图、递增每键代次并建立持久围栏，再提交并执行字节删除。字节端以不可变操作 UUID 声明唯一执行权，记录条件删除的精确终态回执。原生完成确认须匹配操作、对象事实及当前代次／token；只有明确终态才能解除活动围栏，旧代次继续失效。传输超时、租约过期、进程重启或 HEAD 不存在都不补造完成事实。
 
-逐对象故障累计到 `errors` 并继续，Celery `SUCCESS` 仍可能带非零 `errors`；列表失败直接向调用方传播，此时先前过期记录的提交不会撤销。数据库与对象存储不具备分布式原子性，当前没有新增 outbox 或自动重试协议。
+正式执行的 `eligible` 仅计实际 staged 意图，预览时计当前可回收项，均不等于物理删除数。`referenced` 为全局当前存活引用键去重数，无法观察时为 null。Celery 的 `errors` 汇总扫描、数据、完成确认与持久不确定结果，`SUCCESS` 仍可能带非零错误；清单失败后仍协调既有意图，先前领域过期提交不会撤销。持久意图和字节日志分别恢复数据库与对象存储的阶段结果，不提供跨介质原子提交。
 
 ## 从旧布局迁移
 

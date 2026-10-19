@@ -26,6 +26,7 @@ _GC_OPERATIONS = frozenset(
         "claim_mask_gc_deletes",
         "finish_mask_gc_delete",
         "read_mask_gc_progress",
+        "inspect_mask_gc_page",
     }
 )
 
@@ -109,10 +110,13 @@ class SqlAlchemyMaskGcDatabase:
 
 
 class IndependentMaskGcDatabase:
-    async def call(self, operation: str, request: BaseModel) -> BaseModel:
-        from app.db.base import async_session
+    """Use a fresh transaction for each operation in the current task's loop."""
 
-        async with async_session() as db:
+    def __init__(self, session_factory):
+        self.session_factory = session_factory
+
+    async def call(self, operation: str, request: BaseModel) -> BaseModel:
+        async with self.session_factory() as db:
             return await SqlAlchemyMaskGcDatabase(db, commit=True).call(
                 operation, request
             )

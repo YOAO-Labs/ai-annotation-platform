@@ -242,9 +242,9 @@ Task 列表/详情、Data Manager、视频清单及轨迹转换的素材摘要�
 
 `application/video_chapters.py::VideoChapterWorkflow` 组合当前管理权威与实际任务/素材/章节围栏，`services/video_chapter_service.py` 持有章节创建、范围/元数据更新及删除。命令只以稳定 ID 和当前访问解析定位，锁定并刷新视频任务来源与章节，不把传入 Task/User 当许可；HTTP 保留审计、提交、更新后 refresh 和响应构造。章节仍由素材条目拥有，不改成 Task 私有数据，也不增加任务可编辑或 segment 领取规则。
 
-`application/raster_mask_retention.py::RasterMaskRetentionWorkflow` 组合采纳回执、追踪候选、转换计划与 Mask revision 的领域过期命令，并持有八类引用的本地只读投影。`services/raster_mask_storage.py` 持有对象筛选、reservation 清理、内容 advisory 围栏及物理删除；领域通过显式引用复查回调连接，不反向导入应用或 worker。Celery 入口只创建 job-local Session 并调用工作流，原任务名、`cleanup` 路由与周期不变。
+`application/raster_mask_retention.py::RasterMaskRetentionWorkflow` 组合采纳回执、追踪候选、转换计划与 Mask revision 的领域过期命令。`services/mask_gc_collection.py` 将业务消费者绑定到同一个持久协调器或独立 HTTP owner；原生引用根、代次、删除意图和回执决定回收，不再把完整根集合与复查回调交给对象删除循环。Celery 入口创建当前事件循环的 Session factory，每次原生操作使用新事务；原任务名、`cleanup` 路由与周期不变。
 
-GC 先提交过期记录，即使 `dry_run=True` 也不回滚该阶段；对象必须严格早于 24 小时宽限截止，每次最多处理 1000 个候选，列表读取没有同样上限。删除 reservation 提交后重新取得内容锁，复查引用和新 reservation，再持锁删除对象；数据库与 S3 仍非原子事务。该协议保护首次提交之后到达的上传，不保证首次锁之前已完成的同 key 去重上传 reservation 永远不被清理。完整根规则、错误及计数语义见 [存储桶布局](../reference/storage-buckets#raster-mask-引用与清理)；本地联合投影不是跨语言保留租约。
+GC 先提交领域过期记录，即使 Celery 的 `dry_run=True` 也保留该阶段；随后释放指标读取事务再调用协调器。对象及生产／上传宽限均由原生 owner 校验；每轮最多扫描 20 页、每页 1000 项，独立领取至多 100 次删除。独立服务的预览只读并返回物理续扫位置。破坏性扫描游标与已领取删除的恢复分别推进，只有精确终态回执才能释放围栏。完整根规则、错误及计数语义见 [存储桶布局](../reference/storage-buckets#raster-mask-引用与清理)。
 
 质量执行派发由 `services/quality_job_dispatch.py::QualityJobDispatcher` 定义，仅传递领域类型、资源 ID 和执行 ID，不依赖 ORM、FastAPI 或 Celery。`deps.get_quality_job_dispatcher()` 装配 `workers/quality_dispatch.py::CeleryQualityJobDispatcher`；Mask QC、点云质检、视频轨迹质检、Mask 修复/回滚及格式导入的领域派发函数必须显式接收该端口。路由保持先提交再派发，领域服务保持准入、作业身份和失败落库职责，适配器只选择原有 task 对象及队列选项。此边界没有新增远程调用，也不保证数据库与 broker 原子提交或 exactly-once；决策见 ADR-0089。
 
@@ -416,7 +416,7 @@ Mask QC 与点云质检问题的人工状态转移分别由 `services/mask_qc/se
 | SQL → broker                               | 连接器导入将后续派发意图同业务提交；其余保留各自准入/派发顺序                                     | 没有 SQL/broker 原子提交；持久派发可能重复，确认不代表计算完成         |
 | 对象上传 → SQL                             | 保留上传、重新授权、登记/发布与失败清理顺序；头像旧对象删除仍是提交后的 best effort               | SQL 回滚不能回滚已经成功的对象 PUT                                     |
 | SQL 删除意图 → 对象删除                    | Run/Version/Evaluation 业务删除由本域持有；删除意图在调用方提交后按已保存 bucket/key 清理         | 不能用当前进程桶配置替代已保存身份，或让通用存储 helper 删除任意业务行 |
-| 内容寻址 Mask                              | 按引用根、保留/预留与锁内重查分两阶段清理                                                         | 不能按桶过期或仅凭一次扫描删除正在使用的内容                           |
+| 内容寻址 Mask                              | 原生引用根、生产宽限、持久删除围栏和精确终态回执                                                  | 不能按桶过期、一次扫描或超时解除围栏                                   |
 | 凭据代际、配额与 Redis                     | 凭据代际推进及部分配额写入仍在 SQL 提交前，沿用各自失败语义                                       | 不是 SQL/Redis 分布式原子事务                                          |
 | 通知、进度与 pub/sub                       | 通知行提供持久事实；Redis 发布/进度是派送或观察通道                                               | 不保证 pub/sub 持久重放，不能据此确认任务终态                          |
 | GPU 与模型安装                             | SQL 围栏、Redis 分配和 backend 实际生命周期分别验证；模型安装保留 checking 提交→外部调用→重查提交 | lease 到期不是子进程退出，外部安装不是一个 SQL 事务                    |

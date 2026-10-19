@@ -1,4 +1,4 @@
--- Grant the isolated Mask GC worker only its five Labeling operation functions.
+-- Grant the isolated Mask GC worker only its six Labeling operation functions.
 -- The role must be provisioned as a LOGIN with no memberships before this runs.
 -- psql -v expected_database=annotation_test -v migration_role=owner
 --   -v labeling_owner=labeling_code -v mask_gc_role=labeling_mask_gc_client
@@ -50,7 +50,8 @@ GRANT EXECUTE ON FUNCTION
     aap_labeling_v1.stage_mask_gc_page(jsonb),
     aap_labeling_v1.claim_mask_gc_deletes(jsonb),
     aap_labeling_v1.finish_mask_gc_delete(jsonb),
-    aap_labeling_v1.read_mask_gc_progress(jsonb)
+    aap_labeling_v1.read_mask_gc_progress(jsonb),
+    aap_labeling_v1.inspect_mask_gc_page(jsonb)
     TO :"mask_gc_role";
 
 DO $$
@@ -89,7 +90,7 @@ BEGIN
     WHERE namespace.nspname = 'aap_labeling_v1'
       AND proc.prokind = 'f'
       AND has_function_privilege(role_name, proc.oid, 'EXECUTE');
-    IF v_callable <> 5
+    IF v_callable <> 6
        OR has_function_privilege(
             role_name, 'aap_labeling_v1.read_mask_write_epochs(jsonb)', 'EXECUTE'
        )
@@ -99,7 +100,7 @@ BEGIN
        OR has_function_privilege(
             role_name, 'aap_labeling_v1.lock_mask_write_epochs(jsonb)', 'EXECUTE'
        ) THEN
-        RAISE EXCEPTION 'The Labeling Mask GC role must execute only the five GC operations';
+        RAISE EXCEPTION 'The Labeling Mask GC role must execute only the six GC operations';
     END IF;
 END $$;
 COMMIT;
