@@ -98,7 +98,8 @@ async def test_authenticated_probes_overlap_and_database_stays_in_owner_task(
     monkeypatch.setattr(sync, "_probe_setup", public_setup)
     monkeypatch.setattr(sync.MLBackendClient, "health_meta", health)
     monkeypatch.setattr(sync.MLBackendClient, "setup", setup)
-    await asyncio.wait_for(sync.sync_env_backends(), timeout=5)
+    async with asyncio.timeout(5):
+        await sync.sync_env_backends()
     assert all(row.state == "connected" for row in rows)
     assert rows[2].name == "managed:yolo"
 
