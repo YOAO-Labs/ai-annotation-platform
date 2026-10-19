@@ -40,7 +40,9 @@ def _jwt_actor(actor_id: uuid.UUID, *, jti: uuid.UUID | None = None) -> dict:
     }
 
 
-def _api_key_actor(actor_id: uuid.UUID, key_id: uuid.UUID) -> dict:
+def _api_key_actor(
+    actor_id: uuid.UUID, key_id: uuid.UUID, *, expires_at: str | None = None
+) -> dict:
     return {
         "actor_id": str(actor_id),
         "name": "stale caller name",
@@ -51,7 +53,7 @@ def _api_key_actor(actor_id: uuid.UUID, key_id: uuid.UUID) -> dict:
         "credential_id": str(key_id),
         "generation": None,
         "scopes": ["annotations:read"],
-        "expires_at": None,
+        "expires_at": expires_at,
     }
 
 
@@ -116,6 +118,10 @@ def test_frozen_native_key_artifacts_and_two_function_owner_surface():
         "aap_identity_keys_v1.key_policy()",
         "aap_identity_keys_v1.execute_key_command(jsonb)",
     }
+    api_expiry = schema["$defs"]["Principal"]["allOf"][0]["else"]["properties"][
+        "expires_at"
+    ]["anyOf"]
+    assert {item.get("type") for item in api_expiry} == {"string", "null"}
     assert artifact.count("CREATE FUNCTION") == 2
     assert artifact.count("REVOKE ALL ON FUNCTION") == 2
     assert artifact.count("SECURITY DEFINER") == 2
@@ -125,6 +131,8 @@ def test_frozen_native_key_artifacts_and_two_function_owner_surface():
     assert "FOR UPDATE NOWAIT" in artifact
     assert "pg_try_advisory_xact_lock" in artifact
     assert "aap_identity_v1.lock_current_principal" in artifact
+    assert "jsonb_object_length" not in artifact
+    assert "pg_catalog.jsonb_object_keys" in artifact
     assert (
         "key_hash"
         not in artifact.split("INSERT INTO public.identity_key_operation_receipts", 1)[
@@ -380,11 +388,19 @@ async def test_patch_semantics_expired_targets_and_owner_isolation(test_engine):
 async def test_api_key_hash_fence_and_current_principal_facts(test_engine):
     fixture = await _seed(test_engine)
     maker = async_sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
+    key_expiry = datetime.now(UTC) + timedelta(hours=1)
     async with maker.begin() as session:
+        await session.execute(
+            text("UPDATE public.api_keys SET expires_at=:expires WHERE id=:key_id"),
+            {"expires": key_expiry, "key_id": fixture["key_id"]},
+        )
         expected_hash = await session.scalar(
             text("SELECT key_hash FROM public.api_keys WHERE id=:key_id"),
             {"key_id": fixture["key_id"]},
         )
+    actor = _api_key_actor(
+        fixture["actor_id"], fixture["key_id"], expires_at=key_expiry.isoformat()
+    )
     try:
         async with maker.begin() as session:
             bad = await _execute(
@@ -392,7 +408,7 @@ async def test_api_key_hash_fence_and_current_principal_facts(test_engine):
                 _request(
                     "update_api_key",
                     uuid.uuid4(),
-                    _api_key_actor(fixture["actor_id"], fixture["key_id"]),
+                    actor,
                     {
                         "key_id": str(fixture["key_id"]),
                         "patch": {"name": "should not apply"},
@@ -415,7 +431,7 @@ async def test_api_key_hash_fence_and_current_principal_facts(test_engine):
                 _request(
                     "update_api_key",
                     uuid.uuid4(),
-                    _api_key_actor(fixture["actor_id"], fixture["key_id"]),
+                    actor,
                     {
                         "key_id": str(fixture["key_id"]),
                         "patch": {"name": "updated by its own key"},
@@ -427,7 +443,48 @@ async def test_api_key_hash_fence_and_current_principal_facts(test_engine):
             assert valid["principal"]["name"] == "Current owner"
             assert valid["principal"]["email"] == "current-owner@example.test"
             assert valid["principal"]["role"] == "viewer"
+            assert valid["principal"]["expires_at"] is not None
             assert valid["data"]["key"]["name"] == "updated by its own key"
+    finally:
+        await _cleanup(test_engine, fixture)
+
+
+@pytest.mark.asyncio
+async def test_malformed_json_shapes_return_invalid_request_without_sql_errors(
+    test_engine,
+):
+    fixture = await _seed(test_engine, create_key=False)
+    maker = async_sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
+    actor = _jwt_actor(fixture["actor_id"])
+    valid_list = _request("list_api_keys", uuid.uuid4(), actor, {})
+    extra_field = json.loads(json.dumps(valid_list))
+    extra_field["unexpected"] = True
+    requests = [
+        [],
+        extra_field,
+        _request("list_api_keys", uuid.uuid4(), [], {}),
+        _request("list_api_keys", uuid.uuid4(), actor, []),
+        _request("list_api_keys", uuid.uuid4(), actor, {"extra": True}),
+        _request(
+            "update_api_key",
+            uuid.uuid4(),
+            actor,
+            {"key_id": str(uuid.uuid4()), "patch": []},
+        ),
+        _request(
+            "create_api_key",
+            uuid.uuid4(),
+            actor,
+            {"name": "invalid"},
+            new_key=[],
+        ),
+    ]
+    try:
+        async with maker.begin() as session:
+            for request in requests:
+                reply = await _execute(session, request)
+                assert reply["schema"] == "aap-identity-keys-native/v1"
+                assert reply["error"]["code"] == "invalid_request"
     finally:
         await _cleanup(test_engine, fixture)
 

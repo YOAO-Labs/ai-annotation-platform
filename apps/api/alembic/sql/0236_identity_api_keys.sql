@@ -56,6 +56,7 @@ DECLARE
     v_operation text;
     v_operation_id uuid;
     v_operation_id_text text;
+    v_object_count integer;
     v_actor jsonb;
     v_actor_id uuid;
     v_credential_id uuid;
@@ -101,7 +102,9 @@ BEGIN
             'error', pg_catalog.jsonb_build_object('code', 'invalid_request')
         );
     END IF;
-    IF pg_catalog.jsonb_object_length(p_request) <> 7
+    SELECT pg_catalog.count(*)::integer INTO v_object_count
+    FROM pg_catalog.jsonb_object_keys(p_request);
+    IF v_object_count <> 7
        OR NOT (p_request ?& ARRAY[
            'schema', 'operation', 'operation_id', 'actor',
            'expected_key_hash', 'payload', 'new_key'
@@ -135,11 +138,13 @@ BEGIN
             'error', pg_catalog.jsonb_build_object('code', 'invalid_request')
         );
     END IF;
+    SELECT pg_catalog.count(*)::integer INTO v_object_count
+    FROM pg_catalog.jsonb_object_keys(v_actor);
     IF v_operation NOT IN (
         'list_api_keys', 'create_api_key', 'update_api_key',
         'rotate_api_key', 'revoke_api_key'
     ) OR v_operation_id_text !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
-       OR pg_catalog.jsonb_object_length(v_actor) <> 10
+       OR v_object_count <> 10
        OR NOT (v_actor ?& ARRAY[
            'actor_id', 'name', 'email', 'role', 'is_active', 'credential_type',
            'credential_id', 'generation', 'scopes', 'expires_at'
@@ -184,10 +189,14 @@ BEGIN
         END IF;
     ELSE
         IF pg_catalog.jsonb_typeof(v_actor->'generation') IS DISTINCT FROM 'null'
-           OR pg_catalog.jsonb_typeof(v_actor->'expires_at') IS DISTINCT FROM 'null'
+           OR pg_catalog.jsonb_typeof(v_actor->'expires_at') NOT IN ('null', 'string')
            OR pg_catalog.jsonb_typeof(v_actor->'scopes') IS DISTINCT FROM 'array'
            OR pg_catalog.jsonb_typeof(p_request->'expected_key_hash') IS DISTINCT FROM 'string'
-           OR pg_catalog.octet_length(v_expected_hash) NOT BETWEEN 1 AND 255 THEN
+           OR pg_catalog.octet_length(v_expected_hash) NOT BETWEEN 1 AND 255
+           OR (pg_catalog.jsonb_typeof(v_actor->'expires_at') = 'string'
+               AND (v_actor->>'expires_at') !~* (
+                   '(z|[+-][0-9]{2}' || pg_catalog.chr(58) || '[0-9]{2})$'
+               )) THEN
             RETURN pg_catalog.jsonb_build_object(
                 'schema', 'aap-identity-keys-native/v1', 'ok', false,
                 'error', pg_catalog.jsonb_build_object('code', 'invalid_request')
@@ -215,6 +224,11 @@ BEGIN
             IF NOT pg_catalog.isfinite(v_actor_expiry) THEN
                 RAISE EXCEPTION USING ERRCODE = '22007', MESSAGE = 'invalid actor expiry';
             END IF;
+        ELSIF pg_catalog.jsonb_typeof(v_actor->'expires_at') = 'string' THEN
+            v_actor_expiry := (v_actor->>'expires_at')::timestamptz;
+            IF NOT pg_catalog.isfinite(v_actor_expiry) THEN
+                RAISE EXCEPTION USING ERRCODE = '22007', MESSAGE = 'invalid actor expiry';
+            END IF;
         END IF;
     EXCEPTION
         WHEN invalid_text_representation OR invalid_datetime_format
@@ -226,8 +240,9 @@ BEGIN
     END;
 
     IF v_operation = 'list_api_keys' THEN
-        IF pg_catalog.jsonb_object_length(v_payload) <> 0
-           OR pg_catalog.jsonb_typeof(v_new_key) IS DISTINCT FROM 'null' THEN
+        SELECT pg_catalog.count(*)::integer INTO v_object_count
+        FROM pg_catalog.jsonb_object_keys(v_payload);
+        IF v_object_count <> 0 OR pg_catalog.jsonb_typeof(v_new_key) IS DISTINCT FROM 'null' THEN
             RETURN pg_catalog.jsonb_build_object(
                 'schema', 'aap-identity-keys-native/v1', 'ok', false,
                 'error', pg_catalog.jsonb_build_object('code', 'invalid_request')
@@ -289,12 +304,14 @@ BEGIN
             END IF;
         END IF;
     ELSE
+        SELECT pg_catalog.count(*)::integer INTO v_object_count
+        FROM pg_catalog.jsonb_object_keys(v_payload);
         IF pg_catalog.jsonb_typeof(v_payload->'key_id') IS DISTINCT FROM 'string'
            OR (v_payload->>'key_id') !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
            OR (v_operation IN ('rotate_api_key', 'revoke_api_key')
-               AND pg_catalog.jsonb_object_length(v_payload) <> 1)
+               AND v_object_count <> 1)
            OR (v_operation = 'update_api_key'
-               AND (pg_catalog.jsonb_object_length(v_payload) <> 2
+               AND (v_object_count <> 2
                     OR pg_catalog.jsonb_typeof(v_payload->'patch') IS DISTINCT FROM 'object')) THEN
             RETURN pg_catalog.jsonb_build_object(
                 'schema', 'aap-identity-keys-native/v1', 'ok', false,
@@ -393,7 +410,9 @@ BEGIN
     END IF;
 
     IF v_operation IN ('create_api_key', 'rotate_api_key') THEN
-        IF pg_catalog.jsonb_object_length(v_new_key) <> 4
+        SELECT pg_catalog.count(*)::integer INTO v_object_count
+        FROM pg_catalog.jsonb_object_keys(v_new_key);
+        IF v_object_count <> 4
            OR NOT (v_new_key ?& ARRAY['key_id', 'key_prefix', 'key_hash', 'derivation_id'])
            OR EXISTS (
                SELECT 1 FROM pg_catalog.jsonb_object_keys(v_new_key) AS field(name)
@@ -442,7 +461,7 @@ BEGIN
         v_credential_type,
         v_credential_id,
         v_generation,
-        v_actor_expiry,
+        CASE WHEN v_credential_type = 'jwt' THEN v_actor_expiry ELSE NULL::timestamptz END,
         CASE WHEN v_credential_type = 'jwt' THEN NULL::text[] ELSE ARRAY[]::text[] END
     );
     IF pg_catalog.jsonb_typeof(v_fence) IS DISTINCT FROM 'object'

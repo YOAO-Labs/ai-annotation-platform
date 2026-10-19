@@ -63,7 +63,9 @@
             "properties": {
               "generation": { "type": "null" },
               "scopes": { "type": "array", "items": { "type": "string" } },
-              "expires_at": { "type": "null" }
+              "expires_at": {
+                "anyOf": [{ "type": "string", "format": "date-time" }, { "type": "null" }]
+              }
             }
           }
         }
