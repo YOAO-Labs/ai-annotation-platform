@@ -1818,3 +1818,24 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
 
 - Local primary cutover is complete at implementation commit `d18c303c1`. The API-only controlled refresh installs the two updated local packages with the locked test extra, upgrades development database `annotation` from 0220 to 0221 and creates only the dedicated versioned `accepted-inputs` bucket without expiration. Business/media counts remain unchanged and all four new input/evidence ledgers are empty. Twelve invalid-argument native probes run read-only and roll back; the preserved primary-test database remains at 0218. The unchanged LaunchAgent starts the intended checkout; a same-content touch then replaces its API worker while retaining the new supervisor. Served OpenAPI matches 485 paths, DB/Redis/MinIO return 200, and the preexisting unstarted default Celery/aggregate state remains 503. Source/cache bucket versioning and lifecycle policies are unchanged.
 - Both integration test/e2e modes, the native test mode, temporary process/container/IAM resources and six clean integrated modifier worktrees are removed. The original fourteen worktrees and four baseline infrastructure containers are preserved; the resource-free integration checkout remains for the next slice. The amended retry branch is proven identical on all three changed paths before removal. Canonical evidence is `.worktree/accepted-inputs-verification.json`, `.worktree/input-accepted-main-runtime.json` and `.worktree/accepted-inputs-qualification-d18c303c1/`. Original diagnostic reports remain in the retained integration checkout. The complete module goal remains active: ordinary batch/frame inputs, tracker/correction, Learning source composition, broader Labeling/Jobs and the remaining modules still need extraction and qualification. Go remains isolated; no production deployment, push, release or remote CI occurred.
+
+## Bulk image input manifests — active implementation
+
+- Read-only consumer/native audits confirm that implicit project/batch membership
+  is still selected live in the worker, root URLs and ROI can use different
+  mutable objects, and the existing source scanner neither captures membership
+  nor bounds full-scope digest work. Explicit Task requests are capped at 200;
+  project/batch all-selection has no total cap. Do not replace it with an
+  arbitrary smaller limit or an unbounded Job/broker payload.
+- The next complete slice uses a portable manifest family inside the existing
+  Media artifact. A transaction captures ordered Task/source facts and an opaque
+  selection digest; bounded preparation pages reuse the versioned Input owner.
+  A seal barrier accounts for every ready input or permanent member failure
+  before model work/overwrite. Task selection time and the first previously
+  unknown object's HEAD capture time are distinct, explicit facts. See ADR-0108.
+- The initial contract and schema include five native operations, one workflow
+  capture grant and four control operations, 64 KiB / 2 MiB message bounds,
+  100-member pages, fixed scope/digest/cursor checks and historical sealed
+  outcomes. Twenty portable behavior cases pass. Native 0222 state/permissions,
+  runtime/HTTP, consumer migration, installed artifacts and real SQL/S3/Node
+  qualification remain required; no bulk change is promoted to primary yet.

@@ -153,3 +153,4 @@
 - [ADR-0105: Durable video media execution and source-bound publication](0105-independent-video-media-owner.md)
 - [ADR-0106: Independent image materialization and source-bound delivery](0106-independent-image-media-owner.md)
 - [ADR-0107: Versioned media inputs for accepted inference](0107-versioned-accepted-media-inputs.md)
+- [ADR-0108: Durable bulk image input manifests](0108-bulk-image-input-manifests.md)
