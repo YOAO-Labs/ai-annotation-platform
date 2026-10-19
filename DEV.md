@@ -1110,7 +1110,7 @@ psql -v expected_database=annotation_test -v migration_role=owner \
   -f infra/docker/preannotation-result-data-grants.sql
 ```
 
-API／worker 默认用现有数据库连接保存检查点；设置 `PREANNOTATION_RESULTS_DATABASE_URL` 或 `PREANNOTATION_RESULTS_DATABASE_URL_FILE` 后，独立调用切到该函数专用 LOGIN。两项二选一，连接使用 `postgresql://` 格式；最终 Prediction／Meta／回执事务仍使用原 `DATABASE_URL`。Secret 文件最多 4096 字节，读取错误不会回退到原角色。
+API／worker 默认用现有数据库连接保存检查点；设置 `PREANNOTATION_RESULTS_DATABASE_URL` 或 `PREANNOTATION_RESULTS_DATABASE_URL_FILE` 后，独立调用切到该函数专用 LOGIN。两项二选一，连接使用 `postgresql://` 格式，须指向与业务连接相同的数据库；这里只分离角色和进程，最终 Prediction／Meta／回执事务仍使用原 `DATABASE_URL`。Secret 文件最多 4096 字节，读取错误不会回退到原角色。
 
 运行 `uv run --project apps/preannotation-results --extra postgres python -m aap_preannotation_results_runtime read_batch_result_execution < request.json`，请求文件仅包含对应冻结 DTO。CLI 的独立依赖只有 Pydantic 和 asyncpg，不读取应用、队列或 S3 凭据；业务写入操作不对执行 CLI 开放。读取大结果时使用固定块和摘要，不能把交互接口的 16 MiB 限额套给整个批量结果。
 

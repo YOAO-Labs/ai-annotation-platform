@@ -1,6 +1,6 @@
 # 0113 — Durable ordinary preannotation results and execution handoff
 
-- Status: Accepted; isolated local qualification in progress
+- Status: Accepted; isolated local qualification complete
 - Date: 2026-10-20
 - Deciders: Maintainers
 - Supersedes: Request-local persistence retries for ordinary batch results
@@ -28,6 +28,8 @@ worker freezes all selected members before inference and preserves their
 original LabelingWriteScope on every attempt. Lease renewal and takeover use
 owner time, worker identity, generation and token. An expired or stale worker
 cannot commit a result or terminalize the current execution.
+The first claim of a pending legacy Job also binds its request digest in that
+transaction, so a broker failure hook cannot discard the new durable execution.
 
 Each model response is saved before Mask byte production or final business
 locks. Canonical JSON snapshots are streamed through temporary files and
@@ -61,6 +63,14 @@ Snapshot context can retain the original retry request's bounded output-mode
 string. It cannot carry inference bodies outside the chunked payloads. Mask
 references are byte-verified against the current GC epoch before root publication
 in a Labeling-provider transaction; executor credentials cannot mint write permits.
+
+Local qualification covers real worker-child loss and broker redelivery for new
+and pending legacy Jobs with one model call, native-client handoff, lost commit
+acknowledgements, stale leases, cancellation, bounded failure summaries with
+complete paged retry history, and valid multi-Mask output above 16 MiB. The
+installed wheel and nonroot read-only executor image operate without application,
+ORM, Celery, Redis or S3 dependencies. This is local evidence, not production
+capacity or complete module-deployment qualification.
 
 ## Consequences
 

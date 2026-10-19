@@ -750,6 +750,14 @@ BEGIN
         WHERE job_id = v_job.id
         RETURNING * INTO v_execution;
     END IF;
+    IF NOT (v_job.payload ? 'preannotation_request_digest') THEN
+        UPDATE public.async_jobs
+        SET payload = payload || pg_catalog.jsonb_build_object(
+                'preannotation_request_digest', v_execution.request_digest
+            ),
+            updated_at = pg_catalog.clock_timestamp()
+        WHERE id = v_job.id;
+    END IF;
     v_lease := aap_jobs_v1._batch_result_lease(v_execution);
     RETURN aap_jobs_v1._batch_result_reply(
         pg_catalog.jsonb_build_object(

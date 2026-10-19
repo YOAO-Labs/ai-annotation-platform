@@ -161,8 +161,9 @@ def _delete_owned_queue(sender: Celery, queue: str) -> None:
         connection.default_channel.queue_delete(queue)
 
 
+@pytest.mark.parametrize("digest_bound_at_admission", [True, False])
 async def test_prefork_loss_resumes_captured_result_without_second_inference(
-    test_engine, test_db_url, tmp_path
+    test_engine, test_db_url, tmp_path, digest_bound_at_admission
 ):
     from app.application.preannotation_contract import BatchPredictionRequest
     from app.application.preannotation_results import (
@@ -311,7 +312,11 @@ async def test_prefork_loss_resumes_captured_result_without_second_inference(
                         "execution_scope": "bulk",
                         "task_ids": [str(task_id)],
                         "scope": {"task_ids": [str(task_id)]},
-                        "preannotation_request_digest": digest,
+                        **(
+                            {"preannotation_request_digest": digest}
+                            if digest_bound_at_admission
+                            else {}
+                        ),
                     },
                 )
             )
@@ -362,6 +367,9 @@ async def test_prefork_loss_resumes_captured_result_without_second_inference(
         assert captured["raw_complete"] is True
         assert captured["state"] == "captured"
         assert captured["ordinal"] == 1 and captured["result_count"] == 1
+        async with owner_sessions() as db:
+            saved_job = await db.get(AsyncJob, job_id)
+            assert saved_job.payload["preannotation_request_digest"] == digest
         killed_child_pid = captured["pid"]
         assert worker.returncode is None and _pid_exists(killed_child_pid)
         os.kill(killed_child_pid, signal.SIGKILL)

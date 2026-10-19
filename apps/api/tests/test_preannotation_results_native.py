@@ -335,6 +335,15 @@ async def test_selection_replay_lease_takeover_and_cooperative_cancel(
             )
     assert getattr(active_delete.value.orig, "sqlstate", None) == "P0001"
     old_lease = _lease_scope(first["lease"])
+    assert (
+        await db_session.scalar(
+            text(
+                "SELECT payload ->> 'preannotation_request_digest' FROM async_jobs WHERE id=:job"
+            ),
+            {"job": job_id},
+        )
+        == digest
+    )
     member_values = []
     for ordinal, task in enumerate(tasks, start=1):
         write_scope = _scope_json(
