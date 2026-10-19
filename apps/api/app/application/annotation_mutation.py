@@ -39,6 +39,57 @@ from app.services.video_collaboration import (
 from app.services.workspace_contract import ProjectAccess
 
 
+def validate_annotation_update_preconditions(
+    existing: Annotation | None,
+    *,
+    task_id: UUID,
+    fields: dict,
+    if_match: str | None,
+) -> int | None:
+    """Reject invalid updates before object I/O and repeat before persistence."""
+    if existing is None or not existing.is_active:
+        raise HTTPException(status_code=404, detail="Annotation not found")
+    if existing.task_id != task_id:
+        raise HTTPException(
+            status_code=400, detail="Annotation does not belong to this task"
+        )
+    if "geometry" in fields and existing.is_locked:
+        raise HTTPException(status_code=409, detail={"reason": "annotation_locked"})
+
+    header = if_match.strip() if if_match is not None else ""
+    expected_version = None
+    geometry = fields.get("geometry")
+    if "geometry" in fields:
+        previous_type = str((existing.geometry or {}).get("type") or "")
+        proposed_type = str((geometry or {}).get("type") or "")
+        requires_precondition = previous_type != proposed_type or proposed_type in {
+            "raster_mask",
+            "video_mask",
+        }
+        if requires_precondition and not header:
+            raise HTTPException(status_code=428, detail={"reason": "if_match_required"})
+    if header:
+        try:
+            expected_version = int(header.removeprefix('W/"').removesuffix('"'))
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid If-Match format")
+        if existing.version != expected_version:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "reason": "version_mismatch",
+                    "current_version": existing.version,
+                },
+            )
+    if isinstance(geometry, dict):
+        validate_geometry_type_transition(
+            tool_unit_id=existing.tool_unit_id,
+            previous_geometry=existing.geometry,
+            next_geometry=geometry,
+        )
+    return expected_version
+
+
 async def _load_single_task_for_ids(
     db: AsyncSession,
     ids: list[UUID],
@@ -216,51 +267,16 @@ class _AnnotationMutationSqlAdapter(AnnotationMutationPort):
             segment_id=existing.video_segment_id,
             geometry=fields.get("geometry", existing.geometry),
         )
-        if "geometry" in fields and existing.is_locked:
-            raise HTTPException(
-                status_code=409,
-                detail={"reason": "annotation_locked"},
-            )
-
         # Keep both version checks before mask IO and after the annotation row lock.
-        if_match = command.if_match.strip() if command.if_match is not None else ""
-        expected_version: int | None = None
-        if "geometry" in fields:
-            previous_type = str((existing.geometry or {}).get("type") or "")
-            proposed_geometry = fields["geometry"]
-            proposed_type = str((proposed_geometry or {}).get("type") or "")
-            requires_precondition = previous_type != proposed_type or proposed_type in {
-                "raster_mask",
-                "video_mask",
-            }
-            if requires_precondition and not if_match:
-                raise HTTPException(
-                    status_code=428,
-                    detail={"reason": "if_match_required"},
-                )
-        if if_match:
-            raw_version = if_match.removeprefix('W/"').removesuffix('"')
-            try:
-                expected_version = int(raw_version)
-            except ValueError:
-                raise HTTPException(status_code=400, detail="Invalid If-Match format")
-            if existing.version != expected_version:
-                raise HTTPException(
-                    status_code=409,
-                    detail={
-                        "reason": "version_mismatch",
-                        "current_version": existing.version,
-                    },
-                )
+        expected_version = validate_annotation_update_preconditions(
+            existing,
+            task_id=command.task_id,
+            fields=fields,
+            if_match=command.if_match,
+        )
 
         mask_payload_prepared = False
         next_geometry = fields.get("geometry")
-        if isinstance(next_geometry, dict):
-            validate_geometry_type_transition(
-                tool_unit_id=existing.tool_unit_id,
-                previous_geometry=existing.geometry,
-                next_geometry=next_geometry,
-            )
         if isinstance(next_geometry, dict) and next_geometry.get("type") in {
             "raster_mask",
             "video_mask",

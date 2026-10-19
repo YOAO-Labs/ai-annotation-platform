@@ -1,6 +1,6 @@
 # ADR-0107: Versioned media inputs for accepted inference
 
-- Status: Accepted; end-to-end implementation and qualification in progress
+- Status: Accepted
 - Date: 2026-10-19
 - Deciders: implementation team
 

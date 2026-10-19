@@ -22,7 +22,10 @@ from app.services.mask_repair import (
     execute_repair_shard,
     rollback_repair_shard,
 )
-from app.services.raster_mask_storage import build_rle_reference
+from app.services.raster_mask_storage import (
+    build_rle_reference,
+    reserve_raster_mask_upload,
+)
 from app.utils.raster_mask_rle import coco_rle_area, encode_coco_rle
 from tests.factory import create_user
 
@@ -377,11 +380,19 @@ async def test_execute_dispatches_once_and_rollback_rejects_newer_annotation(
     result_rle = private_item["result_rle"]
     rles[private_item["result_reference"]["sha256"]] = result_rle
     monkeypatch.setattr("app.services.mask_mutation.load_coco_rle", fake_load)
+    monkeypatch.setattr("app.services.raster_mask_storage.load_coco_rle", fake_load)
+
+    async def reserve_result(db, *, task_id, reference, **_kwargs):
+        await reserve_raster_mask_upload(
+            db, task_id=task_id, object_key=reference["object_key"], limit=100
+        )
 
     async def no_store(*_args, **_kwargs):
         return None
 
-    monkeypatch.setattr("app.services.mask_repair.store_repair_result_rle", no_store)
+    monkeypatch.setattr(
+        "app.services.mask_repair.store_repair_result_rle", reserve_result
+    )
     monkeypatch.setattr(
         "app.services.mask_mutation.prepare_mask_payload_for_write", no_store
     )

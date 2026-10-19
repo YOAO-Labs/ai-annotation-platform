@@ -756,6 +756,8 @@ class MaskMutationService:
         scope: MaskMutationScope,
         actor: User,
         project: Project | None,
+        *,
+        lock: bool = True,
     ) -> None:
         if scope.media != "video":
             return
@@ -765,15 +767,10 @@ class MaskMutationService:
         )
         if scope.segment_id is not None:
             query = query.where(VideoSegment.id == scope.segment_id)
-        segments = list(
-            (
-                await self.db.execute(
-                    query.order_by(VideoSegment.segment_index).with_for_update()
-                )
-            )
-            .scalars()
-            .all()
-        )
+        query = query.order_by(VideoSegment.segment_index)
+        if lock:
+            query = query.with_for_update()
+        segments = list((await self.db.execute(query)).scalars().all())
         config = collaboration_config(project)
         frame_count = max((row.end_frame for row in segments), default=0) + 1
 
@@ -819,7 +816,27 @@ class MaskMutationService:
         preloaded_rles: dict[str, dict] | None = None,
     ) -> tuple[MaskMutationReport, dict[str, dict], _AlgebraBudget]:
         rle_cache: dict[str, dict] = dict(preloaded_rles or {})
-        total_runs = sum(len(validate_coco_rle(rle)[2]) for rle in rle_cache.values())
+
+        def assert_pixel_budget(height: int, width: int) -> None:
+            if (
+                payload.scope.media == "image"
+                and height * width > MAX_DENSE_MASK_PIXELS
+            ):
+                raise _MaskMutationError(
+                    status_code=422,
+                    reason="large_mask_full_scan_required",
+                    message=(
+                        "mask instance operations require a full scan that exceeds "
+                        "the synchronous pixel budget"
+                    ),
+                    max_pixels=MAX_DENSE_MASK_PIXELS,
+                )
+
+        total_runs = 0
+        for rle in rle_cache.values():
+            height, width, counts = validate_coco_rle(rle)
+            assert_pixel_budget(height, width)
+            total_runs += len(counts)
         if total_runs > MAX_MASK_MUTATION_TOTAL_RUNS:
             raise _MaskMutationError(
                 status_code=422,
@@ -834,6 +851,12 @@ class MaskMutationService:
             cached = rle_cache.get(key)
             if cached is not None:
                 return cached
+            if preloaded_rles is not None:
+                raise _MaskMutationError(
+                    status_code=409,
+                    reason="mask_reference_invalid",
+                    message="mask content changed after verification",
+                )
             if len(rle_cache) >= MAX_MASK_MUTATION_RLE_OBJECTS:
                 raise _MaskMutationError(
                     status_code=422,
@@ -849,19 +872,7 @@ class MaskMutationService:
                     reason="invalid_geometry",
                     message="mask content could not be validated",
                 ) from exc
-            if (
-                payload.scope.media == "image"
-                and height * width > MAX_DENSE_MASK_PIXELS
-            ):
-                raise _MaskMutationError(
-                    status_code=422,
-                    reason="large_mask_full_scan_required",
-                    message=(
-                        "mask instance operations require a full scan that exceeds "
-                        "the synchronous pixel budget"
-                    ),
-                    max_pixels=MAX_DENSE_MASK_PIXELS,
-                )
+            assert_pixel_budget(height, width)
             total_runs += len(counts)
             if total_runs > MAX_MASK_MUTATION_TOTAL_RUNS:
                 raise _MaskMutationError(
@@ -1194,11 +1205,16 @@ class MaskMutationService:
                 key = str(reference.get("object_key") or reference.get("sha256") or "")
                 rle = rle_cache.get(key)
                 if rle is None:
-                    rle = await load_coco_rle(reference)
-                    rle_cache[key] = rle
+                    raise _MaskMutationError(
+                        status_code=409,
+                        reason="mask_reference_invalid",
+                        message="overlap content changed after verification",
+                    )
                 bbox = coco_rle_bbox_norm(rle)
                 if bbox:
                     materialized.append((annotation, rle, bbox))
+            except _MaskMutationError:
+                raise
             except Exception as exc:
                 raise _MaskMutationError(
                     status_code=422,
@@ -1280,14 +1296,25 @@ class MaskMutationService:
         await task_access.assert_review_adjustment_evidence(
             self.db, preflight_task, actor.id, preflight_access
         )
-        task_access.assert_task_editable(
-            preflight_task, actor.id, access=preflight_access
-        )
         preflight_replay = await self._idempotent_replay(
             task_id, actor.id, payload, digest
         )
         verified_mask_content = None
         if preflight_replay is None:
+            task_access.assert_task_editable(
+                preflight_task, actor.id, access=preflight_access
+            )
+            if payload.scope.media == "video":
+                preflight_project = await self.db.get(
+                    Project, preflight_task.project_id, populate_existing=True
+                )
+                await self._assert_segment_lease(
+                    preflight_task,
+                    payload.scope,
+                    actor,
+                    preflight_project,
+                    lock=False,
+                )
             preflight_geometries = [
                 mutation.geometry.model_dump(mode="json", by_alias=True)
                 for mutation in payload.mutations
@@ -1686,7 +1713,7 @@ class MaskMutationService:
                     annotation_id=str(annotation_id),
                 )
 
-        project = await self.db.get(Project, task.project_id)
+        project = await self.db.get(Project, task.project_id, populate_existing=True)
         await self._assert_segment_lease(task, payload.scope, actor, project)
 
         frame_index = int(payload.scope.frame_index or 0)

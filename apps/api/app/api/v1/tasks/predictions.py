@@ -258,6 +258,7 @@ async def accept_prediction(
     task = await _load_task_or_404(db, task_id)
     access = await task_access.resolve_task_access(db, task, current_user.id)
     await task_access.assert_task_visible(db, task, current_user.id, access=access)
+    task_access.assert_annotation_write_allowed(task, access)
     task_access.assert_task_editable(task, current_user.id, access=access)
     await task_access.assert_review_adjustment_evidence(
         db, task, current_user.id, access

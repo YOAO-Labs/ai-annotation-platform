@@ -231,7 +231,6 @@ async def test_single_frame_video_mask_get_is_bound_to_its_frame(
     project = await db_session.get(Project, task.project_id)
     assert item is not None and project is not None
     item.file_type = "video"
-    item.metadata_ = {"video": {"frame_count": 10}}
     task.file_type = "video"
     project.data_type = "video"
     annotation.annotation_type = "video_mask"
@@ -243,6 +242,12 @@ async def test_single_frame_video_mask_get_is_bound_to_its_frame(
     load = AsyncMock(return_value=FOREGROUND_RLE)
     monkeypatch.setattr("app.api.v1.annotations.load_coco_rle", load)
     monkeypatch.setattr(settings, "raster_mask_read_enabled", True)
+    await db_session.flush()
+    await db_session.refresh(item)
+    item.width = 3
+    item.height = 2
+    item.metadata_ = {"video": {"frame_count": 10}}
+    item.media_materialized_generation = item.media_source_generation
     await db_session.commit()
 
     static = await httpx_client.get(
@@ -258,7 +263,7 @@ async def test_single_frame_video_mask_get_is_bound_to_its_frame(
         headers=_headers(token),
     )
 
-    assert static.status_code == 200
+    assert static.status_code == 200, static.text
     assert exact.status_code == 200
     assert outside.status_code == 404
     assert outside.json()["detail"] == "mask is outside at this frame"

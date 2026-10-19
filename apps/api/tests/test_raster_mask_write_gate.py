@@ -30,6 +30,7 @@ from app.services.labeling_write_scope import capture_labeling_write_scope
 from app.services.raster_mask_storage import (
     build_rle_reference,
 )
+from tests.factory import create_membership
 
 
 FOREGROUND_RLE = {
@@ -38,6 +39,102 @@ FOREGROUND_RLE = {
     "counts": [1, 2, 3],
 }
 EMPTY_RLE = {"encoding": "coco_rle", "size": [2, 3], "counts": [6]}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("operation", ["create", "update", "accept"])
+@pytest.mark.parametrize("revoked_during_read", [False, True])
+async def test_manual_mask_write_requires_current_annotation_capability(
+    db_session,
+    httpx_client,
+    super_admin,
+    annotator,
+    monkeypatch,
+    operation,
+    revoked_during_read,
+):
+    owner, _ = super_admin
+    actor, token = annotator
+    project, task = await _seed_image_task(db_session, owner.id)
+    task.assignee_id = actor.id
+    task.reviewer_id = actor.id
+    member = await create_membership(
+        db_session,
+        project_id=project.id,
+        user_id=actor.id,
+        role="annotator" if revoked_during_read else "reviewer",
+        assigned_by=owner.id,
+    )
+    reference = build_rle_reference(FOREGROUND_RLE)
+    upload = await _seed_upload(db_session, task.id, reference)
+    geometry = {"type": "raster_mask", "mask": reference}
+    existing = None
+    if operation == "update":
+        existing = Annotation(
+            task_id=task.id,
+            project_id=project.id,
+            user_id=actor.id,
+            annotation_type="raster_mask",
+            tool_unit_id="region",
+            class_name="object",
+            geometry=geometry,
+            version=1,
+        )
+        db_session.add(existing)
+    prediction = (
+        await _seed_prediction(db_session, project, task, reference)
+        if operation == "accept"
+        else None
+    )
+    await db_session.flush()
+    task_id = task.id
+
+    async def read_content(_reference):
+        member.role = "reviewer"
+        await db_session.flush()
+        return FOREGROUND_RLE
+
+    load = AsyncMock(side_effect=read_content)
+    monkeypatch.setattr("app.services.raster_mask_storage.load_coco_rle", load)
+    monkeypatch.setattr(settings, "raster_mask_read_enabled", True)
+    monkeypatch.setattr(settings, "raster_mask_create_enabled", True)
+    headers = {"Authorization": f"Bearer {token}"}
+    if operation == "create":
+        response = await httpx_client.post(
+            f"/api/v1/tasks/{task_id}/annotations",
+            json={
+                "annotation_type": "raster_mask",
+                "tool_unit_id": "region",
+                "class_name": "object",
+                "geometry": geometry,
+            },
+            headers=headers,
+        )
+    elif operation == "update":
+        response = await httpx_client.patch(
+            f"/api/v1/tasks/{task_id}/annotations/{existing.id}",
+            json={"geometry": geometry},
+            headers={**headers, "If-Match": 'W/"1"'},
+        )
+        await db_session.refresh(existing)
+        assert existing.version == 1
+    else:
+        response = await httpx_client.post(
+            f"/api/v1/tasks/{task_id}/predictions/{prediction.id}/accept",
+            json={},
+            headers=headers,
+        )
+
+    assert response.status_code == 403, response.text
+    assert load.await_count == int(revoked_during_read)
+    await db_session.refresh(upload)
+    assert upload.linked_at is None
+    count = await db_session.scalar(
+        select(func.count())
+        .select_from(Annotation)
+        .where(Annotation.task_id == task_id)
+    )
+    assert count == int(operation == "update")
 
 
 def _prediction_write_scope(task, actor_id):

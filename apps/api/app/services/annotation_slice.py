@@ -340,12 +340,14 @@ class AnnotationSliceService:
         await task_access.assert_review_adjustment_evidence(
             self.db, preflight_task, actor.id, preflight_access
         )
-        await self._assert_task_writable(preflight_task, actor, access=preflight_access)
         preflight_replay = await self._replay(
             task_id, actor, payload.idempotency_key, digest
         )
         verified_mask_content = None
         if preflight_replay is None:
+            await self._assert_task_writable(
+                preflight_task, actor, access=preflight_access
+            )
             preflight_original = await self.db.scalar(
                 select(AnnotationOperation).where(
                     AnnotationOperation.id == operation_id,

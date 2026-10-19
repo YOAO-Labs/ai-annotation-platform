@@ -157,6 +157,7 @@ async def _seed_video_task(db, owner_id: uuid.UUID):
         file_name=f"mask-{suffix}.mp4",
         file_path=f"mask-mutation/{suffix}.mp4",
         file_type="video",
+        media_materialized_generation=1,
         metadata_={
             "video": {
                 "width": 3,
@@ -757,8 +758,9 @@ async def test_video_segment_lease_must_belong_to_non_privileged_actor(
         headers={"Authorization": f"Bearer {token}"},
     )
 
-    assert response.status_code == 409
+    assert response.status_code == 409, response.text
     assert response.json()["detail"]["reason"] == "segment_lock_conflict"
+    mask_content.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -1824,6 +1826,46 @@ async def test_large_image_mutation_rejects_before_pixel_algebra(
     assert response.status_code == 422, response.text
     assert response.json()["detail"]["reason"] == "large_mask_full_scan_required"
     load.assert_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("phase", ["algebra", "overlap"])
+async def test_missing_preverified_content_never_loads_under_final_locks(
+    monkeypatch, phase
+):
+    source = Annotation(
+        id=uuid.uuid4(),
+        task_id=uuid.uuid4(),
+        class_name="object",
+        geometry={"type": "raster_mask", "mask": build_rle_reference(RLE_A)},
+        version=1,
+        is_locked=False,
+    )
+    load = AsyncMock(side_effect=AssertionError("unexpected final-lock object I/O"))
+    monkeypatch.setattr("app.services.mask_mutation.load_coco_rle", load)
+    service = MaskMutationService(None)
+    scope = _scope(strict=phase == "overlap")
+
+    with pytest.raises(MaskMutationError) as captured:
+        if phase == "algebra":
+            await service._validate_pixel_algebra(
+                MaskMutationCommitRequest.model_validate(
+                    _payload(
+                        source, scope, reference=build_rle_reference(RLE_COMPONENT)
+                    )
+                ),
+                [source],
+                {source.id},
+                preloaded_rles={},
+            )
+        else:
+            await service._assert_non_overlapping(
+                scope, [source], {}, set(), [], {}, _AlgebraBudget()
+            )
+
+    assert captured.value.status_code == 409
+    assert captured.value.detail["reason"] == "mask_reference_invalid"
+    load.assert_not_awaited()
 
 
 @pytest.mark.asyncio

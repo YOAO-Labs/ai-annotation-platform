@@ -174,16 +174,28 @@ async def db_session(test_engine, monkeypatch):
         SqlAlchemyImageDatabase,
         _IndependentImageDatabase,
     )
+    from app.services.assets_media import (
+        SqlAlchemyMediaDatabase,
+        _IndependentMediaDatabase,
+    )
 
-    image_calls = asyncio.Lock()
+    native_calls = asyncio.Lock()
 
     async def image_call(_adapter, operation, request):
-        async with image_calls:
+        async with native_calls:
             return await SqlAlchemyImageDatabase(session, commit=False).call(
                 operation, request
             )
 
     monkeypatch.setattr(_IndependentImageDatabase, "call", image_call)
+
+    async def media_call(_adapter, operation, request):
+        async with native_calls:
+            return await SqlAlchemyMediaDatabase(session, commit=False).call(
+                operation, request
+            )
+
+    monkeypatch.setattr(_IndependentMediaDatabase, "call", media_call)
 
     await conn.begin_nested()
     try:

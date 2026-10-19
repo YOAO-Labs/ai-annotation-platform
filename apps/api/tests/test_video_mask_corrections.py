@@ -8,7 +8,9 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from sqlalchemy import func, select
 
+from aap_assets_media.contract import ObjectIdentity
 from app.db.models.annotation import Annotation
+from app.db.models.dataset import DatasetItem
 from app.db.models.audit_log import AuditLog
 from app.db.models.ml_backend_registry import ProjectMLBackendPool
 from app.db.models.project import Project
@@ -38,7 +40,21 @@ ALT_RLE = {"encoding": "coco_rle", "size": [2, 3], "counts": [2, 1, 3]}
 
 
 @pytest.fixture
-def correction_storage_mocks(monkeypatch):
+def video_source_storage(monkeypatch):
+    media_storage = SimpleNamespace(
+        head_source=AsyncMock(
+            return_value=ObjectIdentity(etag='"fixture-video"', byte_size=3)
+        ),
+        sign_source=AsyncMock(return_value="http://fixture.test/video.mp4"),
+    )
+    monkeypatch.setattr(
+        "app.services.assets_media.media_storage", lambda **_kwargs: media_storage
+    )
+    return media_storage
+
+
+@pytest.fixture
+def correction_storage_mocks(monkeypatch, video_source_storage):
     validate = AsyncMock()
     lock = AsyncMock()
     load = AsyncMock(return_value=RLE)
@@ -71,6 +87,8 @@ async def _seed_mask_track(
     native_mask: bool = True,
 ):
     task, backend, pool = await _seed(db, owner_id=owner_id, media_type="video")
+    item = await db.get(DatasetItem, task.dataset_item_id)
+    item.media_materialized_generation = item.media_source_generation
     project = await db.get(Project, task.project_id)
     model_id = "grounded-sam2-tracker" if native_mask else "sam3-video-tracker"
     model_key = "sam2_video" if native_mask else "sam3_video"
@@ -335,6 +353,7 @@ async def test_mask_keyframe_delete_is_versioned_surgical_and_restores_hold(
     httpx_client,
     db_session,
     super_admin,
+    video_source_storage,
 ):
     user, token = super_admin
     (
@@ -431,6 +450,7 @@ async def test_mask_manual_outside_restore_preserves_prediction_and_keyframes(
     httpx_client,
     db_session,
     super_admin,
+    video_source_storage,
 ):
     user, token = super_admin
     (
@@ -531,6 +551,7 @@ async def test_mask_keyframe_operations_honor_task_and_annotation_locks(
     db_session,
     super_admin,
     annotator,
+    video_source_storage,
 ):
     actor, token = super_admin
     lock_owner, _ = annotator

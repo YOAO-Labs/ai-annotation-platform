@@ -44,7 +44,10 @@ from app.schemas.annotation_conversion import (
 )
 from app.application.annotation_create import _AnnotationCreateSqlAdapter
 from app.application.annotation_cross_frame import _AnnotationCrossFrameSqlAdapter
-from app.application.annotation_mutation import _AnnotationMutationSqlAdapter
+from app.application.annotation_mutation import (
+    _AnnotationMutationSqlAdapter,
+    validate_annotation_update_preconditions,
+)
 from app.application.annotation_secondary_inference import (
     _AnnotationSecondaryInferenceSqlAdapter,
 )
@@ -361,6 +364,7 @@ async def create_annotation(
     await task_access.assert_task_visible(
         db, task, current_user.id, access=preflight_access
     )
+    task_access.assert_annotation_write_allowed(task, preflight_access)
     task_access.assert_task_editable(task, current_user.id, access=preflight_access)
     await task_access.assert_review_adjustment_evidence(
         db, task, current_user.id, preflight_access
@@ -419,6 +423,7 @@ async def create_annotation(
     if task is None:
         raise HTTPException(status_code=404, detail="Task not found")
     await task_access.assert_task_visible(db, task, current_user.id, access=access)
+    task_access.assert_annotation_write_allowed(task, access)
     task_access.assert_task_editable(task, current_user.id, access=access)
     await task_access.assert_review_adjustment_evidence(
         db, task, current_user.id, access
@@ -743,6 +748,7 @@ async def update_annotation(
     await task_access.assert_task_visible(
         db, _task, current_user.id, access=preflight_access
     )
+    task_access.assert_annotation_write_allowed(_task, preflight_access)
     task_access.assert_task_editable(_task, current_user.id, access=preflight_access)
     await task_access.assert_review_adjustment_evidence(
         db, _task, current_user.id, preflight_access
@@ -750,6 +756,17 @@ async def update_annotation(
     verified_mask_content = None
     geometry = data.model_dump(exclude_unset=True).get("geometry")
     if isinstance(geometry, dict):
+        preflight_annotation = await db.scalar(
+            select(Annotation)
+            .where(Annotation.id == annotation_id)
+            .execution_options(populate_existing=True)
+        )
+        validate_annotation_update_preconditions(
+            preflight_annotation,
+            task_id=task_id,
+            fields=data.model_dump(exclude_unset=True),
+            if_match=request.headers.get("If-Match"),
+        )
         try:
             verified_mask_content = await preflight_mask_payload_for_write(
                 db, _task, geometry
@@ -772,6 +789,7 @@ async def update_annotation(
     if _task is None:
         raise HTTPException(status_code=404, detail="Task not found")
     await task_access.assert_task_visible(db, _task, current_user.id, access=access)
+    task_access.assert_annotation_write_allowed(_task, access)
     task_access.assert_task_editable(_task, current_user.id, access=access)
     await task_access.assert_review_adjustment_evidence(
         db, _task, current_user.id, access
