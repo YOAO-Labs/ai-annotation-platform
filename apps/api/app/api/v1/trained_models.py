@@ -2,6 +2,7 @@
 
 import asyncio
 import uuid
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func, select
@@ -28,6 +29,11 @@ from app.schemas.trained_model import (
 from app.services import trained_models as service
 from app.services import model_lineage as lineage
 from app.schemas.model_lineage import ArchiveFilter
+from app.services.training_list_filters import (
+    ISODate,
+    created_date_bounds,
+    literal_search_pattern,
+)
 
 router = APIRouter(
     prefix="/projects/{project_id}",
@@ -67,20 +73,36 @@ async def list_models(
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
     archive: ArchiveFilter = "exclude",
+    q: str = Query("", max_length=120),
+    framework: Literal["ultralytics", "libreyolo"] | None = None,
+    created_from: ISODate | None = Query(
+        None, description="创建日期下界，UTC 日期（含）"
+    ),
+    created_to: ISODate | None = Query(
+        None, description="创建日期上界，UTC 日期（含整天）"
+    ),
 ) -> dict:
-    condition = lineage.archive_condition(project.id, archive)
+    start, end = created_date_bounds(created_from, created_to)
+    predicates = [
+        TrainedModelVersion.project_id == project.id,
+        lineage.archive_condition(project.id, archive),
+    ]
+    pattern = literal_search_pattern(q)
+    if pattern is not None:
+        predicates.append(TrainedModelVersion.name.ilike(pattern, escape="\\"))
+    if framework is not None:
+        predicates.append(TrainedModelVersion.framework == framework)
+    if start is not None:
+        predicates.append(TrainedModelVersion.created_at >= start)
+    if end is not None:
+        predicates.append(TrainedModelVersion.created_at <= end)
     total = await db.scalar(
-        select(func.count())
-        .select_from(TrainedModelVersion)
-        .where(TrainedModelVersion.project_id == project.id, condition)
+        select(func.count()).select_from(TrainedModelVersion).where(*predicates)
     )
     items = (
         await db.scalars(
             select(TrainedModelVersion)
-            .where(
-                TrainedModelVersion.project_id == project.id,
-                condition,
-            )
+            .where(*predicates)
             .order_by(
                 TrainedModelVersion.created_at.desc(), TrainedModelVersion.id.desc()
             )

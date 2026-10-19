@@ -44,7 +44,7 @@ export function ModelClassBindings({
   return (
     <section aria-label="类别绑定" className="min-w-0 space-y-2">
       <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
-        <h4 className="font-medium">类别绑定</h4>
+        <h3 className="font-medium">类别绑定</h3>
         <span aria-live="polite" className="tabular-nums text-muted-foreground">
           已绑定 {boundCount} / {nativeClasses.length}
         </span>

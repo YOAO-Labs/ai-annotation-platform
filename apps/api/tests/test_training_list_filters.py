@@ -10,7 +10,9 @@ from fastapi import FastAPI, HTTPException
 from training_contract.dataset import DETECTION_CONTRACT, SEGMENTATION_CONTRACT
 
 from app.db.models.training_dataset import TrainingDatasetVersion
-from app.db.models.training_run import TrainingRun
+from app.db.models.training_run import TrainingRun, TrainingAttempt
+from app.db.models.trained_model import TrainedModelVersion
+from app.db.models.model_decision import ModelDecision
 from app.deps import get_db, require_project_owner
 from app.services.training_list_filters import (
     created_date_bounds,
@@ -27,10 +29,12 @@ END = datetime.combine(date(2026, 10, 19), time.max, timezone.utc)
 async def validation_client():
     from app.api.v1.training_datasets import list_versions
     from app.api.v1.training_runs import list_runs
+    from app.api.v1.trained_models import list_models
 
     app = FastAPI()
     app.get("/training-runs")(list_runs)
     app.get("/training-datasets")(list_versions)
+    app.get("/trained-models")(list_models)
     app.dependency_overrides[require_project_owner] = lambda: SimpleNamespace(
         id=uuid.uuid4()
     )
@@ -256,4 +260,110 @@ async def test_run_list_filter_rejects_unknown_framework(
     response = await validation_client.get(
         "/training-runs", params={"framework": "unknown"}
     )
+    assert response.status_code == 422, response.text
+
+
+async def test_model_filters_precede_count_pagination_and_archive_selection(
+    db_session, super_admin, httpx_client
+):
+    owner, token = super_admin
+    project = await create_project(db_session, owner_id=owner.id)
+    dataset = await version(db_session, project)
+    experiment = await run(db_session, project, dataset)
+    attempt = TrainingAttempt(run_id=experiment.id, ordinal=1, status="succeeded")
+    db_session.add(attempt)
+    await db_session.flush()
+    name = "COCO_8%\\ candidate"
+
+    async def candidate(
+        project_id=project.id, created_at=START, framework="ultralytics", label=name
+    ):
+        row = TrainedModelVersion(
+            project_id=project_id,
+            run_id=experiment.id,
+            attempt_id=attempt.id,
+            request_id=uuid.uuid4(),
+            request_digest="a" * 64,
+            name=label,
+            framework=framework,
+            framework_version="fixture",
+            artifact={},
+            classes=["car"],
+            bindings=["car"],
+            binding_digest="b" * 64,
+            provenance={},
+            evaluation={},
+            created_at=created_at,
+        )
+        db_session.add(row)
+        await db_session.flush()
+        return row
+
+    matching = [
+        await candidate(created_at=at)
+        for at in (START, END, END, END - timedelta(hours=1))
+    ]
+    await candidate(label="COCOx8xxxx candidate")
+    await candidate(framework="libreyolo")
+    await candidate(created_at=START - timedelta(microseconds=1))
+    await candidate(created_at=END + timedelta(microseconds=1))
+    foreign = await create_project(db_session, owner_id=owner.id)
+    await candidate(project_id=foreign.id)
+    archived = await candidate()
+    db_session.add(
+        ModelDecision(
+            project_id=project.id,
+            model_version_id=archived.id,
+            creator_label="fixture",
+            sequence=1,
+            request_id=uuid.uuid4(),
+            request_digest="c" * 64,
+            disposition="archived",
+            note="Archive candidate",
+        )
+    )
+    await db_session.flush()
+    base = f"/api/v1/projects/{project.id}/trained-models"
+    params = {
+        "q": " COCO_8%\\ ",
+        "framework": "ultralytics",
+        "created_from": "2026-10-18",
+        "created_to": "2026-10-19",
+        "limit": 2,
+        "offset": 1,
+    }
+    headers = {"Authorization": f"Bearer {token}"}
+    response = await httpx_client.get(base, headers=headers, params=params)
+    assert response.status_code == 200, response.text
+    assert response.json()["total"] == 4
+    ordered = sorted(
+        matching, key=lambda item: (item.created_at, item.id), reverse=True
+    )
+    assert [item["id"] for item in response.json()["items"]] == [
+        str(item.id) for item in ordered[1:3]
+    ]
+    for archive, total in (("include", 5), ("only", 1)):
+        response = await httpx_client.get(
+            base, headers=headers, params={**params, "archive": archive, "offset": 0}
+        )
+        assert response.status_code == 200, response.text
+        assert response.json()["total"] == total
+        if archive == "only":
+            assert response.json()["items"][0]["id"] == str(archived.id)
+
+
+@pytest.mark.parametrize(
+    "parameters",
+    [
+        {"q": "x" * 121},
+        {"framework": "unknown"},
+        {"created_from": "2026-13-01"},
+        {"created_to": "not-a-date"},
+        {"created_from": "0"},
+        {"created_to": "2026-10-19T00:00:00Z"},
+        {"created_from": "2026-10-19", "created_to": "2026-10-18"},
+    ],
+)
+async def test_model_filters_reject_invalid_values(validation_client, parameters):
+    response = await validation_client.get("/trained-models", params=parameters)
     assert response.status_code == 422, response.text

@@ -84,6 +84,10 @@ export function ProjectLearningPage() {
   }
   if (!location.pathname.endsWith("/new")) {
     const activeTab = params.get("tab");
+    if (activeTab === "models" && params.get("model"))
+      return (
+        <Navigate replace to={trainingRecordPath(id, "models", params.get("model")!, params)} />
+      );
     const kind = activeTab === "data" ? "data" : "experiments";
     const selectedId =
       kind === "data" ? params.get("dataset") : (params.get("run") ?? params.get("return_run"));

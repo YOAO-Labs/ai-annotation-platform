@@ -1,7 +1,7 @@
 import { randomId } from "@/utils/id";
 import { CopyableError } from "@/components/ui/CopyableError";
 import { useMemo, useRef, useState } from "react";
-import { Link, useLocation, useSearchParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ApiError } from "@/api/client";
 import { asyncJobsApi } from "@/api/asyncJobs";
@@ -21,8 +21,8 @@ import {
   type ModelReleaseOut,
   type TrainedModelOut,
 } from "@/api/trainedModels";
-import { Layers, RadioTower } from "lucide-react";
-import { TrainingLoading } from "../Training/TrainingFeedback";
+import { Plus, RadioTower } from "lucide-react";
+import { TrainingError, TrainingLoading } from "../Training/TrainingFeedback";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Button as NavigationButton } from "@/components/shadcn/ui/button";
@@ -34,6 +34,10 @@ import { confirmDialog } from "@/components/ui/decisionDialog";
 import { cn } from "@/lib/utils";
 import { newTrainingVersionName } from "../Training/trainingNames";
 import { ModelClassBindings } from "./ModelClassBindings";
+import { Modal } from "@/components/ui/Modal";
+import { useDebouncedValue } from "@/hooks/useDebouncedValue";
+import { ProjectModelList } from "./ProjectModelList";
+import { trainingRecordPath, useTrainingListFilters } from "../Training/TrainingListControls";
 
 const inputClass =
   "w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
@@ -210,11 +214,24 @@ function TrialImage({ trial }: { trial: Record<string, unknown> }) {
   );
 }
 
-export function ProjectModelsPanel(props: { projectId: string; classes: string[] }) {
+type ModelsPanelProps = {
+  projectId: string;
+  classes: string[];
+  mode?: "list" | "detail";
+  initialModelId?: string;
+};
+
+export function ProjectModelsPanel(props: ModelsPanelProps) {
   const revision = useTrainingSessionRevision();
   const scope = useMemo(
-    () => ({ key: randomId(), projectId: props.projectId, revision }),
-    [props.projectId, revision],
+    () => ({
+      key: randomId(),
+      projectId: props.projectId,
+      mode: props.mode,
+      modelId: props.initialModelId,
+      revision,
+    }),
+    [props.projectId, props.mode, props.initialModelId, revision],
   );
   return <ModelsContent key={scope.key} {...props} scope={scope.key} />;
 }
@@ -223,13 +240,12 @@ function ModelsContent({
   projectId,
   classes,
   scope,
-}: {
-  projectId: string;
-  classes: string[];
-  scope: string;
-}) {
+  mode = "list",
+  initialModelId = "",
+}: ModelsPanelProps & { scope: string }) {
   const client = useQueryClient();
   const location = useLocation();
+  const navigate = useNavigate();
   const session = useTrainingViewOwner(projectId, scope);
   const viewIdentity = useMemo(() => ({ key: randomId(), location: location.key }), [location.key]);
   const viewKey = viewIdentity.key;
@@ -256,8 +272,18 @@ function ModelsContent({
       : params.get("archive") === "include"
         ? "include"
         : "exclude";
-  const page = Math.min(5000, Math.max(0, Math.floor(Number(params.get("model_page"))) || 0));
-  const detailId = params.get("model") ?? "";
+  const { filters, page, setPage, update } = useTrainingListFilters("model");
+  const q = useDebouncedValue(filters.q, 250, projectId);
+  const listFilters = {
+    q,
+    framework: filters.framework,
+    created_from: filters.created_from,
+    created_to: filters.created_to,
+  };
+  const detailId = initialModelId;
+  const [registrationOpen, setRegistrationOpen] = useState(false);
+  const registrationButton = useRef<HTMLButtonElement>(null);
+  const sourceSelect = useRef<HTMLSelectElement>(null);
   const updateModelParams = (values: Record<string, string | undefined>) =>
     setParams((previous) => {
       const next = new URLSearchParams(previous);
@@ -267,12 +293,8 @@ function ModelsContent({
       );
       return next;
     });
-  const setDetailId = (id: string) => updateModelParams({ model: id || undefined });
-  const setPage = (change: (page: number) => number) =>
-    updateModelParams({ model_page: String(change(page)) });
   const lineageHref = (id: string) =>
     `/projects/${projectId}/learning/lineage/model/${id}?returnTo=${encodeURIComponent(location.pathname + location.search)}`;
-  const registrationForm = useRef<HTMLFormElement>(null);
   const [name, setName] = useState(newTrainingVersionName);
   const [runId, setRunId] = useState("");
   const [attemptId, setAttemptId] = useState("");
@@ -296,27 +318,32 @@ function ModelsContent({
   const runs = useQuery({
     queryKey: ["training-runs", projectId, scope, sourcePage],
     queryFn: ({ signal }) => read(signal, () => trainingRunsApi.list(projectId, sourcePage * 20)),
+    enabled: registrationOpen,
     refetchInterval: 5000,
   });
   const source = useQuery({
     queryKey: ["training-run", projectId, scope, runId],
     queryFn: ({ signal }) => read(signal, () => trainingRunsApi.get(projectId, runId)),
-    enabled: !!runId,
+    enabled: registrationOpen && !!runId,
   });
   const models = useQuery({
-    queryKey: ["trained-models", projectId, scope, archive, page],
+    queryKey: ["trained-models", projectId, scope, archive, page, listFilters],
     queryFn: ({ signal }) =>
-      read(signal, () => trainedModelsApi.list(projectId, page * 20, undefined, archive)),
+      read(signal, () =>
+        trainedModelsApi.list(projectId, page * 20, { signal }, archive, listFilters),
+      ),
     refetchInterval: 5000,
   });
   const detail = useQuery({
     queryKey: ["trained-model", projectId, scope, detailId],
-    queryFn: ({ signal }) => read(signal, () => trainedModelsApi.get(projectId, detailId)),
+    queryFn: ({ signal }) =>
+      read(signal, () => trainedModelsApi.get(projectId, detailId, { signal })),
     enabled: !!detailId,
     refetchInterval: 5000,
   });
   const backends = useQuery({
     queryKey: ["learning-backends", projectId, scope],
+    enabled: mode === "detail",
     queryFn: ({ signal }) => read(signal, () => mlBackendsApi.listAvailable(projectId)),
     refetchInterval: 10000,
   });
@@ -328,6 +355,7 @@ function ModelsContent({
   });
   const pendingTasks = useQuery({
     queryKey: ["learning-pending-tasks", projectId, scope, taskPage],
+    enabled: mode === "list",
     queryFn: ({ signal }) =>
       read(signal, () =>
         tasksApi.listByProject(projectId, { status: "pending", limit: 25, offset: taskPage * 25 }),
@@ -353,7 +381,10 @@ function ModelsContent({
       read(signal, () => trainedModelsApi.get(projectId, current!.model_version_id!)),
     enabled: !!current?.model_version_id,
   });
-  const activeModel = detail.data?.model;
+  const activeModel =
+    detail.data?.model.id === detailId && detail.data.model.project_id === projectId
+      ? detail.data.model
+      : undefined;
   const comparison = models.data?.items.find((item) => item.id === compareId);
   const comparable =
     activeModel &&
@@ -374,7 +405,7 @@ function ModelsContent({
     setError("");
   };
   const showDetail = (id: string) => {
-    setDetailId(id);
+    navigate(trainingRecordPath(projectId, "models", id, params));
     setConfirmed({});
     setRegistryId("");
     setCompareId("");
@@ -393,6 +424,7 @@ function ModelsContent({
     },
     onSuccess: (model, view) => {
       if (!ownsView(view)) return;
+      setRegistrationOpen(false);
       showDetail(model.id);
       setName(newTrainingVersionName());
       registrationId.current = randomId();
@@ -535,22 +567,38 @@ function ModelsContent({
     (release.model_version_id ? `模型 ${release.model_version_id.slice(0, 8)}` : "未启用受控模型");
   return (
     <section aria-labelledby="models-title">
-      <ProjectLearningSectionHeader
-        id="models-title"
-        title="模型版本与回流"
-        description="注册成功训练的权重，确认类别绑定，再加载试用与人工发布。"
-        actions={
-          <>
-            <NavigationButton asChild variant="outline" size="sm">
-              <Link to={`/projects/${projectId}/learning/active-learning`}>主动学习人工选样</Link>
-            </NavigationButton>
-            <NavigationButton asChild variant="outline" size="sm">
-              <Link to={`/projects/${projectId}/learning/evaluations`}>逐样本评估与误差复查</Link>
-            </NavigationButton>
-          </>
-        }
-      />
-      {error && (
+      {mode === "list" && (
+        <ProjectLearningSectionHeader
+          id="models-title"
+          title="模型与发布"
+          description="注册成功训练的权重，确认类别绑定，再加载试用与人工发布。"
+          actions={
+            <>
+              <Button
+                ref={registrationButton}
+                variant="primary"
+                size="sm"
+                onClick={() => setRegistrationOpen(true)}
+              >
+                <Plus aria-hidden="true" />
+                注册候选模型
+              </Button>
+              <NavigationButton asChild variant="outline" size="sm">
+                <Link to={`/projects/${projectId}/learning/active-learning`}>主动学习人工选样</Link>
+              </NavigationButton>
+              <NavigationButton asChild variant="outline" size="sm">
+                <Link to={`/projects/${projectId}/learning/evaluations`}>逐样本评估与误差复查</Link>
+              </NavigationButton>
+            </>
+          }
+        />
+      )}
+      {mode === "detail" && (
+        <h1 id="models-title" className="text-lg font-semibold">
+          模型详情
+        </h1>
+      )}
+      {error && !registrationOpen && (
         <p
           role="alert"
           className="mt-3 rounded-md bg-status-danger-soft p-3 text-sm text-status-danger"
@@ -558,173 +606,102 @@ function ModelsContent({
           <CopyableError message={error} />
         </p>
       )}
-      {(models.error || releases.error || runs.error || backends.error) && (
+      {(releases.error || backends.error || (mode === "detail" && models.error)) && (
         <p role="alert" className="mt-3 text-sm text-status-danger">
           <CopyableError
-            message={(models.error ?? releases.error ?? runs.error ?? backends.error)?.message}
+            message={
+              (releases.error ?? backends.error ?? (mode === "detail" ? models.error : null))
+                ?.message
+            }
           />
         </p>
       )}
-      <section
-        aria-label="当前项目发布"
-        className="mt-5 rounded-xl border border-border bg-card p-4 sm:p-5"
-      >
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <h3 className="flex items-center gap-2 text-sm font-semibold">
-            <RadioTower aria-hidden="true" className="size-4 text-muted-foreground" />
-            当前项目发布
-          </h3>
-          {current?.model_version_id && (
-            <Button
-              size="sm"
-              disabled={publish.isPending}
-              onClick={() =>
-                publish.mutate({ view: captureView(), modelId: null, deploymentId: null })
-              }
-            >
-              停用受控模型
-            </Button>
-          )}
-        </div>
-        <p className="mt-2 text-xs">
-          {releases.isLoading
-            ? "正在读取发布状态…"
-            : releases.error
-              ? "发布状态暂时不可用"
-              : current
-                ? modelName(current)
-                : "尚未发布受控模型"}
-          {current?.model_version_id && (
-            <CopyValueButton
-              value={current.model_version_id}
-              kind="id"
-              label="复制当前受控模型版本 ID"
-            />
-          )}
-          {current && ` · 发布代次 ${current.generation}`}
-        </p>
-      </section>
-      <div className="mt-5 grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_22rem]">
-        <div className="min-w-0">
-          <section
-            aria-label="候选模型"
-            className="overflow-hidden rounded-xl border border-border bg-card"
-          >
-            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border p-4">
-              <h3 className="text-sm font-semibold">
-                候选模型{" "}
-                <span className="ml-1 text-xs font-normal tabular-nums text-muted-foreground">
-                  {models.data?.total ?? "—"}
-                </span>
-              </h3>
-              <label className="block w-full space-y-1 text-2xs text-muted-foreground sm:w-auto sm:max-w-xs">
-                候选显示范围
-                <select
-                  className={inputClass}
-                  value={archive}
-                  onChange={(event) =>
-                    updateModelParams({ archive: event.target.value, model_page: undefined })
-                  }
-                >
-                  <option value="exclude">默认候选（保留当前发布）</option>
-                  <option value="include">全部候选，包含归档</option>
-                  <option value="only">仅已归档候选</option>
-                </select>
-              </label>
-            </div>
-            {models.isLoading && <TrainingLoading label="正在加载候选模型…" />}
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs">
-                <thead className="bg-muted/30 text-2xs text-muted-foreground">
-                  <tr>
-                    <th className="px-4 py-3">模型</th>
-                    <th className="px-4 py-3">训练器</th>
-                    <th className="px-4 py-3">操作</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {models.data?.items.map((model) => (
-                    <tr key={model.id} className="border-t border-border">
-                      <td className="min-w-32 break-words px-4 py-4 font-medium">
-                        {model.name}
-                        {model.is_current_release && (
-                          <span className="mt-1 block text-2xs text-status-positive">当前发布</span>
-                        )}
-                        {model.archived && (
-                          <Badge>已归档{model.is_current_release ? " · 当前发布" : ""}</Badge>
-                        )}
-                      </td>
-                      <td className="px-4 py-3">
-                        {model.framework} {model.framework_version}
-                      </td>
-                      <td className="px-4 py-3">
-                        <Button size="sm" variant="ghost" onClick={() => showDetail(model.id)}>
-                          评估与部署
-                        </Button>
-                        <Link
-                          className="ml-2 inline-block text-primary hover:underline"
-                          to={lineageHref(model.id)}
-                        >
-                          谱系与决策
-                        </Link>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            {models.data?.items.length === 0 && !models.error && (
-              <div className="px-5 py-10 text-center">
-                <Layers aria-hidden="true" className="mx-auto mb-3 size-6 text-muted-foreground" />
-                <h4 className="text-sm font-medium">
-                  {archive === "only"
-                    ? "此范围暂无归档候选"
-                    : models.data.total > 0
-                      ? "当前页没有候选模型"
-                      : "尚未注册模型版本"}
-                </h4>
-                <p className="mx-auto mt-2 max-w-sm text-xs leading-relaxed text-muted-foreground">
-                  成功训练后注册权重，完成评估与加载试用，再由负责人发布。
-                </p>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className="mt-3"
-                  onClick={() =>
-                    registrationForm.current?.querySelector<HTMLSelectElement>("select")?.focus()
-                  }
-                >
-                  填写候选信息
-                </Button>
-              </div>
+      {mode === "list" && (
+        <section
+          aria-label="当前项目发布"
+          className="mt-5 rounded-xl border border-border bg-card p-4 sm:p-5"
+        >
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h3 className="flex items-center gap-2 text-sm font-semibold">
+              <RadioTower aria-hidden="true" className="size-4 text-muted-foreground" />
+              当前项目发布
+            </h3>
+            {current?.model_version_id && (
+              <Button
+                size="sm"
+                disabled={publish.isPending}
+                onClick={() =>
+                  publish.mutate({ view: captureView(), modelId: null, deploymentId: null })
+                }
+              >
+                停用受控模型
+              </Button>
             )}
-            {((models.data?.total ?? 0) > 20 || page > 0) && (
-              <div className="flex justify-end gap-2 border-t border-border p-3">
-                <Button size="sm" disabled={!page} onClick={() => setPage((p) => p - 1)}>
-                  上一页模型
-                </Button>
-                <Button
-                  size="sm"
-                  disabled={(page + 1) * 20 >= (models.data?.total ?? 0)}
-                  onClick={() => setPage((p) => p + 1)}
-                >
-                  下一页模型
-                </Button>
-              </div>
+          </div>
+          <p className="mt-2 text-xs">
+            {releases.isLoading
+              ? "正在读取发布状态…"
+              : releases.error
+                ? "发布状态暂时不可用"
+                : current
+                  ? modelName(current)
+                  : "尚未发布受控模型"}
+            {current?.model_version_id && (
+              <CopyValueButton
+                value={current.model_version_id}
+                kind="id"
+                label="复制当前受控模型版本 ID"
+              />
             )}
-          </section>
+            {current && ` · 发布代次 ${current.generation}`}
+          </p>
+        </section>
+      )}
+      {mode === "list" && (
+        <ProjectModelList
+          projectId={projectId}
+          filters={filters}
+          onChange={update}
+          onReset={() => {
+            updateModelParams({
+              archive: undefined,
+              model_page: undefined,
+              ...Object.fromEntries(Object.keys(filters).map((key) => [`model_${key}`, undefined])),
+            });
+          }}
+          archive={archive}
+          onArchive={(value) => updateModelParams({ archive: value, model_page: undefined })}
+          models={models.data}
+          loading={models.isLoading}
+          error={models.error?.message}
+          onRetry={() => void models.refetch()}
+          page={page}
+          onPage={setPage}
+          params={params}
+          lineageHref={lineageHref}
+          onRegister={() => setRegistrationOpen(true)}
+        />
+      )}
+      {mode === "detail" && (
+        <>
+          {detail.isLoading && <TrainingLoading label="正在加载模型详情…" />}
           {detail.error && (
-            <p role="alert" className="mt-3 text-sm text-status-danger">
-              <CopyableError message={detail.error.message} />
-            </p>
+            <TrainingError message={detail.error.message} onRetry={() => void detail.refetch()} />
+          )}
+          {detail.data && !activeModel && (
+            <TrainingError
+              message="模型详情与当前项目或版本不匹配"
+              onRetry={() => void detail.refetch()}
+            />
           )}
           {activeModel && (
             <div
               className="mt-5 min-w-0 space-y-4 rounded-xl border border-border bg-card p-4 sm:p-5"
+              role="region"
               aria-label="模型版本详情"
             >
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <h3 className="text-sm font-semibold">{activeModel.name}</h3>
+                <h2 className="text-sm font-semibold">{activeModel.name}</h2>
                 <div className="flex flex-wrap gap-2">
                   <Link
                     className="rounded-md border border-border px-3 py-2 text-xs text-primary"
@@ -738,9 +715,6 @@ function ModelsContent({
                     onClick={() => download.mutate(captureView())}
                   >
                     下载模型
-                  </Button>
-                  <Button size="sm" variant="ghost" onClick={() => setDetailId("")}>
-                    收起模型
                   </Button>
                 </div>
               </div>
@@ -899,26 +873,49 @@ function ModelsContent({
               ))}
             </div>
           )}
-        </div>
-        <aside className="min-w-0" aria-label="注册候选模型">
+        </>
+      )}
+      {mode === "list" && (
+        <Modal
+          open={registrationOpen}
+          onClose={() => {
+            if (!register.isPending) setRegistrationOpen(false);
+          }}
+          title="注册候选模型"
+          width={640}
+          returnFocusRef={registrationButton}
+          initialFocusRef={sourceSelect}
+        >
           <form
-            ref={registrationForm}
-            className="grid gap-4 rounded-xl border border-border bg-card p-4 sm:p-5"
+            className="grid gap-4"
             onSubmit={(event) => {
               event.preventDefault();
               setError("");
               register.mutate(captureView());
             }}
           >
-            <div className="border-b border-border pb-4">
-              <h3 className="text-sm font-semibold">注册候选模型</h3>
-              <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                选取成功实验的权重，并明确绑定项目类别。
+            <p className="text-xs leading-relaxed text-muted-foreground">
+              选取成功实验的权重，并明确绑定项目类别。关闭后可继续填写。
+            </p>
+            {error && (
+              <p role="alert" className="text-xs text-status-danger">
+                <CopyableError message={error} />
               </p>
-            </div>
+            )}
+            {runs.isLoading && (
+              <p role="status" className="text-xs text-muted-foreground">
+                正在加载来源实验…
+              </p>
+            )}
+            {runs.error && (
+              <p role="alert" className="text-xs text-status-danger">
+                <CopyableError message={runs.error.message} />
+              </p>
+            )}
             <label className="space-y-1 text-xs">
               来源训练实验
               <select
+                ref={sourceSelect}
                 className={cn(
                   inputClass,
                   "[&>option]:text-foreground",
@@ -1040,9 +1037,9 @@ function ModelsContent({
               </Button>
             </div>
           </form>
-        </aside>
-      </div>
-      {(current?.model_version_id || jobId) && (
+        </Modal>
+      )}
+      {mode === "list" && (current?.model_version_id || jobId) && (
         <section
           aria-label="使用当前发布模型"
           className="mt-5 rounded-xl border border-border bg-card p-4 sm:p-5"
@@ -1179,62 +1176,64 @@ function ModelsContent({
           )}
         </section>
       )}
-      <details className="mt-5 rounded-xl border border-border bg-card p-4 text-xs">
-        <summary className="cursor-pointer rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-          发布历史与回退
-        </summary>
-        <div className="mt-3 space-y-2">
-          {releases.data?.items.map((release) => (
-            <div
-              key={release.id}
-              className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border p-3"
+      {mode === "list" && (
+        <details className="mt-5 rounded-xl border border-border bg-card p-4 text-xs">
+          <summary className="cursor-pointer rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+            发布历史与回退
+          </summary>
+          <div className="mt-3 space-y-2">
+            {releases.data?.items.map((release) => (
+              <div
+                key={release.id}
+                className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border p-3"
+              >
+                <span className="inline-flex flex-wrap items-center gap-1">
+                  第 {release.generation} 次 · {modelName(release)}
+                  {release.model_version_id && (
+                    <CopyValueButton
+                      value={release.model_version_id}
+                      kind="id"
+                      label={`复制第 ${release.generation} 次发布的模型版本 ID`}
+                    />
+                  )}
+                  {release.rollback_from_id ? " · 回退" : ""}
+                  {release.id === releases.data.current_release_id ? " · 当前" : ""}
+                </span>
+                {release.id !== releases.data.current_release_id &&
+                  release.model_version_id &&
+                  release.deployment_id && (
+                    <Button
+                      size="sm"
+                      disabled={publish.isPending}
+                      onClick={() =>
+                        publish.mutate({
+                          view: captureView(),
+                          modelId: release.model_version_id,
+                          deploymentId: release.deployment_id,
+                          rollbackFromId: release.id,
+                        })
+                      }
+                    >
+                      回退到此发布
+                    </Button>
+                  )}
+              </div>
+            ))}
+          </div>
+          <div className="mt-3 flex justify-end gap-2">
+            <Button size="sm" disabled={!historyPage} onClick={() => setHistoryPage((p) => p - 1)}>
+              上一页发布
+            </Button>
+            <Button
+              size="sm"
+              disabled={(historyPage + 1) * 20 >= (releases.data?.total ?? 0)}
+              onClick={() => setHistoryPage((p) => p + 1)}
             >
-              <span className="inline-flex flex-wrap items-center gap-1">
-                第 {release.generation} 次 · {modelName(release)}
-                {release.model_version_id && (
-                  <CopyValueButton
-                    value={release.model_version_id}
-                    kind="id"
-                    label={`复制第 ${release.generation} 次发布的模型版本 ID`}
-                  />
-                )}
-                {release.rollback_from_id ? " · 回退" : ""}
-                {release.id === releases.data.current_release_id ? " · 当前" : ""}
-              </span>
-              {release.id !== releases.data.current_release_id &&
-                release.model_version_id &&
-                release.deployment_id && (
-                  <Button
-                    size="sm"
-                    disabled={publish.isPending}
-                    onClick={() =>
-                      publish.mutate({
-                        view: captureView(),
-                        modelId: release.model_version_id,
-                        deploymentId: release.deployment_id,
-                        rollbackFromId: release.id,
-                      })
-                    }
-                  >
-                    回退到此发布
-                  </Button>
-                )}
-            </div>
-          ))}
-        </div>
-        <div className="mt-3 flex justify-end gap-2">
-          <Button size="sm" disabled={!historyPage} onClick={() => setHistoryPage((p) => p - 1)}>
-            上一页发布
-          </Button>
-          <Button
-            size="sm"
-            disabled={(historyPage + 1) * 20 >= (releases.data?.total ?? 0)}
-            onClick={() => setHistoryPage((p) => p + 1)}
-          >
-            下一页发布
-          </Button>
-        </div>
-      </details>
+              下一页发布
+            </Button>
+          </div>
+        </details>
+      )}
     </section>
   );
 }

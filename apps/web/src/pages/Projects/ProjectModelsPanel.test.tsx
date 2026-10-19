@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { MemoryRouter, useNavigate } from "react-router-dom";
+import { MemoryRouter, Routes, Route, useLocation, useNavigate } from "react-router-dom";
 import { trainedModelsApi } from "@/api/trainedModels";
 import { trainingRunsApi } from "@/api/trainingRuns";
 import { mlBackendsApi } from "@/api/ml-backends";
@@ -11,6 +11,7 @@ import { dataManagerTaskActionsApi } from "@/api/dataManagerActions";
 import { useAuthStore } from "@/stores/authStore";
 import { confirmDialog } from "@/components/ui/decisionDialog";
 import { ProjectModelsPanel } from "./ProjectModelsPanel";
+import { TrainingModelPage } from "../Training/TrainingModelPage";
 
 vi.mock("@/api/trainedModels", async (original) => ({
   ...(await original<typeof import("@/api/trainedModels")>()),
@@ -79,7 +80,8 @@ const clients: QueryClient[] = [];
 let navigate: ReturnType<typeof useNavigate>;
 function Navigation() {
   navigate = useNavigate();
-  return null;
+  const location = useLocation();
+  return <output data-testid="location">{location.pathname + location.search}</output>;
 }
 
 function mount(entry = "/", classes = ["车辆", "行人"]) {
@@ -89,9 +91,17 @@ function mount(entry = "/", classes = ["车辆", "行人"]) {
   clients.push(client);
   return render(
     <QueryClientProvider client={client}>
-      <MemoryRouter initialEntries={[entry]}>
+      <MemoryRouter
+        initialEntries={[entry === "/" ? "/projects/project-1/learning?tab=models" : entry]}
+      >
         <Navigation />
-        <ProjectModelsPanel projectId="project-1" classes={classes} />
+        <Routes>
+          <Route
+            path="/projects/:id/learning"
+            element={<ProjectModelsPanel projectId="project-1" classes={classes} />}
+          />
+          <Route path="/projects/:id/learning/models/:modelId" element={<TrainingModelPage />} />
+        </Routes>
       </MemoryRouter>
     </QueryClientProvider>,
   );
@@ -147,6 +157,7 @@ describe("ProjectModelsPanel", () => {
       attempts: [{ id: "attempt-1", ordinal: 1, status: "succeeded" }],
     } as never);
     mount("/", classes);
+    await user.click(screen.getByRole("button", { name: "注册候选模型" }));
     await screen.findByRole("option", { name: "成功训练" });
     await user.selectOptions(screen.getByLabelText("来源训练实验"), "run-1");
     await user.selectOptions(await screen.findByLabelText("原生类别 0 · 类别0"), "类别1");
@@ -164,6 +175,7 @@ describe("ProjectModelsPanel", () => {
   it("starts with the source experiment and preserves edits to the timestamp name", async () => {
     const user = userEvent.setup();
     mount();
+    await user.click(screen.getByRole("button", { name: "注册候选模型" }));
     const source = screen.getByLabelText("来源训练实验");
     const name = screen.getByLabelText("模型名称") as HTMLInputElement;
     expect(source.compareDocumentPosition(name) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
@@ -206,6 +218,7 @@ describe("ProjectModelsPanel", () => {
         .mockRejectedValueOnce(new Error("响应中断"))
         .mockResolvedValue(model);
       mount();
+      await user.click(screen.getByRole("button", { name: "注册候选模型" }));
       await user.type(screen.getByLabelText("模型名称"), "回流候选");
       await user.selectOptions(await screen.findByLabelText("来源训练实验"), "run-1");
       await screen.findByLabelText(/原生类别 0/);
@@ -227,7 +240,7 @@ describe("ProjectModelsPanel", () => {
   it("requires sample confirmation and publishes against the current generation", async () => {
     const user = userEvent.setup();
     mount();
-    await user.click(await screen.findByRole("button", { name: "评估与部署" }));
+    await user.click(await screen.findByRole("link", { name: "第一候选" }));
     const detail = await screen.findByLabelText("模型版本详情");
     const publish = within(detail).getByRole("button", { name: "发布此模型" });
     expect(publish).toBeDisabled();
@@ -251,7 +264,7 @@ describe("ProjectModelsPanel", () => {
       .mockRejectedValueOnce(new Error("发布响应丢失"))
       .mockResolvedValue({ id: "release-8" } as never);
     mount();
-    await user.click(await screen.findByRole("button", { name: "评估与部署" }));
+    await user.click(await screen.findByRole("link", { name: "第一候选" }));
     const detail = await screen.findByLabelText("模型版本详情");
     await user.click(within(detail).getByLabelText("已查看固定验证样本，确认用于后续人工试用"));
     vi.mocked(trainedModelsApi.releases).mockResolvedValue({ ...releases, generation: 8 });
@@ -303,7 +316,7 @@ describe("ProjectModelsPanel", () => {
     };
     vi.mocked(trainedModelsApi.list).mockResolvedValue({ total: 2, items: [model, second] });
     mount();
-    await user.click((await screen.findAllByRole("button", { name: "评估与部署" }))[0]);
+    await user.click(await screen.findByRole("link", { name: "第一候选" }));
     await user.selectOptions(await screen.findByLabelText("对比另一候选"), "model-2");
     await screen.findByText(
       "验证基准、类别绑定或评估配置不同，不计算新旧提升。请分别查看各自报告。",
@@ -320,6 +333,7 @@ it("explains and disables registration when native return is unqualified", async
     attempts: [{ id: "attempt-1", ordinal: 1, status: "succeeded" }],
   } as never);
   mount();
+  await user.click(screen.getByRole("button", { name: "注册候选模型" }));
   await user.type(screen.getByLabelText("模型名称"), "Libre候选");
   await user.selectOptions(await screen.findByLabelText("来源训练实验"), "run-1");
   await screen.findByText(/该原生模型家族尚未通过资格检查/);
@@ -334,12 +348,18 @@ it("loads a deep-linked archived candidate independently of the list page and pr
     model: { ...model, archived: true },
     deployments: [],
   });
-  mount("/projects/project-1/learning?tab=models&archive=only&model_page=2&model=model-1");
+  mount("/projects/project-1/learning/models/model-1?tab=models&archive=only&model_page=2");
   expect(await screen.findByRole("heading", { name: "第一候选" })).toBeInTheDocument();
-  expect(trainedModelsApi.list).toHaveBeenCalledWith("project-1", 40, undefined, "only");
+  expect(trainedModelsApi.list).toHaveBeenCalledWith(
+    "project-1",
+    40,
+    expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    "only",
+    expect.objectContaining({ q: "" }),
+  );
   const link = screen.getByRole("link", { name: "谱系与决策" });
   expect(decodeURIComponent(link.getAttribute("href")!)).toContain(
-    "returnTo=/projects/project-1/learning?tab=models&archive=only&model_page=2&model=model-1",
+    "returnTo=/projects/project-1/learning/models/model-1?tab=models&archive=only&model_page=2",
   );
 });
 
@@ -352,11 +372,11 @@ it("rejects delayed publication confirmation after candidate navigation ABA", as
         resolve = yes;
       }),
   );
-  mount("/projects/project-1/learning?tab=models&model=model-1");
+  mount("/projects/project-1/learning/models/model-1?tab=models");
   await user.click(await screen.findByRole("checkbox", { name: /已查看.*样本/ }));
   await user.click(screen.getByRole("button", { name: "发布此模型" }));
   await waitFor(() => expect(confirmDialog).toHaveBeenCalled());
-  await act(async () => navigate("?tab=models&archive=include&model=model-1"));
+  await act(async () => navigate("?tab=models&archive=include"));
   await act(async () => navigate(-1));
   await act(async () => resolve(true));
   expect(trainedModelsApi.publish).not.toHaveBeenCalled();
@@ -379,6 +399,7 @@ it("keeps registration disabled when the server has not supplied eligibility", a
     attempts: [{ id: "attempt-1", ordinal: 1, status: "succeeded" }],
   } as never);
   mount();
+  await user.click(screen.getByRole("button", { name: "注册候选模型" }));
   await user.type(screen.getByLabelText("模型名称"), "待核验候选");
   await user.selectOptions(await screen.findByLabelText("来源训练实验"), "run-1");
   await screen.findByText(/尚未取得模型回流资格/);
@@ -406,10 +427,98 @@ it("keeps native metric gaps visible and declines comparisons without evaluator 
   });
   vi.mocked(trainedModelsApi.get).mockResolvedValue({ model: native, deployments: [deployment] });
   mount();
-  await user.click((await screen.findAllByRole("button", { name: "评估与部署" }))[0]);
+  await user.click(await screen.findByRole("link", { name: "第一候选" }));
   expect(await screen.findByText(/原生报告未提供分类别指标/)).toBeInTheDocument();
   expect(screen.getByText("AR100")).toBeInTheDocument();
   await user.selectOptions(await screen.findByLabelText("对比另一候选"), "model-2");
   expect(await screen.findByText(/不计算新旧提升/)).toBeInTheDocument();
   expect(screen.queryByText("同一验证范围")).not.toBeInTheDocument();
+});
+
+it("keeps registration in a dialog, preserves the draft and restores focus", async () => {
+  const user = userEvent.setup();
+  mount();
+  const button = screen.getByRole("button", { name: "注册候选模型" });
+  expect(screen.queryByLabelText("模型名称")).not.toBeInTheDocument();
+  expect(trainingRunsApi.list).not.toHaveBeenCalled();
+  await user.click(button);
+  const dialog = screen.getByRole("dialog", { name: "注册候选模型" });
+  await user.clear(within(dialog).getByLabelText("模型名称"));
+  await user.type(within(dialog).getByLabelText("模型名称"), "未完成候选");
+  await user.keyboard("{Escape}");
+  expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  expect(button).toHaveFocus();
+  await user.click(button);
+  expect(screen.getByLabelText("模型名称")).toHaveValue("未完成候选");
+  expect(trainedModelsApi.register).not.toHaveBeenCalled();
+});
+
+it("preserves model filters and pagination through detail navigation", async () => {
+  const user = userEvent.setup();
+  mount(
+    "/projects/project-1/learning?tab=models&model_q=第一&model_framework=ultralytics&model_created_from=2026-10-14&model_page=2&archive=include",
+  );
+  const link = await screen.findByRole("link", { name: "第一候选" });
+  expect(trainedModelsApi.list).toHaveBeenCalledWith(
+    "project-1",
+    40,
+    expect.any(Object),
+    "include",
+    {
+      q: "第一",
+      framework: "ultralytics",
+      created_from: "2026-10-14",
+      created_to: "",
+    },
+  );
+  await user.click(link);
+  await screen.findByLabelText("模型版本详情");
+  expect(screen.queryByLabelText("候选模型")).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "注册候选模型" })).not.toBeInTheDocument();
+  await user.click(screen.getByRole("link", { name: "返回模型列表" }));
+  expect(screen.getByTestId("location").textContent).toContain("model_q=%E7%AC%AC%E4%B8%80");
+  expect(screen.getByTestId("location").textContent).toContain("model_page=2");
+  expect(screen.getByLabelText("模型框架筛选")).toHaveValue("ultralytics");
+});
+
+it("resets pagination when filtering and clears archive together with model filters", async () => {
+  const user = userEvent.setup();
+  mount("/projects/project-1/learning?tab=models&model_page=3&archive=only");
+  await user.selectOptions(screen.getByLabelText("模型框架筛选"), "libreyolo");
+  await waitFor(() =>
+    expect(trainedModelsApi.list).toHaveBeenLastCalledWith(
+      "project-1",
+      0,
+      expect.any(Object),
+      "only",
+      expect.objectContaining({ framework: "libreyolo" }),
+    ),
+  );
+  expect(screen.getByTestId("location").textContent).not.toContain("model_page");
+  await user.click(screen.getByRole("button", { name: "重置筛选" }));
+  expect(screen.getByLabelText("模型框架筛选")).toHaveValue("");
+  expect(screen.getByLabelText("候选显示范围")).toHaveValue("exclude");
+});
+
+it("retries a failed direct model detail request without displaying the list", async () => {
+  const user = userEvent.setup();
+  vi.mocked(trainedModelsApi.get)
+    .mockRejectedValueOnce(new Error("详情请求失败"))
+    .mockResolvedValue({ model, deployments: [] });
+  mount("/projects/project-1/learning/models/model-1?model_page=2");
+  await screen.findByText("详情请求失败");
+  expect(screen.queryByLabelText("候选模型")).not.toBeInTheDocument();
+  await user.click(screen.getByRole("button", { name: "重试" }));
+  expect(await screen.findByRole("heading", { name: model.name })).toBeVisible();
+});
+
+it("does not expose deployment actions for a mismatched model response", async () => {
+  vi.mocked(trainedModelsApi.get).mockResolvedValue({
+    model: { ...model, project_id: "other-project" },
+    deployments: [deployment],
+  });
+  mount("/projects/project-1/learning/models/model-1");
+  expect(await screen.findByText("模型详情与当前项目或版本不匹配")).toBeVisible();
+  expect(screen.queryByRole("button", { name: "发布此模型" })).not.toBeInTheDocument();
+  expect(screen.queryByLabelText("模型版本详情")).not.toBeInTheDocument();
 });

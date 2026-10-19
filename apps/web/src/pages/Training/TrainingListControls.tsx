@@ -1,4 +1,5 @@
 import { useSearchParams } from "react-router-dom";
+import type { ReactNode } from "react";
 import { Search } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 
@@ -14,7 +15,7 @@ const keys = ["q", "status", "framework", "task", "created_from", "created_to"] 
 const controlClass =
   "min-w-0 rounded-md border border-border bg-background px-2.5 py-2 text-xs text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
 
-export function useTrainingListFilters(prefix: "run" | "data_list") {
+export function useTrainingListFilters(prefix: "run" | "data_list" | "model") {
   const [params, setParams] = useSearchParams();
   const filters = Object.fromEntries(
     keys.map((key) => [key, params.get(`${prefix}_${key}`) ?? ""]),
@@ -49,7 +50,7 @@ export function useTrainingListFilters(prefix: "run" | "data_list") {
 
 export function trainingListPath(
   projectId: string,
-  kind: "experiments" | "data",
+  kind: "experiments" | "data" | "models",
   params: URLSearchParams,
 ) {
   const next = new URLSearchParams(params);
@@ -58,6 +59,7 @@ export function trainingListPath(
     "return_run",
     "attempt",
     "dataset",
+    "model",
     "data_view",
     "data_class",
     "data_split",
@@ -66,18 +68,18 @@ export function trainingListPath(
     "data_baseline",
     "data_change",
   ].forEach((key) => next.delete(key));
-  next.set("tab", kind === "experiments" ? "training" : "data");
+  next.set("tab", kind === "experiments" ? "training" : kind);
   return `/projects/${projectId}/learning?${next}`;
 }
 
 export function trainingRecordPath(
   projectId: string,
-  kind: "experiments" | "data",
+  kind: "experiments" | "data" | "models",
   id: string,
   params: URLSearchParams,
 ) {
   const next = new URLSearchParams(params);
-  ["run", "return_run", "dataset"].forEach((key) => next.delete(key));
+  ["run", "return_run", "dataset", "model"].forEach((key) => next.delete(key));
   return `/projects/${projectId}/learning/${kind}/${encodeURIComponent(id)}${next.size ? `?${next}` : ""}`;
 }
 
@@ -87,38 +89,45 @@ export function TrainingListControls({
   onChange,
   onReset,
   statuses,
+  children,
+  hasExtraFilters = false,
 }: {
-  kind: "实验" | "数据版本";
+  kind: "实验" | "数据版本" | "模型";
   filters: TrainingListFilters;
   onChange: (values: Partial<TrainingListFilters>) => void;
   onReset: () => void;
-  statuses: Record<string, string>;
+  statuses?: Record<string, string>;
+  children?: ReactNode;
+  hasExtraFilters?: boolean;
 }) {
   return (
     <div className="flex flex-wrap items-center gap-2 p-3">
       <label className="flex min-w-48 flex-1 items-center gap-2 rounded-md border border-border bg-background px-2.5 py-2 focus-within:ring-2 focus-within:ring-ring">
         <Search aria-hidden="true" className="size-3.5 shrink-0 text-muted-foreground" />
         <input
-          aria-label={kind === "实验" ? "搜索实验名称或基础权重" : "搜索数据版本名称"}
-          placeholder={kind === "实验" ? "搜索实验名称或基础权重" : "搜索数据版本名称"}
+          aria-label={kind === "实验" ? "搜索实验名称或基础权重" : `搜索${kind}名称`}
+          placeholder={kind === "实验" ? "搜索实验名称或基础权重" : `搜索${kind}名称`}
           className="min-w-0 flex-1 bg-transparent text-xs outline-none"
           value={filters.q}
           onChange={(event) => onChange({ q: event.target.value })}
         />
       </label>
-      <select
-        aria-label={`${kind}状态筛选`}
-        className={controlClass}
-        value={filters.status}
-        onChange={(event) => onChange({ status: event.target.value })}
-      >
-        <option value="">全部状态</option>
-        {Object.entries(statuses).map(([value, label]) => (
-          <option key={value} value={value}>
-            {label}
-          </option>
-        ))}
-      </select>
+      {children}
+      {statuses && (
+        <select
+          aria-label={`${kind}状态筛选`}
+          className={controlClass}
+          value={filters.status}
+          onChange={(event) => onChange({ status: event.target.value })}
+        >
+          <option value="">全部状态</option>
+          {Object.entries(statuses).map(([value, label]) => (
+            <option key={value} value={value}>
+              {label}
+            </option>
+          ))}
+        </select>
+      )}
       {kind === "实验" && (
         <>
           <select
@@ -131,17 +140,19 @@ export function TrainingListControls({
             <option value="detect">目标检测</option>
             <option value="segment">实例分割</option>
           </select>
-          <select
-            aria-label="实验框架筛选"
-            className={controlClass}
-            value={filters.framework}
-            onChange={(event) => onChange({ framework: event.target.value })}
-          >
-            <option value="">全部框架</option>
-            <option value="ultralytics">Ultralytics</option>
-            <option value="libreyolo">LibreYOLO</option>
-          </select>
         </>
+      )}
+      {kind !== "数据版本" && (
+        <select
+          aria-label={`${kind}框架筛选`}
+          className={controlClass}
+          value={filters.framework}
+          onChange={(event) => onChange({ framework: event.target.value })}
+        >
+          <option value="">全部框架</option>
+          <option value="ultralytics">Ultralytics</option>
+          <option value="libreyolo">LibreYOLO</option>
+        </select>
       )}
       <details className="text-xs">
         <summary className="cursor-pointer rounded-md px-2 py-2 text-muted-foreground hover:text-foreground">
@@ -173,7 +184,7 @@ export function TrainingListControls({
           <span className="py-2 text-2xs text-muted-foreground">UTC 日期</span>
         </div>
       </details>
-      {keys.some((key) => filters[key]) && (
+      {(hasExtraFilters || keys.some((key) => filters[key])) && (
         <Button size="sm" variant="ghost" onClick={onReset}>
           重置筛选
         </Button>

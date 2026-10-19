@@ -372,12 +372,14 @@ last_reviewed: 2026-10-16
 | 方法 | 路径后缀                                | 行为                                                            |
 | ---- | --------------------------------------- | --------------------------------------------------------------- |
 | POST | `/trained-models`                       | 注册同项目成功执行的权重，返回 `201`                            |
-| GET  | `/trained-models`                       | 按 `limit`、`offset` 分页                                       |
+| GET  | `/trained-models`                       | 按 `limit`、`offset` 分页，支持名称、框架、日期及归档筛选       |
 | GET  | `/trained-models/{version_id}`          | 固定模型信息、部署状态与短期试用图片 URL                        |
 | POST | `/trained-models/{version_id}/deploy`   | 指定 `registry_id`，校验、安装并试用；返回 ready 或 failed 部署 |
 | GET  | `/trained-models/{version_id}/download` | 重新鉴权后签发权重下载 URL、大小与摘要                          |
 | GET  | `/model-releases`                       | 当前选择、generation 及分页历史                                 |
 | POST | `/model-releases`                       | 按预期 generation 发布、回退或清除选择，返回 `201`              |
+
+模型列表的 `q`（最多 120 字符）按名称进行不区分大小写的字面子串搜索，`%`、`_` 和反斜线不会作为通配符。`framework` 可选 `ultralytics` 或 `libreyolo`；`created_from`、`created_to` 接受 `YYYY-MM-DD`，按 UTC 日期包含起止整天，反向范围返回 `422`。所有筛选与 `archive` 共同作用于总数和分页，按创建时间、ID 倒序稳定排序。
 
 注册包含 UUID `request_id`、`name`、`run_id`、`attempt_id` 和与原生类别顺序一致的完整 `bindings`。相同标识和请求返回原模型，内容冲突返回 `409`。支持本平台已验证的 Ultralytics 图片检测产物及独立通过原生 CPU 资格检查的 LibreYOLO YOLO9 检测产物。
 

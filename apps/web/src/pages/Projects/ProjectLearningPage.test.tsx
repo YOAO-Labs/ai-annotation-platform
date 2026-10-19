@@ -139,6 +139,7 @@ function mount(path = "/projects/project-1/learning?tab=data") {
             }
           />
           <Route path="/projects/:id/learning/experiments/:runId" element={<Location />} />
+          <Route path="/projects/:id/learning/models/:modelId" element={<Location />} />
         </Routes>
       </MemoryRouter>
     </QueryClientProvider>
@@ -1062,4 +1063,15 @@ describe("project learning data versions", () => {
       ),
     ).toBeInTheDocument();
   });
+});
+
+it("redirects legacy model detail links and preserves the model list context", async () => {
+  mount(
+    "/projects/project-1/learning?tab=models&model=model-1&model_q=候选&model_page=2&archive=only&run=old-source",
+  );
+  expect(
+    await screen.findByText(
+      "/projects/project-1/learning/models/model-1?tab=models&model_q=%E5%80%99%E9%80%89&model_page=2&archive=only",
+    ),
+  ).toBeVisible();
 });
