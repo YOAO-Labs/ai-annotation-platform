@@ -3,12 +3,16 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from app.application.raster_mask_retention import (
+    is_raster_mask_key_referenced,
     referenced_raster_mask_keys,
 )
+from app.db.models.mask_review_scope import MaskReviewScope
 from app.db.models.video_tracker_job import VideoTrackerJob, VideoTrackerJobStatus
 from app.services.raster_mask_storage import _eligible_raster_mask_objects
 from app.services.video_tracking.jobs import expire_stale_tracker_candidates
 from tests.test_video_tracker_jobs_list import _make_video_task
+from tests.test_mask_repair_m5 import _seed_repair_issue
+from tests.test_video_tracker_input_native import _seed_tracker_job, _capture, _reply
 
 
 def test_raster_mask_gc_keeps_referenced_and_grace_period_objects():
@@ -131,3 +135,100 @@ async def test_gc_expires_abandoned_staged_candidates_and_releases_refs(
     assert job.status == VideoTrackerJobStatus.DISCARDED.value
     assert job.staged_result is None
     assert key not in await referenced_raster_mask_keys(db_session)
+
+
+@pytest.mark.parametrize("decision", ["accept", "reject"])
+async def test_gc_preserves_review_region_after_its_qc_issue_is_deleted(
+    db_session,
+    super_admin,
+    decision,
+):
+    user, _ = super_admin
+    project, task, annotation, issue, _, _ = await _seed_repair_issue(
+        db_session,
+        owner_id=user.id,
+    )
+    reference = issue.region_mask_ref
+    key = reference["object_key"]
+    scope = MaskReviewScope(
+        project_id=project.id,
+        task_id=task.id,
+        annotation_id=annotation.id,
+        qc_issue_id=issue.id,
+        reviewer_id=user.id,
+        source_annotation_version=1,
+        result_annotation_version=1,
+        source_job_revision=1,
+        frame_start=0,
+        frame_end=0,
+        region_mask_ref=reference,
+        region_digest=reference["sha256"],
+        candidate_digest="sha256:" + "a" * 64,
+        decision=decision,
+    )
+    db_session.add(scope)
+    await db_session.flush()
+    await db_session.delete(issue)
+    await db_session.flush()
+    await db_session.refresh(scope)
+    assert scope.qc_issue_id is None
+    assert key in await referenced_raster_mask_keys(db_session)
+    assert await is_raster_mask_key_referenced(db_session, key)
+    await db_session.delete(scope)
+    await db_session.flush()
+    assert key not in await referenced_raster_mask_keys(db_session)
+    assert not await is_raster_mask_key_referenced(db_session, key)
+
+
+@pytest.mark.parametrize(
+    "status,expired,retained",
+    [
+        ("queued", False, True),
+        ("running", False, True),
+        ("pending_review", False, True),
+        ("partially_reviewed", False, True),
+        ("cancelled", False, True),
+        ("pending_review", True, False),
+        ("completed", False, False),
+    ],
+)
+async def test_gc_keeps_mask_seeds_in_retained_native_tracker_scope(
+    db_session,
+    status,
+    expired,
+    retained,
+):
+    from app.services.raster_mask_storage import build_rle_reference
+
+    reference = build_rle_reference(
+        {
+            "encoding": "coco_rle",
+            "size": [360, 640],
+            "counts": [1, 230399],
+        }
+    )
+    key = reference["object_key"]
+    actor, _, _, _, job = await _seed_tracker_job(
+        db_session,
+        prompt={
+            "text": "person",
+            "seeds": [
+                {
+                    "obj_id": 1,
+                    "geometry": {"type": "mask", "mask": reference},
+                }
+            ],
+        },
+    )
+    captured = _reply(await _capture(db_session, actor, job.id))
+    assert captured["ok"] is True
+    # Only the accepted scope carries this key; current job facts no longer do.
+    job.prompt = {"text": "new prompt"}
+    job.status = status
+    job.staged_result = {"results": [{"geometry": {"type": "bbox"}}]}
+    job.completed_at = datetime.now(timezone.utc) - timedelta(
+        hours=25 if expired else 0
+    )
+    await db_session.flush()
+    assert (key in await referenced_raster_mask_keys(db_session)) is retained
+    assert await is_raster_mask_key_referenced(db_session, key) is retained

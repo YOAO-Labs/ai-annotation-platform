@@ -17,6 +17,20 @@ from app.services.video_tracking.jobs import expire_stale_tracker_candidates
 log = logging.getLogger(__name__)
 RASTER_MASK_OBJECT_GC_GRACE = timedelta(hours=24)
 
+_TRACKER_SCOPE_MASK_REFERENCES_SQL = """
+    SELECT value #>> '{}' AS object_key
+    FROM video_tracker_input_scopes AS scope
+    CROSS JOIN LATERAL (
+        SELECT aap_labeling_v1.video_tracker_input_referenced(scope.input_id) AS reply
+        OFFSET 0
+    ) AS retention
+    CROSS JOIN LATERAL jsonb_path_query(scope.scope, '$.**.object_key') AS value
+    WHERE retention.reply->>'schema' IS DISTINCT FROM 'aap-labeling-video-tracker-inputs/v1'
+       OR retention.reply->'ok' IS DISTINCT FROM 'true'::jsonb
+       OR retention.reply #>> '{data,input_id}' IS DISTINCT FROM scope.input_id::text
+       OR retention.reply #> '{data,referenced}' IS DISTINCT FROM 'false'::jsonb
+"""
+
 _MASK_REFERENCE_QUERIES = (
     """
     SELECT DISTINCT value #>> '{}' AS object_key
@@ -61,6 +75,15 @@ _MASK_REFERENCE_QUERIES = (
     SELECT DISTINCT region_mask_ref->>'object_key' AS object_key
     FROM mask_qc_issues
     WHERE region_mask_ref->>'object_key' LIKE 'raster-masks/sha256/%'
+    """,
+    """
+    SELECT DISTINCT region_mask_ref->>'object_key' AS object_key
+    FROM mask_review_scopes
+    WHERE region_mask_ref->>'object_key' LIKE 'raster-masks/sha256/%'
+    """,
+    f"""
+    SELECT DISTINCT object_key FROM ({_TRACKER_SCOPE_MASK_REFERENCES_SQL}) AS roots
+    WHERE object_key LIKE 'raster-masks/sha256/%'
     """,
     """
     SELECT DISTINCT value #>> '{}' AS object_key
@@ -135,6 +158,18 @@ _MASK_REFERENCE_EXISTS_QUERIES = (
         SELECT 1
         FROM mask_qc_issues
         WHERE region_mask_ref->>'object_key' = :key
+    )
+    """,
+    """
+    SELECT EXISTS (
+        SELECT 1 FROM mask_review_scopes
+        WHERE region_mask_ref->>'object_key' = :key
+    )
+    """,
+    f"""
+    SELECT EXISTS (
+        SELECT 1 FROM ({_TRACKER_SCOPE_MASK_REFERENCES_SQL}) AS roots
+        WHERE object_key = :key
     )
     """,
     """

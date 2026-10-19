@@ -59,6 +59,11 @@ continues to include annotations, predictions, tracker candidates, accept and
 revision receipts, QC snapshots/issues and repair rollback windows. Byte owners
 must not inspect these tables or decide which content is unreferenced.
 
+Review-scope region references remain roots independently of their nullable QC
+issue link. Retained tracker input snapshots also root source annotation,
+prompt-seed and correction-mask references until the native input retention
+authority releases them. A malformed retention reply keeps those roots live.
+
 Same-key uploads renew their task reservation, preserving the existing linked
 state and quota. The renewal rolls back if the object operation fails. GC
 protects every reservation within the grace interval, including linked rows,
