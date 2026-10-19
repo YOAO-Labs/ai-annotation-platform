@@ -1,0 +1,74 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:aap:contract:dataset-source-aux-retention:v1",
+  "title": "Dataset source auxiliary-retention guards v1",
+  "description": "Source deletion checks scene history, active media work and retained accepted-input evidence before any source rows or receipts are changed.",
+  "x-postgresql-functions": [
+    "aap_assets_v1.dataset_item_scene_references(uuid, uuid)",
+    "aap_labeling_v1.guard_dataset_source_deletion(uuid, uuid)",
+    "aap_assets_v1.guard_dataset_source_auxiliary_retention(uuid, uuid)",
+    "aap_assets_v1._lock_dataset_source_deletion(uuid, uuid)",
+    "aap_assets_v1._delete_dataset_source(uuid, uuid, uuid, uuid, text, jsonb)"
+  ],
+  "x-postgresql-dependencies": [
+    "aap_assets_v1.dataset_item_references(uuid, uuid)",
+    "aap_assets_v1.dataset_scene_references(uuid)",
+    "aap_labeling_v1.accepted_image_input_referenced(uuid)",
+    "aap_labeling_v1.accepted_video_input_referenced(uuid)",
+    "aap_assets_v1._accepted_image_input_job_consistency(uuid, uuid, uuid, uuid)",
+    "aap_assets_v1._accepted_image_input_manifest_job_scope(uuid, uuid, uuid, uuid, jsonb, text, boolean)",
+    "aap_assets_v1._video_input_job(public.asset_accepted_video_manifests, uuid, boolean)"
+  ],
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["function", "arguments", "result"],
+  "properties": {
+    "function": {
+      "const": "aap_assets_v1.guard_dataset_source_auxiliary_retention(uuid, uuid)"
+    },
+    "arguments": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["p_dataset_id", "p_item_id"],
+      "properties": {
+        "p_dataset_id": { "type": "string", "format": "uuid" },
+        "p_item_id": {
+          "anyOf": [{ "type": "string", "format": "uuid" }, { "type": "null" }]
+        }
+      }
+    },
+    "result": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["schema", "ok", "data"],
+          "properties": {
+            "schema": { "const": "aap-source-retention/v1" },
+            "ok": { "const": true },
+            "data": { "type": "object", "additionalProperties": false }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["schema", "ok", "error"],
+          "properties": {
+            "schema": { "const": "aap-source-retention/v1" },
+            "ok": { "const": false },
+            "error": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["code"],
+              "properties": {
+                "code": {
+                  "enum": ["invalid_request", "source_in_use", "source_busy"]
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}
