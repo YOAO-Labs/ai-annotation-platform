@@ -124,7 +124,7 @@ export function ProjectModelList({
                     </td>
                     <td className="px-4 py-3">
                       <Link className="text-primary hover:underline" to={lineageHref(model.id)}>
-                        谱系与决策
+                        来源与使用记录
                       </Link>
                     </td>
                   </tr>

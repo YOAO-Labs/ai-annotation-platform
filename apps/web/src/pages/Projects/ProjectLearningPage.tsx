@@ -627,7 +627,7 @@ function ProjectLearningContent({
           className="mb-4 inline-block text-xs text-primary hover:underline"
           to={lineageReturn(projectId, params.get("returnTo"))}
         >
-          返回模型谱系
+          返回来源与使用记录
         </Link>
       )}
       <header className="mb-5 grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3">

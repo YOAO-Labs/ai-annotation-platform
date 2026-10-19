@@ -36,6 +36,7 @@ import { newTrainingVersionName } from "../Training/trainingNames";
 import { ModelClassBindings } from "./ModelClassBindings";
 import { Modal } from "@/components/ui/Modal";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
+import { usePermissions } from "@/hooks/usePermissions";
 import { ProjectModelList } from "./ProjectModelList";
 import { trainingRecordPath, useTrainingListFilters } from "../Training/TrainingListControls";
 
@@ -244,6 +245,7 @@ function ModelsContent({
   initialModelId = "",
 }: ModelsPanelProps & { scope: string }) {
   const client = useQueryClient();
+  const { role, canAccessPage } = usePermissions();
   const location = useLocation();
   const navigate = useNavigate();
   const session = useTrainingViewOwner(projectId, scope);
@@ -707,7 +709,7 @@ function ModelsContent({
                     className="rounded-md border border-border px-3 py-2 text-xs text-primary"
                     to={lineageHref(activeModel.id)}
                   >
-                    谱系与决策
+                    来源与使用记录
                   </Link>
                   <Button
                     size="sm"
@@ -774,7 +776,7 @@ function ModelsContent({
                 ))}
               <div className="mt-4 flex flex-wrap items-end gap-2">
                 <label className="min-w-0 flex-1 space-y-1 text-xs">
-                  已启用的认证推理实例
+                  用于加载模型的推理服务
                   <select
                     className={inputClass}
                     value={registryId}
@@ -783,7 +785,7 @@ function ModelsContent({
                       setError("");
                     }}
                   >
-                    <option value="">选择受控 YOLO 实例</option>
+                    <option value="">选择 YOLO 推理服务</option>
                     {enabledBackends.map(({ backend }) => (
                       <option
                         key={backend.id}
@@ -800,14 +802,47 @@ function ModelsContent({
                   disabled={!registryId || deploy.isPending}
                   onClick={() => deploy.mutate(captureView())}
                 >
-                  {deploy.isPending ? "加载与试用中…" : "加载检查与样本试用"}
+                  {deploy.isPending ? "加载与试用中…" : "加载模型并试用"}
                 </Button>
               </div>
-              {enabledBackends.length === 0 && (
-                <p className="mt-2 text-xs text-muted-foreground">
-                  请管理员注册支持受控权重的 YOLO 实例，配置认证并在项目中启用。
+              <details
+                className="mt-3 text-xs leading-relaxed text-muted-foreground"
+                open={!backends.isLoading && enabledBackends.length === 0}
+              >
+                <summary className="cursor-pointer rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                  配置推理服务
+                </summary>
+                <p className="mt-2">
+                  推理服务负责加载候选模型并生成预标注。此处仅显示本项目已启用、且配置了访问令牌的服务。
                 </p>
-              )}
+                <ol className="mt-2 list-decimal space-y-2 pl-5">
+                  <li>
+                    超级管理员：进入「模型市场 → 注册管理 →
+                    实例」，点击「注册实例」，填写支持加载训练权重的 YOLO 服务地址，认证方式选择
+                    token，并填写访问令牌（Token）。
+                  </li>
+                  <li>
+                    项目负责人：进入「项目设置 → ML 模型」，点击「管理
+                    backend」，勾选启用该服务，再返回此页选择。
+                  </li>
+                </ol>
+                <div className="mt-3 flex flex-wrap gap-3">
+                  {canAccessPage("model-market") && (
+                    <Link
+                      className="text-primary hover:underline"
+                      to="/model-market?tab=registry&registry_view=instances"
+                    >
+                      {role === "super_admin" ? "去注册管理" : "查看已注册的推理服务"}
+                    </Link>
+                  )}
+                  <Link
+                    className="text-primary hover:underline"
+                    to={`/projects/${projectId}/settings?section=ml-backends`}
+                  >
+                    去项目设置启用
+                  </Link>
+                </div>
+              </details>
               {detail.data?.deployments.map((deployment) => (
                 <div key={deployment.id} className="mt-4 rounded-md border border-border p-3">
                   <div className="flex flex-wrap items-center gap-2">

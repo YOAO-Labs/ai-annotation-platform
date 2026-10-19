@@ -85,7 +85,7 @@ afterEach(() => {
 describe("Model lineage", () => {
   it.each(["unknown", "constructor", "__proto__"])("rejects an invalid node kind %s", (kind) => {
     mount(`/projects/project/learning/lineage/${kind}/candidate`);
-    expect(screen.getByRole("alert")).toHaveTextContent("谱系节点类型无效");
+    expect(screen.getByRole("alert")).toHaveTextContent("无法识别这条记录的类型");
     expect(modelLineageApi.get).not.toHaveBeenCalled();
   });
   it("preserves archive/page return context and opens the exact historical attempt", async () => {
@@ -108,7 +108,7 @@ describe("Model lineage", () => {
         expect.anything(),
       ),
     );
-    expect(await screen.findByRole("link", { name: /打开原有详情/ })).toHaveAttribute(
+    expect(await screen.findByRole("link", { name: /查看详情/ })).toHaveAttribute(
       "href",
       expect.stringContaining("tab=training&run=experiment&attempt=old-attempt&returnTo="),
     );
@@ -143,17 +143,17 @@ describe("Model lineage", () => {
     vi.mocked(modelLineageApi.append).mockRejectedValueOnce(new Error("响应中断"));
     const user = userEvent.setup();
     mount();
-    await user.type(await screen.findByLabelText("决策依据"), "验证集较小，保留研究");
-    await user.click(screen.getByRole("button", { name: "追加决策" }));
+    await user.type(await screen.findByLabelText("标记说明"), "验证集较小，需要继续评估");
+    await user.click(screen.getByRole("button", { name: "保存标记与说明" }));
     await screen.findByText("响应中断");
-    await user.click(screen.getByRole("button", { name: "追加决策" }));
-    await screen.findByText("决策已记录，项目发布选择保持不变。");
+    await user.click(screen.getByRole("button", { name: "保存标记与说明" }));
+    await screen.findByText("标记与说明已保存。当前发布的模型未改变。");
     expect(vi.mocked(modelLineageApi.append).mock.calls[0][2]).toEqual(
       vi.mocked(modelLineageApi.append).mock.calls[1][2],
     );
     expect(vi.mocked(modelLineageApi.append).mock.calls[0][2]).toMatchObject({
       disposition: "research",
-      note: "验证集较小，保留研究",
+      note: "验证集较小，需要继续评估",
     });
   });
   it("drops a delayed decision completion after navigating away and back", async () => {
@@ -166,15 +166,15 @@ describe("Model lineage", () => {
     );
     const user = userEvent.setup();
     mount();
-    await user.type(await screen.findByLabelText("决策依据"), "旧查看位置的说明");
-    await user.click(screen.getByRole("button", { name: "追加决策" }));
+    await user.type(await screen.findByLabelText("标记说明"), "旧查看位置的说明");
+    await user.click(screen.getByRole("button", { name: "保存标记与说明" }));
     await act(async () => navigate("?relation=predictions"));
-    await screen.findByText(/保留且可归属的预测记录/);
+    await screen.findByText(/可核对的预标注记录/);
     await act(async () => navigate(-1));
     const invalidation = vi.spyOn(clients[0], "invalidateQueries");
     await act(async () => resolve({ id: "late" } as never));
-    expect(screen.getByLabelText("决策依据")).toHaveValue("旧查看位置的说明");
-    expect(screen.queryByText("决策已记录，项目发布选择保持不变。")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("标记说明")).toHaveValue("旧查看位置的说明");
+    expect(screen.queryByText("标记与说明已保存。当前发布的模型未改变。")).not.toBeInTheDocument();
     expect(invalidation).not.toHaveBeenCalled();
   });
   it("drops a late read after same-user token ABA", async () => {
@@ -198,9 +198,9 @@ describe("Model lineage", () => {
   it("reports navigation cycles and fetches only the chosen related section", async () => {
     const user = userEvent.setup();
     mount("/projects/project/learning/lineage/model/candidate?trail=model%3Acandidate");
-    await screen.findByText(/导航路径再次访问/);
-    await user.click(await screen.findByRole("button", { name: "可归属的预测记录" }));
-    await screen.findByText(/0 不表示从未使用/);
+    await screen.findByText(/已回到之前查看过的记录/);
+    await user.click(await screen.findByRole("button", { name: "使用此模型的预标注" }));
+    await screen.findByText(/0 条记录不代表从未使用/);
     expect(modelLineageApi.get).toHaveBeenLastCalledWith(
       "project",
       "model",
@@ -209,7 +209,7 @@ describe("Model lineage", () => {
       undefined,
       expect.anything(),
     );
-    expect(screen.getByRole("button", { name: "下一批关联记录" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "下一批相关记录" })).toBeDisabled();
   });
   it("accepts only same-project learning return routes", () => {
     for (const target of [
@@ -225,3 +225,29 @@ describe("Model lineage", () => {
     );
   });
 });
+
+it.each([
+  ["active", "普通候选", /取消其他标记/],
+  ["research", "待进一步评估", /不会自动创建评估任务/],
+  ["declined", "暂不采用", /不会阻止发布/],
+  ["archived", "已归档", /不会删除权重或停用模型/],
+] as const)(
+  "explains the %s mark and keeps its stored value unchanged",
+  async (value, label, explanation) => {
+    const user = userEvent.setup();
+    mount();
+    const select = await screen.findByLabelText("模型标记");
+    await user.selectOptions(select, value);
+    expect(screen.getByRole("option", { name: label })).toHaveProperty("selected", true);
+    expect(select).toHaveAccessibleDescription(explanation);
+    await user.type(screen.getByLabelText("标记说明"), "记录本轮人工评估意见");
+    await user.click(screen.getByRole("button", { name: "保存标记与说明" }));
+    await waitFor(() =>
+      expect(modelLineageApi.append).toHaveBeenCalledWith(
+        "project",
+        "candidate",
+        expect.objectContaining({ disposition: value, note: "记录本轮人工评估意见" }),
+      ),
+    );
+  },
+);

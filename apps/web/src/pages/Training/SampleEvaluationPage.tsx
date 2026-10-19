@@ -238,7 +238,7 @@ function EvaluationContent({
           to={lineageReturn(projectId, params.get("returnTo"))}
         >
           <ArrowLeft className="size-3.5" />
-          返回模型谱系
+          返回来源与使用记录
         </Link>
       )}
       <Link

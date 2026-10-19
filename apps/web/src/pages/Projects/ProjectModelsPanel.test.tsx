@@ -357,7 +357,7 @@ it("loads a deep-linked archived candidate independently of the list page and pr
     "only",
     expect.objectContaining({ q: "" }),
   );
-  const link = screen.getByRole("link", { name: "谱系与决策" });
+  const link = screen.getByRole("link", { name: "来源与使用记录" });
   expect(decodeURIComponent(link.getAttribute("href")!)).toContain(
     "returnTo=/projects/project-1/learning/models/model-1?tab=models&archive=only&model_page=2",
   );
@@ -522,3 +522,32 @@ it("does not expose deployment actions for a mismatched model response", async (
   expect(screen.queryByRole("button", { name: "发布此模型" })).not.toBeInTheDocument();
   expect(screen.queryByLabelText("模型版本详情")).not.toBeInTheDocument();
 });
+
+it.each(["super_admin", "project_admin", "employee"])(
+  "gives %s the correct inference service setup links",
+  async (role) => {
+    useAuthStore.getState().setAuth("token-a", { id: "owner", role } as never);
+    vi.mocked(mlBackendsApi.listAvailable).mockResolvedValue({ items: [] } as never);
+    mount("/projects/project-1/learning/models/model-1");
+    const summary = await screen.findByText("配置推理服务");
+    await waitFor(() => expect(summary.closest("details")).toHaveAttribute("open"));
+    expect(screen.getByText(/模型市场 → 注册管理 → 实例/)).toBeVisible();
+    expect(screen.getByText(/项目设置 → ML 模型/)).toBeVisible();
+    expect(screen.getByRole("link", { name: "去项目设置启用" })).toHaveAttribute(
+      "href",
+      "/projects/project-1/settings?section=ml-backends",
+    );
+    if (role === "employee") {
+      expect(
+        screen.queryByRole("link", { name: /去注册管理|查看已注册的推理服务/ }),
+      ).not.toBeInTheDocument();
+    } else {
+      expect(
+        screen.getByRole("link", {
+          name: role === "super_admin" ? "去注册管理" : "查看已注册的推理服务",
+        }),
+      ).toHaveAttribute("href", "/model-market?tab=registry&registry_view=instances");
+    }
+    expect(trainedModelsApi.deploy).not.toHaveBeenCalled();
+  },
+);
