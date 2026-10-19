@@ -9,13 +9,17 @@ from redis.asyncio.connection import ConnectionPool
 from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect, status
 
 from app.config import settings
-from app.core.security import decode_access_token
-from app.core.token_blacklist import get_user_generation, is_blacklisted
 from app.db.enums import PlatformRole
 from app.services.identity_contracts import IdentityActorFacts
+from app.services.identity_gateway import (
+    IdentityCredentialRejected,
+    IdentityGatewayUnavailable,
+    get_identity_gateway,
+)
 from app.services.notification import channel_for
 
 if TYPE_CHECKING:
+    from aap_identity.contract import Principal
     from app.db.models.user import User
 
 router = APIRouter()
@@ -69,51 +73,24 @@ def _identity_actor_facts(user: "User") -> IdentityActorFacts:
     )
 
 
-async def _authenticate_socket_token(token: str) -> IdentityActorFacts | None:
-    """Resolve a socket token (JWT or ``ak_`` API key) to an active account."""
+async def _authenticate_socket_token(
+    token: str, *, allow_api_key: bool = True
+) -> "Principal | None":
+    """Resolve socket credentials through the shared Identity admission gateway."""
 
-    from app.services import api_key_service
-
-    if api_key_service.is_api_key_token(token):
-        from app.db.base import async_session
-
-        async with async_session() as db:
-            resolved = await api_key_service.resolve_token(db, token)
-            if resolved is None:
-                return None
-            _key, user = resolved
-            await db.commit()  # 持久化 last_used_at
-            return _identity_actor_facts(user) if user.is_active else None
+    if not allow_api_key and token.startswith("ak_"):
+        return None
     try:
-        payload = decode_access_token(token)
-    except Exception:
+        return await get_identity_gateway().authenticate(token)
+    except (IdentityCredentialRejected, IdentityGatewayUnavailable):
         return None
-    user_id = payload.get("sub")
-    if not user_id:
-        return None
-    # Mirror get_current_user: a blacklisted jti or a bumped account generation
-    # invalidates the credential even though the user row is still active.
-    jti: str | None = payload.get("jti")
-    token_gen: int = payload.get("gen", 0)
-    if jti:
-        try:
-            if await is_blacklisted(jti):
-                return None
-        except Exception:
-            pass
-        try:
-            if await get_user_generation(user_id) > token_gen:
-                return None
-        except Exception:
-            pass
-    return await _load_active_user(user_id)
 
 
 async def _revalidate_project_stream(token: str, project_id: uuid.UUID) -> bool:
     actor = await _authenticate_socket_token(token)
     if actor is None:
         return False
-    return await _revalidate_project_access(project_id, str(actor.id))
+    return await _revalidate_project_access(project_id, str(actor.actor_id))
 
 
 async def _notification_message_allowed(token: str, data) -> bool:
@@ -126,7 +103,7 @@ async def _notification_message_allowed(token: str, data) -> bool:
     payloads fail closed.
     """
 
-    actor = await _authenticate_socket_token(token)
+    actor = await _authenticate_socket_token(token, allow_api_key=False)
     if actor is None:
         return False
     try:
@@ -166,14 +143,14 @@ async def _notification_message_allowed(token: str, data) -> bool:
 
 
 async def _revalidate_task_stream(token: str, task_id: uuid.UUID) -> bool:
-    actor = await _authenticate_socket_token(token)
+    actor = await _authenticate_socket_token(token, allow_api_key=False)
     if actor is None:
         return False
-    return await _revalidate_task_visible(task_id, str(actor.id))
+    return await _revalidate_task_visible(task_id, str(actor.actor_id))
 
 
-async def _revalidate_admin_stream(token: str) -> bool:
-    actor = await _authenticate_socket_token(token)
+async def _revalidate_admin_stream(token: str, *, allow_api_key: bool = False) -> bool:
+    actor = await _authenticate_socket_token(token, allow_api_key=allow_api_key)
     return actor is not None and actor.role in _ADMIN_SOCKET_ROLES
 
 
@@ -449,13 +426,10 @@ async def prediction_jobs_socket(
     includes `job_meta` on this channel).
     """
     try:
-        payload = decode_access_token(token)
-        user_id = payload.get("sub")
-        if not user_id:
-            raise ValueError("missing sub")
-        actor = await _load_active_user(user_id)
+        actor = await _authenticate_socket_token(token, allow_api_key=False)
         if actor is None or actor.role not in _ADMIN_SOCKET_ROLES:
             raise PermissionError("not admin")
+        user_id = str(actor.actor_id)
     except Exception:
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         return
@@ -469,7 +443,7 @@ async def prediction_jobs_socket(
         await _run_pubsub_ws(
             websocket,
             pubsub,
-            revalidate=lambda: _revalidate_admin_stream(token),
+            revalidate=lambda: _revalidate_admin_stream(token, allow_api_key=False),
         )
     except WebSocketDisconnect:
         pass
@@ -491,11 +465,10 @@ async def video_tracker_job_socket(
 ):
     task_id_for_revalidate: uuid.UUID | None = None
     try:
-        payload = decode_access_token(token)
-        user_id = payload.get("sub")
-        if not user_id:
-            raise ValueError("missing sub")
-        user_uuid = uuid.UUID(user_id)
+        actor = await _authenticate_socket_token(token, allow_api_key=False)
+        if actor is None:
+            raise PermissionError("invalid credential")
+        user_uuid = actor.actor_id
         from app.services import task_access
         from app.db.base import async_session
         from app.db.models.task import Task
@@ -555,31 +528,11 @@ async def ml_backend_stats_socket(
     v0.15.12 · 除 JWT 外也接受 ak_ api_key (SDK/TUI 用), role 校验不变.
     """
     user_id: str | None = None
-    actor: IdentityActorFacts | None = None
     try:
-        from app.services import api_key_service
-
-        if api_key_service.is_api_key_token(token):
-            # ak_ 路径: 解析 api_key → 以当前数据库账号状态/角色为准
-            from app.db.base import async_session
-
-            async with async_session() as db:
-                resolved = await api_key_service.resolve_token(db, token)
-                if resolved is None:
-                    raise PermissionError("invalid api key")
-                _key, user = resolved
-                user_id = str(user.id)
-                was_active = user.is_active
-                await db.commit()  # 持久化 last_used_at
-                actor = _identity_actor_facts(user) if was_active else None
-        else:
-            payload = decode_access_token(token)
-            user_id = payload.get("sub")
-            if not user_id:
-                raise ValueError("missing sub")
-            actor = await _load_active_user(user_id)
+        actor = await _authenticate_socket_token(token, allow_api_key=True)
         if actor is None or actor.role not in _ADMIN_SOCKET_ROLES:
             raise PermissionError("not admin")
+        user_id = str(actor.actor_id)
     except Exception:
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         return
@@ -598,7 +551,7 @@ async def ml_backend_stats_socket(
         await _run_pubsub_ws(
             websocket,
             pubsub,
-            revalidate=lambda: _revalidate_admin_stream(token),
+            revalidate=lambda: _revalidate_admin_stream(token, allow_api_key=True),
         )
     except WebSocketDisconnect:
         pass
@@ -630,10 +583,10 @@ async def notifications_socket(
     v0.7.0：使用共享 Redis ConnectionPool + 30s 心跳。
     """
     try:
-        payload = decode_access_token(token)
-        user_id = payload.get("sub")
-        if not user_id:
-            raise ValueError("missing sub")
+        actor = await _authenticate_socket_token(token, allow_api_key=False)
+        if actor is None:
+            raise PermissionError("invalid credential")
+        user_id = str(actor.actor_id)
         # Re-resolve the account: a disabled account with an unexpired token must
         # not keep receiving restricted per-user deliveries.
         if await _load_active_user(user_id) is None:

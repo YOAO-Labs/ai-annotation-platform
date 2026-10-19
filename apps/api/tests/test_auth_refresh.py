@@ -20,6 +20,7 @@ from jose import jwt
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
+from aap_identity.security import ISSUER, signing_key
 from app.core.ratelimit import limiter
 from app.core.security import ALGORITHM, create_access_token
 from app.db.models.user import User
@@ -46,8 +47,9 @@ def _make_token_with_exp(
             "exp": exp,
             "jti": str(uuid.uuid4()),
             "gen": gen,
+            "iss": ISSUER,
         },
-        settings.secret_key,
+        signing_key(settings.secret_key),
         algorithm=ALGORITHM,
     )
 
@@ -151,7 +153,8 @@ async def test_refresh_rejects_when_generation_outdated(
         user.id, user.role, datetime.now(timezone.utc) - timedelta(minutes=1), gen=0
     )
     # 把 user.gen 提到 1
-    await increment_user_generation(str(user.id))
+    await increment_user_generation(str(user.id), db=db_session)
+    await db_session.commit()
 
     r = await httpx_client.post(
         "/api/v1/auth/refresh",
@@ -159,6 +162,28 @@ async def test_refresh_rejects_when_generation_outdated(
     )
     assert r.status_code == 401
     assert "generation_outdated" in r.text
+
+
+async def test_logout_jti_remains_revoked_through_refresh_grace(
+    httpx_client: httpx.AsyncClient, db_session: AsyncSession
+):
+    """A token revoked at expiry's boundary cannot be refreshed during grace."""
+    from app.core.token_blacklist import blacklist_token
+
+    user = await _seed_user(db_session)
+    expired = _make_token_with_exp(
+        user.id, user.role, datetime.now(timezone.utc) - timedelta(seconds=1)
+    )
+    jti = jwt.get_unverified_claims(expired)["jti"]
+    await blacklist_token(jti, 0, db=db_session)
+    await db_session.commit()
+
+    response = await httpx_client.post(
+        "/api/v1/auth/refresh",
+        headers={"Authorization": f"Bearer {expired}"},
+    )
+    assert response.status_code == 401
+    assert "token_revoked" in response.text
 
 
 async def test_refresh_rejects_malformed_token(
@@ -170,3 +195,26 @@ async def test_refresh_rejects_malformed_token(
     )
     assert r.status_code == 401
     assert "invalid_token" in r.text
+
+
+async def test_refresh_rejects_legacy_hs256_token(
+    httpx_client: httpx.AsyncClient, db_session: AsyncSession
+):
+    user = await _seed_user(db_session)
+    legacy = jwt.encode(
+        {
+            "sub": str(user.id),
+            "role": user.role,
+            "exp": datetime.now(timezone.utc) + timedelta(minutes=5),
+            "jti": str(uuid.uuid4()),
+            "gen": 0,
+        },
+        settings.secret_key,
+        algorithm=ALGORITHM,
+    )
+    response = await httpx_client.post(
+        "/api/v1/auth/refresh",
+        headers={"Authorization": f"Bearer {legacy}"},
+    )
+    assert response.status_code == 401
+    assert "invalid_token" in response.text

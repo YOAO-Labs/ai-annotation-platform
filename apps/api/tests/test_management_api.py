@@ -34,11 +34,9 @@ async def test_management_user_query_stats_export_share_scope_and_filters(
     admin, _ = super_admin
     manager, _ = project_admin
     project = await create_project(db_session, owner_id=manager.id, name="Managed")
-    member = await create_user(
-        db_session, "annotator", "managed@e.test", "Managed User"
-    )
+    member = await create_user(db_session, "employee", "managed@e.test", "Managed User")
     outside = await create_user(
-        db_session, "annotator", "outside@e.test", "Outside User"
+        db_session, "employee", "outside@e.test", "Outside User"
     )
     await create_membership(
         db_session,

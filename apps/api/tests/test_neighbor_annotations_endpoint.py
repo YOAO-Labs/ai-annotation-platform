@@ -257,7 +257,7 @@ async def test_neighbor_annotations_filters_cross_batch(
     )
     # 中心帧(1)与后邻帧(2)在 annotator 自己的 active batch;前邻帧(0)在别人的 batch。
     other_anno = await create_user(
-        db_session, "annotator", f"anno2-{uuid.uuid4().hex[:6]}@test.local", "Anno2"
+        db_session, "employee", f"anno2-{uuid.uuid4().hex[:6]}@test.local", "Anno2"
     )
     mine = await create_batch(db_session, project_id=project.id, status="active")
     mine.annotator_id = anno.id

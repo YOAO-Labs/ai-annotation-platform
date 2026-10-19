@@ -7,13 +7,12 @@ from datetime import datetime, timezone
 from typing import Iterable
 
 from fastapi import HTTPException
-from sqlalchemy import or_, select, update
+from sqlalchemy import or_, select
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm.attributes import set_committed_value
 
-from app.core.token_blacklist import increment_user_generation
 from app.db.models.api_key import ApiKey
-from app.db.models.password_reset_token import PasswordResetToken
 from app.db.models.project import Project
 from app.db.models.project_member import ProjectMember
 from app.db.models.task import Task
@@ -21,6 +20,8 @@ from app.db.models.task_batch import TaskBatch
 from app.db.models.task_lock import TaskLock
 from app.db.models.user import User
 from app.schemas.user import UserOut
+from app.services.identity_gateway import IdentityGatewayUnavailable
+from app.services.identity_session_data import IdentitySessionData
 
 REACTIVATABLE_KINDS = {"suspended", "emergency_suspended"}
 HISTORICAL_KINDS = {"deleted", "historical_unknown"}
@@ -71,30 +72,16 @@ async def retire_account_credentials(
     db: AsyncSession, user_id: uuid.UUID
 ) -> list[uuid.UUID]:
     """Retire credentials and bump generation while the account lock is held."""
-
-    now = datetime.now(timezone.utc)
-    keys = list(
-        (
-            await db.scalars(
-                select(ApiKey)
-                .where(ApiKey.user_id == user_id, ApiKey.revoked_at.is_(None))
-                .order_by(ApiKey.id)
-                .with_for_update(nowait=True)
-                .execution_options(populate_existing=True)
-            )
-        ).all()
-    )
-    for key in keys:
-        key.revoked_at = now
-    await db.execute(
-        update(PasswordResetToken)
-        .where(
-            PasswordResetToken.user_id == user_id, PasswordResetToken.used_at.is_(None)
-        )
-        .values(used_at=now)
-    )
-    await increment_user_generation(str(user_id))
-    return [key.id for key in keys]
+    try:
+        result = await IdentitySessionData(db).retire_account_credentials(user_id)
+    except IdentityGatewayUnavailable:
+        raise HTTPException(status_code=503, detail="身份认证服务暂不可用") from None
+    revoked_ids = result["revoked_key_ids"]
+    revoked_id_set = set(revoked_ids)
+    for instance in db.sync_session.identity_map.values():
+        if isinstance(instance, ApiKey) and instance.id in revoked_id_set:
+            set_committed_value(instance, "revoked_at", result["revoked_at"])
+    return revoked_ids
 
 
 class UserLifecycleService:

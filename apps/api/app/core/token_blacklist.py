@@ -1,55 +1,97 @@
-"""v0.7.8 · JWT Token 黑名单 + 代际号 (generation) 机制。
-
-- blacklist_token: 将单个 jti 加入黑名单（TTL = token 剩余有效时间）
-- is_blacklisted: 检查 jti 是否在黑名单中
-- increment_user_generation: "登出全部设备" — 递增代际号使所有旧 token 失效
-- get_user_generation: 获取当前代际号
-"""
+"""Compatibility names backed by durable Identity credential functions."""
 
 from __future__ import annotations
 
-import redis.asyncio as aioredis
+import uuid
+from datetime import datetime, timedelta, timezone
+from typing import NoReturn
 
-from app.config import settings
+from aap_identity.contract import REFRESH_GRACE_SECONDS
+from fastapi import HTTPException, status
+from sqlalchemy.ext.asyncio import AsyncSession
 
-_KEY_PREFIX = "token_bl:"
-_GEN_PREFIX = "token_gen:"
-
-
-def _get_redis() -> aioredis.Redis:
-    return aioredis.from_url(settings.redis_url, decode_responses=True)
+from app.services.identity_session_data import IdentitySessionData
+from app.services.identity_gateway import IdentityGatewayUnavailable
 
 
-async def blacklist_token(jti: str, ttl_seconds: int) -> None:
-    if ttl_seconds <= 0:
-        return
-    r = _get_redis()
+def _uuid(value: str | uuid.UUID) -> uuid.UUID:
+    return value if isinstance(value, uuid.UUID) else uuid.UUID(str(value))
+
+
+def _raise_unavailable() -> NoReturn:
+    raise HTTPException(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        detail="身份认证服务暂不可用",
+    )
+
+
+async def blacklist_token(
+    jti: str | uuid.UUID,
+    ttl_seconds: int,
+    *,
+    db: AsyncSession | None = None,
+) -> None:
+    retain_until = datetime.now(timezone.utc) + timedelta(
+        seconds=max(ttl_seconds, 0) + REFRESH_GRACE_SECONDS
+    )
     try:
-        await r.setex(f"{_KEY_PREFIX}{jti}", ttl_seconds, "1")
-    finally:
-        await r.aclose()
+        if db is not None:
+            await IdentitySessionData(db).revoke_jti(_uuid(jti), retain_until)
+            return
+        from app.db.base import async_session
+
+        async with async_session() as session:
+            await IdentitySessionData(session).revoke_jti(_uuid(jti), retain_until)
+            await session.commit()
+    except IdentityGatewayUnavailable:
+        _raise_unavailable()
 
 
-async def is_blacklisted(jti: str) -> bool:
-    r = _get_redis()
+async def is_blacklisted(
+    jti: str | uuid.UUID, *, db: AsyncSession | None = None
+) -> bool:
     try:
-        return await r.exists(f"{_KEY_PREFIX}{jti}") > 0
-    finally:
-        await r.aclose()
+        if db is not None:
+            return await IdentitySessionData(db).is_jti_revoked(_uuid(jti))
+        from app.db.base import async_session
+
+        async with async_session() as session:
+            return await IdentitySessionData(session).is_jti_revoked(_uuid(jti))
+    except IdentityGatewayUnavailable:
+        _raise_unavailable()
 
 
-async def increment_user_generation(user_id: str) -> int:
-    r = _get_redis()
+async def increment_user_generation(
+    user_id: str | uuid.UUID, *, db: AsyncSession | None = None
+) -> int:
+    actor_id = _uuid(user_id)
     try:
-        return await r.incr(f"{_GEN_PREFIX}{user_id}")
-    finally:
-        await r.aclose()
+        if db is not None:
+            return await IdentitySessionData(db).advance_credential_generation(actor_id)
+        from app.db.base import async_session
+
+        async with async_session() as session:
+            generation = await IdentitySessionData(
+                session
+            ).advance_credential_generation(actor_id)
+            await session.commit()
+            return generation
+    except IdentityGatewayUnavailable:
+        _raise_unavailable()
 
 
-async def get_user_generation(user_id: str) -> int:
-    r = _get_redis()
+async def get_user_generation(
+    user_id: str | uuid.UUID, *, db: AsyncSession | None = None
+) -> int:
+    actor_id = _uuid(user_id)
     try:
-        val = await r.get(f"{_GEN_PREFIX}{user_id}")
-        return int(val) if val else 0
-    finally:
-        await r.aclose()
+        if db is not None:
+            return await IdentitySessionData(db).get_credential_generation(actor_id)
+        from app.db.base import async_session
+
+        async with async_session() as session:
+            return await IdentitySessionData(session).get_credential_generation(
+                actor_id
+            )
+    except IdentityGatewayUnavailable:
+        _raise_unavailable()

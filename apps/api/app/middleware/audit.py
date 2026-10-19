@@ -2,14 +2,12 @@ from __future__ import annotations
 
 import logging
 
-from jose import JWTError
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
 from starlette.types import ASGIApp
 
 from app.config import settings
-from app.core.security import decode_access_token
 from app.db.base import async_session
 from app.db.models.audit_log import AuditLog
 from app.middleware.request_id import request_id_var
@@ -34,7 +32,7 @@ class AuditMiddleware(BaseHTTPMiddleware):
       - 在 call_next 之后写入，绝不阻塞主响应
       - v0.7.6：默认走 Celery 异步（settings.audit_async=True），broker 不可用时回退同步
       - 任何异常被吞掉，仅 logger.warning，永不影响响应
-      - actor 仅从 Authorization JWT 解析，不查 DB（detail_json 留空，业务层会另写带 detail 的行）
+      - actor 仅取认证依赖写入的 Identity principal，不自行解析凭据
     """
 
     def __init__(self, app: ASGIApp) -> None:
@@ -70,15 +68,10 @@ class AuditMiddleware(BaseHTTPMiddleware):
 def _build_payload(request: Request, status_code: int) -> dict:
     actor_id = None
     actor_role = None
-    auth = request.headers.get("authorization")
-    if auth and auth.lower().startswith("bearer "):
-        token = auth.split(" ", 1)[1].strip()
-        try:
-            payload = decode_access_token(token)
-            actor_id = payload.get("sub")
-            actor_role = payload.get("role")
-        except JWTError:
-            actor_id = None
+    principal = getattr(request.state, "identity_principal", None)
+    if principal is not None:
+        actor_id = principal.actor_id
+        actor_role = principal.role
 
     rid = request_id_var.get()
     return {

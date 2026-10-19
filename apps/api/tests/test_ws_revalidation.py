@@ -5,9 +5,10 @@ from __future__ import annotations
 import asyncio
 import json
 import uuid
+from types import SimpleNamespace
 
 import pytest
-from sqlalchemy import delete, event, update
+from sqlalchemy import delete, update
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.api.v1 import ws
@@ -17,8 +18,9 @@ from app.db.models.project import Project
 from app.db.models.task import Task
 from app.db.models.user import User
 from app.services.identity_contracts import IdentityActorFacts
-from app.services import api_key_service
+from app.services.identity_gateway import IdentityGateway
 from app.services.notification import NotificationService
+from app.services import api_key_service
 from tests.factory import create_project, create_task, create_user
 
 
@@ -119,7 +121,7 @@ async def test_relay_without_revalidate_forwards_all():
 
 
 async def test_project_stream_rejects_when_credential_invalid(monkeypatch):
-    async def invalid_credential(_token):
+    async def invalid_credential(_token, *, allow_api_key=True):
         return None
 
     monkeypatch.setattr(ws, "_authenticate_socket_token", invalid_credential)
@@ -134,9 +136,9 @@ def _no_redis_pool(monkeypatch):
 
 
 async def test_notification_parser_fails_closed(monkeypatch):
-    user = _actor_facts()
+    user = SimpleNamespace(actor_id=uuid.uuid4(), role="employee")
 
-    async def fake_auth(_token):
+    async def fake_auth(_token, *, allow_api_key=True):
         return user
 
     monkeypatch.setattr(ws, "_authenticate_socket_token", fake_auth)
@@ -153,9 +155,9 @@ async def test_notification_parser_fails_closed(monkeypatch):
 
 
 async def test_notification_parser_resolves_stored_row(monkeypatch):
-    user = _actor_facts()
+    user = SimpleNamespace(actor_id=uuid.uuid4(), role="employee")
 
-    async def fake_auth(_token):
+    async def fake_auth(_token, *, allow_api_key=True):
         return user
 
     monkeypatch.setattr(ws, "_authenticate_socket_token", fake_auth)
@@ -187,17 +189,17 @@ async def test_notification_parser_resolves_stored_row(monkeypatch):
         "t", json.dumps({"id": str(notification_id)})
     )
     assert allowed is False
-    assert seen["pair"] == (notification_id, user.id)
+    assert seen["pair"] == (notification_id, user.actor_id)
 
 
 async def test_notification_gate_retries_until_row_visible(monkeypatch):
     """A message published before its transaction commits is not dropped: the
     gate waits for the row to become visible instead of failing immediately."""
 
-    user = _actor_facts()
+    user = SimpleNamespace(actor_id=uuid.uuid4(), role="employee")
     notification_id = uuid.uuid4()
 
-    async def fake_auth(_token):
+    async def fake_auth(_token, *, allow_api_key=True):
         return user
 
     monkeypatch.setattr(ws, "_authenticate_socket_token", fake_auth)
@@ -236,9 +238,9 @@ async def test_notification_gate_retries_until_row_visible(monkeypatch):
 
 
 async def test_notification_gate_fails_closed_after_retry_window(monkeypatch):
-    user = _actor_facts()
+    user = SimpleNamespace(actor_id=uuid.uuid4(), role="employee")
 
-    async def fake_auth(_token):
+    async def fake_auth(_token, *, allow_api_key=True):
         return user
 
     monkeypatch.setattr(ws, "_authenticate_socket_token", fake_auth)
@@ -356,156 +358,121 @@ async def test_task_stream_rechecks_account_after_identity_fact_snapshot(
 async def test_socket_jwt_auth_uses_current_actor_and_keeps_revocation_policy(
     monkeypatch,
 ):
-    actor = _actor_facts(role="super_admin")
-    state = {"blacklisted": False, "generation": 4, "redis_down": False}
-    loaded_subjects: list[str] = []
-
-    monkeypatch.setattr(
-        ws,
-        "decode_access_token",
-        lambda _token: {
-            "sub": str(actor.id),
-            "jti": "socket-jti",
-            "gen": 4,
-            "role": "viewer",
-        },
+    actor = SimpleNamespace(
+        actor_id=uuid.uuid4(), role="super_admin", credential_type="jwt"
     )
+    calls: list[str] = []
+    failure: list[Exception | None] = [None]
 
-    async def is_blacklisted(_jti: str) -> bool:
-        if state["redis_down"]:
-            raise RuntimeError("temporary Redis failure")
-        return state["blacklisted"]
+    class FakeGateway:
+        async def authenticate(self, token: str, *, db=None):
+            calls.append(token)
+            if failure[0] is not None:
+                raise failure[0]
+            return actor
 
-    async def get_user_generation(_user_id: str) -> int:
-        if state["redis_down"]:
-            raise RuntimeError("temporary Redis failure")
-        return state["generation"]
-
-    async def load_active_user(user_id: str):
-        loaded_subjects.append(user_id)
-        return actor
-
-    monkeypatch.setattr(ws, "is_blacklisted", is_blacklisted)
-    monkeypatch.setattr(ws, "get_user_generation", get_user_generation)
-    monkeypatch.setattr(ws, "_load_active_user", load_active_user)
+    monkeypatch.setattr(ws, "get_identity_gateway", FakeGateway)
 
     authenticated = await ws._authenticate_socket_token("jwt")
     assert authenticated is actor
-    assert authenticated.role == "super_admin"  # DB fact overrides stale claim
-    assert loaded_subjects == [str(actor.id)]
-
-    state["blacklisted"] = True
+    assert authenticated.role == "super_admin"
+    failure[0] = ws.IdentityCredentialRejected("credential_revoked")
     assert await ws._authenticate_socket_token("jwt") is None
-    assert loaded_subjects == [str(actor.id)]
-
-    state["blacklisted"] = False
-    state["generation"] = 5
+    failure[0] = ws.IdentityGatewayUnavailable()
     assert await ws._authenticate_socket_token("jwt") is None
-    assert loaded_subjects == [str(actor.id)]
-
-    state["redis_down"] = True
-    assert await ws._authenticate_socket_token("jwt") is actor
-    assert loaded_subjects == [str(actor.id), str(actor.id)]
+    assert calls == ["jwt", "jwt", "jwt"]
 
 
-async def test_api_key_last_used_is_committed_and_handshake_policies_stay_distinct(
+async def test_api_key_and_jwt_socket_policies_share_identity_gateway(monkeypatch):
+    actor_id = uuid.uuid4()
+    api_key_principal = SimpleNamespace(
+        actor_id=actor_id, role="super_admin", credential_type="api_key"
+    )
+    jwt_principal = SimpleNamespace(
+        actor_id=actor_id, role="super_admin", credential_type="jwt"
+    )
+    calls: list[str] = []
+
+    class FakeGateway:
+        async def authenticate(self, token: str, *, db=None):
+            calls.append(token)
+            return api_key_principal if token.startswith("ak_") else jwt_principal
+
+    gateway = FakeGateway()
+    monkeypatch.setattr(ws, "get_identity_gateway", lambda: gateway)
+    api_key = "ak_" + "k" * 32
+    assert await ws._authenticate_socket_token(api_key) is api_key_principal
+    assert await ws._authenticate_socket_token(api_key, allow_api_key=False) is None
+    assert calls == [api_key]
+
+    stats_redis = _FakeStatsRedis()
+
+    async def no_stream(_websocket, _pubsub, **_kwargs) -> None:
+        return None
+
+    monkeypatch.setattr(ws, "_get_redis_pool", lambda: "test-pool")
+    monkeypatch.setattr(ws.aioredis, "Redis", lambda connection_pool: stats_redis)
+    monkeypatch.setattr(ws, "_run_pubsub_ws", no_stream)
+
+    stats_socket = _FakeHandshakeWebSocket()
+    await ws.ml_backend_stats_socket(stats_socket, token=api_key)
+    assert stats_socket.accepted
+    assert calls[-1] == api_key
+
+    for handler, extra in (
+        (ws.prediction_jobs_socket, {}),
+        (ws.notifications_socket, {}),
+        (ws.video_tracker_job_socket, {"job_id": uuid.uuid4()}),
+    ):
+        socket = _FakeHandshakeWebSocket()
+        await handler(socket, token=api_key, **extra)
+        assert not socket.accepted
+        assert socket.close_code == ws.status.WS_1008_POLICY_VIOLATION
+
+    jwt_token = create_access_token(subject=str(actor_id), role="super_admin")
+    jwt_socket = _FakeHandshakeWebSocket()
+    await ws.prediction_jobs_socket(jwt_socket, token=jwt_token)
+    assert jwt_socket.accepted
+    assert calls[-1] == jwt_token
+
+
+@pytest.mark.asyncio
+async def test_socket_gateway_persists_api_key_usage_from_function_runtime(
     test_engine, monkeypatch
 ):
     sessions = async_sessionmaker(test_engine, expire_on_commit=False)
-    email = f"ws-api-key-{uuid.uuid4()}@test.local"
     async with sessions() as setup:
         user = await create_user(
             setup,
             "super_admin",
-            email,
+            f"ws-api-key-{uuid.uuid4()}@test.local",
             "API socket admin",
         )
         plaintext, prefix = api_key_service.generate_token()
-        api_key = ApiKey(
+        key = ApiKey(
             user_id=user.id,
-            name="WS identity test",
+            name="WS Identity test",
             key_prefix=prefix,
             key_hash=hash_password(plaintext),
             scopes=[],
         )
-        setup.add(api_key)
+        setup.add(key)
         await setup.flush()
-        user_id, api_key_id = user.id, api_key.id
+        user_id, key_id = user.id, key.id
         await setup.commit()
 
-    monkeypatch.setattr("app.db.base.async_session", sessions)
+    gateway = IdentityGateway(auth_database_url=str(test_engine.url))
+    monkeypatch.setattr(ws, "get_identity_gateway", lambda: gateway)
     try:
-        commits: list[None] = []
-
-        def count_commit(_connection) -> None:
-            commits.append(None)
-
-        event.listen(test_engine.sync_engine, "commit", count_commit)
-        try:
-            actor = await ws._authenticate_socket_token(plaintext)
-        finally:
-            event.remove(test_engine.sync_engine, "commit", count_commit)
-        assert actor == IdentityActorFacts(
-            id=user_id,
-            name="API socket admin",
-            email=email,
-            role="super_admin",
-            is_active=True,
-        )
-        assert len(commits) == 1
+        principal = await ws._authenticate_socket_token(plaintext)
+        assert principal is not None
+        assert principal.actor_id == user_id
+        assert principal.credential_type == "api_key"
         async with sessions() as check:
-            used_key = await check.get(ApiKey, api_key_id)
-            assert used_key is not None and used_key.last_used_at is not None
-
-        stats_redis = _FakeStatsRedis()
-
-        async def no_stream(_websocket, _pubsub, **_kwargs) -> None:
-            return None
-
-        monkeypatch.setattr(ws, "_get_redis_pool", lambda: "test-pool")
-        monkeypatch.setattr(ws.aioredis, "Redis", lambda connection_pool: stats_redis)
-        monkeypatch.setattr(ws, "_run_pubsub_ws", no_stream)
-
-        commits.clear()
-        event.listen(test_engine.sync_engine, "commit", count_commit)
-        try:
-            stats_socket = _FakeHandshakeWebSocket()
-            await ws.ml_backend_stats_socket(stats_socket, token=plaintext)
-        finally:
-            event.remove(test_engine.sync_engine, "commit", count_commit)
-        assert stats_socket.accepted
-        assert stats_socket.close_code is None
-        assert len(commits) == 1
-
-        # These three endpoints deliberately remain direct JWT-only handshakes.
-        for handler, extra in (
-            (ws.prediction_jobs_socket, {}),
-            (ws.notifications_socket, {}),
-            (ws.video_tracker_job_socket, {"job_id": uuid.uuid4()}),
-        ):
-            socket = _FakeHandshakeWebSocket()
-            await handler(socket, token=plaintext, **extra)
-            assert not socket.accepted
-            assert socket.close_code == ws.status.WS_1008_POLICY_VIOLATION
-
-        # Direct JWT prediction-job handshake still uses the DB role without
-        # adopting the shared helper's blacklist/generation admission checks.
-        jwt = create_access_token(subject=str(user_id), role="viewer")
-
-        async def unexpected_blacklist_check(_jti: str) -> bool:
-            raise AssertionError("direct JWT handshake must not check blacklist")
-
-        async def unexpected_generation_check(_user_id: str) -> int:
-            raise AssertionError("direct JWT handshake must not check generation")
-
-        monkeypatch.setattr(ws, "is_blacklisted", unexpected_blacklist_check)
-        monkeypatch.setattr(ws, "get_user_generation", unexpected_generation_check)
-        jwt_socket = _FakeHandshakeWebSocket()
-        await ws.prediction_jobs_socket(jwt_socket, token=jwt)
-        assert jwt_socket.accepted
-        assert jwt_socket.close_code is None
+            persisted = await check.get(ApiKey, key_id)
+            assert persisted is not None and persisted.last_used_at is not None
     finally:
         async with sessions() as cleanup:
-            await cleanup.execute(delete(ApiKey).where(ApiKey.id == api_key_id))
+            await cleanup.execute(delete(ApiKey).where(ApiKey.id == key_id))
             await cleanup.execute(delete(User).where(User.id == user_id))
             await cleanup.commit()

@@ -185,7 +185,7 @@ async def test_existing_account_cannot_consume_legacy_invitation(
 ):
     admin, _ = super_admin
     existing = await create_user(
-        db_session, "annotator", "legacy-existing@invite.test", "Legacy Existing"
+        db_session, "employee", "legacy-existing@invite.test", "Legacy Existing"
     )
     invitation = UserInvitation(
         email=existing.email,

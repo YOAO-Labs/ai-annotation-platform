@@ -24,7 +24,7 @@ async def test_delete_user_redacts_audit_email(httpx_client, super_admin, db_ses
         email="gdpr-target@test.local",
         name="ToRedact",
         password_hash="$2b$12$" + "0" * 53,
-        role="annotator",
+        role="employee",
         is_active=True,
     )
     db_session.add(target)

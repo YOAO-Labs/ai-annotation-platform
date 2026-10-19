@@ -63,7 +63,7 @@ class TestUserDelete:
             email="todel@test.local",
             name="ToDelete",
             password_hash="$2b$12$" + "0" * 53,
-            role="annotator",
+            role="employee",
             is_active=True,
         )
         db_session.add(temp)

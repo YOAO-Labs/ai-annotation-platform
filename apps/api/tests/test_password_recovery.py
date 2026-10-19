@@ -18,7 +18,6 @@ from app.core.security import (
     verify_password,
 )
 from app.core.token_blacklist import get_user_generation, increment_user_generation
-from app.config import settings
 from app.db.models.password_reset_token import PasswordResetToken
 from app.db.models.user import User
 from app.services.email import SmtpConfigError
@@ -321,7 +320,7 @@ async def test_reset_user_lock_serializes_old_password_login(test_engine):
                 user = await PasswordResetService(session).consume_token(token_value)
                 assert user is not None
                 user.password_hash = hash_password("NewStrong1")
-                await increment_user_generation(str(user.id))
+                await increment_user_generation(str(user.id), db=session)
                 reset_locked.set()
                 await asyncio.sleep(0.2)
 
@@ -334,7 +333,7 @@ async def test_reset_user_lock_serializes_old_password_login(test_engine):
                 assert user is not None
                 return (
                     verify_password("OldStrong1", user.password_hash),
-                    await get_user_generation(str(user.id)),
+                    await get_user_generation(str(user.id), db=session),
                 )
 
     try:
@@ -354,10 +353,3 @@ async def test_reset_user_lock_serializes_old_password_login(test_engine):
             )
             await cleanup.execute(delete(User).where(User.id == user_id))
             await cleanup.commit()
-        import redis.asyncio as aioredis
-
-        redis = aioredis.from_url(settings.redis_url)
-        try:
-            await redis.delete(f"token_gen:{user_id}")
-        finally:
-            await redis.aclose()

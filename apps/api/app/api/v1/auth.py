@@ -1,16 +1,16 @@
 import uuid
+from math import ceil, isfinite
 
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from jose import JWTError, jwt
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from jose import JWTError
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from app.core.ratelimit import limiter
 from app.core.password import validate_password_strength
-from app.core.security import ALGORITHM
 from app.deps import get_db, get_current_user
 from app.db.models.user import User
 from app.db.base import async_session
@@ -36,6 +36,11 @@ from app.services.system_settings_service import SystemSettingsService
 from app.services.identity_commands import IdentityCommandService
 
 from app.config import settings
+from aap_identity.contract import REFRESH_GRACE_SECONDS
+from app.services.identity_gateway import (
+    IdentityGatewayUnavailable,
+)
+from app.services.identity_session_data import IdentitySessionData
 import logging
 
 logger = logging.getLogger("anno-api.auth")
@@ -210,7 +215,7 @@ async def login(
     identity.record_login_for_locked_user(user, now)
     from app.core.token_blacklist import get_user_generation
 
-    gen = await get_user_generation(str(user.id))
+    gen = await get_user_generation(str(user.id), db=db)
     token = create_access_token(subject=str(user.id), role=user.role, gen=gen)
     await AuditService.log(
         db,
@@ -316,7 +321,7 @@ async def reset_password(
     # 密码恢复必须让之前签发的所有会话立即失效；新登录会读取递增后的代际号。
     from app.core.token_blacklist import increment_user_generation
 
-    await increment_user_generation(str(user.id))
+    await increment_user_generation(str(user.id), db=db)
     await db.commit()
     return {"message": "密码已重置，请使用新密码登录"}
 
@@ -441,19 +446,27 @@ async def register_open(
 @router.post("/logout", status_code=204)
 async def logout(
     request: Request,
-    credentials: HTTPAuthorizationCredentials = Depends(HTTPBearer()),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     from app.core.token_blacklist import blacklist_token
 
     current_user = await IdentityCommandService(db).lock_active_account(current_user.id)
-    payload = decode_access_token(credentials.credentials)
-    jti = payload.get("jti")
-    if jti:
-        exp = payload.get("exp", 0)
-        remaining = int(exp - datetime.now(timezone.utc).timestamp())
-        await blacklist_token(jti, max(remaining, 0))
+    principal = getattr(request.state, "identity_principal", None)
+    if (
+        principal is None
+        or principal.credential_type != "jwt"
+        or principal.expires_at is None
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="无效的认证凭据",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    remaining_seconds = ceil(
+        (principal.expires_at - datetime.now(timezone.utc)).total_seconds()
+    )
+    await blacklist_token(str(principal.credential_id), remaining_seconds, db=db)
 
     IdentityCommandService.record_logout_for_locked_user(current_user)
 
@@ -475,7 +488,7 @@ async def logout(
 # Grace 期：旧 token 过期不超过 7 天即可 refresh；超出强制重新登录。
 # 安全闭环：jti 黑名单（logout 后旧 token 立即失效）+ user.gen 比对（logout-all
 # 后旧 token 全失效）+ user.is_active = True + 速率 5/min。
-_REFRESH_GRACE = timedelta(days=7)
+_REFRESH_GRACE = timedelta(seconds=REFRESH_GRACE_SECONDS)
 
 
 @router.post("/refresh", response_model=Token)
@@ -491,12 +504,7 @@ async def refresh_token(
     """
     raw = credentials.credentials
     try:
-        payload = jwt.decode(
-            raw,
-            settings.secret_key,
-            algorithms=[ALGORITHM],
-            options={"verify_exp": False},
-        )
+        payload = decode_access_token(raw, verify_exp=False)
     except JWTError as exc:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -504,44 +512,85 @@ async def refresh_token(
             headers={"WWW-Authenticate": "Bearer"},
         ) from exc
 
-    sub = payload.get("sub")
-    jti = payload.get("jti")
-    exp_ts = int(payload.get("exp", 0))
-    if not sub or not jti or not exp_ts:
+    subject = payload.get("sub")
+    jti_value = payload.get("jti")
+    exp_value = payload.get("exp")
+    generation = payload.get("gen", 0)
+    try:
+        if not isinstance(subject, str) or not isinstance(jti_value, str):
+            raise ValueError("Missing token identity")
+        actor_id = uuid.UUID(subject)
+        jti = uuid.UUID(jti_value)
+        if (
+            type(exp_value) not in (int, float)
+            or not isfinite(exp_value)
+            or int(exp_value) != exp_value
+            or type(generation) is not int
+            or not 0 <= generation < 2**63
+        ):
+            raise ValueError("Invalid token claims")
+        expired_at = datetime.fromtimestamp(int(exp_value), tz=timezone.utc)
+    except (TypeError, ValueError, OverflowError, OSError):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="malformed_token"
         )
 
     # Grace 检查：超过 7 天的过期 token 一律拒绝
     now = datetime.now(timezone.utc)
-    expired_at = datetime.fromtimestamp(exp_ts, tz=timezone.utc)
     if now > expired_at + _REFRESH_GRACE:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="grace_expired"
         )
 
-    # jti 黑名单（已被 /auth/logout）
-    from app.core.token_blacklist import is_blacklisted, get_user_generation
-
-    if await is_blacklisted(jti):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail="token_revoked"
-        )
-
-    user = await IdentityCommandService(db).lock_account(uuid.UUID(sub))
+    user = await IdentityCommandService(db).lock_account(actor_id)
     if user is None or not user.is_active:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="user_inactive"
         )
 
-    # gen 必须与最新 generation 匹配（/auth/logout-all 后会变）
-    cur_gen = await get_user_generation(str(user.id))
-    if int(payload.get("gen", 0)) != cur_gen:
+    from aap_identity.contract import (
+        IdentityFailure,
+        IdentityUnavailable,
+        decode_principal_reply,
+    )
+
+    try:
+        reply = await IdentitySessionData(db).read_jwt_principal(
+            actor_id, jti, generation, expired_at, for_refresh=True
+        )
+        principal = decode_principal_reply(reply)
+    except IdentityFailure as exc:
+        if exc.code in {"credential_busy", "invalid_request"}:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="身份认证服务暂不可用",
+            ) from None
+        detail = {
+            "credential_revoked": "token_revoked",
+            "generation_outdated": "generation_outdated",
+            "token_expired": "grace_expired",
+            "user_inactive": "user_inactive",
+            "invalid_account_role": "invalid_account_role",
+        }.get(exc.code, "invalid_token")
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail="generation_outdated"
+            status_code=status.HTTP_401_UNAUTHORIZED, detail=detail
+        ) from None
+    except (IdentityUnavailable, IdentityGatewayUnavailable):
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="身份认证服务暂不可用",
+        ) from None
+
+    cur_gen = principal.generation
+    if cur_gen is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="身份认证服务暂不可用",
         )
 
-    new_token = create_access_token(subject=str(user.id), role=user.role, gen=cur_gen)
+    new_token = create_access_token(
+        subject=str(user.id), role=principal.role, gen=cur_gen
+    )
 
     IdentityCommandService.record_seen_for_locked_user(user, now)
     await AuditService.log(
@@ -553,7 +602,7 @@ async def refresh_token(
         request=request,
         status_code=200,
         detail={
-            "old_jti": jti,
+            "old_jti": str(jti),
             "expired_seconds_ago": int((now - expired_at).total_seconds()),
         },
     )
@@ -570,7 +619,7 @@ async def logout_all(
     from app.core.token_blacklist import increment_user_generation
 
     current_user = await IdentityCommandService(db).lock_active_account(current_user.id)
-    new_gen = await increment_user_generation(str(current_user.id))
+    new_gen = await increment_user_generation(str(current_user.id), db=db)
     IdentityCommandService.record_logout_for_locked_user(current_user)
 
     await AuditService.log(
