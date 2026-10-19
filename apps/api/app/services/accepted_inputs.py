@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 from dataclasses import replace
+from uuid import UUID
 
 from pydantic import BaseModel
 from sqlalchemy import text
@@ -222,3 +223,55 @@ async def lock_input_source(
         "lock_accepted_image_input",
         c.LockInputRequest(input_id=input_id, task_id=task_id, project_id=project_id),
     )
+
+
+class _PinCopyReceipt(c.Value):
+    source_annotation_id: UUID
+    target_annotation_id: UUID
+    copied: c.Count
+
+
+async def copy_annotation_input_sources(
+    db: AsyncSession, *, source_annotation_id: UUID, target_annotation_id: UUID
+) -> int:
+    """Retain source evidence for sibling/derived rows in the original transaction."""
+    try:
+        await db.flush()
+        async with db.begin_nested():
+            raw = await db.scalar(
+                text(
+                    "SELECT aap_labeling_v1.copy_annotation_input_sources(CAST(:source AS uuid), CAST(:target AS uuid))"
+                ),
+                {"source": source_annotation_id, "target": target_annotation_id},
+            )
+            if (
+                not isinstance(raw, dict)
+                or raw.get("schema") != "aap-labeling-input-sources/v1"
+                or type(raw.get("ok")) is not bool
+            ):
+                raise c.InputFailure("invalid_response")
+            if not raw["ok"]:
+                if set(raw) != {"schema", "ok", "error"}:
+                    raise c.InputFailure("invalid_response")
+                raise c.InputFailure(c._Error.model_validate(raw["error"]).code)
+            if set(raw) != {"schema", "ok", "data"}:
+                raise c.InputFailure("invalid_response")
+            result = _PinCopyReceipt.model_validate(raw["data"])
+            if (
+                result.source_annotation_id != source_annotation_id
+                or result.target_annotation_id != target_annotation_id
+            ):
+                raise c.InputFailure("invalid_response")
+            return result.copied
+    except c.InputFailure:
+        raise
+    except SQLAlchemyError as exc:
+        cause = getattr(exc, "orig", exc)
+        state = getattr(cause, "sqlstate", None) or getattr(cause, "pgcode", None)
+        raise c.InputFailure(
+            "input_busy"
+            if state in {"55P03", "40001", "40P01"}
+            else "storage_unavailable"
+        ) from None
+    except (ValueError, TypeError, KeyError, AttributeError, RecursionError):
+        raise c.InputFailure("invalid_response") from None
