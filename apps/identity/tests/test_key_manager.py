@@ -175,6 +175,14 @@ async def test_authenticate_bound_returns_only_the_verified_api_key_hash():
     ) == key_principal
 
 
+def test_verified_credential_repr_hides_the_bound_hash():
+    historical_hash = "$2b$04$" + "a" * 53
+    bound = VerifiedCredential(
+        principal("api_key", credential_id=str(KEY_ID)), historical_hash
+    )
+    assert historical_hash not in repr(bound)
+
+
 @pytest.mark.asyncio
 async def test_jwt_bound_authentication_keeps_the_public_authenticate_result():
     token = create_access_token(

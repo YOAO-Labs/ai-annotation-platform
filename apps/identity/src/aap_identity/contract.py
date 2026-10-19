@@ -80,7 +80,7 @@ class Principal(ClosedModel):
 
 
 class AuthenticateRequest(ClosedModel):
-    token: str = Field(min_length=1, max_length=16384)
+    token: str = Field(min_length=1, max_length=16384, repr=False)
 
 
 class PrincipalReply(ClosedModel):
@@ -101,7 +101,7 @@ class FailureReply(ClosedModel):
 
 class Candidate(ClosedModel):
     id: uuid.UUID
-    key_hash: str
+    key_hash: str = Field(repr=False)
 
 
 class CandidatesPage(ClosedModel):

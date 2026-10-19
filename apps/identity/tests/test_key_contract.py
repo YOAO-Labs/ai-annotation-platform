@@ -2,19 +2,27 @@ from __future__ import annotations
 
 import json
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from pydantic import ValidationError
 
-from aap_identity.contract import IdentityUnavailable, Principal
+from aap_identity.contract import (
+    AuthenticateRequest,
+    Candidate,
+    IdentityUnavailable,
+    Principal,
+)
 from aap_identity.key_contract import (
     KEY_PROTOCOL,
     NATIVE_KEY_PROTOCOL,
     CreateKeyReply,
     CreateKeyRequest,
+    EmptyPayload,
+    KeyCreatedData,
     KeyRecord,
     NativeCreateReply,
+    NativeListCommand,
     NativeKeyRecordData,
     NativeListReply,
     NativeKeyListData,
@@ -164,13 +172,14 @@ def test_native_command_binds_api_key_hash_and_rejects_wrong_hash_shape():
         scopes=["keys:manage"],
     )
     request = decode_key_request(wire_request())
+    historical_hash = "$2b$04$" + "a" * 53
     command = native_key_command(
         request,
         actor=actor,
-        expected_key_hash=SECRET_HASH,
+        expected_key_hash=historical_hash,
         new_key=None,
     )
-    assert command["expected_key_hash"] == SECRET_HASH
+    assert command["expected_key_hash"] == historical_hash
     assert command["actor"]["credential_id"] == str(KEY_ID)
     with pytest.raises(ValidationError):
         NativeUpdateCommand.model_validate(
@@ -179,10 +188,29 @@ def test_native_command_binds_api_key_hash_and_rejects_wrong_hash_shape():
                 "operation": "update_api_key",
                 "operation_id": OPERATION_ID,
                 "actor": actor,
-                "expected_key_hash": "not-a-bcrypt-hash",
+                "expected_key_hash": "",
                 "payload": {"key_id": KEY_ID, "patch": {}},
                 "new_key": None,
             }
+        )
+    with pytest.raises(ValidationError):
+        NativeUpdateCommand.model_validate(
+            {
+                "schema": NATIVE_KEY_PROTOCOL,
+                "operation": "update_api_key",
+                "operation_id": OPERATION_ID,
+                "actor": actor,
+                "expected_key_hash": "x" * 256,
+                "payload": {"key_id": KEY_ID, "patch": {}},
+                "new_key": None,
+            }
+        )
+    with pytest.raises(ValidationError):
+        NewKey(
+            key_id=KEY_ID,
+            key_prefix=PLAINTEXT[:12],
+            key_hash=historical_hash,
+            derivation_id=DERIVATION_ID,
         )
 
 
@@ -280,6 +308,7 @@ def test_native_reply_binds_actor_credential_but_accepts_current_account_fields(
             "email": "new@example.test",
             "role": "project_admin",
             "scopes": ["datasets:read", "keys:manage"],
+            "expires_at": datetime(2026, 10, 20, 2, tzinfo=UTC),
         }
     )
     reply = NativeListReply(
@@ -310,6 +339,63 @@ def test_native_reply_binds_actor_credential_but_accepts_current_account_fields(
             expected_principal=expected,
             new_key=None,
         )
+
+    jwt_actor = principal()
+    changed_jwt_expiry = NativeListReply(
+        schema=NATIVE_KEY_PROTOCOL,
+        ok=True,
+        operation="list_api_keys",
+        operation_id=OPERATION_ID,
+        principal=jwt_actor.model_copy(
+            update={"expires_at": jwt_actor.expires_at + timedelta(seconds=1)}
+        ),
+        data=NativeKeyListData(items=[]),
+    )
+    with pytest.raises(IdentityUnavailable):
+        decode_native_key_reply(
+            request,
+            changed_jwt_expiry.model_dump(mode="json", by_alias=True),
+            expected_principal=jwt_actor,
+            new_key=None,
+        )
+
+
+def test_secrets_are_hidden_from_repr_but_remain_in_wire_serialization():
+    token = "private-bearer-value"
+    auth_request = AuthenticateRequest(token=token)
+    request = decode_key_request(wire_request(token=token))
+    assert token not in repr(auth_request) and token not in repr(request)
+    assert auth_request.model_dump()["token"] == token
+    assert request.model_dump(mode="json")["token"] == token
+
+    created = KeyCreatedData(key=key_record(), plaintext=PLAINTEXT)
+    assert PLAINTEXT not in repr(created)
+    assert created.model_dump()["plaintext"] == PLAINTEXT
+
+    historical_hash = "$2b$04$" + "a" * 53
+    candidate = Candidate(id=KEY_ID, key_hash=historical_hash)
+    issued = NewKey(
+        key_id=KEY_ID,
+        key_prefix=PLAINTEXT[:12],
+        key_hash=SECRET_HASH,
+        derivation_id=DERIVATION_ID,
+    )
+    actor = principal("api_key", credential_id=str(KEY_ID))
+    command = NativeListCommand(
+        schema=NATIVE_KEY_PROTOCOL,
+        operation="list_api_keys",
+        operation_id=OPERATION_ID,
+        actor=actor,
+        expected_key_hash=historical_hash,
+        payload=EmptyPayload(),
+        new_key=None,
+    )
+    assert historical_hash not in repr(candidate)
+    assert historical_hash not in repr(command)
+    assert SECRET_HASH not in repr(issued)
+    assert candidate.model_dump()["key_hash"] == historical_hash
+    assert command.model_dump(by_alias=True)["expected_key_hash"] == historical_hash
+    assert issued.model_dump()["key_hash"] == SECRET_HASH
 
 
 def test_native_create_reply_has_no_hash_field_and_binds_prefix():

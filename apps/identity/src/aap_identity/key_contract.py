@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import re
 import uuid
 from datetime import UTC, datetime
 from typing import Annotated, Literal, TypeAlias
@@ -80,7 +79,7 @@ class TargetKeyPayload(ClosedModel):
 class _WireRequest(ClosedModel):
     protocol: Literal["aap-identity-keys/v1"] = Field(alias="schema")
     operation_id: uuid.UUID
-    token: str = Field(min_length=1, max_length=16384, strict=True)
+    token: str = Field(min_length=1, max_length=16384, strict=True, repr=False)
 
 
 class ListKeyRequest(_WireRequest):
@@ -133,7 +132,7 @@ def decode_key_request(payload: dict | bytes) -> KeyRequest:
 class NewKey(ClosedModel):
     key_id: uuid.UUID
     key_prefix: str = Field(pattern=_PREFIX_PATTERN, strict=True)
-    key_hash: str = Field(pattern=_BCRYPT12_PATTERN, strict=True)
+    key_hash: str = Field(pattern=_BCRYPT12_PATTERN, strict=True, repr=False)
     derivation_id: str = Field(pattern=_HEX_64_PATTERN, strict=True)
 
 
@@ -167,7 +166,7 @@ class KeyRecordData(ClosedModel):
 
 class KeyCreatedData(ClosedModel):
     key: KeyRecord
-    plaintext: str = Field(pattern=_PLAINTEXT_PATTERN, strict=True)
+    plaintext: str = Field(pattern=_PLAINTEXT_PATTERN, strict=True, repr=False)
 
     @model_validator(mode="after")
     def prefix_matches_plaintext(self) -> KeyCreatedData:
@@ -318,18 +317,17 @@ class _NativeCommand(ClosedModel):
     protocol: Literal["aap-identity-keys-native/v1"] = Field(alias="schema")
     operation_id: uuid.UUID
     actor: Principal
-    expected_key_hash: str | None
+    expected_key_hash: str | None = Field(
+        min_length=1, max_length=255, strict=True, repr=False
+    )
 
     @model_validator(mode="after")
     def expected_hash_matches_actor_kind(self):
         if self.actor.credential_type == "jwt":
             if self.expected_key_hash is not None:
                 raise ValueError("JWT command cannot include an API-key hash")
-        elif (
-            self.expected_key_hash is None
-            or re.fullmatch(_BCRYPT12_PATTERN, self.expected_key_hash) is None
-        ):
-            raise ValueError("API-key command needs its verified bcrypt hash")
+        elif self.expected_key_hash is None:
+            raise ValueError("API-key command needs its verified hash")
         return self
 
 
@@ -526,12 +524,14 @@ def _decode_native_reply(payload: dict | bytes) -> NativeKeyReply:
 
 
 def _same_fenced_credential(actual: Principal, expected: Principal) -> bool:
-    return (
+    same_identity = (
         actual.actor_id == expected.actor_id
         and actual.credential_type == expected.credential_type
         and actual.credential_id == expected.credential_id
         and actual.generation == expected.generation
-        and actual.expires_at == expected.expires_at
+    )
+    return same_identity and (
+        expected.credential_type != "jwt" or actual.expires_at == expected.expires_at
     )
 
 

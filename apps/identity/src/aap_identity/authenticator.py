@@ -7,7 +7,7 @@ import json
 import math
 import re
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Protocol
 
@@ -44,7 +44,7 @@ class IdentityData(Protocol):
 @dataclass(frozen=True, slots=True)
 class VerifiedCredential:
     principal: Principal
-    key_hash: str | None
+    key_hash: str | None = field(repr=False)
 
 
 class Authenticator:
