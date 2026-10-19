@@ -9,6 +9,8 @@ from aap_assets_images.contract import ImagePolicy
 from aap_assets_images_runtime.config import ImageStorageConfig
 from aap_assets_media import contract as video
 from aap_assets_inputs import contract as inputs
+from aap_assets_video_inputs import execution as video_inputs
+from aap_assets_video_inputs.http_contract import CONTROL_SCHEMA
 from aap_assets_media_runtime.config import MediaStorageConfig
 from aap_assets_media_runtime.control_config import MediaControlConfig
 from aap_assets_media_runtime import __main__ as shared_runtime
@@ -17,9 +19,11 @@ from aap_assets_media_runtime import __main__ as shared_runtime
 class _Pool:
     def __init__(self):
         self.closed = False
+        self.close_count = 0
 
     async def close(self):
         self.closed = True
+        self.close_count += 1
 
 
 class _Asyncpg:
@@ -72,9 +76,11 @@ class _ImageStorage:
     def __init__(self, config):
         self.config = config
         self.closed = False
+        self.close_count = 0
 
     async def close(self):
         self.closed = True
+        self.close_count += 1
 
 
 class _InputStorage(_ImageStorage):
@@ -91,6 +97,16 @@ class _InputDatabase:
     async def call(self, operation, request):
         assert operation == "find_accepted_image_input"
         return inputs.FoundInput(input=None)
+
+
+class _VideoInputDatabase:
+    def __init__(self, pool, *, allowed_roles):
+        assert allowed_roles == {"control"}
+        self.pool = pool
+
+    async def call(self, operation, request):
+        assert operation == "read_accepted_video_input"
+        raise video_inputs.VideoInputFailure("input_missing")
 
 
 def _control_config() -> MediaControlConfig:
@@ -133,6 +149,7 @@ async def test_shared_runtime_installs_image_routes_on_video_app(monkeypatch):
     health_results = iter((True, True))
     image_storage_configs = []
     image_storages = []
+    video_input_storages = []
 
     async def check_capabilities(pool, role):
         health_calls.append((pool, role))
@@ -144,14 +161,23 @@ async def test_shared_runtime_installs_image_routes_on_video_app(monkeypatch):
         image_storages.append(storage)
         return storage
 
+    def video_input_storage(config, *, source_storage):
+        storage = _InputStorage(config, source_storage=source_storage)
+        video_input_storages.append(storage)
+        return storage
+
     monkeypatch.setitem(sys.modules, "asyncpg", asyncpg)
     monkeypatch.setattr(shared_runtime, "check_capabilities", check_capabilities)
     monkeypatch.setattr(shared_runtime, "AsyncpgMediaDatabase", _VideoDatabase)
     monkeypatch.setattr(shared_runtime, "AsyncpgImageDatabase", _ImageDatabase)
     monkeypatch.setattr(shared_runtime, "AsyncpgInputDatabase", _InputDatabase)
+    monkeypatch.setattr(
+        shared_runtime, "AsyncpgVideoInputDatabase", _VideoInputDatabase
+    )
     monkeypatch.setattr(shared_runtime, "S3MediaStorage", _VideoStorage)
     monkeypatch.setattr(shared_runtime, "S3ImageStorage", image_storage)
     monkeypatch.setattr(shared_runtime, "S3InputStorage", _InputStorage)
+    monkeypatch.setattr(shared_runtime, "S3VideoInputStorage", video_input_storage)
     monkeypatch.setattr(
         shared_runtime, "load_image_storage_config", _image_storage_config
     )
@@ -186,6 +212,14 @@ async def test_shared_runtime_installs_image_routes_on_video_app(monkeypatch):
                 json={name: str(uuid4()) for name in ("job_id", "task_id", "actor_id")},
                 headers=headers,
             )
+            video_input_response = await client.post(
+                "/v1/video-inputs/input",
+                json={
+                    name: str(uuid4())
+                    for name in ("input_id", "job_id", "task_id", "actor_id")
+                },
+                headers=headers,
+            )
 
     assert live.status_code == 200
     assert ready.status_code == 200
@@ -201,6 +235,21 @@ async def test_shared_runtime_installs_image_routes_on_video_app(monkeypatch):
     }
     assert asyncpg.pool.closed
     assert image_storages[0].closed
+    assert video_input_storages[0].closed
+    assert (
+        image_storages[0].close_count
+        == video_input_storages[0].close_count
+        == asyncpg.pool.close_count
+        == 1
+    )
+    assert video_input_storages[0].source_storage.binary is image_storages[0]
+    assert video_input_storages[0].config is image_storages[0].config
+    assert video_input_response.status_code == 404
+    assert video_input_response.json() == {
+        "schema": CONTROL_SCHEMA,
+        "ok": False,
+        "error": {"code": "input_missing"},
+    }
     assert {role for _pool, role in health_calls} == {"control"}
     assert all(pool is asyncpg.pool for pool, _role in health_calls)
     assert image_storage_configs[0].endpoint == "http://s3.internal"
@@ -230,6 +279,7 @@ async def test_shared_readiness_fails_when_combined_capability_check_fails(monke
     monkeypatch.setattr(shared_runtime, "S3MediaStorage", _VideoStorage)
     monkeypatch.setattr(shared_runtime, "S3ImageStorage", _ImageStorage)
     monkeypatch.setattr(shared_runtime, "S3InputStorage", _InputStorage)
+    monkeypatch.setattr(shared_runtime, "S3VideoInputStorage", _InputStorage)
     monkeypatch.setattr(
         shared_runtime, "load_image_storage_config", _image_storage_config
     )

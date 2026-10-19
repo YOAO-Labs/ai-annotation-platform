@@ -103,7 +103,7 @@ class VersionedStore:
             "Uploads": [
                 {"Key": item["Key"], "UploadId": upload_id}
                 for upload_id, item in self.uploads.items()
-                if item["Key"].startswith(values["Prefix"])
+                if item["Key"].startswith(values.get("Prefix", ""))
             ],
             "IsTruncated": False,
         }
@@ -247,6 +247,35 @@ async def test_cleanup_rejects_unscoped_prefix_before_io(prefix):
     with pytest.raises(c.InputFailure, match="invalid_request"):
         await make_storage(store).delete_attempt_versions(prefix)
     assert not store.calls
+
+
+@pytest.mark.asyncio
+async def test_cleanup_finds_exact_key_only_peer_uploads_without_aborting_another_attempt():
+    class ExactKeyPeer(VersionedStore):
+        def list_multipart_uploads(self, **values):
+            page = super().list_multipart_uploads(**values)
+            if "Prefix" in values:
+                page["Uploads"] = [
+                    item for item in page["Uploads"] if item["Key"] == values["Prefix"]
+                ]
+            return page
+
+    store = ExactKeyPeer()
+    own, other = new_key(), new_key()
+    own_upload = store.create_multipart_upload(
+        Bucket="isolated-inputs", Key=own, Metadata={}
+    )["UploadId"]
+    other_upload = store.create_multipart_upload(
+        Bucket="isolated-inputs", Key=other, Metadata={}
+    )["UploadId"]
+    assert (
+        await make_storage(store).delete_attempt_versions(own.removesuffix("source"))
+        == 0
+    )
+    assert own_upload not in store.uploads and other_upload in store.uploads
+    assert [
+        values["UploadId"] for operation, values in store.calls if operation == "abort"
+    ] == [own_upload]
 
 
 @pytest.mark.asyncio

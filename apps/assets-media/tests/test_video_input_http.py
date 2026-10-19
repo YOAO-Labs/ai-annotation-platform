@@ -375,6 +375,25 @@ async def test_reference_rejects_each_crossed_request_identity(field, value):
         await client.reference(request)
 
 
+@pytest.mark.parametrize("operation", ["manifest", "members", "prepare"])
+@pytest.mark.asyncio
+async def test_client_rejects_normalized_duplicate_manifest_membership(operation):
+    items = _fixtures()
+    result = {
+        "manifest": items.header,
+        "members": items.manifest_page,
+        "prepare": items.receipt,
+    }[operation]
+    raw = json.loads(_envelope(result))
+    header = raw["data"] if operation == "manifest" else raw["data"]["manifest"]
+    header["selection"]["task_ids"] *= 2
+    client = VideoInputClient(
+        "http://media.example", TOKEN, client=FakeTransport(h.json_bytes(raw))
+    )
+    with pytest.raises(c.VideoInputFailure, match="invalid_response"):
+        await getattr(client, operation)(_requests(items)[operation])
+
+
 @pytest.mark.parametrize(
     "fault",
     [

@@ -1986,9 +1986,28 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   Install/rollback, downgrade to 0189, reinstall to 0225 and grant reapplication
   pass; all owned resources are cleaned. Control, video-worker and Cleanup exact
   permission sets are 49, 20 and 8; no direct foreign-owner data grants are added.
-- Retained video process/HTTP wiring, sealed
-  preparation and real consumer/overwrite migration, failure/retry and typed
-  Annotation evidence/GC remain next. Installed-process, restricted real video
-  S3 and affected Celery qualification are still required before promotion.
+- The existing control process now serves ten private video-input operations;
+  `VideoInputClient` and an independent Node caller validate source-bound
+  scopes and both timebase/plan hashes. The video worker rotates technical,
+  original-input and frame queues fairly through one pool/client pair and
+  validates its SQL profile before object setup. Exclusive selectors preserve
+  one-unit `--once` behavior. Video execution requires only Media configuration.
+  Cleanup now has a fourth video lane, separate prefix validation and isolated
+  failures/acknowledgement. Real local processes and versioned S3 prove original
+  retention, decoded frame bytes, all HTTP operations, strict S3 denials,
+  changed/latest/missing versions, exact-attempt multipart cleanup, preserved
+  foreign uploads and late-version rescans. Migration 0226 terminalizes revoked
+  requesters without poisoning global queues, preserving transient busy errors.
+  Combined native/role/process/S3 acceptance passes 44 cases with zero skips;
+  Media passes 626 cases with four existing optional-libvips skips, and Cleanup
+  passes 69 cases. Worker and minimal Cleanup images build successfully; the
+  latter imports the video collector without API/ORM/image-generation stacks.
+  Both process and native qualification use only owned disposable resources;
+  primary runtime promotion remains gated on business consumer qualification.
+- Business video prediction/overwrite, per-frame failure/retry and Annotation
+  evidence consumers remain next. Actual API/Celery fan-out, sustained contention,
+  cancellation, replay and representative capacity qualification are still
+  required before promotion. Current host-process and real S3 results do not
+  establish sustained production capacity or complete application migration.
   The primary runtime remains on the qualified bulk-image implementation; the
   complete video slice and overall independent-module goal remain active.

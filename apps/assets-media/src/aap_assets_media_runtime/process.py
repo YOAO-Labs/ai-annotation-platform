@@ -3,14 +3,12 @@
 from __future__ import annotations
 
 from contextlib import AsyncExitStack
-from dataclasses import asdict, dataclass, replace
+from dataclasses import asdict, dataclass
 import inspect
 import logging
 from typing import Any
 
-from aap_assets_images_runtime.config import (
-    load_storage_config as load_image_storage_config,
-)
+from aap_assets_images_runtime.config import ImageStorageConfig
 from aap_assets_images_runtime.storage import S3ImageStorage
 from aap_assets_video_inputs import execution as video_contract
 from aap_assets_video_inputs_runtime.database import AsyncpgVideoInputDatabase
@@ -22,6 +20,7 @@ from aap_assets_video_inputs_runtime.worker import VideoInputExecutor
 
 from .config import MediaWorkerConfig
 from .database import AsyncpgMediaDatabase
+from .health import check_capabilities
 from .storage import S3MediaStorage
 
 _LOGGER = logging.getLogger(__name__)
@@ -38,20 +37,11 @@ _CLAIM_OPERATIONS = frozenset(
 
 def image_storage_config(media_storage_config):
     """Use the existing image storage config for byte-only conditional source reads."""
-    base = load_image_storage_config()
-    return replace(
-        base,
-        endpoint=media_storage_config.endpoint,
-        public_endpoint=media_storage_config.public_endpoint,
-        region=media_storage_config.region,
-        datasets_bucket=media_storage_config.datasets_bucket,
-        cache_bucket=media_storage_config.cache_bucket,
-        inputs_bucket=media_storage_config.inputs_bucket,
-        access_key=media_storage_config.access_key,
-        secret_key=media_storage_config.secret_key,
-        connect_timeout=media_storage_config.connect_timeout,
-        read_timeout=media_storage_config.read_timeout,
-        max_attempts=media_storage_config.max_attempts,
+    # The video adapter selects only the datasets bucket. The transport's unused
+    # legacy slot aliases that same authorized bucket without image env settings.
+    return ImageStorageConfig(
+        **asdict(media_storage_config),
+        legacy_bucket=media_storage_config.datasets_bucket,
     )
 
 
@@ -162,6 +152,8 @@ async def create_worker_runtime(config: MediaWorkerConfig) -> WorkerRuntime:
             config.database_url, allowed_roles={"worker"}
         )
         resources.push_async_callback(database.close)
+        if not await check_capabilities(database.pool, "worker"):
+            raise RuntimeError("Video worker SQL capability qualification failed")
 
         storage_values = asdict(config.storage)
         media_storage = S3MediaStorage(

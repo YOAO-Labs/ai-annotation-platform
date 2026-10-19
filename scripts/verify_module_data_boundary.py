@@ -119,6 +119,7 @@ SQL_ARTIFACTS = (
     "0225_video_inputs_garbage.sql",
     "0225_video_inputs_execution.sql",
     "0225_video_inputs_retention.sql",
+    "0226_video_input_claim_authority.sql",
 )
 SCHEMA_ARTIFACTS = (
     "0191_task_append.schema.json",
@@ -263,6 +264,15 @@ TEST_FILES = (
     "tests/test_video_input_selection_migration.py",
     "tests/test_video_input_selection_native.py",
     "tests/test_video_input_selection_roles.py",
+    "tests/test_video_input_ledger_state.py",
+    "tests/test_video_input_ledger_migration.py",
+    "tests/test_video_input_ledger_control.py",
+    "tests/test_video_input_ledger_execution.py",
+    "tests/test_video_input_ledger_retention.py",
+    "tests/test_video_input_ledger_lifecycle.py",
+    "tests/test_video_input_ledger_roles.py",
+    "tests/test_video_input_claim_authority.py",
+    "tests/test_video_input_s3_scope.py",
     "tests/test_native_schema_autogeneration.py",
     "tests/test_accepted_input_preannotation.py",
     "tests/test_prediction_retry_input_deferral.py",
@@ -270,6 +280,7 @@ TEST_FILES = (
     "tests/test_assets_accepted_inputs_native.py",
     "tests/test_accepted_inputs_api_bridge.py",
     "tests/test_accepted_inputs_live.py",
+    "tests/test_video_input_live.py",
     "tests/test_screenshot_seed_catalog.py",
     "tests/test_task_views.py",
     "tests/test_task_views_filter.py",
@@ -450,10 +461,10 @@ def _verify_accepted_input_s3_scopes(
     worker = _restricted_s3_client(backend, worker_scope)
     cleanup = _restricted_s3_client(backend, cleanup_scope)
     input_id = str(uuid4())
-    prefix = f"{input_id}/"
-    attempt_a = f"{input_id}/g1/a{uuid4()}/source"
-    attempt_b = f"{input_id}/g2/a{uuid4()}/source"
-    multipart_key = f"{input_id}/g3/a{uuid4()}/source"
+    prefix = f"accepted-inputs/{input_id}/"
+    attempt_a = f"{prefix}g1/a{uuid4()}/source"
+    attempt_b = f"{prefix}g2/a{uuid4()}/source"
+    multipart_key = f"{prefix}g3/a{uuid4()}/source"
     created_upload_id = None
     try:
         first = backend.s3.put_object(Bucket=bucket, Key=attempt_a, Body=b"accepted-v1")
@@ -556,7 +567,13 @@ def _verify_accepted_input_s3_scopes(
         )
         matching = []
         for _attempt in range(20):
-            uploads = cleanup.list_multipart_uploads(Bucket=bucket).get("Uploads", [])
+            uploads = cleanup.list_multipart_uploads(Bucket=bucket, Prefix=prefix).get(
+                "Uploads", []
+            )
+            if not uploads:
+                uploads = cleanup.list_multipart_uploads(Bucket=bucket).get(
+                    "Uploads", []
+                )
             matching = [
                 item
                 for item in uploads
@@ -724,20 +741,37 @@ def _cleanup_storage_policy(scope: dict) -> dict:
                 "Effect": "Allow",
                 "Action": [
                     "s3:GetBucketVersioning",
-                    "s3:ListBucketVersions",
                     "s3:ListBucketMultipartUploads",
                 ],
                 "Resource": [inputs_arn],
             },
             {
                 "Effect": "Allow",
+                "Action": [
+                    "s3:ListBucketVersions",
+                ],
+                "Resource": [inputs_arn],
+                "Condition": {
+                    "StringLike": {
+                        "s3:prefix": ["accepted-inputs/*", "accepted-video-inputs/*"]
+                    }
+                },
+            },
+            {
+                "Effect": "Allow",
                 "Action": ["s3:DeleteObjectVersion", "s3:AbortMultipartUpload"],
-                "Resource": [f"{inputs_arn}/*"],
+                "Resource": [
+                    f"{inputs_arn}/accepted-inputs/*",
+                    f"{inputs_arn}/accepted-video-inputs/*",
+                ],
             },
             {
                 "Effect": "Allow",
                 "Action": ["s3:DeleteObject"],
-                "Resource": [f"{inputs_arn}/*"],
+                "Resource": [
+                    f"{inputs_arn}/accepted-inputs/*",
+                    f"{inputs_arn}/accepted-video-inputs/*",
+                ],
                 "Condition": {
                     "StringLike": {"s3:versionid": "*?*"},
                     "StringNotEquals": {"s3:versionid": "null"},
@@ -858,7 +892,7 @@ def _media_storage_policy(scope: dict, *, worker: bool) -> dict:
         }
     ]
     inputs_bucket = scope.get("inputs_bucket")
-    if inputs_bucket and not worker:
+    if inputs_bucket:
         inputs_arn = f"arn:aws:s3:::{inputs_bucket}"
         statements.extend(
             [
@@ -871,11 +905,24 @@ def _media_storage_policy(scope: dict, *, worker: bool) -> dict:
                     {
                         "Effect": "Allow",
                         "Action": ["s3:GetObjectVersion"],
-                        "Resource": [f"{inputs_arn}/*"],
+                        "Resource": [f"{inputs_arn}/accepted-video-inputs/*"]
+                        if worker
+                        else [
+                            f"{inputs_arn}/accepted-inputs/*",
+                            f"{inputs_arn}/accepted-video-inputs/*",
+                        ],
                     }
                 ),
             ]
         )
+        if worker:
+            statements.append(
+                {
+                    "Effect": "Allow",
+                    "Action": ["s3:PutObject", "s3:AbortMultipartUpload"],
+                    "Resource": [f"{inputs_arn}/accepted-video-inputs/*"],
+                }
+            )
     if worker:
         statements.extend(
             [
@@ -983,13 +1030,13 @@ def _image_worker_storage_policy(scope: dict) -> dict:
             {
                 "Effect": "Allow",
                 "Action": ["s3:PutObject"],
-                "Resource": [f"{inputs_arn}/*"],
+                "Resource": [f"{inputs_arn}/accepted-inputs/*"],
             },
             _require_input_version_id(
                 {
                     "Effect": "Allow",
                     "Action": ["s3:GetObjectVersion"],
-                    "Resource": [f"{inputs_arn}/*"],
+                    "Resource": [f"{inputs_arn}/accepted-inputs/*"],
                 }
             ),
         ],
@@ -1819,8 +1866,8 @@ def main(argv: list[str] | None = None) -> int:
         database = resources["database"]
         evidence["database"] = database
         _, heads = migration_graph(ROOT)
-        if heads != ["0225"]:
-            raise RuntimeError("module-data acceptance requires migration head 0225")
+        if heads != ["0226"]:
+            raise RuntimeError("module-data acceptance requires migration head 0226")
         evidence["migrations"]["head_before_downgrade"] = heads[0]
         phase = "downgrade-to-0189"
         _container_details(
@@ -2117,6 +2164,9 @@ def main(argv: list[str] | None = None) -> int:
         media_worker_storage = _cleanup_storage_scope(backend)
         media_worker_storage["datasets_bucket"] = resources["buckets"][
             "MINIO_DATASETS_BUCKET"
+        ]
+        media_worker_storage["inputs_bucket"] = resources["buckets"][
+            "MINIO_INPUTS_BUCKET"
         ]
         media_worker_storage["policy"] = "aap-media-worker-" + secrets.token_hex(8)
         _create_media_storage_scope(media_worker_storage, worker=True)

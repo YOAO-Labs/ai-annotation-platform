@@ -43,7 +43,18 @@ consumer integration and its required local qualification remain tracked in
 Retained video inputs have a separate portable contract and 24 native capabilities.
 Their eight new Assets/Labeling state tables, leases, frame plans, lineage pins
 and delayed garbage partitions are qualified against owned PostgreSQL resources.
-Frame rows are requested lazily. The retained-video libraries are not wired into
-the control HTTP routes, worker poll loop or prediction consumers yet; native
-installation alone does not establish that complete slice. See
+Frame rows are requested lazily. Ten private control routes under
+`/v1/video-inputs` and the `VideoInputClient` share the existing control process.
+The existing video worker fairly rotates media, original-input and frame lanes;
+`--job-id`, `--input-id` and `--frame-id` are mutually exclusive, and `--once`
+executes at most one claimed unit. It verifies its exact SQL profile before
+creating storage clients. Its byte transport uses only the existing Media
+settings; it does not require image-worker environment variables.
+
+Restricted real processes and an independent Node caller qualify original-video
+retention, frame extraction, all ten HTTP operations, exact-version reads,
+source replacement, lost versions and Cleanup multipart/late-version rescans.
+A revoked requester terminalizes only its queued unit and does not block later
+claims. Prediction/overwrite/failure-retry consumers are not migrated yet; this
+process qualification does not establish that complete application slice. See
 [ADR-0109](../../docs/adr/0109-retained-video-inputs-and-frame-plans.md).

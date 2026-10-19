@@ -1060,7 +1060,7 @@ SQL 回滚不会撤销对象存储 I/O。图片上传和 nuScenes 文件写入/�
 
 `apps/assets-media` 定义 `aap-assets-media/v1` 与 `aap-assets-images/v1` 契约。视频与图片共用控制进程；视频和图片分别由独立 Worker 执行，图片通过固定 SQL 能力与来源/派生对象身份完成受理、发布和清理。视频控制/执行已通过隔离本地进程和受限容器联调；图片的可选运行方式与验证边界见下文及[图片金字塔运行手册](docs-site/ops/runbooks/image-pyramid.md)。Go 实验不进入这些默认运行路径。
 
-迁移到 `0219` 后，沿用 module-data 初始化流程，为现有 Assets NOLOGIN owner 创建分离的 `asset_media_control_client` 和 `asset_media_worker_client` LOGIN。先应用 owner 与既有 Catalog/Source/importer/operator grants，再由 migration role 安装媒体授权：
+安装当前迁移后，沿用 module-data 初始化流程，为现有 Assets NOLOGIN owner 创建分离的 `asset_media_control_client` 和 `asset_media_worker_client` LOGIN。受理视频输入及请求者撤权处理使用 `0225`、`0226`。先应用 owner 与既有 Catalog/Source/importer/operator grants，再由 migration role 安装媒体授权：
 
 ```bash
 psql -v expected_database=annotation_test -v migration_role=owner \
@@ -1070,7 +1070,7 @@ psql -v expected_database=annotation_test -v migration_role=owner \
   -f infra/docker/assets-media-grants.sql
 ```
 
-0219 的媒体 grants 提供视频控制 18 项和视频 Worker 10 项能力；迁移到 0220 并应用图片 grants 后，共享控制 LOGIN 共 32 项（视频 18、图片 14），独立图片 Worker 有 6 项；图片清理复用既有清理 LOGIN，其授权面为 4 项清理函数。各 LOGIN 都没有表、列、sequence、外部 owner schema、成员继承或 CREATE/TEMP 权限；初始化必须处理 PUBLIC 的 TEMP。来源身份、Task 可见性及任务级帧重试的标注写权限由 owner 能力组合验证，不把布尔权限结果当作授权。已受理的后台工作按来源代次、作业状态和显式取消继续执行，不在每块重新检查最初发起者的角色。
+安装当前迁移及 grants 后，共享控制 LOGIN 为 49 项，视频 Worker 为 20 项，独立图片 Worker 为 10 项，Cleanup 为 8 项。各 LOGIN 都没有表、列、sequence、外部 owner schema、成员继承或 CREATE/TEMP 权限；初始化必须处理 PUBLIC 的 TEMP。来源身份、Task 可见性及任务级帧重试的标注写权限由 owner 能力组合验证，不把布尔权限结果当作授权。技术媒体派生作业沿用其受理、来源代次、作业状态和取消规则；这不授予预测写权。视频推理输入与帧仍检查当前请求者，停用或权限失效使对应单位终止，忙锁保持可重试。
 
 为两个进程准备不同的数据库和 S3 身份。源桶只需对象 HEAD/GET，不能写或删除原素材；控制身份对缓存只需 HEAD/GET，执行身份另需 `media-assets/*` 的 Put/Get/List/Delete 及精确旧视频缓存清理，不授予桶管理。S3 不单独定义 HEAD 动作，相应权限由 GetObject 提供。浏览器可达的 `ASSETS_MEDIA_S3_PUBLIC_ENDPOINT` 必须与内部请求地址分开配置；不改写已签名主机名。
 
@@ -1080,6 +1080,10 @@ psql -v expected_database=annotation_test -v migration_role=owner \
 uv run --project apps/assets-media --extra runtime --extra server python -m aap_assets_media_runtime
 uv run --project apps/assets-media --extra runtime python -m aap_assets_media_runtime.worker
 ```
+
+受理视频输入使用同一控制工件的 `POST /v1/video-inputs/{manifest,members,prepare,seal,input,verify,times,require-frame,frame,reference}`，协议为 `aap-assets-video-input-control/v1`。capture、worker、最终 Labeling 围栏及回收函数不作为 HTTP 命令暴露。视频 Worker 默认公平轮询技术媒体、受理原始视频和派生帧三类队列；`--once` 最多执行一个已领取单位，可组合互斥的 `--job-id`、`--input-id` 或 `--frame-id` 精确选择。来源字节复用既有 Media 凭据与数据集桶，不要求为视频 Worker 增加图片 Worker 环境变量。
+
+受理对象使用专用、启用版本管理的 `ASSETS_MEDIA_INPUTS_BUCKET`。图片 Worker 仅可写 `accepted-inputs/*`，视频 Worker 仅可写 `accepted-video-inputs/*`；控制只读精确版本，Cleanup 按单个尝试前缀删除对象版本与 multipart。详细权限见 [Cleanup 工件说明](apps/assets-cleanup/README.md)。这些独立进程已完成隔离的本地对象存储与 Node 互操作验收，业务视频预标注、覆盖和失败重试消费者仍在迁移，暂不切换常驻环境。
 
 每个进程只接收自己的专用环境。必填的 DSN、token、S3 凭据可用对应 `_FILE`，直接值与文件变量不能同时存在，空值不作为回退来源。控制进程使用 `ASSETS_MEDIA_CONTROL_DATABASE_URL`，执行进程使用 `ASSETS_MEDIA_WORKER_DATABASE_URL`；S3 endpoint、region、两个桶和身份由 `ASSETS_MEDIA_*` 显式提供。API 设置 `ASSETS_MEDIA_URL` 和同一 token 后选择远程控制，任何远程配置或调用失败都不回退本地；留空使用同一工作流的本地 SQL/对象装配和薄 Celery 执行适配。
 

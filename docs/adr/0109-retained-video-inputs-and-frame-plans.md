@@ -264,11 +264,39 @@ Heartbeat loss cancels active work and reaps FFmpeg/ffprobe before removing the
 private workspace. An unconfirmed initial heartbeat starts no I/O and leaves
 lease takeover to the owner instead of failing another writer's work.
 
-These libraries are implemented and tested with real video/frame bytes and
-simulated database/storage responses. They are not wired into the Media process
-or existing prediction consumers yet. Restricted real video S3 roles, native
-owner ledgers, installed-process behavior and consumer/evidence/GC qualification
-remain complete-slice requirements.
+The existing Media control process now exposes ten private HTTP operations under
+`aap-assets-video-input-control/v1`. Capture, private source work, execution,
+Labeling fences and garbage operations remain outside HTTP. The video worker
+fairly rotates technical media, retained originals and retained frames using one
+SQL pool and one owned S3 client pair. Explicit job/input/frame selectors are
+exclusive; one-shot mode processes at most one confirmed claim. Its startup
+checks the exact SQL capability set before creating storage clients. The
+byte-only source adapter uses Media settings without requiring image-worker
+environment variables. Cleanup polls a separate fourth video lane with its own
+prefix validator and independent failure/acknowledgement lifecycle.
+
+Owned real-process acceptance copies and probes an original video, publishes and
+reads a decoded frame, checks all ten operations from an independent Node
+consumer, recomputes timebase/plan hashes, rejects foreign namespace writes and
+unversioned reads, preserves an older exact frame version when latest changes,
+and rejects missing versions and changed originals. The real Cleanup process
+retires both raw/frame attempts, aborts only its own multipart upload and rescans
+late versions while preserving plan/blob receipts. The local object server does
+not implement directory-prefix multipart listing; the byte transport can scan
+bounded bucket pages and filter aborts to the exact leased attempt. The
+[MinIO multipart implementation](https://github.com/minio/minio/blob/master/cmd/erasure-sets.go)
+also documents its exact-object interpretation of Prefix. Source objects and
+other attempts remain untouched.
+
+Migration 0226 prevents a disabled or invalid-role requester from poisoning a
+global claim queue. The affected input/member or frame becomes terminal and
+the owner continues to the next eligible unit; busy authority/Task/source locks
+remain transient. This current-authority rule does not change the separate
+initial Task-creation authorization semantics.
+
+Application prediction/overwrite, per-frame failure/retry and evidence consumer
+migration, actual Celery execution and broader capacity acceptance still remain
+before the complete slice and primary cutover.
 
 ## Qualification
 

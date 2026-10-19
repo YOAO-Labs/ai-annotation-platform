@@ -86,7 +86,11 @@ def test_0220_installer_and_verifier_share_order_and_version_edge():
     assert migration["revision"] == "0220"
     assert migration["down_revision"] == "0219"
     assert migration["_UPGRADE_ARTIFACTS"] == image_artifacts
-    assert verifier["SQL_ARTIFACTS"][-len(image_artifacts) :] == image_artifacts
+    start = verifier["SQL_ARTIFACTS"].index(image_artifacts[0])
+    assert (
+        verifier["SQL_ARTIFACTS"][start : start + len(image_artifacts)]
+        == image_artifacts
+    )
     assert "0220_assets_images.schema.json" in verifier["SCHEMA_ARTIFACTS"]
 
 
@@ -141,7 +145,7 @@ def test_0220_grants_match_all_frozen_image_operation_roles():
     assert len(source_allowed) == 26
     assert len(import_allowed) == 9
     assert len(media_control_allowed) == 32
-    assert len(media_video_worker_allowed) == 10
+    assert len(media_video_worker_allowed) == 20
     assert len(image_worker_allowed) == 6
 
     source_extras = {
@@ -166,6 +170,7 @@ def test_image_s3_scopes_read_bound_versions_and_separate_cleanup():
         "bucket": "media-cache-test",
         "datasets_bucket": "datasets-test",
         "legacy_bucket": "annotations-test",
+        "inputs_bucket": "accepted-test",
     }
     image_policy = verifier._image_worker_storage_policy(scope)
     control_policy = verifier._media_storage_policy(scope, worker=False)
@@ -210,8 +215,10 @@ def test_image_s3_scopes_read_bound_versions_and_separate_cleanup():
         for statement in image_policy["Statement"]
         if "s3:PutObject" in statement["Action"]
     ]
-    assert len(image_writes) == 1
-    assert set(image_writes[0]["Resource"]) == derived_arns
+    assert len(image_writes) == 2
+    assert {
+        resource for statement in image_writes for resource in statement["Resource"]
+    } == derived_arns | {"arn:aws:s3:::accepted-test/accepted-inputs/*"}
     image_list = [
         statement
         for statement in image_policy["Statement"]
@@ -227,7 +234,15 @@ def test_image_s3_scopes_read_bound_versions_and_separate_cleanup():
         for statement in cleanup_policy["Statement"]
         for action in statement["Action"]
     }
-    assert cleanup_actions == {"s3:ListBucket", "s3:DeleteObject"}
+    assert cleanup_actions == {
+        "s3:ListBucket",
+        "s3:DeleteObject",
+        "s3:GetBucketVersioning",
+        "s3:ListBucketVersions",
+        "s3:ListBucketMultipartUploads",
+        "s3:DeleteObjectVersion",
+        "s3:AbortMultipartUpload",
+    }
     assert cleanup_policy["Statement"][1]["Resource"] == sorted(derived_arns)
     assert not any(
         set(statement["Resource"]) & source_arns

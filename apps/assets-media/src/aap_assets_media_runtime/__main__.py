@@ -21,6 +21,13 @@ from aap_assets_inputs_runtime.storage import S3InputStorage
 from aap_assets_input_manifests_runtime.api import install_manifest_routes
 from aap_assets_input_manifests_runtime.control import ManifestControl
 from aap_assets_input_manifests_runtime.database import AsyncpgManifestDatabase
+from aap_assets_video_inputs_runtime.api import install_video_input_routes
+from aap_assets_video_inputs_runtime.control import VideoInputControl
+from aap_assets_video_inputs_runtime.database import AsyncpgVideoInputDatabase
+from aap_assets_video_inputs_runtime.storage import (
+    S3VideoInputStorage,
+    VideoSourceStorage,
+)
 
 from .api import create_app
 from .control import MediaControl
@@ -54,6 +61,10 @@ def configured_app(config):
         def __getattr__(self, name):
             return getattr(state["manifest_control"], name)
 
+    class VideoInputControlProxy:
+        def __getattr__(self, name):
+            return getattr(state["video_input_control"], name)
+
     async def ready():
         return "pool" in state and await check_capabilities(state["pool"], "control")
 
@@ -61,6 +72,7 @@ def configured_app(config):
     install_image_routes(app, ImageControlProxy(), config.token)
     install_input_routes(app, InputControlProxy(), config.token)
     install_manifest_routes(app, ManifestControlProxy(), config.token)
+    install_video_input_routes(app, VideoInputControlProxy(), config.token)
 
     image_storage = load_image_storage_config()
     image_storage = replace(
@@ -121,13 +133,27 @@ def configured_app(config):
                 AsyncpgManifestDatabase(pool, allowed_roles={"control"}),
                 state["image_control"],
             )
+            state["video_input_storage"] = S3VideoInputStorage(
+                image_storage,
+                source_storage=VideoSourceStorage(state["image_control"].storage),
+            )
+            state["video_input_control"] = VideoInputControl(
+                AsyncpgVideoInputDatabase(pool, allowed_roles={"control"}),
+                state["video_input_storage"],
+                url_expiry_seconds=min(image_policy.url_expiry_seconds, 3600),
+            )
             yield
         finally:
             try:
                 try:
-                    input_storage = state.get("input_storage")
-                    if input_storage is not None:
-                        await input_storage.close()
+                    try:
+                        video_input_storage = state.get("video_input_storage")
+                        if video_input_storage is not None:
+                            await video_input_storage.close()
+                    finally:
+                        input_storage = state.get("input_storage")
+                        if input_storage is not None:
+                            await input_storage.close()
                 finally:
                     image_control = state.get("image_control")
                     if image_control is not None:

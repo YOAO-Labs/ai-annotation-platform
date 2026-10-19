@@ -381,4 +381,4 @@ Assets 只通过 Labeling 当前相机/共享与受理范围、Workspace 当前�
 
 Labeling 的源检查必须和当前 Task/批次/编辑锁、实际执行作业权威一起使用。历史原始 Job 一致性不代替当前重试 Job；合法历史读取和后续采纳可以继续使用原输入。强类型视频证据及 Annotation 引用合同固定在 `0225_video_input_evidence.schema.json`。同项目的受信任标注复制保留原始来源 Task，直接附加新证据仍需匹配目标 Task。仍被有效候选、可重试失败或标注引用的输入不会回收；无引用且原作业终止后先保留 30 天，回收只领取原始/帧尝试的精确前缀。
 
-原生账本、租约、证据与回收已完成隔离的本地数据库验收；HTTP、进程轮询和真实预测消费者尚未接通。完整切片状态见 [ADR-0109](/dev/adr/0109-retained-video-inputs-and-frame-plans)。
+原生账本、租约、证据、十项 HTTP 控制、独立视频 Worker 和 Cleanup 已完成隔离的本地数据库及真实 S3 联调；业务预测消费者尚未接通。完整切片状态见 [ADR-0109](/dev/adr/0109-retained-video-inputs-and-frame-plans)。

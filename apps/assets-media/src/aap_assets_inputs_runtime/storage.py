@@ -344,11 +344,13 @@ class S3InputStorage:
         self._check_prefix(prefix)
         deleted = 0
         try:
+            saw_scoped_upload = False
             while True:
                 _check_stop(stop)
                 parameters = {"Bucket": self.config.inputs_bucket, "Prefix": prefix}
                 page = self._client.list_multipart_uploads(**parameters)
                 uploads = page.get("Uploads", [])
+                saw_scoped_upload |= bool(uploads)
                 for upload in uploads:
                     _check_stop(stop)
                     if not upload["Key"].startswith(prefix):
@@ -364,6 +366,52 @@ class S3InputStorage:
                     raise c.InputFailure("invalid_response")
                 # Re-list the first page: aborting invalidates upload markers on
                 # some S3 peers, and this exact attempt prefix is already retired.
+            if not saw_scoped_upload:
+                # Some peers interpret a multipart Prefix as one complete key.
+                # Bucket listing still deletes only this owner-issued attempt.
+                marker = None
+                while True:
+                    _check_stop(stop)
+                    parameters = {
+                        "Bucket": self.config.inputs_bucket,
+                        "MaxUploads": 1000,
+                    }
+                    if marker is not None:
+                        parameters.update(KeyMarker=marker[0], UploadIdMarker=marker[1])
+                    page = self._client.list_multipart_uploads(**parameters)
+                    uploads = page.get("Uploads", [])
+                    if len(uploads) > 1000:
+                        raise c.InputFailure("resource_budget_exceeded")
+                    for upload in uploads:
+                        _check_stop(stop)
+                        key, upload_id = upload.get("Key"), upload.get("UploadId")
+                        if (
+                            not isinstance(key, str)
+                            or not isinstance(upload_id, str)
+                            or not upload_id
+                        ):
+                            raise c.InputFailure("invalid_response")
+                        if key.startswith(prefix):
+                            self._client.abort_multipart_upload(
+                                Bucket=self.config.inputs_bucket,
+                                Key=key,
+                                UploadId=upload_id,
+                            )
+                    if not page.get("IsTruncated"):
+                        break
+                    next_marker = (
+                        page.get("NextKeyMarker"),
+                        page.get("NextUploadIdMarker"),
+                    )
+                    if (
+                        not uploads
+                        or not all(
+                            isinstance(value, str) and value for value in next_marker
+                        )
+                        or next_marker == marker
+                    ):
+                        raise c.InputFailure("invalid_response")
+                    marker = next_marker
             while True:
                 _check_stop(stop)
                 parameters = {"Bucket": self.config.inputs_bucket, "Prefix": prefix}

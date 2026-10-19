@@ -82,7 +82,17 @@ def decode_reply(raw: Any, result_type: type[BaseModel]) -> BaseModel:
             )
         if set(raw) != {"schema", "ok", "data"}:
             raise ValueError("invalid video control success")
-        return result_type.model_validate(raw["data"])
+        result = result_type.model_validate(raw["data"])
+        header = (
+            result.manifest
+            if isinstance(result, (c.VideoManifestPage, c.VideoMemberReceipt))
+            else result
+        )
+        if isinstance(header, c.VideoManifestHeader):
+            original = raw["data"]["manifest"] if header is not result else raw["data"]
+            if original.get("selection") != header.selection.model_dump(mode="json"):
+                raise ValueError("video control selector is not canonical")
+        return result
     except c.VideoInputFailure:
         raise
     except (ValueError, TypeError, UnicodeError, AttributeError, RecursionError):

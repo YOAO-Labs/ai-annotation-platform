@@ -10,7 +10,6 @@ from uuid import uuid4
 
 import pytest
 
-from aap_assets_images_runtime.config import ImageStorageConfig
 from aap_assets_media_runtime import worker
 from aap_assets_media_runtime.config import (
     MediaExecutionSettings,
@@ -43,33 +42,13 @@ def _media_storage_config():
     )
 
 
-def _image_storage_config():
-    return ImageStorageConfig(
-        endpoint="http://old.internal:9000",
-        public_endpoint="http://old.public:9000",
-        region="us-west-2",
-        datasets_bucket="old-datasets",
-        legacy_bucket="annotation-legacy",
-        cache_bucket="old-cache",
-        inputs_bucket="old-inputs",
-        access_key="old-access",
-        secret_key="old-secret",
-        connect_timeout=10,
-        read_timeout=120,
-        max_attempts=2,
-    )
-
-
-def test_video_storage_config_reuses_image_schema_and_media_settings(monkeypatch):
-    from aap_assets_media_runtime import process
-
-    monkeypatch.setattr(process, "load_image_storage_config", _image_storage_config)
+def test_video_storage_config_reuses_image_schema_and_media_settings():
     configured = image_storage_config(_media_storage_config())
 
     assert configured.datasets_bucket == "datasets-bucket"
     assert configured.cache_bucket == "media-cache-bucket"
     assert configured.inputs_bucket == "retained-inputs-bucket"
-    assert configured.legacy_bucket == "annotation-legacy"
+    assert configured.legacy_bucket == configured.datasets_bucket
     assert configured.endpoint == "http://minio.internal:9000"
     assert configured.public_endpoint == "http://minio.public:9000"
     assert configured.access_key == "worker-access"
@@ -157,9 +136,13 @@ async def test_runtime_shares_one_pool_and_s3_pair_and_closes_each_owner_once(
             assert isinstance(actual_storage, VideoStorage)
             assert worker_id == MediaExecutor.worker_id
 
+    async def capabilities(pool, role):
+        assert pool is Database.pool and role == "worker"
+        return True
+
+    monkeypatch.setattr(process, "check_capabilities", capabilities)
     monkeypatch.setattr(process, "AsyncpgMediaDatabase", Database)
     monkeypatch.setattr(process, "S3MediaStorage", MediaStorage)
-    monkeypatch.setattr(process, "load_image_storage_config", _image_storage_config)
     monkeypatch.setattr(process, "S3ImageStorage", BinarySourceStorage)
     monkeypatch.setattr(process, "S3VideoInputStorage", VideoStorage)
     monkeypatch.setattr(process, "AsyncpgVideoInputDatabase", VideoDatabase)
@@ -186,6 +169,43 @@ async def test_runtime_shares_one_pool_and_s3_pair_and_closes_each_owner_once(
         "signer-close",
         "database-close",
     ]
+
+
+@pytest.mark.asyncio
+async def test_worker_rejects_unqualified_sql_role_before_creating_storage(monkeypatch):
+    from aap_assets_media_runtime import process
+
+    closed = []
+
+    class Database:
+        pool = object()
+
+        @classmethod
+        async def connect(cls, *_args, **_kwargs):
+            return cls()
+
+        async def close(self):
+            closed.append(True)
+
+    async def capabilities(_pool, role):
+        assert role == "worker"
+        return False
+
+    def storage(**_kwargs):
+        pytest.fail("storage must not be constructed before SQL role qualification")
+
+    monkeypatch.setattr(process, "AsyncpgMediaDatabase", Database)
+    monkeypatch.setattr(process, "check_capabilities", capabilities)
+    monkeypatch.setattr(process, "S3MediaStorage", storage)
+    with pytest.raises(RuntimeError, match="capability qualification failed"):
+        await create_worker_runtime(
+            MediaWorkerConfig(
+                database_url="postgresql://worker@db.local/aap",
+                storage=_media_storage_config(),
+                execution=MediaExecutionSettings(),
+            )
+        )
+    assert closed == [True]
 
 
 class _MediaLane:
