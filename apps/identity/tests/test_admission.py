@@ -299,7 +299,7 @@ async def test_runtime_deadline_cancels_owner_read_and_releases_capacity():
     stopped = asyncio.Event()
 
     class Slow(Data):
-        async def read_jwt_principal(self, *args):
+        async def read_jwt_principal(self, *args, **kwargs):
             try:
                 await asyncio.Future()
             finally:
@@ -329,7 +329,7 @@ async def test_runtime_deadline_cancels_owner_read_and_releases_capacity():
 @pytest.mark.asyncio
 async def test_owner_reply_for_another_actor_is_rejected():
     class OtherActor(Data):
-        async def read_jwt_principal(self, *args):
+        async def read_jwt_principal(self, *args, **kwargs):
             return principal_reply(principal(actor_id=str(uuid.uuid4())))
 
     with pytest.raises(IdentityUnavailable):

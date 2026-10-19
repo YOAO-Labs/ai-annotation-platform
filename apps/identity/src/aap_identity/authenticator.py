@@ -8,7 +8,7 @@ import math
 import re
 import uuid
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Protocol
 
 from jose import JWTError
@@ -22,6 +22,8 @@ from .contract import (
     require_jwt_scope,
 )
 from .security import decode_access_token, verify_password
+
+_REFRESH_GRACE = timedelta(seconds=604800)
 
 
 class IdentityData(Protocol):
@@ -55,10 +57,14 @@ class Authenticator:
     async def authenticate(self, token: str) -> Principal:
         return (await self.authenticate_bound(token)).principal
 
-    async def authenticate_bound(self, token: str) -> VerifiedCredential:
+    async def authenticate_bound(
+        self, token: str, *, for_refresh: bool = False
+    ) -> VerifiedCredential:
         if not isinstance(token, str) or not 1 <= len(token) <= 16384:
             raise IdentityFailure("credential_invalid")
         if token.startswith("ak_"):
+            if for_refresh:
+                raise IdentityFailure("credential_invalid")
             return await self._api_key_bound(token)
         try:
             claims = decode_access_token(token, secret=self.secret, verify_exp=False)
@@ -81,10 +87,14 @@ class Authenticator:
             ValueError,
             TypeError,
             OverflowError,
+            OSError,
             AttributeError,
         ):
             raise IdentityFailure("credential_invalid") from None
-        if expires_at <= datetime.now(UTC):
+        now = datetime.now(UTC)
+        if not for_refresh and expires_at <= now:
+            raise IdentityFailure("token_expired")
+        if for_refresh and now > expires_at + _REFRESH_GRACE:
             raise IdentityFailure("token_expired")
         principal = decode_principal_reply(
             await self.data.read_jwt_principal(
@@ -92,6 +102,7 @@ class Authenticator:
                 jti,
                 generation,
                 expires_at,
+                for_refresh=for_refresh,
             )
         )
         require_jwt_scope(principal, actor_id, jti, generation, expires_at)

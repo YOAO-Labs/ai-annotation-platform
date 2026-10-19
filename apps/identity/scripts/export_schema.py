@@ -25,6 +25,17 @@ from aap_identity.key_contract import (  # noqa: E402
     NativeKeyFailureReply,
     NativeKeyReply,
 )
+from aap_identity.session_contract import (  # noqa: E402
+    LoginCandidateReply,
+    NativeSessionCommand,
+    NativeSessionFailureReply,
+    NativeSessionReply,
+    SessionFailureReply,
+    SessionPolicy,
+    SessionPolicyReply,
+    SessionReply,
+    SessionRequest,
+)
 
 
 def principal_shape(schema):
@@ -102,6 +113,21 @@ def main():
         "src/aap_identity/native_key_protocol.schema.json": render_schema(
             TypeAdapter(NativeKeyCommand | NativeKeyReply | NativeKeyFailureReply),
             "aap-identity-keys-native/v1",
+        ),
+        "src/aap_identity/session_protocol.schema.json": render_schema(
+            TypeAdapter(SessionRequest | SessionReply | SessionFailureReply),
+            "aap-identity-sessions/v1",
+        ),
+        "src/aap_identity/native_session_protocol.schema.json": render_schema(
+            TypeAdapter(
+                NativeSessionCommand
+                | NativeSessionReply
+                | NativeSessionFailureReply
+                | SessionPolicy
+                | SessionPolicyReply
+                | LoginCandidateReply
+            ),
+            "aap-identity-sessions-native/v1",
         ),
     }
     for relative_path, schema in schemas.items():

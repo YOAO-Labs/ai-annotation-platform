@@ -1,0 +1,749 @@
+{
+  "$defs": {
+    "LoginPayload": {
+      "additionalProperties": false,
+      "properties": {
+        "captcha_verified": {
+          "title": "Captcha Verified",
+          "type": "boolean"
+        },
+        "client_ip": {
+          "maxLength": 64,
+          "title": "Client Ip",
+          "type": "string"
+        },
+        "email": {
+          "maxLength": 16384,
+          "title": "Email",
+          "type": "string"
+        },
+        "password": {
+          "maxLength": 16384,
+          "title": "Password",
+          "type": "string"
+        }
+      },
+      "required": ["email", "password", "captcha_verified", "client_ip"],
+      "title": "LoginPayload",
+      "type": "object"
+    },
+    "LoginReply": {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "$ref": "#/$defs/SessionIssuedData"
+        },
+        "ok": {
+          "const": true,
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "operation": {
+          "const": "login",
+          "title": "Operation",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "principal": {
+          "$ref": "#/$defs/Principal"
+        },
+        "schema": {
+          "const": "aap-identity-sessions/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "ok", "operation_id", "principal", "operation", "data"],
+      "title": "LoginReply",
+      "type": "object"
+    },
+    "LoginRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "audit_context": {
+          "$ref": "#/$defs/SessionAuditContext"
+        },
+        "operation": {
+          "const": "login",
+          "title": "Operation",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/LoginPayload"
+        },
+        "schema": {
+          "const": "aap-identity-sessions/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "token": {
+          "title": "Token",
+          "type": "null"
+        },
+        "user_agent": {
+          "maxLength": 256,
+          "title": "User Agent",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema",
+        "operation_id",
+        "token",
+        "audit_context",
+        "user_agent",
+        "operation",
+        "payload"
+      ],
+      "title": "LoginRequest",
+      "type": "object"
+    },
+    "LogoutAllReply": {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "$ref": "#/$defs/SessionIssuedData"
+        },
+        "ok": {
+          "const": true,
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "operation": {
+          "const": "logout_all",
+          "title": "Operation",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "principal": {
+          "$ref": "#/$defs/Principal"
+        },
+        "schema": {
+          "const": "aap-identity-sessions/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "ok", "operation_id", "principal", "operation", "data"],
+      "title": "LogoutAllReply",
+      "type": "object"
+    },
+    "LogoutAllRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "audit_context": {
+          "$ref": "#/$defs/SessionAuditContext"
+        },
+        "operation": {
+          "const": "logout_all",
+          "title": "Operation",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/SessionEmptyPayload"
+        },
+        "schema": {
+          "const": "aap-identity-sessions/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "token": {
+          "maxLength": 16384,
+          "minLength": 1,
+          "title": "Token",
+          "type": "string"
+        },
+        "user_agent": {
+          "maxLength": 256,
+          "title": "User Agent",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema",
+        "operation_id",
+        "token",
+        "audit_context",
+        "user_agent",
+        "operation",
+        "payload"
+      ],
+      "title": "LogoutAllRequest",
+      "type": "object"
+    },
+    "LogoutReply": {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "$ref": "#/$defs/SessionLogoutData"
+        },
+        "ok": {
+          "const": true,
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "operation": {
+          "const": "logout",
+          "title": "Operation",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "principal": {
+          "$ref": "#/$defs/Principal"
+        },
+        "schema": {
+          "const": "aap-identity-sessions/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "ok", "operation_id", "principal", "operation", "data"],
+      "title": "LogoutReply",
+      "type": "object"
+    },
+    "LogoutRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "audit_context": {
+          "$ref": "#/$defs/SessionAuditContext"
+        },
+        "operation": {
+          "const": "logout",
+          "title": "Operation",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/SessionEmptyPayload"
+        },
+        "schema": {
+          "const": "aap-identity-sessions/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "token": {
+          "maxLength": 16384,
+          "minLength": 1,
+          "title": "Token",
+          "type": "string"
+        },
+        "user_agent": {
+          "maxLength": 256,
+          "title": "User Agent",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema",
+        "operation_id",
+        "token",
+        "audit_context",
+        "user_agent",
+        "operation",
+        "payload"
+      ],
+      "title": "LogoutRequest",
+      "type": "object"
+    },
+    "Principal": {
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "oneOf": [
+            {
+              "properties": {
+                "credential_type": {
+                  "const": "jwt"
+                },
+                "expires_at": {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                "generation": {
+                  "exclusiveMaximum": 9223372036854775808,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "scopes": {
+                  "type": "null"
+                }
+              }
+            },
+            {
+              "properties": {
+                "credential_type": {
+                  "const": "api_key"
+                },
+                "generation": {
+                  "type": "null"
+                },
+                "scopes": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                }
+              }
+            }
+          ]
+        }
+      ],
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "credential_id": {
+          "format": "uuid",
+          "title": "Credential Id",
+          "type": "string"
+        },
+        "credential_type": {
+          "enum": ["jwt", "api_key"],
+          "title": "Credential Type",
+          "type": "string"
+        },
+        "email": {
+          "title": "Email",
+          "type": "string"
+        },
+        "expires_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Expires At"
+        },
+        "generation": {
+          "anyOf": [
+            {
+              "exclusiveMaximum": 9223372036854775808,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Generation"
+        },
+        "is_active": {
+          "const": true,
+          "title": "Is Active",
+          "type": "boolean"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "role": {
+          "enum": ["super_admin", "project_admin", "employee", "viewer"],
+          "title": "Role",
+          "type": "string"
+        },
+        "scopes": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Scopes"
+        }
+      },
+      "required": [
+        "actor_id",
+        "name",
+        "email",
+        "role",
+        "is_active",
+        "credential_type",
+        "credential_id",
+        "generation",
+        "scopes",
+        "expires_at"
+      ],
+      "title": "Principal",
+      "type": "object"
+    },
+    "RefreshReply": {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "$ref": "#/$defs/SessionIssuedData"
+        },
+        "ok": {
+          "const": true,
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "operation": {
+          "const": "refresh",
+          "title": "Operation",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "principal": {
+          "$ref": "#/$defs/Principal"
+        },
+        "schema": {
+          "const": "aap-identity-sessions/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "ok", "operation_id", "principal", "operation", "data"],
+      "title": "RefreshReply",
+      "type": "object"
+    },
+    "RefreshRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "audit_context": {
+          "$ref": "#/$defs/SessionAuditContext"
+        },
+        "operation": {
+          "const": "refresh",
+          "title": "Operation",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/SessionEmptyPayload"
+        },
+        "schema": {
+          "const": "aap-identity-sessions/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "token": {
+          "maxLength": 16384,
+          "minLength": 1,
+          "title": "Token",
+          "type": "string"
+        },
+        "user_agent": {
+          "maxLength": 256,
+          "title": "User Agent",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema",
+        "operation_id",
+        "token",
+        "audit_context",
+        "user_agent",
+        "operation",
+        "payload"
+      ],
+      "title": "RefreshRequest",
+      "type": "object"
+    },
+    "SessionAuditContext": {
+      "additionalProperties": false,
+      "properties": {
+        "ip": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Ip"
+        },
+        "method": {
+          "anyOf": [
+            {
+              "maxLength": 8,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Method"
+        },
+        "path": {
+          "anyOf": [
+            {
+              "maxLength": 256,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Path"
+        },
+        "request_id": {
+          "anyOf": [
+            {
+              "maxLength": 36,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Request Id"
+        }
+      },
+      "required": ["method", "path", "ip", "request_id"],
+      "title": "SessionAuditContext",
+      "type": "object"
+    },
+    "SessionClaims": {
+      "additionalProperties": false,
+      "properties": {
+        "exp": {
+          "exclusiveMinimum": 0,
+          "title": "Exp",
+          "type": "integer"
+        },
+        "gen": {
+          "exclusiveMaximum": 9223372036854775808,
+          "minimum": 0,
+          "title": "Gen",
+          "type": "integer"
+        },
+        "iss": {
+          "const": "aap-identity/v1",
+          "title": "Iss",
+          "type": "string"
+        },
+        "jti": {
+          "format": "uuid",
+          "title": "Jti",
+          "type": "string"
+        },
+        "role": {
+          "enum": ["super_admin", "project_admin", "employee", "viewer"],
+          "title": "Role",
+          "type": "string"
+        },
+        "sub": {
+          "format": "uuid",
+          "title": "Sub",
+          "type": "string"
+        }
+      },
+      "required": ["sub", "role", "exp", "jti", "gen", "iss"],
+      "title": "SessionClaims",
+      "type": "object"
+    },
+    "SessionEmptyPayload": {
+      "additionalProperties": false,
+      "properties": {},
+      "title": "SessionEmptyPayload",
+      "type": "object"
+    },
+    "SessionFailureDetail": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "anyOf": [
+            {
+              "enum": [
+                "invalid_request",
+                "credential_invalid",
+                "credential_revoked",
+                "generation_outdated",
+                "token_expired",
+                "user_inactive",
+                "invalid_account_role",
+                "credential_busy"
+              ],
+              "type": "string"
+            },
+            {
+              "enum": [
+                "invalid_credentials",
+                "email_not_verified",
+                "captcha_required",
+                "invalid_token",
+                "malformed_token",
+                "operation_conflict"
+              ],
+              "type": "string"
+            }
+          ],
+          "title": "Code"
+        },
+        "failed_count": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Failed Count"
+        }
+      },
+      "required": ["code", "failed_count"],
+      "title": "SessionFailureDetail",
+      "type": "object"
+    },
+    "SessionFailureReply": {
+      "additionalProperties": false,
+      "properties": {
+        "error": {
+          "$ref": "#/$defs/SessionFailureDetail"
+        },
+        "ok": {
+          "const": false,
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "schema": {
+          "const": "aap-identity-sessions/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "ok", "error"],
+      "title": "SessionFailureReply",
+      "type": "object"
+    },
+    "SessionIssuedData": {
+      "additionalProperties": false,
+      "properties": {
+        "access_token": {
+          "minLength": 1,
+          "title": "Access Token",
+          "type": "string"
+        },
+        "claims": {
+          "$ref": "#/$defs/SessionClaims"
+        }
+      },
+      "required": ["claims", "access_token"],
+      "title": "SessionIssuedData",
+      "type": "object"
+    },
+    "SessionLogoutData": {
+      "additionalProperties": false,
+      "properties": {
+        "access_token": {
+          "title": "Access Token",
+          "type": "null"
+        },
+        "claims": {
+          "title": "Claims",
+          "type": "null"
+        }
+      },
+      "required": ["claims", "access_token"],
+      "title": "SessionLogoutData",
+      "type": "object"
+    }
+  },
+  "$id": "aap-identity-sessions/v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "anyOf": [
+    {
+      "discriminator": {
+        "mapping": {
+          "login": "#/$defs/LoginRequest",
+          "logout": "#/$defs/LogoutRequest",
+          "logout_all": "#/$defs/LogoutAllRequest",
+          "refresh": "#/$defs/RefreshRequest"
+        },
+        "propertyName": "operation"
+      },
+      "oneOf": [
+        {
+          "$ref": "#/$defs/LoginRequest"
+        },
+        {
+          "$ref": "#/$defs/RefreshRequest"
+        },
+        {
+          "$ref": "#/$defs/LogoutRequest"
+        },
+        {
+          "$ref": "#/$defs/LogoutAllRequest"
+        }
+      ]
+    },
+    {
+      "discriminator": {
+        "mapping": {
+          "login": "#/$defs/LoginReply",
+          "logout": "#/$defs/LogoutReply",
+          "logout_all": "#/$defs/LogoutAllReply",
+          "refresh": "#/$defs/RefreshReply"
+        },
+        "propertyName": "operation"
+      },
+      "oneOf": [
+        {
+          "$ref": "#/$defs/LoginReply"
+        },
+        {
+          "$ref": "#/$defs/RefreshReply"
+        },
+        {
+          "$ref": "#/$defs/LogoutReply"
+        },
+        {
+          "$ref": "#/$defs/LogoutAllReply"
+        }
+      ]
+    },
+    {
+      "$ref": "#/$defs/SessionFailureReply"
+    }
+  ]
+}

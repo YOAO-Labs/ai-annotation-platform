@@ -11,7 +11,13 @@ dependencies = ["pydantic>=2.5", "python-jose[cryptography]>=3.3.0", "bcrypt>=4.
 
 [project.optional-dependencies]
 postgres = ["asyncpg>=0.29"]
-runtime = ["asyncpg>=0.29", "fastapi>=0.115", "uvicorn>=0.30", "pydantic-settings>=2.6"]
+runtime = [
+    "asyncpg>=0.29",
+    "fastapi>=0.115",
+    "pydantic-settings>=2.6",
+    "redis>=5.2.0",
+    "uvicorn>=0.30",
+]
 test = ["pytest>=8.3", "pytest-asyncio>=0.24", "httpx>=0.27"]
 
 [project.scripts]

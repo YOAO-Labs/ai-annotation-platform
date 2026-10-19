@@ -13,6 +13,10 @@ class Settings(BaseSettings):
     database_url_file: str | None = None
     key_database_url: SecretStr | None = None
     key_database_url_file: str | None = None
+    session_database_url: SecretStr | None = None
+    session_database_url_file: str | None = None
+    login_redis_url: SecretStr | None = None
+    login_redis_url_file: str | None = None
     token: SecretStr | None = None
     token_file: str | None = None
     signing_secret: SecretStr | None = None
@@ -23,6 +27,10 @@ class Settings(BaseSettings):
     request_timeout_seconds: float = Field(default=15, gt=0, le=120)
     connect_timeout_seconds: float = Field(default=5, gt=0, le=30)
     command_timeout_seconds: float = Field(default=10, gt=0, le=60)
+    expire_minutes: int = Field(default=1440, ge=1, le=525600)
+    email_verification_required: bool = False
+    login_captcha_threshold: int = Field(default=5, ge=0)
+    login_failed_window_seconds: int = Field(default=3600, gt=0)
 
     @model_validator(mode="after")
     def secrets(self) -> Settings:
@@ -59,4 +67,23 @@ class Settings(BaseSettings):
             self.key_database_url = key_url
         if key_url is not None and not key_url.get_secret_value().strip():
             raise ValueError("Empty key_database_url")
+        for field in ("session_database_url", "login_redis_url"):
+            value = getattr(self, field)
+            path = getattr(self, field + "_file")
+            if value is not None and path is not None:
+                raise ValueError(f"Set at most one {field} source")
+            if path is not None:
+                try:
+                    with Path(path).open("rb") as stream:
+                        raw = stream.read(4097)
+                    if len(raw) > 4096:
+                        raise ValueError()
+                    value = SecretStr(raw.decode().strip())
+                except (OSError, ValueError, UnicodeError):
+                    raise ValueError(f"Invalid {field} file") from None
+                setattr(self, field, value)
+            if value is not None and not value.get_secret_value().strip():
+                raise ValueError(f"Empty {field}")
+        if self.session_database_url is not None and self.login_redis_url is None:
+            raise ValueError("session_database_url requires login_redis_url")
         return self
