@@ -9,7 +9,11 @@ from app.services.labeling_prediction_contract import (
 
 @pytest.mark.parametrize(
     ("code", "retryable"),
-    [("task_busy", True), ("prediction_task_scope_changed", False)],
+    [
+        ("task_busy", True),
+        ("prediction_task_scope_changed", False),
+        ("prediction_source_changed", False),
+    ],
 )
 def test_prediction_write_retries_contention_but_rejects_stale_scope(code, retryable):
     failure = ApplyPredictionResultError(

@@ -107,7 +107,16 @@ async def frame_world(test_engine):
 
 
 @pytest.mark.parametrize(
-    "change", [None, "task_status", "job_terminal", "account_disabled", "still_busy"]
+    "change",
+    [
+        None,
+        "task_status",
+        "job_terminal",
+        "account_disabled",
+        "still_busy",
+        "source_path",
+        "resumed_source_path",
+    ],
 )
 async def test_frame_persistence_retries_contention_and_rechecks_scope(
     frame_world, test_db_url, monkeypatch, change
@@ -223,13 +232,25 @@ async def test_frame_persistence_retries_contention_and_rechecks_scope(
             elif change == "account_disabled":
                 owner = await locker.get(User, world.owner_id)
                 owner.is_active = False
-            if change == "still_busy":
+            elif change == "source_path":
+                task.file_path = "replacement/video.mp4"
+            if change in {"still_busy", "resumed_source_path"}:
                 with pytest.raises(frame_preannotate._FrameWriteDeferred) as deferred:
                     await asyncio.wait_for(runner, timeout=10)
                 resume = loads(dumps(deferred.value.resume))
                 assert resume["stats"]["failed"] == 0
                 assert resume["pending_write"]["ml_backend_id"] == world.backend_id
                 assert resume["write_scope"]["task_version"] == scope.task_version
+                assert (
+                    resume["write_scope"]["task_source_generation"]
+                    == scope.task_source_generation
+                )
+                assert resume["write_scope"]["source_dataset_item_id"] == world.item_id
+                assert (
+                    resume["write_scope"]["source_file_path"] == scope.source_file_path
+                )
+                if change == "resumed_source_path":
+                    task.file_path = "replacement/video.mp4"
                 await locker.commit()
                 context_read = AsyncMock(side_effect=RuntimeError("source unavailable"))
                 monkeypatch.setattr(
@@ -271,6 +292,8 @@ async def test_frame_persistence_retries_contention_and_rechecks_scope(
         assert failures[-1].detail == {"reason": "prediction_execution_not_writable"}
     elif change == "account_disabled":
         assert failures[-1].status_code == 401
+    elif change in {"source_path", "resumed_source_path"}:
+        assert failures[-1].detail == {"reason": "prediction_source_changed"}
     async with world.maker() as db:
         rows = list(
             (

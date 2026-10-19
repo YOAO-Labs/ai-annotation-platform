@@ -123,6 +123,11 @@ async def lock_labeling_write(
         or not scope.expected_batch_id_known
         or not scope.job_id_known
         or scope.task_version is None
+        or not scope.source_binding_known
+        or type(scope.task_source_generation) is not int
+        or scope.task_source_generation <= 0
+        or scope.source_file_path is None
+        or scope.source_file_type is None
     ):
         raise _conflict("labeling_write_scope_unknown")
     with db.no_autoflush:
@@ -164,6 +169,13 @@ async def lock_labeling_write(
             or task.batch_id != scope.expected_batch_id
         ):
             raise _conflict("prediction_task_scope_changed")
+        if (
+            task.media_source_generation != scope.task_source_generation
+            or task.dataset_item_id != scope.source_dataset_item_id
+            or task.file_path != scope.source_file_path
+            or task.file_type != scope.source_file_type
+        ):
+            raise _conflict("prediction_source_changed")
         await task_access.assert_task_visible(db, task, actor.id, access=access)
         if scope.operation == "preannotation":
             if scope.execution_scope not in {"bulk", "workbench"}:

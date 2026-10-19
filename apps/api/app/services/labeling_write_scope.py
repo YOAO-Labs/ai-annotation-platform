@@ -44,6 +44,12 @@ class LabelingWriteScope:
     expected_batch_id_known: bool
     job_id: uuid.UUID | None
     job_id_known: bool
+    # Older serialized scopes stay unknown rather than borrowing current facts.
+    source_binding_known: bool = False
+    task_source_generation: int | None = None
+    source_dataset_item_id: uuid.UUID | None = None
+    source_file_path: str | None = None
+    source_file_type: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -96,4 +102,17 @@ def capture_labeling_write_scope(
         expected_batch_id_known=True,
         job_id=job_id,
         job_id_known=job_id_known,
+        source_binding_known=all(
+            hasattr(task, field)
+            for field in (
+                "media_source_generation",
+                "dataset_item_id",
+                "file_path",
+                "file_type",
+            )
+        ),
+        task_source_generation=getattr(task, "media_source_generation", None),
+        source_dataset_item_id=getattr(task, "dataset_item_id", None),
+        source_file_path=getattr(task, "file_path", None),
+        source_file_type=getattr(task, "file_type", None),
     )

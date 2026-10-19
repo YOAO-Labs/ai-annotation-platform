@@ -1,11 +1,16 @@
 from __future__ import annotations
 
+from dataclasses import asdict
+import uuid
+
 import pytest
 from fastapi import HTTPException
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 
 from app.config import settings
 from app.db.models.prediction import Prediction
+from app.db.models.dataset import Dataset, DatasetItem
+from app.db.models.task import Task
 from app.services import async_job as async_job_service
 from app.services.annotation import AnnotationService
 from app.services.batch import BatchService
@@ -15,6 +20,7 @@ from app.services.labeling_prediction_contract import (
 )
 from app.services.labeling_write_scope import (
     LabelingBatchWriteScope,
+    LabelingWriteScope,
     capture_labeling_write_scope,
 )
 from app.services.prediction import PredictionService
@@ -119,6 +125,124 @@ async def test_late_prediction_does_not_land_after_scope_changes(
     )
     await db_session.refresh(task)
     assert task.total_predictions == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "change", ["path", "file_type", "relink", "path_aba", "generation"]
+)
+async def test_late_prediction_rejects_changed_task_source_without_task_version_change(
+    db_session, project_admin, change
+):
+    actor, _ = project_admin
+    project, task, scope = await _scope_fixture(db_session, actor)
+    original_path = task.file_path
+    changes = {
+        "path": {"file_path": "changed/image.jpg"},
+        "file_type": {"file_type": "video"},
+        "generation": {"media_source_generation": scope.task_source_generation + 1},
+        "path_aba": {"file_path": "changed/image.jpg"},
+    }
+    if change == "relink":
+        dataset = Dataset(
+            display_id=f"D-{uuid.uuid4().hex[:8]}",
+            name="replacement",
+            created_by=actor.id,
+        )
+        db_session.add(dataset)
+        await db_session.flush()
+        item = DatasetItem(
+            dataset_id=dataset.id,
+            file_path=original_path,
+            file_name=task.file_name,
+            file_type=task.file_type,
+        )
+        db_session.add(item)
+        await db_session.flush()
+        values = {"dataset_item_id": item.id}
+    else:
+        values = changes[change]
+    await db_session.execute(
+        update(Task)
+        .where(Task.id == task.id)
+        .values(**values)
+        .execution_options(synchronize_session=False)
+    )
+    if change == "path_aba":
+        await db_session.execute(
+            update(Task)
+            .where(Task.id == task.id)
+            .values(file_path=original_path)
+            .execution_options(synchronize_session=False)
+        )
+    # Keep the inference caller's stale identity-map object until the final owner lock.
+    assert task.version == scope.task_version
+    assert task.media_source_generation == scope.task_source_generation
+
+    with pytest.raises(ApplyPredictionResultError) as failure:
+        await PredictionService(db_session).apply_prediction_result(
+            ApplyPredictionResultRequest(
+                task_id=task.id,
+                project_id=project.id,
+                ml_backend_id=None,
+                result=[],
+                write_scope=scope,
+            )
+        )
+    assert failure.value.code == "prediction_source_changed"
+    assert not failure.value.retryable
+    assert (
+        await db_session.scalar(
+            select(func.count())
+            .select_from(Prediction)
+            .where(Prediction.task_id == task.id)
+        )
+        == 0
+    )
+    await db_session.refresh(task)
+    assert task.version == scope.task_version
+    assert task.media_source_generation > scope.task_source_generation
+    assert task.total_predictions == 0
+    if change == "path_aba":
+        assert task.file_path == original_path
+
+
+@pytest.mark.asyncio
+async def test_legacy_serialized_write_scope_cannot_infer_current_source(
+    db_session, project_admin
+):
+    actor, _ = project_admin
+    project, task, scope = await _scope_fixture(db_session, actor)
+    payload = asdict(scope)
+    for field in (
+        "source_binding_known",
+        "task_source_generation",
+        "source_dataset_item_id",
+        "source_file_path",
+        "source_file_type",
+    ):
+        payload.pop(field)
+    legacy = LabelingWriteScope(**payload)
+    with pytest.raises(ApplyPredictionResultError) as failure:
+        await PredictionService(db_session).apply_prediction_result(
+            ApplyPredictionResultRequest(
+                task_id=task.id,
+                project_id=project.id,
+                ml_backend_id=None,
+                result=[],
+                write_scope=legacy,
+            )
+        )
+    assert failure.value.code == "labeling_write_scope_unknown"
+    assert not failure.value.retryable
+    assert (
+        await db_session.scalar(
+            select(func.count())
+            .select_from(Prediction)
+            .where(Prediction.task_id == task.id)
+        )
+        == 0
+    )
 
 
 @pytest.mark.asyncio
