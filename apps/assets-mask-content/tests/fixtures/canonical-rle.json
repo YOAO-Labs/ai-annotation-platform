@@ -1,0 +1,10 @@
+{
+  "canonical_utf8": "{\"encoding\":\"coco_rle\",\"size\":[2,2],\"counts\":[1,3]}",
+  "object_key": "raster-masks/sha256/77/a0/77a094bddfce5ec27284dfec9cf97d57a04c0b685d46aa04624dc93c04940faa.json",
+  "rle": {
+    "encoding": "coco_rle",
+    "size": [2, 2],
+    "counts": [1, 3]
+  },
+  "sha256": "77a094bddfce5ec27284dfec9cf97d57a04c0b685d46aa04624dc93c04940faa"
+}

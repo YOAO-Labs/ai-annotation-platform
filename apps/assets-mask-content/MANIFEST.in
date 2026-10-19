@@ -1,0 +1,2 @@
+include tests/*.mjs
+recursive-include tests/fixtures *.json

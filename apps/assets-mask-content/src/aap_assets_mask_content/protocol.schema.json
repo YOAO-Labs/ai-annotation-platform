@@ -1,0 +1,392 @@
+{
+  "$defs": {
+    "Candidate": {
+      "additionalProperties": false,
+      "properties": {
+        "byte_size": {
+          "minimum": 0,
+          "title": "Byte Size",
+          "type": "integer"
+        },
+        "etag": {
+          "maxLength": 255,
+          "minLength": 1,
+          "title": "Etag",
+          "type": "string"
+        },
+        "key": {
+          "maxLength": 255,
+          "minLength": 1,
+          "pattern": "^raster-masks/sha256/[0-9a-f]{2}/[0-9a-f]{2}/[0-9a-f]{64}\\.json(?:\\.gz)?$",
+          "title": "Key",
+          "type": "string"
+        },
+        "last_modified": {
+          "format": "date-time",
+          "title": "Last Modified",
+          "type": "string"
+        }
+      },
+      "required": ["key", "etag", "byte_size", "last_modified"],
+      "title": "Candidate",
+      "type": "object"
+    },
+    "CandidatePage": {
+      "additionalProperties": false,
+      "properties": {
+        "cursor": {
+          "anyOf": [
+            {
+              "maxLength": 4096,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cursor"
+        },
+        "items": {
+          "items": {
+            "$ref": "#/$defs/Candidate"
+          },
+          "title": "Items",
+          "type": "array"
+        }
+      },
+      "required": ["items"],
+      "title": "CandidatePage",
+      "type": "object"
+    },
+    "DeleteRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "etag": {
+          "maxLength": 255,
+          "minLength": 1,
+          "title": "Etag",
+          "type": "string"
+        },
+        "last_modified": {
+          "format": "date-time",
+          "title": "Last Modified",
+          "type": "string"
+        },
+        "object_key": {
+          "maxLength": 255,
+          "minLength": 1,
+          "pattern": "^raster-masks/sha256/[0-9a-f]{2}/[0-9a-f]{2}/[0-9a-f]{64}\\.json(?:\\.gz)?$",
+          "title": "Object Key",
+          "type": "string"
+        }
+      },
+      "required": ["object_key", "etag", "last_modified"],
+      "title": "DeleteRequest",
+      "type": "object"
+    },
+    "DeleteResult": {
+      "additionalProperties": false,
+      "properties": {
+        "deleted": {
+          "title": "Deleted",
+          "type": "boolean"
+        },
+        "object_key": {
+          "maxLength": 255,
+          "minLength": 1,
+          "pattern": "^raster-masks/sha256/[0-9a-f]{2}/[0-9a-f]{2}/[0-9a-f]{64}\\.json(?:\\.gz)?$",
+          "title": "Object Key",
+          "type": "string"
+        }
+      },
+      "required": ["object_key", "deleted"],
+      "title": "DeleteResult",
+      "type": "object"
+    },
+    "GetRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "reference": {
+          "$ref": "#/$defs/MaskReference"
+        }
+      },
+      "required": ["reference"],
+      "title": "GetRequest",
+      "type": "object"
+    },
+    "GetResult": {
+      "additionalProperties": false,
+      "properties": {
+        "content": {
+          "$ref": "#/$defs/RleContent"
+        },
+        "reference": {
+          "$ref": "#/$defs/MaskReference"
+        }
+      },
+      "required": ["reference", "content"],
+      "title": "GetResult",
+      "type": "object"
+    },
+    "ListRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "cursor": {
+          "anyOf": [
+            {
+              "maxLength": 4096,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cursor"
+        },
+        "limit": {
+          "default": 1000,
+          "maximum": 1000,
+          "minimum": 1,
+          "title": "Limit",
+          "type": "integer"
+        }
+      },
+      "title": "ListRequest",
+      "type": "object"
+    },
+    "MaskReference": {
+      "additionalProperties": false,
+      "description": "Existing API-compatible content reference, including legacy gzip refs.",
+      "properties": {
+        "bytes": {
+          "maximum": 4194304,
+          "minimum": 1,
+          "title": "Bytes",
+          "type": "integer"
+        },
+        "encoding": {
+          "default": "coco_rle_ref",
+          "enum": ["coco_rle_ref", "coco_rle_gzip"],
+          "title": "Encoding",
+          "type": "string"
+        },
+        "object_key": {
+          "maxLength": 255,
+          "minLength": 1,
+          "pattern": "^raster-masks/sha256/[0-9a-f]{2}/[0-9a-f]{2}/[0-9a-f]{64}\\.json(?:\\.gz)?$",
+          "title": "Object Key",
+          "type": "string"
+        },
+        "runs": {
+          "maximum": 1000000,
+          "minimum": 1,
+          "title": "Runs",
+          "type": "integer"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "size": {
+          "maxItems": 2,
+          "minItems": 2,
+          "prefixItems": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "integer"
+            }
+          ],
+          "title": "Size",
+          "type": "array"
+        },
+        "storage_encoding": {
+          "anyOf": [
+            {
+              "enum": ["identity", "gzip"],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Storage Encoding"
+        }
+      },
+      "required": ["size", "object_key", "sha256", "runs", "bytes"],
+      "title": "MaskReference",
+      "type": "object"
+    },
+    "PutRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "content": {
+          "$ref": "#/$defs/RleContent"
+        },
+        "storage_encoding": {
+          "default": "identity",
+          "enum": ["identity", "gzip"],
+          "title": "Storage Encoding",
+          "type": "string"
+        }
+      },
+      "required": ["content"],
+      "title": "PutRequest",
+      "type": "object"
+    },
+    "PutResult": {
+      "additionalProperties": false,
+      "properties": {
+        "reference": {
+          "$ref": "#/$defs/MaskReference"
+        }
+      },
+      "required": ["reference"],
+      "title": "PutResult",
+      "type": "object"
+    },
+    "RleContent": {
+      "additionalProperties": false,
+      "description": "Canonical COCO uncompressed RLE object sent to/from the byte owner.",
+      "properties": {
+        "counts": {
+          "items": {
+            "type": "integer"
+          },
+          "title": "Counts",
+          "type": "array"
+        },
+        "encoding": {
+          "const": "coco_rle",
+          "title": "Encoding",
+          "type": "string"
+        },
+        "size": {
+          "maxItems": 2,
+          "minItems": 2,
+          "prefixItems": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "integer"
+            }
+          ],
+          "title": "Size",
+          "type": "array"
+        }
+      },
+      "required": ["encoding", "size", "counts"],
+      "title": "RleContent",
+      "type": "object"
+    },
+    "_Error": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "enum": [
+            "invalid_request",
+            "invalid_reference",
+            "object_missing",
+            "object_corrupt",
+            "content_changed",
+            "resource_limit",
+            "storage_unavailable",
+            "invalid_response",
+            "permission_denied"
+          ],
+          "title": "Code",
+          "type": "string"
+        }
+      },
+      "required": ["code"],
+      "title": "_Error",
+      "type": "object"
+    }
+  },
+  "$id": "https://schemas.aap.invalid/assets-mask-content/v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/PutRequest"
+    },
+    {
+      "$ref": "#/$defs/GetRequest"
+    },
+    {
+      "$ref": "#/$defs/ListRequest"
+    },
+    {
+      "$ref": "#/$defs/DeleteRequest"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/PutResult"
+            },
+            {
+              "$ref": "#/$defs/GetResult"
+            },
+            {
+              "$ref": "#/$defs/CandidatePage"
+            },
+            {
+              "$ref": "#/$defs/DeleteResult"
+            }
+          ]
+        },
+        "ok": {
+          "const": true
+        },
+        "schema": {
+          "const": "aap-assets-mask-content/v1"
+        }
+      },
+      "required": ["schema", "ok", "data"],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "error": {
+          "$ref": "#/$defs/_Error"
+        },
+        "ok": {
+          "const": false
+        },
+        "schema": {
+          "const": "aap-assets-mask-content/v1"
+        }
+      },
+      "required": ["schema", "ok", "error"],
+      "type": "object"
+    }
+  ],
+  "title": "AAP Mask content request and response messages",
+  "x-aap-schema": "aap-assets-mask-content/v1",
+  "x-budgets": {
+    "canonical_bytes": 4194304,
+    "compressed_bytes": 8388608,
+    "expansion_ratio": 20,
+    "max_list_page": 1000,
+    "max_runs": 1000000,
+    "request_bytes": 4210688,
+    "response_bytes": 4210688
+  },
+  "x-operation-roles": {
+    "delete": "cleanup",
+    "get": "content",
+    "list": "cleanup",
+    "put": "content"
+  }
+}

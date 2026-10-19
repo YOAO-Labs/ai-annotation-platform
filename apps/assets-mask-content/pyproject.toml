@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "aap-assets-mask-content"
+version = "0.1.0"
+description = "Portable content-addressed COCO RLE Mask object contract and runtime"
+requires-python = ">=3.11"
+dependencies = ["pydantic>=2.10.0"]
+
+[project.optional-dependencies]
+client = ["httpx>=0.27.0"]
+storage = ["boto3>=1.43.77"]
+server = ["fastapi>=0.115.0", "uvicorn>=0.34.0", "boto3>=1.43.77"]
+test = [
+    "boto3>=1.43.77",
+    "fastapi>=0.115.0",
+    "httpx>=0.27.0",
+    "pytest>=8.3.0",
+    "ruff==0.15.22",
+    "uvicorn>=0.34.0",
+]
+
+[project.scripts]
+aap-assets-mask-content = "aap_assets_mask_content_runtime.__main__:main"
+
+[tool.setuptools.package-data]
+aap_assets_mask_content = ["protocol.schema.json", "openapi.snapshot.json"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = "-q"
