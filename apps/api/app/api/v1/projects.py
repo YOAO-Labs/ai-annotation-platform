@@ -2139,12 +2139,11 @@ async def trigger_preannotation(
         # request reaches its post-dispatch commit.
         async_job_svc.bind_execution_id(precreated_job, str(precreated_job.id))
         await db.commit()
-    elif (
-        body.execution_scope == "workbench" and explicit_task_ids is not None
-    ) or uses_controlled_model:
-        # issue #121 review · 工作台单题请求 (无幂等键) 同样预建持久作业: worker 在派发
-        # 前的范围复校验失败时, on_failure 能按 celery_task_id 落一条 failed 作业,
-        # 工作台面板不会因找不到终态记录而无限轮询。
+    else:
+        # Every request without an idempotency key still needs a durable job id
+        # before publishing, including ordinary project/batch bulk requests.
+        # Otherwise the API returns a Celery id while the worker creates a
+        # different AsyncJob only after it starts selecting tasks.
         scoped_ids = (
             [str(task_id) for task_id in explicit_task_ids]
             if explicit_task_ids is not None

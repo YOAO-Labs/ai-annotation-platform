@@ -102,6 +102,76 @@ async def test_explicit_preannotation_rechecks_task_and_batch_scope_before_dispa
     dispatch.assert_not_called()
 
 
+@pytest.mark.asyncio
+async def test_unkeyed_bulk_returns_durable_job_before_dispatch(
+    httpx_client, super_admin, db_session, monkeypatch
+):
+    from app.workers.batch_prediction_dispatch import CeleryBatchPredictionDispatcher
+
+    owner, token = super_admin
+    project, backend, batch, _tasks = await _seed(db_session, owner.id)
+    dispatched: dict = {}
+
+    def fake_dispatch(_dispatcher, request, *, queue, soft_time_limit=None):
+        dispatched["request"] = request
+        return "broker-generated-id"
+
+    monkeypatch.setattr(CeleryBatchPredictionDispatcher, "dispatch", fake_dispatch)
+    response = await httpx_client.post(
+        f"/api/v1/projects/{project.id}/preannotate",
+        headers=_bearer(token),
+        json={"ml_backend_id": str(backend.id), "batch_id": str(batch.id)},
+    )
+
+    assert response.status_code == 200, response.text
+    job_id = uuid.UUID(response.json()["job_id"])
+    request = dispatched["request"]
+    assert response.json()["job_id"] != "broker-generated-id"
+    assert request.async_job_id == str(job_id)
+    assert request.task_ids is None
+    job = await db_session.get(AsyncJob, job_id)
+    assert job is not None
+    assert job.celery_task_id == str(job_id)
+
+    # The dispatch mock does not start the worker: the returned id is already
+    # readable through the durable job endpoint at acceptance time.
+    readable = await httpx_client.get(
+        f"/api/v1/async-jobs/{job_id}", headers=_bearer(token)
+    )
+    assert readable.status_code == 200, readable.text
+    assert readable.json()["id"] == str(job_id)
+
+
+@pytest.mark.asyncio
+async def test_unkeyed_bulk_dispatch_failure_terminalizes_durable_job(
+    httpx_client, super_admin, db_session, monkeypatch
+):
+    from app.workers.batch_prediction_dispatch import CeleryBatchPredictionDispatcher
+
+    owner, token = super_admin
+    project, backend, batch, _tasks = await _seed(db_session, owner.id)
+    dispatched: dict = {}
+
+    def fail_dispatch(_dispatcher, request, *, queue, soft_time_limit=None):
+        dispatched["request"] = request
+        raise RuntimeError("broker unavailable")
+
+    monkeypatch.setattr(CeleryBatchPredictionDispatcher, "dispatch", fail_dispatch)
+    with pytest.raises(RuntimeError, match="broker unavailable"):
+        await httpx_client.post(
+            f"/api/v1/projects/{project.id}/preannotate",
+            headers=_bearer(token),
+            json={"ml_backend_id": str(backend.id), "batch_id": str(batch.id)},
+        )
+
+    job_id = uuid.UUID(dispatched["request"].async_job_id)
+    job = await db_session.get(AsyncJob, job_id)
+    assert job is not None
+    assert job.status == "failed"
+    assert job.celery_task_id == str(job_id)
+    assert "dispatch failed" in job.error_message
+
+
 async def _seed(db: AsyncSession, owner_id: uuid.UUID):
     suffix = uuid.uuid4().hex[:8]
     proj = Project(
