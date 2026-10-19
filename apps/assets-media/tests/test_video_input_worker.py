@@ -1,6 +1,7 @@
 import asyncio
 import hashlib
 from pathlib import Path
+import time
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -389,17 +390,191 @@ async def test_frame_worker_rejects_storage_receipt_for_a_different_frame_key(tm
     assert "finish_accepted_video_frame" not in db.calls
 
 
-async def test_unconfirmed_initial_heartbeat_does_not_fail_another_owner_or_start_io(
-    tmp_path,
-):
+@pytest.mark.parametrize("code", ["lease_lost", "invalid_response"])
+async def test_initial_lease_loss_or_unknown_heartbeat_stops_before_io(tmp_path, code):
     db, storage, executor = setup(tmp_path)
     original = db.call
 
     async def disconnected(operation, request):
         if operation == "heartbeat_accepted_video_input":
-            raise c.VideoInputFailure("storage_unavailable")
+            raise c.VideoInputFailure(code)
         return await original(operation, request)
 
     db.call = disconnected
     assert await executor.execute_once(input_id=db.input.input_id) is None
     assert not db.failed and storage.original_reads == storage.uploads == 0
+
+
+async def test_initial_heartbeat_retries_transient_before_starting_source_io(tmp_path):
+    db, storage, executor = setup(tmp_path)
+    original_call = db.call
+    original_download = storage.download_source
+    heartbeat_requests = []
+    events = []
+
+    async def busy_then_confirmed(operation, request):
+        if operation == "heartbeat_accepted_video_input":
+            heartbeat_requests.append(request)
+            events.append("heartbeat")
+            if len(heartbeat_requests) <= 2:
+                raise c.VideoInputFailure("input_busy")
+            result = await original_call(operation, request)
+            events.append("confirmed")
+            return result
+        return await original_call(operation, request)
+
+    async def tracked_download(source, destination):
+        events.append("source_io")
+        return await original_download(source, destination)
+
+    db.call = busy_then_confirmed
+    storage.download_source = tracked_download
+
+    ready = await executor.execute_once(input_id=db.input.input_id)
+
+    assert ready.status == "ready"
+    assert [event for event in events if event == "heartbeat"] == [
+        "heartbeat",
+        "heartbeat",
+        "heartbeat",
+    ]
+    assert events.index("confirmed") < events.index("source_io")
+    assert all(
+        (request.input_id, request.generation, request.lease_token)
+        == (
+            db.input.input_id,
+            heartbeat_requests[0].generation,
+            heartbeat_requests[0].lease_token,
+        )
+        for request in heartbeat_requests
+    )
+    assert storage.original_reads == storage.uploads == 1
+    assert not db.failed
+
+
+async def test_periodic_heartbeat_retries_transient_with_same_claim(tmp_path):
+    db, _, executor = setup(tmp_path)
+    await executor.execute_once(input_id=db.input.input_id)
+    db.require_frame()
+    claim = (
+        await db.call(
+            "claim_accepted_video_frame",
+            c.ClaimVideoFrameRequest(
+                worker_id=WORKER,
+                frame_id=FRAME_ID,
+                lease_seconds=executor.policy.lease_seconds,
+            ),
+        )
+    ).claim
+    original_call = db.call
+    heartbeat_requests = []
+    third_heartbeat = asyncio.Event()
+
+    async def busy_once(operation, request):
+        if operation == "heartbeat_accepted_video_frame":
+            heartbeat_requests.append(request)
+            if len(heartbeat_requests) == 2:
+                raise c.VideoInputFailure("frame_busy")
+            if len(heartbeat_requests) >= 3:
+                third_heartbeat.set()
+        return await original_call(operation, request)
+
+    db.call = busy_once
+    lease = w._Lease(db, claim, executor.policy)
+    lease.interval = 0.01
+    await lease.start()
+    try:
+        await asyncio.wait_for(third_heartbeat.wait(), timeout=2)
+        assert len(heartbeat_requests) == 3
+        assert all(
+            (request.frame_id, request.generation, request.lease_token)
+            == (claim.frame.frame_id, claim.generation, claim.lease_token)
+            for request in heartbeat_requests
+        )
+        assert lease.error is None and not lease.lost.is_set()
+    finally:
+        await lease.close()
+
+
+async def test_initial_heartbeat_contention_stops_at_execution_deadline(tmp_path):
+    db, storage, executor = setup(tmp_path)
+    executor.policy = w.VideoExecutionPolicy(job_timeout_seconds=1, lease_seconds=62)
+    original_call = db.call
+    heartbeat_requests = []
+
+    async def continuously_busy(operation, request):
+        if operation == "heartbeat_accepted_video_input":
+            heartbeat_requests.append(request)
+            raise c.VideoInputFailure("frame_busy")
+        return await original_call(operation, request)
+
+    db.call = continuously_busy
+    started = time.monotonic()
+
+    failed = await executor.execute_once(input_id=db.input.input_id)
+
+    elapsed = time.monotonic() - started
+    assert failed.status == "failed" and failed.error == "timeout"
+    assert len(heartbeat_requests) >= 2
+    assert all(
+        (request.input_id, request.generation, request.lease_token)
+        == (
+            db.input.input_id,
+            heartbeat_requests[0].generation,
+            heartbeat_requests[0].lease_token,
+        )
+        for request in heartbeat_requests
+    )
+    assert elapsed < 1.5
+    assert storage.original_reads == storage.uploads == 0
+    assert db.failed == ["timeout"]
+
+
+async def test_periodic_heartbeat_contention_cannot_extend_execution_deadline(tmp_path):
+    db, _, _ = setup(tmp_path)
+    policy = w.VideoExecutionPolicy(job_timeout_seconds=1, lease_seconds=62)
+    claim = (
+        await db.call(
+            "claim_accepted_video_input",
+            c.ClaimVideoInputRequest(
+                worker_id=WORKER,
+                input_id=db.input.input_id,
+                lease_seconds=policy.lease_seconds,
+            ),
+        )
+    ).claim
+    original_call = db.call
+    heartbeat_count = 0
+
+    async def busy_after_initial(operation, request):
+        nonlocal heartbeat_count
+        if operation == "heartbeat_accepted_video_input":
+            heartbeat_count += 1
+            if heartbeat_count > 1:
+                raise c.VideoInputFailure("frame_busy")
+        return await original_call(operation, request)
+
+    db.call = busy_after_initial
+    lease = w._Lease(db, claim, policy)
+    lease.interval = 0.01
+    await lease.start()
+    entered = asyncio.Event()
+    cancelled = asyncio.Event()
+
+    async def blocked_operation():
+        entered.set()
+        try:
+            await asyncio.Event().wait()
+        finally:
+            cancelled.set()
+
+    started = time.monotonic()
+    try:
+        with pytest.raises(c.VideoInputFailure, match="timeout"):
+            await lease.call(blocked_operation)
+        assert entered.is_set() and cancelled.is_set()
+        assert lease.error is not None and lease.error.code == "timeout"
+        assert heartbeat_count >= 2
+        assert time.monotonic() - started < 1.5
+    finally:
+        await lease.close()
