@@ -11,6 +11,8 @@ class Settings(BaseSettings):
 
     database_url: SecretStr | None = None
     database_url_file: str | None = None
+    key_database_url: SecretStr | None = None
+    key_database_url_file: str | None = None
     token: SecretStr | None = None
     token_file: str | None = None
     signing_secret: SecretStr | None = None
@@ -41,4 +43,20 @@ class Settings(BaseSettings):
                 setattr(self, field, value)
             if value is None or not value.get_secret_value().strip():
                 raise ValueError(f"Empty {field}")
+        key_url = self.key_database_url
+        key_path = self.key_database_url_file
+        if key_url is not None and key_path is not None:
+            raise ValueError("Set at most one key_database_url source")
+        if key_path is not None:
+            try:
+                with Path(key_path).open("rb") as stream:
+                    raw = stream.read(4097)
+                if len(raw) > 4096:
+                    raise ValueError()
+                key_url = SecretStr(raw.decode().strip())
+            except (OSError, ValueError, UnicodeError):
+                raise ValueError("Invalid key_database_url file") from None
+            self.key_database_url = key_url
+        if key_url is not None and not key_url.get_secret_value().strip():
+            raise ValueError("Empty key_database_url")
         return self
