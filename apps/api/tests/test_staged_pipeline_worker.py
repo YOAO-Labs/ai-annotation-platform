@@ -96,7 +96,7 @@ async def test_roi_uses_private_input_after_root(monkeypatch, tmp_path):
     task = _Task()
     local_input = tmp_path / "accepted-source"
     Image.new("RGB", (100, 100), (18, 42, 93)).save(local_input, format="PNG")
-    boxes = [_bbox(10, 10, 30, 30)]
+    boxes = [_bbox(10, 10, 50, 50)]
     detect_client = _FakeClient(responses=[[_Result(task.id, boxes)]])
     classify_client = _FakeClient(
         responses=[[_Result("0", [{"score": 0.98, "attributes": {"color": "blue"}}])]]
@@ -127,7 +127,9 @@ async def test_roi_uses_private_input_after_root(monkeypatch, tmp_path):
 
     assert detect_client.calls[0][0]["file_path"].endswith("versionId=version-7")
     assert classify_client.calls
-    assert classify_client.calls[0][0]["image"].startswith("data:image/jpeg;base64,")
+    assert classify_client.calls[0][0]["file_path"].startswith(
+        "data:image/jpeg;base64,"
+    )
 
 
 @pytest.mark.asyncio

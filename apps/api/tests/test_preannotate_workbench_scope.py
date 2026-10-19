@@ -106,6 +106,7 @@ def _mock_celery(monkeypatch, app_module):
     class FakeInputAdmission:
         async def accept(self, request):
             admission_requests.append(request)
+            captured["admission_requests"] = admission_requests
             key = (request.job_id, request.task_id)
             input_id = canonical_inputs.setdefault(
                 key,
@@ -143,7 +144,6 @@ def _mock_celery(monkeypatch, app_module):
         get_input_admission,
         lambda: FakeInputAdmission(),
     )
-    captured["admission_requests"] = admission_requests
     return captured
 
 

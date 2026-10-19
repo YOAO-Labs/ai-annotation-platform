@@ -261,6 +261,7 @@ class _ImageLiveRuntime:
         *,
         gate: tuple[Path, Path] | None = None,
         job_id: UUID | None = None,
+        input_id: UUID | None = None,
     ) -> tuple[subprocess.Popen, Path]:
         log_path = self.tmp_path / f"{name}.log"
         environment = _runtime_environment(
@@ -279,8 +280,12 @@ class _ImageLiveRuntime:
             vips_gate=gate,
         )
         command = [sys.executable, "-m", "aap_assets_images_runtime.worker"]
+        if job_id is not None and input_id is not None:
+            raise ValueError("choose an image job or an input reservation")
         if job_id is not None:
             command.extend(("--once", "--job-id", str(job_id)))
+        if input_id is not None:
+            command.extend(("--once", "--input-id", str(input_id)))
         process, stream = _start_process(command, environment, log_path)
         self.processes.append(process)
         self.streams.append(stream)

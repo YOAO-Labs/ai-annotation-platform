@@ -234,6 +234,7 @@ last_reviewed: 2026-10-19
 | `ASSET_CLEANUP_S3_ACCESS_KEY_FILE` | `—` | — |
 | `ASSET_CLEANUP_S3_SECRET_KEY_FILE` | `—` | — |
 | `ASSET_CLEANUP_BUCKET` | `—` | — |
+| `ASSET_CLEANUP_INPUTS_BUCKET` | `accepted-inputs` | 独立进程须与 MINIO_INPUTS_BUCKET 完全一致；Compose overlay 从 MINIO_INPUTS_BUCKET 取值。 |
 | `ASSET_CLEANUP_S3_ENDPOINT` | `—` | — |
 | `ASSET_CLEANUP_S3_REGION` | `us-east-1` | — |
 | `ASSET_CLEANUP_POLL_SECONDS` | `5` | — |

@@ -148,24 +148,15 @@ describe("useTriggerPreannotation", () => {
       await view.result.current.mutateAsync({ payload, idempotencyKey: nextRunKey });
     });
 
-    expect(post).toHaveBeenNthCalledWith(
-      1,
-      "/projects/project-a/preannotate",
-      payload,
-      { headers: { "Idempotency-Key": firstRunKey } },
-    );
-    expect(post).toHaveBeenNthCalledWith(
-      2,
-      "/projects/project-a/preannotate",
-      payload,
-      { headers: { "Idempotency-Key": firstRunKey } },
-    );
-    expect(post).toHaveBeenNthCalledWith(
-      3,
-      "/projects/project-a/preannotate",
-      payload,
-      { headers: { "Idempotency-Key": nextRunKey } },
-    );
+    expect(post).toHaveBeenNthCalledWith(1, "/projects/project-a/preannotate", payload, {
+      headers: { "Idempotency-Key": firstRunKey },
+    });
+    expect(post).toHaveBeenNthCalledWith(2, "/projects/project-a/preannotate", payload, {
+      headers: { "Idempotency-Key": firstRunKey },
+    });
+    expect(post).toHaveBeenNthCalledWith(3, "/projects/project-a/preannotate", payload, {
+      headers: { "Idempotency-Key": nextRunKey },
+    });
 
     view.unmount();
     client.clear();

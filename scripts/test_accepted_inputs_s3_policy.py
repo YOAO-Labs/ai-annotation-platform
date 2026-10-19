@@ -80,6 +80,7 @@ def test_cleanup_can_enumerate_and_delete_input_versions_only():
     policy = _cleanup_storage_policy(scope)
 
     assert _actions(policy, "arn:aws:s3:::accepted-inputs") == {
+        "s3:GetBucketVersioning",
         "s3:ListBucketVersions",
         "s3:ListBucketMultipartUploads",
     }

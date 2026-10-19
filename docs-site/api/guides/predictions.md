@@ -31,6 +31,10 @@ POST /api/v1/projects/:id/preannotate
 
 成功派发返回 `200` 与持久 `job_id`，可立即通过 `/async-jobs/{job_id}` 查询状态，worker 启动前为 pending。普通无幂等键请求也先提交同一作业，再交给 Celery；派发异常仅将仍为 pending 的作业转为 failed，已认领或已结束的作业保留其状态。状态机见 [预标注流水线](../../dev/concepts/prediction-pipeline)。
 
+`execution_scope="workbench"`、单个图片 `task_ids` 的非文本／非追踪预标会固定本次输入。调用方应为一次提交保留同一 UUID `Idempotency-Key`，响应中断或 `503` 后使用原键及原请求重放；一次新的运行使用新键。输入暂未物化时，已派发作业继续等待，不能据此重新读取当前 Task 文件。来源不可用或已变化返回 `409`；暂时受理失败返回带 `Retry-After` 的 `503`，保留同一 pending 作业及已受理输入。
+
+整图模型 URL 绑定输入副本的具体版本，ROI 验证并读取同一份内容。最终写入及候选采纳继续检查当前权限、任务／批次／编辑锁和来源；已固定输入不会授予写权限。视频、普通批量与跟踪等其余路径的迁移状态见[媒体输入边界](../../dev/concepts/accepted-media-inputs)。
+
 ## 查询 jobs
 
 ```http

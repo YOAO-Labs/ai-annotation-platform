@@ -425,10 +425,12 @@ psql -v expected_database=annotation_test -v migration_role=owner \
 显式本地部署清理进程前，准备三个仅供此服务读取的 secret 文件：普通 PostgreSQL URL
 （`postgresql://`，受限 cleanup LOGIN）、专用 S3 access key 和 secret key。S3 身份只允许
 对选定 media-cache 桶的 `image-assets/*` 和 `image-pyramids/*` 执行带 prefix 条件的
-`ListBucket` 与 `DeleteObject`，不能读/写对象或操作其他桶。容器用户为 10001，secret 文件必须允许该
+`ListBucket` 与 `DeleteObject`；输入桶另仅允许 `accepted-inputs/*` 的版本列举、指定 VersionId 删除及 multipart 列举/终止，不能读写对象内容。容器用户为 10001，secret 文件必须允许该
 用户读取；不要把 API 的宽权限账号写入这些文件。设置 `.env.example` 的三个
 `ASSET_CLEANUP_*_FILE` 宿主路径、`ASSET_CLEANUP_BUCKET` 和容器可达的
 `ASSET_CLEANUP_S3_ENDPOINT` 后运行：
+
+清理输入副本的桶须与媒体进程完全一致。Compose overlay 从 `MINIO_INPUTS_BUCKET` 绑定；直接启动进程时显式设置 `ASSET_CLEANUP_INPUTS_BUCKET`，其值必须与 `MINIO_INPUTS_BUCKET` / `ASSETS_MEDIA_INPUTS_BUCKET` 相同，并与 `ASSET_CLEANUP_BUCKET` 不同。复用同一受限 cleanup S3 身份，按桶和前缀划定删除权限。
 
 ```bash
 docker compose -p aap-assets-cleanup-dev -f docker-compose.assets-cleanup.yml up -d --build
@@ -1091,11 +1093,11 @@ uv run --project apps/assets-media --extra runtime python -m aap_assets_media_ru
 
 ## 图片金字塔的独立控制与执行
 
-图片金字塔现由 `apps/assets-media` 中的共享媒体控制进程和专用图片 Worker 承担。共享控制端同时承载视频与图片契约，`asset_media_control_client` 共 32 项 SQL 能力（视频 18、图片 14）；视频 Worker 使用 10 项，图片 Worker 使用独立的 `asset_image_worker_client` 和 6 项。图片处理使用 Pillow 与受资源上限约束的 libvips 子进程，不依赖 Celery 执行队列。图片垃圾由既有 `assets-cleanup` 进程处理，`asset_cleanup_client` 仅获 4 项清理能力。
+图片金字塔现由 `apps/assets-media` 中的共享媒体控制进程和专用图片 Worker 承担。共享控制端同时承载视频、图片与已受理输入契约，`asset_media_control_client` 共 36 项 SQL 能力（视频 18、图片 14、输入 4）；视频 Worker 使用 10 项，图片 Worker 使用独立的 `asset_image_worker_client` 和 10 项（图片 6、输入 4）。图片处理使用 Pillow 与受资源上限约束的 libvips 子进程，不依赖 Celery 执行队列。图片和输入垃圾由既有 `assets-cleanup` 进程处理，`asset_cleanup_client` 仅获 6 项清理能力。
 
 API 设置 `ASSETS_MEDIA_URL` 和相同的 `ASSETS_MEDIA_TOKEN` 后，将图片控制请求发到共享控制进程；一旦配置远程地址，连接或请求失败不会退回本地。地址留空时，当前开发兼容路径仍在 API 进程内装配本地控制，并保留轻量 Celery 唤醒适配；这条路径不代表独立控制/执行部署。默认 Compose 不启动媒体 overlay，也不表示图片 Worker 已部署到主环境或生产环境。
 
-图片 schema 属于迁移 `0220`。按既有 module-data 与媒体授权顺序安装 owner/辅助能力、`infra/docker/assets-media-grants.sql` 和 `infra/docker/assets-image-grants.sql`。图片 Worker 只能执行自己的 6 项函数，不能直接访问表或其他 owner schema；清理 LOGIN 只能领取/确认 owner 发出的删除责任。所有 SQL LOGIN 必须与迁移角色和 NOLOGIN owner 分离。
+图片 schema 属于迁移 `0220`，已受理输入属于 `0221`。按既有 module-data 与媒体授权顺序安装 owner/辅助能力、`infra/docker/assets-media-grants.sql` 和 `infra/docker/assets-image-grants.sql`。图片 Worker 只能执行自己的 10 项函数，不能直接访问表或其他 owner schema；清理 LOGIN 只能领取/确认 owner 发出的删除责任。所有 SQL LOGIN 必须与迁移角色和 NOLOGIN owner 分离。
 
 可选 `docker-compose.assets-media.yml` 增加共享控制、视频 Worker 和图片 Worker；需要把它与默认服务文件组合，并只启动所需服务：
 

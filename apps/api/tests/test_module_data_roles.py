@@ -777,11 +777,11 @@ async def test_input_runtime_profiles_pass_real_preflight_and_typed_native_calls
                     c.InputRequest(input_id=uuid4(), job_id=uuid4(), task_id=uuid4()),
                 )
         else:
-            result = await native.call(
-                "claim_accepted_image_input",
-                c.ClaimInputRequest(worker_id=uuid4(), input_id=uuid4()),
-            )
-            assert result.claim is None
+            with pytest.raises(c.InputFailure, match="input_missing"):
+                await native.call(
+                    "claim_accepted_image_input",
+                    c.ClaimInputRequest(worker_id=uuid4(), input_id=uuid4()),
+                )
     finally:
         await pool.close()
 

@@ -103,6 +103,7 @@ def _runtime_environment(
         "ASSETS_MEDIA_S3_SECRET_KEY": secret_key,
         "ASSETS_MEDIA_DATASETS_BUCKET": datasets_bucket,
         "ASSETS_MEDIA_CACHE_BUCKET": cache_bucket,
+        "ASSETS_MEDIA_INPUTS_BUCKET": _required_env("MINIO_INPUTS_BUCKET"),
         "ASSETS_MEDIA_S3_CONNECT_TIMEOUT_SECONDS": "2",
         "ASSETS_MEDIA_S3_READ_TIMEOUT_SECONDS": "10",
         "ASSETS_MEDIA_S3_MAX_ATTEMPTS": "1",

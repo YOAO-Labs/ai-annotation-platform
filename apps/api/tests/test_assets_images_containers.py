@@ -93,6 +93,9 @@ def _image_worker_environment(
         "ASSETS_MEDIA_S3_MAX_ATTEMPTS": "1",
         "ASSETS_MEDIA_DATASETS_BUCKET": runtime.datasets_bucket,
         "ASSETS_MEDIA_CACHE_BUCKET": runtime.cache_bucket,
+        "ASSETS_MEDIA_INPUTS_BUCKET": runtime.resources["buckets"][
+            "MINIO_INPUTS_BUCKET"
+        ],
     }
 
 
@@ -120,6 +123,7 @@ def _verify_image_worker_container(
         "ASSETS_MEDIA_S3_SECRET_KEY",
         "ASSETS_MEDIA_DATASETS_BUCKET",
         "ASSETS_MEDIA_CACHE_BUCKET",
+        "ASSETS_MEDIA_INPUTS_BUCKET",
     }
     forbidden = {
         "ASSETS_MEDIA_CONTROL_DATABASE_URL",

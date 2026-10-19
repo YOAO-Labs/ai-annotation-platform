@@ -251,6 +251,19 @@ async def test_reservation_replay_keeps_original_source_and_scope(db_session):
     )
     assert current["status"] == "failed"
     assert current["error"] == "source_changed"
+    _error(
+        _reply(
+            await db_session.scalar(
+                _READ_WORK,
+                {
+                    "input_id": accepted["input_id"],
+                    "job_id": job_id,
+                    "task_id": task.id,
+                },
+            )
+        ),
+        "source_changed",
+    )
 
     # A Job cannot use a batch/bulk scope or a different actor as an input grant.
     wrong_job = uuid.uuid4()

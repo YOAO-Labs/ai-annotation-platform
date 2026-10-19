@@ -242,6 +242,7 @@ TEST_FILES = (
     "tests/test_assets_accepted_inputs_migration.py",
     "tests/test_assets_accepted_inputs_native.py",
     "tests/test_accepted_inputs_api_bridge.py",
+    "tests/test_accepted_inputs_live.py",
     "tests/test_screenshot_seed_catalog.py",
     "tests/test_task_views.py",
     "tests/test_task_views_filter.py",
@@ -695,6 +696,7 @@ def _cleanup_storage_policy(scope: dict) -> dict:
             {
                 "Effect": "Allow",
                 "Action": [
+                    "s3:GetBucketVersioning",
                     "s3:ListBucketVersions",
                     "s3:ListBucketMultipartUploads",
                 ],

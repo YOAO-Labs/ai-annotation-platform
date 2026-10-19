@@ -170,6 +170,28 @@ class Database:
         return result
 
 
+@pytest.mark.asyncio
+async def test_public_observation_binds_current_source_without_signing_or_dispatch():
+    current = source(owner=c.ImageOwner(kind="task", id=uuid4()))
+    unbound = current.model_copy(update={"object_identity": None})
+
+    def native(operation, request):
+        if operation == "read_image_source":
+            return unbound
+        assert operation == "observe_image_source"
+        assert request.object_identity == current.object_identity
+        return current
+
+    database = Database(native)
+    storage = FakeStorage(source_identity=current.object_identity)
+    observed = await ImageControl(database, storage).observe_source(
+        c.ReadImageSourceRequest(actor_id=uuid4(), task_id=current.task_id)
+    )
+    assert observed == current
+    assert storage.head_source_calls == [unbound]
+    assert not storage.signed_source and not storage.signed_cache
+
+
 def pyramid_projection(current, *, status="ready", generation=2, attempt=None):
     asset_id = uuid4()
     attempt = attempt or uuid4()

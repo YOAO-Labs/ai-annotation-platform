@@ -152,6 +152,8 @@ Ultralytics YOLO11 的配置页可生成原生增强预览，对照冻结原图�
 
 视频媒体切片的语言无关合同、控制进程和执行入口位于 `apps/assets-media`，覆盖元信息、时间表、海报、播放副本和帧／分块的作业围栏，并已通过隔离本地进程与容器联调。部署入口见 [DEV.md](./DEV.md#视频媒体的独立控制与执行)，当前全模块状态及剩余边界见[独立部署台账](./docs-site/dev/concepts/module-deployment.md)。Go 继续作为单独实验。
 
+工作台单张图片预标使用同一媒体工件提供的版本化输入副本，整图模型和 ROI 读取同一版本。独立运行需配置专用的 `MINIO_INPUTS_BUCKET` 并启用版本管理；启动和权限要求见 [DEV.md](./DEV.md#图片金字塔的独立控制与执行)，其余消费路径见[媒体输入边界](./docs-site/dev/concepts/accepted-media-inputs.md)。
+
 项目成员可在工作台阅读[标注指引](./docs-site/user-guide/projects/index.md#编写标注指引)及示例图；指引编辑和图片上传、删除由项目负责人或超级管理员管理。
 图片完成登记前重新核对当前管理权限；项目转移或账号停用后的旧请求不能继续登记，写入争用返回冲突。读取与存储失败语义见[项目 API](./docs-site/api/guides/projects.md#标注指引图片)。
 

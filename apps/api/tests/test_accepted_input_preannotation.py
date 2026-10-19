@@ -192,6 +192,53 @@ async def test_request_input_map_must_match_durable_job_scope(monkeypatch):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("code", ["source_changed", "storage_unavailable"])
+async def test_source_verification_precedes_job_claim_and_overwrite(monkeypatch, code):
+    request, job, task, input_id = _request()
+    record = SimpleNamespace(
+        input_id=input_id,
+        job_id=uuid.UUID(request.async_job_id),
+        task_id=task.id,
+        project_id=task.project_id,
+        actor_id=uuid.UUID(request.user_id),
+        task_version=task.version,
+        sha256="a" * 64,
+        byte_size=4,
+    )
+    paths = []
+
+    class Gateway:
+        async def ensure_reference(self, _request):
+            return SimpleNamespace(input=record)
+
+        async def download(self, _reference, destination):
+            destination.write_bytes(b"data")
+            paths.append(destination)
+
+        async def verify_source(self, _request):
+            assert paths[0].is_file()
+            raise c.InputFailure(code)
+
+    @asynccontextmanager
+    async def gateway(**_kwargs):
+        yield Gateway()
+
+    async def no_sleep(_delay):
+        pass
+
+    monkeypatch.setattr("app.services.accepted_inputs.input_gateway", gateway)
+    monkeypatch.setattr(
+        "app.application.preannotation_execution.asyncio.sleep", no_sleep
+    )
+    failure = c.InputFailure if code == "source_changed" else PreannotationInputDeferred
+    with pytest.raises(failure, match=code):
+        async with _prepare_accepted_input(request, _session_factory(job, task)):
+            pytest.fail("invalid input must not reach job claim or overwrite")
+    assert job.status == "pending"
+    assert not paths[0].exists()
+
+
+@pytest.mark.asyncio
 async def test_busy_write_retries_the_same_model_result_after_rollback(monkeypatch):
     request = SimpleNamespace(result=[{"class_name": "car"}])
     calls = []
@@ -238,7 +285,7 @@ async def test_failed_prediction_write_retries_same_receipt_after_rollback(monke
     class Writer:
         async def apply_prediction_result(self, received):
             calls.append(received)
-            if len(calls) == 2:
+            if len(calls) == 1:
                 raise ApplyPredictionResultError(
                     code="input_busy",
                     status_code=409,
@@ -262,5 +309,5 @@ async def test_failed_prediction_write_retries_same_receipt_after_rollback(monke
     result = await _apply_retry_prediction_with_retries(Writer(), session, request)
 
     assert result == "saved"
-    assert len(calls) == 3 and all(received is request for received in calls)
+    assert len(calls) == 2 and all(received is request for received in calls)
     assert session.rollbacks == 1

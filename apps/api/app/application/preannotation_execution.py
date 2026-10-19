@@ -333,11 +333,24 @@ async def _prepare_accepted_input(request: BatchPredictionRequest, SessionLocal)
                 if exc.code in {"input_busy", "storage_unavailable"}:
                     raise PreannotationInputDeferred(exc.code) from exc
                 raise
-            yield _PreparedAcceptedInput(
+            prepared = _PreparedAcceptedInput(
                 gateway=gateway,
                 reference=reference,
                 local_path=local_path,
             )
+            try:
+                await _verify_accepted_input_source(prepared)
+            except c.InputFailure as exc:
+                if exc.code in {
+                    "input_busy",
+                    "source_busy",
+                    "reference_busy",
+                    "job_busy",
+                    "storage_unavailable",
+                }:
+                    raise PreannotationInputDeferred(exc.code) from exc
+                raise
+            yield prepared
 
 
 _PAD_BY_DEPTH: dict[int, float] = {1: 0.05, 2: 0.08, 3: 0.12}
@@ -459,7 +472,8 @@ async def _run_task_pipeline(
     if needs_image and input_image_path is not None:
         from PIL import Image
 
-        image = Image.open(input_image_path).convert("RGB")
+        with Image.open(input_image_path) as opened:
+            image = opened.convert("RGB")
     elif needs_image:
         image = prediction_context.load_task_image(task)
     else:
@@ -1038,6 +1052,11 @@ async def _execute_preannotation(
                         if precreated_job is not None
                         else None,
                         job_id_known=True,
+                        accepted_input_id=(
+                            accepted_input.reference.input.input_id
+                            if accepted_input is not None
+                            else None
+                        ),
                     ),
                     operations=("preannotation",),
                 )

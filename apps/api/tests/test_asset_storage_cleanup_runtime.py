@@ -393,6 +393,7 @@ def _write_worker_environment(
         "ASSET_CLEANUP_S3_ENDPOINT": endpoint,
         "ASSET_CLEANUP_S3_REGION": "us-east-1",
         "ASSET_CLEANUP_BUCKET": bucket,
+        "ASSET_CLEANUP_INPUTS_BUCKET": _required_env("MINIO_INPUTS_BUCKET"),
         "ASSET_CLEANUP_S3_ACCESS_KEY": access_key,
         "ASSET_CLEANUP_S3_SECRET_KEY": secret_key,
         "ASSET_CLEANUP_POLL_SECONDS": "0.1",

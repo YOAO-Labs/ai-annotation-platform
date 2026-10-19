@@ -297,7 +297,7 @@ class ImageControl:
 
     async def observe_source(self, request: c.ReadImageSourceRequest) -> c.ImageSource:
         """Return observed facts for another Assets capability without signing a URL."""
-        return await self._observe(request)
+        return await self._observe_actor(request)
 
     async def observe_internal_source(
         self, request: c.InternalImageSourceRequest

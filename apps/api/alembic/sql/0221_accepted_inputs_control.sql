@@ -526,6 +526,8 @@ BEGIN
     END IF;
     IF v_input.status = 'expired' THEN
         RETURN aap_assets_v1._accepted_image_input_reply(NULL, 'input_expired');
+    ELSIF v_input.status = 'failed' THEN
+        RETURN aap_assets_v1._accepted_image_input_reply(NULL, v_input.error_code);
     ELSIF v_input.status <> 'ready' THEN
         RETURN aap_assets_v1._accepted_image_input_reply(NULL, 'input_not_ready');
     END IF;
