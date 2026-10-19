@@ -7,6 +7,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Protocol
 
+from aap_assets_video_inputs.evidence import VideoInputEvidence
+
 from app.services.labeling_write_scope import LabelingWriteScope
 
 
@@ -39,6 +41,7 @@ class ApplyPredictionResultRequest:
     ml_backend_pool_id: uuid.UUID | None = None
     model_provenance: dict[str, Any] | None = None
     accepted_input_job_id: uuid.UUID | None = None
+    accepted_video_input: VideoInputEvidence | None = None
 
 
 @dataclass(frozen=True, slots=True)
