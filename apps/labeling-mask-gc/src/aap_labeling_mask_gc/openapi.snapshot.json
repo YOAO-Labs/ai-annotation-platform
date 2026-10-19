@@ -1,0 +1,412 @@
+{
+  "components": {
+    "schemas": {
+      "CycleStats": {
+        "additionalProperties": false,
+        "properties": {
+          "completed": {
+            "default": 0,
+            "minimum": 0,
+            "title": "Completed",
+            "type": "integer"
+          },
+          "content_changed": {
+            "default": 0,
+            "minimum": 0,
+            "title": "Content Changed",
+            "type": "integer"
+          },
+          "data_errors": {
+            "default": 0,
+            "minimum": 0,
+            "title": "Data Errors",
+            "type": "integer"
+          },
+          "delete_claims": {
+            "default": 0,
+            "minimum": 0,
+            "title": "Delete Claims",
+            "type": "integer"
+          },
+          "deleted": {
+            "default": 0,
+            "minimum": 0,
+            "title": "Deleted",
+            "type": "integer"
+          },
+          "durable_uncertainties": {
+            "default": 0,
+            "minimum": 0,
+            "title": "Durable Uncertainties",
+            "type": "integer"
+          },
+          "finish_errors": {
+            "default": 0,
+            "minimum": 0,
+            "title": "Finish Errors",
+            "type": "integer"
+          },
+          "indeterminate": {
+            "default": 0,
+            "minimum": 0,
+            "title": "Indeterminate",
+            "type": "integer"
+          },
+          "missing": {
+            "default": 0,
+            "minimum": 0,
+            "title": "Missing",
+            "type": "integer"
+          },
+          "pending": {
+            "default": 0,
+            "minimum": 0,
+            "title": "Pending",
+            "type": "integer"
+          },
+          "scan_errors": {
+            "default": 0,
+            "minimum": 0,
+            "title": "Scan Errors",
+            "type": "integer"
+          },
+          "scan_pages": {
+            "default": 0,
+            "minimum": 0,
+            "title": "Scan Pages",
+            "type": "integer"
+          },
+          "scanned": {
+            "default": 0,
+            "minimum": 0,
+            "title": "Scanned",
+            "type": "integer"
+          },
+          "skipped": {
+            "default": 0,
+            "minimum": 0,
+            "title": "Skipped",
+            "type": "integer"
+          },
+          "staged": {
+            "default": 0,
+            "minimum": 0,
+            "title": "Staged",
+            "type": "integer"
+          }
+        },
+        "title": "CycleStats",
+        "type": "object"
+      },
+      "ProgressRequest": {
+        "additionalProperties": false,
+        "title": "ProgressRequest",
+        "type": "object"
+      },
+      "ReadMaskGcProgressResult": {
+        "additionalProperties": false,
+        "properties": {
+          "active_intents": {
+            "minimum": 0,
+            "title": "Active Intents",
+            "type": "integer"
+          },
+          "completed_intents": {
+            "minimum": 0,
+            "title": "Completed Intents",
+            "type": "integer"
+          },
+          "indeterminate_intents": {
+            "minimum": 0,
+            "title": "Indeterminate Intents",
+            "type": "integer"
+          },
+          "sweep": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SweepClaim"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": ["active_intents", "indeterminate_intents", "completed_intents", "sweep"],
+        "title": "ReadMaskGcProgressResult",
+        "type": "object"
+      },
+      "RunRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "delete_limit": {
+            "default": 100,
+            "maximum": 100,
+            "minimum": 1,
+            "title": "Delete Limit",
+            "type": "integer"
+          },
+          "scan_pages": {
+            "default": 1,
+            "maximum": 20,
+            "minimum": 1,
+            "title": "Scan Pages",
+            "type": "integer"
+          }
+        },
+        "title": "RunRequest",
+        "type": "object"
+      },
+      "SweepClaim": {
+        "additionalProperties": false,
+        "properties": {
+          "after_key": {
+            "anyOf": [
+              {
+                "maxLength": 1024,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "After Key"
+          },
+          "complete": {
+            "title": "Complete",
+            "type": "boolean"
+          },
+          "cutoff": {
+            "format": "date-time",
+            "title": "Cutoff",
+            "type": "string"
+          },
+          "generation": {
+            "minimum": 1,
+            "title": "Generation",
+            "type": "integer"
+          },
+          "lease_expires_at": {
+            "format": "date-time",
+            "title": "Lease Expires At",
+            "type": "string"
+          },
+          "lease_token": {
+            "format": "uuid",
+            "title": "Lease Token",
+            "type": "string"
+          },
+          "sweep_id": {
+            "format": "uuid",
+            "title": "Sweep Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "sweep_id",
+          "generation",
+          "lease_token",
+          "lease_expires_at",
+          "cutoff",
+          "after_key",
+          "complete"
+        ],
+        "title": "SweepClaim",
+        "type": "object"
+      }
+    },
+    "securitySchemes": {
+      "serviceToken": {
+        "scheme": "bearer",
+        "type": "http"
+      }
+    }
+  },
+  "info": {
+    "title": "AAP Labeling Mask GC",
+    "version": "1"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/v1/mask-gc/progress": {
+      "post": {
+        "operationId": "readMaskGcProgress",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProgressRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/ReadMaskGcProgressResult"
+                    },
+                    "ok": {
+                      "const": true
+                    },
+                    "schema": {
+                      "const": "aap-labeling-mask-gc/v1"
+                    }
+                  },
+                  "required": ["schema", "ok", "data"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Labeling Mask GC result"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "content_deleting",
+                            "content_epoch_changed",
+                            "cursor_conflict",
+                            "idempotency_conflict",
+                            "invalid_request",
+                            "invalid_response",
+                            "lease_lost",
+                            "permission_denied",
+                            "storage_unavailable"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code"],
+                      "type": "object"
+                    },
+                    "ok": {
+                      "const": false
+                    },
+                    "schema": {
+                      "const": "aap-labeling-mask-gc/v1"
+                    }
+                  },
+                  "required": ["schema", "ok", "error"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Closed Labeling Mask GC error"
+          }
+        },
+        "security": [
+          {
+            "serviceToken": []
+          }
+        ]
+      }
+    },
+    "/v1/mask-gc/run": {
+      "post": {
+        "operationId": "runMaskGcCycle",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RunRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/CycleStats"
+                    },
+                    "ok": {
+                      "const": true
+                    },
+                    "schema": {
+                      "const": "aap-labeling-mask-gc/v1"
+                    }
+                  },
+                  "required": ["schema", "ok", "data"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Labeling Mask GC result"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "content_deleting",
+                            "content_epoch_changed",
+                            "cursor_conflict",
+                            "idempotency_conflict",
+                            "invalid_request",
+                            "invalid_response",
+                            "lease_lost",
+                            "permission_denied",
+                            "storage_unavailable"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code"],
+                      "type": "object"
+                    },
+                    "ok": {
+                      "const": false
+                    },
+                    "schema": {
+                      "const": "aap-labeling-mask-gc/v1"
+                    }
+                  },
+                  "required": ["schema", "ok", "error"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Closed Labeling Mask GC error"
+          }
+        },
+        "security": [
+          {
+            "serviceToken": []
+          }
+        ]
+      }
+    }
+  },
+  "x-aap-schema": "aap-labeling-mask-gc/v1",
+  "x-budgets": {
+    "delete_claims_per_cycle": 100,
+    "request_bytes": 1048576,
+    "response_bytes": 1048576,
+    "scan_pages_per_cycle": 20
+  }
+}
