@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "aap-preannotation-results"
+version = "0.1.0"
+description = "Portable durable batch preannotation result contract and native adapter"
+requires-python = ">=3.11"
+dependencies = ["pydantic>=2.10.0"]
+
+[project.optional-dependencies]
+postgres = ["asyncpg>=0.30.0"]
+test = ["pytest>=8.3.0", "ruff==0.15.22"]
+
+[project.scripts]
+aap-preannotation-results = "aap_preannotation_results_runtime.__main__:main"
+
+[tool.setuptools.package-data]
+aap_preannotation_results = ["protocol.schema.json"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = "-q"

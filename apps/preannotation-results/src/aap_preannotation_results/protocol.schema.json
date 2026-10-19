@@ -1,0 +1,2610 @@
+{
+  "$defs": {
+    "BeginBatchResultRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "bundle_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Bundle Digest",
+          "type": "string"
+        },
+        "context": {
+          "additionalProperties": true,
+          "title": "Context",
+          "type": "object"
+        },
+        "generation": {
+          "maximum": 9223372036854775807,
+          "minimum": 1,
+          "title": "Generation",
+          "type": "integer"
+        },
+        "job_id": {
+          "format": "uuid",
+          "title": "Job Id",
+          "type": "string"
+        },
+        "lease_token": {
+          "format": "uuid",
+          "title": "Lease Token",
+          "type": "string"
+        },
+        "ordinal": {
+          "maximum": 9223372036854775807,
+          "minimum": 1,
+          "title": "Ordinal",
+          "type": "integer"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "request_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Request Digest",
+          "type": "string"
+        },
+        "restart_incomplete": {
+          "default": false,
+          "title": "Restart Incomplete",
+          "type": "boolean"
+        },
+        "result_count": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Result Count",
+          "type": "integer"
+        },
+        "stage": {
+          "enum": ["raw", "prepared"],
+          "title": "Stage",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "job_id",
+        "actor_id",
+        "project_id",
+        "request_digest",
+        "generation",
+        "lease_token",
+        "ordinal",
+        "task_id",
+        "result_count",
+        "bundle_digest",
+        "stage",
+        "context"
+      ],
+      "title": "BeginBatchResultRequest",
+      "type": "object"
+    },
+    "BeginBatchResultResult": {
+      "additionalProperties": false,
+      "properties": {
+        "result": {
+          "$ref": "#/$defs/Result"
+        }
+      },
+      "required": ["result"],
+      "title": "BeginBatchResultResult",
+      "type": "object"
+    },
+    "ClaimBatchResultExecutionRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "execution_id": {
+          "title": "Execution Id",
+          "type": "string"
+        },
+        "job_id": {
+          "format": "uuid",
+          "title": "Job Id",
+          "type": "string"
+        },
+        "lease_seconds": {
+          "default": 120,
+          "maximum": 300,
+          "minimum": 5,
+          "title": "Lease Seconds",
+          "type": "integer"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "request_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Request Digest",
+          "type": "string"
+        },
+        "worker_id": {
+          "format": "uuid",
+          "title": "Worker Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "job_id",
+        "actor_id",
+        "project_id",
+        "request_digest",
+        "worker_id",
+        "execution_id"
+      ],
+      "title": "ClaimBatchResultExecutionRequest",
+      "type": "object"
+    },
+    "ClaimBatchResultExecutionResult": {
+      "additionalProperties": false,
+      "properties": {
+        "lease": {
+          "$ref": "#/$defs/Lease"
+        },
+        "progress": {
+          "$ref": "#/$defs/Progress"
+        }
+      },
+      "required": ["lease", "progress"],
+      "title": "ClaimBatchResultExecutionResult",
+      "type": "object"
+    },
+    "FinishBatchResultExecutionRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "error_code": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Error Code"
+        },
+        "generation": {
+          "maximum": 9223372036854775807,
+          "minimum": 1,
+          "title": "Generation",
+          "type": "integer"
+        },
+        "job_id": {
+          "format": "uuid",
+          "title": "Job Id",
+          "type": "string"
+        },
+        "lease_token": {
+          "format": "uuid",
+          "title": "Lease Token",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "request_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Request Digest",
+          "type": "string"
+        },
+        "result_extra": {
+          "additionalProperties": true,
+          "title": "Result Extra",
+          "type": "object"
+        },
+        "status": {
+          "enum": ["completed", "failed", "cancelled"],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "job_id",
+        "actor_id",
+        "project_id",
+        "request_digest",
+        "generation",
+        "lease_token",
+        "status",
+        "error_code",
+        "result_extra"
+      ],
+      "title": "FinishBatchResultExecutionRequest",
+      "type": "object"
+    },
+    "FinishBatchResultExecutionResult": {
+      "additionalProperties": false,
+      "properties": {
+        "progress": {
+          "$ref": "#/$defs/Progress"
+        }
+      },
+      "required": ["progress"],
+      "title": "FinishBatchResultExecutionResult",
+      "type": "object"
+    },
+    "FinishBatchResultFailureRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "context": {
+          "additionalProperties": true,
+          "title": "Context",
+          "type": "object"
+        },
+        "error_code": {
+          "title": "Error Code",
+          "type": "string"
+        },
+        "failed_prediction_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Failed Prediction Id"
+        },
+        "generation": {
+          "maximum": 9223372036854775807,
+          "minimum": 1,
+          "title": "Generation",
+          "type": "integer"
+        },
+        "job_id": {
+          "format": "uuid",
+          "title": "Job Id",
+          "type": "string"
+        },
+        "lease_token": {
+          "format": "uuid",
+          "title": "Lease Token",
+          "type": "string"
+        },
+        "ordinal": {
+          "maximum": 9223372036854775807,
+          "minimum": 1,
+          "title": "Ordinal",
+          "type": "integer"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "request_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Request Digest",
+          "type": "string"
+        }
+      },
+      "required": [
+        "job_id",
+        "actor_id",
+        "project_id",
+        "request_digest",
+        "generation",
+        "lease_token",
+        "ordinal",
+        "failed_prediction_id",
+        "error_code",
+        "context"
+      ],
+      "title": "FinishBatchResultFailureRequest",
+      "type": "object"
+    },
+    "FinishBatchResultFailureResult": {
+      "additionalProperties": false,
+      "properties": {
+        "progress": {
+          "$ref": "#/$defs/Progress"
+        }
+      },
+      "required": ["progress"],
+      "title": "FinishBatchResultFailureResult",
+      "type": "object"
+    },
+    "FinishBatchResultWriteRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "generation": {
+          "maximum": 9223372036854775807,
+          "minimum": 1,
+          "title": "Generation",
+          "type": "integer"
+        },
+        "job_id": {
+          "format": "uuid",
+          "title": "Job Id",
+          "type": "string"
+        },
+        "lease_token": {
+          "format": "uuid",
+          "title": "Lease Token",
+          "type": "string"
+        },
+        "ordinal": {
+          "maximum": 9223372036854775807,
+          "minimum": 1,
+          "title": "Ordinal",
+          "type": "integer"
+        },
+        "prepared_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Prepared Digest",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "request_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Request Digest",
+          "type": "string"
+        },
+        "result_id": {
+          "format": "uuid",
+          "title": "Result Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "job_id",
+        "actor_id",
+        "project_id",
+        "request_digest",
+        "generation",
+        "lease_token",
+        "ordinal",
+        "result_id",
+        "prepared_digest"
+      ],
+      "title": "FinishBatchResultWriteRequest",
+      "type": "object"
+    },
+    "FinishBatchResultWriteResult": {
+      "additionalProperties": false,
+      "properties": {
+        "progress": {
+          "$ref": "#/$defs/Progress"
+        },
+        "result": {
+          "$ref": "#/$defs/Result"
+        }
+      },
+      "required": ["result", "progress"],
+      "title": "FinishBatchResultWriteResult",
+      "type": "object"
+    },
+    "HeartbeatBatchResultExecutionRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "generation": {
+          "maximum": 9223372036854775807,
+          "minimum": 1,
+          "title": "Generation",
+          "type": "integer"
+        },
+        "job_id": {
+          "format": "uuid",
+          "title": "Job Id",
+          "type": "string"
+        },
+        "lease_seconds": {
+          "default": 120,
+          "maximum": 300,
+          "minimum": 5,
+          "title": "Lease Seconds",
+          "type": "integer"
+        },
+        "lease_token": {
+          "format": "uuid",
+          "title": "Lease Token",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "request_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Request Digest",
+          "type": "string"
+        }
+      },
+      "required": [
+        "job_id",
+        "actor_id",
+        "project_id",
+        "request_digest",
+        "generation",
+        "lease_token"
+      ],
+      "title": "HeartbeatBatchResultExecutionRequest",
+      "type": "object"
+    },
+    "HeartbeatBatchResultExecutionResult": {
+      "additionalProperties": false,
+      "properties": {
+        "lease": {
+          "$ref": "#/$defs/Lease"
+        },
+        "progress": {
+          "$ref": "#/$defs/Progress"
+        }
+      },
+      "required": ["lease", "progress"],
+      "title": "HeartbeatBatchResultExecutionResult",
+      "type": "object"
+    },
+    "LabelingWriteScope": {
+      "additionalProperties": false,
+      "description": "Portable shape of the existing frozen LabelingWriteScope dataclass.",
+      "properties": {
+        "accepted_input_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Accepted Input Id"
+        },
+        "actor_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Actor Id"
+        },
+        "actor_known": {
+          "title": "Actor Known",
+          "type": "boolean"
+        },
+        "assignee_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Assignee Id"
+        },
+        "execution_scope": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Execution Scope"
+        },
+        "execution_scope_known": {
+          "title": "Execution Scope Known",
+          "type": "boolean"
+        },
+        "expected_batch_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Expected Batch Id"
+        },
+        "expected_batch_id_known": {
+          "title": "Expected Batch Id Known",
+          "type": "boolean"
+        },
+        "job_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Job Id"
+        },
+        "job_id_known": {
+          "title": "Job Id Known",
+          "type": "boolean"
+        },
+        "operation": {
+          "const": "preannotation",
+          "title": "Operation",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "review_round_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Review Round Id"
+        },
+        "source_annotation_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Source Annotation Id"
+        },
+        "source_annotation_version": {
+          "anyOf": [
+            {
+              "maximum": 9223372036854775807,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Source Annotation Version"
+        },
+        "source_binding_known": {
+          "title": "Source Binding Known",
+          "type": "boolean"
+        },
+        "source_dataset_item_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Source Dataset Item Id"
+        },
+        "source_file_path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Source File Path"
+        },
+        "source_file_type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Source File Type"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "task_source_generation": {
+          "anyOf": [
+            {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Task Source Generation"
+        },
+        "task_status": {
+          "title": "Task Status",
+          "type": "string"
+        },
+        "task_version": {
+          "anyOf": [
+            {
+              "maximum": 9223372036854775807,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Task Version"
+        }
+      },
+      "required": [
+        "task_id",
+        "project_id",
+        "actor_id",
+        "actor_known",
+        "operation",
+        "execution_scope",
+        "execution_scope_known",
+        "task_version",
+        "task_status",
+        "assignee_id",
+        "review_round_id",
+        "source_annotation_id",
+        "source_annotation_version",
+        "expected_batch_id",
+        "expected_batch_id_known",
+        "job_id",
+        "job_id_known",
+        "source_binding_known",
+        "task_source_generation",
+        "source_dataset_item_id",
+        "source_file_path",
+        "source_file_type",
+        "accepted_input_id"
+      ],
+      "title": "LabelingWriteScope",
+      "type": "object"
+    },
+    "Lease": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "execution_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Execution Id"
+        },
+        "generation": {
+          "maximum": 9223372036854775807,
+          "minimum": 1,
+          "title": "Generation",
+          "type": "integer"
+        },
+        "job_id": {
+          "format": "uuid",
+          "title": "Job Id",
+          "type": "string"
+        },
+        "lease_expires_at": {
+          "format": "date-time",
+          "title": "Lease Expires At",
+          "type": "string"
+        },
+        "lease_token": {
+          "format": "uuid",
+          "title": "Lease Token",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "request_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Request Digest",
+          "type": "string"
+        },
+        "worker_id": {
+          "format": "uuid",
+          "title": "Worker Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "job_id",
+        "actor_id",
+        "project_id",
+        "request_digest",
+        "generation",
+        "lease_token",
+        "worker_id",
+        "execution_id",
+        "lease_expires_at"
+      ],
+      "title": "Lease",
+      "type": "object"
+    },
+    "LeaseScope": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "generation": {
+          "maximum": 9223372036854775807,
+          "minimum": 1,
+          "title": "Generation",
+          "type": "integer"
+        },
+        "job_id": {
+          "format": "uuid",
+          "title": "Job Id",
+          "type": "string"
+        },
+        "lease_token": {
+          "format": "uuid",
+          "title": "Lease Token",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "request_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Request Digest",
+          "type": "string"
+        }
+      },
+      "required": [
+        "job_id",
+        "actor_id",
+        "project_id",
+        "request_digest",
+        "generation",
+        "lease_token"
+      ],
+      "title": "LeaseScope",
+      "type": "object"
+    },
+    "LockBatchResultWriteRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "generation": {
+          "maximum": 9223372036854775807,
+          "minimum": 1,
+          "title": "Generation",
+          "type": "integer"
+        },
+        "job_id": {
+          "format": "uuid",
+          "title": "Job Id",
+          "type": "string"
+        },
+        "lease_token": {
+          "format": "uuid",
+          "title": "Lease Token",
+          "type": "string"
+        },
+        "ordinal": {
+          "maximum": 9223372036854775807,
+          "minimum": 1,
+          "title": "Ordinal",
+          "type": "integer"
+        },
+        "prepared_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Prepared Digest",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "request_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Request Digest",
+          "type": "string"
+        },
+        "result_id": {
+          "format": "uuid",
+          "title": "Result Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "job_id",
+        "actor_id",
+        "project_id",
+        "request_digest",
+        "generation",
+        "lease_token",
+        "ordinal",
+        "result_id",
+        "prepared_digest"
+      ],
+      "title": "LockBatchResultWriteRequest",
+      "type": "object"
+    },
+    "LockBatchResultWriteResult": {
+      "additionalProperties": false,
+      "properties": {
+        "result": {
+          "$ref": "#/$defs/Result"
+        }
+      },
+      "required": ["result"],
+      "title": "LockBatchResultWriteResult",
+      "type": "object"
+    },
+    "MarkBatchResultOverwriteRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "generation": {
+          "maximum": 9223372036854775807,
+          "minimum": 1,
+          "title": "Generation",
+          "type": "integer"
+        },
+        "job_id": {
+          "format": "uuid",
+          "title": "Job Id",
+          "type": "string"
+        },
+        "lease_token": {
+          "format": "uuid",
+          "title": "Lease Token",
+          "type": "string"
+        },
+        "ordinal": {
+          "anyOf": [
+            {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Ordinal"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "request_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Request Digest",
+          "type": "string"
+        }
+      },
+      "required": [
+        "job_id",
+        "actor_id",
+        "project_id",
+        "request_digest",
+        "generation",
+        "lease_token",
+        "ordinal"
+      ],
+      "title": "MarkBatchResultOverwriteRequest",
+      "type": "object"
+    },
+    "MarkBatchResultOverwriteResult": {
+      "additionalProperties": false,
+      "properties": {
+        "member": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Member"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "progress": {
+          "$ref": "#/$defs/Progress"
+        }
+      },
+      "required": ["progress", "member"],
+      "title": "MarkBatchResultOverwriteResult",
+      "type": "object"
+    },
+    "Member": {
+      "additionalProperties": false,
+      "properties": {
+        "error_code": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Error Code"
+        },
+        "failed_prediction_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Failed Prediction Id"
+        },
+        "failure_id": {
+          "format": "uuid",
+          "title": "Failure Id",
+          "type": "string"
+        },
+        "manifest_member": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Manifest Member"
+        },
+        "ordinal": {
+          "maximum": 9223372036854775807,
+          "minimum": 1,
+          "title": "Ordinal",
+          "type": "integer"
+        },
+        "overwrite_done": {
+          "title": "Overwrite Done",
+          "type": "boolean"
+        },
+        "result_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Result Id"
+        },
+        "state": {
+          "enum": [
+            "planned",
+            "prepared",
+            "capturing",
+            "captured",
+            "ready",
+            "applied",
+            "failed",
+            "skipped"
+          ],
+          "title": "State",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "write_scope": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LabelingWriteScope"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "ordinal",
+        "task_id",
+        "write_scope",
+        "manifest_member",
+        "failure_id",
+        "overwrite_done",
+        "state",
+        "result_id",
+        "failed_prediction_id",
+        "error_code"
+      ],
+      "title": "Member",
+      "type": "object"
+    },
+    "Payload": {
+      "additionalProperties": false,
+      "properties": {
+        "byte_size": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Byte Size",
+          "type": "integer"
+        },
+        "complete": {
+          "title": "Complete",
+          "type": "boolean"
+        },
+        "part_count": {
+          "maximum": 9223372036854775807,
+          "minimum": 1,
+          "title": "Part Count",
+          "type": "integer"
+        },
+        "payload_id": {
+          "format": "uuid",
+          "title": "Payload Id",
+          "type": "string"
+        },
+        "prediction_created_at": {
+          "format": "date-time",
+          "title": "Prediction Created At",
+          "type": "string"
+        },
+        "prediction_id": {
+          "format": "uuid",
+          "title": "Prediction Id",
+          "type": "string"
+        },
+        "receipt": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Receipt"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "request_index": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Request Index",
+          "type": "integer"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "stage": {
+          "enum": ["raw", "prepared"],
+          "title": "Stage",
+          "type": "string"
+        },
+        "tool_unit_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Tool Unit Id"
+        }
+      },
+      "required": [
+        "payload_id",
+        "request_index",
+        "prediction_id",
+        "prediction_created_at",
+        "stage",
+        "sha256",
+        "byte_size",
+        "part_count",
+        "complete",
+        "tool_unit_id",
+        "receipt"
+      ],
+      "title": "Payload",
+      "type": "object"
+    },
+    "Progress": {
+      "additionalProperties": false,
+      "properties": {
+        "bulk_overwrite_done": {
+          "title": "Bulk Overwrite Done",
+          "type": "boolean"
+        },
+        "failed_count": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Failed Count",
+          "type": "integer"
+        },
+        "gpu_arbiter_failures": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Gpu Arbiter Failures",
+          "type": "array"
+        },
+        "job_id": {
+          "format": "uuid",
+          "title": "Job Id",
+          "type": "string"
+        },
+        "next_ordinal": {
+          "description": "Current work ordinal; terminal executions use total + 1.",
+          "maximum": 9223372036854775807,
+          "minimum": 1,
+          "title": "Next Ordinal",
+          "type": "integer"
+        },
+        "pipeline_stages": {
+          "additionalProperties": {
+            "additionalProperties": {
+              "maximum": 9223372036854775807,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "type": "object"
+          },
+          "title": "Pipeline Stages",
+          "type": "object"
+        },
+        "selection_complete": {
+          "title": "Selection Complete",
+          "type": "boolean"
+        },
+        "selection_cursor": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Selection Cursor",
+          "type": "integer"
+        },
+        "skipped_count": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Skipped Count",
+          "type": "integer"
+        },
+        "state": {
+          "enum": ["preparing", "running", "completed", "failed", "cancelled"],
+          "title": "State",
+          "type": "string"
+        },
+        "success_count": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Success Count",
+          "type": "integer"
+        },
+        "total": {
+          "anyOf": [
+            {
+              "maximum": 9223372036854775807,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Total"
+        },
+        "total_cost": {
+          "title": "Total Cost",
+          "type": "string"
+        }
+      },
+      "required": [
+        "job_id",
+        "state",
+        "total",
+        "selection_cursor",
+        "selection_complete",
+        "next_ordinal",
+        "bulk_overwrite_done",
+        "success_count",
+        "failed_count",
+        "skipped_count",
+        "total_cost",
+        "pipeline_stages",
+        "gpu_arbiter_failures"
+      ],
+      "title": "Progress",
+      "type": "object"
+    },
+    "PutBatchResultPartRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "byte_size": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Byte Size",
+          "type": "integer"
+        },
+        "content": {
+          "maxLength": 699052,
+          "minLength": 1,
+          "title": "Content",
+          "type": "string"
+        },
+        "generation": {
+          "maximum": 9223372036854775807,
+          "minimum": 1,
+          "title": "Generation",
+          "type": "integer"
+        },
+        "job_id": {
+          "format": "uuid",
+          "title": "Job Id",
+          "type": "string"
+        },
+        "lease_token": {
+          "format": "uuid",
+          "title": "Lease Token",
+          "type": "string"
+        },
+        "ordinal": {
+          "maximum": 9223372036854775807,
+          "minimum": 1,
+          "title": "Ordinal",
+          "type": "integer"
+        },
+        "part_count": {
+          "maximum": 9223372036854775807,
+          "minimum": 1,
+          "title": "Part Count",
+          "type": "integer"
+        },
+        "part_index": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Part Index",
+          "type": "integer"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "request_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Request Digest",
+          "type": "string"
+        },
+        "request_index": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Request Index",
+          "type": "integer"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "stage": {
+          "enum": ["raw", "prepared"],
+          "title": "Stage",
+          "type": "string"
+        },
+        "tool_unit_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Tool Unit Id"
+        }
+      },
+      "required": [
+        "job_id",
+        "actor_id",
+        "project_id",
+        "request_digest",
+        "generation",
+        "lease_token",
+        "ordinal",
+        "stage",
+        "request_index",
+        "sha256",
+        "byte_size",
+        "part_count",
+        "part_index",
+        "content",
+        "tool_unit_id"
+      ],
+      "title": "PutBatchResultPartRequest",
+      "type": "object"
+    },
+    "PutBatchResultPartResult": {
+      "additionalProperties": false,
+      "properties": {
+        "payload": {
+          "$ref": "#/$defs/Payload"
+        },
+        "result": {
+          "$ref": "#/$defs/Result"
+        }
+      },
+      "required": ["result", "payload"],
+      "title": "PutBatchResultPartResult",
+      "type": "object"
+    },
+    "ReadBatchResultExecutionRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "after_ordinal": {
+          "default": 0,
+          "description": "Exclusive member cursor; reads return ordinals greater than this value.",
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "After Ordinal",
+          "type": "integer"
+        },
+        "job_id": {
+          "format": "uuid",
+          "title": "Job Id",
+          "type": "string"
+        },
+        "limit": {
+          "default": 100,
+          "maximum": 100,
+          "minimum": 1,
+          "title": "Limit",
+          "type": "integer"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "request_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Request Digest",
+          "type": "string"
+        }
+      },
+      "required": ["job_id", "actor_id", "project_id", "request_digest"],
+      "title": "ReadBatchResultExecutionRequest",
+      "type": "object"
+    },
+    "ReadBatchResultExecutionResult": {
+      "additionalProperties": false,
+      "properties": {
+        "members": {
+          "items": {
+            "$ref": "#/$defs/Member"
+          },
+          "title": "Members",
+          "type": "array"
+        },
+        "next_ordinal": {
+          "anyOf": [
+            {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Exclusive page cursor for the next read: the last returned ordinal, or null when the selection is drained.",
+          "title": "Next Ordinal"
+        },
+        "progress": {
+          "$ref": "#/$defs/Progress"
+        }
+      },
+      "required": ["progress", "members", "next_ordinal"],
+      "title": "ReadBatchResultExecutionResult",
+      "type": "object"
+    },
+    "ReadBatchResultRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "job_id": {
+          "format": "uuid",
+          "title": "Job Id",
+          "type": "string"
+        },
+        "ordinal": {
+          "maximum": 9223372036854775807,
+          "minimum": 1,
+          "title": "Ordinal",
+          "type": "integer"
+        },
+        "part_index": {
+          "anyOf": [
+            {
+              "maximum": 9223372036854775807,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Part Index"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "request_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Request Digest",
+          "type": "string"
+        },
+        "request_index": {
+          "default": 0,
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Request Index",
+          "type": "integer"
+        },
+        "stage": {
+          "default": "raw",
+          "enum": ["raw", "prepared"],
+          "title": "Stage",
+          "type": "string"
+        }
+      },
+      "required": ["job_id", "actor_id", "project_id", "request_digest", "ordinal"],
+      "title": "ReadBatchResultRequest",
+      "type": "object"
+    },
+    "ReadBatchResultResult": {
+      "additionalProperties": false,
+      "properties": {
+        "content": {
+          "anyOf": [
+            {
+              "maxLength": 699052,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Content"
+        },
+        "payload": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Payload"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "result": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Result"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": ["result", "payload", "content"],
+      "title": "ReadBatchResultResult",
+      "type": "object"
+    },
+    "Receipt": {
+      "additionalProperties": false,
+      "properties": {
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "tool_unit_id": {
+          "title": "Tool Unit Id",
+          "type": "string"
+        }
+      },
+      "required": ["id", "created_at", "tool_unit_id"],
+      "title": "Receipt",
+      "type": "object"
+    },
+    "ReleaseBatchResultExecutionRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "generation": {
+          "maximum": 9223372036854775807,
+          "minimum": 1,
+          "title": "Generation",
+          "type": "integer"
+        },
+        "job_id": {
+          "format": "uuid",
+          "title": "Job Id",
+          "type": "string"
+        },
+        "lease_token": {
+          "format": "uuid",
+          "title": "Lease Token",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "request_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Request Digest",
+          "type": "string"
+        }
+      },
+      "required": [
+        "job_id",
+        "actor_id",
+        "project_id",
+        "request_digest",
+        "generation",
+        "lease_token"
+      ],
+      "title": "ReleaseBatchResultExecutionRequest",
+      "type": "object"
+    },
+    "ReleaseBatchResultExecutionResult": {
+      "additionalProperties": false,
+      "properties": {
+        "progress": {
+          "$ref": "#/$defs/Progress"
+        }
+      },
+      "required": ["progress"],
+      "title": "ReleaseBatchResultExecutionResult",
+      "type": "object"
+    },
+    "Result": {
+      "additionalProperties": false,
+      "properties": {
+        "context": {
+          "additionalProperties": true,
+          "title": "Context",
+          "type": "object"
+        },
+        "job_id": {
+          "format": "uuid",
+          "title": "Job Id",
+          "type": "string"
+        },
+        "ordinal": {
+          "maximum": 9223372036854775807,
+          "minimum": 1,
+          "title": "Ordinal",
+          "type": "integer"
+        },
+        "prepared_complete": {
+          "title": "Prepared Complete",
+          "type": "boolean"
+        },
+        "prepared_digest": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Prepared Digest"
+        },
+        "raw_complete": {
+          "title": "Raw Complete",
+          "type": "boolean"
+        },
+        "raw_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Raw Digest",
+          "type": "string"
+        },
+        "receipt_count": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Receipt Count",
+          "type": "integer"
+        },
+        "result_count": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Result Count",
+          "type": "integer"
+        },
+        "result_id": {
+          "format": "uuid",
+          "title": "Result Id",
+          "type": "string"
+        },
+        "state": {
+          "enum": ["capturing", "captured", "ready", "applied", "failed", "abandoned"],
+          "title": "State",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "result_id",
+        "job_id",
+        "ordinal",
+        "task_id",
+        "result_count",
+        "raw_digest",
+        "prepared_digest",
+        "raw_complete",
+        "prepared_complete",
+        "state",
+        "context",
+        "receipt_count"
+      ],
+      "title": "Result",
+      "type": "object"
+    },
+    "Scope": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "job_id": {
+          "format": "uuid",
+          "title": "Job Id",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "request_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Request Digest",
+          "type": "string"
+        }
+      },
+      "required": ["job_id", "actor_id", "project_id", "request_digest"],
+      "title": "Scope",
+      "type": "object"
+    },
+    "SealBatchResultRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "generation": {
+          "maximum": 9223372036854775807,
+          "minimum": 1,
+          "title": "Generation",
+          "type": "integer"
+        },
+        "job_id": {
+          "format": "uuid",
+          "title": "Job Id",
+          "type": "string"
+        },
+        "lease_token": {
+          "format": "uuid",
+          "title": "Lease Token",
+          "type": "string"
+        },
+        "ordinal": {
+          "maximum": 9223372036854775807,
+          "minimum": 1,
+          "title": "Ordinal",
+          "type": "integer"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "request_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Request Digest",
+          "type": "string"
+        },
+        "stage": {
+          "enum": ["raw", "prepared"],
+          "title": "Stage",
+          "type": "string"
+        }
+      },
+      "required": [
+        "job_id",
+        "actor_id",
+        "project_id",
+        "request_digest",
+        "generation",
+        "lease_token",
+        "ordinal",
+        "stage"
+      ],
+      "title": "SealBatchResultRequest",
+      "type": "object"
+    },
+    "SealBatchResultResult": {
+      "additionalProperties": false,
+      "properties": {
+        "result": {
+          "$ref": "#/$defs/Result"
+        }
+      },
+      "required": ["result"],
+      "title": "SealBatchResultResult",
+      "type": "object"
+    },
+    "SkipBatchResultMemberRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "generation": {
+          "maximum": 9223372036854775807,
+          "minimum": 1,
+          "title": "Generation",
+          "type": "integer"
+        },
+        "job_id": {
+          "format": "uuid",
+          "title": "Job Id",
+          "type": "string"
+        },
+        "lease_token": {
+          "format": "uuid",
+          "title": "Lease Token",
+          "type": "string"
+        },
+        "ordinal": {
+          "maximum": 9223372036854775807,
+          "minimum": 1,
+          "title": "Ordinal",
+          "type": "integer"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        },
+        "request_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Request Digest",
+          "type": "string"
+        }
+      },
+      "required": [
+        "job_id",
+        "actor_id",
+        "project_id",
+        "request_digest",
+        "generation",
+        "lease_token",
+        "ordinal",
+        "reason"
+      ],
+      "title": "SkipBatchResultMemberRequest",
+      "type": "object"
+    },
+    "SkipBatchResultMemberResult": {
+      "additionalProperties": false,
+      "properties": {
+        "progress": {
+          "$ref": "#/$defs/Progress"
+        }
+      },
+      "required": ["progress"],
+      "title": "SkipBatchResultMemberResult",
+      "type": "object"
+    },
+    "StageBatchResultMembersRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "after_ordinal": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "After Ordinal",
+          "type": "integer"
+        },
+        "complete": {
+          "title": "Complete",
+          "type": "boolean"
+        },
+        "generation": {
+          "maximum": 9223372036854775807,
+          "minimum": 1,
+          "title": "Generation",
+          "type": "integer"
+        },
+        "job_id": {
+          "format": "uuid",
+          "title": "Job Id",
+          "type": "string"
+        },
+        "lease_token": {
+          "format": "uuid",
+          "title": "Lease Token",
+          "type": "string"
+        },
+        "members": {
+          "items": {
+            "$ref": "#/$defs/StageMember"
+          },
+          "title": "Members",
+          "type": "array"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "request_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Request Digest",
+          "type": "string"
+        }
+      },
+      "required": [
+        "job_id",
+        "actor_id",
+        "project_id",
+        "request_digest",
+        "generation",
+        "lease_token",
+        "after_ordinal",
+        "members",
+        "complete"
+      ],
+      "title": "StageBatchResultMembersRequest",
+      "type": "object"
+    },
+    "StageBatchResultMembersResult": {
+      "additionalProperties": false,
+      "properties": {
+        "progress": {
+          "$ref": "#/$defs/Progress"
+        }
+      },
+      "required": ["progress"],
+      "title": "StageBatchResultMembersResult",
+      "type": "object"
+    },
+    "StageMember": {
+      "additionalProperties": false,
+      "properties": {
+        "manifest_member": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Manifest Member"
+        },
+        "ordinal": {
+          "maximum": 9223372036854775807,
+          "minimum": 1,
+          "title": "Ordinal",
+          "type": "integer"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "write_scope": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LabelingWriteScope"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": ["ordinal", "task_id", "write_scope", "manifest_member"],
+      "title": "StageMember",
+      "type": "object"
+    },
+    "StartBatchResultExecutionRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "generation": {
+          "maximum": 9223372036854775807,
+          "minimum": 1,
+          "title": "Generation",
+          "type": "integer"
+        },
+        "job_id": {
+          "format": "uuid",
+          "title": "Job Id",
+          "type": "string"
+        },
+        "lease_token": {
+          "format": "uuid",
+          "title": "Lease Token",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "request_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Request Digest",
+          "type": "string"
+        }
+      },
+      "required": [
+        "job_id",
+        "actor_id",
+        "project_id",
+        "request_digest",
+        "generation",
+        "lease_token"
+      ],
+      "title": "StartBatchResultExecutionRequest",
+      "type": "object"
+    },
+    "StartBatchResultExecutionResult": {
+      "additionalProperties": false,
+      "properties": {
+        "progress": {
+          "$ref": "#/$defs/Progress"
+        }
+      },
+      "required": ["progress"],
+      "title": "StartBatchResultExecutionResult",
+      "type": "object"
+    },
+    "StartBatchResultMemberRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "generation": {
+          "maximum": 9223372036854775807,
+          "minimum": 1,
+          "title": "Generation",
+          "type": "integer"
+        },
+        "job_id": {
+          "format": "uuid",
+          "title": "Job Id",
+          "type": "string"
+        },
+        "lease_token": {
+          "format": "uuid",
+          "title": "Lease Token",
+          "type": "string"
+        },
+        "ordinal": {
+          "maximum": 9223372036854775807,
+          "minimum": 1,
+          "title": "Ordinal",
+          "type": "integer"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "request_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Request Digest",
+          "type": "string"
+        }
+      },
+      "required": [
+        "job_id",
+        "actor_id",
+        "project_id",
+        "request_digest",
+        "generation",
+        "lease_token",
+        "ordinal"
+      ],
+      "title": "StartBatchResultMemberRequest",
+      "type": "object"
+    },
+    "StartBatchResultMemberResult": {
+      "additionalProperties": false,
+      "properties": {
+        "member": {
+          "$ref": "#/$defs/Member"
+        },
+        "progress": {
+          "$ref": "#/$defs/Progress"
+        }
+      },
+      "required": ["progress", "member"],
+      "title": "StartBatchResultMemberResult",
+      "type": "object"
+    },
+    "_Error": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "enum": [
+            "invalid_request",
+            "invalid_response",
+            "job_missing",
+            "job_not_writable",
+            "scope_mismatch",
+            "execution_busy",
+            "lease_lost",
+            "selection_conflict",
+            "result_conflict",
+            "result_not_ready",
+            "result_incomplete",
+            "content_deleting",
+            "content_epoch_changed",
+            "storage_unavailable"
+          ],
+          "title": "Code",
+          "type": "string"
+        }
+      },
+      "required": ["code"],
+      "title": "_Error",
+      "type": "object"
+    },
+    "_ErrorEnvelope": {
+      "additionalProperties": false,
+      "properties": {
+        "error": {
+          "$ref": "#/$defs/_Error"
+        },
+        "ok": {
+          "const": false
+        },
+        "schema": {
+          "const": "aap-preannotation-results/v1"
+        }
+      },
+      "required": ["schema", "ok", "error"],
+      "type": "object"
+    },
+    "_SuccessEnvelope": {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/ClaimBatchResultExecutionResult"
+            },
+            {
+              "$ref": "#/$defs/HeartbeatBatchResultExecutionResult"
+            },
+            {
+              "$ref": "#/$defs/ReleaseBatchResultExecutionResult"
+            },
+            {
+              "$ref": "#/$defs/StageBatchResultMembersResult"
+            },
+            {
+              "$ref": "#/$defs/StartBatchResultExecutionResult"
+            },
+            {
+              "$ref": "#/$defs/StartBatchResultMemberResult"
+            },
+            {
+              "$ref": "#/$defs/ReadBatchResultExecutionResult"
+            },
+            {
+              "$ref": "#/$defs/MarkBatchResultOverwriteResult"
+            },
+            {
+              "$ref": "#/$defs/SkipBatchResultMemberResult"
+            },
+            {
+              "$ref": "#/$defs/FinishBatchResultExecutionResult"
+            },
+            {
+              "$ref": "#/$defs/BeginBatchResultResult"
+            },
+            {
+              "$ref": "#/$defs/PutBatchResultPartResult"
+            },
+            {
+              "$ref": "#/$defs/SealBatchResultResult"
+            },
+            {
+              "$ref": "#/$defs/ReadBatchResultResult"
+            },
+            {
+              "$ref": "#/$defs/LockBatchResultWriteResult"
+            },
+            {
+              "$ref": "#/$defs/FinishBatchResultWriteResult"
+            },
+            {
+              "$ref": "#/$defs/FinishBatchResultFailureResult"
+            }
+          ]
+        },
+        "ok": {
+          "const": true
+        },
+        "schema": {
+          "const": "aap-preannotation-results/v1"
+        }
+      },
+      "required": ["schema", "ok", "data"],
+      "type": "object"
+    }
+  },
+  "$id": "https://schemas.aap.invalid/preannotation-results/v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/ClaimBatchResultExecutionRequest"
+    },
+    {
+      "$ref": "#/$defs/HeartbeatBatchResultExecutionRequest"
+    },
+    {
+      "$ref": "#/$defs/ReleaseBatchResultExecutionRequest"
+    },
+    {
+      "$ref": "#/$defs/StageBatchResultMembersRequest"
+    },
+    {
+      "$ref": "#/$defs/StartBatchResultExecutionRequest"
+    },
+    {
+      "$ref": "#/$defs/StartBatchResultMemberRequest"
+    },
+    {
+      "$ref": "#/$defs/ReadBatchResultExecutionRequest"
+    },
+    {
+      "$ref": "#/$defs/MarkBatchResultOverwriteRequest"
+    },
+    {
+      "$ref": "#/$defs/SkipBatchResultMemberRequest"
+    },
+    {
+      "$ref": "#/$defs/FinishBatchResultExecutionRequest"
+    },
+    {
+      "$ref": "#/$defs/BeginBatchResultRequest"
+    },
+    {
+      "$ref": "#/$defs/PutBatchResultPartRequest"
+    },
+    {
+      "$ref": "#/$defs/SealBatchResultRequest"
+    },
+    {
+      "$ref": "#/$defs/ReadBatchResultRequest"
+    },
+    {
+      "$ref": "#/$defs/LockBatchResultWriteRequest"
+    },
+    {
+      "$ref": "#/$defs/FinishBatchResultWriteRequest"
+    },
+    {
+      "$ref": "#/$defs/FinishBatchResultFailureRequest"
+    },
+    {
+      "$ref": "#/$defs/_SuccessEnvelope"
+    },
+    {
+      "$ref": "#/$defs/_ErrorEnvelope"
+    }
+  ],
+  "title": "AAP durable preannotation batch results",
+  "x-aap-schema": "aap-preannotation-results/v1",
+  "x-budgets": {
+    "lease_seconds": [5, 300],
+    "member_page": 100,
+    "request_bytes": 2097152,
+    "response_bytes": 2097152,
+    "snapshot_part_base64_chars": 699052,
+    "snapshot_part_bytes": 524288
+  },
+  "x-native-operations": {
+    "begin_batch_result": {
+      "arguments": ["payload"],
+      "namespace": "aap_labeling_v1",
+      "request": "BeginBatchResultRequest",
+      "result": "BeginBatchResultResult",
+      "role": "executor",
+      "sql_types": ["jsonb"]
+    },
+    "claim_batch_result_execution": {
+      "arguments": ["payload"],
+      "namespace": "aap_jobs_v1",
+      "request": "ClaimBatchResultExecutionRequest",
+      "result": "ClaimBatchResultExecutionResult",
+      "role": "executor",
+      "sql_types": ["jsonb"]
+    },
+    "finish_batch_result_execution": {
+      "arguments": ["payload"],
+      "namespace": "aap_jobs_v1",
+      "request": "FinishBatchResultExecutionRequest",
+      "result": "FinishBatchResultExecutionResult",
+      "role": "executor",
+      "sql_types": ["jsonb"]
+    },
+    "finish_batch_result_failure": {
+      "arguments": ["payload"],
+      "namespace": "aap_labeling_v1",
+      "request": "FinishBatchResultFailureRequest",
+      "result": "FinishBatchResultFailureResult",
+      "role": "writer",
+      "sql_types": ["jsonb"]
+    },
+    "finish_batch_result_write": {
+      "arguments": ["payload"],
+      "namespace": "aap_labeling_v1",
+      "request": "FinishBatchResultWriteRequest",
+      "result": "FinishBatchResultWriteResult",
+      "role": "writer",
+      "sql_types": ["jsonb"]
+    },
+    "heartbeat_batch_result_execution": {
+      "arguments": ["payload"],
+      "namespace": "aap_jobs_v1",
+      "request": "HeartbeatBatchResultExecutionRequest",
+      "result": "HeartbeatBatchResultExecutionResult",
+      "role": "executor",
+      "sql_types": ["jsonb"]
+    },
+    "lock_batch_result_write": {
+      "arguments": ["payload"],
+      "namespace": "aap_labeling_v1",
+      "request": "LockBatchResultWriteRequest",
+      "result": "LockBatchResultWriteResult",
+      "role": "writer",
+      "sql_types": ["jsonb"]
+    },
+    "mark_batch_result_overwrite": {
+      "arguments": ["payload"],
+      "namespace": "aap_jobs_v1",
+      "request": "MarkBatchResultOverwriteRequest",
+      "result": "MarkBatchResultOverwriteResult",
+      "role": "executor",
+      "sql_types": ["jsonb"]
+    },
+    "put_batch_result_part": {
+      "arguments": ["payload"],
+      "namespace": "aap_labeling_v1",
+      "request": "PutBatchResultPartRequest",
+      "result": "PutBatchResultPartResult",
+      "role": "executor",
+      "sql_types": ["jsonb"]
+    },
+    "read_batch_result": {
+      "arguments": ["payload"],
+      "namespace": "aap_labeling_v1",
+      "request": "ReadBatchResultRequest",
+      "result": "ReadBatchResultResult",
+      "role": "executor",
+      "sql_types": ["jsonb"]
+    },
+    "read_batch_result_execution": {
+      "arguments": ["payload"],
+      "namespace": "aap_jobs_v1",
+      "request": "ReadBatchResultExecutionRequest",
+      "result": "ReadBatchResultExecutionResult",
+      "role": "executor",
+      "sql_types": ["jsonb"]
+    },
+    "release_batch_result_execution": {
+      "arguments": ["payload"],
+      "namespace": "aap_jobs_v1",
+      "request": "ReleaseBatchResultExecutionRequest",
+      "result": "ReleaseBatchResultExecutionResult",
+      "role": "executor",
+      "sql_types": ["jsonb"]
+    },
+    "seal_batch_result": {
+      "arguments": ["payload"],
+      "namespace": "aap_labeling_v1",
+      "request": "SealBatchResultRequest",
+      "result": "SealBatchResultResult",
+      "role": "executor",
+      "sql_types": ["jsonb"]
+    },
+    "skip_batch_result_member": {
+      "arguments": ["payload"],
+      "namespace": "aap_jobs_v1",
+      "request": "SkipBatchResultMemberRequest",
+      "result": "SkipBatchResultMemberResult",
+      "role": "executor",
+      "sql_types": ["jsonb"]
+    },
+    "stage_batch_result_members": {
+      "arguments": ["payload"],
+      "namespace": "aap_jobs_v1",
+      "request": "StageBatchResultMembersRequest",
+      "result": "StageBatchResultMembersResult",
+      "role": "executor",
+      "sql_types": ["jsonb"]
+    },
+    "start_batch_result_execution": {
+      "arguments": ["payload"],
+      "namespace": "aap_jobs_v1",
+      "request": "StartBatchResultExecutionRequest",
+      "result": "StartBatchResultExecutionResult",
+      "role": "executor",
+      "sql_types": ["jsonb"]
+    },
+    "start_batch_result_member": {
+      "arguments": ["payload"],
+      "namespace": "aap_jobs_v1",
+      "request": "StartBatchResultMemberRequest",
+      "result": "StartBatchResultMemberResult",
+      "role": "executor",
+      "sql_types": ["jsonb"]
+    }
+  },
+  "x-requests": [
+    {
+      "$ref": "#/$defs/ClaimBatchResultExecutionRequest"
+    },
+    {
+      "$ref": "#/$defs/HeartbeatBatchResultExecutionRequest"
+    },
+    {
+      "$ref": "#/$defs/ReleaseBatchResultExecutionRequest"
+    },
+    {
+      "$ref": "#/$defs/StageBatchResultMembersRequest"
+    },
+    {
+      "$ref": "#/$defs/StartBatchResultExecutionRequest"
+    },
+    {
+      "$ref": "#/$defs/StartBatchResultMemberRequest"
+    },
+    {
+      "$ref": "#/$defs/ReadBatchResultExecutionRequest"
+    },
+    {
+      "$ref": "#/$defs/MarkBatchResultOverwriteRequest"
+    },
+    {
+      "$ref": "#/$defs/SkipBatchResultMemberRequest"
+    },
+    {
+      "$ref": "#/$defs/FinishBatchResultExecutionRequest"
+    },
+    {
+      "$ref": "#/$defs/BeginBatchResultRequest"
+    },
+    {
+      "$ref": "#/$defs/PutBatchResultPartRequest"
+    },
+    {
+      "$ref": "#/$defs/SealBatchResultRequest"
+    },
+    {
+      "$ref": "#/$defs/ReadBatchResultRequest"
+    },
+    {
+      "$ref": "#/$defs/LockBatchResultWriteRequest"
+    },
+    {
+      "$ref": "#/$defs/FinishBatchResultWriteRequest"
+    },
+    {
+      "$ref": "#/$defs/FinishBatchResultFailureRequest"
+    }
+  ],
+  "x-results": [
+    {
+      "$ref": "#/$defs/ClaimBatchResultExecutionResult"
+    },
+    {
+      "$ref": "#/$defs/HeartbeatBatchResultExecutionResult"
+    },
+    {
+      "$ref": "#/$defs/ReleaseBatchResultExecutionResult"
+    },
+    {
+      "$ref": "#/$defs/StageBatchResultMembersResult"
+    },
+    {
+      "$ref": "#/$defs/StartBatchResultExecutionResult"
+    },
+    {
+      "$ref": "#/$defs/StartBatchResultMemberResult"
+    },
+    {
+      "$ref": "#/$defs/ReadBatchResultExecutionResult"
+    },
+    {
+      "$ref": "#/$defs/MarkBatchResultOverwriteResult"
+    },
+    {
+      "$ref": "#/$defs/SkipBatchResultMemberResult"
+    },
+    {
+      "$ref": "#/$defs/FinishBatchResultExecutionResult"
+    },
+    {
+      "$ref": "#/$defs/BeginBatchResultResult"
+    },
+    {
+      "$ref": "#/$defs/PutBatchResultPartResult"
+    },
+    {
+      "$ref": "#/$defs/SealBatchResultResult"
+    },
+    {
+      "$ref": "#/$defs/ReadBatchResultResult"
+    },
+    {
+      "$ref": "#/$defs/LockBatchResultWriteResult"
+    },
+    {
+      "$ref": "#/$defs/FinishBatchResultWriteResult"
+    },
+    {
+      "$ref": "#/$defs/FinishBatchResultFailureResult"
+    }
+  ]
+}
