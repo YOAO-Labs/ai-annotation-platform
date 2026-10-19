@@ -63,6 +63,7 @@ from aap_protocol_v2.lifecycle import (
     parse_gpu_admission_header_values,
     parse_gpu_control_token_header_values,
 )
+from aap_backend_runtime.backend_auth import install_backend_auth
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.responses import Response
 from pydantic import ValidationError
@@ -311,6 +312,8 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="yolo-backend", version=BACKEND_VERSION, lifespan=lifespan)
+
+install_backend_auth(app, "yolo")
 
 
 def _echo_gpu_health_challenge(request: Request, response: Response) -> None:

@@ -58,7 +58,11 @@ dev 环境 placeholder 已默认填 `172.17.0.1:8001`。
 
 编辑已有实例时，可直接切换认证方式或更换 Token，包括已经受 GPU 管理的实例，无需先退役。认证属于全局实例，保存后所有引用它的项目共用新凭据；请与服务端配置保持一致。平台会清除该实例原有的健康结果，执行健康检查通过后再使用。URL、GPU 资源、显存预算、驱逐优先级与运行参数的变更仍受 GPU 退役保护。
 
-Token 由服务管理员生成，页面不会自动创建。YOLO 模型回流可使用 `openssl rand -hex 32` 生成包含 64 个字符的随机令牌，在服务端 `.env` 的 `YOLO_MANAGED_MODELS_TOKEN` 与平台实例的 Token 字段填写同一个值，重新创建 YOLO 容器使环境变量生效；详见[首次配置步骤](../projects/online-learning)。默认空值关闭模型回流。首次切换到 Token 认证必须填写令牌；已使用 Token 的实例留空编辑时只保留已保存值。
+五个内置推理服务（Grounded SAM 2、SAM 3、YOLO、ONNXTools、RapidOCR）默认使用各自独立的系统托管凭据。注册内置地址时表单默认选择对应的系统托管方式；保存会生成或复用私有凭据，并验证部署指定的服务身份。无需复制令牌或修改 `.env`。系统配置的初始化同步入口可为旧的无认证实例同步托管配置；已有手动 Token 不会被自动覆盖。
+
+旧容器首次升级需重建镜像并应用共享目录挂载，之后凭据初始化与同步无需重建。凭据已保存只表示本地文件可用；普通 `/health` 不证明认证就绪。系统托管保存会额外验证 `/managed-auth`，失败时保留本地文件供重试，实例原认证不变。保存成功后执行实例健康检查更新状态。
+
+远程或自行配置的服务继续使用手动 Token。YOLO 的手动 `YOLO_MANAGED_MODELS_TOKEN` 优先；模型回流要求至少 32 个字符。手动 Token 留空编辑只保留原值；从系统托管切回手动 Token 必须重新填写。`none` 始终不发送凭据。
 
 <!-- TODO(v0.14.18) IMAGE_CHECKLIST: images/superadmin/ml-backend/health-state-badges.png — connected/error/disconnected 三状态徽章对比 [manual] -->
 

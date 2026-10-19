@@ -225,7 +225,7 @@ type ModelsPanelProps = {
 function inferenceServiceIssues({ backend, enabled }: ProjectMLBackendItem) {
   return [
     ...(!enabled ? ["项目未启用"] : []),
-    ...(backend.auth_method !== "token" ? ["未配置 Token 认证"] : []),
+    ...(!["token", "managed:yolo"].includes(backend.auth_method) ? ["未配置推理认证"] : []),
     ...(backend.state !== "connected" ? ["服务当前不可用"] : []),
   ];
 }
@@ -414,8 +414,9 @@ function ModelsContent({
     comparisonIdentity(activeModel) !== null &&
     comparisonIdentity(activeModel) === comparisonIdentity(comparison);
   const enabledBackends =
-    backends.data?.items.filter((item) => item.enabled && item.backend.auth_method === "token") ??
-    [];
+    backends.data?.items.filter(
+      (item) => item.enabled && ["token", "managed:yolo"].includes(item.backend.auth_method),
+    ) ?? [];
   const readyBackends = enabledBackends.filter((item) => item.backend.state === "connected");
   const selectedRegistryId =
     registryId || (readyBackends.length === 1 ? readyBackends[0].backend.id : "");
@@ -436,7 +437,7 @@ function ModelsContent({
         : !backends.data.items.some((item) => item.enabled)
           ? "本项目尚未启用推理服务，暂时无法加载此模型。"
           : !enabledBackends.length
-            ? "已启用的推理服务尚未配置 Token 认证，无法加载训练权重。"
+            ? "已启用的推理服务尚未配置系统托管或 Token 认证，无法加载训练权重。"
             : !readyBackends.length
               ? "已启用且配置认证的推理服务当前均不可用，请恢复服务后重试。"
               : selectedRegistryId && !canDeploy
@@ -915,11 +916,10 @@ function ModelsContent({
                 <ol className="mt-2 list-decimal space-y-2 pl-5">
                   <li>
                     超级管理员：进入「模型市场 → 注册管理 → 实例」，在现有 YOLO
-                    服务的操作菜单点击「编辑」，将认证方式设为 token。服务管理员先运行{" "}
-                    <code className="font-mono">openssl rand -hex 32</code>
-                    生成令牌，将同一值配置到服务端 YOLO_MANAGED_MODELS_TOKEN 并重新创建 YOLO
-                    容器，再填入页面的 Token。令牌至少 32 个字符；默认空值关闭模型回流，
-                    页面不会自动生成。已有实例无需重复注册。
+                    服务的操作菜单点击「编辑」，本机第一方 YOLO 选择「系统托管」并保存，
+                    平台会自动初始化并验证凭据。旧服务需先升级共享目录挂载；远程或已自行配置
+                    YOLO_MANAGED_MODELS_TOKEN 的服务继续使用手动 Token（至少 32 个字符）。
+                    已有实例无需重复注册。
                   </li>
                   <li>
                     项目负责人：进入「项目设置 → ML 模型」，点击「管理

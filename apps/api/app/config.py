@@ -246,6 +246,42 @@ class Settings(BaseSettings):
     # 留空时 file URL 直接透传 (生产: api / sam / minio 同 K8s 网时不需要)。
     ml_backend_storage_host: str = ""
 
+    # Deployment-owned identities. UI input cannot extend the credential allowlist.
+    ml_managed_backend_urls: Annotated[dict[str, str], NoDecode] = {
+        "gsam2": "http://172.17.0.1:8001",
+        "sam3": "http://172.17.0.1:8002",
+        "yolo": "http://172.17.0.1:8003",
+        "onnxtools": "http://172.17.0.1:8004",
+        "rapidocr": "http://172.17.0.1:8005",
+    }
+    ml_managed_auth_dir: str = str(
+        _PARENTS[3] / "data" / "inference-auth"
+        if len(_PARENTS) > 3
+        else Path("/run/aap-inference-auth")
+    )
+    ml_backend_operations_dir: str = str(
+        _PARENTS[3] / "data" / "backend-manager"
+        if len(_PARENTS) > 3
+        else Path("/run/aap-backend-manager")
+    )
+
+    @field_validator("ml_managed_auth_dir", "ml_backend_operations_dir")
+    @classmethod
+    def _deployment_local_directory(cls, value: str) -> str:
+        path = Path(value)
+        root = _PARENTS[3] if len(_PARENTS) > 3 else Path.cwd()
+        return str(path if path.is_absolute() else root / path)
+
+    @field_validator("ml_managed_backend_urls", mode="before")
+    @classmethod
+    def _managed_backend_urls(cls, value):
+        from aap_protocol_v2.backend_auth import validate_backend_urls
+
+        if isinstance(value, str) and not value.strip():
+            value = cls.model_fields["ml_managed_backend_urls"].default
+        parsed = json.loads(value) if isinstance(value, str) else value
+        return validate_backend_urls(parsed)
+
     # v0.9.6 · ML Backend 注册表单 URL 默认值预填 hint (avoid 手敲 http://172.17.0.1:8001).
     # dev 推荐 http://172.17.0.1:8001; 生产 K8s 同 namespace 时留空, 让运维直接输 service DNS.
     ml_backend_default_url: str = ""

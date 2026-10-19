@@ -20026,6 +20026,157 @@
         "title": "MLIntegrationsOverview",
         "type": "object"
       },
+      "ManagedAuthInitialize": {
+        "additionalProperties": false,
+        "properties": {
+          "providers": {
+            "anyOf": [
+              {
+                "items": {
+                  "enum": [
+                    "gsam2",
+                    "sam3",
+                    "yolo",
+                    "onnxtools",
+                    "rapidocr"
+                  ],
+                  "type": "string"
+                },
+                "maxItems": 5,
+                "minItems": 1,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Providers"
+          }
+        },
+        "title": "ManagedAuthInitialize",
+        "type": "object"
+      },
+      "ManagedAuthItem": {
+        "properties": {
+          "credential_state": {
+            "enum": [
+              "missing",
+              "ready",
+              "invalid"
+            ],
+            "title": "Credential State",
+            "type": "string"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message"
+          },
+          "outcome": {
+            "anyOf": [
+              {
+                "enum": [
+                  "synced",
+                  "initialized",
+                  "unavailable",
+                  "manual_preserved",
+                  "error"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Outcome"
+          },
+          "provider": {
+            "enum": [
+              "gsam2",
+              "sam3",
+              "yolo",
+              "onnxtools",
+              "rapidocr"
+            ],
+            "title": "Provider",
+            "type": "string"
+          },
+          "registries": {
+            "items": {
+              "$ref": "#/components/schemas/ManagedAuthRegistry"
+            },
+            "title": "Registries",
+            "type": "array"
+          },
+          "service_name": {
+            "title": "Service Name",
+            "type": "string"
+          },
+          "url": {
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "provider",
+          "service_name",
+          "url",
+          "credential_state"
+        ],
+        "title": "ManagedAuthItem",
+        "type": "object"
+      },
+      "ManagedAuthRegistry": {
+        "properties": {
+          "auth_method": {
+            "title": "Auth Method",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "state": {
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "auth_method",
+          "state"
+        ],
+        "title": "ManagedAuthRegistry",
+        "type": "object"
+      },
+      "ManagedAuthStatus": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ManagedAuthItem"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "ManagedAuthStatus",
+        "type": "object"
+      },
       "ManagedLifecycleCapabilities": {
         "additionalProperties": false,
         "description": "Additive ``/setup.managed_lifecycle`` capability declaration.",
@@ -34436,6 +34587,13 @@
       "RuntimeHints": {
         "description": "v0.9.6 · 前端 modal 启动时一次性查; 提供注册 form 的 placeholder hint.",
         "properties": {
+          "managed_backend_urls": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Managed Backend Urls",
+            "type": "object"
+          },
           "ml_backend_default_url": {
             "anyOf": [
               {
@@ -51553,6 +51711,79 @@
           }
         ],
         "summary": "List Gpu Resources",
+        "tags": [
+          "admin-ml-integrations"
+        ]
+      }
+    },
+    "/api/v1/admin/ml-integrations/managed-auth": {
+      "get": {
+        "description": "Inspect private local defaults without revealing or sending credentials.",
+        "operationId": "managed_auth_status_api_v1_admin_ml_integrations_managed_auth_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ManagedAuthStatus"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Managed Auth Status",
+        "tags": [
+          "admin-ml-integrations"
+        ]
+      }
+    },
+    "/api/v1/admin/ml-integrations/managed-auth/initialize": {
+      "post": {
+        "operationId": "initialize_managed_backends_api_v1_admin_ml_integrations_managed_auth_initialize_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ManagedAuthInitialize"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ManagedAuthStatus"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Initialize Managed Backends",
         "tags": [
           "admin-ml-integrations"
         ]

@@ -380,3 +380,5 @@ ai-annotation-platform/
 ## License
 
 MIT
+
+内置推理服务默认使用系统托管认证，平台分别生成并持久保存各服务凭据，无需手填 Token。旧服务首次升级需重建镜像并应用共享目录挂载；之后由超管初始化或同步。远程和已手动配置的服务保留原认证。详见[推理实例认证](docs-site/user-guide/superadmin/ml-backend-registry.md)。

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from aap_protocol_v2.backend_auth import managed_provider
 from aap_protocol_v2.predict import normalize_context_task
 from aap_task_contract import (
     TASK_ALIASES,
@@ -421,9 +422,27 @@ class MLBackendClient:
         await self._observe_gpu_dispatch(operation)
         yield None
 
+    def _http_client(self, **kwargs) -> httpx.AsyncClient:
+        if managed_provider(self.auth_method) is not None:
+            kwargs.update(trust_env=False, follow_redirects=False)
+        return httpx.AsyncClient(**kwargs)
+
     def _headers(self, grant: GPUDispatchGrant | None = None) -> dict[str, str]:
         headers: dict[str, str] = {"Content-Type": "application/json"}
-        if self.auth_method == "token" and self.auth_token:
+        if managed_provider(self.auth_method) is not None:
+            from app.services.managed_inference_auth import is_managed_url
+
+            if (
+                not is_managed_url(self.base_url, managed_provider(self.auth_method))
+                or not self.auth_token
+            ):
+                raise HTTPException(
+                    422, "系统托管服务地址或凭据未配置，请重新保存认证设置。"
+                )
+        if (
+            self.auth_method == "token"
+            or managed_provider(self.auth_method) is not None
+        ) and self.auth_token:
             headers["Authorization"] = f"Bearer {self.auth_token}"
         if grant is not None:
             headers[GPU_GENERATION_HEADER] = grant.generation
@@ -431,8 +450,11 @@ class MLBackendClient:
         return headers
 
     async def health(self) -> bool:
+        if managed_provider(self.auth_method) is not None:
+            healthy, _ = await self.health_meta()
+            return healthy
         try:
-            async with httpx.AsyncClient(timeout=settings.ml_health_timeout) as client:
+            async with self._http_client(timeout=settings.ml_health_timeout) as client:
                 resp = await client.get(
                     f"{self.base_url}/health", headers=self._headers()
                 )
@@ -456,6 +478,17 @@ class MLBackendClient:
             raise ValueError(
                 "gpu_health_challenge must be 64 lowercase hexadecimal characters"
             )
+        if managed_provider(self.auth_method) is not None:
+            from app.services.managed_inference_auth import verify_managed_auth
+
+            try:
+                await verify_managed_auth(
+                    self.base_url,
+                    self.auth_token or "",
+                    managed_provider(self.auth_method),
+                )
+            except HTTPException:
+                return False, None
         base_headers = self._headers()
         headers = dict(base_headers)
         params: dict[str, str] | None = None
@@ -464,7 +497,7 @@ class MLBackendClient:
             headers["Cache-Control"] = "no-cache"
             params = {GPU_HEALTH_CHALLENGE_QUERY_PARAM: gpu_health_challenge}
         try:
-            async with httpx.AsyncClient(timeout=settings.ml_health_timeout) as client:
+            async with self._http_client(timeout=settings.ml_health_timeout) as client:
                 resp = await client.get(
                     f"{self.base_url}/health",
                     headers=headers,
@@ -533,7 +566,7 @@ class MLBackendClient:
         return semaphore
 
     async def install_trained_model(self, payload: dict) -> dict:
-        async with httpx.AsyncClient(timeout=180) as client:
+        async with self._http_client(timeout=180) as client:
             response = await client.post(
                 f"{self.base_url}/managed-models", json=payload, headers=self._headers()
             )
@@ -541,7 +574,7 @@ class MLBackendClient:
             return response.json()
 
     async def trained_model_receipt(self, version_id: str) -> dict:
-        async with httpx.AsyncClient(timeout=settings.ml_health_timeout) as client:
+        async with self._http_client(timeout=settings.ml_health_timeout) as client:
             response = await client.get(
                 f"{self.base_url}/managed-models/{version_id}", headers=self._headers()
             )
@@ -552,7 +585,7 @@ class MLBackendClient:
         self, path: str, *, payload: dict | None = None, params: dict | None = None
     ) -> dict:
         """Read/seal a request without starting native work or GPU admission."""
-        async with httpx.AsyncClient(timeout=settings.ml_health_timeout) as client:
+        async with self._http_client(timeout=settings.ml_health_timeout) as client:
             async with client.stream(
                 "POST" if payload is not None else "GET",
                 f"{self.base_url}/managed-evaluation/{path}",
@@ -589,7 +622,7 @@ class MLBackendClient:
                 async with self._gpu_dispatch(
                     "predict", AdmissionScope.PREDICT
                 ) as grant:
-                    async with httpx.AsyncClient(
+                    async with self._http_client(
                         timeout=settings.ml_predict_timeout
                     ) as client:
                         if max_response_bytes is None:
@@ -671,7 +704,7 @@ class MLBackendClient:
                     async with self._gpu_dispatch(
                         "predict_interactive", AdmissionScope.PREDICT
                     ) as grant:
-                        async with httpx.AsyncClient(
+                        async with self._http_client(
                             timeout=settings.ml_predict_timeout
                         ) as client:
                             request_kwargs = {
@@ -749,7 +782,7 @@ class MLBackendClient:
     async def unload(self) -> dict:
         """B-28+ · 让 backend 卸载模型释放显存. backend 必须实现 POST /unload."""
         async with self._gpu_dispatch("unload", AdmissionScope.UNLOAD) as grant:
-            async with httpx.AsyncClient(timeout=settings.ml_health_timeout) as client:
+            async with self._http_client(timeout=settings.ml_health_timeout) as client:
                 request_kwargs: dict = {"headers": self._headers(grant)}
                 if grant is not None:
                     request_kwargs["json"] = {"generation": grant.generation}
@@ -791,7 +824,7 @@ class MLBackendClient:
             )
             body[key] = semantic["modality"]
         async with self._gpu_dispatch("reload", AdmissionScope.RELOAD) as grant:
-            async with httpx.AsyncClient(timeout=settings.ml_predict_timeout) as client:
+            async with self._http_client(timeout=settings.ml_predict_timeout) as client:
                 resp = await client.post(
                     f"{self.base_url}/reload",
                     json=body or None,
@@ -803,7 +836,7 @@ class MLBackendClient:
                 return resp.json()
 
     async def setup(self) -> dict:
-        async with httpx.AsyncClient(timeout=settings.ml_health_timeout) as client:
+        async with self._http_client(timeout=settings.ml_health_timeout) as client:
             headers = self._headers()
             headers["Cache-Control"] = "no-cache"
             resp = await client.get(f"{self.base_url}/setup", headers=headers)
@@ -826,7 +859,7 @@ class MLBackendClient:
             raise ValueError("admission_token must be non-empty and canonical")
         headers = self._headers()
         headers[GPU_ADMISSION_TOKEN_HEADER] = admission_token
-        async with httpx.AsyncClient(timeout=settings.ml_health_timeout) as client:
+        async with self._http_client(timeout=settings.ml_health_timeout) as client:
             resp = await client.post(
                 f"{self.base_url}/lifecycle/mode",
                 json=request.model_dump(mode="json"),
@@ -858,7 +891,7 @@ class MLBackendClient:
             raise ValueError("admission_token must be non-empty and canonical")
         headers = self._headers()
         headers[GPU_ADMISSION_TOKEN_HEADER] = admission_token
-        async with httpx.AsyncClient(timeout=settings.ml_health_timeout) as client:
+        async with self._http_client(timeout=settings.ml_health_timeout) as client:
             resp = await client.post(
                 f"{self.base_url}/lifecycle/reset",
                 json=request.model_dump(mode="json"),
@@ -885,7 +918,7 @@ class MLBackendClient:
             raise ValueError("managed GPU transition endpoint is invalid")
         request = GenerationTransitionRequest(generation=grant.generation)
         try:
-            async with httpx.AsyncClient(timeout=settings.ml_health_timeout) as client:
+            async with self._http_client(timeout=settings.ml_health_timeout) as client:
                 response = await client.post(
                     f"{self.base_url}{endpoint}",
                     json=request.model_dump(mode="json"),
@@ -958,7 +991,7 @@ class MLBackendClient:
             revision = (meta.get("capabilities") or {}).get("task_contract_revision", 0)
             payload["task"] = task if revision == 1 else legacy_inference_task(task)
         async with self._gpu_dispatch("warmup", AdmissionScope.WARMUP) as grant:
-            async with httpx.AsyncClient(timeout=settings.ml_predict_timeout) as client:
+            async with self._http_client(timeout=settings.ml_predict_timeout) as client:
                 resp = await client.post(
                     f"{self.base_url}/warmup",
                     json=payload,
@@ -970,7 +1003,7 @@ class MLBackendClient:
                 return resp.json()
 
     async def get_versions(self) -> list[str]:
-        async with httpx.AsyncClient(timeout=settings.ml_health_timeout) as client:
+        async with self._http_client(timeout=settings.ml_health_timeout) as client:
             resp = await client.get(
                 f"{self.base_url}/versions", headers=self._headers()
             )

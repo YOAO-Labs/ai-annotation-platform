@@ -347,7 +347,11 @@ async def create_ml_backend(
             url=data.url,
             source="manual",
             is_interactive=data.is_interactive,
-            auth_method=data.auth_method,
+            **(
+                {"auth_method": data.auth_method}
+                if "auth_method" in data.model_fields_set
+                else {}
+            ),
             auth_token=data.auth_token,
             extra_params=data.extra_params,
         )

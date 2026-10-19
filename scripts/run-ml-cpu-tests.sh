@@ -157,6 +157,7 @@ run() {
   case "$suite" in
     shared-backend-runtime)
       install_editable "apps/_shared/backend_runtime" "3.10" "test"
+      run_in "apps/_shared/backend_runtime" uv pip install --python "$VENV_PATH/bin/python" -e "$ROOT/apps/_shared/protocol_v2"
       run_pytest "apps/_shared/backend_runtime" "$VENV_PATH"
       ;;
     shared-mask-utils)

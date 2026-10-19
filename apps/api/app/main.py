@@ -75,6 +75,11 @@ async def lifespan(app: FastAPI):
             "Production environment has no SENTRY_DSN configured; "
             "error tracking is disabled. Set SENTRY_DSN in .env to enable."
         )
+    from app.services.managed_inference_auth import initialize_default_credentials
+
+    credential_states = initialize_default_credentials()
+    if "invalid" in credential_states.values():
+        logger.warning("Some managed inference credential stores are unavailable")
     storage_service.ensure_all_buckets()
     # v0.19.0 ADR-0044 · env 配置的 ML backend 启动时 upsert 成全局注册项 (source=env)。
     # 失败不阻断启动 (探测超时/DB 抖动仅告警)。

@@ -41,6 +41,8 @@
 | GET | `/overview` |
 | POST | `/probe` |
 | GET | `/runtime-hints` |
+| GET | `/managed-auth` |
+| POST | `/managed-auth/initialize` |
 | GET | `/all` |
 | GET | `/gpu-resources` |
 | POST | `/registry` |
@@ -896,4 +898,4 @@
 
 ---
 
-_共 82 模块 / 509 路由_
+_共 82 模块 / 511 路由_

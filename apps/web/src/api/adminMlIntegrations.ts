@@ -198,6 +198,7 @@ export interface ProbeResponse {
 
 export interface RuntimeHints {
   ml_backend_default_url: string | null;
+  managed_backend_urls?: Record<string, string>;
 }
 
 // v0.9.7 · /all 全局 backend 列表 (Wizard step 4 复用 backend 配置).
@@ -244,11 +245,16 @@ export interface MLBackendOut {
   updated_at: string;
 }
 
+export type MLBackendAuthMethod =
+  | "none"
+  | "token"
+  | `managed:${"gsam2" | "sam3" | "yolo" | "onnxtools" | "rapidocr"}`;
+
 export interface MLBackendRegistryCreatePayload {
   name: string;
   url: string;
   is_interactive?: boolean;
-  auth_method?: "none" | "token";
+  auth_method?: MLBackendAuthMethod;
   auth_token?: string | null;
   extra_params?: Record<string, unknown>;
   gpu_resource_id?: string | null;
