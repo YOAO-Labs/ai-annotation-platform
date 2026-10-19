@@ -127,6 +127,8 @@ Source LOGIN 精确执行 26 项 Assets 能力：14 项既有来源/入库函数
 
 Assets Media 共用控制 LOGIN 执行 49 项能力（视频 18 项、图片 14 项、图片输入 4 项、图片批量清单 4 项、视频输入 9 项），视频 worker 执行 20 项（既有视频 10 项、视频输入执行 9 项和回收扫描 1 项）；图片执行 worker 使用独立 LOGIN，精确执行 6 项图片及 4 项输入能力。Assets cleanup LOGIN 执行 8 项能力，分别处理通用存储 outbox、图片垃圾、图片输入垃圾和视频输入垃圾。以上受限角色均不获得业务表、列、序列、外部 owner schema 或 DDL 权限。视频输入的原生状态、HTTP、独立执行、证据与回收已完成本地数据库和真实对象存储联调，Node 消费者验证全部十个 HTTP 操作；业务帧预测、覆盖及失败重试消费者仍待迁移，完整切片和全模块目标尚未完成。
 
+API 的 `accepted_video_inputs` 适配器复用上述十项 HTTP 控制合同；本地模式装配同一控制器和执行器。清单捕获仅调用固定 SQL 能力，与原始 Job 共用提交事务；准备和精确版本校验在独立事务及对象 I/O 中执行。Labeling 的来源围栏和 Annotation 证据 pin 绑定原写入事务，不通过 HTTP。该装配边界尚不代表业务逐帧消费者完成迁移。
+
 连接凭据只以密文写入；列表与普通读取返回公开配置和 `secret_set`，捕获能力只向受信任的 Source 工作流返回加密凭据。创建、更新、删除和测试结果与 Audit 及 `storage_connection_operations` 不可变回执同事务提交。该回执表没有实时连接外键；删除连接不会级联删除已接受的导入快照。创建者对 owner 连接保留管理权限，哪怕之后平台角色降低；全局连接仍由超级管理员管理。新连接写入忽略旧 `project_id`，旧非全局连接在公开响应中映射为 owner 并保留其项目 ID。
 
 连接器主机策略由 Settings 所有。`system_settings.connector_host_allowlist` 覆盖 Source 的 `ASSETS_SOURCE_CONNECTOR_HOST_ALLOWLIST` JSON 字符串数组回退值。DNS 和连接探测在数据库行锁外完成；最终应用只在需要主机策略的写入时短暂共享锁定 Settings 表，复核策略快照后与 Audit、回执同事务提交。简单改名或空 patch 不访问策略，也不需要 Fernet key。Source 的 `ASSETS_SOURCE_CONNECTOR_ENCRYPTION_KEY` / `_FILE` 是可选启动配置；创建或解密加密凭据需要提供与本地 API/导入执行器相同的 key。`ASSETS_SOURCE_SFTP_KNOWN_HOSTS_FILE` 可补充受信任主机文件，未知 SFTP 主机仍被拒绝。
