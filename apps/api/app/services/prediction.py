@@ -11,6 +11,8 @@ from sqlalchemy import delete, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.selectable import Select
 
+from aap_assets_video_inputs.evidence import VideoInputEvidence
+
 from app.db.enums import UserRole
 from app.db.models.project import Project
 from app.db.models.user import User
@@ -58,6 +60,44 @@ def _apply_prediction_error(
         status_code=exc.status_code,
         detail=detail,
         headers=getattr(exc, "headers", None),
+    )
+
+
+def _validate_video_write_request(
+    request: ApplyPredictionResultRequest,
+) -> VideoInputEvidence | None:
+    """Keep retained video evidence typed and execution identity server-owned."""
+    extra = request.pipeline_extra
+    if extra is not None and not isinstance(extra, dict):
+        raise ValueError("prediction pipeline metadata must be an object")
+    reserved = {"accepted_video_input", "accepted_video_execution_job_id"}
+    if request.accepted_video_input is None:
+        if extra and reserved.intersection(extra):
+            raise ValueError("retained video metadata requires typed evidence")
+        return None
+    evidence = request.accepted_video_input
+    scope = request.write_scope
+    if (
+        type(evidence) is not VideoInputEvidence
+        or evidence.task_id != request.task_id
+        or evidence.project_id != request.project_id
+        or evidence.task_id != scope.task_id
+        or evidence.project_id != scope.project_id
+        or scope.job_id is None
+        or scope.accepted_input_id is not None
+        or request.accepted_input_job_id is not None
+        or scope.operation not in {"preannotation", "prediction_retry"}
+        or (extra is not None and reserved.intersection(extra))
+    ):
+        raise ValueError("retained video evidence does not match prediction scope")
+    return evidence
+
+
+def _video_prediction_receipt(prediction: Prediction) -> ApplyPredictionResultReceipt:
+    return ApplyPredictionResultReceipt(
+        id=prediction.id,
+        created_at=prediction.created_at,
+        tool_unit_id=prediction.tool_unit_id,
     )
 
 
@@ -556,6 +596,35 @@ class PredictionService:
     def __init__(self, db: AsyncSession) -> None:
         self.db = db
 
+    async def _existing_video_prediction(
+        self,
+        *,
+        task_id: uuid.UUID,
+        execution_job_id: uuid.UUID,
+        evidence: VideoInputEvidence,
+    ) -> Prediction | None:
+        """Find the completed frame result for this exact execution and plan entry."""
+        statement = (
+            select(Prediction)
+            .join(PredictionMeta, PredictionMeta.prediction_id == Prediction.id)
+            .where(
+                Prediction.task_id == task_id,
+                PredictionMeta.extra["accepted_video_execution_job_id"].as_string()
+                == str(execution_job_id),
+                PredictionMeta.extra["accepted_video_input"]["input_id"].as_string()
+                == str(evidence.input_id),
+                PredictionMeta.extra["accepted_video_input"]["plan_digest"].as_string()
+                == evidence.plan_digest,
+                PredictionMeta.extra["accepted_video_input"]["entry"][
+                    "ordinal"
+                ].as_integer()
+                == evidence.entry.ordinal,
+            )
+            .order_by(Prediction.created_at.asc())
+            .limit(1)
+        )
+        return (await self.db.execute(statement)).scalars().first()
+
     async def delete_for_tasks(self, task_id_select: Select) -> dict[str, int]:
         """Delete predictions and metadata for task IDs, preserving FK order."""
         pred_ids = select(Prediction.id).where(Prediction.task_id.in_(task_id_select))
@@ -585,6 +654,7 @@ class PredictionService:
         self, request: ApplyPredictionResultRequest
     ) -> ApplyPredictionResultReceipt:
         write_scope = request.write_scope
+        accepted_video_input = _validate_video_write_request(request)
         if (
             write_scope.task_id != request.task_id
             or write_scope.project_id != request.project_id
@@ -610,11 +680,21 @@ class PredictionService:
                     "prediction_retry",
                 ),
                 accepted_input_job_id=request.accepted_input_job_id,
+                accepted_video_input=accepted_video_input,
             )
         except RasterMaskContractError as exc:
             raise _apply_prediction_error(exc) from exc
         except HTTPException as exc:
             raise _apply_prediction_error(exc) from exc
+        if accepted_video_input is not None:
+            assert write_scope.job_id is not None
+            existing = await self._existing_video_prediction(
+                task_id=task.id,
+                execution_job_id=write_scope.job_id,
+                evidence=accepted_video_input,
+            )
+            if existing is not None:
+                return _video_prediction_receipt(existing)
         try:
             await prepare_mask_payload_for_write(
                 self.db,
@@ -635,16 +715,20 @@ class PredictionService:
             return ()
         first = requests[0]
         scope = first.write_scope
+        accepted_video_input = _validate_video_write_request(first)
         if any(
             request.task_id != first.task_id
             or request.project_id != first.project_id
             or request.write_scope != scope
             or request.accepted_input_job_id != first.accepted_input_job_id
+            or _validate_video_write_request(request) != accepted_video_input
             for request in requests
         ):
             raise ValueError("prediction result bundle must share one Task write scope")
         if scope.task_id != first.task_id or scope.project_id != first.project_id:
             raise ValueError("prediction write scope does not match its target")
+        if accepted_video_input is not None and len(requests) != 1:
+            raise ValueError("retained video frames must be written individually")
         preflight_task = await self.db.get(Task, first.task_id, populate_existing=True)
         normalized_results = [_remap_track_ids(request.result) for request in requests]
         verified_contents = []
@@ -667,7 +751,23 @@ class PredictionService:
                     "prediction_retry",
                 ),
                 accepted_input_job_id=first.accepted_input_job_id,
+                accepted_video_input=accepted_video_input,
             )
+        except RasterMaskContractError as exc:
+            raise _apply_prediction_error(exc) from exc
+        except HTTPException as exc:
+            raise _apply_prediction_error(exc) from exc
+
+        if accepted_video_input is not None:
+            assert scope.job_id is not None
+            existing = await self._existing_video_prediction(
+                task_id=task.id,
+                execution_job_id=scope.job_id,
+                evidence=accepted_video_input,
+            )
+            if existing is not None:
+                return (_video_prediction_receipt(existing),)
+        try:
             for result, verified_content in zip(
                 normalized_results, verified_contents, strict=True
             ):
@@ -679,8 +779,6 @@ class PredictionService:
                     require_verified_content=True,
                 )
         except RasterMaskContractError as exc:
-            raise _apply_prediction_error(exc) from exc
-        except HTTPException as exc:
             raise _apply_prediction_error(exc) from exc
 
         receipts = []
@@ -730,6 +828,18 @@ class PredictionService:
                 **(
                     {"trained_model": request.model_provenance}
                     if request.model_provenance
+                    else {}
+                ),
+                **(
+                    {
+                        "accepted_video_input": request.accepted_video_input.model_dump(
+                            mode="json", by_alias=True
+                        ),
+                        "accepted_video_execution_job_id": str(
+                            request.write_scope.job_id
+                        ),
+                    }
+                    if request.accepted_video_input is not None
                     else {}
                 ),
             },

@@ -1925,6 +1925,17 @@ class MaskMutationService:
                     source_annotation_id=source_annotation.id,
                     target_annotation_id=created_annotation.id,
                 )
+            if payload.scope.media == "video":
+                from app.services.accepted_video_inputs import (
+                    copy_annotation_video_input_sources,
+                )
+
+                for source_annotation, created_annotation in created_from:
+                    await copy_annotation_video_input_sources(
+                        self.db,
+                        source_annotation_id=source_annotation.id,
+                        target_annotation_id=created_annotation.id,
+                    )
         await self._assert_non_overlapping(
             payload.scope,
             annotations,

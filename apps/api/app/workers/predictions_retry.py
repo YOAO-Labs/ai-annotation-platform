@@ -27,6 +27,11 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 
+from aap_assets_video_inputs.evidence import (
+    VideoInputEvidence,
+    VideoInputFailureEvidence,
+)
+
 from app.config import settings
 from app.services.labeling_prediction_contract import (
     ApplyPredictionResultPort,
@@ -46,6 +51,9 @@ _INPUT_WAIT_CODES = frozenset(
         "storage_unavailable",
     }
 )
+_VIDEO_WAIT_CODES = _INPUT_WAIT_CODES | frozenset(
+    {"frame_not_ready", "frame_busy", "manifest_busy", "manifest_not_ready"}
+)
 
 
 class FrozenInputRetryDeferred(RuntimeError):
@@ -59,6 +67,8 @@ class FrozenInputRetryDeferred(RuntimeError):
 @dataclass(frozen=True, slots=True)
 class _PreparedRetryInput:
     accepted_input: dict | None = None
+    accepted_video_failure: VideoInputFailureEvidence | None = None
+    accepted_video_input: VideoInputEvidence | None = None
     gateway: object | None = None
     request: object | None = None
     reference: object | None = None
@@ -135,8 +145,30 @@ def _accepted_input_metadata(value, *, task_id, project_id) -> dict:
     }
 
 
+def _accepted_video_failure(value, *, task_id, project_id):
+    from aap_assets_video_inputs.evidence import (
+        VideoEvidenceFailure,
+        VideoInputFailureEvidence,
+        parse_prediction_evidence,
+    )
+
+    try:
+        evidence = parse_prediction_evidence(value)
+    except VideoEvidenceFailure as exc:
+        raise ValueError("accepted video retry evidence is malformed") from exc
+    if (
+        type(evidence) is not VideoInputFailureEvidence
+        or evidence.task_id != task_id
+        or evidence.project_id != project_id
+    ):
+        raise ValueError("accepted video retry evidence is malformed")
+    return evidence
+
+
 @asynccontextmanager
-async def _prepare_retry_input(session_factory, failed_id: str):
+async def _prepare_retry_input(
+    session_factory, failed_id: str, actor_id: str | None = None
+):
     """Prepare the retained version before creating a retry job or notifying."""
     from aap_assets_inputs import contract as c
     from aap_assets_inputs.contract import InputFailure
@@ -146,6 +178,7 @@ async def _prepare_retry_input(session_factory, failed_id: str):
 
     fid = uuid.UUID(failed_id)
     accepted_input = None
+    accepted_video_failure = None
     terminal_error = None
     task_id = None
     task = backend = None
@@ -161,7 +194,11 @@ async def _prepare_retry_input(session_factory, failed_id: str):
                 else None
             )
             if "accepted_input" in extra:
-                if task is None:
+                if "accepted_video_input" in extra:
+                    terminal_error = ValueError(
+                        "retry failure cannot mix image and video evidence"
+                    )
+                elif task is None:
                     terminal_error = ValueError(
                         "accepted input retry task is unavailable"
                     )
@@ -178,6 +215,32 @@ async def _prepare_retry_input(session_factory, failed_id: str):
                 terminal_error = ValueError(
                     "bulk image manifest retry has no retained accepted input"
                 )
+            elif "accepted_video_input" in extra:
+                if task is None:
+                    terminal_error = ValueError(
+                        "accepted video retry task is unavailable"
+                    )
+                else:
+                    try:
+                        accepted_video_failure = _accepted_video_failure(
+                            extra["accepted_video_input"],
+                            task_id=task.id,
+                            project_id=failed.project_id,
+                        )
+                    except (TypeError, ValueError) as exc:
+                        terminal_error = exc
+                    if task.file_type != "video":
+                        terminal_error = ValueError(
+                            "accepted video retry target is not a video task"
+                        )
+                    elif task.project_id != failed.project_id:
+                        terminal_error = ValueError(
+                            "accepted video retry project identity changed"
+                        )
+                    if actor_id is None:
+                        terminal_error = terminal_error or ValueError(
+                            "accepted video retry actor is unavailable"
+                        )
             elif (
                 extra.get("execution_scope") in {"workbench", "bulk"}
                 and extra.get("execution_unit") not in {"frame", "video", "scene"}
@@ -186,17 +249,104 @@ async def _prepare_retry_input(session_factory, failed_id: str):
                 and extra.get("task") not in {"text", "tracker"}
             ):
                 terminal_error = ValueError("legacy image retry has no accepted input")
+            elif (
+                extra.get("execution_unit") == "frame"
+                and task is not None
+                and task.file_type == "video"
+            ):
+                terminal_error = ValueError(
+                    "accepted video frame retry has no retained evidence"
+                )
 
     if (
-        accepted_input is None
+        (accepted_input is None and accepted_video_failure is None)
         or terminal_error is not None
         or task_id is None
         or task is None
         or backend is None
     ):
         yield _PreparedRetryInput(
-            accepted_input=accepted_input, terminal_error=terminal_error
+            accepted_input=accepted_input,
+            accepted_video_failure=accepted_video_failure,
+            terminal_error=terminal_error,
         )
+        return
+
+    if accepted_video_failure is not None:
+        from aap_assets_video_inputs import execution as video_execution
+        from aap_assets_video_inputs.evidence import (
+            ready_evidence,
+        )
+        from app.services.accepted_video_inputs import video_input_gateway
+
+        try:
+            retry_actor = uuid.UUID(actor_id) if actor_id is not None else None
+            if retry_actor is None:
+                raise ValueError("accepted video retry actor is unavailable")
+            video_request = video_execution.VideoFrameRequest(
+                actor_id=retry_actor,
+                job_id=accepted_video_failure.job_id,
+                task_id=accepted_video_failure.task_id,
+                input_id=accepted_video_failure.input_id,
+                plan_digest=accepted_video_failure.plan_digest,
+                ordinal=accepted_video_failure.entry.ordinal,
+            )
+        except (TypeError, ValueError) as exc:
+            yield _PreparedRetryInput(
+                accepted_video_failure=accepted_video_failure,
+                terminal_error=exc,
+            )
+            return
+
+        async with video_input_gateway(session_factory=session_factory) as gateway:
+            try:
+                reference = await gateway.ensure_reference(video_request)
+                frame = await gateway.frame(video_request)
+                if (
+                    reference.plan != frame.plan
+                    or reference.entry != frame.entry
+                    or reference.blob != frame.blob
+                ):
+                    raise video_execution.VideoInputFailure("source_changed")
+                accepted_video_input = ready_evidence(frame.plan, frame)
+                failure = accepted_video_failure
+                if (
+                    accepted_video_input.input_id != failure.input_id
+                    or accepted_video_input.job_id != failure.job_id
+                    or accepted_video_input.task_id != failure.task_id
+                    or accepted_video_input.project_id != failure.project_id
+                    or accepted_video_input.plan_digest != failure.plan_digest
+                    or accepted_video_input.timebase_digest != failure.timebase_digest
+                    or accepted_video_input.entry != failure.entry
+                    or accepted_video_input.source_sha256 != failure.source_sha256
+                    or (
+                        failure.frame_id is not None
+                        and accepted_video_input.frame_id != failure.frame_id
+                    )
+                    or (
+                        failure.frame_sha256 is not None
+                        and accepted_video_input.frame_sha256 != failure.frame_sha256
+                    )
+                ):
+                    raise video_execution.VideoInputFailure("source_changed")
+            except video_execution.VideoInputFailure as exc:
+                if exc.code in _VIDEO_WAIT_CODES:
+                    raise FrozenInputRetryDeferred(exc.code) from exc
+                terminal_error = exc
+                accepted_video_input = None
+                reference = None
+            except ValueError as exc:
+                terminal_error = exc
+                accepted_video_input = None
+                reference = None
+            yield _PreparedRetryInput(
+                accepted_video_failure=accepted_video_failure,
+                accepted_video_input=accepted_video_input,
+                gateway=gateway,
+                request=video_request,
+                reference=reference,
+                terminal_error=terminal_error,
+            )
         return
 
     from app.services.accepted_inputs import input_gateway
@@ -294,7 +444,9 @@ async def _do_retry_with_factory(
 ) -> dict:
     """实际 retry 逻辑；session_factory 暴露便于测试 mock。"""
     if prepared_input is _UNPREPARED_RETRY_INPUT:
-        async with _prepare_retry_input(session_factory, failed_id) as prepared:
+        async with _prepare_retry_input(
+            session_factory, failed_id, actor_id=user_id
+        ) as prepared:
             return await _do_retry_with_factory(
                 session_factory,
                 failed_id,
@@ -444,6 +596,12 @@ async def _run_retry_attempt(
         stored_context = failure_extra.get("request_context")
         request_context = stored_context if isinstance(stored_context, dict) else None
         accepted_input = prepared_input.accepted_input if prepared_input else None
+        accepted_video_failure = (
+            prepared_input.accepted_video_failure if prepared_input else None
+        )
+        accepted_video_input = (
+            prepared_input.accepted_video_input if prepared_input else None
+        )
         prepared_error = prepared_input.terminal_error if prepared_input else None
         if "accepted_input" in failure_extra:
             if task is None or accepted_input is None:
@@ -468,6 +626,33 @@ async def _run_retry_attempt(
             prepared_error = prepared_error or ValueError(
                 "accepted input retry metadata disappeared"
             )
+        elif "accepted_video_input" in failure_extra:
+            if task is None or accepted_video_failure is None:
+                prepared_error = prepared_error or ValueError(
+                    "accepted video retry was not prepared"
+                )
+            else:
+                try:
+                    current_video_failure = _accepted_video_failure(
+                        failure_extra["accepted_video_input"],
+                        task_id=task.id,
+                        project_id=fp.project_id,
+                    )
+                except (TypeError, ValueError) as exc:
+                    prepared_error = prepared_error or exc
+                else:
+                    if current_video_failure != accepted_video_failure:
+                        prepared_error = prepared_error or ValueError(
+                            "accepted video retry identity changed"
+                        )
+                    if accepted_video_input is None:
+                        prepared_error = prepared_error or ValueError(
+                            "accepted video frame was not prepared"
+                        )
+        elif accepted_video_failure is not None or accepted_video_input is not None:
+            prepared_error = prepared_error or ValueError(
+                "accepted video retry metadata disappeared"
+            )
         elif "accepted_input_manifest" in failure_extra:
             prepared_error = prepared_error or ValueError(
                 "bulk image manifest retry has no retained accepted input"
@@ -481,6 +666,14 @@ async def _run_retry_attempt(
         ):
             prepared_error = prepared_error or ValueError(
                 "legacy image retry has no accepted input"
+            )
+        elif (
+            failure_extra.get("execution_unit") == "frame"
+            and task is not None
+            and task.file_type == "video"
+        ):
+            prepared_error = prepared_error or ValueError(
+                "accepted video frame retry has no retained evidence"
             )
         ns = NotificationService(db)
         pending = await ns.notify(
@@ -530,7 +723,17 @@ async def _run_retry_attempt(
                     return await client.predict([task_input])
                 return await client.predict([task_input], context=request_context)
 
-            if accepted_input is None:
+            if accepted_video_failure is not None:
+                if (
+                    prepared_input is None
+                    or accepted_video_input is None
+                    or prepared_input.gateway is None
+                    or prepared_input.request is None
+                    or prepared_input.reference is None
+                ):
+                    raise ValueError("accepted video retry is not fully prepared")
+                results = await predict_with_input(prepared_input.reference.url)
+            elif accepted_input is None:
                 results = await predict_with_input(resolve_task_url(task))
             else:
                 if (
@@ -577,11 +780,18 @@ async def _run_retry_attempt(
     async with session_factory() as db:
         pred_svc = PredictionService(db)
         prediction_writer: ApplyPredictionResultPort = pred_svc
+        prediction_result = first.result
+        if accepted_video_input is not None:
+            from app.services.prediction import to_video_bbox_result
+
+            prediction_result = to_video_bbox_result(
+                first.result, accepted_video_input.entry.frame_index
+            )
         write_request = ApplyPredictionResultRequest(
             task_id=task.id,
             project_id=task.project_id,
             ml_backend_id=executed_backend_id,
-            result=first.result,
+            result=prediction_result,
             score=first.score,
             model_version=first.model_version,
             inference_time_ms=first.inference_time_ms,
@@ -613,6 +823,7 @@ async def _run_retry_attempt(
                 if accepted_input
                 else None
             ),
+            accepted_video_input=accepted_video_input,
             **(
                 {"model_provenance": request_context["frozen_model_ref"]}
                 if request_context and request_context.get("frozen_model_ref")
