@@ -1786,8 +1786,11 @@ def main(argv: list[str] | None = None) -> int:
     ).resolve()
 
     try:
+        selected_test_paths = {name.split("::", 1)[0] for name in TEST_FILES}
         missing_tests = [
-            name for name in TEST_FILES if not (ROOT / "apps/api" / name).is_file()
+            name
+            for name in selected_test_paths
+            if not (ROOT / "apps/api" / name).is_file()
         ]
         if missing_tests:
             raise RuntimeError(f"Missing module-data acceptance cases: {missing_tests}")
@@ -2245,7 +2248,7 @@ def main(argv: list[str] | None = None) -> int:
         ]
         image_worker_storage["policy"] = "aap-images-worker-" + secrets.token_hex(8)
         _create_image_storage_scope(image_worker_storage)
-        if "tests/test_video_consumers_containers.py" in TEST_FILES:
+        if "tests/test_video_consumers_containers.py" in selected_test_paths:
             api_bootstrap_storage = _cleanup_storage_scope(backend)
             api_bootstrap_storage["buckets"] = resources["buckets"]
             api_bootstrap_storage["policy"] = "aap-api-bootstrap-" + secrets.token_hex(

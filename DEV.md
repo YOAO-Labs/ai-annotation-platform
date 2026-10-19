@@ -1023,6 +1023,8 @@ psql -v expected_database=annotation_test -v migration_role=owner \
 
 准备 `.secrets/assets-import-database-url`、`assets-import-s3-access-key`、`assets-import-s3-secret-key` 和 `connector-encryption-key`，内容分别为专用 DSN、目标存储身份及与 API 相同的 Fernet key；文件须能被容器用户 10004 读取。可用 `.env.example` 中对应的 `_FILE` 变量改路径。目标存储身份只允许 datasets 桶的 `dataset-sources/*` Put 与 AbortMultipartUpload，不授予 Get、List、Delete 或桶管理。来源连接器使用自身的只读凭据，不复用目标凭据。
 
+图片身份来自成功的 PutObject 或 CompleteMultipartUpload 回执中的 ETag、可选 VersionId 和实际传输字节数；回执缺失或格式无效时保留明确的文件失败。目标只写身份不执行上传后的 HEAD/GET。导入心跳的 `dataset_busy` 重试受最后一次确认的租约到期时间约束，续租调用本身也受该期限限制；无法确认时停止 I/O，保留由后续执行者接管的租约状态。
+
 显式设置 `ASSETS_IMPORT_S3_ENDPOINT` 和 `ASSETS_IMPORT_DATASETS_BUCKET`。执行器每次读取当前数据库白名单，未覆盖时才用 `CONNECTOR_HOST_ALLOWLIST` 部署默认值；显式空数组全拒。SFTP 需将可信指纹文件路径赋给 `ASSETS_IMPORT_SFTP_KNOWN_HOSTS`；默认示例为空，只支持不依赖 SSH 的来源，未知 SFTP 主机被拒绝。
 
 ```bash
@@ -1089,7 +1091,7 @@ uv run --project apps/assets-media --extra runtime python -m aap_assets_media_ru
 
 `apps/api/.venv/bin/python scripts/verify_legacy_image_runtime.py --output .worktree/legacy-image-runtime.json` 在一次性本地 PostgreSQL、专用 Redis 和隔离存储桶内分别验证工作树与 LAN 应用授权。它实际运行 LAN SQL，以非迁移账号验证图片原始输入、批量清单、标注证据继承和缩略图生成；此命令不修改日常开发库或真实部署。
 
-受理对象使用专用、启用版本管理的 `ASSETS_MEDIA_INPUTS_BUCKET`。图片 Worker 仅可写 `accepted-inputs/*`，视频 Worker 仅可写 `accepted-video-inputs/*`；控制只读精确版本，Cleanup 按单个尝试前缀删除对象版本与 multipart。详细权限见 [Cleanup 工件说明](apps/assets-cleanup/README.md)。这些独立进程已完成隔离的本地对象存储与 Node 互操作验收；业务视频预标注、覆盖、失败重试和采纳已接入固定输入，API/Celery、Media 和 Cleanup 的容器链路已完成本地验收，代表性负载与在途执行交接继续推进，暂不切换常驻环境。
+受理对象使用专用、启用版本管理的 `ASSETS_MEDIA_INPUTS_BUCKET`。图片 Worker 仅可写 `accepted-inputs/*`，视频 Worker 仅可写 `accepted-video-inputs/*`；控制只读精确版本，Cleanup 按单个尝试前缀删除对象版本与 multipart。详细权限见 [Cleanup 工件说明](apps/assets-cleanup/README.md)。这些独立进程已完成隔离的本地对象存储与 Node 互操作验收；业务视频预标注、覆盖、失败重试和采纳已接入固定输入，API/Celery、Media 和 Cleanup 的容器链路、固定 720p 负载及在途执行交接均已有本地证据。切换常驻开发环境前仍需核验现有作业、运行进程及数据迁移。
 
 容器验收入口为 `apps/api/.venv/bin/python scripts/verify_video_consumers_containers.py --output .worktree/video-containers.json`。先从当前源码构建下列四个镜像，并给四者设置同一组标签：`org.aap.acceptance=module-data-boundary`、`org.aap.acceptance-id=<同一24位十六进制标识>`。将对应镜像引用写入环境变量；验收不构建镜像，也不刷新常驻开发栈。
 

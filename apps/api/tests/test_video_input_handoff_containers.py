@@ -630,6 +630,13 @@ async def _new_video_input(runtime, *, actor, project, task, selection):
                 selection=selection,
             ),
         )
+        await owner.execute(
+            text(
+                "UPDATE public.async_jobs SET payload=payload || pg_catalog.jsonb_build_object("
+                "'accepted_video_selection_digest',CAST(:digest AS text)) WHERE id=:job"
+            ),
+            {"digest": header.selection_digest, "job": job},
+        )
     prepared = await runtime.client.prepare(
         video_execution.PrepareVideoMemberRequest(
             job_id=job,

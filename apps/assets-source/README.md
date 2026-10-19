@@ -204,6 +204,13 @@ SFTP uses known-host verification and checks the listed file identity, and the
 destination client uses only multipart create, part, complete, abort, and empty
 object PUT operations.
 
+Image admission uses the ETag, optional VersionId and measured byte count from
+the successful write receipt. Missing or invalid receipt metadata fails the
+entry; the write-only destination client does not need a subsequent HEAD or GET.
+Transient `dataset_busy` heartbeats retry the same lease only until its last
+confirmed expiry, including the renewal call itself. Lease loss, cancellation
+and uncertain renewal stop I/O and leave recovery to the lease protocol.
+
 Build the worker image from the repository root with:
 
 ```sh

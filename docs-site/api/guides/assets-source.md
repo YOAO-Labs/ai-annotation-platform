@@ -84,6 +84,8 @@ S3 身份只拥有 import 桶 `dataset-uploads/*` 的 Get/Put、datasets 桶历�
 
 清单在复制前完整持久保存。每次尝试写入独立 `dataset-sources/{dataset}/{item}/{publication}/` 路径，不覆盖按文件名共用的 key，也不在判重时删除原始字节。条目、文件计数、Labeling append、导入游标/计数和后续派发记录在一个事务内提交。提交结果不确定或进程被终止后，接替执行器从已提交游标继续；数据库锁竞争保留当前文件重试，不计为文件失败。
 
+图片对象身份取自成功上传回执的 ETag、可选 VersionId 和实际字节数，与登记同一份输出相匹配。目标身份继续只有写入与 multipart Abort 权限；缺少有效写入回执时登记明确的文件错误。心跳遇到 `dataset_busy` 时复用当前租约重试，全部重试与续租调用受最后一次确认的到期时间约束；真正失租、取消或无法确认续租时停止 I/O。
+
 S3 源读取核对枚举的 ETag；SFTP 使用已知主机指纹、目录围栏和读取前后身份校验。取消可能无法立即中止外部阻塞调用，但旧结果不能越过 SQL 围栏登记。已提交条目保留；未知或重复的未引用原始拷贝暂不回收。
 
 媒体和通知沿用既有执行方，持久 outbox 由 API maintenance relay 领取并在派发成功后确认。队列投递可能重复；确认代表 broker 接受，不代表媒体计算完成。此能力不迁移连接器管理和媒体执行本身，也不等同完整 Assets 可独立部署。部署及旧作业排空规则见 `DEV.md`、[ADR-0100](/dev/adr/0100-durable-connector-import) 与 [ADR-0101](/dev/adr/0101-assets-synchronous-zip-and-scan)。

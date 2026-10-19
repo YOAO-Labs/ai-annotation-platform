@@ -1939,11 +1939,29 @@ async def test_retained_video_consumers_run_in_owned_api_and_worker_containers(
                 else:
                     record_property(
                         f"video_capacity_{name}",
-                        round(value, 3) if isinstance(value, float) else value,
+                        "unavailable"
+                        if value is None
+                        else round(value, 3)
+                        if isinstance(value, float)
+                        else value,
                     )
             samples = capacity_metrics["samples"]
             record_property("video_capacity_redis_samples", len(samples))
             record_property("video_capacity_redis_samples_json", json.dumps(samples))
+            record_property(
+                "video_capacity_sample_interval_ms",
+                json.dumps(
+                    _distribution(
+                        [
+                            (right["elapsed_seconds"] - left["elapsed_seconds"]) * 1000
+                            for left, right in zip(samples, samples[1:])
+                        ]
+                    )
+                ),
+            )
+            record_property(
+                "video_capacity_job_result_done_frames", job_result["frames_done"]
+            )
             record_property(
                 "video_capacity_peak_ml_queue_depth",
                 max((sample["ml_queue_depth"] for sample in samples), default=0),
@@ -1958,10 +1976,10 @@ async def test_retained_video_consumers_run_in_owned_api_and_worker_containers(
             )
             if samples:
                 record_property(
-                    "video_capacity_final_done_frames", samples[-1]["done_frames"]
+                    "video_capacity_last_sample_done_frames", samples[-1]["done_frames"]
                 )
                 record_property(
-                    "video_capacity_final_segment_receipts",
+                    "video_capacity_last_sample_segment_receipts",
                     samples[-1]["segment_receipts"],
                 )
             if database_metrics["job_execution_ms"]:

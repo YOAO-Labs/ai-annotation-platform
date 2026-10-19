@@ -553,7 +553,9 @@ async def test_import_acceptance_survives_worker_absence_and_replays_once(
         worker = _start_importer(stack, "initial")
         await _wait_healthy(worker)
         facts = await _wait_job(stack, job)
-        assert facts.file_count == facts.tasks == facts.total_tasks == 1
+        assert facts.file_count == facts.tasks == facts.total_tasks == 1, facts.jobs[0][
+            "result"
+        ]
         assert facts.jobs[0]["result"]["added"] == 1
         assert facts.jobs[0]["result"]["skipped"] == 1
         assert facts.jobs[0]["result"]["error_count"] == 0
@@ -728,7 +730,9 @@ async def test_import_sigkill_after_copy_reclaims_without_duplicate_sql_publicat
         restarted = _start_importer(stack, "retry")
         await _wait_healthy(restarted)
         facts = await _wait_job(stack, job)
-        assert facts.file_count == facts.tasks == facts.total_tasks == 1
+        assert facts.file_count == facts.tasks == facts.total_tasks == 1, facts.jobs[0][
+            "result"
+        ]
         assert (
             facts.jobs[0]["result"]["added"] == 1
             and facts.jobs[0]["result"]["error_count"] == 0
