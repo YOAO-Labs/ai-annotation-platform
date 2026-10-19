@@ -24,6 +24,9 @@ versioned Input contract, image worker, dedicated input bucket and Cleanup lane
 remain the per-item materialization and retention owners. Do not add a service,
 language, bucket or secret for this slice.
 
+This admission applies to ordinary non-Scene image projects. Scene-mode, video,
+frame, text and tracker executions retain their separate migration boundaries.
+
 The API commits the durable preparation intent and complete logical Task/source
 selection in one caller-owned transaction through narrow native owner contracts.
 Assets owns immutable manifest header/member facts; it calls Jobs and Labeling

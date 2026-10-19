@@ -88,7 +88,7 @@ async def test_bulk_image_without_manifest_identity_fails_closed(with_job_id):
     project_id = uuid.uuid4()
     job_id = uuid.uuid4() if with_job_id else None
     actor_id = uuid.uuid4()
-    project = SimpleNamespace(data_type="image")
+    project = SimpleNamespace(data_type="image", scene_mode=False)
     job = SimpleNamespace(
         kind="batch_predict",
         project_id=project_id,
@@ -126,7 +126,7 @@ async def test_bulk_image_without_manifest_identity_fails_closed(with_job_id):
 @pytest.mark.asyncio
 async def test_running_legacy_bulk_image_job_is_drained(monkeypatch):
     project_id, job_id, actor_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
-    project = SimpleNamespace(data_type="image")
+    project = SimpleNamespace(data_type="image", scene_mode=False)
     job = SimpleNamespace(
         id=job_id,
         kind="batch_predict",
@@ -268,6 +268,27 @@ async def test_bulk_text_stage_is_outside_image_manifest_drain_guard():
 
     async with _prepare_accepted_input_manifest(request, lambda: pytest.fail()):
         pass
+
+
+@pytest.mark.asyncio
+async def test_scene_image_project_is_outside_ordinary_manifest_drain_guard():
+    project = SimpleNamespace(data_type="image", scene_mode=True)
+
+    class Session(_Session):
+        async def get(self, model, _identity, **_kwargs):
+            assert model.__name__ == "Project"
+            return project
+
+    request = BatchPredictionRequest(
+        project_id=str(uuid.uuid4()),
+        ml_backend_id=str(uuid.uuid4()),
+        execution_scope="bulk",
+        task="detect",
+    )
+    async with _prepare_accepted_input_manifest(
+        request, lambda: Session(None, None)
+    ) as prepared:
+        assert prepared is None
 
 
 @pytest.mark.asyncio
