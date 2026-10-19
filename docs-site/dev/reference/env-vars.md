@@ -480,10 +480,18 @@ last_reviewed: 2026-10-20
 | `IDENTITY_AUTH_DATABASE_URL_FILE` | `—` | — |
 | `IDENTITY_KEY_DATABASE_URL` | `—` | 内嵌 API key 命令可用独立的两项函数 LOGIN；每对 DSN / 文件最多一项。 |
 | `IDENTITY_KEY_DATABASE_URL_FILE` | `—` | — |
-| `IDENTITY_RUNTIME_DATABASE_URL_FILE` | `—` | 独立 Compose 的四个 secret 文件。准入／命令分别使用函数 LOGIN；签名 secret 与当前 API SECRET_KEY 相同。 |
+| `IDENTITY_SESSION_DATABASE_URL` | `—` | 内嵌核心会话命令可用独立三函数 LOGIN；登录计数复用 REDIS_URL。 |
+| `IDENTITY_SESSION_DATABASE_URL_FILE` | `—` | — |
+| `IDENTITY_RUNTIME_DATABASE_URL_FILE` | `—` | 独立 Compose 的六个 secret 文件。准入／key／会话分开授予函数 LOGIN。 Redis 身份只需 login_failed:* 的 GET/INCRBY/EXPIRE/DEL；签名 secret 与所有现存签发端相同。 |
 | `IDENTITY_RUNTIME_KEY_DATABASE_URL_FILE` | `—` | — |
+| `IDENTITY_RUNTIME_SESSION_DATABASE_URL_FILE` | `—` | — |
+| `IDENTITY_RUNTIME_LOGIN_REDIS_URL_FILE` | `—` | — |
 | `IDENTITY_RUNTIME_TOKEN_FILE` | `—` | — |
 | `IDENTITY_RUNTIME_SIGNING_SECRET_FILE` | `—` | — |
+| `IDENTITY_RUNTIME_EXPIRE_MINUTES` | `1440` | — |
+| `IDENTITY_RUNTIME_EMAIL_VERIFICATION_REQUIRED` | `false` | — |
+| `IDENTITY_RUNTIME_LOGIN_CAPTCHA_THRESHOLD` | `5` | — |
+| `IDENTITY_RUNTIME_LOGIN_FAILED_WINDOW_SECONDS` | `3600` | — |
 
 ## 独立 Assets 来源服务（可选，不进入默认 Compose）
 

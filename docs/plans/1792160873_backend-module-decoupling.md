@@ -2302,3 +2302,63 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   at 0218. The four original running containers are unchanged. The qualification
   ledger is `.worktree/identity-keys-verification-current.json`; the full module
   objective remains active with the limitations above.
+
+### Identity core-session ownership and local qualification
+
+- The existing Identity package/runtime now owns login, refresh, logout and
+  logout-all through `aap-identity-sessions/v1`. API adapters carry values and
+  Principal without User hydration or session ORM writes. The obsolete API login,
+  seen/logout setters and password-by-email locking path are removed. Registration,
+  invitation and the other account/password/email flows remain unfinished.
+- Native 0237 adds a success receipt and three session-only capabilities under a
+  separate LOGIN. Password verification precedes a current-hash/User fence;
+  refresh has a grace-aware credential fence. User state, JTI/generation, success
+  receipt and Audit-owned business event share the owner transaction. Valid failed
+  logins also commit their Audit; malformed or wrongly bound replies cannot commit.
+- The provider owns the Redis counter and rechecks the challenge threshold, while
+  API retains HTTP rate limits and Turnstile verification. A scoped Redis LOGIN
+  permits only login counter keys and the actual GET/INCRBY/EXPIRE/DEL commands,
+  plus required connection commands. Positive counter operations and denied
+  unrelated-cache/PubSub operations are exercised, with existing fail-open policy.
+- Receipts freeze database-clock expiry, explicit operation JTI and exact signed
+  64-bit generation. A fixed-claims signer recovers the same token after lost
+  response and restart, without storing raw credentials. Replay reauthenticates,
+  preserves historical claims and never rewinds current role/generation/presence,
+  revives JTI, or repeats business Audit. Policy/signing-epoch changes conflict.
+- Native/role/schema, API consumer and installed process/container/recovery
+  qualification has 411 distinct latest passes. The 122 explicit exclusions are
+  inapplicable domain lazy-root checks. Historical failures are retained with
+  targeted replacements; no already-green broad suite is rerun just for counts.
+  SQL 0237->0189, frozen independent installation/outer rollback and upgrade with
+  exact grants pass. Every owned verifier removes its PG/Redis/buckets/identities
+  with zero cleanup errors.
+- Current installed-only Identity checks pass 106 cases from an isolated working
+  directory. Wire validation rejects numeric aliases in issued JWS payloads and
+  binds login email both before native commit and at the wire. Node's 18-case
+  self-check and Python use one public test-only known answer for Unicode request
+  fingerprints, derivation and exact JWT bytes. This proves cross-language client
+  and primitive/serialization compatibility, not a second-language provider.
+- Real API processes holding only AUTH database privileges complete all four
+  commands through the independent owner, including API-key logout-all while
+  API-key logout remains rejected. Wrong-password audit/count, CAPTCHA, expiry,
+  service capability absence and no fallback pass. An actual independent login
+  issues the JWT used by the existing REST/WS live acceptance. ACL-preserving
+  backup/restore retains session receipts and reproduces issuance using restricted
+  SESSION/AUTH roles; populated downgrade and retained-JTI guards remain intact.
+- Integration corrected a PL/pgSQL CASE parsing boundary, audit-aware fixture
+  cleanup, semantic timestamp comparison, privilege inspection without private
+  schema lookup, and the API fixture's async SQLAlchemy DSN. Restricted-container
+  counter acceptance exposed the client's INCRBY wire command; the ACL and runbook
+  now match it. Refresh preserves account-update 409 separately from credential
+  contention 503, JOSE decode versus decoded-claim errors, and Bearer header rules.
+- Focused SDK auth/key/OpenAPI/discovery passes 53 cases. The public API models are
+  unchanged; the refresh description and offline operation-catalog source digest
+  are regenerated, as are local frontend API artifacts. Gateway compatibility and
+  environment isolation checks pass. No application UI is changed in this tranche.
+- Full Identity deployment remains incomplete: signup/invitation, password/email,
+  profile and account/group/multi-owner lifecycle, remaining signers and least-
+  privilege API assembly still need extraction. Web CAPTCHA rendering still has
+  a threshold5 dependency that must be removed before changing the operator
+  threshold. Other modules, universal final credential write fences, selected
+  provider replacement, sustained capacity and daily cutover remain active. No
+  production, Go expansion, push, release or remote CI work is performed.

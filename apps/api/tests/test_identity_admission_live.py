@@ -25,7 +25,11 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 import websockets
 
 from aap_identity.contract import decode_principal_reply
-from aap_identity.security import create_access_token, decode_access_token
+from aap_identity.security import (
+    create_access_token,
+    decode_access_token,
+    hash_password,
+)
 from app.db.models.api_key import ApiKey
 from app.db.models.user import User
 from tests.test_asset_storage_cleanup_runtime import (
@@ -50,7 +54,8 @@ import hashlib, importlib.util, json, os, sys
 from pathlib import Path
 import aap_identity, aap_identity_runtime
 assert all(importlib.util.find_spec(name) is None for name in
-           ('app', 'sqlalchemy', 'redis', 'celery', 'boto3', 'torch'))
+           ('app', 'sqlalchemy', 'celery', 'boto3', 'torch'))
+assert importlib.util.find_spec('redis') is not None
 files = {}
 for module in (aap_identity, aap_identity_runtime):
     directory = Path(module.__file__).resolve().parent
@@ -130,7 +135,9 @@ class Container:
             self.container_id = ""
 
 
-async def _start_container_identity(test_engine, directory, secret, control):
+async def _start_container_identity(
+    test_engine, directory, secret, control, *, login_redis_url=None
+):
     image = _inspect_docker(os.environ["AAP_IDENTITY_RUNTIME_IMAGE"])
     identity = os.environ["AAP_IDENTITY_RUNTIME_IDENTITY"]
     assert image["Config"]["Labels"] == {
@@ -142,6 +149,12 @@ async def _start_container_identity(test_engine, directory, secret, control):
         .set(host="host.docker.internal")
         .render_as_string(hide_password=False),
         "IDENTITY_KEY_DATABASE_URL": make_url(_dsn("KEYS", test_engine))
+        .set(host="host.docker.internal")
+        .render_as_string(hide_password=False),
+        "IDENTITY_SESSION_DATABASE_URL": make_url(_dsn("SESSIONS", test_engine))
+        .set(host="host.docker.internal")
+        .render_as_string(hide_password=False),
+        "IDENTITY_LOGIN_REDIS_URL": make_url(login_redis_url or os.environ["REDIS_URL"])
         .set(host="host.docker.internal")
         .render_as_string(hide_password=False),
         "IDENTITY_TOKEN": control,
@@ -256,7 +269,16 @@ def _start(command, environment, cwd, log_path, port, ready):
 
 
 def _start_identity(
-    test_engine, directory, secret, control, *, port=None, enable_keys=True
+    test_engine,
+    directory,
+    secret,
+    control,
+    *,
+    port=None,
+    enable_keys=True,
+    enable_sessions=True,
+    login_redis_url=None,
+    session_settings=None,
 ):
     interpreter = Path(os.environ["AAP_IDENTITY_RUNTIME_PYTHON"])
     assert interpreter.is_file()
@@ -267,11 +289,15 @@ def _start_identity(
     }
     if enable_keys:
         values["key_database_url"] = _dsn("KEYS", test_engine)
+    if enable_sessions:
+        values["session_database_url"] = _dsn("SESSIONS", test_engine)
+        values["login_redis_url"] = login_redis_url or os.environ["REDIS_URL"]
     environment = {
         "PATH": os.environ.get("PATH", ""),
         "IDENTITY_HOST": "127.0.0.1",
         "IDENTITY_PORT": str(port or _port()),
     }
+    environment.update(session_settings or {})
     for name, value in values.items():
         path = directory / f"identity-{name}"
         path.write_text(value)
@@ -287,7 +313,15 @@ def _start_identity(
     )
 
 
-def _start_api(directory, secret, control, identity_origin, *, database_url=None):
+def _start_api(
+    directory,
+    secret,
+    control,
+    identity_origin,
+    *,
+    database_url=None,
+    configuration=None,
+):
     environment = dict(os.environ)
     environment.update(
         {
@@ -298,6 +332,8 @@ def _start_api(directory, secret, control, identity_origin, *, database_url=None
             "IDENTITY_AUTH_DATABASE_URL_FILE": "",
             "IDENTITY_KEY_DATABASE_URL": "",
             "IDENTITY_KEY_DATABASE_URL_FILE": "",
+            "IDENTITY_SESSION_DATABASE_URL": "",
+            "IDENTITY_SESSION_DATABASE_URL_FILE": "",
             "MIGRATION_DATABASE_URL": "",
             "ALEMBIC_AUTO_UPGRADE": "false",
             "E2E_SEED_ENABLED": "false",
@@ -309,6 +345,7 @@ def _start_api(directory, secret, control, identity_origin, *, database_url=None
     if database_url:
         environment["DATABASE_URL"] = database_url
         environment["AUDIT_ASYNC"] = "true"
+    environment.update(configuration or {})
     for prefix in (
         "ASSETS_CATALOG",
         "ASSETS_SOURCE",
@@ -344,7 +381,7 @@ def _start_api(directory, secret, control, identity_origin, *, database_url=None
     )
 
 
-async def _world(test_engine):
+async def _world(test_engine, *, password=None):
     maker = async_sessionmaker(test_engine, expire_on_commit=False)
     actor = uuid.uuid4()
     async with maker.begin() as db:
@@ -353,7 +390,11 @@ async def _world(test_engine):
                 id=actor,
                 email=f"identity-live-{actor}@example.test",
                 name="Live Identity user",
-                password_hash="fixture-only",
+                password_hash=(
+                    await asyncio.to_thread(hash_password, password)
+                    if password is not None
+                    else "fixture-only"
+                ),
                 role="super_admin",
                 is_active=True,
             )
@@ -581,7 +622,7 @@ async def test_installed_identity_and_node_observe_current_state_after_restart(
 async def test_real_api_rest_and_socket_use_remote_identity_without_fallback(
     test_engine, tmp_path, record_property
 ):
-    maker, actor = await _world(test_engine)
+    maker, actor = await _world(test_engine, password="LiveIdentity123")
     secret, control = secrets.token_urlsafe(32), secrets.token_urlsafe(32)
     identity = api = None
     jtis = []
@@ -594,12 +635,20 @@ async def test_real_api_rest_and_socket_use_remote_identity_without_fallback(
             "installed_identity_image", os.environ["AAP_IDENTITY_RUNTIME_IMAGE"]
         )
         api = _start_api(tmp_path, secret, control, identity.origin)
-        value = _token(actor, secret)
-        jtis.append(uuid.UUID(decode_access_token(value, secret=secret)["jti"]))
-        headers = {"Authorization": f"Bearer {value}"}
         async with httpx.AsyncClient(
             base_url=api.origin, trust_env=False, timeout=20
         ) as client:
+            login = await client.post(
+                "/api/v1/auth/login",
+                json={
+                    "email": f"identity-live-{actor}@example.test",
+                    "password": "LiveIdentity123",
+                },
+            )
+            assert login.status_code == 200
+            value = login.json()["access_token"]
+            jtis.append(uuid.UUID(decode_access_token(value, secret=secret)["jti"]))
+            headers = {"Authorization": f"Bearer {value}"}
             me = await client.get("/api/v1/auth/me", headers=headers)
             assert me.status_code == 200 and me.json()["id"] == str(actor)
             created = await client.post(

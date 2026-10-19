@@ -195,6 +195,76 @@ async def test_refresh_rejects_malformed_token(
     )
     assert r.status_code == 401
     assert "invalid_token" in r.text
+    assert r.headers["www-authenticate"] == "Bearer"
+
+
+@pytest.mark.parametrize(
+    "change,detail,challenge",
+    [
+        ({"sub": "bad-uuid"}, "malformed_token", False),
+        ({"gen": True}, "malformed_token", False),
+        ({"exp": 1.5}, "malformed_token", False),
+        ({"jti": "bad-uuid"}, "malformed_token", False),
+        ({"jti": None}, "invalid_token", True),
+        ({"sub": 42}, "invalid_token", True),
+    ],
+)
+async def test_refresh_preserves_signed_claim_failure_provenance(
+    httpx_client, change, detail, challenge
+):
+    claims = {
+        "sub": str(uuid.uuid4()),
+        "role": "employee",
+        "exp": int((datetime.now(timezone.utc) + timedelta(minutes=5)).timestamp()),
+        "jti": str(uuid.uuid4()),
+        "gen": 0,
+        "iss": ISSUER,
+        **change,
+    }
+    token = jwt.encode(claims, signing_key(settings.secret_key), algorithm=ALGORITHM)
+    response = await httpx_client.post(
+        "/api/v1/auth/refresh", headers={"Authorization": f"Bearer {token}"}
+    )
+    assert response.status_code == 401
+    assert response.json()["detail"] == detail
+    assert response.headers.get("www-authenticate") == ("Bearer" if challenge else None)
+
+
+async def test_refresh_missing_current_account_is_inactive(httpx_client):
+    token = create_access_token(str(uuid.uuid4()), "employee")
+    response = await httpx_client.post(
+        "/api/v1/auth/refresh", headers={"Authorization": f"Bearer {token}"}
+    )
+    assert response.status_code == 401 and response.json()["detail"] == "user_inactive"
+    assert "www-authenticate" not in response.headers
+
+
+@pytest.mark.parametrize(
+    "code,status", [("account_busy", 409), ("credential_busy", 503)]
+)
+async def test_refresh_preserves_busy_source_status(
+    httpx_client, app_module, code, status
+):
+    from aap_identity.session_contract import SessionFailure
+    from app.api.v1.auth import get_session_commands
+
+    class Owner:
+        async def execute(self, _command):
+            raise SessionFailure(code)
+
+    previous = app_module.dependency_overrides.get(get_session_commands)
+    app_module.dependency_overrides[get_session_commands] = lambda: Owner()
+    try:
+        response = await httpx_client.post(
+            "/api/v1/auth/refresh", headers={"Authorization": "Bearer fixture-only"}
+        )
+        assert response.status_code == status
+        assert "www-authenticate" not in response.headers
+    finally:
+        if previous is None:
+            app_module.dependency_overrides.pop(get_session_commands, None)
+        else:
+            app_module.dependency_overrides[get_session_commands] = previous
 
 
 async def test_refresh_rejects_an_owner_reply_for_another_actor(

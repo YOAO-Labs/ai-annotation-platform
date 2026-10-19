@@ -8,11 +8,19 @@ services:
       IDENTITY_PORT: 8170
       IDENTITY_DATABASE_URL_FILE: /run/secrets/identity_database_url
       IDENTITY_KEY_DATABASE_URL_FILE: /run/secrets/identity_key_database_url
+      IDENTITY_SESSION_DATABASE_URL_FILE: /run/secrets/identity_session_database_url
+      IDENTITY_LOGIN_REDIS_URL_FILE: /run/secrets/identity_login_redis_url
+      IDENTITY_EXPIRE_MINUTES: ${IDENTITY_RUNTIME_EXPIRE_MINUTES:-1440}
+      IDENTITY_EMAIL_VERIFICATION_REQUIRED: ${IDENTITY_RUNTIME_EMAIL_VERIFICATION_REQUIRED:-false}
+      IDENTITY_LOGIN_CAPTCHA_THRESHOLD: ${IDENTITY_RUNTIME_LOGIN_CAPTCHA_THRESHOLD:-5}
+      IDENTITY_LOGIN_FAILED_WINDOW_SECONDS: ${IDENTITY_RUNTIME_LOGIN_FAILED_WINDOW_SECONDS:-3600}
       IDENTITY_TOKEN_FILE: /run/secrets/identity_token
       IDENTITY_SIGNING_SECRET_FILE: /run/secrets/identity_signing_secret
     secrets:
       - identity_database_url
       - identity_key_database_url
+      - identity_session_database_url
+      - identity_login_redis_url
       - identity_token
       - identity_signing_secret
     ports:
@@ -29,6 +37,10 @@ secrets:
     file: ${IDENTITY_RUNTIME_DATABASE_URL_FILE:?Set Identity function-only DSN file}
   identity_key_database_url:
     file: ${IDENTITY_RUNTIME_KEY_DATABASE_URL_FILE:?Set Identity API-key command DSN file}
+  identity_session_database_url:
+    file: ${IDENTITY_RUNTIME_SESSION_DATABASE_URL_FILE:?Set Identity session command DSN file}
+  identity_login_redis_url:
+    file: ${IDENTITY_RUNTIME_LOGIN_REDIS_URL_FILE:?Set Identity login-only Redis DSN file}
   identity_token:
     file: ${IDENTITY_RUNTIME_TOKEN_FILE:?Set Identity private bearer file}
   identity_signing_secret:

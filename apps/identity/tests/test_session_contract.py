@@ -210,6 +210,15 @@ def test_reply_verifies_exact_claim_payload_and_binds_subject_to_principal():
     )
     assert token not in repr(reply.data)
     assert reply.principal.role == "super_admin" and issued.role == "employee"
+    wrong_email = reply.model_copy(
+        update={
+            "principal": current.model_copy(update={"email": "another@example.test"})
+        }
+    )
+    with pytest.raises(IdentityUnavailable):
+        decode_session_reply(
+            request, wrong_email.model_dump(mode="json", by_alias=True)
+        )
 
     extra_claim_token = jwt.encode(
         {**issued.model_dump(mode="json"), "admin": True},
@@ -231,6 +240,37 @@ def test_reply_verifies_exact_claim_payload_and_binds_subject_to_principal():
         decode_session_reply(
             request, wrong_principal.model_dump(mode="json", by_alias=True)
         )
+
+
+@pytest.mark.parametrize(
+    "field,value", [("gen", True), ("gen", 1.0), ("exp", 2_050_000_000.0)]
+)
+def test_issued_jws_rejects_numeric_aliases_of_frozen_integer_claims(field, value):
+    request = session_request("login", operation_id=OPERATION_ID)
+    issued = claims(gen=1)
+    current = principal(
+        "jwt",
+        actor_id=str(issued.sub),
+        credential_id=str(issued.jti),
+        generation=issued.gen,
+        expires_at=issued.expires_at.isoformat(),
+    )
+    encoded = jwt.encode(
+        {**issued.model_dump(mode="json"), field: value},
+        signing_key(SECRET),
+        algorithm="HS256",
+        headers={"typ": "JWT"},
+    )
+    reply = LoginReply(
+        schema=SESSION_PROTOCOL,
+        ok=True,
+        operation="login",
+        operation_id=OPERATION_ID,
+        principal=current,
+        data=SessionIssuedData(claims=issued, access_token=encoded),
+    )
+    with pytest.raises(IdentityUnavailable):
+        decode_session_reply(request, reply.model_dump(mode="json", by_alias=True))
 
 
 def test_refresh_replay_can_return_frozen_older_claims_for_current_actor():
@@ -394,3 +434,14 @@ def test_native_login_command_drops_plaintext_and_valid_failure_stays_a_value():
         ).principal.role
         == "super_admin"
     )
+    wrong_email = success.model_copy(
+        update={
+            "principal": current_profile.model_copy(
+                update={"email": "another@example.test"}
+            )
+        }
+    )
+    with pytest.raises(IdentityUnavailable):
+        decode_native_session_reply(
+            command, wrong_email.model_dump(mode="json", by_alias=True)
+        )

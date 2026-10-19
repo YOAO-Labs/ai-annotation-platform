@@ -162,3 +162,4 @@
 - [0114 — Durable failed-prediction retries and running tracker roots](0114-durable-prediction-retries.md)
 - [0115 — Identity 准入与持久会话撤权](0115-identity-admission-and-durable-revocation.md)
 - [0116 — API key 命令与可重放签发](0116-independent-identity-key-commands.md)
+- [0117 — 核心会话命令与原子审计](0117-independent-identity-session-commands.md)

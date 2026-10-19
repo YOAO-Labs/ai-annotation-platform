@@ -21,18 +21,18 @@ last_reviewed: 2026-10-18
 
 认证不等于资源授权。使用 `get_current_user` 取得主体后，项目操作复用 `project_access`，任务操作复用 `task_access`，不得在路由另写一套角色矩阵。预览或历史 Scope DTO 也不能替代最终写入时的当前权限。
 
-`logout` 声明 `status_code=204`，接收原 Bearer 凭据和当前账号，通过同一 SQL Session 组合账号命令与审计。它的实际顺序是：
+`logout` 声明 `status_code=204`，接收原 Bearer 凭据和当前主体，通过 Identity 会话命令端口组合撤权、在线状态和审计。它的实际顺序是：
 
 ```mermaid
 flowchart TD
-  A[验证当前请求凭据] --> B[锁定并刷新当前启用账号]
-  B --> C[将当前 jti 加入 Redis 黑名单]
-  C --> D[身份所有者记录离线状态]
-  D --> E[写入业务审计]
-  E --> F[提交 SQL 事务并返回 204]
+  A[API 消费当前主体并转发原凭据] --> B[Identity 锁定并重验当前账号与 JWT]
+  B --> C[持久撤销当前 JTI]
+  C --> D[Identity 记录离线状态]
+  D --> E[Audit 所有者记录业务事件]
+  E --> F[共同提交撤权、状态和回执并返回 204]
 ```
 
-账号锁繁忙时在 Redis 副作用前返回冲突；不能先吊销 token，再发现无法更新账号。离线状态由 `IdentityCommandService.record_logout_for_locked_user` 写入，而不是在 API 直接改 ORM 字段。
+账号锁繁忙时返回 409；不能先吊销 token，再发现无法更新账号。会话状态由 Identity 原生命令写入，业务审计与撤权同事务提交，API 不直接修改 ORM。显式远程故障不会回退到另一条本地写路径。
 
 请求和响应复用已有 Pydantic schema。对新路由明确声明适用的 `response_model`、成功状态和非默认错误语义；对既有路由迁移则保留公开路径、字段、状态码和错误代码，不为内部改名重写外部合同。
 

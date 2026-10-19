@@ -346,6 +346,7 @@ async def test_login_receipt_rollback_and_replay_never_rewinds_user_or_audit(
             assert stored_scope["actor_id"] == str(fixture["actor_id"])
 
         async with maker.begin() as session:
+            await session.execute(text("SET LOCAL app.allow_audit_update='true'"))
             await session.execute(
                 text("DELETE FROM public.users WHERE id=:id"),
                 {"id": fixture["actor_id"]},
@@ -645,7 +646,10 @@ async def test_refresh_grace_logout_revocation_and_malformed_inputs(test_engine)
             )
             assert refreshed["ok"] is True
             assert refreshed["data"]["claims"]["jti"] != str(refresh_jti)
-            assert refreshed["principal"]["expires_at"] == old_expiry.isoformat()
+            assert (
+                datetime.fromisoformat(refreshed["principal"]["expires_at"])
+                == old_expiry
+            )
 
             logout_id = uuid.uuid4()
             logout_request = _request(

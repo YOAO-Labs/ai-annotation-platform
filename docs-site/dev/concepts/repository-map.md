@@ -75,6 +75,7 @@ last_reviewed: 2026-10-19
   保留 online 与缺失/严格早于 cutoff 的 `last_seen_at` 条件。
 - 邀请接受：`application/invitation_acceptance.py` 组合 `InvitationService`、`IdentityCommandService` 与 `project_membership.grant_invitation_membership`。邀请、账号、成员各由对应所有者写入；原 token/当前权限锁与重复 409 保持，HTTP 持有审计、最终提交和 JWT 签发。
 - 自有 API key 管理：`services/api_key_contracts.ApiKeyManagementPort` 消费 `aap-identity-keys/v1` 值消息，`api_key_service.IdentityKeyManagement` 装配调用方事务、函数专用连接或独立运行时。`deps.get_current_principal` 提供准入和审计身份；管理路由不水合 User 或写 key ORM。Identity 命令所有者持有五项操作、当前凭据围栏、签发和冻结回执。
+- 核心会话：`services/identity_session_commands.SessionCommandsPort` 消费 `aap-identity-sessions/v1`，装配同一 Identity 提供方的登录、刷新、登出和全端登出；API 保留限流和 Turnstile 验证，不水合 User 或写会话状态。提供方拥有密码验证、失败计数、当前凭据围栏、冻结签发回执和同事务 Audit 能力；三函数 LOGIN 与登录计数 Redis ACL 分离于其他能力。注册／邀请等签发与完整账号流程仍待迁移。
 - 类别重命名：`application/project_class_rename.py` 组合 workspace 绑定与
   `AnnotationService.rename_class_name()`；管理权威及排他项目锁在修改前刷新。
   工具选择只收窄配置，存量标注的项目级名称迁移及原版本语义保留。

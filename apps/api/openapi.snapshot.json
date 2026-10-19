@@ -56118,7 +56118,7 @@
     },
     "/api/v1/auth/refresh": {
       "post": {
-        "description": "v0.8.8 · 用即将 / 已过期的 token 换新 token（grace 7 天）。\n\n返回 401 时前端应跳转登录页（grace 已过、被 logout、被 deactivate）。",
+        "description": "用有效或七天宽限内的 JWT 换取新 token；401 时应重新登录。",
         "operationId": "refresh_token_api_v1_auth_refresh_post",
         "responses": {
           "200": {

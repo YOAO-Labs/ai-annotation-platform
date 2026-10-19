@@ -1,4 +1,5 @@
-import { createHash } from "node:crypto";
+import { createHash, createHmac } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { isIP } from "node:net";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -26,6 +27,7 @@ const failureCodes = new Set([
   "user_inactive",
   "invalid_account_role",
   "credential_busy",
+  "account_busy",
   "invalid_credentials",
   "email_not_verified",
   "captcha_required",
@@ -209,6 +211,42 @@ function normalizedClaims(claims) {
   };
 }
 
+function readIncomingJwtClaims(token) {
+  const parts = token.split(".");
+  if (parts.length !== 3) fail();
+  const decode = (segment) => {
+    if (!/^[A-Za-z0-9_-]+={0,2}$/.test(segment)) fail();
+    return JSON.parse(
+      new TextDecoder("utf-8", { fatal: true }).decode(Buffer.from(segment, "base64url")),
+      (_key, value, context) =>
+        typeof value === "number" ? { number: value, source: context?.source } : value,
+    );
+  };
+  const header = decode(parts[0]);
+  if (!isRecord(header) || header.alg !== "HS256") fail();
+  if (Buffer.from(parts[2], "base64url").length !== 32) fail();
+  const claims = decode(parts[1]);
+  if (!isRecord(claims) || claims.iss !== issuer) fail();
+  const source = claims.gen?.source ?? (Object.hasOwn(claims, "gen") ? null : "0");
+  if (typeof source !== "string" || !/^-?(0|[1-9][0-9]*)$/.test(source)) fail();
+  const generation = BigInt(source);
+  if (
+    generation < 0n ||
+    generation > maxGeneration ||
+    !Number.isSafeInteger(claims.exp?.number) ||
+    claims.exp.number <= 0 ||
+    claims.exp.number > Number(maxPythonEpochSeconds)
+  )
+    fail();
+  return {
+    sub: uuid(claims.sub),
+    jti: uuid(claims.jti),
+    gen: generation,
+    exp: claims.exp.number,
+    iss: issuer,
+  };
+}
+
 function principalExpiryMatches(principal, exp) {
   if (typeof principal.expires_at !== "string" || !validDateTime(principal.expires_at)) {
     return false;
@@ -234,7 +272,6 @@ function bindSuccessfulCommand(request, principal, claims, operationId) {
     if (
       principal.credential_type !== "jwt" ||
       principal.credential_id !== claims.jti ||
-      principal.role !== claims.role ||
       principal.generation_decimal !== claims.gen.toString(10) ||
       !principalExpiryMatches(principal, claims.exp)
     ) {
@@ -253,7 +290,7 @@ function bindSuccessfulCommand(request, principal, claims, operationId) {
     }
     return;
   }
-  bindPrincipalToJwt(principal, readJwtClaims(request.token));
+  bindPrincipalToJwt(principal, readIncomingJwtClaims(request.token));
 }
 
 export function decodeSessionResponse(requestContext, body, status, contentType) {
@@ -345,7 +382,7 @@ export function decodeSessionResponse(requestContext, body, status, contentType)
     bindSuccessfulCommand(request, principal, claims, operationId);
   } else {
     if (request.operation !== "logout" || request.token.startsWith("ak_")) fail();
-    bindPrincipalToJwt(principal, readJwtClaims(request.token));
+    bindPrincipalToJwt(principal, readIncomingJwtClaims(request.token));
   }
 
   return {
@@ -500,6 +537,13 @@ function selfCheck() {
   const refreshRequest = makeTestRequest("refresh", nextOperationId, inputToken);
   const refreshBody = makeReplyJson(refreshRequest, jwtPrincipal, outputClaimsJson, outputToken);
   const refresh = decodeSessionResponse(refreshRequest, refreshBody, 200, "application/json");
+  const compatibleInput = makeTestJwt(
+    inputClaimsJson
+      .replace('"role":"viewer"', '"role":"historical-role","iat":0')
+      .replace(`"exp":${inputExp}`, `"exp":${inputExp}.0`),
+  );
+  const compatibleRequest = makeTestRequest("refresh", nextOperationId, compatibleInput);
+  decodeSessionResponse(compatibleRequest, refreshBody, 200, "application/json");
   if (refresh.receipt.claims.generation_decimal !== maxGenerationText) fail();
   if (JSON.stringify(refresh.receipt).includes(inputToken)) fail();
   if (JSON.stringify(refresh.receipt).includes(outputToken)) fail();
@@ -523,6 +567,18 @@ function selfCheck() {
   );
   const loginBody = makeReplyJson(loginRequest, loginPrincipal, loginClaimsJson, loginToken);
   const login = decodeSessionResponse(loginRequest, loginBody, 200, "application/json");
+  const currentRoleLogin = decodeSessionResponse(
+    loginRequest,
+    makeReplyJson(
+      loginRequest,
+      { ...loginPrincipal, role: "employee" },
+      loginClaimsJson,
+      loginToken,
+    ),
+    200,
+    "application/json",
+  );
+  if (currentRoleLogin.receipt.principal.role !== "employee") fail();
   const loginOutput = JSON.stringify(login.receipt);
   for (const secret of [
     "self-check-password",
@@ -676,8 +732,35 @@ function selfCheck() {
   if (failure.receipt.error.failed_count_decimal !== "90071992547409931234567890") {
     fail();
   }
+  const vector = parseSessionJson(
+    readFileSync(
+      new URL("../../../identity/tests/fixtures/session_vectors.json", import.meta.url),
+      "utf8",
+    ),
+  );
+  const vectorMaster = createHmac("sha256", vector.secret)
+    .update("aap-identity-sessions/v1")
+    .digest();
+  const vectorKey = createHmac("sha256", vector.secret).update(issuer).digest("hex");
+  const vectorInput =
+    Buffer.from('{"alg":"HS256","typ":"JWT"}').toString("base64url") +
+    "." +
+    Buffer.from(stringifyLossless(vector.claims)).toString("base64url");
+  const vectorToken =
+    vectorInput + "." + createHmac("sha256", vectorKey).update(vectorInput).digest("base64url");
+  const asciiRequest = JSON.stringify({ email: vector.email, password: vector.password }).replace(
+    /[^\x00-\x7f]/g,
+    (character) => "\\u" + character.charCodeAt(0).toString(16).padStart(4, "0"),
+  );
+  if (
+    vectorToken !== vector.access_token ||
+    createHash("sha256").update(vectorMaster).digest("hex") !== vector.derivation_id ||
+    createHmac("sha256", vectorMaster).update(asciiRequest).digest("hex") !==
+      vector.request_fingerprint
+  )
+    fail();
   if (nextOperationId === operationId) fail();
-  return { ok: true, checks: 15 };
+  return { ok: true, checks: 18 };
 }
 
 function isDirectExecution() {

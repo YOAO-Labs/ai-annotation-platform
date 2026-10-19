@@ -209,3 +209,37 @@ class IdentityKeySessionData:
             "SELECT aap_identity_keys_v1.execute_key_command(CAST(:request AS jsonb))",
             {"request": json.dumps(request)},
         )
+
+
+class IdentitySessionCommandData:
+    """Stage the session owner's commands in the caller's committing transaction."""
+
+    def __init__(self, db: AsyncSession) -> None:
+        self.db = db
+
+    async def _call(self, statement: str, parameters: dict):
+        try:
+            value = await self.db.scalar(text(statement), parameters)
+            result = _json_value(value)
+            if not isinstance(result, dict):
+                raise IdentityGatewayUnavailable()
+            return result
+        except SQLAlchemyError:
+            raise IdentityGatewayUnavailable() from None
+
+    async def session_policy(self) -> dict:
+        return await self._call("SELECT aap_identity_sessions_v1.session_policy()", {})
+
+    async def read_login_candidate(self, email: str) -> dict:
+        await self.db.flush()
+        return await self._call(
+            "SELECT aap_identity_sessions_v1.read_login_candidate(:email)",
+            {"email": email},
+        )
+
+    async def execute_session_command(self, request: dict) -> dict:
+        await self.db.flush()
+        return await self._call(
+            "SELECT aap_identity_sessions_v1.execute_session_command(CAST(:request AS jsonb))",
+            {"request": json.dumps(request)},
+        )

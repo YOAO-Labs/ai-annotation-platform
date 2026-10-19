@@ -63,6 +63,11 @@ async def _seed(
 async def _cleanup(test_engine, fixture: dict[str, uuid.UUID], jtis=()) -> None:
     maker = async_sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
     async with maker.begin() as session:
+        await session.execute(text("SET LOCAL app.allow_audit_update='true'"))
+        await session.execute(
+            text("DELETE FROM public.audit_logs WHERE actor_id=:id"),
+            {"id": fixture["actor_id"]},
+        )
         await session.execute(
             delete(PasswordResetToken).where(
                 PasswordResetToken.user_id == fixture["actor_id"]

@@ -1137,23 +1137,38 @@ psql -v expected_database=annotation_test -v migration_role=owner \
 
 此 LOGIN 只有 key 策略和命令执行函数，不含准入函数或直接表权限。运行时分别使用准入与命令两个连接；命令前的哈希工作不持有最终业务锁，原生函数锁当前账号、凭据和目标 key 后共同提交修改与回执。非空 key 操作回执阻止删除该协议的降级，回执随其 Identity 账号的物理删除级联清除。
 
-独立进程显式设置 `IDENTITY_DATABASE_URL(_FILE)`、`IDENTITY_TOKEN(_FILE)`、`IDENTITY_SIGNING_SECRET(_FILE)`，每对恰好一项；它不读取 API `.env`。命令另设 `IDENTITY_KEY_DATABASE_URL(_FILE)`，省略时只提供准入，命令返回 503。签名 secret 与 API `SECRET_KEY` 相同。运行 `uv run --project apps/identity --locked --extra runtime python -m aap_identity_runtime`，或使用可选 `docker-compose.identity.yml` 及四个 `IDENTITY_RUNTIME_*_FILE`。`/health` 是进程存活，`/ready` 检查原生协议及已配置能力的精确调用权限。Secret 文件须对容器用户可读，源码目录不挂入运行镜像。
+核心会话使用同一运行时的 `POST /v1/identity/sessions/execute`。会话 LOGIN 安装命令如下，参数与其他函数专用角色采用同一初始化要求：
+
+```bash
+psql -v expected_database=annotation_test -v migration_role=owner \
+  -v identity_owner=identity_code -v identity_session_role=identity_session_client \
+  -f infra/docker/identity-sessions-grants.sql
+```
+
+该 LOGIN 只有策略、登录候选和会话执行三项能力，不含准入、key、Audit 或表权限。登录／刷新／登出／全端登出的当前账号、密码 hash、generation、JTI 和 key 校验与在线状态、业务审计和成功操作回执共同提交。有效登录失败也保留业务审计；格式或主体绑定错误不能确认事务。内嵌装配可设 `IDENTITY_SESSION_DATABASE_URL(_FILE)` 使用该角色，远程服务故障不会回退。
+
+独立进程显式设置 `IDENTITY_DATABASE_URL(_FILE)`、`IDENTITY_TOKEN(_FILE)`、`IDENTITY_SIGNING_SECRET(_FILE)`，每对恰好一项；它不读取 API `.env`。key 命令另设 `IDENTITY_KEY_DATABASE_URL(_FILE)`；会话另设 `IDENTITY_SESSION_DATABASE_URL(_FILE)` 和 `IDENTITY_LOGIN_REDIS_URL(_FILE)`。未配置某类命令 DSN 时，该 RPC 返回 503，已配置能力仍可就绪。签名 secret 与所有剩余签发端一致。运行 `uv run --project apps/identity --locked --extra runtime python -m aap_identity_runtime`，或使用可选 `docker-compose.identity.yml` 及六个 `IDENTITY_RUNTIME_*_FILE`。`/health` 是进程存活，`/ready` 检查原生协议及已配置能力的精确函数权限。Secret 文件须对容器用户可读，源码目录不挂入运行镜像。
+
+会话计数的 Redis 身份只需 `~login_failed:*`、`+get +incrby +expire +del +ping +select +client|setinfo +client|setname`，清除其他命令和频道权限。客户端的 `incr()` 实际发送 `INCRBY key 1`。API 边缘与提供方使用同一计数实例／命名空间；提供方拥有增量、清零及阈值复查，API 保留通用限流和 Turnstile 验证。Redis 不可用时维持现有计数 fail-open。直启配置 `IDENTITY_EXPIRE_MINUTES=1440`、`IDENTITY_EMAIL_VERIFICATION_REQUIRED=false`、`IDENTITY_LOGIN_CAPTCHA_THRESHOLD=5`、`IDENTITY_LOGIN_FAILED_WINDOW_SECONDS=3600`；Compose 使用相应的 `IDENTITY_RUNTIME_*`。这些值须与 API 的签发时长、有效邮箱验证策略、阈值和窗口一致，生产模式下有效邮箱策略可能为 true。现有 Web 登录页仍按阈值 5 展示验证码，改变此值还需同步迁移其挑战提示合同。
 
 这次认证切换要求旧 JWT 重新登录，API key 保留原 SQL 状态。先停止全部旧 API／WebSocket／签发与刷新进程，再受控迁移并启动新验证器；不能新旧认证滚动并行或回到接受旧 JWT 的代码。已有用户或撤销记录时，迁移拒绝降级；保留数据向前恢复。独立安装包、只读容器、真实 API／WebSocket 和 Node 准入客户端已通过一次性本地联调，备份还原后保留原生权限和撤销状态。当前日常环境尚未切换这一能力，完整凭据命令与多 owner 生命周期仍待完成。详见 [ADR-0115](docs/adr/0115-identity-admission-and-durable-revocation.md)。
 
 复验使用 `scripts/verify_module_data_boundary.py` 创建的独立 PostgreSQL、Redis 和测试桶。先用 `uv sync --project apps/identity --locked --extra runtime --no-editable --reinstall-package aap-identity` 安装当前源码的独立包，再构建 `apps/identity/Dockerfile`。镜像须带 `org.aap.acceptance=identity-admission` 和唯一的 `org.aap.acceptance-id` 标签。设置 `AAP_IDENTITY_RUNTIME_PYTHON` 为该虚拟环境 Python 的绝对路径，`AAP_IDENTITY_RUNTIME_IMAGE` 为镜像名或摘要，`AAP_IDENTITY_RUNTIME_IDENTITY` 为对应标签值，然后运行：
 
 ```bash
-AAP_IDENTITY_LIVE_ACCEPTANCE=1 AAP_IDENTITY_KEYS_LIVE_ACCEPTANCE=1 apps/api/.venv/bin/python \
+AAP_IDENTITY_LIVE_ACCEPTANCE=1 AAP_IDENTITY_KEYS_LIVE_ACCEPTANCE=1 AAP_IDENTITY_SESSIONS_LIVE_ACCEPTANCE=1 apps/api/.venv/bin/python \
   scripts/verify_module_data_boundary.py --output .worktree/identity-live.json \
   --test-file tests/test_identity_admission_live.py \
   --test-file tests/test_identity_keys_live.py \
+  --test-file tests/test_identity_sessions_live.py \
   --test-file tests/test_identity_recovery.py
 ```
 
 这组测试启动独立服务和 API，验证当前角色、JWT／API key、登出、全设备登出、WebSocket 重验、停服拒绝及备份恢复；Node 仅是无 Python 依赖的契约客户端。安装内容逐文件匹配源码；容器只读、非 root，限制为 1 CPU／256 MiB。32 次 JWT 请求、并发 8 的本地采样只用于联通与并发冒烟，不能作为生产容量结论。验收器清理自己的基础设施，JSON 和 JUnit 保留实际退出状态；全部跳过不会记为通过，镜像留作工件。
 
 key 命令验收另覆盖无身份表权限的真实 API 调用层、Node 五项操作、丢响应后重启重放、有效期／省略字段／Unicode、撤销与缺失能力拒绝，以及备份恢复后的回执和 secret 变更冲突。公开请求保留原有单次 POST 行为；重放始终要求当前有效凭据，用 key 轮换自身后须换有效凭据重放。算法与轮换边界见 [ADR-0116](docs/adr/0116-independent-identity-key-commands.md) 和[私有运行协议](docs-site/api/guides/identity-runtime.md)。
+
+会话验收检查四项命令的无身份表 API 转发、受限 Redis、精确 64 位声明、登录计数／审计／验证码、重启重放，以及登录实际签发的 JWT 在 REST 和 socket 中使用。回执冻结原始声明，重放仍要求当前认证，不重新登出或推进代次；返回历史 token 不代表它当前有效。开放注册和邀请等仍由现有 API 签发，完整 Identity 与日常切换继续推进，见 [ADR-0117](docs/adr/0117-independent-identity-session-commands.md)。
 
 ## 普通批量结果检查点
 

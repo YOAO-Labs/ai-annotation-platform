@@ -491,6 +491,7 @@ def _verify_jws_claims(access_token: str, claims: SessionClaims) -> None:
         signature = _base64url_decode(pieces[2])
         header = json.loads(header_bytes, object_pairs_hook=_unique_object)
         payload = json.loads(payload_bytes, object_pairs_hook=_unique_object)
+        SessionClaims.model_validate_json(payload_bytes)
     except (ValueError, TypeError, UnicodeError, json.JSONDecodeError):
         raise IdentityUnavailable() from None
     if (
@@ -576,6 +577,7 @@ def _validate_session_success(
     if isinstance(request, LoginRequest):
         if (
             reply.principal.credential_type != "jwt"
+            or reply.principal.email != request.payload.email
             or reply.principal.credential_id != claims.jti
             or reply.principal.generation != claims.gen
             or reply.principal.expires_at != claims.expires_at
@@ -669,6 +671,7 @@ def _validate_native_binding(
             or command.login.actor_id is None
             or claims.sub != command.login.actor_id
             or reply.principal.actor_id != claims.sub
+            or reply.principal.email != command.login.email
             or reply.principal.credential_type != "jwt"
             or reply.principal.credential_id != claims.jti
             or reply.principal.generation != claims.gen

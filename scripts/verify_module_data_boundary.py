@@ -39,6 +39,7 @@ IDENTITY_CLIENT_ROLES = {
     "FENCE": "identity_fence_client",
     "OPERATOR": "identity_session_operator",
     "KEYS": "identity_key_client",
+    "SESSIONS": "identity_session_client",
 }
 MODULE_ROLES = (
     "identity_code",
@@ -144,6 +145,7 @@ SQL_ARTIFACTS = (
     "0234_mask_gc_preview.sql",
     "0235_identity_admission.sql",
     "0236_identity_api_keys.sql",
+    "0237_identity_sessions.sql",
 )
 SCHEMA_ARTIFACTS = (
     "0191_task_append.schema.json",
@@ -190,8 +192,11 @@ SCHEMA_ARTIFACTS = (
     "0234_mask_gc.schema.json",
     "0235_identity_admission.schema.json",
     "0236_identity_api_keys.schema.json",
+    "0237_identity_sessions.schema.json",
 )
 TEST_FILES = (
+    "tests/test_identity_sessions_native.py",
+    "tests/test_identity_sessions_roles.py",
     "tests/test_identity_auth_native.py",
     "tests/test_identity_auth_roles.py",
     "tests/test_workspace_data_contract.py",
@@ -1943,6 +1948,9 @@ def main(argv: list[str] | None = None) -> int:
         result_grants_path = ROOT / "infra/docker/preannotation-result-data-grants.sql"
         identity_grants_path = ROOT / "infra/docker/identity-auth-grants.sql"
         identity_key_grants_path = ROOT / "infra/docker/identity-keys-grants.sql"
+        identity_session_grants_path = (
+            ROOT / "infra/docker/identity-sessions-grants.sql"
+        )
         artifacts = tuple(
             ROOT / "apps/api/alembic/sql" / name for name in SQL_ARTIFACTS
         )
@@ -1961,6 +1969,7 @@ def main(argv: list[str] | None = None) -> int:
             or not result_grants_path.is_file()
             or not identity_grants_path.is_file()
             or not identity_key_grants_path.is_file()
+            or not identity_session_grants_path.is_file()
             or any(not path.is_file() for path in artifacts)
             or any(not path.is_file() for path in schema_paths)
         ):
@@ -1987,6 +1996,9 @@ def main(argv: list[str] | None = None) -> int:
         result_grant_sql = result_grants_path.read_text(encoding="utf-8")
         identity_grant_sql = identity_grants_path.read_text(encoding="utf-8")
         identity_key_grant_sql = identity_key_grants_path.read_text(encoding="utf-8")
+        identity_session_grant_sql = identity_session_grants_path.read_text(
+            encoding="utf-8"
+        )
 
         from sqlalchemy.engine import URL
 
@@ -2089,8 +2101,8 @@ def main(argv: list[str] | None = None) -> int:
         database = resources["database"]
         evidence["database"] = database
         _, heads = migration_graph(ROOT)
-        if heads != ["0236"]:
-            raise RuntimeError("module-data acceptance requires migration head 0236")
+        if heads != ["0237"]:
+            raise RuntimeError("module-data acceptance requires migration head 0237")
         evidence["migrations"]["head_before_downgrade"] = heads[0]
         phase = "downgrade-to-0189"
         _container_details(
@@ -2332,6 +2344,22 @@ def main(argv: list[str] | None = None) -> int:
                 "migration_role": "owner",
                 "identity_owner": "identity_code",
                 "identity_key_role": "identity_key_client",
+            },
+        )
+        phase = "install-identity-session-grants"
+        _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="owner",
+            password=owner_password,
+            database=database,
+            sql=identity_session_grant_sql,
+            variables={
+                "expected_database": database,
+                "migration_role": "owner",
+                "identity_owner": "identity_code",
+                "identity_session_role": "identity_session_client",
             },
         )
         resource_environment = backend.environment()
@@ -2657,6 +2685,8 @@ def main(argv: list[str] | None = None) -> int:
                     database=database,
                 ).render_as_string(hide_password=False),
                 "AAP_MODULE_DATA_PG_CONTAINER_ID": container_id,
+                "AAP_MODULE_DATA_REDIS_CONTAINER_NAME": resources["redis_name"],
+                "AAP_MODULE_DATA_REDIS_OWNER": resources["owner"],
                 "AAP_MODULE_DATA_PG_CONTAINER_NAME": container_name,
                 "AAP_MODULE_DATA_PG_CONTAINER_IDENTITY": container_identity,
             }

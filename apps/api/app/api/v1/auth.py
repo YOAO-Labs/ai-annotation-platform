@@ -1,28 +1,25 @@
 import uuid
-from math import ceil, isfinite
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from jose import JWTError
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from app.core.ratelimit import limiter
 from app.core.password import validate_password_strength
-from app.deps import get_db, get_current_user
+from app.deps import bearer_scheme, get_db, get_current_user, get_current_principal
 from app.db.models.user import User
 from app.db.base import async_session
 from app.schemas.user import Token, LoginRequest, UserOut
 from app.schemas.invitation import OpenRegisterRequest, RegisterResponse
 from app.core.security import (
-    verify_password,
     create_access_token,
     hash_password,
-    decode_access_token,
 )
-from app.services.audit import AuditAction, AuditService
+from app.services.audit import AuditAction, AuditService, audit_origin_from_request
+from app.middleware.request_id import request_id_var
 from app.services.captcha_service import verify_turnstile_token
 from app.services import login_failed_counter
 from app.services.password_reset import PasswordResetService
@@ -36,9 +33,14 @@ from app.services.system_settings_service import SystemSettingsService
 from app.services.identity_commands import IdentityCommandService
 
 from app.config import settings
-from aap_identity.contract import REFRESH_GRACE_SECONDS
+from aap_identity.contract import IdentityUnavailable, Principal
+from aap_identity.session_contract import SessionFailure, decode_session_request
 from app.services.identity_contracts import IdentityGatewayUnavailable
-from app.services.identity_session_data import IdentitySessionData
+from app.services.identity_gateway import IdentityGateway, get_identity_gateway
+from app.services.identity_session_commands import (
+    IdentitySessionCommands,
+    SessionCommandsPort,
+)
 import logging
 
 logger = logging.getLogger("anno-api.auth")
@@ -117,116 +119,152 @@ async def _dispatch_verification_email(db: AsyncSession, user: User) -> None:
             )
 
 
+def get_session_commands(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    identity: IdentityGateway = Depends(get_identity_gateway),
+) -> SessionCommandsPort:
+    return IdentitySessionCommands(
+        db,
+        identity,
+        expected_principal=getattr(request.state, "identity_principal", None),
+    )
+
+
+def _session_error(operation, error):
+    code = error.code
+    if code == "account_busy":
+        raise HTTPException(status_code=409, detail="账号正在更新，请刷新后重试")
+    if code == "operation_conflict":
+        raise HTTPException(status_code=409, detail={"reason": "operation_conflict"})
+    if code in {"credential_busy", "invalid_request"}:
+        raise HTTPException(
+            status_code=503,
+            detail="身份认证服务暂不可用"
+            if operation == "refresh"
+            else "身份会话服务暂不可用",
+        )
+    if operation == "login":
+        if code == "captcha_required":
+            raise HTTPException(
+                status_code=400,
+                detail="captcha_required",
+                headers={"X-Login-Failed-Count": str(error.failed_count)},
+            )
+        if code == "user_inactive":
+            raise HTTPException(status_code=403, detail="账户已被停用")
+        if code == "email_not_verified":
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "code": "email_not_verified",
+                    "message": "邮箱未验证，请查收验证邮件后再登录",
+                },
+            )
+        headers = {"WWW-Authenticate": "Bearer"}
+        if error.failed_count is not None:
+            headers["X-Login-Failed-Count"] = str(error.failed_count)
+        raise HTTPException(status_code=401, detail="邮箱或密码错误", headers=headers)
+    detail = "无效的认证凭据"
+    if operation == "refresh":
+        detail = {
+            "credential_revoked": "token_revoked",
+            "token_expired": "grace_expired",
+            "credential_invalid": "user_inactive",
+        }.get(code, code)
+    raise HTTPException(
+        status_code=401,
+        detail=detail,
+        headers=(
+            {"WWW-Authenticate": "Bearer"}
+            if operation != "refresh" or code == "invalid_token"
+            else None
+        ),
+    )
+
+
+async def _execute_session(request, commands, operation, payload, *, token=None):
+    origin = audit_origin_from_request(request)
+    try:
+        command = decode_session_request(
+            {
+                "schema": "aap-identity-sessions/v1",
+                "operation": operation,
+                "operation_id": str(uuid.uuid4()),
+                "token": token,
+                "payload": payload,
+                "audit_context": {
+                    "method": origin.method,
+                    "path": origin.path,
+                    "ip": origin.ip,
+                    "request_id": request_id_var.get() or None,
+                },
+                "user_agent": request.headers.get("user-agent", "")[:256],
+            }
+        )
+    except (ValueError, TypeError, UnicodeError):
+        raise HTTPException(status_code=422, detail="会话请求无效") from None
+    try:
+        reply = await commands.execute(command)
+    except SessionFailure as error:
+        _session_error(operation, error)
+    except (IdentityUnavailable, IdentityGatewayUnavailable):
+        raise HTTPException(
+            status_code=503,
+            detail="身份认证服务暂不可用"
+            if operation == "refresh"
+            else "身份会话服务暂不可用",
+        ) from None
+    principal = reply.principal
+    admitted = getattr(request.state, "identity_principal", None)
+    if admitted is not None and (
+        any(
+            getattr(principal, field) != getattr(admitted, field)
+            for field in ("actor_id", "credential_type", "credential_id", "generation")
+        )
+        or (
+            principal.credential_type == "jwt"
+            and principal.expires_at != admitted.expires_at
+        )
+    ):
+        raise HTTPException(status_code=503, detail="身份会话服务返回了不匹配的主体")
+    request.state.identity_principal = principal
+    is_key = principal.credential_type == "api_key"
+    request.state.api_key_scopes = list(principal.scopes or []) if is_key else None
+    request.state.api_key_id = str(principal.credential_id) if is_key else None
+    return reply
+
+
 @router.post("/login", response_model=Token)
 @limiter.limit("5/minute")
 async def login(
     data: LoginRequest,
     request: Request,
-    db: AsyncSession = Depends(get_db),
+    commands: SessionCommandsPort = Depends(get_session_commands),
 ):
     client_ip = request.client.host if request.client else ""
-    threshold = settings.login_captcha_threshold
-
-    # v0.9.3 · progressive CAPTCHA：失败 ≥ 阈值后必须带 Turnstile token
     failed_before = await login_failed_counter.get_count(client_ip)
-    if failed_before >= threshold:
-        ok = await verify_turnstile_token(data.captcha_token, client_ip)
-        if not ok:
+    captcha_verified = not settings.turnstile_enabled
+    if failed_before >= settings.login_captcha_threshold:
+        captcha_verified = await verify_turnstile_token(data.captcha_token, client_ip)
+        if not captcha_verified:
             raise HTTPException(
                 status_code=400,
                 detail="captcha_required",
                 headers={"X-Login-Failed-Count": str(failed_before)},
             )
-
-    # Password verification and login presence share the bounded lifecycle row lock
-    # with password resets and account deactivation.
-    identity = IdentityCommandService(db)
-    user = await identity.lock_account_by_email(data.email)
-    if user is None or not verify_password(data.password, user.password_hash):
-        new_count = await login_failed_counter.increment(client_ip)
-        await AuditService.log(
-            db,
-            actor=None,
-            action=AuditAction.AUTH_LOGIN,
-            target_type="user",
-            target_id=data.email,
-            request=request,
-            status_code=401,
-            detail={
-                "email": data.email,
-                "result": "invalid_credentials",
-                "user_agent": request.headers.get("user-agent", "")[:256],
-                "ip_failed_count": new_count,
-            },
-        )
-        await db.commit()
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="邮箱或密码错误",
-            headers={
-                "WWW-Authenticate": "Bearer",
-                "X-Login-Failed-Count": str(new_count),
-            },
-        )
-    if not user.is_active:
-        await AuditService.log(
-            db,
-            actor=user,
-            action=AuditAction.AUTH_LOGIN,
-            target_type="user",
-            target_id=str(user.id),
-            request=request,
-            status_code=403,
-            detail={"email": user.email, "result": "deactivated"},
-        )
-        await db.commit()
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, detail="账户已被停用"
-        )
-
-    # v0.12.0 · 邮箱验证 gate（仅开放注册场景生效；邀请/管理员建号恒已验证）。
-    # 用 400 + 结构化 detail.code，让前端识别后显示「重发验证邮件」入口而非通用 toast。
-    if settings.email_verification_required and user.email_verified_at is None:
-        await AuditService.log(
-            db,
-            actor=user,
-            action=AuditAction.AUTH_LOGIN,
-            target_type="user",
-            target_id=str(user.id),
-            request=request,
-            status_code=400,
-            detail={"email": user.email, "result": "email_not_verified"},
-        )
-        await db.commit()
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={
-                "code": "email_not_verified",
-                "message": "邮箱未验证，请查收验证邮件后再登录",
-            },
-        )
-
-    # 凭据通过 → 清零失败计数
-    await login_failed_counter.reset(client_ip)
-
-    now = datetime.now(timezone.utc)
-    identity.record_login_for_locked_user(user, now)
-    from app.core.token_blacklist import get_user_generation
-
-    gen = await get_user_generation(str(user.id), db=db)
-    token = create_access_token(subject=str(user.id), role=user.role, gen=gen)
-    await AuditService.log(
-        db,
-        actor=user,
-        action=AuditAction.AUTH_LOGIN,
-        target_type="user",
-        target_id=str(user.id),
-        request=request,
-        status_code=200,
-        detail={"email": user.email, "result": "success"},
+    reply = await _execute_session(
+        request,
+        commands,
+        "login",
+        {
+            "email": data.email,
+            "password": data.password,
+            "captcha_verified": captcha_verified,
+            "client_ip": client_ip,
+        },
     )
-    await db.commit()
-    return Token(access_token=token)
+    return Token(access_token=reply.data.access_token)
 
 
 @router.get("/me", response_model=UserOut)
@@ -444,49 +482,13 @@ async def register_open(
 @router.post("/logout", status_code=204)
 async def logout(
     request: Request,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    _principal: Principal = Depends(get_current_principal),
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+    commands: SessionCommandsPort = Depends(get_session_commands),
 ):
-    from app.core.token_blacklist import blacklist_token
-
-    current_user = await IdentityCommandService(db).lock_active_account(current_user.id)
-    principal = getattr(request.state, "identity_principal", None)
-    if (
-        principal is None
-        or principal.credential_type != "jwt"
-        or principal.expires_at is None
-    ):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="无效的认证凭据",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    remaining_seconds = ceil(
-        (principal.expires_at - datetime.now(timezone.utc)).total_seconds()
+    await _execute_session(
+        request, commands, "logout", {}, token=credentials.credentials
     )
-    await blacklist_token(str(principal.credential_id), remaining_seconds, db=db)
-
-    IdentityCommandService.record_logout_for_locked_user(current_user)
-
-    await AuditService.log(
-        db,
-        actor=current_user,
-        action=AuditAction.AUTH_LOGOUT,
-        target_type="user",
-        target_id=str(current_user.id),
-        request=request,
-        status_code=204,
-    )
-    await db.commit()
-
-
-# v0.8.8 · 鉴权过期重连：WebSocket / 长会话标注员 token 到期时拿旧 token 换新 token，
-# 不需要用户重新输入密码。前端 useNotificationSocket onclose 1008/4001 时调用。
-#
-# Grace 期：旧 token 过期不超过 7 天即可 refresh；超出强制重新登录。
-# 安全闭环：jti 黑名单（logout 后旧 token 立即失效）+ user.gen 比对（logout-all
-# 后旧 token 全失效）+ user.is_active = True + 速率 5/min。
-_REFRESH_GRACE = timedelta(seconds=REFRESH_GRACE_SECONDS)
 
 
 @router.post("/refresh", response_model=Token)
@@ -494,148 +496,23 @@ _REFRESH_GRACE = timedelta(seconds=REFRESH_GRACE_SECONDS)
 async def refresh_token(
     request: Request,
     credentials: HTTPAuthorizationCredentials = Depends(HTTPBearer()),
-    db: AsyncSession = Depends(get_db),
+    commands: SessionCommandsPort = Depends(get_session_commands),
 ):
-    """v0.8.8 · 用即将 / 已过期的 token 换新 token（grace 7 天）。
-
-    返回 401 时前端应跳转登录页（grace 已过、被 logout、被 deactivate）。
-    """
-    raw = credentials.credentials
-    try:
-        payload = decode_access_token(raw, verify_exp=False)
-    except JWTError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="invalid_token",
-            headers={"WWW-Authenticate": "Bearer"},
-        ) from exc
-
-    subject = payload.get("sub")
-    jti_value = payload.get("jti")
-    exp_value = payload.get("exp")
-    generation = payload.get("gen", 0)
-    try:
-        if not isinstance(subject, str) or not isinstance(jti_value, str):
-            raise ValueError("Missing token identity")
-        actor_id = uuid.UUID(subject)
-        jti = uuid.UUID(jti_value)
-        if (
-            type(exp_value) not in (int, float)
-            or not isfinite(exp_value)
-            or int(exp_value) != exp_value
-            or type(generation) is not int
-            or not 0 <= generation < 2**63
-        ):
-            raise ValueError("Invalid token claims")
-        expired_at = datetime.fromtimestamp(int(exp_value), tz=timezone.utc)
-    except (TypeError, ValueError, OverflowError, OSError):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail="malformed_token"
-        )
-
-    # Grace 检查：超过 7 天的过期 token 一律拒绝
-    now = datetime.now(timezone.utc)
-    if now > expired_at + _REFRESH_GRACE:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail="grace_expired"
-        )
-
-    user = await IdentityCommandService(db).lock_account(actor_id)
-    if user is None or not user.is_active:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail="user_inactive"
-        )
-
-    from aap_identity.contract import (
-        IdentityFailure,
-        IdentityUnavailable,
-        decode_principal_reply,
-        require_jwt_scope,
+    """用有效或七天宽限内的 JWT 换取新 token；401 时应重新登录。"""
+    reply = await _execute_session(
+        request, commands, "refresh", {}, token=credentials.credentials
     )
-
-    try:
-        reply = await IdentitySessionData(db).read_jwt_principal(
-            actor_id, jti, generation, expired_at, for_refresh=True
-        )
-        principal = decode_principal_reply(reply)
-        require_jwt_scope(principal, actor_id, jti, generation, expired_at)
-    except IdentityFailure as exc:
-        if exc.code in {"credential_busy", "invalid_request"}:
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="身份认证服务暂不可用",
-            ) from None
-        detail = {
-            "credential_revoked": "token_revoked",
-            "generation_outdated": "generation_outdated",
-            "token_expired": "grace_expired",
-            "user_inactive": "user_inactive",
-            "invalid_account_role": "invalid_account_role",
-        }.get(exc.code, "invalid_token")
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail=detail
-        ) from None
-    except (IdentityUnavailable, IdentityGatewayUnavailable):
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="身份认证服务暂不可用",
-        ) from None
-
-    request.state.identity_principal = principal
-    cur_gen = principal.generation
-    if cur_gen is None:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="身份认证服务暂不可用",
-        )
-
-    new_token = create_access_token(
-        subject=str(user.id), role=principal.role, gen=cur_gen
-    )
-
-    IdentityCommandService.record_seen_for_locked_user(user, now)
-    await AuditService.log(
-        db,
-        actor=user,
-        action=AuditAction.AUTH_TOKEN_REFRESH,
-        target_type="user",
-        target_id=str(user.id),
-        request=request,
-        status_code=200,
-        detail={
-            "old_jti": str(jti),
-            "expired_seconds_ago": int((now - expired_at).total_seconds()),
-        },
-    )
-    await db.commit()
-    return Token(access_token=new_token)
+    return Token(access_token=reply.data.access_token)
 
 
 @router.post("/logout-all", response_model=Token)
 async def logout_all(
     request: Request,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    _principal: Principal = Depends(get_current_principal),
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+    commands: SessionCommandsPort = Depends(get_session_commands),
 ):
-    from app.core.token_blacklist import increment_user_generation
-
-    current_user = await IdentityCommandService(db).lock_active_account(current_user.id)
-    new_gen = await increment_user_generation(str(current_user.id), db=db)
-    IdentityCommandService.record_logout_for_locked_user(current_user)
-
-    await AuditService.log(
-        db,
-        actor=current_user,
-        action=AuditAction.AUTH_LOGOUT_ALL,
-        target_type="user",
-        target_id=str(current_user.id),
-        request=request,
-        status_code=200,
-        detail={"new_generation": new_gen},
+    reply = await _execute_session(
+        request, commands, "logout_all", {}, token=credentials.credentials
     )
-    await db.commit()
-
-    new_token = create_access_token(
-        subject=str(current_user.id), role=current_user.role, gen=new_gen
-    )
-    return Token(access_token=new_token)
+    return Token(access_token=reply.data.access_token)

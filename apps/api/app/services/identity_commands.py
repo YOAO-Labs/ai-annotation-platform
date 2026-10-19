@@ -30,12 +30,6 @@ class IdentityCommandService:
             await UserLifecycleService.lock_accounts(self.db, [user_id], nowait=nowait)
         ).get(user_id)
 
-    async def lock_account_by_email(self, email: str) -> User | None:
-        user_id = await self.db.scalar(select(User.id).where(User.email == email))
-        if user_id is None:
-            return None
-        return await self.lock_account(user_id, nowait=False)
-
     async def lock_active_account(
         self, user_id: uuid.UUID, *, nowait: bool = True
     ) -> User:
@@ -160,20 +154,10 @@ class IdentityCommandService:
         return admin
 
     @staticmethod
-    def record_login_for_locked_user(user: User, now: datetime) -> None:
-        user.last_login_at = now
-        user.last_seen_at = now
-        user.status = "online"
-
-    @staticmethod
     def record_heartbeat_for_locked_user(user: User, now: datetime) -> None:
         user.last_seen_at = now
         if user.status != "online":
             user.status = "online"
-
-    @staticmethod
-    def record_seen_for_locked_user(user: User, now: datetime) -> None:
-        user.last_seen_at = now
 
     async def mark_inactive_accounts_offline(self, cutoff: datetime):
         """Bulk-update online accounts with absent or stale heartbeats."""
@@ -185,10 +169,6 @@ class IdentityCommandService:
             )
             .values(status="offline")
         )
-
-    @staticmethod
-    def record_logout_for_locked_user(user: User) -> None:
-        user.status = "offline"
 
     @staticmethod
     def update_name_for_locked_user(user: User, name: str) -> str:

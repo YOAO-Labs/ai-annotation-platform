@@ -1,0 +1,17 @@
+{
+  "purpose": "Public test-only known answer, generated with Node standard crypto",
+  "secret": "identity-session-known-answer-only-not-a-deployment-secret",
+  "email": "CaseSensitive+用户@example.test",
+  "password": "Été密码😀123",
+  "claims": {
+    "sub": "11111111-1111-4111-8111-111111111111",
+    "role": "employee",
+    "exp": 1893456000,
+    "jti": "33333333-3333-4333-8333-333333333333",
+    "gen": 9223372036854775807,
+    "iss": "aap-identity/v1"
+  },
+  "derivation_id": "01a39b906aaa7f59cf046402e9960d02c6cab634bb825dc79928ec30057e76e8",
+  "request_fingerprint": "a052568c96970e1a9fbe05a29d6703e8b01418d09e95d473be8ea22349dbc55c",
+  "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMTExMTExMS0xMTExLTQxMTEtODExMS0xMTExMTExMTExMTEiLCJyb2xlIjoiZW1wbG95ZWUiLCJleHAiOjE4OTM0NTYwMDAsImp0aSI6IjMzMzMzMzMzLTMzMzMtNDMzMy04MzMzLTMzMzMzMzMzMzMzMyIsImdlbiI6OTIyMzM3MjAzNjg1NDc3NTgwNywiaXNzIjoiYWFwLWlkZW50aXR5L3YxIn0.uP9FQtnzHEhWOV2YDUygO101nT6Fq6CQV4dmlime2qw"
+}

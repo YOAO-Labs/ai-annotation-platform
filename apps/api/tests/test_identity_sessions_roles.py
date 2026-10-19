@@ -138,6 +138,14 @@ async def test_identity_session_login_has_only_three_functions_and_no_direct_dat
 async def test_session_auth_and_key_logins_cannot_call_audit_or_access_audit_tables():
     connection = await asyncpg.connect(_dsn())
     try:
+        audit_function_oid = await connection.fetchval(
+            "SELECT operation.oid FROM pg_catalog.pg_proc AS operation "
+            "JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid=operation.pronamespace "
+            "WHERE namespace.nspname='aap_audit_v1' "
+            "AND operation.proname='record_identity_session_event' "
+            "AND pg_catalog.oidvectortypes(operation.proargtypes)='text, jsonb, jsonb, jsonb'"
+        )
+        assert type(audit_function_oid) is int
         rows = await connection.fetch(
             """
             SELECT role.rolname,
@@ -145,9 +153,7 @@ async def test_session_auth_and_key_logins_cannot_call_audit_or_access_audit_tab
                        AS audit_schema,
                    pg_catalog.has_function_privilege(
                        role.oid,
-                       pg_catalog.to_regprocedure(
-                           'aap_audit_v1.record_identity_session_event(text,jsonb,jsonb,jsonb)'
-                       )::oid,
+                       $2::oid,
                        'EXECUTE'
                    ) AS audit_function,
                    pg_catalog.has_table_privilege(
@@ -164,6 +170,7 @@ async def test_session_auth_and_key_logins_cannot_call_audit_or_access_audit_tab
                 "identity_auth_client",
                 "identity_key_client",
             ],
+            audit_function_oid,
         )
         actual = {row["rolname"]: row for row in rows}
         assert set(actual) == {
@@ -179,12 +186,11 @@ async def test_session_auth_and_key_logins_cannot_call_audit_or_access_audit_tab
             """
             SELECT pg_catalog.has_function_privilege(
                 'identity_code',
-                pg_catalog.to_regprocedure(
-                    'aap_audit_v1.record_identity_session_event(text,jsonb,jsonb,jsonb)'
-                )::oid,
+                $1::oid,
                 'EXECUTE'
             )
-            """
+            """,
+            audit_function_oid,
         )
     finally:
         await connection.close()

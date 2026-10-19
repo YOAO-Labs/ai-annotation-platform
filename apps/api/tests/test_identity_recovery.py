@@ -23,6 +23,9 @@ from aap_identity.key_manager import KeyManager
 from aap_identity.key_postgres import KeyPostgresData
 from aap_identity.postgres import PostgresData
 from aap_identity.security import decode_access_token
+from aap_identity.session_contract import SessionFailure, decode_session_request
+from aap_identity.session_manager import SessionManager
+from aap_identity.session_postgres import SessionPostgresData
 from app.db.models.user import User
 from tests.test_asset_storage_cleanup_runtime import _verify_postgres
 from tests.test_identity_admission_live import ROOT, _cleanup, _dsn, _token, _world
@@ -81,7 +84,8 @@ async def test_restored_authority_retains_revocation_and_refuses_populated_downg
     test_engine, tmp_path: Path, record_property
 ):
     _dsn("AUTH", test_engine)
-    maker, actor = await _world(test_engine)
+    password = "RestoreSession123"
+    maker, actor = await _world(test_engine, password=password)
     clone = f"aap_identity_restore_{uuid.uuid4().hex[:12]}_test"
     ownership = f"identity-restore:{uuid.uuid4()}"
     owner_url = test_engine.url.set(database=clone)
@@ -94,7 +98,40 @@ async def test_restored_authority_retains_revocation_and_refuses_populated_downg
     value = _token(actor, secret, gen=9)
     jti = uuid.UUID(decode_access_token(value, secret=secret)["jti"])
     key_id = uuid.uuid4()
+    session_id = uuid.uuid4()
     snapshot = tmp_path / "authority.dump"
+
+    class Counter:
+        async def get_count(self, _ip):
+            return 0
+
+        async def increment(self, _ip):
+            return 1
+
+        async def reset(self, _ip):
+            pass
+
+    session_command = decode_session_request(
+        {
+            "schema": "aap-identity-sessions/v1",
+            "operation": "login",
+            "operation_id": str(session_id),
+            "token": None,
+            "payload": {
+                "email": f"identity-live-{actor}@example.test",
+                "password": password,
+                "captcha_verified": True,
+                "client_ip": "127.0.0.1",
+            },
+            "audit_context": {
+                "method": "POST",
+                "path": "/recovery/session",
+                "ip": "127.0.0.1",
+                "request_id": None,
+            },
+            "user_agent": "Recovery fixture",
+        }
+    )
     try:
         async with maker.begin() as db:
             await db.execute(
@@ -120,6 +157,13 @@ async def test_restored_authority_retains_revocation_and_refuses_populated_downg
             secret,
         ).execute(command)
         key = issued.model_dump(mode="python")["data"]["plaintext"]
+        session = await SessionManager(
+            Authenticator(PostgresData(_dsn("AUTH", test_engine)), secret),
+            SessionPostgresData(_dsn("SESSIONS", test_engine)),
+            secret,
+            counter=Counter(),
+        ).execute(session_command)
+        session_token = session.data.access_token
         dump = _postgres_tool(
             test_engine,
             ["pg_dump", "-U", "owner", "-Fc", test_engine.url.database],
@@ -148,6 +192,16 @@ async def test_restored_authority_retains_revocation_and_refuses_populated_downg
         principal = await auth.authenticate(key)
         assert principal.credential_id == key_id
         assert principal.scopes == ["datasets:read"]
+        assert (await auth.authenticate(session_token)).credential_id == session_id
+
+        session_url = make_url(_dsn("SESSIONS", test_engine)).set(database=clone)
+        session_data = SessionPostgresData(
+            session_url.render_as_string(hide_password=False)
+        )
+        restored_session = await SessionManager(
+            auth, session_data, secret, counter=Counter()
+        ).execute(session_command)
+        assert secrets.compare_digest(restored_session.data.access_token, session_token)
 
         key_url = make_url(_dsn("KEYS", test_engine)).set(database=clone)
         key_data = KeyPostgresData(key_url.render_as_string(hide_password=False))
@@ -166,14 +220,18 @@ async def test_restored_authority_retains_revocation_and_refuses_populated_downg
                 changed_command
             )
         assert (await changed_auth.authenticate(key)).credential_id == key_id
+        with pytest.raises(SessionFailure, match="operation_conflict"):
+            await SessionManager(
+                changed_auth, session_data, changed_secret, counter=Counter()
+            ).execute(session_command)
 
         _refuse_downgrade(
-            owner_url, message=b"Cannot remove Identity API-key operation receipts"
+            owner_url, message=b"Cannot remove Identity session operation receipts"
         )
         async with restored.begin() as db:
             assert (
                 await db.scalar(text("SELECT version_num FROM alembic_version"))
-                == "0236"
+                == "0237"
             )
             assert (
                 await db.scalar(
@@ -182,13 +240,14 @@ async def test_restored_authority_retains_revocation_and_refuses_populated_downg
                 )
                 == 9
             )
+            await db.execute(text("SET LOCAL app.allow_audit_update='true'"))
             await db.execute(delete(User).where(User.id == actor))
         # A retained JTI alone must also prevent returning to the old authority.
         _refuse_downgrade(owner_url)
         async with restored.connect() as db:
             assert (
                 await db.scalar(text("SELECT version_num FROM alembic_version"))
-                == "0236"
+                == "0237"
             )
             assert (
                 await db.scalar(
@@ -202,7 +261,7 @@ async def test_restored_authority_retains_revocation_and_refuses_populated_downg
         record_property("restored_snapshot_sha256", hashlib.sha256(dump).hexdigest())
         record_property(
             "restored_authority",
-            "generation,jti,api-key,key-receipt,restricted-auth-and-key-grants",
+            "generation,jti,api-key,key-receipt,session-receipt,restricted-auth-key-session-grants",
         )
     finally:
         snapshot.unlink(missing_ok=True)
