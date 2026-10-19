@@ -83,7 +83,7 @@ transfer implementation while retaining a separate video key/prefix allowlist
 and typed video/frame receipts. The existing image adapter does not gain video
 write or cleanup scope. Native admission, HTTP operations and consumer migration
 are still required; no video path is activated by importing the package. All SQL
-through 0222 stays frozen; new native capabilities start at 0223 or later.
+through 0223 stays frozen; new owner state and capabilities start at 0224 or later.
 
 Values include a ready original input, measured video facts, sampling policy,
 sealed frame plan, complete ordered time entries/pages and exact-version frame
@@ -114,6 +114,52 @@ each terminated by LF. `plan_digest` is SHA-256 of `plan\n`, the seed and the
 lowercase hexadecimal timebase digest followed by LF. Different grouping of
 entries into pages does not change either digest. Creation timestamps and
 physical blob locators are provenance fields outside this logical plan digest.
+
+## Owner execution contract
+
+`execution.schema.json` specifies the retained-input owner's operation matrix
+separately from ready values and Labeling/Jobs authority projections. The
+function-only database binding enforces that matrix; it does not install SQL or
+activate a consumer. The owner ledger, processes and HTTP admission remain
+implementation work until qualified together.
+
+| Caller scope | Operations | Responsibility                                                                                                                   |
+| ------------ | ---------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| Workflow     | 1          | Capture complete manifest membership in the original Job transaction.                                                            |
+| Control      | 8          | Read header/member pages, observe a member, seal the preparation barrier, read original inputs/time pages, require/read a frame. |
+| Worker       | 9          | Claim, heartbeat, stage selected times, finish/fail original input; claim, heartbeat, finish/fail frame extraction.              |
+| Labeling     | 1          | Fence the exact ready frame, input, plan, time entry and retained object before writing.                                         |
+| System       | 1          | Sweep eligible expired original inputs and their frame attempts.                                                                 |
+
+Raw captured Tasks can retain a missing DatasetItem link as a failed member;
+ready bindings always require that link. Captured Assets source facts are narrow
+video values, without mutable metadata or image-owner predicates. Preparing a
+member records either the first complete object observation or a fixed source
+failure. A known object identity and the independent timetable revision must
+still match. Pending inputs cannot assert a ready plan, and a ready member must
+have a complete measured plan. `prepared_count` accounts for terminal ready or
+failed members, not reservations still copying bytes.
+
+Manifest `actor_id` attributes the original admission. Subsequent requests carry
+the current actor separately; native operations must authorize that actor rather
+than treating the original actor or a digest as a permission token. Capture
+replay still matches the original actor and selection. The separate accepted
+background Task-creation policy does not relax current prediction permissions.
+
+Time staging is bounded to 100 contiguous selected entries and bound to the
+input generation and lease token. Replaying a page returns that page's same
+end cursor, even when later pages have been staged. Final publication must
+verify all staged entries and their digest before setting the member ready.
+Probe processing must count decoded frames without dropping missing timestamps
+and renumbering later rows. Missing PTS for a selected decoded frame is a fixed
+preparation failure; negative, repeated and nonmonotonic valid PTS remain valid.
+
+Frame extraction has a separate lease and exact attempt key. It reads the
+retained original version and does not re-download the current DatasetItem.
+Frame replies bind the plan, decoded ordinal, time entry and rendition. The
+Labeling fence additionally compares the exact expected object version and SHA;
+historically ready records can remain readable after expiry but cannot grant a
+ready write fence. Native retention must preserve references before sweeping.
 
 ## Qualification
 
