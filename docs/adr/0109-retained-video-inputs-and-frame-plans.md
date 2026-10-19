@@ -198,6 +198,25 @@ existing JSON spool budget is at least as strict for normal selected entries.
 The new state is not installed or activated until its complete native owner and
 qualification are integrated.
 
+The control SQL now captures complete UUID-ordered membership through Labeling's
+cursor, computes the portable admission digest, and prepares each member against
+current manager, Job, Task and Assets source facts. First observation may establish
+an unknown object identity. A confirmed mismatch preserves the Assets drift marker
+and a fixed member failure in the same transaction. Repeated preparation returns
+the original receipt before resolving a current path. Capture replay also works
+before Jobs stores the returned digest; subsequent preparation and execution
+require that digest in the original Job. Sealing recomputes complete membership
+and outcome chains after every selected member reaches a terminal state.
+
+Read operations retain original transport facts and selected times. Frame requests
+and Labeling write fences require a sealed manifest, the original plan, current
+Task/source/timetable facts and current actor access. Write fences compare the
+complete frame entry and exact blob version inside the caller's transaction.
+Lock contention rolls back partial changes and remains a transient owner error.
+Owned PostgreSQL checks exercise capture paging, original identity, replay,
+committed drift and all-failed sealing. Full worker, retention, role, process and
+consumer acceptance is still required before installation or local cutover.
+
 ## Retained-byte processing runtime
 
 The control library reads the captured member before external I/O and returns

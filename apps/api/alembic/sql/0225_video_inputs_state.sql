@@ -195,7 +195,9 @@ BEGIN
         AND v_key ~ ('^accepted-video-inputs/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g[1-9][0-9]*/a[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/' || v_suffix || '$')
         AND pg_catalog.jsonb_typeof(p_data -> 'version_id') = 'string'
         AND pg_catalog.char_length(p_data ->> 'version_id') BETWEEN 1 AND 255
-        AND pg_catalog.btrim(p_data ->> 'version_id') <> '' AND p_data ->> 'version_id' <> 'null'
+        AND pg_catalog.btrim(p_data ->> 'version_id',
+            U&'\0009\000a\000b\000c\000d\001c\001d\001e\001f\0020\0085\00a0\1680\2000\2001\2002\2003\2004\2005\2006\2007\2008\2009\200a\2028\2029\202f\205f\3000') <> ''
+        AND p_data ->> 'version_id' <> 'null'
         AND pg_catalog.jsonb_typeof(p_data -> 'etag') = 'string'
         AND pg_catalog.char_length(p_data ->> 'etag') BETWEEN 1 AND 255
         AND aap_assets_v1._video_input_int(p_data -> 'byte_size', 1, 9007199254740991)

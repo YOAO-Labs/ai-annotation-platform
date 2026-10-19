@@ -1962,7 +1962,18 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   SQL install/rollback, downgrade to 0189, re-upgrade to 0224 and grant
   reapplication pass. All owned PostgreSQL, Redis, bucket and storage-identity
   resources are cleaned with no errors.
-- Retained video/manifest/frame native ledgers, process/HTTP wiring, sealed
+- The execution draft now fixes 24 capabilities, including a private original
+  work read and two video-only cleanup operations. Portable length-prefixed
+  manifest digest chains match independent Node and PostgreSQL calculations.
+  Seven new Assets state tables preserve immutable receipts without foreign
+  owner FKs. The 12 native capture/control/Labeling procedures now cover complete
+  membership, first object identity, replay without current-path replacement,
+  fixed drift failures, sealing, bounded time reads and exact final frame fences.
+  Owned PostgreSQL state/control checks pass seven cases with zero skips and
+  clean up all their temporary resources. This SQL remains transactionally
+  compiled draft state; migration 0225 installation and restricted-role worker,
+  retention and process acceptance are still pending.
+- Retained video worker/retention integration, process/HTTP wiring, sealed
   preparation and real consumer/overwrite migration, failure/retry and typed
   Annotation evidence/GC remain next. Installed-process, restricted real video
   S3 and affected Celery qualification are still required before promotion.

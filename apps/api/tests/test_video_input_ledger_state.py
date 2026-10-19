@@ -69,6 +69,14 @@ async def test_native_video_shapes_reject_malformed_source_sampling_and_blob(
         ),
         {"plan": json.dumps(plan)},
     )
+    for version in ("", " ", "\t\n", "\u00a0\u3000", "null"):
+        blob = {**plan["input"]["blob"], "version_id": version}
+        assert not await db_session.scalar(
+            text(
+                "SELECT aap_assets_v1._video_input_blob_valid(CAST(:blob AS jsonb),false)"
+            ),
+            {"blob": json.dumps(blob)},
+        )
     for path, bad in (
         ("video", None),
         ("actor_id", None),
