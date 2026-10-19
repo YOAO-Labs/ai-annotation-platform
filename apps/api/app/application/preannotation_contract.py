@@ -42,6 +42,10 @@ class BatchPredictionRequest:
     accepted_input_manifest_protocol: str | None = None
     accepted_input_manifest_id: str | None = None
     accepted_input_manifest_digest: str | None = None
+    accepted_video_inputs_protocol: str | None = None
+    accepted_video_manifest_id: str | None = None
+    accepted_video_selection_digest: str | None = None
+    accepted_video_selection: dict[str, Any] | None = None
     task: str | None = None
     prompt_type: str | None = None
 
@@ -53,6 +57,17 @@ class TaskFrameCount:
 
 
 @dataclass(frozen=True, slots=True)
+class VideoFrameTaskPlan:
+    """A retained original's selected ordinals, independent of mutable metadata."""
+
+    task_id: str
+    input_id: str
+    input_job_id: str
+    plan_digest: str
+    selected_count: int
+
+
+@dataclass(frozen=True, slots=True)
 class FramePreannotationDispatchRequest:
     project_id: str
     ml_backend_id: str
@@ -60,6 +75,11 @@ class FramePreannotationDispatchRequest:
     stage0: dict[str, Any]
     job_id: str
     root_execution_id: str | None
+    actor_id: str | None = None
+    video_task_plans: tuple[VideoFrameTaskPlan, ...] = ()
+    accepted_video_manifest_id: str | None = None
+    accepted_video_selection_digest: str | None = None
+    accepted_video_sealed_digest: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
