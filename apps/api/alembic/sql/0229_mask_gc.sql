@@ -578,11 +578,22 @@ CREATE FUNCTION aap_labeling_v1._mask_gc_row_identity(
 )
 RETURNS text
 LANGUAGE sql
-IMMUTABLE
+STABLE
 PARALLEL SAFE
 SET search_path = pg_catalog, pg_temp
 AS $function$
-    SELECT pg_catalog.string_agg(p_row ->> field.name, ':' ORDER BY field.ordinality)
+    SELECT pg_catalog.string_agg(
+        CASE
+            WHEN field.name = 'created_at'
+                 AND p_row ->> field.name IS NOT NULL THEN
+                pg_catalog.to_char(
+                    ((p_row ->> field.name)::timestamptz AT TIME ZONE 'UTC'),
+                    'YYYY-MM-DD"T"HH24:MI:SS.US"Z"'
+                )
+            ELSE p_row ->> field.name
+        END,
+        ':' ORDER BY field.ordinality
+    )
     FROM pg_catalog.unnest(p_fields) WITH ORDINALITY AS field(name, ordinality)
 $function$;
 -- aap-statement-break
@@ -874,7 +885,9 @@ FROM (
     ) AS refs
     UNION ALL
     SELECT 'predictions',
-           source.id::text || ':' || (pg_catalog.to_jsonb(source) ->> 'created_at'),
+           aap_labeling_v1._mask_gc_row_identity(
+               ARRAY['id', 'created_at'], pg_catalog.to_jsonb(source)
+           ),
            refs.object_key, refs.valid_until
     FROM public.predictions AS source
     CROSS JOIN LATERAL aap_labeling_v1._mask_gc_row_refs(
@@ -1343,6 +1356,12 @@ DECLARE
     v_operation_id uuid;
     v_key_list text[];
     v_has_upload boolean;
+    v_stage_keys text[] := ARRAY[]::text[];
+    v_stage_etags text[] := ARRAY[]::text[];
+    v_stage_last_modified timestamptz[] := ARRAY[]::timestamptz[];
+    v_stage_byte_sizes bigint[] := ARRAY[]::bigint[];
+    v_stage_epochs bigint[] := ARRAY[]::bigint[];
+    v_stage_index integer;
     v_now timestamptz;
 BEGIN
     IF p_payload IS NULL
@@ -1418,10 +1437,8 @@ BEGIN
         RETURN aap_labeling_v1._mask_gc_reply(NULL, 'lease_lost');
     END IF;
     v_now := pg_catalog.clock_timestamp();
-    IF v_sweep.complete
-       OR v_sweep.generation <> v_generation
-       OR v_sweep.lease_token <> v_lease_token
-       OR v_sweep.lease_expires_at <= v_now THEN
+    IF v_sweep.generation <> v_generation
+       OR v_sweep.lease_token <> v_lease_token THEN
         RETURN aap_labeling_v1._mask_gc_reply(NULL, 'lease_lost');
     END IF;
     IF v_sweep.last_page_input_after_key IS NOT DISTINCT FROM v_input_after_key
@@ -1430,6 +1447,9 @@ BEGIN
             RETURN v_sweep.last_page_result;
         END IF;
         RETURN aap_labeling_v1._mask_gc_reply(NULL, 'cursor_conflict');
+    END IF;
+    IF v_sweep.complete OR v_sweep.lease_expires_at <= v_now THEN
+        RETURN aap_labeling_v1._mask_gc_reply(NULL, 'lease_lost');
     END IF;
     IF v_sweep.after_key IS DISTINCT FROM v_input_after_key THEN
         RETURN aap_labeling_v1._mask_gc_reply(NULL, 'cursor_conflict');
@@ -1471,6 +1491,11 @@ BEGIN
             RETURN aap_labeling_v1._mask_gc_reply(NULL, 'invalid_request');
         END IF;
         v_key := v_item ->> 'object_key';
+        BEGIN
+            v_last_modified := (v_item ->> 'last_modified')::timestamptz;
+        EXCEPTION WHEN OTHERS THEN
+            RETURN aap_labeling_v1._mask_gc_reply(NULL, 'invalid_request');
+        END;
         IF (v_input_after_key IS NOT NULL AND v_key COLLATE "C" <= v_input_after_key COLLATE "C")
            OR (v_page_after_key IS NULL)
            OR v_key COLLATE "C" > v_page_after_key COLLATE "C"
@@ -1489,11 +1514,7 @@ BEGIN
     LOOP
         v_key := v_item ->> 'object_key';
         v_etag := v_item ->> 'etag';
-        BEGIN
-            v_last_modified := (v_item ->> 'last_modified')::timestamptz;
-        EXCEPTION WHEN OTHERS THEN
-            RETURN aap_labeling_v1._mask_gc_reply(NULL, 'invalid_request');
-        END;
+        v_last_modified := (v_item ->> 'last_modified')::timestamptz;
         v_byte_size := (v_item ->> 'byte_size')::bigint;
         IF v_last_modified >= v_sweep.cutoff THEN
             v_skipped := v_skipped + 1;
@@ -1525,13 +1546,30 @@ BEGIN
         IF COALESCE(v_epoch, 0) = 9223372036854775807 THEN
             RETURN aap_labeling_v1._mask_gc_reply(NULL, 'invalid_response');
         END IF;
+        v_stage_keys := pg_catalog.array_append(v_stage_keys, v_key);
+        v_stage_etags := pg_catalog.array_append(v_stage_etags, v_etag);
+        v_stage_last_modified := pg_catalog.array_append(
+            v_stage_last_modified, v_last_modified
+        );
+        v_stage_byte_sizes := pg_catalog.array_append(v_stage_byte_sizes, v_byte_size);
+        v_stage_epochs := pg_catalog.array_append(
+            v_stage_epochs, COALESCE(v_epoch, 0) + 1
+        );
+        v_staged := v_staged + 1;
+    END LOOP;
+
+    FOR v_stage_index IN 1..COALESCE(pg_catalog.array_length(v_stage_keys, 1), 0)
+    LOOP
+        v_key := v_stage_keys[v_stage_index];
+        v_epoch := v_stage_epochs[v_stage_index];
         v_operation_id := pg_catalog.gen_random_uuid();
-        v_epoch := COALESCE(v_epoch, 0) + 1;
         INSERT INTO public.mask_gc_intents(
             operation_id, object_key, etag, last_modified, byte_size, epoch,
             sweep_id, grace_cutoff, state, next_check_at
         ) VALUES (
-            v_operation_id, v_key, v_etag, v_last_modified, v_byte_size, v_epoch,
+            v_operation_id, v_key, v_stage_etags[v_stage_index],
+            v_stage_last_modified[v_stage_index],
+            v_stage_byte_sizes[v_stage_index], v_epoch,
             v_sweep.sweep_id, v_sweep.cutoff, 'pending', v_now
         );
         INSERT INTO public.mask_gc_key_epochs(
@@ -1541,7 +1579,6 @@ BEGIN
         SET epoch = EXCLUDED.epoch,
             active_operation_id = EXCLUDED.active_operation_id,
             updated_at = EXCLUDED.updated_at;
-        v_staged := v_staged + 1;
     END LOOP;
 
     UPDATE public.mask_gc_sweeps
