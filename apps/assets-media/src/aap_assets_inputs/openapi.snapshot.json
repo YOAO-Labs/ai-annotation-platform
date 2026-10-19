@@ -1,0 +1,718 @@
+{
+  "components": {
+    "schemas": {
+      "FindInputRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "actor_id": {
+            "format": "uuid",
+            "title": "Actor Id",
+            "type": "string"
+          },
+          "job_id": {
+            "format": "uuid",
+            "title": "Job Id",
+            "type": "string"
+          },
+          "task_id": {
+            "format": "uuid",
+            "title": "Task Id",
+            "type": "string"
+          }
+        },
+        "required": ["job_id", "task_id", "actor_id"],
+        "title": "FindInputRequest",
+        "type": "object"
+      },
+      "FoundInput": {
+        "additionalProperties": false,
+        "properties": {
+          "input": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/InputRecord"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": ["input"],
+        "title": "FoundInput",
+        "type": "object"
+      },
+      "ImageOwner": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "enum": ["dataset_item", "task"],
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "required": ["kind", "id"],
+        "title": "ImageOwner",
+        "type": "object"
+      },
+      "InputRecord": {
+        "additionalProperties": false,
+        "properties": {
+          "actor_id": {
+            "format": "uuid",
+            "title": "Actor Id",
+            "type": "string"
+          },
+          "byte_size": {
+            "anyOf": [
+              {
+                "maximum": 9223372036854775807,
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Byte Size"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "dataset_item_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dataset Item Id"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "enum": [
+                  "invalid_request",
+                  "invalid_response",
+                  "storage_unavailable",
+                  "account_not_active",
+                  "account_busy",
+                  "invalid_account_role",
+                  "source_missing",
+                  "source_changed",
+                  "source_busy",
+                  "source_not_ready",
+                  "task_not_visible",
+                  "task_busy",
+                  "permission_denied",
+                  "not_image",
+                  "asset_missing",
+                  "already_ready",
+                  "not_eligible",
+                  "retry_cooldown",
+                  "operation_conflict",
+                  "operation_busy",
+                  "lease_lost",
+                  "dependency_changed",
+                  "resource_budget_exceeded",
+                  "object_missing",
+                  "owner_changed",
+                  "unsupported_dimensions",
+                  "resource_limit",
+                  "invalid_coordinate",
+                  "timeout",
+                  "source_unavailable",
+                  "color_profile_unavailable",
+                  "multi_page_unsupported",
+                  "dimension_mismatch",
+                  "generator_unavailable",
+                  "decode_failed",
+                  "encode_failed",
+                  "tile_grid_mismatch",
+                  "upload_verification_failed",
+                  "inconsistent_ready",
+                  "input_missing",
+                  "input_scope_mismatch",
+                  "input_not_ready",
+                  "input_expired",
+                  "input_corrupt",
+                  "input_busy",
+                  "job_not_active",
+                  "job_busy",
+                  "reference_busy",
+                  "versioning_required"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "input_id": {
+            "format": "uuid",
+            "title": "Input Id",
+            "type": "string"
+          },
+          "job_id": {
+            "format": "uuid",
+            "title": "Job Id",
+            "type": "string"
+          },
+          "project_id": {
+            "format": "uuid",
+            "title": "Project Id",
+            "type": "string"
+          },
+          "retire_after": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retire After"
+          },
+          "sha256": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sha256"
+          },
+          "source_generation": {
+            "maximum": 9223372036854775807,
+            "minimum": 1,
+            "title": "Source Generation",
+            "type": "integer"
+          },
+          "source_owner": {
+            "$ref": "#/components/schemas/ImageOwner"
+          },
+          "source_snapshot": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Source Snapshot",
+            "type": "string"
+          },
+          "status": {
+            "enum": ["pending", "materializing", "ready", "failed", "expired"],
+            "title": "Status",
+            "type": "string"
+          },
+          "task_id": {
+            "format": "uuid",
+            "title": "Task Id",
+            "type": "string"
+          },
+          "task_source_generation": {
+            "maximum": 9223372036854775807,
+            "minimum": 1,
+            "title": "Task Source Generation",
+            "type": "integer"
+          },
+          "task_source_snapshot": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Task Source Snapshot",
+            "type": "string"
+          },
+          "task_version": {
+            "maximum": 9223372036854775807,
+            "minimum": 0,
+            "title": "Task Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "input_id",
+          "job_id",
+          "task_id",
+          "project_id",
+          "actor_id",
+          "status",
+          "task_version",
+          "task_source_generation",
+          "dataset_item_id",
+          "task_source_snapshot",
+          "source_owner",
+          "source_generation",
+          "source_snapshot",
+          "byte_size",
+          "sha256",
+          "error",
+          "created_at",
+          "retire_after"
+        ],
+        "title": "InputRecord",
+        "type": "object"
+      },
+      "InputReference": {
+        "additionalProperties": false,
+        "properties": {
+          "expires_in": {
+            "maximum": 3600,
+            "minimum": 1,
+            "title": "Expires In",
+            "type": "integer"
+          },
+          "input": {
+            "$ref": "#/components/schemas/InputRecord"
+          },
+          "url": {
+            "maxLength": 16384,
+            "minLength": 1,
+            "title": "Url",
+            "type": "string"
+          },
+          "version_id": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Version Id",
+            "type": "string"
+          }
+        },
+        "required": ["input", "url", "version_id", "expires_in"],
+        "title": "InputReference",
+        "type": "object"
+      },
+      "InputRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "input_id": {
+            "format": "uuid",
+            "title": "Input Id",
+            "type": "string"
+          },
+          "job_id": {
+            "format": "uuid",
+            "title": "Job Id",
+            "type": "string"
+          },
+          "task_id": {
+            "format": "uuid",
+            "title": "Task Id",
+            "type": "string"
+          }
+        },
+        "required": ["input_id", "job_id", "task_id"],
+        "title": "InputRequest",
+        "type": "object"
+      },
+      "_Error": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "invalid_request",
+              "invalid_response",
+              "storage_unavailable",
+              "account_not_active",
+              "account_busy",
+              "invalid_account_role",
+              "source_missing",
+              "source_changed",
+              "source_busy",
+              "source_not_ready",
+              "task_not_visible",
+              "task_busy",
+              "permission_denied",
+              "not_image",
+              "asset_missing",
+              "already_ready",
+              "not_eligible",
+              "retry_cooldown",
+              "operation_conflict",
+              "operation_busy",
+              "lease_lost",
+              "dependency_changed",
+              "resource_budget_exceeded",
+              "object_missing",
+              "owner_changed",
+              "unsupported_dimensions",
+              "resource_limit",
+              "invalid_coordinate",
+              "timeout",
+              "source_unavailable",
+              "color_profile_unavailable",
+              "multi_page_unsupported",
+              "dimension_mismatch",
+              "generator_unavailable",
+              "decode_failed",
+              "encode_failed",
+              "tile_grid_mismatch",
+              "upload_verification_failed",
+              "inconsistent_ready",
+              "input_missing",
+              "input_scope_mismatch",
+              "input_not_ready",
+              "input_expired",
+              "input_corrupt",
+              "input_busy",
+              "job_not_active",
+              "job_busy",
+              "reference_busy",
+              "versioning_required"
+            ],
+            "title": "Code",
+            "type": "string"
+          }
+        },
+        "required": ["code"],
+        "title": "_Error",
+        "type": "object"
+      }
+    },
+    "securitySchemes": {
+      "serviceToken": {
+        "scheme": "bearer",
+        "type": "http"
+      }
+    }
+  },
+  "info": {
+    "title": "Accepted image input control",
+    "version": "1"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/v1/inputs/accept": {
+      "post": {
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FindInputRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/InputRecord"
+                    },
+                    "ok": {
+                      "const": true
+                    },
+                    "schema": {
+                      "const": "aap-assets-inputs/v1"
+                    }
+                  },
+                  "required": ["schema", "ok", "data"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Accepted input result"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "$ref": "#/components/schemas/_Error"
+                    },
+                    "ok": {
+                      "const": false
+                    },
+                    "schema": {
+                      "const": "aap-assets-inputs/v1"
+                    }
+                  },
+                  "required": ["schema", "ok", "error"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Input contract failure"
+          }
+        }
+      }
+    },
+    "/v1/inputs/find": {
+      "post": {
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FindInputRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/FoundInput"
+                    },
+                    "ok": {
+                      "const": true
+                    },
+                    "schema": {
+                      "const": "aap-assets-inputs/v1"
+                    }
+                  },
+                  "required": ["schema", "ok", "data"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Accepted input result"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "$ref": "#/components/schemas/_Error"
+                    },
+                    "ok": {
+                      "const": false
+                    },
+                    "schema": {
+                      "const": "aap-assets-inputs/v1"
+                    }
+                  },
+                  "required": ["schema", "ok", "error"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Input contract failure"
+          }
+        }
+      }
+    },
+    "/v1/inputs/record": {
+      "post": {
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InputRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/InputRecord"
+                    },
+                    "ok": {
+                      "const": true
+                    },
+                    "schema": {
+                      "const": "aap-assets-inputs/v1"
+                    }
+                  },
+                  "required": ["schema", "ok", "data"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Accepted input result"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "$ref": "#/components/schemas/_Error"
+                    },
+                    "ok": {
+                      "const": false
+                    },
+                    "schema": {
+                      "const": "aap-assets-inputs/v1"
+                    }
+                  },
+                  "required": ["schema", "ok", "error"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Input contract failure"
+          }
+        }
+      }
+    },
+    "/v1/inputs/reference": {
+      "post": {
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InputRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/InputReference"
+                    },
+                    "ok": {
+                      "const": true
+                    },
+                    "schema": {
+                      "const": "aap-assets-inputs/v1"
+                    }
+                  },
+                  "required": ["schema", "ok", "data"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Accepted input result"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "$ref": "#/components/schemas/_Error"
+                    },
+                    "ok": {
+                      "const": false
+                    },
+                    "schema": {
+                      "const": "aap-assets-inputs/v1"
+                    }
+                  },
+                  "required": ["schema", "ok", "error"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Input contract failure"
+          }
+        }
+      }
+    },
+    "/v1/inputs/verify-source": {
+      "post": {
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InputRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/InputRecord"
+                    },
+                    "ok": {
+                      "const": true
+                    },
+                    "schema": {
+                      "const": "aap-assets-inputs/v1"
+                    }
+                  },
+                  "required": ["schema", "ok", "data"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Accepted input result"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "$ref": "#/components/schemas/_Error"
+                    },
+                    "ok": {
+                      "const": false
+                    },
+                    "schema": {
+                      "const": "aap-assets-inputs/v1"
+                    }
+                  },
+                  "required": ["schema", "ok", "error"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Input contract failure"
+          }
+        }
+      }
+    }
+  },
+  "security": [
+    {
+      "serviceToken": []
+    }
+  ],
+  "x-budgets": {
+    "batch_size": 100,
+    "reply_bytes": 2097152,
+    "request_bytes": 65536
+  },
+  "x-input-schema": "aap-assets-inputs/v1"
+}

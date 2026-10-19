@@ -295,6 +295,15 @@ class ImageControl:
             raise c.ImageFailure("source_not_ready")
         return observed
 
+    async def observe_source(self, request: c.ReadImageSourceRequest) -> c.ImageSource:
+        """Return observed facts for another Assets capability without signing a URL."""
+        return await self._observe(request)
+
+    async def observe_internal_source(
+        self, request: c.InternalImageSourceRequest
+    ) -> c.ImageSource:
+        return await self._observe_internal(request)
+
     async def _observe_internal(
         self, request: c.InternalImageSourceRequest
     ) -> c.ImageSource:
