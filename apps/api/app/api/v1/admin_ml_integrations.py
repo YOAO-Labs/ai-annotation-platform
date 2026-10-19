@@ -1457,9 +1457,7 @@ async def observe_backends(
     await db.commit()
     by_url = {row.url.rstrip("/"): row for row in rows}
     by_origin = {
-        origin: row
-        for row in rows
-        if (origin := normalized_backend_url(row.url)) is not None
+        origin: row for row in rows if (origin := normalized_backend_url(row.url))
     }
     registered = {
         url: by_url.get(url) or by_origin.get(normalized_backend_url(url))

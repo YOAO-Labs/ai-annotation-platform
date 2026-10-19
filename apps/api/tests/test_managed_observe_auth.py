@@ -24,9 +24,9 @@ def transport(tmp_path, monkeypatch):
 
     def respond(request):
         calls.append(request)
-        if request.url.path == "/health":
+        if request.url.path.endswith("/health"):
             return httpx.Response(200, json={"ok": True, "loaded": False})
-        if request.url.path == "/setup":
+        if request.url.path.endswith("/setup"):
             if request.headers.get("Authorization") != f"Bearer {secret}":
                 return httpx.Response(401)
             return httpx.Response(
@@ -100,6 +100,25 @@ async def test_observe_preserves_explicit_none_even_for_a_same_origin_alias(
     assert result.targets[0].registered
     assert not result.targets[0].supports_variants
     assert all("Authorization" not in request.headers for request in calls)
+
+
+async def test_observe_never_equates_unrecognized_origins(transport, monkeypatch):
+    db, rows, calls, _, _ = transport
+    rows.append(
+        SimpleNamespace(
+            url="http://other.test:9000/private",
+            auth_method="token",
+            auth_token="manual-test-token-for-another-service",
+            source="manual",
+        )
+    )
+    monkeypatch.setattr(
+        settings, "ml_backend_observe_urls", ["http://external.test:8003/api"]
+    )
+    result = await routes.observe_backends(db=db, _admin=None)
+    assert len(calls) == 2
+    assert all("Authorization" not in request.headers for request in calls)
+    assert not result.targets[0].registered
 
 
 async def test_unregistered_smoke_test_keeps_auth_on_its_fixed_target(
