@@ -631,7 +631,13 @@ async def _run_worker(*, once: bool, job_id: UUID | None) -> None:
     database = await AsyncpgMediaDatabase.connect(
         config.database_url, allowed_roles={"worker"}
     )
-    storage = S3MediaStorage(**asdict(config.storage))
+    storage = S3MediaStorage(
+        **{
+            key: value
+            for key, value in asdict(config.storage).items()
+            if key != "inputs_bucket"
+        }
+    )
     executor = MediaExecutor(
         database,
         storage,

@@ -19,6 +19,12 @@ import time
 from typing import Any
 from uuid import UUID, uuid4
 
+from aap_assets_inputs_runtime.database import AsyncpgInputDatabase
+from aap_assets_inputs_runtime.storage import S3InputStorage
+from aap_assets_inputs_runtime.worker import InputExecutor
+from aap_assets_inputs.contract import InputFailure
+from aap_assets_images.policy import image_policy_from_environment
+from aap_assets_images_runtime.control import ImageControl
 
 from aap_assets_images.contract import (
     AdvanceImageBackfillRequest,
@@ -1402,7 +1408,9 @@ def _check_finish_request_budget(request: FinishImageMediaRequest) -> None:
         raise ImageFailure("resource_budget_exceeded")
 
 
-async def _run_worker(*, once: bool, job_id: UUID | None) -> None:
+async def _run_worker(
+    *, once: bool, job_id: UUID | None, input_id: UUID | None = None
+) -> None:
     config: ImageWorkerConfig = load_config()
     database = await _connect_worker_database(config)
     try:
@@ -1419,22 +1427,47 @@ async def _run_worker(*, once: bool, job_id: UUID | None) -> None:
             storage,
             srgb_profile=config.srgb_profile,
         )
+        input_storage = None
         try:
+            input_storage = S3InputStorage(config.storage, source_storage=storage)
+            policy = image_policy_from_environment()
+            inputs = InputExecutor(
+                AsyncpgInputDatabase(database.pool, allowed_roles={"worker"}),
+                input_storage,
+                ImageControl(database, storage, policy, wakeup=None),
+                policy=policy,
+                worker_id=executor.worker_id,
+            )
             if once:
-                await executor.execute_once(job_id=job_id)
+                if job_id is not None:
+                    await executor.execute_once(job_id=job_id)
+                else:
+                    result = await inputs.execute_once(input_id=input_id)
+                    if result is None and input_id is None:
+                        await executor.execute_once()
                 return
             next_reconcile = 0.0
             while True:
                 try:
                     now = asyncio.get_running_loop().time()
-                    if now >= next_reconcile:
+                    if input_id is None and now >= next_reconcile:
                         await executor.reconcile_once()
                         next_reconcile = (
                             asyncio.get_running_loop().time()
                             + _RECONCILE_INTERVAL_SECONDS
                         )
-                    did_work = await executor.execute_once(job_id=job_id)
-                except ImageFailure as exc:
+                    input_work = (
+                        await inputs.execute_once(input_id=input_id)
+                        if job_id is None
+                        else None
+                    )
+                    image_work = (
+                        await executor.execute_once(job_id=job_id)
+                        if input_id is None
+                        else None
+                    )
+                    did_work = input_work is not None or image_work is not None
+                except (ImageFailure, InputFailure) as exc:
                     _LOGGER.error("Assets image worker operation failed (%s)", exc.code)
                     did_work = False
                 except Exception as exc:  # noqa: BLE001 - do not log source/URL data
@@ -1446,7 +1479,11 @@ async def _run_worker(*, once: bool, job_id: UUID | None) -> None:
                 if did_work is None or did_work is False:
                     await asyncio.sleep(config.poll_seconds)
         finally:
-            await executor.close()
+            try:
+                if input_storage is not None:
+                    await input_storage.close()
+            finally:
+                await executor.close()
     finally:
         await database.close()
 
@@ -1492,7 +1529,9 @@ async def _with_signals(coroutine) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Assets image media worker")
     parser.add_argument("--once", action="store_true", help="execute at most one job")
-    parser.add_argument("--job-id", type=UUID, help="claim only this accepted job")
+    selection = parser.add_mutually_exclusive_group()
+    selection.add_argument("--job-id", type=UUID, help="claim only this image job")
+    selection.add_argument("--input-id", type=UUID, help="materialize only this input")
     parser.add_argument(
         "--healthcheck", action="store_true", help="verify the worker SQL login"
     )
@@ -1500,7 +1539,7 @@ def main() -> None:
     coroutine = (
         _healthcheck()
         if args.healthcheck
-        else _run_worker(once=args.once, job_id=args.job_id)
+        else _run_worker(once=args.once, job_id=args.job_id, input_id=args.input_id)
     )
     asyncio.run(_with_signals(coroutine))
 

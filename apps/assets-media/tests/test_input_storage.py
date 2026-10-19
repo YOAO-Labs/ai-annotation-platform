@@ -247,3 +247,67 @@ async def test_cleanup_rejects_unscoped_prefix_before_io(prefix):
     with pytest.raises(c.InputFailure, match="invalid_request"):
         await make_storage(store).delete_attempt_versions(prefix)
     assert not store.calls
+
+
+@pytest.mark.asyncio
+async def test_cleanup_relists_mutated_pages_including_delete_markers(tmp_path):
+    class PagedStore(VersionedStore):
+        def __init__(self):
+            super().__init__()
+            self.markers = {}
+
+        def list_multipart_uploads(self, **values):
+            assert "KeyMarker" not in values and "UploadIdMarker" not in values
+            page = super().list_multipart_uploads(**values)
+            return {
+                "Uploads": page["Uploads"][:1],
+                "IsTruncated": len(page["Uploads"]) > 1,
+            }
+
+        def list_object_versions(self, **values):
+            assert "KeyMarker" not in values and "VersionIdMarker" not in values
+            page = super().list_object_versions(**values)
+            rows = [("Versions", item) for item in page["Versions"]] + [
+                ("DeleteMarkers", {"Key": key, "VersionId": version})
+                for key, version in self.markers
+                if key.startswith(values["Prefix"])
+            ]
+            result = {"IsTruncated": len(rows) > 1}
+            if rows:
+                kind, item = rows[0]
+                result[kind] = [item]
+            return result
+
+        def delete_object(self, **values):
+            self.markers.pop((values["Key"], values["VersionId"]), None)
+            return super().delete_object(**values)
+
+    store = PagedStore()
+    storage = make_storage(store)
+    blob = await upload(storage, tmp_path)
+    store.put_object(Bucket="isolated-inputs", Key=blob.key, Body=b"new", Metadata={})
+    store.markers[(blob.key, str(uuid4()))] = True
+    for _ in range(2):
+        store.create_multipart_upload(
+            Bucket="isolated-inputs", Key=blob.key, Metadata={}
+        )
+    other = new_key()
+    store.put_object(Bucket="isolated-inputs", Key=other, Body=b"retain", Metadata={})
+
+    assert await storage.delete_attempt_versions(blob.key.removesuffix("source")) == 3
+    assert not store.markers and not store.uploads
+    assert {key for key, _version in store.versions} == {other}
+    deletes = [values for operation, values in store.calls if operation == "delete"]
+    assert len(deletes) == 3
+    assert all(values["VersionId"] not in {"", "null"} for values in deletes)
+
+
+@pytest.mark.asyncio
+async def test_cleanup_rejects_null_version_before_deleting(tmp_path):
+    store = VersionedStore()
+    storage = make_storage(store)
+    blob = await upload(storage, tmp_path)
+    store.versions[(blob.key, "null")] = store.versions.pop((blob.key, blob.version_id))
+    with pytest.raises(c.InputFailure, match="versioning_required"):
+        await storage.delete_attempt_versions(blob.key.removesuffix("source"))
+    assert not any(operation == "delete" for operation, _values in store.calls)

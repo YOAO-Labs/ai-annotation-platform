@@ -14,6 +14,10 @@ from aap_assets_images_runtime.control import ImageControl
 from aap_assets_images_runtime.database import AsyncpgImageDatabase
 from aap_assets_images_runtime.health import check_capabilities
 from aap_assets_images_runtime.storage import S3ImageStorage
+from aap_assets_inputs_runtime.api import install_input_routes
+from aap_assets_inputs_runtime.control import InputControl
+from aap_assets_inputs_runtime.database import AsyncpgInputDatabase
+from aap_assets_inputs_runtime.storage import S3InputStorage
 
 from .api import create_app
 from .control import MediaControl
@@ -39,11 +43,16 @@ def configured_app(config):
         def __getattr__(self, name):
             return getattr(state["image_control"], name)
 
+    class InputControlProxy:
+        def __getattr__(self, name):
+            return getattr(state["input_control"], name)
+
     async def ready():
         return "pool" in state and await check_capabilities(state["pool"], "control")
 
     app = create_app(Control(), config.token, readiness=ready)
     install_image_routes(app, ImageControlProxy(), config.token)
+    install_input_routes(app, InputControlProxy(), config.token)
 
     image_storage = load_image_storage_config()
     image_storage = replace(
@@ -53,6 +62,7 @@ def configured_app(config):
         region=config.storage.region,
         datasets_bucket=config.storage.datasets_bucket,
         cache_bucket=config.storage.cache_bucket,
+        inputs_bucket=config.storage.inputs_bucket,
         access_key=config.storage.access_key,
         secret_key=config.storage.secret_key,
         connect_timeout=config.storage.connect_timeout,
@@ -76,7 +86,13 @@ def configured_app(config):
                 raise RuntimeError("Media control SQL capability qualification failed")
             state["control"] = MediaControl(
                 AsyncpgMediaDatabase(pool, allowed_roles={"control", "system"}),
-                S3MediaStorage(**asdict(config.storage)),
+                S3MediaStorage(
+                    **{
+                        key: value
+                        for key, value in asdict(config.storage).items()
+                        if key != "inputs_bucket"
+                    }
+                ),
             )
             state["image_control"] = ImageControl(
                 AsyncpgImageDatabase(pool, allowed_roles={"control", "system"}),
@@ -84,12 +100,26 @@ def configured_app(config):
                 image_policy,
                 wakeup=None,
             )
+            state["input_storage"] = S3InputStorage(
+                image_storage, source_storage=state["image_control"].storage
+            )
+            state["input_control"] = InputControl(
+                AsyncpgInputDatabase(pool, allowed_roles={"control"}),
+                state["image_control"],
+                state["input_storage"],
+                url_expiry_seconds=min(image_policy.url_expiry_seconds, 3600),
+            )
             yield
         finally:
             try:
-                image_control = state.get("image_control")
-                if image_control is not None:
-                    await image_control.close()
+                try:
+                    input_storage = state.get("input_storage")
+                    if input_storage is not None:
+                        await input_storage.close()
+                finally:
+                    image_control = state.get("image_control")
+                    if image_control is not None:
+                        await image_control.close()
             finally:
                 state.clear()
                 await pool.close()

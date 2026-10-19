@@ -335,16 +335,12 @@ class S3InputStorage:
         _check_prefix(prefix)
         deleted = 0
         try:
-            key_marker, upload_marker = None, None
             while True:
                 _check_stop(stop)
                 parameters = {"Bucket": self.config.inputs_bucket, "Prefix": prefix}
-                if key_marker is not None:
-                    parameters.update(
-                        KeyMarker=key_marker, UploadIdMarker=upload_marker
-                    )
                 page = self._client.list_multipart_uploads(**parameters)
-                for upload in page.get("Uploads", []):
+                uploads = page.get("Uploads", [])
+                for upload in uploads:
                     _check_stop(stop)
                     if not upload["Key"].startswith(prefix):
                         raise c.InputFailure("invalid_response")
@@ -355,21 +351,13 @@ class S3InputStorage:
                     )
                 if not page.get("IsTruncated"):
                     break
-                next_marker = (
-                    page.get("NextKeyMarker"),
-                    page.get("NextUploadIdMarker"),
-                )
-                if None in next_marker or next_marker == (key_marker, upload_marker):
+                if not uploads:
                     raise c.InputFailure("invalid_response")
-                key_marker, upload_marker = next_marker
-            key_marker, version_marker = None, None
+                # Re-list the first page: aborting invalidates upload markers on
+                # some S3 peers, and this exact attempt prefix is already retired.
             while True:
                 _check_stop(stop)
                 parameters = {"Bucket": self.config.inputs_bucket, "Prefix": prefix}
-                if key_marker is not None:
-                    parameters.update(
-                        KeyMarker=key_marker, VersionIdMarker=version_marker
-                    )
                 page = self._client.list_object_versions(**parameters)
                 objects = []
                 for obj in page.get("Versions", []) + page.get("DeleteMarkers", []):
@@ -377,6 +365,7 @@ class S3InputStorage:
                         obj.get("VersionId"), str
                     ):
                         raise c.InputFailure("invalid_response")
+                    _version(obj["VersionId"])
                     objects.append({"Key": obj["Key"], "VersionId": obj["VersionId"]})
                 for obj in objects:
                     _check_stop(stop)
@@ -389,13 +378,8 @@ class S3InputStorage:
                     deleted += 1
                 if not page.get("IsTruncated"):
                     break
-                next_marker = (
-                    page.get("NextKeyMarker"),
-                    page.get("NextVersionIdMarker"),
-                )
-                if None in next_marker or next_marker == (key_marker, version_marker):
+                if not objects:
                     raise c.InputFailure("invalid_response")
-                key_marker, version_marker = next_marker
             return deleted
         except c.InputFailure:
             raise

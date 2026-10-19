@@ -25,6 +25,7 @@ from aap_assets_images.contract import (
     ReadImageSourceRequest,
 )
 from aap_assets_media.contract import OPERATIONS as VIDEO_OPERATIONS
+from aap_assets_inputs.contract import OPERATIONS as INPUT_OPERATIONS
 from aap_assets_images_runtime.database import (
     AsyncpgImageDatabase,
     prepare_native_call,
@@ -253,19 +254,21 @@ def test_native_binding_enforces_per_page_record_budget(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_capability_preflight_requires_the_exact_six_worker_oids():
+async def test_capability_preflight_requires_exact_image_and_input_worker_oids():
     signatures = {
         "aap_assets_v1." + name + "(" + ", ".join(operation.sql_types) + ")": index
         for index, (name, operation) in enumerate(
             (
                 (name, operation)
-                for name, operation in OPERATIONS.items()
+                for operation_set in (OPERATIONS, INPUT_OPERATIONS)
+                for name, operation in operation_set.items()
                 if operation.role == "worker"
             ),
             start=100,
         )
     }
     rows = [{"oid": oid, "prosecdef": True} for oid in signatures.values()]
+    assert len(signatures) == 10
     connection = _HealthConnection(
         identity_ok=True,
         signatures=signatures,
@@ -278,21 +281,25 @@ async def test_capability_preflight_requires_the_exact_six_worker_oids():
 
 
 @pytest.mark.asyncio
-async def test_shared_control_preflight_includes_video_and_image_owner_capabilities():
-    operations = [VIDEO_OPERATIONS, OPERATIONS]
+async def test_shared_control_preflight_includes_inputs_but_rejects_cleanup_sweep():
+    operations = (
+        (VIDEO_OPERATIONS, {"control", "system"}),
+        (OPERATIONS, {"control", "system"}),
+        (INPUT_OPERATIONS, {"control"}),
+    )
     control_signatures = {
         "aap_assets_v1." + name + "(" + ", ".join(operation.sql_types) + ")": oid
         for oid, (name, operation) in enumerate(
             (
                 (name, operation)
-                for operation_set in operations
+                for operation_set, roles in operations
                 for name, operation in operation_set.items()
-                if operation.role in {"control", "system"}
+                if operation.role in roles
             ),
             start=100,
         )
     }
-    assert len(control_signatures) == 32
+    assert len(control_signatures) == 36
     rows = [{"oid": oid, "prosecdef": True} for oid in control_signatures.values()]
     connection = _HealthConnection(
         identity_ok=True,
@@ -301,6 +308,8 @@ async def test_shared_control_preflight_includes_video_and_image_owner_capabilit
     )
 
     assert await check_capabilities(_HealthPool(connection), role="control")
+    connection.rows = [*rows, {"oid": 999, "prosecdef": True}]
+    assert not await check_capabilities(_HealthPool(connection), role="control")
     connection.rows = rows[:-1]
     assert not await check_capabilities(_HealthPool(connection), role="control")
 

@@ -8,6 +8,7 @@ import pytest
 from aap_assets_images.contract import ImagePolicy
 from aap_assets_images_runtime.config import ImageStorageConfig
 from aap_assets_media import contract as video
+from aap_assets_inputs import contract as inputs
 from aap_assets_media_runtime.config import MediaStorageConfig
 from aap_assets_media_runtime.control_config import MediaControlConfig
 from aap_assets_media_runtime import __main__ as shared_runtime
@@ -64,6 +65,7 @@ class _ImageDatabase:
 class _VideoStorage:
     def __init__(self, **kwargs):
         self.kwargs = kwargs
+        assert "inputs_bucket" not in kwargs
 
 
 class _ImageStorage:
@@ -73,6 +75,22 @@ class _ImageStorage:
 
     async def close(self):
         self.closed = True
+
+
+class _InputStorage(_ImageStorage):
+    def __init__(self, config, *, source_storage):
+        super().__init__(config)
+        self.source_storage = source_storage
+
+
+class _InputDatabase:
+    def __init__(self, pool, *, allowed_roles):
+        assert allowed_roles == {"control"}
+        self.pool = pool
+
+    async def call(self, operation, request):
+        assert operation == "find_accepted_image_input"
+        return inputs.FoundInput(input=None)
 
 
 def _control_config() -> MediaControlConfig:
@@ -130,8 +148,10 @@ async def test_shared_runtime_installs_image_routes_on_video_app(monkeypatch):
     monkeypatch.setattr(shared_runtime, "check_capabilities", check_capabilities)
     monkeypatch.setattr(shared_runtime, "AsyncpgMediaDatabase", _VideoDatabase)
     monkeypatch.setattr(shared_runtime, "AsyncpgImageDatabase", _ImageDatabase)
+    monkeypatch.setattr(shared_runtime, "AsyncpgInputDatabase", _InputDatabase)
     monkeypatch.setattr(shared_runtime, "S3MediaStorage", _VideoStorage)
     monkeypatch.setattr(shared_runtime, "S3ImageStorage", image_storage)
+    monkeypatch.setattr(shared_runtime, "S3InputStorage", _InputStorage)
     monkeypatch.setattr(
         shared_runtime, "load_image_storage_config", _image_storage_config
     )
@@ -159,6 +179,13 @@ async def test_shared_runtime_installs_image_routes_on_video_app(monkeypatch):
             image_response = await client.post(
                 "/v1/images/commands/read_image_usage", json={}, headers=headers
             )
+            from uuid import uuid4
+
+            input_response = await client.post(
+                "/v1/inputs/find",
+                json={name: str(uuid4()) for name in ("job_id", "task_id", "actor_id")},
+                headers=headers,
+            )
 
     assert live.status_code == 200
     assert ready.status_code == 200
@@ -166,6 +193,12 @@ async def test_shared_runtime_installs_image_routes_on_video_app(monkeypatch):
     assert video_response.json()["schema"] == video.MEDIA_SCHEMA
     assert image_response.status_code == 200
     assert image_response.json()["schema"] == "aap-assets-images/v1"
+    assert input_response.status_code == 200
+    assert input_response.json() == {
+        "schema": inputs.INPUT_SCHEMA,
+        "ok": True,
+        "data": {"input": None},
+    }
     assert asyncpg.pool.closed
     assert image_storages[0].closed
     assert {role for _pool, role in health_calls} == {"control"}
@@ -173,6 +206,7 @@ async def test_shared_runtime_installs_image_routes_on_video_app(monkeypatch):
     assert image_storage_configs[0].endpoint == "http://s3.internal"
     assert image_storage_configs[0].public_endpoint == "https://s3.public"
     assert image_storage_configs[0].legacy_bucket == "annotations"
+    assert image_storage_configs[0].inputs_bucket == "accepted-inputs"
     assert image_storage_configs[0].connect_timeout == 2
     assert image_storage_configs[0].read_timeout == 10
     assert asyncpg.arguments[0] == ()
@@ -192,8 +226,10 @@ async def test_shared_readiness_fails_when_combined_capability_check_fails(monke
     monkeypatch.setattr(shared_runtime, "check_capabilities", check_capabilities)
     monkeypatch.setattr(shared_runtime, "AsyncpgMediaDatabase", _VideoDatabase)
     monkeypatch.setattr(shared_runtime, "AsyncpgImageDatabase", _ImageDatabase)
+    monkeypatch.setattr(shared_runtime, "AsyncpgInputDatabase", _InputDatabase)
     monkeypatch.setattr(shared_runtime, "S3MediaStorage", _VideoStorage)
     monkeypatch.setattr(shared_runtime, "S3ImageStorage", _ImageStorage)
+    monkeypatch.setattr(shared_runtime, "S3InputStorage", _InputStorage)
     monkeypatch.setattr(
         shared_runtime, "load_image_storage_config", _image_storage_config
     )

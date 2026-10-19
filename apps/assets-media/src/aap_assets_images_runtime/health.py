@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from aap_assets_images.contract import OPERATIONS as IMAGE_OPERATIONS
 from aap_assets_media.contract import OPERATIONS as VIDEO_OPERATIONS
+from aap_assets_inputs.contract import OPERATIONS as INPUT_OPERATIONS
 
 _ROLE_SQL = """
 SELECT current_user = session_user
@@ -40,16 +41,21 @@ ORDER BY p.oid
 
 def _expected_signatures(role: str) -> tuple[str, ...]:
     if role == "worker":
-        operation_sets = (IMAGE_OPERATIONS,)
-        wanted = {"worker"}
+        operation_sets = (
+            (IMAGE_OPERATIONS, {"worker"}),
+            (INPUT_OPERATIONS, {"worker"}),
+        )
     elif role == "control":
-        operation_sets = (VIDEO_OPERATIONS, IMAGE_OPERATIONS)
-        wanted = {"control", "system"}
+        operation_sets = (
+            (VIDEO_OPERATIONS, {"control", "system"}),
+            (IMAGE_OPERATIONS, {"control", "system"}),
+            (INPUT_OPERATIONS, {"control"}),
+        )
     else:
         return ()
     return tuple(
         f"aap_assets_v1.{name}({', '.join(operation.sql_types)})"
-        for operations in operation_sets
+        for operations, wanted in operation_sets
         for name, operation in operations.items()
         if operation.role in wanted
     )

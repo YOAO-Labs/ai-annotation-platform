@@ -6,7 +6,7 @@ from contextlib import asynccontextmanager
 from dataclasses import replace
 from uuid import UUID
 
-from pydantic import BaseModel
+from pydantic import BaseModel, StrictBool
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -235,7 +235,7 @@ class _PinAttachReceipt(c.Value):
     annotation_id: UUID
     input_id: UUID
     sha256: c.Digest
-    attached: bool
+    attached: StrictBool
 
 
 async def attach_annotation_input_source(
@@ -247,13 +247,8 @@ async def attach_annotation_input_source(
         "SELECT aap_labeling_v1.attach_annotation_input_source(CAST(:annotation AS uuid), CAST(:input AS uuid), CAST(:sha256 AS text))",
         {"annotation": annotation_id, "input": input_id, "sha256": sha256},
         _PinAttachReceipt,
+        {"annotation_id": annotation_id, "input_id": input_id, "sha256": sha256},
     )
-    if (
-        result.annotation_id != annotation_id
-        or result.input_id != input_id
-        or result.sha256 != sha256
-    ):
-        raise c.InputFailure("invalid_response")
     return result.attached
 
 
@@ -266,16 +261,15 @@ async def copy_annotation_input_sources(
         "SELECT aap_labeling_v1.copy_annotation_input_sources(CAST(:source AS uuid), CAST(:target AS uuid))",
         {"source": source_annotation_id, "target": target_annotation_id},
         _PinCopyReceipt,
+        {
+            "source_annotation_id": source_annotation_id,
+            "target_annotation_id": target_annotation_id,
+        },
     )
-    if (
-        result.source_annotation_id != source_annotation_id
-        or result.target_annotation_id != target_annotation_id
-    ):
-        raise c.InputFailure("invalid_response")
     return result.copied
 
 
-async def _call_pin_operation(db, statement, parameters, receipt_type):
+async def _call_pin_operation(db, statement, parameters, receipt_type, scope):
     try:
         await db.flush()
         async with db.begin_nested():
@@ -292,7 +286,10 @@ async def _call_pin_operation(db, statement, parameters, receipt_type):
                 raise c.InputFailure(c._Error.model_validate(raw["error"]).code)
             if set(raw) != {"schema", "ok", "data"}:
                 raise c.InputFailure("invalid_response")
-            return receipt_type.model_validate(raw["data"])
+            result = receipt_type.model_validate(raw["data"])
+            if any(getattr(result, name) != value for name, value in scope.items()):
+                raise c.InputFailure("invalid_response")
+            return result
     except c.InputFailure:
         raise
     except SQLAlchemyError as exc:
