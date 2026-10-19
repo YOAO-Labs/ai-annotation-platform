@@ -8,8 +8,7 @@ import mimetypes
 from typing import Any, BinaryIO, Callable
 
 from aap_assets_source.import_contract import ImportEntry
-from aap_assets_source_runtime.image_admission import object_identity_from_head
-from aap_assets_images.contract import ImageFailure, ObjectIdentity
+from aap_assets_images.contract import ObjectIdentity
 from aap_assets_source.connectors import (
     SourceChangedError,
     SourceNotFoundError,
@@ -45,15 +44,15 @@ class DestinationStorage:
         byte_budget: int,
         before_io: Callable[[], None],
         on_bytes: Callable[[int], None],
-    ) -> tuple[int, str, tuple[int, int] | None]:
-        """Stream one source through bounded multipart parts and return MD5 metadata."""
+    ) -> tuple[int, str, tuple[int, int] | None, ObjectIdentity | None]:
+        """Stream a source and return its measured bytes and write receipt facts."""
         content_type = (
             mimetypes.guess_type(entry.file_name)[0] or "application/octet-stream"
         )
         if entry.source.size == 0:
             before_io()
             try:
-                await asyncio.wait_for(
+                response = await asyncio.wait_for(
                     asyncio.to_thread(
                         self._client.put_object,
                         Bucket=self.bucket,
@@ -65,7 +64,12 @@ class DestinationStorage:
                 )
             except Exception as exc:
                 raise DestinationWriteError("empty object write failed") from exc
-            return 0, _empty_md5(), None
+            identity = (
+                _object_identity_from_write_response(response, byte_size=0)
+                if entry.file_type == "image"
+                else None
+            )
+            return 0, _empty_md5(), None, identity
 
         if byte_budget < entry.source.size:
             raise SourceChangedError(
@@ -150,7 +154,7 @@ class DestinationStorage:
                 raise SourceChangedError("source size changed after enumeration")
             before_io()
             try:
-                await asyncio.wait_for(
+                response = await asyncio.wait_for(
                     asyncio.to_thread(
                         self._client.complete_multipart_upload,
                         Bucket=self.bucket,
@@ -165,12 +169,17 @@ class DestinationStorage:
                     "multipart upload could not complete"
                 ) from exc
             completed = True
+            identity = (
+                _object_identity_from_write_response(response, byte_size=total)
+                if entry.file_type == "image"
+                else None
+            )
             dimensions = (
                 await asyncio.to_thread(_image_dimensions, bytes(head))
                 if entry.file_type == "image"
                 else None
             )
-            return total, digest.hexdigest(), dimensions
+            return total, digest.hexdigest(), dimensions, identity
         finally:
             if not completed:
                 try:
@@ -188,29 +197,41 @@ class DestinationStorage:
                 except Exception:
                     pass
 
-    async def head_image_identity(
-        self, key: str, *, expected_size: int
-    ) -> ObjectIdentity:
-        """Capture identity only after the final immutable destination object exists."""
-        try:
-            head = await asyncio.wait_for(
-                asyncio.to_thread(
-                    self._client.head_object,
-                    Bucket=self.bucket,
-                    Key=key,
-                ),
-                timeout=self._io_timeout,
-            )
-        except Exception as exc:
-            raise DestinationWriteError(
-                "published image could not be verified"
-            ) from exc
-        try:
-            return object_identity_from_head(head, expected_size=expected_size)
-        except ImageFailure as exc:
-            if exc.code == "source_changed":
-                raise SourceChangedError("published image size changed") from None
-            raise DestinationWriteError("published image identity is invalid") from None
+
+def _object_identity_from_write_response(
+    response: Any, *, byte_size: int
+) -> ObjectIdentity:
+    """Validate the exact object receipt returned by the successful S3 write."""
+    if not isinstance(response, dict):
+        raise DestinationWriteError("destination returned an invalid write receipt")
+    etag = response.get("ETag")
+    version_id = response.get("VersionId")
+    if not isinstance(etag, str):
+        raise DestinationWriteError("destination returned an invalid write receipt")
+    etag = etag.strip().strip('"')
+    if (
+        not etag
+        or len(etag) > 255
+        or any(ord(char) < 32 or ord(char) == 127 for char in etag)
+    ):
+        raise DestinationWriteError("destination returned an invalid write receipt")
+    if version_id is not None and (
+        not isinstance(version_id, str)
+        or not version_id
+        or len(version_id) > 255
+        or any(ord(char) < 32 or ord(char) == 127 for char in version_id)
+    ):
+        raise DestinationWriteError("destination returned an invalid write receipt")
+    try:
+        return ObjectIdentity(
+            etag=etag,
+            byte_size=byte_size,
+            version_id=version_id,
+        )
+    except (TypeError, ValueError):
+        raise DestinationWriteError(
+            "destination returned an invalid write receipt"
+        ) from None
 
 
 def _create_client(config: ImportConfig) -> Any:
