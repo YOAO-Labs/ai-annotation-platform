@@ -765,6 +765,34 @@ nuScenes mini 到 `~/.cache/ai-annotation-platform/nuscenes-mini`（约 4 GB，�
 重跑 seed 会保留已有任务和标注，并从 nuScenes `sample_data` 幂等回填旧相机条目缺失的
 像素宽高，供 3D 投影、持久化 2D 成员和残差质检共用。
 
+### COCO8 在线训练夹具
+
+只生成在线训练测试项目，不导入视频、点云等其他示例：
+
+```bash
+cd apps/api
+PYTHONPATH=. uv run python scripts/seed.py --profile online-training
+```
+
+该入口复用版本化素材清单，首次下载并校验约 443 KB 的 COCO8 归档到
+`~/.cache/ai-annotation-platform/seed-assets`；可用 `--cache-dir` 指定缓存、
+`--offline` 复用已缓存素材，或通过 `--asset-dir` 提供包含 `coco8/` 的本地素材目录。
+需要当前开发栈的 PostgreSQL、MinIO 和 Redis；数据包在脚本内同步构建，不依赖 export worker。
+
+生成项目 **COCO8 在线训练（dev）**（`P-COCO8-TRAIN`）和数据集 `DS-COCO8-TRAIN`，
+使用 COCO 80 类、8 张原图及 30 个原始检测框，任务均已完成审核。`pm` 是负责人，
+`anno` / `anno2` / `anno3`、`qa`、`viewer` 获得各自的项目职责。初始训练数据版本包含真实原图与标注，
+保留官方 4 张训练图 / 4 张验证图划分；后续创建版本时选择该父版本可继承分区。
+重跑保留已有任务、标注、数据版本、实验和策略；固定编号被其他数据占用时拒绝覆盖。
+构建失败后可到项目「训练数据」查看原因并重试。
+
+登录 `pm`（密码 `123456`），打开项目「训练数据」，选择初始版本后新建实验。
+已配置训练执行器时，可先选当前训练目录中的 Ultralytics / YOLO11n，试跑
+`epochs=1`、`batch=4`、`imgsz=320`、`seed=42`。自动训练可引用该初始数据版本，
+将变化门槛设为 `1`、检查间隔设为 `1` 分钟、冷却设为 `0`，再明确保存并启用。
+首次成功后，修改并重新审核训练分区标注可验证下一轮触发；仅验证分区变化不触发训练。
+夹具不创建实验或启用策略，也不要求生成时已开启训练目录。COCO8 用于流程试跑，不能据此评估模型质量。
+
 ## 下一步计划
 
 详见 [CHANGELOG.md](CHANGELOG.md) 顶部的 roadmap 与 [docs/plans/](docs/plans/) 下的具体计划。
