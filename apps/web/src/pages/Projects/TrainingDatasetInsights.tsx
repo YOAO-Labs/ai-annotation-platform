@@ -1,4 +1,5 @@
 import { randomId } from "@/utils/id";
+import { CopyableError } from "@/components/ui/CopyableError";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -453,7 +454,8 @@ function InsightsContent({
       </nav>
       {!ready && (
         <p className="mt-4 text-sm text-muted-foreground">
-          版本构建完成后可查看冻结数据洞察。{version.error_message}
+          版本构建完成后可查看冻结数据洞察。
+          <CopyableError message={version.error_message} />
         </p>
       )}
       {ready && overview.isLoading && (
@@ -466,7 +468,11 @@ function InsightsContent({
           role="alert"
           className="mt-4 rounded-md bg-status-caution-soft p-3 text-sm text-status-caution"
         >
-          <p>数据洞察暂不可用：{overview.error.message}。训练包下载入口仍独立可用。</p>
+          <p>
+            数据洞察暂不可用：
+            <CopyableError message={overview.error.message} />
+            。训练包下载入口仍独立可用。
+          </p>
           <Button size="sm" className="mt-2" onClick={() => void overview.refetch()}>
             重试数据洞察
           </Button>
@@ -484,7 +490,7 @@ function InsightsContent({
       )}
       {error && (
         <p role="alert" className="mt-4 text-sm text-status-danger">
-          {error.message}
+          <CopyableError message={error.message} />
         </p>
       )}
       {ready && view === "overview" && data && (
@@ -1071,7 +1077,7 @@ function InsightsContent({
         {raw.isLoading && <p className="mt-2">正在加载原始清单…</p>}
         {raw.error && (
           <p role="alert" className="mt-2 text-status-danger">
-            {raw.error.message}
+            <CopyableError message={raw.error.message} />
           </p>
         )}
         {raw.data && (

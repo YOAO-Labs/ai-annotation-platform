@@ -1,3 +1,5 @@
+import { CopyButton } from "@/components/ui/CopyButton";
+import { CopyableError } from "@/components/ui/CopyableError";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { trainingObservabilityApi, type LogPage } from "@/api/trainingObservability";
@@ -162,6 +164,14 @@ export function TrainingLogViewer({
         >
           加载更早日志
         </Button>
+        <CopyButton
+          value={text}
+          label="复制当前日志"
+          successMessage="已复制当前已加载日志"
+          disabled={!text}
+        >
+          复制当前日志
+        </CopyButton>
         <label className="flex items-center gap-2 text-xs">
           <input
             type="checkbox"
@@ -173,7 +183,9 @@ export function TrainingLogViewer({
       </div>
       {(error || earlierError) && (
         <p role="alert" className="text-xs text-status-caution">
-          日志连接中断：{earlierError || error}。已显示的内容会保留，恢复连接后继续读取。
+          日志连接中断：
+          <CopyableError message={earlierError || error} />
+          。已显示的内容会保留，恢复连接后继续读取。
         </p>
       )}
       {!!window?.gaps.length && (

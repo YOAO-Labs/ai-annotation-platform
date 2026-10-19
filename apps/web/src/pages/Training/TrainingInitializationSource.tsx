@@ -1,4 +1,5 @@
 import { randomId } from "@/utils/id";
+import { CopyableError } from "@/components/ui/CopyableError";
 import { useMemo } from "react";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { trainedModelsApi } from "@/api/trainedModels";
@@ -149,7 +150,7 @@ export function TrainingInitializationSource({
       )}
       {choices.error && (
         <p role="alert" className="text-status-danger">
-          {choices.error.message}
+          <CopyableError message={choices.error.message} />
         </p>
       )}
       {selectedId && (
@@ -161,7 +162,8 @@ export function TrainingInitializationSource({
           )}
           {source.error && (
             <p role="alert" className="text-status-danger">
-              来源暂不可用：{source.error.message}。当前选择已保留。
+              <CopyableError message={`来源暂不可用：${source.error.message}`} />
+              。当前选择已保留。
             </p>
           )}
           {source.data?.reasons.map((reason) => (

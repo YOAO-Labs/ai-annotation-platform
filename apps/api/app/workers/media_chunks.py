@@ -12,6 +12,8 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
+from app.workers.media_timestamps import rounded_frame_seek_seconds
+
 FFMPEG_CHUNK_TIMEOUT_SECONDS = 180
 
 
@@ -26,7 +28,7 @@ def extract_video_chunk(
             "ffmpeg",
             "-y",
             "-ss",
-            f"{max(0, start_ms) / 1000:.3f}",
+            rounded_frame_seek_seconds(start_ms),
             "-i",
             str(input_path),
             "-frames:v",

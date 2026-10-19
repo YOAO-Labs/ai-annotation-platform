@@ -13,6 +13,8 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
+from app.workers.media_timestamps import rounded_frame_seek_seconds
+
 FFMPEG_FRAME_TIMEOUT_SECONDS = 60
 
 
@@ -27,7 +29,7 @@ def extract_video_frame_image(
             "ffmpeg",
             "-y",
             "-ss",
-            f"{max(0, pts_ms) / 1000:.3f}",
+            rounded_frame_seek_seconds(pts_ms),
             "-i",
             str(input_path),
             "-frames:v",

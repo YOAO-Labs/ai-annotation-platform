@@ -1,3 +1,4 @@
+import { CopyableError } from "@/components/ui/CopyableError";
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { trainingRunsApi } from "@/api/trainingRuns";
@@ -40,7 +41,7 @@ export function TrainingParameterInventory({
   if (schema.isError)
     return (
       <p role="alert" className="text-xs text-status-danger">
-        {schema.error.message}
+        <CopyableError message={schema.error.message} />
       </p>
     );
   const definition = schema.data;

@@ -1,3 +1,4 @@
+import { CopyableError } from "@/components/ui/CopyableError";
 import { useEffect, useState } from "react";
 import { useQueries } from "@tanstack/react-query";
 import { Card } from "@/components/ui/Card";
@@ -364,7 +365,8 @@ export function MlBackendsSection({ project }: { project: ProjectResponse }) {
         {isError && (
           <div className="p-6 text-center text-sm text-status-danger">
             <Icon name="warning" size={14} className="mr-1.5" />
-            加载失败：{(error as Error)?.message ?? "未知错误"}
+            加载失败：
+            <CopyableError message={(error as Error)?.message ?? "未知错误"} />
           </div>
         )}
         {!isLoading && !isError && enabledItems.length === 0 && (

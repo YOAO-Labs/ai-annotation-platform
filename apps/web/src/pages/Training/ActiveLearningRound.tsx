@@ -1,4 +1,5 @@
 import { randomId } from "@/utils/id";
+import { CopyableError } from "@/components/ui/CopyableError";
 import { useEffect, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -305,7 +306,7 @@ export function RoundContent({
           )}
           {round.error_message && (
             <p role="alert" className="text-sm text-status-danger">
-              {round.error_message}
+              <CopyableError message={round.error_message} />
             </p>
           )}
           <details className="mb-5 rounded-md border border-border p-3 text-xs">
@@ -701,7 +702,7 @@ export function RoundContent({
         .filter(Boolean)
         .map((error, index) => (
           <p key={index} role="alert" className="text-sm text-status-danger">
-            {error?.message}
+            <CopyableError message={error?.message} />
           </p>
         ))}
       {storageError && (
@@ -752,7 +753,7 @@ function CandidateImage({
       )}
       {image.error && (
         <p role="alert" className="text-xs text-status-danger">
-          {image.error.message}
+          <CopyableError message={image.error.message} />
         </p>
       )}
       {!image.error && url?.blob === image.data && (

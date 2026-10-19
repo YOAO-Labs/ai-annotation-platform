@@ -1,3 +1,4 @@
+import { CopyableError } from "@/components/ui/CopyableError";
 import { useEffect, useMemo, useState } from "react";
 import { InfoIcon } from "lucide-react";
 
@@ -233,7 +234,13 @@ export function VideoMaskCorrectionDialog({
               <AlertTitle>人工纠错帧已保存</AlertTitle>
               <AlertDescription>
                 再次提交只会重试创建传播作业，不会重复保存当前帧。
-                {createError ? ` 上次失败：${createError}` : ""}
+                {createError && (
+                  <>
+                    {" "}
+                    上次失败：
+                    <CopyableError message={createError} />
+                  </>
+                )}
                 {createError && !createRetryable
                   ? " 当前快照已不能安全重试，请关闭后刷新标注。"
                   : ""}

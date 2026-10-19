@@ -1,4 +1,5 @@
 import { randomId } from "@/utils/id";
+import { CopyableError } from "@/components/ui/CopyableError";
 import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import {
   Link,
@@ -1264,12 +1265,16 @@ function TrainingCreateContent({
           role="alert"
           className="mb-4 rounded-lg bg-status-danger-soft p-3 text-sm text-status-danger"
         >
-          {error ||
-            state.storageError ||
-            catalog.error?.message ||
-            datasets.error?.message ||
-            selectedDataset.error?.message ||
-            schemaQuery.error?.message}
+          <CopyableError
+            message={
+              error ||
+              state.storageError ||
+              catalog.error?.message ||
+              datasets.error?.message ||
+              selectedDataset.error?.message ||
+              schemaQuery.error?.message
+            }
+          />
         </p>
       )}
       {draft.pending && (

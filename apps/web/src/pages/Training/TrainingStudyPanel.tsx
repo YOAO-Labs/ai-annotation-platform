@@ -1,3 +1,4 @@
+import { CopyableError } from "@/components/ui/CopyableError";
 import { useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -134,7 +135,7 @@ export function TrainingStudyPanel({
         <div className="mt-4">
           {(error || studies.error || detail.error) && (
             <p role="alert" className="mb-3 text-xs text-status-danger">
-              {error || studies.error?.message || detail.error?.message}
+              <CopyableError message={error || studies.error?.message || detail.error?.message} />
             </p>
           )}
           {studies.isLoading && (
@@ -284,7 +285,9 @@ export function TrainingStudyPanel({
                       <p className="mt-2">最终目标指标 {(trial.result.value * 100).toFixed(2)}%</p>
                     )}
                     {trial.result_error && (
-                      <p className="mt-2 text-status-caution">{trial.result_error}</p>
+                      <p className="mt-2 text-status-caution">
+                        <CopyableError message={trial.result_error} />
+                      </p>
                     )}
                     {trial.run_id && (
                       <Link

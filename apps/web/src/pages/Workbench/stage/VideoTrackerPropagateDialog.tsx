@@ -1,3 +1,4 @@
+import { CopyableError } from "@/components/ui/CopyableError";
 import { isWorkbenchInteractionBlocked } from "../state/workbenchInteractionGuards";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Bot, Clock3, Info, Loader2, MousePointer2, Type, X } from "lucide-react";
@@ -1087,7 +1088,7 @@ export function VideoTrackerPropagateDialog({
                     role="alert"
                     className="rounded-md bg-status-danger-soft px-3 py-2 text-xs text-status-danger"
                   >
-                    {error}
+                    <CopyableError message={error} />
                   </p>
                 )}
               </div>

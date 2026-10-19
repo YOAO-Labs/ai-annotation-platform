@@ -5,11 +5,9 @@ import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
 
 import { Topbar } from "./Topbar";
-import { useWhatsNewStore } from "@/components/shell/WhatsNewDialog";
 import { useBugDrawerStore } from "@/stores/bugDrawerStore";
 
-it("opens the release-notes dialog from the version chip", () => {
-  act(() => useWhatsNewStore.setState({ manualOpen: false }));
+it("omits release-note entries from the header and overflow menu", () => {
   render(
     <Topbar
       projectName="测试"
@@ -26,11 +24,10 @@ it("opens the release-notes dialog from the version chip", () => {
     />,
   );
 
-  const version = screen.getByTestId("workbench-whats-new");
-  expect(version).toHaveTextContent(/^v\d/);
-  fireEvent.click(version);
-  expect(useWhatsNewStore.getState().manualOpen).toBe(true);
-  act(() => useWhatsNewStore.setState({ manualOpen: false }));
+  expect(screen.queryByTestId("workbench-whats-new")).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: /更新内容/ })).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "更多工具" }));
+  expect(within(screen.getByRole("menu")).queryByText(/本次更新/)).not.toBeInTheDocument();
 });
 
 it("opens the shared bug drawer from the workbench header", () => {

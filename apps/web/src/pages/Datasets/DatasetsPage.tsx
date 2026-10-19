@@ -1,3 +1,4 @@
+import { CopyableError } from "@/components/ui/CopyableError";
 import { FilterGroup, FilterToggle } from "@/components/filters/FilterControls";
 import { useState, Fragment, useEffect, useRef } from "react";
 import { useSearchParams } from "react-router-dom";
@@ -385,7 +386,16 @@ function DatasetDetail({ ds }: { ds: DatasetResponse }) {
                             title={formatMediaInfo(item)}
                             className={`${ITEM_TD_CLASS} max-w-[220px] truncate ${formatMediaInfo(item).includes("失败") ? "text-status-danger" : "text-muted-foreground"}`}
                           >
-                            {formatMediaInfo(item)}
+                            {typeof getVideoMeta(item)?.probe_error === "string" &&
+                            getVideoMeta(item)?.probe_error ? (
+                              <CopyableError
+                                message={formatMediaInfo(item)}
+                                truncate
+                                className="w-full"
+                              />
+                            ) : (
+                              formatMediaInfo(item)
+                            )}
                           </td>
                           <td className={`${ITEM_TD_CLASS} text-muted-foreground`}>
                             {new Date(item.created_at).toLocaleDateString("zh-CN")}

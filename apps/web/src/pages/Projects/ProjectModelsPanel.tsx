@@ -1,4 +1,5 @@
 import { randomId } from "@/utils/id";
+import { CopyableError } from "@/components/ui/CopyableError";
 import { useMemo, useRef, useState } from "react";
 import { Link, useLocation, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -553,12 +554,14 @@ function ModelsContent({
           role="alert"
           className="mt-3 rounded-md bg-status-danger-soft p-3 text-sm text-status-danger"
         >
-          {error}
+          <CopyableError message={error} />
         </p>
       )}
       {(models.error || releases.error || runs.error || backends.error) && (
         <p role="alert" className="mt-3 text-sm text-status-danger">
-          {(models.error ?? releases.error ?? runs.error ?? backends.error)?.message}
+          <CopyableError
+            message={(models.error ?? releases.error ?? runs.error ?? backends.error)?.message}
+          />
         </p>
       )}
       <section
@@ -711,7 +714,7 @@ function ModelsContent({
           </section>
           {detail.error && (
             <p role="alert" className="mt-3 text-sm text-status-danger">
-              {detail.error.message}
+              <CopyableError message={detail.error.message} />
             </p>
           )}
           {activeModel && (
@@ -856,7 +859,7 @@ function ModelsContent({
                   </div>
                   {deployment.error_message && (
                     <p role="alert" className="mt-2 text-xs text-status-danger">
-                      {deployment.error_message}
+                      <CopyableError message={deployment.error_message} />
                     </p>
                   )}
                   {deployment.status === "ready" && (
@@ -1006,7 +1009,7 @@ function ModelsContent({
             )}
             {source.error && (
               <p role="alert" className="text-xs text-status-danger">
-                {source.error.message}
+                <CopyableError message={source.error.message} />
               </p>
             )}
             {source.data && !source.data.registration_eligibility?.qualified && (
@@ -1092,7 +1095,7 @@ function ModelsContent({
               )}
               {pendingTasks.error && (
                 <p role="alert" className="mt-2 text-xs text-status-danger">
-                  {pendingTasks.error.message}
+                  <CopyableError message={pendingTasks.error.message} />
                 </p>
               )}
               <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -1169,7 +1172,9 @@ function ModelsContent({
                 <ProgressBar value={job.data.progress_pct} />
               </div>
               {job.data.error_message && (
-                <p className="mt-2 text-status-danger">{job.data.error_message}</p>
+                <p className="mt-2 text-status-danger">
+                  <CopyableError message={job.data.error_message} />
+                </p>
               )}
               <Link
                 className="mt-2 inline-block text-primary hover:underline"
@@ -1181,7 +1186,7 @@ function ModelsContent({
           )}
           {job.error && (
             <p role="alert" className="mt-2 text-xs text-status-danger">
-              {job.error.message}
+              <CopyableError message={job.error.message} />
             </p>
           )}
         </section>

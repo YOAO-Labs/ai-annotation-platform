@@ -1,3 +1,4 @@
+import { CopyableError } from "@/components/ui/CopyableError";
 import { Link } from "react-router-dom";
 import { Database } from "lucide-react";
 import type { TrainingDatasetSummary } from "@/api/trainingDatasets";
@@ -153,11 +154,8 @@ export function ProjectTrainingDataVersions({
                       </Link>
                     </div>
                     {version.error_message && (
-                      <p
-                        className="mt-1 max-w-64 truncate text-2xs text-status-danger"
-                        title={version.error_message}
-                      >
-                        {version.error_message}
+                      <p className="mt-1 max-w-64 text-2xs text-status-danger">
+                        <CopyableError message={version.error_message} truncate />
                       </p>
                     )}
                   </td>

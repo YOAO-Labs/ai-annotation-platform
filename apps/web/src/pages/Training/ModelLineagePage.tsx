@@ -1,4 +1,5 @@
 import { randomId } from "@/utils/id";
+import { CopyableError } from "@/components/ui/CopyableError";
 import { useMemo, useRef, useState } from "react";
 import { Link, useLocation, useParams, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -322,7 +323,7 @@ function LineageContent({
       )}
       {query.error && (
         <p role="alert" className="mt-4 text-sm text-status-danger">
-          {query.error.message}
+          <CopyableError message={query.error.message} />
         </p>
       )}
       {node && (
@@ -528,7 +529,7 @@ function LineageContent({
           )}
           {history.error && (
             <p role="alert" className="mt-3 text-xs text-status-danger">
-              {history.error.message}
+              <CopyableError message={history.error.message} />
             </p>
           )}
           {history.isPending && (

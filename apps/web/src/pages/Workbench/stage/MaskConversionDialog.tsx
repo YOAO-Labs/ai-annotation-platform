@@ -1,3 +1,4 @@
+import { CopyableError } from "@/components/ui/CopyableError";
 import { useEffect, useMemo, useState } from "react";
 import { AlertTriangleIcon, ArrowRightIcon, InfoIcon } from "lucide-react";
 
@@ -324,7 +325,9 @@ export function MaskConversionDialog({
             <Alert variant="destructive">
               <AlertTriangleIcon />
               <AlertTitle>转换未完成</AlertTitle>
-              <AlertDescription>{error}</AlertDescription>
+              <AlertDescription>
+                <CopyableError message={error} />
+              </AlertDescription>
             </Alert>
           ) : null}
 

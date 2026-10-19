@@ -1,3 +1,4 @@
+import { CopyableError } from "@/components/ui/CopyableError";
 /**
  * v0.23.4 · instance detail Sheet (plan §6.2 / §10).
  *
@@ -283,7 +284,9 @@ function GpuClaimBlock({ backend }: { backend: GlobalBackendItem }): ReactNode {
       {(config.diagnostics?.length ?? 0) > 0 && (
         <div className="flex flex-col gap-1 text-2xs text-muted-foreground">
           {config.diagnostics!.map((d, i) => (
-            <span key={`${d.code}-${i}`}>{d.message}</span>
+            <span key={`${d.code}-${i}`}>
+              <CopyableError message={d.message} />
+            </span>
           ))}
         </div>
       )}

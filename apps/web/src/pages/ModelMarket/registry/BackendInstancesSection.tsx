@@ -1,3 +1,4 @@
+import { CopyableError } from "@/components/ui/CopyableError";
 /**
  * v0.23.4 P3 · registry "实例" tab.
  *
@@ -881,7 +882,9 @@ function DetailBody({
                   >
                     {d.level}
                   </Badge>
-                  <span>{d.message}</span>
+                  <span>
+                    <CopyableError message={d.message} />
+                  </span>
                 </li>
               ))}
             </ul>

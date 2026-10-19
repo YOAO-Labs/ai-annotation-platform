@@ -3,9 +3,10 @@
  * 覆盖: 初始渲染 step1 / step1 名称校验 / step1→2→3→4 推进 / step4 提交触发 mutation /
  *       提交成功进入 step5 / sourceProjectId 复制模式横幅
  */
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
+import * as stageColors from "@/pages/Workbench/stage/colors";
 
 const mockCreateProjectMutate = vi.fn();
 const mockCreateProjectReset = vi.fn();
@@ -87,6 +88,8 @@ function renderUI(props: Partial<React.ComponentProps<typeof CreateProjectWizard
 }
 
 describe("CreateProjectWizard", () => {
+  afterEach(() => vi.restoreAllMocks());
+
   beforeEach(() => {
     mockCreateProjectMutate.mockReset();
     mockCreateProjectReset.mockReset();
@@ -202,6 +205,74 @@ describe("CreateProjectWizard", () => {
     renderUI({ sourceProjectId: "src1" });
     await waitFor(() => expect(screen.getByText(/已用源项目配置预填表单/)).toBeInTheDocument());
     expect(screen.getByText("复制项目配置")).toBeInTheDocument();
+  });
+
+  it.each([
+    { mode: "source", legacy: false },
+    { mode: "source", legacy: true },
+    { mode: "template", legacy: false },
+    { mode: "template", legacy: true },
+  ])("$mode legacy=$legacy 保留显式颜色并用类别默认色预填及提交", async ({ mode, legacy }) => {
+    // Hex fixtures exercise the real editor without relying on jsdom's canvas parser.
+    vi.spyOn(stageColors, "classColor").mockImplementation((name) =>
+      name === "person" ? "#123456" : "#abcdef",
+    );
+    const classes = [
+      { name: "car", color: "#ff0000", order: 2 },
+      { name: "bicycle", order: 1 },
+      { name: "person", order: 0, alias: "pedestrian" },
+      { name: "motorcycle", color: "#888888", order: 3 },
+    ];
+    const source = {
+      name: "Source",
+      type_key: "image-det",
+      data_type: "image",
+      ai_enabled: false,
+      ...(legacy
+        ? {
+            classes: classes.map((c) => c.name),
+            classes_config: Object.fromEntries(
+              classes.map(({ name, ...config }) => [name, config]),
+            ),
+          }
+        : { tool_bindings: { bbox: { enabled: true, classes } } }),
+    };
+    mockProjectsApiGet.mockResolvedValue(source);
+    mockProjectTemplatesApiGet.mockResolvedValue(source);
+    renderUI(mode === "source" ? { sourceProjectId: "src1" } : { templateId: "t1" });
+    await screen.findByText(mode === "source" ? /已用源项目配置预填表单/ : /已用模板字段预填表单/);
+    fireEvent.change(screen.getByPlaceholderText(/智能门店货架/), {
+      target: { value: "颜色复制测试" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /下一步/ }));
+
+    const colorInputs = screen
+      .getByRole("dialog")
+      .querySelectorAll<HTMLInputElement>("input[type=color]");
+    expect(Array.from(colorInputs, (input) => input.value)).toEqual([
+      "#123456",
+      "#abcdef",
+      "#ff0000",
+      "#888888",
+    ]);
+    expect(screen.getByDisplayValue("pedestrian")).toBeInTheDocument();
+    fireEvent.change(colorInputs[1], { target: { value: "#654321" } });
+    fireEvent.click(screen.getByRole("button", { name: /下一步/ }));
+    fireEvent.click(screen.getByRole("button", { name: /下一步/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^创建$/ }));
+    const payload = mockCreateProjectMutate.mock.calls[0][0];
+    expect(payload.tool_bindings.bbox.classes).toEqual([
+      { name: "person", color: "#123456", order: 0, alias: "pedestrian" },
+      { name: "bicycle", color: "#654321", order: 1 },
+      { name: "car", color: "#ff0000", order: 2 },
+      { name: "motorcycle", color: "#888888", order: 3 },
+    ]);
+    expect(payload.classes_config.person).toEqual({
+      color: "#123456",
+      order: 0,
+      alias: "pedestrian",
+    });
+    expect(payload.classes_config.bicycle).toEqual({ color: "#654321", order: 1 });
   });
 
   it("open=false 时不渲染任何内容", () => {

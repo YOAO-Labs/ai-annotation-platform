@@ -1,3 +1,4 @@
+import { CopyableError } from "@/components/ui/CopyableError";
 import { useState, type CSSProperties } from "react";
 import { useNavigate } from "react-router-dom";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
@@ -188,7 +189,9 @@ export function MyBatchesCard() {
             <h3 className="m-0 text-sm font-semibold">我的批次</h3>
           </div>
           <div role="alert" className="p-4 text-sm">
-            <div className="text-status-danger">{batchesErrorMessage(batchesQuery.error)}</div>
+            <div className="text-status-danger">
+              <CopyableError message={batchesErrorMessage(batchesQuery.error)} />
+            </div>
             <Button size="sm" className="mt-3" onClick={() => void batchesQuery.refetch()}>
               重新加载
             </Button>
@@ -315,7 +318,7 @@ export function MyBatchesCard() {
           >
             <span className="text-muted-foreground">
               <strong className="mr-1 text-status-caution">批次更新失败</strong>
-              {batchesErrorMessage(batchesQuery.error)} 当前内容已保留。
+              <CopyableError message={batchesErrorMessage(batchesQuery.error)} /> 当前内容已保留。
             </span>
             <Button size="sm" onClick={() => void batchesQuery.refetch()}>
               重新加载

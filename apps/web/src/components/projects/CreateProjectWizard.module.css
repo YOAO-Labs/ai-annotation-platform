@@ -1,5 +1,36 @@
+.wizard {
+  display: flex;
+  flex-direction: column;
+  max-height: min(720px, calc(100dvh - 144px));
+}
+
+.stepContent {
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.classesContent,
+.classesStep {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.classesContent {
+  overflow: hidden;
+}
+
+.classesStep {
+  gap: 12px;
+}
+
+.classesStep > :not(:last-child) {
+  flex-shrink: 0;
+}
+
 .copyBanner {
   display: flex;
+  flex-shrink: 0;
   align-items: center;
   gap: 8px;
   margin-bottom: 12px;
@@ -22,6 +53,7 @@
 
 .stepper {
   display: flex;
+  flex-shrink: 0;
   align-items: center;
   margin-bottom: 20px;
 }
@@ -485,6 +517,7 @@
 
 .footer {
   display: flex;
+  flex-shrink: 0;
   justify-content: flex-end;
   gap: 8px;
   margin-top: 22px;

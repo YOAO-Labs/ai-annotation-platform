@@ -1,3 +1,4 @@
+import { CopyableError } from "@/components/ui/CopyableError";
 import {
   useCallback,
   useEffect,
@@ -1227,7 +1228,9 @@ export function CommentInput({
           className="flex items-center justify-between gap-2 text-xs text-status-danger"
           role="alert"
         >
-          <span>{displayError}</span>
+          <span>
+            <CopyableError message={displayError} />
+          </span>
           {draft?.status === "error" && (
             <button
               type="button"

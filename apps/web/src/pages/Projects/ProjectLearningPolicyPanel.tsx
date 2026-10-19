@@ -1,3 +1,4 @@
+import { CopyableError } from "@/components/ui/CopyableError";
 import { randomId } from "@/utils/id";
 import { normalizeTask } from "@/api/generated/capabilityVocab.gen";
 import { useMemo, useRef, useState } from "react";
@@ -430,7 +431,11 @@ function ProjectLearningPolicyContent({ projectId }: { projectId: string }) {
       <div className="space-y-5 rounded-xl border border-border bg-card p-4 sm:p-5">
         {(policy.error || catalog.error || history.error || error) && (
           <p role="alert" className="text-sm text-status-danger">
-            {error || policy.error?.message || catalog.error?.message || history.error?.message}
+            <CopyableError
+              message={
+                error || policy.error?.message || catalog.error?.message || history.error?.message
+              }
+            />
           </p>
         )}
         {policy.isPending && <TrainingLoading label="正在加载自动训练策略…" rows={2} />}

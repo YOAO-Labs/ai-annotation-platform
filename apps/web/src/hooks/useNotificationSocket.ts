@@ -4,6 +4,7 @@ import { useAuthStore } from "@/stores/authStore";
 import { authApi } from "@/api/auth";
 import { buildWsUrl } from "@/lib/wsHost";
 import { useToastStore } from "@/components/ui/Toast";
+import { jobNotificationVerb } from "@/components/jobs/asyncJobPresentation";
 import {
   notificationPreferencesKey,
   useNotificationPreferences,
@@ -45,6 +46,8 @@ function alertKind(type: string): "error" | "warning" {
 
 function alertText(type: string, payload: Record<string, unknown>): string {
   const str = (key: string) => (typeof payload[key] === "string" ? payload[key] : "");
+  const jobVerb = jobNotificationVerb(type, payload.kind);
+  if (jobVerb) return `${jobVerb}${str("error_message") ? `：${str("error_message")}` : ""}`;
   switch (type) {
     case "task.rejected":
       return `任务 ${str("task_display_id")} 被审核员退回${str("reject_reason") ? `：${str("reject_reason")}` : ""}`;
@@ -60,8 +63,6 @@ function alertText(type: string, payload: Record<string, unknown>): string {
       return `${str("actor_name") || "有人"} 在任务留言中提到了你`;
     case "feedback.reply_created":
       return `${str("actor_name") || "有人"} 回复了你关注的问题`;
-    case "job.failed":
-      return `后台任务失败${str("error_message") ? `：${str("error_message")}` : ""}`;
     case "export.failed":
       return `导出失败${str("error") ? `：${str("error")}` : ""}`;
     default:

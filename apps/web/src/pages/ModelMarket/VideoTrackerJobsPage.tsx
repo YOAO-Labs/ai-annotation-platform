@@ -1,3 +1,4 @@
+import { CopyableError } from "@/components/ui/CopyableError";
 import { FilterGroup, FilterSelect } from "@/components/filters/FilterControls";
 import { useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
@@ -437,7 +438,9 @@ function JobRow({
       {job.status === "failed" && job.error_message && (
         <tr>
           <td colSpan={7}>
-            <div className="break-words text-xs text-status-danger">{job.error_message}</div>
+            <div className="break-words text-xs text-status-danger">
+              <CopyableError message={job.error_message} />
+            </div>
           </td>
         </tr>
       )}

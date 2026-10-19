@@ -1,3 +1,4 @@
+import { CopyableError } from "@/components/ui/CopyableError";
 /**
  * v0.9.7 · pre_annotated 批次历史表 (含 client-side 搜索 / 排序 / 分页).
  * v0.9.12 · BUG B-16 加 checkbox 多选 + 底部浮窗 + 批量重激活/删除 prediction.
@@ -492,7 +493,11 @@ function BulkConfirmForm(props: {
           className={styles.textarea}
         />
       </label>
-      {props.error && <div className={styles.errorText}>{props.error}</div>}
+      {props.error && (
+        <div className={styles.errorText}>
+          <CopyableError message={props.error} />
+        </div>
+      )}
       <div className={styles.formActions}>
         <Button size="sm" variant="ghost" onClick={props.onCancel} disabled={props.isPending}>
           取消
@@ -537,7 +542,7 @@ function BulkResultView(props: { result: BulkClearResponse; onClose: () => void 
           <ul className={styles.resultListDanger}>
             {failed.map((it) => (
               <li key={it.batch_id}>
-                <code>{it.batch_id.slice(0, 8)}</code> — {it.reason}
+                <CopyableError message={`${it.batch_id} — ${it.reason}`} />
               </li>
             ))}
           </ul>

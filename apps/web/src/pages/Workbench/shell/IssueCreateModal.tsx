@@ -1,3 +1,4 @@
+import { CopyableError } from "@/components/ui/CopyableError";
 import { useLayoutEffect, useRef, useState, type ChangeEvent } from "react";
 import { Button } from "@/components/ui/Button";
 import { Icon } from "@/components/ui/Icon";
@@ -368,7 +369,7 @@ function IssueCreateSession({
 
         {submitError && (
           <p className="m-0 text-xs text-status-danger" role="alert">
-            {submitError}
+            <CopyableError message={submitError} />
           </p>
         )}
 

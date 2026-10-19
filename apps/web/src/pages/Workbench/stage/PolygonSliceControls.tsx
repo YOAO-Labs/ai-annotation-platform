@@ -1,3 +1,4 @@
+import { CopyableError } from "@/components/ui/CopyableError";
 import { Button } from "@/components/ui/Button";
 import { Icon } from "@/components/ui/Icon";
 import type { usePolygonSlice } from "./usePolygonSlice";
@@ -33,7 +34,7 @@ export function PolygonSliceControls({
       </p>
       {session.error && (
         <p role="alert" className="mb-2 text-2xs text-status-danger">
-          {session.error}
+          <CopyableError message={session.error} />
         </p>
       )}
       <div className="flex gap-2">

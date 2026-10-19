@@ -102,6 +102,12 @@ Use semantic z utilities instead of raw numeric z-index classes:
 - Use shadcn/ui primitives from `apps/web/src/components/shadcn/ui/` for low-level behavior where possible.
 - Keep existing `@/components/ui/*` adapters only when they preserve the current app API; they should delegate to shadcn/Radix behavior or Tailwind classes internally.
 
+## Copy actions for errors and logs
+
+Use `@/components/ui/CopyableError` for displayed API errors, worker failures and runtime diagnostics. Pass the complete original string in `message`; `preview` and `truncate` only affect display. Use `iconOnly` beside existing summaries or interactive cards, keeping copy buttons outside links and other buttons. Preserve contextual identifiers in per-file errors. Do not replace ordinary validation or status text with diagnostic actions.
+
+Use `@/components/ui/CopyButton` for a dedicated log or stack toolbar action. Name the scope accurately: training logs copy all currently loaded blocks, not the entire retained history. Keep log contents selectable and scrollable. Both controls share the clipboard fallback and prevent row activation, form submission and keyboard bubbling. The toast adapter supplies a copy action for error notifications and non-success details, retaining the full title and description.
+
 ## Copy actions for technical identities
 
 Use `@/components/ui/CopyValueButton` for opaque hashes and internal IDs. Pass the original `value`, `kind="id"` for IDs (hash is the default), and a field-specific accessible `label`, such as `复制权重哈希`. The visible control is a compact copy icon; the Tooltip reads `复制哈希` or `复制 ID` on hover and keyboard focus. Touch pointers receive a larger target.

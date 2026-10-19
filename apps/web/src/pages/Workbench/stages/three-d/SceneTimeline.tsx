@@ -1,3 +1,4 @@
+import { CopyableError } from "@/components/ui/CopyableError";
 import {
   useCallback,
   useEffect,
@@ -938,7 +939,7 @@ export function SceneTimeline({
             )}
             title={status ?? undefined}
           >
-            {status}
+            {notice || playback.error ? <CopyableError message={status} truncate /> : status}
           </span>
           {(query.isError || playback.error || frameState?.status === "error") && (
             <Button

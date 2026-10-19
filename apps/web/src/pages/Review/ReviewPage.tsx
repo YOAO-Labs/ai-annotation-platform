@@ -1,3 +1,4 @@
+import { CopyableError } from "@/components/ui/CopyableError";
 import { ActiveFilterChip } from "@/components/filters/ActiveFilterChip";
 import { FilterGroup } from "@/components/filters/FilterControls";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -157,7 +158,7 @@ function QueryErrorState({
       <Icon name="warning" size={compact ? 20 : 28} className="text-status-danger" />
       <div className="text-sm font-semibold">无法加载{resource}</div>
       <div className="max-w-[360px] text-xs leading-relaxed text-muted-foreground">
-        {queryErrorMessage(error, resource)}
+        <CopyableError message={queryErrorMessage(error, resource)} />
       </div>
       <Button size="sm" onClick={onRetry}>
         重新加载
@@ -183,7 +184,7 @@ function RefreshNotice({
       <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
         <strong className="text-status-caution">{resource}更新失败</strong>
         <span className="text-muted-foreground">
-          {queryErrorMessage(error, resource)} 当前内容已保留。
+          <CopyableError message={queryErrorMessage(error, resource)} /> 当前内容已保留。
         </span>
       </div>
       <Button size="sm" onClick={onRetry}>

@@ -1,4 +1,5 @@
 import { randomId } from "@/utils/id";
+import { CopyableError } from "@/components/ui/CopyableError";
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { Link, Navigate, Outlet, useParams, useSearchParams, useLocation } from "react-router-dom";
 import { ArrowLeft, Database, FlaskConical, GitBranch, Layers, Settings2 } from "lucide-react";
@@ -697,7 +698,7 @@ function ProjectLearningContent({
               role="alert"
               className="mb-4 rounded-md bg-status-danger-soft p-3 text-sm text-status-danger"
             >
-              {error}
+              <CopyableError message={error} />
             </p>
           )}
           <ProjectLearningSectionHeader
@@ -894,7 +895,7 @@ function ProjectLearningContent({
                   role="alert"
                   className="mb-4 rounded-md bg-status-danger-soft p-3 text-sm text-status-danger"
                 >
-                  {error}
+                  <CopyableError message={error} />
                 </p>
               )}
               <h2 id="create-dataset-title" className="mb-1 text-sm font-semibold">
@@ -1021,7 +1022,9 @@ function ProjectLearningContent({
                 </label>
                 {(parents.error || selectedParent.error) && (
                   <p role="alert" className="text-xs text-status-danger sm:col-span-2">
-                    {parents.error?.message ?? selectedParent.error?.message}
+                    <CopyableError
+                      message={parents.error?.message ?? selectedParent.error?.message}
+                    />
                   </p>
                 )}
                 {parentReason && (
@@ -1105,7 +1108,7 @@ function ProjectLearningContent({
                     </p>
                     {taskList.error && (
                       <p role="alert" className="text-xs text-status-danger">
-                        {taskList.error.message}
+                        <CopyableError message={taskList.error.message} />
                       </p>
                     )}
                     <div className="max-h-64 overflow-auto rounded-md border border-border">

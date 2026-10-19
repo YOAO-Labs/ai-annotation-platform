@@ -1,3 +1,4 @@
+import { CopyableError } from "@/components/ui/CopyableError";
 import { useEffect, useRef, useState, type RefObject } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { trainingRunsApi, type TrainingRunOut } from "@/api/trainingRuns";
@@ -273,7 +274,7 @@ export function ProjectTrainingPanel({
           role="alert"
           className="mb-4 rounded-lg bg-status-danger-soft p-4 text-xs text-status-danger"
         >
-          {error}
+          <CopyableError message={error} />
         </p>
       )}
       {(catalog.error || runs.error || detail.error) && (
