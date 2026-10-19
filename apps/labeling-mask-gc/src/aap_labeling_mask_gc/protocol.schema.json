@@ -575,6 +575,60 @@
       "title": "ReadMaskWriteEpochsRequest",
       "type": "object"
     },
+    "RegisterTrackerRunningMaskRootRequest": {
+      "additionalProperties": false,
+      "description": "Retain one generated Mask under a currently-running tracker job.",
+      "properties": {
+        "job_id": {
+          "format": "uuid",
+          "title": "Job Id",
+          "type": "string"
+        },
+        "object_key": {
+          "maxLength": 255,
+          "minLength": 1,
+          "title": "Object Key",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        }
+      },
+      "required": ["job_id", "task_id", "object_key"],
+      "title": "RegisterTrackerRunningMaskRootRequest",
+      "type": "object"
+    },
+    "RegisterTrackerRunningMaskRootResult": {
+      "additionalProperties": false,
+      "properties": {
+        "job_id": {
+          "format": "uuid",
+          "title": "Job Id",
+          "type": "string"
+        },
+        "object_key": {
+          "maxLength": 255,
+          "minLength": 1,
+          "title": "Object Key",
+          "type": "string"
+        },
+        "registered": {
+          "const": true,
+          "title": "Registered",
+          "type": "boolean"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        }
+      },
+      "required": ["job_id", "task_id", "object_key", "registered"],
+      "title": "RegisterTrackerRunningMaskRootResult",
+      "type": "object"
+    },
     "RunRequest": {
       "additionalProperties": false,
       "properties": {
@@ -787,6 +841,9 @@
               "$ref": "#/$defs/MaskWriteEpochs"
             },
             {
+              "$ref": "#/$defs/RegisterTrackerRunningMaskRootResult"
+            },
+            {
               "$ref": "#/$defs/ClaimMaskGcSweepResult"
             },
             {
@@ -828,6 +885,9 @@
     },
     {
       "$ref": "#/$defs/LockMaskWriteEpochsRequest"
+    },
+    {
+      "$ref": "#/$defs/RegisterTrackerRunningMaskRootRequest"
     },
     {
       "$ref": "#/$defs/ClaimMaskGcSweepRequest"
@@ -931,6 +991,13 @@
       "role": "labeling",
       "sql_types": ["jsonb"]
     },
+    "register_tracker_running_mask_root": {
+      "arguments": ["payload"],
+      "request": "RegisterTrackerRunningMaskRootRequest",
+      "result": "RegisterTrackerRunningMaskRootResult",
+      "role": "labeling",
+      "sql_types": ["jsonb"]
+    },
     "stage_mask_gc_page": {
       "arguments": ["payload"],
       "request": "StageMaskGcPageRequest",
@@ -948,6 +1015,9 @@
     },
     {
       "$ref": "#/$defs/LockMaskWriteEpochsRequest"
+    },
+    {
+      "$ref": "#/$defs/RegisterTrackerRunningMaskRootRequest"
     },
     {
       "$ref": "#/$defs/ClaimMaskGcSweepRequest"
@@ -974,6 +1044,9 @@
   "x-results": [
     {
       "$ref": "#/$defs/MaskWriteEpochs"
+    },
+    {
+      "$ref": "#/$defs/RegisterTrackerRunningMaskRootResult"
     },
     {
       "$ref": "#/$defs/ClaimMaskGcSweepResult"

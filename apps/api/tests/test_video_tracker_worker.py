@@ -1290,6 +1290,20 @@ async def test_materialize_tracker_mask_result_stores_rle_and_adds_aabb(monkeypa
         events.append("commit_grace")
 
     db = SimpleNamespace(commit=AsyncMock(side_effect=commit))
+    job_id = uuid.uuid4()
+    task_id = uuid.uuid4()
+
+    async def retain_root(actual_db, *, job_id, task_id, object_key):
+        assert actual_db is db
+        assert job_id == expected_job_id
+        assert task_id == expected_task_id
+        assert object_key == reference["object_key"]
+        events.append("running_root")
+
+    expected_job_id, expected_task_id = job_id, task_id
+    monkeypatch.setattr(
+        "app.services.video_tracking.runner.retain_tracker_output_mask", retain_root
+    )
 
     async def lock_content(actual_db, value, *, verify):
         assert actual_db is db
@@ -1315,10 +1329,17 @@ async def test_materialize_tracker_mask_result_stores_rle_and_adds_aabb(monkeypa
             },
         ),
         db=db,
+        job_id=job_id,
+        task_id=task_id,
     )
     assert result.geometry["mask"] == reference
     assert result.geometry["bbox"] == {"x": 1 / 3, "y": 0, "w": 1 / 3, "h": 1}
-    assert events == ["content_write_lock", "storage_put", "commit_grace"]
+    assert events == [
+        "content_write_lock",
+        "storage_put",
+        "running_root",
+        "commit_grace",
+    ]
 
 
 @pytest.mark.parametrize("cancelled", [False, True])
@@ -1351,19 +1372,30 @@ async def test_materialize_tracker_mask_keeps_raw_result_during_fence(
     db = SimpleNamespace(commit=AsyncMock(), rollback=AsyncMock())
     running = AsyncMock(return_value=not cancelled)
     monkeypatch.setattr(runner, "store_generated_mask_content", store)
+    monkeypatch.setattr(
+        runner, "retain_tracker_output_mask", AsyncMock(return_value=None)
+    )
     monkeypatch.setattr(runner.asyncio, "sleep", AsyncMock())
     held = TrackerFrameResult(frame_index=3, geometry={"type": "mask", "rle": rle})
     if cancelled:
         with pytest.raises(runner.TrackerMaskWriteCancelled):
             await runner._materialize_tracker_mask_result(
-                held, db=db, still_running=running
+                held,
+                db=db,
+                job_id=uuid.uuid4(),
+                task_id=uuid.uuid4(),
+                still_running=running,
             )
         assert len(attempts) == 1
         db.commit.assert_not_awaited()
         db.rollback.assert_awaited_once()
     else:
         result = await runner._materialize_tracker_mask_result(
-            held, db=db, still_running=running
+            held,
+            db=db,
+            job_id=uuid.uuid4(),
+            task_id=uuid.uuid4(),
+            still_running=running,
         )
         assert len(attempts) == 6
         assert db.rollback.await_count == 5

@@ -50,6 +50,13 @@ _MASK_REFERENCE_QUERIES = (
       AND value #>> '{}' LIKE 'raster-masks/sha256/%'
     """,
     """
+    SELECT DISTINCT root.object_key
+    FROM mask_gc_roots AS root
+    JOIN video_tracker_jobs AS job ON job.id::text = root.root_id
+    WHERE root.root_kind = 'video_tracker_running_outputs'
+      AND job.status = 'running'
+    """,
+    """
     SELECT DISTINCT value #>> '{}' AS object_key
     FROM video_tracker_jobs,
          LATERAL jsonb_path_query(staged_result, '$.**.object_key') value
@@ -129,6 +136,16 @@ _MASK_REFERENCE_EXISTS_QUERIES = (
              LATERAL jsonb_path_query(body, '$.**.object_key') value
         WHERE complete IS TRUE AND body IS NOT NULL
           AND value #>> '{}' = :key
+    )
+    """,
+    """
+    SELECT EXISTS (
+        SELECT 1
+        FROM mask_gc_roots AS root
+        JOIN video_tracker_jobs AS job ON job.id::text = root.root_id
+        WHERE root.root_kind = 'video_tracker_running_outputs'
+          AND job.status = 'running'
+          AND root.object_key = :key
     )
     """,
     """

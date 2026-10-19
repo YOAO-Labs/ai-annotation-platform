@@ -12,7 +12,12 @@ from sqlalchemy.exc import SQLAlchemyError
 from app.services.raster_mask_contract import RasterMaskContractError
 
 _WRITE_OPERATIONS = frozenset(
-    {"read_mask_write_epochs", "begin_mask_content_write", "lock_mask_write_epochs"}
+    {
+        "read_mask_write_epochs",
+        "begin_mask_content_write",
+        "lock_mask_write_epochs",
+        "register_tracker_running_mask_root",
+    }
 )
 _GC_OPERATIONS = frozenset(
     {
@@ -201,3 +206,25 @@ async def lock_mask_write_epochs(db, epochs: Mapping[str, int]) -> dict[str, int
             )
         )
     return found
+
+
+async def register_tracker_running_mask_root(
+    db, *, job_id, task_id, object_key: str
+) -> bool:
+    """Attach one just-written Mask to its live tracker Job in this transaction."""
+    from aap_labeling_mask_gc import contract as c
+
+    request = c.RegisterTrackerRunningMaskRootRequest(
+        job_id=job_id,
+        task_id=task_id,
+        object_key=object_key,
+    )
+    try:
+        await SqlAlchemyMaskGcDatabase(db, commit=False, write=True).call(
+            "register_tracker_running_mask_root", request
+        )
+    except c.MaskGcFailure as exc:
+        if exc.code == "lease_lost":
+            return False
+        _write_failure(exc)
+    return True

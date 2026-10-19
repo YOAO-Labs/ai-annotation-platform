@@ -30,6 +30,10 @@ def _request_for(name):
         return c.BeginMaskContentWriteRequest(object_keys=[KEY])
     if name == "lock_mask_write_epochs":
         return c.LockMaskWriteEpochsRequest(items=[{"object_key": KEY, "epoch": 0}])
+    if name == "register_tracker_running_mask_root":
+        return c.RegisterTrackerRunningMaskRootRequest(
+            job_id=UUID(int=1), task_id=UUID(int=2), object_key=KEY
+        )
     if name == "claim_mask_gc_sweep":
         return c.ClaimMaskGcSweepRequest(worker_id=UUID(int=1))
     if name == "stage_mask_gc_page":
@@ -66,6 +70,7 @@ def test_native_operation_allowlist_is_one_jsonb_argument():
         "read_mask_write_epochs",
         "begin_mask_content_write",
         "lock_mask_write_epochs",
+        "register_tracker_running_mask_root",
         "claim_mask_gc_sweep",
         "stage_mask_gc_page",
         "claim_mask_gc_deletes",
@@ -78,6 +83,43 @@ def test_native_operation_allowlist_is_one_jsonb_argument():
         statement, arguments = prepare_native_call(name, _request_for(name))
         assert statement == f"SELECT aap_labeling_v1.{name}($1::jsonb)"
         assert len(arguments) == 1
+
+
+def test_running_tracker_root_is_labeling_only_and_echoes_exact_owner_scope():
+    request = c.RegisterTrackerRunningMaskRootRequest(
+        job_id=UUID(int=1), task_id=UUID(int=2), object_key=KEY
+    )
+    assert c.OPERATIONS["register_tracker_running_mask_root"].role == "labeling"
+    with pytest.raises(PermissionError):
+        prepare_native_call(
+            "register_tracker_running_mask_root",
+            request,
+            allowed_roles=("cleanup",),
+        )
+
+    reply = {
+        "schema": c.SCHEMA,
+        "ok": True,
+        "data": {
+            "job_id": str(request.job_id),
+            "task_id": str(request.task_id),
+            "object_key": KEY,
+            "registered": True,
+        },
+    }
+    result = validate_native_result(
+        "register_tracker_running_mask_root", request, json.dumps(reply)
+    )
+    assert result.job_id == request.job_id
+    assert result.task_id == request.task_id
+    assert result.object_key == KEY
+
+    reply["data"]["task_id"] = str(UUID(int=3))
+    with pytest.raises(c.MaskGcFailure) as error:
+        validate_native_result(
+            "register_tracker_running_mask_root", request, json.dumps(reply)
+        )
+    assert error.value.code == "invalid_response"
 
 
 def test_native_call_rejects_unlisted_function_and_wrong_request_type():

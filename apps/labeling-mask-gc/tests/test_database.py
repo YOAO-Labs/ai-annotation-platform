@@ -98,6 +98,18 @@ async def test_runtime_adapter_does_not_expose_write_gate_functions():
     assert error.value.code == "invalid_request"
     assert pool.connection.statements == []
 
+    with pytest.raises(c.MaskGcFailure) as error:
+        await database.call(
+            "register_tracker_running_mask_root",
+            c.RegisterTrackerRunningMaskRootRequest(
+                job_id="00000000-0000-0000-0000-000000000001",
+                task_id="00000000-0000-0000-0000-000000000002",
+                object_key=("raster-masks/sha256/a0/a0/" + "a0a0" + "a" * 60 + ".json"),
+            ),
+        )
+    assert error.value.code == "invalid_request"
+    assert pool.connection.statements == []
+
 
 @pytest.mark.asyncio
 async def test_native_error_envelope_rolls_back_without_driver_details():

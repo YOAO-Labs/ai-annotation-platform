@@ -183,6 +183,41 @@ class LockMaskWriteEpochsRequest(Value):
         return self
 
 
+class RegisterTrackerRunningMaskRootRequest(Value):
+    """Retain one generated Mask under a currently-running tracker job."""
+
+    job_id: UUID
+    task_id: UUID
+    object_key: ObjectKey
+
+    @field_validator("job_id", "task_id", mode="before")
+    @classmethod
+    def canonical_ids(cls, value):
+        return _uuid(value)
+
+    @field_validator("object_key")
+    @classmethod
+    def canonical_key(cls, value):
+        return validate_object_key(value)
+
+
+class RegisterTrackerRunningMaskRootResult(Value):
+    job_id: UUID
+    task_id: UUID
+    object_key: ObjectKey
+    registered: Literal[True]
+
+    @field_validator("job_id", "task_id", mode="before")
+    @classmethod
+    def canonical_ids(cls, value):
+        return _uuid(value)
+
+    @field_validator("object_key")
+    @classmethod
+    def canonical_key(cls, value):
+        return validate_object_key(value)
+
+
 class ClaimMaskGcSweepRequest(Value):
     worker_id: UUID
     lease_seconds: LeaseSeconds = 30
@@ -401,6 +436,11 @@ OPERATIONS = MappingProxyType(
         "lock_mask_write_epochs": NativeOperation(
             LockMaskWriteEpochsRequest, MaskWriteEpochs, "labeling"
         ),
+        "register_tracker_running_mask_root": NativeOperation(
+            RegisterTrackerRunningMaskRootRequest,
+            RegisterTrackerRunningMaskRootResult,
+            "labeling",
+        ),
         "claim_mask_gc_sweep": NativeOperation(
             ClaimMaskGcSweepRequest, ClaimMaskGcSweepResult, "cleanup"
         ),
@@ -538,6 +578,14 @@ def validate_scope(operation: str, request: BaseModel, result: BaseModel) -> Non
         ):
             raise MaskGcFailure("invalid_response")
         if result.scanned < len(request.page.items):
+            raise MaskGcFailure("invalid_response")
+    elif operation == "register_tracker_running_mask_root":
+        if (
+            result.job_id != request.job_id
+            or result.task_id != request.task_id
+            or result.object_key != request.object_key
+            or result.registered is not True
+        ):
             raise MaskGcFailure("invalid_response")
     elif operation == "claim_mask_gc_deletes":
         if len(result.items) > request.limit:

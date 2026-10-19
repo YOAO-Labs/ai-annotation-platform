@@ -61,6 +61,10 @@ from app.services.video_tracking.adapters import (
     TrackerSession,
     get_tracker_adapter,
 )
+from app.services.video_tracking.tracker_mask_roots import (
+    TrackerMaskRootOwnerChanged,
+    retain_tracker_output_mask,
+)
 from app.services.video_tracks import is_polygon_track
 from app.services.video_tracks import (
     is_mask_track,
@@ -158,6 +162,8 @@ async def _materialize_tracker_mask_result(
     result: TrackerFrameResult,
     *,
     db: AsyncSession,
+    job_id: uuid.UUID,
+    task_id: uuid.UUID,
     still_running: Callable[[], Awaitable[bool]] | None = None,
 ) -> TrackerFrameResult:
     geometry = result.geometry or {}
@@ -166,16 +172,35 @@ async def _materialize_tracker_mask_result(
     rle = geometry.get("rle")
     if not isinstance(rle, dict):
         raise ValueError("tracker mask result requires geometry.rle")
+    reference = None
     while True:
         try:
-            reference = await store_generated_mask_content(
-                db, rle, writer=store_coco_rle
+            if reference is None:
+                reference = await store_generated_mask_content(
+                    db, rle, writer=store_coco_rle
+                )
+            else:
+                # Root registration can lose a NOWAIT race with Job finalization.
+                # Reacquire the byte fence while keeping the already-written RLE.
+                await lock_raster_mask_references(db, reference, verify=False)
+            await retain_tracker_output_mask(
+                db,
+                job_id=job_id,
+                task_id=task_id,
+                object_key=reference["object_key"],
             )
             break
+        except TrackerMaskRootOwnerChanged:
+            await db.rollback()
+            raise TrackerMaskWriteCancelled from None
         except RasterMaskContractError as exc:
             if (
                 exc.detail.get("reason")
-                not in {"mask_content_deleting", "mask_content_epoch_changed"}
+                not in {
+                    "mask_content_deleting",
+                    "mask_content_epoch_changed",
+                    "mask_storage_unavailable",
+                }
                 or still_running is None
             ):
                 raise
@@ -3144,6 +3169,7 @@ async def run_tracker_job(
             or task.file_type != "video"
         ):
             raise TrackerFailure("task_scope_changed")
+        tracker_job_id, tracker_task_id = job.id, task.id
         execution = tracker_input_status.execution
         if (
             execution.job_kind != job.job_kind
@@ -3482,7 +3508,7 @@ async def run_tracker_job(
             if heartbeat_failed:
                 raise RuntimeError("tracker route lease heartbeat failed")
             if not await _tracker_work_authorized_and_running(
-                db, job_id=job_id, actor_id=actor_id
+                db, job_id=tracker_job_id, actor_id=actor_id
             ):
                 return False
             await db.refresh(job)
@@ -3493,7 +3519,7 @@ async def run_tracker_job(
                 db=db,
                 job=job,
                 actor_id=actor_id,
-                task_id=task.id,
+                task_id=tracker_task_id,
                 expected_source_version=tracker_input_source_version,
             )
             return current_source is not None
@@ -3554,7 +3580,11 @@ async def run_tracker_job(
                 try:
                     discovery_results.append(
                         await _materialize_tracker_mask_result(
-                            r, db=db, still_running=mask_write_still_running
+                            r,
+                            db=db,
+                            job_id=tracker_job_id,
+                            task_id=tracker_task_id,
+                            still_running=mask_write_still_running,
                         )
                     )
                 except TrackerMaskWriteCancelled:
@@ -3665,7 +3695,11 @@ async def run_tracker_job(
                     continue
                 try:
                     result = await _materialize_tracker_mask_result(
-                        result, db=db, still_running=mask_write_still_running
+                        result,
+                        db=db,
+                        job_id=tracker_job_id,
+                        task_id=tracker_task_id,
+                        still_running=mask_write_still_running,
                     )
                 except TrackerMaskWriteCancelled:
                     return await finalize_cancelled_tracker()
