@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import AsyncExitStack
+import logging
 import sys
 from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
 
+from aap_assets_video_inputs import execution as video_contract
 from aap_assets_media_runtime import worker
 from aap_assets_media_runtime.config import (
     MediaExecutionSettings,
@@ -370,6 +372,20 @@ async def test_once_stops_after_at_most_one_claim_and_routes_selectors(monkeypat
     await worker._run_worker(once=True, frame_id=frame_id)
     assert runtime.video_executor.calls == [("frame", {"frame_id": frame_id})]
     assert close_count == ["closed", "closed", "closed"]
+
+
+def test_iteration_failure_log_uses_only_known_video_input_error_codes(caplog):
+    with caplog.at_level(logging.ERROR, logger=worker._LOGGER.name):
+        worker._log_iteration_failure(video_contract.VideoInputFailure("frame_busy"))
+
+    assert "VideoInputFailure, code=frame_busy" in caplog.text
+    caplog.clear()
+    secret = "https://user:private-token@example.test/object"
+    with caplog.at_level(logging.ERROR, logger=worker._LOGGER.name):
+        worker._log_iteration_failure(video_contract.VideoInputFailure(secret))
+
+    assert "VideoInputFailure" in caplog.text
+    assert secret not in caplog.text
 
 
 async def _return(value):

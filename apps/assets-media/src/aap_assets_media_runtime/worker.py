@@ -13,9 +13,10 @@ import re
 import signal
 import stat
 import tempfile
-from typing import AsyncIterator, Sequence
+from typing import AsyncIterator, Sequence, get_args
 from uuid import UUID, uuid4
 
+from aap_assets_video_inputs import execution as video_contract
 from aap_assets_media.contract import (
     AdvanceBackfillRequest,
     BackfillSpec,
@@ -54,6 +55,7 @@ _SHA256_HASH = re.compile(r"^[0-9a-fA-F]{64}$")
 _MAX_BACKFILL_CALLS = 1_000_000
 _MAINTENANCE_INTERVAL_SECONDS = 24 * 60 * 60
 _LOGGER = logging.getLogger(__name__)
+_VIDEO_INPUT_ERROR_CODES = frozenset(get_args(video_contract.ErrorCode))
 
 
 @dataclass(frozen=True, slots=True)
@@ -676,9 +678,7 @@ async def _run_worker(
                     frame_id=frame_id,
                 )
             except Exception as exc:
-                _LOGGER.error(
-                    "Assets media worker iteration failed (%s)", type(exc).__name__
-                )
+                _log_iteration_failure(exc)
             if stop_requested.is_set():
                 break
             if did_work is None:
@@ -690,6 +690,24 @@ async def _run_worker(
                     pass
     finally:
         await runtime.close()
+
+
+def _log_iteration_failure(error: Exception) -> None:
+    code = (
+        error.code
+        if isinstance(error, video_contract.VideoInputFailure)
+        and isinstance(error.code, str)
+        and error.code in _VIDEO_INPUT_ERROR_CODES
+        else None
+    )
+    if code is None:
+        _LOGGER.error("Assets media worker iteration failed (%s)", type(error).__name__)
+    else:
+        _LOGGER.error(
+            "Assets media worker iteration failed (%s, code=%s)",
+            type(error).__name__,
+            code,
+        )
 
 
 async def _run_worker_cli(
