@@ -1089,7 +1089,18 @@ uv run --project apps/assets-media --extra runtime python -m aap_assets_media_ru
 
 `apps/api/.venv/bin/python scripts/verify_legacy_image_runtime.py --output .worktree/legacy-image-runtime.json` 在一次性本地 PostgreSQL、专用 Redis 和隔离存储桶内分别验证工作树与 LAN 应用授权。它实际运行 LAN SQL，以非迁移账号验证图片原始输入、批量清单、标注证据继承和缩略图生成；此命令不修改日常开发库或真实部署。
 
-受理对象使用专用、启用版本管理的 `ASSETS_MEDIA_INPUTS_BUCKET`。图片 Worker 仅可写 `accepted-inputs/*`，视频 Worker 仅可写 `accepted-video-inputs/*`；控制只读精确版本，Cleanup 按单个尝试前缀删除对象版本与 multipart。详细权限见 [Cleanup 工件说明](apps/assets-cleanup/README.md)。这些独立进程已完成隔离的本地对象存储与 Node 互操作验收；业务视频预标注、覆盖、失败重试和采纳已接入固定输入，容器与代表性负载验收继续推进，暂不切换常驻环境。
+受理对象使用专用、启用版本管理的 `ASSETS_MEDIA_INPUTS_BUCKET`。图片 Worker 仅可写 `accepted-inputs/*`，视频 Worker 仅可写 `accepted-video-inputs/*`；控制只读精确版本，Cleanup 按单个尝试前缀删除对象版本与 multipart。详细权限见 [Cleanup 工件说明](apps/assets-cleanup/README.md)。这些独立进程已完成隔离的本地对象存储与 Node 互操作验收；业务视频预标注、覆盖、失败重试和采纳已接入固定输入，API/Celery、Media 和 Cleanup 的容器链路已完成本地验收，代表性负载与在途执行交接继续推进，暂不切换常驻环境。
+
+容器验收入口为 `apps/api/.venv/bin/python scripts/verify_video_consumers_containers.py --output .worktree/video-containers.json`。先从当前源码构建下列四个镜像，并给四者设置同一组标签：`org.aap.acceptance=module-data-boundary`、`org.aap.acceptance-id=<同一24位十六进制标识>`。将对应镜像引用写入环境变量；验收不构建镜像，也不刷新常驻开发栈。
+
+| 镜像环境变量                             | Dockerfile                       | 构建 target              |
+| ---------------------------------------- | -------------------------------- | ------------------------ |
+| `AAP_VIDEO_CONSUMER_API_IMAGE`           | `infra/docker/Dockerfile.api`    | 默认，API 与 Celery 共用 |
+| `AAP_VIDEO_CONSUMER_MEDIA_CONTROL_IMAGE` | `apps/assets-media/Dockerfile`   | `control`                |
+| `AAP_VIDEO_CONSUMER_MEDIA_WORKER_IMAGE`  | `apps/assets-media/Dockerfile`   | `worker`                 |
+| `AAP_VIDEO_CONSUMER_CLEANUP_IMAGE`       | `apps/assets-cleanup/Dockerfile` | 默认                     |
+
+该命令在一次性 PostgreSQL、专用 Redis 和十个归属桶内执行真实 HTTP、队列和版本化对象读写，再按归属清理。API 的启动身份只有这十个桶的元数据和生命周期权限，不能读写源对象；Media 持单独身份，Celery 使用无效直接存储凭据。默认视频执行策略需要的空闲临时盘至少为源大小加 128 MiB；验收的 256 MiB 临时盘仅覆盖小样本，不应直接作为大视频部署预算。
 
 每个进程只接收自己的专用环境。必填的 DSN、token、S3 凭据可用对应 `_FILE`，直接值与文件变量不能同时存在，空值不作为回退来源。控制进程使用 `ASSETS_MEDIA_CONTROL_DATABASE_URL`，执行进程使用 `ASSETS_MEDIA_WORKER_DATABASE_URL`；S3 endpoint、region、两个桶和身份由 `ASSETS_MEDIA_*` 显式提供。API 设置 `ASSETS_MEDIA_URL` 和同一 token 后选择远程控制，任何远程配置或调用失败都不回退本地；留空使用同一工作流的本地 SQL/对象装配和薄 Celery 执行适配。
 

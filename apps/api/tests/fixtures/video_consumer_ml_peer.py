@@ -11,6 +11,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from io import BytesIO
 import json
 import os
+import signal
+import sys
 from threading import Lock
 from urllib.parse import parse_qs, urlsplit
 from urllib.request import urlopen
@@ -122,6 +124,7 @@ class Handler(BaseHTTPRequestHandler):
             self._send(502, {"error": type(error).__name__})
 
 
+signal.signal(signal.SIGTERM, lambda *_args: sys.exit(0))
 ThreadingHTTPServer(
     ("0.0.0.0", int(os.environ.get("AAP_VIDEO_PEER_PORT", "9100"))), Handler
 ).serve_forever()

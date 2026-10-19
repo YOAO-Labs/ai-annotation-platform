@@ -831,6 +831,66 @@ def _destroy_cleanup_storage_scope(scope: dict) -> None:
     docker("exec", scope["container"], "rm", "-rf", "--", scope["config"])
 
 
+def _create_api_bootstrap_storage_scope(scope: dict) -> None:
+    """Allow legacy API startup metadata checks on only this run's ten buckets."""
+    buckets = scope["buckets"]
+    policy = {
+        "Version": "2012-10-17",
+        "Statement": [
+            {
+                "Effect": "Allow",
+                "Action": ["s3:ListBucket", "s3:GetBucketLocation"],
+                "Resource": [f"arn:aws:s3:::{bucket}" for bucket in buckets.values()],
+            },
+            {
+                "Effect": "Allow",
+                "Action": ["s3:GetBucketVersioning"],
+                "Resource": [f"arn:aws:s3:::{buckets['MINIO_INPUTS_BUCKET']}"],
+            },
+            {
+                "Effect": "Allow",
+                "Action": [
+                    "s3:GetLifecycleConfiguration",
+                    "s3:PutLifecycleConfiguration",
+                ],
+                "Resource": [
+                    f"arn:aws:s3:::{buckets[name]}"
+                    for name in (
+                        "MINIO_BUCKET",
+                        "MINIO_BUG_REPORTS_BUCKET",
+                        "MINIO_MEDIA_CACHE_BUCKET",
+                        "MINIO_IMPORT_BUCKET",
+                        "MINIO_EXPORT_BUCKET",
+                    )
+                ],
+            },
+        ],
+    }
+    _cleanup_mc(
+        scope,
+        ["admin", "user", "add", "scoped", scope["access_key"], scope["secret_key"]],
+    )
+    scope["user_created"] = True
+    _cleanup_mc(
+        scope,
+        ["admin", "policy", "create", "scoped", scope["policy"], "/dev/stdin"],
+        payload=json.dumps(policy),
+    )
+    scope["policy_created"] = True
+    _cleanup_mc(
+        scope,
+        [
+            "admin",
+            "policy",
+            "attach",
+            "scoped",
+            scope["policy"],
+            "--user",
+            scope["access_key"],
+        ],
+    )
+
+
 def _create_catalog_storage_scope(scope: dict) -> None:
     _cleanup_mc(
         scope,
@@ -1696,6 +1756,7 @@ def main(argv: list[str] | None = None) -> int:
             "media_control_storage_identity_removed": False,
             "media_worker_storage_identity_removed": False,
             "image_worker_storage_identity_removed": False,
+            "api_bootstrap_storage_identity_removed": None,
             "local_resources_destroyed": False,
             "postgres_container_removed": False,
             "resource_root_retained": None,
@@ -1716,6 +1777,7 @@ def main(argv: list[str] | None = None) -> int:
     media_control_storage = None
     media_worker_storage = None
     image_worker_storage = None
+    api_bootstrap_storage = None
     resource_root = Path(
         tempfile.mkdtemp(prefix="aap-module-data-acceptance-")
     ).resolve()
@@ -2180,6 +2242,39 @@ def main(argv: list[str] | None = None) -> int:
         ]
         image_worker_storage["policy"] = "aap-images-worker-" + secrets.token_hex(8)
         _create_image_storage_scope(image_worker_storage)
+        if "tests/test_video_consumers_containers.py" in TEST_FILES:
+            api_bootstrap_storage = _cleanup_storage_scope(backend)
+            api_bootstrap_storage["buckets"] = resources["buckets"]
+            api_bootstrap_storage["policy"] = "aap-api-bootstrap-" + secrets.token_hex(
+                8
+            )
+            _create_api_bootstrap_storage_scope(api_bootstrap_storage)
+            api_storage = _restricted_s3_client(backend, api_bootstrap_storage)
+            probe_bucket = resources["buckets"]["MINIO_DATASETS_BUCKET"]
+            probe_key = f"api-bootstrap-probe/{uuid4()}"
+            probe_version = backend.s3.put_object(
+                Bucket=probe_bucket, Key=probe_key, Body=b"private-source"
+            )["VersionId"]
+            try:
+                for bucket in resources["buckets"].values():
+                    api_storage.head_bucket(Bucket=bucket)
+                _expect_s3_denied(
+                    "API direct source read",
+                    lambda: api_storage.get_object(
+                        Bucket=probe_bucket, Key=probe_key, VersionId=probe_version
+                    ),
+                )
+                _expect_s3_denied(
+                    "API direct source write",
+                    lambda: api_storage.put_object(
+                        Bucket=probe_bucket, Key=probe_key, Body=b"forbidden"
+                    ),
+                )
+            finally:
+                api_storage.close()
+                backend.s3.delete_object(
+                    Bucket=probe_bucket, Key=probe_key, VersionId=probe_version
+                )
         phase = "verify-accepted-input-storage-scopes"
         _verify_accepted_input_s3_scopes(
             backend, media_control_storage, image_worker_storage, cleanup_storage
@@ -2268,6 +2363,17 @@ def main(argv: list[str] | None = None) -> int:
                 "AAP_MODULE_DATA_PG_CONTAINER_IDENTITY": container_identity,
             }
         )
+        if api_bootstrap_storage is not None:
+            resource_environment.update(
+                {
+                    "AAP_MODULE_DATA_API_BOOTSTRAP_S3_ACCESS_KEY": api_bootstrap_storage[
+                        "access_key"
+                    ],
+                    "AAP_MODULE_DATA_API_BOOTSTRAP_S3_SECRET_KEY": api_bootstrap_storage[
+                        "secret_key"
+                    ],
+                }
+            )
         command = [
             sys.executable,
             "-c",
@@ -2296,6 +2402,7 @@ def main(argv: list[str] | None = None) -> int:
         exit_code = 1
     finally:
         for label, scope in (
+            ("api_bootstrap", api_bootstrap_storage),
             ("image_worker", image_worker_storage),
             ("media_worker", media_worker_storage),
             ("media_control", media_control_storage),

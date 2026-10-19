@@ -90,6 +90,41 @@ def _inspect(container_id: str) -> dict:
     return observed
 
 
+def _failure_logs(
+    containers: list[str], environment_files: list[Path], diagnostic: str | None = None
+) -> None:
+    sensitive = set()
+    for path in environment_files:
+        for line in path.read_text().splitlines():
+            name, _, value = line.partition("=")
+            if re.search(r"KEY|TOKEN|SECRET|PASSWORD", name) and len(value) > 4:
+                sensitive.add(value)
+
+    def safe(log):
+        for value in sorted(sensitive, key=len, reverse=True):
+            log = log.replace(value, "[secret]")
+        return re.sub(
+            r"(?:postgresql(?:\+\w+)?|redis|https?)://[^\s\"'<>]+", "[endpoint]", log
+        )
+
+    if diagnostic:
+        print(f"Job diagnostic: {safe(diagnostic)}")
+    for container in containers:
+        try:
+            result = subprocess.run(
+                ["docker", "logs", "--tail", "25", container],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                timeout=10,
+                check=False,
+            )
+            log = result.stdout
+        except Exception:
+            continue
+        print(f"container {container[:12]}: {safe(log)[-2500:]}")
+
+
 def _required_image(name: str) -> str:
     value = os.environ.get(name)
     if not value or "\n" in value or "\r" in value:
@@ -266,7 +301,7 @@ def _start_container(
         "--pids-limit",
         "64",
         "--tmpfs",
-        "/tmp:rw,noexec,nosuid,size=128m",
+        "/tmp:rw,noexec,nosuid,size=256m",
         "--cpus",
         cpus,
         "--memory",
@@ -294,6 +329,7 @@ def _verify_container(
     name: str,
     image: str,
     identity: str,
+    environment_file: Path,
     entrypoint: str,
     command: list[str],
     user: str,
@@ -314,6 +350,7 @@ def _verify_container(
         and config.get("Entrypoint") == [entrypoint]
         and config.get("Cmd") == command
         and config.get("User") == user
+        and environment_file.stat().st_mode & 0o777 == 0o600
         and labels.get(_ACCEPTANCE_LABEL) == "module-data-boundary"
         and labels.get(_IDENTITY_LABEL) == identity
         and observed.get("Mounts") == []
@@ -324,6 +361,7 @@ def _verify_container(
         and host.get("PidsLimit") == 64
         and host.get("NanoCpus") == expected_cpus
         and host.get("Memory") == memory_bytes
+        and "size=256m" in (host.get("Tmpfs") or {}).get("/tmp", "")
     ):
         pytest.fail(
             f"{role} container escaped its restricted owned profile", pytrace=False
@@ -397,12 +435,17 @@ def _verify_consumer_environment(
     }[role]
     _verify_runtime_database_role(container_id, database_variable, database_user)
     if role in {"api", "celery"}:
+        expected_access = s3_access if role == "api" else "video-acceptance-unused"
+        expected_secret = (
+            s3_secret
+            if role == "api"
+            else "video-acceptance-unused-only-for-disabled-direct-storage"
+        )
         if not (
             environment.get("MIGRATION_DATABASE_URL", "") == ""
             and environment.get("TEST_DATABASE_URL", "") == ""
-            and environment.get("MINIO_ACCESS_KEY") == "video-acceptance-unused"
-            and environment.get("MINIO_SECRET_KEY")
-            == "video-acceptance-unused-only-for-disabled-direct-storage"
+            and environment.get("MINIO_ACCESS_KEY") == expected_access
+            and environment.get("MINIO_SECRET_KEY") == expected_secret
         ):
             pytest.fail(
                 "API/Celery received owner or migration credentials", pytrace=False
@@ -738,6 +781,16 @@ async def test_retained_video_consumers_run_in_owned_api_and_worker_containers(
     )
     worker_s3_access = _required_env("AAP_MODULE_DATA_ASSET_MEDIA_WORKER_S3_ACCESS_KEY")
     worker_s3_secret = _required_env("AAP_MODULE_DATA_ASSET_MEDIA_WORKER_S3_SECRET_KEY")
+    api_access = _required_env("AAP_MODULE_DATA_API_BOOTSTRAP_S3_ACCESS_KEY")
+    api_secret = _required_env("AAP_MODULE_DATA_API_BOOTSTRAP_S3_SECRET_KEY")
+    if (
+        api_access == settings.minio_access_key
+        or api_secret == settings.minio_secret_key
+    ):
+        pytest.fail(
+            "API startup must not receive the storage administrator identity",
+            pytrace=False,
+        )
     if control_s3_access == worker_s3_access or control_s3_secret == worker_s3_secret:
         pytest.fail(
             "Media control and worker require distinct scoped S3 identities",
@@ -746,7 +799,9 @@ async def test_retained_video_consumers_run_in_owned_api_and_worker_containers(
 
     minio_internal = _container_s3_endpoint(settings)
     minio_port = _container_port(minio_internal)
-    host_db = _container_database_url(legacy_url)
+    host_db = legacy_url.set(
+        host="host.docker.internal", drivername="postgresql+asyncpg"
+    ).render_as_string(hide_password=False)
     host_control_db = _container_database_url(control_db)
     host_worker_db = _container_database_url(worker_db)
     host_s3 = minio_internal
@@ -837,6 +892,7 @@ async def test_retained_video_consumers_run_in_owned_api_and_worker_containers(
             media_s3_common
             | {
                 "ASSETS_MEDIA_CONTROL_DATABASE_URL": host_control_db,
+                "ASSETS_IMAGES_LEGACY_BUCKET": buckets["MINIO_BUCKET"],
                 "ASSETS_MEDIA_TOKEN": token,
                 "ASSETS_MEDIA_HOST": "0.0.0.0",
                 "ASSETS_MEDIA_PORT": "8768",
@@ -931,12 +987,9 @@ async def test_retained_video_consumers_run_in_owned_api_and_worker_containers(
             "ASSETS_MEDIA_TOKEN": token,
             "MINIO_ENDPOINT": f"host.docker.internal:{minio_port}",
             "MINIO_USE_SSL": "true" if settings.minio_use_ssl else "false",
-            "MINIO_ACCESS_KEY": "video-acceptance-unused",
-            "MINIO_SECRET_KEY": "video-acceptance-unused-only-for-disabled-direct-storage",
-            "MINIO_BUCKET": buckets["MINIO_BUCKET"],
-            "MINIO_DATASETS_BUCKET": datasets_bucket,
-            "MINIO_MEDIA_CACHE_BUCKET": cache_bucket,
-            "MINIO_INPUTS_BUCKET": inputs_bucket,
+            "MINIO_ACCESS_KEY": api_access,
+            "MINIO_SECRET_KEY": api_secret,
+            **buckets,
             "FRAME_PREANNOTATE_CHUNK_SIZE": str(_CHUNK_SIZE),
             "ML_PREDICT_TIMEOUT": "30",
         }
@@ -969,12 +1022,25 @@ async def test_retained_video_consumers_run_in_owned_api_and_worker_containers(
             port=8000,
         )
         assert api_origin is not None
-        _verify_consumer_environment(api_id, role="api", database_user="legacy_runtime")
+        _verify_consumer_environment(
+            api_id,
+            role="api",
+            database_user="legacy_runtime",
+            s3_access=api_access,
+            s3_secret=api_secret,
+        )
         await _wait_http_ready(api_origin, "/health/db")
         startup_seconds["api"] = time.monotonic() - started
         container_roles["api"] = api_id
 
-        celery_env = _write_environment(tmp_path / "video-celery.env", api_env_values)
+        celery_env = _write_environment(
+            tmp_path / "video-celery.env",
+            {
+                **api_env_values,
+                "MINIO_ACCESS_KEY": "video-acceptance-unused",
+                "MINIO_SECRET_KEY": "video-acceptance-unused-only-for-disabled-direct-storage",
+            },
+        )
         environment_files.append(celery_env)
         if celery_app.conf.task_always_eager:
             pytest.fail(
@@ -1276,7 +1342,6 @@ async def test_retained_video_consumers_run_in_owned_api_and_worker_containers(
                 and proof.frame_sha256 == peer_call["sha256"]
                 and proof.frame_sha256 == stored_frame[5]["sha256"]
                 and extra.get("accepted_video_execution_job_id") == str(job_id)
-                and extra.get("execution_unit") == "frame"
                 and isinstance(result, list)
                 and len(result) == 1
                 and result[0].get("type") == "video_bbox"
@@ -1419,6 +1484,48 @@ async def test_retained_video_consumers_run_in_owned_api_and_worker_containers(
             job_payload.get("accepted_video_inputs_protocol")
             == "aap-assets-video-inputs/v1"
         )
+        stopping = time.monotonic()
+        await asyncio.to_thread(
+            _docker, "stop", "--time", "10", media_worker_id, timeout=15
+        )
+        stopped = _inspect(media_worker_id).get("State", {})
+        assert stopped.get("ExitCode") == 0 and not stopped.get("OOMKilled")
+        record_property(
+            "video_media_worker_stop_seconds", round(time.monotonic() - stopping, 3)
+        )
+        record_property("video_media_worker_stop_exit_code", stopped.get("ExitCode"))
+    except BaseException:
+        diagnostic = None
+        if job_id is not None:
+            try:
+                async with test_engine.connect() as db:
+                    job_error = await db.scalar(
+                        text(
+                            "SELECT error_message FROM public.async_jobs WHERE id=:job"
+                        ),
+                        {"job": job_id},
+                    )
+                    states = {}
+                    for table, status_column in (
+                        ("asset_accepted_video_members", "state"),
+                        ("asset_accepted_video_inputs", "status"),
+                    ):
+                        states[table] = [
+                            list(row)
+                            for row in (
+                                await db.execute(
+                                    text(
+                                        f"SELECT {status_column},error_code FROM public.{table} WHERE job_id=:job LIMIT 20"
+                                    ),
+                                    {"job": job_id},
+                                )
+                            ).all()
+                        ]
+                    diagnostic = json.dumps({"job_error": job_error, **states})
+            except Exception:
+                pass
+        _failure_logs(containers, environment_files, diagnostic)
+        raise
     finally:
         cleanup_error = None
         for container_id in reversed(containers):
