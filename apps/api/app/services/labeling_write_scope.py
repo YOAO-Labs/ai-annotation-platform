@@ -50,6 +50,7 @@ class LabelingWriteScope:
     source_dataset_item_id: uuid.UUID | None = None
     source_file_path: str | None = None
     source_file_type: str | None = None
+    accepted_input_id: uuid.UUID | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -78,6 +79,7 @@ def capture_labeling_write_scope(
     job_id: uuid.UUID | None,
     job_id_known: bool,
     source_annotation=None,
+    accepted_input_id: uuid.UUID | None = None,
 ) -> LabelingWriteScope:
     """Capture the task facts available before potentially long inference work."""
     return LabelingWriteScope(
@@ -115,4 +117,5 @@ def capture_labeling_write_scope(
         source_dataset_item_id=getattr(task, "dataset_item_id", None),
         source_file_path=getattr(task, "file_path", None),
         source_file_type=getattr(task, "file_type", None),
+        accepted_input_id=accepted_input_id,
     )

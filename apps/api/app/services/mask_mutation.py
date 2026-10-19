@@ -1587,6 +1587,7 @@ class MaskMutationService:
         )
         updated: list[Annotation] = []
         created: list[Annotation] = []
+        created_from: list[tuple[Annotation, Annotation]] = []
         deleted: list[Annotation] = []
         final_geometries: dict[uuid.UUID, dict] = {}
         for mutation in payload.mutations:
@@ -1637,6 +1638,8 @@ class MaskMutationService:
                 )
                 self.db.add(annotation)
                 created.append(annotation)
+                if payload.operation == "slice_mask":
+                    created_from.append((source, annotation))
             else:
                 annotation = by_id[mutation.annotation_id]
                 annotation.is_active = False
@@ -1644,6 +1647,15 @@ class MaskMutationService:
                 deleted.append(annotation)
 
         await self.db.flush()
+        if created_from:
+            from app.services.accepted_inputs import copy_annotation_input_sources
+
+            for source_annotation, created_annotation in created_from:
+                await copy_annotation_input_sources(
+                    self.db,
+                    source_annotation_id=source_annotation.id,
+                    target_annotation_id=created_annotation.id,
+                )
         await self._assert_non_overlapping(
             payload.scope,
             annotations,

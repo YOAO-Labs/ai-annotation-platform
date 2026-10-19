@@ -249,16 +249,27 @@ def test_randomized_simple_partitions_preserve_shape_against_geos():
 
 
 async def test_commit_undo_redo_preserve_ids_provenance_parent_attributes_and_deadline(
-    db_session, super_admin
+    db_session, super_admin, monkeypatch
 ):
     actor, _ = super_admin
     task, source, parent = await _seed(db_session, actor, parent=True)
+    copied_pins = []
+
+    async def record_pin_copy(_db, *, source_annotation_id, target_annotation_id):
+        copied_pins.append((source_annotation_id, target_annotation_id))
+        return 1
+
+    monkeypatch.setattr(
+        "app.services.accepted_inputs.copy_annotation_input_sources",
+        record_pin_copy,
+    )
     original = deepcopy(source.geometry)
     prediction_id = source.parent_prediction_id
     service = AnnotationSliceService(db_session)
     payload = _payload(source)
     result = await service._commit(task.id, payload, actor)
     created = await db_session.get(Annotation, result.created_annotation_id)
+    assert copied_pins == [(source.id, created.id)]
     assert result.source_annotation_id == source.id
     assert source.version == 2 and created.version == 1
     assert (

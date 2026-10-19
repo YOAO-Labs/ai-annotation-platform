@@ -41,6 +41,8 @@ def test_celery_dispatch_preserves_request_and_runtime_options(monkeypatch):
         execution_scope="workbench",
         async_job_id="durable-job-id",
         frozen_model_ref={"model_version_id": "version-id"},
+        accepted_inputs_protocol="aap-assets-inputs/v1",
+        accepted_input_ids={"task-id": "input-id"},
         task="detection",
         prompt_type="structured",
     )
@@ -70,6 +72,8 @@ def test_celery_dispatch_preserves_request_and_runtime_options(monkeypatch):
             "execution_scope": "workbench",
             "async_job_id": "durable-job-id",
             "frozen_model_ref": {"model_version_id": "version-id"},
+            "accepted_inputs_protocol": "aap-assets-inputs/v1",
+            "accepted_input_ids": {"task-id": "input-id"},
         },
         "options": {
             "queue": "cpu",
@@ -109,6 +113,51 @@ async def test_application_command_disposes_engine_when_workflow_exits(
     assert disposed == [True]
 
 
+def test_pending_input_deferral_retries_after_default_retry_budget(monkeypatch):
+    from app.application.preannotation_execution import PreannotationInputDeferred
+    from app.workers import tasks
+    from app.workers.tasks import batch_predict
+
+    assert batch_predict.max_retries is None
+    captured = {}
+
+    class RetryScheduled(Exception):
+        pass
+
+    def defer(coroutine):
+        coroutine.close()
+        raise PreannotationInputDeferred("input_not_ready")
+
+    def fake_retry(self, *, exc, countdown, max_retries):
+        captured.update(
+            retries=self.request.retries,
+            exception=exc,
+            countdown=countdown,
+            max_retries=max_retries,
+        )
+        raise RetryScheduled()
+
+    monkeypatch.setattr(tasks.asyncio, "run", defer)
+    monkeypatch.setattr(batch_predict, "retry", fake_retry.__get__(batch_predict))
+    batch_predict.push_request(id="durable-job-id", retries=8)
+    try:
+        with pytest.raises(RetryScheduled):
+            batch_predict.run(
+                "project-id",
+                "backend-id",
+                task_ids=["task-id"],
+                execution_scope="workbench",
+                async_job_id="durable-job-id",
+            )
+    finally:
+        batch_predict.pop_request()
+
+    assert captured["retries"] == 8
+    assert isinstance(captured["exception"], PreannotationInputDeferred)
+    assert captured["countdown"] == 30
+    assert captured["max_retries"] is None
+
+
 def test_celery_dispatch_omits_unset_durable_options(monkeypatch):
     from app.workers.tasks import batch_predict
 
@@ -128,6 +177,8 @@ def test_celery_dispatch_omits_unset_durable_options(monkeypatch):
     assert captured["args"] == ["project-id", "backend-id", None]
     assert "async_job_id" not in captured["kwargs"]
     assert "frozen_model_ref" not in captured["kwargs"]
+    assert "accepted_inputs_protocol" not in captured["kwargs"]
+    assert "accepted_input_ids" not in captured["kwargs"]
     assert "task_type" not in captured["kwargs"]
     assert captured["options"] == {"queue": "ml"}
 

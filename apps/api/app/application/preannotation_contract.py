@@ -37,6 +37,8 @@ class BatchPredictionRequest:
     execution_scope: str | None = "bulk"
     async_job_id: str | None = None
     frozen_model_ref: dict[str, Any] | None = None
+    accepted_inputs_protocol: str | None = None
+    accepted_input_ids: dict[str, str] | None = None
     task: str | None = None
     prompt_type: str | None = None
 

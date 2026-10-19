@@ -7,9 +7,14 @@ from app.application.preannotation_contract import (
     TaskFrameCount,
 )
 from app.services import prediction_context, prediction_progress
+import asyncio
 import logging
 import time
 import uuid
+import tempfile
+from contextlib import asynccontextmanager
+from dataclasses import dataclass
+from pathlib import Path
 
 from app.config import settings
 from app.services import prediction_retry
@@ -20,6 +25,7 @@ from app.services.labeling_prediction_contract import (
 )
 
 logger = logging.getLogger(__name__)
+_WRITE_ATTEMPTS = 3
 
 
 async def _preannotation_actor_revoked(db, actor_id, project_uuid) -> bool:
@@ -59,6 +65,279 @@ def _make_crop_uploader(storage, job_id: str):
         return storage.upload_crop_bytes(jpeg_bytes, key)
 
     return upload_crop
+
+
+class PreannotationInputDeferred(RuntimeError):
+    """A canonical input is still materializing and the durable job can wait."""
+
+
+@dataclass(frozen=True, slots=True)
+class _PreparedAcceptedInput:
+    gateway: object
+    reference: object
+    local_path: Path
+
+    async def verify_source(self):
+        from aap_assets_inputs.contract import InputRequest
+
+        record = await self.gateway.verify_source(
+            InputRequest(
+                input_id=self.reference.input.input_id,
+                job_id=self.reference.input.job_id,
+                task_id=self.reference.input.task_id,
+            )
+        )
+        if (
+            record.input_id != self.reference.input.input_id
+            or record.job_id != self.reference.input.job_id
+            or record.task_id != self.reference.input.task_id
+            or record.sha256 != self.reference.input.sha256
+            or record.byte_size != self.reference.input.byte_size
+        ):
+            from aap_assets_inputs.contract import InputFailure
+
+            raise InputFailure("input_corrupt")
+        return record
+
+
+async def _verify_accepted_input_source(prepared: _PreparedAcceptedInput) -> None:
+    from aap_assets_inputs.contract import InputFailure
+
+    for attempt in range(_WRITE_ATTEMPTS):
+        try:
+            await prepared.verify_source()
+            return
+        except InputFailure as exc:
+            if (
+                exc.code
+                not in {
+                    "input_busy",
+                    "source_busy",
+                    "reference_busy",
+                    "job_busy",
+                    "storage_unavailable",
+                }
+                or attempt == _WRITE_ATTEMPTS - 1
+            ):
+                raise
+            await asyncio.sleep(0.05 * 2**attempt)
+
+
+async def _apply_prediction_result_with_retries(writer, db, request):
+    """Retry transient Labeling contention with the same immutable model result."""
+    for attempt in range(_WRITE_ATTEMPTS):
+        try:
+            return await writer.apply_prediction_result(request)
+        except ApplyPredictionResultError as exc:
+            if not exc.retryable or attempt == _WRITE_ATTEMPTS - 1:
+                raise
+            await db.rollback()
+            await asyncio.sleep(0.05 * 2**attempt)
+    raise AssertionError("unreachable prediction write retry state")
+
+
+def _workbench_single_task_candidate(request: BatchPredictionRequest) -> bool:
+    if (
+        request.execution_scope != "workbench"
+        or not isinstance(request.task_ids, list)
+        or len(request.task_ids) != 1
+        or request.batch_id is not None
+        or request.execution_unit in {"frame", "video", "scene"}
+        or request.task in {"text", "tracker"}
+        or request.task_type in {"text", "tracker"}
+    ):
+        return False
+    return not any(
+        isinstance(stage, dict) and stage.get("task") in {"text", "tracker"}
+        for stage in (request.pipeline_stages or [])
+    )
+
+
+def _canonical_input_id_map(value, task_id: uuid.UUID) -> dict[str, str]:
+    if not isinstance(value, dict) or set(value) != {str(task_id)}:
+        raise ValueError("accepted image input task map is missing or malformed")
+    raw_input_id = value[str(task_id)]
+    if not isinstance(raw_input_id, str):
+        raise ValueError("accepted image input ID is malformed")
+    try:
+        input_id = uuid.UUID(raw_input_id)
+    except (TypeError, ValueError, AttributeError) as exc:
+        raise ValueError("accepted image input ID is malformed") from exc
+    return {str(task_id): str(input_id)}
+
+
+@asynccontextmanager
+async def _prepare_accepted_input(request: BatchPredictionRequest, SessionLocal):
+    """Check durable identity and readiness before any job claim or overwrite."""
+    from aap_assets_inputs import contract as c
+    from app.db.models.async_job import AsyncJob, AsyncJobStatus
+    from app.db.models.task import Task
+    from app.services.accepted_inputs import input_gateway
+
+    protocol = request.accepted_inputs_protocol
+    raw_map = request.accepted_input_ids
+    candidate = _workbench_single_task_candidate(request)
+    if protocol is None and raw_map is not None:
+        raise ValueError("accepted image input map has no protocol")
+    if protocol is None and not candidate:
+        yield None
+        return
+    if protocol is not None and protocol != c.INPUT_SCHEMA:
+        raise ValueError("accepted image input protocol is missing or unsupported")
+    if protocol is not None and (
+        not candidate or request.async_job_id is None or request.user_id is None
+    ):
+        raise ValueError("accepted image input is outside single-task Workbench scope")
+
+    if request.async_job_id is None:
+        if protocol is not None:
+            raise ValueError("accepted image input has no durable job identity")
+        if candidate and request.task_ids:
+            try:
+                candidate_task_id = uuid.UUID(request.task_ids[0])
+                candidate_project_id = uuid.UUID(request.project_id)
+            except (TypeError, ValueError, AttributeError, IndexError) as exc:
+                raise ValueError("legacy Workbench task identity is malformed") from exc
+            async with SessionLocal() as db:
+                candidate_task = await db.get(
+                    Task, candidate_task_id, populate_existing=True
+                )
+                if (
+                    candidate_task is not None
+                    and candidate_task.project_id == candidate_project_id
+                    and candidate_task.file_type == "image"
+                ):
+                    raise ValueError(
+                        "legacy Workbench image job has no accepted input identity"
+                    )
+        yield None
+        return
+
+    try:
+        job_id = uuid.UUID(request.async_job_id)
+        task_id = (
+            uuid.UUID(request.task_ids[0]) if candidate and request.task_ids else None
+        )
+        project_id = uuid.UUID(request.project_id)
+        actor_id = uuid.UUID(request.user_id) if request.user_id else None
+    except (TypeError, ValueError, AttributeError, IndexError) as exc:
+        if protocol is not None:
+            raise ValueError(
+                "accepted image input request identity is malformed"
+            ) from exc
+        yield None
+        return
+
+    already_claimed = False
+    task_is_image = False
+    input_ids: dict[str, str] | None = None
+    input_id: uuid.UUID | None = None
+    async with SessionLocal() as db:
+        job = await db.get(AsyncJob, job_id, populate_existing=True)
+        if job is None:
+            if candidate and task_id is not None:
+                task = await db.get(Task, task_id, populate_existing=True)
+                task_is_image = bool(
+                    task is not None
+                    and task.project_id == project_id
+                    and task.file_type == "image"
+                )
+            if protocol is not None:
+                raise ValueError("accepted image input durable job is unavailable")
+        elif job.status != AsyncJobStatus.PENDING.value:
+            # The normal worker path below performs the locked duplicate-delivery
+            # check. Do not consult an expired receipt for already-claimed work.
+            already_claimed = True
+        elif candidate and task_id is not None:
+            task = await db.get(Task, task_id, populate_existing=True)
+            task_is_image = bool(
+                task is not None
+                and task.project_id == project_id
+                and task.file_type == "image"
+            )
+            if protocol is not None:
+                if task is None or not task_is_image or actor_id is None:
+                    raise ValueError("accepted image input task scope is unavailable")
+                input_ids = _canonical_input_id_map(raw_map, task_id)
+                input_id = uuid.UUID(input_ids[str(task_id)])
+                payload = job.payload or {}
+                saved_scope = payload.get("scope")
+                saved_input_ids = _canonical_input_id_map(
+                    payload.get("accepted_input_ids"), task_id
+                )
+                if (
+                    payload.get("accepted_inputs_protocol") != c.INPUT_SCHEMA
+                    or saved_input_ids != input_ids
+                    or job.kind != "batch_predict"
+                    or job.project_id != project_id
+                    or job.user_id != actor_id
+                    or payload.get("batch_id") is not None
+                    or payload.get("execution_scope") != "workbench"
+                    or payload.get("task_ids") != [str(task_id)]
+                    or not isinstance(saved_scope, dict)
+                    or saved_scope.get("task_ids") != [str(task_id)]
+                ):
+                    raise ValueError(
+                        "accepted image input differs from durable job scope"
+                    )
+                admission_task_version = task.version
+        elif protocol is not None:
+            raise ValueError("accepted image input task scope is malformed")
+
+    if already_claimed:
+        yield None
+        return
+    if protocol is None:
+        if candidate and task_is_image:
+            raise ValueError(
+                "legacy Workbench image job has no accepted input identity"
+            )
+        yield None
+        return
+    if task_id is None or input_id is None or actor_id is None or input_ids is None:
+        raise ValueError("accepted image input request identity is incomplete")
+
+    input_request = c.InputRequest(
+        input_id=input_id,
+        job_id=job_id,
+        task_id=task_id,
+    )
+    async with input_gateway(session_factory=SessionLocal) as gateway:
+        try:
+            reference = await gateway.ensure_reference(input_request)
+        except c.InputFailure as exc:
+            if exc.code in {
+                "input_not_ready",
+                "input_busy",
+                "source_busy",
+                "job_busy",
+                "reference_busy",
+                "storage_unavailable",
+            }:
+                raise PreannotationInputDeferred(exc.code) from exc
+            raise
+        if (
+            reference.input.input_id != input_id
+            or reference.input.job_id != job_id
+            or reference.input.task_id != task_id
+            or reference.input.project_id != project_id
+            or reference.input.actor_id != actor_id
+            or reference.input.task_version != admission_task_version
+        ):
+            raise ValueError("accepted image input receipt differs from admitted task")
+        with tempfile.TemporaryDirectory(prefix="aap-accepted-input-") as directory:
+            local_path = Path(directory) / "source"
+            try:
+                await gateway.download(reference, local_path)
+            except c.InputFailure as exc:
+                if exc.code in {"input_busy", "storage_unavailable"}:
+                    raise PreannotationInputDeferred(exc.code) from exc
+                raise
+            yield _PreparedAcceptedInput(
+                gateway=gateway,
+                reference=reference,
+                local_path=local_path,
+            )
 
 
 _PAD_BY_DEPTH: dict[int, float] = {1: 0.05, 2: 0.08, 3: 0.12}
@@ -135,6 +414,7 @@ async def _run_task_pipeline(
     resolve_url,
     upload_crop=None,
     stage_modes=None,
+    input_image_path: Path | None = None,
 ):
     """v0.18.1 ~ v0.18.14 · 对单个 task 按受限树形拓扑跑各阶段, 返回 (pred_results, pipeline_extra, stage_stats)。
 
@@ -176,7 +456,14 @@ async def _run_task_pipeline(
     depths = _compute_stage_depths(stages)
     # geometry 模式纯坐标换算无需原图; 仅当存在 crop 下游阶段时才加载 (省去无谓全图拉取)。
     needs_image = any(modes[si] == "crop" for si in range(1, len(stages)))
-    image = prediction_context.load_task_image(task) if needs_image else None
+    if needs_image and input_image_path is not None:
+        from PIL import Image
+
+        image = Image.open(input_image_path).convert("RGB")
+    elif needs_image:
+        image = prediction_context.load_task_image(task)
+    else:
+        image = None
     delivery = "presigned" if upload_crop is not None else "data_uri"
     enriched_keys: set[str] = set()
     gpu_arbiter_failures: list[dict] = []
@@ -404,12 +691,14 @@ async def run_preannotation(
         session_factory = async_sessionmaker(
             engine, class_=AsyncSession, expire_on_commit=False
         )
-        await _execute_preannotation(
-            request,
-            execution_id=execution_id,
-            frame_dispatcher=frame_dispatcher,
-            SessionLocal=session_factory,
-        )
+        async with _prepare_accepted_input(request, session_factory) as accepted_input:
+            await _execute_preannotation(
+                request,
+                execution_id=execution_id,
+                frame_dispatcher=frame_dispatcher,
+                SessionLocal=session_factory,
+                accepted_input=accepted_input,
+            )
     finally:
         await engine.dispose()
 
@@ -420,6 +709,7 @@ async def _execute_preannotation(
     execution_id: str | None,
     frame_dispatcher: FramePreannotationDispatcher | None,
     SessionLocal,
+    accepted_input: _PreparedAcceptedInput | None = None,
 ) -> None:
     """Own the batch workflow while reusing the caller's request and DB session."""
     project_id = request.project_id
@@ -441,6 +731,8 @@ async def _execute_preannotation(
     execution_scope = request.execution_scope
     async_job_id = request.async_job_id
     frozen_model_ref = request.frozen_model_ref
+    accepted_inputs_protocol = request.accepted_inputs_protocol
+    accepted_input_ids = request.accepted_input_ids
     task = request.task
     prompt_type = request.prompt_type
     semantic = normalize_task_fields(
@@ -715,6 +1007,13 @@ async def _execute_preannotation(
         tasks = list(result.scalars().all())
         total = len(tasks)
 
+        if accepted_input is not None and any(
+            task.id != accepted_input.reference.input.task_id
+            or task.version != accepted_input.reference.input.task_version
+            for task in tasks
+        ):
+            raise ValueError("Workbench task workflow changed after input admission")
+
         if controlled and any(task.file_type != "image" for task in tasks):
             raise ValueError("Controlled detection task is not an image")
 
@@ -786,6 +1085,9 @@ async def _execute_preannotation(
                 "task_ids": [str(task_id) for task_id in requested_task_ids]
             }
             job_payload["task_ids"] = [str(task_id) for task_id in requested_task_ids]
+        if accepted_inputs_protocol is not None:
+            job_payload["accepted_inputs_protocol"] = accepted_inputs_protocol
+            job_payload["accepted_input_ids"] = accepted_input_ids
         if precreated_job is None:
             aj = await async_job_svc.create_job(
                 db,
@@ -1117,7 +1419,24 @@ async def _execute_preannotation(
                 execution_scope_known=True,
                 job_id=async_job_id,
                 job_id_known=True,
+                accepted_input_id=(
+                    accepted_input.reference.input.input_id
+                    if accepted_input is not None
+                    else None
+                ),
             )
+            accepted_input_metadata = None
+            if accepted_input is not None:
+                record = accepted_input.reference.input
+                if record.task_id != task.id:
+                    raise ValueError("accepted image input differs from selected task")
+                accepted_input_metadata = {
+                    "input_id": str(record.input_id),
+                    "job_id": str(record.job_id),
+                    "task_id": str(record.task_id),
+                    "sha256": record.sha256,
+                    "byte_size": record.byte_size,
+                }
             final_write_started = False
 
             try:
@@ -1126,10 +1445,25 @@ async def _execute_preannotation(
                     stages,
                     stage_clients,
                     stage_contexts,
-                    resolve_url=_resolve_task_url,
+                    resolve_url=(
+                        (lambda _task: accepted_input.reference.url)
+                        if accepted_input is not None
+                        else _resolve_task_url
+                    ),
                     upload_crop=crop_uploader,
                     stage_modes=stage_modes,
+                    input_image_path=(
+                        accepted_input.local_path
+                        if accepted_input is not None
+                        else None
+                    ),
                 )
+                if accepted_input is not None:
+                    await _verify_accepted_input_source(accepted_input)
+                    pipeline_extra = {
+                        **(pipeline_extra or {}),
+                        "accepted_input": accepted_input_metadata,
+                    }
                 _accumulate_stage_stats(stage_stats)
                 gpu_arbiter_failures.extend(
                     (pipeline_extra or {})
@@ -1140,7 +1474,9 @@ async def _execute_preannotation(
                 executed_pool_id = stage_clients[0].pool_id or source_pool_id
                 final_write_started = True
                 for pred_result in results:
-                    await prediction_writer.apply_prediction_result(
+                    await _apply_prediction_result_with_retries(
+                        prediction_writer,
+                        db,
                         ApplyPredictionResultRequest(
                             task_id=task.id,
                             project_id=uuid.UUID(project_id),
@@ -1158,7 +1494,7 @@ async def _execute_preannotation(
                                 if frozen_model_ref
                                 else {}
                             ),
-                        )
+                        ),
                     )
                     # v0.9.11 · 单条 cost 累加到 job 级总费用
                     if pred_result.meta:
@@ -1199,6 +1535,11 @@ async def _execute_preannotation(
                 if gpu_arbiter_error is not None:
                     gpu_arbiter_failures.append(gpu_arbiter_error)
                 failure_extra: dict = {}
+                if accepted_input_metadata is not None:
+                    failure_extra["accepted_input"] = accepted_input_metadata
+                failure_extra["execution_scope"] = execution_scope
+                failure_extra["execution_unit"] = execution_unit
+                failure_extra["task"] = visual_task
                 if retry_request_context is not None:
                     failure_extra["request_context"] = retry_request_context
                 if gpu_arbiter_error is not None:

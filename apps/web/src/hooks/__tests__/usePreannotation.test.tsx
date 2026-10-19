@@ -3,11 +3,18 @@
  *
  * 验证 URL 路径 /ws/projects/{id}/preannotate 拼接正确, 收消息 setProgress, 卸载清理.
  */
+import type { ReactNode } from "react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { renderHook, act } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
+import { apiClient } from "@/api/client";
 import { useAuthStore } from "@/stores/authStore";
-import { usePreannotationProgress } from "../usePreannotation";
+import {
+  createPreannotationIdempotencyKey,
+  usePreannotationProgress,
+  useTriggerPreannotation,
+} from "../usePreannotation";
 
 class MockWebSocket {
   static instances: MockWebSocket[] = [];
@@ -112,5 +119,56 @@ describe("usePreannotationProgress", () => {
     expect(MockWebSocket.instances[0].closedManually).toBe(false);
     act(() => MockWebSocket.instances[0].triggerOpen());
     expect(MockWebSocket.instances[0].closedManually).toBe(true);
+  });
+});
+
+describe("useTriggerPreannotation", () => {
+  it("reuses a key for replay and creates a fresh key per run", async () => {
+    const client = new QueryClient({ defaultOptions: { mutations: { retry: false } } });
+    const post = vi.spyOn(apiClient, "post").mockResolvedValue({
+      job_id: "job-a",
+      status: "queued",
+    } as never);
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    );
+    const view = renderHook(() => useTriggerPreannotation("project-a"), { wrapper });
+    const payload = {
+      ml_backend_id: "backend-a",
+      task_ids: ["task-a"],
+      execution_scope: "workbench" as const,
+    };
+    const firstRunKey = createPreannotationIdempotencyKey();
+    const nextRunKey = createPreannotationIdempotencyKey();
+    expect(nextRunKey).not.toBe(firstRunKey);
+
+    await act(async () => {
+      await view.result.current.mutateAsync({ payload, idempotencyKey: firstRunKey });
+      await view.result.current.mutateAsync({ payload, idempotencyKey: firstRunKey });
+      await view.result.current.mutateAsync({ payload, idempotencyKey: nextRunKey });
+    });
+
+    expect(post).toHaveBeenNthCalledWith(
+      1,
+      "/projects/project-a/preannotate",
+      payload,
+      { headers: { "Idempotency-Key": firstRunKey } },
+    );
+    expect(post).toHaveBeenNthCalledWith(
+      2,
+      "/projects/project-a/preannotate",
+      payload,
+      { headers: { "Idempotency-Key": firstRunKey } },
+    );
+    expect(post).toHaveBeenNthCalledWith(
+      3,
+      "/projects/project-a/preannotate",
+      payload,
+      { headers: { "Idempotency-Key": nextRunKey } },
+    );
+
+    view.unmount();
+    client.clear();
+    post.mockRestore();
   });
 });

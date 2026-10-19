@@ -236,6 +236,13 @@ class AnnotationSliceService:
         )
         self.db.add(created)
         await self.db.flush()
+        from app.services.accepted_inputs import copy_annotation_input_sources
+
+        await copy_annotation_input_sources(
+            self.db,
+            source_annotation_id=source.id,
+            target_annotation_id=created.id,
+        )
         before[str(created.id)] = {
             "geometry": deepcopy(created_geometry),
             "active": False,

@@ -6,6 +6,7 @@ import uuid
 import pytest
 from fastapi import HTTPException
 from sqlalchemy import func, select, update
+from aap_assets_inputs.contract import InputFailure
 
 from app.config import settings
 from app.db.models.prediction import Prediction
@@ -23,10 +24,58 @@ from app.services.labeling_write_scope import (
     LabelingWriteScope,
     capture_labeling_write_scope,
 )
+from app.services import labeling_write_guard
 from app.services.prediction import PredictionService
 from app.services.secondary_inference_result import SecondaryInferenceResult
 from app.services.task_lock import TaskLockService
 from tests.factory import create_batch, create_membership, create_project, create_task
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("code", ["input_busy", "source_busy", "reference_busy"])
+async def test_input_source_contention_has_one_retryable_write_code(monkeypatch, code):
+    async def raise_busy(*_args, **_kwargs):
+        raise InputFailure(code)
+
+    monkeypatch.setattr("app.services.accepted_inputs.lock_input_source", raise_busy)
+    scope = type(
+        "WriteScope",
+        (),
+        {
+            "accepted_input_id": uuid.uuid4(),
+            "task_id": uuid.uuid4(),
+            "project_id": uuid.uuid4(),
+        },
+    )()
+
+    with pytest.raises(HTTPException) as exc_info:
+        await labeling_write_guard._lock_accepted_input_source(None, scope)
+
+    assert exc_info.value.status_code == 409
+    assert exc_info.value.detail == {"reason": "input_busy"}
+
+
+@pytest.mark.asyncio
+async def test_changed_input_source_is_not_mapped_to_contention(monkeypatch):
+    async def raise_changed(*_args, **_kwargs):
+        raise InputFailure("source_changed")
+
+    monkeypatch.setattr("app.services.accepted_inputs.lock_input_source", raise_changed)
+    scope = type(
+        "WriteScope",
+        (),
+        {
+            "accepted_input_id": uuid.uuid4(),
+            "task_id": uuid.uuid4(),
+            "project_id": uuid.uuid4(),
+        },
+    )()
+
+    with pytest.raises(HTTPException) as exc_info:
+        await labeling_write_guard._lock_accepted_input_source(None, scope)
+
+    assert exc_info.value.status_code == 409
+    assert exc_info.value.detail == {"reason": "prediction_source_changed"}
 
 
 async def _scope_fixture(db, owner):

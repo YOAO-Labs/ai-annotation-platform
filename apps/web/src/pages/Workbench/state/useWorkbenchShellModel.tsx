@@ -34,7 +34,11 @@ import {
 } from "@/hooks/useTasks";
 import { usePredictions } from "@/hooks/usePredictions";
 import { useAnnotationBulkUpdate } from "@/hooks/useAnnotationGroup";
-import { usePreannotationProgress, useTriggerPreannotation } from "@/hooks/usePreannotation";
+import {
+  createPreannotationIdempotencyKey,
+  usePreannotationProgress,
+  useTriggerPreannotation,
+} from "@/hooks/usePreannotation";
 import { useTaskLock } from "@/hooks/useTaskLock";
 import { useAcceptNativeMaskCandidate } from "@/hooks/useAcceptNativeMaskCandidate";
 import { tasksApi } from "@/api/tasks";
@@ -3354,6 +3358,7 @@ export function useWorkbenchShellModel({
       task_ids: [taskId],
       execution_scope: "workbench" as const,
     });
+    const idempotencyKey = createPreannotationIdempotencyKey();
     aiRequest.start({
       summary: {
         projectId,
@@ -3369,7 +3374,10 @@ export function useWorkbenchShellModel({
       },
       cancellable: false,
       execute: async () => {
-        const response = await triggerPreannotation.mutateAsync(payload);
+        const response = await triggerPreannotation.mutateAsync({
+          payload,
+          idempotencyKey,
+        });
         return { kind: "queued", celeryTaskId: response.job_id };
       },
     });
@@ -3414,6 +3422,7 @@ export function useWorkbenchShellModel({
     const configured = buildPipelineRunPayload(projectPipeline, taskId, availableBackendIds);
     if (!configured) return;
     const payload = structuredClone(configured);
+    const idempotencyKey = createPreannotationIdempotencyKey();
     aiRequest.start({
       summary: {
         projectId,
@@ -3426,7 +3435,10 @@ export function useWorkbenchShellModel({
       },
       cancellable: false,
       execute: async () => {
-        const response = await triggerPreannotation.mutateAsync(payload);
+        const response = await triggerPreannotation.mutateAsync({
+          payload,
+          idempotencyKey,
+        });
         return { kind: "queued", celeryTaskId: response.job_id };
       },
     });

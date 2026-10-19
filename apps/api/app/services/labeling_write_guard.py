@@ -37,6 +37,32 @@ _JOB_KINDS = {
 }
 
 
+async def _lock_accepted_input_source(
+    db: AsyncSession, scope: LabelingWriteScope
+) -> None:
+    """Run the source-only native fence inside this Labeling transaction."""
+    from aap_assets_inputs.contract import InputFailure
+
+    from app.services.accepted_inputs import lock_input_source
+
+    try:
+        await lock_input_source(
+            db,
+            input_id=scope.accepted_input_id,
+            task_id=scope.task_id,
+            project_id=scope.project_id,
+        )
+    except InputFailure as exc:
+        if exc.code in {"input_busy", "source_busy", "reference_busy", "job_busy"}:
+            raise _conflict("input_busy") from exc
+        if exc.code == "source_changed":
+            raise _conflict("prediction_source_changed") from exc
+        raise HTTPException(
+            status_code=409,
+            detail={"reason": "accepted_input_unavailable", "code": exc.code},
+        ) from exc
+
+
 def _conflict(reason: str) -> HTTPException:
     return HTTPException(status_code=409, detail={"reason": reason})
 
@@ -242,6 +268,8 @@ async def lock_labeling_write(
         await _assert_execution_current(
             db, scope, task_id=task.id, batch_id=task.batch_id
         )
+        if scope.accepted_input_id is not None:
+            await _lock_accepted_input_source(db, scope)
     return task, actor, access
 
 

@@ -35,6 +35,10 @@ class CeleryBatchPredictionDispatcher:
             kwargs["async_job_id"] = request.async_job_id
         if request.frozen_model_ref is not None:
             kwargs["frozen_model_ref"] = request.frozen_model_ref
+        if request.accepted_inputs_protocol is not None:
+            kwargs["accepted_inputs_protocol"] = request.accepted_inputs_protocol
+        if request.accepted_input_ids is not None:
+            kwargs["accepted_input_ids"] = request.accepted_input_ids
 
         options: dict[str, str | int] = {"queue": queue}
         if request.async_job_id is not None:

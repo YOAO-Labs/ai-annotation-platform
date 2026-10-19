@@ -18,6 +18,7 @@ RETRYABLE_APPLY_PREDICTION_CODES = frozenset(
         "batch_busy",
         "task_busy",
         "job_busy",
+        "input_busy",
     }
 )
 

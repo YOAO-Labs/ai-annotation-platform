@@ -11,6 +11,7 @@ from app.services.labeling_prediction_contract import (
     ("code", "retryable"),
     [
         ("task_busy", True),
+        ("input_busy", True),
         ("prediction_task_scope_changed", False),
         ("prediction_source_changed", False),
     ],

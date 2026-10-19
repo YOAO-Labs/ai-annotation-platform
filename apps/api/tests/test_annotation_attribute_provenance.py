@@ -10,11 +10,18 @@
 from __future__ import annotations
 
 import uuid
+from contextlib import asynccontextmanager
+from types import SimpleNamespace
 from datetime import datetime, timezone
 
 import pytest
+from fastapi import HTTPException
+from sqlalchemy import select
 
+from app.db.models.annotation import Annotation
 from app.db.models.prediction import Prediction, PredictionMeta
+from app.services import annotation as annotation_service
+from aap_assets_inputs.contract import InputFailure
 from app.application.candidate_decision import bind_candidate_decision_port
 from app.services.candidate_decision_contract import CandidateAcceptCommand
 from app.services.annotation import AnnotationService, _sync_attributes_meta
@@ -214,6 +221,145 @@ async def test_accept_prediction_no_pipeline_no_meta(db_session, super_admin):
     assert anns is not None and len(anns) == 1
     ann = anns[0]
     assert ann.attributes_meta == {}
+
+
+async def test_accept_prediction_verifies_source_before_fence_and_pins_new_annotations(
+    db_session, super_admin, monkeypatch
+):
+    user, _ = super_admin
+    proj = await create_project(db_session, owner_id=user.id, type_key="image-det")
+    task = await create_task(db_session, project_id=proj.id)
+    await db_session.flush()
+    pred = await _create_prediction_with_pipeline(
+        db_session,
+        project_id=proj.id,
+        task_id=task.id,
+        result=[_bbox_shape("car", {})],
+        stages=None,
+    )
+    input_id, origin_job_id = uuid.uuid4(), uuid.uuid4()
+    digest = "b" * 64
+    db_session.add(
+        PredictionMeta(
+            id=uuid.uuid4(),
+            prediction_id=pred.id,
+            extra={
+                "accepted_input": {
+                    "input_id": str(input_id),
+                    "job_id": str(origin_job_id),
+                    "task_id": str(task.id),
+                    "sha256": digest,
+                    "byte_size": 128,
+                }
+            },
+        )
+    )
+    await db_session.flush()
+    events = []
+    attached = []
+    receipt = SimpleNamespace(
+        input_id=input_id,
+        job_id=origin_job_id,
+        task_id=task.id,
+        project_id=proj.id,
+        sha256=digest,
+        byte_size=128,
+    )
+
+    class Gateway:
+        async def verify_source(self, request):
+            events.append(("verify", request.input_id))
+            return receipt
+
+    @asynccontextmanager
+    async def fake_gateway(**_kwargs):
+        yield Gateway()
+
+    async def fake_lock(_db, scope, *, operations):
+        events.append(("fence", scope.accepted_input_id))
+        assert operations == ("candidate_accept", "interactive_mask_accept")
+        return task, user, None
+
+    async def fake_attach(_db, *, annotation_id, input_id, sha256):
+        attached.append((annotation_id, input_id, sha256))
+        return True
+
+    monkeypatch.setattr("app.services.accepted_inputs.input_gateway", fake_gateway)
+    monkeypatch.setattr(annotation_service, "lock_labeling_write", fake_lock)
+    monkeypatch.setattr(
+        "app.services.accepted_inputs.attach_annotation_input_source", fake_attach
+    )
+
+    anns = await AnnotationService(db_session)._accept_prediction(
+        pred.id, shape_index=0, write_scope=_accept_scope(task, user.id)
+    )
+
+    assert anns is not None and len(anns) == 1
+    assert events == [("verify", input_id), ("fence", input_id)]
+    assert attached == [(anns[0].id, input_id, digest)]
+
+
+async def test_accept_prediction_source_change_fails_before_business_fence(
+    db_session, super_admin, monkeypatch
+):
+    user, _ = super_admin
+    proj = await create_project(db_session, owner_id=user.id, type_key="image-det")
+    task = await create_task(db_session, project_id=proj.id)
+    await db_session.flush()
+    pred = await _create_prediction_with_pipeline(
+        db_session,
+        project_id=proj.id,
+        task_id=task.id,
+        result=[_bbox_shape("car", {})],
+        stages=None,
+    )
+    db_session.add(
+        PredictionMeta(
+            id=uuid.uuid4(),
+            prediction_id=pred.id,
+            extra={
+                "accepted_input": {
+                    "input_id": str(uuid.uuid4()),
+                    "job_id": str(uuid.uuid4()),
+                    "task_id": str(task.id),
+                    "sha256": "c" * 64,
+                    "byte_size": 128,
+                }
+            },
+        )
+    )
+    await db_session.flush()
+    events = []
+
+    class Gateway:
+        async def verify_source(self, _request):
+            events.append("verify")
+            raise InputFailure("source_changed")
+
+    @asynccontextmanager
+    async def fake_gateway(**_kwargs):
+        yield Gateway()
+
+    async def unexpected_lock(*_args, **_kwargs):
+        events.append("fence")
+        pytest.fail("source verification must precede the business fence")
+
+    monkeypatch.setattr("app.services.accepted_inputs.input_gateway", fake_gateway)
+    monkeypatch.setattr(annotation_service, "lock_labeling_write", unexpected_lock)
+
+    with pytest.raises(HTTPException) as exc_info:
+        await AnnotationService(db_session)._accept_prediction(
+            pred.id, shape_index=0, write_scope=_accept_scope(task, user.id)
+        )
+    assert exc_info.value.status_code == 409
+    assert exc_info.value.detail["reason"] == "prediction_source_changed"
+    assert events == ["verify"]
+    assert (
+        await db_session.scalar(
+            select(Annotation).where(Annotation.parent_prediction_id == pred.id)
+        )
+        is None
+    )
 
 
 # ── update / bulk_update meta 键同步 ─────────────────────────────────────────

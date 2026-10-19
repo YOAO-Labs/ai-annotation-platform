@@ -145,13 +145,25 @@ export interface TriggerPreannotationResponse {
   warnings?: string[];
 }
 
+type TriggerPreannotationVariables =
+  | TriggerPreannotationPayload
+  | { payload: TriggerPreannotationPayload; idempotencyKey: string };
+
+export function createPreannotationIdempotencyKey(): string {
+  return crypto.randomUUID();
+}
+
 export function useTriggerPreannotation(projectId: string | undefined) {
   return useMutation({
-    mutationFn: (payload: TriggerPreannotationPayload) => {
+    mutationFn: (variables: TriggerPreannotationVariables) => {
       if (!projectId) throw new Error("No project selected");
+      const wrapped = "payload" in variables;
+      const payload = wrapped ? variables.payload : variables;
+      const idempotencyKey = wrapped ? variables.idempotencyKey : undefined;
       return apiClient.post<TriggerPreannotationResponse>(
         `/projects/${projectId}/preannotate`,
         payload,
+        idempotencyKey ? { headers: { "Idempotency-Key": idempotencyKey } } : undefined,
       );
     },
   });

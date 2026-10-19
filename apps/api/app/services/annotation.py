@@ -4,9 +4,11 @@ import copy
 import hashlib
 import json
 import logging
+import re
 import uuid
 from collections import Counter
 from datetime import datetime
+from dataclasses import replace
 from typing import Any
 
 from fastapi import HTTPException
@@ -466,6 +468,88 @@ class AnnotationService:
             return None
         if prediction.source == INTERACTIVE_ACCEPT_PREDICTION_SOURCE:
             return None
+        from app.db.models.prediction import PredictionMeta
+
+        pred_meta = (
+            await self.db.execute(
+                select(PredictionMeta).where(
+                    PredictionMeta.prediction_id == prediction_id
+                )
+            )
+        ).scalar_one_or_none()
+        meta_extra = (
+            pred_meta.extra if pred_meta and isinstance(pred_meta.extra, dict) else {}
+        )
+        accepted_input_id = None
+        accepted_input_sha256 = None
+        if "accepted_input" in meta_extra:
+            from aap_assets_inputs import contract as accepted_inputs_contract
+            from aap_assets_inputs.contract import InputFailure
+
+            raw_input = meta_extra.get("accepted_input")
+            try:
+                if not isinstance(raw_input, dict):
+                    raise ValueError("accepted input metadata is malformed")
+                input_id = uuid.UUID(raw_input["input_id"])
+                input_job_id = uuid.UUID(raw_input["job_id"])
+                input_task_id = uuid.UUID(raw_input["task_id"])
+                sha256 = raw_input["sha256"]
+                byte_size = raw_input["byte_size"]
+                if (
+                    input_task_id != prediction.task_id
+                    or not isinstance(sha256, str)
+                    or re.fullmatch(r"[0-9a-f]{64}", sha256) is None
+                    or type(byte_size) is not int
+                    or byte_size <= 0
+                ):
+                    raise ValueError("accepted input metadata is malformed")
+            except (KeyError, TypeError, ValueError, AttributeError) as exc:
+                raise HTTPException(
+                    status_code=409,
+                    detail={"reason": "accepted_input_unavailable"},
+                ) from exc
+            try:
+                from app.services.accepted_inputs import input_gateway
+
+                async with input_gateway() as gateway:
+                    record = await gateway.verify_source(
+                        accepted_inputs_contract.InputRequest(
+                            input_id=input_id,
+                            job_id=input_job_id,
+                            task_id=input_task_id,
+                        )
+                    )
+            except InputFailure as exc:
+                if exc.code in {
+                    "input_busy",
+                    "source_busy",
+                    "reference_busy",
+                    "job_busy",
+                }:
+                    reason = "input_busy"
+                elif exc.code == "source_changed":
+                    reason = "prediction_source_changed"
+                else:
+                    reason = "accepted_input_unavailable"
+                raise HTTPException(
+                    status_code=409,
+                    detail={"reason": reason, "code": exc.code},
+                ) from exc
+            if (
+                record.input_id != input_id
+                or record.job_id != input_job_id
+                or record.task_id != prediction.task_id
+                or record.project_id != prediction.project_id
+                or record.sha256 != sha256
+                or record.byte_size != byte_size
+            ):
+                raise HTTPException(
+                    status_code=409,
+                    detail={"reason": "accepted_input_unavailable"},
+                )
+            accepted_input_id = input_id
+            accepted_input_sha256 = sha256
+            write_scope = replace(write_scope, accepted_input_id=accepted_input_id)
         await lock_labeling_write(
             self.db,
             write_scope,
@@ -501,16 +585,7 @@ class AnnotationService:
         # 映射。pipeline 是 stage 级 (非 per-key), 但 enriched key = f"{label}_{k}" if label else k
         # (与 application/preannotation_execution.py:_run_task_pipeline 一致), 故能精确反推每个键出自哪个 stage 的 backend/model。
         # PredictionMeta 与 prediction 1:1 (prediction_id unique)。confidence 不在 extra 里, 不编造。
-        from app.db.models.prediction import PredictionMeta
-
         ai_key_model: dict[str, dict] = {}
-        pred_meta = (
-            await self.db.execute(
-                select(PredictionMeta).where(
-                    PredictionMeta.prediction_id == prediction_id
-                )
-            )
-        ).scalar_one_or_none()
         pipeline_meta = (pred_meta.extra or {}).get("pipeline") if pred_meta else None
         controlled_binding = bool(
             pred_meta and (pred_meta.extra or {}).get("trained_model")
@@ -679,6 +754,17 @@ class AnnotationService:
             anns.append(annotation)
 
         await self.db.flush()
+        if accepted_input_id is not None:
+            from app.services.accepted_inputs import attach_annotation_input_source
+
+            assert accepted_input_sha256 is not None
+            for annotation in anns:
+                await attach_annotation_input_source(
+                    self.db,
+                    annotation_id=annotation.id,
+                    input_id=accepted_input_id,
+                    sha256=accepted_input_sha256,
+                )
         await self._update_task_stats(prediction.task_id)
         return anns
 

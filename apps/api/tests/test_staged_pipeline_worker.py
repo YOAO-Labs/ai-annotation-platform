@@ -75,6 +75,62 @@ async def test_single_stage_passthrough():
 
 
 @pytest.mark.asyncio
+async def test_version_bound_input_url_is_sent_to_the_root_model():
+    task = _Task()
+    client = _FakeClient(responses=[[_Result(task.id, [_bbox(10, 10, 20, 20)])]])
+    version_url = "https://inputs.test/accepted/source?versionId=version-7"
+
+    await worker_tasks._run_task_pipeline(
+        task,
+        [{"stage": 9, "parent_stage": None, "roi": None, "write": None}],
+        [client],
+        [None],
+        resolve_url=lambda _task: version_url,
+    )
+
+    assert client.calls[0][0]["file_path"] == version_url
+
+
+@pytest.mark.asyncio
+async def test_roi_uses_private_input_after_root(monkeypatch, tmp_path):
+    task = _Task()
+    local_input = tmp_path / "accepted-source"
+    Image.new("RGB", (100, 100), (18, 42, 93)).save(local_input, format="PNG")
+    boxes = [_bbox(10, 10, 30, 30)]
+    detect_client = _FakeClient(responses=[[_Result(task.id, boxes)]])
+    classify_client = _FakeClient(
+        responses=[[_Result("0", [{"score": 0.98, "attributes": {"color": "blue"}}])]]
+    )
+
+    monkeypatch.setattr(
+        prediction_context,
+        "load_task_image",
+        lambda _task: pytest.fail("accepted-input ROI must not reread the Task URL"),
+    )
+    await worker_tasks._run_task_pipeline(
+        task,
+        [
+            {"stage": 3, "parent_stage": None, "roi": None, "write": None},
+            {
+                "stage": 11,
+                "parent_stage": 3,
+                "roi": {"mode": "crop", "pad": 0},
+                "write": {"target": "attributes", "keys": ["color"]},
+            },
+        ],
+        [detect_client, classify_client],
+        [None, None],
+        resolve_url=lambda _task: "https://inputs.test/source?versionId=version-7",
+        input_image_path=local_input,
+        stage_modes=["crop", "crop"],
+    )
+
+    assert detect_client.calls[0][0]["file_path"].endswith("versionId=version-7")
+    assert classify_client.calls
+    assert classify_client.calls[0][0]["image"].startswith("data:image/jpeg;base64,")
+
+
+@pytest.mark.asyncio
 async def test_two_stage_enriches_attributes(monkeypatch):
     task = _Task()
     # 源阶段产 2 个车框

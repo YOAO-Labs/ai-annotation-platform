@@ -98,8 +98,35 @@ def _own_lock(db: AsyncSession, task_id: uuid.UUID, user_id: uuid.UUID) -> None:
 
 
 @pytest.fixture
-def _mock_celery(monkeypatch):
+def _mock_celery(monkeypatch, app_module):
     captured: dict = {}
+    canonical_inputs: dict[tuple[uuid.UUID, uuid.UUID], uuid.UUID] = {}
+    admission_requests = []
+
+    class FakeInputAdmission:
+        async def accept(self, request):
+            admission_requests.append(request)
+            key = (request.job_id, request.task_id)
+            input_id = canonical_inputs.setdefault(
+                key,
+                uuid.uuid5(uuid.NAMESPACE_URL, f"{request.job_id}:{request.task_id}"),
+            )
+            if captured.pop("lose_admission_response", False):
+                from aap_assets_inputs.contract import InputFailure
+
+                raise InputFailure("storage_unavailable")
+            return type(
+                "AcceptedInputReceipt",
+                (),
+                {
+                    "input_id": input_id,
+                    "job_id": request.job_id,
+                    "task_id": request.task_id,
+                    "actor_id": request.actor_id,
+                    "status": "pending",
+                    "error": None,
+                },
+            )()
 
     def fake_dispatch(_dispatcher, request, *, queue, soft_time_limit=None):
         captured["request"] = request
@@ -108,8 +135,15 @@ def _mock_celery(monkeypatch):
         return "fake-job-uuid"
 
     from app.workers.batch_prediction_dispatch import CeleryBatchPredictionDispatcher
+    from app.services.accepted_inputs import get_input_admission
 
     monkeypatch.setattr(CeleryBatchPredictionDispatcher, "dispatch", fake_dispatch)
+    monkeypatch.setitem(
+        app_module.dependency_overrides,
+        get_input_admission,
+        lambda: FakeInputAdmission(),
+    )
+    captured["admission_requests"] = admission_requests
     return captured
 
 
@@ -137,17 +171,71 @@ async def test_workbench_scope_allows_in_progress_draft_with_own_lock(
     assert _mock_celery["request"].execution_scope == "workbench"
     assert _mock_celery["request"].task_ids == [str(task.id)]
     assert _mock_celery["request"].async_job_id == resp.json()["job_id"]
+    assert _mock_celery["request"].accepted_inputs_protocol == "aap-assets-inputs/v1"
+    assert set(_mock_celery["request"].accepted_input_ids) == {str(task.id)}
+    assert len(_mock_celery["admission_requests"]) == 1
 
     # issue #121 review · 工作台单题请求预建持久作业, 使 worker 早期校验失败也有终态记录。
     job_id = uuid.UUID(resp.json()["job_id"])
     job = await db_session.get(AsyncJob, job_id)
     assert job is not None
     assert job.kind == "batch_predict"
+    assert job.payload["accepted_inputs_protocol"] == "aap-assets-inputs/v1"
+    assert (
+        job.payload["accepted_input_ids"] == _mock_celery["request"].accepted_input_ids
+    )
     assert job.user_id == owner.id
     assert job.project_id == proj.id
     assert job.celery_task_id == str(job_id)
     assert job.payload["scope"] == {"task_ids": [str(task.id)]}
     assert job.payload["total_tasks"] == 1
+
+
+@pytest.mark.asyncio
+async def test_workbench_input_admission_replays_lost_response(
+    httpx_client, super_admin, db_session, _mock_celery
+):
+    owner, token = super_admin
+    proj, backend, _, task = await _seed(db_session, owner.id)
+    _mock_celery["lose_admission_response"] = True
+    headers = {
+        **_bearer(token),
+        "Idempotency-Key": "workbench-image-replay-001",
+    }
+    body = {
+        "ml_backend_id": str(backend.id),
+        "task_ids": [str(task.id)],
+        "execution_scope": "workbench",
+        "prompt": "Drivable Area",
+        "predict_mode": "overwrite",
+    }
+
+    first = await httpx_client.post(
+        f"/api/v1/projects/{proj.id}/preannotate", headers=headers, json=body
+    )
+    assert first.status_code == 503, first.text
+    job_id = _mock_celery["admission_requests"][0].job_id
+    pending = await db_session.get(AsyncJob, job_id)
+    assert pending is not None and pending.status == "pending"
+    assert pending.payload["accepted_input_ids"] == {}
+
+    second = await httpx_client.post(
+        f"/api/v1/projects/{proj.id}/preannotate", headers=headers, json=body
+    )
+    assert second.status_code == 200, second.text
+    assert second.json()["job_id"] == str(job_id)
+    assert _mock_celery["request"].accepted_input_ids == {
+        str(task.id): str(uuid.uuid5(uuid.NAMESPACE_URL, f"{job_id}:{task.id}"))
+    }
+    assert [item.job_id for item in _mock_celery["admission_requests"]] == [
+        job_id,
+        job_id,
+    ]
+    await db_session.refresh(pending)
+    assert (
+        pending.payload["accepted_input_ids"]
+        == _mock_celery["request"].accepted_input_ids
+    )
 
 
 @pytest.mark.asyncio

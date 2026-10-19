@@ -87,6 +87,7 @@ from app.services.pipeline_validation import (
 )
 from app.services.capability_registry import INPUT_BBOX_PROMPT, INPUT_CROP
 from app.services.batch_permissions import allows_bulk_preannotation
+from app.services.accepted_inputs import InputAdmission, get_input_admission
 from app.services.pipeline_template import (
     assert_pipeline_visible,
 )
@@ -1723,6 +1724,7 @@ async def trigger_preannotation(
     batch_dispatcher: BatchPredictionDispatcher = Depends(
         get_batch_prediction_dispatcher
     ),
+    input_admission: InputAdmission = Depends(get_input_admission),
 ):
     from app.services.ml_backend import MLBackendService
     from app.services.audit import AuditService
@@ -1994,6 +1996,9 @@ async def trigger_preannotation(
     has_tracker_stage = body.task == "tracker" or any(
         (s or {}).get("task") == "tracker" for s in (pipeline_stages_payload or [])
     )
+    has_text_stage = body.task == "text" or any(
+        (s or {}).get("task") == "text" for s in (pipeline_stages_payload or [])
+    )
     # v0.21.7 · 逐帧执行单位: 从源阶段(parent_stage=None)的 source.execution_unit 提取 (norm 丢弃了
     #   source, 故从原始 body.pipeline_stages 取)。frame → worker 走二级 fan-out 逐帧跑图像 backend。
     #   execution_unit 是整任务迭代粒度、非 per-stage, 故作 batch_predict 顶层参数。
@@ -2006,6 +2011,31 @@ async def trigger_preannotation(
         )
         if src_stage is not None and src_stage.source:
             execution_unit = (src_stage.source or {}).get("execution_unit")
+
+    accepted_input_task_id: uuid.UUID | None = None
+    if (
+        body.execution_scope == "workbench"
+        and explicit_task_ids is not None
+        and len(explicit_task_ids) == 1
+        and execution_unit not in {"frame", "video", "scene"}
+        and not has_tracker_stage
+        and not has_text_stage
+        and body.task not in {"text", "tracker"}
+    ):
+        candidate_task = await db.get(Task, explicit_task_ids[0])
+        if candidate_task is not None and candidate_task.file_type == "image":
+            accepted_input_task_id = candidate_task.id
+
+    accepted_input_payload = (
+        {
+            "accepted_inputs_protocol": "aap-assets-inputs/v1",
+            # The durable job exists before admission. The empty map records that
+            # this operation requires a canonical input and can safely replay it.
+            "accepted_input_ids": {},
+        }
+        if accepted_input_task_id is not None
+        else {}
+    )
 
     if uses_controlled_model:
         media_scope = [Task.project_id == project.id, Task.file_type != "image"]
@@ -2126,6 +2156,7 @@ async def trigger_preannotation(
                 "project_name": project.name,
                 "data_manager_idempotency_key": idempotency_key,
                 "data_manager_request_digest": request_digest_value,
+                **accepted_input_payload,
             }
             if scoped_ids is not None:
                 precreated_payload["scope"] = {"task_ids": scoped_ids}
@@ -2171,6 +2202,7 @@ async def trigger_preannotation(
                 else total_tasks_hint,
                 "project_display_id": project.display_id,
                 "project_name": project.name,
+                **accepted_input_payload,
                 **(
                     {"scope": {"task_ids": scoped_ids}, "task_ids": scoped_ids}
                     if scoped_ids is not None
@@ -2181,6 +2213,129 @@ async def trigger_preannotation(
         )
         async_job_svc.bind_execution_id(precreated_job, str(precreated_job.id))
         await db.commit()
+
+    accepted_inputs_protocol: str | None = None
+    accepted_input_ids: dict[str, str] | None = None
+    if accepted_input_task_id is not None:
+        from aap_assets_inputs import contract as accepted_inputs_contract
+        from aap_assets_inputs.contract import InputFailure
+
+        if precreated_job is None:
+            raise RuntimeError("Workbench input admission requires a durable job")
+        job_id = precreated_job.id
+        task_key = str(accepted_input_task_id)
+        durable_payload = precreated_job.payload or {}
+        if durable_payload.get("accepted_inputs_protocol") != "aap-assets-inputs/v1":
+            await async_job_svc.mark_dispatch_failed(
+                db,
+                job_id,
+                error="accepted_input_legacy_workbench_job_rejected",
+            )
+            await db.commit()
+            raise HTTPException(
+                status_code=409,
+                detail="本次工作台图像任务缺少已冻结的输入身份，请重新发起",
+            )
+
+        raw_input_ids = durable_payload.get("accepted_input_ids")
+        if not isinstance(raw_input_ids, dict) or any(
+            not isinstance(key, str) or not isinstance(value, str)
+            for key, value in raw_input_ids.items()
+        ):
+            await async_job_svc.mark_dispatch_failed(
+                db, job_id, error="accepted_input_identity_invalid"
+            )
+            await db.commit()
+            raise HTTPException(status_code=409, detail="冻结输入身份无效")
+        if raw_input_ids and set(raw_input_ids) != {task_key}:
+            await async_job_svc.mark_dispatch_failed(
+                db, job_id, error="accepted_input_scope_mismatch"
+            )
+            await db.commit()
+            raise HTTPException(status_code=409, detail="冻结输入任务范围不匹配")
+
+        try:
+            admission = await input_admission.accept(
+                accepted_inputs_contract.FindInputRequest(
+                    job_id=job_id,
+                    task_id=accepted_input_task_id,
+                    actor_id=current_user.id,
+                )
+            )
+        except InputFailure as exc:
+            terminal_source_errors = {
+                "source_missing",
+                "source_changed",
+                "source_not_ready",
+                "not_image",
+                "task_not_visible",
+                "permission_denied",
+                "input_missing",
+                "input_expired",
+                "input_corrupt",
+                "input_scope_mismatch",
+                "job_not_active",
+            }
+            if exc.code in terminal_source_errors:
+                await async_job_svc.mark_dispatch_failed(
+                    db, job_id, error=f"accepted_input_{exc.code}"
+                )
+                await db.commit()
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"图像来源无法冻结：{exc.code}",
+                ) from exc
+            # Busy/storage failures may have happened after the owner reserved the
+            # canonical row. Keep the job pending so the same-key replay can find
+            # it without observing a newer Task URL.
+            raise HTTPException(
+                status_code=503,
+                detail="冻结图像输入暂时不可用，请重试本次请求",
+                headers={"Retry-After": "5"},
+            ) from exc
+        except Exception as exc:
+            # A lost owner response is ambiguous. Retain the pending job and replay
+            # this same (job, task, actor) identity on the next request.
+            raise HTTPException(
+                status_code=503,
+                detail="冻结图像输入暂时不可用，请重试本次请求",
+                headers={"Retry-After": "5"},
+            ) from exc
+
+        if (
+            admission.job_id != job_id
+            or admission.task_id != accepted_input_task_id
+            or admission.actor_id != current_user.id
+            or admission.status in {"failed", "expired"}
+        ):
+            error_code = admission.error or admission.status
+            await async_job_svc.mark_dispatch_failed(
+                db, job_id, error=f"accepted_input_{error_code}"
+            )
+            await db.commit()
+            raise HTTPException(
+                status_code=409,
+                detail=f"冻结图像输入不可用：{error_code}",
+            )
+
+        accepted_inputs_protocol = "aap-assets-inputs/v1"
+        accepted_input_ids = {task_key: str(admission.input_id)}
+        if raw_input_ids and raw_input_ids != accepted_input_ids:
+            await async_job_svc.mark_dispatch_failed(
+                db, job_id, error="accepted_input_identity_mismatch"
+            )
+            await db.commit()
+            raise HTTPException(status_code=409, detail="冻结输入身份与作业不匹配")
+        if raw_input_ids != accepted_input_ids:
+            await async_job_svc.update_payload(
+                db,
+                job_id,
+                {
+                    "accepted_inputs_protocol": accepted_inputs_protocol,
+                    "accepted_input_ids": accepted_input_ids,
+                },
+            )
+            await db.commit()
 
     soft_time_limit = (
         settings.tracker_soft_time_limit_seconds if has_tracker_stage else None
@@ -2212,6 +2367,8 @@ async def trigger_preannotation(
         execution_scope=body.execution_scope,
         async_job_id=str(precreated_job.id) if precreated_job is not None else None,
         frozen_model_ref=frozen_model_ref,
+        accepted_inputs_protocol=accepted_inputs_protocol,
+        accepted_input_ids=accepted_input_ids,
     )
     try:
         dispatched_id = batch_dispatcher.dispatch(

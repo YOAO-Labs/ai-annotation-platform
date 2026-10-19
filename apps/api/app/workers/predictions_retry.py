@@ -14,7 +14,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
+import tempfile
 import uuid
+from pathlib import Path
 
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
@@ -30,6 +33,73 @@ from app.services.labeling_prediction_contract import (
 from app.workers.celery_app import celery_app
 
 log = logging.getLogger(__name__)
+_WRITE_ATTEMPTS = 3
+
+
+async def _verify_retry_source(gateway, request):
+    from aap_assets_inputs.contract import InputFailure
+
+    for attempt in range(_WRITE_ATTEMPTS):
+        try:
+            return await gateway.verify_source(request)
+        except InputFailure as exc:
+            if (
+                exc.code
+                not in {
+                    "input_busy",
+                    "source_busy",
+                    "reference_busy",
+                    "job_busy",
+                    "storage_unavailable",
+                }
+                or attempt == _WRITE_ATTEMPTS - 1
+            ):
+                raise
+            await asyncio.sleep(0.05 * 2**attempt)
+
+
+async def _apply_retry_prediction_with_retries(writer, db, request):
+    from app.services.labeling_prediction_contract import ApplyPredictionResultError
+
+    for attempt in range(_WRITE_ATTEMPTS):
+        try:
+            return await writer.apply_prediction_result(request)
+        except ApplyPredictionResultError as exc:
+            if not exc.retryable or attempt == _WRITE_ATTEMPTS - 1:
+                raise
+            await db.rollback()
+            await asyncio.sleep(0.05 * 2**attempt)
+    raise AssertionError("unreachable prediction retry write state")
+
+
+def _accepted_input_metadata(value, *, task_id, project_id) -> dict:
+    """Validate server-owned retry provenance without borrowing the current URL."""
+    if not isinstance(value, dict):
+        raise ValueError("accepted input metadata is malformed")
+    try:
+        input_id = uuid.UUID(value["input_id"])
+        job_id = uuid.UUID(value["job_id"])
+        metadata_task_id = uuid.UUID(value["task_id"])
+        sha256 = value["sha256"]
+        byte_size = value["byte_size"]
+    except (KeyError, TypeError, ValueError, AttributeError) as exc:
+        raise ValueError("accepted input metadata is malformed") from exc
+    if (
+        metadata_task_id != task_id
+        or not isinstance(sha256, str)
+        or re.fullmatch(r"[0-9a-f]{64}", sha256) is None
+        or type(byte_size) is not int
+        or byte_size <= 0
+    ):
+        raise ValueError("accepted input metadata is malformed")
+    return {
+        "input_id": input_id,
+        "job_id": job_id,
+        "task_id": metadata_task_id,
+        "project_id": project_id,
+        "sha256": sha256,
+        "byte_size": byte_size,
+    }
 
 
 class _PredictionRetryTerminalFailure(Exception):
@@ -200,8 +270,25 @@ async def _run_retry_attempt(
         backend = (
             await db.get(MLBackend, fp.ml_backend_id) if fp.ml_backend_id else None
         )
-        stored_context = (fp.extra or {}).get("request_context")
+        failure_extra = fp.extra if isinstance(fp.extra, dict) else {}
+        stored_context = failure_extra.get("request_context")
         request_context = stored_context if isinstance(stored_context, dict) else None
+        raw_accepted_input = failure_extra.get("accepted_input")
+        accepted_input = None
+        if "accepted_input" in failure_extra:
+            if task is None:
+                raise ValueError("accepted input retry task is unavailable")
+            accepted_input = _accepted_input_metadata(
+                raw_accepted_input, task_id=task.id, project_id=fp.project_id
+            )
+        elif (
+            failure_extra.get("execution_scope") == "workbench"
+            and failure_extra.get("execution_unit") not in {"frame", "video", "scene"}
+            and task is not None
+            and task.file_type == "image"
+            and failure_extra.get("task") not in {"text", "tracker"}
+        ):
+            raise ValueError("legacy Workbench image retry has no accepted input")
         ns = NotificationService(db)
         pending = await ns.notify(
             user_id=uid,
@@ -241,14 +328,40 @@ async def _run_retry_attempt(
                     session_factory
                 ),
             )
-            task_input = {
-                "id": str(task.id),
-                "file_path": resolve_task_url(task),
-            }
-            if request_context is None:
-                results = await client.predict([task_input])
+
+            async def predict_with_input(input_url: str):
+                task_input = {"id": str(task.id), "file_path": input_url}
+                if request_context is None:
+                    return await client.predict([task_input])
+                return await client.predict([task_input], context=request_context)
+
+            if accepted_input is None:
+                results = await predict_with_input(resolve_task_url(task))
             else:
-                results = await client.predict([task_input], context=request_context)
+                from aap_assets_inputs import contract as accepted_inputs_contract
+                from aap_assets_inputs.contract import InputFailure
+                from app.services.accepted_inputs import input_gateway
+
+                input_request = accepted_inputs_contract.InputRequest(
+                    input_id=accepted_input["input_id"],
+                    job_id=accepted_input["job_id"],
+                    task_id=accepted_input["task_id"],
+                )
+                async with input_gateway(session_factory=session_factory) as gateway:
+                    reference = await gateway.reference(input_request)
+                    record = reference.input
+                    if (
+                        record.project_id != accepted_input["project_id"]
+                        or record.sha256 != accepted_input["sha256"]
+                        or record.byte_size != accepted_input["byte_size"]
+                    ):
+                        raise InputFailure("input_corrupt")
+                    with tempfile.TemporaryDirectory(
+                        prefix="aap-accepted-retry-"
+                    ) as directory:
+                        await gateway.download(reference, Path(directory) / "source")
+                        results = await predict_with_input(reference.url)
+                        await _verify_retry_source(gateway, input_request)
             executed_backend_id = client.last_instance_id or backend.id
             retry_pool_id = client.pool_id
         if not results:
@@ -281,33 +394,50 @@ async def _run_retry_attempt(
     async with session_factory() as db:
         pred_svc = PredictionService(db)
         prediction_writer: ApplyPredictionResultPort = pred_svc
-        pred = await prediction_writer.apply_prediction_result(
-            ApplyPredictionResultRequest(
-                task_id=task.id,
-                project_id=task.project_id,
-                ml_backend_id=executed_backend_id,
-                result=first.result,
-                score=first.score,
-                model_version=first.model_version,
-                inference_time_ms=first.inference_time_ms,
-                ml_backend_pool_id=retry_pool_id,
-                token_meta=first.meta,
-                write_scope=capture_labeling_write_scope(
-                    task,
-                    actor_id=uid,
-                    actor_known=True,
-                    operation="prediction_retry",
-                    execution_scope=None,
-                    execution_scope_known=True,
-                    job_id=job_id,
-                    job_id_known=True,
+        write_request = ApplyPredictionResultRequest(
+            task_id=task.id,
+            project_id=task.project_id,
+            ml_backend_id=executed_backend_id,
+            result=first.result,
+            score=first.score,
+            model_version=first.model_version,
+            inference_time_ms=first.inference_time_ms,
+            ml_backend_pool_id=retry_pool_id,
+            token_meta=first.meta,
+            write_scope=capture_labeling_write_scope(
+                task,
+                actor_id=uid,
+                actor_known=True,
+                operation="prediction_retry",
+                execution_scope=None,
+                execution_scope_known=True,
+                job_id=job_id,
+                job_id_known=True,
+                accepted_input_id=(
+                    accepted_input["input_id"] if accepted_input else None
                 ),
-                **(
-                    {"model_provenance": request_context["frozen_model_ref"]}
-                    if request_context and request_context.get("frozen_model_ref")
-                    else {}
-                ),
-            )
+            ),
+            pipeline_extra=(
+                {
+                    "accepted_input": {
+                        "input_id": str(accepted_input["input_id"]),
+                        "job_id": str(accepted_input["job_id"]),
+                        "task_id": str(accepted_input["task_id"]),
+                        "sha256": accepted_input["sha256"],
+                        "byte_size": accepted_input["byte_size"],
+                    }
+                }
+                if accepted_input
+                else None
+            ),
+            **(
+                {"model_provenance": request_context["frozen_model_ref"]}
+                if request_context and request_context.get("frozen_model_ref")
+                else {}
+            ),
+        )
+        pred = await _apply_retry_prediction_with_retries(
+            prediction_writer, db, write_request
         )
         # 删除 failed_prediction 行
         await pred_svc.delete_failed_prediction_after_retry(fid)

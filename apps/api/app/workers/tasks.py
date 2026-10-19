@@ -5,7 +5,10 @@ from __future__ import annotations
 import asyncio
 
 from app.application.preannotation_contract import BatchPredictionRequest
-from app.application.preannotation_execution import run_preannotation
+from app.application.preannotation_execution import (
+    PreannotationInputDeferred,
+    run_preannotation,
+)
 from app.config import settings
 from app.services import prediction_progress
 from app.workers.celery_app import celery_app
@@ -65,7 +68,9 @@ class _BatchPredictTask(celery_app.Task):
 @celery_app.task(
     bind=True,
     base=_BatchPredictTask,
-    max_retries=3,
+    # Only the explicit pending-input deferral calls Task.retry. A None budget
+    # lets that durable readiness wait exceed Celery's default three retries.
+    max_retries=None,
     default_retry_delay=30,
 )
 def batch_predict(
@@ -90,6 +95,8 @@ def batch_predict(
     frozen_model_ref: dict | None = None,
     task: str | None = None,
     prompt_type: str | None = None,
+    accepted_inputs_protocol: str | None = None,
+    accepted_input_ids: dict[str, str] | None = None,
 ):
     frame_dispatcher = None
     if execution_unit == "frame":
@@ -116,13 +123,18 @@ def batch_predict(
         execution_scope=execution_scope,
         async_job_id=async_job_id,
         frozen_model_ref=frozen_model_ref,
+        accepted_inputs_protocol=accepted_inputs_protocol,
+        accepted_input_ids=accepted_input_ids,
         task=task,
         prompt_type=prompt_type,
     )
-    asyncio.run(
-        run_preannotation(
-            request,
-            execution_id=self.request.id,
-            frame_dispatcher=frame_dispatcher,
+    try:
+        asyncio.run(
+            run_preannotation(
+                request,
+                execution_id=self.request.id,
+                frame_dispatcher=frame_dispatcher,
+            )
         )
-    )
+    except PreannotationInputDeferred as exc:
+        raise self.retry(exc=exc, countdown=30, max_retries=None) from exc

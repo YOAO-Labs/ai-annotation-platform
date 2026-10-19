@@ -377,6 +377,114 @@ async def test_retry_worker_tracks_success_in_async_jobs(
     assert "failed_prediction.retry.succeeded" not in types
 
 
+async def test_retry_uses_retained_input_version_and_verifies_before_write(
+    db_session, super_admin, monkeypatch
+):
+    from contextlib import asynccontextmanager
+    from types import SimpleNamespace
+
+    from app.services.ml_client import PredictionResult
+    from app.services.prediction import PredictionService
+    from app.workers import predictions_retry as retry_worker
+
+    user, _ = super_admin
+    project = await _seed_project(db_session, user.id)
+    task = await _seed_task(db_session, project.id)
+    backend = await _seed_backend(db_session, project.id)
+    failed = await _seed_failed(
+        db_session,
+        project_id=project.id,
+        task_id=task.id,
+        backend_id=backend.id,
+    )
+    input_id, origin_job_id = uuid.uuid4(), uuid.uuid4()
+    digest = "d" * 64
+    failed.extra = {
+        "execution_scope": "workbench",
+        "accepted_input": {
+            "input_id": str(input_id),
+            "job_id": str(origin_job_id),
+            "task_id": str(task.id),
+            "sha256": digest,
+            "byte_size": 256,
+        },
+    }
+    await db_session.commit()
+    events = []
+    version_url = "https://inputs.test/accepted/source?versionId=original-version"
+    input_record = SimpleNamespace(
+        input_id=input_id,
+        job_id=origin_job_id,
+        task_id=task.id,
+        project_id=project.id,
+        sha256=digest,
+        byte_size=256,
+    )
+    reference = SimpleNamespace(input=input_record, url=version_url)
+
+    class Gateway:
+        async def reference(self, request):
+            assert request.input_id == input_id
+            assert request.job_id == origin_job_id
+            return reference
+
+        async def download(self, _reference, destination):
+            destination.write_bytes(b"accepted bytes")
+            events.append("download")
+
+        async def verify_source(self, _request):
+            events.append("verify-source")
+            return input_record
+
+    @asynccontextmanager
+    async def fake_gateway(**_kwargs):
+        yield Gateway()
+
+    async def fake_predict(_client, inputs, context=None):
+        events.append(("predict", inputs[0]["file_path"]))
+        return [
+            PredictionResult(
+                task_id=inputs[0]["id"],
+                result=[],
+                score=0.95,
+                model_version="retry-v1",
+                inference_time_ms=12,
+                meta={"retry_receipt": "preserved"},
+            )
+        ]
+
+    async def fake_apply(_service, request):
+        events.append(("write", request.write_scope.accepted_input_id))
+        assert request.pipeline_extra["accepted_input"] == {
+            "input_id": str(input_id),
+            "job_id": str(origin_job_id),
+            "task_id": str(task.id),
+            "sha256": digest,
+            "byte_size": 256,
+        }
+        return SimpleNamespace(id=uuid.uuid4())
+
+    monkeypatch.setattr("app.services.accepted_inputs.input_gateway", fake_gateway)
+    monkeypatch.setattr("app.services.ml_client.MLBackendClient.predict", fake_predict)
+    monkeypatch.setattr(PredictionService, "apply_prediction_result", fake_apply)
+    monkeypatch.setattr(
+        "app.services.storage.resolve_task_url",
+        lambda _task: pytest.fail("frozen retry must not resolve the current Task URL"),
+    )
+
+    result = await retry_worker._do_retry_with_factory(
+        _passthrough_session_factory(db_session), str(failed.id), str(user.id)
+    )
+
+    assert result["status"] == "succeeded"
+    assert events == [
+        "download",
+        ("predict", version_url),
+        "verify-source",
+        ("write", input_id),
+    ]
+
+
 async def test_retry_worker_tracks_backend_failure_in_async_jobs(
     db_session, super_admin, monkeypatch
 ):
