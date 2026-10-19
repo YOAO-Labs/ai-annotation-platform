@@ -608,6 +608,115 @@ it("does not expose deployment actions for a mismatched model response", async (
   expect(screen.queryByLabelText("模型版本详情")).not.toBeInTheDocument();
 });
 
+it("explains unenabled and unauthenticated services instead of silently filtering them out", async () => {
+  vi.mocked(mlBackendsApi.listAvailable).mockResolvedValue({
+    items: [
+      {
+        enabled: false,
+        backend: { id: "backend-1", name: "yolo-backend", state: "connected", auth_method: "none" },
+      },
+    ],
+  } as never);
+  mount("/projects/project-1/learning/models/model-1");
+  expect(await screen.findByText("本项目尚未启用推理服务，暂时无法加载此模型。")).toBeVisible();
+  const service = screen.getByRole("option", {
+    name: /yolo-backend · 项目未启用、未配置 Token 认证/,
+  });
+  expect(service).toBeDisabled();
+  expect(screen.getByRole("list", { name: "已注册推理服务状态" })).toHaveTextContent(
+    "yolo-backend · 项目未启用、未配置 Token 认证",
+  );
+  expect(screen.getByRole("button", { name: "加载模型并试用" })).toBeDisabled();
+  expect(trainedModelsApi.deploy).not.toHaveBeenCalled();
+});
+
+it("selects the only ready inference service and loads the exact model when clicked", async () => {
+  vi.mocked(trainedModelsApi.deploy).mockResolvedValue(deployment as never);
+  const user = userEvent.setup();
+  mount("/projects/project-1/learning/models/model-1");
+  const button = await screen.findByRole("button", { name: "加载模型并试用" });
+  await waitFor(() => expect(button).toBeEnabled());
+  expect(screen.getByLabelText("用于加载模型的推理服务")).toHaveValue("backend-1");
+  expect(trainedModelsApi.deploy).not.toHaveBeenCalled();
+  await user.click(button);
+  await waitFor(() =>
+    expect(trainedModelsApi.deploy).toHaveBeenCalledWith("project-1", "model-1", "backend-1"),
+  );
+  expect(trainedModelsApi.publish).not.toHaveBeenCalled();
+});
+
+it("requires an explicit choice between multiple ready services", async () => {
+  vi.mocked(mlBackendsApi.listAvailable).mockResolvedValue({
+    items: ["backend-1", "backend-2"].map((id) => ({
+      enabled: true,
+      backend: { id, name: id, auth_method: "token", state: "connected" },
+    })),
+  } as never);
+  const user = userEvent.setup();
+  mount("/projects/project-1/learning/models/model-1");
+  expect(await screen.findByText("请选择一个在线且已启用的推理服务，再加载此模型。")).toBeVisible();
+  const button = screen.getByRole("button", { name: "加载模型并试用" });
+  expect(button).toBeDisabled();
+  await user.selectOptions(screen.getByLabelText("用于加载模型的推理服务"), "backend-2");
+  expect(button).toBeEnabled();
+  expect(trainedModelsApi.deploy).not.toHaveBeenCalled();
+});
+
+it("explains missing authentication on an enabled and connected service", async () => {
+  vi.mocked(mlBackendsApi.listAvailable).mockResolvedValue({
+    items: [
+      {
+        enabled: true,
+        backend: { id: "backend-1", name: "YOLO", auth_method: "none", state: "connected" },
+      },
+    ],
+  } as never);
+  mount("/projects/project-1/learning/models/model-1");
+  expect(
+    await screen.findByText("已启用的推理服务尚未配置 Token 认证，无法加载训练权重。"),
+  ).toBeVisible();
+  expect(screen.getByRole("button", { name: "加载模型并试用" })).toBeDisabled();
+  expect(trainedModelsApi.deploy).not.toHaveBeenCalled();
+});
+
+it("reports service query failures separately from an unconfigured project and offers retry", async () => {
+  vi.mocked(mlBackendsApi.listAvailable).mockRejectedValueOnce(new Error("读取服务超时"));
+  const user = userEvent.setup();
+  mount("/projects/project-1/learning/models/model-1");
+  expect(await screen.findByText("推理服务列表读取失败，请重试。")).toBeVisible();
+  expect(
+    screen.queryByText("本项目尚未启用推理服务，暂时无法加载此模型。"),
+  ).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "加载模型并试用" })).toBeDisabled();
+  await user.click(screen.getByRole("button", { name: "重试" }));
+  await waitFor(() => expect(screen.getByRole("button", { name: "加载模型并试用" })).toBeEnabled());
+});
+
+it("disables loading when the selected service goes offline during polling", async () => {
+  const user = userEvent.setup();
+  mount("/projects/project-1/learning/models/model-1");
+  const select = await screen.findByLabelText("用于加载模型的推理服务");
+  await screen.findByRole("option", { name: "受控推理 · 在线" });
+  await user.selectOptions(select, "backend-1");
+  expect(screen.getByRole("button", { name: "加载模型并试用" })).toBeEnabled();
+  vi.mocked(mlBackendsApi.listAvailable).mockResolvedValue({
+    items: [
+      {
+        enabled: true,
+        backend: { id: "backend-1", name: "受控推理", auth_method: "token", state: "disconnected" },
+      },
+    ],
+  } as never);
+  await act(async () =>
+    clients[clients.length - 1].refetchQueries({ queryKey: ["learning-backends"] }),
+  );
+  expect(
+    await screen.findByText("已启用且配置认证的推理服务当前均不可用，请恢复服务后重试。"),
+  ).toBeVisible();
+  expect(screen.getByRole("button", { name: "加载模型并试用" })).toBeDisabled();
+  expect(trainedModelsApi.deploy).not.toHaveBeenCalled();
+});
+
 it.each(["super_admin", "project_admin", "employee"])(
   "gives %s the correct inference service setup links",
   async (role) => {

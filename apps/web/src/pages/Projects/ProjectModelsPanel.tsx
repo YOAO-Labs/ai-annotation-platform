@@ -1,6 +1,6 @@
 import { randomId } from "@/utils/id";
 import { CopyableError } from "@/components/ui/CopyableError";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ApiError } from "@/api/client";
@@ -9,7 +9,7 @@ import {
   dataManagerTaskActionsApi,
   type DataManagerTaskPreannotationPayload,
 } from "@/api/dataManagerActions";
-import { mlBackendsApi } from "@/api/ml-backends";
+import { mlBackendsApi, type ProjectMLBackendItem } from "@/api/ml-backends";
 import { tasksApi } from "@/api/tasks";
 import { trainingRunsApi } from "@/api/trainingRuns";
 import {
@@ -222,6 +222,14 @@ type ModelsPanelProps = {
   initialModelId?: string;
 };
 
+function inferenceServiceIssues({ backend, enabled }: ProjectMLBackendItem) {
+  return [
+    ...(!enabled ? ["项目未启用"] : []),
+    ...(backend.auth_method !== "token" ? ["未配置 Token 认证"] : []),
+    ...(backend.state !== "connected" ? ["服务当前不可用"] : []),
+  ];
+}
+
 export function ProjectModelsPanel(props: ModelsPanelProps) {
   const revision = useTrainingSessionRevision();
   const scope = useMemo(
@@ -246,6 +254,7 @@ function ModelsContent({
 }: ModelsPanelProps & { scope: string }) {
   const client = useQueryClient();
   const { role, canAccessPage } = usePermissions();
+  const inferenceStatusId = useId();
   const location = useLocation();
   const navigate = useNavigate();
   const session = useTrainingViewOwner(projectId, scope);
@@ -407,6 +416,34 @@ function ModelsContent({
   const enabledBackends =
     backends.data?.items.filter((item) => item.enabled && item.backend.auth_method === "token") ??
     [];
+  const readyBackends = enabledBackends.filter((item) => item.backend.state === "connected");
+  const selectedRegistryId =
+    registryId || (readyBackends.length === 1 ? readyBackends[0].backend.id : "");
+  const selectedBackend = backends.data?.items.find(
+    (item) => item.backend.id === selectedRegistryId,
+  );
+  const canDeploy =
+    !backends.isPending &&
+    !backends.isError &&
+    !!selectedBackend &&
+    inferenceServiceIssues(selectedBackend).length === 0;
+  const inferenceStatus = backends.isPending
+    ? "正在读取推理服务…"
+    : backends.isError
+      ? "推理服务列表读取失败，请重试。"
+      : !backends.data?.items.length
+        ? "尚未注册推理服务，请先添加支持加载训练权重的 YOLO 服务。"
+        : !backends.data.items.some((item) => item.enabled)
+          ? "本项目尚未启用推理服务，暂时无法加载此模型。"
+          : !enabledBackends.length
+            ? "已启用的推理服务尚未配置 Token 认证，无法加载训练权重。"
+            : !readyBackends.length
+              ? "已启用且配置认证的推理服务当前均不可用，请恢复服务后重试。"
+              : selectedRegistryId && !canDeploy
+                ? "所选推理服务已不可用，请重新选择。"
+                : !selectedRegistryId
+                  ? "请选择一个在线且已启用的推理服务，再加载此模型。"
+                  : "加载后会在固定验证图片上试用；确认结果并手动发布后，才会用于项目预标注。";
   const refresh = () => {
     void client.invalidateQueries({ queryKey: ["trained-models", projectId] });
     void client.invalidateQueries({ queryKey: ["trained-model", projectId] });
@@ -450,7 +487,8 @@ function ModelsContent({
   const deploy = useMutation({
     mutationFn: (view: View) => {
       assertView(view);
-      return trainedModelsApi.deploy(projectId, detailId, registryId);
+      if (!canDeploy) throw new Error(inferenceStatus);
+      return trainedModelsApi.deploy(projectId, detailId, selectedRegistryId);
     },
     onSuccess: (_, view) => {
       if (!ownsView(view)) return;
@@ -622,13 +660,10 @@ function ModelsContent({
           <CopyableError message={error} />
         </p>
       )}
-      {(releases.error || backends.error || (mode === "detail" && models.error)) && (
+      {(releases.error || (mode === "detail" && models.error)) && (
         <p role="alert" className="mt-3 text-sm text-status-danger">
           <CopyableError
-            message={
-              (releases.error ?? backends.error ?? (mode === "detail" ? models.error : null))
-                ?.message
-            }
+            message={(releases.error ?? (mode === "detail" ? models.error : null))?.message}
           />
         </p>
       )}
@@ -793,47 +828,96 @@ function ModelsContent({
                   用于加载模型的推理服务
                   <select
                     className={inputClass}
-                    value={registryId}
+                    value={selectedRegistryId}
+                    aria-describedby={inferenceStatusId}
+                    disabled={backends.isPending || backends.isError || deploy.isPending}
                     onChange={(event) => {
                       setRegistryId(event.target.value);
                       setError("");
                     }}
                   >
                     <option value="">选择 YOLO 推理服务</option>
-                    {enabledBackends.map(({ backend }) => (
+                    {backends.data?.items.map((item) => (
                       <option
-                        key={backend.id}
-                        value={backend.id}
-                        disabled={backend.state !== "connected"}
+                        key={item.backend.id}
+                        value={item.backend.id}
+                        disabled={inferenceServiceIssues(item).length > 0}
                       >
-                        {backend.name} · {backend.state === "connected" ? "在线" : "不可用"}
+                        {item.backend.name} · {inferenceServiceIssues(item).join("、") || "在线"}
                       </option>
                     ))}
                   </select>
                 </label>
                 <Button
                   size="sm"
-                  disabled={!registryId || deploy.isPending}
+                  disabled={!canDeploy || deploy.isPending}
+                  aria-describedby={inferenceStatusId}
                   onClick={() => deploy.mutate(captureView())}
                 >
                   {deploy.isPending ? "加载与试用中…" : "加载模型并试用"}
                 </Button>
               </div>
+              <p
+                id={inferenceStatusId}
+                role="status"
+                className={cn(
+                  "mt-2 text-xs leading-relaxed",
+                  canDeploy || backends.isPending ? "text-muted-foreground" : "text-status-warning",
+                )}
+              >
+                {inferenceStatus}
+              </p>
+              {backends.error && (
+                <TrainingError
+                  message={backends.error.message}
+                  onRetry={() => void backends.refetch()}
+                />
+              )}
               <details
                 className="mt-3 text-xs leading-relaxed text-muted-foreground"
-                open={!backends.isLoading && enabledBackends.length === 0}
+                open={!backends.isPending && !backends.isError && readyBackends.length === 0}
               >
                 <summary className="cursor-pointer rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
                   配置推理服务
                 </summary>
                 <p className="mt-2">
-                  推理服务负责加载候选模型并生成预标注。此处仅显示本项目已启用、且配置了访问令牌的服务。
+                  推理服务负责加载候选模型并生成预标注。只有本项目已启用、配置 Token
+                  认证且在线的服务可用于加载。
                 </p>
+                {!!backends.data?.items.length && (
+                  <ul aria-label="已注册推理服务状态" className="mt-2 space-y-2">
+                    {backends.data.items.map((item) => (
+                      <li
+                        key={item.backend.id}
+                        className="flex flex-wrap items-center gap-x-3 gap-y-1"
+                      >
+                        <span className="break-words">
+                          {item.backend.name} ·{" "}
+                          {inferenceServiceIssues(item).join("、") || "已就绪"}
+                        </span>
+                        {canAccessPage("model-market") && (
+                          <Link
+                            className="text-primary hover:underline"
+                            to={`/model-market?${new URLSearchParams({
+                              tab: "registry",
+                              registry_view: "instances",
+                              instance_id: item.backend.id,
+                            })}`}
+                          >
+                            {role === "super_admin" ? "查看并配置" : "查看服务"}
+                            <span className="sr-only"> {item.backend.name}</span>
+                          </Link>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                )}
                 <ol className="mt-2 list-decimal space-y-2 pl-5">
                   <li>
-                    超级管理员：进入「模型市场 → 注册管理 →
-                    实例」，点击「注册实例」，填写支持加载训练权重的 YOLO 服务地址，认证方式选择
-                    token，并填写访问令牌（Token）。
+                    超级管理员：进入「模型市场 → 注册管理 → 实例」，在现有 YOLO
+                    服务的操作菜单点击「编辑」，将认证方式设为
+                    token，填写与服务端一致的访问令牌。服务端需配置至少 32 个字符的
+                    YOLO_MANAGED_MODELS_TOKEN；已有实例无需重复注册。
                   </li>
                   <li>
                     项目负责人：进入「项目设置 → ML 模型」，点击「管理
