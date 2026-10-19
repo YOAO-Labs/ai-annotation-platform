@@ -45,6 +45,7 @@ from .processing import (
     ProcessedWork,
     process_claim,
 )
+from .process import FairWorkerPoller, create_worker_runtime
 from .storage import MediaStorage
 
 _MD5_HASH = re.compile(r"^[0-9a-fA-F]{32}$")
@@ -621,45 +622,52 @@ def _matches_declared_content_hash(
     return True
 
 
-async def _run_worker(*, once: bool, job_id: UUID | None) -> None:
-    from dataclasses import asdict
-
-    from .database import AsyncpgMediaDatabase
-    from .storage import S3MediaStorage
-
+async def _run_worker(
+    *,
+    once: bool,
+    job_id: UUID | None = None,
+    input_id: UUID | None = None,
+    frame_id: UUID | None = None,
+) -> None:
+    if sum(value is not None for value in (job_id, input_id, frame_id)) > 1:
+        raise ValueError("worker selectors are mutually exclusive")
     config = load_config()
-    database = await AsyncpgMediaDatabase.connect(
-        config.database_url, allowed_roles={"worker"}
-    )
-    storage = S3MediaStorage(
-        **{
-            key: value
-            for key, value in asdict(config.storage).items()
-            if key != "inputs_bucket"
-        }
-    )
-    executor = MediaExecutor(
-        database,
-        storage,
-        settings=config.execution,
-        probe_client=config.probe_client,
-    )
+    runtime = await create_worker_runtime(config)
+    poller = FairWorkerPoller(runtime.media_executor, runtime.video_executor)
     try:
         if once:
-            await executor.execute_once(job_id=job_id)
+            await poller.execute_once(
+                job_id=job_id,
+                input_id=input_id,
+                frame_id=frame_id,
+            )
             return
         next_maintenance = 0.0
         while True:
             did_work = None
-            try:
-                now = asyncio.get_running_loop().time()
-                if now >= next_maintenance:
-                    await executor.maintenance_once()
-                    next_maintenance = (
-                        asyncio.get_running_loop().time()
-                        + _MAINTENANCE_INTERVAL_SECONDS
+            now = asyncio.get_running_loop().time()
+            if now >= next_maintenance:
+                try:
+                    await runtime.media_executor.maintenance_once()
+                except Exception as exc:
+                    _LOGGER.error(
+                        "Assets media maintenance failed (%s)", type(exc).__name__
                     )
-                did_work = await executor.execute_once(job_id=job_id)
+                try:
+                    await runtime.maintenance_once()
+                except Exception as exc:
+                    _LOGGER.error(
+                        "Accepted video maintenance failed (%s)", type(exc).__name__
+                    )
+                next_maintenance = (
+                    asyncio.get_running_loop().time() + _MAINTENANCE_INTERVAL_SECONDS
+                )
+            try:
+                did_work = await poller.execute_once(
+                    job_id=job_id,
+                    input_id=input_id,
+                    frame_id=frame_id,
+                )
             except Exception as exc:
                 _LOGGER.error(
                     "Assets media worker iteration failed (%s)", type(exc).__name__
@@ -667,8 +675,7 @@ async def _run_worker(*, once: bool, job_id: UUID | None) -> None:
             if did_work is None:
                 await asyncio.sleep(config.poll_seconds)
     finally:
-        await executor.close()
-        await database.close()
+        await runtime.close()
 
 
 async def _healthcheck() -> None:
@@ -688,8 +695,19 @@ async def _healthcheck() -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Assets video media worker")
-    parser.add_argument("--once", action="store_true", help="execute at most one job")
-    parser.add_argument("--job-id", type=UUID, help="claim only this accepted job")
+    parser.add_argument(
+        "--once", action="store_true", help="execute at most one claimed unit"
+    )
+    selectors = parser.add_mutually_exclusive_group()
+    selectors.add_argument(
+        "--job-id", type=UUID, help="claim only this legacy media job"
+    )
+    selectors.add_argument(
+        "--input-id", type=UUID, help="claim only this retained video original"
+    )
+    selectors.add_argument(
+        "--frame-id", type=UUID, help="claim only this retained video frame"
+    )
     parser.add_argument(
         "--healthcheck", action="store_true", help="verify the worker SQL login"
     )
@@ -697,7 +715,14 @@ def main() -> None:
     if args.healthcheck:
         asyncio.run(_healthcheck())
         return
-    asyncio.run(_run_worker(once=args.once, job_id=args.job_id))
+    asyncio.run(
+        _run_worker(
+            once=args.once,
+            job_id=args.job_id,
+            input_id=args.input_id,
+            frame_id=args.frame_id,
+        )
+    )
 
 
 if __name__ == "__main__":
