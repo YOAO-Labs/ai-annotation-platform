@@ -107,7 +107,7 @@ BEGIN
     IF pg_catalog.jsonb_typeof(p_payload) IS DISTINCT FROM 'object'
        OR (p_payload - ARRAY['job_id', 'task_id', 'object_key'])
             IS DISTINCT FROM '{}'::jsonb
-       OR pg_catalog.jsonb_object_length(p_payload) <> 3
+       OR NOT (p_payload ?& ARRAY['job_id', 'task_id', 'object_key'])
        OR pg_catalog.jsonb_typeof(p_payload -> 'job_id') IS DISTINCT FROM 'string'
        OR pg_catalog.jsonb_typeof(p_payload -> 'task_id') IS DISTINCT FROM 'string'
        OR pg_catalog.jsonb_typeof(p_payload -> 'object_key') IS DISTINCT FROM 'string' THEN

@@ -159,3 +159,4 @@
 - [0111 — 独立 Mask 内容字节边界](0111-independent-mask-content.md)
 - [0112 — Durable Mask deletion fences and terminal receipts](0112-durable-mask-gc-fences.md)
 - [0113 — Durable ordinary preannotation results and execution handoff](0113-durable-preannotation-results.md)
+- [0114 — Durable failed-prediction retries and running tracker roots](0114-durable-prediction-retries.md)

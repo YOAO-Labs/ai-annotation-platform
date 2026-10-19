@@ -63,6 +63,11 @@ async def apply_signal_terminal(
     if cancelled:
         await jobs.mark_cancelled(db, job.id)
     else:
+        if job.kind == "prediction_retry" and isinstance(
+            (job.payload or {}).get("prediction_retry_request_digest"), str
+        ):
+            # Broker failure signals cannot prove the accepted retry lease.
+            return False
         if job.status in {
             AsyncJobStatus.COMPLETED.value,
             AsyncJobStatus.FAILED.value,

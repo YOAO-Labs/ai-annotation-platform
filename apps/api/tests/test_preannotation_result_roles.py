@@ -27,10 +27,13 @@ EXPECTED = {
     "aap_labeling_v1.put_batch_result_part(jsonb)",
     "aap_labeling_v1.seal_batch_result(jsonb)",
     "aap_labeling_v1.read_batch_result(jsonb)",
+    "aap_labeling_v1.read_prediction_retry(jsonb)",
+    "aap_jobs_v1.claim_prediction_retry_deliveries(jsonb)",
+    "aap_jobs_v1.finish_prediction_retry_delivery(jsonb)",
 }
 
 
-def test_executor_login_gets_only_fourteen_public_operations():
+def test_executor_login_gets_only_seventeen_public_operations():
     script = GRANTS.read_text(encoding="utf-8")
     grant = re.search(
         r"(?is)GRANT EXECUTE ON FUNCTION\s+(.*?)\s+TO\s+:\"result_role\";",
@@ -44,7 +47,7 @@ def test_executor_login_gets_only_fourteen_public_operations():
     )
     assert functions == EXPECTED
     assert "result_role=preannotation_result_client" in script
-    assert "exactly 14 executor capabilities" in script
+    assert "exactly 17 executor capabilities" in script
 
 
 def test_executor_has_no_raw_table_or_writer_capability():
@@ -64,6 +67,9 @@ def test_executor_has_no_raw_table_or_writer_capability():
         "finish_batch_result_write",
         "finish_batch_result_failure",
         "lock_batch_result_execution",
+        "admit_prediction_retry",
+        "finish_prediction_retry_write",
+        "finish_prediction_retry_failure",
     ):
         assert writer in script
         assert not re.search(
@@ -99,13 +105,16 @@ async def test_provisioned_executor_role_has_exact_functions_and_no_table_access
         ),
         {"role": role},
     )
-    assert callable_count == 14
+    assert callable_count == 17
 
     for signature in (
         "aap_jobs_v1.lock_batch_result_execution(jsonb)",
         "aap_labeling_v1.lock_batch_result_write(jsonb)",
         "aap_labeling_v1.finish_batch_result_write(jsonb)",
         "aap_labeling_v1.finish_batch_result_failure(jsonb)",
+        "aap_labeling_v1.admit_prediction_retry(jsonb)",
+        "aap_labeling_v1.finish_prediction_retry_write(jsonb)",
+        "aap_labeling_v1.finish_prediction_retry_failure(jsonb)",
     ):
         assert not await db_session.scalar(
             text(

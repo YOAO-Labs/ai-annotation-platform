@@ -226,7 +226,7 @@ BEGIN
        OR p_scope ->> 'project_id' IS DISTINCT FROM p_project_id::text
        OR p_scope ->> 'actor_id' IS DISTINCT FROM p_actor_id::text
        OR p_scope ->> 'job_id' IS DISTINCT FROM p_job_id::text
-       OR p_scope ->> 'operation' IS DISTINCT FROM CASE WHEN v_job_kind='prediction_retry' THEN 'prediction_retry' ELSE 'preannotation' END
+       OR p_scope ->> 'operation' IS DISTINCT FROM (CASE WHEN v_job_kind='prediction_retry' THEN 'prediction_retry' ELSE 'preannotation' END)
        OR p_scope -> 'actor_known' IS DISTINCT FROM 'true'::jsonb
        OR p_scope -> 'execution_scope_known' IS DISTINCT FROM 'true'::jsonb
        OR p_scope -> 'job_id_known' IS DISTINCT FROM 'true'::jsonb THEN

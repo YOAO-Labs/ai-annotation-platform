@@ -217,6 +217,19 @@ def test_requests_apply_defaults_budgets_and_required_nullable_fields():
         }
     )
     assert len(request.reason) == 200
+    assert request.abandon is False
+    assert (
+        json.loads(
+            prepare_native_call(
+                "finish_prediction_retry_failure", request, writer=True
+            )[1][0]
+        )["abandon"]
+        is False
+    )
+    with pytest.raises(ValidationError):
+        c.FinishPredictionRetryFailureRequest.model_validate(
+            {**request.model_dump(), "abandon": "true"}
+        )
 
 
 def test_admit_and_read_validate_exact_identity_and_queue_echoes():
@@ -312,6 +325,24 @@ def test_write_and_failure_replies_require_terminal_progress_for_same_job():
             c.success_envelope(failed),
         )
         == failed
+    )
+    abandoned = failed.model_copy(
+        update={
+            "outcome": {
+                "status": "cancelled",
+                "failed_id": str(FAILED_ID),
+                "reason": "source_changed",
+            },
+            "progress": progress("cancelled", skipped_count=1),
+        }
+    )
+    assert (
+        c.decode_reply(
+            "finish_prediction_retry_failure",
+            failure_request.model_copy(update={"abandon": True}),
+            c.success_envelope(abandoned),
+        )
+        == abandoned
     )
     wrong_state = failed.model_copy(update={"progress": progress("running")})
     with pytest.raises(c.PredictionRetryFailure):

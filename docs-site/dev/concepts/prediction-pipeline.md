@@ -100,7 +100,7 @@ HTTP 入口对普通批量、Data Manager、工作台和受控模型请求统一
 
 最终写入继续经过当前账号／项目／Task／来源／编辑锁／Job 准入。Prediction、Meta、精确回执、快照和根释放及成员进度共用一次提交；提交确认丢失时读取回执，不再创建候选或失败行。正常写入每轮三次快速重试，仍忙则延后同一 Celery 消息；late ack 和 worker-loss redelivery 从已存原始或准备结果恢复，不重新选择任务、清理覆盖或调用模型。尚未完整存下原始字节的计算不提供一次执行保证。
 
-原始／准备结果按单个模型响应保存，512 KiB 分块和 2 MiB 请求／响应只限制传输，不限制整题结果总量。待保存的 Mask 引用同时被当前内嵌 collector 和 native 根表保护。协作取消阻止下一成员，当前已开始成员可先完成；真实终态拒绝新写入。独立失败预测重试、逐帧和场景路径继续持有各自协议。完整契约与受限执行角色见[同库数据接口](/api/guides/module-data#普通批量结果检查点)。
+原始／准备结果按单个模型响应保存，512 KiB 分块和 2 MiB 请求／响应只限制传输，不限制整题结果总量。待保存的 Mask 引用同时被当前内嵌 collector 和 native 根表保护。协作取消阻止下一成员，当前已开始成员可先完成；真实终态拒绝新写入。失败预测重试复用这份结果账本，并增加独立准入和派发协议；逐帧和场景路径继续持有各自协议。完整契约与受限执行角色见[同库数据接口](/api/guides/module-data#普通批量结果检查点)。
 
 ## WebSocket 通道
 
@@ -345,11 +345,13 @@ Resident、CPU fallback、Unloaded 或保守 Unknown。容量不足时，authori
 
 ## 失败预测重试边界
 
-单项重试与按作业重试由 `app/application/prediction_retry.py` 组合，路由保留 HTTP 角色入口与响应。失败预测的当前项目管理准入、行锁占用和占用释放由 `app/services/prediction.py` 持有；重试次数上限与 UTF-8 JSON 的 8 KiB 请求上下文预算由纯模块 `app/services/prediction_retry.py` 定义，预标注入口和批量 worker 直接使用该所有者，不再导入 worker 的上下文预算助手。
+单项重试与按作业重试由 `app/application/prediction_retry.py` 受理，保留公开路由与角色入口。Labeling 原生准入在当前管理权围栏内固定原失败项、Task 作用域和推理参数，Jobs 同事务创建 pending Job、执行成员与 outbox；Job UUID 同时作为 Celery task ID。单项队列仍由原设备规则选择，按作业重试仍使用默认路由。
 
-`PredictionService` 独占失败项的 dismiss/restore 字段变更、重试成功后的失败行删除，以及失败计数与 `extra.retry_pending` / 可选 `last_gpu_arbiter_error` 更新。路由保留当前管理准入、审计与有变更时才提交；worker 保留推理 transport 和调用方事务，`Prediction` / `PredictionMeta` 创建与失败行删除一起提交。
+`aap-prediction-retries/v1` 提供准入、读取、成功／失败结算及派发领取／确认六项能力。执行器复用 `aap-preannotation-results/v1` 的租约、分块结果、稳定 Prediction 身份与 Mask 根；模型必须恰好返回一个原 Task 的结果。原始输出先保存，再校验来源与生产 Mask。完整 raw 之后的重投递直接恢复结果，临时输入等待、三次短写入重试耗尽和提交确认丢失均不增加失败次数。
 
-单项重试在提交占用前按 backend 设备快照选执行队列，受控模型继续优先使用 `controlled_device`；按作业重试仍使用原默认路由，不擅自改成设备感知派发。两条路径均先提交占用再经注入的 `PredictionRetryDispatcher` 派发，具体 Celery 任务选择在 `app/workers/prediction_retry_dispatch.py`。批量中途发布失败时仅释放派发调用尚未返回成功的项，已返回成功项保持排队；补偿自身不增加执行计数，但不确定发布不能作为任务未入队的证明。没有增加自动重试、outbox 或 exactly-once 保证。
+成功时，实际 Prediction／Meta 证明、原失败行和 Meta 删除、回执、成员计数及 Job 终态共同提交。模型或 Mask 数据的永久失败只增加一次 `retry_count`，最多三次；账号、来源、dismiss 或作业状态失效则放弃当前 attempt，释放对应占用及临时根，不计模型失败。当前 Labeling guard 仍是最终写入条件。
+
+发布成功但确认丢失时保留 outbox，定时 relay 使用函数专用连接重投相同 UUID。Celery 迟确认并在子进程丢失后重新投递；通用异常信号不能代替当前租约终结已受理重试。显式终态仍停止写入。迁移释放没有绑定 Job 的旧 pending marker，保留失败次数；迟到旧消息须重新通过同一准入。协议见[同库数据接口](/api/guides/module-data#失败预测重试)。
 
 ## 代码索引
 

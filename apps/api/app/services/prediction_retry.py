@@ -22,12 +22,17 @@ class PredictionRetryDispatcher(Protocol):
         actor_id: uuid.UUID,
         *,
         execution_queue: str,
+        job_id: uuid.UUID | None = None,
     ) -> None:
         """Dispatch one retry to the execution queue selected before claim commit."""
         ...
 
     def dispatch_job_item_retry(
-        self, failed_id: uuid.UUID, actor_id: uuid.UUID
+        self,
+        failed_id: uuid.UUID,
+        actor_id: uuid.UUID,
+        *,
+        job_id: uuid.UUID | None = None,
     ) -> None:
         """Dispatch a recorded batch failure using the existing default placement."""
         ...

@@ -420,14 +420,14 @@ async def test_video_retry_prepares_exact_retained_frame_before_retry_admission(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("wait_at", ["source", "frame"])
-async def test_video_retry_busy_frame_defers_before_retry_job_side_effects(
+async def test_video_retry_busy_frame_defers_before_model_execution(
     monkeypatch, wait_at
 ):
     from aap_assets_video_inputs.execution import VideoInputFailure
     from app.services import accepted_video_inputs
     from app.workers.predictions_retry import (
         FrozenInputRetryDeferred,
-        _do_retry_with_factory,
+        _prepare_retry_input,
     )
 
     failure = _evidence(failure=True)
@@ -492,7 +492,10 @@ async def test_video_retry_busy_frame_defers_before_retry_job_side_effects(
 
     code = "input_busy" if wait_at == "source" else "frame_busy"
     with pytest.raises(FrozenInputRetryDeferred, match=code):
-        await _do_retry_with_factory(lambda: Session(), str(failed.id), str(actor_id))
+        async with _prepare_retry_input(
+            lambda: Session(), str(failed.id), str(actor_id)
+        ):
+            pytest.fail("a pending frame must defer before model execution")
     assert events == (["source"] if wait_at == "source" else ["source", "reference"])
     assert failed.retry_count == 0
     assert failed.extra["retry_pending"] is True

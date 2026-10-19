@@ -58,9 +58,11 @@ HTTP 硬取消保留原授权、锁和通知顺序；Celery 信号适配器负�
 
 跨帧 worker 保留已取消时不回写增量进度、逐帧结果整体替换及原提交点；最终取消显式允许覆盖已有终态、推进至 100、保留旧错误，再按原顺序通知和提交。连接器导入允许 pending/running/已经 cancelled 三种状态回填最终计数，不强制进度 100，通知仍由原调用方发一次。旧导入预算快照仍在刷新后的作业排他锁内生成，浅合并并提交后才枚举源文件；这些进程内命令不是语言无关的作业协议。
 
-`application/prediction_retry.py` 持有失败预测的单项及按作业重试用例。保留原管理准入、单项队列选择在占用提交前完成、批量先提交全部可占用项再按原默认路由投递的差异；异常仅释放派发调用尚未返回成功的项，已返回成功项继续占用。该工作流持有提交和补偿边界，不能套用取消/终态的调用方单事务。
+`application/prediction_retry.py` 持有单项及按作业重试用例。单项仍按原 backend 设备选择队列，按作业重试仍走默认路由；当前管理权、失败项、原始 Labeling 作用域、pending Job 和派发记录在同一准入事务固定。发布结果不确定时保留这次受理，由 outbox 继续投递相同 Job UUID。
 
-失败预测管理权限、dismiss/restore 和占用写入由 `services/prediction.py` 持有；同一 owner 还持有 retry 成功后的失败行删除及失败计数（递增 `retry_count`、更新 `last_retry_at`、移除 `retry_pending` 并保留可选仲裁错误）。HTTP 保留当前角色与项目管理准入、条件审计和提交；worker 只保留实际推理/队列编排，预测产物与失败行删除在同一调用事务提交。重试上限和 UTF-8 JSON 的 8 KiB 上下文预算归 `services/prediction_retry.py`。该纯模块的 `PredictionRetryDispatcher` 定义具体重试操作，由 `deps.get_prediction_retry_dispatcher()` 装配 `workers/prediction_retry_dispatch.py`；只传 UUID 和单项预选的执行队列，不暴露 Celery 任务对象或注册名。它仍是本地同步派发接口，没有增加远程协议、自动重试或数据库与 broker 的原子提交；回执丢失等不确定发布仍沿用原语义，补偿不证明任务未入队。
+`application/durable_prediction_retry.py` 组合已保存的输入、推理结果和最终回执。Jobs 持有执行租约及派发账本，Labeling 持有不可变 attempt、原始／准备结果与失败项结算。成功写入 Prediction／Meta、删除原失败行、结算回执和 Job 在同一事务；模型永久失败只计一次，输入等待、写锁竞争和提交确认丢失继续同一结果。账号、来源或失败项状态失效时终结当前 attempt 并释放对应占用，不计模型失败。`PredictionService` 继续持有 dismiss/restore 和预测写入校验，原生能力负责重试的最终组合。
+
+`services/prediction_retry.py` 保留次数上限、上下文预算和纯派发端口；Celery 适配器只传失败项、actor、稳定 Job UUID 与执行队列。函数专用 executor 登录负责读取及 outbox，业务写入方保留原事务与最终 Labeling guard；协议见[失败预测重试](/api/guides/module-data#失败预测重试)。
 
 `application/dataset_task_creation.py::DatasetTaskCreationWorkflow` 协调素材关联、同步/排队选择、素材准备与建题，消费版本化 PostgreSQL 数据能力。接受阶段通过 Identity/Workspace 当前管理权固定 actor、关联代次和可选作业；Labeling 随后冻结来源、推进持久游标并写回执。适配器只传 UUID、JSON 和标量，同一连接的外层事务继续持有提交权，结果保留 `created` / `total` 计数字典。
 

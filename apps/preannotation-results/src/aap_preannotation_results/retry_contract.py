@@ -188,6 +188,7 @@ class FinishPredictionRetryWriteResult(Value):
 
 
 class FinishPredictionRetryFailureRequest(c.LeaseScope):
+    abandon: bool = False
     error_code: ErrorCodeText
     reason: ReasonText
     gpu_arbiter_error: dict[str, Any] | None
@@ -400,7 +401,7 @@ def _validate_scope(operation: str, request: BaseModel, result: BaseModel) -> No
         if result.progress.state != "completed":
             raise PredictionRetryFailure("invalid_response")
     elif operation == "finish_prediction_retry_failure":
-        if result.progress.state != "failed":
+        if result.progress.state != ("cancelled" if request.abandon else "failed"):
             raise PredictionRetryFailure("invalid_response")
     elif operation == "claim_prediction_retry_deliveries":
         if len(result.items) > request.limit:

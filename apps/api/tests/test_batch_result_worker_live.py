@@ -161,9 +161,10 @@ def _delete_owned_queue(sender: Celery, queue: str) -> None:
         connection.default_channel.queue_delete(queue)
 
 
+@pytest.mark.parametrize("delivery_kind", ["batch", "retry"])
 @pytest.mark.parametrize("digest_bound_at_admission", [True, False])
 async def test_prefork_loss_resumes_captured_result_without_second_inference(
-    test_engine, test_db_url, tmp_path, digest_bound_at_admission
+    test_engine, test_db_url, tmp_path, digest_bound_at_admission, delivery_kind
 ):
     from app.application.preannotation_contract import BatchPredictionRequest
     from app.application.preannotation_results import (
@@ -192,7 +193,9 @@ async def test_prefork_loss_resumes_captured_result_without_second_inference(
             "verified worker role does not target the test database"
         )
 
-    actor_id, project_id, backend_id, task_id, job_id = (uuid4() for _ in range(5))
+    actor_id, project_id, backend_id, task_id, job_id, failed_id = (
+        uuid4() for _ in range(6)
+    )
     suffix = uuid4().hex[:12]
     request = BatchPredictionRequest(
         project_id=str(project_id),
@@ -300,27 +303,62 @@ async def test_prefork_loss_resumes_captured_result_without_second_inference(
                 )
             )
             await db.flush()
-            db.add(
-                AsyncJob(
-                    id=job_id,
-                    kind="batch_predict",
-                    project_id=project_id,
-                    user_id=actor_id,
-                    status="pending",
-                    celery_task_id=str(job_id),
-                    payload={
-                        "execution_scope": "bulk",
-                        "task_ids": [str(task_id)],
-                        "scope": {"task_ids": [str(task_id)]},
-                        **(
-                            {"preannotation_request_digest": digest}
-                            if digest_bound_at_admission
-                            else {}
-                        ),
-                    },
+            if delivery_kind == "retry":
+                db.add(
+                    FailedPrediction(
+                        id=failed_id,
+                        project_id=project_id,
+                        task_id=task_id,
+                        ml_backend_id=backend_id,
+                        retry_count=0,
+                        error_type="TIMEOUT",
+                        message="original failure",
+                        extra={"retry_pending": True}
+                        if not digest_bound_at_admission
+                        else {},
+                    )
                 )
-            )
+            else:
+                db.add(
+                    AsyncJob(
+                        id=job_id,
+                        kind="batch_predict",
+                        project_id=project_id,
+                        user_id=actor_id,
+                        status="pending",
+                        celery_task_id=str(job_id),
+                        payload={
+                            "execution_scope": "bulk",
+                            "task_ids": [str(task_id)],
+                            "scope": {"task_ids": [str(task_id)]},
+                            **(
+                                {"preannotation_request_digest": digest}
+                                if digest_bound_at_admission
+                                else {}
+                            ),
+                        },
+                    )
+                )
         seeded = True
+        retry_scope = None
+        if delivery_kind == "retry" and digest_bound_at_admission:
+            from app.services.prediction_retry_data import SqlAlchemyPredictionRetryData
+            from aap_preannotation_results.retry_contract import (
+                AdmitPredictionRetryRequest,
+            )
+
+            async with legacy_sessions() as db:
+                admitted = await SqlAlchemyPredictionRetryData(db, writer=True).call(
+                    "admit_prediction_retry",
+                    AdmitPredictionRetryRequest(
+                        job_id=job_id,
+                        failed_prediction_id=failed_id,
+                        actor_id=actor_id,
+                        execution_queue=queue,
+                    ),
+                )
+                await db.commit()
+                digest = admitted.attempt.request_digest
         worker_log = worker_log_path.open("wb")
         worker = await asyncio.create_subprocess_exec(
             sys.executable,
@@ -345,31 +383,64 @@ async def test_prefork_loss_resumes_captured_result_without_second_inference(
             stderr=worker_log,
         )
         await _wait_for_worker_ready(worker_ready_path, worker, timeout=60)
-        delivery = await asyncio.to_thread(
-            sender.send_task,
-            "app.workers.tasks.batch_predict",
-            kwargs={
-                "project_id": str(project_id),
-                "ml_backend_id": str(backend_id),
-                "task_ids": [str(task_id)],
-                "prompt": request.prompt,
-                "output_mode": request.output_mode,
-                "user_id": str(actor_id),
-                "predict_mode": request.predict_mode,
-                "execution_scope": request.execution_scope,
-                "async_job_id": str(job_id),
-                "task_type": request.task_type,
-            },
-            queue=queue,
-            task_id=str(job_id),
-        )
+        if delivery_kind == "retry":
+            delivery = await asyncio.to_thread(
+                sender.send_task,
+                "app.workers.predictions_retry.retry_failed_prediction",
+                args=[str(failed_id), str(actor_id)],
+                kwargs={"job_id": str(job_id)} if digest_bound_at_admission else {},
+                queue=queue,
+                task_id=str(job_id),
+            )
+        else:
+            delivery = await asyncio.to_thread(
+                sender.send_task,
+                "app.workers.tasks.batch_predict",
+                kwargs={
+                    "project_id": str(project_id),
+                    "ml_backend_id": str(backend_id),
+                    "task_ids": [str(task_id)],
+                    "prompt": request.prompt,
+                    "output_mode": request.output_mode,
+                    "user_id": str(actor_id),
+                    "predict_mode": request.predict_mode,
+                    "execution_scope": request.execution_scope,
+                    "async_job_id": str(job_id),
+                    "task_type": request.task_type,
+                },
+                queue=queue,
+                task_id=str(job_id),
+            )
         captured = await _wait_for_capture(captured_path, worker, timeout=90)
         assert captured["raw_complete"] is True
         assert captured["state"] == "captured"
         assert captured["ordinal"] == 1 and captured["result_count"] == 1
         async with owner_sessions() as db:
             saved_job = await db.get(AsyncJob, job_id)
-            assert saved_job.payload["preannotation_request_digest"] == digest
+            if delivery_kind == "retry":
+                from app.application.durable_prediction_retry import (
+                    retry_scope as frozen_retry_scope,
+                )
+                from app.services.prediction_retry_data import (
+                    SqlAlchemyPredictionRetryData,
+                )
+                from aap_preannotation_results.retry_contract import (
+                    ReadPredictionRetryRequest,
+                )
+
+                result = await SqlAlchemyPredictionRetryData(db).call(
+                    "read_prediction_retry",
+                    ReadPredictionRetryRequest(
+                        job_id=job_id,
+                        failed_prediction_id=failed_id,
+                        actor_id=actor_id,
+                    ),
+                )
+                retry_scope = frozen_retry_scope(result.attempt)
+                digest = result.attempt.request_digest
+                assert saved_job.payload["prediction_retry_request_digest"] == digest
+            else:
+                assert saved_job.payload["preannotation_request_digest"] == digest
         killed_child_pid = captured["pid"]
         assert worker.returncode is None and _pid_exists(killed_child_pid)
         os.kill(killed_child_pid, signal.SIGKILL)
@@ -433,6 +504,7 @@ async def test_prefork_loss_resumes_captured_result_without_second_inference(
             legacy_sessions,
             execution_id=str(job_id),
             executor_session_factory=result_sessions,
+            scope=retry_scope,
         )
         page = await inspection.call(
             "read_batch_result_execution",

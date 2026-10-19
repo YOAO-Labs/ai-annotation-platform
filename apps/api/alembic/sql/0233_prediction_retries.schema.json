@@ -1,0 +1,1203 @@
+{
+  "$defs": {
+    "AdmitPredictionRetryRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "execution_queue": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Execution Queue"
+        },
+        "failed_prediction_id": {
+          "format": "uuid",
+          "title": "Failed Prediction Id",
+          "type": "string"
+        },
+        "job_id": {
+          "format": "uuid",
+          "title": "Job Id",
+          "type": "string"
+        },
+        "legacy_delivery": {
+          "default": false,
+          "title": "Legacy Delivery",
+          "type": "boolean"
+        }
+      },
+      "required": ["job_id", "failed_prediction_id", "actor_id", "execution_queue"],
+      "title": "AdmitPredictionRetryRequest",
+      "type": "object"
+    },
+    "AdmitPredictionRetryResult": {
+      "additionalProperties": false,
+      "properties": {
+        "attempt": {
+          "$ref": "#/$defs/RetryAttempt"
+        },
+        "created": {
+          "title": "Created",
+          "type": "boolean"
+        }
+      },
+      "required": ["attempt", "created"],
+      "title": "AdmitPredictionRetryResult",
+      "type": "object"
+    },
+    "ClaimPredictionRetryDeliveriesRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "job_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Job Id"
+        },
+        "lease_seconds": {
+          "default": 30,
+          "maximum": 300,
+          "minimum": 5,
+          "title": "Lease Seconds",
+          "type": "integer"
+        },
+        "limit": {
+          "default": 100,
+          "maximum": 100,
+          "minimum": 1,
+          "title": "Limit",
+          "type": "integer"
+        },
+        "worker_id": {
+          "format": "uuid",
+          "title": "Worker Id",
+          "type": "string"
+        }
+      },
+      "required": ["worker_id"],
+      "title": "ClaimPredictionRetryDeliveriesRequest",
+      "type": "object"
+    },
+    "ClaimPredictionRetryDeliveriesResult": {
+      "additionalProperties": false,
+      "properties": {
+        "items": {
+          "items": {
+            "$ref": "#/$defs/RetryDelivery"
+          },
+          "title": "Items",
+          "type": "array"
+        }
+      },
+      "required": ["items"],
+      "title": "ClaimPredictionRetryDeliveriesResult",
+      "type": "object"
+    },
+    "FinishPredictionRetryDeliveryRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "error_code": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Error Code"
+        },
+        "generation": {
+          "maximum": 9223372036854775807,
+          "minimum": 1,
+          "title": "Generation",
+          "type": "integer"
+        },
+        "job_id": {
+          "format": "uuid",
+          "title": "Job Id",
+          "type": "string"
+        },
+        "lease_token": {
+          "format": "uuid",
+          "title": "Lease Token",
+          "type": "string"
+        },
+        "submitted": {
+          "title": "Submitted",
+          "type": "boolean"
+        }
+      },
+      "required": ["job_id", "generation", "lease_token", "submitted", "error_code"],
+      "title": "FinishPredictionRetryDeliveryRequest",
+      "type": "object"
+    },
+    "FinishPredictionRetryDeliveryResult": {
+      "additionalProperties": false,
+      "properties": {
+        "job_id": {
+          "format": "uuid",
+          "title": "Job Id",
+          "type": "string"
+        },
+        "submitted": {
+          "title": "Submitted",
+          "type": "boolean"
+        }
+      },
+      "required": ["job_id", "submitted"],
+      "title": "FinishPredictionRetryDeliveryResult",
+      "type": "object"
+    },
+    "FinishPredictionRetryFailureRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "abandon": {
+          "default": false,
+          "title": "Abandon",
+          "type": "boolean"
+        },
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "context": {
+          "additionalProperties": true,
+          "title": "Context",
+          "type": "object"
+        },
+        "error_code": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Error Code",
+          "type": "string"
+        },
+        "generation": {
+          "maximum": 9223372036854775807,
+          "minimum": 1,
+          "title": "Generation",
+          "type": "integer"
+        },
+        "gpu_arbiter_error": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Gpu Arbiter Error"
+        },
+        "job_id": {
+          "format": "uuid",
+          "title": "Job Id",
+          "type": "string"
+        },
+        "lease_token": {
+          "format": "uuid",
+          "title": "Lease Token",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "reason": {
+          "maxLength": 200,
+          "title": "Reason",
+          "type": "string"
+        },
+        "request_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Request Digest",
+          "type": "string"
+        }
+      },
+      "required": [
+        "job_id",
+        "actor_id",
+        "project_id",
+        "request_digest",
+        "generation",
+        "lease_token",
+        "error_code",
+        "reason",
+        "gpu_arbiter_error",
+        "context"
+      ],
+      "title": "FinishPredictionRetryFailureRequest",
+      "type": "object"
+    },
+    "FinishPredictionRetryFailureResult": {
+      "additionalProperties": false,
+      "properties": {
+        "outcome": {
+          "additionalProperties": true,
+          "title": "Outcome",
+          "type": "object"
+        },
+        "progress": {
+          "$ref": "#/$defs/Progress"
+        }
+      },
+      "required": ["outcome", "progress"],
+      "title": "FinishPredictionRetryFailureResult",
+      "type": "object"
+    },
+    "FinishPredictionRetryWriteRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "generation": {
+          "maximum": 9223372036854775807,
+          "minimum": 1,
+          "title": "Generation",
+          "type": "integer"
+        },
+        "job_id": {
+          "format": "uuid",
+          "title": "Job Id",
+          "type": "string"
+        },
+        "lease_token": {
+          "format": "uuid",
+          "title": "Lease Token",
+          "type": "string"
+        },
+        "prepared_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Prepared Digest",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "request_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Request Digest",
+          "type": "string"
+        },
+        "result_id": {
+          "format": "uuid",
+          "title": "Result Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "job_id",
+        "actor_id",
+        "project_id",
+        "request_digest",
+        "generation",
+        "lease_token",
+        "result_id",
+        "prepared_digest"
+      ],
+      "title": "FinishPredictionRetryWriteRequest",
+      "type": "object"
+    },
+    "FinishPredictionRetryWriteResult": {
+      "additionalProperties": false,
+      "properties": {
+        "outcome": {
+          "additionalProperties": true,
+          "title": "Outcome",
+          "type": "object"
+        },
+        "progress": {
+          "$ref": "#/$defs/Progress"
+        },
+        "receipt": {
+          "$ref": "#/$defs/Receipt"
+        }
+      },
+      "required": ["outcome", "receipt", "progress"],
+      "title": "FinishPredictionRetryWriteResult",
+      "type": "object"
+    },
+    "LabelingWriteScope": {
+      "additionalProperties": false,
+      "description": "Portable shape of the existing frozen LabelingWriteScope dataclass.",
+      "properties": {
+        "accepted_input_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Accepted Input Id"
+        },
+        "actor_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Actor Id"
+        },
+        "actor_known": {
+          "title": "Actor Known",
+          "type": "boolean"
+        },
+        "assignee_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Assignee Id"
+        },
+        "execution_scope": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Execution Scope"
+        },
+        "execution_scope_known": {
+          "title": "Execution Scope Known",
+          "type": "boolean"
+        },
+        "expected_batch_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Expected Batch Id"
+        },
+        "expected_batch_id_known": {
+          "title": "Expected Batch Id Known",
+          "type": "boolean"
+        },
+        "job_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Job Id"
+        },
+        "job_id_known": {
+          "title": "Job Id Known",
+          "type": "boolean"
+        },
+        "operation": {
+          "enum": ["preannotation", "prediction_retry"],
+          "title": "Operation",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "review_round_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Review Round Id"
+        },
+        "source_annotation_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Source Annotation Id"
+        },
+        "source_annotation_version": {
+          "anyOf": [
+            {
+              "maximum": 9223372036854775807,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Source Annotation Version"
+        },
+        "source_binding_known": {
+          "title": "Source Binding Known",
+          "type": "boolean"
+        },
+        "source_dataset_item_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Source Dataset Item Id"
+        },
+        "source_file_path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Source File Path"
+        },
+        "source_file_type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Source File Type"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "task_source_generation": {
+          "anyOf": [
+            {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Task Source Generation"
+        },
+        "task_status": {
+          "title": "Task Status",
+          "type": "string"
+        },
+        "task_version": {
+          "anyOf": [
+            {
+              "maximum": 9223372036854775807,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Task Version"
+        }
+      },
+      "required": [
+        "task_id",
+        "project_id",
+        "actor_id",
+        "actor_known",
+        "operation",
+        "execution_scope",
+        "execution_scope_known",
+        "task_version",
+        "task_status",
+        "assignee_id",
+        "review_round_id",
+        "source_annotation_id",
+        "source_annotation_version",
+        "expected_batch_id",
+        "expected_batch_id_known",
+        "job_id",
+        "job_id_known",
+        "source_binding_known",
+        "task_source_generation",
+        "source_dataset_item_id",
+        "source_file_path",
+        "source_file_type",
+        "accepted_input_id"
+      ],
+      "title": "LabelingWriteScope",
+      "type": "object"
+    },
+    "LeaseScope": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "generation": {
+          "maximum": 9223372036854775807,
+          "minimum": 1,
+          "title": "Generation",
+          "type": "integer"
+        },
+        "job_id": {
+          "format": "uuid",
+          "title": "Job Id",
+          "type": "string"
+        },
+        "lease_token": {
+          "format": "uuid",
+          "title": "Lease Token",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "request_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Request Digest",
+          "type": "string"
+        }
+      },
+      "required": [
+        "job_id",
+        "actor_id",
+        "project_id",
+        "request_digest",
+        "generation",
+        "lease_token"
+      ],
+      "title": "LeaseScope",
+      "type": "object"
+    },
+    "Progress": {
+      "additionalProperties": false,
+      "properties": {
+        "bulk_overwrite_done": {
+          "title": "Bulk Overwrite Done",
+          "type": "boolean"
+        },
+        "failed_count": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Failed Count",
+          "type": "integer"
+        },
+        "gpu_arbiter_failures": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Gpu Arbiter Failures",
+          "type": "array"
+        },
+        "job_id": {
+          "format": "uuid",
+          "title": "Job Id",
+          "type": "string"
+        },
+        "next_ordinal": {
+          "description": "Current work ordinal; completed executions use total + 1. Cancelled or failed executions can retain an unfinished member.",
+          "maximum": 9223372036854775807,
+          "minimum": 1,
+          "title": "Next Ordinal",
+          "type": "integer"
+        },
+        "pipeline_stages": {
+          "additionalProperties": {
+            "additionalProperties": {
+              "maximum": 9223372036854775807,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "type": "object"
+          },
+          "title": "Pipeline Stages",
+          "type": "object"
+        },
+        "selection_complete": {
+          "title": "Selection Complete",
+          "type": "boolean"
+        },
+        "selection_cursor": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Selection Cursor",
+          "type": "integer"
+        },
+        "skipped_count": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Skipped Count",
+          "type": "integer"
+        },
+        "state": {
+          "enum": ["preparing", "running", "completed", "failed", "cancelled"],
+          "title": "State",
+          "type": "string"
+        },
+        "success_count": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Success Count",
+          "type": "integer"
+        },
+        "total": {
+          "anyOf": [
+            {
+              "maximum": 9223372036854775807,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Total"
+        },
+        "total_cost": {
+          "title": "Total Cost",
+          "type": "string"
+        }
+      },
+      "required": [
+        "job_id",
+        "state",
+        "total",
+        "selection_cursor",
+        "selection_complete",
+        "next_ordinal",
+        "bulk_overwrite_done",
+        "success_count",
+        "failed_count",
+        "skipped_count",
+        "total_cost",
+        "pipeline_stages",
+        "gpu_arbiter_failures"
+      ],
+      "title": "Progress",
+      "type": "object"
+    },
+    "ReadPredictionRetryRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "failed_prediction_id": {
+          "format": "uuid",
+          "title": "Failed Prediction Id",
+          "type": "string"
+        },
+        "job_id": {
+          "format": "uuid",
+          "title": "Job Id",
+          "type": "string"
+        }
+      },
+      "required": ["job_id", "failed_prediction_id", "actor_id"],
+      "title": "ReadPredictionRetryRequest",
+      "type": "object"
+    },
+    "ReadPredictionRetryResult": {
+      "additionalProperties": false,
+      "properties": {
+        "attempt": {
+          "$ref": "#/$defs/RetryAttempt"
+        }
+      },
+      "required": ["attempt"],
+      "title": "ReadPredictionRetryResult",
+      "type": "object"
+    },
+    "Receipt": {
+      "additionalProperties": false,
+      "properties": {
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "tool_unit_id": {
+          "minLength": 1,
+          "title": "Tool Unit Id",
+          "type": "string"
+        }
+      },
+      "required": ["id", "created_at", "tool_unit_id"],
+      "title": "Receipt",
+      "type": "object"
+    },
+    "RetryAttempt": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "execution_queue": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Execution Queue"
+        },
+        "failed_prediction_id": {
+          "format": "uuid",
+          "title": "Failed Prediction Id",
+          "type": "string"
+        },
+        "job_id": {
+          "format": "uuid",
+          "title": "Job Id",
+          "type": "string"
+        },
+        "ml_backend_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Ml Backend Id"
+        },
+        "ml_backend_pool_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Ml Backend Pool Id"
+        },
+        "outcome": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Outcome"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "request_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Request Digest",
+          "type": "string"
+        },
+        "retry_count_at_admission": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Retry Count At Admission",
+          "type": "integer"
+        },
+        "source_extra": {
+          "additionalProperties": true,
+          "title": "Source Extra",
+          "type": "object"
+        },
+        "state": {
+          "enum": ["accepted", "applying", "failing", "succeeded", "failed", "abandoned"],
+          "title": "State",
+          "type": "string"
+        },
+        "task_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Task Id"
+        },
+        "write_scope": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LabelingWriteScope"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "When present, the scope operation is prediction_retry and its identity matches this attempt.",
+          "properties": {
+            "operation": {
+              "const": "prediction_retry"
+            }
+          }
+        }
+      },
+      "required": [
+        "job_id",
+        "failed_prediction_id",
+        "actor_id",
+        "project_id",
+        "task_id",
+        "ml_backend_id",
+        "ml_backend_pool_id",
+        "source_extra",
+        "retry_count_at_admission",
+        "write_scope",
+        "request_digest",
+        "execution_queue",
+        "state",
+        "outcome"
+      ],
+      "title": "RetryAttempt",
+      "type": "object"
+    },
+    "RetryDelivery": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "execution_queue": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Execution Queue"
+        },
+        "failed_prediction_id": {
+          "format": "uuid",
+          "title": "Failed Prediction Id",
+          "type": "string"
+        },
+        "generation": {
+          "maximum": 9223372036854775807,
+          "minimum": 1,
+          "title": "Generation",
+          "type": "integer"
+        },
+        "job_id": {
+          "format": "uuid",
+          "title": "Job Id",
+          "type": "string"
+        },
+        "lease_expires_at": {
+          "format": "date-time",
+          "title": "Lease Expires At",
+          "type": "string"
+        },
+        "lease_token": {
+          "format": "uuid",
+          "title": "Lease Token",
+          "type": "string"
+        }
+      },
+      "required": [
+        "job_id",
+        "failed_prediction_id",
+        "actor_id",
+        "execution_queue",
+        "generation",
+        "lease_token",
+        "lease_expires_at"
+      ],
+      "title": "RetryDelivery",
+      "type": "object"
+    },
+    "_Error": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "enum": [
+            "invalid_request",
+            "invalid_response",
+            "not_found",
+            "permission_denied",
+            "account_not_active",
+            "already_pending",
+            "retry_limit",
+            "dismissed",
+            "scope_mismatch",
+            "execution_busy",
+            "lease_lost",
+            "job_not_writable",
+            "result_conflict",
+            "result_not_ready",
+            "content_deleting",
+            "content_epoch_changed",
+            "storage_unavailable"
+          ],
+          "title": "Code",
+          "type": "string"
+        }
+      },
+      "required": ["code"],
+      "title": "_Error",
+      "type": "object"
+    },
+    "_ErrorEnvelope": {
+      "additionalProperties": false,
+      "properties": {
+        "error": {
+          "$ref": "#/$defs/_Error"
+        },
+        "ok": {
+          "const": false
+        },
+        "schema": {
+          "const": "aap-prediction-retries/v1"
+        }
+      },
+      "required": ["schema", "ok", "error"],
+      "type": "object"
+    },
+    "_SuccessEnvelope": {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/AdmitPredictionRetryResult"
+            },
+            {
+              "$ref": "#/$defs/ReadPredictionRetryResult"
+            },
+            {
+              "$ref": "#/$defs/FinishPredictionRetryWriteResult"
+            },
+            {
+              "$ref": "#/$defs/FinishPredictionRetryFailureResult"
+            },
+            {
+              "$ref": "#/$defs/ClaimPredictionRetryDeliveriesResult"
+            },
+            {
+              "$ref": "#/$defs/FinishPredictionRetryDeliveryResult"
+            }
+          ]
+        },
+        "ok": {
+          "const": true
+        },
+        "schema": {
+          "const": "aap-prediction-retries/v1"
+        }
+      },
+      "required": ["schema", "ok", "data"],
+      "type": "object"
+    }
+  },
+  "$id": "https://schemas.aap.invalid/prediction-retries/v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/AdmitPredictionRetryRequest"
+    },
+    {
+      "$ref": "#/$defs/ReadPredictionRetryRequest"
+    },
+    {
+      "$ref": "#/$defs/FinishPredictionRetryWriteRequest"
+    },
+    {
+      "$ref": "#/$defs/FinishPredictionRetryFailureRequest"
+    },
+    {
+      "$ref": "#/$defs/ClaimPredictionRetryDeliveriesRequest"
+    },
+    {
+      "$ref": "#/$defs/FinishPredictionRetryDeliveryRequest"
+    },
+    {
+      "$ref": "#/$defs/_SuccessEnvelope"
+    },
+    {
+      "$ref": "#/$defs/_ErrorEnvelope"
+    }
+  ],
+  "title": "AAP durable prediction retries",
+  "x-aap-schema": "aap-prediction-retries/v1",
+  "x-budgets": {
+    "delivery_limit": [1, 100],
+    "lease_seconds": [5, 300],
+    "request_bytes": 2097152,
+    "response_bytes": 2097152,
+    "snapshot_part_base64_chars": 699052,
+    "snapshot_part_bytes": 524288
+  },
+  "x-native-operations": {
+    "admit_prediction_retry": {
+      "arguments": ["payload"],
+      "namespace": "aap_labeling_v1",
+      "request": "AdmitPredictionRetryRequest",
+      "result": "AdmitPredictionRetryResult",
+      "role": "writer",
+      "sql_types": ["jsonb"]
+    },
+    "claim_prediction_retry_deliveries": {
+      "arguments": ["payload"],
+      "namespace": "aap_jobs_v1",
+      "request": "ClaimPredictionRetryDeliveriesRequest",
+      "result": "ClaimPredictionRetryDeliveriesResult",
+      "role": "executor",
+      "sql_types": ["jsonb"]
+    },
+    "finish_prediction_retry_delivery": {
+      "arguments": ["payload"],
+      "namespace": "aap_jobs_v1",
+      "request": "FinishPredictionRetryDeliveryRequest",
+      "result": "FinishPredictionRetryDeliveryResult",
+      "role": "executor",
+      "sql_types": ["jsonb"]
+    },
+    "finish_prediction_retry_failure": {
+      "arguments": ["payload"],
+      "namespace": "aap_labeling_v1",
+      "request": "FinishPredictionRetryFailureRequest",
+      "result": "FinishPredictionRetryFailureResult",
+      "role": "writer",
+      "sql_types": ["jsonb"]
+    },
+    "finish_prediction_retry_write": {
+      "arguments": ["payload"],
+      "namespace": "aap_labeling_v1",
+      "request": "FinishPredictionRetryWriteRequest",
+      "result": "FinishPredictionRetryWriteResult",
+      "role": "writer",
+      "sql_types": ["jsonb"]
+    },
+    "read_prediction_retry": {
+      "arguments": ["payload"],
+      "namespace": "aap_labeling_v1",
+      "request": "ReadPredictionRetryRequest",
+      "result": "ReadPredictionRetryResult",
+      "role": "executor",
+      "sql_types": ["jsonb"]
+    }
+  },
+  "x-requests": [
+    {
+      "$ref": "#/$defs/AdmitPredictionRetryRequest"
+    },
+    {
+      "$ref": "#/$defs/ReadPredictionRetryRequest"
+    },
+    {
+      "$ref": "#/$defs/FinishPredictionRetryWriteRequest"
+    },
+    {
+      "$ref": "#/$defs/FinishPredictionRetryFailureRequest"
+    },
+    {
+      "$ref": "#/$defs/ClaimPredictionRetryDeliveriesRequest"
+    },
+    {
+      "$ref": "#/$defs/FinishPredictionRetryDeliveryRequest"
+    }
+  ],
+  "x-results": [
+    {
+      "$ref": "#/$defs/AdmitPredictionRetryResult"
+    },
+    {
+      "$ref": "#/$defs/ReadPredictionRetryResult"
+    },
+    {
+      "$ref": "#/$defs/FinishPredictionRetryWriteResult"
+    },
+    {
+      "$ref": "#/$defs/FinishPredictionRetryFailureResult"
+    },
+    {
+      "$ref": "#/$defs/ClaimPredictionRetryDeliveriesResult"
+    },
+    {
+      "$ref": "#/$defs/FinishPredictionRetryDeliveryResult"
+    }
+  ]
+}

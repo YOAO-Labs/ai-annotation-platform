@@ -373,13 +373,15 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON
     TO :"labeling_owner";
 GRANT SELECT ON public.mask_gc_write_permit_secrets TO :"labeling_owner";
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.batch_result_bundles,
-    public.batch_result_payloads, public.batch_result_parts TO :"labeling_owner";
+    public.batch_result_payloads, public.batch_result_parts,
+    public.prediction_retry_attempts TO :"labeling_owner";
 GRANT SELECT ON public.predictions, public.prediction_metas,
     public.failed_predictions TO :"labeling_owner";
 -- FOR KEY SHARE in the failure proof needs UPDATE on one column.
-GRANT UPDATE (id) ON public.failed_predictions TO :"labeling_owner";
+GRANT UPDATE (id, retry_count, last_retry_at, extra)
+    ON public.failed_predictions TO :"labeling_owner";
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.batch_result_executions,
-    public.batch_result_members TO :"jobs_owner";
+    public.batch_result_members, public.prediction_retry_deliveries TO :"jobs_owner";
 GRANT SELECT (dataset_item_id) ON public.video_chapters TO :"labeling_owner";
 GRANT SELECT (id, project_id, task_id, retry_count, dismissed_at, extra), DELETE
     ON public.failed_predictions TO :"labeling_owner";
@@ -484,7 +486,8 @@ GRANT SELECT (operation_id, chunk_index, result),
 
 -- Jobs writes its own lifecycle row; no direct table access reaches the caller.
 GRANT SELECT ON public.async_jobs TO :"jobs_owner";
-GRANT INSERT (id, kind, project_id, user_id, status, progress_pct, payload, result)
+GRANT INSERT (id, kind, project_id, user_id, status, progress_pct, payload, result,
+    celery_task_id, created_at, updated_at)
     ON public.async_jobs TO :"jobs_owner";
 GRANT UPDATE (
     status, progress_pct, result, error_message, celery_task_id, started_at,
@@ -1012,7 +1015,8 @@ BEGIN
               OR proc.proname IN (
                   'read_mask_write_epochs',
                   'begin_mask_content_write',
-                  'lock_mask_write_epochs'
+                  'lock_mask_write_epochs',
+                  'register_tracker_running_mask_root'
               )
           )
     LOOP
@@ -1610,7 +1614,8 @@ BEGIN
         FROM pg_catalog.pg_proc AS proc
         JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid = proc.pronamespace
         WHERE namespace.nspname IN ('aap_jobs_v1', 'aap_labeling_v1')
-          AND proc.prokind = 'f' AND proc.proname LIKE '%batch_result%'
+          AND proc.prokind = 'f' AND (proc.proname LIKE '%batch_result%'
+              OR proc.proname LIKE '%prediction_retry%')
     LOOP
         owner_name := CASE target.nspname
             WHEN 'aap_jobs_v1' THEN current_setting('aap.jobs_owner')
@@ -1626,11 +1631,22 @@ GRANT EXECUTE ON FUNCTION
     aap_jobs_v1.lock_batch_result_execution(jsonb),
     aap_jobs_v1.record_batch_result_member(jsonb),
     aap_jobs_v1.advance_batch_result_member(jsonb),
-    aap_jobs_v1.batch_result_execution_referenced(jsonb)
+    aap_jobs_v1.batch_result_execution_referenced(jsonb),
+    aap_jobs_v1._create_prediction_retry_job(jsonb),
+    aap_jobs_v1._finish_prediction_retry_job(jsonb),
+    aap_jobs_v1.lock_prediction_retry_finish_scope(jsonb)
     TO :"labeling_owner";
 GRANT EXECUTE ON FUNCTION
     aap_labeling_v1.batch_result_commit_proof(jsonb),
     aap_labeling_v1.batch_result_referenced(jsonb),
-    aap_labeling_v1.retire_batch_results(jsonb)
+    aap_labeling_v1.retire_batch_results(jsonb),
+    aap_labeling_v1._prediction_retry_no_raw_data(jsonb),
+    aap_labeling_v1._prediction_retry_attempt_scope_valid(jsonb, boolean),
+    aap_labeling_v1._prediction_retry_attempt_exists(uuid),
+    aap_labeling_v1._prediction_retry_member_scope_matches(uuid, uuid, jsonb),
+    aap_labeling_v1._prediction_retry_terminal_matches(uuid, text, jsonb),
+    aap_labeling_v1._abandon_prediction_retry_from_job(uuid, text, text),
+    aap_labeling_v1._retire_prediction_retry_results(uuid),
+    aap_labeling_v1._prediction_retry_job_delete_allowed(uuid)
     TO :"jobs_owner";
 COMMIT;

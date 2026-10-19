@@ -65,6 +65,7 @@ from app.services.video_tracking.tracker_mask_roots import (
     TrackerMaskRootOwnerChanged,
     retain_tracker_output_mask,
 )
+from app.services.mask_gc import read_mask_write_epochs
 from app.services.video_tracks import is_polygon_track
 from app.services.video_tracks import (
     is_mask_track,
@@ -173,16 +174,23 @@ async def _materialize_tracker_mask_result(
     if not isinstance(rle, dict):
         raise ValueError("tracker mask result requires geometry.rle")
     reference = None
+    content_epochs = None
     while True:
         try:
             if reference is None:
-                reference = await store_generated_mask_content(
+                stored = await store_generated_mask_content(
                     db, rle, writer=store_coco_rle
                 )
+                content_epochs = await read_mask_write_epochs(
+                    db, [stored["object_key"]]
+                )
+                reference = stored
             else:
                 # Root registration can lose a NOWAIT race with Job finalization.
                 # Reacquire the byte fence while keeping the already-written RLE.
-                await lock_raster_mask_references(db, reference, verify=False)
+                await lock_raster_mask_references(
+                    db, reference, verify=False, content_epochs=content_epochs
+                )
             await retain_tracker_output_mask(
                 db,
                 job_id=job_id,
@@ -194,6 +202,10 @@ async def _materialize_tracker_mask_result(
             await db.rollback()
             raise TrackerMaskWriteCancelled from None
         except RasterMaskContractError as exc:
+            if exc.detail.get("reason") == "mask_content_epoch_changed":
+                # An intervening collection invalidates the old byte fact. Reuse
+                # the held model RLE to publish again under the new epoch.
+                reference = content_epochs = None
             if (
                 exc.detail.get("reason")
                 not in {

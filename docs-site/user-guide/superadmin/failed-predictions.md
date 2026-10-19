@@ -47,9 +47,9 @@ last_reviewed: 2026-06-10
 
 ### 重试单条
 
-在失败列表中点击「重试」，后端投递 `prediction_retry` Celery 任务（HTTP 202）。启动通知类型为 `failed_prediction.retry.started`；终态记录在统一作业 `async_jobs`，并沿用 `job.completed` / `job.failed` 通知。
+在失败列表中点击「重试」，后端先保存 `prediction_retry` 作业与派发记录，再投递任务（HTTP 202）；发布确认不确定时保留原作业并继续投递。启动通知类型为 `failed_prediction.retry.started`；终态记录在统一作业 `async_jobs`，并沿用 `job.completed` / `job.failed` 通知。
 
-**重试上限**：每条 `failed_prediction` 最多重试 **3 次**，由 `apps/api/app/services/prediction_retry.py` 的 `MAX_RETRY_COUNT` 定义。超限后调用返回 `HTTP 409`；放弃和恢复不会重置已用次数。
+**重试上限**：每条 `failed_prediction` 最多累计 **3 次失败重试**；临时输入等待、写锁竞争和恢复已保存输出不扣次数，由 `apps/api/app/services/prediction_retry.py` 的 `MAX_RETRY_COUNT` 定义。超限后调用返回 `HTTP 409`；放弃和恢复不会重置已用次数。
 
 ### 批量重跑
 

@@ -67,6 +67,21 @@ BEGIN
        OR EXISTS (SELECT 1 FROM public.prediction_retry_deliveries) THEN
         RAISE EXCEPTION 'Cannot reclaim legacy retry markers after a native attempt exists';
     END IF;
+    IF EXISTS (
+        SELECT 1 FROM public.async_jobs AS job
+        WHERE job.kind='prediction_retry' AND job.status IN ('pending','running')
+    ) THEN
+        RAISE EXCEPTION 'Drain and settle active legacy prediction retry Jobs before migration';
+    END IF;
+    IF EXISTS (
+        SELECT 1 FROM public.failed_predictions AS failed
+        WHERE pg_catalog.jsonb_typeof(failed.extra)='object'
+          AND failed.extra -> 'retry_pending'='true'::jsonb
+          AND NOT (failed.extra ? 'retry_job_id')
+    ) AND pg_catalog.current_setting('aap.prediction_retry_legacy_drained',true)
+        IS DISTINCT FROM 'true' THEN
+        RAISE EXCEPTION 'Stop and drain legacy retry workers and queues, then acknowledge prediction_retry_legacy_drained';
+    END IF;
     UPDATE public.failed_predictions AS failed
     SET extra=failed.extra - 'retry_pending'
     WHERE pg_catalog.jsonb_typeof(failed.extra)='object'
@@ -640,6 +655,7 @@ DECLARE
     v_failed public.failed_predictions%ROWTYPE;
     v_task record;
     v_task_exists boolean := false;
+    v_existing_task_id uuid;
     v_project uuid;
     v_manager jsonb;
     v_scope jsonb;
@@ -769,6 +785,7 @@ BEGIN
         END;
         v_task_exists := FOUND;
         IF v_task_exists THEN
+            v_existing_task_id := v_task.id;
             IF v_task.project_id IS DISTINCT FROM v_failed.project_id THEN
                 RETURN aap_labeling_v1._prediction_retry_reply(NULL,'scope_mismatch');
             END IF;
@@ -820,7 +837,7 @@ BEGIN
         v_jobs := aap_jobs_v1._create_prediction_retry_job(
             pg_catalog.jsonb_build_object(
                 'job_id',v_job,'failed_prediction_id',v_failed.id,'actor_id',v_actor,
-                'project_id',v_failed.project_id,'task_id',CASE WHEN v_task_exists THEN v_task.id ELSE NULL END,
+                'project_id',v_failed.project_id,'task_id',v_existing_task_id,
                 'request_digest',v_digest,'execution_queue',v_queue,'write_scope',v_scope
             )
         );

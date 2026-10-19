@@ -28,7 +28,10 @@ def _mark_worker_ready(**_kwargs) -> None:
 
 @task_prerun.connect
 def _record_batch_delivery(task_id, task, **_kwargs) -> None:
-    if getattr(task, "name", None) != "app.workers.tasks.batch_predict":
+    if getattr(task, "name", None) not in {
+        "app.workers.tasks.batch_predict",
+        "app.workers.predictions_retry.retry_failed_prediction",
+    }:
         return
     request = task.request
     delivery_info = request.delivery_info or {}
@@ -47,6 +50,8 @@ def install() -> None:
     from app.application.preannotation_results import BatchResultExecution
     from app.services.ml_client import PredictionResult
     from app.workers.tasks import batch_predict
+    from app.workers.predictions_retry import retry_failed_prediction
+    from app.services.ml_routing.client import RoutedMLBackendClient
 
     original_call = BatchResultExecution.call
     original_capture = BatchResultExecution.capture
@@ -154,6 +159,20 @@ def install() -> None:
             None,
         )
 
+    async def fake_retry_model(_client, tasks, **kwargs):
+        from types import SimpleNamespace
+
+        results, _metrics, _stages = await fake_model_pipeline(
+            SimpleNamespace(id=tasks[0]["id"])
+        )
+        return results
+
+    original_prediction_retry = retry_failed_prediction.retry
+
+    def prediction_retry_after_lease_window(*args, **kwargs):
+        kwargs["countdown"] = 1
+        return original_prediction_retry(*args, **kwargs)
+
     def retry_after_lease_window(*args, **kwargs):
         kwargs["countdown"] = 1
         return original_retry(*args, **kwargs)
@@ -162,6 +181,8 @@ def install() -> None:
     BatchResultExecution._renew = renew_with_short_test_interval
     BatchResultExecution.capture = capture_then_hold
     batch_predict.retry = retry_after_lease_window
+    retry_failed_prediction.retry = prediction_retry_after_lease_window
+    RoutedMLBackendClient.predict = fake_retry_model
     import app.application.preannotation_execution as execution
 
     execution._run_task_pipeline = fake_model_pipeline

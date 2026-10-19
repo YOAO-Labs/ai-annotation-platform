@@ -123,7 +123,18 @@ def _restore_request(value: dict) -> ApplyPredictionResultRequest:
             value[key] = uuid.UUID(value[key])
     value["write_scope"] = restore_write_scope(value["write_scope"])
     if value["accepted_video_input"] is not None:
-        raise ValueError("ordinary batch snapshot cannot contain a video frame result")
+        from aap_assets_video_inputs.evidence import (
+            VideoInputEvidence,
+            parse_prediction_evidence,
+        )
+
+        evidence = parse_prediction_evidence(value["accepted_video_input"])
+        if (
+            value["write_scope"].operation != "prediction_retry"
+            or type(evidence) is not VideoInputEvidence
+        ):
+            raise ValueError("only a retry snapshot can retain a video frame result")
+        value["accepted_video_input"] = evidence
     return ApplyPredictionResultRequest(**value)
 
 
@@ -145,24 +156,40 @@ class BatchResultExecution:
     """One renewable worker lease; all saved facts survive this Python process."""
 
     def __init__(
-        self, request, session_factory, *, execution_id, executor_session_factory=None
+        self,
+        request,
+        session_factory,
+        *,
+        execution_id,
+        executor_session_factory=None,
+        scope=None,
     ):
         self.session_factory = session_factory
         self.database = IndependentBatchResultData(
             executor_session_factory or session_factory
         )
-        self.scope = {
-            "job_id": uuid.UUID(request.async_job_id),
-            "actor_id": uuid.UUID(request.user_id),
-            "project_id": uuid.UUID(request.project_id),
-            "request_digest": preannotation_request_digest(request),
-        }
+        self.scope = (
+            {
+                "job_id": uuid.UUID(request.async_job_id),
+                "actor_id": uuid.UUID(request.user_id),
+                "project_id": uuid.UUID(request.project_id),
+                "request_digest": preannotation_request_digest(request),
+            }
+            if scope is None
+            else self._validated_scope(scope)
+        )
         self.worker_id = uuid.uuid4()
         self.execution_id = execution_id
         self.lease = None
         self.progress = None
         self._heartbeat = None
         self._lost = None
+
+    @staticmethod
+    def _validated_scope(value):
+        from aap_preannotation_results.contract import Scope
+
+        return Scope.model_validate(value).model_dump(mode="python")
 
     def _values(self, *, leased=True, **values):
         result = dict(self.scope)

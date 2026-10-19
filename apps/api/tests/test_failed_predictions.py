@@ -14,7 +14,7 @@ import pytest
 from unittest.mock import patch
 
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.db.models.audit_log import AuditLog
 from app.db.models.async_job import AsyncJob, AsyncJobStatus
@@ -197,7 +197,7 @@ async def test_retry_failed_prediction_queues_celery_and_returns_202(
     mock_apply.assert_called_once()
 
 
-async def test_retry_dispatch_failure_releases_claim_without_spending_attempt(
+async def test_retry_dispatch_uncertainty_keeps_durable_claim_without_spending_attempt(
     db_session, super_admin, monkeypatch
 ):
     from app.application.prediction_retry import SqlPredictionRetry
@@ -221,13 +221,13 @@ async def test_retry_dispatch_failure_releases_claim_without_spending_attempt(
     monkeypatch.setattr(
         predictions_retry.retry_failed_prediction, "apply_async", publish
     )
-    with pytest.raises(RuntimeError):
-        await SqlPredictionRetry(
-            db_session, dispatcher=CeleryPredictionRetryDispatcher()
-        ).retry_prediction(failed_id=fp.id, actor_id=user.id)
+    await SqlPredictionRetry(
+        db_session, dispatcher=CeleryPredictionRetryDispatcher()
+    ).retry_prediction(failed_id=fp.id, actor_id=user.id)
 
     await db_session.refresh(fp)
-    assert not fp.extra.get("retry_pending")
+    assert fp.extra.get("retry_pending") is True
+    assert uuid.UUID(fp.extra["retry_job_id"])
     assert fp.extra["request_context"] == context
     assert fp.retry_count == 0
 
@@ -265,14 +265,7 @@ async def test_retry_404_for_unknown_id(httpx_client, super_admin):
 
 
 def _passthrough_session_factory(db_session: AsyncSession):
-    class _Ctx:
-        async def __aenter__(self):
-            return db_session
-
-        async def __aexit__(self, *args):
-            return False
-
-    return lambda: _Ctx()
+    return async_sessionmaker(db_session.bind, expire_on_commit=False)
 
 
 @pytest.mark.parametrize("controlled", [False, True])
@@ -305,7 +298,7 @@ async def test_retry_worker_tracks_success_in_async_jobs(
 
     monkeypatch.setattr(
         "app.services.storage.resolve_task_url",
-        lambda received_task: f"http://minio.test/{received_task.file_name}",
+        lambda received_task: f"http://minio.test/{received_task.file_path}",
     )
 
     async def fake_predict(self, tasks_payload, context=None):
@@ -331,7 +324,7 @@ async def test_retry_worker_tracks_success_in_async_jobs(
         session_factory, str(fp.id), str(user.id)
     )
 
-    assert result["status"] == "succeeded"
+    assert result["status"] == "succeeded", result
     jobs = (
         (
             await db_session.execute(
@@ -352,6 +345,7 @@ async def test_retry_worker_tracks_success_in_async_jobs(
     assert job.result["success_count"] == 1
     assert job.result["failed_count"] == 0
 
+    db_session.expunge(fp)
     assert await db_session.get(FailedPrediction, fp.id) is None
     if controlled:
         from app.db.models.prediction import PredictionMeta
@@ -453,7 +447,10 @@ async def test_retry_uses_retained_input_version_and_verifies_before_write(
             )
         ]
 
-    async def fake_apply(_service, request):
+    original_apply = PredictionService.apply_prediction_result_bundle
+
+    async def fake_apply(service, requests):
+        request = requests[0]
         events.append(("write", request.write_scope.accepted_input_id))
         assert request.pipeline_extra["accepted_input"] == {
             "input_id": str(input_id),
@@ -462,11 +459,17 @@ async def test_retry_uses_retained_input_version_and_verifies_before_write(
             "sha256": digest,
             "byte_size": 256,
         }
-        return SimpleNamespace(id=uuid.uuid4())
+        return await original_apply(service, requests)
 
+    async def lock_frozen_source(*_args, **_kwargs):
+        return input_record
+
+    monkeypatch.setattr(
+        "app.services.accepted_inputs.lock_input_source", lock_frozen_source
+    )
     monkeypatch.setattr("app.services.accepted_inputs.input_gateway", fake_gateway)
     monkeypatch.setattr("app.services.ml_client.MLBackendClient.predict", fake_predict)
-    monkeypatch.setattr(PredictionService, "apply_prediction_result", fake_apply)
+    monkeypatch.setattr(PredictionService, "apply_prediction_result_bundle", fake_apply)
     monkeypatch.setattr(
         "app.services.storage.resolve_task_url",
         lambda _task: pytest.fail("frozen retry must not resolve the current Task URL"),
@@ -476,7 +479,7 @@ async def test_retry_uses_retained_input_version_and_verifies_before_write(
         _passthrough_session_factory(db_session), str(failed.id), str(user.id)
     )
 
-    assert result["status"] == "succeeded"
+    assert result["status"] == "succeeded", result
     assert events == [
         "download",
         "verify-source",
@@ -562,6 +565,12 @@ async def test_permanent_frozen_retry_failure_uses_job_and_counter_path(
         events.append("predict")
         pytest.fail("an expired frozen input must not fall back to Task.file_path")
 
+    async def lock_frozen_source(*_args, **_kwargs):
+        return SimpleNamespace(job_id=origin_job_id)
+
+    monkeypatch.setattr(
+        "app.services.accepted_inputs.lock_input_source", lock_frozen_source
+    )
     monkeypatch.setattr("app.services.accepted_inputs.input_gateway", fake_gateway)
     monkeypatch.setattr(
         "app.services.ml_client.MLBackendClient.predict", unexpected_predict
@@ -577,11 +586,13 @@ async def test_permanent_frozen_retry_failure_uses_job_and_counter_path(
         _passthrough_session_factory(db_session), str(failed.id), str(user.id)
     )
 
-    assert result["status"] == "failed"
+    assert result["status"] == (
+        "cancelled" if failure_code == "source_changed" else "failed"
+    )
     assert result["reason"] == failure_code
     assert events == expected_events
     await db_session.refresh(failed)
-    assert failed.retry_count == 1
+    assert failed.retry_count == (0 if failure_code == "source_changed" else 1)
     assert "retry_pending" not in failed.extra
     job = (
         (
@@ -592,7 +603,11 @@ async def test_permanent_frozen_retry_failure_uses_job_and_counter_path(
         .scalars()
         .one()
     )
-    assert job.status == AsyncJobStatus.FAILED.value
+    assert job.status == (
+        AsyncJobStatus.CANCELLED.value
+        if failure_code == "source_changed"
+        else AsyncJobStatus.FAILED.value
+    )
     assert job.result["reason"] == failure_code
 
 

@@ -1,4 +1,4 @@
--- The ordinary preannotation executor receives only its public result protocol.
+-- The preannotation and retry executor receives only its public result protocol.
 -- Run after migrations and module-data-grants as the migration role.
 -- Database provisioning must revoke PUBLIC TEMP first; this script changes no PUBLIC ACL.
 -- psql -v expected_database=annotation_test -v migration_role=owner \
@@ -68,7 +68,10 @@ GRANT EXECUTE ON FUNCTION
     aap_labeling_v1.begin_batch_result(jsonb),
     aap_labeling_v1.put_batch_result_part(jsonb),
     aap_labeling_v1.seal_batch_result(jsonb),
-    aap_labeling_v1.read_batch_result(jsonb)
+    aap_labeling_v1.read_batch_result(jsonb),
+    aap_labeling_v1.read_prediction_retry(jsonb),
+    aap_jobs_v1.claim_prediction_retry_deliveries(jsonb),
+    aap_jobs_v1.finish_prediction_retry_delivery(jsonb)
     TO :"result_role";
 
 DO $$
@@ -106,12 +109,15 @@ BEGIN
     WHERE namespace.nspname IN ('aap_jobs_v1','aap_labeling_v1')
       AND proc.prokind = 'f'
       AND has_function_privilege(role_name, proc.oid, 'EXECUTE');
-    IF v_callable <> 14
+    IF v_callable <> 17
        OR has_function_privilege(role_name, 'aap_labeling_v1.lock_batch_result_write(jsonb)', 'EXECUTE')
        OR has_function_privilege(role_name, 'aap_labeling_v1.finish_batch_result_write(jsonb)', 'EXECUTE')
        OR has_function_privilege(role_name, 'aap_labeling_v1.finish_batch_result_failure(jsonb)', 'EXECUTE')
-       OR has_function_privilege(role_name, 'aap_jobs_v1.lock_batch_result_execution(jsonb)', 'EXECUTE') THEN
-        RAISE EXCEPTION 'The preannotation result role must execute exactly 14 executor capabilities';
+       OR has_function_privilege(role_name, 'aap_jobs_v1.lock_batch_result_execution(jsonb)', 'EXECUTE')
+       OR has_function_privilege(role_name, 'aap_labeling_v1.admit_prediction_retry(jsonb)', 'EXECUTE')
+       OR has_function_privilege(role_name, 'aap_labeling_v1.finish_prediction_retry_write(jsonb)', 'EXECUTE')
+       OR has_function_privilege(role_name, 'aap_labeling_v1.finish_prediction_retry_failure(jsonb)', 'EXECUTE') THEN
+        RAISE EXCEPTION 'The preannotation result role must execute exactly 17 executor capabilities';
     END IF;
 END $$;
 COMMIT;

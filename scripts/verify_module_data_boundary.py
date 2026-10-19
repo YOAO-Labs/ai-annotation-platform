@@ -128,6 +128,10 @@ SQL_ARTIFACTS = (
     "0230_dataset_source_aux_retention.sql",
     "0231_preannotation_results.sql",
     "0231_preannotation_result_mask_roots.sql",
+    "0232_tracker_running_mask_roots.sql",
+    "0233_prediction_retry_state.sql",
+    "0233_prediction_retry_result_scope.sql",
+    "0233_prediction_retry_finalization.sql",
 )
 SCHEMA_ARTIFACTS = (
     "0191_task_append.schema.json",
@@ -169,6 +173,8 @@ SCHEMA_ARTIFACTS = (
     "0229_mask_gc.schema.json",
     "0230_dataset_source_aux_retention.schema.json",
     "0231_preannotation_results.schema.json",
+    "0233_prediction_retries.schema.json",
+    "0233_preannotation_result_scope.schema.json",
 )
 TEST_FILES = (
     "tests/test_workspace_data_contract.py",
@@ -305,6 +311,12 @@ TEST_FILES = (
     "tests/test_batch_result_worker_live.py",
     "tests/test_preannotation_results_runtime_image.py",
     "tests/test_prediction_retry_input_deferral.py",
+    "tests/test_prediction_retry_native_migration.py",
+    "tests/test_prediction_retry_legacy_migration.py",
+    "tests/test_prediction_retries_native.py",
+    "tests/test_tracker_running_mask_roots.py",
+    "tests/test_tracker_running_mask_roots_native.py",
+    "tests/test_migration_0232_tracker_running_mask_roots.py",
     "tests/test_raster_mask_lock_boundary.py",
     "tests/test_mask_gc_native.py",
     "tests/test_mask_gc_protocol_native.py",
@@ -2016,8 +2028,8 @@ def main(argv: list[str] | None = None) -> int:
         database = resources["database"]
         evidence["database"] = database
         _, heads = migration_graph(ROOT)
-        if heads != ["0231"]:
-            raise RuntimeError("module-data acceptance requires migration head 0231")
+        if heads != ["0233"]:
+            raise RuntimeError("module-data acceptance requires migration head 0233")
         evidence["migrations"]["head_before_downgrade"] = heads[0]
         phase = "downgrade-to-0189"
         _container_details(
@@ -2641,7 +2653,8 @@ def main(argv: list[str] | None = None) -> int:
                     {"resource": "local-resources", "error_type": type(error).__name__}
                 )
                 exit_code = 1
-        if container_id:
+        # Keep the verified database reachable when cleanup needs another pass.
+        if container_id and local_resources_destroyed:
             try:
                 _container_details(
                     container_id,

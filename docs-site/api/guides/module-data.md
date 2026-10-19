@@ -398,4 +398,23 @@ Scope 固定 Job、actor、project 和完整排队参数的 SHA-256；租约额�
 
 成员结算与 `progress_pct` 同事务更新。作业摘要的 `failed_prediction_ids` 最多保留前 100 项，并用 `failed_prediction_ids_truncated` 标记截断；`batch_result_scope` 指向完整成员账本。按作业重试从该账本分页读取所有失败 ID，保持既有完整重试行为。prepared 数据及读回元数据必须包含非空工具单位；原始数据不携带工具单位。输出模式只允许作为重试请求上下文中的有界字符串保留。
 
-专用 `preannotation_result_client` 没有私表、DDL、TEMP 或角色成员权限，只能调用十项 Jobs 与四项 Labeling 能力。最终写入仍由 Labeling 调用方事务完成。该合同不迁移整个 Inference／Jobs 服务，也不改变单独的失败项重试协议；部署和验收范围见 [ADR-0113](/dev/adr/0113-durable-preannotation-results)。
+专用 `preannotation_result_client` 没有私表、DDL、TEMP 或角色成员权限，只能调用十二项 Jobs 与五项 Labeling 能力，其中三项属于重试读取与派发。最终写入仍由 Labeling 调用方事务完成。该合同不迁移整个 Inference／Jobs 服务，失败项重试通过下述独立准入合同复用结果账本；部署和验收范围见 [ADR-0113](/dev/adr/0113-durable-preannotation-results)。
+
+## 失败预测重试
+
+`aap-prediction-retries/v1` 同样使用单 JSONB 请求与封闭信封；冻结模式为 `0233_prediction_retries.schema.json`，结果作用域扩展为 `0233_preannotation_result_scope.schema.json`。独立包、CLI 与原始／准备结果沿用 `apps/preannotation-results`，无需应用或队列依赖。
+
+| 所有者   | 操作                                | 调用方                                                              |
+| -------- | ----------------------------------- | ------------------------------------------------------------------- |
+| Labeling | `admit_prediction_retry`            | 业务写入方；同事务固定失败项与原始作用域并创建 Job/outbox           |
+| Labeling | `read_prediction_retry`             | executor；原失败项和 Job 历史删除后仍可读取终态                     |
+| Labeling | `finish_prediction_retry_write`     | 业务写入方；证明实际 Prediction／Meta 并原子结算                    |
+| Labeling | `finish_prediction_retry_failure`   | 业务写入方；永久失败只计一次，`abandon=true` 释放失效执行且不扣次数 |
+| Jobs     | `claim_prediction_retry_deliveries` | executor；领取待发布、确认不确定或已过期的同一 Job                  |
+| Jobs     | `finish_prediction_retry_delivery`  | executor；代次与 token 匹配后记录发布结果                           |
+
+准入固定原失败 ID、actor、项目、Task、backend、参数、失败次数基线和前置写入作用域。结果成员与原失败项使用不同的稳定身份，避免碰撞原批量的成员历史。Job UUID 即 broker task ID，发布异常不能证明消息未到达。保留输入准备期间可查询 pending Job，但没有开始通知、模型调用或失败计数。
+
+模型只能返回恰好一个原 Task 的结果。完整 raw 先于来源复核保存，之后的写入等待和进程接管复用同一输出与 Prediction 身份。成功结算同时删除确切原失败行和 Meta，记录精确回执、计数与 Job 终态；永久模型／Mask 错误只计一次。来源、actor、dismiss 或 Job 失效使用放弃结算，清理对应占用及临时根。所有终结均须当前租约，重复或陈旧投递不能删除失败行、递增次数或结束后来的执行。
+
+`PREANNOTATION_RESULTS_DATABASE_URL` 或其 secret 文件同时控制读取、检查点和立即／定时 outbox 的函数专用连接。`aap-prediction-retries` CLI 只开放读取与两项派发能力；准入及业务结算不对 executor 登录开放。运行中视频跟踪另用 `register_tracker_running_mask_root` 在写入事务登记精确 Job/Task 的临时 Mask 根；GC 登录无此能力，结束或删除 Job 时释放，待审结果另有业务根。

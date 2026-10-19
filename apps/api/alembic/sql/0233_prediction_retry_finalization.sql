@@ -129,6 +129,9 @@ BEGIN
        OR OLD.status IS NOT DISTINCT FROM NEW.status THEN
         RETURN NEW;
     END IF;
+    IF NOT aap_labeling_v1._prediction_retry_attempt_exists(NEW.id) THEN
+        RETURN NEW;
+    END IF;
     IF NEW.status='completed' THEN
         IF NOT aap_labeling_v1._prediction_retry_terminal_matches(NEW.id,'succeeded',NULL) THEN
             RAISE EXCEPTION USING ERRCODE='P0001',MESSAGE='job_not_writable';
@@ -201,6 +204,7 @@ SET timezone TO 'UTC'
 AS $function$
 BEGIN
     IF OLD.kind='prediction_retry'
+       AND aap_labeling_v1._prediction_retry_attempt_exists(OLD.id)
        AND NOT aap_labeling_v1._prediction_retry_job_delete_allowed(OLD.id) THEN
         RAISE EXCEPTION USING ERRCODE='P0001',MESSAGE='job_not_writable';
     END IF;

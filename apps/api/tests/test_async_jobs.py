@@ -566,8 +566,8 @@ class TestAsyncJobsAPI:
         queued: list[tuple[str, str]] = []
         monkeypatch.setattr(
             predictions_retry.retry_failed_prediction,
-            "delay",
-            lambda failed_id, user_id: queued.append((failed_id, user_id)),
+            "apply_async",
+            lambda **kwargs: queued.append(tuple(kwargs["args"])),
         )
 
         r = await httpx_client.post(
@@ -586,7 +586,7 @@ class TestAsyncJobsAPI:
         assert queued == [(str(retryable.id), str(user.id))]
 
     @pytest.mark.parametrize("fail_at", [0, 1])
-    async def test_retry_publish_failure_releases_only_unpublished_claims(
+    async def test_retry_publish_uncertainty_keeps_all_durable_claims(
         self, db_session, project_admin, monkeypatch, fail_at
     ):
         from app.application.prediction_retry import SqlPredictionRetry
@@ -622,19 +622,23 @@ class TestAsyncJobsAPI:
         )
         await db_session.flush()
 
-        def publish(failed_id, user_id):
+        def publish(**kwargs):
+            failed_id, _user_id = kwargs["args"]
             if failed_id == str(failures[fail_at].id):
                 raise RuntimeError("publication interrupted")
 
-        monkeypatch.setattr(predictions_retry.retry_failed_prediction, "delay", publish)
-        with pytest.raises(RuntimeError):
-            await SqlPredictionRetry(
-                db_session, dispatcher=CeleryPredictionRetryDispatcher()
-            ).retry_job_items(job_id=job.id, actor_id=user.id)
+        monkeypatch.setattr(
+            predictions_retry.retry_failed_prediction, "apply_async", publish
+        )
+        result = await SqlPredictionRetry(
+            db_session, dispatcher=CeleryPredictionRetryDispatcher()
+        ).retry_job_items(job_id=job.id, actor_id=user.id)
+        assert result.queued == 3
 
-        for index, row in enumerate(failures):
+        for row in failures:
             await db_session.refresh(row)
-            assert bool(row.extra.get("retry_pending")) is (index < fail_at)
+            assert row.extra.get("retry_pending") is True
+            assert row.extra.get("retry_job_id")
             assert row.extra["request_context"] == context
 
     async def test_retry_failed_batch_predict_items_requires_recorded_ids(

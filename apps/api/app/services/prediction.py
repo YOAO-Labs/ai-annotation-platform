@@ -143,42 +143,6 @@ async def assert_can_manage_failed_prediction(
     )
 
 
-async def claim_failed_prediction_retry(
-    db: AsyncSession, failed_id: uuid.UUID, max_retries: int
-) -> FailedPrediction | None:
-    """Lock and reserve one failed prediction for a single queued retry."""
-    row = (
-        await db.execute(
-            select(FailedPrediction)
-            .where(FailedPrediction.id == failed_id)
-            .with_for_update()
-            .execution_options(populate_existing=True)
-        )
-    ).scalar_one_or_none()
-    if (
-        row is None
-        or row.dismissed_at is not None
-        or (row.retry_count or 0) >= max_retries
-        or bool((row.extra or {}).get("retry_pending"))
-    ):
-        return None
-    row.extra = {**(row.extra or {}), "retry_pending": True}
-    row.last_retry_at = datetime.now(timezone.utc)
-    await db.flush()
-    return row
-
-
-async def release_failed_prediction_retry_claim(
-    db: AsyncSession, failed_id: uuid.UUID
-) -> None:
-    row = await db.get(FailedPrediction, failed_id)
-    if row and (row.extra or {}).get("retry_pending"):
-        extra = dict(row.extra or {})
-        extra.pop("retry_pending", None)
-        row.extra = extra
-        await db.flush()
-
-
 def cancelled_batch_result(payload: dict) -> dict:
     total_tasks = _payload_int(payload, "total_tasks") or 0
     return {
@@ -611,12 +575,17 @@ def _prediction_result_for_write(request: ApplyPredictionResultRequest) -> list[
     scope = request.write_scope
     if (
         type(identity) is not BatchResultPredictionIdentity
-        or scope.operation != "preannotation"
+        or scope.operation not in {"preannotation", "prediction_retry"}
         or scope.job_id is None
         or not scope.job_id_known
-        or request.accepted_video_input is not None
+        or (
+            request.accepted_video_input is not None
+            and scope.operation != "prediction_retry"
+        )
     ):
-        raise ValueError("stable Prediction identity requires an ordinary batch result")
+        raise ValueError(
+            "stable Prediction identity requires a durable batch or retry result"
+        )
     return request.result
 
 
@@ -985,31 +954,6 @@ class PredictionService:
             return False
         failed.dismissed_at = None
         return True
-
-    async def delete_failed_prediction_after_retry(self, failed_id: uuid.UUID) -> None:
-        """Delete a successfully retried row in the prediction transaction."""
-        failed = await self.db.get(FailedPrediction, failed_id)
-        if failed is not None:
-            await self.db.delete(failed)
-
-    async def bump_failed_prediction_retry_counter(
-        self,
-        failed_id: uuid.UUID,
-        *,
-        gpu_arbiter_error: dict[str, Any] | None = None,
-    ) -> None:
-        """Record one failed retry and clear its pending marker."""
-        failed = await self.db.get(FailedPrediction, failed_id)
-        if failed is None:
-            return
-        failed.retry_count = (failed.retry_count or 0) + 1
-        failed.last_retry_at = datetime.now(timezone.utc)
-        extra = dict(failed.extra or {})
-        extra.pop("retry_pending", None)
-        if gpu_arbiter_error is not None:
-            extra["last_gpu_arbiter_error"] = gpu_arbiter_error
-        failed.extra = extra
-        await self.db.flush()
 
     async def list_by_task(
         self, task_id: uuid.UUID, model_version: str | None = None

@@ -77,6 +77,9 @@ celery_app.conf.update(
         "app.workers.frame_preannotate.extract_frames_task": {"queue": "media"},
         "app.workers.frame_preannotate.launch_predict_phase": {"queue": "default"},
         "app.workers.predictions_retry.retry_failed_prediction": {"queue": "ml"},
+        "app.workers.predictions_retry.relay_prediction_retry_deliveries": {
+            "queue": "maintenance"
+        },
         "app.workers.media.generate_thumbnail": {"queue": "media"},
         "app.workers.media.generate_video_metadata": {"queue": "media"},
         "app.workers.media.generate_task_thumbnail": {"queue": "media"},
@@ -154,6 +157,10 @@ celery_app.conf.update(
     # v0.7.0：beat schedule。运维侧需 deploy `celery -A app.workers.celery_app beat` 进程
     # （或 worker --beat 单进程模式）才会触发。
     beat_schedule={
+        "relay-prediction-retry-deliveries": {
+            "task": "app.workers.predictions_retry.relay_prediction_retry_deliveries",
+            "schedule": timedelta(seconds=10),
+        },
         "maintain-active-learning-rounds": {
             "task": "app.workers.active_learning.maintain_rounds",
             "schedule": crontab(minute="*"),

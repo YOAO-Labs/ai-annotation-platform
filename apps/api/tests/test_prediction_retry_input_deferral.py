@@ -9,7 +9,6 @@ import pytest
 from aap_assets_inputs.contract import InputFailure
 from app.workers.predictions_retry import (
     FrozenInputRetryDeferred,
-    _do_retry_with_factory,
     _prepare_retry_input,
 )
 
@@ -77,7 +76,6 @@ async def test_transient_frozen_input_wait_has_no_retry_side_effects(
 ):
     from app.services import async_job as async_job_service
     from app.services.notification import NotificationService
-    from app.services.prediction import PredictionService
 
     failed, task, backend, actor_id, input_id, origin_job_id = (
         _frozen_failed_prediction()
@@ -118,18 +116,14 @@ async def test_transient_frozen_input_wait_has_no_retry_side_effects(
     monkeypatch.setattr("app.services.accepted_inputs.input_gateway", fake_gateway)
     monkeypatch.setattr(async_job_service, "track_job", unexpected_side_effect)
     monkeypatch.setattr(NotificationService, "notify", unexpected_side_effect)
-    monkeypatch.setattr(
-        PredictionService,
-        "bump_failed_prediction_retry_counter",
-        unexpected_side_effect,
-    )
 
     with pytest.raises(FrozenInputRetryDeferred, match=code):
-        await _do_retry_with_factory(
+        async with _prepare_retry_input(
             _session_factory(failed, task, backend),
             str(failed.id),
             str(actor_id),
-        )
+        ):
+            pytest.fail("pending input must defer before model execution")
 
     assert events[0] == ("reference", input_id)
     assert "unexpected-side-effect" not in events
@@ -180,7 +174,7 @@ async def test_recovery_reuses_the_claimed_input_and_version(monkeypatch):
     factory = _session_factory(failed, task, backend)
     with pytest.raises(FrozenInputRetryDeferred, match="input_not_ready"):
         async with _prepare_retry_input(factory, str(failed.id)):
-            pytest.fail("the first pending read must defer before retry admission")
+            pytest.fail("the first pending read must defer before model execution")
 
     async with _prepare_retry_input(factory, str(failed.id)) as prepared:
         assert prepared.accepted_input["input_id"] == input_id

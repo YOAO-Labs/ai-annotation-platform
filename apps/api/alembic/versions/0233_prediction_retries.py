@@ -10,7 +10,7 @@ import re
 from pathlib import Path
 
 import sqlalchemy as sa
-from alembic import op
+from alembic import context, op
 
 revision = "0233"
 down_revision = "0232"
@@ -99,6 +99,15 @@ def _replacement_functions() -> list[str]:
 
 
 def upgrade() -> None:
+    if (
+        context.get_x_argument(as_dictionary=True).get(
+            "prediction_retry_legacy_drained"
+        )
+        == "true"
+    ):
+        _execute(
+            "SELECT pg_catalog.set_config('aap.prediction_retry_legacy_drained','true',true)"
+        )
     for filename in _UPGRADE_ARTIFACTS:
         for statement in _statements(filename):
             _execute(statement)

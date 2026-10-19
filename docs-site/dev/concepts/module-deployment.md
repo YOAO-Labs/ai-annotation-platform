@@ -253,9 +253,9 @@ Python 实现复用现有编解码与 S3 栈，Node 测试提供方验证实际 
 
 `apps/preannotation-results` 提供 `aap-preannotation-results/v1`、独立包和函数专用 PostgreSQL CLI。Jobs 的两张 native 表持有执行租约、固定成员、覆盖标记和汇总；Labeling 的三张表按模型响应保存分块原始／准备结果、稳定 Prediction 身份和精确回执。最终 Prediction、Meta、回执、引用根释放和成员游标在同一事务提交，跨进程恢复不重做已完成推理、覆盖或计数。
 
-独立执行角色仅能调用十项 Jobs 和四项 Labeling 能力，不能直接读取私有表或完成业务写入。`PREANNOTATION_RESULTS_DATABASE_URL` 或 `_FILE` 可选择该连接；默认仍由现有应用连接装配。原始字节完整后，即使 Mask 根登记遇到围栏，也必须继续恢复同一份结果。每条传输最多 2 MiB、单块最多 512 KiB，不对整题结果增加 16 MiB 或结果数量限制。
+独立执行角色仅能调用十二项 Jobs 和五项 Labeling 能力（含重试读取与派发），不能直接读取私有表或完成业务写入。`PREANNOTATION_RESULTS_DATABASE_URL` 或 `_FILE` 可选择该连接；默认仍由现有应用连接装配。原始字节完整后，即使 Mask 根登记遇到围栏，也必须继续恢复同一份结果。每条传输最多 2 MiB、单块最多 512 KiB，不对整题结果增加 16 MiB 或结果数量限制。
 
-当前正在隔离本地核验实际消费者、受限身份、提交回包丢失与真实 Celery 重投递；证据不等于完整 Labeling、Inference 或 Jobs 服务已独立部署。单独的失败预测重试 worker、其余生成 Mask 路径、collector 切换及运行时容量继续推进。协议见[同库数据接口](/api/guides/module-data#普通批量结果检查点)与 [ADR-0113](/dev/adr/0113-durable-preannotation-results)。
+当前正在隔离本地核验实际消费者、受限身份、提交回包丢失与真实 Celery 重投递；证据不等于完整 Labeling、Inference 或 Jobs 服务已独立部署。失败预测重试已接入相同结果账本及单独 outbox；运行中跟踪输出增加持久根，结束时同事务转交待审根。完整消费者、collector 切换及运行时容量继续推进。协议见[同库数据接口](/api/guides/module-data#普通批量结果检查点)与 [ADR-0113](/dev/adr/0113-durable-preannotation-results)。
 
 ## 来源删除的辅助引用
 

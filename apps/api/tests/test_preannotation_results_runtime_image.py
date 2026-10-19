@@ -42,7 +42,7 @@ def _docker(*args, **options):
 
 
 def _run_owned_image(
-    image, identity, arguments, *, body=None, secret=None, python=False
+    image, identity, arguments, *, body=None, secret=None, python=False, retry=False
 ):
     details = json.loads(_docker("image", "inspect", image))[0]
     assert details["Config"]["Labels"]["org.aap.acceptance-id"] == identity
@@ -74,6 +74,8 @@ def _run_owned_image(
         )
     if python:
         options.extend(("--entrypoint=python", "--network=none"))
+    elif retry:
+        options.append("--entrypoint=aap-prediction-retries")
     container_id = _docker(*options, details["Id"], *arguments)
     assert len(container_id) == 64 and all(
         char in "0123456789abcdef" for char in container_id
@@ -183,6 +185,78 @@ async def test_installed_read_only_runtime_claims_and_reads_the_saved_bundle(
                     lease_token=claim.lease.lease_token,
                 ),
             )
+    finally:
+        secret.chmod(0o600)
+        secret.unlink()
+
+
+async def test_installed_retry_cli_reads_and_publishes_with_only_executor_capabilities(
+    test_engine, tmp_path
+):
+    from aap_preannotation_results import retry_contract as retry
+    from tests.test_prediction_retries_native import _world as retry_world
+
+    image = os.environ["AAP_PREANNOTATION_RESULT_RUNTIME_IMAGE"]
+    identity = os.environ["AAP_PREANNOTATION_RESULT_RUNTIME_IDENTITY"]
+    url = make_url(os.environ["AAP_MODULE_DATA_PREANNOTATION_RESULT_URL"])
+    assert (
+        url.username == "preannotation_result_client"
+        and url.database == test_engine.url.database
+    )
+    _verify_postgres(url)
+    secret = Path(tmp_path / "retry-dsn").resolve()
+    secret.write_text(
+        url.set(drivername="postgresql", host="host.docker.internal").render_as_string(
+            hide_password=False
+        ),
+        encoding="utf-8",
+    )
+    secret.chmod(0o444)
+    try:
+        async with retry_world(test_engine) as world:
+
+            async def invoke(operation, request):
+                raw = await asyncio.to_thread(
+                    _run_owned_image,
+                    image,
+                    identity,
+                    [operation],
+                    body=request.model_dump_json(),
+                    secret=secret,
+                    retry=True,
+                )
+                return retry.decode_reply(operation, request, raw)
+
+            result = await invoke(
+                "read_prediction_retry",
+                retry.ReadPredictionRetryRequest(
+                    job_id=world.job_id,
+                    failed_prediction_id=world.failed_id,
+                    actor_id=world.actor_id,
+                ),
+            )
+            assert result.attempt == world.attempt
+            claimed = await invoke(
+                "claim_prediction_retry_deliveries",
+                retry.ClaimPredictionRetryDeliveriesRequest(
+                    worker_id=uuid4(),
+                    job_id=world.job_id,
+                    limit=1,
+                ),
+            )
+            assert len(claimed.items) == 1
+            delivery = claimed.items[0]
+            finished = await invoke(
+                "finish_prediction_retry_delivery",
+                retry.FinishPredictionRetryDeliveryRequest(
+                    job_id=world.job_id,
+                    generation=delivery.generation,
+                    lease_token=delivery.lease_token,
+                    submitted=True,
+                    error_code=None,
+                ),
+            )
+            assert finished.submitted is True and finished.job_id == world.job_id
     finally:
         secret.chmod(0o600)
         secret.unlink()

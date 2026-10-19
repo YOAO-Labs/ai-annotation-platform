@@ -328,6 +328,7 @@ async def test_api_video_overwrite_waits_for_original_then_runs_real_celery_fram
             )
             return [
                 SimpleNamespace(
+                    task_id=task["id"],
                     result=result,
                     score=0.9,
                     model_version="video-fixture",

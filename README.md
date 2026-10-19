@@ -166,6 +166,8 @@ Mask 内容读写提供可选独立工件 `apps/assets-mask-content`，沿用现
 
 Mask 的持久删除围栏、代次校验与不可变回执已有隔离本地实现和故障验证，独立协调工件为 `apps/labeling-mask-gc`；现有业务回收器尚未切换。素材仍被相机链接、场景轨迹、视频执行或保留输入引用时，删除返回 409，须先在对应功能中解除引用，见[素材删除规则](./docs-site/user-guide/datasets/index.md#删除素材或数据集)。
 
+普通批量与失败项重试保存推理结果和精确写入回执；发布不确定、写锁竞争或 worker 中断后继续原作业与已保存输出。重试、派发和结果读取使用独立 SQL 合同，部署边界见[结果检查点](./docs-site/dev/concepts/module-deployment.md#普通批量结果检查点)。
+
 工作台单张图片预标使用同一媒体工件提供的版本化输入副本，整图模型和 ROI 读取同一版本。独立运行需配置专用的 `MINIO_INPUTS_BUCKET` 并启用版本管理；启动和权限要求见 [DEV.md](./DEV.md#图片金字塔的独立控制与执行)，其余消费路径见[媒体输入边界](./docs-site/dev/concepts/accepted-media-inputs.md)。
 
 项目成员可在工作台阅读[标注指引](./docs-site/user-guide/projects/index.md#编写标注指引)及示例图；指引编辑和图片上传、删除由项目负责人或超级管理员管理。

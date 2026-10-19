@@ -168,6 +168,11 @@
     "FinishPredictionRetryFailureRequest": {
       "additionalProperties": false,
       "properties": {
+        "abandon": {
+          "default": false,
+          "title": "Abandon",
+          "type": "boolean"
+        },
         "actor_id": {
           "format": "uuid",
           "title": "Actor Id",

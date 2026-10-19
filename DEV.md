@@ -1114,6 +1114,8 @@ API／worker 默认用现有数据库连接保存检查点；设置 `PREANNOTATI
 
 运行 `uv run --project apps/preannotation-results --extra postgres python -m aap_preannotation_results_runtime read_batch_result_execution < request.json`，请求文件仅包含对应冻结 DTO。CLI 的独立依赖只有 Pydantic 和 asyncpg，不读取应用、队列或 S3 凭据；业务写入操作不对执行 CLI 开放。读取大结果时使用固定块和摘要，不能把交互接口的 16 MiB 限额套给整个批量结果。
 
+失败项重试复用同一受限连接和结果工件，并提供 `aap-prediction-retries` CLI（`python -m aap_preannotation_results_runtime.retry_main`）。CLI 仅开放 attempt 读取及两项派发能力；立即派发与 maintenance 队列中的定时 relay 也使用该连接。业务写入方保留准入、成功／失败结算与最终 Labeling 事务。旧 pending marker 没有绑定 Job 时，迁移释放占用而不改变失败次数，后续重试重新受理。升级前必须停止并排空旧重试消费者和队列，处理完旧的 pending/running 重试作业。存在无绑定占用时，普通升级会拒绝；确认排空后使用 `python -m alembic -x prediction_retry_legacy_drained=true upgrade head` 显式确认本次迁移，不能让新旧 writer 滚动并行。此确认不跳过活动旧作业检查，也不写入长期配置。
+
 本地真实重投递验收由 `scripts/verify_module_data_boundary.py` 的一次性资源承载；`RUN_BATCH_RESULT_WORKER_LIVE_TEST=1` 显式启用强制终止子进程用例。不要在日常开发库或共享 worker 上运行该用例。当前主环境和 Mask collector 的切换仍须等待完整验收；Go 不加入正常运行路径。
 
 ## 视频媒体的独立控制与执行
