@@ -1,9 +1,8 @@
 ---
 audience: [dev]
 type: explanation
-since: v0.9.14
 status: stable
-last_reviewed: 2026-09-12
+last_reviewed: 2026-10-19
 ---
 
 # 审计与通知
@@ -75,6 +74,7 @@ last_reviewed: 2026-09-12
 - 标注：`annotation.*`
 - 任务审核：`task.submit / withdraw / approve / reject / reopen / skip`
 - AI 预标、原生 Mask 与视频追踪：`preannotate.bulk_clear`、`mask_ai.candidate_accept`、`annotation.mask_mutation`、`annotation.convert`、`video_mask.keyframe_correct / keyframe_operate`、`video_tracker_job.create / cancel / accept / discard / decision`、`video_correction_job.create / cancel`
+- 在线学习与训练体系：`training_dataset.*`、`training_job.*`、`training_study.*`、`model_release.*`、`active_learning.*`（详见 [在线学习与训练体系](./training-datasets)）
 - 反馈：`feedback.created / status_changed / deleted`、`feedback.reconcile_drift`（双写对账漂移）
 - 存储连接器：`storage_connection.create / update / delete / test`、`connector.allowlist_update`（见 [存储连接器](/dev/concepts/storage-connections)）。`update` 的 `detail` 含 `secret_rotated` 标记是否轮换密钥，且**绝不写入明文密钥**
 
@@ -142,17 +142,16 @@ last_reviewed: 2026-09-12
 
 不要把大块重复对象整份塞进去。`detail_json` 更适合“补事实”，不是“存快照”。
 
-原生 Mask 候选接受的审计只记录 candidate / content digest、Prediction、源/结果版本、帧号、实际 backend / pool / model 与有界 prompt 计数摘要。它不记录 RLE counts、原图、scribble 点集、receipt 或 logits；这些大载荷和凭证也不得进入普通日志。
+针对 Mask、转换与视频追踪等包含大体积几何/RLE 载荷的动作，`detail_json` 严格遵循以下脱敏与有界记录规则：
 
-`annotation.mask_mutation` 每次 split / copy / join / overlap 只写一条聚合审计，target 指向 operation ledger。detail 可包含 task、operation、updated / created / deleted ID 和类型化的面积 / 拓扑摘要，但不得包含完整 geometry、RLE counts 或未知客户端字段。operation、lineage、annotation 变更与这条 audit 必须同事务成功或失败。
-
-`annotation.convert` 也只写一条指向 `convert_annotations` operation 的聚合审计。detail 仅记录 task、copy / replace、目标类型、范围、来源 / 结果 / 有损数量；逐对象版本和派生关系由 operation / lineage 账本保留，审计中不写完整 geometry 或 RLE 正文。
-
-视频 Mask 单帧保存使用 `video_mask.keyframe_correct`；删除精确关键帧、标记 manual outside 和恢复 held 使用 `video_mask.keyframe_operate`。后者只记录 operation、帧号、segment、源/结果版本、前后 digest，以及删除后解析到的 held 来源帧，不保存 RLE counts 或完整 geometry。
-
-视频追踪局部决定与 annotation 变更在同一事务提交。`video_tracker_job.decision` 只记录目标标识、帧窗口、决定、候选数量、前后 revision，以及显式覆盖人工关键帧时的 before / after geometry digest；不记录 staged geometry、Mask RLE 或原始媒体。
-
-视频 Mask 纠错创建审计可记录源 annotation / track、纠错帧、窗口、方向、源版本、corrected digest、精确 backend / pool / model、segment lease、seed mode 与 fallback reason；取消审计记录人工关键帧保留和 staged candidate 清除。允许记录 digest 用于完整性追溯，但不得记录 RLE counts、scribble 坐标、logits、receipt、原始文本 prompt 或对象正文。
+| 审计动作                                            | 允许记录的 `detail_json` 摘要字段                                                                                    | 严禁写入审计或普通日志的字段                       |
+| --------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------- |
+| `mask_ai.candidate_accept`                          | candidate / content digest、Prediction、源/结果版本、帧号、实际 backend / pool / model、有界 prompt 计数摘要         | RLE counts、原图、scribble 点集、receipt、logits   |
+| `annotation.mask_mutation`（指向 operation ledger） | task、operation、updated / created / deleted ID、类型化面积 / 拓扑摘要（与 operation、lineage、annotation 同事务）   | 完整 geometry、RLE counts、未知客户端字段          |
+| `annotation.convert`（指向 `convert_annotations`）  | task、copy / replace、目标类型、范围、来源 / 结果 / 有损数量                                                         | 完整 geometry、RLE 正文（逐对象关系由账本保留）    |
+| `video_mask.keyframe_correct` / `keyframe_operate`  | operation、帧号、segment、源/结果版本、前后 digest、删除后解析到的 held 来源帧                                       | RLE counts、完整 geometry                          |
+| `video_tracker_job.decision`（与标注变更同事务）    | 目标标识、帧窗口、决定、候选数量、前后 revision、显式覆盖人工帧时的 before / after geometry digest                   | staged geometry、Mask RLE、原始媒体                |
+| `video_correction_job.create` / `cancel`            | 源 annotation / track、纠错帧、窗口、方向、源版本、corrected digest、backend / pool / model、lease、seed mode / 原因 | RLE counts、scribble 坐标、logits、receipt、原文本 |
 
 ## Notification：提醒谁该处理什么
 
@@ -195,13 +194,14 @@ last_reviewed: 2026-09-12
 
 ### 讨论事件的提交与导航
 
-回复创建和问题根记录的实际状态变化，以及任务留言或原标注评论创建时的已验证提及，会调用 `discussion_notifications.py`。收件人按当前项目、任务、批次归属与账号状态重新检查；状态事件通过根线程的递归查询收集全部有效后代作者，穿过已删除的中间回复，不受列表分页限制。排除操作人和重复收件人后，再应用通知偏好。
-
-这些路由调用 `notify` 或 `notify_many` 时显式传入 `defer_publish=True`，只收集本请求实际插入的通知行。业务 `commit` 成功后调用 `publish_committed(rows)`，失败则不推送；没有跨请求的待发布列表。其他通知调用方保留默认发布时序。
-
-问题事件以根问题 ID 为 `target_id`，来源为 `feedback`；`feedback.comment_mentioned` 以原生任务留言 ID 为目标、来源为 `feedback`，导航到任务评论而非问题线程；`annotation.comment_mentioned` 以原标注评论 ID 为目标、来源为 `annotation_comment`，不引用反馈镜像。载荷保留项目、任务、操作人名称，以及需要的回复、标注或状态字段，不复制正文。
-
-通知入口和工作台都重新读取目标。工作台以路由导航身份消费一次激活请求，与面板的显示、折叠和重新挂载分开；旧回复按根游标继续读取，原评论使用标注评论接口查找，再通过既有讨论查询显示服务端操作权限。共享读取不会被单个导航的取消信号终止；分页等待同一缓存的后台刷新时，只有真正返回的分页参数才计入游标循环检查，未推进的刷新结果不会中断查找。已退休任务或账号的结果不能激活当前面板。视频选择与切任务继续使用已有绘制和 Mask 守卫，读取其他视频分段的评论不申请编辑租约。
+- **收件人计算与越权过滤**：回复创建、问题根记录状态变化以及任务留言/原标注评论创建时的已验证提及，统一调用 `discussion_notifications.py`。收件人按当前项目、任务、批次归属与账号状态重新检查；状态事件通过根线程递归查询收集全部有效后代作者（穿过已删除的中间回复，不受列表分页限制），排除操作人和重复收件人后再应用通知偏好。
+- **同事务提交后延迟发布（`defer_publish=True`）**：讨论路由调用 `notify` / `notify_many` 时显式传入 `defer_publish=True`，只收集本请求实际插入的通知行；业务 `commit` 成功后调用 `publish_committed(rows)`，失败则不推送。
+- **通知目标与载荷边界**：
+  - 问题事件：以根问题 ID 为 `target_id`，来源为 `feedback`。
+  - `feedback.comment_mentioned`：以原生任务留言 ID 为目标，来源为 `feedback`，导航到任务评论而非问题线程。
+  - `annotation.comment_mentioned`：以原标注评论 ID 为目标，来源为 `annotation_comment`，不引用反馈镜像。
+  - 载荷仅保留项目、任务、操作人名称及必要的回复/标注/状态字段，不复制评论正文。
+- **工作台深链消费**：通知入口和工作台均重新读取目标。工作台以路由导航身份消费一次激活请求（与面板折叠/重挂载解耦）；旧回复按根游标继续读取，已退休任务或账号的结果不能激活当前面板；读取其他视频分段的评论不申请编辑租约。
 
 ### 偏好静音
 
@@ -249,7 +249,7 @@ last_reviewed: 2026-09-12
 
 **特殊类型（不在 `KNOWN_NOTIFICATION_TYPES`，因此用户不能静音）：**
 
-- `feedback.reconcile_drift` — 双写对账发现不一致，仅发给 superadmin（`apps/api/app/workers/feedback_reconcile.py:76`）
+- `feedback.reconcile_drift` — 双写对账发现不一致，仅发给 superadmin（`apps/api/app/workers/feedback_reconcile.py`）
 
 新增可配置通知类型时要同步更新后端 `KNOWN_NOTIFICATION_TYPES` 与前端设置页标签；
 不可配置的运维类通知则刻意不进 `KNOWN`，避免被错误静音。
@@ -293,26 +293,20 @@ helper 在 `mark_*` 之后、调用方 `commit()` 之前调用；`/ws/notificati
 自己的会话里短暂重试读取尚不可见的行，因此消息在提交落地后送达而不是被丢弃。
 
 各作业 kind 的**领域终态账本**（`MaskQCRun` / `PointCloudQualityRun` /
-`MaskRepairBatch` / `MaskFormatImport`）的正规更新仍在各自 worker 内。兜底路径——worker
+`MaskRepairBatch` / `MaskFormatImport` / 在线训练与评估作业）的正规更新仍在各自 worker 或内部回调路由内。兜底路径——worker
 进程 crash、Celery revoke、未被 task body 捕获的异常——由 `workers/signals.py` 走统一骨架
 （连接 → 按 `celery_task_id` 查 `async_jobs` → 落终态 → 回填领域账本 → 通知 → 提交 → 释放），
 领域差异由 `services/async_job_terminal.py` 的封闭分派承担：mask 格式导入取消保留
 `partial`、回滚失败保留 `rollback_failed`、修复取消按已完成分片决定 `partial` / `cancelled`。
 终态作业不会被迟到的信号覆盖，未知 `celery_task_id` 与无领域账本的 kind 静默跳过。
 
-当前白名单：
+当前白名单包括：
 
-- `batch_predict`
-- `video_tracker`
-- `video_correction`
-- `predictions_import`
-- `audit_archive`
-- `prediction_retry`
-- `dataset_import`
-- `mask_qc`
-- `mask_repair`
-- `mask_repair_rollback`
-- `mask_format_import`
+- `batch_predict` / `prediction_retry` / `predictions_import`
+- `video_tracker` / `video_correction`
+- `dataset_import` / `audit_archive`
+- `mask_qc` / `mask_repair` / `mask_repair_rollback` / `mask_format_import`
+- 在线学习作业（`training_dataset_build` / `training_job` / `training_evaluation` / `active_learning_refresh`，详见 [在线学习与训练体系](./training-datasets)）
 
 `failed_prediction.retry.succeeded` / `failed_prediction.retry.failed` 保留为历史通知偏好类型；当前失败预测重试的终态由 `prediction_retry` 的 `job.completed` / `job.failed` 承载。
 
@@ -411,31 +405,28 @@ WS 握手时会校验 JWT，然后订阅：
 
 **audit 落点对齐**：新表的写操作走 `FEEDBACK_CREATED` / `FEEDBACK_STATUS_CHANGED` / `FEEDBACK_DELETED` 三个 AuditAction，不再为 4 个 source 各维护 detail helper。旧 `bug_report.*` 通知类型保留。
 
-**双写一致性监控**:view 的 `source_table` 列可用于对账查询(`SELECT source_table, COUNT(*) FROM v_annotation_feedback_unified GROUP BY source_table` 对比 `annotation_feedbacks` 行数);日志关键字 `[ADR-0027 double-write]` 用于排障。`bug_reports.project_id IS NULL` 行(登录页等无项目归属 bug)不 mirror,留切单源时单独处理。
+**双写一致性监控**：view 的 `source_table` 列可用于对账查询（`SELECT source_table, COUNT(*) FROM v_annotation_feedback_unified GROUP BY source_table` 对比 `annotation_feedbacks` 行数）；日志关键字 `[ADR-0027 double-write]` 用于排障。`bug_reports.project_id IS NULL` 行（登录页等无项目归属 bug）不 mirror，留切单源时单独处理。
 
 **自动对账**：上述手工对账已自动化为每日 03:00 UTC 的 celery beat 任务 `reconcile_annotation_feedback`。它逐源比对旧表「应 mirror 行数」与统一表「实际镜像行数」，发现缺失时写 `FEEDBACK_RECONCILE_DRIFT` 审计并通知全部 superadmin（`feedback.reconcile_drift`）。drift 长期为 0 是切单源的前置条件。机制详见 [反馈收敛与双写对账](./feedback-convergence)。
 
-<!-- history: feedback convergence was introduced across v0.10 and v0.11 slices; the visible table now describes current phases instead of release numbers. -->
-
 ### 讨论读取与草稿归属
 
-工作台的 `GET /tasks/{task_id}/discussion/page` 是只读聚合接口，不改变写入归属。标注评论以 `annotation_comments` 为准；任务留言（支持成员提及，图片可附绘图）以原生 `annotation_feedbacks` 任务评论根记录为准。聚合结果携带 `source` 和原记录，客户端以 `(source, id)` 标识条目并路由修改、删除及附件下载。标注评论的旧镜像可能未同步后续编辑或删除，因此不能替代原记录；Issue 回复、BUG 和退回镜像不进入评论列表。
-
-图片任务绘图复用 `CanvasDrawing`，存入原生任务留言的可空 `annotation_feedbacks.canvas_drawing`，不改写标注评论或其镜像。画布气泡通过 `discussion/annotation-counts` 对可用标注的有效原评论做任务级分组计数，查询键归入 `task-discussion` 家族以复用评论变更失效；关闭账号偏好 `workbench.common.showAnnotationComments` 时停用气泡及其查询。此统计没有每用户阅读位置，也不新增讨论广播。
-
-任务留言提及沿用 `Mention` 结构，存入 `annotation_feedbacks.mentions`；旧记录按空列表读取，创建和聚合序列化保留原始提及。提及能力独立于媒体类型和绘图能力，前端草稿、提交守卫、服务端校验及渲染需一起接入。问题回复仍不接收提及，不能复用带提及的任务输入载荷并静默丢弃字段。
-
-视频评论气泡使用现有当前帧解析结果，单帧标注只显示在其源帧，轨迹按当前可见几何定位；隐藏、离场或未加载分段的对象不参与展示。计数仍按持久化 annotation UUID 聚合全部评论，不能把轨迹号、帧号或类别作为评论身份。气泡沿用现有守卫与讨论激活请求，不成为新的选择或导航状态源。
-
-图片和视频像素问题共用严重度与状态的视觉规则，尺寸按屏幕像素保持恒定。位置和关联对象在创建时冻结，取消关联不改变位置；视频关联的轨迹和标注版本应同步移除。打开详情与显式定位维持分离，图像对象选择需经过编辑守卫并重新校验当前任务，已删除对象允许保留像素定位与讨论。普通问题的 blocker 严重度不参与 Mask 质检的审核阻断计算。
-
-聚合查询先在数据库中合并排序键，再分批读取完整记录；游标绑定任务、范围和标注。Issue 列表使用根记录与服务端状态筛选；数量独立于已加载页，图钉只有在当前任务全部页读取完毕后才视为完整。线程读取独立于列表，通过验证过项目、任务和锚点归属的父链读取后代；删除的中间回复不遮挡仍有效的子回复，但不可见或已删除根记录下的线程不可操作。
-
-接口返回的 `actions` 用于展示可用操作，不能代替写入时的权限校验。每次写入重新校验项目、任务及线程；审核员的状态权限不允许在同一 PATCH 中夹带他人正文、标题或严重程度修改。
-
-前端 `DiscussionDraftProvider` 位于路由展示层之上，按认证会话和用户隔离，再以项目、任务、目标类型及目标 ID 区分草稿。提交先捕获不可变的 owner、目标、revision 和 request ID；成功只清除仍对应同一 revision 的草稿。上传和画布完成结果也携带原 owner，注销后的结果失效，不会附加到新账号或当前选中目标。
-
-文字与结构化草稿只保存在当前登录会话内存中，不进入布局偏好或标注离线队列。弹窗绘图冻结打开时的目标、背景、尺寸和视频锚点，逐次将已完成及正在绘制的笔触同步写入原目标草稿；弹窗与题图直接绘制互斥。题图上的活动画布笔触另用带用户、项目、任务及任务／标注目标命名空间的五分钟 `sessionStorage` 恢复记录；任务切换和路由卸载前先同步保存原 owner，再释放画布。恢复优先读会话草稿，只有内存中不存在该草稿时才读有效恢复记录；注销清除原用户记录，不导入无法确定归属的旧记录。
+- **只读聚合路由（`GET /tasks/{task_id}/discussion/page`）**：
+  - 标注评论以 `annotation_comments` 为准；任务留言（支持成员提及，图片可附绘图）以原生 `annotation_feedbacks` 任务评论根记录为准。
+  - 聚合结果携带 `source` 和原记录，客户端以 `(source, id)` 标识条目并路由修改、删除及附件下载；Issue 回复、BUG 和退回镜像不进入评论列表。
+- **画布绘图与评论气泡**：
+  - 图片任务绘图复用 `CanvasDrawing`，存入原生任务留言的可空 `annotation_feedbacks.canvas_drawing`。
+  - 画布气泡通过 `discussion/annotation-counts` 对可用标注的有效原评论做任务级分组计数（关闭 `workbench.common.showAnnotationComments` 偏好时停用）。
+  - 视频评论气泡按持久化 `annotation.id` UUID 聚合评论，单帧标注只显示在其源帧，轨迹按当前可见几何定位。
+- **提及（`Mention`）与像素问题（Issue）**：
+  - 任务留言提及存入 `annotation_feedbacks.mentions`；问题回复不接收提及。
+  - 图片和视频像素问题共用严重度与状态视觉规则，位置和关联对象在创建时冻结；普通问题的 `blocker` 严重度不参与 Mask 质检的审核阻断计算。
+- **服务端游标与写入复核**：
+  - 聚合查询在数据库内合并排序键后分批读取；线程读取穿过已删除的中间回复，但不可见或已删除根记录下的线程不可操作。
+  - 接口返回的 `actions` 仅用于 UI 展示，每次写入重新校验项目、任务及线程权限；审核员的状态权限不允许在同一 PATCH 中夹带他人正文、标题或严重度修改。
+- **前端草稿隔离（`DiscussionDraftProvider`）**：
+  - 位于路由展示层之上，按认证会话、用户、项目、任务、目标类型及目标 ID 隔离草稿；文字与结构化草稿只保存在当前登录会话内存中。
+  - 题图上的活动画布笔触另用带命名空间的 5 分钟 `sessionStorage` 恢复记录，任务切换和路由卸载前先同步保存原 owner 再释放画布，注销时清除原用户记录。
 
 ## 常见修改落点
 

@@ -1,9 +1,9 @@
 ---
+title: 调试 WebSocket
 audience: [dev]
 type: how-to
-since: v0.1.0
 status: stable
-last_reviewed: 2026-09-19
+last_reviewed: 2026-10-19
 ---
 
 # How-to：调试 WebSocket
@@ -12,7 +12,7 @@ last_reviewed: 2026-09-19
 
 ## WS 拓扑总览
 
-后端 WS 端点全部注册在 `apps/api/app/api/v1/ws.py` 的 `router = APIRouter()`，由 `apps/api/app/main.py:108` `app.include_router(ws_router)` **无 prefix** 挂载。所以浏览器侧 URL 必须是 `/ws/<name>`，**不要写 `/api/v1/ws/<name>`**：
+后端 WS 端点全部注册在 `apps/api/app/api/v1/ws.py` 的 `router = APIRouter()`，由 `apps/api/app/main.py` `app.include_router(ws_router)` **无 prefix** 挂载。所以浏览器侧 URL 必须是 `/ws/<name>`，**不要写 `/api/v1/ws/<name>`**：
 
 | 端点                               | 用途                                  | 鉴权                 | 前端 hook                       |
 | ---------------------------------- | ------------------------------------- | -------------------- | ------------------------------- |
@@ -23,7 +23,7 @@ last_reviewed: 2026-09-19
 | `/ws/video-tracker-jobs/{job_id}`  | 视频 tracker 运行与候选审阅事件       | JWT + task 可见性    | `useVideoTrackerJobs.ts`        |
 | `/ws/ml-backend-stats`             | PerfHud GPU/容器实时指标 (admin only) | JWT + role           | `useMLBackendStats.ts`          |
 
-production：6 个端点都走 nginx `/ws/` location 反代到 `api:8000`（[infra/docker/nginx.conf](https://github.com/anthropics/ai-annotation-platform/blob/main/infra/docker/nginx.conf)）。
+生产环境：6 个端点均经 Nginx `/ws/` location 反代到 `api:8000`（见仓库 `infra/docker/nginx.conf`）。
 
 > 项目作用域频道（`preannotate` / `batches`）以 query `token` 传 JWT 或 `ak_` API key，并要求当前账号在该 `project_id` 上有实际访问；凭据无效 / 撤销或无项目访问在 accept 前 close `1008`。每个受保护 payload 前都重新校验当前权限，撤销后立即停止该项目的受限投递，**没有 5 秒宽限**。直连排查时带上 `?token=...`，不要假设它们“无需鉴权”，也不要把 project UUID 当作访问控制。
 
@@ -120,9 +120,7 @@ docker compose --env-file .env.production \
   -f docker-compose.yml -f docker-compose.prod.yml up -d --build
 ```
 
-**开发路径**：本地 uvicorn `--reload` 跑 API，compose 跑基础设施与各类 worker。改默认 / media / cleanup / audit worker 代码重启 `celery-worker`；改分区维护或统计刷新代码重启 `celery-worker-maintenance`；改 GPU 预标或视频 tracker 代码重启 `celery-worker-gpu`；CPU 预标和导出分别重启 `celery-worker-cpu`、`celery-worker-export`。
-
-详见 CLAUDE.md §7 Docker rebuild vs restart。
+**开发路径**：本地 uvicorn `--reload` 跑 API，compose 跑基础设施与各类 worker。改默认 / media / cleanup / audit worker 代码重启 `celery-worker`；改分区维护或统计刷新代码重启 `celery-worker-maintenance`；改 GPU 预标或视频 tracker 代码重启 `celery-worker-gpu`；CPU 推理与评估重启 `celery-worker-cpu`；导出与训练数据构建重启 `celery-worker-export`。导入、自动训练与超参搜索协调任务按 `celery_app.py` 的实际路由刷新；训练执行本身由独立执行器负责。
 
 ### 5. Celery beat 发任务但 worker 不消费
 
@@ -137,7 +135,7 @@ docker compose --env-file .env.production \
 task_default_queue="default",   # 不再是 Celery 内置的 "celery"
 ```
 
-只有需要专用队列（`ml` / `media` / `gpu` / `cleanup` / `audit` / `maintenance`）的 task 才在 `task_routes` 显式路由；其余兜底任务无需逐个补 route。排查时 `redis-cli llen celery` 看死队列是否堆积。队列与订阅模型详见 [backend-infrastructure 的「队列与订阅模型」一节](../concepts/backend-infrastructure)。
+只有需要专用队列（`ml` / `ml.cpu` / `media` / `gpu` / `cleanup` / `audit` / `maintenance` / `export` / `image-pyramid` / `import` / `training`）的 task 才在 `task_routes` 显式路由；其余兜底任务无需逐个补 route。排查时 `redis-cli llen celery` 看死队列是否堆积。队列与订阅模型详见 [backend-infrastructure 的「队列与订阅模型」一节](../concepts/backend-infrastructure)。
 
 ### 6. asyncpg `cannot perform operation: another operation is in progress`
 
@@ -170,16 +168,15 @@ async def _my_async_task():
 
 - [ ] hook 使用 `buildWsUrl()`；Vite 后端端口使用 `API_PROXY_TARGET`，仅直连覆盖使用 `VITE_WS_HOST`
 - [ ] URL 是 `/ws/<name>` 不带 `/api/v1`
-- [ ] onclose code 1008 / 1006 区分鉴权失败 vs 网络断；不要静默兜底（v0.6.9 通知 bug 教训）
-- [ ] 加 e2e 或 hook 单测覆盖 URL 派发，避免 14 个月无人发现的二次重演
+- [ ] onclose code 1008 / 1006 区分鉴权失败 vs 网络断；不要静默兜底
+- [ ] 加 e2e 或 hook 单测覆盖 URL 派发
 
 运维：
 
-- [ ] nginx.conf 的 `location /ws/` 已含 Upgrade / Connection header（见 v0.9.11 nginx.conf）
+- [ ] `infra/docker/nginx.conf` 的 `location /ws/` 已含 Upgrade / Connection header
 - [ ] 开发态 worker 代码重启实际消费队列的 worker；生产镜像代码变更用 production compose 重建
 
 ## 相关 ADR / 文档
 
-- 后端 ws 端点协议 → [架构文档 frontend-layers.md](../concepts/frontend-layers.md)
+- 后端 ws 端点协议 → [WebSocket 协议](../reference/ws-protocol) / [架构文档 frontend-layers.md](../concepts/frontend-layers.md)
 - PerfHud 的 WS 实时推送架构 → [架构文档 perfhud.md](../concepts/perfhud.md)
-- 通知系统设计 → 评估 v0.6.9 通知 WS / 30s 兜底 fallback 设计文档（暂无独立 ADR）

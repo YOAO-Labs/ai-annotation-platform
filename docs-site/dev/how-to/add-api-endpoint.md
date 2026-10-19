@@ -1,14 +1,14 @@
 ---
+title: 新增 API 端点
 audience: [dev]
 type: how-to
-since: v0.1.0
 status: stable
-last_reviewed: 2026-05-09
+last_reviewed: 2026-10-19
 ---
 
 # How-to：新增 API 端点
 
-> 本文以 **v0.7.8 真实落地的 `POST /auth/logout`** 为线索，走全链路一遍。完整代码可在 git log 中按 `auth.logout` 关键词检索。
+> 本文以真实落地的 `POST /auth/logout` 为线索，串联从 FastAPI 路由、Service、测试、OpenAPI 快照到前端生成的完整链路。
 
 ---
 
@@ -26,17 +26,17 @@ apps/api/tests/test_auth.py
 # 3. 跑测试
 cd apps/api && uv run pytest tests/test_auth.py -v -k logout
 
-# 4. 刷 OpenAPI snapshot
-uv run python ../../scripts/export_openapi.py
+# 4. 刷新受 Git 跟踪的 OpenAPI snapshot
+pnpm openapi:export
 
-# 5. 前端生成类型
-cd ../web && pnpm codegen
+# 5. 本地生成前端 TS 类型与 SDK（构建期产物，不提交 Git）
+pnpm codegen
 
 # 6. 前端 wrapper + 状态变更
-src/api/auth.ts
-src/pages/.../UserMenu.tsx                 # 调用方
+apps/web/src/api/auth.ts
+apps/web/src/pages/.../UserMenu.tsx        # 调用方
 
-# 7. 提 PR：路由 + 测试 + snapshot + 前端代码一并
+# 7. 提 PR：路由 + 测试 + openapi.snapshot.json + 前端业务代码一并提交
 ```
 
 ---
@@ -83,7 +83,7 @@ async def logout(
 要点：
 
 - `status_code=204` 显式声明：FastAPI 默认会改 200 OK，无 body 端点应主动指定 204 让 OpenAPI 准确。
-- 三个 `Depends`：`HTTPBearer()` 拿原 token、`get_current_user` 校验签名+黑名单+gen、`get_db` 注入 session。三者顺序是 v0.7.8 评估后定的——`get_current_user` 内部已经 decode 一次 token，但因为这是 internal helper，路由里再 decode 一次取 jti 是可读性优先。
+- 三个 `Depends`：`HTTPBearer()` 拿原 token、`get_current_user` 校验签名+黑名单+gen、`get_db` 注入 session。`get_current_user` 内部已经 decode 一次 token，路由里再 decode 一次取 `jti` 是为了保持辅助函数职责单一与可读性。
 - `AuditService.log` 在 commit 前写：保证审计与业务事务原子性，崩溃要么都生效要么都回滚。
 
 如果你的端点返回 body，模板换成：
@@ -131,7 +131,7 @@ async def blacklist_token(jti: str, ttl_seconds: int) -> None:
 
 - 纯逻辑函数，不接 `Request` / `db`：可独立单测，也可被多个端点复用（实际 `logout-all` 的代际号增量逻辑也在同一文件）。
 - TTL ≤ 0 提前返回：token 已过期再加黑名单等于永久占 key。
-- Redis 客户端用 `try/finally` 关闭：v0.7.8 早期忘了 `aclose` 导致连接泄漏，pytest 跑全套 100+ 测试时 Redis 连接数撞顶——**新加 Redis 调用务必关连接**。
+- Redis 客户端用 `try/finally` 关闭：避免跑全套测试时 Redis 连接泄漏导致连接数触顶——**新加 Redis 调用务必关闭连接**。
 
 如果你的端点逻辑复杂（PG 多表事务、多个 ML backend 调用、外发 SMTP），抽到 `app/services/<feature>.py` 的 service 类：
 
@@ -195,23 +195,19 @@ async def test_logout_idempotent_when_token_expired(...):
 
 ---
 
-## 4. snapshot 与前端类型
+## 4. OpenAPI Snapshot 与前端类型生成
 
 ```bash
-# 后端目录
-cd apps/api
-uv run python ../../scripts/export_openapi.py
-# 验证契约
-uv run pytest tests/test_openapi_contract.py
+# 导出最新 OpenAPI 快照并校验契约一致
+pnpm openapi:export
+pnpm openapi:check
 
-# 前端目录
-cd ../web
+# 生成前端 TypeScript 类型与 SDK（输出至 apps/web/src/api/generated/，该目录被 Git 忽略）
 pnpm codegen
-# 检查 generated/sdk.gen.ts 中已有新方法
-grep -A 5 "logout" src/api/generated/sdk.gen.ts | head
+grep -A 5 "logout" apps/web/src/api/generated/sdk.gen.ts | head
 ```
 
-CI 会跑 `pnpm openapi:check`，snapshot 与代码不一致时 fail——这是必填 commit。
+CI 会执行 `pnpm openapi:check` 与 `pnpm docs:gen`（刷新路由索引 `_routes.generated.md`），因此修改后端接口后必须将更新后的 `apps/api/openapi.snapshot.json`（及受影响的文档产物）一并提交。
 
 ---
 
@@ -239,17 +235,17 @@ export async function logout(): Promise<void> {
 
 要点：
 
-- 不直接拼 URL 字符串，全部走 `generated/sdk.gen`——参见 [ADR-0003 / OpenAPI 客户端生成](https://github.com/yyq19990828/ai-annotation-platform/blob/main/docs/adr/archive/0003-openapi-client-codegen.md)。
+- 优先复用 `generated/sdk.gen` 与 `types.gen` 中的契约定义（参见 [ADR-0003](/dev/adr/archive/0003-openapi-client-codegen) 与 [前后端契约边界](../concepts/api-schema-boundary)）。
 - 业务副作用（清 localStorage、跳页）放 wrapper 里；组件只负责调用。
 
 ---
 
 ## 6. PR 检查清单
 
-- [ ] `pnpm openapi:check` 通过（snapshot 与代码一致）
+- [ ] `pnpm openapi:check` 通过（`apps/api/openapi.snapshot.json` 已更新并提交）
+- [ ] `pnpm docs:gen` 已同步刷新 `docs-site/api/guides/_routes.generated.md`
 - [ ] 后端测试覆盖正常路径 + 至少 1 个错误路径 + 至少 1 个副作用断言
 - [ ] 端点声明了 `status_code` / `summary` / 非默认 `responses`
 - [ ] 关键业务变更写了 `AuditService.log`（如果端点有副作用）
-- [ ] OpenAPI 中能看到新的 `summary` / `responses`
-- [ ] 前端 generated 文件已提交
-- [ ] 前端 wrapper 不直接拼 URL，走 `generated/sdk.gen`
+- [ ] 本地运行 `pnpm codegen` 与 `pnpm typecheck` 通过
+- [ ] 若新增端点需暴露给 Python SDK / CLI，同步评估并更新 [Python SDK 参考](../sdk/python-client)

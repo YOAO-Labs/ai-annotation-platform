@@ -1,9 +1,9 @@
 ---
+title: 图标语义规范
 audience: [dev]
 type: reference
-since: v0.1.0
 status: stable
-last_reviewed: 2026-05-27
+last_reviewed: 2026-10-19
 ---
 
 # 图标语义规范

@@ -1,18 +1,17 @@
 ---
 audience: [dev]
 type: explanation
-since: v0.9.0
 status: stable
-last_reviewed: 2026-05-09
+last_reviewed: 2026-10-19
 ---
 
 # Prediction Schema 适配器陷阱
 
 ## 症状
 
-AI 预标注任务后端跑成功（`prediction_jobs` 表里 `succeeded`，predictions 表里有行），但前端工作台打开任务、看不到任何候选框；或前端报错 `Cannot read property 'class_name' of undefined`。
+AI 预标注任务后端跑成功（`prediction_jobs` 表里 `succeeded`，`predictions` 表里有行），但前端工作台打开任务、看不到任何候选框；或前端报错 `Cannot read property 'class_name' of undefined`。
 
-v0.9.4 SAM/DINO 真接通后才暴露：v0.9.7 端到端跑通时发现历史 32 条 predictions 在前端读路径全部丢失。
+早期 SAM/DINO 推理接通并端到端跑通时发现历史 32 条 predictions 在前端读路径全部丢失。
 
 ## 根因
 
@@ -60,13 +59,13 @@ DB 里存的是 **LabelStudio 标准格式**（保导出/CVAT 兼容性）：
 
 `score` ↔ `confidence` 同样 fallback。已是内部 schema 的输入直接 pass-through（idempotent）。
 
-10 单测覆盖：LabelStudio / value.labels / value.class / pass-through / score↔confidence / 非法输入。
+10 单测覆盖：LabelStudio / `value.labels` / `value.class` / pass-through / `score`↔`confidence` / 非法输入。
 
 ## 防御性收口
 
-v0.9.8 同步引入 **schema 边界文档**：
+同步引入 **schema 边界文档与类型校验**：
 
-- `docs-site/dev/architecture/api-schema-boundary.md` — 明确「写路径用 LabelStudio 标准、读路径过 adapter 出内部 schema」
+- `docs-site/dev/concepts/api-schema-boundary.md` — 明确「写路径用 LabelStudio 标准、读路径过 adapter 出内部 schema」
 - `apps/web/src/api/transforms.ts` — 5 黄金样本 + 3 idempotent/边界 case，走 codegen 派生类型
 
 ## 教训
@@ -75,7 +74,7 @@ v0.9.8 同步引入 **schema 边界文档**：
 
 ## 相关
 
-- commit: `0a99cc6` feat(v0.9.7) — 含 adapter 落地
-- commit: `d41236b` feat(v0.9.8) — schema 边界文档化 + transforms.ts 单测
+- commit: `0a99cc6` 含 adapter 落地
+- commit: `d41236b` schema 边界文档化 + `transforms.ts` 单测
 - 文档：[API Schema 边界](../concepts/api-schema-boundary)
 - 代码：`apps/api/app/services/predictions/adapter.py`

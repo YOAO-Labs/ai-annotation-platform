@@ -1,9 +1,9 @@
 ---
+title: WebSocket 协议
 audience: [dev]
 type: reference
-since: v0.1.0
 status: stable
-last_reviewed: 2026-07-29
+last_reviewed: 2026-10-19
 ---
 
 # WebSocket 协议
@@ -26,7 +26,7 @@ last_reviewed: 2026-07-29
 
 | 频道                    | URL                                           | 鉴权                                                                                       | Redis 频道                                               | 用途                                                                                                                                       |
 | ----------------------- | --------------------------------------------- | ------------------------------------------------------------------------------------------ | -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| 用户通知                | `/ws/notifications?token=<jwt>`               | JWT (query param)                                                                          | `notify:{user_id}` (`notification.py:27`)                | 任务分配、AI 进度、导出完成、@提及 等                                                                                                      |
+| 用户通知                | `/ws/notifications?token=<jwt>`               | JWT (query param)                                                                          | `notify:{user_id}` (`notification.py:27`)                | 任务分配、AI 进度、在线学习训练/评估终态、导出完成、@提及 等                                                                               |
 | 预标注进度（单项目）    | `/ws/projects/{project_id}/preannotate`       | JWT/`ak_`（query）+ 项目访问                                                               | `project:{project_id}:preannotate` (`ws.py`)             | 工作台单次自动预标注的逐 batch progress                                                                                                    |
 | Batch 状态广播          | `/ws/batches/project/{project_id}`            | JWT/`ak_`（query）+ 项目访问                                                               | `project:{project_id}:batch` (`ws.py:112`)               | 项目级 batch 状态翻转事件（B-15），让标注员/admin 多端实时同步                                                                             |
 | Prediction Jobs（全局） | `/ws/prediction-jobs?token=<jwt>`             | JWT (query, `super_admin` / `project_admin`)                                               | `global:prediction-jobs` (`ws.py:168`)                   | Topbar 徽章 + 切项目 toast 用，仅在 job 开始/结束/失败 3 时点带 `job_meta` 推一条                                                          |
@@ -64,15 +64,15 @@ ws://api.example.com/ws/notifications?token=eyJhbGciOi...
 ```json
 {
   "id": "<notification_uuid>",
-  "type": "task.assigned" | "task.review_rejected" | "ai.preannotate_done" | "comment.mention" | ...,
-  "target_type": "task" | "project" | "annotation" | ...,
+  "type": "task.assigned" | "task.review_rejected" | "ai.preannotate_done" | "training.attempt_succeeded" | "training.attempt_failed" | "comment.mention" | ...,
+  "target_type": "task" | "project" | "annotation" | "training_experiment" | ...,
   "target_id": "<uuid>",
   "payload": { ... },
   "created_at": "2026-05-06T08:30:00+00:00"
 }
 ```
 
-`type` 是开放枚举，由各业务模块定义（grep `NotificationService` 调用点可枚举）。前端不强校验未知 type，但只对已注册 type 显示 toast / 跳转。
+`type` 是开放枚举，由各业务模块定义（包括任务流转、AI 预标注、在线学习训练/数据增强预览/模型评估终态通知等）。前端不强校验未知 type，但只对已注册 type 显示 toast / 跳转。
 
 #### 心跳（系统消息）
 
@@ -223,29 +223,11 @@ JWT query param，并按 task 可见性二次校验：服务端用 `decode_acces
 
 publisher: `apps/api/app/services/video_tracking/runner.py`；channel: `video-tracker-job:{job_id}`。
 
-```mermaid
-stateDiagram-v2
-    [*] --> job_started
-    job_started --> processing
-    state processing {
-        [*] --> step
-        step --> step: frame_result (每帧)
-        step --> step: job_progress (窗口结束)
-    }
-    processing --> job_completed: 候选已暂存，pending_review
-    processing --> job_failed: 出错（带 error）
-    processing --> job_cancelled: DELETE / cancel_requested_at
-    job_completed --> review: GET preview
-    job_cancelled --> review: tracking 且有部分 staged_result
-    job_cancelled --> [*]: 无候选 / correction 取消
-    review --> job_partially_reviewed: 决定子集后仍有未决
-    job_partially_reviewed --> review: 重拉 preview + revision
-    review --> job_accepted
-    review --> job_discarded
-    job_accepted --> [*]
-    job_discarded --> [*]
-    job_failed --> [*]
-```
+<ExcalidrawDiagram
+  src="/diagrams/dev/reference/video-tracker-ws-flow.svg"
+  alt="视频跟踪任务 WebSocket 状态流转：从 job_started 经 processing 的 frame_result 和 job_progress 迭代，至 job_completed、job_failed 或 job_cancelled，完成或有部分结果取消后进入 review，支持 job_partially_reviewed 局部审阅回放与最终 accepted/discarded 决议"
+  caption="视频跟踪任务 WebSocket 事件时序与审阅状态机"
+/>
 
 文字版（事件按时间先后）：
 

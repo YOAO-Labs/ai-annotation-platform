@@ -1,9 +1,9 @@
 ---
+title: 视频工作台性能回归
 audience: [dev]
 type: how-to
-since: v0.9.31
 status: stable
-last_reviewed: 2026-08-12
+last_reviewed: 2026-10-19
 ---
 
 # How-to：视频工作台性能回归

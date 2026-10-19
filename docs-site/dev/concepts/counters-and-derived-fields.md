@@ -1,9 +1,8 @@
 ---
 audience: [dev]
 type: explanation
-since: v0.9.14
 status: stable
-last_reviewed: 2026-07-29
+last_reviewed: 2026-10-19
 ---
 
 # 计数与派生字段
@@ -26,7 +25,7 @@ last_reviewed: 2026-07-29
 最常见的几类：
 
 - task 级：`total_annotations`、`total_predictions`、`is_labeled`
-- batch 级：`total_tasks`、`completed_tasks`、`review_tasks`
+- batch 级：`total_tasks`、`completed_tasks`、`review_tasks`、`approved_tasks`、`rejected_tasks`
 - project 级：`total_tasks`、`completed_tasks`、`review_tasks`、`in_progress_tasks`
 - dashboard 级：由上面这些字段再拼出的 UI 摘要
 
@@ -114,12 +113,15 @@ last_reviewed: 2026-07-29
 - `total_tasks`
 - `completed_tasks`
 - `review_tasks`
+- `approved_tasks`
+- `rejected_tasks`
 
 统计口径直接看 `tasks` 表：
 
 - `count(*)`
-- `count(filter status == completed)`
+- `count(filter status == completed)`（同时写入 `completed_tasks` 与 `approved_tasks`）
 - `count(filter status == review)`
+- `count(filter status == rejected)`
 
 注意：
 
@@ -270,7 +272,7 @@ dashboard 和列表页有两种取数方式：
 ## 绩效派生聚合（即时计算，不持久化）
 
 上面那些是「持久化的缓存字段」。绩效页（`/me/performance`、`/admin/people/{user_id}`）还有一类
-**查询时即时聚合、不落库**的派生值，当前三项均可按 `project_id` 切分：
+**查询时即时聚合、不落库**的派生值，当前三项均可按 `project_id` 切分（Data Manager 团队成员绩效的独立聚合口径见 [项目成员绩效数据](./project-performance)）：
 
 | 字段                      | 口径                                                                                | helper                     |
 | ------------------------- | ----------------------------------------------------------------------------------- | -------------------------- |
@@ -283,14 +285,14 @@ dashboard 和列表页有两种取数方式：
 
 ## 常见修改落点
 
-| 你想改什么                        | 先看哪里                       |
-| --------------------------------- | ------------------------------ |
-| annotation 数和已标记语义         | `services/annotation.py`       |
-| prediction 数                     | `services/prediction.py`       |
-| batch / project counters 重算     | `services/batch.py`            |
-| dataset 删除 / unlink 后数字异常  | `services/dataset.py`          |
-| orphan cleanup 后数字异常         | `api/v1/projects.py`           |
-| dashboard 显示口径 / 绩效派生聚合 | `api/v1/dashboard/` + 前端页面 |
+| 你想改什么                        | 先看哪里                                                        |
+| --------------------------------- | --------------------------------------------------------------- |
+| annotation 数和已标记语义         | `services/annotation.py`                                        |
+| prediction 数                     | `services/prediction.py`                                        |
+| batch / project counters 重算     | `services/batch.py`                                             |
+| dataset 删除 / unlink 后数字异常  | `services/dataset.py`                                           |
+| orphan cleanup 后数字异常         | `api/v1/projects.py`                                            |
+| dashboard 显示口径 / 绩效派生聚合 | `api/v1/dashboard/`、`services/project_performance.py` + 前端页 |
 
 ## 常见误解
 
@@ -313,5 +315,6 @@ dashboard 和列表页有两种取数方式：
 
 - [任务模块](./task-module)
 - [批次模块](./batch-module)
+- [项目成员绩效数据](./project-performance)
 - [批次生命周期（端到端）](./batch-lifecycle-end-to-end)
 - [Scheduler 与派题](./scheduler-and-task-dispatch)

@@ -1,9 +1,8 @@
 ---
 audience: [dev]
 type: explanation
-since: v0.9.16
 status: stable
-last_reviewed: 2026-08-13
+last_reviewed: 2026-10-19
 ---
 
 # 视频标注工作台
@@ -11,8 +10,6 @@ last_reviewed: 2026-08-13
 视频工作台当前支持视频元数据与 manifest、帧时间表、单帧预览缓存、逐帧播放与 J/K/L jog、单帧 bbox / polygon / polyline / rotated bbox、bbox / polygon / polyline / raster mask compact 轨迹、outside / occluded 语义、矩形轨迹组合与转换、交互式单帧 AI、原生 mask tracker 候选审阅、时间轴关键帧与 held 区间、bitmap cache、minimap、评论锚点和工作台诊断快照。
 
 `video_track_*` 一条 annotation 保存一个对象轨迹和 compact keyframes，前端按需显示关键帧与插值结果；单帧 `video_*` geometry 仍是一等标注。矩形框轨迹拥有完整关键帧编辑、组合、转换与 AI 追踪；polygon / polyline 轨迹当前提供渲染、顶点变形与基础管理。视频 stage 复用 Workbench 外壳、任务锁、离线队列、评论、审核与导出入口。
-
-<!-- history: the original version-by-version video workbench notes are merged into this current capability overview. -->
 
 ## 数据入口
 
@@ -372,9 +369,9 @@ GET /api/v1/projects/{project_id}/batches/{batch_id}/export?format=coco&video_fr
 
 ## 前端 Stage 边界
 
-`WorkbenchShell` 只计算 `stageKind`。`WorkbenchStageHost` 根据 `stageKind` 分派到 `ImageWorkbench` / `VideoWorkbench` / `ThreeDWorkbench.placeholder`；视频任务由 `VideoWorkbench` 包装 `VideoKonvaStage`。
+`WorkbenchShell` 只计算 `stageKind`。`WorkbenchStageHost` 根据 `stageKind` 分派到 `ImageWorkbench` / `VideoWorkbench` / `ThreeDWorkbench`；视频任务由 `VideoWorkbench` 包装 `VideoKonvaStage`。
 
-`stageKind` 的视频入口仍由 `task.file_type === "video"` 或项目类型 `video-track` 决定。3D 入口只显示占位，不复用视频内部 geometry。
+`stageKind` 的视频入口由 `task.file_type === "video"` 或项目类型 `video-track` 决定；点云任务则进入独立的 `ThreeDWorkbench`，不复用视频内部 geometry。
 
 `VideoKonvaStage` 暴露 `VideoStageControls` ref，由 `useWorkbenchHotkeys` 在 `videoMode` 下统一分发快捷键。视频模式快捷键：
 
@@ -396,7 +393,7 @@ GET /api/v1/projects/{project_id}/batches/{batch_id}/export?format=coco&video_fr
 - `Esc` 取消选择
 - `1-9`、`0` 有选中视频对象时改其 `class_name`；无选中时切 active class（按项目类别顺序取前十个）
 
-视频任务使用自己的 polygon / polyline 与交互式 AI 工具入口：智能点、智能框、Exemplar 在当前帧生成 `video_polygon`，Magic Box 生成 `video_bbox`；切帧会清理帧绑定的瞬态候选。图片专用 canvas 工具不会直接挂进视频 Stage。视频 AI 追踪配置面板与 job 审阅条由 `WorkbenchShell` 经 `stageOverlay` 渲染；配置面板以中间 stage 为局部定位容器，使拖动、缩放和边界夹取始终限定在画布内。左侧队列、顶部提交/审核、右侧属性面板、评论、任务锁和离线队列继续复用同一个 Workbench 外壳。
+视频任务使用自己的 polygon / polyline 与交互式 AI 工具入口：智能点、智能框、Exemplar 在当前帧生成 `video_polygon`，Magic Box 生成 `video_bbox`；切帧会清理帧绑定的瞬态候选。图片专用 canvas 工具不会直接挂进视频 Stage。视频 AI 追踪配置面板作为 Dockview 的 `video-tracker` 面板托管，候选审阅条则通过 `WorkbenchLayout.stageOverlay` 相对中间画布定位。左侧队列、顶部提交/审核、右侧属性面板、评论、任务锁和离线队列继续复用同一个 Workbench 外壳。
 
 视频创建、追加关键帧、重命名、改类、track 转 bbox 等动作由 `useVideoAnnotationActions` 维护。跨 Stage 的 class picker / 改类 / SAM 接受 / 批量改类弹窗由 `WorkbenchOverlays` 渲染，不再挂在 `ImageStage.overlay` 上。
 
@@ -418,9 +415,12 @@ GET /api/v1/projects/{project_id}/batches/{batch_id}/export?format=coco&video_fr
 
 视频工作台的 viewport 与图片工作台复用同一套 `useViewportTransform` 行为：`F` 适应视口、`0` 回到 1:1、Ctrl/Meta+滚轮以光标为锚点缩放、右键拖拽或 `Space`+拖拽平移。缩放和平移只影响显示层，保存到 annotation 的 bbox / keyframe 仍是 `[0,1]` 归一化视频坐标。
 
-R5.2 的 bitmap cache 只优化前端体感，不替代 `<video>` 播放源。`useVideoBitmapCache` 在浏览器支持 `createImageBitmap(video)` 时按 `taskId + frameIndex` 保存 LRU；Konva 媒体层（`VideoKonvaMediaLayer`）按唯一显示真值 `displayBitmap` 绘制 —— 播放态用 `<video>` 实时帧，暂停态优先 WebCodecs 精确帧位图（`useVideoPreciseFrame`），其次原生 `<video>` 抓取位图。同一份 `displayBitmap` 也供当前帧 JPEG（`captureCurrentFrameJpeg`）使用，避免画面 / 标注 / AI 串帧。
+#### 位图缓存与精确帧解码（WebCodecs / GOP）
 
-精确帧 pipeline 默认按客户端能力尝试：`useVideoPreciseFrame` 经 manifest v2 → chunk 轮询 → packet samples → chunk 字节 → GOP plan → 有状态 GOP decoder session 解码目标帧；同 GOP 逐帧只提交增量，后退 / 跨 GOP / 切任务确定性重建 decoder。B 帧 lookahead 提前输出的未来帧会立即转成 bitmap 并移交现有 LRU，避免关闭后又从关键帧重解，同时不在操作结束后持有 `VideoFrame`。已解码位图的 LRU、活动帧、待显示帧与退休帧共同受同一个总字节预算约束，chunk 字节另按轻量 / 标准 / 激进三档淘汰。用户显式关闭、codec 不支持、chunk pending / failed、缺 samples / description、signed URL 过期或字节越界都安全回退到 `<video>` / 位图，不阻断标注。`window.__videoWorkbenchDiagnostics` 暴露当前 state / source / fallback reason / 资源预算与计数（更新上限 5 Hz，状态与 fallback 转换立即写入），BUG 报告自动附带经裁剪、不含签名 URL / 字节 / 描述的快照。浏览器资格矩阵从 Konva media canvas 验证确定性帧标记，并在有头 Chrome / GPU runner 采集 1080p/4K 延迟、long task、真实媒体时间与资源账本。Apple Silicon Chrome 的 strict 门从实际 WebCodecs player 读取 VideoToolbox/platform decoder 证据，不用静态 GPU profile 或隐藏原生 `<video>` 冒充；尚未完成的 Edge / Safari 矩阵继续作为后验验证债务保留。
+- **唯一显示真值（`displayBitmap`）**：bitmap cache 只优化前端体感，不替代 `<video>` 播放源。`useVideoBitmapCache` 在浏览器支持 `createImageBitmap(video)` 时按 `taskId + frameIndex` 保存 LRU；Konva 媒体层（`VideoKonvaMediaLayer`）按唯一显示真值 `displayBitmap` 绘制——播放态用 `<video>` 实时帧，暂停态优先 WebCodecs 精确帧位图（`useVideoPreciseFrame`），其次原生 `<video>` 抓取位图。同一份 `displayBitmap` 也供当前帧 JPEG（`captureCurrentFrameJpeg`）使用，避免画面、标注与 AI 串帧。
+- **有状态 GOP 解码会话**：`useVideoPreciseFrame` 经 `manifest v2 → chunk 轮询 → packet samples → chunk 字节 → GOP plan → 有状态 GOP decoder session` 解码目标帧。同 GOP 逐帧只提交增量，后退、跨 GOP 或切任务时确定性重建 decoder。B 帧 lookahead 提前输出的未来帧会立即转为 bitmap 并移交现有 LRU，避免关闭后又从关键帧重解，同时不在操作结束后持有 `VideoFrame`。
+- **字节预算与安全回退**：已解码位图的 LRU、活动帧、待显示帧与退休帧共同受同一个总字节预算约束，chunk 字节另按轻量 / 标准 / 激进三档淘汰。用户显式关闭、codec 不支持、chunk pending / failed、缺 samples / description、signed URL 过期或字节越界都安全回退到 `<video>` / 位图，不阻断标注。
+- **诊断快照与平台解码验证**：`window.__videoWorkbenchDiagnostics` 暴露当前 `state`、`source`、`fallback reason`、资源预算与计数（更新上限 5 Hz，状态与 fallback 转换立即写入），BUG 报告自动附带经裁剪、不含签名 URL / 字节 / 描述的快照。浏览器资格矩阵从 Konva media canvas 验证确定性帧标记，并在有头 Chrome / GPU runner 采集 1080p/4K 延迟、long task、真实媒体时间与资源账本；Apple Silicon Chrome 的 strict 门从实际 WebCodecs player 读取 VideoToolbox/platform decoder 证据。
 
 `videoStageMode.ts` 提供轻量 busy guard：`idle` 允许 seek / draw / drag / resize；`draw` / `drag` / `resize` 期间 frame setup 会被拦截并暂停播放，避免播放 tick 覆盖编辑中的几何。
 

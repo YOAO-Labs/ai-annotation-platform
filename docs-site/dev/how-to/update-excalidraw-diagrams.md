@@ -1,10 +1,10 @@
 ---
 title: 更新 Excalidraw 图表
 description: 在文档站新增、引用和继续编辑自包含的 Excalidraw SVG
-audience: [developer]
+audience: [dev]
 type: how-to
 status: stable
-last_reviewed: 2026-07-29
+last_reviewed: 2026-10-19
 ---
 
 # 更新 Excalidraw 图表
@@ -22,9 +22,7 @@ last_reviewed: 2026-07-29
 
 对发布文档按“是否适合长期维护”分类：稳定的架构、数据流和业务流程使用 Excalidraw；需要频繁随协议修改并审查文本 diff 的图保留 Mermaid。不以消除 Mermaid 计数为目标。
 
-## 当前保留边界
-
-- `docs-site/` 发布正文中，`/ws/video-tracker-jobs/{job_id}` 的精确事件状态图保留 Mermaid。它与 WebSocket 事件名、局部审阅和取消语义同步变更，文本 diff 比固定布局更重要。
+- `docs-site/` 发布正文中，`/ws/video-tracker-jobs/{job_id}` 的事件序列图已建立 canonical Excalidraw 资产 `/diagrams/dev/reference/video-tracker-ws-flow.svg`，正文下方同时保留紧凑文字版事件时序，兼顾视觉直观与文本 diff 审查。
 - `docs/plans/**` 是版本化的实施决策快照，其 Mermaid 作为 Markdown 源文本原样保留，不改成依赖文档站组件的引用。若同一关系需要进入当前态发布文档，在 `docs-site/public/diagrams/` 建立 canonical Excalidraw 资产，不为统一风格反向改写历史计划。
 
 全仓盘点时使用：

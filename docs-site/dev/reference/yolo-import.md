@@ -1,9 +1,9 @@
 ---
+title: YOLO 导入适配
 audience: [dev]
 type: reference
-since: v0.10.56
 status: stable
-last_reviewed: 2026-05-24
+last_reviewed: 2026-10-19
 ---
 
 # YOLO 导入适配

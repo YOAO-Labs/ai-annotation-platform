@@ -1,9 +1,8 @@
 ---
 audience: [dev]
 type: how-to
-since: v0.1.0
 status: stable
-last_reviewed: 2026-07-23
+last_reviewed: 2026-10-19
 ---
 
 # E2E 测试数据污染与隔离
