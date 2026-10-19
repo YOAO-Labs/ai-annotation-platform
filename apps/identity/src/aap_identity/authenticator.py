@@ -77,9 +77,7 @@ class Authenticator:
                 raise CredentialDecodeFailure("invalid_token")
             return await self._api_key_bound(token)
         try:
-            claims = decode_access_token(
-                token, secret=self.secret, verify_exp=False, verify_jti=False
-            )
+            claims = decode_access_token(token, secret=self.secret, verify_exp=False)
         except (JWTError, ValueError, TypeError, UnicodeError):
             raise CredentialDecodeFailure("invalid_token") from None
         try:

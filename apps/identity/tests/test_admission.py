@@ -115,8 +115,9 @@ async def test_current_native_role_and_credential_scope_win_over_signed_role():
         ({"exp": "later"}, "malformed_token"),
         ({"exp": 2**63}, "malformed_token"),
         ({"sub": "invalid"}, "malformed_token"),
+        ({"sub": None}, "invalid_token"),
         ({"jti": "invalid"}, "malformed_token"),
-        ({"jti": None}, "malformed_token"),
+        ({"jti": None}, "invalid_token"),
         ({"iss": "older-issuer"}, "invalid_token"),
     ],
 )

@@ -57,21 +57,11 @@ def create_access_token(
     )
 
 
-def decode_access_token(
-    token: str,
-    *,
-    secret: str,
-    verify_exp: bool = True,
-    verify_jti: bool = True,
-) -> dict:
+def decode_access_token(token: str, *, secret: str, verify_exp: bool = True) -> dict:
     return jwt.decode(
         token,
         signing_key(secret),
         algorithms=[ALGORITHM],
         issuer=ISSUER,
-        options={
-            "verify_exp": verify_exp,
-            "verify_jti": verify_jti,
-            "require_iss": True,
-        },
+        options={"verify_exp": verify_exp, "require_iss": True},
     )
