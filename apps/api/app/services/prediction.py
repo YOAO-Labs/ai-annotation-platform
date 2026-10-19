@@ -27,6 +27,7 @@ from app.services.labeling_prediction_contract import (
     ApplyPredictionResultError,
     ApplyPredictionResultReceipt,
     ApplyPredictionResultRequest,
+    BatchResultPredictionIdentity,
 )
 from app.services.mask_gc import mask_fence_error
 from app.services.test_seed_access import assert_isolated_test_seed_database
@@ -603,6 +604,22 @@ def remap_prediction_track_ids(result: list[dict]) -> list[dict]:
     return _remap_track_ids(result)
 
 
+def _prediction_result_for_write(request: ApplyPredictionResultRequest) -> list[dict]:
+    identity = request.batch_result_identity
+    if identity is None:
+        return _remap_track_ids(request.result)
+    scope = request.write_scope
+    if (
+        type(identity) is not BatchResultPredictionIdentity
+        or scope.operation != "preannotation"
+        or scope.job_id is None
+        or not scope.job_id_known
+        or request.accepted_video_input is not None
+    ):
+        raise ValueError("stable Prediction identity requires an ordinary batch result")
+    return request.result
+
+
 class PredictionService:
     def __init__(self, db: AsyncSession) -> None:
         self.db = db
@@ -671,7 +688,7 @@ class PredictionService:
             or write_scope.project_id != request.project_id
         ):
             raise ValueError("prediction write scope does not match its target")
-        result = _remap_track_ids(request.result)
+        result = _prediction_result_for_write(request)
         preflight_task = await self.db.get(
             Task, request.task_id, populate_existing=True
         )
@@ -741,7 +758,9 @@ class PredictionService:
         if accepted_video_input is not None and len(requests) != 1:
             raise ValueError("retained video frames must be written individually")
         preflight_task = await self.db.get(Task, first.task_id, populate_existing=True)
-        normalized_results = [_remap_track_ids(request.result) for request in requests]
+        normalized_results = [
+            _prediction_result_for_write(request) for request in requests
+        ]
         verified_contents = []
         try:
             for result in normalized_results:
@@ -803,7 +822,16 @@ class PredictionService:
         self, request: ApplyPredictionResultRequest, task: Task, result: list[dict]
     ) -> ApplyPredictionResultReceipt:
         prediction = Prediction(
-            id=uuid.uuid4(),
+            id=(
+                request.batch_result_identity.prediction_id
+                if request.batch_result_identity is not None
+                else uuid.uuid4()
+            ),
+            **(
+                {"created_at": request.batch_result_identity.prediction_created_at}
+                if request.batch_result_identity is not None
+                else {}
+            ),
             task_id=request.task_id,
             project_id=request.project_id,
             ml_backend_id=request.ml_backend_id,
@@ -926,9 +954,10 @@ class PredictionService:
         model_version: str | None = None,
         extra: dict | None = None,
         ml_backend_pool_id: uuid.UUID | None = None,
+        failure_id: uuid.UUID | None = None,
     ) -> FailedPrediction:
         failed = FailedPrediction(
-            id=uuid.uuid4(),
+            id=failure_id if failure_id is not None else uuid.uuid4(),
             task_id=task_id,
             project_id=project_id,
             ml_backend_id=ml_backend_id,

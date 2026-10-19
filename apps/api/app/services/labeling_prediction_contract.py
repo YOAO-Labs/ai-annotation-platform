@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Protocol
 
 from aap_assets_video_inputs.evidence import VideoInputEvidence
@@ -28,6 +28,25 @@ RETRYABLE_APPLY_PREDICTION_CODES = frozenset(
 
 
 @dataclass(frozen=True, slots=True)
+class BatchResultPredictionIdentity:
+    """Server-allocated identity for an immutable captured batch result."""
+
+    prediction_id: uuid.UUID
+    prediction_created_at: datetime
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.prediction_id, uuid.UUID):
+            raise TypeError("prediction_id must be a UUID")
+        created_at = self.prediction_created_at
+        if (
+            not isinstance(created_at, datetime)
+            or created_at.tzinfo is None
+            or created_at.utcoffset() != timedelta(0)
+        ):
+            raise ValueError("prediction_created_at must be an aware UTC datetime")
+
+
+@dataclass(frozen=True, slots=True)
 class ApplyPredictionResultRequest:
     task_id: uuid.UUID
     project_id: uuid.UUID
@@ -44,6 +63,7 @@ class ApplyPredictionResultRequest:
     model_provenance: dict[str, Any] | None = None
     accepted_input_job_id: uuid.UUID | None = None
     accepted_video_input: VideoInputEvidence | None = None
+    batch_result_identity: BatchResultPredictionIdentity | None = None
 
 
 @dataclass(frozen=True, slots=True)
