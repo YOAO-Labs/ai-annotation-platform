@@ -3,7 +3,7 @@ audience: [annotator, reviewer, project_admin, super_admin]
 type: reference
 since: v0.6.0
 status: stable
-last_reviewed: 2026-09-10
+last_reviewed: 2026-10-19
 ---
 
 # 设置页
@@ -22,6 +22,8 @@ last_reviewed: 2026-09-10
 实现位于 `apps/web/src/pages/Settings/SettingsPage.tsx`。
 
 ## 个人资料
+
+点击主界面右上角的头像或账号信息，可直接打开「个人资料」。在设置页的其他分区点击同一入口，也会返回个人资料；系统设置有未保存修改时，会先提示确认离开。
 
 ![个人资料设置](../images/settings/profile.png)
 
