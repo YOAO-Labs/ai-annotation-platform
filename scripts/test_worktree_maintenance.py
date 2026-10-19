@@ -54,6 +54,7 @@ class MaintenanceTests(unittest.TestCase):
                 "MINIO_ACCESS_KEY": "fixture",
                 "MINIO_SECRET_KEY": "fixture-secret",
                 "MINIO_TRAINING_BUCKET": "fixture-training",
+                "MINIO_INPUTS_BUCKET": "fixture-accepted-inputs",
                 "AAP_IMAGE_TAG": "fixture",
                 "AAP_SHARED_NETWORK": "fixture",
                 "AAP_PRODUCTION_STATE_DIR": temporary,
@@ -127,6 +128,10 @@ class MaintenanceTests(unittest.TestCase):
                         self.assertEqual(
                             worker["environment"]["MINIO_TRAINING_BUCKET"],
                             values["MINIO_TRAINING_BUCKET"],
+                        )
+                        self.assertEqual(
+                            worker["environment"]["MINIO_INPUTS_BUCKET"],
+                            values["MINIO_INPUTS_BUCKET"],
                         )
 
     def test_only_owner_required_tasks_route_to_maintenance(self):

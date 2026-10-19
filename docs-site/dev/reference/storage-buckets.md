@@ -12,17 +12,20 @@ last_reviewed: 2026-10-17
 
 ## 桶清单
 
-| 桶名            | env 变量                     | 桶级 Lifecycle                                  | 备份建议                                                  |
-| --------------- | ---------------------------- | ----------------------------------------------- | --------------------------------------------------------- |
-| `annotations`   | `MINIO_BUCKET`               | 评论附件 90 天；原生 Mask 由引用感知 GC 管理    | 备份                                                      |
-| `datasets`      | `MINIO_DATASETS_BUCKET`      | 不挂自动过期                                    | 备份                                                      |
-| `bug-reports`   | `MINIO_BUG_REPORTS_BUCKET`   | 整桶 180 天                                     | 不备份                                                    |
-| `media-cache`   | `MINIO_MEDIA_CACHE_BUCKET`   | 仅视频帧/chunk 前缀 30 天；其他派生物不套此 TTL | 不备份；非惰性重建的派生物丢失需重跑物化                  |
-| `audit-archive` | `MINIO_AUDIT_ARCHIVE_BUCKET` | 不挂自动过期                                    | 强备份；versioning/object lock 是运维建议，不是代码已启用 |
-| `import`        | `MINIO_IMPORT_BUCKET`        | 整桶 7 天                                       | 不备份                                                    |
-| `export`        | `MINIO_EXPORT_BUCKET`        | 整桶 7 天                                       | 不备份                                                    |
-| `avatars`       | `MINIO_AVATARS_BUCKET`       | 不挂自动过期                                    | 备份                                                      |
-| `training`      | `MINIO_TRAINING_BUCKET`      | 不挂桶级自动过期；各业务清理见下表              | 与数据库一同备份                                          |
+| 桶名              | env 变量                     | 桶级 Lifecycle                                  | 备份建议                                                  |
+| ----------------- | ---------------------------- | ----------------------------------------------- | --------------------------------------------------------- |
+| `annotations`     | `MINIO_BUCKET`               | 评论附件 90 天；原生 Mask 由引用感知 GC 管理    | 备份                                                      |
+| `datasets`        | `MINIO_DATASETS_BUCKET`      | 不挂自动过期                                    | 备份                                                      |
+| `bug-reports`     | `MINIO_BUG_REPORTS_BUCKET`   | 整桶 180 天                                     | 不备份                                                    |
+| `media-cache`     | `MINIO_MEDIA_CACHE_BUCKET`   | 仅视频帧/chunk 前缀 30 天；其他派生物不套此 TTL | 不备份；非惰性重建的派生物丢失需重跑物化                  |
+| `audit-archive`   | `MINIO_AUDIT_ARCHIVE_BUCKET` | 不挂自动过期                                    | 强备份；versioning/object lock 是运维建议，不是代码已启用 |
+| `import`          | `MINIO_IMPORT_BUCKET`        | 整桶 7 天                                       | 不备份                                                    |
+| `export`          | `MINIO_EXPORT_BUCKET`        | 整桶 7 天                                       | 不备份                                                    |
+| `avatars`         | `MINIO_AVATARS_BUCKET`       | 不挂自动过期                                    | 备份                                                      |
+| `training`        | `MINIO_TRAINING_BUCKET`      | 不挂桶级自动过期；各业务清理见下表              | 与数据库一同备份                                          |
+| `accepted-inputs` | `MINIO_INPUTS_BUCKET`        | 不挂自动过期；必须启用对象版本控制              | 按输入回执与引用保留，不能与派生缓存同桶                  |
+
+`accepted-inputs` 是 Assets 已受理输入对象的独立存储空间，默认由 `MINIO_INPUTS_BUCKET` 指向。存储初始化和 worktree `init/up` 会核验该桶已启用 versioning；不能把该设置应用到 `media-cache`。不可变输入按对象版本读取和签名，不能配置生命周期删除版本或删除标记；清理由输入回执的引用感知保留流程负责。
 
 > `avatars` 不挂 lifecycle 是有意的:头像是不可重生的持久身份数据,由 `users.avatar_ref` 持久引用;一旦过期就会出现"DB 指向已删对象"的破图(与下方 playback 是同类故障)。更换头像时由 API 显式删除旧对象。
 
@@ -48,25 +51,26 @@ MEDIA_CACHE_PREFIXES = ("thumbnails/", "videos/", "playback/", "image-pyramids/"
 
 为避免长 key 遮挡所有者列，单元格中的代码片段用“＋”表示按顺序直接拼接；分隔符与两侧空格不属于实际 key。
 
-| 桶 / key 家族              | 当前形状                                                                                                                                                                    | 所有者与删除责任                                                                                   |
-| -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
-| annotations：旧任务源对象  | `{project_id}/{task_id}/...`                                                                                                                                                | labeling 的历史任务源引用；通用项目/素材解绑不据此递归清空源字节                                   |
-| annotations：指南资产      | `projects/{project_id}/guide/` ＋ `{uuid}-{safe_name}`                                                                                                                      | workspace 登记/移除，应用工作流绑定对象传输与当前权威                                              |
-| annotations：评论附件      | `comment-attachments/` ＋ `{annotation_id}/` ＋ `{uuid}-{safe_name}`                                                                                                        | labeling 评论所有者；软删行清理与桶生命周期分别执行                                                |
-| annotations：内容寻址 Mask | `raster-masks/sha256/` ＋ `{sha[:2]}/{sha[2:4]}/` ＋ `{sha}.json[.gz]`                                                                                                      | labeling；只按引用/预留及二次锁内确认 GC，不挂整桶过期                                             |
-| datasets：canonical 源文件 | `{dataset_name}/{relative_path}`；trusted 根为 `__aap_trusted_nuscenes__-` ＋ `{dataset_id.hex}/`，含 `_nuscenes/source/` 与 scene 媒体/标定                                | assets；Dataset 删除不等于递归删除 canonical 源对象，连接器外部源更不在删除授权内                  |
-| media-cache：普通派生媒体  | `thumbnails/`、`playback/`、`videos/{item_id}/frames/`、`videos/{item_id}/chunks/`                                                                                          | assets；帧/chunk 可按需重生，playback/普通缩略图入库时物化，丢失需重新执行媒体物化                 |
-| media-cache：图片金字塔    | `image-pyramids/{asset_id}/` ＋ `g{generation}/`，其下为 `tiles/`、`overview.webp`、`manifest.json`                                                                         | assets；发布验证 generation/lease，清理使用已捕获的废弃 generation 前缀，不删除源图                |
-| bug-reports：附件          | `bug-report-attachments/` ＋ `{user_id}/` ＋ `{uuid}-{safe_name}`，兼容已存历史附件引用                                                                                     | supporting issues；SQL 删除不保证对象立即消失，桶级保留独立执行                                    |
-| audit-archive：冷分区      | `{YYYY}/{MM}.jsonl.gz`                                                                                                                                                      | audit；先确认上传才删除对应热分区，不能把推荐对象锁当成已经启用                                    |
-| import：ROI / 导入暂存     | `roi-crops/` ＋ `{job_id}/{task_id}/{box}.jpg`；`roi-crops/secondary/` ＋ `{annotation_id}/{box}.jpg`；`mask-formats/` ＋ `{project_id}/{user_id}/` ＋ `{uuid}/{safe_name}` | inference 的临时裁剪与 labeling 的格式导入暂存；不是标注/数据集真值                                |
-| export：导出包             | `{media}/{project_id}/` ＋ `{async_job_id}.zip`                                                                                                                             | exporting；产物索引与桶生命周期分别清理，上传后的可见性仍需重查                                    |
-| avatars：身份源对象        | `{opaque_upload_token}.webp`，`users.avatar_ref=upload:{token}`                                                                                                             | identity；新对象→SQL 提交→best-effort 删除旧对象，不以用户目录或短期缓存 TTL 管理                  |
-| training：冻结数据         | `projects/{project_id}/` ＋ `datasets/{version_id}/` ＋ `media/{task_id}`；同版本 `attempts/{attempt_id}/dataset.zip`                                                       | learning datasets；版本/attempt 与保留引用参与删除准入，包发布不取代源身份                         |
-| training：训练运行         | `projects/{project_id}/` ＋ `runs/{run_id}/` ＋ `attempts/{attempt_id}/{inventory}` 与脱敏日志                                                                              | learning runs/observability；业务删除与保存 bucket/key 的删除意图同事务，提交后清理对象            |
-| training：预览             | `projects/{project_id}/` ＋ `previews/{preview_id}/{output}`                                                                                                                | learning previews；保留既有到期清理与晚到 PUT 宽限，不把 lease 到期当进程已退出                    |
-| training：样本评估         | `projects/{project_id}/` ＋ `sample-evaluations/` ＋ `{run_id}/{attempt_id}/{sha}.json`                                                                                     | learning sample-evaluations；引用/保留检查与删除意图保留冻结对象身份                               |
-| training：主动学习媒体     | `projects/{project_id}/` ＋ `active-learning/{round_id}/` ＋ `media/{ordinal}.png`                                                                                          | active-learning；报告在 Attempt JSON；源码未发现独立媒体 GC，不套用 preview TTL 或臆造 report 前缀 |
+| 桶 / key 家族               | 当前形状                                                                                                                                                                    | 所有者与删除责任                                                                                        |
+| --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| annotations：旧任务源对象   | `{project_id}/{task_id}/...`                                                                                                                                                | labeling 的历史任务源引用；通用项目/素材解绑不据此递归清空源字节                                        |
+| annotations：指南资产       | `projects/{project_id}/guide/` ＋ `{uuid}-{safe_name}`                                                                                                                      | workspace 登记/移除，应用工作流绑定对象传输与当前权威                                                   |
+| annotations：评论附件       | `comment-attachments/` ＋ `{annotation_id}/` ＋ `{uuid}-{safe_name}`                                                                                                        | labeling 评论所有者；软删行清理与桶生命周期分别执行                                                     |
+| annotations：内容寻址 Mask  | `raster-masks/sha256/` ＋ `{sha[:2]}/{sha[2:4]}/` ＋ `{sha}.json[.gz]`                                                                                                      | labeling；只按引用/预留及二次锁内确认 GC，不挂整桶过期                                                  |
+| datasets：canonical 源文件  | `{dataset_name}/{relative_path}`；trusted 根为 `__aap_trusted_nuscenes__-` ＋ `{dataset_id.hex}/`，含 `_nuscenes/source/` 与 scene 媒体/标定                                | assets；Dataset 删除不等于递归删除 canonical 源对象，连接器外部源更不在删除授权内                       |
+| accepted-inputs：已受理输入 | `{input_id}/g{generation}/a{lease_id}/source`                                                                                                                               | Assets 固定具体 S3 `VersionId` 与对象摘要；Labeling 的预测/标注引用阻止过期回收，桶 versioning 不可关闭 |
+| media-cache：普通派生媒体   | `thumbnails/`、`playback/`、`videos/{item_id}/frames/`、`videos/{item_id}/chunks/`                                                                                          | assets；帧/chunk 可按需重生，playback/普通缩略图入库时物化，丢失需重新执行媒体物化                      |
+| media-cache：图片金字塔     | `image-pyramids/{asset_id}/` ＋ `g{generation}/`，其下为 `tiles/`、`overview.webp`、`manifest.json`                                                                         | assets；发布验证 generation/lease，清理使用已捕获的废弃 generation 前缀，不删除源图                     |
+| bug-reports：附件           | `bug-report-attachments/` ＋ `{user_id}/` ＋ `{uuid}-{safe_name}`，兼容已存历史附件引用                                                                                     | supporting issues；SQL 删除不保证对象立即消失，桶级保留独立执行                                         |
+| audit-archive：冷分区       | `{YYYY}/{MM}.jsonl.gz`                                                                                                                                                      | audit；先确认上传才删除对应热分区，不能把推荐对象锁当成已经启用                                         |
+| import：ROI / 导入暂存      | `roi-crops/` ＋ `{job_id}/{task_id}/{box}.jpg`；`roi-crops/secondary/` ＋ `{annotation_id}/{box}.jpg`；`mask-formats/` ＋ `{project_id}/{user_id}/` ＋ `{uuid}/{safe_name}` | inference 的临时裁剪与 labeling 的格式导入暂存；不是标注/数据集真值                                     |
+| export：导出包              | `{media}/{project_id}/` ＋ `{async_job_id}.zip`                                                                                                                             | exporting；产物索引与桶生命周期分别清理，上传后的可见性仍需重查                                         |
+| avatars：身份源对象         | `{opaque_upload_token}.webp`，`users.avatar_ref=upload:{token}`                                                                                                             | identity；新对象→SQL 提交→best-effort 删除旧对象，不以用户目录或短期缓存 TTL 管理                       |
+| training：冻结数据          | `projects/{project_id}/` ＋ `datasets/{version_id}/` ＋ `media/{task_id}`；同版本 `attempts/{attempt_id}/dataset.zip`                                                       | learning datasets；版本/attempt 与保留引用参与删除准入，包发布不取代源身份                              |
+| training：训练运行          | `projects/{project_id}/` ＋ `runs/{run_id}/` ＋ `attempts/{attempt_id}/{inventory}` 与脱敏日志                                                                              | learning runs/observability；业务删除与保存 bucket/key 的删除意图同事务，提交后清理对象                 |
+| training：预览              | `projects/{project_id}/` ＋ `previews/{preview_id}/{output}`                                                                                                                | learning previews；保留既有到期清理与晚到 PUT 宽限，不把 lease 到期当进程已退出                         |
+| training：样本评估          | `projects/{project_id}/` ＋ `sample-evaluations/` ＋ `{run_id}/{attempt_id}/{sha}.json`                                                                                     | learning sample-evaluations；引用/保留检查与删除意图保留冻结对象身份                                    |
+| training：主动学习媒体      | `projects/{project_id}/` ＋ `active-learning/{round_id}/` ＋ `media/{ordinal}.png`                                                                                          | active-learning；报告在 Attempt JSON；源码未发现独立媒体 GC，不套用 preview TTL 或臆造 report 前缀      |
 
 项目解绑只为被删 Task 自有的金字塔记录 `asset_storage_deletions`：业务提交后，Assets 清理 worker 按冻结的 bucket 和 `image-pyramids/{asset_id}/` 删除并确认，失败保留待重试。配置 bucket 不匹配时不执行对象删除；原始素材和 item-owned 金字塔保留。该 outbox 不接管其他既有金字塔回收路径。
 

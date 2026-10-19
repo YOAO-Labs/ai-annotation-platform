@@ -18,7 +18,7 @@ last_reviewed: 2026-09-09
 | Web        | Caddy 的 HTTPS 3030 → Nginx 静态站点；同源代理 `/api/`、`/ws/`、`/minio/` |
 | API        | Caddy 的 HTTPS 8080 → Uvicorn 容器 8000；不发布原生 HTTP 端口             |
 | PostgreSQL | 复用实例，新库 `annotation_production`；不复制旧业务表内容                |
-| MinIO      | 复用实例，九个独立 `prod-` 桶与受限访问凭据                               |
+| MinIO      | 复用实例，十个独立 `prod-` 桶与受限访问凭据                               |
 | Redis      | 独立 `redis-production` 容器与 AOF 卷；无宿主端口                         |
 | 异步任务   | 七类 Worker 与一个 Beat，全部连接生产库和生产 Redis                       |
 | 模型       | 复用运行中的实例及权重，在新库重新注册和探测能力                          |
@@ -59,21 +59,22 @@ Redis 使用新实例，因为目前全局任务和模型状态推送使用固�
 
 在同一目录创建 `known_hosts` 文件，并只读挂载给 API 和消费 `media` 的通用 Worker。未配置 SFTP 时可以为空；接入 SFTP 前必须通过可信渠道核验目标主机公钥并写入该文件，不能自动信任扫描结果。新生产环境使用独立 `CONNECTOR_ENCRYPTION_KEY` 保存连接器凭据；该值与数据库一起备份，不能随重建轮换。
 
-九个桶变量固定为：
+十个桶变量固定为：
 
-| 变量                         | 桶                   |
-| ---------------------------- | -------------------- |
-| `MINIO_BUCKET`               | `prod-annotations`   |
-| `MINIO_DATASETS_BUCKET`      | `prod-datasets`      |
-| `MINIO_BUG_REPORTS_BUCKET`   | `prod-bug-reports`   |
-| `MINIO_MEDIA_CACHE_BUCKET`   | `prod-media-cache`   |
-| `MINIO_AUDIT_ARCHIVE_BUCKET` | `prod-audit-archive` |
-| `MINIO_IMPORT_BUCKET`        | `prod-import`        |
-| `MINIO_EXPORT_BUCKET`        | `prod-export`        |
-| `MINIO_AVATARS_BUCKET`       | `prod-avatars`       |
-| `MINIO_TRAINING_BUCKET`      | `prod-training`      |
+| 变量                         | 桶                     |
+| ---------------------------- | ---------------------- |
+| `MINIO_BUCKET`               | `prod-annotations`     |
+| `MINIO_DATASETS_BUCKET`      | `prod-datasets`        |
+| `MINIO_BUG_REPORTS_BUCKET`   | `prod-bug-reports`     |
+| `MINIO_MEDIA_CACHE_BUCKET`   | `prod-media-cache`     |
+| `MINIO_AUDIT_ARCHIVE_BUCKET` | `prod-audit-archive`   |
+| `MINIO_IMPORT_BUCKET`        | `prod-import`          |
+| `MINIO_EXPORT_BUCKET`        | `prod-export`          |
+| `MINIO_AVATARS_BUCKET`       | `prod-avatars`         |
+| `MINIO_TRAINING_BUCKET`      | `prod-training`        |
+| `MINIO_INPUTS_BUCKET`        | `prod-accepted-inputs` |
 
-边缘代理使用上述九个桶的明确路径列表。改变桶名时同时更新变量、MinIO 权限策略及 `infra/docker/Caddyfile.lan-prod`，不能只改其中一处。
+边缘代理使用上述十个桶的明确路径列表。输入桶必须由 MinIO 管理员启用 versioning，不能配置生命周期过期；其它桶保持既有策略。改变桶名时同时更新变量、MinIO 权限策略及 `infra/docker/Caddyfile.lan-prod`，不能只改其中一处。
 
 ## 初始化独立数据库和存储
 
@@ -92,9 +93,9 @@ GRANT CONNECT ON DATABASE annotation_production TO anno_prod_app;
 
 通过交互式 `psql` 的 `\password anno_prod_owner` 和 `\password anno_prod_app` 分别设置新密码，并写入对应的本机配置文件，避免把密码放进命令历史。迁移需要安装 `pgcrypto` 和 `btree_gist` 扩展；当前 PostgreSQL 镜像支持由新库 owner 安装这些受信任扩展。
 
-由 MinIO 管理员预建九个空桶及一个新的应用账号，附加仓库中的 `infra/docker/lan-production-minio-policy.json`。该策略只授予这些桶的对象操作及当前应用实际使用的生命周期设置权限，不授予旧桶访问或 MinIO 管理权限。
+由 MinIO 管理员预建十个空桶及一个新的应用账号；启用 `MINIO_INPUTS_BUCKET` 的 versioning 并核验状态为 `Enabled`，然后附加仓库中的 `infra/docker/lan-production-minio-policy.json`。该策略只授予这些桶的对象操作及当前应用实际使用的生命周期设置权限，不授予旧桶访问或 MinIO 管理权限。输入对象的读取和删除必须指定非空且非 `null` VersionId；输入清理逐版本删除，不使用无版本 ID 或批量删除。
 
-API 启动会设置五个桶的生命周期：评论附件前缀 90 天、反馈附件 180 天、媒体缓存的 `videos/` 前缀 30 天、导入和导出桶 7 天。数据集、审计归档与头像桶没有自动过期（头像不可重生，过期会造成破图）。必须确认这些配置全部指向新桶。
+API 启动会设置五个桶的生命周期：评论附件前缀 90 天、反馈附件 180 天、媒体缓存的 `videos/` 前缀 30 天、导入和导出桶 7 天。数据集、审计归档、训练、输入与头像桶没有自动过期（头像不可重生，过期会造成破图）。必须确认这些配置全部指向新桶。
 
 ## 构建、迁移和启动
 
@@ -170,7 +171,7 @@ docker compose --env-file .env.production -f docker-compose.lan-prod.yml stop
 
 保留持久卷和上一个镜像标识；不要使用 `down -v`。有不兼容数据库迁移时，镜像回退必须配合新库及对象存储的恢复方案，不能自动 downgrade 或恢复整个共享实例覆盖旧环境。
 
-备份范围包括生产数据库、九个桶、生产配置、迁移凭据与 Caddy CA 卷。CA 丢失后重新生成会要求全部客户端重新信任。Redis AOF 可降低队列丢失概率，但异常中断的作业仍应按数据库任务状态核对和恢复。
+备份范围包括生产数据库、十个桶、生产配置、迁移凭据与 Caddy CA 卷。CA 丢失后重新生成会要求全部客户端重新信任。Redis AOF 可降低队列丢失概率，但异常中断的作业仍应按数据库任务状态核对和恢复。
 
 ## 容器健康恢复与定时维护
 

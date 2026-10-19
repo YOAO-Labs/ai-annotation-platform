@@ -1,6 +1,6 @@
 # 开发指南
 
-同机另建生产环境时，使用独立 `docker-compose.lan-prod.yml`，详见[局域网生产部署](docs-site/ops/deploy/lan-production.md)。从现有 `.env` 派生本地 `.env.production`，设置 `LAN_BIND_IP`、`AAP_SHARED_NETWORK`、`AAP_IMAGE_TAG`、`AAP_PRODUCTION_STATE_DIR`；生产数据库、九个存储桶、Redis、Worker 和 DuckDB 独立，前端/API 使用 HTTPS 3030/8080。命令始终显式带 `--env-file .env.production -f docker-compose.lan-prod.yml`，不要与开发或整栈生产 Compose 叠加。
+同机另建生产环境时，使用独立 `docker-compose.lan-prod.yml`，详见[局域网生产部署](docs-site/ops/deploy/lan-production.md)。从现有 `.env` 派生本地 `.env.production`，设置 `LAN_BIND_IP`、`AAP_SHARED_NETWORK`、`AAP_IMAGE_TAG`、`AAP_PRODUCTION_STATE_DIR`；生产数据库、十个存储桶、Redis、Worker 和 DuckDB 独立，前端/API 使用 HTTPS 3030/8080。命令始终显式带 `--env-file .env.production -f docker-compose.lan-prod.yml`，不要与开发或整栈生产 Compose 叠加。
 
 > 完整的开发文档（架构、How-to、测试、规范）在 VitePress 文档站：
 > 本地预览 `pnpm docs:dev`，部署版 [GitHub Pages](https://yyq19990828.github.io/ai-annotation-platform/dev/)。
@@ -137,11 +137,11 @@ pnpm dev:worktree
 pnpm dev:worktree -- up --with-worker
 ```
 
-启动器给工作树分配稳定身份，创建专属数据库、带归属标签的 Redis 容器和九个
+启动器给工作树分配稳定身份，创建专属数据库、带归属标签的 Redis 容器和十个
 MinIO bucket，并隔离 DuckDB/临时文件。共享 `.env` 只作为基础配置；迁移、API、
 测试和可选 worker 的目标通过子进程环境统一覆盖，不改共享库。
 
-在线学习使用 `MINIO_TRAINING_BUCKET`（默认 `training`）持久保存冻结原图和训练包，不设置自动过期。旧八桶工作树在显式 `init/up` 时核验归属并扩展为九桶；原资源与数据保留，`doctor/stop/destroy` 兼容旧清单。升级中断留下未标记新桶时，按 `.worktree/<mode>/training-bucket-upgrade.json` 核对空桶后处理，不能跳过归属检查。运行环境更新需应用迁移并刷新 export worker，核验 `app.workers.training_dataset.run_training_dataset` 已注册。
+在线学习使用 `MINIO_TRAINING_BUCKET`（默认 `training`）持久保存冻结原图和训练包，不设置自动过期。已受理的不可变输入对象使用独立 `MINIO_INPUTS_BUCKET`（默认 `accepted-inputs`），该桶必须启用 versioning，且不能设置自动过期；`media-cache` 保持非版本化。旧八桶/九桶工作树只会在显式 `init/up` 时按阶段扩展到十桶；`doctor/stop/destroy` 仍按旧清单只读、停止或销毁，不会隐式创建新桶。升级中断会留下 `.worktree/<mode>/training-bucket-upgrade.json` 或 `inputs-bucket-upgrade.json`；缺少归属标签的新桶不会被自动接管。运行环境更新需应用迁移并刷新 export worker，核验 `app.workers.training_dataset.run_training_dataset` 已注册。
 
 ### 任务数据集管理关联与回填
 
@@ -453,7 +453,7 @@ writer 配置要求 lease 严格长于其 hard time limit。旧 cleanup Celery t
 缺失或重复时不删除旧行/对象，也不补造原上传者。临时 staging 仍按 import 桶生命周期
 过期；未完成 intent 和不确定提交留下的原始拷贝目前保留，需计入存储用量。
 
-本地验收使用专属 PostgreSQL 容器、test mode 数据库、Redis 与九个隔离桶，不创建或
+本地验收使用专属 PostgreSQL 容器、test mode 数据库、Redis 与十个隔离桶，不创建或
 修改日常 PostgreSQL 的角色。运行命令及参数见
 `scripts/verify_module_data_boundary.py --help`；验证器会创建 workflow、cleanup、catalog 三类受限登录角色并向测试进程注入
 `AAP_MODULE_DATA_APPEND_URL`、`AAP_MODULE_DATA_ASSET_CLEANUP_URL` 和 `AAP_MODULE_DATA_ASSET_CATALOG_URL`，无需改动日常凭据。
@@ -1108,7 +1108,11 @@ docker compose -f docker-compose.yml -f docker-compose.assets-media.yml exec ass
 
 将 API 与控制进程接入同一受限网络，并配置 API 的控制 URL/token。overlay 不发布宿主端口；控制端仅在内部网络监听 8768。容器以 UID 10005 运行。镜像的 `image-worker` target 安装 libvips 和 ICC 文件；独立 Worker 的默认本地预算为 4 CPU、16 GiB 内存和 12 GiB 临时盘，这些是 Compose 资源限制，不是生产容量证明。回收派生对象时，另按现有部署方式运行 `docker-compose.assets-cleanup.yml` 中的 `assets-cleanup`，不要把删除权限交给控制端或图片 Worker。
 
-源桶和历史 Task 桶只需读取原图。共享控制凭据可 HEAD/GET 来源与缓存并签发受限读取 URL，不写源、不删除对象；图片 Worker 只读源对象，并在缓存桶的 `image-assets/*`、`image-pyramids/*` 前缀写入不可变派生输出，孤儿扫描的列举范围限制在金字塔前缀，不写/删原图。清理身份仅能列举并删除这两个派生前缀下由数据库签发的精确 key/prefix；不得配置整桶生命周期删除这些前缀，不能把原图桶作为清理桶。Secrets 使用各 overlay 对应的独立数据库/S3 文件，不能共享高权限应用或迁移身份。
+源桶和历史 Task 桶只需读取原图。共享控制凭据可 HEAD/GET 来源与缓存并签发受限读取 URL，不写源、不删除对象；图片 Worker 只读源对象，并在缓存桶的 `image-assets/*`、`image-pyramids/*` 前缀写入不可变派生输出，孤儿扫描的列举范围限制在金字塔前缀，不写/删原图。清理身份仅能列举并删除这两个派生前缀下由数据库签发的精确 key/prefix；不得配置整桶生命周期删除这些前缀，不能把原图桶作为清理桶。
+
+已受理推理输入使用独立 `ASSETS_MEDIA_INPUTS_BUCKET`（默认继承 `MINIO_INPUTS_BUCKET=accepted-inputs`），必须启用 versioning，不能与源桶、历史 Task 桶或 `media-cache` 共用。控制端与图片 Worker 只需读取该桶的版本状态；Worker 按受理记录写入具备非空、非 `null` VersionId 的输入对象，输入清理身份按保留账本列举版本、删除标记与未完成 multipart 并按精确版本删除。在 MinIO 上，清理按每个 `(key, VersionId)` 发送 DELETE，并需 `DeleteObjectVersion` 加上仅接受非空、非 `null` `s3:versionid` 的 `DeleteObject`；无版本 ID 与批量删除不授权。不要授予桶创建/版本配置权限，也不要对输入桶或媒体缓存桶配置生命周期自动过期。
+
+Secrets 使用各 overlay 对应的独立数据库/S3 文件，不能共享高权限应用或迁移身份。
 
 自动受理默认关闭；`IMAGE_PYRAMID_PROFILE_VERSION` 默认为 `pyramid-v1`，API 与共享控制端必须使用相同 profile。作业受理时固定 normalization/profile policy，修改 profile 应作为新输出线规划，而不是只切换一台服务。Worker 的 `ASSETS_IMAGES_SRGB_PROFILE`（默认镜像内 `/usr/share/color/icc/sRGB.icc`）必须是可读绝对路径。`VITE_EXPERIMENTAL_LARGE_IMAGE_TILES` 是 Web 构建开关，与自动受理无关，改动后需重建 Web。
 

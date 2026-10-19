@@ -61,6 +61,7 @@ class StorageService:
         self.export_bucket = settings.minio_export_bucket
         self.avatars_bucket = settings.minio_avatars_bucket
         self.training_bucket = settings.minio_training_bucket
+        self.inputs_bucket = settings.minio_inputs_bucket
 
     def ensure_bucket(self, bucket: str | None = None) -> None:
         b = bucket or self.bucket
@@ -79,7 +80,23 @@ class StorageService:
         self.ensure_bucket(self.export_bucket)
         self.ensure_bucket(self.avatars_bucket)
         self.ensure_bucket(self.training_bucket)
+        self.ensure_bucket(self.inputs_bucket)
+        self.ensure_inputs_bucket_versioning()
         self._ensure_lifecycle()
+
+    def ensure_inputs_bucket_versioning(self) -> None:
+        """Require the immutable accepted-input store to preserve exact versions."""
+        state = self.client.get_bucket_versioning(Bucket=self.inputs_bucket)
+        if state.get("Status") != "Enabled":
+            self.client.put_bucket_versioning(
+                Bucket=self.inputs_bucket,
+                VersioningConfiguration={"Status": "Enabled"},
+            )
+            state = self.client.get_bucket_versioning(Bucket=self.inputs_bucket)
+        if state.get("Status") != "Enabled":
+            raise RuntimeError(
+                "MINIO_INPUTS_BUCKET must have object versioning enabled"
+            )
 
     def _ensure_lifecycle(self) -> None:
         """v0.6.6 · 评论附件 90 天过期。

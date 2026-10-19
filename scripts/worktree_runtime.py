@@ -241,6 +241,11 @@ def diagnose(backend) -> dict:
         },
     )
     check("migration_graph", lambda: migration_graph(backend.code_root))
+    if "MINIO_INPUTS_BUCKET" in resources["buckets"]:
+        check("inputs_bucket_versioning", backend.inputs_bucket_versioning)
+        versioning = checks.get("inputs_bucket_versioning")
+        if versioning is not None and versioning.get("Status") != "Enabled":
+            report["errors"].append("独立输入 bucket 尚未启用 versioning；运行 init")
     if checks.get("database"):
         check("database_revisions", lambda: asyncio.run(backend.revisions()))
     else:

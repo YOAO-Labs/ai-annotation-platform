@@ -24,6 +24,7 @@ x-prod-infra-env: &prod-infra-env
   ALEMBIC_AUTO_UPGRADE: "false"
   REDIS_URL: ${REDIS_URL:?.env.production 必须设置 REDIS_URL}
   MINIO_ENDPOINT: ${MINIO_ENDPOINT:?.env.production 必须设置 MINIO_ENDPOINT}
+  MINIO_INPUTS_BUCKET: ${MINIO_INPUTS_BUCKET:-accepted-inputs}
   MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:?.env.production 必须设置 MINIO_ACCESS_KEY}
   MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:?.env.production 必须设置 MINIO_SECRET_KEY}
 

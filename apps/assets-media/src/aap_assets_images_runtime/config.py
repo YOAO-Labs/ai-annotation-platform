@@ -31,6 +31,7 @@ class ImageStorageConfig:
     datasets_bucket: str
     legacy_bucket: str
     cache_bucket: str
+    inputs_bucket: str
     access_key: str = field(repr=False)
     secret_key: str = field(repr=False)
     connect_timeout: float = 10.0
@@ -170,13 +171,22 @@ def load_storage_config(
     region = values.get("ASSETS_MEDIA_S3_REGION", "us-east-1").strip()
     if not region:
         raise ConfigurationError("ASSETS_MEDIA_S3_REGION must not be empty")
+    datasets_bucket = _bucket(values, "ASSETS_MEDIA_DATASETS_BUCKET")
+    legacy_bucket = _bucket_value(legacy_name, legacy_value.strip())
+    cache_bucket = _bucket(values, "ASSETS_MEDIA_CACHE_BUCKET")
+    inputs_bucket = _bucket(values, "ASSETS_MEDIA_INPUTS_BUCKET")
+    if inputs_bucket in {datasets_bucket, legacy_bucket, cache_bucket}:
+        raise ConfigurationError(
+            "ASSETS_MEDIA_INPUTS_BUCKET must be separate from source and cache buckets"
+        )
     return ImageStorageConfig(
         endpoint=endpoint,
         public_endpoint=_origin(values, "ASSETS_MEDIA_S3_PUBLIC_ENDPOINT", endpoint),
         region=region,
-        datasets_bucket=_bucket(values, "ASSETS_MEDIA_DATASETS_BUCKET"),
-        legacy_bucket=_bucket_value(legacy_name, legacy_value.strip()),
-        cache_bucket=_bucket(values, "ASSETS_MEDIA_CACHE_BUCKET"),
+        datasets_bucket=datasets_bucket,
+        legacy_bucket=legacy_bucket,
+        cache_bucket=cache_bucket,
+        inputs_bucket=inputs_bucket,
         access_key=_secret(values, "ASSETS_MEDIA_S3_ACCESS_KEY"),
         secret_key=_secret(values, "ASSETS_MEDIA_S3_SECRET_KEY"),
         connect_timeout=_positive_float(

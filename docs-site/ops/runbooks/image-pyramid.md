@@ -31,6 +31,9 @@ S3 权限应限定为：
 - 控制端对已登记源图和缓存对象 HEAD/GET，并签发短期读取 URL；不写缓存或删除对象。
 - 图片 Worker 对源桶只读；对 `image-assets/*`、`image-pyramids/*` 派生前缀读写和校验，并在 `image-pyramids/*` 受限列举以做协调；不写/删源对象。
 - 清理身份只对缓存桶中由数据库签发的图片派生 prefix 做 List/Delete；不授予 Get/Put、源桶访问或桶管理。
+- 已受理输入另用 `ASSETS_MEDIA_INPUTS_BUCKET` 指向独立 versioning 桶（默认 `accepted-inputs`）；控制端与 Worker 仅读 versioning 状态，Worker 只在该桶写入不可变输入版本，输入清理身份只列举输入版本/未完成 multipart 并删除指定版本。清理权限包括 `ListBucketVersions`、`ListBucketMultipartUploads`、`AbortMultipartUpload`、`DeleteObjectVersion`，以及仅在请求包含非空且非 `null` 的 `s3:versionid` 时允许的 `DeleteObject`；清理端逐个删除 `(key, versionId)`，不发无版本 ID 的删除或 S3 批量删除。不得授予任何身份配置 versioning、创建桶或管理整个桶的权限。
+
+输入桶需通过 `MINIO_INPUTS_BUCKET` 与 `ASSETS_MEDIA_INPUTS_BUCKET` 配置，并且必须启用 versioning；不要给它或 `media-cache` 添加桶级生命周期。Compose overlay 默认让独立控制与图片 Worker 继承 API bucket 名称。清理 worker 依照输入保留账本逐版本回收，不能按 age 或生命周期直接删除对象版本。
 
 共享控制端与图片 Worker 的 endpoint、region、桶配置要一致；API 通过共享控制端 URL/token 接入。公共 S3 endpoint 必须对浏览器可达，不要改写签名 URL。历史 Task 图像桶通过 `ASSETS_IMAGES_LEGACY_BUCKET` 指定，开发环境可回退至既有 `MINIO_BUCKET` / `MINIO_BUCKET_ANNOTATIONS`。
 

@@ -140,6 +140,7 @@ def image_storage(*, control: bool = False):
             datasets_bucket=settings.minio_datasets_bucket,
             legacy_bucket=settings.minio_bucket,
             cache_bucket=settings.minio_media_cache_bucket,
+            inputs_bucket=settings.minio_inputs_bucket,
             connect_timeout=2 if control else 10,
             read_timeout=10 if control else 120,
         )

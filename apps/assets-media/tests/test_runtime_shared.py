@@ -85,6 +85,7 @@ def _control_config() -> MediaControlConfig:
             region="us-east-1",
             datasets_bucket="datasets",
             cache_bucket="media-cache",
+            inputs_bucket="accepted-inputs",
             access_key="control-access",
             secret_key="control-secret",
             connect_timeout=2,
@@ -101,6 +102,7 @@ def _image_storage_config() -> ImageStorageConfig:
         datasets_bucket="placeholder-datasets",
         legacy_bucket="annotations",
         cache_bucket="placeholder-cache",
+        inputs_bucket="placeholder-inputs",
         access_key="placeholder-access",
         secret_key="placeholder-secret",
     )

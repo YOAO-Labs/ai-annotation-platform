@@ -19,6 +19,7 @@ def _storage_environment() -> dict[str, str]:
         "ASSETS_MEDIA_S3_REGION": "us-east-1",
         "ASSETS_MEDIA_DATASETS_BUCKET": "datasets",
         "ASSETS_MEDIA_CACHE_BUCKET": "media-cache",
+        "ASSETS_MEDIA_INPUTS_BUCKET": "accepted-inputs",
         "ASSETS_MEDIA_S3_ACCESS_KEY": "media-worker",
         "ASSETS_MEDIA_S3_SECRET_KEY": "media-secret",
     }
@@ -30,6 +31,7 @@ def test_storage_config_needs_only_explicit_storage_settings():
     assert config.public_endpoint == "https://media.example.test"
     assert config.datasets_bucket == "datasets"
     assert config.cache_bucket == "media-cache"
+    assert config.inputs_bucket == "accepted-inputs"
     assert config.region == "us-east-1"
 
 
@@ -117,6 +119,13 @@ def test_storage_config_rejects_a_public_endpoint_path():
     environment = _storage_environment()
     environment["ASSETS_MEDIA_S3_PUBLIC_ENDPOINT"] = "https://media.example.test/prefix"
     with pytest.raises(ConfigurationError, match=r"HTTP\(S\) origin"):
+        load_storage_config(environment)
+
+
+def test_storage_config_requires_a_distinct_inputs_bucket():
+    environment = _storage_environment()
+    environment["ASSETS_MEDIA_INPUTS_BUCKET"] = "media-cache"
+    with pytest.raises(ConfigurationError, match="separate"):
         load_storage_config(environment)
 
 

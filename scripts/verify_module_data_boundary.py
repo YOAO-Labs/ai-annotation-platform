@@ -324,11 +324,23 @@ def _cleanup_storage_scope(backend) -> dict:
         for tag in tags
     ):
         raise RuntimeError("The cleanup bucket is not owned by this acceptance")
+    inputs_bucket = backend.resources["buckets"]["MINIO_INPUTS_BUCKET"]
+    input_tags = backend.s3.get_bucket_tagging(Bucket=inputs_bucket)["TagSet"]
+    if not any(
+        tag["Key"] == "aap-worktree-owner"
+        and tag["Value"] == backend.resources["owner"]
+        for tag in input_tags
+    ):
+        raise RuntimeError("The accepted-input bucket is not owned by this acceptance")
+    versioning = backend.s3.get_bucket_versioning(Bucket=inputs_bucket)
+    if versioning.get("Status") != "Enabled":
+        raise RuntimeError("The accepted-input bucket is not versioned")
     token = secrets.token_hex(8)
     scheme = "https" if backend.settings.minio_use_ssl else "http"
     return {
         "container": matches[0]["Id"],
         "bucket": bucket,
+        "inputs_bucket": inputs_bucket,
         "access_key": f"aapcln{token[:14]}",
         "secret_key": secrets.token_hex(24),
         "policy": f"aap-cleanup-{token}",
@@ -337,6 +349,259 @@ def _cleanup_storage_scope(backend) -> dict:
         "user_created": False,
         "policy_created": False,
     }
+
+
+def _restricted_s3_client(backend, scope: dict):
+    import boto3
+    from botocore.config import Config
+
+    scheme = "https" if backend.settings.minio_use_ssl else "http"
+    return boto3.client(
+        "s3",
+        endpoint_url=f"{scheme}://{backend.settings.minio_endpoint}",
+        aws_access_key_id=scope["access_key"],
+        aws_secret_access_key=scope["secret_key"],
+        region_name="us-east-1",
+        config=Config(
+            signature_version="s3v4",
+            connect_timeout=3,
+            read_timeout=10,
+            retries={"max_attempts": 1},
+            s3={"addressing_style": "path"},
+        ),
+    )
+
+
+def _expect_s3_denied(label: str, operation) -> None:
+    from botocore.exceptions import ClientError
+
+    try:
+        operation()
+    except ClientError as exc:
+        if exc.response.get("Error", {}).get("Code") in {
+            "AccessDenied",
+            "Forbidden",
+            "AllAccessDisabled",
+        }:
+            return
+        raise RuntimeError(f"{label} returned an unexpected S3 error") from None
+    raise RuntimeError(f"{label} was unexpectedly allowed")
+
+
+def _verify_accepted_input_s3_scopes(
+    backend, control_scope, worker_scope, cleanup_scope
+):
+    """Exercise version-bound input access with the three restricted S3 identities."""
+    from botocore.exceptions import ClientError
+
+    bucket = backend.resources["buckets"]["MINIO_INPUTS_BUCKET"]
+    if any(
+        scope["inputs_bucket"] != bucket
+        for scope in (control_scope, worker_scope, cleanup_scope)
+    ):
+        raise RuntimeError("The accepted-input S3 identities disagree on the bucket")
+    state = backend.s3.get_bucket_versioning(Bucket=bucket)
+    if state.get("Status") != "Enabled":
+        raise RuntimeError("The owned accepted-input bucket is not versioned")
+    media_cache = backend.resources["buckets"]["MINIO_MEDIA_CACHE_BUCKET"]
+    cache_versioning_before = backend.s3.get_bucket_versioning(Bucket=media_cache).get(
+        "Status"
+    )
+
+    control = _restricted_s3_client(backend, control_scope)
+    worker = _restricted_s3_client(backend, worker_scope)
+    cleanup = _restricted_s3_client(backend, cleanup_scope)
+    input_id = str(uuid4())
+    prefix = f"{input_id}/"
+    attempt_a = f"{input_id}/g1/a{uuid4()}/source"
+    attempt_b = f"{input_id}/g2/a{uuid4()}/source"
+    multipart_key = f"{input_id}/g3/a{uuid4()}/source"
+    created_upload_id = None
+    try:
+        first = backend.s3.put_object(Bucket=bucket, Key=attempt_a, Body=b"accepted-v1")
+        version_a = first.get("VersionId")
+        if not version_a or version_a == "null":
+            raise RuntimeError("The input bucket did not issue an object VersionId")
+
+        if control.get_bucket_versioning(Bucket=bucket).get("Status") != "Enabled":
+            raise RuntimeError("The control S3 identity did not read bucket versioning")
+        body = control.get_object(Bucket=bucket, Key=attempt_a, VersionId=version_a)[
+            "Body"
+        ]
+        try:
+            if body.read() != b"accepted-v1":
+                raise RuntimeError(
+                    "The control S3 identity read the wrong input version"
+                )
+        finally:
+            body.close()
+        _expect_s3_denied(
+            "control input write",
+            lambda: control.put_object(Bucket=bucket, Key=attempt_b, Body=b"forbidden"),
+        )
+        _expect_s3_denied(
+            "control unversioned input read",
+            lambda: control.get_object(Bucket=bucket, Key=attempt_a),
+        )
+        _expect_s3_denied(
+            "control input version listing",
+            lambda: control.list_object_versions(Bucket=bucket, Prefix=prefix),
+        )
+
+        if worker.get_bucket_versioning(Bucket=bucket).get("Status") != "Enabled":
+            raise RuntimeError(
+                "The image Worker S3 identity did not read bucket versioning"
+            )
+        worker_body = worker.get_object(
+            Bucket=bucket, Key=attempt_a, VersionId=version_a
+        )["Body"]
+        try:
+            if worker_body.read() != b"accepted-v1":
+                raise RuntimeError("The image Worker read the wrong input version")
+        finally:
+            worker_body.close()
+        _expect_s3_denied(
+            "image Worker unversioned input read",
+            lambda: worker.get_object(Bucket=bucket, Key=attempt_a),
+        )
+        second = worker.put_object(
+            Bucket=bucket, Key=attempt_b, Body=b"accepted-v2", IfNoneMatch="*"
+        )
+        version_b = second.get("VersionId")
+        if not version_b or version_b == "null":
+            raise RuntimeError("The image Worker PUT did not receive a VersionId")
+        verified = worker.head_object(Bucket=bucket, Key=attempt_b, VersionId=version_b)
+        if verified.get("ContentLength") != len(b"accepted-v2"):
+            raise RuntimeError(
+                "The image Worker could not verify its exact input version"
+            )
+        try:
+            worker.put_object(
+                Bucket=bucket, Key=attempt_b, Body=b"overwrite", IfNoneMatch="*"
+            )
+        except ClientError as exc:
+            if exc.response.get("Error", {}).get("Code") not in {
+                "PreconditionFailed",
+                "412",
+            }:
+                raise RuntimeError(
+                    "The input conditional PUT returned an unexpected error"
+                ) from None
+        else:
+            raise RuntimeError(
+                "The conditional input PUT overwrote an existing attempt key"
+            )
+        _expect_s3_denied(
+            "image Worker input version deletion",
+            lambda: worker.delete_object(
+                Bucket=bucket, Key=attempt_a, VersionId=version_a
+            ),
+        )
+        _expect_s3_denied(
+            "image Worker input version listing",
+            lambda: worker.list_object_versions(Bucket=bucket, Prefix=prefix),
+        )
+
+        marker = backend.s3.delete_object(Bucket=bucket, Key=attempt_a)
+        marker_id = marker.get("VersionId")
+        if not marker_id or marker_id == "null":
+            raise RuntimeError("The versioned input delete did not create a marker")
+
+        upload = worker.create_multipart_upload(Bucket=bucket, Key=multipart_key)
+        created_upload_id = upload["UploadId"]
+        worker.upload_part(
+            Bucket=bucket,
+            Key=multipart_key,
+            UploadId=created_upload_id,
+            PartNumber=1,
+            Body=b"x",
+        )
+        matching = []
+        for _attempt in range(20):
+            uploads = cleanup.list_multipart_uploads(Bucket=bucket).get("Uploads", [])
+            matching = [
+                item
+                for item in uploads
+                if item.get("UploadId") == created_upload_id
+                and item.get("Key") == multipart_key
+            ]
+            if matching:
+                break
+            time.sleep(0.1)
+        if len(matching) != 1:
+            raise RuntimeError(
+                "The cleanup S3 identity could not enumerate input uploads"
+            )
+        cleanup.abort_multipart_upload(
+            Bucket=bucket, Key=multipart_key, UploadId=created_upload_id
+        )
+        created_upload_id = None
+
+        _expect_s3_denied(
+            "cleanup input read",
+            lambda: cleanup.get_object(
+                Bucket=bucket, Key=attempt_b, VersionId=version_b
+            ),
+        )
+        _expect_s3_denied(
+            "cleanup unversioned input deletion",
+            lambda: cleanup.delete_object(Bucket=bucket, Key=attempt_b),
+        )
+        versions_response = cleanup.list_object_versions(Bucket=bucket, Prefix=prefix)
+        versions = [
+            {"Key": item["Key"], "VersionId": item["VersionId"]}
+            for item in versions_response.get("Versions", [])
+        ]
+        markers = [
+            {"Key": item["Key"], "VersionId": item["VersionId"]}
+            for item in versions_response.get("DeleteMarkers", [])
+        ]
+        if not {version_a, version_b, marker_id}.issubset(
+            {item["VersionId"] for item in versions + markers}
+        ):
+            raise RuntimeError(
+                "The cleanup S3 identity did not list all input versions"
+            )
+        for item in versions + markers:
+            cleanup.delete_object(
+                Bucket=bucket,
+                Key=item["Key"],
+                VersionId=item["VersionId"],
+            )
+        try:
+            backend.s3.get_object(Bucket=bucket, Key=attempt_a, VersionId=version_a)
+        except ClientError as exc:
+            if exc.response.get("Error", {}).get("Code") not in {
+                "NoSuchVersion",
+                "InvalidArgument",
+                "NoSuchKey",
+            }:
+                raise RuntimeError(
+                    "The input version remained after scoped cleanup"
+                ) from None
+        else:
+            raise RuntimeError("The input version remained after scoped cleanup")
+    finally:
+        if created_upload_id:
+            try:
+                backend.s3.abort_multipart_upload(
+                    Bucket=bucket, Key=multipart_key, UploadId=created_upload_id
+                )
+            except Exception:
+                pass
+        paginator = backend.s3.get_paginator("list_object_versions")
+        for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
+            objects = [
+                {"Key": item["Key"], "VersionId": item["VersionId"]}
+                for item in page.get("Versions", []) + page.get("DeleteMarkers", [])
+            ]
+            if objects:
+                backend.s3.delete_objects(Bucket=bucket, Delete={"Objects": objects})
+    cache_versioning_after = backend.s3.get_bucket_versioning(Bucket=media_cache).get(
+        "Status"
+    )
+    if cache_versioning_after != cache_versioning_before:
+        raise RuntimeError("The accepted-input check changed media-cache versioning")
 
 
 def _enable_owned_bucket_versioning(backend, bucket: str) -> None:
@@ -397,6 +662,7 @@ def _cleanup_mc(
 
 def _cleanup_storage_policy(scope: dict) -> dict:
     cache_arn = f"arn:aws:s3:::{scope['bucket']}"
+    inputs_arn = f"arn:aws:s3:::{scope['inputs_bucket']}"
     return {
         "Version": "2012-10-17",
         "Statement": [
@@ -416,7 +682,40 @@ def _cleanup_storage_policy(scope: dict) -> dict:
                     f"{cache_arn}/image-pyramids/*",
                 ],
             },
+            {
+                "Effect": "Allow",
+                "Action": [
+                    "s3:ListBucketVersions",
+                    "s3:ListBucketMultipartUploads",
+                ],
+                "Resource": [inputs_arn],
+            },
+            {
+                "Effect": "Allow",
+                "Action": ["s3:DeleteObjectVersion", "s3:AbortMultipartUpload"],
+                "Resource": [f"{inputs_arn}/*"],
+            },
+            {
+                "Effect": "Allow",
+                "Action": ["s3:DeleteObject"],
+                "Resource": [f"{inputs_arn}/*"],
+                "Condition": {
+                    "StringLike": {"s3:versionid": "*?*"},
+                    "StringNotEquals": {"s3:versionid": "null"},
+                },
+            },
         ],
+    }
+
+
+def _require_input_version_id(statement: dict) -> dict:
+    """Restrict version reads to a nonempty VersionId in the S3 policy context."""
+    return {
+        **statement,
+        "Condition": {
+            "StringLike": {"s3:versionid": "*?*"},
+            "StringNotEquals": {"s3:versionid": "null"},
+        },
     }
 
 
@@ -519,6 +818,25 @@ def _media_storage_policy(scope: dict, *, worker: bool) -> dict:
             "Resource": source_objects,
         }
     ]
+    inputs_bucket = scope.get("inputs_bucket")
+    if inputs_bucket and not worker:
+        inputs_arn = f"arn:aws:s3:::{inputs_bucket}"
+        statements.extend(
+            [
+                {
+                    "Effect": "Allow",
+                    "Action": ["s3:GetBucketVersioning"],
+                    "Resource": [inputs_arn],
+                },
+                _require_input_version_id(
+                    {
+                        "Effect": "Allow",
+                        "Action": ["s3:GetObjectVersion"],
+                        "Resource": [f"{inputs_arn}/*"],
+                    }
+                ),
+            ]
+        )
     if worker:
         statements.extend(
             [
@@ -598,6 +916,7 @@ def _image_worker_storage_policy(scope: dict) -> dict:
         f"{cache_bucket_arn}/image-assets/*",
         f"{cache_bucket_arn}/image-pyramids/*",
     ]
+    inputs_arn = f"arn:aws:s3:::{scope['inputs_bucket']}"
     return {
         "Version": "2012-10-17",
         "Statement": [
@@ -617,6 +936,23 @@ def _image_worker_storage_policy(scope: dict) -> dict:
                 "Action": ["s3:GetObject", "s3:PutObject"],
                 "Resource": derived_objects,
             },
+            {
+                "Effect": "Allow",
+                "Action": ["s3:GetBucketVersioning"],
+                "Resource": [inputs_arn],
+            },
+            {
+                "Effect": "Allow",
+                "Action": ["s3:PutObject"],
+                "Resource": [f"{inputs_arn}/*"],
+            },
+            _require_input_version_id(
+                {
+                    "Effect": "Allow",
+                    "Action": ["s3:GetObjectVersion"],
+                    "Resource": [f"{inputs_arn}/*"],
+                }
+            ),
         ],
     }
 
@@ -1733,6 +2069,9 @@ def main(argv: list[str] | None = None) -> int:
         media_control_storage["datasets_bucket"] = resources["buckets"][
             "MINIO_DATASETS_BUCKET"
         ]
+        media_control_storage["inputs_bucket"] = resources["buckets"][
+            "MINIO_INPUTS_BUCKET"
+        ]
         media_control_storage["legacy_bucket"] = resources["buckets"]["MINIO_BUCKET"]
         media_control_storage["policy"] = "aap-media-control-" + secrets.token_hex(8)
         _create_media_storage_scope(media_control_storage, worker=False)
@@ -1747,8 +2086,22 @@ def main(argv: list[str] | None = None) -> int:
             "MINIO_DATASETS_BUCKET"
         ]
         image_worker_storage["legacy_bucket"] = resources["buckets"]["MINIO_BUCKET"]
+        image_worker_storage["inputs_bucket"] = resources["buckets"][
+            "MINIO_INPUTS_BUCKET"
+        ]
         image_worker_storage["policy"] = "aap-images-worker-" + secrets.token_hex(8)
         _create_image_storage_scope(image_worker_storage)
+        phase = "verify-accepted-input-storage-scopes"
+        _verify_accepted_input_s3_scopes(
+            backend, media_control_storage, image_worker_storage, cleanup_storage
+        )
+        evidence["accepted_inputs_s3"] = {
+            "bucket": resources["buckets"]["MINIO_INPUTS_BUCKET"],
+            "versioning": "Enabled",
+            "restricted_control_read": True,
+            "restricted_image_worker_versioned_write": True,
+            "restricted_cleanup_versions_and_multipart": True,
+        }
         from cryptography.fernet import Fernet
 
         media_control_access_key = media_control_storage["access_key"]
@@ -1769,6 +2122,9 @@ def main(argv: list[str] | None = None) -> int:
                 "AAP_MODULE_DATA_ASSET_MEDIA_CONTROL_URL": media_control_url,
                 "AAP_MODULE_DATA_ASSET_MEDIA_WORKER_URL": media_worker_url,
                 "AAP_MODULE_DATA_ASSET_IMAGE_WORKER_URL": image_worker_url,
+                "ASSETS_MEDIA_INPUTS_BUCKET": resources["buckets"][
+                    "MINIO_INPUTS_BUCKET"
+                ],
                 "AAP_MODULE_DATA_ASSET_IMPORT_S3_ACCESS_KEY": import_storage[
                     "access_key"
                 ],

@@ -1,4 +1,4 @@
-"""Additive training bucket upgrades preserve existing resource ownership."""
+"""Additive accepted-input bucket upgrades preserve exact worktree ownership."""
 
 import json
 from pathlib import Path
@@ -11,7 +11,14 @@ from worktree_env import atomic_json, load_identity, read_state, topology
 from worktree_resources import LocalResources
 
 
-class TrainingBucketUpgradeTests(unittest.TestCase):
+def _without_buckets(manifest, *names):
+    result = json.loads(json.dumps(manifest))
+    for name in names:
+        result["resources"]["buckets"].pop(name, None)
+    return result
+
+
+class BucketUpgradeTests(unittest.TestCase):
     def setUp(self):
         self.temporary = TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
@@ -32,95 +39,307 @@ class TrainingBucketUpgradeTests(unittest.TestCase):
             "postgres": {"host": "localhost", "port": 5432},
             "minio": {"endpoint": "localhost:9000", "ssl": False},
         }
-        self.legacy = json.loads(json.dumps(self.target))
-        self.name = self.legacy["resources"]["buckets"].pop("MINIO_TRAINING_BUCKET")
-        atomic_json(self.path, self.legacy)
+        self.training_target = _without_buckets(self.target, "MINIO_INPUTS_BUCKET")
+        self.legacy_9 = self.training_target
+        self.legacy_8 = _without_buckets(self.training_target, "MINIO_TRAINING_BUCKET")
+        self.input_name = resources["buckets"]["MINIO_INPUTS_BUCKET"]
+        self.training_name = resources["buckets"]["MINIO_TRAINING_BUCKET"]
+        atomic_json(self.path, self.legacy_8)
         self.mock_s3 = MagicMock()
         with patch("worktree_resources.boto3.client", return_value=self.mock_s3):
             self.backend = LocalResources(resources, self.settings, code_root=self.root)
         self.buckets = {
             name: {"owner": resources["owner"]}
-            for name in self.legacy["resources"]["buckets"].values()
+            for name in self.legacy_8["resources"]["buckets"].values()
         }
-        self.backend.bucket_info = lambda name: self.buckets.get(name)
-        self.backend.inspect = lambda: {
-            "database": {"owner": resources["owner"], "sessions": 0},
-            "redis": {"owner": resources["owner"]},
-            "buckets": {
-                name: self.buckets.get(name)
-                for name in self.backend.resources["buckets"].values()
-            },
-        }
-        self.mock_s3.put_bucket_tagging.side_effect = lambda **kwargs: (
-            self.buckets.update({kwargs["Bucket"]: {"owner": resources["owner"]}})
-        )
+        self.versioning = {}
+        self._bind_backend(self.backend)
         self.mock_s3.create_bucket.side_effect = lambda **kwargs: self.buckets.update(
             {kwargs["Bucket"]: {"owner": None}}
         )
-        self.mock_s3.delete_bucket.side_effect = lambda **kwargs: self.buckets.pop(
-            kwargs["Bucket"], None
-        )
-
-    def test_old_commands_retain_exact_legacy_inventory(self):
-        self.assertEqual(self.backend.resources, self.legacy["resources"])
-        self.assertNotIn("MINIO_TRAINING_BUCKET", self.backend.resources["buckets"])
-        self.mock_s3.create_bucket.assert_not_called()
-        self.assertEqual(read_state(self.path), self.legacy)
-
-    def test_upgrade_preserves_old_inventory_and_publishes_atomically(self):
-        old = dict(self.buckets)
-        self.backend.upgrade_training_bucket()
-        self.assertEqual(read_state(self.path), self.target)
-        self.assertTrue(all(self.buckets[name] == value for name, value in old.items()))
-        self.assertEqual(self.backend.resources, self.target["resources"])
-        self.assertFalse((self.path.parent / "training-bucket-upgrade.json").exists())
-
-    def test_failed_tagging_compensates_empty_bucket_and_retry_succeeds(self):
-        self.mock_s3.put_bucket_tagging.side_effect = RuntimeError("injected failure")
-        with self.assertRaises(RuntimeError):
-            self.backend.upgrade_training_bucket()
-        self.assertEqual(read_state(self.path), self.legacy)
-        self.assertNotIn(self.name, self.buckets)
-        self.mock_s3.delete_bucket.assert_called_once_with(Bucket=self.name)
         self.mock_s3.put_bucket_tagging.side_effect = lambda **kwargs: (
             self.buckets.update(
                 {kwargs["Bucket"]: {"owner": self.target["resources"]["owner"]}}
             )
         )
-        self.backend.upgrade_training_bucket()
-        self.assertEqual(read_state(self.path), self.target)
-
-    def test_failed_compensation_keeps_recovery_and_rejects_automatic_adoption(self):
-        self.mock_s3.put_bucket_tagging.side_effect = RuntimeError("injected failure")
-        self.mock_s3.delete_bucket.side_effect = RuntimeError("bucket not empty")
-        with self.assertRaises(RuntimeError):
-            self.backend.upgrade_training_bucket()
-        self.assertEqual(read_state(self.path), self.legacy)
-        self.assertEqual(
-            read_state(self.path.parent / "training-bucket-upgrade.json")["bucket"],
-            self.name,
+        self.mock_s3.get_bucket_versioning.side_effect = lambda **kwargs: {
+            "Status": self.versioning.get(kwargs["Bucket"])
+        }
+        self.mock_s3.put_bucket_versioning.side_effect = lambda **kwargs: (
+            self.versioning.update(
+                {kwargs["Bucket"]: kwargs["VersioningConfiguration"]["Status"]}
+            )
         )
-        with self.assertRaisesRegex(ValueError, "创建曾中断"):
-            self.backend.upgrade_training_bucket()
 
-    def test_foreign_bucket_is_never_adopted(self):
-        self.buckets[self.name] = {"owner": "another-worktree"}
-        with self.assertRaisesRegex(ValueError, "拒绝接管"):
-            self.backend.upgrade_training_bucket()
+    def _bind_backend(self, backend):
+        owner = self.target["resources"]["owner"]
+        backend.bucket_info = lambda name: self.buckets.get(name)
+        backend.inspect = lambda: {
+            "database": {"owner": owner, "sessions": 0},
+            "redis": None,
+            "buckets": {
+                name: self.buckets.get(name)
+                for name in backend.resources["buckets"].values()
+            },
+        }
+
+        async def database(action="inspect"):
+            return {"owner": owner, "sessions": 0} if action == "inspect" else None
+
+        backend.database = database
+        backend.redis_info = lambda: None
+
+    def _use_legacy_9(self):
+        atomic_json(self.path, self.legacy_9)
+        self.buckets[self.training_name] = {"owner": self.target["resources"]["owner"]}
+        with patch("worktree_resources.boto3.client", return_value=self.mock_s3):
+            self.backend = LocalResources(
+                self.target["resources"], self.settings, code_root=self.root
+            )
+        self._bind_backend(self.backend)
+
+    def test_old_8_and_9_manifests_remain_read_only_until_explicit_prepare(self):
+        self.assertEqual(self.backend.resources, self.legacy_8["resources"])
+        self.assertNotIn("MINIO_TRAINING_BUCKET", self.backend.resources["buckets"])
+        self.assertNotIn("MINIO_INPUTS_BUCKET", self.backend.resources["buckets"])
         self.mock_s3.create_bucket.assert_not_called()
-        self.assertEqual(read_state(self.path), self.legacy)
+        self.mock_s3.put_bucket_versioning.assert_not_called()
+
+        self._use_legacy_9()
+        self.assertEqual(read_state(self.path), self.legacy_9)
+        self.assertNotIn("MINIO_INPUTS_BUCKET", self.backend.resources["buckets"])
+        self.mock_s3.create_bucket.assert_not_called()
+        self.mock_s3.put_bucket_versioning.assert_not_called()
+
+    def test_8_bucket_upgrade_is_staged_before_accepted_inputs(self):
+        self.backend.upgrade_training_bucket()
+        self.assertEqual(read_state(self.path), self.training_target)
+        self.assertIn("MINIO_TRAINING_BUCKET", self.backend.resources["buckets"])
+        self.assertNotIn("MINIO_INPUTS_BUCKET", self.backend.resources["buckets"])
+        self.assertNotIn(self.input_name, self.buckets)
+        self.mock_s3.put_bucket_versioning.assert_not_called()
+
+        self.backend.upgrade_inputs_bucket()
+        self.assertEqual(read_state(self.path), self.target)
+        self.assertEqual(self.backend.resources, self.target["resources"])
+        self.assertEqual(
+            self.buckets[self.input_name]["owner"], self.target["resources"]["owner"]
+        )
+        self.assertEqual(self.versioning[self.input_name], "Enabled")
+        self.assertNotIn(
+            self.target["resources"]["buckets"]["MINIO_MEDIA_CACHE_BUCKET"],
+            self.versioning,
+        )
+
+    def test_9_bucket_upgrade_creates_and_versions_only_the_owned_input_bucket(self):
+        self._use_legacy_9()
+        self.backend.upgrade_inputs_bucket()
+        self.assertEqual(read_state(self.path), self.target)
+        self.assertEqual(self.backend.resources, self.target["resources"])
+        self.assertEqual(self.versioning, {self.input_name: "Enabled"})
+        self.assertFalse((self.path.parent / "inputs-bucket-upgrade.json").exists())
+
+    def test_existing_owned_inputs_bucket_is_brought_to_enabled_versioning(self):
+        self._use_legacy_9()
+        self.buckets[self.input_name] = {"owner": self.target["resources"]["owner"]}
+        self.versioning[self.input_name] = "Suspended"
+        self.backend.upgrade_inputs_bucket()
+        self.assertEqual(self.versioning[self.input_name], "Enabled")
+        self.mock_s3.put_bucket_versioning.assert_called_once_with(
+            Bucket=self.input_name,
+            VersioningConfiguration={"Status": "Enabled"},
+        )
+
+    def test_failed_input_bucket_tagging_keeps_old_manifest_and_refuses_adoption(self):
+        self._use_legacy_9()
+        self.mock_s3.put_bucket_tagging.side_effect = RuntimeError("tag failure")
+        with self.assertRaisesRegex(ValueError, "保留恢复记录"):
+            self.backend.upgrade_inputs_bucket()
+        journal = self.path.parent / "inputs-bucket-upgrade.json"
+        self.assertEqual(read_state(self.path), self.legacy_9)
+        self.assertEqual(
+            read_state(journal),
+            {
+                "bucket": self.input_name,
+                "owner": self.target["resources"]["owner"],
+            },
+        )
+        self.assertEqual(self.buckets[self.input_name]["owner"], None)
+        self.mock_s3.put_bucket_versioning.assert_not_called()
+
+        with self.assertRaisesRegex(ValueError, "不会自动接管"):
+            self.backend.upgrade_inputs_bucket()
+        self.assertEqual(read_state(self.path), self.legacy_9)
+
+    def test_foreign_inputs_bucket_is_never_adopted(self):
+        self._use_legacy_9()
+        self.buckets[self.input_name] = {"owner": "another-worktree"}
+        with self.assertRaisesRegex(ValueError, "拒绝接管或删除"):
+            self.backend.upgrade_inputs_bucket()
+        self.mock_s3.create_bucket.assert_not_called()
+        self.mock_s3.put_bucket_versioning.assert_not_called()
+        self.assertEqual(read_state(self.path), self.legacy_9)
+
+    def test_destroy_refuses_unmanifested_input_upgrade_journal(self):
+        self._use_legacy_9()
+        atomic_json(
+            self.path.parent / "inputs-bucket-upgrade.json",
+            {"bucket": self.input_name, "owner": self.target["resources"]["owner"]},
+        )
+        with self.assertRaisesRegex(ValueError, "升级未完成"):
+            self.backend.destroy(self.backend.resources["confirmation"])
+        self.mock_s3.delete_bucket.assert_not_called()
+
+    def test_legacy_stop_and_destroy_do_not_touch_an_unmanifested_input_bucket(self):
+        self._use_legacy_9()
+        self.buckets[self.input_name] = {"owner": self.target["resources"]["owner"]}
+
+        self.backend.stop_redis()
+        self.assertEqual(self.backend.resources, self.legacy_9["resources"])
+        self.mock_s3.get_bucket_versioning.assert_not_called()
+        self.mock_s3.put_bucket_versioning.assert_not_called()
+
+        class EmptyPaginator:
+            def paginate(self, **_kwargs):
+                return iter([{"Uploads": []}])
+
+        self.mock_s3.get_paginator.side_effect = lambda _name: EmptyPaginator()
+        self.mock_s3.delete_bucket.side_effect = lambda **kwargs: self.buckets.pop(
+            kwargs["Bucket"], None
+        )
+        self.backend.destroy(self.legacy_9["resources"]["confirmation"])
+        self.assertIn(self.input_name, self.buckets)
+        self.mock_s3.get_bucket_versioning.assert_not_called()
+
+    def test_legacy_manifest_can_be_constructed_for_read_only_diagnosis(self):
+        self._use_legacy_9()
+        from worktree_runtime import diagnose
+
+        async def revisions():
+            return []
+
+        self.backend.revisions = revisions
+
+        with patch("worktree_resources.migration_graph", return_value=([], [])):
+            report = diagnose(self.backend)
+        self.assertIn("buckets", report["checks"])
+        self.assertNotIn(self.input_name, report["checks"]["buckets"])
+        self.mock_s3.get_bucket_versioning.assert_not_called()
+
+    def test_doctor_checks_versioning_only_for_manifested_owned_input_bucket(self):
+        atomic_json(self.path, self.target)
+        with patch("worktree_resources.boto3.client", return_value=self.mock_s3):
+            backend = LocalResources(
+                self.target["resources"], self.settings, code_root=self.root
+            )
+        self._bind_backend(backend)
+        self.buckets = {
+            name: {"owner": self.target["resources"]["owner"]}
+            for name in self.target["resources"]["buckets"].values()
+        }
+        self.versioning[self.input_name] = "Enabled"
+
+        from worktree_runtime import diagnose
+
+        async def revisions():
+            return []
+
+        backend.revisions = revisions
+        with patch("worktree_resources.migration_graph", return_value=([], [])):
+            report = diagnose(backend)
+
+        self.assertEqual(
+            report["checks"]["inputs_bucket_versioning"], {"Status": "Enabled"}
+        )
+        self.mock_s3.get_bucket_versioning.assert_called_once_with(
+            Bucket=self.input_name
+        )
+
+    def test_destroy_removes_all_input_versions_and_markers_before_bucket(self):
+        atomic_json(self.path, self.target)
+        with patch("worktree_resources.boto3.client", return_value=self.mock_s3):
+            backend = LocalResources(
+                self.target["resources"], self.settings, code_root=self.root
+            )
+        self._bind_backend(backend)
+        self.buckets = {
+            name: {"owner": self.target["resources"]["owner"]}
+            for name in self.target["resources"]["buckets"].values()
+        }
+        backend.bucket_info = lambda name: self.buckets.get(name)
+        self.versioning[self.input_name] = "Enabled"
+        operations = []
+
+        input_name = self.input_name
+        input_versions = [
+            {
+                "Versions": [
+                    {"Key": "accepted-inputs/id/source", "VersionId": "v1"},
+                    {"Key": "accepted-inputs/id/source", "VersionId": "v2"},
+                ],
+                "DeleteMarkers": [
+                    {"Key": "accepted-inputs/id/source", "VersionId": "d1"}
+                ],
+            }
+        ]
+
+        class BucketPaginator:
+            def __init__(self, name):
+                self.name = name
+
+            def paginate(self, *, Bucket):
+                if self.name == "list_multipart_uploads":
+                    return iter([{"Uploads": []}])
+                return iter(
+                    input_versions
+                    if Bucket == input_name
+                    else [{"Versions": [], "DeleteMarkers": []}]
+                )
+
+        self.mock_s3.get_paginator.side_effect = BucketPaginator
+
+        def delete_objects(**kwargs):
+            operations.append(
+                ("delete_objects", kwargs["Bucket"], kwargs["Delete"]["Objects"])
+            )
+            return {}
+
+        self.mock_s3.delete_objects.side_effect = delete_objects
+
+        def delete_bucket(**kwargs):
+            operations.append(("delete_bucket", kwargs["Bucket"]))
+            self.buckets.pop(kwargs["Bucket"], None)
+
+        self.mock_s3.delete_bucket.side_effect = delete_bucket
+        backend.destroy(self.target["resources"]["confirmation"])
+
+        input_deletes = [
+            operation
+            for operation in operations
+            if operation[0] == "delete_objects" and operation[1] == self.input_name
+        ]
+        assert len(input_deletes) == 1
+        assert {(item["Key"], item["VersionId"]) for item in input_deletes[0][2]} == {
+            ("accepted-inputs/id/source", "v1"),
+            ("accepted-inputs/id/source", "v2"),
+            ("accepted-inputs/id/source", "d1"),
+        }
+        assert operations.index(input_deletes[0]) < operations.index(
+            ("delete_bucket", self.input_name)
+        )
 
     def test_rechecks_manifest_after_mode_lock(self):
-        atomic_json(
-            self.path,
-            {**self.target, "postgres": {"host": "another-server", "port": 5432}},
-        )
+        changed = {
+            **self.legacy_8,
+            "postgres": {"host": "another-server", "port": 5432},
+        }
+        atomic_json(self.path, changed)
         with self.assertRaisesRegex(ValueError, "清单在准备期间变化"):
             self.backend.upgrade_training_bucket()
         self.mock_s3.create_bucket.assert_not_called()
 
     def test_changed_endpoint_or_old_bucket_rejected_at_construction(self):
-        changed = json.loads(json.dumps(self.legacy))
+        changed = json.loads(json.dumps(self.legacy_8))
         changed["resources"]["buckets"]["MINIO_BUCKET"] = "foreign"
         atomic_json(self.path, changed)
         with self.assertRaisesRegex(ValueError, "目标.*不一致"):

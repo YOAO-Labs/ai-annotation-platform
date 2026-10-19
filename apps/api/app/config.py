@@ -214,6 +214,8 @@ class Settings(BaseSettings):
     # 与任务数据/派生缓存的生命周期彻底解耦。
     minio_avatars_bucket: str = "avatars"
     minio_training_bucket: str = "training"
+    # Immutable owner-bound model inputs use their own versioned bucket.
+    minio_inputs_bucket: str = "accepted-inputs"
     training_enabled: bool = False
     training_executor_token: str = Field(default="", repr=False)
     training_node_id: str = "local"
@@ -266,6 +268,23 @@ class Settings(BaseSettings):
             raise ValueError(
                 "Image pyramid lease must outlast the worker hard time limit"
             )
+        return self
+
+    @model_validator(mode="after")
+    def accepted_inputs_bucket_is_independent(self):
+        buckets = {
+            self.minio_bucket,
+            self.minio_datasets_bucket,
+            self.minio_bug_reports_bucket,
+            self.minio_media_cache_bucket,
+            self.minio_audit_archive_bucket,
+            self.minio_import_bucket,
+            self.minio_export_bucket,
+            self.minio_avatars_bucket,
+            self.minio_training_bucket,
+        }
+        if self.minio_inputs_bucket in buckets:
+            raise ValueError("MINIO_INPUTS_BUCKET must name a dedicated bucket")
         return self
 
     image_pyramid_url_expiry_seconds: int = 900

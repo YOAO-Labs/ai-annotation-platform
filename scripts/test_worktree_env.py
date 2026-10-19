@@ -27,7 +27,11 @@ class IdentityTests(unittest.TestCase):
             self.assertTrue(
                 set(dev["buckets"].values()).isdisjoint(test["buckets"].values())
             )
-            self.assertEqual(len(dev["buckets"]), 9)
+            self.assertEqual(len(dev["buckets"]), 10)
+            self.assertEqual(
+                dev["buckets"]["MINIO_INPUTS_BUCKET"],
+                f"aap-wt-{first['id']}-dev-accepted-inputs",
+            )
             document = json.loads((root / ".worktree/identity.json").read_text())
             self.assertEqual(document["root"], str(root.resolve()))
             self.assertNotIn("password", json.dumps(document).lower())
@@ -92,6 +96,7 @@ class EnvironmentTests(unittest.TestCase):
                 "database_url": "must-not-win",
                 "CELERY_BROKER_URL": "redis://shared:6379/0",
                 "MINIO_BUCKET": "annotations",
+                "ASSETS_MEDIA_INPUTS_BUCKET": "shared-inputs",
                 "DUCKDB_PATH": "/shared/analytics.duckdb",
                 "MINIO_PUBLIC_URL": "http://localhost:9000",
                 "MINIO_PROXY_TARGET": "http://shared:9000",
@@ -116,6 +121,14 @@ class EnvironmentTests(unittest.TestCase):
             self.assertEqual(env["REDIS_URL"], env["CELERY_BROKER_READ_URL"])
             self.assertEqual(env["REDIS_URL"], env["CELERY_BROKER_WRITE_URL"])
             self.assertEqual(env["MINIO_BUCKET"], resources["buckets"]["MINIO_BUCKET"])
+            self.assertEqual(
+                env["MINIO_INPUTS_BUCKET"],
+                resources["buckets"]["MINIO_INPUTS_BUCKET"],
+            )
+            self.assertEqual(
+                env["ASSETS_MEDIA_INPUTS_BUCKET"],
+                resources["buckets"]["MINIO_INPUTS_BUCKET"],
+            )
             self.assertTrue(env["DUCKDB_PATH"].startswith(resources["directory"]))
             self.assertEqual(env["ML_BACKEND_OBSERVE_URLS"], "[]")
             self.assertEqual(env["PATH"], "/bin")
@@ -128,6 +141,23 @@ class EnvironmentTests(unittest.TestCase):
             self.assertEqual(env["VITE_WS_HOST"], "")
             self.assertEqual(env["MINIO_PUBLIC_URL"], "/minio")
             self.assertEqual(env["MINIO_PROXY_TARGET"], "http://localhost:9000")
+
+    def test_legacy_manifest_cannot_launch_with_a_fallback_inputs_bucket(self):
+        from worktree_env import load_identity, topology, isolated_environment
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            resources = topology(root, load_identity(root, create=True), "test")
+            resources["buckets"].pop("MINIO_INPUTS_BUCKET")
+            with self.assertRaisesRegex(ValueError, "显式运行 init"):
+                isolated_environment(
+                    resources,
+                    database_url="postgresql+asyncpg://runtime:fixture@localhost:5432/annotation",
+                    migration_database_url="postgresql+asyncpg://owner:fixture@localhost:5432/annotation",
+                    minio_endpoint="localhost:9000",
+                    redis_port=6391,
+                    inherited={"MINIO_INPUTS_BUCKET": "shared-inputs"},
+                )
 
     def test_refuses_remote_or_mismatched_infrastructure_before_provisioning(self):
         import worktree_env

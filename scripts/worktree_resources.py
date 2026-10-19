@@ -42,6 +42,14 @@ OWNER_LABEL = "org.aap.worktree-owner"
 OWNER_TAG = "aap-worktree-owner"
 
 
+def _without_buckets(manifest: dict, *names: str) -> dict:
+    result = json.loads(json.dumps(manifest))
+    buckets = result.get("resources", {}).get("buckets", {})
+    for name in names:
+        buckets.pop(name, None)
+    return result
+
+
 def docker(*arguments: str) -> str:
     result = subprocess.run(
         ["docker", *arguments], capture_output=True, text=True, timeout=90
@@ -95,7 +103,10 @@ class LocalResources:
         self.settings = settings
         self.code_root = code_root.resolve()
         self.touched = False
-        self._environment(1)  # Validate every source before connecting or writing.
+        # Validate every source before connecting or writing. Old manifests remain
+        # inspectable by doctor/stop/destroy; only an actual child process requires
+        # the new dedicated input bucket, after explicit prepare has upgraded it.
+        self._environment(1, require_inputs_bucket=False)
         self.url = make_url(settings.effective_migration_database_url).set(
             database=resources["database"]
         )
@@ -113,9 +124,11 @@ class LocalResources:
         if path.exists():
             saved = read_state(path)
             if saved != self.manifest:
-                legacy = json.loads(json.dumps(self.manifest))
-                legacy["resources"]["buckets"].pop("MINIO_TRAINING_BUCKET")
-                if saved != legacy:
+                legacy_8 = _without_buckets(
+                    self.manifest, "MINIO_TRAINING_BUCKET", "MINIO_INPUTS_BUCKET"
+                )
+                legacy_9 = _without_buckets(self.manifest, "MINIO_INPUTS_BUCKET")
+                if saved != legacy_8 and saved != legacy_9:
                     raise WorktreeError(
                         "基础设施目标与已有资源清单不一致；先用原配置销毁旧环境"
                     )
@@ -137,7 +150,7 @@ class LocalResources:
             ),
         )
 
-    def _environment(self, port: int) -> dict:
+    def _environment(self, port: int, *, require_inputs_bucket: bool = True) -> dict:
         return isolated_environment(
             self.resources,
             database_url=self.settings.database_url,
@@ -146,6 +159,7 @@ class LocalResources:
             minio_use_ssl=self.settings.minio_use_ssl,
             redis_port=port,
             inherited=os.environ,
+            require_inputs_bucket=require_inputs_bucket,
         )
 
     def environment(self) -> dict:
@@ -265,6 +279,15 @@ class LocalResources:
                 (tag["Value"] for tag in tags if tag["Key"] == OWNER_TAG), None
             )
         }
+
+    def inputs_bucket_versioning(self) -> dict:
+        """Read versioning only for an input bucket recorded in this mode manifest."""
+        bucket = self.resources["buckets"].get("MINIO_INPUTS_BUCKET")
+        if bucket is None:
+            raise WorktreeError("旧资源清单没有输入 bucket")
+        if not require_owner(bucket, self.bucket_info(bucket), self.resources["owner"]):
+            raise WorktreeError(f"输入 bucket {bucket} 尚未归属于本环境")
+        return self.s3.get_bucket_versioning(Bucket=bucket)
 
     def redis_info(self) -> dict | None:
         name = self.resources["redis_name"]
@@ -547,6 +570,7 @@ class LocalResources:
 
     def prepare(self, *, skip_migrations: bool = False) -> None:
         self.upgrade_training_bucket()
+        self.upgrade_inputs_bucket()
         revisions, heads = migration_graph(self.code_root)
         inventory = self.inspect()
         validate_inventory(self.resources, inventory)
@@ -568,6 +592,7 @@ class LocalResources:
                     },
                 )
             require_owner(name, self.bucket_info(name), self.resources["owner"])
+        self.ensure_inputs_bucket_versioning()
         self.start_redis()
         for part in ("data", "tmp"):
             state_path(self.root, self.resources["mode"], part).mkdir(
@@ -596,18 +621,21 @@ class LocalResources:
 
     def upgrade_training_bucket(self) -> None:
         """Called only under the mode lock; retain old data on partial failure."""
-        if self.manifest == self.target_manifest:
+        target = _without_buckets(self.target_manifest, "MINIO_INPUTS_BUCKET")
+        if self.manifest == target or self.manifest == self.target_manifest:
             return
         path = state_path(self.root, self.resources["mode"], "resources.json")
         saved = read_state(path)
-        if saved == self.target_manifest:
+        if saved == self.target_manifest or saved == target:
             self.manifest = saved
             self.resources = saved["resources"]
             return
         if saved != self.manifest:
             raise WorktreeError("资源清单在准备期间变化；请重新检查环境")
+        if "MINIO_TRAINING_BUCKET" in self.resources["buckets"]:
+            raise WorktreeError("旧资源清单缺少训练 bucket 升级阶段")
         validate_inventory(self.resources, self.inspect())
-        name = self.target_manifest["resources"]["buckets"]["MINIO_TRAINING_BUCKET"]
+        name = target["resources"]["buckets"]["MINIO_TRAINING_BUCKET"]
         journal = state_path(
             self.root, self.resources["mode"], "training-bucket-upgrade.json"
         )
@@ -646,10 +674,101 @@ class LocalResources:
                 raise
         if not require_owner(name, self.bucket_info(name), self.resources["owner"]):
             raise WorktreeError("训练 bucket 创建后未能验证；保留旧资源清单")
-        atomic_json(path, self.target_manifest)
-        self.manifest = self.target_manifest
+        atomic_json(path, target)
+        self.manifest = target
         self.resources = self.manifest["resources"]
         journal.unlink(missing_ok=True)
+
+    def _ensure_inputs_bucket(self) -> str:
+        """Create/tag/enable versioning only for the exact mode-owned input bucket."""
+        name = self.target_manifest["resources"]["buckets"]["MINIO_INPUTS_BUCKET"]
+        owner = self.target_manifest["resources"]["owner"]
+        journal = state_path(
+            self.root,
+            self.target_manifest["resources"]["mode"],
+            "inputs-bucket-upgrade.json",
+        )
+        observed = self.bucket_info(name)
+        recovery = read_state(journal) if journal.exists() else None
+        expected_recovery = {"bucket": name, "owner": owner}
+        if recovery is not None and recovery != expected_recovery:
+            raise WorktreeError("输入 bucket 恢复记录与当前环境不一致")
+        if recovery and observed is not None and observed.get("owner") is None:
+            raise WorktreeError(
+                f"输入 bucket {name} 的创建曾中断且缺少归属标签；"
+                "请核对资源归属，不会自动接管或清空未标记的桶"
+            )
+        owned = require_owner(name, observed, owner)
+        if not owned:
+            atomic_json(journal, expected_recovery)
+            self.s3.create_bucket(Bucket=name)
+            try:
+                self.s3.put_bucket_tagging(
+                    Bucket=name,
+                    Tagging={"TagSet": [{"Key": OWNER_TAG, "Value": owner}]},
+                )
+            except Exception:
+                current = self.bucket_info(name)
+                if current is None or current.get("owner") != owner:
+                    raise WorktreeError(
+                        f"输入 bucket {name} 创建后未能验证归属；保留恢复记录"
+                    ) from None
+        if not require_owner(name, self.bucket_info(name), owner):
+            raise WorktreeError(f"输入 bucket {name} 创建后未能验证归属")
+        self.ensure_inputs_bucket_versioning(name=name)
+        return name
+
+    def ensure_inputs_bucket_versioning(self, *, name: str | None = None) -> None:
+        """Keep versioning confined to the mode-owned accepted-input bucket."""
+        bucket = name or self.resources["buckets"].get("MINIO_INPUTS_BUCKET")
+        if bucket is None:
+            raise WorktreeError(
+                "旧资源清单没有输入 bucket；请显式运行 init 完成资源升级"
+            )
+        if not require_owner(bucket, self.bucket_info(bucket), self.resources["owner"]):
+            raise WorktreeError(f"输入 bucket {bucket} 尚未归属于本环境")
+        state = self.s3.get_bucket_versioning(Bucket=bucket)
+        if state.get("Status") != "Enabled":
+            self.s3.put_bucket_versioning(
+                Bucket=bucket,
+                VersioningConfiguration={"Status": "Enabled"},
+            )
+            state = self.s3.get_bucket_versioning(Bucket=bucket)
+        if state.get("Status") != "Enabled":
+            raise WorktreeError(f"输入 bucket {bucket} 必须启用 versioning")
+
+    def upgrade_inputs_bucket(self) -> None:
+        """Explicit prepare step: upgrade a legacy 8/9-bucket mode to 10 buckets."""
+        target = self.target_manifest
+        intermediate = _without_buckets(target, "MINIO_INPUTS_BUCKET")
+        if self.manifest == target:
+            self._ensure_inputs_bucket()
+            state_path(
+                self.root, self.resources["mode"], "inputs-bucket-upgrade.json"
+            ).unlink(missing_ok=True)
+            return
+        path = state_path(self.root, self.resources["mode"], "resources.json")
+        saved = read_state(path)
+        if saved == target:
+            self.manifest = saved
+            self.resources = saved["resources"]
+            self._ensure_inputs_bucket()
+            state_path(
+                self.root, self.resources["mode"], "inputs-bucket-upgrade.json"
+            ).unlink(missing_ok=True)
+            return
+        if saved != self.manifest:
+            raise WorktreeError("资源清单在准备期间变化；请重新检查环境")
+        if self.manifest != intermediate:
+            raise WorktreeError("输入 bucket 升级必须从已核验的旧资源清单开始")
+        validate_inventory(self.resources, self.inspect())
+        self._ensure_inputs_bucket()
+        atomic_json(path, target)
+        self.manifest = target
+        self.resources = target["resources"]
+        state_path(
+            self.root, self.resources["mode"], "inputs-bucket-upgrade.json"
+        ).unlink(missing_ok=True)
 
     def stop_redis(self) -> None:
         observed = self.redis_info()
@@ -665,6 +784,17 @@ class LocalResources:
                 raise WorktreeError("独立 Redis 停止未能验证")
 
     def destroy(self, confirmation: str | None) -> None:
+        input_journal = state_path(
+            self.root, self.resources["mode"], "inputs-bucket-upgrade.json"
+        )
+        if (
+            input_journal.exists()
+            and "MINIO_INPUTS_BUCKET" not in self.resources["buckets"]
+        ):
+            raise WorktreeError(
+                "输入 bucket 升级未完成；先显式运行 init 完成并登记资源，"
+                "再使用精确确认值销毁"
+            )
         inventory = self.inspect()
         validate_destruction(self.resources, inventory, confirmation)
         # Validate every resource before the first destructive operation. Each backend

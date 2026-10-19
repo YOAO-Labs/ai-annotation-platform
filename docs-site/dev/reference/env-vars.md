@@ -62,6 +62,7 @@ last_reviewed: 2026-10-19
 | `MINIO_EXPORT_BUCKET` | `export` | 导出标注产物桶（7 天 lifecycle，短生命周期） |
 | `MINIO_AVATARS_BUCKET` | `avatars` | 用户头像桶（永久保留，不可重生，纳入备份；不挂 lifecycle） |
 | `MINIO_TRAINING_BUCKET` | `training` | Immutable training datasets and model artifacts; no automatic expiration. |
+| `MINIO_INPUTS_BUCKET` | `accepted-inputs` | 已受理的不可变输入对象使用独立启用版本控制的桶，不配置自动过期。 |
 
 ## 项目受控训练，默认关闭。API 与独立 executor 使用同一随机凭据（至少 32 字符）。
 
@@ -549,6 +550,7 @@ last_reviewed: 2026-10-19
 | `ASSETS_MEDIA_S3_REGION` | `us-east-1` | — |
 | `ASSETS_MEDIA_DATASETS_BUCKET` | `—` | — |
 | `ASSETS_MEDIA_CACHE_BUCKET` | `—` | — |
+| `ASSETS_MEDIA_INPUTS_BUCKET` | `—` | 独立 Assets Media 控制端和图片 Worker 的输入桶；Compose 默认继承 MINIO_INPUTS_BUCKET。 |
 | `ASSETS_MEDIA_CONTROL_S3_ACCESS_KEY_FILE` | `—` | 仅供可选 Compose 的宿主 secret 路径；容器分别映射为上述进程内凭据。 |
 | `ASSETS_MEDIA_CONTROL_S3_SECRET_KEY_FILE` | `—` | — |
 | `ASSETS_MEDIA_WORKER_S3_ACCESS_KEY_FILE` | `—` | — |

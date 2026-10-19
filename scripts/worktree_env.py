@@ -19,6 +19,7 @@ BUCKETS = {
     "MINIO_EXPORT_BUCKET": "export",
     "MINIO_AVATARS_BUCKET": "avatars",
     "MINIO_TRAINING_BUCKET": "training",
+    "MINIO_INPUTS_BUCKET": "accepted-inputs",
 }
 MODES = ("dev", "test", "e2e")
 
@@ -121,9 +122,17 @@ def isolated_environment(
     redis_port: int,
     inherited: dict,
     minio_use_ssl: bool = False,
+    require_inputs_bucket: bool = True,
 ) -> dict:
     """Return child-only overrides; never persist or print the connection strings."""
     from sqlalchemy.engine import make_url
+
+    if require_inputs_bucket and "MINIO_INPUTS_BUCKET" not in resources.get(
+        "buckets", {}
+    ):
+        raise WorktreeError(
+            "工作树尚未配置独立输入 bucket；请显式运行 init 完成资源升级"
+        )
 
     local = {"localhost", "127.0.0.1", "::1"}
     runtime = make_url(database_url)
@@ -161,6 +170,11 @@ def isolated_environment(
         "CELERY_BROKER_WRITE_URL": redis_url,
         "CELERY_RESULT_BACKEND": redis_url,
         **resources["buckets"],
+        **(
+            {"ASSETS_MEDIA_INPUTS_BUCKET": resources["buckets"]["MINIO_INPUTS_BUCKET"]}
+            if "MINIO_INPUTS_BUCKET" in resources["buckets"]
+            else {}
+        ),
         "MINIO_ENDPOINT": minio_endpoint,
         "MINIO_PUBLIC_URL": "/minio",
         "MINIO_PROXY_TARGET": f"{'https' if minio_use_ssl else 'http'}://{minio_endpoint}",

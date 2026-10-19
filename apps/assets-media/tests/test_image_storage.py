@@ -336,6 +336,7 @@ def _storage(client=None, signer=None, http_client=None):
         datasets_bucket="datasets",
         legacy_bucket="annotations",
         cache_bucket="derived-cache",
+        inputs_bucket="accepted-inputs",
         access_key="access",
         secret_key="secret",
     )
@@ -508,6 +509,7 @@ async def test_storage_close_releases_its_reusable_async_client():
         datasets_bucket="datasets",
         legacy_bucket="annotations",
         cache_bucket="derived-cache",
+        inputs_bucket="accepted-inputs",
         access_key="access",
         secret_key="secret",
     )
