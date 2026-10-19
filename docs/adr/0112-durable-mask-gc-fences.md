@@ -1,6 +1,6 @@
 # 0112 — Durable Mask deletion fences and terminal receipts
 
-- Status: Accepted; business consumer bound, isolated deployment qualification
+- Status: Accepted; business consumer bound, isolated qualification and local development cutover complete
 - Date: 2026-10-20
 - Deciders: Maintainers
 - Supersedes: The deferred GC protocol design in ADR-0111; the byte contract remains unchanged
@@ -85,7 +85,16 @@ Cold migration qualification found that a bare `to_jsonb(source)` backfill can
 serialize an existing `source` column instead of the row. The unreleased 0229
 artifact now uses explicit whole-row references for every branch, covering
 Annotation, Prediction and QC issue roots as well as timezone-stable identities.
-The primary checkout remains before this migration. Once roots, epochs, intents
-or sweeps exist, downgrade refuses to remove the native safety state. Reverting
-the additive preview function leaves those facts intact; recovery rolls forward
+The primary development database has been upgraded from 0228 to 0234 after its
+actual backup was restored and migrated in a disposable database. Existing core
+business tables were empty and remain so; populated legacy preservation is
+qualified separately in isolated fixtures. The unchanged local API launcher
+loads the current packages, and a source touch verifies hot reload. Its default
+embedded preview issues only an S3 list and changes no native state. All eight
+development worker/beat images are rebuilt, but those consumers remain stopped;
+the aggregate and Celery health routes therefore retain their expected 503.
+
+Once roots, epochs, intents or sweeps exist, downgrade refuses to remove the
+native safety state. Reverting the additive preview function leaves those facts
+intact; recovery rolls forward
 and reinstalls exact owner/runtime grants instead of clearing state.

@@ -2097,3 +2097,37 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
 - Primary development remains unchanged. All new disposable resources are
   cleaned after acceptance. The complete module deployment/language-replacement
   goal remains active, with no production, release, remote CI, push or Go expansion.
+
+### Local development cutover after durable-result and Mask qualification
+
+- Primary `feat/backend-opt` is fast-forwarded to implementation `d76c3aedf`;
+  development database `annotation` advances from 0228 to 0234. The actual private
+  backup is restored and migrated in an owned disposable PostgreSQL first, with
+  ten business-table counts and hashes unchanged. Daily core business tables
+  are empty; populated legacy preservation remains isolated fixture evidence.
+- The existing API LaunchAgent is unchanged. Locked dependency refresh loads
+  the three updated result/Mask packages from primary. The actual embedded
+  preview only lists S3 objects and leaves native state unchanged. A same-content
+  source touch replaces the reload child; DB, Redis and MinIO return 200 and
+  served OpenAPI matches its snapshot. The default unstarted Celery state still
+  returns 503 on aggregate/Celery health.
+- A clean installed API image qualifies 27 source/migration files, three package
+  files, cleanup/retry signatures and scheduling. Eight regular development
+  worker/beat images are rebuilt without acceptance labels and remain stopped.
+  No test business rows are seeded in primary; shared infrastructure and the
+  unrelated test database are preserved.
+- The confirmed auxiliary-source policy is already implemented by 0230:
+  camera links, scene history and video execution references reject deletion
+  with 409, requiring project-side unreference first. Current installed function
+  bodies are checked against that artifact; Task, annotation and Learning source
+  evidence remain protected. Existing passing isolated regression reports are
+  reused instead of introducing another deletion implementation.
+- Canonical raw evidence is retained in `.worktree/durable-mask-primary-cutover/`,
+  `.worktree/primary-snapshot-migration.json`, `.worktree/primary-durable-postflight.json`,
+  `.worktree/primary-durable-api-image-qualified.json`,
+  `.worktree/primary-durable-worker-images.json` and `.worktree/primary-durable-final.json`.
+  The first preflight's evidence-directory mistake is recorded separately; it
+  was blocked before primary code or database changes. This does not qualify
+  complete module deployment, least privilege, or production capacity. Identity
+  credential/principal extraction and the remaining module matrix stay active;
+  no production, Go expansion, push, release or remote CI is involved.

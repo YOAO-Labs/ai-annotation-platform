@@ -1105,7 +1105,7 @@ Celery 原任务仍在 `cleanup` 队列运行，兼容原 `dry_run` 参数，并
 
 升级前停止旧回收消费者，迁移会在持锁期间回填已有标注、预测、预约及保留记录的完整引用根；回填显式序列化整行，避免与 `source` 字段重名。安装最新 owner、应用和 GC 精确授权后再启动消费者。已有根、代次、意图或 sweep 时，禁止降级删除 GC 状态；应保留状态并向前恢复兼容运行时。只回退预览函数不会移除这些持久事实，恢复后须重新安装对应函数授权。迁移和回退演练使用一次性环境，不改日常开发库。
 
-日志和终态回执不设置自动过期或删除策略；没有回执的操作持续保留围栏，不能按租约或时间自动释放。完整普通批处理结果交接、新运行时镜像和部署容量仍需完成验证，现有远程业务删除保护保持关闭。详见 [ADR-0112](docs/adr/0112-durable-mask-gc-fences.md)。
+日志和终态回执不设置自动过期或删除策略；没有回执的操作持续保留围栏，不能按租约或时间自动释放。普通批处理及重试的结果交接、独立回收镜像和固定本地样本已通过隔离验收；日常 API 使用同一协调器的内嵌装配，远程配置仍关闭。完整模块部署和生产容量仍未完成。详见 [ADR-0112](docs/adr/0112-durable-mask-gc-fences.md)。
 
 ## 普通批量结果检查点
 
@@ -1124,7 +1124,9 @@ API／worker 默认用现有数据库连接保存检查点；设置 `PREANNOTATI
 
 失败项重试复用同一受限连接和结果工件，并提供 `aap-prediction-retries` CLI（`python -m aap_preannotation_results_runtime.retry_main`）。CLI 仅开放 attempt 读取及两项派发能力；立即派发与 maintenance 队列中的定时 relay 也使用该连接。业务写入方保留准入、成功／失败结算与最终 Labeling 事务。旧 pending marker 没有绑定 Job 时，迁移释放占用而不改变失败次数，后续重试重新受理。升级前必须停止并排空旧重试消费者和队列，处理完旧的 pending/running 重试作业。存在无绑定占用时，普通升级会拒绝；确认排空后，在 `apps/api` 目录使用 `.venv/bin/python -m alembic -x prediction_retry_legacy_drained=true upgrade head` 显式确认本次迁移，不能让新旧 writer 滚动并行。此确认不跳过活动旧作业检查，也不写入长期配置。
 
-本地真实重投递验收由 `scripts/verify_module_data_boundary.py` 的一次性资源承载；`RUN_BATCH_RESULT_WORKER_LIVE_TEST=1` 显式启用强制终止子进程用例。不要在日常开发库或共享 worker 上运行该用例。当前主环境和 Mask collector 的切换仍须等待完整验收；Go 不加入正常运行路径。
+本地真实重投递验收由 `scripts/verify_module_data_boundary.py` 的一次性资源承载；`RUN_BATCH_RESULT_WORKER_LIVE_TEST=1` 显式启用强制终止子进程用例。不要在日常开发库或共享 worker 上运行该用例。
+
+日常开发库已从 `0228` 升到 `0234`：先备份，再将实际备份恢复到一次性数据库验证升级，最后更新主 checkout 与 Python 依赖。日常库的核心业务表原为空，切换后保持为空；有历史内容的保护使用隔离样本验证。API 已确认包导入路径、只读回收预览和热重载，公开 OpenAPI 与快照一致，DB／Redis／MinIO 健康。八类 worker／beat 镜像已重建并核对安装内容，仍未启动，因此默认 `/health` 和 `/health/celery` 为 503。Go 不加入正常运行路径。
 
 ## 视频媒体的独立控制与执行
 
