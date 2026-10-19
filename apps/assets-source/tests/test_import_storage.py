@@ -7,6 +7,7 @@ from uuid import uuid4
 
 import pytest
 
+from aap_assets_images.contract import ObjectIdentity
 from aap_assets_source.import_contract import ImportEntry, ImportSourceObject
 from aap_assets_source.connectors import SourceChangedError
 from aap_assets_source_import.storage import (
@@ -28,8 +29,10 @@ class _Destination:
         self.aborted = False
         self.created = False
         self.empty = None
-        self.head_result = None
+        self.complete_result = {"ETag": '"multipart-etag"', "VersionId": "v1"}
+        self.empty_result = {"ETag": '"single-etag"', "VersionId": "v2"}
         self.head_calls = []
+        self.get_calls = []
 
     def create_multipart_upload(self, **kwargs):
         self.created = True
@@ -41,18 +44,22 @@ class _Destination:
 
     def complete_multipart_upload(self, **kwargs):
         self.completed = kwargs
+        return self.complete_result
 
     def abort_multipart_upload(self, **kwargs):
         self.aborted = True
 
     def put_object(self, **kwargs):
         self.empty = kwargs
+        return self.empty_result
 
     def head_object(self, **kwargs):
         self.head_calls.append(kwargs)
-        if self.head_result is None:
-            raise AssertionError("unexpected HEAD")
-        return self.head_result
+        raise AssertionError("destination writes must not issue HEAD")
+
+    def get_object(self, **kwargs):
+        self.get_calls.append(kwargs)
+        raise AssertionError("destination writes must not issue GET")
 
 
 def _config():
@@ -97,7 +104,7 @@ async def test_streaming_aggregates_short_reads_and_hashes_exact_bytes(
         lambda head: pytest.fail("non-image dimensions must not be read"),
     )
 
-    size, digest, dimensions = await storage.transfer(
+    size, digest, dimensions, identity = await storage.transfer(
         _ShortRead(data),
         _entry(len(data)),
         byte_budget=len(data),
@@ -108,6 +115,7 @@ async def test_streaming_aggregates_short_reads_and_hashes_exact_bytes(
     assert size == len(data)
     assert digest == hashlib.md5(data, usedforsecurity=False).hexdigest()
     assert dimensions is None
+    assert identity is None
     assert len(client.parts) == 2
     assert len(client.parts[0][1]) >= 5 * 1024 * 1024
     assert len(client.parts[1][1]) == 123
@@ -166,7 +174,7 @@ async def test_empty_source_uses_bounded_put_object_without_multipart() -> None:
     client = _Destination()
     storage = DestinationStorage(_config(), client=client)
 
-    size, digest, dimensions = await storage.transfer(
+    size, digest, dimensions, identity = await storage.transfer(
         io.BytesIO(b""),
         _entry(0),
         byte_budget=0,
@@ -177,40 +185,95 @@ async def test_empty_source_uses_bounded_put_object_without_multipart() -> None:
     assert size == 0
     assert digest == hashlib.md5(b"", usedforsecurity=False).hexdigest()
     assert dimensions is None
+    assert identity is None
     assert client.empty["Bucket"] == "datasets"
     assert client.empty["Body"] == b""
     assert not client.created
 
 
 @pytest.mark.asyncio
-async def test_published_image_identity_is_captured_from_final_object_head() -> None:
+async def test_image_identity_uses_multipart_write_receipt_without_destination_read(
+    monkeypatch,
+) -> None:
     client = _Destination()
-    client.head_result = {
-        "ContentLength": 4,
-        "ETag": '"published-etag"',
-        "VersionId": "v1",
-    }
     storage = DestinationStorage(_config(), client=client)
-
-    identity = await storage.head_image_identity(
-        "dataset-sources/opaque/item/photo.jpg", expected_size=4
+    monkeypatch.setattr(
+        "aap_assets_source_import.storage._image_dimensions", lambda _head: None
     )
 
-    assert identity.model_dump(mode="json") == {
-        "etag": "published-etag",
-        "byte_size": 4,
-        "version_id": "v1",
-    }
-    assert client.head_calls == [
-        {"Bucket": "datasets", "Key": "dataset-sources/opaque/item/photo.jpg"}
-    ]
+    size, _digest, _dimensions, identity = await storage.transfer(
+        io.BytesIO(b"data"),
+        _entry(4, file_type="image"),
+        byte_budget=4,
+        before_io=lambda: None,
+        on_bytes=lambda amount: None,
+    )
+
+    assert size == 4
+    assert identity == ObjectIdentity(
+        etag="multipart-etag", byte_size=4, version_id="v1"
+    )
+    assert client.completed is not None
+    assert client.head_calls == []
+    assert client.get_calls == []
 
 
 @pytest.mark.asyncio
-async def test_published_image_identity_rejects_changed_destination_size() -> None:
+async def test_empty_image_identity_uses_single_put_receipt_without_destination_read(
+    monkeypatch,
+) -> None:
     client = _Destination()
-    client.head_result = {"ContentLength": 5, "ETag": '"etag"'}
     storage = DestinationStorage(_config(), client=client)
+    monkeypatch.setattr(
+        "aap_assets_source_import.storage._image_dimensions", lambda _head: None
+    )
 
-    with pytest.raises(SourceChangedError):
-        await storage.head_image_identity("path/photo.jpg", expected_size=4)
+    size, _digest, _dimensions, identity = await storage.transfer(
+        io.BytesIO(b""),
+        _entry(0, file_type="image"),
+        byte_budget=0,
+        before_io=lambda: None,
+        on_bytes=lambda amount: None,
+    )
+
+    assert size == 0
+    assert identity == ObjectIdentity(etag="single-etag", byte_size=0, version_id="v2")
+    assert client.empty is not None
+    assert client.head_calls == []
+    assert client.get_calls == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "receipt",
+    [
+        None,
+        {},
+        {"ETag": None},
+        {"ETag": '"good"', "VersionId": ""},
+        {"ETag": "bad\x7f"},
+    ],
+)
+async def test_image_transfer_rejects_missing_or_malformed_multipart_receipt(
+    monkeypatch, receipt
+) -> None:
+    client = _Destination()
+    client.complete_result = receipt
+    storage = DestinationStorage(_config(), client=client)
+    monkeypatch.setattr(
+        "aap_assets_source_import.storage._image_dimensions", lambda _head: None
+    )
+
+    with pytest.raises(DestinationWriteError, match="invalid write receipt"):
+        await storage.transfer(
+            io.BytesIO(b"data"),
+            _entry(4, file_type="image"),
+            byte_budget=4,
+            before_io=lambda: None,
+            on_bytes=lambda amount: None,
+        )
+
+    assert client.completed is not None
+    assert not client.aborted
+    assert client.head_calls == []
+    assert client.get_calls == []

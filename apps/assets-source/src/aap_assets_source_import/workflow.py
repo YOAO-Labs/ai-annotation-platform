@@ -471,20 +471,22 @@ class ImportWorkflow:
                 adapter.open, entry.source.relpath, etag=entry.source.etag
             )
             keeper.check()
-            size, content_hash, dimensions = await self._storage.transfer(
+            (
+                size,
+                content_hash,
+                dimensions,
+                object_identity,
+            ) = await self._storage.transfer(
                 stream,
                 entry,
                 byte_budget=byte_budget,
                 before_io=keeper.check,
                 on_bytes=count_bytes,
             )
-            object_identity = None
             if entry.file_type == "image":
                 keeper.check()
-                object_identity = await self._storage.head_image_identity(
-                    entry.file_path, expected_size=size
-                )
-                keeper.check()
+                if object_identity is None:
+                    raise ImportFailure("invalid_response")
             return (
                 ImportEntryCompletion(
                     status="copied",

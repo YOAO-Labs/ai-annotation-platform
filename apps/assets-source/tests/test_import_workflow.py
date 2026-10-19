@@ -526,10 +526,12 @@ class _ValidOnlyStorage:
         assert byte_budget >= 3
         before_io()
         on_bytes(3)
-        return 3, hashlib.md5(b"img", usedforsecurity=False).hexdigest(), None
-
-    async def head_image_identity(self, _key, *, expected_size):
-        return ObjectIdentity(etag='"published"', byte_size=expected_size)
+        return (
+            3,
+            hashlib.md5(b"img", usedforsecurity=False).hexdigest(),
+            None,
+            ObjectIdentity(etag="published", byte_size=3),
+        )
 
 
 class _ImageAdmission:
@@ -629,6 +631,7 @@ class _BudgetStorage:
         return (
             len(payload),
             hashlib.md5(payload, usedforsecurity=False).hexdigest(),
+            None,
             None,
         )
 
@@ -760,6 +763,9 @@ async def test_unrepresentable_source_name_is_recorded_and_next_file_is_copied(
     assert data.entry is not None
     assert data.image_admission.calls[0]["item_id"] == data.entry.item_id
     assert data.image_admission.calls[0]["publication_id"] == data.entry.publication_id
+    assert data.image_admission.calls[0]["object_identity"] == ObjectIdentity(
+        etag="published", byte_size=3
+    )
 
 
 @pytest.mark.asyncio
