@@ -313,12 +313,9 @@ async def _prepare_accepted_input_manifest(
                 scope, selection_digest=request.accepted_input_manifest_digest
             )
         except c.ManifestFailure as exc:
-            if exc.code in {
+            if exc.code.endswith("_busy") or exc.code in {
                 "manifest_not_ready",
-                "manifest_busy",
-                "input_busy",
-                "source_busy",
-                "job_busy",
+                "input_not_ready",
                 "storage_unavailable",
             }:
                 raise PreannotationInputDeferred(exc.code) from exc

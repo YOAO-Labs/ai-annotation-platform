@@ -180,7 +180,20 @@ async def test_running_legacy_bulk_image_job_is_drained(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_unsealed_manifest_defers_before_job_claim(monkeypatch):
+@pytest.mark.parametrize(
+    "code",
+    [
+        "manifest_not_ready",
+        "input_not_ready",
+        "reference_busy",
+        "source_busy",
+        "job_busy",
+        "account_busy",
+        "task_busy",
+        "storage_unavailable",
+    ],
+)
+async def test_unsealed_manifest_defers_before_job_claim(monkeypatch, code):
     from contextlib import asynccontextmanager
     from types import ModuleType
     import sys
@@ -224,7 +237,7 @@ async def test_unsealed_manifest_defers_before_job_claim(monkeypatch):
     class Gateway:
         async def ensure_sealed(self, _scope, *, selection_digest):
             assert selection_digest == digest
-            raise manifests.ManifestFailure("manifest_not_ready")
+            raise manifests.ManifestFailure(code)
 
     @asynccontextmanager
     async def gateway(**_kwargs):
@@ -234,7 +247,7 @@ async def test_unsealed_manifest_defers_before_job_claim(monkeypatch):
     bridge.input_manifest_gateway = gateway
     monkeypatch.setitem(sys.modules, bridge.__name__, bridge)
 
-    with pytest.raises(PreannotationInputDeferred, match="manifest_not_ready"):
+    with pytest.raises(PreannotationInputDeferred, match=code):
         async with _prepare_accepted_input_manifest(
             request, _session_factory(job, None)
         ):
@@ -561,7 +574,10 @@ async def test_bundle_write_rejects_target_scope_mismatch_before_mask_io():
 
 
 @pytest.mark.asyncio
-async def test_manifest_failed_prediction_without_input_cannot_resolve_current_url():
+@pytest.mark.parametrize("origin", ["manifest", "bulk", "workbench"])
+async def test_manifest_failed_prediction_without_input_cannot_resolve_current_url(
+    origin,
+):
     from app.workers.predictions_retry import _prepare_retry_input
 
     failed_id = uuid.uuid4()
@@ -573,12 +589,18 @@ async def test_manifest_failed_prediction_without_input_cannot_resolve_current_u
         project_id=project_id,
         ml_backend_id=backend_id,
         extra={
-            "execution_scope": "bulk",
-            "accepted_input_manifest": {
-                "protocol": "aap-assets-input-manifest/v1",
-                "manifest_id": str(uuid.uuid4()),
-                "ordinal": 4,
-            },
+            "execution_scope": "workbench" if origin == "workbench" else "bulk",
+            **(
+                {
+                    "accepted_input_manifest": {
+                        "protocol": "aap-assets-input-manifest/v1",
+                        "manifest_id": str(uuid.uuid4()),
+                        "ordinal": 4,
+                    }
+                }
+                if origin == "manifest"
+                else {}
+            ),
         },
     )
 
@@ -601,7 +623,7 @@ async def test_manifest_failed_prediction_without_input_cannot_resolve_current_u
     async with _prepare_retry_input(lambda: Session(), str(failed_id)) as prepared:
         assert prepared.accepted_input is None
         assert prepared.terminal_error is not None
-        assert "no retained accepted input" in str(prepared.terminal_error)
+        assert "accepted input" in str(prepared.terminal_error)
         assert prepared.gateway is None
 
 

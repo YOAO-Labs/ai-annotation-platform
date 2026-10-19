@@ -182,9 +182,8 @@ class InputManifestGateway:
                     # The Input owner records terminal copy outcomes. Seal reads
                     # those rows itself. Authority and source errors still stop
                     # this operation rather than becoming readiness deferrals.
-                    if exc.code not in {
+                    if not exc.code.endswith("_busy") and exc.code not in {
                         "input_not_ready",
-                        "input_busy",
                         "storage_unavailable",
                     }:
                         if exc.code not in {

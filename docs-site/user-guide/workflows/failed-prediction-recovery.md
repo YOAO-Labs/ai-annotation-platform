@@ -3,7 +3,7 @@ title: AI 任务与失败恢复
 audience: [project_admin, super_admin]
 type: how-to
 status: stable
-last_reviewed: 2026-10-18
+last_reviewed: 2026-10-19
 ---
 
 # AI 任务与失败恢复
@@ -40,6 +40,8 @@ last_reviewed: 2026-10-18
 
 重试会沿用原失败项的模型和推理参数，成功后在 Jobs 列表新增一条「已完成」的 `prediction_retry` 记录；原批量任务仍保留失败终态作为历史快照。打开「全部状态」即可同时核对原失败记录和完成的重试记录，再从重试行点击「去工作台」审阅新候选。
 
+图片失败项有保留的原输入时，重试使用该副本。原输入缺失、来源已变化或历史记录没有保存输入身份时，会明确拒绝，不能改用当前图片恢复；核对范围后重新发起运行。图片批量输入准备中的临时读取或锁竞争会保留原等待作业。若处理中断后还有未处理题目，已成功候选保留；没有可重试失败项的剩余部分可重新提交「跳过已预标」。
+
 <DocsVideo
   src="/media/workflows/jobs-retry-recovery.mp4"
   poster="/media/workflows/jobs-retry-recovery-poster.webp"
@@ -50,7 +52,7 @@ last_reviewed: 2026-10-18
 重新运行前，先决定怎样处理已有候选：
 
 - **跳过已预标**：只补尚无预测的任务，适合恢复局部失败。
-- **覆盖**：先清除该范围的 AI 预测与 AI 标注，再重新预标；人工标注保留。
+- **覆盖**：逐题确认原图可用后清理该题 AI 预测与 AI 标注，再重新预标；人工标注保留。输入准备失败的题目保留旧预测。
 - **追加**：在已有预测上再写一份，只适合明确需要并行比较结果的场景。
 
 这些模式和运行前置条件见[AI 预标](../projects/ai-preannotate)。需要按来源批量删除候选时，使用[外部预测导入 / 导出](../datasets/prediction-import-export#清理预测)。

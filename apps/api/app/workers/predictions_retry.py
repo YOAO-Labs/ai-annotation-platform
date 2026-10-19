@@ -179,15 +179,13 @@ async def _prepare_retry_input(session_factory, failed_id: str):
                     "bulk image manifest retry has no retained accepted input"
                 )
             elif (
-                extra.get("execution_scope") == "workbench"
+                extra.get("execution_scope") in {"workbench", "bulk"}
                 and extra.get("execution_unit") not in {"frame", "video", "scene"}
                 and task is not None
                 and task.file_type == "image"
                 and extra.get("task") not in {"text", "tracker"}
             ):
-                terminal_error = ValueError(
-                    "legacy Workbench image retry has no accepted input"
-                )
+                terminal_error = ValueError("legacy image retry has no accepted input")
 
     if (
         accepted_input is None
@@ -475,14 +473,14 @@ async def _run_retry_attempt(
                 "bulk image manifest retry has no retained accepted input"
             )
         elif (
-            failure_extra.get("execution_scope") == "workbench"
+            failure_extra.get("execution_scope") in {"workbench", "bulk"}
             and failure_extra.get("execution_unit") not in {"frame", "video", "scene"}
             and task is not None
             and task.file_type == "image"
             and failure_extra.get("task") not in {"text", "tracker"}
         ):
             prepared_error = prepared_error or ValueError(
-                "legacy Workbench image retry has no accepted input"
+                "legacy image retry has no accepted input"
             )
         ns = NotificationService(db)
         pending = await ns.notify(

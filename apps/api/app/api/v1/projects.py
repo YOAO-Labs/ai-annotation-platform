@@ -2222,8 +2222,7 @@ async def trigger_preannotation(
             ) from exc
         except manifests.ManifestFailure as exc:
             await db.rollback()
-            transient = exc.code in {
-                "manifest_busy",
+            transient = exc.code.endswith("_busy") or exc.code in {
                 "storage_unavailable",
                 "invalid_response",
             }
