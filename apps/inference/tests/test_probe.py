@@ -125,6 +125,25 @@ async def test_probe_fails_open_for_constructor_network_and_normalization_errors
 
 
 @pytest.mark.asyncio
+async def test_probe_preserves_client_constructor_coercion_before_http(setup_client):
+    locator = BackendSetupLocator(
+        id=uuid.uuid4(),
+        url="http://backend",
+        auth_method="none",
+        auth_token=None,
+        extra_params={"max_concurrency": "invalid"},
+    )
+
+    assert await probe_backend_capabilities(locator, timeout=1.0) is None
+    assert AsyncClient.calls == []
+
+    # The direct transport remains an HTTP operation and does not apply the
+    # higher-level MLBackendClient constructor's concurrency setting.
+    assert await fetch_backend_setup(locator, timeout=1.0) == AsyncClient.value
+    assert len(AsyncClient.calls) == 1
+
+
+@pytest.mark.asyncio
 async def test_probe_normalizes_capabilities_with_caller_limits(setup_client):
     AsyncClient.value = {
         "models": [

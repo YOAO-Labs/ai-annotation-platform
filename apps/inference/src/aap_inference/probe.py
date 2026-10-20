@@ -30,6 +30,15 @@ async def fetch_backend_setup(locator: BackendSetupLocator, *, timeout: float) -
         return response.json()
 
 
+def _validate_setup_client_configuration(locator: BackendSetupLocator) -> None:
+    # Match MLBackendClient construction before its setup request (URL and concurrency coercion).
+    locator.url.rstrip("/")
+    if locator.id:
+        str(locator.id)
+    extra = locator.extra_params or {}
+    int(extra.get("max_concurrency", 4))
+
+
 async def probe_backend_capabilities(
     locator: BackendSetupLocator,
     *,
@@ -38,6 +47,7 @@ async def probe_backend_capabilities(
 ) -> dict | None:
     """Probe and normalize capabilities, failing open like health metadata refresh."""
     try:
+        _validate_setup_client_configuration(locator)
         return extract_capabilities(
             await fetch_backend_setup(locator, timeout=timeout), limits=limits
         )
