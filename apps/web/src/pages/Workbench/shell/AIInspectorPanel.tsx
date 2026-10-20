@@ -540,6 +540,7 @@ interface AIPredictionPopoverProps {
   taskAiPredictionCount?: number;
   // 配置区共享状态 (任务类型 / 模型任务 / 类别白名单 / variant / 参数 / prompt); 与批量页同一 hook.
   cfg: PreannotateConfig;
+  runUnavailableReason?: string;
   // 当前选中 variant 是否已 warm (源自 isVariantHot: 单一 hot map, 持久化到 sessionStorage).
   // false → 按钮显示"加载模型中…"给用户冷启动心理预期.
   isVariantWarm?: boolean;
@@ -624,6 +625,7 @@ export function AIPredictionPopover({
   taskAiAvgMs,
   taskAiPredictionCount,
   cfg,
+  runUnavailableReason,
   isVariantWarm: isVariantWarmProp,
   backends,
   selectedBackendId,
@@ -867,11 +869,12 @@ export function AIPredictionPopover({
               data-testid="ai-prediction-primary-action"
               disabled={
                 phase === "idle"
-                  ? !cfg.configReady
+                  ? !!runUnavailableReason || !cfg.configReady
                   : phase === "error"
                     ? !canRetry
                     : !onReviewCandidates
               }
+              title={phase === "idle" ? runUnavailableReason : undefined}
               onClick={
                 phase === "idle" ? onRunAi : phase === "error" ? onRetryRequest : onReviewCandidates
               }
@@ -934,7 +937,8 @@ export function AIPredictionPopover({
                 size="sm"
                 data-testid="ai-prediction-run-next"
                 onClick={onRunAi}
-                disabled={running || !cfg.configReady}
+                disabled={running || !!runUnavailableReason || !cfg.configReady}
+                title={runUnavailableReason}
                 className="mt-2 w-full"
               >
                 <Icon name="wandSparkles" size={12} />
@@ -952,7 +956,7 @@ export function AIPredictionPopover({
                 title={
                   projectPipelineRunnable
                     ? "按项目已保存的多阶段编排，对当前题运行完整流程"
-                    : `编排引用的 ${pipelineMissingBackendCount} 个后端不可用，请到「AI 预标」修复编排或重新注册`
+                    : `编排引用的 ${pipelineMissingBackendCount} 个后端不可用，请检查后端启用、连接和能力状态`
                 }
               >
                 <Icon name="layers" size={12} />

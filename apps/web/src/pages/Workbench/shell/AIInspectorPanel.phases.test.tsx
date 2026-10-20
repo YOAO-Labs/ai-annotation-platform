@@ -165,6 +165,48 @@ function inspectorProps(overrides: Partial<InspectorProps> = {}): InspectorProps
 }
 
 describe("AIPredictionPopover phases", () => {
+  it("gates pipelines independently of the selected single-task backend", () => {
+    const props = popoverProps({
+      runUnavailableReason: "当前后端离线",
+      hasProjectPipeline: true,
+      projectPipelineRunnable: true,
+      onRunPipeline: vi.fn(),
+    });
+    const { rerender } = render(<AIPredictionPopover {...props} />);
+    const pipeline = screen.getByTestId("ai-prediction-run-pipeline");
+    expect(pipeline).toBeEnabled();
+    fireEvent.click(pipeline);
+    expect(props.onRunPipeline).toHaveBeenCalledOnce();
+    rerender(
+      <AIPredictionPopover
+        {...props}
+        projectPipelineRunnable={false}
+        pipelineMissingBackendCount={1}
+      />,
+    );
+    expect(pipeline).toBeDisabled();
+    fireEvent.click(pipeline);
+    expect(props.onRunPipeline).toHaveBeenCalledOnce();
+  });
+
+  it("blocks new inference offline without blocking running requests or candidate review", () => {
+    const props = popoverProps({ runUnavailableReason: "当前 AI 后端离线" });
+    const { rerender } = render(<AIPredictionPopover {...props} />);
+    expect(screen.getByTestId("ai-prediction-primary-action")).toBeDisabled();
+    fireEvent.click(screen.getByTestId("ai-prediction-primary-action"));
+    expect(props.onRunAi).not.toHaveBeenCalled();
+    rerender(<AIPredictionPopover {...props} request={runningRequest()} />);
+    expect(screen.getByRole("button", { name: "取消本次请求" })).toBeEnabled();
+    rerender(
+      <AIPredictionPopover {...props} request={request({ status: "completed" })} aiBoxCount={2} />,
+    );
+    expect(screen.getByTestId("ai-prediction-run-next")).toBeDisabled();
+    fireEvent.click(screen.getByTestId("ai-prediction-primary-action"));
+    expect(props.onReviewCandidates).toHaveBeenCalledOnce();
+    rerender(<AIPredictionPopover {...props} runUnavailableReason={undefined} />);
+    expect(screen.getByTestId("ai-prediction-primary-action")).toBeEnabled();
+  });
+
   it("shows idle input and a single run action while advanced configuration stays mounted", () => {
     const props = popoverProps({ request: request() });
     render(<AIPredictionPopover {...props} />);

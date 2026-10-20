@@ -105,6 +105,51 @@ it("preserves native segment selector keys without activating overflow menu acti
 });
 
 describe("Topbar · AI 工具入口", () => {
+  it("keeps unavailable AI entries visible, explains why, and blocks clicks", () => {
+    const onRunAi = vi.fn();
+    const onToggleTracker = vi.fn();
+    const props = {
+      projectName: "测试",
+      projectDisplayId: "P-1",
+      task: undefined,
+      taskIdx: 0,
+      taskTotal: 1,
+      aiRunning: false,
+      isSubmitting: false,
+      onShowHotkeys: vi.fn(),
+      onPrev: vi.fn(),
+      onNext: vi.fn(),
+      onSubmit: vi.fn(),
+      onRunAi,
+      onToggleTracker,
+    };
+    const reason = "项目尚未接入 AI 后端";
+    const { rerender } = render(
+      <Topbar
+        {...props}
+        aiDisabled
+        trackerDisabled
+        aiDisabledReason={reason}
+        trackerDisabledReason={reason}
+      />,
+    );
+    for (const name of ["AI 单题", "追踪"]) {
+      const button = screen.getByRole("button", { name });
+      expect(button).toBeVisible();
+      expect(button).toBeDisabled();
+      expect(button).toHaveAttribute("title", reason);
+      expect(button).toHaveAttribute("aria-description", reason);
+      fireEvent.click(button);
+    }
+    expect(onRunAi).not.toHaveBeenCalled();
+    expect(onToggleTracker).not.toHaveBeenCalled();
+    rerender(<Topbar {...props} />);
+    fireEvent.click(screen.getByRole("button", { name: "追踪" }));
+    fireEvent.click(screen.getByRole("button", { name: "AI 单题" }));
+    expect(onToggleTracker).toHaveBeenCalledOnce();
+    expect(onRunAi).toHaveBeenCalledOnce();
+  });
+
   it("将 AI 追踪放在 AI 单题左侧，并复用同一按钮样式", () => {
     const onToggleTracker = vi.fn();
     const onRunAi = vi.fn();
@@ -143,7 +188,7 @@ describe("Topbar · AI 工具入口", () => {
     expect(tracker.nextElementSibling).toBe(single);
     expect(tracker.className).toBe(single.className);
     expect(tracker).toHaveAttribute("aria-pressed", "true");
-    expect(tracker).toHaveAccessibleName("发现新目标");
+    expect(tracker).toHaveAccessibleName("追踪");
     expect(tracker).toHaveAttribute("title", "聚焦画布级多目标追踪");
     expect(single).toHaveAttribute("aria-pressed", "false");
 
