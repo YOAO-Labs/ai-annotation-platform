@@ -33,7 +33,7 @@ authorization and public response models. The public DTOs remain in
 - `reason`: string defaulting to empty, maximum 500 characters.
 - `mode`: `handoff` by default or `emergency_suspend`.
 - `projects`: empty list by default. Each entry has a UUID `project_id` and
-  nullable/default-null `owner_id`, `annotator_receiver_id` and
+  nullable/default-null `owner_receiver_id`, `annotator_receiver_id` and
   `reviewer_receiver_id`.
 
 Ignored extra request fields and current validation timing remain. Duplicate
@@ -47,10 +47,10 @@ must not impose a 64 KiB body limit on this unbounded public contract.
 Preview success has exactly seven top-level keys:
 `user/preview_version/generated_at/projects/api_keys/blockers/can_commit`.
 `user` uses the existing 21-field `DirectoryUserRecord`. A project row has
-`project_id/name/roles/tasks/locked_task_count/blockers`; each role is exactly
+`project_id/project_name/roles/tasks/locked_task_count/blockers`; each role is exactly
 `owner`, `annotator` or `reviewer`, and each task-count map has
 `pending/in_progress/review/rejected/locked`. Role previews contain
-`present/batches/receiver_options`; a batch has `batch_id/name`, and a receiver
+`present/batches/receiver_options`; a batch has `batch_id/batch_name`, and a receiver
 has `id/name/email/role/nullable project_member_role`. API-key rows have
 `id/name/key_prefix/last_used_at/revoked_at`. Blockers contain only
 `code/message`. Preserve the legacy array ordering and duplicate blocker rows.
@@ -60,7 +60,9 @@ revoked_api_key_ids/audit_id`; `status` is always `suspended`, including
 `emergency_suspend`. A transfer contains
 `project_id/role/receiver_id/batch_ids/task_count/lock_count`. An unresolved row
 contains `project_id/role/reason/batch_ids/task_count/lock_count`; its project
-and role are always nonnull source values.
+and role are always nonnull source values. The native committed result requires
+a nonnull positive int64 `audit_id`; the existing public model remains
+unchanged, including its nullable type.
 
 ### Freeze the legacy snapshot bytes and SHA-256 digest
 
@@ -281,10 +283,13 @@ prepare, portable snapshot/digest/scope/CAS checks, apply, strict native/wire
 validation and commit. Prepare returns the transaction ID; apply verifies the
 same transaction, actor/target/request binding and expected target
 generation/active state before writes. Do not pass a transaction handle over
-HTTP, persist a prepare ledger, or split this into a saga. Native post-write
-validation failure must raise through a rollback subtransaction before returning
-`unavailable`, including for a direct SQL caller that commits the failure
-response.
+HTTP, persist a prepare ledger, or split this into a saga. Native reply
+validators bind both phases to the original target; the apply result must also
+match the requested mode, `disabled_by` actor, normalized reason and terminal
+account state. The native committed result requires a positive nonnull int64
+`audit_id`. Native post-write validation failure must raise through a rollback
+subtransaction before returning `unavailable`, including for a direct SQL
+caller that commits the failure response.
 
 Preview policy, snapshot and public response are portable. Native prepare data
 is discriminated as `snapshot` or `replay`; current Principal remains outside
@@ -311,7 +316,7 @@ Owner-only typed capabilities are:
 receiver_ids)` returns the locked UUID project union.
 - Labeling `lock_identity_offboarding_work(target_uuid,project_ids)` returns a
   nonnull boolean; false means advisory conflict only. SQL lock errors are
-  preserved for `resource_busy` mapping.
+  preserved for `offboarding_busy` mapping.
 - Workspace `identity_offboarding_facts(target_uuid)` returns exactly one
   nonnull row of project, membership and candidate-membership JSON arrays;
   Labeling `identity_offboarding_facts(target_uuid)` returns exactly one row of
@@ -339,28 +344,27 @@ shared `UserLifecycleService.lock_accounts` capability after caller search.
 
 The exact business error pairs are:
 
-| Code                    | HTTP | Detail                                                                                       |
-| ----------------------- | ---: | -------------------------------------------------------------------------------------------- |
-| `manager_required`      |  403 | `当前账号已无管理权限`                                                                       |
-| `target_not_found`      |  404 | `用户不存在`                                                                                 |
-| `self_offboard`         |  400 | `不能交接自己`                                                                               |
-| `last_super_admin`      |  400 | `不能停用最后一名超级管理员`                                                                 |
-| `target_role_forbidden` |  403 | `项目管理员仅能处理标注员/审核员账号`                                                        |
-| `inactive_unmanaged`    |  403 | `该用户已停用且不在你管理的项目内，须由超级管理员处理`                                       |
-| `scope_forbidden`       |  403 | `该用户存在不在你管理范围内的项目`                                                           |
-| `preview_stale`         |  409 | `{code:offboarding_preview_stale,expected_preview_version,current_preview_version,blockers}` |
-| `historical_target`     |  409 | `历史未知或已删除账号不可再次交接`                                                           |
-| `state_forbidden`       |  409 | `账号当前状态不可交接`                                                                       |
-| `duplicate_project`     |  422 | `同一项目不能重复提交交接映射`                                                               |
-| `receiver_required`     |  409 | `{code:receiver_required,project_id,role}`                                                   |
-| `receiver_ineligible`   |  409 | `{code:receiver_ineligible,project_id,role,receiver_id}`                                     |
-| `offboarding_blocked`   |  409 | `{code:offboarding_blocked,blockers}`                                                        |
-| `account_busy`          |  409 | `账号正在更新，请刷新后重试`                                                                 |
-| `resource_busy`         |  409 | `{code:offboarding_busy,message:职责正在变化，请刷新预览后重试}`                             |
-| `task_busy`             |  409 | `{code:offboarding_busy}`                                                                    |
-| `operation_conflict`    |  409 | `null`                                                                                       |
-| `unavailable`           |  503 | `null`                                                                                       |
-| `invalid_request`       |  400 | `null`                                                                                       |
+| Code                        | HTTP | Detail                                                                                                                           |
+| --------------------------- | ---: | -------------------------------------------------------------------------------------------------------------------------------- |
+| `manager_required`          |  403 | `当前账号已无管理权限`                                                                                                           |
+| `target_not_found`          |  404 | `用户不存在`                                                                                                                     |
+| `self_offboard`             |  400 | `不能交接自己`                                                                                                                   |
+| `last_super_admin`          |  400 | `不能停用最后一名超级管理员`                                                                                                     |
+| `target_role_forbidden`     |  403 | `项目管理员仅能处理标注员/审核员账号`                                                                                            |
+| `inactive_unmanaged`        |  403 | `该用户已停用且不在你管理的项目内，须由超级管理员处理`                                                                           |
+| `scope_forbidden`           |  403 | `该用户存在不在你管理范围内的项目`                                                                                               |
+| `offboarding_preview_stale` |  409 | `{code:offboarding_preview_stale,expected_preview_version,current_preview_version,blockers}`                                     |
+| `historical_target`         |  409 | `历史未知或已删除账号不可再次交接`                                                                                               |
+| `state_forbidden`           |  409 | `账号当前状态不可交接`                                                                                                           |
+| `duplicate_project`         |  422 | `同一项目不能重复提交交接映射`                                                                                                   |
+| `receiver_required`         |  409 | `{code:receiver_required,project_id,role}`                                                                                       |
+| `receiver_ineligible`       |  409 | `{code:receiver_ineligible,project_id,role,receiver_id}`                                                                         |
+| `offboarding_blocked`       |  409 | `{code:offboarding_blocked,blockers}`                                                                                            |
+| `account_busy`              |  409 | `账号正在更新，请刷新后重试`                                                                                                     |
+| `offboarding_busy`          |  409 | Project/member lock: `{code:offboarding_busy,message:职责正在变化，请刷新预览后重试}`; task/edit lock: `{code:offboarding_busy}` |
+| `operation_conflict`        |  409 | `null`                                                                                                                           |
+| `unavailable`               |  503 | `null`                                                                                                                           |
+| `invalid_request`           |  400 | `null`                                                                                                                           |
 
 Existing Identity authentication errors preserve null status/detail. Initial
 inactive admission is 401; an admitted actor that becomes inactive is mapped
