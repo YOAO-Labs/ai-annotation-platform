@@ -3440,3 +3440,58 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   was no push, release, remote CI, production deployment or primary cutover.
   The full goal stays active; continue with the six-operation configuration
   command owner using the frozen baseline and current transaction/IO contract.
+
+### Workspace configuration command owner: public callers and transport parity
+
+- The full ten-module objective remains active. This checkpoint implements six
+  project/template configuration commands; it does not complete Workspace,
+  another full-language provider, independent databases or production cutover.
+- `aap-workspace-configuration/v1` carries a strict envelope and canonical opaque
+  ASCII request JSON. Native owns fixed scoped steps, current authority fences,
+  typed column writes, unfinished-draft guards and immutable success receipts.
+  Workspace gets typed Identity/Assets/Labeling/Inference calls without foreign
+  raw grants; a separate LOGIN has only policy and step functions.
+- Six public callers now use the same portable owner through borrowed, dedicated
+  DSN or HTTP selection. Removed the API configuration workflow and its moved
+  ORM commands, with no compatibility facade. The API keeps commit, live raw-row
+  hydration and public response validation after commit. Adjacent point-cloud
+  quality promotion moved into its own API application function with identical
+  statement AST except for the Session receiver; other adjacent writers remain.
+- Default borrowed execution matches 106 frozen HTTP observations and 17 caller
+  records. Dedicated DSN and independent HTTP each match the same 106 responses,
+  external probe order and committed-null behavior. Caller probes are scoped to
+  the borrowed connection; no cross-connection rollback of unrelated API work is
+  claimed. The raw SQLAlchemy active flag on three conversion failures is not
+  an internal compatibility promise. Old SQLAlchemy client traces cannot see
+  Native SQL and are not reported as matched Native statement evidence.
+- The response comparison caught a missing-pool success/clear fallback; the
+  manager now restores the original ValueError for both create and patch.
+  Public API regression passed 57 cases. Actual Native tests check REAL versus
+  DOUBLE no-op/update counts with PostgreSQL NOTICE triggers, caller timestamps,
+  NOT NULL and lock-aborted transactions, pending-work/autoflush behavior, and
+  two real setup/revocation races with complete draft/pool/association rollback.
+  The races also caught and corrected whitespace in the creator error detail.
+- A valid nested configuration must not inherit the small envelope depth cap.
+  Facts now receive separate strict JSON checks; a real 150-level configuration
+  create/duplicate check passed. Video media reads keep 500-item batching and an
+  empty shortcut; missing source precedence is checked before pending metadata.
+- Actual DSN/HTTP process checks passed, including loss of a committed response,
+  same-private-UUID retry, provider restart/replay, one receipt/no drafts, and
+  unavailable-owner503 without local fallback. All owned resources were cleaned.
+  A remote harness trial omitted the parametrized supplement fixture; it was
+  not counted as remote proof. The corrected two-binding supplement run passed,
+  completing all 106 observations per binding without repeating closed cases.
+- Source/binding checkpoint ca23a7092f8b3a5220db6602056e811d3907f907 passed normal
+  commit hooks and a docs build. Four clean child worktrees were removed only
+  after exact-head and integrated patch-equivalence proof. The active test
+  worktree is retained. Primary source/shared links and original running
+  containers are preserved; no push, release or remote CI was requested.
+- Four failure/recovery cases pass with real conversion errors, forged-finish
+  rollback, the unfinished-command commit guard and receipt-preserving
+  backup/restore/current revocation. Nine protected Workspace/Identity restores
+  pass without skips. Full head0257 migration validation passes fresh creation,
+  the173-revision reversible path,83-revision suffix, forward migration and
+  restore; all four derived databases were cleaned without errors.
+- Final noneditable packages, constrained images and bounded local concurrency
+  evidence remain open. Public contracts and OpenAPI are unchanged. Current implementation
+  and scope are documented in [ADR-0136](../adr/0136-workspace-configuration-command-owner.md).

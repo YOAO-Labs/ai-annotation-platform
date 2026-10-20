@@ -105,3 +105,58 @@ async def test_function_only_six_commands_replay_and_leave_no_drafts(test_engine
                 )
                 await db.execute(delete(Project).where(Project.owner_id == actor_id))
                 await db.execute(delete(User).where(User.id == actor_id))
+
+
+async def test_stored_configuration_deeper_than_the_small_envelope_limit(test_engine):
+    dsn = _configuration_dsn(test_engine)
+    maker = async_sessionmaker(test_engine, expire_on_commit=False)
+    actor_id = None
+    config = {}
+    node = config
+    for _ in range(150):
+        node["nested"] = {}
+        node = node["nested"]
+    try:
+        async with maker.begin() as db:
+            actor = await create_user(
+                db,
+                "project_admin",
+                f"configuration-deep-{uuid.uuid4().hex}@example.test",
+                "Configuration nested JSON owner",
+            )
+            actor_id = actor.id
+        payload = ProjectTemplateCreate(
+            name="Deep configuration",
+            type_label="Image",
+            type_key="image-det",
+            label_config=config,
+        ).model_dump(exclude_unset=True)
+        manager = ConfigurationManager(ConfigurationPostgresData(dsn))
+        created = await manager.execute(
+            configuration_request("create_template", actor_id, None, payload)
+        )
+        assert created.ok
+        duplicated = await manager.execute(
+            configuration_request(
+                "duplicate_template", actor_id, created.result.resource_id, {}
+            )
+        )
+        assert duplicated.ok
+        async with maker() as db:
+            row = await db.get(ProjectTemplate, duplicated.result.resource_id)
+            assert row.label_config == config
+    finally:
+        if actor_id is not None:
+            async with maker.begin() as db:
+                await db.execute(
+                    text(
+                        "DELETE FROM public.workspace_configuration_operation_receipts WHERE actor_id=:actor"
+                    ),
+                    {"actor": actor_id},
+                )
+                await db.execute(
+                    delete(ProjectTemplate).where(
+                        ProjectTemplate.created_by == actor_id
+                    )
+                )
+                await db.execute(delete(User).where(User.id == actor_id))

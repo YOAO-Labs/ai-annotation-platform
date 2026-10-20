@@ -27,11 +27,12 @@ is a local transport replacement experiment; Native still owns business policy.
 
 Project/template configuration values and pure kind, clone and authorization
 policy also live here. The API directly consumes those models and policy; its
-configuration writes still use the existing caller-owned ORM transaction. The
+configuration calls use the portable manager and fixed Native writes. The
 four initial Native cross-owner configuration dependencies are complemented by
 phased facts and a six-command owner under `aap-workspace-configuration/v1`.
 Its fixed step capability uses function-only credentials and one transaction;
 the standalone HTTP runtime can enable configuration without membership or
-owner transfer. Public API caller integration and full independent-owner
-qualification remain in progress. See ADR-0136 for the current evidence and
+owner transfer. Public API callers use the same owner with a borrowed session
+by default; the old configuration ORM writers are removed. Full independent-owner
+qualification remains in progress. See ADR-0136 for the current evidence and
 remaining gates; adjacent writers and the full Workspace module remain open.

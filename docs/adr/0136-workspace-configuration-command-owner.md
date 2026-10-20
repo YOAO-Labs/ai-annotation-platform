@@ -57,8 +57,9 @@ retain the plain public 500 envelope; transport/invalid private replies use503.
 A connection cleanup failure cannot replace an already committed result.
 
 Standalone HTTP supports the private configuration endpoint and a separate
-Compose profile. API selectors are prepared; switching the six public callers
-and deleting their moved ORM implementations are the next integration step.
+Compose profile. Six public callers now use the same owner through explicit
+selection. Their moved API workflow and ORM configuration writers are removed;
+the API retains commit/response assembly and live raw-row reads.
 Point-cloud evaluation promotion, guides, class rename, imports and other
 adjacent writers retain their existing boundaries.
 
@@ -68,17 +69,39 @@ The existing 106 HTTP and 17 caller captures remain immutable. An additional
 pre-port fixture records numeric dirty/timestamp behavior, ten account-lock
 caller cases and two setup-demotion races at the foundation checkpoint.
 
-Local pure Workspace checks passed126 cases before the subsequent batching
-fix; its affected video suite then passed8 cases, including 501-item and empty
-reads and missing-source precedence. Twelve API binding checks and three
-connection-cleanup checks passed; these overlap the Workspace suite. Five
+The pure Workspace suite passed132 cases, including 501-item batching, empty
+reads, missing-source precedence, deep JSON and connection cleanup. Twelve API
+binding checks passed separately, making144 checks in that source group. Five
 owned-database cases passed at0257, including restricted credentials, typed
 read facts, all six commands, update/delete replay and absence of draft state.
 Earlier failed attempts exposed and corrected owner-column grants and two
 Native reply/selector mismatches. All their owned resources were cleaned.
 
-This is a local implementation checkpoint. Public-caller integration, full
-frozen-response comparison, all binding/failure/lock/restart/restore checks,
-final installed artifacts and images remain open. Full Workspace, the other
+The six public callers passed57 affected API cases. Default borrowed execution
+matches all106 frozen HTTP responses and17 caller records; only SQLAlchemy's
+internal active flag on three raw write-conversion failures is excluded. SQLSTATE,
+transaction ownership, unrelated pending work, lock-abort behavior, deferred
+commit rollback and external setup probe order remain checked. Old SQLAlchemy
+statement traces cannot observe Native SQL; they are not counted as matched.
+The comparison caught and corrected a missing-pool success fallback. Two focused
+pure regressions now require the original failure for both create and update.
+
+Dedicated DSN and independent HTTP execution each match the same106 responses,
+probe order and committed-null cases. Actual process tests also passed for a
+lost committed reply, same-ID retry, post-restart replay and unavailable-owner
+failure without local fallback. Separate real database tests preserve numeric
+update/no-op counts, caller transaction timestamps, failed transaction state,
+autoflush/account contention and both setup/revocation races.
+
+Four failure/recovery cases passed against real PostgreSQL: raw conversion
+errors roll back, forged finish replies roll back, unfinished commands cannot
+commit, and backup/restore preserves receipts, replay and current revocation.
+Nine existing protected Workspace/Identity restore cases also passed without
+skips. Full migration validation passed at0257, including fresh installation,
+173 reversible downgrades, the83-revision reversible suffix, forward migration
+and backup/restore. Its four derived databases were removed without cleanup errors.
+
+This is a local implementation checkpoint. Final noneditable installed artifacts,
+constrained images and bounded local concurrency qualification remain open. Full Workspace, the other
 modules and the ten-module language-replacement objective remain unfinished.
 There is no primary runtime or production cutover, push or release.

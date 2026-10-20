@@ -27,9 +27,7 @@ from aap_workspace.configuration_requests import (
     ProjectTemplateOut,
     ProjectTemplateUpdate,
 )
-from app.application.project_workspace_configuration import (
-    WorkspaceConfigurationWorkflow,
-)
+from app.services.workspace_configuration import execute_configuration
 from app.services.project_template import assert_template_visible, list_user_org_ids
 from app.services.identity_contracts import IdentityActorFacts
 
@@ -88,7 +86,11 @@ async def list_templates(
     if search:
         q = q.where(ProjectTemplate.name.ilike(f"%{search}%"))
 
-    rows = await db.execute(q.order_by(ProjectTemplate.created_at.desc()))
+    rows = await db.execute(
+        q.order_by(ProjectTemplate.created_at.desc()).execution_options(
+            populate_existing=True
+        )
+    )
     templates = rows.scalars().all()
     return [await _serialize(db, t) for t in templates]
 
@@ -99,19 +101,23 @@ async def create_template(
     db: AsyncSession = Depends(get_db),
     user: IdentityActorFacts = Depends(get_current_user),
 ):
-    template = await WorkspaceConfigurationWorkflow(db).create_template(
-        data.model_dump(exclude_unset=True, exclude_none=False),
+    result = await execute_configuration(
+        db,
+        operation="create_template",
+        payload=data.model_dump(exclude_unset=True, exclude_none=False),
         actor_id=user.id,
     )
     await db.commit()
-    await db.refresh(template)
+    template = await db.get(ProjectTemplate, result.resource_id, populate_existing=True)
+    if template is None:
+        raise RuntimeError("Created configuration template disappeared")
     return await _serialize(db, template)
 
 
 async def _load_template_or_404(
     db: AsyncSession, template_id: uuid.UUID
 ) -> ProjectTemplate:
-    template = await db.get(ProjectTemplate, template_id)
+    template = await db.get(ProjectTemplate, template_id, populate_existing=True)
     if template is None:
         raise HTTPException(status_code=404, detail="模板不存在")
     return template
@@ -135,13 +141,17 @@ async def update_template(
     db: AsyncSession = Depends(get_db),
     user: IdentityActorFacts = Depends(get_current_user),
 ):
-    template = await WorkspaceConfigurationWorkflow(db).update_template(
-        template_id,
-        data.model_dump(exclude_unset=True),
+    result = await execute_configuration(
+        db,
+        operation="update_template",
+        target_id=template_id,
+        payload=data.model_dump(exclude_unset=True),
         actor_id=user.id,
     )
     await db.commit()
-    await db.refresh(template)
+    template = await db.get(ProjectTemplate, result.resource_id, populate_existing=True)
+    if template is None:
+        raise RuntimeError("Updated configuration template disappeared")
     return await _serialize(db, template)
 
 
@@ -151,8 +161,8 @@ async def delete_template(
     db: AsyncSession = Depends(get_db),
     user: IdentityActorFacts = Depends(get_current_user),
 ):
-    await WorkspaceConfigurationWorkflow(db).delete_template(
-        template_id, actor_id=user.id
+    await execute_configuration(
+        db, operation="delete_template", target_id=template_id, actor_id=user.id
     )
     await db.commit()
 
@@ -166,9 +176,11 @@ async def duplicate_template(
     user: IdentityActorFacts = Depends(get_current_user),
 ):
     """克隆任意可见模板为当前用户私有模板."""
-    template = await WorkspaceConfigurationWorkflow(db).duplicate_template(
-        template_id, actor_id=user.id
+    result = await execute_configuration(
+        db, operation="duplicate_template", target_id=template_id, actor_id=user.id
     )
     await db.commit()
-    await db.refresh(template)
+    template = await db.get(ProjectTemplate, result.resource_id, populate_existing=True)
+    if template is None:
+        raise RuntimeError("Duplicated configuration template disappeared")
     return await _serialize(db, template)

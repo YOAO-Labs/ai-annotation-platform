@@ -159,13 +159,13 @@ async def test_selected_dsn_native_text_and_json_failures_roll_back_atomically(
                 operation_ids["null_project"],
             ),
             (
-                "create_project",
+                "create_template",
                 None,
                 {
-                    "name": f"Rejected JSONB project {uuid.uuid4().hex}",
+                    "name": f"Rejected JSONB template {uuid.uuid4().hex}",
                     "type_label": "Image",
                     "type_key": "image-det",
-                    "rendering_config": {"marker": "\x00"},
+                    "label_config": {"marker": "\x00"},
                 },
                 "22P05",
                 operation_ids["nul_jsonb"],
@@ -183,7 +183,7 @@ async def test_selected_dsn_native_text_and_json_failures_roll_back_atomically(
                 operation_ids["nul_text"],
             ),
         )
-        rejected_project_name = cases[1][2]["name"]
+        rejected_template_name = cases[1][2]["name"]
         for operation, target_id, payload, expected_state, operation_id in cases:
             request = _request(
                 operation,
@@ -207,8 +207,10 @@ async def test_selected_dsn_native_text_and_json_failures_roll_back_atomically(
             assert (template_after.name, template_after.updated_at) == template_snapshot
             assert (
                 await observer.scalar(
-                    text("SELECT count(*) FROM public.projects WHERE name=:name"),
-                    {"name": rejected_project_name},
+                    text(
+                        "SELECT count(*) FROM public.project_templates WHERE name=:name"
+                    ),
+                    {"name": rejected_template_name},
                 )
                 == 0
             )

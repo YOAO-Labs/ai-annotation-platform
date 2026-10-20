@@ -18,8 +18,8 @@ from app.db.models.point_cloud_quality import (
 from app.db.models.project import Project
 from app.db.models.task import Task
 from app.db.models.user import User
-from app.application.project_workspace_configuration import (
-    WorkspaceConfigurationWorkflow,
+from app.application.point_cloud_quality_promotion import (
+    promote_point_cloud_quality_evaluation,
 )
 from app.services.quality_job_dispatch import QualityJobDispatcher
 from app.deps import (
@@ -521,11 +521,11 @@ async def promote_project_evaluation(
     )
     assert_capability(fresh_access, ProjectCapability.PROJECT_MANAGE.value)
     try:
-        workflow = WorkspaceConfigurationWorkflow(db)
         (
             evaluation,
             locked_project,
-        ) = await workflow.promote_point_cloud_quality_evaluation(
+        ) = await promote_point_cloud_quality_evaluation(
+            db,
             project_id=project.id,
             evaluation_id=evaluation_id,
             actor_id=current_user.id,

@@ -413,7 +413,6 @@ class ConfigurationManager:
                 request,
                 request_json,
                 source_backend["id"],
-                create_fallback=True,
             )
             await self._step(
                 transaction,
@@ -444,7 +443,6 @@ class ConfigurationManager:
                 request,
                 request_json,
                 requested_main_backend_id,
-                create_fallback=True,
             )
             await self._step(
                 transaction,
@@ -605,7 +603,6 @@ class ConfigurationManager:
                     request,
                     request_json,
                     requested_main_backend_id,
-                    create_fallback=False,
                 )
             else:
                 pool_id = None
@@ -817,8 +814,6 @@ class ConfigurationManager:
         request: ConfigurationRequest,
         request_json: dict[str, Any],
         backend_id: Any,
-        *,
-        create_fallback: bool,
     ):
         result = await self._step(
             transaction,
@@ -828,8 +823,11 @@ class ConfigurationManager:
             {"registry_id": str(backend_id)},
         )
         pool_id = result.get("pool_id")
-        if pool_id is None and create_fallback:
-            return backend_id
+        if pool_id is None:
+            raise ValueError(
+                f"registry {backend_id} has no service pool; "
+                "singleton backfill (alembic 0132) must run first"
+            )
         return pool_id
 
     async def _validate_backend_modality(

@@ -273,6 +273,9 @@ async def test_numeric_updates_match_legacy_postgres_semantics(
                         "sqlstate": _sqlstate(error),
                         "in_transaction": db.in_transaction(),
                     }
+                    with pytest.raises(DBAPIError) as aborted:
+                        await db.scalar(text("SELECT 1"))
+                    assert _sqlstate(aborted.value) == "25P02"
                     await db.rollback()
 
             async with owner() as observer:
@@ -521,6 +524,11 @@ async def test_setup_authority_revocation_rolls_back_draft_and_pool_changes(
                                 text("UPDATE users SET role='employee' WHERE id=:id"),
                                 {"id": actor_id},
                             )
+                    except BaseException:
+                        release.set()
+                        task.cancel()
+                        await asyncio.gather(task, return_exceptions=True)
+                        raise
                     finally:
                         release.set()
                     try:
@@ -551,6 +559,15 @@ async def test_setup_authority_revocation_rolls_back_draft_and_pool_changes(
                         )
                     ).one()
                     assert enabled is False and generation == 1
+                    assert (
+                        await observer.scalar(
+                            text(
+                                "SELECT count(*) FROM public.project_ml_backend_pool WHERE pool_id=:id"
+                            ),
+                            {"id": pool_id},
+                        )
+                        == 0
+                    )
                     await observer.execute(
                         text("UPDATE users SET role='project_admin' WHERE id=:id"),
                         {"id": actor_id},

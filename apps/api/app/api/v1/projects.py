@@ -110,9 +110,7 @@ from app.application.project_task_cleanup import (
 )
 from app.application.project_class_rename import rename_project_class
 from app.application.project_pipeline import apply_saved_pipeline
-from app.application.project_workspace_configuration import (
-    WorkspaceConfigurationWorkflow,
-)
+from app.services.workspace_configuration import execute_configuration
 from app.services.identity_contracts import IdentityActorFacts
 
 router = APIRouter()
@@ -750,13 +748,16 @@ async def create_project(
     db: AsyncSession = Depends(get_db),
     current_user: IdentityActorFacts = Depends(require_roles(*_MANAGERS)),
 ):
-    project, template = await WorkspaceConfigurationWorkflow(db).create_project(
-        data.model_dump(exclude_unset=True), actor_id=current_user.id
+    result = await execute_configuration(
+        db,
+        operation="create_project",
+        payload=data.model_dump(exclude_unset=True),
+        actor_id=current_user.id,
     )
     await db.commit()
-    await db.refresh(project)
-    if template is not None:
-        await db.refresh(template)
+    project = await db.get(Project, result.resource_id, populate_existing=True)
+    if project is None:
+        raise RuntimeError("Created configuration project disappeared")
     return await _serialize_project(db, project)
 
 
@@ -944,9 +945,11 @@ async def update_project(
     db: AsyncSession = Depends(get_db),
     current_user: IdentityActorFacts = Depends(get_current_user),
 ):
-    project = await WorkspaceConfigurationWorkflow(db).update_project(
-        project.id,
-        data.model_dump(exclude_unset=True),
+    await execute_configuration(
+        db,
+        operation="update_project",
+        target_id=project.id,
+        payload=data.model_dump(exclude_unset=True),
         actor_id=current_user.id,
     )
     await db.commit()

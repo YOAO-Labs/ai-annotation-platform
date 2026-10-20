@@ -139,6 +139,45 @@ class FakeData:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("operation", ["create_project", "update_project"])
+async def test_missing_backend_pool_cannot_become_a_successful_or_cleared_binding(
+    operation,
+):
+    project = {
+        "id": str(_PROJECT),
+        "type_key": "image-det",
+        "data_type": "image",
+        "scene_mode": False,
+        "total_tasks": 0,
+        "tool_bindings": {},
+    }
+    transaction = FakeTransaction(
+        begin={
+            "actor": _actor(),
+            "project": project if operation == "update_project" else None,
+            "source_project": None,
+            "template": None,
+            "is_manager": True,
+            "replay": None,
+        },
+        authority={"actor": _actor(), "project": project, "is_manager": True},
+    )
+    backend_id = UUID("8e9f70b6-9493-4c65-b34a-2a02cc368037")
+    payload = {"ml_backend_id": backend_id}
+    if operation == "create_project":
+        payload.update(name="Missing pool", type_label="Image")
+    request = configuration_request(
+        operation, _ACTOR, _PROJECT if operation == "update_project" else None, payload
+    )
+    with pytest.raises(ValueError, match="has no service pool"):
+        await ConfigurationManager(FakeData(transaction)).execute(request)
+    actions = [call[0] for call in transaction.calls]
+    assert actions[-1] == "enable_backend"
+    assert "binding" not in actions
+    assert "finish" not in actions
+
+
+@pytest.mark.asyncio
 async def test_create_project_allocates_then_flushes_then_inserts_and_omits_null_defaults():
     transaction = FakeTransaction()
     manager = ConfigurationManager(FakeData(transaction))

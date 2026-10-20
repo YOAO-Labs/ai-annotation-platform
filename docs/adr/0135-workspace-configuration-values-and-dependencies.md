@@ -4,6 +4,7 @@
 - **Date:** 2026-10-21
 - **Deciders:** Backend architecture team
 - **Supersedes:** None
+- **Follow-up:** [ADR-0136](0136-workspace-configuration-command-owner.md) records the implemented command boundary and its ongoing qualification.
 
 ## Context
 
@@ -49,7 +50,7 @@ order, generation changes only when activating a disabled pool, and unchanged
 timestamps on no-op. Missing pool returns a no-write null sentinel; the future
 configuration coordinator must restore the old failure at the original stage.
 
-The existing API workflow still owns configuration mutation assembly and its ORM
+At this foundation checkpoint, the API workflow still owns configuration mutation assembly and its ORM
 writes. Routes retain commit, refresh, response hydration and post-commit
 capability warnings. No business Audit, new public field, corrected null behavior
 or broader permission is introduced by this extraction foundation.

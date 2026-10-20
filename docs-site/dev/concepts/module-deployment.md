@@ -49,11 +49,15 @@ Identity account-lock boundary 用三项 typed SQL functions（SHARE／UPDATE／
 
 Node 仅提供本地单命令 transport conformance；Native 继续持有业务策略。此结果不代表整个 Workspace、完整业务语言替换、独立数据库或生产容量已完成。API 仍使用过渡期宽角色装配；下一块为共享事务的项目创建／配置和模板操作。详见 [ADR-0134](/dev/adr/0134-workspace-project-owner-transfer) 与 [Workspace 运行指南](/api/guides/workspace-runtime)。
 
-## Workspace 配置模型与依赖边界
+## Workspace 配置命令
 
 项目与模板的配置模型、kind、克隆、类别规范化及模板纯策略已由 `apps/workspace` 持有；API 的旧模型和纯策略副本已移除。预标注请求、能力词表、归一化和保存编排校验由 `apps/inference` 持有，API 显式传入当前 tracker 限制。Geometry、运行／评估与普通读取 DTO 保留各自所有者，公开接口行为不变。
 
-Identity 组织范围、Assets 关联数据集 kind、Labeling 视频阻塞事实和 Inference 服务池启用已登记为四项 typed Native 能力，仅向 Workspace code owner 开放。它们通过了隔离权限、真实旧／新写入顺序、无变化时间戳、回滚和迁移恢复检查。配置写入仍由 API 的原调用方事务协调；六项配置命令的 wire、回执、专用 LOGIN 和独立运行时尚待实现。这一步不能计为配置 owner 或完整 Workspace 已可独立部署。边界、旧行为基线与后续验收见 [ADR-0135](/dev/adr/0135-workspace-configuration-values-and-dependencies)。
+Identity 组织范围、Assets 关联数据集 kind、Labeling 视频阻塞事实和 Inference 服务池启用的初始 typed Native 能力已通过隔离权限、真实旧／新写入顺序、时间戳、回滚和迁移恢复检查；命令实现补充了按原阶段读取的类型化能力。
+
+项目创建／更新、模板创建／更新／删除／复制已使用封闭协议和同一个 Workspace owner，原 API 配置工作流与 ORM 命令已移除。默认端口借用调用方事务，HTTP 保留提交与响应；专用 DSN／HTTP 自行拥有业务事务。成功回执、未完成草稿提交围栏、两项 RPC 的专用 LOGIN 及配置独立运行入口均已实现。
+
+基础 Native 验收通过5项，包含全部六种命令及重放；相关公开 API 通过57项。调用方事务、专用 DSN 和独立 HTTP 三条路径各已对照106项实际旧 HTTP 响应，默认路径另核对17项调用方记录，保留公开错误、外部探测顺序和业务回滚。三项写入转换错误的 SQLAlchemy 内部 active 标记不作兼容承诺；原客户端 SQL trace 无法观测 Native 内部语句，未计为已匹配。实际 PostgreSQL 更新次数、锁竞争、探测期间撤权回滚，以及独立进程的丢响应重试和重启重放均已通过。失败事务与恢复通过4项，另有9项关联恢复无跳过通过；0257 完整迁移验证通过，派生数据库均已清理。剩余验收为非 editable 安装包、受限镜像与本地并发执行，完整配置 owner 与 Workspace 尚未完成独立部署资格。边界、基线与剩余门槛见 [ADR-0136](/dev/adr/0136-workspace-configuration-command-owner)。
 
 ## Workspace 项目成员生命周期命令
 

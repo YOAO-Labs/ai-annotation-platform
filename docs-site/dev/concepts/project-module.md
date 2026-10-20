@@ -135,7 +135,7 @@ archived
 
 如果你改的是「标注长什么样」, 十有八九要从 project.tool_bindings 入手, 而不是 task。
 
-写入路径由 `projects.py` 保留 HTTP 请求、提交与响应，`application/project_workspace_configuration.py::WorkspaceConfigurationWorkflow` 仍在 API 请求事务内协调创建、配置与模板写入；ORM 行命令仍由 `services/project_workspace.py` 持有。配置值、旧扁平类别/属性规范化、kind、克隆及模板纯策略由 `apps/workspace/src/aap_workspace` 持有，API 只映射已读取行并还原 HTTP 错误；模板可见性适配器仅保留必要的组织范围查询。工作流仍按原顺序复核当前 actor/项目/模板权限、协调 backend 探测/启用和主绑定，项目内嵌与命名流水线共用 `aap_inference.pipeline.validate_saved_pipeline`。读取时，`ProjectOut` 继续消费 `apps/_shared/workspace_contract` 的纯投影。这一步尚未把配置写入交给独立运行时。
+写入路径由 `projects.py` 保留 HTTP 请求、提交与响应；六项项目／模板配置命令通过 `services/workspace_configuration.py` 进入同一个 Workspace owner。`apps/workspace/src/aap_workspace` 持有配置编排、值、旧扁平类别/属性规范化、kind、克隆与模板策略；Native 执行当前权限围栏、跨 owner 类型化调用及固定列写入。默认适配器借用调用方 Session，不自行提交或回滚；独立 DSN／HTTP 只拥有各自的业务事务，显式失败不回退。原配置 API 工作流与 ORM 行命令已删除；普通模板读可见性适配器仍保留组织范围查询，API 在提交后读取当前行，避免复用 Session 返回旧的模板用量。项目内嵌与命名流水线共用 `aap_inference.pipeline.validate_saved_pipeline`。`ProjectOut` 继续消费共享 Workspace 纯投影。完整独立运行验收仍在进行，见 [配置命令 ADR](/dev/adr/0136-workspace-configuration-command-owner)。
 
 前端项目设置的归属：`基本信息` 只维护名称、状态、截止日期和类型展示；`类别与属性` 是 `tool_bindings` 的唯一编辑入口，同一个工具单位 tab 下同时维护类别、关键点骨骼模板与属性 schema。
 

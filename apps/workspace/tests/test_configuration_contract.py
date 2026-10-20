@@ -36,6 +36,41 @@ _PROJECT_ID = uuid.UUID("705ffe3a-dddc-4d15-8bb8-870f88af6586")
 _TEMPLATE_ID = uuid.UUID("b6cdd33b-8bca-4a4c-bd0b-846dc8ca6be5")
 
 
+def test_step_facts_do_not_impose_the_envelope_depth_limit_on_stored_configuration():
+    request = _request()
+    config = {}
+    node = config
+    for _ in range(250):
+        node["nested"] = {}
+        node = node["nested"]
+    facts = {"project": {"label_config": config}}
+    envelope = {
+        "schema": CONFIGURATION_PROTOCOL,
+        "ok": True,
+        "operation_id": str(request.operation_id),
+        "operation": request.operation,
+        "action": "begin",
+        "facts": facts,
+    }
+    assert decode_configuration_step_reply(request, "begin", envelope).facts == facts
+    assert (
+        decode_configuration_step_reply(request, "begin", json.dumps(envelope)).facts
+        == facts
+    )
+    for malformed in (
+        {"bad": math.nan},
+        {1: "not a JSON string key"},
+        {"bad": object()},
+    ):
+        with pytest.raises(ConfigurationUnavailable):
+            decode_configuration_step_reply(
+                request, "begin", {**envelope, "facts": malformed}
+            )
+    for malformed in ("[]", "null", "true", 0, list(envelope.items())):
+        with pytest.raises(ConfigurationUnavailable):
+            decode_configuration_step_reply(request, "begin", malformed)
+
+
 def _request(**overrides) -> ConfigurationRequest:
     values = {
         "schema": CONFIGURATION_PROTOCOL,

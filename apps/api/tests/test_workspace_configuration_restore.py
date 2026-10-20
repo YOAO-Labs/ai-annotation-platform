@@ -279,10 +279,11 @@ async def test_workspace_configuration_receipts_survive_owned_restore_and_protec
         restored_owner = create_async_engine(
             test_engine.url.set(database=clone), hide_parameters=True
         )
+        restored_maker = async_sessionmaker(restored_owner, expire_on_commit=False)
         restored_data = ConfigurationPostgresData(clone_dsn)
         restored_manager = ConfigurationManager(restored_data)
         await restored_data.configuration_policy()
-        async with restored_owner() as db:
+        async with restored_maker() as db:
             assert (
                 await db.scalar(text("SELECT version_num FROM public.alembic_version"))
                 == "0257"
@@ -312,7 +313,7 @@ async def test_workspace_configuration_receipts_survive_owned_restore_and_protec
             == delete_template_reply
         )
 
-        async with restored_owner() as db:
+        async with restored_maker() as db:
             assert (await db.get(ProjectTemplate, template_id)).name == later_name
             assert await db.get(ProjectTemplate, deleted_template_id) is None
             assert await db.get(Project, project_id) is not None
@@ -330,7 +331,7 @@ async def test_workspace_configuration_receipts_survive_owned_restore_and_protec
         assert revoked.ok is False
         assert revoked.error.status_code == 401
         assert revoked.error.headers == {"WWW-Authenticate": "Bearer"}
-        async with restored_owner() as db:
+        async with restored_maker() as db:
             assert (await db.get(ProjectTemplate, template_id)).name == later_name
             await _assert_receipt_set(db, operation_ids)
     finally:

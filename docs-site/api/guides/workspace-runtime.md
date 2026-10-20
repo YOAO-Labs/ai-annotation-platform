@@ -35,7 +35,7 @@ API 默认使用本地 caller Session；可选 `WORKSPACE_MEMBERSHIP_DATABASE_UR
 
 成员命令切片已通过独立安装包、受限 Native 权限、进程／镜像、真实 API、并发交接、重启重放和备份恢复的本地限定验收；计数与边界见 [ADR-0133](/dev/adr/0133-workspace-membership-lifecycle-owner)。命令 owner 只持有三项 RPC 权限，API 验收仍使用过渡期 `legacy_runtime` 装配。
 
-项目创建、配置、模板、列表、mention 与其他 Workspace consumers 仍使用各自现有路径。完整 Workspace、其余模块、完整 Identity、十模块／七门槛目标、完整模块的另一语言提供方、生产容量验证与 primary cutover 也仍未完成。Go 月报保持多语言架构实验，不构成该 owner 的语言提供方。
+配置命令的当前接入与验收见本文后续说明。项目列表、mention 与其他 Workspace consumers 继续迁移。完整 Workspace、其余模块、完整 Identity、十模块／七门槛目标、完整模块的另一语言提供方、生产容量验证与 primary cutover 也仍未完成。Go 月报保持多语言架构实验，不构成该 owner 的语言提供方。
 
 ## 项目负责人转移
 
@@ -66,7 +66,9 @@ Node conformance provider 以标准 PostgreSQL 协议调用相同的两项函数
 连接上的无关 pending work。后端探测超时及视频参数需要与 API 保持一致，具体变量见
 [环境变量参考](/dev/reference/env-vars)。
 
-目前完成了纯策略、连接层及六项真实命令的基础本地验收。公开配置调用者仍走原路径，
-路由集成、完整旧响应对照、恢复／镜像与其他边界验收继续进行；这一步不代表完整
+公开配置路由已接入同一个配置 owner，默认借用调用方事务，HTTP 保留提交与响应。
+专用 DSN／HTTP 通过 `WORKSPACE_CONFIGURATION_DATABASE_URL(_FILE)`／
+`WORKSPACE_CONFIGURATION_URL` 选择，不能同时配置；显式失败不回退。
+三条绑定路径各已对照106项原公开响应；独立进程的丢响应重试、重启重放及不可用不回退也已通过本地检查。失败事务、备份恢复、9项关联恢复及0257完整迁移验证均已通过。独立安装包、受限镜像与本地并发执行验收继续进行，这一步不代表完整
 Workspace 已独立部署。状态与事务取舍见
 [ADR-0136](/dev/adr/0136-workspace-configuration-command-owner)。

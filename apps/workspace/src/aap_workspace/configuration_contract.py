@@ -22,7 +22,7 @@ from pydantic import (
     model_validator,
 )
 
-from .contract import ClosedModel, _json_bytes
+from .contract import ClosedModel, _json_bytes, _reject_constant
 
 CONFIGURATION_PROTOCOL = "aap-workspace-configuration/v1"
 
@@ -456,7 +456,45 @@ def decode_configuration_step_reply(
 ) -> ConfigurationStepReply:
     request = _validate_internal_request(request)
     try:
-        reply = _STEP_REPLY_ADAPTER.validate_json(_json_bytes(payload))
+        if isinstance(payload, (ConfigurationStepSuccess, ConfigurationStepFailure)):
+            raw = payload.model_dump(mode="json", by_alias=True, exclude={"facts"})
+            if isinstance(payload, ConfigurationStepSuccess):
+                raw["facts"] = payload.facts
+        elif isinstance(payload, (str, bytes)):
+            raw = json.loads(
+                payload,
+                object_pairs_hook=_unique_object,
+                parse_constant=_reject_constant,
+            )
+        elif isinstance(payload, dict):
+            raw = dict(payload)
+        else:
+            raise ValueError("Configuration reply must be a JSON object")
+        if type(raw) is not dict:
+            raise ValueError("Configuration reply must be a JSON object")
+        facts = None
+        if raw.get("ok") is True and "facts" in raw:
+            facts = raw["facts"]
+            if type(facts) is not dict:
+                raise ValueError("Configuration facts must be a JSON object")
+            # Stored configuration has the existing JSON limits. Do not apply
+            # the small envelope's depth cap to arbitrary nested config values.
+            json.dumps(facts, ensure_ascii=True, allow_nan=False)
+            pending = [facts]
+            while pending:
+                value = pending.pop()
+                if type(value) is dict:
+                    if any(type(key) is not str for key in value):
+                        raise ValueError("JSON object keys must be strings")
+                    pending.extend(value.values())
+                elif type(value) is list:
+                    pending.extend(value)
+                elif value is not None and type(value) not in (str, bool, int, float):
+                    raise ValueError("Invalid JSON configuration fact")
+            raw = {**raw, "facts": {}}
+        reply = _STEP_REPLY_ADAPTER.validate_json(_json_bytes(raw))
+        if facts is not None:
+            reply = reply.model_copy(update={"facts": facts})
     except (ValidationError, ValueError, TypeError, UnicodeError, RecursionError):
         raise ConfigurationUnavailable() from None
     if (

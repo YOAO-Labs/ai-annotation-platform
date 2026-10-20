@@ -1189,7 +1189,7 @@ BEGIN
             IF v_actor->>'role' NOT IN ('super_admin', 'project_admin') THEN
                 RETURN aap_workspace_configuration_v1._step_failure(
                     p_request, p_action, 403,
-                    pg_catalog.to_jsonb('需要角色权限: super_admin 或 project_admin'::text)
+                    pg_catalog.to_jsonb('需要角色权限: super_admin或project_admin'::text)
                 );
             END IF;
             IF v_selectors->>'source_project_id' IS NOT NULL THEN
@@ -1565,7 +1565,7 @@ BEGIN
                 IF v_authority_actor->>'role' NOT IN ('super_admin', 'project_admin') THEN
                     RETURN aap_workspace_configuration_v1._step_failure(
                         p_request, p_action, 403,
-                        pg_catalog.to_jsonb('需要角色权限: super_admin 或 project_admin'::text)
+                        pg_catalog.to_jsonb('需要角色权限: super_admin或project_admin'::text)
                     );
                 END IF;
             ELSE
@@ -1583,7 +1583,7 @@ BEGIN
                 IF v_authority_actor->>'role' NOT IN ('super_admin', 'project_admin') THEN
                     RETURN aap_workspace_configuration_v1._step_failure(
                         p_request, p_action, 403,
-                        pg_catalog.to_jsonb('需要角色权限: super_admin 或 project_admin'::text)
+                        pg_catalog.to_jsonb('需要角色权限: super_admin或project_admin'::text)
                     );
                 END IF;
             END IF;
