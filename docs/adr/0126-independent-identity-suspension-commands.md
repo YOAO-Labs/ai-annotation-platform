@@ -1,6 +1,6 @@
 # 0126 — Identity 管理员停用与恢复账号所有权
 
-- **Status:** Accepted; source implementation is in progress and local qualification is pending
+- **Status:** Accepted; locally qualified slice (2026-10-20)
 - **Date:** 2026-10-20
 - **Deciders:** Maintainers
 - **Supersedes:** None
@@ -34,7 +34,8 @@ operation UUID.
 - Reactivation keeps a UUID `user_id` path parameter, so malformed UUIDs retain
   422 validation behavior. Its body remains optional/null
   `ReactivateRequest`, with optional/null `reason` up to 500 characters and the
-  current ignored-extra-fields behavior.
+  current ignored-extra-fields behavior. Preserve the current public model's
+  rejection of unpaired Unicode surrogates; valid U+0000 input remains accepted.
 
 The current access policy is preserved rather than normalized or broadened.
 Neither operation hydrates its target through the User ORM after migration.
@@ -265,6 +266,44 @@ directly nor raw Audit/Workspace/Labeling table access. Portable schemas are
 generated from the canonical models; frozen migration artifacts must match
 them semantically and byte-for-byte.
 
+### Local qualification
+
+Root integrated source revision `f8704f059` passed 77 distinct selected
+database/process cases with zero skips: 73 unique database/restore cases and
+four live cases. The database aggregate uses the newest replay/role/suspension
+restore cases to replace overlapping earlier runs; it is not a sum of every
+rerun. The four live cases comprise two owner cases and two API bindings, using
+both an AUTH-only remote Identity container and a dedicated DSN.
+
+Source and installed portable-package suites each passed 468 tests; 99 installed
+package files have exact hashes. The installed Identity package does not depend
+on API, SQLAlchemy, Celery, Boto3 or Torch and uses Pydantic 2.14.1. API
+architecture passed 543 checks with 128 explicitly deferred rules; a separate
+42-gateway suite overlaps and is not added to that count. Node passed 46
+self-checks and SDK user/CLI/OpenAPI passed 35. A four-client TEMP-readiness
+matrix including this owner passed; this result does not reclaim or recount the
+prior Directory, administrator-password or platform-role owner qualifications.
+
+The nonroot, read-only Identity owner image
+`sha256:b6973fcb4ee2be0612bc0bb6232827c07e1e53b60c9fb6cfadea49bd943d6fa7`
+passed an actual remote API binding under 1 CPU/256 MiB. The API cold image
+`sha256:01b29d8617f104be76eac817b14803605e733747c1e202df97ea2d58d173c63f`
+passed in 43.555 seconds with network disabled, read-only filesystem and a
+1 CPU/512 MiB limit. It verified 99 package files, 96 API/native inputs,
+migration head 0246, both suspend/reactivate routes plus existing route counts,
+current OpenAPI and absence of retired helpers; the temporary container was
+removed.
+
+A finite host-process sample used 12 targets at concurrency four. Suspension
+made 36 attempts with 24 busy retries in 1183.623 ms (p50 451.149 ms, p95
+1180.700 ms); replay made 30 attempts with 18 busy retries in 883.116 ms (p50
+388.201 ms, p95 882.940 ms). These include Node/HTTP host overhead and are not
+1 CPU timings, production capacity or an SLO. Confirmation left all 12 receipts
+and 12 Audit rows unchanged. Newly issued keys and reset links survived replay.
+This qualifies only the administrator suspension/reactivation owner; full
+Identity, the ten-module/seven-gate objective, production capacity and provider
+replacement remain incomplete.
+
 ## Consequences
 
 Positive:
@@ -283,10 +322,9 @@ Negative:
   without locking its old User remains outside this slice.
 - Current role, scope, inactive early-return, error-order and receipt semantics
   are versioned contract details and need continued regression coverage.
-- Qualification remains pending until Root reports database, runtime, restore,
-  API, restart and cold-image evidence. Full Identity, ten-module/seven-gate,
-  production capacity and provider-language replacement remain outside this
-  owner slice.
+- This local qualification covers only administrator suspension/reactivation.
+  Full Identity, ten-module/seven-gate, production capacity and provider-language
+  replacement remain outside this owner slice.
 
 ## Notes
 

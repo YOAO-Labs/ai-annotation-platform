@@ -1,6 +1,6 @@
 # 后端业务模块解耦与跨语言替换设计
 
-> Status: 进行中。当前目标覆盖 identity、workspace、assets、labeling、inference、learning、insights、jobs、audit、notifications 及运行装配。前序 Python 进程内切片、常驻 API 恢复和既有训练作业执行权交接已完成。assets 视频探测三个操作已提供独立 Python 工件、流式合同及真实调用端的 Node 替换验收；同步 ZIP 与旧前缀扫描已纳入既有 Assets Source 工件及 0215 原生合同，并通过真实隔离服务、受限角色与故障恢复验收。Scene、位姿和标定切片已提取至既有 Catalog 工件，并通过隔离数据库、真实 HTTP/S3 与消费者资格验证；连接管理及本地图片/nuScenes 来源登记已迁入各自合同并完成本地验收；媒体/Blob、其余运维流程和其他模块继续推进。Identity 注册恢复／邮件、分组目录／指派、自助注销／due、完整 invitation lifecycle/MailV2 sender、四项用户目录读取、管理员临时密码重置与平台角色预览／变更 owner 均已有各自限定的本地资格；当前实施管理员暂停／恢复账号 owner，qualification 待 Root 验收。offboarding、其他用户 hydration 与剩余模块继续推进，既有 public API filters、字段和 statuses 保持。Go 月报保持独立实验，其可用性和容量不作为本目标门槛。当前各模块缺口见[模块部署与语言替换状态](../../docs-site/dev/concepts/module-deployment.md)。
+> Status: 进行中。当前目标覆盖 identity、workspace、assets、labeling、inference、learning、insights、jobs、audit、notifications 及运行装配。前序 Python 进程内切片、常驻 API 恢复和既有训练作业执行权交接已完成。assets 视频探测三个操作已提供独立 Python 工件、流式合同及真实调用端的 Node 替换验收；同步 ZIP 与旧前缀扫描已纳入既有 Assets Source 工件及 0215 原生合同，并通过真实隔离服务、受限角色与故障恢复验收。Scene、位姿和标定切片已提取至既有 Catalog 工件，并通过隔离数据库、真实 HTTP/S3 与消费者资格验证；连接管理及本地图片/nuScenes 来源登记已迁入各自合同并完成本地验收；媒体/Blob、其余运维流程和其他模块继续推进。Identity 注册恢复／邮件、分组目录／指派、自助注销／due、完整 invitation lifecycle/MailV2 sender、四项用户目录读取、管理员临时密码重置与平台角色预览／变更 owner 均已有各自限定的本地资格；管理员暂停／恢复账号 owner 已通过限定的本地资格；下一项最小 Identity 写入范围为 DELETE。offboarding、其他用户 hydration 与剩余模块继续推进，既有 public API filters、字段和 statuses 保持。Go 月报保持独立实验，其可用性和容量不作为本目标门槛。当前各模块缺口见[模块部署与语言替换状态](../../docs-site/dev/concepts/module-deployment.md)。
 >
 > 创建日期：2026-10-16。
 >
@@ -3121,7 +3121,7 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   early-return、project-admin scope 差异、credential retirement 与自助注销保留围栏；
   这些入口不属于平台角色 owner。
 
-### Identity administrator suspension and reactivation owner (qualification pending)
+### Identity administrator suspension and reactivation owner (locally qualified slice)
 
 - 只迁移管理停用与恢复两项写入。两条 public `POST` route 保留路径、body、错误、
   `UserOut` 与 SDK/Web 行为。Deactivate 继续用 string path、无 body 和 malformed UUID
@@ -3130,12 +3130,16 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
 - Private endpoint 为 `POST /v1/identity/suspensions/execute`，协议
   `aap-identity-suspensions/v1`、operations `suspend_account`／`reactivate_account`。
   Wire request 仅含 `schema/operation/operation_id/token/audit_context/payload`；Native
-  request 替换 raw token 为认证 Principal 和可选 key hash。Migration 0246 创建
+  request 替换 raw token 为认证 Principal 和可选 key hash。Wire reactivation 保留原 reason
+  和 HMAC 输入；portable manager 只发送 `reason_present` strict boolean 给 Native，避免
+  把公共模型允许的 U+0000 放进 PostgreSQL JSONB。Migration 0246 创建
   `aap_identity_suspensions_v1` 与 `public.identity_suspension_operation_receipts`；
   `identity_suspension_client` 仅有 `suspension_policy()` 与
   `execute_suspension_command(jsonb)` 函数执行权限。
 - 两操作都先共享 last-super-admin fence，再按 UUID 锁 actor/target User 并重验当前身份
-  与凭据。Suspend 缺失目标与 self 错误在 inactive no-op 之前；已 inactive 目标立即返回
+  与凭据。初次 public auth 对 inactive credential 仍返回 401；被 admission 接受后才
+  inactive 的 actor 由 owner 返回 private `user_inactive`，适配为旧 public 403。
+  Suspend 缺失目标与 self 错误在 inactive no-op 之前；已 inactive 目标立即返回
   原 21 字段 User，不做 role/project scope check、不写 Audit、不退休凭据。真实 suspend
   对 derived Projects 取 KEY SHARE NOWAIT；PA 仅限 employee target，全 derived set 必须
   归其管理但空 set 可通过，不增加 ProjectMember 要求。其后才执行 last-unreserved-SA
@@ -3163,9 +3167,32 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   `operation_conflict`；状态匹配后仍检查 PA-reactivate 当前 scope，才返回冻结 User 且不重复副作用。
 - 可选 API/runtime DSN 是 `IDENTITY_SUSPENSION_DATABASE_URL(_FILE)`，Compose host selector
   是 `IDENTITY_RUNTIME_SUSPENSION_DATABASE_URL_FILE`。Blank selector 只关闭此 capability、
-  私有路由 503，不影响既有启动；explicit DSN 必须 readiness pass、失败不 fallback。当前
-  source、DB role/grants、restore、remote/dedicated API、restart/replay 与 cold API proof 均待
-  Root 实际验收；本节不报通过数量。上一 platform-role slice 的 56/447/94/cold evidence、
-  admin-reset 42/420/467 evidence 和 Directory 38 cases 都属于不同 slice，不计入本功能。
-  Full Identity、十模块／七门槛、production/primary cutover 与 provider replacement 仍未完成；
-  detail 见 [ADR-0126](../adr/0126-independent-identity-suspension-commands.md)。
+  私有路由 503，不影响既有启动；explicit DSN 必须 readiness pass、失败不 fallback。
+- 本地验收以 Root source `f8704f059` 汇总 77 个 distinct DB/process cases，零跳过：73 个
+  唯一 database/restore cases 与 4 个 live cases。Aggregate 用最新 replay/role/suspension
+  restore cases 替换重叠运行；live 覆盖两个 owner cases 和两个 API binding（AUTH-only
+  remote Identity container、dedicated DSN），不是所有重跑的简单相加。Source 与 installed
+  portable-package suites 各 468 项通过，99 个 installed package 文件 hash 精确匹配；API
+  architecture 543 项通过并有 128 条 explicit deferred rules，Node 46、SDK user/CLI/OpenAPI
+  35 项通过。42 项 gateway suite 与 API assembly 有重叠，不另加到总数。四个 client 的
+  TEMP readiness matrix 包含本 owner；此前 Directory、admin-password、platform-role 资格仍按
+  各自 ADR 独立计算。
+- Nonroot、read-only Identity owner image
+  `sha256:b6973fcb4ee2be0612bc0bb6232827c07e1e53b60c9fb6cfadea49bd943d6fa7` 通过真实 remote
+  API binding，限制为 1 CPU/256 MiB。API cold image
+  `sha256:01b29d8617f104be76eac817b14803605e733747c1e202df97ea2d58d173c63f` 在 43.555 秒内通过，
+  使用禁网、只读文件系统及 1 CPU/512 MiB；核对 99 个 package files、96 个 API/native
+  inputs、migration head 0246、两个 suspend/reactivate routes、既有 route counts、当前
+  OpenAPI 与已退役 helper 缺席，随后移除临时容器。
+- 有限 host-process 样本使用 12 个 targets、并发 4。Suspend 为 36 attempts/24 busy retries，
+  共 1183.623 ms（p50 451.149 ms、p95 1180.700 ms）；replay 为 30 attempts/18 busy retries，
+  共 883.116 ms（p50 388.201 ms、p95 882.940 ms）。数字包含 Node/HTTP host overhead，不是
+  1 CPU 容器时延，也不构成生产容量或 SLO。确认后 12 个 receipts 和 12 条 Audit 不变，
+  新签发 keys 与 reset links 保持有效。上一 platform-role 56-case、admin-reset 42-case 与
+  Directory 38-case evidence 各属独立 slice，不合并计数。完整 Identity、十模块／七门槛、
+  production/primary cutover 与 provider replacement 仍未完成；详见
+  [ADR-0126](../adr/0126-independent-identity-suspension-commands.md)。
+
+- 下一项最小 Identity 范围是 `DELETE /api/v1/users/{id}`。现有 DELETE 不会退休凭据，且可能
+  转移 Task assignee、释放 TaskLock；offboarding pair、registration-status settings 和
+  dashboard hydration 仍是独立范围。
