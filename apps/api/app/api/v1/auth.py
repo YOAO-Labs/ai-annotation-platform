@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from app.core.ratelimit import limiter
 from app.core.password import validate_password_strength
-from app.deps import bearer_scheme, get_db, get_current_user, get_current_principal
+from app.deps import bearer_scheme, get_db, get_current_principal
 from app.db.models.user import User
 from app.db.base import async_session
 from app.schemas.user import Token, LoginRequest, UserOut
@@ -41,6 +41,7 @@ from app.services.identity_session_commands import (
     IdentitySessionCommands,
     SessionCommandsPort,
 )
+from app.api.v1.account_commands import execute_account, get_account_commands
 import logging
 
 logger = logging.getLogger("anno-api.auth")
@@ -268,8 +269,16 @@ async def login(
 
 
 @router.get("/me", response_model=UserOut)
-async def get_me(current_user: User = Depends(get_current_user)):
-    return current_user
+async def get_me(
+    request: Request,
+    _principal: Principal = Depends(get_current_principal),
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+    commands=Depends(get_account_commands),
+):
+    data = await execute_account(
+        request, credentials, commands, "read_self_account", {}
+    )
+    return data["account"]
 
 
 @router.post("/forgot-password", status_code=202)

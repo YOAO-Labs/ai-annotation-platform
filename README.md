@@ -353,7 +353,7 @@ Data Manager 将未解决问题与普通评论分别计数，兼容旧反馈筛�
 
 命名布局预设通过账号偏好 API 跨设备保存；`namedPresets` 采用带 revision 的整份 map 替换与省略删除语义，陈旧设备写入返回冲突，而 `contexts` 可在预设专用 PATCH 中缺席。安全更新方式与兼容规则见[账号偏好与命名布局预设](./docs-site/api/guides/auth.md#账号偏好与命名布局预设)。
 
-偏好模型、读取归一化和合并策略由 `apps/identity` 包持有；API 仍在现有用户行锁内调用并提交。独立账号命令服务与完整 Identity 部署继续按[模块台账](./docs-site/dev/concepts/module-deployment.md)推进。
+资料、偏好、心跳、自助改密和头像引用可由同一独立 Identity 工件处理；偏好合并、当前凭据校验、状态和业务审计在所有者事务内提交。头像字节继续通过现有存储入口处理，在线扫描使用独立权限。协议见[自助账户命令](./docs-site/api/guides/identity-runtime.md#自助账户命令)，完整 Identity 与其他模块继续按[模块台账](./docs-site/dev/concepts/module-deployment.md)推进。
 
 工作台之外的全局界面偏好（主题、二次推理工具条显隐、登录后「本次更新」提醒的已确认版本）保存在账号偏好的 `ui` 子树并跨设备同步；`ui.changelog_seen_version` 为空表示从未确认，客户端仅在当前构建版本更高时提醒一次。契约见[账号偏好与命名布局预设](./docs-site/api/guides/auth.md#账号偏好与命名布局预设)。
 

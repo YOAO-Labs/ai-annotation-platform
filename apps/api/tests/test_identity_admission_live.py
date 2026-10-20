@@ -136,7 +136,14 @@ class Container:
 
 
 async def _start_container_identity(
-    test_engine, directory, secret, control, *, login_redis_url=None
+    test_engine,
+    directory,
+    secret,
+    control,
+    *,
+    login_redis_url=None,
+    enable_accounts=True,
+    enable_presence=True,
 ):
     image = _inspect_docker(os.environ["AAP_IDENTITY_RUNTIME_IMAGE"])
     identity = os.environ["AAP_IDENTITY_RUNTIME_IDENTITY"]
@@ -160,6 +167,16 @@ async def _start_container_identity(
         "IDENTITY_TOKEN": control,
         "IDENTITY_SIGNING_SECRET": secret,
     }
+    for enabled, kind, variable in (
+        (enable_accounts, "ACCOUNTS", "IDENTITY_ACCOUNT_DATABASE_URL"),
+        (enable_presence, "PRESENCE", "IDENTITY_PRESENCE_DATABASE_URL"),
+    ):
+        if enabled:
+            values[variable] = (
+                make_url(_dsn(kind, test_engine))
+                .set(host="host.docker.internal")
+                .render_as_string(hide_password=False)
+            )
     envfile = directory / "identity-container.env"
     envfile.touch(mode=0o600)
     envfile.write_text("".join(f"{name}={value}\n" for name, value in values.items()))
@@ -277,6 +294,8 @@ def _start_identity(
     port=None,
     enable_keys=True,
     enable_sessions=True,
+    enable_accounts=True,
+    enable_presence=True,
     login_redis_url=None,
     session_settings=None,
 ):
@@ -292,6 +311,10 @@ def _start_identity(
     if enable_sessions:
         values["session_database_url"] = _dsn("SESSIONS", test_engine)
         values["login_redis_url"] = login_redis_url or os.environ["REDIS_URL"]
+    if enable_accounts:
+        values["account_database_url"] = _dsn("ACCOUNTS", test_engine)
+    if enable_presence:
+        values["presence_database_url"] = _dsn("PRESENCE", test_engine)
     environment = {
         "PATH": os.environ.get("PATH", ""),
         "IDENTITY_HOST": "127.0.0.1",
@@ -334,6 +357,10 @@ def _start_api(
             "IDENTITY_KEY_DATABASE_URL_FILE": "",
             "IDENTITY_SESSION_DATABASE_URL": "",
             "IDENTITY_SESSION_DATABASE_URL_FILE": "",
+            "IDENTITY_ACCOUNT_DATABASE_URL": "",
+            "IDENTITY_ACCOUNT_DATABASE_URL_FILE": "",
+            "IDENTITY_PRESENCE_DATABASE_URL": "",
+            "IDENTITY_PRESENCE_DATABASE_URL_FILE": "",
             "MIGRATION_DATABASE_URL": "",
             "ALEMBIC_AUTO_UPGRADE": "false",
             "E2E_SEED_ENABLED": "false",

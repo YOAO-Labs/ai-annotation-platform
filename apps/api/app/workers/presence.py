@@ -14,7 +14,8 @@ import asyncio
 import logging
 from datetime import datetime, timedelta, timezone
 
-from app.services.identity_commands import IdentityCommandService
+from app.services.identity_account_commands import IdentityPresenceCommands
+from app.services.identity_gateway import get_identity_gateway
 from app.services.system_settings_service import SystemSettingsService
 from app.workers._db import task_session
 from app.workers.celery_app import celery_app
@@ -39,9 +40,10 @@ async def mark_inactive_offline_with_session(db) -> dict:
     # runtime override to reach the next scan without a worker restart.
     threshold_minutes = await SystemSettingsService.get(db, "offline_threshold_minutes")
     cutoff = datetime.now(timezone.utc) - timedelta(minutes=threshold_minutes)
-    result = await IdentityCommandService(db).mark_inactive_accounts_offline(cutoff)
+    affected = await IdentityPresenceCommands(
+        db, get_identity_gateway()
+    ).mark_inactive_accounts_offline(cutoff)
     await db.commit()
-    affected = result.rowcount or 0
     log.info(
         "mark_inactive_offline: affected=%d threshold_minutes=%d",
         affected,

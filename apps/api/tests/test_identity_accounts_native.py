@@ -331,6 +331,7 @@ async def test_name_apply_is_atomic_and_replay_never_rewinds_account(test_engine
             assert replay_audit_count == audit_count
 
         async with maker.begin() as session:
+            await session.execute(text("SET LOCAL app.allow_audit_update='true'"))
             await session.execute(
                 text("DELETE FROM public.users WHERE id=:id"),
                 {"id": fixture["actor_id"]},

@@ -17,6 +17,9 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from aap_identity.authenticator import Authenticator
+from aap_identity.account_contract import AccountFailure, decode_account_request
+from aap_identity.account_manager import AccountManager
+from aap_identity.account_postgres import AccountPostgresData
 from aap_identity.contract import IdentityFailure
 from aap_identity.key_contract import KeyFailure, decode_key_request
 from aap_identity.key_manager import KeyManager
@@ -99,6 +102,7 @@ async def test_restored_authority_retains_revocation_and_refuses_populated_downg
     jti = uuid.UUID(decode_access_token(value, secret=secret)["jti"])
     key_id = uuid.uuid4()
     session_id = uuid.uuid4()
+    account_id = uuid.uuid4()
     snapshot = tmp_path / "authority.dump"
 
     class Counter:
@@ -130,6 +134,21 @@ async def test_restored_authority_retains_revocation_and_refuses_populated_downg
                 "request_id": None,
             },
             "user_agent": "Recovery fixture",
+        }
+    )
+    account_command = decode_account_request(
+        {
+            "schema": "aap-identity-accounts/v1",
+            "operation": "update_name",
+            "operation_id": str(account_id),
+            "token": _token(actor, secret, gen=9),
+            "payload": {"name": "Restored account"},
+            "audit_context": {
+                "method": "PATCH",
+                "path": "/recovery/account",
+                "ip": "127.0.0.1",
+                "request_id": None,
+            },
         }
     )
     try:
@@ -164,6 +183,11 @@ async def test_restored_authority_retains_revocation_and_refuses_populated_downg
             counter=Counter(),
         ).execute(session_command)
         session_token = session.data.access_token
+        await AccountManager(
+            Authenticator(PostgresData(_dsn("AUTH", test_engine)), secret),
+            AccountPostgresData(_dsn("ACCOUNTS", test_engine)),
+            secret,
+        ).execute(account_command)
         dump = _postgres_tool(
             test_engine,
             ["pg_dump", "-U", "owner", "-Fc", test_engine.url.database],
@@ -175,6 +199,29 @@ async def test_restored_authority_retains_revocation_and_refuses_populated_downg
             await db.execute(text(f'CREATE DATABASE "{clone}" TEMPLATE template0'))
             created = True
             await db.execute(text(f"COMMENT ON DATABASE \"{clone}\" IS '{ownership}'"))
+            # A normal pg_dump keeps schema/table/function ACLs. Database ACLs
+            # belong to CREATE DATABASE and must also retain the source boundary.
+            async with test_engine.connect() as source:
+                acl = (
+                    await source.execute(
+                        text(
+                            "SELECT COALESCE(role.rolname,'PUBLIC') AS grantee, entry.privilege_type, entry.is_grantable "
+                            "FROM pg_database AS database "
+                            "CROSS JOIN LATERAL aclexplode(COALESCE(database.datacl,acldefault('d',database.datdba))) AS entry "
+                            "LEFT JOIN pg_roles AS role ON role.oid=entry.grantee "
+                            "WHERE database.datname=current_database()"
+                        )
+                    )
+                ).all()
+            quote_identifier = db.dialect.identifier_preparer.quote_identifier
+            await db.execute(text(f'REVOKE ALL ON DATABASE "{clone}" FROM PUBLIC'))
+            for grantee, privilege, grantable in acl:
+                assert privilege in {"CREATE", "CONNECT", "TEMPORARY"}
+                role = "PUBLIC" if grantee == "PUBLIC" else quote_identifier(grantee)
+                suffix = " WITH GRANT OPTION" if grantable else ""
+                await db.execute(
+                    text(f'GRANT {privilege} ON DATABASE "{clone}" TO {role}{suffix}')
+                )
         _postgres_tool(
             test_engine,
             ["pg_restore", "-U", "owner", "--exit-on-error", "--dbname", clone],
@@ -203,6 +250,34 @@ async def test_restored_authority_retains_revocation_and_refuses_populated_downg
         ).execute(session_command)
         assert secrets.compare_digest(restored_session.data.access_token, session_token)
 
+        account_url = make_url(_dsn("ACCOUNTS", test_engine)).set(database=clone)
+        account_data = AccountPostgresData(
+            account_url.render_as_string(hide_password=False)
+        )
+        account_manager = AccountManager(auth, account_data, secret)
+        restored_account = await account_manager.execute(account_command)
+        assert restored_account.data.account.name == "Restored account"
+        async with restored.begin() as db:
+            await db.execute(
+                text("UPDATE users SET name='Changed after restore' WHERE id=:id"),
+                {"id": actor},
+            )
+            assert not await db.scalar(
+                text(
+                    "SELECT has_database_privilege('identity_account_client',current_database(),'TEMP')"
+                )
+            )
+        historical = await account_manager.execute(account_command)
+        assert historical.data.account.name == "Restored account"
+        assert historical.principal.name == "Changed after restore"
+        async with restored.connect() as db:
+            assert (
+                await db.scalar(
+                    text("SELECT name FROM users WHERE id=:id"), {"id": actor}
+                )
+                == "Changed after restore"
+            )
+
         key_url = make_url(_dsn("KEYS", test_engine)).set(database=clone)
         key_data = KeyPostgresData(key_url.render_as_string(hide_password=False))
         replay = await KeyManager(auth, key_data, secret).execute(command)
@@ -220,18 +295,22 @@ async def test_restored_authority_retains_revocation_and_refuses_populated_downg
                 changed_command
             )
         assert (await changed_auth.authenticate(key)).credential_id == key_id
+        with pytest.raises(AccountFailure, match="operation_conflict"):
+            await AccountManager(changed_auth, account_data, changed_secret).execute(
+                account_command.model_copy(update={"token": key})
+            )
         with pytest.raises(SessionFailure, match="operation_conflict"):
             await SessionManager(
                 changed_auth, session_data, changed_secret, counter=Counter()
             ).execute(session_command)
 
         _refuse_downgrade(
-            owner_url, message=b"Cannot remove Identity session operation receipts"
+            owner_url, message=b"Cannot remove Identity account operation receipts"
         )
         async with restored.begin() as db:
             assert (
                 await db.scalar(text("SELECT version_num FROM alembic_version"))
-                == "0237"
+                == "0238"
             )
             assert (
                 await db.scalar(
@@ -240,6 +319,20 @@ async def test_restored_authority_retains_revocation_and_refuses_populated_downg
                 )
                 == 9
             )
+            await db.execute(
+                text(
+                    "DELETE FROM identity_account_operation_receipts WHERE actor_id=:id"
+                ),
+                {"id": actor},
+            )
+        _refuse_downgrade(
+            owner_url, message=b"Cannot remove Identity session operation receipts"
+        )
+        async with restored.begin() as db:
+            assert (
+                await db.scalar(text("SELECT version_num FROM alembic_version"))
+                == "0238"
+            )
             await db.execute(text("SET LOCAL app.allow_audit_update='true'"))
             await db.execute(delete(User).where(User.id == actor))
         # A retained JTI alone must also prevent returning to the old authority.
@@ -247,7 +340,7 @@ async def test_restored_authority_retains_revocation_and_refuses_populated_downg
         async with restored.connect() as db:
             assert (
                 await db.scalar(text("SELECT version_num FROM alembic_version"))
-                == "0237"
+                == "0238"
             )
             assert (
                 await db.scalar(
@@ -261,7 +354,7 @@ async def test_restored_authority_retains_revocation_and_refuses_populated_downg
         record_property("restored_snapshot_sha256", hashlib.sha256(dump).hexdigest())
         record_property(
             "restored_authority",
-            "generation,jti,api-key,key-receipt,session-receipt,restricted-auth-key-session-grants",
+            "generation,jti,api-key,key-receipt,session-receipt,account-receipt,database-schema-function-acls",
         )
     finally:
         snapshot.unlink(missing_ok=True)

@@ -1147,7 +1147,7 @@ psql -v expected_database=annotation_test -v migration_role=owner \
 
 该 LOGIN 只有策略、登录候选和会话执行三项能力，不含准入、key、Audit 或表权限。登录／刷新／登出／全端登出的当前账号、密码 hash、generation、JTI 和 key 校验与在线状态、业务审计和成功操作回执共同提交。有效登录失败也保留业务审计；格式或主体绑定错误不能确认事务。内嵌装配可设 `IDENTITY_SESSION_DATABASE_URL(_FILE)` 使用该角色，远程服务故障不会回退。
 
-独立进程显式设置 `IDENTITY_DATABASE_URL(_FILE)`、`IDENTITY_TOKEN(_FILE)`、`IDENTITY_SIGNING_SECRET(_FILE)`，每对恰好一项；它不读取 API `.env`。key 命令另设 `IDENTITY_KEY_DATABASE_URL(_FILE)`；会话另设 `IDENTITY_SESSION_DATABASE_URL(_FILE)` 和 `IDENTITY_LOGIN_REDIS_URL(_FILE)`。未配置某类命令 DSN 时，该 RPC 返回 503，已配置能力仍可就绪。签名 secret 与所有剩余签发端一致。运行 `uv run --project apps/identity --locked --extra runtime python -m aap_identity_runtime`，或使用可选 `docker-compose.identity.yml` 及六个 `IDENTITY_RUNTIME_*_FILE`。`/health` 是进程存活，`/ready` 检查原生协议及已配置能力的精确函数权限。Secret 文件须对容器用户可读，源码目录不挂入运行镜像。
+独立进程显式设置 `IDENTITY_DATABASE_URL(_FILE)`、`IDENTITY_TOKEN(_FILE)`、`IDENTITY_SIGNING_SECRET(_FILE)`，每对恰好一项；它不读取 API `.env`。key 命令另设 `IDENTITY_KEY_DATABASE_URL(_FILE)`；会话另设 `IDENTITY_SESSION_DATABASE_URL(_FILE)` 和 `IDENTITY_LOGIN_REDIS_URL(_FILE)`。账户与在线扫描分别设置 `IDENTITY_ACCOUNT_DATABASE_URL(_FILE)`、`IDENTITY_PRESENCE_DATABASE_URL(_FILE)`。未配置某类命令 DSN 时，该 RPC 返回 503，已配置能力仍可就绪。签名 secret 与所有剩余签发端一致。运行 `uv run --project apps/identity --locked --extra runtime python -m aap_identity_runtime`，或使用可选 `docker-compose.identity.yml` 及八个 `IDENTITY_RUNTIME_*_FILE`。`/health` 是进程存活，`/ready` 检查原生协议及已配置能力的精确函数权限。Secret 文件须对容器用户可读，源码目录不挂入运行镜像。
 
 会话计数的 Redis 身份只需 `~login_failed:*`、`+get +incrby +expire +del +ping +select +client|setinfo +client|setname`，清除其他命令和频道权限。客户端的 `incr()` 实际发送 `INCRBY key 1`。API 边缘与提供方使用同一计数实例／命名空间；提供方拥有增量、清零及阈值复查，API 保留通用限流和 Turnstile 验证。Redis 不可用时维持现有计数 fail-open。直启配置 `IDENTITY_EXPIRE_MINUTES=1440`、`IDENTITY_EMAIL_VERIFICATION_REQUIRED=false`、`IDENTITY_LOGIN_CAPTCHA_THRESHOLD=5`、`IDENTITY_LOGIN_FAILED_WINDOW_SECONDS=3600`；Compose 使用相应的 `IDENTITY_RUNTIME_*`。这些值须与 API 的签发时长、有效邮箱验证策略、阈值和窗口一致，生产模式下有效邮箱策略可能为 true。Web 登录页收到 HTTP 400、`detail: "captcha_required"` 后展示验证，不从失败次数推算阈值；`X-Login-Failed-Count` 仅用于提示。挑战后的失败会清除已用证明并重建组件；登录成功清除本地挑战。
 
@@ -1169,6 +1169,28 @@ AAP_IDENTITY_LIVE_ACCEPTANCE=1 AAP_IDENTITY_KEYS_LIVE_ACCEPTANCE=1 AAP_IDENTITY_
 key 命令验收另覆盖无身份表权限的真实 API 调用层、Node 五项操作、丢响应后重启重放、有效期／省略字段／Unicode、撤销与缺失能力拒绝，以及备份恢复后的回执和 secret 变更冲突。公开请求保留原有单次 POST 行为；重放始终要求当前有效凭据，用 key 轮换自身后须换有效凭据重放。算法与轮换边界见 [ADR-0116](docs/adr/0116-independent-identity-key-commands.md) 和[私有运行协议](docs-site/api/guides/identity-runtime.md)。
 
 会话验收检查四项命令的无身份表 API 转发、受限 Redis、精确 64 位声明、登录计数／审计／验证码、重启重放，以及登录实际签发的 JWT 在 REST 和 socket 中使用。回执冻结原始声明，重放仍要求当前认证，不重新登出或推进代次；返回历史 token 不代表它当前有效。开放注册和邀请等仍由现有 API 签发，完整 Identity 与日常切换继续推进，见 [ADR-0117](docs/adr/0117-independent-identity-session-commands.md)。
+
+### 独立自助账户命令
+
+安装当前迁移并重新应用 `module-data-grants.sql` 后，为无角色成员关系的 `identity_account_client`、`identity_presence_client` LOGIN 授权；数据库须已撤销 PUBLIC TEMP。账户角色只有策略、准备、提交三个函数，扫描角色只有一项批量更新函数；不能直接访问 User、回执或 Audit 表：
+
+```bash
+psql -v expected_database=annotation_test -v migration_role=owner \
+  -v identity_owner=identity_code \
+  -v identity_account_role=identity_account_client \
+  -v identity_presence_role=identity_presence_client \
+  -f infra/docker/identity-accounts-grants.sql
+```
+
+API 的 `IDENTITY_ACCOUNT_DATABASE_URL`／`_FILE` 可选择内嵌装配的账户函数连接，`IDENTITY_PRESENCE_DATABASE_URL`／`_FILE` 选择在线扫描连接。每对至多一项，DSN 为 `postgresql://`；留空使用当前调用方事务。显式 `IDENTITY_URL` 使用同一独立进程中的账户与扫描端点，失败不回退。Compose 对应 `IDENTITY_RUNTIME_ACCOUNT_DATABASE_URL_FILE` 和 `IDENTITY_RUNTIME_PRESENCE_DATABASE_URL_FILE`。工作树启动器清除继承的共享 Identity 连接配置。
+
+资料读取、改名、偏好读写、心跳、自助改密和头像引用均走账户命令。准备、偏好合并／bcrypt 和提交保留在同一所有者连接与事务，按 User → 凭据次序锁定；偏好等待最新行后深合并，其他写入竞争仍返回 409。只有名称／偏好／密码／头像修改保存成功回执；心跳按数据库时间执行，不按每次轮询堆积回执。自助改密仍保留当前 JWT 代次和 API key。
+
+账号偏好不继承会话请求的 64 KiB 或准入响应的 16 MiB 限额，原有多快照与任意 AI 参数仍可传递。部署的内存、CPU、并发与截止时间须按实际数据测量；较大偏好会增加序列化及持锁时间，不能用小样本外推生产容量。
+
+头像字节处理不持远程 SQL 锁。确定拒绝时清理新暂存对象；提交结果未知时保留它，先读取当前资料或重放已保存的私有操作 UUID 确认结果，再清理旧对象。公开接口未增加自动重试或幂等 header。自助改密的 422 响应保留定位／说明，剔除原始输入和异常上下文；API SQL 调试输出隐藏绑定参数。
+
+账户的隔离验收通过同一验证器显式启用：`AAP_IDENTITY_ACCOUNTS_LIVE_ACCEPTANCE=1`，并选择 `tests/test_identity_accounts_live.py`、`tests/test_identity_recovery.py`。安装包／镜像设置沿用上文，Node 夹具覆盖七项账户操作与扫描；它是消费者，尚非另一语言提供方。完整协议、回执、头像清理和剩余范围见 [ADR-0118](docs/adr/0118-independent-identity-account-commands.md)。
 
 ## 普通批量结果检查点
 

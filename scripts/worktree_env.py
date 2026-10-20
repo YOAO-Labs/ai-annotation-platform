@@ -209,6 +209,10 @@ def isolated_environment(
         "IDENTITY_KEY_DATABASE_URL_FILE": "",
         "IDENTITY_SESSION_DATABASE_URL": "",
         "IDENTITY_SESSION_DATABASE_URL_FILE": "",
+        "IDENTITY_ACCOUNT_DATABASE_URL": "",
+        "IDENTITY_ACCOUNT_DATABASE_URL_FILE": "",
+        "IDENTITY_PRESENCE_DATABASE_URL": "",
+        "IDENTITY_PRESENCE_DATABASE_URL_FILE": "",
         "SMTP_HOST": "",
         "SENTRY_DSN": "",
     }

@@ -40,6 +40,8 @@ IDENTITY_CLIENT_ROLES = {
     "OPERATOR": "identity_session_operator",
     "KEYS": "identity_key_client",
     "SESSIONS": "identity_session_client",
+    "ACCOUNTS": "identity_account_client",
+    "PRESENCE": "identity_presence_client",
 }
 MODULE_ROLES = (
     "identity_code",
@@ -146,6 +148,7 @@ SQL_ARTIFACTS = (
     "0235_identity_admission.sql",
     "0236_identity_api_keys.sql",
     "0237_identity_sessions.sql",
+    "0238_identity_accounts.sql",
 )
 SCHEMA_ARTIFACTS = (
     "0191_task_append.schema.json",
@@ -193,8 +196,11 @@ SCHEMA_ARTIFACTS = (
     "0235_identity_admission.schema.json",
     "0236_identity_api_keys.schema.json",
     "0237_identity_sessions.schema.json",
+    "0238_identity_accounts.schema.json",
 )
 TEST_FILES = (
+    "tests/test_identity_accounts_native.py",
+    "tests/test_identity_accounts_roles.py",
     "tests/test_identity_sessions_native.py",
     "tests/test_identity_sessions_roles.py",
     "tests/test_identity_auth_native.py",
@@ -1644,6 +1650,10 @@ def _install_and_rollback_frozen_sql(
         "BEGIN;\n"
         "SELECT 1 / (current_database() = :'expected_database')::integer;\n"
         f"{install_sql}\n"
+        "SELECT aap_identity_accounts_v1.account_policy();\n"
+        "SELECT aap_identity_accounts_v1.prepare_account_command(NULL::jsonb);\n"
+        "SELECT aap_identity_accounts_v1.apply_account_command(NULL::jsonb);\n"
+        "SELECT aap_identity_accounts_v1.mark_inactive_accounts_offline('2000-01-01T00:00:00Z'::timestamptz);\n"
         "SELECT aap_identity_v1.lock_active_actor(NULL::uuid);\n"
         "SELECT aap_workspace_v1.lock_project_manager(NULL::uuid, NULL::uuid);\n"
         "SELECT aap_assets_v1.associate_project(NULL::uuid, NULL::uuid, NULL::uuid);\n"
@@ -1771,6 +1781,7 @@ def _install_and_rollback_frozen_sql(
         "aap-dataset-source-ingest/v1": "invalid_request",
         "aap-dataset-source-ingest-delivery/v1": "invalid_request",
         "aap-assets-spatial/v1": "invalid_request",
+        "aap-identity-accounts-native/v1": "invalid_request",
     }
     if any(
         not any(
@@ -1805,6 +1816,7 @@ def _install_and_rollback_frozen_sql(
         sql=(
             "SELECT current_database() = :'expected_database' "
             "AND to_regnamespace('aap_identity_v1') IS NULL "
+            "AND to_regnamespace('aap_identity_accounts_v1') IS NULL "
             "AND to_regnamespace('aap_workspace_v1') IS NULL "
             "AND to_regnamespace('aap_assets_v1') IS NULL "
             "AND to_regnamespace('aap_labeling_v1') IS NULL "
@@ -1818,6 +1830,7 @@ def _install_and_rollback_frozen_sql(
             "AND to_regnamespace('aap_settings_v1') IS NULL "
             "AND to_regnamespace('aap_notifications_v1') IS NULL "
             "AND to_regclass('public.task_append_operations') IS NULL "
+            "AND to_regclass('public.identity_account_operation_receipts') IS NULL "
             "AND to_regclass('public.task_creation_operations') IS NULL "
             "AND to_regclass('public.task_creation_chunks') IS NULL "
             "AND to_regclass('public.project_deletion_operations') IS NULL "
@@ -1951,6 +1964,9 @@ def main(argv: list[str] | None = None) -> int:
         identity_session_grants_path = (
             ROOT / "infra/docker/identity-sessions-grants.sql"
         )
+        identity_account_grants_path = (
+            ROOT / "infra/docker/identity-accounts-grants.sql"
+        )
         artifacts = tuple(
             ROOT / "apps/api/alembic/sql" / name for name in SQL_ARTIFACTS
         )
@@ -1970,6 +1986,7 @@ def main(argv: list[str] | None = None) -> int:
             or not identity_grants_path.is_file()
             or not identity_key_grants_path.is_file()
             or not identity_session_grants_path.is_file()
+            or not identity_account_grants_path.is_file()
             or any(not path.is_file() for path in artifacts)
             or any(not path.is_file() for path in schema_paths)
         ):
@@ -1997,6 +2014,9 @@ def main(argv: list[str] | None = None) -> int:
         identity_grant_sql = identity_grants_path.read_text(encoding="utf-8")
         identity_key_grant_sql = identity_key_grants_path.read_text(encoding="utf-8")
         identity_session_grant_sql = identity_session_grants_path.read_text(
+            encoding="utf-8"
+        )
+        identity_account_grant_sql = identity_account_grants_path.read_text(
             encoding="utf-8"
         )
 
@@ -2101,8 +2121,8 @@ def main(argv: list[str] | None = None) -> int:
         database = resources["database"]
         evidence["database"] = database
         _, heads = migration_graph(ROOT)
-        if heads != ["0237"]:
-            raise RuntimeError("module-data acceptance requires migration head 0237")
+        if heads != ["0238"]:
+            raise RuntimeError("module-data acceptance requires migration head 0238")
         evidence["migrations"]["head_before_downgrade"] = heads[0]
         phase = "downgrade-to-0189"
         _container_details(
@@ -2360,6 +2380,23 @@ def main(argv: list[str] | None = None) -> int:
                 "migration_role": "owner",
                 "identity_owner": "identity_code",
                 "identity_session_role": "identity_session_client",
+            },
+        )
+        phase = "install-identity-account-grants"
+        _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="owner",
+            password=owner_password,
+            database=database,
+            sql=identity_account_grant_sql,
+            variables={
+                "expected_database": database,
+                "migration_role": "owner",
+                "identity_owner": "identity_code",
+                "identity_account_role": "identity_account_client",
+                "identity_presence_role": "identity_presence_client",
             },
         )
         resource_environment = backend.environment()

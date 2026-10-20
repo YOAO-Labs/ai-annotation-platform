@@ -7,15 +7,17 @@ last_reviewed: 2026-10-20
 
 # Identity 私有运行协议
 
-Identity 运行时提供认证准入、API key 和核心会话命令，供受信任的服务调用。公开用户接口仍是 `/api/v1/auth/` 和 `/api/v1/me/api-keys`。私有接口要求独立控制 Bearer；用户凭据放在 JSON 的 `token` 中，不能代替控制凭据。
+Identity 运行时提供认证准入、API key、核心会话、自助账户和在线扫描命令，供受信任的服务调用。公开用户接口仍是 `/api/v1/auth/` 和 `/api/v1/me/api-keys`。私有接口要求独立控制 Bearer；用户凭据放在 JSON 的 `token` 中，不能代替控制凭据。
 
-| 接口                                 | 用途                                           |
-| ------------------------------------ | ---------------------------------------------- |
-| `GET /health`                        | 进程存活                                       |
-| `GET /ready`                         | 原生策略和所配置能力的精确函数权限             |
-| `POST /v1/identity/authenticate`     | JWT／API key 准入，返回 `aap-identity/v1` 主体 |
-| `POST /v1/identity/api-keys/execute` | API key 列表、创建、修改、轮换和撤销           |
-| `POST /v1/identity/sessions/execute` | 登录、刷新、登出和全端登出                     |
+| 接口                                       | 用途                                           |
+| ------------------------------------------ | ---------------------------------------------- |
+| `GET /health`                              | 进程存活                                       |
+| `GET /ready`                               | 原生策略和所配置能力的精确函数权限             |
+| `POST /v1/identity/authenticate`           | JWT／API key 准入，返回 `aap-identity/v1` 主体 |
+| `POST /v1/identity/api-keys/execute`       | API key 列表、创建、修改、轮换和撤销           |
+| `POST /v1/identity/sessions/execute`       | 登录、刷新、登出和全端登出                     |
+| `POST /v1/identity/accounts/execute`       | 当前资料、改名、偏好、心跳、改密和头像引用     |
+| `POST /v1/identity/presence/mark-inactive` | 按已固定的 cutoff 批量标记离线                 |
 
 ## API key 请求
 
@@ -82,3 +84,29 @@ API 保留通用限流和 Turnstile 验证，提供方重新检查失败计数�
 提供方的签发时长、邮箱验证、失败计数阈值／窗口和 Redis 实例必须与边缘及剩余签发端匹配。修改签发策略或 signing secret 后，旧操作回执冲突。原生策略固定 issuer、HS256 和七天宽限；含会话回执时拒绝降级。开放注册、邀请注册、密码／邮件及其他账号流程仍有待提取，API 整体尚未撤除签名能力。
 
 为保证重放字节稳定，JWT header 使用紧凑 JSON `alg`、`typ`，payload 字段顺序固定为 `sub`、`role`、`exp`、`jti`、`gen`、`iss`。UUID 为小写规范形式，代次和时间为十进制整数，Base64URL 不带填充。HS256 key 是 `HMAC-SHA256(secret UTF-8, issuer UTF-8)` 的小写 hex 字符串，再按 UTF-8 作为 HMAC key。会话派生 master 使用相同 secret 与独立域 `aap-identity-sessions/v1`；其 SHA-256 是派生标识，登录指纹是该 master 对按键排序、紧凑且非 ASCII 以 Unicode 转义表示的 `{email,password}` JSON 的 HMAC-SHA256。仓库的 `apps/identity/tests/fixtures/session_vectors.json` 提供公开测试向量，不含部署凭据；Python 和 Node 都核对相同结果。这是跨语言原语／序列化证据，尚非另一语言的完整提供方验收。
+
+## 自助账户命令
+
+请求使用 `aap-identity-accounts/v1`，字段固定为 `schema`、`operation`、`operation_id`、`token`、`audit_context`、`payload`。审计上下文与会话相同。用户身份从当前 JWT 或 API key 解析，payload 不能指定另一个用户。既有 API key 自助访问策略保持不变。
+
+| operation           | payload                                                          |
+| ------------------- | ---------------------------------------------------------------- |
+| `read_self_account` | `{}`，返回公开 `UserOut` 资料投影，包含原始偏好和头像引用        |
+| `update_name`       | `name`，1–100 字符；去除首尾空白后不能为空                       |
+| `get_preferences`   | `{}`，返回归一化偏好，保留 opaque 工作区／快捷键                 |
+| `patch_preferences` | `patch` 对象，保留深合并、原子 map、revision CAS 和版本保护      |
+| `heartbeat`         | `{}`，以数据库时间更新在线状态，不创建轮询回执                   |
+| `change_password`   | `old_password`、`new_password`，保持既有长度／强度与当前会话策略 |
+| `set_avatar_ref`    | `avatar_ref`、`kind`、`bytes`；上传引用只能由受信任字节入口生成  |
+
+成功响应含 `schema`、`ok: true`、匹配的 `operation`／`operation_id`、当前围栏主体和 `data`。data 固定为 `account`、`preferences`、`previous_avatar_ref`、`changed` 四字段：资料读取／改名／头像返回 account，偏好操作返回 preferences，心跳／改密均为 null。改名和头像的 changed 为布尔值；头像只有实际替换才有旧引用，no-op 的旧引用为 null，不能误删当前对象。资料没有密码 hash 或额外凭据字段。
+
+失败使用 `ok: false, error: {code,status_code,detail}`。普通准入错误、`account_busy` 和 `operation_conflict` 的后两字段为 null；`policy_rejected` 保留原有 400／409／422 与安全详情。校验诊断只含 `type`、`loc`、`msg`，没有 input／ctx；错误消息不会回显密码。账户竞争仍为公开 409，能力不可用为 503。形状错误、主体／操作错配或非有限数字不能确认提交。
+
+所有者在一条连接上先准备并锁定 User，再检查当前 JTI／代次／有效期或 API key hash，运行完整偏好策略或 bcrypt，最后重新检查并提交。偏好等待最新行后合并；其他写入保留非等待竞争。名称／偏好／密码／头像修改的成功回执与状态、业务审计共同提交。名称／头像 no-op 不重复业务审计，自助改密清除管理员重置标记，仍不推进 JWT 代次或撤销 API key。
+
+私有调用方固定操作 UUID 与输入后，可在丢响应、重启或恢复数据库后取回冻结结果。重放需要当前有效凭据，不能用已过期／撤销的凭据读取回执；可用同一账号的其他有效凭据。它不重新检查已失效的旧密码、不重复修改或审计、不回退当前偏好和头像。冻结 account 的名称／角色／邮箱可能早于当前 principal。HMAC 指纹、epoch 和保留回执的降级规则见 [ADR-0118](/dev/adr/0118-independent-identity-account-commands)。公开接口没有新增自动重试或幂等 header。
+
+账户角色只有 `account_policy`、`prepare_account_command`、`apply_account_command` 三函数；扫描角色只有 `mark_inactive_accounts_offline`。扫描请求是 `{schema:"aap-identity-presence/v1",cutoff:"带时区时间"}`，成功响应为相同 schema 和严格非负 64 位 affected。它保留 `online AND (last_seen_at IS NULL OR last_seen_at < cutoff)`，不新增 active 过滤。就绪检查只查询权限，不执行扫描。
+
+账户偏好保留原有大小和基数集合，不套用会话的 64 KiB 请求或准入的 16 MiB 响应上限；并发、截止时间及部署资源仍是实际运行边界。字节处理不持远程 SQL 锁。确定拒绝时清理新头像暂存对象，提交未知时保留字节并先核对资料／回执；旧对象只在确认提交后尽力清理。注册、密码恢复／邮件验证、分组／管理员及多 owner 生命周期继续按[模块台账](/dev/concepts/module-deployment)推进。

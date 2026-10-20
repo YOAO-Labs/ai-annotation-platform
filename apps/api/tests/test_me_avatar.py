@@ -324,3 +324,89 @@ async def test_me_and_brief_expose_avatar_ref(
     ).scalar_one()
     briefs = await resolve_briefs(db_session, [refreshed.id])
     assert briefs[str(refreshed.id)].avatar_ref == "preset:pixel-12"
+
+
+async def test_definite_avatar_rejection_cleans_only_new_staged_object(
+    httpx_client,
+    annotator,
+    fake_storage,
+    db_session,
+    app_module,
+):
+    from aap_identity.account_contract import AccountFailure
+    from app.api.v1.account_commands import get_account_commands
+    from app.services.identity_account_commands import IdentityAccountCommands
+    from app.services.identity_gateway import get_identity_gateway
+
+    user, token = annotator
+    first = await httpx_client.post(
+        AVATAR_URL,
+        files={"file": ("first.png", _png_bytes((300, 300)), "image/png")},
+        headers=_bearer(token),
+    )
+    old_ref = first.json()["avatar_ref"]
+    owner = IdentityAccountCommands(db_session, get_identity_gateway())
+
+    class RejectedOwner:
+        async def execute(self, command):
+            if command.operation == "set_avatar_ref":
+                raise AccountFailure("user_inactive")
+            return await owner.execute(command)
+
+    app_module.dependency_overrides[get_account_commands] = lambda: RejectedOwner()
+    try:
+        response = await httpx_client.post(
+            AVATAR_URL,
+            files={"file": ("next.png", _png_bytes((300, 300), BLUE), "image/png")},
+            headers=_bearer(token),
+        )
+        assert response.status_code == 401
+        await db_session.refresh(user)
+        assert user.avatar_ref == old_ref
+        assert set(fake_storage.objects) == {
+            (fake_storage.avatars_bucket, old_ref.split(":", 1)[1] + ".webp")
+        }
+    finally:
+        app_module.dependency_overrides.pop(get_account_commands, None)
+
+
+async def test_unknown_avatar_commit_keeps_the_now_referenced_object(
+    httpx_client,
+    annotator,
+    fake_storage,
+    db_session,
+    app_module,
+):
+    from app.api.v1.account_commands import get_account_commands
+    from app.services.identity_account_commands import IdentityAccountCommands
+    from app.services.identity_contracts import IdentityGatewayUnavailable
+    from app.services.identity_gateway import get_identity_gateway
+
+    user, token = annotator
+    owner = IdentityAccountCommands(db_session, get_identity_gateway())
+    accepted = []
+
+    class LostReplyOwner:
+        async def execute(self, command):
+            reply = await owner.execute(command)
+            if command.operation == "set_avatar_ref":
+                accepted.append(command)
+                raise IdentityGatewayUnavailable()
+            return reply
+
+    app_module.dependency_overrides[get_account_commands] = lambda: LostReplyOwner()
+    try:
+        response = await httpx_client.post(
+            AVATAR_URL,
+            files={"file": ("next.png", _png_bytes((300, 300)), "image/png")},
+            headers=_bearer(token),
+        )
+        assert response.status_code == 503 and len(accepted) == 1
+        await db_session.refresh(user)
+        assert user.avatar_ref is not None
+        key = (fake_storage.avatars_bucket, user.avatar_ref.split(":", 1)[1] + ".webp")
+        assert key in fake_storage.objects and key not in fake_storage.deleted
+        replay = await owner.execute(accepted[0])
+        assert replay.data.account.avatar_ref == user.avatar_ref
+    finally:
+        app_module.dependency_overrides.pop(get_account_commands, None)

@@ -109,6 +109,10 @@ class EnvironmentTests(unittest.TestCase):
                 "IDENTITY_KEY_DATABASE_URL_FILE": "/shared/key-dsn",
                 "IDENTITY_SESSION_DATABASE_URL": "postgresql://shared/sessions",
                 "IDENTITY_SESSION_DATABASE_URL_FILE": "/shared/session-dsn",
+                "IDENTITY_ACCOUNT_DATABASE_URL": "postgresql://shared/accounts",
+                "IDENTITY_ACCOUNT_DATABASE_URL_FILE": "/shared/account-dsn",
+                "IDENTITY_PRESENCE_DATABASE_URL": "postgresql://shared/presence",
+                "IDENTITY_PRESENCE_DATABASE_URL_FILE": "/shared/presence-dsn",
                 "DUCKDB_PATH": "/shared/analytics.duckdb",
                 "MINIO_PUBLIC_URL": "http://localhost:9000",
                 "MINIO_PROXY_TARGET": "http://shared:9000",
@@ -160,6 +164,10 @@ class EnvironmentTests(unittest.TestCase):
                 "IDENTITY_KEY_DATABASE_URL_FILE",
                 "IDENTITY_SESSION_DATABASE_URL",
                 "IDENTITY_SESSION_DATABASE_URL_FILE",
+                "IDENTITY_ACCOUNT_DATABASE_URL",
+                "IDENTITY_ACCOUNT_DATABASE_URL_FILE",
+                "IDENTITY_PRESENCE_DATABASE_URL",
+                "IDENTITY_PRESENCE_DATABASE_URL_FILE",
             ):
                 self.assertEqual(env[key], "")
             self.assertEqual(env["PATH"], "/bin")

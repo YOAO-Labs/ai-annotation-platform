@@ -6,7 +6,7 @@ import uuid
 from datetime import datetime
 
 from fastapi import HTTPException, status
-from sqlalchemy import or_, select, update
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import hash_password
@@ -154,35 +154,6 @@ class IdentityCommandService:
         return admin
 
     @staticmethod
-    def record_heartbeat_for_locked_user(user: User, now: datetime) -> None:
-        user.last_seen_at = now
-        if user.status != "online":
-            user.status = "online"
-
-    async def mark_inactive_accounts_offline(self, cutoff: datetime):
-        """Bulk-update online accounts with absent or stale heartbeats."""
-        return await self.db.execute(
-            update(User)
-            .where(
-                User.status == "online",
-                or_(User.last_seen_at.is_(None), User.last_seen_at < cutoff),
-            )
-            .values(status="offline")
-        )
-
-    @staticmethod
-    def update_name_for_locked_user(user: User, name: str) -> str:
-        old_name = user.name
-        user.name = name
-        return old_name
-
-    @staticmethod
-    def update_avatar_for_locked_user(user: User, avatar_ref: str | None) -> str | None:
-        previous_ref = user.avatar_ref
-        user.avatar_ref = avatar_ref
-        return previous_ref
-
-    @staticmethod
     def set_password_for_locked_user(
         user: User,
         password_hash: str,
@@ -192,10 +163,6 @@ class IdentityCommandService:
         """Set a credential while its account row is locked; None clears reset state."""
         user.password_hash = password_hash
         user.password_admin_reset_at = admin_reset_at
-
-    @staticmethod
-    def update_preferences_for_locked_user(user: User, preferences: dict) -> None:
-        user.preferences = preferences
 
     @staticmethod
     def set_group_for_locked_user(

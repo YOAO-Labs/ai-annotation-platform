@@ -56,7 +56,7 @@ Authorization: Bearer <access_token>
 
 `GET /api/v1/auth/me/preferences` 读取当前账号偏好，`PATCH /api/v1/auth/me/preferences` 只提交要修改的子树。工作台布局位于 `workbench.layout.workspace`：`contexts` 是可选 map，每个 key 是 `annotate|review × image|video|3d` 中的一项，只提交某个 context 时会原子替换该快照，不会删除其他 context。写入 `contexts` 必须同时携带当前 `engine`；只有下述预设专用 PATCH 可以省略它。
 
-模型、读取归一化和稀疏 PATCH 策略由 `apps/identity` 的独立包持有，API 在现有用户行锁内调用策略并提交。公开路径及响应形状保持原样；偏好写入尚未迁至独立账号命令服务，见[模块台账](../../dev/concepts/module-deployment)。
+模型、读取归一化和稀疏 PATCH 策略由 `apps/identity` 持有；准备、合并、版本校验和写入在同一个身份所有者事务完成，可内嵌装配或显式使用独立进程。公开路径及响应形状保持原样，服务不可用返回 503 且不回退到其他写入者；见[私有账户协议](./identity-runtime#自助账户命令)和[模块台账](../../dev/concepts/module-deployment)。
 
 `workbench.shortcuts` 承载账号级快捷键覆盖：`schemaVersion: 1` 加 `common` / `image` / `video` 三个命令桶，每桶把命令 ID 映射到该命令的完整组合列表（`null` = 恢复默认，`[]` = 停用，非空列表 = 一主一备整体替换）。PATCH 只提交变更的命令条目（按命令深合并），不要携带 `schemaVersion`。写路径对变更条目严格校验：命令 ID 必须在可编辑集合内、键为单字符或小写命名键且不能是修饰键名、修饰键只能是 `mod|alt|shift`、每条命令最多 2 条组合。未触碰的存量条目（包括损坏或来自更新版本的条目）原样保留，不会被默认值覆盖；GET 对无法识别的 shortcuts 子树原样透出，由客户端宽容解析并把受影响覆盖排除出执行。 未提交的命令桶保持原值；显式提交 `null` 命令桶、未知信封字段或类型错误的 `schemaVersion` 返回 `422`。恢复默认应提交命令条目的 `null`，不能用 `null` 替代整个命令桶。
 

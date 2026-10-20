@@ -615,6 +615,8 @@ GRANT EXECUTE ON FUNCTION aap_audit_v1.record_identity_session_event(
 GRANT EXECUTE ON FUNCTION aap_audit_v1.record_identity_account_event(
     text, jsonb, jsonb, jsonb
 ) TO :"identity_owner";
+GRANT EXECUTE ON FUNCTION aap_audit_v1.valid_request_context(jsonb)
+    TO :"identity_owner";
 
 GRANT EXECUTE ON FUNCTION aap_identity_v1.lock_active_actor(uuid)
     TO :"workspace_owner", :"assets_owner", :"labeling_owner";

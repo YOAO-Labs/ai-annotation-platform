@@ -2452,3 +2452,58 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   destroyed; no task-owned browser, server, proof container or execution handle
   remains. Current evidence is retained under
   `.worktree/identity-preferences-verification-current.json`.
+
+### Identity independent self-account command owner
+
+- The existing Identity artifact now owns seven self-account commands: profile
+  read, name, preference read/patch, heartbeat, password change and avatar pointer.
+  Public handlers consume Principal and values without loading User rows. A
+  caller-session adapter only synchronizes already-loaded legacy instances;
+  obsolete ORM name/avatar/preference/heartbeat/offline setters are removed.
+  Registration, recovery/email, group/admin and multi-owner lifecycle remain open.
+- Native0238 adds one account policy and prepare/apply functions, with a separate
+  one-function presence operator. User precedes current JWT/key locks; preference
+  patches wait for the latest row and execute the full portable policy on that
+  same transaction. Apply independently authenticates and checks its base field.
+  Audit uses existing owner capabilities, including the explicitly shared context
+  validator; ACCOUNT/PRESENCE LOGINS have no table/TEMP/foreign-module access.
+- Name/preference/password/avatar changes keep frozen successful receipts, no
+  identity passwords/hashes/bearer tokens. Current credentials precede replay;
+  historical outcomes never rewind newer state or repeat audit. Heartbeat has no
+  per-poll receipt. Self password change retains JWT generation/API keys and clears
+  the administrator-reset marker. Password validation strips raw input/context;
+  API debug SQL hides bind values.
+- Avatar bytes and normalization remain at their existing provider, outside remote
+  SQL locks. Definite rejection removes the new staged object; unknown commit
+  retains possibly referenced bytes. Old objects are cleaned only after confirmed
+  pointer commit, and a no-op has no cleanup target. Known rejection and lost-reply
+  cases are exercised, including replay without losing the committed object.
+- Latest targeted/native/API/live qualification has230 distinct backend passes and
+  zero unresolved failures/skips, including all111 current preference cases. The
+  installed-only package passes156 tests and scoped SDK checks55. Node peer's21
+  self-checks and actual seven-command/presence calls pass, preserving exact int64.
+  Public OpenAPI changes only7 descriptions; schemas/catalog/frontend artifacts
+  are regenerated. All10 owned verifier histories clean up without errors.
+- Real installed process/restart/current-revocation and readonly nonroot container
+  paths pass. A real API holding only AUTH privileges completes all seven commands
+  and real avatar storage; dedicated account/presence DSNs also work. A healthy
+  provider without account capability returns503 without selecting another writer.
+  REST/notification WebSocket revalidation remains qualified after profile migration.
+  Backup/restore preserves database/schema/function ACLs and account/key/session
+  receipts, retains historical outcome/current principal separation, and refuses
+  populated account/session/JTI downgrade while staying at238.
+- Local1CPU/256MiB sampling completes32 reads at concurrency8 in0.204s (p95 .062s)
+  and a16,777,217-byte preference value write/read in1.467s. After-load memory is
+  64.92MiB, not a peak. There is no new65KiB/16MiB account ceiling; this bounded
+  sample does not establish production capacity or an alternate-language provider.
+- Earlier failures remain in raw reports: missing code-owner validator permission
+  fixed with the existing Audit capability; protected cleanup/OID/SQL type-alias
+  test assumptions corrected; HTTP validation fixture shapes and nonfinite-number
+  diagnostics adapted. One accidental local DB selector failed before migration
+  because annotation_test is absent; its real pass is the owned verifier. Live
+  cleanup argument omissions were fixed before the successful backup/recovery run.
+- Protocol and deployment decisions are recorded in ADR0118, DEV, private/public
+  API guides and module matrix. Primary Identity cutover, full Identity/all other
+  modules/seven-gate completion, production, Go expansion, push/release/remoteCI
+  remain outside this completed self-account group. The original full goal stays
+  active. Evidence: `.worktree/identity-accounts-verification-current.json`.

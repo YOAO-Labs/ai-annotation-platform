@@ -236,6 +236,10 @@ class Settings(BaseSettings):
     identity_key_database_url_file: str = ""
     identity_session_database_url: str = Field(default="", repr=False)
     identity_session_database_url_file: str = ""
+    identity_account_database_url: str = Field(default="", repr=False)
+    identity_account_database_url_file: str = ""
+    identity_presence_database_url: str = Field(default="", repr=False)
+    identity_presence_database_url_file: str = ""
 
     media_probe_url: str = ""
     media_probe_token: str = Field(default="", repr=False)

@@ -1,16 +1,6 @@
-import re
+"""Compatibility imports for the Identity-owned password policy."""
 
-MIN_LENGTH = 8
-
-
-def validate_password_strength(password: str) -> list[str]:
-    errors: list[str] = []
-    if len(password) < MIN_LENGTH:
-        errors.append(f"密码长度至少 {MIN_LENGTH} 位")
-    if not re.search(r"[A-Z]", password):
-        errors.append("密码需包含大写字母")
-    if not re.search(r"[a-z]", password):
-        errors.append("密码需包含小写字母")
-    if not re.search(r"\d", password):
-        errors.append("密码需包含数字")
-    return errors
+from aap_identity.password_policy import MIN_LENGTH as MIN_LENGTH
+from aap_identity.password_policy import (
+    validate_password_strength as validate_password_strength,
+)

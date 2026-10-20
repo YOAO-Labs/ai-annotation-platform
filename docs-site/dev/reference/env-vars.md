@@ -482,9 +482,15 @@ last_reviewed: 2026-10-20
 | `IDENTITY_KEY_DATABASE_URL_FILE` | `—` | — |
 | `IDENTITY_SESSION_DATABASE_URL` | `—` | 内嵌核心会话命令可用独立三函数 LOGIN；登录计数复用 REDIS_URL。 |
 | `IDENTITY_SESSION_DATABASE_URL_FILE` | `—` | — |
-| `IDENTITY_RUNTIME_DATABASE_URL_FILE` | `—` | 独立 Compose 的六个 secret 文件。准入／key／会话分开授予函数 LOGIN。 Redis 身份只需 login_failed:* 的 GET/INCRBY/EXPIRE/DEL；签名 secret 与所有现存签发端相同。 |
+| `IDENTITY_ACCOUNT_DATABASE_URL` | `—` | 自助账户命令的三函数 LOGIN，与单函数在线扫描 LOGIN 分开授权。 |
+| `IDENTITY_ACCOUNT_DATABASE_URL_FILE` | `—` | — |
+| `IDENTITY_PRESENCE_DATABASE_URL` | `—` | — |
+| `IDENTITY_PRESENCE_DATABASE_URL_FILE` | `—` | — |
+| `IDENTITY_RUNTIME_DATABASE_URL_FILE` | `—` | 独立 Compose 的八个 secret 文件。各项能力分开授予函数 LOGIN。 Redis 身份只需 login_failed:* 的 GET/INCRBY/EXPIRE/DEL；签名 secret 与所有现存签发端相同。 |
 | `IDENTITY_RUNTIME_KEY_DATABASE_URL_FILE` | `—` | — |
 | `IDENTITY_RUNTIME_SESSION_DATABASE_URL_FILE` | `—` | — |
+| `IDENTITY_RUNTIME_ACCOUNT_DATABASE_URL_FILE` | `—` | — |
+| `IDENTITY_RUNTIME_PRESENCE_DATABASE_URL_FILE` | `—` | — |
 | `IDENTITY_RUNTIME_LOGIN_REDIS_URL_FILE` | `—` | — |
 | `IDENTITY_RUNTIME_TOKEN_FILE` | `—` | — |
 | `IDENTITY_RUNTIME_SIGNING_SECRET_FILE` | `—` | — |

@@ -136,15 +136,13 @@ async def test_identity_presence_login_has_only_its_operator_function():
             """
         )
         assert {row["signature"] for row in actual} == {
-            "aap_identity_accounts_v1.mark_inactive_accounts_offline(timestamptz)"
+            "aap_identity_accounts_v1.mark_inactive_accounts_offline(timestamp with time zone)"
         }
         assert await connection.fetchval(
             """
             SELECT pg_catalog.has_function_privilege(
                 current_user,
-                pg_catalog.to_regprocedure(
-                    'aap_identity_accounts_v1.mark_inactive_accounts_offline(timestamptz)'
-                )::oid,
+                (SELECT function.oid FROM pg_catalog.pg_proc AS function JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid=function.pronamespace WHERE namespace.nspname='aap_identity_accounts_v1' AND function.proname='mark_inactive_accounts_offline'),
                 'EXECUTE'
             )
             """
@@ -205,23 +203,17 @@ async def test_account_and_presence_logins_do_not_inherit_old_identity_or_audit_
                        AS audit_schema,
                    pg_catalog.has_function_privilege(
                        role.oid,
-                       pg_catalog.to_regprocedure(
-                           'aap_audit_v1.record_identity_account_event(text,jsonb,jsonb,jsonb)'
-                       )::oid,
+                       (SELECT function.oid FROM pg_catalog.pg_proc AS function JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid=function.pronamespace WHERE namespace.nspname='aap_audit_v1' AND function.proname='record_identity_account_event'),
                        'EXECUTE'
                    ) AS audit_function,
                    pg_catalog.has_function_privilege(
                        role.oid,
-                       pg_catalog.to_regprocedure(
-                           'aap_identity_accounts_v1.account_policy()'
-                       )::oid,
+                       (SELECT function.oid FROM pg_catalog.pg_proc AS function JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid=function.pronamespace WHERE namespace.nspname='aap_identity_accounts_v1' AND function.proname='account_policy'),
                        'EXECUTE'
                    ) AS account_function,
                    pg_catalog.has_function_privilege(
                        role.oid,
-                       pg_catalog.to_regprocedure(
-                           'aap_identity_accounts_v1.mark_inactive_accounts_offline(timestamptz)'
-                       )::oid,
+                       (SELECT function.oid FROM pg_catalog.pg_proc AS function JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid=function.pronamespace WHERE namespace.nspname='aap_identity_accounts_v1' AND function.proname='mark_inactive_accounts_offline'),
                        'EXECUTE'
                    ) AS presence_function,
                    pg_catalog.has_table_privilege(
@@ -262,9 +254,7 @@ async def test_account_and_presence_logins_do_not_inherit_old_identity_or_audit_
             """
             SELECT pg_catalog.has_function_privilege(
                 'identity_code',
-                pg_catalog.to_regprocedure(
-                    'aap_audit_v1.record_identity_account_event(text,jsonb,jsonb,jsonb)'
-                )::oid,
+                (SELECT function.oid FROM pg_catalog.pg_proc AS function JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid=function.pronamespace WHERE namespace.nspname='aap_audit_v1' AND function.proname='record_identity_account_event'),
                 'EXECUTE'
             )
             """

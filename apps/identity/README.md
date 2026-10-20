@@ -1,12 +1,14 @@
 # Identity
 
-This package contains the JWT/API-key verifier, API-key management and core
-session command owners, their closed contracts, and one private HTTP process.
+This package contains the JWT/API-key verifier, API-key management, core sessions
+and self-account command owners, their closed contracts, and one private HTTP process.
 The runtime has no application, SQLAlchemy, Celery or object-store dependency.
 Admission uses four PostgreSQL capabilities, key management uses two, and
 sessions use three plus a scoped Redis login-counter identity. Each configured
-capability has a separate database login. Registration and account/lifecycle
-coordinators remain in the API, so this is not yet a complete Identity service.
+capability has a separate database login. Self-account commands use three functions
+and presence maintenance uses one separate operator function. Registration,
+recovery/email, group/admin and multi-owner lifecycle coordinators remain in the
+API, so this is not yet a complete Identity service.
 
 ## Run
 
@@ -27,7 +29,9 @@ Private `POST /v1/identity/authenticate` requires the control bearer and a JSON
 `{"token":"..."}` body. Valid credential verdicts return a closed success or
 failure envelope with HTTP 200. Invalid control credentials return 401, malformed
 requests return 400, and owner failures/deadlines return 503. Bodies never echo
-the supplied credential. Request bytes, concurrency and deadlines are bounded.
+the supplied credential. Concurrency and deadlines are bounded. Account preferences
+retain their existing accepted size/cardinality set rather than inheriting the
+smaller admission/session byte limits.
 
 `docker-compose.identity.yml` starts only this optional process. Its nonroot
 image contains installed packages, not an application source bind, and supports
@@ -53,7 +57,7 @@ admission verdict describes the credential at resolution time; a business
 command requiring a final-write fence must explicitly call the native current
 principal lock on its own transaction. Admission by itself is not that fence.
 
-The package distributes admission, key and session wire/native schemas.
+The package distributes admission, key, session, account and presence schemas.
 Generate/check them with `scripts/export_schema.py` / `--check`. Native data
 and privilege contracts live with migrations and the corresponding
 `infra/docker/identity-*-grants.sql` files. The Go experiment is not involved
@@ -62,9 +66,10 @@ in this service.
 ## Preference policy
 
 `aap_identity.preferences` owns preference read normalization and sparse patch
-validation/merge. The API holds its existing User lock, calls that pure policy,
-and writes the resulting JSON in its own transaction. There is no private
-account-command endpoint or independent preference writer yet.
+validation/merge. `AccountManager` keeps the User lock, portable calculation and
+native apply on one owner transaction. The API can bind the same workflow to a
+caller transaction or explicitly select the independent private endpoint;
+configured remote/dedicated-DSN failures never choose another writer.
 
 The distributed `preferences_write.schema.json` describes the current strict
 editable model after legacy-key promotion and opaque stored-value filtering;
@@ -73,3 +78,14 @@ opaque future workspace and shortcut data. A replacement must also preserve
 atomic map replacement, revision CAS, schema/engine downgrade errors, safe
 validation diagnostics and unchanged opaque values. Schema validation alone
 does not implement those behaviors.
+
+## Self-account commands
+
+`POST /v1/identity/accounts/execute` accepts `aap-identity-accounts/v1` with a
+user credential plus the separate control bearer. The account DSN uses the
+three-function LOGIN; `POST /v1/identity/presence/mark-inactive` uses the separate
+single-function presence DSN. Both are optional capabilities in the same process.
+See [ADR-0118](../../docs/adr/0118-independent-identity-account-commands.md) for
+locking, mutation receipts, current-credential replay and avatar commit/cleanup
+boundaries. Password verification/hash and preference merge belong to this
+package; S3 and image bytes do not.

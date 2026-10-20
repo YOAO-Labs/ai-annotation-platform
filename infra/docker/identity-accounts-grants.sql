@@ -108,6 +108,10 @@ BEGIN
             'aap_audit_v1.record_identity_account_event(text,jsonb,jsonb,jsonb)'
         )::oid,
         'EXECUTE'
+    ) OR NOT pg_catalog.has_function_privilege(
+        owner_oid,
+        pg_catalog.to_regprocedure('aap_audit_v1.valid_request_context(jsonb)')::oid,
+        'EXECUTE'
     ) THEN
         RAISE EXCEPTION 'Identity code owner cannot call the Audit-owned account event capability';
     END IF;

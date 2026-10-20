@@ -1,19 +1,20 @@
 import asyncio
-from datetime import datetime, timezone
+import uuid
 
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
-from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from fastapi.security import HTTPAuthorizationCredentials
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from aap_identity.contract import Principal
 from app.core.ratelimit import limiter
-from app.core.security import hash_password, verify_password
-from app.deps import get_current_user, get_db
+from app.deps import bearer_scheme, get_current_principal, get_current_user, get_db
 from app.db.models.user import User
 from app.schemas.me import AvatarRefUpdate, PasswordChange, ProfileUpdate
 from app.schemas.user import UserOut, UserPreferencesRead
-
+from app.api.v1.account_commands import execute_account, get_account_commands
+from app.services.identity_account_commands import AccountCommandsPort
 from app.services import avatar as avatar_service
 from app.services.avatar_image import (
     ALLOWED_CONTENT_TYPES as ALLOWED_IMAGE_CONTENT_TYPES,
@@ -21,40 +22,25 @@ from app.services.avatar_image import (
     AvatarImageError,
     normalize_avatar,
 )
-from app.services.audit import AuditAction, AuditService
 from app.services.deactivation_service import DeactivationService
-from app.services.identity_commands import IdentityCommandService
 from app.services.notification import NotificationService
-from aap_identity.preferences import (
-    PreferencePolicyError,
-    PreferenceValidationError,
-    patch_preferences,
-    read_preferences,
-)
 
 router = APIRouter()
 
 
 @router.post("/heartbeat", status_code=status.HTTP_204_NO_CONTENT)
 async def heartbeat(
-    db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    request: Request,
+    _principal: Principal = Depends(get_current_principal),
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+    commands: AccountCommandsPort = Depends(get_account_commands),
 ):
-    """v0.8.3 · 在线状态心跳。
-
-    前端每 30s 调一次（document.visibilityState === 'visible' 时），刷新
-    last_seen_at 与 status='online'。Celery beat `mark_inactive_offline` 任务
-    据 last_seen_at 把超 OFFLINE_THRESHOLD_MINUTES 的用户置 offline。
-    """
-    identity = IdentityCommandService(db)
-    user = await identity.lock_active_account(user.id)
-    identity.record_heartbeat_for_locked_user(user, datetime.now(timezone.utc))
-    await db.commit()
-    return None
+    """刷新在线心跳；既有调度任务按最后活跃时间执行离线判定。"""
+    await execute_account(request, credentials, commands, "heartbeat", {})
 
 
 class DeactivationRequest(BaseModel):
-    """v0.8.1 · 自助注销申请：可附原因（≤500 字符）。"""
+    """自助注销申请，可附原因。"""
 
     reason: str | None = Field(default=None, max_length=500)
 
@@ -63,64 +49,32 @@ class DeactivationRequest(BaseModel):
 async def update_profile(
     payload: ProfileUpdate,
     request: Request,
-    db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    _principal: Principal = Depends(get_current_principal),
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+    commands: AccountCommandsPort = Depends(get_account_commands),
 ):
-    identity = IdentityCommandService(db)
-    user = await identity.lock_active_account(user.id)
-    new_name = payload.name.strip()
-    if not new_name:
-        raise HTTPException(status_code=400, detail="姓名不能为空")
-    old_name = identity.update_name_for_locked_user(user, new_name)
-
-    if user.name != old_name:
-        await AuditService.log(
-            db,
-            actor=user,
-            action=AuditAction.USER_PROFILE_UPDATE,
-            target_type="user",
-            target_id=str(user.id),
-            request=request,
-            status_code=200,
-            detail={"old_name": old_name, "new_name": user.name},
-        )
-    await db.commit()
-    await db.refresh(user)
-    return user
-
-
-async def _apply_avatar_ref(
-    db: AsyncSession,
-    user: User,
-    new_ref: str | None,
-    request: Request,
-    *,
-    detail: dict,
-) -> User:
-    """Write the avatar reference for a caller-locked active account, then clean up.
-
-    The caller acquires the fresh account lock before any object write. Commit before
-    deleting the previous object so a failed commit cannot leave a dangling reference.
-    """
-    identity = IdentityCommandService(db)
-    previous_ref = user.avatar_ref
-    if previous_ref == new_ref:
-        return user
-    identity.update_avatar_for_locked_user(user, new_ref)
-    await AuditService.log(
-        db,
-        actor=user,
-        action=AuditAction.USER_PROFILE_UPDATE,
-        target_type="user",
-        target_id=str(user.id),
-        request=request,
-        status_code=200,
-        detail={"field": "avatar", "avatar_ref": new_ref, **detail},
+    data = await execute_account(
+        request, credentials, commands, "update_name", {"name": payload.name}
     )
-    await db.commit()
-    await db.refresh(user)
-    await asyncio.to_thread(avatar_service.delete_ref_object, previous_ref)
-    return user
+    return data["account"]
+
+
+async def _set_avatar(
+    request, credentials, commands, avatar_ref, *, kind, size=None, operation_id=None
+):
+    data = await execute_account(
+        request,
+        credentials,
+        commands,
+        "set_avatar_ref",
+        {"avatar_ref": avatar_ref, "kind": kind, "bytes": size},
+        operation_id=operation_id,
+    )
+    if data["changed"]:
+        await asyncio.to_thread(
+            avatar_service.delete_ref_object, data["previous_avatar_ref"]
+        )
+    return data["account"]
 
 
 @router.post("/avatar", response_model=UserOut)
@@ -128,14 +82,13 @@ async def _apply_avatar_ref(
 async def upload_avatar(
     request: Request,
     file: UploadFile = File(...),
-    db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    _principal: Principal = Depends(get_current_principal),
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+    commands: AccountCommandsPort = Depends(get_account_commands),
 ):
-    """上传自定义头像。
+    """上传自定义头像，服务端校验真实图片并规范化为 256×256 WebP。
 
-    服务端是唯一可信方:客户端声明的 MIME 只作早退,真实格式 / 像素规模由 Pillow 判定,
-    产物统一为 256×256 方形 WebP 后写入 ``avatars`` 桶。请求体另有中间件级上限
-    (``middleware/upload_body_limits``),此处再按文件字节复核一次。
+    头像引用提交成功后才清理旧上传对象；提交结果未知时保留新字节以便核对。
     """
     declared = (file.content_type or "").lower()
     if declared and declared not in {
@@ -143,59 +96,68 @@ async def upload_avatar(
         *ALLOWED_IMAGE_CONTENT_TYPES,
     }:
         raise HTTPException(status_code=415, detail="仅支持 PNG / JPEG / WebP 格式")
-
     raw = await file.read(MAX_AVATAR_FILE_BYTES + 1)
-    # ``normalize_avatar`` 同步解码 / 裁剪 / 重编码，最坏可处理 4000 万像素的压缩图；
-    # ``write_avatar_object`` 是同步 boto3 PUT。都放进线程池，避免单 worker 生产配置下
-    # 一次上传阻塞整个事件循环。
     try:
         normalized = await asyncio.to_thread(normalize_avatar, raw)
-    except AvatarImageError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    user = await IdentityCommandService(db).lock_active_account(user.id)
+    except AvatarImageError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
 
+    # Reject a stale account before staging bytes, then recheck current credentials
+    # at pointer commit. Remote transactions never span image processing or S3 IO.
+    await execute_account(request, credentials, commands, "read_self_account", {})
     token = avatar_service.new_upload_token()
-    await asyncio.to_thread(avatar_service.write_avatar_object, token, normalized)
-    return await _apply_avatar_ref(
-        db,
-        user,
-        avatar_service.build_upload_ref(token),
-        request,
-        detail={"kind": "upload", "bytes": len(normalized)},
-    )
+    avatar_ref = avatar_service.build_upload_ref(token)
+    try:
+        await asyncio.to_thread(avatar_service.write_avatar_object, token, normalized)
+    except Exception:
+        await asyncio.to_thread(avatar_service.delete_ref_object, avatar_ref)
+        raise
+    try:
+        return await _set_avatar(
+            request,
+            credentials,
+            commands,
+            avatar_ref,
+            kind="upload",
+            size=len(normalized),
+            operation_id=uuid.uuid4(),
+        )
+    except HTTPException as error:
+        if error.status_code != 503:
+            # A definite rejection has no committed pointer. An unavailable
+            # owner's commit may be unknown: retain those bytes for reconciliation.
+            await asyncio.to_thread(avatar_service.delete_ref_object, avatar_ref)
+        raise
 
 
 @router.patch("/avatar", response_model=UserOut)
 async def set_avatar_ref(
     payload: AvatarRefUpdate,
     request: Request,
-    db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    _principal: Principal = Depends(get_current_principal),
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+    commands: AccountCommandsPort = Depends(get_account_commands),
 ):
-    """选择内置头像（``preset:<slug>``）或清除头像（``avatar_ref: null``）。
-
-    ``upload:`` 前缀一律拒绝,否则用户可以把别人的 token 挂到自己名下。
-    """
+    """选择内置头像或清除头像；上传引用只能由上传端点生成。"""
     try:
-        new_ref = avatar_service.validate_client_ref(payload.avatar_ref)
-    except avatar_service.InvalidAvatarRef as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    user = await IdentityCommandService(db).lock_active_account(user.id)
-    return await _apply_avatar_ref(
-        db, user, new_ref, request, detail={"kind": "preset_or_clear"}
+        avatar_ref = avatar_service.validate_client_ref(payload.avatar_ref)
+    except avatar_service.InvalidAvatarRef as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    return await _set_avatar(
+        request, credentials, commands, avatar_ref, kind="preset_or_clear"
     )
 
 
 @router.delete("/avatar", response_model=UserOut)
 async def clear_avatar(
     request: Request,
-    db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    _principal: Principal = Depends(get_current_principal),
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+    commands: AccountCommandsPort = Depends(get_account_commands),
 ):
-    """恢复默认头像（= 回退首字母圆片）。"""
-    user = await IdentityCommandService(db).lock_active_account(user.id)
-    return await _apply_avatar_ref(
-        db, user, None, request, detail={"kind": "preset_or_clear"}
+    """恢复默认头像，回退到姓名首字母。"""
+    return await _set_avatar(
+        request, credentials, commands, None, kind="preset_or_clear"
     )
 
 
@@ -203,29 +165,17 @@ async def clear_avatar(
 async def change_password(
     payload: PasswordChange,
     request: Request,
-    db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    _principal: Principal = Depends(get_current_principal),
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+    commands: AccountCommandsPort = Depends(get_account_commands),
 ):
-    identity = IdentityCommandService(db)
-    user = await identity.lock_active_account(user.id)
-    if not verify_password(payload.old_password, user.password_hash):
-        raise HTTPException(status_code=400, detail="原密码不正确")
-    if payload.old_password == payload.new_password:
-        raise HTTPException(status_code=400, detail="新密码不能与原密码相同")
-
-    identity.set_password_for_locked_user(user, hash_password(payload.new_password))
-    await AuditService.log(
-        db,
-        actor=user,
-        action=AuditAction.USER_PASSWORD_CHANGE,
-        target_type="user",
-        target_id=str(user.id),
-        request=request,
-        status_code=204,
-        detail={"email": user.email},
+    await execute_account(
+        request,
+        credentials,
+        commands,
+        "change_password",
+        {"old_password": payload.old_password, "new_password": payload.new_password},
     )
-    await db.commit()
-    return None
 
 
 @router.post("/deactivation-request", response_model=UserOut)
@@ -247,9 +197,15 @@ async def request_self_deactivation(
 
 
 @router.get("/preferences", response_model=UserPreferencesRead)
-async def get_preferences(user: User = Depends(get_current_user)) -> JSONResponse:
-    """v0.9.41 · 读取当前用户的标注偏好。空字段走 schema 默认值。"""
-    return JSONResponse(read_preferences(user.preferences or {}))
+async def get_preferences(
+    request: Request,
+    _principal: Principal = Depends(get_current_principal),
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+    commands: AccountCommandsPort = Depends(get_account_commands),
+) -> JSONResponse:
+    """读取当前账号偏好，未设置字段使用默认值，保留 opaque 工作区和快捷键。"""
+    data = await execute_account(request, credentials, commands, "get_preferences", {})
+    return JSONResponse(data["preferences"])
 
 
 @router.patch(
@@ -259,34 +215,16 @@ async def get_preferences(user: User = Depends(get_current_user)) -> JSONRespons
 )
 async def update_preferences(
     payload: dict,
-    db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    request: Request,
+    _principal: Principal = Depends(get_current_principal),
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+    commands: AccountCommandsPort = Depends(get_account_commands),
 ) -> JSONResponse:
-    """锁定最新偏好快照并应用稀疏 PATCH 策略，保留工作区与命名预设冲突语义。"""
-    identity = IdentityCommandService(db)
-    user = await identity.lock_active_account(user.id, nowait=False)
-    try:
-        merged, response = patch_preferences(user.preferences or {}, payload)
-    except PreferenceValidationError as error:
-        raise RequestValidationError(
-            [
-                {
-                    "type": item["type"],
-                    "loc": ("body", *item["loc"]),
-                    "msg": item["msg"],
-                }
-                for item in error.errors
-            ]
-        ) from None
-    except PreferencePolicyError as error:
-        raise HTTPException(
-            status_code=error.status_code, detail=error.detail
-        ) from None
-
-    response = JSONResponse(response)
-    identity.update_preferences_for_locked_user(user, merged)
-    await db.commit()
-    return response
+    """在身份所有者事务内合并稀疏偏好并校验版本冲突。"""
+    data = await execute_account(
+        request, credentials, commands, "patch_preferences", {"patch": payload}
+    )
+    return JSONResponse(data["preferences"])
 
 
 @router.delete("/deactivation-request", response_model=UserOut)
