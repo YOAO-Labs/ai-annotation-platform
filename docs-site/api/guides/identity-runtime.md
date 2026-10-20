@@ -7,6 +7,8 @@ last_reviewed: 2026-10-20
 
 # Identity 私有运行协议
 
+协议对象只接受声明的 wire 字段名：版本字段为 `schema`。内部 Python 字段名 `protocol` 无论单独使用还是与 `schema` 同时提交都被拒绝；opaque 偏好值中的同名键不受影响。
+
 Identity 运行时提供认证准入、API key、核心会话、自助账户和在线扫描命令，供受信任的服务调用。公开用户接口仍是 `/api/v1/auth/` 和 `/api/v1/me/api-keys`。私有接口要求独立控制 Bearer；用户凭据放在 JSON 的 `token` 中，不能代替控制凭据。
 
 | 接口                                       | 用途                                           |

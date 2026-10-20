@@ -121,11 +121,18 @@ class IdentityUnavailable(Exception):
         super().__init__("Identity authentication unavailable")
 
 
+def _reject_protocol_alias(value: object) -> None:
+    """Check the envelope before JSON-mode validation, preserving date semantics."""
+    if isinstance(value, dict) and "protocol" in value:
+        raise ValueError("Use only the declared wire field schema")
+
+
 def decode_principal_reply(payload: dict | bytes) -> Principal:
     try:
         raw = json.loads(payload) if isinstance(payload, bytes) else payload
         if not isinstance(raw, dict) or type(raw.get("ok")) is not bool:
             raise ValueError("Invalid identity envelope")
+        _reject_protocol_alias(raw)
         encoded = json.dumps(raw)
         if raw["ok"]:
             return PrincipalReply.model_validate_json(encoded).data

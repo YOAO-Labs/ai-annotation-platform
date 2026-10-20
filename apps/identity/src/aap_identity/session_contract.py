@@ -17,7 +17,13 @@ from pydantic import (
     model_validator,
 )
 
-from .contract import ClosedModel, FailureCode, IdentityUnavailable, Principal
+from .contract import (
+    ClosedModel,
+    FailureCode,
+    IdentityUnavailable,
+    Principal,
+    _reject_protocol_alias,
+)
 from .security import ALGORITHM, ISSUER
 
 SESSION_PROTOCOL = "aap-identity-sessions/v1"
@@ -45,8 +51,9 @@ SessionFailureCode: TypeAlias = (
 
 def _json_bytes(payload: dict | bytes) -> bytes:
     if isinstance(payload, bytes):
-        json.loads(payload, object_pairs_hook=_unique_object)
+        _reject_protocol_alias(json.loads(payload, object_pairs_hook=_unique_object))
         return payload
+    _reject_protocol_alias(payload)
     return json.dumps(payload, separators=(",", ":"), allow_nan=False).encode()
 
 

@@ -2480,7 +2480,7 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   cases are exercised, including replay without losing the committed object.
 - Latest targeted/native/API/live qualification has230 distinct backend passes and
   zero unresolved failures/skips, including all111 current preference cases. The
-  installed-only package passes156 tests and scoped SDK checks55. Node peer's21
+  installed-only package passes187 tests and scoped SDK checks55. Node peer's21
   self-checks and actual seven-command/presence calls pass, preserving exact int64.
   Public OpenAPI changes only7 descriptions; schemas/catalog/frontend artifacts
   are regenerated. All10 owned verifier histories clean up without errors.
@@ -2507,3 +2507,19 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   modules/seven-gate completion, production, Go expansion, push/release/remoteCI
   remain outside this completed self-account group. The original full goal stays
   active. Evidence: `.worktree/identity-accounts-verification-current.json`.
+
+### Identity wire alias verification
+
+- Final API image cold verification exposed a decoder gap: an envelope containing
+  both the declared `schema` and the internal Python name `protocol` was accepted.
+  Admission, key, session, account and presence decoders now reject that name at
+  their envelope boundary; opaque preference objects keep their own same-name keys.
+- The shared pre-JSON check preserves strict JSON date/UUID semantics. An initial
+  model-before-validator approach rejected valid dates and was removed before
+  commit. Both package/API Pydantic environments now pass 31 new alias/opaque cases,
+  including the private API-key candidate page. The complete installed-only package
+  has187 passes and the API closure/gateway selection has48. Native SQL and public
+  OpenAPI shapes are unchanged.
+- The module matrix now includes the completed seven self-account commands and
+  separate presence operator, while retaining registration, recovery/email,
+  group/admin, other-user hydration and multi-owner lifecycle as unfinished work.

@@ -18,6 +18,7 @@ from .contract import (
     IdentityFailure,
     IdentityUnavailable,
     Principal,
+    _reject_protocol_alias,
     decode_principal_reply,
     require_jwt_scope,
 )
@@ -126,11 +127,9 @@ class Authenticator:
         after: uuid.UUID | None = None
         while True:
             try:
-                page = CandidatesPage.model_validate_json(
-                    json.dumps(
-                        await self.data.read_api_key_candidates(token[:12], after, 100)
-                    )
-                )
+                raw = await self.data.read_api_key_candidates(token[:12], after, 100)
+                _reject_protocol_alias(raw)
+                page = CandidatesPage.model_validate_json(json.dumps(raw))
                 ids = [candidate.id for candidate in page.items]
                 if (
                     len(ids) > 100

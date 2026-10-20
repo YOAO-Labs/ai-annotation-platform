@@ -269,6 +269,25 @@ async def test_invalid_candidate_cursor_does_not_loop_or_grant_access():
         await Authenticator(Broken(), SECRET).authenticate("ak_" + "x" * 32)
 
 
+@pytest.mark.parametrize("retain_schema", [False, True])
+@pytest.mark.asyncio
+async def test_candidate_page_rejects_internal_protocol_name(retain_schema):
+    class Broken(Data):
+        async def read_api_key_candidates(self, *args):
+            page = {
+                "schema": "aap-identity-candidates/v1",
+                "protocol": "aap-identity-candidates/v1",
+                "items": [],
+                "next_after": None,
+            }
+            if not retain_schema:
+                del page["schema"]
+            return page
+
+    with pytest.raises(IdentityUnavailable):
+        await Authenticator(Broken(), SECRET).authenticate("ak_" + "x" * 32)
+
+
 @pytest.mark.asyncio
 async def test_runtime_authentication_boundary_and_no_token_echo():
     data = Data()

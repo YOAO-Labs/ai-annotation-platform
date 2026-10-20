@@ -17,7 +17,12 @@ from pydantic import (
     model_validator,
 )
 
-from .contract import FailureCode, IdentityUnavailable, Principal
+from .contract import (
+    FailureCode,
+    IdentityUnavailable,
+    Principal,
+    _reject_protocol_alias,
+)
 
 KEY_PROTOCOL = "aap-identity-keys/v1"
 NATIVE_KEY_PROTOCOL = "aap-identity-keys-native/v1"
@@ -120,7 +125,9 @@ _KEY_REQUESTS = TypeAdapter(KeyRequest)
 
 def _json_bytes(payload: dict | bytes) -> bytes:
     if isinstance(payload, bytes):
+        _reject_protocol_alias(json.loads(payload))
         return payload
+    _reject_protocol_alias(payload)
     return json.dumps(payload, separators=(",", ":"), allow_nan=False).encode()
 
 

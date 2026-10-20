@@ -48,6 +48,11 @@ serialization are validated before commit; nonfinite values cannot silently beco
 null through a serializer. The API strips password validation input/context and
 hides SQL bind parameters in debug output.
 
+Wire decoders explicitly reject the internal `protocol` name, including when a
+valid `schema` is also present. This check precedes JSON-mode validation so strict
+date/UUID parsing retains its JSON semantics. Opaque preference values keep their
+own field names.
+
 Successful name, preference, password and avatar commands retain an operation
 receipt with a purpose-separated request HMAC and signing-epoch identifier. The
 HMAC input is sorted-key compact `ensure_ascii` JSON `{operation,payload}`, with

@@ -17,7 +17,13 @@ from pydantic import (
     model_validator,
 )
 
-from .contract import ClosedModel, FailureCode, IdentityUnavailable, Principal
+from .contract import (
+    ClosedModel,
+    FailureCode,
+    IdentityUnavailable,
+    Principal,
+    _reject_protocol_alias,
+)
 from .password_policy import validate_password_strength
 from .session_contract import SessionAuditContext
 
@@ -77,6 +83,7 @@ def _json_bytes(payload: dict | bytes | ClosedModel) -> bytes:
         value = json.loads(
             payload, object_pairs_hook=_unique_object, parse_constant=_reject_constant
         )
+        _reject_protocol_alias(value)
         _assert_finite(value)
         return payload
     elif isinstance(payload, ClosedModel):
@@ -84,6 +91,7 @@ def _json_bytes(payload: dict | bytes | ClosedModel) -> bytes:
         value = payload.model_dump(mode="json", by_alias=True)
     else:
         value = payload
+    _reject_protocol_alias(value)
     _assert_finite(value)
     return json.dumps(
         value, separators=(",", ":"), ensure_ascii=True, allow_nan=False
