@@ -242,9 +242,17 @@ class _CorruptingOffboardingData:
             yield _CorruptingOffboardingTransaction(transaction)
 
 
+@pytest.mark.parametrize(
+    ("reason", "expected_reason"),
+    [
+        pytest.param("  Offboarding accepted  ", "Offboarding accepted", id="reason"),
+        pytest.param("", None, id="empty-reason"),
+        pytest.param(" \t ", None, id="whitespace-reason"),
+    ],
+)
 @pytest.mark.asyncio
 async def test_handoff_updates_owner_and_labeling_and_replays_without_duplicate_audit(
-    test_engine,
+    test_engine, reason, expected_reason
 ):
     actor_id, _ = await _add_user(test_engine, "super_admin")
     target_id, target_email = await _add_user(test_engine, "employee")
@@ -316,7 +324,7 @@ async def test_handoff_updates_owner_and_labeling_and_replays_without_duplicate_
         operation="commit_offboarding",
         operation_id=operation_id,
         preview_version=preview.data.preview.preview_version,
-        reason="  Offboarding accepted  ",
+        reason=reason,
         projects=[
             {
                 "project_id": str(project_id),
@@ -331,7 +339,7 @@ async def test_handoff_updates_owner_and_labeling_and_replays_without_duplicate_
         result = await manager.execute(commit)
         assert result.data.result.user.is_active is False
         assert result.data.result.user.disabled_kind == "suspended"
-        assert result.data.result.user.disabled_reason == "Offboarding accepted"
+        assert result.data.result.user.disabled_reason == expected_reason
         assert result.data.result.user.deactivation_requested_at == requested_at
         assert result.data.result.user.deactivation_scheduled_at == scheduled_at
         assert result.data.result.audit_id > 0
@@ -363,10 +371,15 @@ async def test_handoff_updates_owner_and_labeling_and_replays_without_duplicate_
                     {"id": task_id},
                 )
             ).one()
+            stored_reason = await session.scalar(
+                text("SELECT disabled_reason FROM public.users WHERE id=:id"),
+                {"id": target_id},
+            )
             assert project.owner_id == owner_receiver_id
             assert batch.annotator_id == annotator_receiver_id
             assert json.loads(batch.assigned_user_ids) == [str(annotator_receiver_id)]
             assert task.assignee_id == annotator_receiver_id
+            assert stored_reason == expected_reason
             assert task.assigned_at is not None
             assert task.updated_at is not None
             assert (
@@ -408,8 +421,10 @@ async def test_handoff_updates_owner_and_labeling_and_replays_without_duplicate_
             )
             audit_detail = json.loads(audit_detail)
             assert audit_detail["mode"] == "handoff"
-            assert audit_detail["reason_present"] is True
-            assert "Offboarding accepted" not in json.dumps(audit_detail)
+            assert audit_detail["reason_present"] is (expected_reason is not None)
+            assert expected_reason is None or expected_reason not in json.dumps(
+                audit_detail
+            )
             assert (
                 await session.scalar(
                     text(
@@ -430,7 +445,13 @@ async def test_handoff_updates_owner_and_labeling_and_replays_without_duplicate_
             assert stored_receipt is not None
             assert token not in stored_receipt
             assert secret not in stored_receipt
-            assert "Offboarding accepted" in stored_receipt
+            stored_receipt_record = json.loads(stored_receipt)
+            if expected_reason is None:
+                assert (
+                    stored_receipt_record["result"]["user"]["disabled_reason"] is None
+                )
+            else:
+                assert expected_reason in stored_receipt
 
         replay = await manager.execute(commit)
         assert replay.data == result.data

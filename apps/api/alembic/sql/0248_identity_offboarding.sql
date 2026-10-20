@@ -1487,7 +1487,7 @@ BEGIN
        OR v_user_record->>'disabled_kind' IS DISTINCT FROM
           (CASE WHEN v_mode = 'handoff' THEN 'suspended' ELSE 'emergency_suspended' END)
        OR v_user_record->'disabled_reason' IS DISTINCT FROM
-          pg_catalog.to_jsonb(v_normalized_reason) THEN
+          COALESCE(pg_catalog.to_jsonb(v_normalized_reason), 'null'::jsonb) THEN
         RAISE EXCEPTION USING ERRCODE = 'XX000',
             MESSAGE = 'invalid Identity offboarding account reply';
     END IF;
