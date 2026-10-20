@@ -345,6 +345,25 @@ See [the private protocol](../../docs-site/api/guides/identity-runtime.md#自助
 [ADR-0121](../../docs/adr/0121-identity-self-deactivation-and-notification-delivery.md),
 and the [deployment slice status](../../docs-site/dev/concepts/module-deployment.md).
 
+## Administrator suspension and reactivation
+
+The private `POST /v1/identity/suspensions/execute` protocol owns the existing
+`POST /api/v1/users/{id}/deactivate` and `POST /api/v1/users/{id}/reactivate`
+commands. The optional `IDENTITY_SUSPENSION_DATABASE_URL(_FILE)` selects its
+dedicated two-function PostgreSQL owner; a configured source never falls back
+to the API transaction. The owner checks the current manager and target under
+the shared super-admin fence and preserves the existing project-admin scope
+rules. It retires old credentials with each real state change, but successful
+replays return their frozen User result without revoking credentials created
+after acceptance. Accepted self-deactivation reservations survive both
+operations.
+
+Suspension receipts also cover the existing inactive-target no-op, without an
+Audit row or credential retirement. Reactivation receipts store only the
+`reason_present` audit fact, not the raw reason. The closed wire and native DTOs
+are `suspension_protocol.schema.json` and
+`native_suspension_protocol.schema.json`.
+
 ## Registration and credential recovery
 
 `POST /v1/identity/recovery/execute` uses the private control bearer and the

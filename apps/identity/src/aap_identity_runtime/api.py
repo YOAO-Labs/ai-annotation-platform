@@ -115,6 +115,15 @@ from aap_identity.session_contract import (
 )
 from aap_identity.session_manager import SessionManager
 from aap_identity.session_postgres import SessionPostgresData
+from aap_identity.suspension_contract import (
+    SUSPENSION_POLICY_PROTOCOL,
+    SUSPENSION_PROTOCOL,
+    SuspensionFailure,
+    decode_suspension_request,
+    suspension_failure_reply,
+)
+from aap_identity.suspension_manager import SuspensionManager
+from aap_identity.suspension_postgres import SuspensionPostgresData
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from pydantic import ValidationError
@@ -139,6 +148,7 @@ def create_app(
     directory_data: DirectoryPostgresData | None = None,
     admin_password_data: AdminPasswordPostgresData | None = None,
     platform_role_data: PlatformRolePostgresData | None = None,
+    suspension_data: SuspensionPostgresData | None = None,
 ) -> FastAPI:
     settings = settings or Settings()
     data = data or PostgresData(
@@ -343,6 +353,22 @@ def create_app(
             connect_timeout=settings.connect_timeout_seconds,
             command_timeout=settings.command_timeout_seconds,
         )
+    suspension_configured = (
+        suspension_data is not None or settings.suspension_database_url is not None
+    )
+    if suspension_data is None and settings.suspension_database_url is not None:
+        suspension_data = SuspensionPostgresData(
+            settings.suspension_database_url.get_secret_value(),
+            connect_timeout=settings.connect_timeout_seconds,
+            command_timeout=settings.command_timeout_seconds,
+        )
+    suspensions = (
+        SuspensionManager(
+            auth, suspension_data, settings.signing_secret.get_secret_value()
+        )
+        if suspension_data is not None
+        else None
+    )
     slots = asyncio.Semaphore(settings.max_concurrency)
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
 
@@ -407,6 +433,10 @@ def create_app(
                     if deactivation_due_data is None:
                         raise IdentityUnavailable()
                     due_policy = await deactivation_due_data.due_policy()
+                if suspension_configured:
+                    if suspension_data is None:
+                        raise IdentityUnavailable()
+                    suspension_policy = await suspension_data.suspension_policy()
             if policy != {
                 "schema": "aap-identity-policy/v1",
                 "issuer": ISSUER,
@@ -522,6 +552,17 @@ def create_app(
                 if due_policy_value != {
                     "schema": DUE_POLICY_PROTOCOL,
                     "policy": DUE_PROTOCOL,
+                }:
+                    raise IdentityUnavailable()
+            if suspension_configured:
+                suspension_policy_value = (
+                    suspension_policy.model_dump(mode="json", by_alias=True)
+                    if hasattr(suspension_policy, "model_dump")
+                    else suspension_policy
+                )
+                if suspension_policy_value != {
+                    "schema": SUSPENSION_POLICY_PROTOCOL,
+                    "policy": SUSPENSION_PROTOCOL,
                 }:
                     raise IdentityUnavailable()
         except (IdentityUnavailable, TimeoutError):
@@ -1016,6 +1057,52 @@ def create_app(
         except (IdentityUnavailable, TimeoutError):
             return JSONResponse(
                 {"detail": "Identity deactivation commands unavailable"},
+                status_code=503,
+            )
+        return JSONResponse(reply.model_dump(mode="json", by_alias=True))
+
+    @app.post("/v1/identity/suspensions/execute")
+    async def execute_suspension_command(request: Request):
+        supplied = request.headers.get("authorization", "").encode()
+        expected = ("Bearer " + settings.token.get_secret_value()).encode()
+        if not hmac.compare_digest(supplied, expected):
+            return JSONResponse({"detail": "Unauthorized"}, status_code=401)
+        if (
+            request.headers.get("content-type", "").split(";", 1)[0].strip().lower()
+            != "application/json"
+        ):
+            return JSONResponse(
+                suspension_failure_reply("invalid_request"), status_code=400
+            )
+        if suspensions is None:
+            return JSONResponse(
+                {"detail": "Identity suspension commands unavailable"},
+                status_code=503,
+            )
+        try:
+            async with asyncio.timeout(settings.request_timeout_seconds):
+                async with slots:
+                    body = bytearray()
+                    async for chunk in request.stream():
+                        body.extend(chunk)
+                        if len(body) > 65536:
+                            return JSONResponse(
+                                suspension_failure_reply("invalid_request"),
+                                status_code=400,
+                            )
+                    try:
+                        parsed = decode_suspension_request(bytes(body))
+                    except (ValidationError, ValueError, TypeError, UnicodeError):
+                        return JSONResponse(
+                            suspension_failure_reply("invalid_request"),
+                            status_code=400,
+                        )
+                    reply = await suspensions.execute(parsed)
+        except SuspensionFailure as error:
+            return JSONResponse(suspension_failure_reply(error))
+        except (IdentityUnavailable, TimeoutError):
+            return JSONResponse(
+                {"detail": "Identity suspension commands unavailable"},
                 status_code=503,
             )
         return JSONResponse(reply.model_dump(mode="json", by_alias=True))

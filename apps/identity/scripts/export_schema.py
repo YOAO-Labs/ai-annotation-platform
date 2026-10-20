@@ -52,6 +52,15 @@ from aap_identity.deactivation_contract import (  # noqa: E402
     NativeDeactivationFailureReply,
     NativeDeactivationSuccess,
 )
+from aap_identity.suspension_contract import (  # noqa: E402
+    NativeSuspensionCommand,
+    NativeSuspensionFailureReply,
+    NativeSuspensionSuccess,
+    SuspensionFailureReply,
+    SuspensionPolicyReply,
+    SuspensionReply,
+    SuspensionRequest,
+)
 from aap_identity.directory_contract import (  # noqa: E402
     DirectoryFailureReply,
     DirectoryReply,
@@ -339,6 +348,19 @@ def main():
                 | DeactivationPolicyReply
             ),
             "aap-identity-deactivation-native/v1",
+        ),
+        "src/aap_identity/suspension_protocol.schema.json": render_schema(
+            TypeAdapter(SuspensionRequest | SuspensionReply | SuspensionFailureReply),
+            "aap-identity-suspensions/v1",
+        ),
+        "src/aap_identity/native_suspension_protocol.schema.json": render_schema(
+            TypeAdapter(
+                NativeSuspensionCommand
+                | NativeSuspensionSuccess
+                | NativeSuspensionFailureReply
+                | SuspensionPolicyReply
+            ),
+            "aap-identity-suspensions-native/v1",
         ),
         "src/aap_identity/deactivation_due_protocol.schema.json": render_schema(
             TypeAdapter(
