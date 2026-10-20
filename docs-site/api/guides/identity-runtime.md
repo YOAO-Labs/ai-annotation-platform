@@ -9,7 +9,7 @@ last_reviewed: 2026-10-20
 
 协议对象只接受声明的 wire 字段名：版本字段为 `schema`。内部 Python 字段名 `protocol` 无论单独使用还是与 `schema` 同时提交都被拒绝；opaque 偏好值中的同名键不受影响。
 
-Identity 运行时提供认证准入、API key、核心会话、自助账户、全局分组目录与指派、完整邀请生命周期、四项用户目录读取、自助注销、注销到期处理、账号恢复和在线扫描命令；平台角色预览／变更 owner 也已通过本地限定资格。公开用户接口仍是 `/api/v1/auth/`、`/api/v1/me/api-keys` 与 `/api/v1/users`。私有接口要求独立控制 Bearer；需要用户身份的操作将凭据放在 JSON 的 `token` 中，不能代替控制凭据。注册/邀请证明凭据另置于 `payload`，与调用者身份 token 分开。账号恢复使用匿名请求或单次挑战证明，邮件与注销通知分别由独立执行进程投递。
+Identity 运行时提供认证准入、API key、核心会话、自助账户、全局分组目录与指派、完整邀请生命周期、四项用户目录读取、自助注销、注销到期处理、账号恢复和在线扫描命令；平台角色预览／变更 owner 已通过本地限定资格，管理员暂停／恢复账号是新的 owner slice、资格待验。公开用户接口仍是 `/api/v1/auth/`、`/api/v1/me/api-keys` 与 `/api/v1/users`。私有接口要求独立控制 Bearer；需要用户身份的操作将凭据放在 JSON 的 `token` 中，不能代替控制凭据。注册/邀请证明凭据另置于 `payload`，与调用者身份 token 分开。账号恢复使用匿名请求或单次挑战证明，邮件与注销通知分别由独立执行进程投递。
 
 | 接口                                         | 用途                                           |
 | -------------------------------------------- | ---------------------------------------------- |
@@ -25,6 +25,7 @@ Identity 运行时提供认证准入、API key、核心会话、自助账户、�
 | `POST /v1/identity/directory/execute`        | 用户目录列表、查询、统计与导出                 |
 | `POST /v1/identity/admin-passwords/execute`  | 管理员临时密码重置                             |
 | `POST /v1/identity/platform-roles/execute`   | 平台角色预览与变更                             |
+| `POST /v1/identity/suspensions/execute`      | 管理员停用与恢复账号                           |
 | `POST /v1/identity/deactivation/execute`     | 自助注销申请与撤销                             |
 | `POST /v1/identity/deactivation/process-due` | 分页处理已到期的自助注销申请                   |
 | `POST /v1/identity/recovery/execute`         | 开放注册、重置请求／消费、验证邮件重发／消费   |
@@ -309,6 +310,50 @@ Identity authentication errors keep their established codes with null status/det
 Workspace 的 `identity_platform_role_facts(target UUID)` 返回封闭 `schema/target_user_id/owned_project_count/non_viewer_membership_count/membership_projects`，每个项目只有 `project_id/project_name/membership_role`，按 project name/UUID 排序；raw membership count 不改成 join 后数量。`lock_identity_platform_role_owned_projects(target UUID)` 只在 mutation 后锁 target-owned projects 并返回 strict boolean。Labeling 的 `identity_platform_role_facts(target UUID, ordered_membership_project_ids UUID[])` 一次返回 `schema/target_user_id/unfinished_effective_work_count/membership_projects`，每项只有 `project_id/annotator_batch_count/reviewer_batch_count/assigned_task_count/review_task_count`，同序且包含零计数。封闭 projection schema 分别为 `platform_role_workspace_facts.schema.json`（`aap-workspace-identity-platform-role-facts/v1`）与 `platform_role_labeling_facts.schema.json`（`aap-labeling-identity-platform-role-facts/v1`）；Identity 不读取 Workspace／Labeling 原表，Labeling 也不反向调用 Workspace，Audit 只授予当前角色事件的 typed write。Project facts、blockers、counts 与 last-SA 读取符合各自的 snapshot/lock 顺序要求。
 
 Migration 0245 创建 `aap_identity_platform_roles_v1`。`identity_platform_role_client` LOGIN 仅能执行 `platform_role_policy()` 与 `execute_platform_role_command(jsonb)`。API/runtime 可选 `IDENTITY_PLATFORM_ROLE_DATABASE_URL(_FILE)`，Compose host selector 为 `IDENTITY_RUNTIME_PLATFORM_ROLE_DATABASE_URL_FILE`；留空只关闭此 capability、route 返回 503，既有 Identity service 仍可启动。API 直接 DSN 必须先调用 policy/readiness；显式 DSN 故障不回退 ORM。56 个选定 DB/process cases（48 Native/旧 API、5 restore、3 live）全部通过、零跳过；installed package 94 个 `.py`/`.json` 文件 hash 匹配，source 与 installed suites 各 447 项通过。API/architecture 499 项通过、127 条明确延期；Node 22 self-check 与 SDK 35 项通过。禁网、只读、1 CPU/512 MiB API cold image `sha256:a49450a0b203a3f05f68c6de058cd61d7d84d66cfd2b9384265ce3d8adbb6ca9` 用时 38.894 秒，核验 94 个 package 文件、89 个 API/native inputs、两条 role routes、既有 owner 路由数量、OpenAPI、migration head 0245 和已退役 helper absence。12 个 target、并发 4 的 host-process execute/replay sample 包含 Node/HTTP 开销，不构成生产容量或 SLO；细节见 [ADR-0125](/dev/adr/0125-independent-identity-platform-role-commands)。这些 evidence 只限定本 owner slice，不与 admin-reset 或 Directory qualification 合并，也不代表全 Identity／生产切换完成。
+
+## 管理员停用与恢复账号
+
+此 owner slice 仅迁移超级管理员／项目管理员的 `POST /api/v1/users/{user_id}/deactivate` 与 `POST /api/v1/users/{user_id}/reactivate`，保留现有方法、路径、body、errors、`UserOut` 和 SDK/Web 调用。Suspend 的 `user_id` 保持字符串 path、无 body 和 malformed UUID 404；reactivate 保持 UUID path 的 422、可空 `ReactivateRequest`、可选/null `reason`（最多 500 字符）和忽略 extra fields 的行为。两路都不增加 public CAS/idempotency header；每个 public invocation 生成新私有 UUID。
+
+Private endpoint 是 `POST /v1/identity/suspensions/execute`，wire `aap-identity-suspensions/v1`，operations 为 `suspend_account` 与 `reactivate_account`。Wire request 精确为 `schema/operation/operation_id/token/audit_context/payload`；suspend payload 只有 `{target_user_id}`，reactivate payload 是 `{target_user_id,reason}`。Native `aap-identity-suspensions-native/v1` request 精确有 `schema/operation/operation_id/actor/expected_key_hash/request_fingerprint/derivation_id/audit_context/payload`。Actor 从真实凭据解析；隐藏 token 和 reason，不回显诊断。Success data 是 `{user: ...}`，使用既有 21-field Directory-user record；非敏感 User 字段、历史 role/status、nullables 和 opaque preferences 保持不变。
+
+两操作先取得 shared last-super-admin fence，再按 UUID 顺序 `FOR UPDATE NOWAIT` 锁 actor/target User，随后重入 Account credential helper 并检查当前 manager/JWT generation/JTI/expiry 或 API-key hash/state/scopes。Current Principal role/name/email/scopes 改变本身不使有效 Principal 畸形。Inactive suspend target 的既有提前返回位于 actor manager、target missing、self 检查之后，但在 Project scope／target role 检查之前：返回完整 User，不 Audit、不退休凭据；项目管理员因此仍可得到历史／deleted inactive target 的 no-op 响应。
+
+真实 suspend 对 target 的所有 derived Projects 先持 `KEY SHARE NOWAIT`。Project-admin 只能停 employee；derived set 可以为空，非空时必须全部由 actor 管理。此分支的既有 active-employee manages-target helper 始终为 true，不新增 ProjectMember 要求。Project scope 后，target 为 super-admin 时需保留至少一个 active 且尚未预留注销的 super-admin。通过后写 `is_active=false/status=offline/disabled_kind=suspended` 及原有 disabled metadata，并退休凭据。
+
+Reactivate 的现有顺序不同：target missing 404 早于 fresh actor manager 检查，self 仍 400。Project-admin 仅能恢复 employee，且必须有非空 derived-project set、全部归 actor 管理；其查询只锁 actor-owned subset，使用 `FOR SHARE NOWAIT` 后比较完整覆盖。Super-admin 跳过 Project scope 与锁。Scope 检查发生在 target active/kind 检查之前；已启用返回 `账号当前已启用`，只有 `suspended` 或 `emergency_suspended` 可恢复。通过后先退休凭据，再设 `is_active=true/status=offline` 并清空 disabled metadata。
+
+Derived project scope 精确保留现有来源：目标拥有的 Project、目标 ProjectMember、TaskBatch annotator/reviewer、Task 直接 assignee/reviewer 和 TaskLock 用户经 Task 关联；全部状态参与，无 TaskBatch fallback；孤儿／null refs 按既有 Project join 消失。Workspace 使用一个 typed helper，并可在内部复用 Labeling 现有 `identity_directory_project_refs(uuid[])`；不新增 Labeling protocol/grant，不加 per-project RPC、ProjectMember/Batch/Task/TaskLock 锁或通用 scope framework。清空旧 batch assignment 时没有锁旧 User 的既有 Labeling race 不在本 slice 内。
+
+两类真实写入都使用现有 credential-retirement helper：generation 加一、撤销当前有效 API keys、消费 unused reset links；旧凭据不能复活。已接受的 self-deactivation reservation fields 原样保留，Admin suspend/reactivate 不取消已受理申请，也不转交成员、批次或任务。Audit 只写一条：`user.deactivate` detail `{email}`；`user.reactivate` detail `{reason_present:boolean}`。Reason presence 遵循 Python Unicode `str.strip()` 语义，原文不进 User/Audit/receipt。Reactivate replay 不退休成功受理后新签发的凭据。
+
+| code                         | HTTP | detail                                 |
+| ---------------------------- | ---: | -------------------------------------- |
+| `invalid_request`            |  400 | `null`                                 |
+| `manager_required`           |  403 | `当前账号已无管理权限`                 |
+| `target_not_found`           |  404 | `用户不存在`                           |
+| `self_suspend`               |  400 | `不能停用自己`                         |
+| `self_reactivate`            |  400 | `不能恢复自己`                         |
+| `suspend_role_forbidden`     |  403 | `项目管理员仅能停用标注员/审核员账号`  |
+| `reactivate_role_forbidden`  |  403 | `项目管理员不能恢复该角色`             |
+| `reactivate_not_managed`     |  403 | `该用户不在你管理的项目内`             |
+| `suspend_scope_forbidden`    |  403 | `该用户跨多个项目，须由超级管理员处理` |
+| `reactivate_scope_forbidden` |  403 | `该用户存在不在你管理范围内的项目`     |
+| `last_super_admin`           |  400 | `不能停用最后一名超级管理员`           |
+| `already_active`             |  409 | `账号当前已启用`                       |
+| `not_reactivatable`          |  409 | `该停用状态不可恢复`                   |
+| `account_busy`               |  409 | `账号正在更新，请刷新后重试`           |
+| `project_busy`               |  409 | `{reason:project_busy}` (suspend only) |
+| `operation_conflict`         |  409 | `null`                                 |
+| `unavailable`                |  503 | `null`                                 |
+
+Reactivate Project-lock contention maps to `account_busy`, preserving the old route; only suspend returns `project_busy`. For a project-admin, an empty derived-project set maps to `reactivate_not_managed`, while a nonempty set with incomplete project ownership maps to `reactivate_scope_forbidden`. Existing Identity authentication errors retain their current codes with null status/detail.
+
+Native schema `aap-identity-suspensions-native/v1` uses the distinct HMAC domain `aap-identity-suspensions/v1`; the canonical fingerprint covers normalized UUIDs and the raw operation payload but excludes audit context. Wire replies are closed; Native adds strict `replayed:boolean`. Malformed/unknown/duplicate/extra/alias fields, secret echoes and op/principal misbinding roll back as `unavailable` with no writer fallback.
+
+Successful suspend—including inactive-target no-op—and successful reactivate have immutable receipts storing the accepted `{user: ...}`, nullable Audit ID and target generation/active flag, never raw reason/token/hash/credential/Principal/live User FK. Replay authenticates the current manager and rechecks the original target authority branch. Inactive-suspend early return remains before project-admin role/scope checks, including on replay; project-admin reactivation still rechecks its current project scope. A changed target generation or active flag returns 409 `operation_conflict`; otherwise return the frozen record without new retirement/write/Audit. Populated receipts block downgrade.
+
+Migration 0246 creates `aap_identity_suspensions_v1` and `public.identity_suspension_operation_receipts`. `identity_suspension_client` LOGIN has only `suspension_policy()` and `execute_suspension_command(jsonb)`; API direct DSN must pass policy/readiness first. API/runtime optional variables are `IDENTITY_SUSPENSION_DATABASE_URL(_FILE)`; Compose host selector is `IDENTITY_RUNTIME_SUSPENSION_DATABASE_URL_FILE`. A blank selector disables just this capability and returns 503 without blocking existing Identity startup; explicit failures do not fall back. This new slice is under implementation; database, restore, API/runtime, restart/replay and image qualification are pending Root evidence. It does not change the separate self-deactivation workflow or complete full Identity.
 
 ## 自助注销与最后一名超级管理员围栏
 
