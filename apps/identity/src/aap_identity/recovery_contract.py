@@ -983,7 +983,6 @@ def _validate_prepare_reply(command, reply: NativeRecoveryPrepareReply):
             data.actor is None
             or data.actor.id != command.operation_id
             or data.actor.email != command.args.email
-            or data.actor.role != data.replay.account.role
         ):
             raise IdentityUnavailable()
         if not data.actor.is_active:
@@ -1054,8 +1053,12 @@ def decode_native_recovery_reply(
                 reply.data.result.account.id != command.operation_id
                 or reply.data.actor.id != command.operation_id
                 or reply.data.actor.email != command.args.email
-                or reply.data.actor.role != reply.data.result.account.role
                 or not reply.data.actor.is_active
+            ):
+                raise IdentityUnavailable()
+            if (
+                not reply.data.replayed
+                and reply.data.actor.role != reply.data.result.account.role
             ):
                 raise IdentityUnavailable()
         elif command.operation in {

@@ -218,22 +218,33 @@ async def test_immediate_registration_signs_native_claims_and_replay_reuses_hash
     replay = Data(
         lambda command: prepare_reply(
             command,
-            actor_value=actor(actor_id=request.operation_id, role="viewer"),
+            actor_value=actor(
+                actor_id=request.operation_id,
+                role="project_admin",
+                verified_at=datetime.now(UTC),
+            ),
             eligible=False,
             replay=frozen,
             password_hash=current_hash,
-            resolved_policy=policy(verify=False),
+            resolved_policy=policy(verify=True),
         ),
         lambda command: apply_reply(
             command,
             frozen,
-            actor_value=actor(actor_id=request.operation_id, role="viewer"),
+            actor_value=actor(
+                actor_id=request.operation_id,
+                role="project_admin",
+                verified_at=datetime.now(UTC),
+            ),
             replayed=True,
         ),
     )
-    replay_reply = await manager(replay, verify=False).execute(request)
+    replay_reply = await manager(replay, verify=True).execute(request)
     assert replay_reply.data.claims == initial_reply.data.claims
     assert replay_reply.data.access_token == initial_reply.data.access_token
+    assert replay_reply.data.account.role == "viewer"
+    assert replay_reply.data.account.status == "online"
+    assert replay_reply.data.email_verification_required is False
     assert replay.apply_command.password_hash == current_hash
     assert replay.events == ["prepare", "apply"]
 
@@ -254,6 +265,46 @@ async def test_immediate_registration_signs_native_claims_and_replay_reuses_hash
         await manager(denied, verify=False).execute(request)
     assert failure.value.code == "operation_conflict"
     assert denied.events == ["prepare"] and denied.rolled_back
+
+
+@pytest.mark.asyncio
+async def test_verification_registration_replay_keeps_frozen_projection_after_policy_change():
+    request = recovery_request("register_open")
+    frozen = NativeRecoveryResult(
+        account=account(actor_id=request.operation_id),
+        claims=None,
+        email_verification_required=True,
+        completed=None,
+    )
+    current_actor = actor(
+        actor_id=request.operation_id,
+        role="project_admin",
+        verified_at=datetime.now(UTC),
+    )
+    data = Data(
+        lambda command: prepare_reply(
+            command,
+            actor_value=current_actor,
+            replay=frozen,
+            resolved_policy=policy(verify=False),
+        ),
+        lambda command: apply_reply(
+            command,
+            frozen,
+            actor_value=current_actor,
+            replayed=True,
+        ),
+    )
+
+    reply = await manager(data, verify=False).execute(request)
+
+    assert reply.data.account.role == "viewer"
+    assert reply.data.account.status == "offline"
+    assert reply.data.account.email_verified_at is None
+    assert reply.data.email_verification_required is True
+    assert reply.data.access_token is None and reply.data.claims is None
+    assert data.apply_command.password_hash is None
+    assert data.events == ["prepare", "apply"]
 
 
 @pytest.mark.asyncio
