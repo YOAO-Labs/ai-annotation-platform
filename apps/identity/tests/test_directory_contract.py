@@ -345,9 +345,9 @@ def test_export_receipt_replay_allows_frozen_selection_and_metadata_but_fresh_do
     )
     command = native_command(request)
     old_row = directory_export_user(
-        role="viewer",
+        role="employee",
         status="offline",
-        group_id=str(uuid.uuid4()),
+        group_id=str(group_id),
         name="Changed profile",
     )
     frozen = {
@@ -380,7 +380,33 @@ def test_export_receipt_replay_allows_frozen_selection_and_metadata_but_fresh_do
     remote_wire = decode_directory_reply(
         request, wire, expected_principal=command.actor
     )
-    assert remote_wire.data.users[0].role == "viewer"
+    assert remote_wire.data.users[0].role == "employee"
+    assert remote_wire.data.users[0].group_id == group_id
+
+    for bad_row in (
+        directory_export_user(role="viewer", group_id=str(group_id)),
+        directory_export_user(role="employee", group_id=str(uuid.uuid4())),
+    ):
+        bad_frozen = {**frozen, "users": [bad_row]}
+        bad_native = native_success(
+            command,
+            bad_frozen,
+            replayed=True,
+            current_principal=current_principal,
+        )
+        with pytest.raises(IdentityUnavailable):
+            decode_native_directory_reply(command, bad_native)
+        bad_wire = wire_success(
+            request,
+            bad_frozen,
+            current_principal=current_principal,
+        )
+        with pytest.raises(IdentityUnavailable):
+            decode_directory_reply(
+                request,
+                bad_wire,
+                expected_principal=command.actor,
+            )
 
     fresh_data = {
         **frozen,

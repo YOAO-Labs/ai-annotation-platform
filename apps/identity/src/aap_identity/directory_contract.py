@@ -753,8 +753,7 @@ def _validate_data_binding(
         if data.online > data.total or data.weekly_active > data.total:
             raise IdentityUnavailable()
     elif operation == "export_users":
-        if replayed is False:
-            _validate_filters(payload, data.users)
+        _validate_filters(payload, data.users)
         _validate_created_order(data.users, id_ties=True)
         if replayed is False and (
             data.exported_by != principal.email
