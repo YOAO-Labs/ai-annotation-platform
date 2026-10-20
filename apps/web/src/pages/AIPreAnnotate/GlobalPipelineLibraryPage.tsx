@@ -107,6 +107,14 @@ export default function GlobalPipelineLibraryPage() {
     reset: resetComposer,
   } = usePipelineComposer({
     availableBackendCount: uniqueBackendCount,
+    hasCompatibleDownstream: globalModelOptions.some(
+      (option) =>
+        !option.disabled &&
+        !option.model.is_interactive &&
+        option.model.composition !== "composite" &&
+        ((option.model.supported_inputs ?? []).includes("crop") ||
+          (option.model.supported_inputs ?? []).includes("bbox_prompt")),
+    ),
     onWarn: (msg, sub) => pushToast({ msg, sub, kind: "warning" }),
     onCascadeDelete: (n) => pushToast({ msg: "已删除阶段", sub: `连带移除 ${n} 个子阶段` }),
   });

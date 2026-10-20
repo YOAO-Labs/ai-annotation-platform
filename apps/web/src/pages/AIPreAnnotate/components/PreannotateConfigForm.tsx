@@ -5,6 +5,7 @@
  * params+variant / 命名预设 / 输出形态。批量页与工作台 AI 面板共用。
  * 批量专属的 predict_mode / 并发 / run 按钮不在此, 由调用方拼。
  */
+import { CatalogModelSelect } from "./CatalogModelSelect";
 import { Icon } from "@/components/ui/Icon";
 import { TabRow } from "@/components/ui/TabRow";
 import { VariantSelector } from "@/components/ml/VariantSelector";
@@ -89,7 +90,10 @@ export function PreannotateConfigForm({
           <span className={styles.fieldLabel}>{backendSelectorLabel}</span>
           <select
             value={selectedBackendId ?? ""}
-            onChange={(e) => onSelectBackend(e.target.value || null)}
+            onChange={(e) => {
+              cfg.setCatalogModel?.("");
+              onSelectBackend(e.target.value || null);
+            }}
             className={styles.promptInput}
           >
             {backends.map((b) => (
@@ -101,6 +105,8 @@ export function PreannotateConfigForm({
           </select>
         </label>
       )}
+
+      {!hideModelTaskSelector && <CatalogModelSelect cfg={cfg} />}
 
       {/* 未接入 ML 后端 (cfg.backendId 为空): 不渲染任何预标参数 (prompt / 后端参数 / 预设 /
           输出形态), 仅给引导提示。修"项目未接后端却暴露 SAM 风格预标配置"的展示 bug:
@@ -120,7 +126,7 @@ export function PreannotateConfigForm({
           {/* v0.14.17 / v0.18.12 / v0.20.5 · 统一「模型任务」下拉: 几何 (YOLO 闭集)、文本 (gsam2/sam3 开集)、
           OCR/版面 共用同一个下拉 —— 不再为 OCR/版面单设「任务类型」tab。选项 = 该 backend 可批量预标的
           model, value 直接是 model_id, 文案 = 模型市场卡片标题 (display_name)。多于 1 个可选 model 出下拉。 */}
-          {hideModelTaskSelector ? null : taskModels.length > 1 ? (
+          {hideModelTaskSelector || cfg.selectedCatalogId ? null : taskModels.length > 1 ? (
             <label className={styles.field}>
               <span className={styles.fieldLabel}>模型任务</span>
               <select
@@ -160,7 +166,7 @@ export function PreannotateConfigForm({
               classes={cfg.geometricModel?.classes}
               selected={cfg.selectedClassIdx}
               onChange={cfg.setSelectedClassIdx}
-              onWarm={() => cfg.warmMut.mutate()}
+              onWarm={cfg.selectedCatalogId ? undefined : () => cfg.warmMut.mutate()}
               warming={cfg.warmMut.isPending}
             />
           )}
@@ -226,9 +232,9 @@ export function PreannotateConfigForm({
           {/* v0.10.38 · 按后端参数面板. */}
           <div className={styles.field}>
             <span className={styles.fieldLabel}>后端推理参数（按 backend 记忆，覆盖项目默认）</span>
-            {!cfg.isDocMode && cfg.setupQ.isLoading ? (
+            {!cfg.selectedCatalogId && !cfg.isDocMode && cfg.setupQ.isLoading ? (
               <div className={styles.mutedText}>加载参数…</div>
-            ) : !cfg.isDocMode && cfg.setupQ.isError ? (
+            ) : !cfg.selectedCatalogId && !cfg.isDocMode && cfg.setupQ.isError ? (
               <div className={styles.mutedText}>
                 无法拉取 backend /setup，运行时回落项目级阈值。
               </div>

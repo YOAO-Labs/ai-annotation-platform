@@ -1712,6 +1712,18 @@ ML Backend 走全局注册表模型（ADR-0044）：一个物理 backend = 全�
 
 模型身份由 `model_version_id`、权重 `sha256` 与有序类别摘要 `classes_digest` 共同固定。平台注册时另外保存类别绑定和实验来源；API 不接受浏览器上传任意权重替换这份身份。
 
+### 内置模型类别观测：`GET /models/metadata`
+
+YOLO 在 `/setup` 中以 `model_metadata_endpoint=true` 声明这个可选接口。API 的健康采集使用现有实例认证读取并验证响应，把结果保存在 `health_meta.model_metadata`；旧后端未声明、404、响应非法或超时不会单独使健康检查失败。观测不参与服务池能力指纹，安装项目权重也不改变 `/setup.models[]`。
+
+响应为 `{schema_version: 1, models: [...]}`。每项包含 `model_id`、规范 `task`、完整 `model_variants`、`verification_status`、原生有序 `classes`、`classes_digest`、`artifact_sha256`、`loader_version` 和 `inspected_at`。状态区分未检查、不可用、核验通过与类别不符；没有观测时目录明确展示预置声明，不能把静态 COCO 表当作所有 `.pt` 的真实类别。
+
+实际检测权重正常加载时，从原生 `model.names` 读取类别，按权重 SHA、加载器版本和 schema 写入 checkpoint 目录的 sidecar。查询不反序列化权重，也不触发 GPU 加载；读取会核对文件签名及流式 SHA，损坏、替换或加载器变化会使观测失效。此接口只提供既有加载过程产生的观测，不是任意上传文件的解析接口。
+
+有核验观测的内置阶段通过 `context.builtin_model_ref` 携带 `artifact_sha256`、`classes_digest`、`loader_version`。YOLO 在实际借出的模型上匹配三者，身份不符返回 409。未核验的内置检测若使用原生类别索引过滤，也须核对实际类别与预置声明一致，避免用错索引。项目训练模型继续使用 `frozen_model_ref`，原生索引先过滤，返回平台后再按版本冻结的绑定转换为项目类别。
+
+Ultralytics 图片检测允许整图根阶段和父框裁剪阶段；每阶段独立冻结身份。同一 YOLO 实例可执行多个阶段。工作台当前题、批量预标和失败完整重试共享执行契约；交互、视频和其他训练任务仍须各自取得资格。详见[执行快照](../concepts/prediction-pipeline#模型目录与执行快照)。
+
 ### 安装：`POST /managed-models`
 
 请求模型定义在 `apps/yolo-backend/managed_models.py` 的 `InstallRequest`：

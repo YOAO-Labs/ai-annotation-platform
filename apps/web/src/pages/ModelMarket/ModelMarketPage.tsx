@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 
 import { usePermissions } from "@/hooks/usePermissions";
@@ -7,10 +7,16 @@ import { Icon } from "@/components/ui/Icon";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/shadcn/ui/tabs";
 import { PageContainer } from "@/components/layout/PageContainer";
 
-import { MARKET_TAB_DEFAULTS, marketTabCodec, type MarketTab } from "./marketUrlState";
+import {
+  MARKET_TAB_DEFAULTS,
+  marketTabCodec,
+  migrateLegacyCatalogUrl,
+  type MarketTab,
+} from "./marketUrlState";
 import { RegisteredBackendsTab } from "./RegisteredBackendsTab";
 import { RuntimeObservePanel } from "./RuntimeObservePanel";
-import { CapabilityCatalogPanel } from "./CapabilityCatalogPanel";
+import { ProtocolCatalogPanel } from "./ProtocolCatalogPanel";
+import { ModelDirectoryPanel } from "./ModelDirectoryPanel";
 
 // v0.9.12 BUG B-14 · 删 failed tab; 失败预测已迁到 /ai-pre/jobs?status=failed.
 // v0.23.4 P4 · FailedPredictionsTab.tsx + ObserveBackendsPanel.tsx 已删除
@@ -20,13 +26,27 @@ import { CapabilityCatalogPanel } from "./CapabilityCatalogPanel";
 // 不再放全局统计卡——项目数留在项目绑定、模型数留在能力目录、运行统计留在
 // 运行时观测，避免同名统计的第二套口径。
 const TABS: { key: MarketTab; label: string; icon: "layers" | "activity" | "bot" }[] = [
-  { key: "catalog", label: "能力目录", icon: "layers" },
+  { key: "models", label: "模型目录", icon: "bot" },
+  { key: "protocol", label: "协议能力", icon: "layers" },
   { key: "runtime", label: "运行时观测", icon: "activity" },
   { key: "registry", label: "注册管理", icon: "bot" },
 ];
 
 export function ModelMarketPage() {
-  const [params] = useSearchParams();
+  const [params, setParams] = useSearchParams();
+  const [migrationNotice] = useState(
+    () =>
+      params.get("tab") === "catalog" &&
+      Array.from(params.keys()).some((key) =>
+        [
+          "catalog_group",
+          "catalog_view",
+          "catalog_modality",
+          "catalog_family",
+          "catalog_infra",
+        ].includes(key),
+      ),
+  );
   const navigate = useNavigate();
   // 页面对 super_admin + project_admin 开放, 但「运行时观测」tab 走的 /observe
   // 是 super_admin only。故 project_admin 只看能力目录 + (只读) 注册管理:
@@ -39,8 +59,11 @@ export function ModelMarketPage() {
     defaults: MARKET_TAB_DEFAULTS,
   });
   // 非超管深链到 ?tab=runtime → 回落到能力目录 (该 tab 对其不可见)。
-  const activeTab: MarketTab = !isSuperAdmin && state.tab === "runtime" ? "catalog" : state.tab;
+  const activeTab: MarketTab = !isSuperAdmin && state.tab === "runtime" ? "models" : state.tab;
   const rawTab = params.get("tab");
+  useEffect(() => {
+    if (rawTab === "catalog") setParams(migrateLegacyCatalogUrl(params), { replace: true });
+  }, [rawTab, params, setParams]);
 
   // 兼容老书签: ?tab=failed → 自动 redirect 到 /ai-pre/jobs?status=failed
   useEffect(() => {
@@ -53,7 +76,7 @@ export function ModelMarketPage() {
   // 仅当 URL 里真的带着 tab 键时才写回，避免把干净的 /model-market 改写；
   // ?tab=failed 交给上面的重定向 effect 处理，两者不能同时写路由。
   useEffect(() => {
-    if (rawTab !== null && rawTab !== "failed" && rawTab !== activeTab) {
+    if (rawTab !== null && rawTab !== "failed" && rawTab !== "catalog" && rawTab !== activeTab) {
       patch({ tab: activeTab });
     }
   }, [rawTab, activeTab, patch]);
@@ -63,11 +86,16 @@ export function ModelMarketPage() {
       <div className="mb-3">
         <h1 className="mb-1 text-xl font-semibold">模型市场</h1>
         <p className="text-sm text-muted-foreground">
-          浏览模型能力、查看运行状态和管理后端服务。
+          查找可用模型、了解协议能力，或管理后端服务与运行状态。
           {/* v0.10.38 · 视频追踪任务监控已迁至 /ai-pre/jobs 视频 tab (epic 阶段 3) */}
         </p>
       </div>
 
+      {migrationNotice && (
+        <p role="status" className="mb-3 text-xs text-muted-foreground">
+          能力目录已拆分为协议能力和模型目录；原分组及卡片/列表显示设置已移除。
+        </p>
+      )}
       <Tabs
         value={activeTab}
         activationMode="manual"
@@ -85,8 +113,11 @@ export function ModelMarketPage() {
             </TabsTrigger>
           ))}
         </TabsList>
-        <TabsContent value="catalog">
-          <CapabilityCatalogPanel />
+        <TabsContent value="models">
+          <ModelDirectoryPanel />
+        </TabsContent>
+        <TabsContent value="protocol">
+          <ProtocolCatalogPanel />
         </TabsContent>
         <TabsContent value="runtime">
           <RuntimeObservePanel />

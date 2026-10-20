@@ -45,7 +45,7 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
-py-modules = ["main", "predictor", "schemas", "model_pool", "model_registry", "observability", "gpu_lifecycle", "managed_models", "libreyolo_adapter", "sample_evaluations"]
+py-modules = ["main", "predictor", "schemas", "model_pool", "model_registry", "class_names", "model_metadata", "observability", "gpu_lifecycle", "managed_models", "libreyolo_adapter", "sample_evaluations"]
 
 [tool.uv.sources]
 aap-backend-runtime = { path = "../_shared/backend_runtime", editable = true }

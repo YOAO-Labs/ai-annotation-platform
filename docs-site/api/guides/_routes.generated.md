@@ -418,6 +418,13 @@
 | GET | `/protocol` |
 | GET | `/instances` |
 
+## `model_catalog.py`
+
+| Method | Path |
+|---|---|
+| GET | `/model-catalog` |
+| GET | `/projects/{project_id}/model-catalog` |
+
 ## `model_lineage.py`
 
 | Method | Path |
@@ -906,4 +913,4 @@
 
 ---
 
-_共 83 模块 / 514 路由_
+_共 84 模块 / 516 路由_

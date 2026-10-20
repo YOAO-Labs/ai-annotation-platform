@@ -2,12 +2,12 @@
 audience: [dev]
 type: explanation
 status: stable
-last_reviewed: 2026-10-19
+last_reviewed: 2026-10-20
 ---
 
 # 预标注流水线（Prediction Pipeline）
 
-AI 预标注流水线在 worker 建档后以 `async_jobs(kind=batch_predict)` 作为用户可见任务真值，以 `predictions` / `failed_predictions` 保存可采纳结果和失败项。本页讲清 Celery 派发边界、持久化五态、写入时点与下游表的关系。
+AI 预标注流水线以 `async_jobs(kind=batch_predict)` 作为用户可见任务真值，以 `predictions` / `failed_predictions` 保存可采纳结果和失败项。本页讲清 Celery 派发边界、持久化五态、写入时点与下游表的关系。
 
 > 决策依据：[ADR 0014 — Prediction Jobs 历史表](../adr/archive/0014-prediction-jobs-table)
 
@@ -16,13 +16,13 @@ AI 预标注流水线在 worker 建档后以 `async_jobs(kind=batch_predict)` �
 <ExcalidrawDiagram
   src="/diagrams/shared/ai/batch-predict-job-lifecycle.svg"
   alt="Celery 队列执行边界与 AsyncJob pending、running、completed、failed、cancelled 五态的真实关系"
-  caption="批量预测作业生命周期：队列等待不等于持久化 pending"
+  caption="作业五态；图中 worker 建档分支适用于旧单阶段请求，预建请求的排队期为持久化 pending"
 />
 
 | 状态        | 何时进入                                                             | 关键字段                                                      |
 | ----------- | -------------------------------------------------------------------- | ------------------------------------------------------------- |
-| `pending`   | worker 调 `create_job()` 时瞬时进入，随后在同次提交前标记 `running`  | `created_at`, `payload.prompt`, `payload.ml_backend_id`       |
-| `running`   | worker 建档并首次提交，通常是第一个可观察持久态                      | `started_at`, `celery_task_id`, `progress_pct`                |
+| `pending`   | API 预建作业时进入；旧单阶段请求由 worker 建档后瞬时进入             | `created_at`, `payload.prompt`, `payload.ml_backend_id`       |
+| `running`   | worker 接管预建作业或建档后提交，开始实际执行                        | `started_at`, `celery_task_id`, `progress_pct`                |
 | `completed` | 无可处理 task，或至少一题成功；可同时有 `failed_count > 0`           | `completed_at`, `result.success_count`, `result.failed_count` |
 | `failed`    | 全部子项失败，或 worker 根任务未捕获异常 / 失败 signal               | `completed_at`, `error_message`                               |
 | `cancelled` | 运行中先记 `payload.cancel_requested`，worker 在下一处理边界协作收敛 | `completed_at`, `result.cancelled_at_index`                   |
@@ -39,7 +39,23 @@ AI 预标注流水线在 worker 建档后以 `async_jobs(kind=batch_predict)` �
   caption="批量预标端到端主链，共享同一份 canonical 可编辑资产"
 />
 
-触发端点返回 HTTP 200 和 Celery task ID，不是 `async_jobs.id`。worker 后续创建的 AsyncJob UUID 才出现在全局 WS 终端消息与作业列表里；前端 `ProjectDetailPanel` / `RunStatusPanel` 通过订阅 `project:{id}:preannotate` WebSocket 频道接收实时进度与阶段统计。
+受控模型、显式管线、工作台和带幂等键的请求在 API 中预建 AsyncJob，返回该持久作业 ID 并用作 Celery task ID；旧的不带这些条件的单阶段请求仍由 worker 建档。前端 `ProjectDetailPanel` / `RunStatusPanel` 通过订阅 `project:{id}:preannotate` WebSocket 频道接收实时进度与阶段统计。
+
+## 模型目录与执行快照
+
+协议词表、内置能力声明和项目训练版本分别有独立所有者。`model_catalog` 服务把它们投影为只读目录，包含具体规格、类别来源、部署和每种操作的可用原因；它不会注册、安装、发布或预热。项目成员使用项目范围接口，私有训练版本不会进入全局 `/ml-capabilities/instances`。
+
+`prediction_execution_snapshots` 保存不可变的规范阶段配置、摘要及 schema 版本。`async_jobs.execution_snapshot_id` 和 `failed_predictions.execution_snapshot_id` 都引用该记录，失败记录不会因为原始作业过期而丢失管线。后台清理只删除无任何作业或失败引用的过期快照，已放弃但可恢复的失败也保留引用。
+
+每个受控阶段冻结确切版本、部署、registry、权重／类别／项目绑定摘要及发布代次。`project-release` 只在新提交时解析；相同幂等键在查到原作业后复用原快照。内置阶段冻结已声明的具体规格和参数默认值；已有权重核验时，`builtin_model_ref` 在实际借出的模型上检查权重、类别和加载器身份。未核验的旧声明仅保证配置冻结，不宣称物理权重已验证。
+
+初跑与失败重试共用 `_run_task_pipeline`。重试只重跑失败任务的完整原始阶段树，沿用各阶段队列设备和受控部署；不重新解析当前发布。下游失败记录 `partial`、阶段错误和策略允许的候选，完整重试成功后将旧部分候选标为已被替代，保留其来源和人工采纳结果。无快照的历史失败维持旧单阶段重试。
+
+WorkBench 请求要求项目 `annotation.write` 和当前题有效编辑／分派权限，批量请求仍要求项目管理权限。Worker 在推理前和最终写入锁内复校验账号、项目、任务、批次、分派和编辑锁；任务推理期间迁批次时拒绝最终写入。
+
+预测元数据保留每阶段实际实例、模型引用和稳定 shape／直接父 shape 身份。`parent_box_idx` 属于直接父阶段；裁剪缓存按父阶段隔离，上传 key 包含内容摘要。受控框明确使用百分比坐标，ROI 回映尊重 `coordinate_units`，不把小于 1% 的框误判为归一化坐标。
+
+详细决策见 [模型目录与冻结管线](../adr/archive/0088-model-catalog-and-frozen-pipelines)。
 
 ## 与 `predictions` 表的边界
 
@@ -289,8 +305,8 @@ worker 累加各阶段 stats（源阶段 `{detected}`、下游 `{targeted, ok, f
 
 ### backend 来源、自训练模型与显存保护
 
-- **全局注册 + 项目启用**：一个物理 backend 全局只注册一行，项目按需勾选启用，**没有项目级数量上限**（跨 backend 编排天然需 detect + classify ≥ 2）。
-- **项目自训练模型路由（`project-release`）**：当项目通过 `ProjectModelSelection`（`model_source="project_release"`）选用在线训练并已发布（`Active`）的模型版本时，预标注与主动学习刷新会将其路由至已挂载受管权重的 `yolo-backend`（`model_id = "managed:{version_id}"`），与内置目录模型共享同一预标注流水线（详见 [在线学习与训练体系](./training-datasets#模型回流与托管注册表)）。
+- **全局注册 + 项目启用**：一个物理 backend 全局只注册一行，项目按需勾选启用，**没有项目级数量上限**（同一兼容实例也可执行多个检测阶段）。
+- **项目自训练模型路由（`project-release`）**：选择 `project-release` 时，新请求读取项目当前发布并冻结为 `trained:{version_id}`，通过已核验的确切 YOLO 部署执行；原请求重试使用快照中的版本，与内置模型共享管线执行器（详见 [在线学习与训练体系](./training-datasets#模型回流与托管注册表)）。
 - **并发限速（`max_concurrency`）**：每个全局注册行的 `extra_params.max_concurrency` 始终限制单进程 / 事件循环的并行请求；`ML_BACKEND_ROUTER_MODE=off|observe` 时 API 与多个 Celery worker 仍会叠加，路由模式为 `enforce` 时再由 Redis route lease 收口为跨进程实例上限。
 - **GPU 显存仲裁（`GPU_ARBITER_MODE`）**：
   - `observe` 模式：在所有可加载端点的 HTTP 发送前，按稳定 `gpu_resource_id` 对同卡预算和新鲜 residency 快照计算 `would-*` 决策，只写结构化日志且旁路短超时放行，不改变业务请求结果。

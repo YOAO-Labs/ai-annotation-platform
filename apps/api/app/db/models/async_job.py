@@ -66,6 +66,11 @@ class AsyncJob(Base):
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
     kind: Mapped[str] = mapped_column(String(40), nullable=False)
+    execution_snapshot_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("prediction_execution_snapshots.id", ondelete="RESTRICT"),
+        index=True,
+    )
     project_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("projects.id", ondelete="SET NULL"),

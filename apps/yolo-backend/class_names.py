@@ -1,8 +1,8 @@
-"""模型类别表静态自报。
+"""Pretrained class declarations for the stable setup capability contract.
 
-当前权重矩阵全为 ultralytics 官方预训练 (COCO / DOTA),类别表是已知真值,
-按 task 静态硬编码即可,免预热、切模型稳定。index 即列表下标 (与权重 model.names 一致)。
-开集 task 无固定类别,不在此处覆盖 (见 main._build_openvocab_model_entry)。
+These tables are unverified manifests. Concrete detection weights are inspected
+through model_metadata after loading; their actual names drive inference and
+class-filter validation. Open-vocabulary classes remain request-defined.
 """
 
 from __future__ import annotations

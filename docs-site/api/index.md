@@ -57,6 +57,7 @@ last_reviewed: 2026-07-12
 
 ### ML Backend
 
+- [模型目录与执行快照](./guides/projects#项目可用模型目录) — 项目模型发现、权限与完整管线重试
 - [ML Backend](./guides/ml-backend) — 接入 ML Backend、查询能力或配置项目启用
 - [预测导入](./guides/import) — 导入外部预测
 

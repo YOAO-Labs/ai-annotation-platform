@@ -70,6 +70,7 @@ from pydantic import ValidationError
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
 import class_names
+from model_metadata import ModelMetadataStore, file_signature
 from managed_models import (
     InstallRequest,
     ManagedModelStore,
@@ -144,6 +145,7 @@ STRICT_OFFLINE = os.environ.get("YOLO_STRICT_OFFLINE", "0") not in (
 )
 CHECKPOINTS_DIR = Path(os.environ.get("YOLO_CHECKPOINTS_DIR", "/app/checkpoints"))
 _managed_models = ManagedModelStore(CHECKPOINTS_DIR / "managed")
+_model_metadata = ModelMetadataStore(CHECKPOINTS_DIR)
 _evaluation_requests = EvaluationRequestStore(CHECKPOINTS_DIR / "managed-evaluations")
 # Code support and deployment verification are separate. The backend does not
 # advertise or enter enforce mode until real-card load/unload evidence exists.
@@ -201,6 +203,7 @@ def _build_model(task: str, series: str, size: str):
         filename = resolve_weight_filename(task, series, size)
         model_cls = YOLO
     weight_path = CHECKPOINTS_DIR / filename
+    before = file_signature(weight_path) if weight_path.exists() else None
     if not weight_path.exists():
         if STRICT_OFFLINE:
             raise FileNotFoundError(
@@ -216,6 +219,21 @@ def _build_model(task: str, series: str, size: str):
             os.chdir(cwd)
     else:
         model = model_cls(str(weight_path))
+
+    if task == "detect" and not is_openvocab_series(series) and weight_path.is_file():
+        from importlib.metadata import version
+
+        try:
+            _model_metadata.observe(
+                weight_path,
+                model,
+                series=series,
+                size=size,
+                loader_version=version("ultralytics"),
+                before=before,
+            )
+        except OSError as exc:
+            logger.warning("Cannot persist model class observation: %s", exc)
 
     return _move_model_to_effective_device(model)
 
@@ -831,6 +849,13 @@ def _build_tracker_model_entry() -> dict[str, Any]:
     return entry
 
 
+@app.get("/models/metadata")
+def model_metadata():
+    from importlib.metadata import version
+
+    return _model_metadata.snapshot(loader_version=version("ultralytics"))
+
+
 @app.get("/setup")
 def setup() -> dict[str, Any]:
     """协议 v2 多模型目录. 详见 docs-site/dev/reference/ml-backend-protocol.md §4.1.6."""
@@ -854,6 +879,7 @@ def setup() -> dict[str, Any]:
         "supported_variants": [],  # 顶层留空, 由 models[].supported_variants 各自声明.
         "infra": "pytorch",
         "warmup_endpoint": True,  # 声明本 backend 支持 POST /warmup (协议 §4.4)
+        "model_metadata_endpoint": True,
         "params": _PARAMS_SCHEMA,
         "models": [
             _build_model_entry(

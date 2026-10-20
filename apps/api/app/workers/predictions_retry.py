@@ -184,6 +184,7 @@ async def _run_retry_attempt(session_factory, failed_id: str, user_id: str) -> d
         backend = (
             await db.get(MLBackend, fp.ml_backend_id) if fp.ml_backend_id else None
         )
+        snapshot_id = fp.execution_snapshot_id
         stored_context = (fp.extra or {}).get("request_context")
         request_context = stored_context if isinstance(stored_context, dict) else None
         ns = NotificationService(db)
@@ -197,6 +198,9 @@ async def _run_retry_attempt(session_factory, failed_id: str, user_id: str) -> d
         await db.commit()
         if pending is not None:
             await ns.publish_committed([pending])
+
+    if snapshot_id is not None:
+        return await _run_snapshot_retry(session_factory, fid, uid)
 
     if not task or not backend:
         async with session_factory() as db:
@@ -296,6 +300,7 @@ async def _bump_retry_counter(
     fid: uuid.UUID,
     *,
     gpu_arbiter_error: dict | None = None,
+    pipeline_errors: list | None = None,
 ) -> None:
     from app.db.models.prediction import FailedPrediction
 
@@ -307,5 +312,198 @@ async def _bump_retry_counter(
         extra.pop("retry_pending", None)
         if gpu_arbiter_error is not None:
             extra["last_gpu_arbiter_error"] = gpu_arbiter_error
+        if pipeline_errors is not None:
+            extra["last_pipeline_errors"] = pipeline_errors
         fp.extra = extra
         await db.flush()
+
+
+async def _run_snapshot_retry(session_factory, failed_id, actor_id):
+    """Replay one failed task's original pipeline without resolving a new release."""
+    from sqlalchemy import select
+    from app.db.models.prediction import FailedPrediction
+    from app.db.models.task import Task
+    from app.db.models.project import Project
+    from app.db.models.user import User
+    from app.db.models.ml_backend_registry import MLBackendRegistry
+    from app.services.prediction_execution import (
+        load_snapshot,
+        validate_task_scope,
+        build_stage_context,
+        execution_summary,
+    )
+    from app.services.prediction import PredictionService
+    from app.services import trained_models
+    from app.services.storage import resolve_task_url, StorageService
+    from app.services.ml_routing.client import RoutedMLBackendClient
+    from app.services.gpu_arbitration.dispatch import build_gpu_dispatch_context_factory
+    from app.workers.tasks import (
+        _run_task_pipeline,
+        _resolve_input_mode,
+        _make_crop_uploader,
+        _hold_preannotation_authority,
+        _preannotation_actor_revoked,
+    )
+
+    pipeline_errors = None
+    try:
+        async with session_factory() as db:
+            # Serialize duplicate deliveries and retain the snapshot reference during cleanup.
+            fp = await db.scalar(
+                select(FailedPrediction)
+                .where(FailedPrediction.id == failed_id)
+                .with_for_update()
+            )
+            if not fp:
+                return {"status": "not_found", "failed_id": str(failed_id)}
+            if fp.dismissed_at is not None:
+                raise ValueError("失败记录已放弃，请先恢复")
+            task = await db.get(Task, fp.task_id) if fp.task_id else None
+            actor = await db.get(User, actor_id)
+            project = await db.get(Project, fp.project_id)
+            if not task or not actor or not project:
+                raise ValueError("原始任务或执行者已不可用")
+            payload, digest = await load_snapshot(
+                db, fp.execution_snapshot_id, project.id
+            )
+            scope = payload["execution_scope"]
+            if await _preannotation_actor_revoked(db, actor, project.id, scope):
+                raise ValueError("重试操作权限已失效")
+            await validate_task_scope(db, project, task, actor, scope)
+            stages = sorted(payload["stages"], key=lambda stage: stage["stage"])
+            clients, contexts, modes = [], [], []
+            for stage in stages:
+                ref = stage.get("frozen_model_ref")
+                if trained_models.is_controlled(stage.get("model_id")):
+                    if (
+                        not ref
+                        or str(
+                            await trained_models.validate_frozen_reference(
+                                db, project.id, ref
+                            )
+                        )
+                        != stage["ml_backend_id"]
+                    ):
+                        raise ValueError("原始阶段的模型部署身份已失效")
+                backend = await db.get(
+                    MLBackendRegistry, uuid.UUID(stage["ml_backend_id"])
+                )
+                if not backend:
+                    raise ValueError("原始管线推理实例已删除")
+                clients.append(
+                    RoutedMLBackendClient(
+                        db,
+                        backend,
+                        project_id=project.id,
+                        owner=f"retry:{failed_id}:stage:{stage['stage']}",
+                        operation="prediction_retry",
+                        shadow_session_factory=session_factory,
+                        dispatch_context_factory=build_gpu_dispatch_context_factory(
+                            session_factory
+                        ),
+                    )
+                )
+                contexts.append(build_stage_context(stage, payload))
+                modes.append(_resolve_input_mode(stage))
+            results, extra, _ = await _run_task_pipeline(
+                task,
+                stages,
+                clients,
+                contexts,
+                resolve_url=resolve_task_url,
+                stage_modes=modes,
+                execution_snapshot_id=fp.execution_snapshot_id,
+                upload_crop=_make_crop_uploader(StorageService(), f"retry-{failed_id}")
+                if len(stages) > 1
+                else None,
+            )
+            if (extra or {}).get("pipeline", {}).get("partial"):
+                pipeline_errors = extra["pipeline"].get("stage_errors", [])
+                raise ValueError("管线下游阶段仍有失败，已保留原失败记录和原候选结果")
+            if not results:
+                raise ValueError("推理实例未返回结果")
+            if not await _hold_preannotation_authority(db, actor, project.id, scope):
+                raise ValueError("重试期间操作权限已撤销")
+            await validate_task_scope(db, project, task, actor, scope, lock=True)
+            extra = {
+                **(extra or {}),
+                "execution_snapshot": {
+                    "id": str(fp.execution_snapshot_id),
+                    "digest": digest,
+                    "stages": execution_summary(stages),
+                },
+            }
+            service = PredictionService(db)
+            first = None
+            for result in results:
+                pred = await service.create_from_ml_result(
+                    task_id=task.id,
+                    project_id=project.id,
+                    ml_backend_id=clients[0].last_instance_id
+                    or uuid.UUID(stages[0]["ml_backend_id"]),
+                    ml_backend_pool_id=clients[0].pool_id,
+                    result=result.result,
+                    score=result.score,
+                    model_version=result.model_version,
+                    inference_time_ms=result.inference_time_ms,
+                    token_meta=result.meta,
+                    pipeline_extra=extra,
+                    **(
+                        {"model_provenance": stages[0]["frozen_model_ref"]}
+                        if stages[0].get("frozen_model_ref")
+                        else {}
+                    ),
+                )
+                first = first or pred
+            from app.db.models.prediction import Prediction, PredictionMeta
+
+            for previous_id in (fp.extra or {}).get("partial_prediction_ids", []):
+                previous = await db.scalar(
+                    select(Prediction).where(
+                        Prediction.id == uuid.UUID(previous_id),
+                        Prediction.task_id == task.id,
+                    )
+                )
+                if previous is None:
+                    continue
+                metadata = await db.scalar(
+                    select(PredictionMeta).where(
+                        PredictionMeta.prediction_id == previous.id
+                    )
+                )
+                if metadata and (metadata.extra or {}).get(
+                    "execution_snapshot", {}
+                ).get("id") == str(fp.execution_snapshot_id):
+                    # Retain accepted annotation provenance; hide superseded AI candidates only.
+                    previous.rejected_shape_indexes = list(
+                        range(len(previous.result or []))
+                    )
+                    metadata.extra = {
+                        **(metadata.extra or {}),
+                        "superseded_by_prediction_id": str(first.id),
+                    }
+            await db.delete(fp)
+            await db.commit()
+            return {
+                "status": "succeeded",
+                "failed_id": str(failed_id),
+                "prediction_id": str(first.id),
+            }
+    except Exception as exc:
+        async with session_factory() as db:
+            from app.services.gpu_arbitration.contracts import (
+                gpu_arbiter_failure_record,
+            )
+
+            await _bump_retry_counter(
+                db,
+                failed_id,
+                gpu_arbiter_error=gpu_arbiter_failure_record(exc),
+                pipeline_errors=pipeline_errors,
+            )
+            await db.commit()
+        return {
+            "status": "failed",
+            "failed_id": str(failed_id),
+            "reason": str(exc)[:200],
+        }

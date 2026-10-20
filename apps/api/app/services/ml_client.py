@@ -843,6 +843,24 @@ class MLBackendClient:
             resp.raise_for_status()
             return resp.json()
 
+    async def model_metadata(self) -> dict | None:
+        """Read bounded, cached observations without changing backend health."""
+        from aap_protocol_v2.model_metadata import ModelMetadataResponse
+
+        try:
+            async with self._http_client(timeout=settings.ml_health_timeout) as client:
+                resp = await client.get(
+                    f"{self.base_url}/models/metadata", headers=self._headers()
+                )
+                resp.raise_for_status()
+                if len(resp.content) > 2 * 1024 * 1024:
+                    return None
+                return ModelMetadataResponse.model_validate(resp.json()).model_dump(
+                    mode="json"
+                )
+        except (httpx.HTTPError, ValueError):
+            return None
+
     async def lifecycle_mode(
         self,
         request: LifecycleModeRequest,

@@ -8290,6 +8290,372 @@
         "title": "CapabilityWarning",
         "type": "object"
       },
+      "CatalogClassMetadata": {
+        "properties": {
+          "artifact_sha256": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Artifact Sha256"
+          },
+          "class_source": {
+            "enum": [
+              "checkpoint",
+              "training_config",
+              "builtin_manifest",
+              "request_prompt"
+            ],
+            "title": "Class Source",
+            "type": "string"
+          },
+          "classes_digest": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Classes Digest"
+          },
+          "inspected_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Inspected At"
+          },
+          "loader_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Loader Version"
+          },
+          "verification_status": {
+            "enum": [
+              "verified",
+              "declared",
+              "uninspected",
+              "unavailable",
+              "mismatch",
+              "request_defined"
+            ],
+            "title": "Verification Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "class_source",
+          "verification_status"
+        ],
+        "title": "CatalogClassMetadata",
+        "type": "object"
+      },
+      "CatalogCurrentRelease": {
+        "properties": {
+          "deployment_id": {
+            "format": "uuid",
+            "title": "Deployment Id",
+            "type": "string"
+          },
+          "entry_id": {
+            "title": "Entry Id",
+            "type": "string"
+          },
+          "generation": {
+            "title": "Generation",
+            "type": "integer"
+          },
+          "model_id": {
+            "const": "project-release",
+            "default": "project-release",
+            "title": "Model Id",
+            "type": "string"
+          },
+          "registry_id": {
+            "format": "uuid",
+            "title": "Registry Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "entry_id",
+          "registry_id",
+          "deployment_id",
+          "generation"
+        ],
+        "title": "CatalogCurrentRelease",
+        "type": "object"
+      },
+      "CatalogEntry": {
+        "properties": {
+          "capabilities": {
+            "$ref": "#/components/schemas/ModelCapability"
+          },
+          "class_metadata": {
+            "$ref": "#/components/schemas/CatalogClassMetadata"
+          },
+          "framework": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Framework"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "media_type": {
+            "title": "Media Type",
+            "type": "string"
+          },
+          "model_id": {
+            "title": "Model Id",
+            "type": "string"
+          },
+          "model_variants": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Model Variants",
+            "type": "object"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "operations": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/CatalogOperation"
+            },
+            "title": "Operations",
+            "type": "object"
+          },
+          "output_classes": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Output Classes",
+            "type": "array"
+          },
+          "placements": {
+            "items": {
+              "$ref": "#/components/schemas/CatalogPlacement"
+            },
+            "title": "Placements",
+            "type": "array"
+          },
+          "project": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CatalogProject"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "publication": {
+            "enum": [
+              "builtin",
+              "candidate",
+              "current",
+              "previous",
+              "archived"
+            ],
+            "title": "Publication",
+            "type": "string"
+          },
+          "source": {
+            "enum": [
+              "builtin",
+              "project_trained"
+            ],
+            "title": "Source",
+            "type": "string"
+          },
+          "task": {
+            "title": "Task",
+            "type": "string"
+          },
+          "version_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Version Id"
+          }
+        },
+        "required": [
+          "id",
+          "source",
+          "name",
+          "task",
+          "media_type",
+          "model_id",
+          "publication",
+          "capabilities",
+          "class_metadata",
+          "operations"
+        ],
+        "title": "CatalogEntry",
+        "type": "object"
+      },
+      "CatalogOperation": {
+        "properties": {
+          "allowed": {
+            "title": "Allowed",
+            "type": "boolean"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "reason_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason Code"
+          }
+        },
+        "required": [
+          "allowed"
+        ],
+        "title": "CatalogOperation",
+        "type": "object"
+      },
+      "CatalogPlacement": {
+        "properties": {
+          "deployment_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deployment Id"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "params": {
+            "additionalProperties": true,
+            "title": "Params",
+            "type": "object"
+          },
+          "pool_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pool Id"
+          },
+          "ready": {
+            "title": "Ready",
+            "type": "boolean"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "reason_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason Code"
+          },
+          "registry_id": {
+            "format": "uuid",
+            "title": "Registry Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "registry_id",
+          "name",
+          "ready"
+        ],
+        "title": "CatalogPlacement",
+        "type": "object"
+      },
+      "CatalogProject": {
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name"
+        ],
+        "title": "CatalogProject",
+        "type": "object"
+      },
       "CeleryHealthSummary": {
         "properties": {
           "active_count": {
@@ -23631,6 +23997,61 @@
           "id"
         ],
         "title": "ModelCapability",
+        "type": "object"
+      },
+      "ModelCatalogResponse": {
+        "properties": {
+          "current_release": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CatalogCurrentRelease"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/CatalogEntry"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "page": {
+            "title": "Page",
+            "type": "integer"
+          },
+          "page_size": {
+            "title": "Page Size",
+            "type": "integer"
+          },
+          "projects": {
+            "items": {
+              "$ref": "#/components/schemas/CatalogProject"
+            },
+            "title": "Projects",
+            "type": "array"
+          },
+          "task_counts": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Task Counts",
+            "type": "object"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "page",
+          "page_size"
+        ],
+        "title": "ModelCatalogResponse",
         "type": "object"
       },
       "ModelDecisionCreate": {
@@ -61304,6 +61725,149 @@
         ]
       }
     },
+    "/api/v1/model-catalog": {
+      "get": {
+        "operationId": "global_catalog_api_v1_model_catalog_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "project_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Project Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "task",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Task"
+            }
+          },
+          {
+            "in": "query",
+            "name": "source",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Source"
+            }
+          },
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          },
+          {
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Q"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "minimum": 1,
+              "title": "Page",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page_size",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Page Size",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelCatalogResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Global Catalog",
+        "tags": [
+          "model-catalog"
+        ]
+      }
+    },
     "/api/v1/notification-preferences": {
       "get": {
         "description": "v0.7.0：返回所有已知 type 的偏好；无记录默认 in_app=True / email=False。\n\ntoast 是 v0.15 计划新增的有效弹出选择：显式存储值优先，未存储时按类型的\n默认重要程度（services/notification_preferences.py）。",
@@ -69637,6 +70201,142 @@
         "summary": "Warmup Ml Backend",
         "tags": [
           "ml-backends"
+        ]
+      }
+    },
+    "/api/v1/projects/{project_id}/model-catalog": {
+      "get": {
+        "operationId": "project_catalog_api_v1_projects__project_id__model_catalog_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "task",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Task"
+            }
+          },
+          {
+            "in": "query",
+            "name": "source",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Source"
+            }
+          },
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          },
+          {
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Q"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "minimum": 1,
+              "title": "Page",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page_size",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Page Size",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelCatalogResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Project Catalog",
+        "tags": [
+          "model-catalog"
         ]
       }
     },

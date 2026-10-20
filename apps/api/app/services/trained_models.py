@@ -359,30 +359,48 @@ def assert_image_scope(
     if (
         project is None
         or project.data_type != "image"
-        or prompt
-        or semantic.get("task") not in {None, "detect"}
-        or semantic.get("prompt_type")
-        or model_variants
-        or len(pipeline_stages or []) > 1
         or execution_unit not in {None, "image", "task"}
     ):
-        raise HTTPException(
-            status_code=422, detail="受控模型当前仅支持单阶段图片矩形框检测"
-        )
-    for stage in pipeline_stages or []:
-        stage = stage.model_dump() if hasattr(stage, "model_dump") else stage
+        raise HTTPException(status_code=422, detail="受控模型仅支持图片矩形框检测")
+    stages = [
+        s.model_dump() if hasattr(s, "model_dump") else s
+        for s in (pipeline_stages or [])
+    ]
+    if not stages:
+        stages = [
+            {
+                "model_id": "project-release",
+                "task": semantic.get("task"),
+                "prompt_type": semantic.get("prompt_type"),
+                "model_variants": model_variants,
+            }
+        ]
+    for stage in stages:
+        if not is_controlled(stage.get("model_id")) and not stage.get(
+            "frozen_model_ref"
+        ):
+            continue
+        root = stage.get("parent_stage") is None
         source = stage.get("source") or {}
+        mode = (
+            (stage.get("input") or {}).get("mode")
+            or (stage.get("roi") or {}).get("mode")
+            or ("full_image" if root else "crop")
+        )
         if (
-            stage.get("parent_stage") is not None
-            or (stage.get("write") or {}).get("target") not in {None, "geometry"}
-            or (stage.get("input") or {}).get("mode") not in {None, "full_image"}
-            or stage.get("roi")
-            or stage.get("parent_class_filter")
+            stage.get("task") not in {None, "detect"}
+            or stage.get("prompt_type")
+            or stage.get("model_variants")
+            or (root and (prompt or stage.get("roi")))
+            or mode != ("full_image" if root else "crop")
+            or (stage.get("write") or {}).get("target")
+            not in {None, "geometry", "intermediate"}
             or source.get("kind") not in {None, "dataset"}
             or source.get("data_type") not in {None, "image"}
         ):
             raise HTTPException(
-                status_code=422, detail="受控模型只支持整图输入与矩形框输出"
+                status_code=422,
+                detail="受控检测阶段只支持整图或父框裁剪输入、矩形框输出，不支持交互提示",
             )
 
 
@@ -466,6 +484,28 @@ async def resolve_reference(db, project, model_id, registry_id):
         except ValueError as exc:
             raise HTTPException(status_code=422, detail="模型版本标识无效") from exc
     version = await load_version(db, project.id, version_id)
+    if release is None:
+        from app.db.models.model_decision import ModelDecision
+
+        published = await db.scalar(
+            select(ModelRelease.id)
+            .where(
+                ModelRelease.project_id == project.id,
+                ModelRelease.model_version_id == version.id,
+            )
+            .limit(1)
+        )
+        decision = await db.scalar(
+            select(ModelDecision)
+            .where(ModelDecision.model_version_id == version.id)
+            .order_by(ModelDecision.sequence.desc())
+            .limit(1)
+        )
+        if not published or (decision and decision.disposition == "archived"):
+            raise HTTPException(
+                status_code=409,
+                detail="普通推理只能使用已发布且未归档的模型；候选模型请先加载与试用",
+            )
     validate_bindings(project, version.classes, version.bindings)
     deployment = await db.scalar(
         select(ModelDeployment).where(

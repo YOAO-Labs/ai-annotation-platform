@@ -292,6 +292,39 @@ class YoloPredictor:
             if ctx.sample_evaluation
             else {}
         )
+        if ctx.builtin_model_ref:
+            from fastapi import HTTPException
+
+            observed = getattr(model, "_aap_class_metadata", None)
+            if not isinstance(observed, dict) or any(
+                observed.get(key) != value
+                for key, value in ctx.builtin_model_ref.model_dump().items()
+            ):
+                raise HTTPException(
+                    status_code=409,
+                    detail={
+                        "reason": "builtin_model_identity_changed",
+                        "message": "实际权重或类别身份已变更，请重新选择模型并提交",
+                    },
+                )
+        if task == "detect" and not ctx.frozen_model_ref and ctx.classes:
+            from class_names import COCO80
+            from fastapi import HTTPException
+
+            names = getattr(model, "names", None)
+            if (
+                not isinstance(names, dict)
+                or set(names) != set(range(len(COCO80)))
+                or any(type(index) is not int for index in names)
+                or [names[index] for index in range(len(COCO80))] != list(COCO80)
+            ):
+                raise HTTPException(
+                    status_code=409,
+                    detail={
+                        "reason": "model_class_metadata_mismatch",
+                        "message": "权重类别与预置声明不一致，不能使用旧类别索引过滤",
+                    },
+                )
         results = model.predict(
             img,
             conf=params.conf,

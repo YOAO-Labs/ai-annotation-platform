@@ -1,5 +1,6 @@
 from aap_task_contract import normalize_task_fields
 from app.services.ml_capabilities import resolve_model_task
+from app.services.prediction_execution import execution_summary
 import asyncio
 import json
 import logging
@@ -15,22 +16,34 @@ logger = logging.getLogger(__name__)
 _MAX_FAILED_PREDICTION_CONTEXT_BYTES = 8 * 1024
 
 
-async def _preannotation_actor_revoked(db, actor, project_uuid) -> bool:
+async def _preannotation_actor_revoked(
+    db, actor, project_uuid, execution_scope="bulk"
+) -> bool:
     """Fresh-state authority check for the initiating preannotation actor."""
 
     from app.db.models.project import Project
-    from app.services.project_access import is_privileged_for_project
 
     await db.refresh(actor)
     fresh_project = await db.get(Project, project_uuid, populate_existing=True)
-    return (
-        not actor.is_active
-        or fresh_project is None
-        or not is_privileged_for_project(actor, fresh_project)
-    )
+    if not actor.is_active or fresh_project is None:
+        return True
+    if execution_scope == "workbench":
+        from fastapi import HTTPException
+        from app.services.project_access import resolve_project_access
+
+        try:
+            access = await resolve_project_access(db, user=actor, project=fresh_project)
+            return not access.has("annotation.write")
+        except HTTPException:
+            return True
+    from app.services.project_access import is_privileged_for_project
+
+    return not is_privileged_for_project(actor, fresh_project)
 
 
-async def _hold_preannotation_authority(db, actor, project_uuid) -> bool:
+async def _hold_preannotation_authority(
+    db, actor, project_uuid, execution_scope="bulk"
+) -> bool:
     """Re-check actor/project authority under bounded locks and hold it.
 
     Inference is long: the initiating account may be disabled or the project
@@ -47,9 +60,15 @@ async def _hold_preannotation_authority(db, actor, project_uuid) -> bool:
 
     try:
         await lock_actor_project_authority(db, actor.id, project_uuid, nowait=False)
+        if execution_scope == "workbench":
+            from app.services.project_write_guard import lock_actor_scope
+
+            await lock_actor_scope(db, actor.id, project_uuid, nowait=False)
     except HTTPException:
         return False
-    return not await _preannotation_actor_revoked(db, actor, project_uuid)
+    return not await _preannotation_actor_revoked(
+        db, actor, project_uuid, execution_scope
+    )
 
 
 def _retryable_request_context(context: dict | None) -> dict | None:
@@ -244,7 +263,10 @@ def _make_crop_uploader(storage, job_id: str):
     """
 
     def upload_crop(task, box_idx: int, jpeg_bytes: bytes) -> str:
-        key = f"roi-crops/{job_id}/{task.id}/{box_idx}.jpg"
+        import hashlib
+
+        digest = hashlib.sha256(jpeg_bytes).hexdigest()[:20]
+        key = f"roi-crops/{job_id}/{task.id}/{box_idx}-{digest}.jpg"
         return storage.upload_crop_bytes(jpeg_bytes, key)
 
     return upload_crop
@@ -324,6 +346,7 @@ async def _run_task_pipeline(
     resolve_url,
     upload_crop=None,
     stage_modes=None,
+    execution_snapshot_id=None,
 ):
     """v0.18.1 ~ v0.18.14 · 对单个 task 按受限树形拓扑跑各阶段, 返回 (pred_results, pipeline_extra, stage_stats)。
 
@@ -354,12 +377,79 @@ async def _run_task_pipeline(
     )
     from app.services.gpu_arbitration.contracts import gpu_arbiter_failure_record
 
+    lineage = []
+    executed_stages = set()
+    for client in stage_clients:
+        client.last_instance_id = None
+        client.pool_id = None
+
+    def tag_shapes(shapes, stage, parents=None, transform=None, result_index=0):
+        if not execution_snapshot_id:
+            return
+        for index, shape in enumerate(shapes):
+            shape_id = str(
+                uuid.uuid5(
+                    uuid.NAMESPACE_URL,
+                    f"{execution_snapshot_id}:{task.id}:{stage['stage']}:{result_index}:{index}",
+                )
+            )
+            parent_index = shape.get("parent_box_idx")
+            parent = (
+                parents[parent_index]
+                if parents is not None
+                and type(parent_index) is int
+                and 0 <= parent_index < len(parents)
+                else None
+            )
+            shape["pipeline_shape_id"] = shape_id
+            record = {
+                "shape_id": shape_id,
+                "stage": stage["stage"],
+                "parent_stage": stage.get("parent_stage"),
+                "parent_shape_id": parent.get("pipeline_shape_id") if parent else None,
+                "parent_box_idx": parent_index,
+                "transform": transform,
+            }
+            lineage.append(record)
+
+    def execution_extra(extra=None):
+        if not execution_snapshot_id:
+            return extra
+        extra = extra or {
+            "pipeline": {
+                "stage_count": len(stages),
+                "stages": _pipeline_topology(stages, _compute_stage_depths(stages)),
+            }
+        }
+        extra["pipeline"]["shape_lineage"] = lineage
+        extra["pipeline"]["selections"] = [
+            {
+                "stage": stage["stage"],
+                "requested_registry_id": stage["ml_backend_id"],
+                "pool_id": str(client.pool_id)
+                if getattr(client, "pool_id", None)
+                else None,
+                "executed_registry_id": str(client.last_instance_id)
+                if si in executed_stages and getattr(client, "last_instance_id", None)
+                else None,
+                "executed": si in executed_stages,
+                "model_id": stage.get("model_id"),
+                "model_ref": stage.get("frozen_model_ref"),
+                "class_metadata": stage.get("class_metadata"),
+            }
+            for si, (stage, client) in enumerate(zip(stages, stage_clients))
+        ]
+        return extra
+
     url = resolve_url(task)
+    executed_stages.add(0)
     results = await stage_clients[0].predict(
         [{"id": str(task.id), "file_path": url}], context=stage_contexts[0]
     )
     if len(stages) == 1:
-        return results, None, None
+        for ri, result in enumerate(results):
+            tag_shapes(result.result, stages[0], result_index=ri)
+        return results, execution_extra(), None
 
     modes = stage_modes or ["crop"] * len(stages)
     depths = _compute_stage_depths(stages)
@@ -380,10 +470,12 @@ async def _run_task_pipeline(
             "skipped_geometry": 0,
         }
 
-    for pred_result in results:
+    stage_errors = []
+    for result_index, pred_result in enumerate(results):
         root_boxes = pred_result.result
         if not isinstance(root_boxes, list) or not root_boxes:
             continue
+        tag_shapes(root_boxes, stages[0], result_index=result_index)
         stats[root_stage]["detected"] += len(root_boxes)
         # 每阶段对下游暴露的几何 (按 stage 号): root 暴露检测框, 下游按 parent_stage 取上游输出。
         stage_outputs: dict[int, list] = {root_stage: root_boxes}
@@ -420,6 +512,7 @@ async def _run_task_pipeline(
                     continue
                 stats[snum]["targeted"] += len(geo.prompts)
                 try:
+                    executed_stages.add(si)
                     seg_results = await stage_clients[si].predict(
                         [
                             {
@@ -431,12 +524,20 @@ async def _run_task_pipeline(
                         context=stage_contexts[si],
                     )
                     shapes = collect_geometry_shapes(seg_results, parent_boxes)
+                    tag_shapes(shapes, stage, parent_boxes, result_index=result_index)
                     stats[snum]["ok"] += len(shapes)
                     stage_outputs[snum] = shapes
                     # geometry → 落库为候选 shape; intermediate → 仅内部供下游消费, 不落库。
                     if target == "geometry":
                         new_shapes.extend(shapes)
                 except Exception as exc:  # noqa: BLE001
+                    stage_errors.append(
+                        {
+                            "stage": snum,
+                            "error_type": type(exc).__name__,
+                            "on_failure": stage.get("on_failure", "keep_parent"),
+                        }
+                    )
                     stats[snum]["failed"] += len(geo.prompts)
                     stage_outputs[snum] = []
                     failure = gpu_arbiter_failure_record(exc)
@@ -490,6 +591,7 @@ async def _run_task_pipeline(
             targeted = {int(ci["id"]) for ci in crop_inputs}
             stats[snum]["targeted"] += len(targeted)
             try:
+                executed_stages.add(si)
                 ds_results = await stage_clients[si].predict(
                     crop_inputs, context=stage_contexts[si]
                 )
@@ -518,6 +620,13 @@ async def _run_task_pipeline(
                         for s in remapped:
                             if pidx is not None:
                                 s["parent_box_idx"] = pidx
+                        tag_shapes(
+                            remapped,
+                            stage,
+                            parent_boxes,
+                            transform,
+                            result_index=f"{result_index}:{cr.task_id}",
+                        )
                         produced.extend(remapped)
                     stats[snum]["ok"] += len(produced)
                     stage_outputs[snum] = produced
@@ -525,6 +634,13 @@ async def _run_task_pipeline(
                     if target == "geometry":
                         new_shapes.extend(produced)
             except Exception as exc:  # noqa: BLE001
+                stage_errors.append(
+                    {
+                        "stage": snum,
+                        "error_type": type(exc).__name__,
+                        "on_failure": stage.get("on_failure", "keep_parent"),
+                    }
+                )
                 # 阶段级失败: keep_parent=保留上游框属性留空; drop_box=丢这些父框。
                 stats[snum]["failed"] += len(targeted)
                 failure = gpu_arbiter_failure_record(exc)
@@ -572,7 +688,10 @@ async def _run_task_pipeline(
     }
     if gpu_arbiter_failures:
         extra["pipeline"]["gpu_arbiter_failures"] = gpu_arbiter_failures
-    return results, extra, stats
+    if stage_errors or any(s.get("failed", 0) for s in stats.values()):
+        extra["pipeline"]["partial"] = True
+        extra["pipeline"]["stage_errors"] = stage_errors
+    return results, execution_extra(extra), stats
 
 
 async def _run_batch(
@@ -648,7 +767,6 @@ async def _run_batch(
     from app.services.ml_backend import MLBackendService
     from app.services.ml_routing.client import RoutedMLBackendClient
     from app.services.prediction import PredictionService
-    from app.services.project_access import is_privileged_for_project
     from app.services.task_lock import TaskLockService
     from app.services.batch_permissions import allows_bulk_preannotation
 
@@ -702,7 +820,9 @@ async def _run_batch(
                 actor is None
                 or not actor.is_active
                 or project is None
-                or not is_privileged_for_project(actor, project)
+                or await _preannotation_actor_revoked(
+                    db, actor, project_uuid, execution_scope
+                )
             ):
                 raise ValueError("preannotation actor is unavailable")
         elif async_job_id is not None:
@@ -742,6 +862,38 @@ async def _run_batch(
             if frozen_model_ref is not None and saved_ref != frozen_model_ref:
                 raise ValueError("Queued model identity differs from the durable job")
             frozen_model_ref = saved_ref
+            if precreated_job.execution_snapshot_id:
+                from app.services.prediction_execution import load_snapshot
+
+                snapshot_payload, snapshot_digest = await load_snapshot(
+                    db, precreated_job.execution_snapshot_id, project_uuid
+                )
+                pipeline_stages = snapshot_payload["stages"]
+                root = next(
+                    stage
+                    for stage in pipeline_stages
+                    if stage.get("parent_stage") is None
+                )
+                if root["ml_backend_id"] != str(backend.id):
+                    raise ValueError(
+                        "Queued backend differs from the execution snapshot"
+                    )
+                frozen_model_ref = root.get("frozen_model_ref")
+                model_id, visual_task = root.get("model_id"), root.get("task")
+                params, model_variants, class_filter = (
+                    root.get("params"),
+                    root.get("model_variants"),
+                    root.get("class_filter"),
+                )
+                prompt_type = root.get("prompt_type")
+                prompt, output_mode = (
+                    snapshot_payload["prompt"],
+                    snapshot_payload["output_mode"],
+                )
+                execution_scope, execution_unit = (
+                    snapshot_payload["execution_scope"],
+                    snapshot_payload["execution_unit"],
+                )
             precreated_job.celery_task_id = celery_task_id
             await async_job_svc.mark_running(
                 db, precreated_job.id, celery_task_id=celery_task_id
@@ -832,14 +984,28 @@ async def _run_batch(
                 pipeline_stages=pipeline_stages,
                 execution_unit=execution_unit,
             )
-            if not frozen_model_ref:
-                raise ValueError(
-                    "Controlled preannotation is missing its frozen identity"
+            for stage in pipeline_stages or [
+                {
+                    "model_id": model_id,
+                    "frozen_model_ref": frozen_model_ref,
+                    "ml_backend_id": ml_backend_id,
+                }
+            ]:
+                if not trained_models.is_controlled(stage.get("model_id")):
+                    continue
+                ref = stage.get("frozen_model_ref")
+                if not ref:
+                    raise ValueError("Controlled stage is missing its frozen identity")
+                resolved_registry = await trained_models.validate_frozen_reference(
+                    db, project_uuid, ref
                 )
-            await trained_models.validate_frozen_reference(
-                db, project_uuid, frozen_model_ref
-            )
-            model_id = f"trained:{frozen_model_ref['model_version_id']}"
+                if str(resolved_registry) != stage["ml_backend_id"]:
+                    raise ValueError(
+                        "Controlled stage registry differs from its frozen identity"
+                    )
+            if frozen_model_ref:
+                model_id = f"trained:{frozen_model_ref['model_version_id']}"
+
         context = _build_predict_context(
             prompt=prompt,
             output_mode=output_mode,
@@ -855,6 +1021,14 @@ async def _run_batch(
             else None,
             frozen_model_ref=frozen_model_ref,
         )
+
+        if precreated_job and precreated_job.execution_snapshot_id:
+            from app.services.prediction_execution import build_stage_context
+
+            context = build_stage_context(
+                next(s for s in pipeline_stages if s.get("parent_stage") is None),
+                snapshot_payload,
+            )
 
         # v0.11.24 · 幂等：skip_predicted 排除已预标 task；append/overwrite 不排除。
         skip_predicted = predict_mode == "skip_predicted"
@@ -1128,8 +1302,20 @@ async def _run_batch(
             await engine.dispose()
             return
 
-        box_thr = float(project.box_threshold) if project is not None else None
-        text_thr = float(project.text_threshold) if project is not None else None
+        box_thr = (
+            snapshot_payload["box_threshold"]
+            if precreated_job and precreated_job.execution_snapshot_id
+            else float(project.box_threshold)
+            if project is not None
+            else None
+        )
+        text_thr = (
+            snapshot_payload["text_threshold"]
+            if precreated_job and precreated_job.execution_snapshot_id
+            else float(project.text_threshold)
+            if project is not None
+            else None
+        )
         dispatch_context_factory = build_gpu_dispatch_context_factory(SessionLocal)
         stage_clients: list[RoutedMLBackendClient] = []
         stage_contexts: list[dict | None] = []
@@ -1166,7 +1352,9 @@ async def _run_batch(
                 )
                 stage_modes.append(_resolve_input_mode(s))
                 stage_contexts.append(
-                    _build_predict_context(
+                    build_stage_context(s, snapshot_payload)
+                    if precreated_job and precreated_job.execution_snapshot_id
+                    else _build_predict_context(
                         prompt=None,
                         output_mode=output_mode,
                         params=s.get("params"),
@@ -1175,6 +1363,7 @@ async def _run_batch(
                         prompt_type=s.get("prompt_type"),
                         model_variants=s.get("model_variants"),
                         class_filter=s.get("class_filter"),
+                        frozen_model_ref=s.get("frozen_model_ref"),
                         box_threshold=box_thr,
                         text_threshold=text_thr,
                     )
@@ -1188,8 +1377,15 @@ async def _run_batch(
 
             crop_uploader = _make_crop_uploader(StorageService(), str(async_job_id))
 
-        retry_request_context = _retryable_request_context(stage_contexts[0])
-        if stage_contexts[0] is not None and retry_request_context is None:
+        snapshot_id = precreated_job.execution_snapshot_id if precreated_job else None
+        retry_request_context = (
+            None if snapshot_id else _retryable_request_context(stage_contexts[0])
+        )
+        if (
+            not snapshot_id
+            and stage_contexts[0] is not None
+            and retry_request_context is None
+        ):
             logger.warning(
                 "batch_predict retry context exceeds %d bytes; omitting from failures job=%s",
                 _MAX_FAILED_PREDICTION_CONTEXT_BYTES,
@@ -1218,7 +1414,7 @@ async def _run_batch(
             # actor's account or project authority was revoked.  A bounded
             # system job (actor is None) keeps its own explicit authority.
             if actor is not None and await _preannotation_actor_revoked(
-                db, actor, project_uuid
+                db, actor, project_uuid, execution_scope
             ):
                 await async_job_svc.mark_failed(
                     db, async_job_id, error="preannotation_actor_revoked"
@@ -1237,6 +1433,10 @@ async def _run_batch(
                 return
 
             try:
+                if actor is not None:
+                    from app.services.prediction_execution import validate_task_scope
+
+                    await validate_task_scope(db, project, task, actor, execution_scope)
                 results, pipeline_extra, stage_stats = await _run_task_pipeline(
                     task,
                     stages,
@@ -1245,6 +1445,7 @@ async def _run_batch(
                     resolve_url=_resolve_task_url,
                     upload_crop=crop_uploader,
                     stage_modes=stage_modes,
+                    execution_snapshot_id=snapshot_id,
                 )
                 _accumulate_stage_stats(stage_stats)
                 gpu_arbiter_failures.extend(
@@ -1259,7 +1460,7 @@ async def _run_batch(
                 # share locks are held until the commit below, so a concurrent
                 # disable or ownership transfer cannot interleave.
                 if actor is not None and not await _hold_preannotation_authority(
-                    db, actor, project_uuid
+                    db, actor, project_uuid, execution_scope
                 ):
                     await db.rollback()
                     await async_job_svc.mark_failed(
@@ -1277,8 +1478,24 @@ async def _run_batch(
                     )
                     await engine.dispose()
                     return
+                if actor is not None:
+                    await validate_task_scope(
+                        db, project, task, actor, execution_scope, lock=True
+                    )
+                if snapshot_id:
+                    pipeline_extra = {
+                        **(pipeline_extra or {}),
+                        "execution_snapshot": {
+                            "id": str(snapshot_id),
+                            "digest": snapshot_digest,
+                            "stages": execution_summary(stages),
+                        },
+                    }
+                partial_prediction_ids = []
+                if snapshot_id and not results:
+                    raise ValueError("管线未返回任务结果")
                 for pred_result in results:
-                    await pred_svc.create_from_ml_result(
+                    created_prediction = await pred_svc.create_from_ml_result(
                         task_id=task.id,
                         project_id=uuid.UUID(project_id),
                         ml_backend_id=executed_backend_id,
@@ -1295,18 +1512,50 @@ async def _run_batch(
                             else {}
                         ),
                     )
+                    partial_prediction_ids.append(str(created_prediction.id))
                     # v0.9.11 · 单条 cost 累加到 job 级总费用
                     if pred_result.meta:
                         cost = pred_result.meta.get("total_cost")
                         if cost is not None:
                             running_total_cost += float(cost)
+                if snapshot_id and (pipeline_extra or {}).get("pipeline", {}).get(
+                    "partial"
+                ):
+                    partial_failure = await pred_svc.create_failed(
+                        task_id=task.id,
+                        project_id=project_uuid,
+                        ml_backend_id=executed_backend_id,
+                        ml_backend_pool_id=executed_pool_id,
+                        error_type="PipelinePartialFailure",
+                        message="管线部分阶段失败，已保留失败策略允许的结果；重试将重跑本题完整管线",
+                        extra={
+                            "execution_scope": execution_scope,
+                            "execution_snapshot": {
+                                "id": str(snapshot_id),
+                                "digest": snapshot_digest,
+                            },
+                            "partial_prediction_ids": partial_prediction_ids,
+                            "stage_errors": pipeline_extra["pipeline"].get(
+                                "stage_errors", []
+                            ),
+                        },
+                    )
+                    partial_failure.execution_snapshot_id = snapshot_id
+                    failed_prediction_ids.append(str(partial_failure.id))
+                    failed_count += 1
+                else:
+                    success_count += 1
                 await db.commit()
-                success_count += 1
             except Exception as exc:
                 gpu_arbiter_error = gpu_arbiter_failure_record(exc)
                 if gpu_arbiter_error is not None:
                     gpu_arbiter_failures.append(gpu_arbiter_error)
-                failure_extra: dict = {}
+                failure_extra: dict = {"execution_scope": execution_scope}
+                if snapshot_id:
+                    failure_extra["execution_snapshot"] = {
+                        "id": str(snapshot_id),
+                        "digest": snapshot_digest,
+                    }
                 if retry_request_context is not None:
                     failure_extra["request_context"] = retry_request_context
                 if gpu_arbiter_error is not None:
@@ -1328,6 +1577,7 @@ async def _run_batch(
                     extra=failure_extra or None,
                     ml_backend_pool_id=stage_clients[0].pool_id or source_pool_id,
                 )
+                failed.execution_snapshot_id = snapshot_id
                 failed_prediction_ids.append(str(failed.id))
                 await db.commit()
                 failed_count += 1

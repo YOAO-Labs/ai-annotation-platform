@@ -627,7 +627,7 @@ def test_wrong_identity_native_class_and_coordinates_are_rejected(change):
     [
         {"write": {"target": "attributes"}},
         {"input": {"mode": "parent_crop"}},
-        {"parent_stage": 0},
+        {"parent_stage": 0, "input": {"mode": "full_image"}},
         {"roi": {"x": 0}},
         {"source": {"kind": "scene"}},
         {"source": {"data_type": "video"}},
@@ -638,7 +638,8 @@ def test_controlled_scope_rejects_non_image_root_contracts(stage):
 
     with pytest.raises(HTTPException) as error:
         service.assert_image_scope(
-            SimpleNamespace(data_type="image"), pipeline_stages=[stage]
+            SimpleNamespace(data_type="image"),
+            pipeline_stages=[{"model_id": "project-release", **stage}],
         )
     assert error.value.status_code == 422
 

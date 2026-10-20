@@ -243,3 +243,13 @@ GET /api/v1/dashboard?view=projects        # 超管看全部
 - `GET /api/v1/dashboard/annotator/projects/{project_id}/onboarding`：当前用户在可见项目内的分派、访问、有效标注和审核结果计数，`reviewed_task_id` 指向最近产生审核结果的本人任务；reviewed_task_display_id、reviewed_task_status 和 reviewed_task_reason 可直接展示审核结论。分派计数只包含当前可进入的任务，历史结果不依赖任务仍可编辑。等待审核的任务不计入审核结果。
 
 清单的跳过与指南确认继续通过个人偏好接口持久化，按项目和指南版本隔离。
+
+## 项目可用模型目录
+
+`GET /api/v1/projects/:id/model-catalog` 要求项目可见，返回已授权的模型摘要、类别来源、合法规格、部署状态和操作原因。普通成员看不到未发布的候选，能查看目录不代表能批量预标或管理模型。
+
+`GET /api/v1/model-catalog` 仅管理员可用；项目管理员仅聚合自己管理的项目，超管可查看全部。两条接口支持 `project_id`（全局接口）、`task`、`source`、`status`、`q`、`page` 和 `page_size`（最多 200），返回 `items/total/projects/current_release/task_counts`。使用 `Cache-Control: private, no-store`；不返回下载地址、实例 URL、Token 或安装密钥。
+
+目录 ID 是发现用标识；执行仍提交 `model_id` 与 `model_variants`，包括 `trained:<uuid>` 或 `project-release`，不能由客户端构造冻结部署身份。训练模型普通执行须已发布且未归档；Ultralytics 图片检测可作整图根和 crop 检测子阶段，其他未资格确认的训练任务返回明确错误。
+
+显式管线和受控模型提交创建持久执行快照，每阶段冻结模型、参数、原生过滤和项目父类过滤。快照最多 1 MiB；旧无快照单阶段重试上下文仍限制 8 KiB。失败项重试复用原快照，缺失／摘要不符时明确失败，不回退到最新发布。普通批跑要求项目管理权限；`execution_scope=workbench` 要求当前项目标注权限及有效任务分派。

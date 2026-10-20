@@ -2374,6 +2374,7 @@ export function useWorkbenchShellModel({
   // 与批量页 ProjectDetailPanel 同一 hook + PreannotateConfigForm (单一事实源). 驱动批量 AI 面板
   // (运行当前题 AI) — 批量线, 用 batchBackendId.
   const preCfg = usePreannotateConfig({
+    executionScope: "workbench",
     projectId: projectId ?? "",
     backendId: batchBackendId,
     // 工作台「当前题 AI」面板恒做**单帧检测**(方案 a): 传 executionUnit="frame" 放开
@@ -3325,7 +3326,7 @@ export function useWorkbenchShellModel({
 
   const handleRunAi = useCallback(() => {
     if (!projectId || !taskId) return;
-    const mlBackendId = batchBackendId;
+    const mlBackendId = preCfg.backendId;
     if (!mlBackendId) {
       pushToast({
         msg: "AI 暂不可用",
@@ -3375,7 +3376,6 @@ export function useWorkbenchShellModel({
     });
   }, [
     projectId,
-    batchBackendId,
     aiModel,
     task?.display_id,
     taskId,

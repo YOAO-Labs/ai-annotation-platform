@@ -21,6 +21,7 @@ from app.schemas.project_pipeline import (
     _validate_scope_owner,
 )
 from app.services.pipeline_template import (
+    assert_model_reference_scope,
     assert_can_create_pipeline_scope,
     assert_pipeline_visible,
     can_edit_pipeline,
@@ -121,6 +122,7 @@ async def create_pipeline(
     if data.project_id is not None:
         await assert_project_visible(data.project_id, db, user)
     data.stages = _validate_saved_pipeline(data.stages)
+    await assert_model_reference_scope(db, data.stages, data.scope, data.project_id)
 
     make_default = data.is_default
     payload = data.model_dump()
@@ -178,6 +180,9 @@ async def update_pipeline(
         await assert_project_visible(project_id, db, user)
     if payload.get("stages") is not None:
         payload["stages"] = _validate_saved_pipeline(payload["stages"])
+    await assert_model_reference_scope(
+        db, payload.get("stages", pipeline.stages), scope, project_id
+    )
     # 跨项目搬迁且未显式给 is_default 时, 不继承 default 身份: 换归属不应隐式改「谁是默认」,
     # 否则会静默降级目标项目既有的默认编排。要设为新项目默认须显式传 is_default=true。
     if (

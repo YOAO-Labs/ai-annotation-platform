@@ -28,6 +28,7 @@ import {
   type VariantSource,
 } from "../utils/panelShape";
 import { useAiParamPresets } from "../utils/useAiParamPresets";
+import { isImageDetectionEntry, useProjectDetectionCatalog } from "@/api/modelCatalog";
 import { useAuthStore } from "@/stores/authStore";
 
 // v0.14.9 · 文本 / OCR / 文档版面三态任务类型 (按选中 backend 的 models[].task 派生).
@@ -75,12 +76,16 @@ export interface UsePreannotateConfigArgs {
    * 图像项目忽略此参数 (恒图像检测)。缺省视为 "video" (视频项目主选择)。
    */
   executionUnit?: "video" | "frame";
+  executionScope?: "bulk" | "workbench";
+  inputMode?: "full_image" | "crop";
+  skipBackendDiscovery?: boolean;
 }
 
-export function usePreannotateConfig({
+function useBackendPreannotateConfig({
   projectId,
   backendId,
   executionUnit,
+  skipBackendDiscovery,
 }: UsePreannotateConfigArgs) {
   const pushToast = useToastStore((s) => s.push);
   const canReadAliasFrequency = useAuthStore(
@@ -122,7 +127,7 @@ export function usePreannotateConfig({
   const setupQ = useQuery({
     queryKey: mlBackendSetupQueryKey(projectId, backendId),
     queryFn: () => mlBackendsApi.setup(projectId, backendId as string),
-    enabled: !!backendId,
+    enabled: !!backendId && !skipBackendDiscovery,
     staleTime: 60_000,
     retry: false,
   });
@@ -130,7 +135,7 @@ export function usePreannotateConfig({
   const capabilitiesQ = useQuery({
     queryKey: ["ml-backends", projectId, backendId, "capabilities"],
     queryFn: () => mlBackendsApi.capabilities(projectId, backendId as string),
-    enabled: !!backendId,
+    enabled: !!backendId && !skipBackendDiscovery,
     staleTime: 60_000,
     retry: false,
   });
@@ -704,12 +709,152 @@ export function usePreannotateConfig({
     setOutputMode,
     // v0.19.3 WS2 · 源模型 batchable 非阻断预警 (null = 无)。
     sourceBatchableWarning,
+    isVideoProject,
     // 运行
     configReady,
     buildArgs,
     markHot,
     currentVariantSlice,
     isCurrentVariantWarm,
+  };
+}
+
+/** A catalog choice is separate from the backend's legacy saved configuration. */
+export function usePreannotateConfig(args: UsePreannotateConfigArgs) {
+  const catalogQ = useProjectDetectionCatalog(args.projectId);
+  const owner = useAuthStore((state) => state.user?.id);
+  const scopeKey = `${owner}:${args.projectId}`;
+  const [choice, setChoice] = useState({ scope: scopeKey, id: "" });
+  const selectedCatalogId = choice.scope === scopeKey ? choice.id : "";
+  const setCatalogModel = (id: string) => setChoice({ scope: scopeKey, id });
+  useEffect(() => {
+    setChoice({ scope: scopeKey, id: "" });
+  }, [scopeKey]);
+  const release = catalogQ.data?.current_release;
+  const entryId = selectedCatalogId === "project-release" ? release?.entry_id : selectedCatalogId;
+  const selectedCatalogEntry = catalogQ.data?.items.find((entry) => entry.id === entryId);
+  const operation =
+    args.executionScope === "workbench"
+      ? "workbench"
+      : args.inputMode === "crop"
+        ? "pipeline"
+        : "preannotate";
+  const placement = selectedCatalogEntry?.placements?.find(
+    (item) =>
+      item.ready &&
+      (selectedCatalogId !== "project-release" || item.deployment_id === release?.deployment_id),
+  );
+  const backendId = selectedCatalogId ? (placement?.registry_id ?? null) : args.backendId;
+  const legacy = useBackendPreannotateConfig({
+    ...args,
+    backendId,
+    skipBackendDiscovery: !!selectedCatalogId,
+  });
+  const [values, setValues] = useState<Record<string, unknown>>({});
+  const [classes, setClasses] = useState<Set<number>>(new Set());
+  const schema = (
+    selectedCatalogEntry?.source === "project_trained"
+      ? placement?.params
+      : selectedCatalogEntry?.capabilities.params
+  ) as JsonSchemaObject | undefined;
+  const catalogPresets = useAiParamPresets(
+    selectedCatalogId ? `${backendId}:${selectedCatalogId}` : null,
+    "text",
+  );
+  useEffect(() => {
+    setValues(deriveDefaults(schema));
+    setClasses(new Set());
+  }, [
+    scopeKey,
+    selectedCatalogId,
+    selectedCatalogEntry?.id,
+    selectedCatalogEntry?.class_metadata.classes_digest,
+    schema,
+  ]);
+  const catalogReason = !selectedCatalogId
+    ? null
+    : legacy.isVideoProject
+      ? "目录模型暂只支持图片项目；视频请使用后端配置"
+      : !selectedCatalogEntry
+        ? catalogQ.isLoading
+          ? "正在读取模型…"
+          : "所选模型已不可见，请重新选择"
+        : !isImageDetectionEntry(selectedCatalogEntry)
+          ? "此目录入口目前只支持闭集图片检测；其他任务请使用后端配置"
+          : !selectedCatalogEntry.operations[operation]?.allowed
+            ? (selectedCatalogEntry.operations[operation]?.reason ?? "该模型不适用于此操作")
+            : !placement
+              ? "所选模型没有可用的部署实例"
+              : null;
+  const catalogModels =
+    catalogQ.data?.items.filter(
+      (entry) =>
+        isImageDetectionEntry(entry) &&
+        entry.publication !== "candidate" &&
+        entry.publication !== "archived" &&
+        entry.capabilities.resource_profile?.batchable !== false &&
+        (args.inputMode !== "crop" || entry.capabilities.composition !== "composite"),
+    ) ?? [];
+  const catalogFields = {
+    catalogQ,
+    catalogModels,
+    selectedCatalogId,
+    selectedCatalogEntry,
+    setCatalogModel,
+    catalogReason,
+  };
+  if (!selectedCatalogId) return { ...legacy, ...catalogFields };
+  const capability = selectedCatalogEntry?.capabilities as MLModelCapability | undefined;
+  const ready = !!capability && !catalogReason && !!backendId;
+  return {
+    ...legacy,
+    ...catalogFields,
+    backendId,
+    presets: catalogPresets.presets,
+    savePreset: catalogPresets.save,
+    removePreset: catalogPresets.remove,
+    applyPreset: (next: Record<string, unknown>) =>
+      setValues({ ...deriveDefaults(schema), ...next }),
+    markHot: () => {},
+    isCurrentVariantWarm: false,
+    isDocMode: false,
+    isGeometricBackend: true,
+    isTextPath: false,
+    primaryModel: capability,
+    geometricModel: capability,
+    sourceBatchableWarning: null,
+    selectedModelId: selectedCatalogEntry?.model_id ?? null,
+    paramsSchema: schema,
+    paramsValue: values,
+    hasAnyParams: Object.keys(schema?.properties ?? {}).length > 0,
+    hasNonVariantParams: Object.keys(schema?.properties ?? {}).length > 0,
+    variantGroups: [],
+    variantCombinations: undefined,
+    variantDefaults: {},
+    currentVariantSlice: selectedCatalogEntry?.model_variants ?? {},
+    selectedClassIdx: classes,
+    setSelectedClassIdx: setClasses,
+    onParamsChange: setValues,
+    onVariantOrParamsChange: setValues,
+    panelShape: derivePanelShape(capability, false),
+    configReady: ready,
+    buildArgs: (predictMode: PredictMode): PreannotateArgs | null => {
+      if (!ready || !selectedCatalogEntry || !backendId) return null;
+      return {
+        ml_backend_id: backendId,
+        task: "detect",
+        model_id:
+          selectedCatalogId === "project-release"
+            ? "project-release"
+            : selectedCatalogEntry.model_id,
+        model_variants: selectedCatalogEntry.model_variants ?? {},
+        params: Object.fromEntries(
+          Object.entries(values).filter(([key]) => key in (schema?.properties ?? {})),
+        ),
+        predict_mode: predictMode,
+        ...(classes.size ? { class_filter: [...classes].sort((a, b) => a - b) } : {}),
+      };
+    },
   };
 }
 

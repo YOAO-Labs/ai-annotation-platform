@@ -108,3 +108,22 @@ async def unenabled_backend_ids(
         if not backend or not await svc.is_enabled(project_id, parsed):
             missing.append(backend_id)
     return missing
+
+
+async def assert_model_reference_scope(db, stages, scope, project_id):
+    from app.services.trained_models import is_controlled, load_version
+
+    for stage in stages:
+        model_id = stage.get("model_id")
+        if not is_controlled(model_id):
+            continue
+        if scope != "private" or project_id is None:
+            raise HTTPException(
+                status_code=422, detail="项目训练模型只能保存在所属项目的私有管线中"
+            )
+        if model_id.startswith("trained:"):
+            try:
+                version_id = uuid.UUID(model_id.removeprefix("trained:"))
+            except ValueError as exc:
+                raise HTTPException(status_code=422, detail="模型版本标识无效") from exc
+            await load_version(db, project_id, version_id)

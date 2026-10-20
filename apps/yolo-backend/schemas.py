@@ -7,6 +7,8 @@ Context: 与 sam3/gsam2 的 prompt 驱动不同, yolo 走纯批量 + variants �
 
 from __future__ import annotations
 
+from aap_protocol_v2.model_metadata import BuiltinModelRef
+
 import logging
 import math
 from typing import Literal
@@ -119,6 +121,7 @@ class Context(BaseModel):
     model_variants: dict[str, str] | None = None
     variants: Variants | None = None
     frozen_model_ref: ManagedModelRef | None = None
+    builtin_model_ref: BuiltinModelRef | None = None
     sample_evaluation: EvaluationRequest | None = None
     _evaluation_profile: dict | None = PrivateAttr(default=None)
     _evaluation_meta: dict | None = PrivateAttr(default=None)

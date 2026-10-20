@@ -226,6 +226,8 @@ export function sourceNodeShape(
 
 /** 阶段模型能力旗标 (StageCard 自报, 供画布作可达性 / 产属性警示)。 */
 export interface StageCaps {
+  /** Names returned by this stage, after native-index filtering and project binding. */
+  outputClasses?: string[];
   /** capabilities 查询已就绪 (否则不判, 免误报)。 */
   hasCapabilities: boolean;
   /** 选中 model 自报了 supported_inputs (老 backend 缺省时为 false, 跳过可达性判)。 */

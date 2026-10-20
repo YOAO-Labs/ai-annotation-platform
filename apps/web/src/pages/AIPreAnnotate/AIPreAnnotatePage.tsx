@@ -12,7 +12,8 @@
  * 旧版本 478 行单文件 + 内嵌 FailedPredictionsTab (B-2) 一并清理 → /ai-pre/jobs?status=failed.
  */
 
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
+import { useSearchParams } from "react-router-dom";
 
 import { ProjectCardGrid } from "./components/ProjectCardGrid";
 import { ProjectDetailPanel } from "./components/ProjectDetailPanel";
@@ -23,7 +24,17 @@ export default function AIPreAnnotatePage() {
   const summaryQ = useAIPreProjectSummary();
   const items = useMemo(() => summaryQ.data?.items ?? [], [summaryQ.data?.items]);
 
-  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
+  const [search, setSearch] = useSearchParams();
+  const selectedProjectId = search.get("project");
+  const setSelectedProjectId = (id: string | null) => {
+    const next = new URLSearchParams(search);
+    if (id) next.set("project", id);
+    else {
+      next.delete("project");
+      next.delete("catalog_model");
+    }
+    setSearch(next);
+  };
 
   const selectedSummary = useMemo(
     () => items.find((it) => it.project_id === selectedProjectId),
@@ -44,6 +55,7 @@ export default function AIPreAnnotatePage() {
         <ProjectDetailPanel
           projectId={selectedProjectId}
           summary={selectedSummary}
+          initialCatalogModelId={search.get("catalog_model")}
           onBack={() => setSelectedProjectId(null)}
         />
       ) : (

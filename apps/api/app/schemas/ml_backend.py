@@ -212,8 +212,7 @@ class ModelCapability(BaseModel):
     composition: str = "atom"
     params: dict = {}
     modality: str | None = None
-    # v0.14.17 · 闭集检测器原生类别表 ([{index,name}], 读自权重 model.names). 供前端类别白名单;
-    # 仅该 task 模型已加载过 (warmup/predict) 时非空。
+    # Legacy declared classes; checkpoint verification lives in catalog class metadata.
     classes: list[dict] = []
 
     class Config:
