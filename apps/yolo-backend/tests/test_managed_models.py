@@ -141,6 +141,7 @@ async def test_installation_is_atomic_immutable_and_detects_disk_corruption(
     assert len(inspected) == 1
     path, actual = store.resolve(str(body.model_version_id), body.sha256)
     assert actual == receipt
+    path.chmod(0o600)
     path.write_bytes(b"corrupt")
     with pytest.raises(HTTPException):
         store.receipt(str(body.model_version_id))
@@ -177,7 +178,9 @@ async def test_invalid_install_never_publishes_partial_weights(
     with pytest.raises(HTTPException) as error:
         await store.install(body)
     assert error.value.status_code == 422
-    assert list(tmp_path.iterdir()) == []
+    assert not [path for path in tmp_path.iterdir() if not path.name.startswith(".")]
+    assert not list(tmp_path.glob(".install-*"))
+    assert not list(tmp_path.glob(".blobs/sha256/*.pt"))
 
 
 @pytest.mark.parametrize("fault", ["classes", "task", "runtime"])
