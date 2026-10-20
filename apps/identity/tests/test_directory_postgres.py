@@ -90,6 +90,11 @@ async def test_readiness_requires_exact_callable_directory_functions():
     assert "oidvectortypes" in connection.queries[0]
     assert "pg_depend" in connection.queries[0]
     assert "dependency.deptype = 'e'" in connection.queries[0]
+    assert "namespace.nspname, 4) = 'aap_'" in connection.queries[0]
+    assert "function.prosecdef" in connection.queries[0]
+    assert "pg_catalog.aclexplode" in connection.queries[0]
+    assert "acl.grantee <> 0" in connection.queries[0]
+    assert "pg_catalog.pg_has_role" in connection.queries[0]
     assert "has_any_column_privilege" in connection.queries[2]
     assert "has_sequence_privilege" in connection.queries[3]
 
@@ -99,7 +104,12 @@ async def test_readiness_requires_exact_callable_directory_functions():
                 "nspname": "aap_workspace_v1",
                 "proname": "identity_directory_owned_member_ids",
                 "args": "uuid",
-            }
+            },
+            {
+                "nspname": "public",
+                "proname": "directory_explicitly_granted_helper",
+                "args": "",
+            },
         ]
     )
     with pytest.raises(IdentityUnavailable):

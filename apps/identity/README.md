@@ -170,11 +170,12 @@ user credential in `aap-identity-directory/v1`. It owns four reads:
 there is no fallback to the application session when this owner is configured.
 Readiness requires the exact `directory_policy()` and
 `execute_directory_command(jsonb)` capabilities and rejects direct table,
-column, sequence, schema-creation and extra ordinary callable-function grants.
-Functions owned by installed PostgreSQL extensions are excluded from that
-function check because their default execute grant may be public. The default
-`public` schema name visibility is not treated as data authority; public schema
-creation and direct relation/function access are still rejected.
+column, sequence and schema-creation privileges, plus every `aap_*` capability,
+`SECURITY DEFINER` function and non-`PUBLIC` execute grant inherited by the
+directory login. Extension-owned functions and ordinary `public` invoker helpers
+available only through the default `PUBLIC` execute grant are tolerated; they
+do not grant the login direct relation access. Public schema creation and direct
+table, column, sequence or extra callable-function grants remain rejected.
 
 Legacy `/users` listing and management `/users/query` intentionally keep their
 different project-admin visibility rules. The owner returns the frozen user

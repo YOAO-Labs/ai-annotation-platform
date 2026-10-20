@@ -119,6 +119,24 @@ class DirectoryPostgresData:
                             'pg_catalog.pg_extension'::pg_catalog.regclass
                         AND dependency.deptype = 'e'
                   )
+                  AND (
+                      pg_catalog.left(namespace.nspname, 4) = 'aap_'
+                      OR function.prosecdef
+                      OR EXISTS (
+                          SELECT 1
+                          FROM pg_catalog.aclexplode(
+                              COALESCE(
+                                  function.proacl,
+                                  pg_catalog.acldefault('f', function.proowner)
+                              )
+                          ) AS acl
+                          WHERE acl.privilege_type = 'EXECUTE'
+                            AND acl.grantee <> 0
+                            AND pg_catalog.pg_has_role(
+                                current_user, acl.grantee, 'USAGE'
+                            )
+                      )
+                  )
                   AND pg_catalog.has_function_privilege(
                       current_user, function.oid, 'EXECUTE'
                   )
