@@ -326,16 +326,18 @@ async def test_legacy_delete_requires_handoff_for_rejected_work(
     actor, _ = super_admin
     target, _, _, _, tasks = await seed_handoff(db_session, actor, project_count=1)
     tasks[0].status = "rejected"
-    await db_session.flush()
+    target_id, task_id = target.id, tasks[0].id
+    # Persist setup so rejection rolls back only the command's work.
+    await db_session.commit()
     response = await httpx_client.delete(
-        f"/api/v1/users/{target.id}", headers=headers(actor)
+        f"/api/v1/users/{target_id}", headers=headers(actor)
     )
     assert response.status_code == 409, response.text
     assert response.json()["detail"] == {
         "reason": "has_pending_tasks",
         "pending_task_count": 1,
         "locked_task_count": 0,
-        "sample_task_ids": [str(tasks[0].id)],
+        "sample_task_ids": [str(task_id)],
         "message": "该用户当前有 1 个未完成任务、0 个锁定任务，需先转交",
     }
     await db_session.refresh(target)

@@ -556,14 +556,16 @@ async def test_pa_delete_transfer_receiver_must_cover_task_projects(
             ),
         ]
     )
-    await db_session.flush()
+    target_id, receiver_id, outsider_id = target.id, receiver.id, outsider.id
+    # Persist setup across the rejected command's rollback; retain plain IDs.
+    await db_session.commit()
 
     # The enabled outsider would pass the account-level manage arm but has no
     # membership in the project holding the pending task.
     blocked = await httpx_client.request(
         "DELETE",
-        f"/api/v1/users/{target.id}",
-        json={"transfer_to_user_id": str(outsider.id)},
+        f"/api/v1/users/{target_id}",
+        json={"transfer_to_user_id": str(outsider_id)},
         headers=headers,
     )
     assert blocked.status_code == 403, blocked.text
@@ -571,8 +573,8 @@ async def test_pa_delete_transfer_receiver_must_cover_task_projects(
     # A member of the affected project is a valid receiver.
     ok = await httpx_client.request(
         "DELETE",
-        f"/api/v1/users/{target.id}",
-        json={"transfer_to_user_id": str(receiver.id)},
+        f"/api/v1/users/{target_id}",
+        json={"transfer_to_user_id": str(receiver_id)},
         headers=headers,
     )
     assert ok.status_code == 200, ok.text
