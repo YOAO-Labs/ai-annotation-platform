@@ -1301,7 +1301,13 @@ Embedded SQLAlchemy adapter 必须留在调用方同一事务并且从不 commit
 
 `projects.list_members` 保留 Workspace 的成员授权、`assigned_at DESC` 顺序、项目职责和成员元数据；它在完成 ACL 检查后，对选中的用户 ID 调用一次全局 `resolve_briefs`，补充原有响应中的姓名、邮箱、平台角色和头像引用。项目职责仍来自 membership，`platform_role` 仍是必填的四值枚举；不增加 `avatar_initial` 或任何公开字段。空列表不访问 Identity，缺失 profile 继续按旧 inner-join 行为省略，停用用户不额外过滤。无效历史平台角色仍触发既有 DTO 校验错误。相较旧 JOIN，这条路径增加一次批量资料读取，不产生逐用户 RPC；远程 Workspace 与 Identity 查询没有共同快照。
 
-此消费者单独通过 21 个选定案例（18 DB/process、3 pure/static），零跳过；其中也包含对既有 remote/dedicated API 测试的扩展断言。SDK 序列化 44 项通过，含两项成员响应断言，SDK 生产代码未变。旧 public response 基线见 `apps/api/tests/fixtures/project_member_profiles_legacy.json`。这些数字独立于前一段 UserBrief owner 的 64 案例；不重复计算既有 owner package、镜像或恢复验收。其他项目成员读取与成员写入仍由各自现有流程负责。
+此消费者单独通过 21 个选定案例（18 DB/process、3 pure/static），零跳过；其中也包含对既有 remote/dedicated API 测试的扩展断言。SDK 序列化 44 项通过，含成员响应捕获序列化用例，SDK 生产代码未变。旧 public response 基线见 `apps/api/tests/fixtures/project_member_profiles_legacy.json`。这些数字独立于前一段 UserBrief owner 的 64 案例；不重复计算既有 owner package、镜像或恢复验收。其他项目成员读取与成员写入仍由各自现有流程负责。
+
+### Projects owner 显示资料消费
+
+`projects._serialize_project` 和 `_serialize_project_list` 使用同一个全局 `resolve_briefs` 批量 owner，只读取显示所需的 name/avatar 引用，不把资料用作授权事实。`owner_name` 与 `owner_avatar_ref` 继续可空，`owner_id` 仍是必需 UUID；缺少用户时两个显示字段保持 `null`。原始空值、空白、Unicode 名称与头像引用不清洗，停用和历史 owner 也不筛除。列表/查询先完成现有授权、过滤、排序、count 和分页，只查询该页返回的 owner IDs；一个 list/page 只发一次批量读取，共享 owner 不重复查询，空页不调用 Identity。详情、创建、patch、改名和转移对非空 owner ID 在现有授权及 commit/refresh 位置各查询一次。显式传入空 lookup 不会触发二次查询。`/datasets/{id}/projects` 保持两个 owner 显示字段为 `null`。
+
+旧 HTTP 响应基线在 owned database 上通过一个案例并清理成功，记录于 `apps/api/tests/fixtures/project_owner_profiles_legacy.json`；fixture 覆盖四个项目、三个 owner 与 list/page/detail 的旧 owner 查询次数 4/2/1。新消费者验证通过 59 个选定案例（53 DB/process、6 pure/static），零跳过；SDK projects 23 项通过，包含两项 list/detail 捕获序列化用例，SDK 生产代码未改。已有 Identity package 与 owner image 沿用前一 UserBrief slice，没有重复计入其 64 案例或 114 个文件 hash。新 API cold image 与 Root 的 OpenAPI/codegen/catalog 核对仍待完成；这些检查通过前不把该消费者标为完整 API/image qualification。每个 list/page 只减少 owner 资料读取的 N+1；其他项目计数仍存在，不能推导整个列表 SQL 数量恒定。
 
 ### Identity 管理员临时密码重置
 

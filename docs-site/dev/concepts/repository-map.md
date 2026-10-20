@@ -88,6 +88,13 @@ last_reviewed: 2026-10-20
   Membership role 仍是项目职责，brief role 是平台角色；响应保持原 DTO，空列表不访问 Identity，
   缺失 profile 继续省略。该消费者另有 21 个限定案例（18 DB/process、3 pure/static）与 SDK 44
   项序列化检查通过，不计入前述 owner 的 64 例；验证边界见 ADR-0129。
+- Project owner display enrichment：`projects._serialize_project` 与
+  `_serialize_project_list` 只用全局 `resolve_briefs` 的 `name/avatar_ref` 填充可空 owner
+  显示字段；Workspace 的 `owner_id` 和 ProjectOut schema 不变。list/query 先按既有 ACL、
+  filters、order、count、pagination 选定页面，再对页面 distinct owner IDs 批量读取一次；
+  空页无 owner I/O，single serializer 收到 `{}` 时不重复查询。创建、详情、patch、改名和
+  转移对非空 owner ID 各读取一次；dataset-linked 项目路径仍保留 null 显示字段。59 个选定消费者案例
+  （53 DB/process、6 pure/static）通过，最终 API image/contract checks pending；见 ADR-0129。
 - 分组目录与账号指派：`api/v1/group_commands.py` 收口 HTTP 请求与权限映射；
   `services/identity_group_commands.py` 选择本地事务、函数 DSN 或 Identity runtime，
   `services/identity_group_data.py` 只适配当前 SQL Session 上的本地 Group command data。

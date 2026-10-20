@@ -259,6 +259,8 @@ API 可选 `IDENTITY_BRIEFS_DATABASE_URL(_FILE)`；两项互斥，留空时沿�
 
 Projects 成员列表是该 UserBrief owner 的一个已验证消费者：`projects.list_members` 先由 Workspace 完成当前成员授权和行选择，再将全部用户 ID 一次交给全局 `resolve_briefs`。输出仍使用原十字段 DTO；UserBrief 的全局 `role` 填入必填四值 `platform_role`，membership 的 `role` 仍表示项目职责，不采用项目角色 overlay，也不输出 `avatar_initial`。空列表不会调用资料 owner；缺失用户在列表中省略，以保持旧 inner join 行为。若 `_member_out` 收到缺失目标，或历史全局角色不属于四值枚举，既有 `ValidationError` 保持不变。此调用只增加一次批量读取，没有逐用户 RPC；远程组合不保证 Workspace 与 Identity 共用数据库快照。21 个选定消费者案例（18 DB/process、3 pure/static）和 SDK 序列化 44 项通过，详情见 [ADR-0129](/dev/adr/0129-identity-batched-user-brief-reads#project-member-list-consumer)。
 
+Project owner 展示是另一条独立的只读消费者，不参与授权判断。`projects._serialize_project` 与 `_serialize_project_list` 复用全局 `resolve_briefs`，只填充原 `ProjectOut.owner_name`／`owner_avatar_ref`；`owner_id` 仍为必需 UUID。资料缺失继续得到两个 `null`，inactive/history owner 仍展示，name/avatar 原样返回。不走项目角色 overlay，也不改公开 schema。列表和查询先按原规则授权、过滤、排序、计数及分页，再对返回页的 owner IDs 一次批量读取；共享 owner 复用结果，空页不调用 Identity，传入 `{}` 不会使单项 serializer 再查一次。创建、详情、patch、改名与转移仅对非空 owner ID 在旧授权和提交/refresh 位置查询一次。Dataset-linked `/datasets/{id}/projects` 仍保留 null owner 显示字段。旧响应基线和 59 个选定消费者案例（53 DB/process、6 pure/static）见 [ADR-0129](/dev/adr/0129-identity-batched-user-brief-reads#project-owner-display-consumer)；Root 的新 API cold image、OpenAPI/codegen/catalog 核对仍待完成。
+
 ## 管理员临时密码重置
 
 本 slice 只迁移 `POST /api/v1/users/{user_id}/admin-reset-password`。公开路径、UUID 参数、每分钟 3 次限流和 `AdminResetPasswordResponse` 保持不变；成功响应为 HTTP 200，精确有 `temp_password`、`message`、`target_email` 三字段，message 固定为 `请通过安全渠道告知用户首次登录后立即修改密码`。临时密码 16 个 ASCII 字符，字符集仅 `A-Z`、`a-z`、`0-9`、`!@#$%^&*?`，并至少含一个大写、小写、数字和符号。明文按 secret 处理，不进入 repr、日志、错误或 Audit。

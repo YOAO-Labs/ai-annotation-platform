@@ -254,6 +254,48 @@ and no User ORM read in the three profile serializer functions; its container
 was removed. The 12.416 seconds is build plus offline verification, not startup
 latency. The existing Identity owner artifact was reused without a rebuild.
 
+## Project-owner display consumer
+
+`projects._serialize_project` and `projects._serialize_project_list` use the
+existing global `resolve_briefs` owner to fill only `ProjectOut.owner_name` and
+`owner_avatar_ref`. `owner_id` remains the required Workspace UUID. Missing
+profiles continue to serialize both display fields as null; raw names and avatar
+references, including empty, whitespace and Unicode values, are preserved.
+Inactive and historical owners remain eligible. The code does not apply
+project-role overlay or change the public DTO, OpenAPI contract or workflow; it
+adds no protocol operation, SQL/role, configuration, dependency or deployment.
+This is display enrichment only; the owner ID and its existing authorization
+rules remain authoritative.
+
+List and query routes first complete their existing authorization, filtering,
+ordering, count and pagination. They send only distinct non-null returned owner
+IDs in one global batch per list/page, share one lookup for repeated owners, and make no call for
+an empty page. The single-project serializer accepts the supplied lookup,
+including `{}`, without fetching again. Create, detail, patch, class rename and
+transfer look up each non-null owner ID once, after their existing authorization
+and commit/refresh positions. `/datasets/{id}/projects` remains unchanged and keeps
+the two owner display fields null. Embedded reads retain the caller transaction;
+remote Workspace and Identity owners do not share a snapshot, and selected
+remote/DSN failures do not fall back to local User reads.
+
+The old HTTP baseline passed one owned-database case and cleaned up successfully.
+Its responses are captured in
+`apps/api/tests/fixtures/project_owner_profiles_legacy.json`; the fixture has
+four projects and three owners (including one shared, inactive and historical
+owner). Old owner-query counts were four for a list, two for a page and one for a
+detail response. The focused consumer suite passed 56 checks and three existing
+remote/dedicated/disabled API cases passed, for 59 affected selected cases
+(53 database/process and six pure/static), without skips. Coverage includes one
+Native profile execution per list/page/detail, exact decoded HTTP output,
+visibility and pagination before lookup, empty/missing/null cases, existing
+write regressions and the dataset-linked null-field guard. SDK project tests
+passed 23 checks, including the two captured list/detail serialization cases;
+no SDK production code changed. The existing 114-file Identity package and
+qualified owner image were reused, not requalified. The fresh API image and
+Root-owned OpenAPI/codegen/catalog checks are still pending; this consumer
+evidence does not combine with the member-list or 64-case UserBrief owner
+qualification.
+
 The full ten-module/seven-gate objective remains active. This internal read
 extraction does not qualify full Identity, provider-language replacement,
 production capacity or primary cutover.
