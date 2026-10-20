@@ -31,18 +31,25 @@ async def _bootstrap() -> int:
     password = _require_env("ADMIN_PASSWORD")
     name = _require_env("ADMIN_NAME").strip()
 
-    engine = create_async_engine(settings.database_url, echo=False)
+    engine = create_async_engine(
+        settings.database_url, echo=False, hide_parameters=True
+    )
     Session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
-    async with Session() as db:
-        created = await bootstrap_admin(db, email=email, name=name, password=password)
-        if not created:
-            print(f"[bootstrap_admin] user {email} already exists, skip")
-            return 0
+    try:
+        async with Session() as db:
+            created = await bootstrap_admin(
+                db, email=email, name=name, password=password
+            )
+            if not created:
+                print(f"[bootstrap_admin] user {email} already exists, skip")
+                return 0
 
-        await db.commit()
-        print(f"[bootstrap_admin] created super_admin {email}")
-        return 0
+            await db.commit()
+            print(f"[bootstrap_admin] created super_admin {email}")
+            return 0
+    finally:
+        await engine.dispose()
 
 
 if __name__ == "__main__":

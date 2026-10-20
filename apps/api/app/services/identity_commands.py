@@ -6,19 +6,18 @@ import uuid
 from datetime import datetime
 
 from fastapi import HTTPException, status
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.security import hash_password
-
+from aap_identity.contract import IdentityUnavailable
+from aap_identity.provisioning import AccountProvisioningManager
 from app.db.enums import UserRole
-from app.db.models.user import User
 from app.services.user_lifecycle import UserLifecycleService
 from app.services.identity_contracts import IdentityActorFacts
+from app.services.identity_provisioning_data import IdentityProvisioningData
 
 
 class IdentityCommandService:
-    """Own mutable account data and acquire canonical account locks for commands."""
+    """Bind Identity commands and account fences to the caller transaction."""
 
     def __init__(self, db: AsyncSession) -> None:
         self.db = db
@@ -55,55 +54,16 @@ class IdentityCommandService:
             )
         return user
 
-    async def create_invited_account(
-        self,
-        *,
-        email: str,
-        name: str,
-        password_hash: str,
-        role: str,
-        group_name: str | None,
-        group_id: uuid.UUID | None,
-        now: datetime,
-    ) -> User:
-        """Stage an account after invitation authority and role checks."""
-        user = User(
-            email=email,
-            name=name,
-            password_hash=password_hash,
-            role=role,
-            group_name=group_name,
-            group_id=group_id,
-            status="online",
-            is_active=True,
-            email_verified_at=now,
-        )
-        self.db.add(user)
-        await self.db.flush()
-        return user
-
-    async def ensure_import_admin(self, *, environment: str) -> User:
-        """Reuse admin, or bootstrap it only outside production for this CLI."""
-        admin = await self.db.scalar(select(User).where(User.email == "admin"))
-        if admin is not None:
-            return admin
-        if environment == "production":
-            raise RuntimeError(
-                "生产环境下未找到 admin 用户,拒绝自动创建弱口令 admin/123456。"
-                "请先手动创建管理员账号再运行本导入脚本。"
-            )
-
-        admin = User(
-            id=uuid.uuid4(),
-            email="admin",
-            name="超级管理员",
-            password_hash=hash_password("123456"),
-            role=UserRole.SUPER_ADMIN.value,
-            is_active=True,
-        )
-        self.db.add(admin)
-        await self.db.flush()
-        return admin
+    async def ensure_import_admin(self, *, environment: str) -> uuid.UUID:
+        """Return the operator identity, retaining the import environment policy."""
+        try:
+            return await AccountProvisioningManager(
+                IdentityProvisioningData(self.db)
+            ).ensure_import_admin(environment=environment)
+        except IdentityUnavailable:
+            raise HTTPException(
+                status_code=503, detail="身份认证服务暂不可用"
+            ) from None
 
     async def create_bootstrap_super_admin(
         self,
@@ -112,22 +72,20 @@ class IdentityCommandService:
         name: str,
         password: str,
         now: datetime,
-    ) -> User | None:
-        """Create the first privileged account, leaving an existing email unchanged."""
-        existing = await self.db.scalar(select(User).where(User.email == email))
-        if existing is not None:
-            return None
-
-        admin = User(
-            email=email,
-            name=name,
-            password_hash=hash_password(password),
-            role=UserRole.SUPER_ADMIN.value,
-            group_name=None,
-            status="online",
-            is_active=True,
-            email_verified_at=now,
-        )
-        self.db.add(admin)
-        await self.db.flush()
-        return admin
+        request_id: str | None = None,
+    ) -> uuid.UUID | None:
+        """Stage a new account and its fixed Audit event only when email is absent."""
+        try:
+            return await AccountProvisioningManager(
+                IdentityProvisioningData(self.db)
+            ).create_bootstrap_super_admin(
+                email=email,
+                name=name,
+                password=password,
+                now=now,
+                request_id=request_id,
+            )
+        except IdentityUnavailable:
+            raise HTTPException(
+                status_code=503, detail="身份认证服务暂不可用"
+            ) from None

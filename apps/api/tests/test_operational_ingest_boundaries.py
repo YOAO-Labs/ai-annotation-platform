@@ -197,15 +197,6 @@ async def test_dataset_reset_detaches_tasks_and_deletes_database_assets(
 async def test_import_admin_creation_keeps_existing_identity_semantics(db_session):
     commands = IdentityCommandService(db_session)
 
-    class MissingAdminSession:
-        async def scalar(self, _query):
-            return None
-
-    with pytest.raises(RuntimeError):
-        await IdentityCommandService(MissingAdminSession()).ensure_import_admin(
-            environment="production"
-        )
-
     existing_admin = await db_session.scalar(select(User).where(User.email == "admin"))
     existing_state = (
         (
@@ -217,7 +208,11 @@ async def test_import_admin_creation_keeps_existing_identity_semantics(db_sessio
         if existing_admin is not None
         else None
     )
-    admin = await commands.ensure_import_admin(environment="test")
+    if existing_admin is None:
+        with pytest.raises(RuntimeError):
+            await commands.ensure_import_admin(environment="production")
+    admin_id = await commands.ensure_import_admin(environment="test")
+    admin = await db_session.get(User, admin_id, populate_existing=True)
     assert admin.email == "admin"
     if existing_state is None:
         assert admin.role == UserRole.SUPER_ADMIN.value
@@ -232,7 +227,7 @@ async def test_import_admin_creation_keeps_existing_identity_semantics(db_sessio
         ) == existing_state
 
     replayed = await commands.ensure_import_admin(environment="production")
-    assert replayed.id == admin.id
+    assert replayed == admin.id
 
 
 def test_operator_importers_do_not_use_retired_dataset_item_writers():

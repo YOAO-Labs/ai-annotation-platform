@@ -1,0 +1,136 @@
+{
+  "kind": "actual-legacy-identity-provisioning",
+  "records": {
+    "bootstrap": {
+      "created": true,
+      "profile": {
+        "email": "Provisioning-Baseline@Example.test",
+        "name": "  Bootstrap ß 😀  ",
+        "role": "super_admin",
+        "status": "online",
+        "is_active": true,
+        "group_name": null,
+        "group_id": null,
+        "credential_generation": 0,
+        "preferences": {},
+        "disabled_kind": null,
+        "disabled_at": null,
+        "disabled_by": null,
+        "disabled_reason": null,
+        "last_login_at": null,
+        "last_seen_at": null,
+        "password_admin_reset_at": null,
+        "deactivation_requested_at": null,
+        "deactivation_reason": null,
+        "deactivation_scheduled_at": null,
+        "weekly_target_default": null,
+        "avatar_ref": null,
+        "email_verified": true,
+        "created_at_present": true,
+        "id_is_uuid": true,
+        "password_valid": true
+      },
+      "audit": {
+        "actor_matches_account": true,
+        "actor_email": "Provisioning-Baseline@Example.test",
+        "actor_role": "super_admin",
+        "action": "system.bootstrap_admin",
+        "target_type": "user",
+        "target_matches_account": true,
+        "detail_json": {
+          "email": "Provisioning-Baseline@Example.test"
+        },
+        "method": null,
+        "path": null,
+        "status_code": null,
+        "ip": null,
+        "request_id": "provisioning-baseline"
+      },
+      "replayed_created": false,
+      "profile_unchanged": true,
+      "audit_count": 1
+    },
+    "multiple_bootstrap": {
+      "created": true,
+      "super_admin_count": 2
+    },
+    "production_missing": {
+      "error_type": "RuntimeError",
+      "detail": "生产环境下未找到 admin 用户,拒绝自动创建弱口令 admin/123456。请先手动创建管理员账号再运行本导入脚本。",
+      "account_missing": true
+    },
+    "staging_import": {
+      "profile": {
+        "email": "admin",
+        "name": "超级管理员",
+        "role": "super_admin",
+        "status": "offline",
+        "is_active": true,
+        "group_name": null,
+        "group_id": null,
+        "credential_generation": 0,
+        "preferences": {},
+        "disabled_kind": null,
+        "disabled_at": null,
+        "disabled_by": null,
+        "disabled_reason": null,
+        "last_login_at": null,
+        "last_seen_at": null,
+        "password_admin_reset_at": null,
+        "deactivation_requested_at": null,
+        "deactivation_reason": null,
+        "deactivation_scheduled_at": null,
+        "weekly_target_default": null,
+        "avatar_ref": null,
+        "email_verified": false,
+        "created_at_present": true,
+        "id_is_uuid": true,
+        "password_valid": true
+      },
+      "audit_count": 0,
+      "reused_in_production": true
+    },
+    "existing_import": {
+      "reused_same_id": true,
+      "profile_unchanged": true,
+      "role": "reviewer",
+      "is_active": false,
+      "audit_count": 0
+    },
+    "existing_no_autoflush": {
+      "pending_preserved": true,
+      "account_reused": true,
+      "pending_missing_in_observer": true
+    },
+    "create_no_autoflush": {
+      "pending_flushed": true,
+      "visible_in_caller": true,
+      "rolled_back_account_and_pending": true
+    },
+    "bootstrap_rollback": {
+      "account_missing": true,
+      "audit_missing": true
+    },
+    "audit_failure": {
+      "sqlstate": "23514",
+      "requires_rollback": true,
+      "account_missing_after_rollback": true,
+      "audit_missing_after_rollback": true
+    },
+    "duplicate_create": {
+      "created_count": 1,
+      "sqlstate": "23505",
+      "requires_rollback": true,
+      "account_count": 1,
+      "audit_count": 1
+    }
+  },
+  "metrics": {
+    "bootstrap_new_client_statements": 3,
+    "bootstrap_existing_client_statements": 1,
+    "import_new_client_statements": 2,
+    "import_existing_client_statements": 1,
+    "audit_failure_next_error": "PendingRollbackError",
+    "duplicate_next_error": "PendingRollbackError"
+  }
+}

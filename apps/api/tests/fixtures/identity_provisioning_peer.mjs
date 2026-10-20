@@ -359,7 +359,9 @@ function validateRoleProbe(value, database) {
 }
 
 function extractSqlStates(stderr) {
-  return [...stderr.matchAll(/SQL state: ([0-9A-Z]{5})/g)].map((match) => match[1]);
+  return [...stderr.matchAll(/^(?:psql:[^\r\n]*?:\s*)?(?:ERROR|FATAL):\s+([0-9A-Z]{5}):/gm)].map(
+    (match) => match[1],
+  );
 }
 
 function callOwner(value) {
@@ -452,6 +454,14 @@ function expectFailure(callback) {
 
 function selfCheck() {
   let checks = 0;
+  const sqlStates = extractSqlStates(
+    "psql:<stdin>:5: ERROR: 42501: permission denied for table users\n" +
+      "LOCATION: aclcheck_error, aclchk.c:2845\n" +
+      "psql:<stdin>:8: ERROR: 23505: duplicate key value violates unique constraint\n" +
+      "psql:<stdin>:9: ERROR: 25P02: current transaction is aborted\n",
+  );
+  if (JSON.stringify(sqlStates) !== JSON.stringify(["42501", "23505", "25P02"])) fail();
+  checks += 1;
   const accountId = "11111111-1111-4111-8111-111111111111";
   const secretHash = "bcrypt-hash-that-must-never-return";
   const lookup = validateLookupRequest({ schema: protocol, email: "owner@example.test" });

@@ -350,7 +350,7 @@ async def test_restricted_node_provisioning_client_matches_legacy_and_authentica
                 secret,
                 control,
                 login_redis_url=counter_url,
-                enable_accounts=False,
+                enable_accounts=True,
                 enable_presence=False,
             )
             api = _start_api(

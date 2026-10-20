@@ -23,4 +23,4 @@ def test_identity_provisioning_node_peer_self_check():
         timeout=10,
     )
     assert result.returncode == 0, "Identity provisioning peer self-check failed"
-    assert json.loads(result.stdout) == {"ok": True, "checks": 23}
+    assert json.loads(result.stdout) == {"ok": True, "checks": 24}

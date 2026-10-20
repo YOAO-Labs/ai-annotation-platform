@@ -23,6 +23,7 @@ from aap_identity.provisioning_contract import (
 )
 from app.config import settings
 from app.db.models.user import User
+from tests.test_asset_storage_cleanup_runtime import _verify_postgres
 
 _ROOT = Path(__file__).parents[3]
 _SQL_DIR = Path(__file__).parents[1] / "alembic/sql"
@@ -41,23 +42,34 @@ _LAN_GRANTS = _ROOT / "infra/docker/lan-production-grants.sql"
 _VERIFIER = _ROOT / "scripts/verify_module_data_boundary.py"
 
 
-def _provisioning_dsn() -> str:
+def _provisioning_dsn(test_engine) -> str:
     if os.environ.get("AAP_MODULE_DATA_ROLE_ACCEPTANCE") != "1":
         pytest.skip("Identity provisioning acceptance requires the owned verifier")
     value = os.environ.get("AAP_MODULE_DATA_IDENTITY_PROVISIONING_URL")
     if not value:
         pytest.skip("Identity provisioning client DSN is not configured")
     parsed = make_url(value)
-    assert parsed.database and parsed.database.endswith(("_test", "_e2e"))
+    assert parsed.database and parsed.database.endswith("_test")
     assert parsed.username == "identity_provisioning_client"
-    assert os.environ.get("AAP_MODULE_DATA_PG_CONTAINER_ID")
+    assert (parsed.host, parsed.port, parsed.database) == (
+        test_engine.url.host,
+        test_engine.url.port,
+        test_engine.url.database,
+    )
+    _verify_postgres(test_engine.url)
     return parsed.set(drivername="postgresql").render_as_string(hide_password=False)
 
 
-def _owner_dsn() -> str:
+def _owner_dsn(test_engine) -> str:
     parsed = make_url(settings.effective_migration_database_url)
-    assert parsed.database and parsed.database.endswith(("_test", "_e2e"))
+    assert parsed.database and parsed.database.endswith("_test")
     assert parsed.username == "owner"
+    assert (parsed.host, parsed.port, parsed.database) == (
+        test_engine.url.host,
+        test_engine.url.port,
+        test_engine.url.database,
+    )
+    _verify_postgres(test_engine.url)
     return parsed.set(drivername="postgresql").render_as_string(hide_password=False)
 
 
@@ -118,23 +130,13 @@ def _create_payload(
 async def _cleanup(test_engine, account_ids, emails, request_ids) -> None:
     maker = async_sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
     async with maker.begin() as session:
+        # Immutable Audit and its actor stay until the verifier destroys its DB.
         await session.execute(
             text(
-                "DELETE FROM public.audit_logs WHERE action='system.bootstrap_admin' "
-                "AND (actor_id=ANY(CAST(:ids AS uuid[])) "
-                "OR actor_email=ANY(CAST(:emails AS text[])) "
-                "OR request_id=ANY(CAST(:request_ids AS text[])))"
-            ),
-            {
-                "ids": list(account_ids),
-                "emails": list(emails),
-                "request_ids": list(request_ids),
-            },
-        )
-        await session.execute(
-            text(
-                "DELETE FROM public.users WHERE id=ANY(CAST(:ids AS uuid[])) "
-                "OR email=ANY(CAST(:emails AS text[]))"
+                "DELETE FROM public.users AS account "
+                "WHERE (id=ANY(CAST(:ids AS uuid[])) OR email=ANY(CAST(:emails AS text[]))) "
+                "AND NOT EXISTS (SELECT 1 FROM public.audit_logs AS audit "
+                "WHERE audit.actor_id=account.id)"
             ),
             {"ids": list(account_ids), "emails": list(emails)},
         )
@@ -499,21 +501,16 @@ async def test_import_environment_guard_reuse_and_defaults(test_engine, monkeypa
     finally:
         async with maker.begin() as session:
             await session.execute(
-                text(
-                    "DELETE FROM public.audit_logs WHERE action='system.bootstrap_admin' "
-                    "AND actor_id=:id"
-                ),
-                {"id": account_id},
-            )
-            await session.execute(
                 text("DELETE FROM public.users WHERE id=:id"), {"id": account_id}
             )
 
 
 @pytest.mark.asyncio
-async def test_duplicate_email_keeps_raw_unique_and_aborted_transaction_errors():
+async def test_duplicate_email_keeps_raw_unique_and_aborted_transaction_errors(
+    test_engine,
+):
     _require_owned_acceptance()
-    connection = await asyncpg.connect(_owner_dsn())
+    connection = await asyncpg.connect(_owner_dsn(test_engine))
     account_id = uuid.uuid4()
     duplicate_id = uuid.uuid4()
     email = f"provisioning-duplicate-{account_id.hex}@example.test"
@@ -570,9 +567,9 @@ async def test_duplicate_email_keeps_raw_unique_and_aborted_transaction_errors()
 
 
 @pytest.mark.asyncio
-async def test_provisioning_login_has_only_two_functions_and_no_raw_access():
+async def test_provisioning_login_has_only_two_functions_and_no_raw_access(test_engine):
     _require_owned_acceptance()
-    connection = await asyncpg.connect(_provisioning_dsn())
+    connection = await asyncpg.connect(_provisioning_dsn(test_engine))
     email = f"provisioning-client-{uuid.uuid4().hex}@example.test"
     account_id = uuid.uuid4()
     try:

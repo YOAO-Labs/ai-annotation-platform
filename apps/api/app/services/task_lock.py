@@ -41,7 +41,7 @@ async def assert_task_user_active(
 
     if lock:
         accounts = await IdentityAccountLockData(db).lock_accounts(
-            [user_id], mode="share", nowait=False
+            [user_id] if user_id is not None else [], mode="share", nowait=False
         )
         actor = accounts.get(user_id)
     else:

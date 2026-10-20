@@ -50,7 +50,7 @@ absent. Invalid, extra or malformed replies fail closed as unavailable. The
 canonical `provisioning_protocol.schema.json` is additive; older protocol
 artifacts, including `account_lock_protocol`, remain byte-for-byte unchanged.
 
-`AccountProvisioningData` implements the closed lookup/create data port on the
+`IdentityProvisioningData` implements the closed `AccountProvisioningData` port on the
 same caller `AsyncSession` and outer transaction as each existing CLI workflow.
 Lookup respects `autoflush` and `no_autoflush`. Creation explicitly flushes
 caller-pending ORM work even inside `no_autoflush`, then invokes the Identity
@@ -163,8 +163,8 @@ Negative:
   even under `no_autoflush`; readers must not force that flush.
 - Import rollback remains coupled to Assets/Workspace/Labeling writes in the
   caller transaction.
-- Unlocked Workspace reads and mutable bootstrap/import writers are still in
-  the migration boundary until all consumers use the owner.
+- Workspace project/member lifecycle ownership and other Identity consumers
+  still need independent module qualification beyond these migrated guards.
 
 ## Alternatives Considered
 

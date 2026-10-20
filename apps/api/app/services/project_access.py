@@ -31,7 +31,6 @@ from app.db.enums import (
 )
 from app.db.models.project import Project
 from app.db.models.project_member import ProjectMember
-from app.db.models.user import User
 from app.services.task_creation_contract import (
     ProjectManagerFacts,
     decode_creation_reply,
@@ -74,7 +73,7 @@ def assert_membership_role_compatible(platform_role: str, project_role: str) -> 
 
 def _manager_access(
     *,
-    user: User | IdentityActorFacts | IdentityActorStatus,
+    user: IdentityActorFacts | IdentityActorStatus,
     project: Project,
     access_kind: str,
     is_super_admin: bool,
@@ -104,7 +103,7 @@ def _invalid_account() -> HTTPException:
 
 
 def is_privileged_for_project(
-    user: User | IdentityActorFacts | IdentityActorStatus, project: Project
+    user: IdentityActorFacts | IdentityActorStatus, project: Project
 ) -> bool:
     """An active super administrator or a project owner with an admin role."""
 
@@ -155,7 +154,7 @@ async def resolve_project_access(
 async def _resolve_current_project_access(
     db: AsyncSession,
     *,
-    user: User | IdentityActorFacts | IdentityActorStatus,
+    user: IdentityActorFacts | IdentityActorStatus,
     project: Project,
     lock_membership: bool,
     nowait: bool = False,

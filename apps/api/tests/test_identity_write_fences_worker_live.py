@@ -169,7 +169,9 @@ async def test_fresh_celery_worker_uses_account_facts_and_current_actor_status(
         calls = [
             json.loads(line)["capability"] for line in trace.read_text().splitlines()
         ]
-        assert calls.count("read_actor_facts") == 3
+        # Each dispatch checks its actor; each successful job also checks the
+        # source and target scopes through Identity instead of User ORM reads.
+        assert calls.count("read_actor_facts") == 7
         assert calls.count("lock_accounts_share") >= 2
         record_property(
             "fresh_account_fences_worker",

@@ -25,6 +25,10 @@ def main():
         "app/workers/cross_frame_job.py",
         "app/services/identity_account_lock_data.py",
         "app/services/project_write_guard.py",
+        "app/services/project_access.py",
+        "app/services/task_lock.py",
+        "app/services/batch.py",
+        "app/services/async_job_access.py",
     )
 
     def capture(_conn, _cursor, statement, *_args):
