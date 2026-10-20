@@ -2,7 +2,7 @@
 audience: [dev]
 type: reference
 status: stable
-last_reviewed: 2026-10-20
+last_reviewed: 2026-10-21
 ---
 
 # 仓库地图：模块归属与调用链
@@ -75,6 +75,17 @@ last_reviewed: 2026-10-20
   `UserLifecycleService.lock_accounts`，现经 caller-bound Identity account lock adapter 获取只读事实并保留其显式 rollback 语义。Batch handoff/release helpers 已退役，Project owner
   transfer helper 继续供其他 workflows 使用。各命令的权限、回执和事务边界独立维护；offboarding
   已通过限定的本地资格，精确范围见 [ADR-0128](/dev/adr/0128-independent-identity-offboarding-commands)。
+- Identity 运维账号 provisioning：`services/identity_provisioning_data.py` 把
+  `AccountProvisioningData` 绑定到 caller `AsyncSession`；portable manager 只返回 UUID 或
+  bootstrap 的 `None`，不把 User ORM/password hash 交给 CLI。Native 负责 per-email
+  bootstrap defaults/fixed Audit 与 exact import-admin guard；outer bootstrap/import caller
+  保留 commit/rollback。邀请账号仍由 Identity Invitation owner 创建；运维 provisioning
+  不复用邀请写入路径。本切片资格仍待 Root，见
+  [ADR-0132](/dev/adr/0132-identity-operational-provisioning-and-authority-reads)。
+- Identity authority facts 复用：`project_access` 的非锁定账号读取复用现有
+  `IdentityAccountLockData.read_actor_status`／`read_actor_facts`；事务写路径复用已有 SHARE、
+  UPDATE、KEY SHARE 函数，不新增 SQL 或传输协议。Project/member 刷新及 caller 原错误映射
+  保持不变；详见 [ADR-0132](/dev/adr/0132-identity-operational-provisioning-and-authority-reads)。
 - 同事务 Identity 账号锁：`apps/api/app/services/identity_account_lock_data.py` 调用
   `apps/identity/src/aap_identity/account_lock_contract.py` 定义的 SHARE/UPDATE/KEY SHARE 三项
   Native function；它使用 caller connection 并让锁持续到业务写入提交，只返回 id/name/email/role/is_active
@@ -410,9 +421,9 @@ include 另外包含 `signals`、`heartbeat`，后者是 worker bootstep，不�
 
 | 入口 / 分类                       | 所有权与提交责任                                                                                                                                                                                                                                                                                                                               |
 | --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `bootstrap_admin`                 | bootstrap 应用组合 identity 创建与 audit；CLI 提交                                                                                                                                                                                                                                                                                             |
+| `bootstrap_admin`                 | `AccountProvisioningManager` 按 exact email 创建或跳过；Identity/Audit owners 原子写 User 与固定 Audit；CLI 保留提交和 boolean 返回                                                                                                                                                                                                            |
 | `import_images`                   | Dataset/Item 命令归 assets；对象上传先于最终 SQL 提交                                                                                                                                                                                                                                                                                          |
-| `import_nuscenes_scene`           | nuScenes 应用组合 assets、workspace、labeling；入口最终 SQL 提交                                                                                                                                                                                                                                                                               |
+| `import_nuscenes_scene`           | nuScenes 应用组合 provisioning UUID、assets、workspace、labeling；入口在同一 SQL 事务最终提交，失败时共同回滚                                                                                                                                                                                                                                  |
 | `reset_datasets`                  | 应用组合 labeling 源引用清除与 assets 行删除；入口提交                                                                                                                                                                                                                                                                                         |
 | `backfill_scenes`                 | 场景所有者命令，逐 dataset 提交/回滚                                                                                                                                                                                                                                                                                                           |
 | `backfill_frame_poses`            | pose upsert 归 assets，CLI 最终提交                                                                                                                                                                                                                                                                                                            |

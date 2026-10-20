@@ -2,7 +2,7 @@
 audience: [dev]
 type: explanation
 status: stable
-last_reviewed: 2026-10-20
+last_reviewed: 2026-10-21
 ---
 
 # 后端分层
@@ -91,11 +91,11 @@ writer lease 后处理；原始 bytes 始终保留，包括不确定提交产生
 
 `application/project_task_cleanup.py::cleanup_annotation_orphans` 组合当前项目管理权、配置和 `AnnotationService`。执行命令先按账号 → 项目取得当前管理权，再取得项目排他锁并刷新 `tool_bindings`；`AnnotationService` 持有孤儿筛选 / 修剪、贡献证据及任务统计 DML，按批次 → 任务 → 标注排序锁定并刷新目标身份。权限撤销、项目转移或目标改向不会沿用旧快照，NOWAIT 忙锁返回冲突。默认 dry-run 只读且不写审计；真实修改与 HTTP 审计同事务提交，保留标注来源、几何、`_` 系统元数据，不执行对象存储删除。该服务所有者不反向依赖应用层。
 
-`application/nuscenes_import.py::NuScenesImportWorkflow` 组合 Dataset/Project workspace、关联、点云标定和建题；nuScenes 入口把标定前置与建题分块提交关闭，使素材、Scene、pose、workspace、Task 和标定都只 flush 到脚本持有的同一个 `AsyncSession`，由入口最终提交。普通任务创建仍使用原默认提交点。Scene 来源元数据更新通过 Assets spatial 原生能力执行，`services/identity_commands.py::IdentityCommandService.ensure_import_admin` 持有 nuScenes CLI 的 admin 读取/开发环境创建与生产拒绝语义；图片导入的 Dataset/Item 写入由 `DatasetService` 持有。
+`application/nuscenes_import.py::NuScenesImportWorkflow` 组合 Dataset/Project workspace、关联、点云标定和建题；nuScenes 入口把标定前置与建题分块提交关闭，使素材、Scene、pose、workspace、Task 和标定都只 flush 到脚本持有的同一个 `AsyncSession`，由入口最终提交。普通任务创建仍使用原默认提交点。Scene 来源元数据更新通过 Assets spatial 原生能力执行。Operational `ensure_import_admin` 经 `services/identity_provisioning_data.py` 调用 Identity provisioning owner 并只返回 UUID；既有 admin 行无论 role/status 均原样复用，恰为 `production` 且账号缺失时保持原拒绝文案，导入仍与 Assets/Workspace/Labeling 共用一个提交／回滚边界。图片导入的 Dataset/Item 写入由 `DatasetService` 持有。
 
 `application/dataset_reset.py::DatasetResetWorkflow` 组合任务素材引用解除与 `DatasetService` 的链接/素材/Dataset 行删除；CLI 只列出和提交，重置仍是数据库清理，不遍历或删除 MinIO 对象。nuScenes/图片导入先写对象再由调用方提交 SQL；SQL 回滚无法回滚新对象上传或对既有键的覆盖。开发 seed 替换旧 `P-PC-DEV` 时仅把旧对象 key 作为清理计划返回，并在所属调用方 SQL 提交成功后删除；SQL 提交失败保留旧对象，提交后对象删除失败则保留无引用对象并告警。数据库与对象存储仍非原子事务，新上传对象在 SQL 回滚后可能成为孤儿。
 
-运维 CLI 仅保留参数/环境读取、报告和对应 owner 的命令装配：`application/bootstrap_admin.py` 组合初始管理员创建与 Audit；`application/task_dataset_backfill.py` 扫描并委托项目关联。`application/video_timetable_rebuild.py` 通过媒体 owner 的稳定分页选择来源，非 dry-run 受理持久时间表作业并等候终态；dry-run 仅读取来源并使用同一 `media-probe` 客户端探测，不写时间表。显式选择远程媒体服务后，CLI 不在本地替它执行作业；探测服务的选择也继续生效。
+运维 CLI 仅保留参数/环境读取、报告和对应 owner 的命令装配：`application/bootstrap_admin.py` 调用 Identity provisioning owner 创建单邮箱 bootstrap 管理员；user 与固定 bootstrap Audit 在 Identity/Audit owner 同一外层事务中提交，CLI 保留提交和既有 boolean 返回，不重复 ORM Audit。`application/task_dataset_backfill.py` 扫描并委托项目关联。`application/video_timetable_rebuild.py` 通过媒体 owner 的稳定分页选择来源，非 dry-run 受理持久时间表作业并等候终态；dry-run 仅读取来源并使用同一 `media-probe` 客户端探测，不写时间表。显式选择远程媒体服务后，CLI 不在本地替它执行作业；探测服务的选择也继续生效。
 
 `DatasetService` 继续持有连接器导入管理、部分派生写入及内部组合所需的 ORM 读取；`application/project_task_cleanup.py` 的无源任务清理也保留既有本地组合。目录五项 HTTP、来源删除/上传和同步 ZIP/扫描已有选定合同，但其他入口、跨 owner 读取和完整 Blob 协议仍需迁移。共享 PostgreSQL 的冻结 SQL 及来源/目录子工件不代表 Assets、Labeling 或 Workspace 全模块已完成独立部署。
 
@@ -214,7 +214,11 @@ Task 列表/详情、Data Manager、视频清单及轨迹转换的素材摘要�
 
 `services/labeling_assignment.py::LabelingTaskAssignmentService` 持有选定任务分派预览与写入，`schemas/labeling_assignment.py` 持有原公开请求/响应模型；Data Manager 的查询及保存视图不再代写 Task。确认使用当前管理围栏、共享批次接收人校验和非阻塞编辑围栏，复用已经锁定的批次/任务计划；领域只 flush，HTTP 保留审计与提交。缺失/null、任务覆盖/批次默认、审核态限制、预览摘要与逐项失败语义见 [Data Manager 查询与聚合](../reference/data-manager-query)。
 
-身份、成员与项目交接分别由 Identity、Workspace、Labeling 当前 owners 组合。`services/user_lifecycle.py` 仅保留 `UserLifecycleService.lock_accounts` 共享账号锁能力；旧 API lifecycle coordinator 已移除，offboarding 由独立 Identity owner 持有。`identity_commands.py` 保留启动建号，本人资料、偏好、心跳与自助改密继续由独立账户命令持有。分组目录／指派、完整 invitation lifecycle、四项用户目录读取、管理员临时密码重置、平台角色预览／变更、管理员暂停／恢复、管理员删除与管理员 offboarding 各由版本化 Identity owners 处理；核心会话状态也由独立 Identity 命令持有。前述 owner slices 均有各自限定的本地资格；offboarding 有 77 个 selected cases（76 DB/process、1 static artifact），UserBrief 有 64 个 distinct cases（59 DB/process、5 pure/static），均零跳过。其他用户水合、registration-status settings 与其余跨 owner lifecycle 仍在后续范围。
+身份、成员与项目交接分别由 Identity、Workspace、Labeling 当前 owners 组合。`services/user_lifecycle.py` 仅保留 `UserLifecycleService.lock_accounts` 共享账号锁能力；旧 API lifecycle coordinator 已移除，offboarding 由独立 Identity owner 持有。`identity_commands.py` 持有本人资料、偏好、心跳与自助改密；运维 bootstrap/import 的 mutable User DML 由独立 provisioning owner 持有，API command 只适配调用方事务。分组目录／指派、完整 invitation lifecycle、四项用户目录读取、管理员临时密码重置、平台角色预览／变更、管理员暂停／恢复、管理员删除与管理员 offboarding 各由版本化 Identity owners 处理；核心会话状态也由独立 Identity 命令持有。前述 owner slices 均有各自限定的本地资格；offboarding 有 77 个 selected cases（76 DB/process、1 static artifact），UserBrief 有 64 个 distinct cases（59 DB/process、5 pure/static），均零跳过。其他用户水合、registration-status settings 与其余跨 owner lifecycle 仍在后续范围。
+
+Operational bootstrap/import 不再由 API `IdentityCommandService` 自行查 User、hash password 或写 User ORM。`services/identity_provisioning_data.py` 将 `AccountProvisioningData` 绑定到原 caller transaction；Identity portable manager 的两种固定命令仅返回 UUID，0252 Native owner 创建账号并在 bootstrap 时经 Audit capability 原子记录固定事件。CLI 仍持有原 commit/rollback，import 回滚仍覆盖 Assets、Workspace、Labeling 的导入行。Provisioning 是本地正在资格化的新 slice，不属于邀请账号建立或一般 User CRUD。
+
+`project_access.resolve_project_access()` 的非锁定 account status 读取复用现有 `IdentityAccountLockData.read_actor_status`／`read_actor_facts`；它仍按账号、刷新 Project、membership 的原顺序计算 ProjectAccess，不新增锁或 role guard。Project ORM refresh 及 401/Bearer/403/404 映射保持，active-only guard 不新增 role 检查。`task_lock.py`、`batch.py` 和 `async_job_access.py` 将 authority-only User reads 换为已有 status/lock facts；原 lock mode、等待/NOWAIT、异常、空值和 policy mapping 保留。该 consumer migration 不增加 SQL、wire 或 network capability，也不扩展 member/task lifecycle。具体资格等待 Root 证据；之前 account-lock 和 actor-context slices 继续各自保持关闭与独立计数。
 
 在线状态扫描保留在 `workers/presence.py` 作为入口编排：每轮仍解析有效阈值并计算 UTC cutoff，随后提交、读取影响行数和记录日志；原 `status='online' AND (last_seen_at IS NULL OR last_seen_at < cutoff)` 的单次批量修改由 `IdentityCommandService.mark_inactive_accounts_offline(cutoff)` 持有。
 

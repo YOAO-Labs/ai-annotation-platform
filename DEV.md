@@ -1387,6 +1387,24 @@ API wrappers 按自己的契约保留冲突语义：单账号 guard 映射 `acco
 
 Root 的旧实现 baseline 在 owned disposable state 上通过 1 个测试、覆盖 15 个场景；`identity-write-fences-legacy.json` 与 `identity-write-fences-legacy-samples.json` 是旧行为记录，不应对新实现重跑，也不叠加到新资格数量。本切片的最新验收去重后 231 项全部通过、无有效跳过，覆盖三种真实锁模式、等待后当前行、SQLSTATE／rollback 差异、Node 受限调用、两种转移／角色变更顺序、八项恢复及新 Celery 进程的三次派发。源码与非 editable 安装各通过 595 项；119 个包文件指纹一致，新的 owner 容器及 API 冷加载容器也验证了这些文件，API 另核对 150 个应用／native 文件。架构检查通过 316 项，132 条既有不适用规则保持 deferred；OpenAPI、codegen 和 509-route／93-module 目录一致。完整 Identity、十模块／七门槛、生产容量与 primary cutover 仍未完成。精确合同见 [ADR-0131](docs/adr/0131-identity-transactional-account-locks.md)。
 
+## Identity 运维账号 provisioning
+
+这条 Identity owner 只负责两种既有 CLI 账号操作，不增加 public HTTP/SDK 注册接口。Bootstrap 按单个 email “已存在则复用、缺失才创建”执行，不要求全局账号表为空；不同 email 的 bootstrap super-admin 可共存。`application/bootstrap_admin.py` 与 `scripts/bootstrap_admin.py` 的 CLI 继续 lowercase/trim email、trim name，owner 不增加 normalization、长度或密码强度规则。现有同 email 行不论 role、active、name/hash 均原样复用，不再 hash、不写 Audit；manager 返回 UUID 或 `None`，CLI 保持旧 boolean 返回。
+
+新 bootstrap 账号保留 `super_admin`、active、`status=online`、null group、`email_verified_at=caller now`、generation 0、空 preferences、其余 nullable lifecycle 字段 null 与 DB transaction timestamp。Identity Native 同事务调用 Audit owner 写固定 `system.bootstrap_admin`：actor 是新账号，target 为该 UUID，detail 只含 email，request ID 来自现有 context；应用层不重复写 Audit。新建和 Audit 原子提交；同 email 竞态仍传播 PostgreSQL `23505` 并中止事务，不加 `ON CONFLICT`、自动重试、savepoint 或 adapter rollback。
+
+`seed_pointcloud.py` 与 `import_nuscenes_scene.py` 精确查找 email `admin`。任意已存在账号（含停用或历史/非 admin role）都原样复用。缺失时只有 environment 字符串等于 `production` 才在 hash/create 前抛原 RuntimeError：
+
+```text
+生产环境下未找到 admin 用户,拒绝自动创建弱口令 admin/123456。请先手动创建管理员账号再运行本导入脚本。
+```
+
+其它环境（包括 staging）仍创建 email `admin`、name `超级管理员`、bcrypt `123456`、role `super_admin`、active、`status=offline`、null `email_verified_at`，无 Audit。返回值仅 UUID。所有者和 caller 共用一条 SQL transaction；导入 rollback 会一起撤销新账号与 Assets/Workspace/Labeling 数据。Lookup 遵循 `autoflush`／`no_autoflush`，create 则即使在 `no_autoflush` 中也显式 flush caller pending work；不清除或 refresh unrelated ORM objects。
+
+Migration 0252 新增 `read_provisioning_account(text)`、`create_provisioning_account(jsonb)` 和窄 LOGIN `identity_provisioning_client`；其 LOGIN 仅有这两项 Identity 函数权限，由 `infra/docker/identity-provisioning-grants.sql` 按标准 role/owner/database 检查安装。Identity 只调用固定 Audit function，不读写 Audit 原表；`module-data-grants.sql`、LAN application role 与 local compatibility runtime 的 allowlists 仅显式增加所需函数权，LAN source 未应用到 production。没有新 HTTP endpoint、runtime DSN selector、setting 或 dependency。`AAP_MODULE_DATA_IDENTITY_PROVISIONING_URL` 仅是 verifier test override，不是 runtime config。新切片 qualification 仍待 Root 证据；之前 account-lock 231 项和 actor-context 114 项各自关闭，不计入本 slice。细节见 [ADR-0132](docs/adr/0132-identity-operational-provisioning-and-authority-reads.md)。
+
+Authority consumer reuse 则复用既有 `read_actor_facts`、account-status value 与 0251 三种同事务 lock functions，不增加新的 SQL/wire/network surface。`project_access.resolve_project_access` 的非锁定读取调用 `IdentityAccountLockData.read_actor_status`，仍按 account→Project refresh→membership 顺序并保留必要 Project ORM refresh；`task_lock.py`、`batch.py`、`async_job_access.py` 只移除 authority-only User ORM 读取。旧 401/Bearer/403/404、锁 mode/wait/exception/None 和 row order 都保持，active-only guard 不增加 role 检查，不引入新 NOWAIT。它不扩展 member/task lifecycle，也不把已经关闭的 account-lock slice 重新打开。完整 Identity 与十模块／七门槛目标仍为进行中，不代表生产／primary cutover。
+
 ## 普通批量结果检查点
 
 安装当前迁移和 `module-data-grants.sql` 后，为预先创建、无角色成员关系的 `preannotation_result_client` LOGIN 安装精确能力。数据库初始化必须已撤销 PUBLIC 的 TEMP，并按需给现有角色单独重授；授权脚本会核验此项，不隐式修改 PUBLIC ACL。本地一次性验收器执行该初始化：

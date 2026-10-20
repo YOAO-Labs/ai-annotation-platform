@@ -2,7 +2,7 @@
 audience: [dev]
 type: explanation
 status: stable
-last_reviewed: 2026-10-20
+last_reviewed: 2026-10-21
 ---
 
 # 所有业务模块的独立部署与语言替换
@@ -38,6 +38,8 @@ last_reviewed: 2026-10-20
 Identity 已将认证后的主体资料读取绑定到既有 AUTH owner：私有 actor-context 使用同一远程服务或 AUTH LOGIN，只新增第五个只读函数，不引入新 DSN、角色或运行单元。它只刷新 admitted account 的基础资料与 weekly target，不重新验证凭据，也不承接后续写入授权；写路径的账号锁、目标 User 查询和 ORM 状态同步保留。本切片限定验收通过 114 个 distinct selected cases（92 DB/process、22 pure/static），零跳过；包含真实 API、双向语言 peer、第五项权限撤销／恢复与既有 Identity 恢复用例。源码和安装包各通过 579 项，安装文件与镜像哈希匹配；这些结果不与此前 UserBrief／项目显示消费者的用例数相加，也不证明完整 Identity 独立部署、全模块凭据收口或全目标完成。合同见 [ADR-0130](/dev/adr/0130-identity-post-admission-actor-context)。
 
 Identity account-lock boundary 用三项 typed SQL functions（SHARE／UPDATE／KEY SHARE）让现有 Workspace、Labeling、Inference、Learning 和 workflow owners 在同一 caller transaction 中持有账号事实锁，再完成各自写入；它不新增 HTTP lock endpoint、LOGIN 或 DSN，也不扩张 AUTH/FENCE 权限。锁异常、NOWAIT/wait 与 UserLifecycle 显式 rollback 均保留 caller 原语义。新锁切片通过 231 个 distinct selected cases、无有效跳过，含独立 Node 调用、真实锁等待、转移／角色变更的两种顺序、八项恢复及新 Celery 进程。源码和非 editable 安装各通过 595 项，119 个包文件与新 owner／API 容器指纹一致，API 另核对 150 个应用／native 文件。Pre-change baseline 的 15 个场景和 actor-context 的 114 项资格均单独保留，不能相加或借用。本次不收口非锁定 Workspace 查询、bootstrap/import writer、完整 Identity、十模块／七门槛或生产切换。精确边界见 [ADR-0131](/dev/adr/0131-identity-transactional-account-locks)。
+
+运维 provisioning 是新的 Identity 账号写入切片。两个既有 bootstrap/import 入口改为使用窄权限 `identity_provisioning_client`，仅可执行 `read_provisioning_account(text)` 与 `create_provisioning_account(jsonb)`；账号写入及固定 Audit 由 owner 组合，CLI/import caller 保留外层 SQL transaction。这是按 email 的 bootstrap 与环境门控 import，不是一般账号创建、注册或邀请。Authority readers 只复用现有账号状态和同事务锁能力，不新增 SQL、角色或 wire operation。Provisioning 与 authority consumers 的本地 qualification 均待 Root 证据；之前 actor-context 的 114 项与 account-lock 的 231 项是已关闭且独立的切片，不计入本次资格。完整 Identity 和十模块／七门槛目标仍未完成；详见 [ADR-0132](/dev/adr/0132-identity-operational-provisioning-and-authority-reads)。
 
 ## 已存在的运行边界
 

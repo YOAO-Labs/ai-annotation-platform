@@ -2,7 +2,7 @@
 audience: [dev]
 type: reference
 status: stable
-last_reviewed: 2026-10-20
+last_reviewed: 2026-10-21
 ---
 
 # Identity 私有运行协议
@@ -51,6 +51,24 @@ Migration 0251 在 `aap_identity_v1` 提供三项安全函数：`lock_accounts_s
 账号事实锁必须遵守账号 → Project → membership → resource 的既有顺序，保留每个调用方的 SHARE/UPDATE/KEY SHARE 和 NOWAIT/wait 选择。API 依旧由 caller 映射错误：单账号竞争保持 `account_busy`，账号／项目联合 guard 保持 `project_busy`，Project access 分别区分账号、项目、成员争用。`UserLifecycleService.lock_accounts` 对所有 DBAPIError 显式回滚并保留 `账号正在更新，请刷新后重试` 的旧 409 文案；其他调用方由原事务所有者决定回滚，不能在共享数据端口统一处理。
 
 跨帧 worker 每个待写帧都重新锁定并核对当前账号及项目／成员／任务权限，不使用跨帧快照或 `db.refresh(User)` 替代。忙碌仍映射到既有 `permission_changed`，无新重试；账号删除、停用、基础设施失败与阶段拒绝的分类也保持旧区分。当前未锁定的 Workspace 查询与 bootstrap/import User 写入仍待迁移。最新本地 qualification 去重后 231 项全部通过，包括受限 Node 调用、转移／角色变更竞态、恢复与新 Celery 进程。源码及非 editable 安装各通过 595 项，119 个包文件与独立 owner／API 容器指纹一致。旧行为 baseline 的一个测试覆盖 15 个场景，不能叠加到新资格数量。细节见 [ADR-0131](/dev/adr/0131-identity-transactional-account-locks)。
+
+## 运维账号 provisioning
+
+Identity operational provisioning 是给 bootstrap/import CLI 使用的内部 SQL owner，不是 HTTP/SDK 账号创建接口。Portable protocol `aap-identity-provisioning/v1` 只有 exact-email lookup 与 `bootstrap_admin`／`import_admin` create 两种模式；`AccountProvisioningManager` 通过 `create_bootstrap_super_admin(...)` 返回 UUID 或 `None`，通过 `ensure_import_admin(environment=...)` 返回 UUID。API caller adapter 不返回可变 User 或 password hash。
+
+Bootstrap 按单个 email 判重，不要求全局用户表为空。已有同 email 行无论 role、active 状态、姓名或 hash 都原样复用，不额外 hash、不写 Audit；不同 email 的 bootstrap admin 可共存。CLI 继续 lowercase/trim email、trim name，owner 不增加 normalization、长度或 password-strength policy。新用户保留 role `super_admin`、active、`status=online`、null group、`email_verified_at=caller now`、generation 0、`preferences={}` 和其余 nullable lifecycle fields null；`created_at` 使用 DB transaction time。Identity 与 Audit owners 在同一 caller transaction 原子写固定 `system.bootstrap_admin`，actor 为新用户，target 为 user UUID，detail 只含 `{email}`；method/path/status/IP 为 null，request ID 来自既有 context 或 null，Audit 时间使用 DB 默认值。应用 wrapper 不重复写 Audit。
+
+Import 只查精确 email `admin`。已有任意 row 都原样复用，包括 inactive、历史或非管理员账号；不存在时环境字符串严格为 `production` 才在 hash/create 前抛原 RuntimeError：
+
+```text
+生产环境下未找到 admin 用户,拒绝自动创建弱口令 admin/123456。请先手动创建管理员账号再运行本导入脚本。
+```
+
+其它环境（包括 staging）沿用 `admin`／`超级管理员`／bcrypt(`123456`)／`super_admin`／active／`offline`／null `email_verified_at`，不写 Audit。Importer 对 Assets、Workspace、Labeling 的 SQL 提交/回滚与账号 provisioning 保持一个事务，失败回滚全部业务行。
+
+Migration 0252 只增加只读 `read_provisioning_account(text)` 和 mutable `create_provisioning_account(jsonb)` 两个 Identity 函数，并新增仅有这两项 function grants 的 `identity_provisioning_client`。Audit 由固定 `aap_audit_v1.record_identity_bootstrap_admin(uuid,text,text)` capability 写入，Identity 没有 Audit table 权限。Native SQL constraint／duplicate 错误原样抛出；相同 email 并发创建仍以 `23505` 中止事务，无 conflict-ignore、重试或 adapter rollback。读路径遵循 `autoflush/no_autoflush`；create 即使在 `no_autoflush` 下也显式 flush caller pending work。没有新 runtime DSN、setting 或独立服务；verifier-only `AAP_MODULE_DATA_IDENTITY_PROVISIONING_URL` 不是应用配置。
+
+Project authority 的非锁定 actor/status 查询与任务、批次等已拥有者复用现有 `read_actor_facts` 和事务内 account-lock functions，不新增 SQL/http 协议，不改变锁序、mode、等待行为或 401/Bearer/403/404 映射；仍需要 Project ORM refresh 的调用方继续 refresh，active-only guard 不新增 role check。Provisioning 与 authority-consumer qualification 仍待 Root；此前 account locks 的 231-case 验收继续单独关闭，不计入本切片。精确默认、Audit 与权限边界见 [ADR-0132](/dev/adr/0132-identity-operational-provisioning-and-authority-reads)。
 
 ## API key 请求
 
