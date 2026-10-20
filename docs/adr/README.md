@@ -48,6 +48,7 @@
 - [0132](0132-identity-operational-provisioning-and-authority-reads.md) — Identity 运维账号 provisioning 与 authority facts 复用（已通过限定本地资格）
 - [0133](0133-workspace-membership-lifecycle-owner.md) — Workspace 项目成员生命周期命令 owner（成员命令本地限定验收通过）
 - [0134](0134-workspace-project-owner-transfer.md) — Workspace 项目负责人转移命令与本地传输提供方实验（限定本地验收通过）
+- [0135](0135-workspace-configuration-values-and-dependencies.md) — Workspace 配置值、纯策略与跨模块依赖（配置命令 owner 仍在实施）
 
 ### 已采纳（Accepted，归档）
 

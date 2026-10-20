@@ -28,7 +28,7 @@ class ModelCapability(BaseModel):
     infra: str = "unknown"
     is_interactive: bool = False
     supported_prompts: list[str] = []
-    # v0.21.0 · 一等输入契约 (full_image/crop/bbox_prompt/point_prompt/video)。
+    # 一等输入契约 (full_image/crop/bbox_prompt/point_prompt/video)。
     supported_inputs: list[str] = []
     default_input_type: str | None = None
     supported_geometric_outputs: list[str] = []
@@ -37,17 +37,17 @@ class ModelCapability(BaseModel):
     output_attribute_schema: list[dict] = []
     supported_text_outputs: list[str] = []
     supported_trackers: list[str] = []
-    # v0.21.19 · text-driven tracker (sam3_video) 子集; propagate 需 text/exemplars。
+    # text-driven tracker (sam3_video) 子集; propagate 需 text/exemplars。
     text_driven_trackers: list[str] = []
     max_window_frames: int | None = Field(default=None, gt=0)
     tracker_context_mode: Literal["none", "session"] = "none"
     max_context_frames: int | None = Field(default=None, gt=0)
     supported_variants: list[dict] = []
-    # v0.14.12 · 多轴 variants 非笛卡尔积时显式列举合法组合 (前端目录展开用).
+    # 多轴 variants 非笛卡尔积时显式列举合法组合 (前端目录展开用).
     variant_combinations: list[list[str]] = []
-    # v0.14.12 · 同 backend 多 task 是否共享物理权重 (SAM 类共享, yolo 分 task).
+    # 同 backend 多 task 是否共享物理权重 (SAM 类共享, yolo 分 task).
     variants_shared_across_tasks: bool = False
-    # v0.14.13 · backend 自报的默认 variant 组合 (dict[axis_key, value]).
+    # backend 自报的默认 variant 组合 (dict[axis_key, value]).
     default_variants: dict[str, str] = {}
     default_thresholds: dict = {}
     resource_profile: dict = {}
@@ -55,5 +55,5 @@ class ModelCapability(BaseModel):
     composition: str = "atom"
     params: dict = {}
     modality: str | None = None
-    # v0.14.17 · 闭集检测器原生类别表 ([{index,name}], 读自权重 model.names).
+    # 闭集检测器原生类别表 ([{index,name}], 读自权重 model.names).
     classes: list[dict] = []

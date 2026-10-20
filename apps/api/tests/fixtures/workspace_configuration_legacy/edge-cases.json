@@ -1,0 +1,1178 @@
+{
+  "capture_base": "35b558e5c32d7e66e8f90b2bccaf6a5d25cd81bf",
+  "capture_sha256": "ea813215c165a97e6b5b400858ecebf61af0a5068f502571f90d47632ab6d35b",
+  "capture_kind": "actual-legacy-workspace-configuration-supplement",
+  "requests": {
+    "template_create_null_tool_bindings": {
+      "name": "template_create_null_tool_bindings",
+      "type_label": "Image",
+      "type_key": "image-det",
+      "tool_bindings": null
+    },
+    "template_update_null_tool_bindings": {
+      "tool_bindings": null
+    },
+    "template_create_null_label_config": {
+      "name": "template_create_null_label_config",
+      "type_label": "Image",
+      "type_key": "image-det",
+      "label_config": null
+    },
+    "template_update_null_label_config": {
+      "label_config": null
+    },
+    "template_create_null_rendering_config": {
+      "name": "template_create_null_rendering_config",
+      "type_label": "Image",
+      "type_key": "image-det",
+      "rendering_config": null
+    },
+    "template_update_null_rendering_config": {
+      "rendering_config": null
+    },
+    "project_create_null_box_threshold": {
+      "name": "project_create_null_box_threshold",
+      "type_label": "Image",
+      "box_threshold": null
+    },
+    "project_create_null_text_threshold": {
+      "name": "project_create_null_text_threshold",
+      "type_label": "Image",
+      "text_threshold": null
+    },
+    "project_create_null_maximum_annotations": {
+      "name": "project_create_null_maximum_annotations",
+      "type_label": "Image",
+      "maximum_annotations": null
+    },
+    "project_create_null_sampling": {
+      "name": "project_create_null_sampling",
+      "type_label": "Image",
+      "sampling": null
+    },
+    "project_create_null_ai_enabled": {
+      "name": "project_create_null_ai_enabled",
+      "type_label": "Image",
+      "ai_enabled": null
+    },
+    "project_create_null_scene_mode": {
+      "name": "project_create_null_scene_mode",
+      "type_label": "Image",
+      "scene_mode": null
+    },
+    "project_create_null_tool_bindings": {
+      "name": "project_create_null_tool_bindings",
+      "type_label": "Image",
+      "tool_bindings": null
+    },
+    "project_create_null_label_config": {
+      "name": "project_create_null_label_config",
+      "type_label": "Image",
+      "label_config": null
+    },
+    "project_create_null_rendering_config": {
+      "name": "project_create_null_rendering_config",
+      "type_label": "Image",
+      "rendering_config": null
+    },
+    "pipeline_invalid_stage": {
+      "preannotate_pipeline": [
+        {
+          "ml_backend_id": "broken-id"
+        }
+      ]
+    },
+    "pipeline_invalid_params": {
+      "preannotate_pipeline": [
+        {
+          "stage": "predict",
+          "ml_backend_id": "$backend_image",
+          "params": 7
+        }
+      ]
+    },
+    "project_json_nul": {
+      "name": "project_json_nul",
+      "type_label": "Image",
+      "guide_assets": [
+        {
+          "value": "\u0000"
+        }
+      ]
+    },
+    "template_json_nul": {
+      "name": "template_json_nul",
+      "type_label": "Image",
+      "type_key": "image-det",
+      "label_config": {
+        "value": "\u0000"
+      }
+    }
+  },
+  "responses": {
+    "template_create_null_tool_bindings": {
+      "status": 500,
+      "body": "Internal Server Error",
+      "www_authenticate": null,
+      "retry_after": null
+    },
+    "template_update_null_tool_bindings": {
+      "status": 500,
+      "body": "Internal Server Error",
+      "www_authenticate": null,
+      "retry_after": null
+    },
+    "template_create_null_label_config": {
+      "status": 500,
+      "body": "Internal Server Error",
+      "www_authenticate": null,
+      "retry_after": null
+    },
+    "template_update_null_label_config": {
+      "status": 500,
+      "body": "Internal Server Error",
+      "www_authenticate": null,
+      "retry_after": null
+    },
+    "template_create_null_rendering_config": {
+      "status": 500,
+      "body": "Internal Server Error",
+      "www_authenticate": null,
+      "retry_after": null
+    },
+    "template_update_null_rendering_config": {
+      "status": 500,
+      "body": "Internal Server Error",
+      "www_authenticate": null,
+      "retry_after": null
+    },
+    "project_create_null_box_threshold": {
+      "status": 200,
+      "body": {
+        "id": "$result_project_create_null_box_threshold",
+        "organization_id": null,
+        "display_id": "$display_result_project_create_null_box_threshold",
+        "name": "project_create_null_box_threshold",
+        "type_label": "Image",
+        "type_key": "image-det",
+        "data_type": "image",
+        "owner_id": "$user_pa",
+        "owner_name": "pa",
+        "owner_avatar_ref": null,
+        "member_count": 0,
+        "my_project_role": null,
+        "status": "in_progress",
+        "ai_enabled": false,
+        "ml_backend_id": null,
+        "classes": [],
+        "classes_config": {},
+        "attribute_schema": {
+          "fields": []
+        },
+        "tool_bindings": {},
+        "label_config": {},
+        "sampling": "sequence",
+        "maximum_annotations": 1,
+        "show_overlap_first": false,
+        "iou_dedup_threshold": 0.7,
+        "box_threshold": 0.3499999940395355,
+        "text_threshold": 0.25,
+        "ai_interactive_enabled": true,
+        "raster_mask_native_editing_enabled": true,
+        "mask_qc_config": {
+          "schema_version": 1,
+          "config_revision": 1,
+          "enabled": true,
+          "blocking": false,
+          "auto_run": "on_review_submit",
+          "single_frame": {
+            "near_empty_pixels": 16,
+            "small_component_pixels": 32,
+            "small_component_ratio": 0.005,
+            "small_hole_pixels": 32,
+            "narrow_bridge_width": 2,
+            "boundary_noise_ratio": 0.15,
+            "bbox_iou_min": 0.98,
+            "overlap_pixels": 1
+          },
+          "temporal": {
+            "sample_step": 1,
+            "iou_drop": 0.35,
+            "centroid_shift_diagonal": 0.15,
+            "area_change_ratio": 0.5,
+            "component_delta": 2,
+            "flicker_max_frames": 2,
+            "drift_min_consecutive": 3
+          },
+          "severity_overrides": {}
+        },
+        "point_cloud_quality_config": {
+          "schema_version": 2,
+          "config_revision": 1,
+          "enabled": true,
+          "thresholds": {
+            "minimum_points": 5,
+            "ground_sample_min": 24,
+            "ground_margin_m": 0.75,
+            "ground_penetration_m": 0.2,
+            "ground_float_m": 0.45,
+            "size_min_samples": 8,
+            "size_mad_z": 4.5,
+            "temporal_center_jump_m": 4.0,
+            "temporal_size_change_ratio": 0.6,
+            "temporal_yaw_jump_rad": 0.8,
+            "projection_min_iou": 0.5,
+            "projection_max_edge_residual_ratio": 0.025
+          },
+          "enabled_rules": [
+            "duplicate_track_member",
+            "ground_clearance",
+            "low_point_count",
+            "projection_residual",
+            "size_outlier",
+            "temporal_jump",
+            "track_gap",
+            "track_identity_drift"
+          ],
+          "severity_overrides": {},
+          "class_thresholds": {},
+          "governance": {
+            "minimum_reviewed_per_rule": 20,
+            "maximum_false_positive_rate": 0.1,
+            "minimum_confirmed_retention": 0.9
+          }
+        },
+        "rendering_config": {
+          "smoothImage": null,
+          "cssImageFilter": null,
+          "controlPointsSize": null,
+          "snapToGrid": null,
+          "box3dDefaultSize": null,
+          "propagateOverwrite": null,
+          "trackerDefaultModel": null
+        },
+        "video_sampling": {
+          "mode": "none",
+          "target_fps": null,
+          "frame_step": null
+        },
+        "video_collaboration": {
+          "enabled": false,
+          "overlap_frames": 0
+        },
+        "scene_mode": false,
+        "prefer_same_scene_continuation": false,
+        "scene_continuation_window_min": 30,
+        "default_variants": {},
+        "preannotate_pipeline": null,
+        "capability_warnings": [],
+        "annotation_guide": null,
+        "guide_assets": [],
+        "model_version": null,
+        "task_lock_ttl_seconds": 300,
+        "total_tasks": 0,
+        "completed_tasks": 0,
+        "review_tasks": 0,
+        "in_progress_tasks": 0,
+        "ai_completed_tasks": 0,
+        "batch_summary": {
+          "total": 0,
+          "assigned": 0,
+          "in_review": 0
+        },
+        "due_date": null,
+        "created_at": "<timestamp>",
+        "updated_at": "<timestamp>"
+      },
+      "www_authenticate": null,
+      "retry_after": null
+    },
+    "project_create_null_text_threshold": {
+      "status": 200,
+      "body": {
+        "id": "$result_project_create_null_text_threshold",
+        "organization_id": null,
+        "display_id": "$display_result_project_create_null_text_threshold",
+        "name": "project_create_null_text_threshold",
+        "type_label": "Image",
+        "type_key": "image-det",
+        "data_type": "image",
+        "owner_id": "$user_pa",
+        "owner_name": "pa",
+        "owner_avatar_ref": null,
+        "member_count": 0,
+        "my_project_role": null,
+        "status": "in_progress",
+        "ai_enabled": false,
+        "ml_backend_id": null,
+        "classes": [],
+        "classes_config": {},
+        "attribute_schema": {
+          "fields": []
+        },
+        "tool_bindings": {},
+        "label_config": {},
+        "sampling": "sequence",
+        "maximum_annotations": 1,
+        "show_overlap_first": false,
+        "iou_dedup_threshold": 0.7,
+        "box_threshold": 0.3499999940395355,
+        "text_threshold": 0.25,
+        "ai_interactive_enabled": true,
+        "raster_mask_native_editing_enabled": true,
+        "mask_qc_config": {
+          "schema_version": 1,
+          "config_revision": 1,
+          "enabled": true,
+          "blocking": false,
+          "auto_run": "on_review_submit",
+          "single_frame": {
+            "near_empty_pixels": 16,
+            "small_component_pixels": 32,
+            "small_component_ratio": 0.005,
+            "small_hole_pixels": 32,
+            "narrow_bridge_width": 2,
+            "boundary_noise_ratio": 0.15,
+            "bbox_iou_min": 0.98,
+            "overlap_pixels": 1
+          },
+          "temporal": {
+            "sample_step": 1,
+            "iou_drop": 0.35,
+            "centroid_shift_diagonal": 0.15,
+            "area_change_ratio": 0.5,
+            "component_delta": 2,
+            "flicker_max_frames": 2,
+            "drift_min_consecutive": 3
+          },
+          "severity_overrides": {}
+        },
+        "point_cloud_quality_config": {
+          "schema_version": 2,
+          "config_revision": 1,
+          "enabled": true,
+          "thresholds": {
+            "minimum_points": 5,
+            "ground_sample_min": 24,
+            "ground_margin_m": 0.75,
+            "ground_penetration_m": 0.2,
+            "ground_float_m": 0.45,
+            "size_min_samples": 8,
+            "size_mad_z": 4.5,
+            "temporal_center_jump_m": 4.0,
+            "temporal_size_change_ratio": 0.6,
+            "temporal_yaw_jump_rad": 0.8,
+            "projection_min_iou": 0.5,
+            "projection_max_edge_residual_ratio": 0.025
+          },
+          "enabled_rules": [
+            "duplicate_track_member",
+            "ground_clearance",
+            "low_point_count",
+            "projection_residual",
+            "size_outlier",
+            "temporal_jump",
+            "track_gap",
+            "track_identity_drift"
+          ],
+          "severity_overrides": {},
+          "class_thresholds": {},
+          "governance": {
+            "minimum_reviewed_per_rule": 20,
+            "maximum_false_positive_rate": 0.1,
+            "minimum_confirmed_retention": 0.9
+          }
+        },
+        "rendering_config": {
+          "smoothImage": null,
+          "cssImageFilter": null,
+          "controlPointsSize": null,
+          "snapToGrid": null,
+          "box3dDefaultSize": null,
+          "propagateOverwrite": null,
+          "trackerDefaultModel": null
+        },
+        "video_sampling": {
+          "mode": "none",
+          "target_fps": null,
+          "frame_step": null
+        },
+        "video_collaboration": {
+          "enabled": false,
+          "overlap_frames": 0
+        },
+        "scene_mode": false,
+        "prefer_same_scene_continuation": false,
+        "scene_continuation_window_min": 30,
+        "default_variants": {},
+        "preannotate_pipeline": null,
+        "capability_warnings": [],
+        "annotation_guide": null,
+        "guide_assets": [],
+        "model_version": null,
+        "task_lock_ttl_seconds": 300,
+        "total_tasks": 0,
+        "completed_tasks": 0,
+        "review_tasks": 0,
+        "in_progress_tasks": 0,
+        "ai_completed_tasks": 0,
+        "batch_summary": {
+          "total": 0,
+          "assigned": 0,
+          "in_review": 0
+        },
+        "due_date": null,
+        "created_at": "<timestamp>",
+        "updated_at": "<timestamp>"
+      },
+      "www_authenticate": null,
+      "retry_after": null
+    },
+    "project_create_null_maximum_annotations": {
+      "status": 200,
+      "body": {
+        "id": "$result_project_create_null_maximum_annotations",
+        "organization_id": null,
+        "display_id": "$display_result_project_create_null_maximum_annotations",
+        "name": "project_create_null_maximum_annotations",
+        "type_label": "Image",
+        "type_key": "image-det",
+        "data_type": "image",
+        "owner_id": "$user_pa",
+        "owner_name": "pa",
+        "owner_avatar_ref": null,
+        "member_count": 0,
+        "my_project_role": null,
+        "status": "in_progress",
+        "ai_enabled": false,
+        "ml_backend_id": null,
+        "classes": [],
+        "classes_config": {},
+        "attribute_schema": {
+          "fields": []
+        },
+        "tool_bindings": {},
+        "label_config": {},
+        "sampling": "sequence",
+        "maximum_annotations": 1,
+        "show_overlap_first": false,
+        "iou_dedup_threshold": 0.7,
+        "box_threshold": 0.3499999940395355,
+        "text_threshold": 0.25,
+        "ai_interactive_enabled": true,
+        "raster_mask_native_editing_enabled": true,
+        "mask_qc_config": {
+          "schema_version": 1,
+          "config_revision": 1,
+          "enabled": true,
+          "blocking": false,
+          "auto_run": "on_review_submit",
+          "single_frame": {
+            "near_empty_pixels": 16,
+            "small_component_pixels": 32,
+            "small_component_ratio": 0.005,
+            "small_hole_pixels": 32,
+            "narrow_bridge_width": 2,
+            "boundary_noise_ratio": 0.15,
+            "bbox_iou_min": 0.98,
+            "overlap_pixels": 1
+          },
+          "temporal": {
+            "sample_step": 1,
+            "iou_drop": 0.35,
+            "centroid_shift_diagonal": 0.15,
+            "area_change_ratio": 0.5,
+            "component_delta": 2,
+            "flicker_max_frames": 2,
+            "drift_min_consecutive": 3
+          },
+          "severity_overrides": {}
+        },
+        "point_cloud_quality_config": {
+          "schema_version": 2,
+          "config_revision": 1,
+          "enabled": true,
+          "thresholds": {
+            "minimum_points": 5,
+            "ground_sample_min": 24,
+            "ground_margin_m": 0.75,
+            "ground_penetration_m": 0.2,
+            "ground_float_m": 0.45,
+            "size_min_samples": 8,
+            "size_mad_z": 4.5,
+            "temporal_center_jump_m": 4.0,
+            "temporal_size_change_ratio": 0.6,
+            "temporal_yaw_jump_rad": 0.8,
+            "projection_min_iou": 0.5,
+            "projection_max_edge_residual_ratio": 0.025
+          },
+          "enabled_rules": [
+            "duplicate_track_member",
+            "ground_clearance",
+            "low_point_count",
+            "projection_residual",
+            "size_outlier",
+            "temporal_jump",
+            "track_gap",
+            "track_identity_drift"
+          ],
+          "severity_overrides": {},
+          "class_thresholds": {},
+          "governance": {
+            "minimum_reviewed_per_rule": 20,
+            "maximum_false_positive_rate": 0.1,
+            "minimum_confirmed_retention": 0.9
+          }
+        },
+        "rendering_config": {
+          "smoothImage": null,
+          "cssImageFilter": null,
+          "controlPointsSize": null,
+          "snapToGrid": null,
+          "box3dDefaultSize": null,
+          "propagateOverwrite": null,
+          "trackerDefaultModel": null
+        },
+        "video_sampling": {
+          "mode": "none",
+          "target_fps": null,
+          "frame_step": null
+        },
+        "video_collaboration": {
+          "enabled": false,
+          "overlap_frames": 0
+        },
+        "scene_mode": false,
+        "prefer_same_scene_continuation": false,
+        "scene_continuation_window_min": 30,
+        "default_variants": {},
+        "preannotate_pipeline": null,
+        "capability_warnings": [],
+        "annotation_guide": null,
+        "guide_assets": [],
+        "model_version": null,
+        "task_lock_ttl_seconds": 300,
+        "total_tasks": 0,
+        "completed_tasks": 0,
+        "review_tasks": 0,
+        "in_progress_tasks": 0,
+        "ai_completed_tasks": 0,
+        "batch_summary": {
+          "total": 0,
+          "assigned": 0,
+          "in_review": 0
+        },
+        "due_date": null,
+        "created_at": "<timestamp>",
+        "updated_at": "<timestamp>"
+      },
+      "www_authenticate": null,
+      "retry_after": null
+    },
+    "project_create_null_sampling": {
+      "status": 200,
+      "body": {
+        "id": "$result_project_create_null_sampling",
+        "organization_id": null,
+        "display_id": "$display_result_project_create_null_sampling",
+        "name": "project_create_null_sampling",
+        "type_label": "Image",
+        "type_key": "image-det",
+        "data_type": "image",
+        "owner_id": "$user_pa",
+        "owner_name": "pa",
+        "owner_avatar_ref": null,
+        "member_count": 0,
+        "my_project_role": null,
+        "status": "in_progress",
+        "ai_enabled": false,
+        "ml_backend_id": null,
+        "classes": [],
+        "classes_config": {},
+        "attribute_schema": {
+          "fields": []
+        },
+        "tool_bindings": {},
+        "label_config": {},
+        "sampling": "sequence",
+        "maximum_annotations": 1,
+        "show_overlap_first": false,
+        "iou_dedup_threshold": 0.7,
+        "box_threshold": 0.3499999940395355,
+        "text_threshold": 0.25,
+        "ai_interactive_enabled": true,
+        "raster_mask_native_editing_enabled": true,
+        "mask_qc_config": {
+          "schema_version": 1,
+          "config_revision": 1,
+          "enabled": true,
+          "blocking": false,
+          "auto_run": "on_review_submit",
+          "single_frame": {
+            "near_empty_pixels": 16,
+            "small_component_pixels": 32,
+            "small_component_ratio": 0.005,
+            "small_hole_pixels": 32,
+            "narrow_bridge_width": 2,
+            "boundary_noise_ratio": 0.15,
+            "bbox_iou_min": 0.98,
+            "overlap_pixels": 1
+          },
+          "temporal": {
+            "sample_step": 1,
+            "iou_drop": 0.35,
+            "centroid_shift_diagonal": 0.15,
+            "area_change_ratio": 0.5,
+            "component_delta": 2,
+            "flicker_max_frames": 2,
+            "drift_min_consecutive": 3
+          },
+          "severity_overrides": {}
+        },
+        "point_cloud_quality_config": {
+          "schema_version": 2,
+          "config_revision": 1,
+          "enabled": true,
+          "thresholds": {
+            "minimum_points": 5,
+            "ground_sample_min": 24,
+            "ground_margin_m": 0.75,
+            "ground_penetration_m": 0.2,
+            "ground_float_m": 0.45,
+            "size_min_samples": 8,
+            "size_mad_z": 4.5,
+            "temporal_center_jump_m": 4.0,
+            "temporal_size_change_ratio": 0.6,
+            "temporal_yaw_jump_rad": 0.8,
+            "projection_min_iou": 0.5,
+            "projection_max_edge_residual_ratio": 0.025
+          },
+          "enabled_rules": [
+            "duplicate_track_member",
+            "ground_clearance",
+            "low_point_count",
+            "projection_residual",
+            "size_outlier",
+            "temporal_jump",
+            "track_gap",
+            "track_identity_drift"
+          ],
+          "severity_overrides": {},
+          "class_thresholds": {},
+          "governance": {
+            "minimum_reviewed_per_rule": 20,
+            "maximum_false_positive_rate": 0.1,
+            "minimum_confirmed_retention": 0.9
+          }
+        },
+        "rendering_config": {
+          "smoothImage": null,
+          "cssImageFilter": null,
+          "controlPointsSize": null,
+          "snapToGrid": null,
+          "box3dDefaultSize": null,
+          "propagateOverwrite": null,
+          "trackerDefaultModel": null
+        },
+        "video_sampling": {
+          "mode": "none",
+          "target_fps": null,
+          "frame_step": null
+        },
+        "video_collaboration": {
+          "enabled": false,
+          "overlap_frames": 0
+        },
+        "scene_mode": false,
+        "prefer_same_scene_continuation": false,
+        "scene_continuation_window_min": 30,
+        "default_variants": {},
+        "preannotate_pipeline": null,
+        "capability_warnings": [],
+        "annotation_guide": null,
+        "guide_assets": [],
+        "model_version": null,
+        "task_lock_ttl_seconds": 300,
+        "total_tasks": 0,
+        "completed_tasks": 0,
+        "review_tasks": 0,
+        "in_progress_tasks": 0,
+        "ai_completed_tasks": 0,
+        "batch_summary": {
+          "total": 0,
+          "assigned": 0,
+          "in_review": 0
+        },
+        "due_date": null,
+        "created_at": "<timestamp>",
+        "updated_at": "<timestamp>"
+      },
+      "www_authenticate": null,
+      "retry_after": null
+    },
+    "project_create_null_ai_enabled": {
+      "status": 422,
+      "body": {
+        "detail": [
+          {
+            "type": "bool_type",
+            "loc": ["body", "ai_enabled"],
+            "msg": "Input should be a valid boolean",
+            "input": null
+          }
+        ]
+      },
+      "www_authenticate": null,
+      "retry_after": null
+    },
+    "project_create_null_scene_mode": {
+      "status": 422,
+      "body": {
+        "detail": [
+          {
+            "type": "bool_type",
+            "loc": ["body", "scene_mode"],
+            "msg": "Input should be a valid boolean",
+            "input": null
+          }
+        ]
+      },
+      "www_authenticate": null,
+      "retry_after": null
+    },
+    "project_create_null_tool_bindings": {
+      "status": 500,
+      "body": "Internal Server Error",
+      "www_authenticate": null,
+      "retry_after": null
+    },
+    "project_create_null_label_config": {
+      "status": 200,
+      "body": {
+        "id": "$result_project_create_null_label_config",
+        "organization_id": null,
+        "display_id": "$display_result_project_create_null_label_config",
+        "name": "project_create_null_label_config",
+        "type_label": "Image",
+        "type_key": "image-det",
+        "data_type": "image",
+        "owner_id": "$user_pa",
+        "owner_name": "pa",
+        "owner_avatar_ref": null,
+        "member_count": 0,
+        "my_project_role": null,
+        "status": "in_progress",
+        "ai_enabled": false,
+        "ml_backend_id": null,
+        "classes": [],
+        "classes_config": {},
+        "attribute_schema": {
+          "fields": []
+        },
+        "tool_bindings": {},
+        "label_config": {},
+        "sampling": "sequence",
+        "maximum_annotations": 1,
+        "show_overlap_first": false,
+        "iou_dedup_threshold": 0.7,
+        "box_threshold": 0.3499999940395355,
+        "text_threshold": 0.25,
+        "ai_interactive_enabled": true,
+        "raster_mask_native_editing_enabled": true,
+        "mask_qc_config": {
+          "schema_version": 1,
+          "config_revision": 1,
+          "enabled": true,
+          "blocking": false,
+          "auto_run": "on_review_submit",
+          "single_frame": {
+            "near_empty_pixels": 16,
+            "small_component_pixels": 32,
+            "small_component_ratio": 0.005,
+            "small_hole_pixels": 32,
+            "narrow_bridge_width": 2,
+            "boundary_noise_ratio": 0.15,
+            "bbox_iou_min": 0.98,
+            "overlap_pixels": 1
+          },
+          "temporal": {
+            "sample_step": 1,
+            "iou_drop": 0.35,
+            "centroid_shift_diagonal": 0.15,
+            "area_change_ratio": 0.5,
+            "component_delta": 2,
+            "flicker_max_frames": 2,
+            "drift_min_consecutive": 3
+          },
+          "severity_overrides": {}
+        },
+        "point_cloud_quality_config": {
+          "schema_version": 2,
+          "config_revision": 1,
+          "enabled": true,
+          "thresholds": {
+            "minimum_points": 5,
+            "ground_sample_min": 24,
+            "ground_margin_m": 0.75,
+            "ground_penetration_m": 0.2,
+            "ground_float_m": 0.45,
+            "size_min_samples": 8,
+            "size_mad_z": 4.5,
+            "temporal_center_jump_m": 4.0,
+            "temporal_size_change_ratio": 0.6,
+            "temporal_yaw_jump_rad": 0.8,
+            "projection_min_iou": 0.5,
+            "projection_max_edge_residual_ratio": 0.025
+          },
+          "enabled_rules": [
+            "duplicate_track_member",
+            "ground_clearance",
+            "low_point_count",
+            "projection_residual",
+            "size_outlier",
+            "temporal_jump",
+            "track_gap",
+            "track_identity_drift"
+          ],
+          "severity_overrides": {},
+          "class_thresholds": {},
+          "governance": {
+            "minimum_reviewed_per_rule": 20,
+            "maximum_false_positive_rate": 0.1,
+            "minimum_confirmed_retention": 0.9
+          }
+        },
+        "rendering_config": {
+          "smoothImage": null,
+          "cssImageFilter": null,
+          "controlPointsSize": null,
+          "snapToGrid": null,
+          "box3dDefaultSize": null,
+          "propagateOverwrite": null,
+          "trackerDefaultModel": null
+        },
+        "video_sampling": {
+          "mode": "none",
+          "target_fps": null,
+          "frame_step": null
+        },
+        "video_collaboration": {
+          "enabled": false,
+          "overlap_frames": 0
+        },
+        "scene_mode": false,
+        "prefer_same_scene_continuation": false,
+        "scene_continuation_window_min": 30,
+        "default_variants": {},
+        "preannotate_pipeline": null,
+        "capability_warnings": [],
+        "annotation_guide": null,
+        "guide_assets": [],
+        "model_version": null,
+        "task_lock_ttl_seconds": 300,
+        "total_tasks": 0,
+        "completed_tasks": 0,
+        "review_tasks": 0,
+        "in_progress_tasks": 0,
+        "ai_completed_tasks": 0,
+        "batch_summary": {
+          "total": 0,
+          "assigned": 0,
+          "in_review": 0
+        },
+        "due_date": null,
+        "created_at": "<timestamp>",
+        "updated_at": "<timestamp>"
+      },
+      "www_authenticate": null,
+      "retry_after": null
+    },
+    "project_create_null_rendering_config": {
+      "status": 200,
+      "body": {
+        "id": "$result_project_create_null_rendering_config",
+        "organization_id": null,
+        "display_id": "$display_result_project_create_null_rendering_config",
+        "name": "project_create_null_rendering_config",
+        "type_label": "Image",
+        "type_key": "image-det",
+        "data_type": "image",
+        "owner_id": "$user_pa",
+        "owner_name": "pa",
+        "owner_avatar_ref": null,
+        "member_count": 0,
+        "my_project_role": null,
+        "status": "in_progress",
+        "ai_enabled": false,
+        "ml_backend_id": null,
+        "classes": [],
+        "classes_config": {},
+        "attribute_schema": {
+          "fields": []
+        },
+        "tool_bindings": {},
+        "label_config": {},
+        "sampling": "sequence",
+        "maximum_annotations": 1,
+        "show_overlap_first": false,
+        "iou_dedup_threshold": 0.7,
+        "box_threshold": 0.3499999940395355,
+        "text_threshold": 0.25,
+        "ai_interactive_enabled": true,
+        "raster_mask_native_editing_enabled": true,
+        "mask_qc_config": {
+          "schema_version": 1,
+          "config_revision": 1,
+          "enabled": true,
+          "blocking": false,
+          "auto_run": "on_review_submit",
+          "single_frame": {
+            "near_empty_pixels": 16,
+            "small_component_pixels": 32,
+            "small_component_ratio": 0.005,
+            "small_hole_pixels": 32,
+            "narrow_bridge_width": 2,
+            "boundary_noise_ratio": 0.15,
+            "bbox_iou_min": 0.98,
+            "overlap_pixels": 1
+          },
+          "temporal": {
+            "sample_step": 1,
+            "iou_drop": 0.35,
+            "centroid_shift_diagonal": 0.15,
+            "area_change_ratio": 0.5,
+            "component_delta": 2,
+            "flicker_max_frames": 2,
+            "drift_min_consecutive": 3
+          },
+          "severity_overrides": {}
+        },
+        "point_cloud_quality_config": {
+          "schema_version": 2,
+          "config_revision": 1,
+          "enabled": true,
+          "thresholds": {
+            "minimum_points": 5,
+            "ground_sample_min": 24,
+            "ground_margin_m": 0.75,
+            "ground_penetration_m": 0.2,
+            "ground_float_m": 0.45,
+            "size_min_samples": 8,
+            "size_mad_z": 4.5,
+            "temporal_center_jump_m": 4.0,
+            "temporal_size_change_ratio": 0.6,
+            "temporal_yaw_jump_rad": 0.8,
+            "projection_min_iou": 0.5,
+            "projection_max_edge_residual_ratio": 0.025
+          },
+          "enabled_rules": [
+            "duplicate_track_member",
+            "ground_clearance",
+            "low_point_count",
+            "projection_residual",
+            "size_outlier",
+            "temporal_jump",
+            "track_gap",
+            "track_identity_drift"
+          ],
+          "severity_overrides": {},
+          "class_thresholds": {},
+          "governance": {
+            "minimum_reviewed_per_rule": 20,
+            "maximum_false_positive_rate": 0.1,
+            "minimum_confirmed_retention": 0.9
+          }
+        },
+        "rendering_config": {
+          "smoothImage": null,
+          "cssImageFilter": null,
+          "controlPointsSize": null,
+          "snapToGrid": null,
+          "box3dDefaultSize": null,
+          "propagateOverwrite": null,
+          "trackerDefaultModel": null
+        },
+        "video_sampling": {
+          "mode": "none",
+          "target_fps": null,
+          "frame_step": null
+        },
+        "video_collaboration": {
+          "enabled": false,
+          "overlap_frames": 0
+        },
+        "scene_mode": false,
+        "prefer_same_scene_continuation": false,
+        "scene_continuation_window_min": 30,
+        "default_variants": {},
+        "preannotate_pipeline": null,
+        "capability_warnings": [],
+        "annotation_guide": null,
+        "guide_assets": [],
+        "model_version": null,
+        "task_lock_ttl_seconds": 300,
+        "total_tasks": 0,
+        "completed_tasks": 0,
+        "review_tasks": 0,
+        "in_progress_tasks": 0,
+        "ai_completed_tasks": 0,
+        "batch_summary": {
+          "total": 0,
+          "assigned": 0,
+          "in_review": 0
+        },
+        "due_date": null,
+        "created_at": "<timestamp>",
+        "updated_at": "<timestamp>"
+      },
+      "www_authenticate": null,
+      "retry_after": null
+    },
+    "pipeline_invalid_stage": {
+      "status": 422,
+      "body": {
+        "detail": "preannotate_pipeline 校验失败: 3 validation errors for PreannotateRequest\nml_backend_id\n  Input should be a valid UUID, invalid character: found `r` at 2 [type=uuid_parsing, input_value='broken-id', input_type=str]\n    For further information visit https://errors.pydantic.dev/2.13/v/uuid_parsing\npipeline_stages.0.stage\n  Field required [type=missing, input_value={'ml_backend_id': 'broken-id'}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.13/v/missing\npipeline_stages.0.ml_backend_id\n  Input should be a valid UUID, invalid character: found `r` at 2 [type=uuid_parsing, input_value='broken-id', input_type=str]\n    For further information visit https://errors.pydantic.dev/2.13/v/uuid_parsing"
+      },
+      "www_authenticate": null,
+      "retry_after": null
+    },
+    "pipeline_invalid_params": {
+      "status": 422,
+      "body": {
+        "detail": "preannotate_pipeline 校验失败: 2 validation errors for PreannotateRequest\npipeline_stages.0.stage\n  Input should be a valid integer, unable to parse string as an integer [type=int_parsing, input_value='predict', input_type=str]\n    For further information visit https://errors.pydantic.dev/2.13/v/int_parsing\npipeline_stages.0.params\n  Input should be a valid dictionary [type=dict_type, input_value=7, input_type=int]\n    For further information visit https://errors.pydantic.dev/2.13/v/dict_type"
+      },
+      "www_authenticate": null,
+      "retry_after": null
+    },
+    "project_json_nul": {
+      "status": 500,
+      "body": "Internal Server Error",
+      "www_authenticate": null,
+      "retry_after": null
+    },
+    "template_json_nul": {
+      "status": 500,
+      "body": "Internal Server Error",
+      "www_authenticate": null,
+      "retry_after": null
+    }
+  },
+  "semantic_sql_probe_traces": {
+    "template_create_null_tool_bindings": ["actor:share_lock"],
+    "template_update_null_tool_bindings": ["actor:share_lock", "template:update_lock"],
+    "template_create_null_label_config": ["actor:share_lock"],
+    "template_update_null_label_config": ["actor:share_lock", "template:update_lock"],
+    "template_create_null_rendering_config": ["actor:share_lock"],
+    "template_update_null_rendering_config": ["actor:share_lock", "template:update_lock"],
+    "project_create_null_box_threshold": ["actor:share_lock", "project:insert"],
+    "project_create_null_text_threshold": ["actor:share_lock", "project:insert"],
+    "project_create_null_maximum_annotations": ["actor:share_lock", "project:insert"],
+    "project_create_null_sampling": ["actor:share_lock", "project:insert"],
+    "project_create_null_ai_enabled": [],
+    "project_create_null_scene_mode": [],
+    "project_create_null_tool_bindings": ["actor:share_lock", "project:insert"],
+    "project_create_null_label_config": ["actor:share_lock", "project:insert"],
+    "project_create_null_rendering_config": ["actor:share_lock", "project:insert"],
+    "pipeline_invalid_stage": [],
+    "pipeline_invalid_params": [],
+    "project_json_nul": ["actor:share_lock"],
+    "template_json_nul": ["actor:share_lock"]
+  },
+  "caller_errors": {
+    "project_text_nul": {
+      "sqlstate": "22021",
+      "in_transaction": true,
+      "is_active": false
+    },
+    "project_json_nul": {
+      "sqlstate": "22P05",
+      "in_transaction": true,
+      "is_active": false
+    },
+    "template_json_nul": {
+      "sqlstate": "22P05",
+      "in_transaction": true,
+      "is_active": false
+    },
+    "hidden_source_af_False": {
+      "status": 404,
+      "in_transaction": true,
+      "is_active": true,
+      "pending_unflushed": true
+    },
+    "hidden_source_af_True": {
+      "status": 404,
+      "in_transaction": true,
+      "is_active": true,
+      "pending_unflushed": false
+    },
+    "template_busy": {
+      "status": 409,
+      "is_active": true,
+      "in_transaction": true,
+      "next_query_sqlstate": "25P02"
+    },
+    "project_busy": {
+      "status": 409,
+      "is_active": true,
+      "in_transaction": true,
+      "next_query_sqlstate": "25P02"
+    },
+    "deferred_commit": {
+      "sqlstate": "23514",
+      "is_active": false,
+      "in_transaction": true
+    },
+    "deferred_atomicity": {
+      "project_absent": true,
+      "template_usage": 0,
+      "pool_enabled": false,
+      "pool_generation": 1,
+      "association_count": 0
+    }
+  },
+  "committed_after_response": {
+    "template_create_null_tool_bindings": {
+      "exists": true,
+      "tool_bindings": null
+    },
+    "template_update_null_tool_bindings": {
+      "tool_bindings": null
+    },
+    "template_create_null_label_config": {
+      "exists": true,
+      "label_config": null
+    },
+    "template_update_null_label_config": {
+      "label_config": null
+    },
+    "template_create_null_rendering_config": {
+      "exists": true,
+      "rendering_config": null
+    },
+    "template_update_null_rendering_config": {
+      "rendering_config": null
+    },
+    "project_create_null_box_threshold": {
+      "box_threshold": 0.3499999940395355
+    },
+    "project_create_null_text_threshold": {
+      "text_threshold": 0.25
+    },
+    "project_create_null_maximum_annotations": {
+      "maximum_annotations": 1
+    },
+    "project_create_null_sampling": {
+      "sampling": "sequence"
+    },
+    "project_create_null_tool_bindings": {
+      "tool_bindings": null
+    },
+    "project_create_null_label_config": {
+      "label_config": {}
+    },
+    "project_create_null_rendering_config": {
+      "rendering_config": {}
+    }
+  }
+}

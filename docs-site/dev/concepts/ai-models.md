@@ -336,7 +336,7 @@ cls(文本行方向 0/180)**语言/版本无关**,内化进 rec 与 e2e,不单�
 
 平台对 backend 的「能力 / 模态」有持久化感知。实现集中在两个文件：
 
-- `apps/api/app/services/ml_capabilities.py`（`extract_capabilities` + `derive_modalities`）
+- `apps/inference/src/aap_inference/capabilities.py`（`extract_capabilities` + `derive_modalities`）
 - `apps/api/app/services/ml_backend.py`（`check_health`）
 
 ### 7.1 健康检查时能力快照落库
@@ -372,7 +372,7 @@ backend.health_meta = meta
 `derive_modalities(caps)` 从能力快照推断支持的标注模态（不入库、读时算，同步写入快照中）：
 
 ```python
-# apps/api/app/services/ml_capabilities.py
+# apps/inference/src/aap_inference/capabilities.py
 if caps.get("supported_prompts"):   # 非空 ⇒ image
     modalities.append("image")
 if caps.get("supported_trackers"):  # 非空 ⇒ video

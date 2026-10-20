@@ -211,7 +211,15 @@ BEGIN
     WHERE association.project_id = p_project_id
       AND association.pool_id = v_pool_id;
 
-    IF NOT FOUND THEN
+    IF v_pool_enabled IS DISTINCT FROM TRUE THEN
+        UPDATE public.ml_backend_service_pools
+        SET enabled = TRUE,
+            routing_generation = routing_generation + 1,
+            updated_at = pg_catalog.now()
+        WHERE id = v_pool_id;
+    END IF;
+
+    IF v_association_id IS NULL THEN
         INSERT INTO public.project_ml_backend_pool (
             id, project_id, pool_id, enabled
         )
@@ -223,14 +231,6 @@ BEGIN
         SET enabled = TRUE,
             updated_at = pg_catalog.now()
         WHERE id = v_association_id;
-    END IF;
-
-    IF v_pool_enabled IS DISTINCT FROM TRUE THEN
-        UPDATE public.ml_backend_service_pools
-        SET enabled = TRUE,
-            routing_generation = routing_generation + 1,
-            updated_at = pg_catalog.now()
-        WHERE id = v_pool_id;
     END IF;
 
     RETURN pg_catalog.jsonb_build_object(

@@ -49,6 +49,12 @@ Identity account-lock boundary 用三项 typed SQL functions（SHARE／UPDATE／
 
 Node 仅提供本地单命令 transport conformance；Native 继续持有业务策略。此结果不代表整个 Workspace、完整业务语言替换、独立数据库或生产容量已完成。API 仍使用过渡期宽角色装配；下一块为共享事务的项目创建／配置和模板操作。详见 [ADR-0134](/dev/adr/0134-workspace-project-owner-transfer) 与 [Workspace 运行指南](/api/guides/workspace-runtime)。
 
+## Workspace 配置模型与依赖边界
+
+项目与模板的配置模型、kind、克隆、类别规范化及模板纯策略已由 `apps/workspace` 持有；API 的旧模型和纯策略副本已移除。预标注请求、能力词表、归一化和保存编排校验由 `apps/inference` 持有，API 显式传入当前 tracker 限制。Geometry、运行／评估与普通读取 DTO 保留各自所有者，公开接口行为不变。
+
+Identity 组织范围、Assets 关联数据集 kind、Labeling 视频阻塞事实和 Inference 服务池启用已登记为四项 typed Native 能力，仅向 Workspace code owner 开放。它们通过了隔离权限、真实旧／新写入顺序、无变化时间戳、回滚和迁移恢复检查。配置写入仍由 API 的原调用方事务协调；六项配置命令的 wire、回执、专用 LOGIN 和独立运行时尚待实现。这一步不能计为配置 owner 或完整 Workspace 已可独立部署。边界、旧行为基线与后续验收见 [ADR-0135](/dev/adr/0135-workspace-configuration-values-and-dependencies)。
+
 ## Workspace 项目成员生命周期命令
 
 项目成员新增、角色预览／变更与移除已收口到 `apps/workspace` 的可移植 owner。命令协议为 `aap-workspace-membership/v1`，以 prepare → portable policy → apply 在同一 PostgreSQL 事务中组合 Workspace member row、Identity/Project 当前权威、Labeling 工作事实与交接、typed Audit 及不可变成功 receipt。现有 Python preview digest、blocker 顺序、CAS、NOWAIT/rollback 和公开 API/DTO/error mapping 保持；邀请接受继续由 Identity invitation owner 处理，不另建 membership writer。

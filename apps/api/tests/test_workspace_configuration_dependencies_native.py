@@ -16,17 +16,114 @@ from app.db.models.dataset import Dataset, DatasetItem, ProjectDataset, Scene
 from app.db.models.ml_backend_pool import (
     MLBackendPoolMember,
     MLBackendServicePool,
-    ProjectMLBackendPool,
 )
-from app.db.models.ml_backend_registry import MLBackendRegistry
+from app.db.models.ml_backend_registry import MLBackendRegistry, ProjectMLBackendPool
 from app.db.models.organization import Organization, OrganizationMember
 from app.db.models.project import Project
 from app.db.models.task import Task
 from app.db.models.user import User
 from app.db.models.video_tracker_job import VideoTrackerJob
+from app.services.ml_backend import MLBackendService
 from tests.factory import create_project, create_task, create_user
 
 pytestmark = pytest.mark.asyncio
+
+
+async def test_backend_enablement_keeps_legacy_write_order_and_caller_rollback(
+    test_engine,
+):
+    maker = async_sessionmaker(test_engine, expire_on_commit=False)
+    project_ids = []
+    pool_ids = []
+    async with maker() as session:
+        user = await create_user(
+            session,
+            "project_admin",
+            f"config-order-{uuid.uuid4()}@example.test",
+            "Configuration order",
+        )
+        service = MLBackendService(session)
+        registries = []
+        for label in ("legacy", "native"):
+            project = await create_project(session, owner_id=user.id, name=label)
+            registry = MLBackendRegistry(
+                name=label,
+                url=f"https://{label}.example.test",
+                state="connected",
+                auth_method="none",
+            )
+            session.add(registry)
+            await session.flush()
+            pool = await service._create_singleton_pool(registry)
+            project_ids.append(project.id)
+            pool_ids.append(pool.id)
+            registries.append(registry.id)
+
+        await session.execute(
+            text("CREATE TEMP TABLE cfg_enable_order (position bigserial, event text)")
+        )
+        await session.execute(
+            text(
+                "CREATE FUNCTION pg_temp.cfg_enable_order() RETURNS trigger "
+                "LANGUAGE plpgsql SECURITY DEFINER "
+                "SET search_path=pg_catalog,pg_temp AS $$ BEGIN "
+                "INSERT INTO pg_temp.cfg_enable_order(event) "
+                "VALUES (TG_TABLE_NAME || ':' || TG_OP); RETURN NEW; END $$"
+            )
+        )
+        for table, operations in (
+            ("ml_backend_service_pools", "UPDATE"),
+            ("project_ml_backend_pool", "INSERT OR UPDATE"),
+        ):
+            await session.execute(
+                text(
+                    f"CREATE TRIGGER cfg_enable_order AFTER {operations} "
+                    f"ON public.{table} FOR EACH ROW "
+                    "EXECUTE FUNCTION pg_temp.cfg_enable_order()"
+                )
+            )
+
+        await service.set_enabled(project_ids[0], registries[0], enabled=True)
+        legacy_order = list(
+            await session.scalars(
+                text("SELECT event FROM pg_temp.cfg_enable_order ORDER BY position")
+            )
+        )
+        assert legacy_order == [
+            "ml_backend_service_pools:UPDATE",
+            "project_ml_backend_pool:INSERT",
+        ]
+        await session.execute(text("TRUNCATE pg_temp.cfg_enable_order"))
+        native = await _call(
+            session,
+            "SELECT aap_inference_v1.enable_workspace_project_backend"
+            "(CAST(:project AS uuid), CAST(:registry AS uuid))",
+            {"project": project_ids[1], "registry": registries[1]},
+        )
+        assert native["pool_id"] == str(pool_ids[1])
+        assert (
+            list(
+                await session.scalars(
+                    text("SELECT event FROM pg_temp.cfg_enable_order ORDER BY position")
+                )
+            )
+            == legacy_order
+        )
+        assert session.in_transaction()
+        await session.rollback()
+
+    async with maker() as observer:
+        assert await observer.get(Project, project_ids[1]) is None
+        assert await observer.get(MLBackendServicePool, pool_ids[1]) is None
+        assert (
+            await observer.scalar(
+                text(
+                    "SELECT count(*) FROM public.project_ml_backend_pool WHERE project_id=:project"
+                ),
+                {"project": project_ids[1]},
+            )
+            == 0
+        )
 
 
 def _decoded_json(value):
@@ -462,6 +559,7 @@ async def test_inference_backend_enablement_matches_legacy_noop_and_missing_pool
             pool = MLBackendServicePool(
                 name=f"Workspace pool {suffix}",
                 enabled=False,
+                legacy_instance_id=registry.id,
             )
             session.add(pool)
             await session.flush()

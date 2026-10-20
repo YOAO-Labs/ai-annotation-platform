@@ -47,7 +47,7 @@ Project 是业务顶层容器。项目可以属于 organization；成员、批�
 | `apps/api/app/schemas/project.py`                                        | Project 请求 / 响应 schema                         |
 | `apps/api/app/api/v1/projects.py`                                        | 项目 HTTP 路由                                     |
 | `apps/api/app/api/v1/ml_backends.py` · `project_pipelines.py`            | 项目 ML 服务池与编排 API                           |
-| `apps/api/app/schemas/preannotate.py`                                    | `PipelineStage` / `PreannotateRequest` 请求 schema |
+| `apps/inference/src/aap_inference/preannotate.py`                        | `PipelineStage` / `PreannotateRequest` 请求 schema |
 | `apps/api/app/services/pipeline_template.py`                             | 保存流水线校验与写命令所有者                       |
 | `apps/api/app/application/project_pipeline.py`                           | apply 的项目授权与 backend 启用组合                |
 | `apps/api/app/api/v1/dashboard/`(admin/reviewer/annotator 受众子 router) | 项目级统计与聚合                                   |
@@ -135,7 +135,7 @@ archived
 
 如果你改的是「标注长什么样」, 十有八九要从 project.tool_bindings 入手, 而不是 task。
 
-写入路径: `projects.py` 只负责 HTTP 请求、提交与响应, 委托 `application/project_workspace_configuration.py::WorkspaceConfigurationWorkflow`; `services/project_workspace.py` 是项目配置与 ProjectTemplate 行命令的唯一服务所有者, 包含旧扁平类别/属性字段到 `tool_bindings` 的规范化。工作流复核当前 actor/项目/模板权限, 组合模板与源项目配置并协调 backend 启用和主绑定; 项目内嵌已保存流水线使用 `services/pipeline_template.py::validate_saved_pipeline` 校验结构。读出路径由 `ProjectOut` 的 `model_validator` 用 `derive_*` 从 `tool_bindings` 派生扁平投影; 纯投影 helper 留在 `apps/api/app/services/project.py`, 模板可见性/scope/payload helper 留在 `services/project_template.py`。
+写入路径由 `projects.py` 保留 HTTP 请求、提交与响应，`application/project_workspace_configuration.py::WorkspaceConfigurationWorkflow` 仍在 API 请求事务内协调创建、配置与模板写入；ORM 行命令仍由 `services/project_workspace.py` 持有。配置值、旧扁平类别/属性规范化、kind、克隆及模板纯策略由 `apps/workspace/src/aap_workspace` 持有，API 只映射已读取行并还原 HTTP 错误；模板可见性适配器仅保留必要的组织范围查询。工作流仍按原顺序复核当前 actor/项目/模板权限、协调 backend 探测/启用和主绑定，项目内嵌与命名流水线共用 `aap_inference.pipeline.validate_saved_pipeline`。读取时，`ProjectOut` 继续消费 `apps/_shared/workspace_contract` 的纯投影。这一步尚未把配置写入交给独立运行时。
 
 前端项目设置的归属：`基本信息` 只维护名称、状态、截止日期和类型展示；`类别与属性` 是 `tool_bindings` 的唯一编辑入口，同一个工具单位 tab 下同时维护类别、关键点骨骼模板与属性 schema。
 
@@ -216,7 +216,7 @@ Project 决定 task 的这些上层语义：
 
 ## 主要 API 面
 
-`apps/api/app/api/v1/projects.py` 当前覆盖项目 CRUD、成员、导出、预标注触发和数据关联；ML 启用 / 服务池由 `ml_backends.py` 管理，命名编排 CRUD 由 `/project-pipelines` 路由装配，写入由 `services/pipeline_template.py` 持有；项目套用端点由 `application/project_pipeline.py::apply_saved_pipeline` 组合当前管理权威与 backend 启用检查。`PipelineStage` 与 `PreannotateRequest` 的权威 schema 位于 `schemas/preannotate.py`，项目内嵌旧配置也复用 `validate_saved_pipeline`。
+`apps/api/app/api/v1/projects.py` 当前覆盖项目 CRUD、成员、导出、预标注触发和数据关联；ML 启用 / 服务池由 `ml_backends.py` 管理，命名编排 CRUD 由 `/project-pipelines` 路由装配，写入由 `services/pipeline_template.py` 持有；项目套用端点由 `application/project_pipeline.py::apply_saved_pipeline` 组合当前管理权威与 backend 启用检查。`PipelineStage` 与 `PreannotateRequest` 的权威 schema 位于 `aap_inference.preannotate`，项目内嵌旧配置也复用 `validate_saved_pipeline`。
 
 项目主路由覆盖的主要能力：
 

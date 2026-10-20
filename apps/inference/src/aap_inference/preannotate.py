@@ -24,9 +24,8 @@ class PipelineStage(BaseModel):
 
     stage: int
     ml_backend_id: uuid.UUID
-    # v0.21.5 · 初始输入节点 (stage 0) 的数据源描述: {"kind":"dataset","data_type":...,"execution_unit":...}。
-    # 声明「源类型 + 执行单位」维度 (ROADMAP 方向 B/C)。本版仅接受并透传/持久化, 不改派发语义
-    # (video tracker 逐帧/整段编排由 v0.21.6 接线)。下游 stage 无此字段。
+    # 初始输入节点 (stage 0) 的数据源描述: {"kind":"dataset","data_type":...,"execution_unit":...}。
+    # 声明源类型与执行单位；下游 stage 不携带此字段。
     source: dict | None = None
     model_id: str | None = None
     task: VisualTaskName | None = None
@@ -42,19 +41,19 @@ class PipelineStage(BaseModel):
     class_filter: list[int] | None = None
     # 依赖的父阶段 index; None=源阶段 (吃整图)。
     parent_stage: int | None = None
-    # v0.18.2 · 按类别路由: 本阶段只对这些 class_name 的父框启动 (空/缺=全部父框)。
+    # 按类别路由: 本阶段只对这些 class_name 的父框启动 (空/缺=全部父框)。
     # 不相交类别集=不同类走不同下游模型; 重叠=同类喂多模型 (并行扇出)。声明式过滤, 非分支节点。
     parent_class_filter: list[str] | None = None
     # ROI 构造; 认 {"mode":"crop","pad":0.05}, pad∈[0,0.5]。
     roi: dict | None = None
     # 结果写回; 认 {"target":"attributes","keys":[...]}。keys 用于并行兄弟键冲突检测。
     write: dict | None = None
-    # v0.18.2 · 阶段级失败策略: keep_parent (默认, 下游失败保留上游框、属性留空) | drop_box (丢父框)。
+    # 阶段级失败策略: keep_parent (默认, 下游失败保留上游框、属性留空) | drop_box (丢父框)。
     on_failure: Literal["keep_parent", "drop_box"] = "keep_parent"
-    # v0.18.14 · 卡片显示名 + 写回属性键前缀。设了 label, 写回键加 f"{label}_" 前缀 (子物体
+    # 卡片显示名 + 写回属性键前缀。设了 label, 写回键加 f"{label}_" 前缀 (子物体
     # 命名空间, 如 hat_color / shoe_color); 缺省写原始键 (双阶段零退化)。
     label: str | None = None
-    # v0.18.14 · 显式输入模式覆盖 {"mode": "full_image"|"crop"|"geometry"}; 缺省由 worker 按
+    # 显式输入模式覆盖 {"mode": "full_image"|"crop"|"geometry"}; 缺省由 worker 按
     # write.target 推断 (attributes→crop, geometry/intermediate→geometry-prompt)。
     input: dict | None = None
 
@@ -62,7 +61,7 @@ class PipelineStage(BaseModel):
 class PreannotateRequest(BaseModel):
     ml_backend_id: uuid.UUID | None = None
     task_ids: list[uuid.UUID] | None = Field(default=None, min_length=1, max_length=200)
-    # v0.9.5 · 文本批量预标可选参数
+    # 文本批量预标可选参数
     prompt: str | None = None
     output_mode: Literal["box", "mask", "both"] = "mask"
     batch_id: uuid.UUID | None = None
@@ -70,16 +69,16 @@ class PreannotateRequest(BaseModel):
     # 无有效编辑锁的批量前置条件); workbench=工作台「当前题 AI」单题交互执行, 按当前用户
     # 对该题的编辑语义校验 (允许 in_progress 任务与 draft 批次, 保留管理员锁 / 他人锁 / 终态保护)。
     execution_scope: Literal["bulk", "workbench"] = "bulk"
-    # v0.10.38 · 按后端参数面板 (epic 阶段 2): 选中 backend 的 /setup.params 值,
+    # 按后端参数面板 (epic 阶段 2): 选中 backend 的 /setup.params 值,
     # 由前端按 backend 分桶解析后显式带上, worker 合并进 /predict context (覆盖项目级阈值兜底).
     params: dict | None = None
-    # v0.11.24 · 幂等模式: skip_predicted=跳过已预标 task (默认), overwrite=先清旧预测再预标,
+    # 幂等模式: skip_predicted=跳过已预标 task (默认), overwrite=先清旧预测再预标,
     # append=保留旧行为 (无脑追加, 仅特殊场景). 避免重复预标叠加重复标注.
     predict_mode: Literal["skip_predicted", "overwrite", "append"] = "skip_predicted"
-    # v0.14.9 · 能力声明协议 v2 多模型目录: 选中 backend 暴露的某个 model 条目 id,
+    # 能力声明协议 v2 多模型目录: 选中 backend 暴露的某个 model 条目 id,
     # worker 透传进 /predict context["model_id"], backend 据此路由到对应模型。
     model_id: str | None = None
-    # v0.14.9 · 任务类型便捷别名 ("ocr"/"doc_layout"/"text"): worker 写 context["type"],
+    # 任务类型便捷别名 ("ocr"/"doc_layout"/"text"): worker 写 context["type"],
     # 让纯文本以外的 task (OCR / 版面分析) 也能走批量预标。缺省走老的纯 prompt / image 行为。
     task: VisualTaskName | None = None
     prompt_type: Literal["text"] | None = None
@@ -89,18 +88,18 @@ class PreannotateRequest(BaseModel):
     def canonical_task_fields(cls, value):
         return normalize_task_fields(value)
 
-    # v0.14.17 · 协议 v2 结构化路径 (YOLO 等多 task 几何 backend): 选中 variant 组合 (dict[axis,value])。
+    # 协议 v2 结构化路径 (YOLO 等多 task 几何 backend): 选中 variant 组合 (dict[axis,value])。
     # 非空时 worker 构造 v2 context (model_variants dict + nested params + type=几何 task),
     # 而非 gsam2 文本路径的扁平形态。修通 YOLO 批量预标 (此前 worker 发 type="text" 被 YOLO 422)。
     model_variants: dict[str, str] | None = None
-    # v0.14.17 · 类别白名单 (模型原生类别 index 子集): 非空时 backend 只检出这些类。
+    # 类别白名单 (模型原生类别 index 子集): 非空时 backend 只检出这些类。
     # 平台不做类→项目标签映射 (NG6), 仅透传给 yolo /predict context.classes 做推理层过滤。
     class_filter: list[int] | None = None
-    # v0.18.1 · 多阶段预标注 (路径 B): 有序阶段列表。非空时走阶段化编排 (detect→ROI→classify),
+    # 多阶段预标注 (路径 B): 有序阶段列表。非空时走阶段化编排 (detect→ROI→classify),
     # 缺省时由上面的平铺字段合成单阶段, 与现状逐字等价 (向后兼容)。
-    # v0.18.2 · 支持单层并行扇出 (源 + N 个共享 parent_stage 的下游)。
+    # 支持单层并行扇出 (源 + N 个共享 parent_stage 的下游)。
     pipeline_stages: list[PipelineStage] | None = None
-    # v0.18.2 · 并行兄弟写同一属性键时的策略: reject (默认, 校验期 422) | last_wins (末位覆盖)。
+    # 并行兄弟写同一属性键时的策略: reject (默认, 校验期 422) | last_wins (末位覆盖)。
     on_key_conflict: Literal["reject", "last_wins"] = "reject"
 
     @model_validator(mode="after")
@@ -126,7 +125,7 @@ class PreannotateRequest(BaseModel):
         self.model_variants = root.model_variants
         self.params = root.params
         self.class_filter = root.class_filter
-        # v0.18.14 · 受限树形校验 (max depth 3): 替换原单层扇出约束。
+        # 受限树形校验 (max depth 3): 替换原单层扇出约束。
         # parent_stage 须指向已定义且更早的阶段 (序号严格小于, 自然无环); 父须产可消费几何
         # (write.target ∈ {geometry, intermediate}); 任一链路深度 ≤ 3。
         # parent_stage=0 的旧双阶段 payload 在此等价通过 (root depth=1, 子 depth=2)。

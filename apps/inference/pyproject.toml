@@ -11,7 +11,7 @@ dependencies = ["aap-task-contract", "aap-protocol-v2", "pydantic>=2.10.0"]
 
 [project.optional-dependencies]
 probe = ["httpx>=0.28.0"]
-test = ["pytest>=8.3.0", "httpx>=0.28.0"]
+test = ["pytest>=8.3.0", "pytest-asyncio>=0.24", "httpx>=0.28.0"]
 
 [tool.uv.sources]
 aap-task-contract = { path = "../_shared/task_contract", editable = true }

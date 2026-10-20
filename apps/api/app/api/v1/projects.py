@@ -1,4 +1,8 @@
 from aap_task_contract import normalize_task
+from aap_inference.capability_registry import INPUT_BBOX_PROMPT, INPUT_CROP
+from aap_inference.pipeline import PipelineValidationError
+import aap_inference.preannotate as preannotate_schemas
+from aap_workspace.configuration_requests import ProjectCreate, ProjectUpdate
 import logging
 import uuid
 from collections import Counter
@@ -57,8 +61,6 @@ from app.db.models.async_job import AsyncJob
 from app.schemas.project import (
     ProjectOut,
     ProjectPage,
-    ProjectCreate,
-    ProjectUpdate,
     ProjectStats,
     ProjectClassUsageOut,
     ProjectCleanupOrphansRequest,
@@ -74,7 +76,6 @@ from app.schemas.project import (
     MentionCandidateOut,
 )
 from app.schemas.project_pipeline import ProjectPipelineApplyRequest, ProjectPipelineOut
-import app.schemas.preannotate as preannotate_schemas
 from app.schemas.export import (
     ExportRequestBody,
     LidarExportPreflightRequest,
@@ -86,7 +87,6 @@ from app.services.pipeline_validation import (
     check_parent_geometry_roi,
     resolve_preannotate_queue,
 )
-from app.services.capability_registry import INPUT_BBOX_PROMPT, INPUT_CROP
 from app.services.batch_permissions import allows_bulk_preannotation
 from app.services.accepted_inputs import InputAdmission, get_input_admission
 from app.services.accepted_input_manifests import (
@@ -973,13 +973,16 @@ async def apply_project_pipeline(
     if pipeline is None:
         raise HTTPException(status_code=404, detail="编排不存在")
     await assert_pipeline_visible(db, pipeline, current_user)
-    copied = await apply_saved_pipeline(
-        db,
-        actor_id=current_user.id,
-        project_id=project.id,
-        source=pipeline,
-        set_default=body.set_default,
-    )
+    try:
+        copied = await apply_saved_pipeline(
+            db,
+            actor_id=current_user.id,
+            project_id=project.id,
+            source=pipeline,
+            set_default=body.set_default,
+        )
+    except PipelineValidationError as exc:
+        raise HTTPException(status_code=422, detail=exc.detail) from exc
     await db.commit()
     await db.refresh(copied)
     return copied
@@ -1941,7 +1944,7 @@ async def trigger_preannotation(
     if not backend or not await svc.is_enabled(project.id, source_backend_id):
         raise HTTPException(status_code=404, detail="ML Backend not found")
 
-    from app.services.ml_capabilities import resolve_model_task
+    from aap_inference.capabilities import resolve_model_task
 
     try:
         body.task = resolve_model_task(backend, body.model_id, body.task)

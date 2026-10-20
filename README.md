@@ -381,6 +381,8 @@ Identity 准入、API key、核心会话、自助账户、注册恢复／邮件�
 
 项目成员新增、职责预览／变更及移除支持可选的独立 Workspace owner，保留公开接口、职责交接、冲突和审计语义，并已完成隔离本地验收。负责人转移也支持独立的受限命令绑定，默认路径保留调用方提交边界。项目创建、配置、模板与其余 Workspace 入口继续迁移，见 [Workspace 运行指南](./docs-site/api/guides/workspace-runtime.md)。
 
+项目／模板配置模型与纯策略已移到 Workspace 包，预标注值与能力归一化由 Inference 包持有，API 直接消费各自所有者。配置写入仍使用原 API 事务，尚未成为独立配置服务；具体边界见 [配置值与依赖 ADR](./docs/adr/0135-workspace-configuration-values-and-dependencies.md)。
+
 项目与批次维护、数据回填、成员绩效、搜索、指引资源及预测／标注导入见 [项目、批次与数据运维](./docs-site/dev/sdk/project-workflows.md)。分派绑定原预览版本，项目范围约束先于查询限制，批次导出与项目导出使用相同能力检查。
 
 | 角色 / 任务                | 入口                                                                                                                            |

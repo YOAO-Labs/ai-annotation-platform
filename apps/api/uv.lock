@@ -229,6 +229,28 @@ requires-dist = [
 provides-extras = ["postgres", "runtime", "test"]
 
 [[package]]
+name = "aap-inference"
+version = "0.1.0"
+source = { editable = "../inference" }
+dependencies = [
+    { name = "aap-protocol-v2" },
+    { name = "aap-task-contract" },
+    { name = "pydantic" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "aap-protocol-v2", editable = "../_shared/protocol_v2" },
+    { name = "aap-task-contract", editable = "../_shared/task_contract" },
+    { name = "httpx", marker = "extra == 'probe'", specifier = ">=0.28.0" },
+    { name = "httpx", marker = "extra == 'test'", specifier = ">=0.28.0" },
+    { name = "pydantic", specifier = ">=2.10.0" },
+    { name = "pytest", marker = "extra == 'test'", specifier = ">=8.3.0" },
+    { name = "pytest-asyncio", marker = "extra == 'test'", specifier = ">=0.24" },
+]
+provides-extras = ["probe", "test"]
+
+[[package]]
 name = "aap-labeling-mask-gc"
 version = "0.1.0"
 source = { editable = "../labeling-mask-gc" }
@@ -355,6 +377,7 @@ name = "aap-workspace"
 version = "0.1.0"
 source = { editable = "../workspace" }
 dependencies = [
+    { name = "aap-workspace-contract" },
     { name = "pydantic" },
 ]
 
@@ -365,12 +388,13 @@ postgres = [
 
 [package.metadata]
 requires-dist = [
+    { name = "aap-workspace-contract", editable = "../_shared/workspace_contract" },
     { name = "asyncpg", marker = "extra == 'postgres'", specifier = ">=0.29" },
     { name = "asyncpg", marker = "extra == 'runtime'", specifier = ">=0.29" },
     { name = "fastapi", marker = "extra == 'runtime'", specifier = ">=0.115" },
     { name = "httpx", marker = "extra == 'client'", specifier = ">=0.27" },
     { name = "httpx", marker = "extra == 'test'", specifier = ">=0.27" },
-    { name = "pydantic", specifier = ">=2.5" },
+    { name = "pydantic", specifier = ">=2.10" },
     { name = "pydantic-settings", marker = "extra == 'runtime'", specifier = ">=2.6" },
     { name = "pytest", marker = "extra == 'test'", specifier = ">=8.3" },
     { name = "pytest-asyncio", marker = "extra == 'test'", specifier = ">=0.24" },
@@ -431,6 +455,7 @@ dependencies = [
     { name = "aap-assets-source" },
     { name = "aap-audit-contract" },
     { name = "aap-identity", extra = ["postgres"] },
+    { name = "aap-inference" },
     { name = "aap-labeling-mask-gc", extra = ["client"] },
     { name = "aap-mail-transport" },
     { name = "aap-media-probe", extra = ["client"] },
@@ -488,6 +513,7 @@ requires-dist = [
     { name = "aap-assets-source", editable = "../assets-source" },
     { name = "aap-audit-contract", editable = "../_shared/audit_contract" },
     { name = "aap-identity", extras = ["postgres"], editable = "../identity" },
+    { name = "aap-inference", editable = "../inference" },
     { name = "aap-labeling-mask-gc", extras = ["client"], editable = "../labeling-mask-gc" },
     { name = "aap-mail-transport", editable = "../_shared/mail_transport" },
     { name = "aap-media-probe", extras = ["client"], editable = "../media-probe" },

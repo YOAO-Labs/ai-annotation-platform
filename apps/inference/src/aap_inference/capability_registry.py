@@ -76,7 +76,7 @@ class InputSpec:
     summary: str
 
 
-# ── 9 个 task (v0.14.9 协议 v2 受控词表, 顺序即 UI 展示顺序) ───────────────────
+# ── 9 个 task (协议 v2 受控词表, 顺序即 UI 展示顺序) ───────────────────
 TASKS: tuple[TaskSpec, ...] = (
     TaskSpec(
         id="detect",
@@ -319,7 +319,7 @@ TASKS: tuple[TaskSpec, ...] = (
 )
 
 
-# ── 6 个 infra (v0.14.9 协议 v2 受控词表) ──────────────────────────────────────
+# ── 6 个 infra (协议 v2 受控词表) ──────────────────────────────────────
 INFRAS: tuple[InfraSpec, ...] = (
     InfraSpec(id="pytorch", label="PyTorch", summary="原生 .pt / TorchScript 部署。"),
     InfraSpec(id="onnx", label="ONNX", summary="跨框架推理, 与硬件解耦。"),
@@ -367,9 +367,9 @@ GEOMETRIES: tuple[GeometrySpec, ...] = (
 )
 
 
-# ── prompt 受控词表 (v0.18.29 · supported_prompts 合法值) ──────────────────────
+# ── prompt 受控词表 (supported_prompts 合法值) ──────────────────────
 # 此前散落在 `ml_capabilities._INTERACTIVE_PROMPTS` 与前端三处常量, 现统一为 SSOT。
-# 这是「补登已在协议流通的既有值」(非扩协议), 沿用 v0.14.11 既有词表惯例, 不另起 ADR。
+# 这是「补登已在协议流通的既有值」(非扩协议), 沿用 既有词表惯例, 不另起 ADR。
 PROMPTS: tuple[PromptSpec, ...] = (
     PromptSpec(
         id="none",
@@ -444,7 +444,7 @@ PROMPTS: tuple[PromptSpec, ...] = (
 )
 
 
-# ── input 受控词表 (v0.21.0 · supported_inputs 合法值) ─────────────────────────
+# ── input 受控词表 (supported_inputs 合法值) ─────────────────────────
 INPUTS: tuple[InputSpec, ...] = (
     InputSpec(id="full_image", label="整图", summary="整张图片或视频帧作为模型输入。"),
     InputSpec(id="crop", label="裁剪", summary="上游几何裁出的 ROI 图像。"),

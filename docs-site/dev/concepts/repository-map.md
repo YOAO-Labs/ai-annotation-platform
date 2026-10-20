@@ -147,7 +147,7 @@ last_reviewed: 2026-10-21
 - 保存预标流水线写入由 `services/pipeline_template.py` 持有，包括
   `validate_saved_pipeline`、创建/更新/删除、阶段深拷贝与默认项切换；
   `application/project_pipeline.py::apply_saved_pipeline` 组合当前项目管理权威与 backend 启用校验。
-  canonical `PipelineStage` / `PreannotateRequest` 位于 `schemas/preannotate.py`。
+  canonical `PipelineStage` / `PreannotateRequest` 位于 `aap_inference.preannotate`。
 - 指引图片：`application/project_guide_assets.py` 组合当前授权与存储，
   `services/project_workspace.py` 持有 key/登记规则，纯值限制在 `guide_asset_contracts.py`。
   HEAD 后再次取权并刷新登记，DELETE 保持当前围栏；HTTP 持有提交。
@@ -457,7 +457,7 @@ include 另外包含 `signals`、`heartbeat`，后者是 worker bootstep，不�
 | 合同                                                              | canonical source                                                                                              |
 | ----------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
 | HTTP 请求 / 响应                                                  | `apps/api/app/schemas/*.py` 及路由内导出 DTO；`scripts/export_openapi.py` 导出主快照，docs 同步副本不另立真值 |
-| 预标注请求 / stage                                                | `schemas/preannotate.py`，不是 projects 路由中的类型                                                          |
+| 预标注请求 / stage                                                | `aap_inference.preannotate`，不是 projects 路由中的类型                                                       |
 | 几何 / tool bindings / attributes / calibration                   | `schemas/_jsonb_types.py`                                                                                     |
 | 视频媒体元信息                                                    | `schemas/task.py::VideoMetadata`                                                                              |
 | 独立素材探测 wire                                                 | `apps/media-probe/src/aap_media_probe/protocol.py` 与独立应用导出；`apps/media-probe/openapi.json` 是生成快照 |

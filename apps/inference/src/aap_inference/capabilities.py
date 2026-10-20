@@ -23,7 +23,7 @@ from aap_task_contract import normalize_task
 
 from aap_protocol_v2.lifecycle import canonical_managed_lifecycle_capabilities
 
-# v0.14.11 · 受控词表与 task→默认几何统一由 capability_registry SSOT 派生,
+# 受控词表与 task→默认几何统一由 capability_registry SSOT 派生,
 # 协议元数据 (label / summary / suggested_backends) 同源, 供
 # `GET /v1/ml-capabilities/protocol` 直接对外暴露。
 from .capability_registry import (
@@ -65,7 +65,7 @@ __all__ = [
 _MODALITY_ORDER = {"image": 0, "video": 1, "lidar": 2}
 _LIDAR_GEOMETRY = {"lidar_box_3d", "point_mask_3d"}
 
-# v0.18.29 · 交互式 prompt 集合统一由 capability_registry SSOT 派生 (PROMPTS_REQUIRES_INPUT,
+# 交互式 prompt 集合统一由 capability_registry SSOT 派生 (PROMPTS_REQUIRES_INPUT,
 # 等价旧硬编码 8 元组)。语义不变: 含这类 prompt 的模型不默认走 crop 投递。
 
 
@@ -162,7 +162,7 @@ def _normalize_model(model: dict, backend_infra: str, limits: CapabilityLimits) 
         else backend_infra,
         "is_interactive": bool(model.get("is_interactive")),
         "supported_prompts": list(model.get("supported_prompts") or []),
-        # v0.18.15 · 一等输入契约 (与 supported_prompts 解耦): 模型能吃哪些投递形态
+        # 一等输入契约 (与 supported_prompts 解耦): 模型能吃哪些投递形态
         # (full_image | crop | bbox_prompt | point_prompt | video)。缺省按 prompts 合成兼容默认。
         "supported_inputs": supported_inputs,
         "default_input_type": default_input_type,
@@ -172,7 +172,7 @@ def _normalize_model(model: dict, backend_infra: str, limits: CapabilityLimits) 
         "output_attribute_schema": list(model.get("output_attribute_schema") or []),
         "supported_text_outputs": list(model.get("supported_text_outputs") or []),
         "supported_trackers": list(model.get("supported_trackers") or []),
-        # v0.21.19 · text-driven tracker (sam3_video) 子集: 这些 tracker 的 propagate
+        # text-driven tracker (sam3_video) 子集: 这些 tracker 的 propagate
         # 请求需 text/exemplars 而非仅 seed bbox。前端据此在选中该 tracker 时显 text 框。
         "text_driven_trackers": list(model.get("text_driven_trackers") or []),
         # 对前端暴露的是平台与 backend 两层限制的交集，与创建作业的
@@ -190,7 +190,7 @@ def _normalize_model(model: dict, backend_infra: str, limits: CapabilityLimits) 
         "variants_shared_across_tasks": bool(
             model.get("variants_shared_across_tasks", False)
         ),
-        # v0.14.13 · backend 自报的默认 variant 组合 (dict[axis_key, value]).
+        # backend 自报的默认 variant 组合 (dict[axis_key, value]).
         # 前端 VariantSelector 在用户未选时取此作初值, 优先级低于项目级 default_variants.
         "default_variants": dict(model.get("default_variants") or {}),
         "default_thresholds": model.get("default_thresholds") or {},
@@ -199,10 +199,10 @@ def _normalize_model(model: dict, backend_infra: str, limits: CapabilityLimits) 
         # 现存复合都在自管 backend 显式标）。编排下游 stage 据此过滤（只组合 atom）。
         "composition": model.get("composition") or "atom",
         "params": model.get("params") or {},
-        # v0.14.17 · 闭集检测器的原生类别表 (yolo model.names, [{index,name}]); 供前端类别白名单.
+        # 闭集检测器的原生类别表 (yolo model.names, [{index,name}]); 供前端类别白名单.
         # 仅在该 task 模型已加载过 (warmup/predict) 时 backend /setup 才带, 否则为空。
         "classes": list(model.get("classes") or []),
-        # v0.18.23 · exemplar 模型的能力声明 (multi_box / negative_box / text_combination /
+        # exemplar 模型的能力声明 (multi_box / negative_box / text_combination /
         # threshold_refilter); 前端工作台据此渲染 exemplar 控件 (YOLOE 无负框 → 隐藏负极性)。
         # 缺字段 = None, 前端按「全支持」向后兼容。
         "exemplar_capabilities": model.get("exemplar_capabilities") or None,
@@ -249,7 +249,7 @@ def _synthesize_single_model(setup: dict, backend_infra: str) -> dict:
         "infra": backend_infra,
         "is_interactive": bool(setup.get("is_interactive")),
         "supported_prompts": prompts,
-        # v0.18.15 · 老 backend 无 supported_inputs, 按 prompts 合成兼容默认 (零退化)。
+        # 老 backend 无 supported_inputs, 按 prompts 合成兼容默认 (零退化)。
         "supported_inputs": supported_inputs,
         "default_input_type": default_input_type,
         "supported_geometric_outputs": list(
@@ -258,7 +258,7 @@ def _synthesize_single_model(setup: dict, backend_infra: str) -> dict:
         "output_attribute_types": [],
         "supported_text_outputs": list(setup.get("supported_text_outputs") or []),
         "supported_trackers": trackers,
-        # v0.21.19 · text-driven tracker 子集 (见 _normalize_model)。
+        # text-driven tracker 子集 (见 _normalize_model)。
         "text_driven_trackers": list(setup.get("text_driven_trackers") or []),
         "supported_variants": setup.get("supported_variants") or [],
         # 老 backend 均为单次推理原子（协议 v2.2）。
@@ -266,7 +266,7 @@ def _synthesize_single_model(setup: dict, backend_infra: str) -> dict:
         "default_thresholds": {},
         "resource_profile": {},
         "params": setup.get("params") or {},
-        # v0.18.23 · 老 backend (sam3) 的 exemplar 能力在顶层声明, 透传供前端 exemplar 控件渲染。
+        # 老 backend (sam3) 的 exemplar 能力在顶层声明, 透传供前端 exemplar 控件渲染。
         "exemplar_capabilities": setup.get("exemplar_capabilities") or None,
     }
     out["modality"] = _model_modality(out)
@@ -287,7 +287,7 @@ def _collect_warnings(models: list[dict]) -> list[dict]:
     """
     known_model_keys = set(ModelCapability.model_fields.keys()) | {
         # ModelCapability 用 extra=allow 接以下透传 / 派生字段, 不算未知。
-        "exemplar_capabilities",  # v0.18.23 透传给前端 exemplar 控件
+        "exemplar_capabilities",  # 透传给前端 exemplar 控件
     }
     out: list[dict] = []
 
@@ -429,11 +429,11 @@ def extract_capabilities(
         "compat_protocol_versions": list(setup.get("compat_protocol_versions") or []),
         "model_version": setup.get("model_version"),
         "weights_version": setup.get("weights_version"),
-        # v0.14.12 · 透传 backend 自报的 name (如 "grounded-sam2-backend"), 让前端
+        # 透传 backend 自报的 name (如 "grounded-sam2-backend"), 让前端
         # 能力目录显示「源 backend 名」而非用户取的项目别名 (如 "gsam2.1")。
         "name": setup.get("name"),
         "infra": infra,
-        # v0.14.14 · backend 声明本端是否支持 POST /warmup (协议 §4.4); 前端模型市场
+        # backend 声明本端是否支持 POST /warmup (协议 §4.4); 前端模型市场
         # "⚡ 预热" 按钮据此置灰. 老 backend 缺字段 = False.
         "warmup_endpoint": bool(setup.get("warmup_endpoint", False)),
         # ADR-0049 · 远端声明必须显式携带全部冻结字段；平台不能用 Pydantic
@@ -444,10 +444,10 @@ def extract_capabilities(
         "supported_prompts": _union(models, "supported_prompts"),
         "supported_inputs": _union(models, "supported_inputs"),
         "supported_trackers": _union(models, "supported_trackers"),
-        "text_driven_trackers": _union(models, "text_driven_trackers"),  # v0.21.19
+        "text_driven_trackers": _union(models, "text_driven_trackers"),
         "supported_text_outputs": _union(models, "supported_text_outputs"),
         "supported_geometric_outputs": _union(models, "supported_geometric_outputs"),
-        # v0.18.29 · 受控词表校验诊断 (越界 task/infra/prompt/geometry); 空 = 全合法。
+        # 受控词表校验诊断 (越界 task/infra/prompt/geometry); 空 = 全合法。
         "warnings": warnings,
     }
     caps["modalities"] = derive_modalities(caps)

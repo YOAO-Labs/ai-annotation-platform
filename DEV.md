@@ -465,6 +465,12 @@ writer 配置要求 lease 严格长于其 hard time limit。旧 cleanup Celery t
 它不验证生产容量，也不提供完整 assets/labeling 模块的独立部署资格。具体事务约束
 见 [ADR-0092](docs/adr/0092-transactional-module-data-capabilities.md)。
 
+### Workspace 配置值与依赖能力
+
+API 的 locked sync 会安装本仓库 `apps/workspace` 和 `apps/inference`，不要从旧 API schema/service 路径导入已迁移的配置或预标注值。配置／模板模型与纯 kind、克隆和规范化策略位于 `aap_workspace`；预标注、能力词表／归一化和保存编排校验位于 `aap_inference`。API 的 `inference_limits` 适配器显式传入当前 tracker 设置。
+
+迁移0255与 `module-data-grants.sql` 配套安装四项跨 owner 配置依赖，仅向 `workspace_code` 开放，不能直接授权主应用角色调用。配置写入继续使用 API 原事务；当前没有独立配置 endpoint、LOGIN、URL 或 DSN 选择器。其余 Workspace owner 的部署命令保持各自范围。边界与后续工作见 [ADR-0135](docs/adr/0135-workspace-configuration-values-and-dependencies.md)。
+
 ### Workspace 项目成员生命周期 owner
 
 项目成员新增、角色预览／变更和移除使用 `aap-workspace-membership/v1`，内部私有 endpoint 为 `POST /v1/workspace/membership/execute`。业务策略仍在便携 Workspace manager；Native prepare/apply 在同一 PostgreSQL 事务中读取并锁定当前事实、执行 Labeling 职责交接、更新成员、写固定 Audit 和成功回执。原公开 API、DTO、权限依赖、错误映射和提交边界保持不变；邀请接受继续使用既有 Identity owner。

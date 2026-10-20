@@ -3354,3 +3354,70 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
 - Source and noneditable installed suites each passed 85 cases; the installed 14 package files match source and import no API/ORM/Celery dependencies. All four public bindings match the 17 actual legacy responses; four caller transaction probes, restricted Native/role checks, replay/supersession, malformed replies, DML and deferred-commit errors, real transport-loss recovery, installed capability coexistence, and nine affected restore/migration checks have passed. The final union is 66 distinct selected cases (59 DB/process and seven pure/static), with no effective failures or skips; focused successful retries replace fixture/diagnostic failures rather than adding cases. Source and installed package suites remain separate from that union. Python and Node owner images passed actual restricted-role private/public round trips and restart replay. The Python image matches 14 package files; the Node image matches five runtime inputs, runs as UID 1000 and pins pg@8.16.3. A fresh API image matches 136 installed package files and 72 current application/Native inputs, public OpenAPI and head 0254. Its cold proof explicitly uses UID 10001, read-only filesystem, no network and fixed budgets; this does not change the API image default user. Architecture checks separately pass 318 cases with 133 existing inapplicable rules skipped. OpenAPI, codegen and the 509-route/93-module catalog remain unchanged. All three images are based on code commit `5c452b23508901b2317984da32b8d76c2897faab`. The Python owner image is `sha256:12c08b854e27db4ca54718774ea5d305b9b0440f85e94efe6f7b8ed55d4e1932`, Node owner is `sha256:8afc0d9d1b385856a040cb1c2a3c2213e0331d41b4f2ffb32320abe23ca93d67`, and API is `sha256:362072e714d44f69960c17027077a904258fe534f66adf5b0c1b1d4c64bfcd1b`. Node is a local single-command transport conformance provider; Native owns business policy. It is not a full Workspace replacement or production language decision. See [ADR-0134](../adr/0134-workspace-project-owner-transfer.md).
 - The repository migration validator separately passed fresh head 0254 (254 upgrades), the reversible 0173-to-base path, the 80-step 0254-to-0174 reversible suffix, forward upgrade across irreversible 0174, and backup restore. All four derived databases and dump files were cleaned, with no owned databases left over. This orchestration check is not added to the 66-case feature union.
 - Project creation/configuration/template mutations are the next coherent Workspace boundary because they share caller-owned transactions and template usage counters. Cross-owner authorization, linked dataset checks, Labeling/video blockers and configuration revisions must be captured before extraction. Lists, mentions, nuScenes project creation and remaining consumers follow. Full Workspace, Identity, all ten modules/seven gates, production capacity and primary cutover remain unfinished; Go stays optional experimentation.
+
+### Workspace configuration values and dependencies: local foundation
+
+- The full ten-module/seven-gate objective remains active. This checkpoint moves
+  configuration values/pure policy and dependencies; it does not close the
+  six-operation configuration mutation owner. Native wire/staged writes,
+  receipts, function-only LOGIN, runtime selectors and independent owner gates
+  remain next. Class rename, guide assets, nuScenes project creation, saved
+  pipeline persistence, lists/mentions and remaining consumers retain their
+  current boundaries. Go remains an optional local experiment.
+- Actual old commit `35b558e5` was captured before extraction:106 real HTTP observations
+  plus 17 caller success/error/atomicity records across three disposable runs.
+  Frozen fixtures under `apps/api/tests/fixtures/workspace_configuration_legacy/`
+  identify their original capture hashes. Current implementation matches all
+  requests, responses, semantic SQL/probe order, committed-null facts and caller
+  records. This preserves late source-backend authorization, constructor/setup
+  fail-open behavior, revision/visibility precedence, video blockers/current
+  media/sampling, JSON null committed before response 500, and deferred failure
+  atomicity. API client statement counts do not measure total Native SQL or
+  production capacity.
+- Workspace owns Project/Template config DTOs, attribute/tool/render/video/QC
+  values and pure kind/clone/template policy; API geometry/run/evaluation/read
+  DTOs remain in place. Inference owns preannotate/ModelCapability values,
+  registry, normalization and saved-pipeline validation. API callers import the
+  actual owners and explicitly inject tracker limits; old API implementations
+  and clone/preannotate/registry/normalization modules are removed. No old-symbol
+  compatibility facade is retained. HTTP boundaries restore the old errors.
+- Native 0255 adds typed Identity org visibility, Assets dataset kind/scene,
+  Labeling video blocker/source facts and Inference pool enablement. Each has
+  its domain NOLOGIN owner; only Workspace code can directly consume the helper
+  (besides its domain owner), with no foreign raw-table grant or application-role
+  execution. Missing pool is a no-DML sentinel pending coordinator error mapping.
+  Pool-before-association writes match actual old trigger observations; no-op
+  timestamps/generation and caller rollback are preserved.
+- Six Native/role cases passed. Two Workspace protected restores passed; the
+  seven initially skipped Identity restore cases were explicitly enabled and
+  passed separately, yielding nine affected restore checks with no effective
+  skip. The repository migration validator passed fresh 255, real 0173-to-base-to-
+  head, suffix 255-to0174-to-head (81 downgrades), irreversible forward and backup
+  restore. All four derived DBs/dumps and verifier-owned resources were removed.
+- The affected API regression group passed 118 cases. Source pure checks passed
+  347; the policy/architecture suite passed 376 with 133 existing inapplicable
+  architecture parameter skips. Suites overlap and are not additive. An initial
+  overly broad pure selector included four DB cases without the owned launcher;
+  it failed before database access on the missing Alembic script location, then
+  exact pure selection and the owned full endpoint group passed. A pre-existing
+  stale smoke test imports a removed users constant; no compatibility constant
+  was reintroduced for it.
+- Noneditable isolated installs passed Workspace 100 and Inference 27 tests.
+  Nineteen and seven installed package files match source bytes; no API, SQLAlchemy,
+  Celery, Boto3 or Torch is installed in either artifact. Inference's existing
+  shared protocol dependency still brings FastAPI error helpers and lifecycle
+  crypto; that dependency is documented, not described as framework-free.
+  All three frozen Python locks use the API's existing Pydantic 2.13.3, preserving
+  saved-pipeline validation detail URLs without upgrading the API. The API and
+  Workspace Docker build inputs include their new local package dependencies.
+- OpenAPI and capability registry checks pass with unchanged snapshots. Their
+  pre-commit source matching now follows the portable owner paths. Image builds,
+  final documentation checks and cleanup are still in progress at this source
+  checkpoint; they must not be reported as completed until actual evidence is
+  collected. See ADR-0135 for the frozen baseline and exact remaining boundary.
+
+- Read-only final review caught a Root-only comment cleanup that swallowed the
+  top-level text-output union. The field was restored, all four comment-edited
+  module ASTs match the extracted implementation, and a standalone union
+  regression was added. The affected core/API capability subset passed 64; the
+  refreshed installed Inference suite passed 27 after this correction.

@@ -789,7 +789,7 @@ span 边界继续使用上一窗末帧 geometry 续种。
 
 > **`supported_prompts`**：枚举 `point | interactive_box | text | exemplar | sketch | scribble | mask | correction_frame | …`。**交互式用户 prompt**，前端 ToolDock 据此置灰不支持的工具。`correction_frame` 是视频局部纠错种子，不进入单帧图片工具路由。（`bbox` 已退出交互 prompt 命名空间，仅保留为几何形状名。）
 >
-> **`supported_inputs`**（一等输入契约）：枚举 `full_image | crop | bbox_prompt | point_prompt | mask_prompt | scribble_prompt | video`，声明本 model 能吃哪些**投递形态**，与 `supported_prompts`（交互 prompt）**解耦**——纯分类器 `supported_prompts=[]` 但 `supported_inputs=["full_image","crop"]`；box-seg `supported_inputs=["bbox_prompt","full_image"]`；视频 tracker 必须显式含 `video`。多阶段编排据此判定父子可达性（产几何的子须含 `bbox_prompt` 或 `crop`）并选择投递方式（见 §2.1.1 判别器）；模型市场「可接受输入」行也由它驱动。**老 backend 缺字段时平台合成兼容默认**：含 `interactive_box`（或历史 `bbox`）prompt → 加 `bbox_prompt`；含 `point` → 加 `point_prompt`；含 `mask` / `correction_frame` → 加 `mask_prompt`；含 `scribble` → 加 `scribble_prompt`；任何模型都含 `full_image`，非交互模型额外含 `crop`。平台不会替老 backend 猜测 `video`（见 services/ml_capabilities.py `_synthesize_supported_inputs`）。
+> **`supported_inputs`**（一等输入契约）：枚举 `full_image | crop | bbox_prompt | point_prompt | mask_prompt | scribble_prompt | video`，声明本 model 能吃哪些**投递形态**，与 `supported_prompts`（交互 prompt）**解耦**——纯分类器 `supported_prompts=[]` 但 `supported_inputs=["full_image","crop"]`；box-seg `supported_inputs=["bbox_prompt","full_image"]`；视频 tracker 必须显式含 `video`。多阶段编排据此判定父子可达性（产几何的子须含 `bbox_prompt` 或 `crop`）并选择投递方式（见 §2.1.1 判别器）；模型市场「可接受输入」行也由它驱动。**老 backend 缺字段时平台合成兼容默认**：含 `interactive_box`（或历史 `bbox`）prompt → 加 `bbox_prompt`；含 `point` → 加 `point_prompt`；含 `mask` / `correction_frame` → 加 `mask_prompt`；含 `scribble` → 加 `scribble_prompt`；任何模型都含 `full_image`，非交互模型额外含 `crop`。平台不会替老 backend 猜测 `video`（见 aap_inference.capabilities `_synthesize_supported_inputs`）。
 >
 > **`supported_text_outputs`**：text 路径支持的 `Context.output` 取值。
 >
@@ -801,7 +801,7 @@ span 边界继续使用上一窗末帧 geometry 续种。
 
 **前端兜底**：返回体缺 `supported_prompts` 时前端回落 `["point","interactive_box","text"]` 并 `console.warn` 提示升级 backend。`/setup` 502 时整套 AI 工具置灰。
 
-> **能力快照持久化**：除上述代理端点的实时拉取外，平台在 `check_health`（services/ml_backend.py）拉完 `/health` 后会 best-effort 再探一次 `/setup`，把能力快照（`models[]`、`supported_prompts`、`supported_inputs`、`supported_trackers`、`supported_text_outputs`、`supported_geometric_outputs`、`warnings` + 平台派生的 `modalities`）落进 `ml_backend_registry.health_meta["capabilities"]`，供「按模态分流 / 绑定校验 / 列表只读展示」消费（无需每处实时拉 `/setup`）。模态派生规则：`supported_prompts` 非空 ⇒ image、`supported_trackers` 非空 ⇒ video（见 services/ml_capabilities.py）。
+> **能力快照持久化**：除上述代理端点的实时拉取外，平台在 `check_health`（services/ml_backend.py）拉完 `/health` 后会 best-effort 再探一次 `/setup`，把能力快照（`models[]`、`supported_prompts`、`supported_inputs`、`supported_trackers`、`supported_text_outputs`、`supported_geometric_outputs`、`warnings` + 平台派生的 `modalities`）落进 `ml_backend_registry.health_meta["capabilities"]`，供「按模态分流 / 绑定校验 / 列表只读展示」消费（无需每处实时拉 `/setup`）。模态派生规则：`supported_prompts` 非空 ⇒ image、`supported_trackers` 非空 ⇒ video（见 aap_inference.capabilities）。
 >
 > **`is_interactive` 改派生**：`is_interactive` 不再由注册表单手填，而是以 backend `/setup.is_interactive` 自报为真值，在 `check_health` 时回写 `MLBackend.is_interactive`。backend 必须在 `/setup` 如实声明该位。
 >
@@ -936,7 +936,7 @@ span 边界继续使用上一窗末帧 geometry 续种。
 
 #### 4.1.4 平台派生形态（health_meta）
 
-`extract_capabilities(setup)`（`services/ml_capabilities.py`）遍历 `models[]` 派生 model 列表，落进 `ml_backend_registry.health_meta["capabilities"]`：
+`extract_capabilities(setup)`（`aap_inference.capabilities`）遍历 `models[]` 派生 model 列表，落进 `ml_backend_registry.health_meta["capabilities"]`：
 
 ```jsonc
 {
@@ -1284,7 +1284,7 @@ POST /projects/{pid}/ml-backends/{bid}/capabilities/refresh  # 强制重探 /set
 GET /api/v1/ml-capabilities/protocol
 ```
 
-- **数据源**：`apps/api/app/services/capability_registry.py`（SSOT），与 `services/ml_capabilities.py` 的受控词表同源（后者改为 re-export）。
+- **数据源**：`apps/inference/src/aap_inference/capability_registry.py`（SSOT），与 `aap_inference.capabilities` 的受控词表同源（归一化层显式消费同一词表）。
 - **鉴权**：登录用户即可访问；不暴露任何 backend 实例信息，无需 super_admin。
 - **缓存**：`Cache-Control: private, max-age=300` + ETag；二次请求带 `If-None-Match` 返回 304。
 

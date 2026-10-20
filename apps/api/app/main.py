@@ -6,6 +6,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from aap_assets_mask_content.contract import MaskContentFailure
+from aap_workspace.configuration_policy import ConfigurationPolicyError
 from app.config import settings
 from app.api.v1.router import api_router
 from app.api.v1.ws import router as ws_router, close_redis_pool as _close_ws_redis_pool
@@ -137,6 +138,19 @@ async def _identity_briefs_error_handler(
 
 
 app.add_exception_handler(IdentityBriefsUnavailable, _identity_briefs_error_handler)
+
+
+async def _configuration_policy_error_handler(
+    _request: Request, exc: ConfigurationPolicyError
+):
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"detail": exc.detail},
+        headers=exc.headers,
+    )
+
+
+app.add_exception_handler(ConfigurationPolicyError, _configuration_policy_error_handler)
 
 
 async def _apply_prediction_result_error_handler(

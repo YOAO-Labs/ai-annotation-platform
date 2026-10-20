@@ -7,6 +7,18 @@ from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
+from aap_inference.pipeline import PipelineValidationError, validate_saved_pipeline
+from aap_workspace.configuration_policy import (
+    CLONEABLE_PROJECT_FIELDS,
+    TEMPLATE_PAYLOAD_FIELDS,
+    assert_project_kind_consistent,
+    assert_template_creation_scope,
+    can_edit_template,
+    merge_from_source,
+    merge_template_into_payload,
+    prepare_project_create_payload,
+)
+from aap_workspace.configuration_values import VideoCollaborationConfig
 
 from app.db.enums import UserRole
 from app.db.models.ml_backend_pool import MLBackendServicePool
@@ -15,17 +27,14 @@ from app.db.models.project import Project
 from app.db.models.point_cloud_quality import PointCloudQualityEvaluation
 from app.db.models.project_template import ProjectTemplate
 from app.db.models.user import User
-from app.schemas.project import VideoCollaborationConfig
 from app.services.project_workspace import (
     apply_project_update,
-    assert_project_kind_consistent,
     assert_project_kind_update_allowed,
     create_project_record,
     create_template as create_template_command,
     delete_template as delete_template_command,
     duplicate_template as duplicate_template_command,
     increment_template_usage,
-    prepare_project_create_payload,
     set_point_cloud_quality_config,
     update_template as update_template_command,
 )
@@ -34,13 +43,11 @@ from app.services.project_access import (
     resolve_project_access_by_id,
 )
 from app.services.project_template import (
-    assert_template_creation_scope,
     assert_template_visible,
-    can_edit_template,
-    merge_template_into_payload,
 )
 from app.services.project_write_guard import lock_actor_account_facts
 from app.services.identity_contracts import IdentityActorFacts
+from app.services.inference_limits import capability_limits_from_settings
 from app.services.video_collaboration import validate_project_collaboration_update
 from app.services.point_cloud_quality.evaluation import (
     prepare_evaluation_promotion,
@@ -50,6 +57,10 @@ from app.services.point_cloud_quality.service import PointCloudQualityError
 
 _MANAGER_ROLES = (UserRole.SUPER_ADMIN.value, UserRole.PROJECT_ADMIN.value)
 _BUSY_SQLSTATES = {"55P03", "40001", "40P01"}
+
+
+def _template_actor_values(actor: User | IdentityActorFacts) -> dict:
+    return {"id": actor.id, "role": getattr(actor.role, "value", actor.role)}
 
 
 class WorkspaceConfigurationWorkflow:
@@ -112,9 +123,13 @@ class WorkspaceConfigurationWorkflow:
                 )
 
         if source_project is not None:
-            from app.services.project_clone import merge_from_source
-
-            payload = merge_from_source(payload, source_project)
+            payload = merge_from_source(
+                payload,
+                {
+                    field: getattr(source_project, field)
+                    for field in CLONEABLE_PROJECT_FIELDS
+                },
+            )
             if copy_guide:
                 if source_project.annotation_guide is not None:
                     payload.setdefault(
@@ -142,7 +157,16 @@ class WorkspaceConfigurationWorkflow:
             )
 
         if template is not None:
-            payload = merge_template_into_payload(template, payload)
+            payload = merge_template_into_payload(
+                {
+                    **{
+                        field: getattr(template, field)
+                        for field in TEMPLATE_PAYLOAD_FIELDS
+                    },
+                    "annotation_guide": template.annotation_guide,
+                },
+                payload,
+            )
 
         if requested_main_backend_id:
             await self._validate_backend_modality(
@@ -288,11 +312,12 @@ class WorkspaceConfigurationWorkflow:
             )
         await assert_project_kind_update_allowed(self.db, project, payload)
         if payload.get("preannotate_pipeline") is not None:
-            from app.services.pipeline_template import validate_saved_pipeline
-
-            payload["preannotate_pipeline"] = validate_saved_pipeline(
-                payload["preannotate_pipeline"]
-            )
+            try:
+                payload["preannotate_pipeline"] = validate_saved_pipeline(
+                    payload["preannotate_pipeline"]
+                )
+            except PipelineValidationError as exc:
+                raise HTTPException(status_code=422, detail=exc.detail) from exc
 
         main_binding_requested = "ml_backend_id" in payload
         requested_main_backend_id = (
@@ -368,7 +393,7 @@ class WorkspaceConfigurationWorkflow:
         assert_template_creation_scope(
             payload.get("scope", "private"),
             payload.get("organization_id"),
-            actor,
+            _template_actor_values(actor),
         )
         source_project_id = payload.get("source_project_id")
         source_project: Project | None = None
@@ -396,7 +421,9 @@ class WorkspaceConfigurationWorkflow:
     ) -> ProjectTemplate:
         actor = await self._lock_current_actor(actor_id)
         template = await self._visible_template_for_actor(template_id, actor)
-        if not can_edit_template(template, actor):
+        if not can_edit_template(
+            {"created_by": template.created_by}, _template_actor_values(actor)
+        ):
             raise HTTPException(
                 status_code=403,
                 detail="仅模板创建者或超级管理员可编辑",
@@ -411,7 +438,9 @@ class WorkspaceConfigurationWorkflow:
     ) -> None:
         actor = await self._lock_current_actor(actor_id)
         template = await self._visible_template_for_actor(template_id, actor)
-        if not can_edit_template(template, actor):
+        if not can_edit_template(
+            {"created_by": template.created_by}, _template_actor_values(actor)
+        ):
             raise HTTPException(
                 status_code=403,
                 detail="仅模板创建者或超级管理员可删除",
@@ -446,11 +475,14 @@ class WorkspaceConfigurationWorkflow:
         backend = await self.db.get(MLBackendRegistry, backend_id)
         if backend is None:
             return
-        from app.services.ml_capabilities import derive_modalities, extract_capabilities
+        from aap_inference.capabilities import derive_modalities, extract_capabilities
         from app.services.ml_client import MLBackendClient
 
         try:
-            capabilities = extract_capabilities(await MLBackendClient(backend).setup())
+            capabilities = extract_capabilities(
+                await MLBackendClient(backend).setup(),
+                limits=capability_limits_from_settings(),
+            )
         except Exception:
             return
         if capabilities is None:

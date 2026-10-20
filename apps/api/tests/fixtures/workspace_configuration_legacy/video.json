@@ -1,0 +1,735 @@
+{
+  "capture_base": "35b558e5c32d7e66e8f90b2bccaf6a5d25cd81bf",
+  "capture_sha256": "daa0a12fca1aa63ea79146a57047644806b88557885e6fdee8be9b65d639fda7",
+  "capture_kind": "actual-legacy-workspace-configuration-video",
+  "requests": {
+    "video_annotations": {
+      "video_collaboration": {
+        "enabled": true,
+        "overlap_frames": 1
+      },
+      "video_sampling": {
+        "mode": "step",
+        "frame_step": 1
+      }
+    },
+    "video_trackers": {
+      "video_collaboration": {
+        "enabled": true,
+        "overlap_frames": 1
+      },
+      "video_sampling": {
+        "mode": "step",
+        "frame_step": 1
+      }
+    },
+    "video_missing_metadata": {
+      "video_collaboration": {
+        "enabled": true,
+        "overlap_frames": 1
+      },
+      "video_sampling": {
+        "mode": "step",
+        "frame_step": 1
+      }
+    },
+    "video_drifted_metadata": {
+      "video_collaboration": {
+        "enabled": true,
+        "overlap_frames": 1
+      },
+      "video_sampling": {
+        "mode": "step",
+        "frame_step": 1
+      }
+    },
+    "video_nonvideo_item": {
+      "video_collaboration": {
+        "enabled": true,
+        "overlap_frames": 1
+      },
+      "video_sampling": {
+        "mode": "step",
+        "frame_step": 1
+      }
+    },
+    "video_sampling_gap": {
+      "video_collaboration": {
+        "enabled": true,
+        "overlap_frames": 1
+      },
+      "video_sampling": {
+        "mode": "step",
+        "frame_step": 101
+      }
+    },
+    "video_valid": {
+      "video_collaboration": {
+        "enabled": true,
+        "overlap_frames": 1
+      },
+      "video_sampling": {
+        "mode": "step",
+        "frame_step": 1
+      }
+    },
+    "video_same_config_bypasses_blockers": {
+      "video_collaboration": {
+        "enabled": false,
+        "overlap_frames": 0
+      }
+    },
+    "video_type_only_preserves_enabled": {
+      "type_key": "video-mm",
+      "data_type": "video"
+    },
+    "video_type_guard_after_helper": {
+      "video_sampling": {
+        "mode": "step",
+        "frame_step": 1
+      }
+    },
+    "video_invalid_tools_precede_annotation": {
+      "video_collaboration": {
+        "enabled": true,
+        "overlap_frames": 1
+      },
+      "tool_bindings": {
+        "lidar_box_3d": {
+          "enabled": true
+        }
+      }
+    }
+  },
+  "responses": {
+    "video_annotations": {
+      "status": 409,
+      "body": {
+        "detail": {
+          "reason": "video_collaboration_config_frozen",
+          "annotation_count": 1
+        }
+      },
+      "www_authenticate": null,
+      "retry_after": null
+    },
+    "video_trackers": {
+      "status": 409,
+      "body": {
+        "detail": {
+          "reason": "video_collaboration_tracker_active",
+          "active_tracker_count": 1
+        }
+      },
+      "www_authenticate": null,
+      "retry_after": null
+    },
+    "video_missing_metadata": {
+      "status": 503,
+      "body": {
+        "detail": {
+          "reason": "video_metadata_not_ready"
+        }
+      },
+      "www_authenticate": null,
+      "retry_after": "3"
+    },
+    "video_drifted_metadata": {
+      "status": 503,
+      "body": {
+        "detail": {
+          "reason": "video_metadata_not_ready"
+        }
+      },
+      "www_authenticate": null,
+      "retry_after": "3"
+    },
+    "video_nonvideo_item": {
+      "status": 503,
+      "body": {
+        "detail": {
+          "reason": "video_media_summary_unavailable"
+        }
+      },
+      "www_authenticate": null,
+      "retry_after": null
+    },
+    "video_sampling_gap": {
+      "status": 422,
+      "body": {
+        "detail": {
+          "reason": "video_collaboration_sampling_empty",
+          "dataset_item_id": "$video_item_sampling_gap",
+          "boundary_frame": 100
+        }
+      },
+      "www_authenticate": null,
+      "retry_after": null
+    },
+    "video_valid": {
+      "status": 200,
+      "body": {
+        "id": "$video_project_valid",
+        "organization_id": null,
+        "display_id": "$display_video_project_valid",
+        "name": "Video valid",
+        "type_label": "图像目标检测",
+        "type_key": "video-track",
+        "data_type": "video",
+        "owner_id": "$user_pa",
+        "owner_name": "pa",
+        "owner_avatar_ref": null,
+        "member_count": 0,
+        "my_project_role": null,
+        "status": "in_progress",
+        "ai_enabled": false,
+        "ml_backend_id": null,
+        "classes": ["car", "person"],
+        "classes_config": {
+          "car": {
+            "color": null,
+            "order": 0,
+            "alias": null
+          },
+          "person": {
+            "color": null,
+            "order": 1,
+            "alias": null
+          }
+        },
+        "attribute_schema": {
+          "fields": []
+        },
+        "tool_bindings": {
+          "bbox": {
+            "enabled": true,
+            "classes": [
+              {
+                "name": "car",
+                "color": null,
+                "order": 0,
+                "alias": null,
+                "alias_to": null
+              },
+              {
+                "name": "person",
+                "color": null,
+                "order": 1,
+                "alias": null,
+                "alias_to": null
+              }
+            ],
+            "attribute_schema": {
+              "fields": []
+            },
+            "keypoint_schema": null,
+            "video_modes": null
+          }
+        },
+        "label_config": {},
+        "sampling": "sequence",
+        "maximum_annotations": 1,
+        "show_overlap_first": false,
+        "iou_dedup_threshold": 0.7,
+        "box_threshold": 0.3499999940395355,
+        "text_threshold": 0.25,
+        "ai_interactive_enabled": true,
+        "raster_mask_native_editing_enabled": true,
+        "mask_qc_config": {
+          "schema_version": 1,
+          "config_revision": 1,
+          "enabled": true,
+          "blocking": false,
+          "auto_run": "on_review_submit",
+          "single_frame": {
+            "near_empty_pixels": 16,
+            "small_component_pixels": 32,
+            "small_component_ratio": 0.005,
+            "small_hole_pixels": 32,
+            "narrow_bridge_width": 2,
+            "boundary_noise_ratio": 0.15,
+            "bbox_iou_min": 0.98,
+            "overlap_pixels": 1
+          },
+          "temporal": {
+            "sample_step": 1,
+            "iou_drop": 0.35,
+            "centroid_shift_diagonal": 0.15,
+            "area_change_ratio": 0.5,
+            "component_delta": 2,
+            "flicker_max_frames": 2,
+            "drift_min_consecutive": 3
+          },
+          "severity_overrides": {}
+        },
+        "point_cloud_quality_config": {
+          "schema_version": 2,
+          "config_revision": 1,
+          "enabled": true,
+          "thresholds": {
+            "minimum_points": 5,
+            "ground_sample_min": 24,
+            "ground_margin_m": 0.75,
+            "ground_penetration_m": 0.2,
+            "ground_float_m": 0.45,
+            "size_min_samples": 8,
+            "size_mad_z": 4.5,
+            "temporal_center_jump_m": 4.0,
+            "temporal_size_change_ratio": 0.6,
+            "temporal_yaw_jump_rad": 0.8,
+            "projection_min_iou": 0.5,
+            "projection_max_edge_residual_ratio": 0.025
+          },
+          "enabled_rules": [
+            "duplicate_track_member",
+            "ground_clearance",
+            "low_point_count",
+            "projection_residual",
+            "size_outlier",
+            "temporal_jump",
+            "track_gap",
+            "track_identity_drift"
+          ],
+          "severity_overrides": {},
+          "class_thresholds": {},
+          "governance": {
+            "minimum_reviewed_per_rule": 20,
+            "maximum_false_positive_rate": 0.1,
+            "minimum_confirmed_retention": 0.9
+          }
+        },
+        "rendering_config": {
+          "smoothImage": null,
+          "cssImageFilter": null,
+          "controlPointsSize": null,
+          "snapToGrid": null,
+          "box3dDefaultSize": null,
+          "propagateOverwrite": null,
+          "trackerDefaultModel": null
+        },
+        "video_sampling": {
+          "mode": "step",
+          "target_fps": null,
+          "frame_step": 1
+        },
+        "video_collaboration": {
+          "enabled": true,
+          "overlap_frames": 1
+        },
+        "scene_mode": false,
+        "prefer_same_scene_continuation": false,
+        "scene_continuation_window_min": 30,
+        "default_variants": {},
+        "preannotate_pipeline": null,
+        "capability_warnings": [],
+        "annotation_guide": null,
+        "guide_assets": [],
+        "model_version": null,
+        "task_lock_ttl_seconds": 300,
+        "total_tasks": 0,
+        "completed_tasks": 0,
+        "review_tasks": 0,
+        "in_progress_tasks": 0,
+        "ai_completed_tasks": 0,
+        "batch_summary": {
+          "total": 0,
+          "assigned": 0,
+          "in_review": 0
+        },
+        "due_date": null,
+        "created_at": "<timestamp>",
+        "updated_at": "<timestamp>"
+      },
+      "www_authenticate": null,
+      "retry_after": null
+    },
+    "video_same_config_bypasses_blockers": {
+      "status": 200,
+      "body": {
+        "id": "$video_project_annotations",
+        "organization_id": null,
+        "display_id": "$display_video_project_annotations",
+        "name": "Video annotations",
+        "type_label": "图像目标检测",
+        "type_key": "video-track",
+        "data_type": "video",
+        "owner_id": "$user_pa",
+        "owner_name": "pa",
+        "owner_avatar_ref": null,
+        "member_count": 0,
+        "my_project_role": null,
+        "status": "in_progress",
+        "ai_enabled": false,
+        "ml_backend_id": null,
+        "classes": ["car", "person"],
+        "classes_config": {
+          "car": {
+            "color": null,
+            "order": 0,
+            "alias": null
+          },
+          "person": {
+            "color": null,
+            "order": 1,
+            "alias": null
+          }
+        },
+        "attribute_schema": {
+          "fields": []
+        },
+        "tool_bindings": {
+          "bbox": {
+            "enabled": true,
+            "classes": [
+              {
+                "name": "car",
+                "color": null,
+                "order": 0,
+                "alias": null,
+                "alias_to": null
+              },
+              {
+                "name": "person",
+                "color": null,
+                "order": 1,
+                "alias": null,
+                "alias_to": null
+              }
+            ],
+            "attribute_schema": {
+              "fields": []
+            },
+            "keypoint_schema": null,
+            "video_modes": null
+          }
+        },
+        "label_config": {},
+        "sampling": "sequence",
+        "maximum_annotations": 1,
+        "show_overlap_first": false,
+        "iou_dedup_threshold": 0.7,
+        "box_threshold": 0.3499999940395355,
+        "text_threshold": 0.25,
+        "ai_interactive_enabled": true,
+        "raster_mask_native_editing_enabled": true,
+        "mask_qc_config": {
+          "schema_version": 1,
+          "config_revision": 1,
+          "enabled": true,
+          "blocking": false,
+          "auto_run": "on_review_submit",
+          "single_frame": {
+            "near_empty_pixels": 16,
+            "small_component_pixels": 32,
+            "small_component_ratio": 0.005,
+            "small_hole_pixels": 32,
+            "narrow_bridge_width": 2,
+            "boundary_noise_ratio": 0.15,
+            "bbox_iou_min": 0.98,
+            "overlap_pixels": 1
+          },
+          "temporal": {
+            "sample_step": 1,
+            "iou_drop": 0.35,
+            "centroid_shift_diagonal": 0.15,
+            "area_change_ratio": 0.5,
+            "component_delta": 2,
+            "flicker_max_frames": 2,
+            "drift_min_consecutive": 3
+          },
+          "severity_overrides": {}
+        },
+        "point_cloud_quality_config": {
+          "schema_version": 2,
+          "config_revision": 1,
+          "enabled": true,
+          "thresholds": {
+            "minimum_points": 5,
+            "ground_sample_min": 24,
+            "ground_margin_m": 0.75,
+            "ground_penetration_m": 0.2,
+            "ground_float_m": 0.45,
+            "size_min_samples": 8,
+            "size_mad_z": 4.5,
+            "temporal_center_jump_m": 4.0,
+            "temporal_size_change_ratio": 0.6,
+            "temporal_yaw_jump_rad": 0.8,
+            "projection_min_iou": 0.5,
+            "projection_max_edge_residual_ratio": 0.025
+          },
+          "enabled_rules": [
+            "duplicate_track_member",
+            "ground_clearance",
+            "low_point_count",
+            "projection_residual",
+            "size_outlier",
+            "temporal_jump",
+            "track_gap",
+            "track_identity_drift"
+          ],
+          "severity_overrides": {},
+          "class_thresholds": {},
+          "governance": {
+            "minimum_reviewed_per_rule": 20,
+            "maximum_false_positive_rate": 0.1,
+            "minimum_confirmed_retention": 0.9
+          }
+        },
+        "rendering_config": {
+          "smoothImage": null,
+          "cssImageFilter": null,
+          "controlPointsSize": null,
+          "snapToGrid": null,
+          "box3dDefaultSize": null,
+          "propagateOverwrite": null,
+          "trackerDefaultModel": null
+        },
+        "video_sampling": {
+          "mode": "none",
+          "target_fps": null,
+          "frame_step": null
+        },
+        "video_collaboration": {
+          "enabled": false,
+          "overlap_frames": 0
+        },
+        "scene_mode": false,
+        "prefer_same_scene_continuation": false,
+        "scene_continuation_window_min": 30,
+        "default_variants": {},
+        "preannotate_pipeline": null,
+        "capability_warnings": [],
+        "annotation_guide": null,
+        "guide_assets": [],
+        "model_version": null,
+        "task_lock_ttl_seconds": 300,
+        "total_tasks": 0,
+        "completed_tasks": 0,
+        "review_tasks": 0,
+        "in_progress_tasks": 0,
+        "ai_completed_tasks": 0,
+        "batch_summary": {
+          "total": 0,
+          "assigned": 0,
+          "in_review": 0
+        },
+        "due_date": null,
+        "created_at": "<timestamp>",
+        "updated_at": "<timestamp>"
+      },
+      "www_authenticate": null,
+      "retry_after": null
+    },
+    "video_type_only_preserves_enabled": {
+      "status": 200,
+      "body": {
+        "id": "$video_project_type_only",
+        "organization_id": null,
+        "display_id": "$display_video_project_type_only",
+        "name": "Video type_only",
+        "type_label": "图像目标检测",
+        "type_key": "video-mm",
+        "data_type": "video",
+        "owner_id": "$user_pa",
+        "owner_name": "pa",
+        "owner_avatar_ref": null,
+        "member_count": 0,
+        "my_project_role": null,
+        "status": "in_progress",
+        "ai_enabled": false,
+        "ml_backend_id": null,
+        "classes": ["car", "person"],
+        "classes_config": {
+          "car": {
+            "color": null,
+            "order": 0,
+            "alias": null
+          },
+          "person": {
+            "color": null,
+            "order": 1,
+            "alias": null
+          }
+        },
+        "attribute_schema": {
+          "fields": []
+        },
+        "tool_bindings": {
+          "bbox": {
+            "enabled": true,
+            "classes": [
+              {
+                "name": "car",
+                "color": null,
+                "order": 0,
+                "alias": null,
+                "alias_to": null
+              },
+              {
+                "name": "person",
+                "color": null,
+                "order": 1,
+                "alias": null,
+                "alias_to": null
+              }
+            ],
+            "attribute_schema": {
+              "fields": []
+            },
+            "keypoint_schema": null,
+            "video_modes": null
+          }
+        },
+        "label_config": {},
+        "sampling": "sequence",
+        "maximum_annotations": 1,
+        "show_overlap_first": false,
+        "iou_dedup_threshold": 0.7,
+        "box_threshold": 0.3499999940395355,
+        "text_threshold": 0.25,
+        "ai_interactive_enabled": true,
+        "raster_mask_native_editing_enabled": true,
+        "mask_qc_config": {
+          "schema_version": 1,
+          "config_revision": 1,
+          "enabled": true,
+          "blocking": false,
+          "auto_run": "on_review_submit",
+          "single_frame": {
+            "near_empty_pixels": 16,
+            "small_component_pixels": 32,
+            "small_component_ratio": 0.005,
+            "small_hole_pixels": 32,
+            "narrow_bridge_width": 2,
+            "boundary_noise_ratio": 0.15,
+            "bbox_iou_min": 0.98,
+            "overlap_pixels": 1
+          },
+          "temporal": {
+            "sample_step": 1,
+            "iou_drop": 0.35,
+            "centroid_shift_diagonal": 0.15,
+            "area_change_ratio": 0.5,
+            "component_delta": 2,
+            "flicker_max_frames": 2,
+            "drift_min_consecutive": 3
+          },
+          "severity_overrides": {}
+        },
+        "point_cloud_quality_config": {
+          "schema_version": 2,
+          "config_revision": 1,
+          "enabled": true,
+          "thresholds": {
+            "minimum_points": 5,
+            "ground_sample_min": 24,
+            "ground_margin_m": 0.75,
+            "ground_penetration_m": 0.2,
+            "ground_float_m": 0.45,
+            "size_min_samples": 8,
+            "size_mad_z": 4.5,
+            "temporal_center_jump_m": 4.0,
+            "temporal_size_change_ratio": 0.6,
+            "temporal_yaw_jump_rad": 0.8,
+            "projection_min_iou": 0.5,
+            "projection_max_edge_residual_ratio": 0.025
+          },
+          "enabled_rules": [
+            "duplicate_track_member",
+            "ground_clearance",
+            "low_point_count",
+            "projection_residual",
+            "size_outlier",
+            "temporal_jump",
+            "track_gap",
+            "track_identity_drift"
+          ],
+          "severity_overrides": {},
+          "class_thresholds": {},
+          "governance": {
+            "minimum_reviewed_per_rule": 20,
+            "maximum_false_positive_rate": 0.1,
+            "minimum_confirmed_retention": 0.9
+          }
+        },
+        "rendering_config": {
+          "smoothImage": null,
+          "cssImageFilter": null,
+          "controlPointsSize": null,
+          "snapToGrid": null,
+          "box3dDefaultSize": null,
+          "propagateOverwrite": null,
+          "trackerDefaultModel": null
+        },
+        "video_sampling": {
+          "mode": "none",
+          "target_fps": null,
+          "frame_step": null
+        },
+        "video_collaboration": {
+          "enabled": true,
+          "overlap_frames": 1
+        },
+        "scene_mode": false,
+        "prefer_same_scene_continuation": false,
+        "scene_continuation_window_min": 30,
+        "default_variants": {},
+        "preannotate_pipeline": null,
+        "capability_warnings": [],
+        "annotation_guide": null,
+        "guide_assets": [],
+        "model_version": null,
+        "task_lock_ttl_seconds": 300,
+        "total_tasks": 0,
+        "completed_tasks": 0,
+        "review_tasks": 0,
+        "in_progress_tasks": 0,
+        "ai_completed_tasks": 0,
+        "batch_summary": {
+          "total": 0,
+          "assigned": 0,
+          "in_review": 0
+        },
+        "due_date": null,
+        "created_at": "<timestamp>",
+        "updated_at": "<timestamp>"
+      },
+      "www_authenticate": null,
+      "retry_after": null
+    },
+    "video_type_guard_after_helper": {
+      "status": 422,
+      "body": {
+        "detail": "video_collaboration 只能用于 video-track 项目"
+      },
+      "www_authenticate": null,
+      "retry_after": null
+    },
+    "video_invalid_tools_precede_annotation": {
+      "status": 422,
+      "body": {
+        "detail": {
+          "reason": "video_collaboration_invalid_tools",
+          "tool_units": ["lidar_box_3d"]
+        }
+      },
+      "www_authenticate": null,
+      "retry_after": null
+    }
+  },
+  "semantic_sql_probe_traces": {
+    "video_annotations": [],
+    "video_trackers": [],
+    "video_missing_metadata": [],
+    "video_drifted_metadata": [],
+    "video_nonvideo_item": [],
+    "video_sampling_gap": [],
+    "video_valid": ["actor:share_lock"],
+    "video_same_config_bypasses_blockers": ["actor:share_lock"],
+    "video_type_only_preserves_enabled": ["actor:share_lock"],
+    "video_type_guard_after_helper": [],
+    "video_invalid_tools_precede_annotation": []
+  },
+  "fixture_scope": "real owner-seeded database rows and real Assets media-summary Native read; no object storage or model work",
+  "video_segment_size_frames": 100
+}

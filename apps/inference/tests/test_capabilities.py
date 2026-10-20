@@ -69,6 +69,30 @@ def test_capability_snapshot_handles_empty_and_legacy_backends():
     assert caps["modalities"] == ["image"]
 
 
+def test_top_level_text_outputs_keep_each_models_first_seen_union():
+    caps = extract_capabilities(
+        {
+            "models": [
+                {
+                    "id": "first",
+                    "task": "detect",
+                    "supported_text_outputs": ["box", "mask"],
+                },
+                {
+                    "id": "second",
+                    "task": "detect",
+                    "supported_text_outputs": ["mask", "both"],
+                },
+            ]
+        }
+    )
+    assert caps["supported_text_outputs"] == ["box", "mask", "both"]
+    assert [model["supported_text_outputs"] for model in caps["models"]] == [
+        ["box", "mask"],
+        ["mask", "both"],
+    ]
+
+
 def test_tracker_and_lidar_modalities_are_derived_in_canonical_order():
     caps = extract_capabilities(
         {
