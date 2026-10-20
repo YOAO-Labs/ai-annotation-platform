@@ -236,13 +236,14 @@ Negative:
 
 ## Notes
 
-- Current public implementation is in `apps/api/app/api/v1/users.py` and
-  `apps/api/app/application/legacy_user_lifecycle.py`; only
-  `admin_reset_password` is in scope.
+- The public route is in `apps/api/app/api/v1/users.py`, with HTTP composition
+  in `apps/api/app/api/v1/admin_password_commands.py`. Its former reset workflow
+  and password generator have been removed from `legacy_user_lifecycle.py`.
 - The [Identity private runtime protocol](../../docs-site/api/guides/identity-runtime.md#管理员临时密码重置)
   documents the private wire, role rules and optional DSN.
 - Directory remains separately locally qualified under
-  [ADR-0123](0123-independent-identity-directory-reads.md); its evidence is not
-  counted as admin-reset-password qualification.
+  [ADR-0123](0123-independent-identity-directory-reads.md). Its historical
+  38-case evidence remains separate; the current 42-case selection includes
+  the explicitly listed Directory compatibility checks.
 - Full module progress is tracked in
   `docs/plans/1792160873_backend-module-decoupling.md`.
