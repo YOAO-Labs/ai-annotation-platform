@@ -2362,8 +2362,8 @@ def main(argv: list[str] | None = None) -> int:
         database = resources["database"]
         evidence["database"] = database
         _, heads = migration_graph(ROOT)
-        if heads != ["0247"]:
-            raise RuntimeError("module-data acceptance requires migration head 0247")
+        if heads != ["0248"]:
+            raise RuntimeError("module-data acceptance requires migration head 0248")
         evidence["migrations"]["head_before_downgrade"] = heads[0]
         phase = "downgrade-to-0189"
         _container_details(

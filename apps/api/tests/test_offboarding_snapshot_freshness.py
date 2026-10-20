@@ -4,15 +4,16 @@ from __future__ import annotations
 
 import uuid
 
-import pytest
-from fastapi import HTTPException
+import httpx
+from fastapi import FastAPI
 from sqlalchemy import delete, update
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from app.application.user_lifecycle import UserLifecycleWorkflow
+from app.api.v1.users import router
+from app.core.security import create_access_token
 from app.db.models.project import Project
 from app.db.models.user import User
-from app.schemas.user import OffboardingCommitRequest
+from app.deps import get_db
 from tests.factory import create_membership, create_project, create_user
 
 
@@ -40,31 +41,52 @@ async def test_offboarding_refreshes_locked_project_after_transfer(test_engine):
         await retained.commit()
         project_id, target_id = project.id, target.id
         user_ids = [owner.id, next_owner.id, target.id, receiver.id]
+        headers = {
+            "Authorization": "Bearer "
+            + create_access_token(subject=str(owner.id), role=owner.role)
+        }
+        app = FastAPI()
+        app.include_router(router, prefix="/api/v1/users")
+
+        async def retained_database():
+            yield retained
+
+        app.dependency_overrides[get_db] = retained_database
         try:
-            preview = await UserLifecycleWorkflow.preview(
-                retained, target_id=target_id, actor=owner
-            )
-            payload = OffboardingCommitRequest(
-                mode="handoff",
-                reason="Stale preview",
-                preview_version=preview.preview_version,
-                projects=[
-                    {"project_id": project_id, "annotator_receiver_id": receiver.id}
-                ],
-            )
-            await retained.commit()
-            async with maker() as transfer:
-                await transfer.execute(
-                    update(Project)
-                    .where(Project.id == project_id)
-                    .values(owner_id=next_owner.id)
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=app), base_url="http://snapshot.test"
+            ) as client:
+                preview = await client.get(
+                    f"/api/v1/users/{target_id}/offboarding-preview", headers=headers
                 )
-                await transfer.commit()
-            with pytest.raises(HTTPException) as denied:
-                await UserLifecycleWorkflow.offboard(
-                    retained, target_id=target_id, actor=owner, payload=payload
+                assert preview.status_code == 200, preview.text
+                payload = {
+                    "mode": "handoff",
+                    "reason": "Stale preview",
+                    "preview_version": preview.json()["preview_version"],
+                    "projects": [
+                        {
+                            "project_id": str(project_id),
+                            "annotator_receiver_id": str(receiver.id),
+                        }
+                    ],
+                }
+                await retained.commit()
+                async with maker() as transfer:
+                    await transfer.execute(
+                        update(Project)
+                        .where(Project.id == project_id)
+                        .values(owner_id=user_ids[1])
+                    )
+                    await transfer.commit()
+                assert project.owner_id == user_ids[0]
+                denied = await client.post(
+                    f"/api/v1/users/{target_id}/offboarding",
+                    headers=headers,
+                    json=payload,
                 )
-            assert denied.value.status_code == 403
+                assert denied.status_code == 403, denied.text
+                assert denied.json()["detail"] == "该用户存在不在你管理范围内的项目"
             await retained.rollback()
             async with maker() as check:
                 current_target = await check.get(User, target_id)

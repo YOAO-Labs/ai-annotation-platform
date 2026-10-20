@@ -21,6 +21,7 @@ services:
       IDENTITY_PLATFORM_ROLE_DATABASE_URL_FILE: ${IDENTITY_RUNTIME_PLATFORM_ROLE_DATABASE_URL_FILE:+/run/secrets/identity_platform_role_database_url}
       IDENTITY_SUSPENSION_DATABASE_URL_FILE: ${IDENTITY_RUNTIME_SUSPENSION_DATABASE_URL_FILE:+/run/secrets/identity_suspension_database_url}
       IDENTITY_DELETION_DATABASE_URL_FILE: ${IDENTITY_RUNTIME_DELETION_DATABASE_URL_FILE:+/run/secrets/identity_deletion_database_url}
+      IDENTITY_OFFBOARDING_DATABASE_URL_FILE: ${IDENTITY_RUNTIME_OFFBOARDING_DATABASE_URL_FILE:+/run/secrets/identity_offboarding_database_url}
       IDENTITY_INVITATION_DATABASE_URL_FILE: /run/secrets/identity_invitation_database_url
       IDENTITY_DEACTIVATION_DATABASE_URL_FILE: /run/secrets/identity_deactivation_database_url
       IDENTITY_DEACTIVATION_OPERATOR_DATABASE_URL_FILE: /run/secrets/identity_deactivation_operator_database_url
@@ -48,6 +49,7 @@ services:
       - identity_platform_role_database_url
       - identity_suspension_database_url
       - identity_deletion_database_url
+      - identity_offboarding_database_url
       - identity_invitation_database_url
       - identity_deactivation_database_url
       - identity_deactivation_operator_database_url
@@ -180,6 +182,8 @@ secrets:
     file: ${IDENTITY_RUNTIME_SUSPENSION_DATABASE_URL_FILE:-/dev/null}
   identity_deletion_database_url:
     file: ${IDENTITY_RUNTIME_DELETION_DATABASE_URL_FILE:-/dev/null}
+  identity_offboarding_database_url:
+    file: ${IDENTITY_RUNTIME_OFFBOARDING_DATABASE_URL_FILE:-/dev/null}
   identity_invitation_database_url:
     file: ${IDENTITY_RUNTIME_INVITATION_DATABASE_URL_FILE:?Set Identity invitation function-only DSN file}
   identity_mail_v2_database_url:

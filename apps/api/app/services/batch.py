@@ -357,43 +357,6 @@ class BatchService:
             .values(reviewer_id=user_id, reviewer_is_override=False)
         )
 
-    async def handoff_offboarding_role(
-        self,
-        *,
-        batches: Iterable[TaskBatch],
-        tasks: Iterable[Task],
-        responsibility: str,
-        receiver_id: uuid.UUID,
-    ) -> None:
-        """Move offboarding assignments using the labeling assignment owner."""
-
-        if responsibility == "annotator":
-            task_field = "assignee_id"
-            batch_field = "annotator_id"
-        elif responsibility == "reviewer":
-            task_field = "reviewer_id"
-            batch_field = "reviewer_id"
-        else:
-            raise ValueError(f"unsupported labeling responsibility: {responsibility}")
-
-        for task in tasks:
-            setattr(task, task_field, receiver_id)
-            if responsibility == "annotator":
-                task.assigned_at = func.now()
-        for batch in batches:
-            setattr(batch, batch_field, receiver_id)
-            batch.assigned_user_ids = [
-                value
-                for value in (
-                    str(batch.annotator_id) if batch.annotator_id else None,
-                    str(batch.reviewer_id) if batch.reviewer_id else None,
-                )
-                if value
-            ]
-
-    async def release_user_task_locks(self, user_id: uuid.UUID) -> None:
-        await self.db.execute(delete(TaskLock).where(TaskLock.user_id == user_id))
-
     async def handoff_project_member_annotation(
         self,
         *,

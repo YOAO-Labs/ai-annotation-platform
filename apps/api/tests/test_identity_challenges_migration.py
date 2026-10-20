@@ -119,11 +119,12 @@ async def test_0239_preserves_live_legacy_challenge_links(test_engine, tmp_path:
         async with restored.begin() as db:
             assert (
                 await db.scalar(text("SELECT version_num FROM alembic_version"))
-                == "0247"
+                == "0248"
             )
             # This task owns the restored database. Clear only its copied recovery
             # state so the migration begins from a known empty 0239 image.
             for table in (
+                "identity_offboarding_operation_receipts",
                 "identity_suspension_operation_receipts",
                 "identity_deletion_operation_receipts",
                 "identity_platform_role_operation_receipts",

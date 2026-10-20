@@ -14,8 +14,6 @@ from app.db.models.task import Task
 from app.db.models.task_batch import TaskBatch
 from app.db.models.task_lock import TaskLock
 from app.db.models.user import User
-from app.schemas.user import OffboardingCommitRequest
-from app.application.user_lifecycle import UserLifecycleWorkflow
 from tests.factory import create_project, create_user
 
 
@@ -206,8 +204,11 @@ async def test_preview_commit_transfers_active_and_rejected_tasks(
     assert old_session.status_code == 401
 
 
-async def test_reviewer_and_owner_roles_use_separate_receivers(db_session, super_admin):
-    actor, _ = super_admin
+async def test_reviewer_and_owner_roles_use_separate_receivers(
+    db_session, super_admin, httpx_client
+):
+    actor, actor_token = super_admin
+    headers = {"Authorization": f"Bearer {actor_token}"}
     reviewer = await create_user(
         db_session, "employee", f"reviewer-{uuid.uuid4()}@test.local", "Reviewer"
     )
@@ -266,47 +267,51 @@ async def test_reviewer_and_owner_roles_use_separate_receivers(db_session, super
     db_session.add(review_task)
     await db_session.flush()
 
-    reviewer_preview = await UserLifecycleWorkflow.preview(
-        db_session, target_id=reviewer.id, actor=actor
+    reviewer_preview = await httpx_client.get(
+        f"/api/v1/users/{reviewer.id}/offboarding-preview", headers=headers
     )
-    assert reviewer_preview.projects[0].roles["reviewer"].present is True
-    assert reviewer_preview.projects[0].roles["owner"].present is False
-    await UserLifecycleWorkflow.offboard(
-        db_session,
-        target_id=reviewer.id,
-        actor=actor,
-        payload=OffboardingCommitRequest(
-            preview_version=reviewer_preview.preview_version,
-            mode="handoff",
-            projects=[
+    assert reviewer_preview.status_code == 200, reviewer_preview.text
+    reviewer_body = reviewer_preview.json()
+    assert reviewer_body["projects"][0]["roles"]["reviewer"]["present"] is True
+    assert reviewer_body["projects"][0]["roles"]["owner"]["present"] is False
+    committed = await httpx_client.post(
+        f"/api/v1/users/{reviewer.id}/offboarding",
+        headers=headers,
+        json={
+            "preview_version": reviewer_body["preview_version"],
+            "mode": "handoff",
+            "projects": [
                 {
-                    "project_id": project.id,
-                    "reviewer_receiver_id": reviewer_receiver.id,
+                    "project_id": str(project.id),
+                    "reviewer_receiver_id": str(reviewer_receiver.id),
                 }
             ],
-        ),
+        },
     )
+    assert committed.status_code == 200, committed.text
     await db_session.refresh(review_task)
     assert review_task.reviewer_id == reviewer_receiver.id
 
-    owner_preview = await UserLifecycleWorkflow.preview(
-        db_session, target_id=owner.id, actor=actor
+    owner_preview = await httpx_client.get(
+        f"/api/v1/users/{owner.id}/offboarding-preview", headers=headers
     )
-    assert owner_preview.projects[0].roles["owner"].present is True
-    await UserLifecycleWorkflow.offboard(
-        db_session,
-        target_id=owner.id,
-        actor=actor,
-        payload=OffboardingCommitRequest(
-            preview_version=owner_preview.preview_version,
-            mode="handoff",
-            projects=[
+    assert owner_preview.status_code == 200, owner_preview.text
+    owner_body = owner_preview.json()
+    assert owner_body["projects"][0]["roles"]["owner"]["present"] is True
+    committed = await httpx_client.post(
+        f"/api/v1/users/{owner.id}/offboarding",
+        headers=headers,
+        json={
+            "preview_version": owner_body["preview_version"],
+            "mode": "handoff",
+            "projects": [
                 {
-                    "project_id": project.id,
-                    "owner_receiver_id": owner_receiver.id,
+                    "project_id": str(project.id),
+                    "owner_receiver_id": str(owner_receiver.id),
                 }
             ],
-        ),
+        },
     )
+    assert committed.status_code == 200, committed.text
     await db_session.refresh(project)
     assert project.owner_id == owner_receiver.id

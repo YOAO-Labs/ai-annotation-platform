@@ -244,6 +244,7 @@ DOMAIN_PACKAGES = (
     DomainSpec(package="identity_platform_role_commands", legacy_facades=()),
     DomainSpec(package="identity_suspension_commands", legacy_facades=()),
     DomainSpec(package="identity_deletion_commands", legacy_facades=()),
+    DomainSpec(package="identity_offboarding_commands", legacy_facades=()),
     DomainSpec(package="identity_invitation_commands", legacy_facades=()),
     DomainSpec(package="identity_mail_v2_delivery", legacy_facades=()),
     DomainSpec(package="quality_job_dispatch", legacy_facades=()),

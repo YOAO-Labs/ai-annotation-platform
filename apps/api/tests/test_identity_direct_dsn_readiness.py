@@ -119,6 +119,18 @@ _CASES = (
         "execute",
     ),
     (
+        "offboarding",
+        "app.services.identity_offboarding_commands",
+        "IdentityOffboardingCommands",
+        "OffboardingPostgresData",
+        "IdentityOffboardingCommandData",
+        "OffboardingManager",
+        "identity_offboarding_database_url",
+        "identity_offboarding_database_url_file",
+        "offboarding_policy",
+        "execute",
+    ),
+    (
         "deactivation_due",
         "app.services.identity_deactivation_commands",
         "IdentityDeactivationDueCommands",

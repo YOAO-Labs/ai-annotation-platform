@@ -498,6 +498,8 @@ last_reviewed: 2026-10-20
 | `IDENTITY_SUSPENSION_DATABASE_URL_FILE` | `—` | — |
 | `IDENTITY_DELETION_DATABASE_URL` | `—` | Administrator soft deletion uses an optional two-function LOGIN. |
 | `IDENTITY_DELETION_DATABASE_URL_FILE` | `—` | — |
+| `IDENTITY_OFFBOARDING_DATABASE_URL` | `—` | Offboarding preview and commit use an optional three-function Identity LOGIN. |
+| `IDENTITY_OFFBOARDING_DATABASE_URL_FILE` | `—` | — |
 | `IDENTITY_INVITATION_DATABASE_URL` | `—` | Complete Identity invitation lifecycle uses an optional three-function owner; mail-v2 is a separate optional four-function sender. |
 | `IDENTITY_INVITATION_DATABASE_URL_FILE` | `—` | — |
 | `IDENTITY_MAIL_V2_DATABASE_URL` | `—` | — |
@@ -531,6 +533,7 @@ last_reviewed: 2026-10-20
 | `IDENTITY_RUNTIME_PLATFORM_ROLE_DATABASE_URL_FILE` | `—` | — |
 | `IDENTITY_RUNTIME_SUSPENSION_DATABASE_URL_FILE` | `—` | — |
 | `IDENTITY_RUNTIME_DELETION_DATABASE_URL_FILE` | `—` | — |
+| `IDENTITY_RUNTIME_OFFBOARDING_DATABASE_URL_FILE` | `—` | — |
 | `IDENTITY_RUNTIME_INVITATION_DATABASE_URL_FILE` | `—` | — |
 | `IDENTITY_RUNTIME_MAIL_V2_DATABASE_URL_FILE` | `—` | Required when starting the optional `mail-v2` Compose profile. |
 | `IDENTITY_RUNTIME_DEACTIVATION_DATABASE_URL_FILE` | `—` | — |

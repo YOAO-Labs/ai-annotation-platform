@@ -29,67 +29,11 @@ def _json_value(value):
     return value
 
 
-def _retirement_result(value) -> dict:
-    payload = _json_value(value)
-    if (
-        not isinstance(payload, dict)
-        or set(payload) != {"schema", "generation", "revoked_key_ids", "revoked_at"}
-        or payload.get("schema") != "aap-identity-retirement/v1"
-        or type(payload.get("generation")) is not int
-        or payload["generation"] < 0
-        or not isinstance(payload.get("revoked_key_ids"), list)
-        or not isinstance(payload.get("revoked_at"), str)
-    ):
-        raise IdentityGatewayUnavailable()
-    try:
-        key_ids = [uuid.UUID(value) for value in payload["revoked_key_ids"]]
-        revoked_at = datetime.fromisoformat(
-            payload["revoked_at"].replace("Z", "+00:00")
-        )
-    except (TypeError, ValueError):
-        raise IdentityGatewayUnavailable() from None
-    if revoked_at.utcoffset() is None:
-        raise IdentityGatewayUnavailable()
-    return {
-        "generation": payload["generation"],
-        "revoked_key_ids": key_ids,
-        "revoked_at": revoked_at,
-    }
-
-
 class IdentitySessionData:
     """Run Identity-owned functions inside the caller's SQL transaction."""
 
     def __init__(self, db: AsyncSession) -> None:
         self.db = db
-
-    async def lock_super_admin_invariant(self) -> bool:
-        value = await self._scalar(
-            text("SELECT aap_identity_v1.lock_super_admin_invariant()"), {}
-        )
-        if type(value) is not bool:
-            raise IdentityGatewayUnavailable()
-        return value
-
-    async def super_admin_status(self, excluded_user_id: uuid.UUID | None) -> dict:
-        value = _json_value(
-            await self._scalar(
-                text("SELECT aap_identity_v1.super_admin_status(:excluded_user_id)"),
-                {"excluded_user_id": excluded_user_id},
-            )
-        )
-        if (
-            not isinstance(value, dict)
-            or set(value) != {"schema", "other_active", "other_unreserved"}
-            or value["schema"] != "aap-identity-super-admin-status/v1"
-            or any(
-                type(value[name]) is not int or not 0 <= value[name] < 2**63
-                for name in ("other_active", "other_unreserved")
-            )
-            or value["other_unreserved"] > value["other_active"]
-        ):
-            raise IdentityGatewayUnavailable()
-        return value
 
     async def _scalar(self, statement, parameters: dict):
         try:
@@ -196,20 +140,6 @@ class IdentitySessionData:
         if type(value) is not bool:
             raise IdentityGatewayUnavailable()
         return value
-
-    async def retire_account_credentials(self, actor_id: uuid.UUID) -> dict:
-        await self.db.flush()
-        value = await self._scalar(
-            text("SELECT aap_identity_v1.retire_account_credentials(:actor_id)"),
-            {"actor_id": actor_id},
-        )
-        result = _retirement_result(value)
-        for instance in self.db.sync_session.identity_map.values():
-            if isinstance(instance, User) and instance.id == actor_id:
-                set_committed_value(
-                    instance, "credential_generation", result["generation"]
-                )
-        return result
 
 
 class IdentityKeySessionData:

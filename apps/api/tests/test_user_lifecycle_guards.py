@@ -222,13 +222,15 @@ async def test_preview_changes_never_partially_transfer(
         )
     else:
         tasks[-1].version += 1
-    await db_session.flush()
+    # The competing change precedes the command and must survive its rollback.
+    await db_session.commit()
     response = await httpx_client.post(
         f"/api/v1/users/{target.id}/offboarding",
         headers=headers(actor),
         json=handoff_body(snapshot, receiver),
     )
     assert response.status_code == 409, response.text
+    await db_session.refresh(target)
     assert target.is_active
     for batch, task in zip(batches, tasks):
         await db_session.refresh(batch)

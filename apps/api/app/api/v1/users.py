@@ -7,13 +7,10 @@ from uuid import UUID
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials
-from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel, Field
 
 from app.core.ratelimit import limiter
-from app.deps import bearer_scheme, get_db, require_roles
-from app.db.models.user import User
-from app.db.enums import UserRole
+from app.deps import bearer_scheme
 from app.schemas.user import (
     OffboardingCommitRequest,
     OffboardingPreview,
@@ -41,6 +38,11 @@ from app.api.v1.suspension_commands import execute_suspension, get_suspension_co
 from app.services.identity_suspension_commands import SuspensionCommandsPort
 from app.api.v1.deletion_commands import execute_deletion, get_deletion_commands
 from app.services.identity_deletion_commands import DeletionCommandsPort
+from app.api.v1.offboarding_commands import (
+    execute_offboarding,
+    get_offboarding_commands,
+)
+from app.services.identity_offboarding_commands import OffboardingCommandsPort
 from app.api.v1.admin_password_commands import (
     execute_admin_password_reset,
     get_admin_password_commands,
@@ -55,12 +57,8 @@ from app.api.v1.invitation_commands import (
 )
 from app.services.identity_invitation_commands import InvitationCommandsPort
 from app.services.identity_group_commands import GroupCommandsPort
-from app.application.user_lifecycle import UserLifecycleWorkflow
-from sqlalchemy.exc import DBAPIError
 
 router = APIRouter()
-
-_MANAGERS = (UserRole.SUPER_ADMIN, UserRole.PROJECT_ADMIN)
 
 
 class UsersStats(BaseModel):
@@ -451,12 +449,15 @@ async def deactivate_user(
 )
 async def offboarding_preview(
     user_id: UUID,
-    db: AsyncSession = Depends(get_db),
-    actor: User = Depends(require_roles(*_MANAGERS)),
+    request: Request,
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+    commands: OffboardingCommandsPort = Depends(get_offboarding_commands),
 ):
     """Return a complete, versioned handoff snapshot without mutating data."""
 
-    return await UserLifecycleWorkflow.preview(db, target_id=user_id, actor=actor)
+    return await execute_offboarding(
+        request, credentials, commands, "preview_offboarding", user_id
+    )
 
 
 @router.post(
@@ -467,32 +468,19 @@ async def offboarding_commit(
     user_id: UUID,
     payload: OffboardingCommitRequest,
     request: Request,
-    db: AsyncSession = Depends(get_db),
-    actor: User = Depends(require_roles(*_MANAGERS)),
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+    commands: OffboardingCommandsPort = Depends(get_offboarding_commands),
 ):
     """Atomically transfer current responsibilities and suspend the account."""
 
-    try:
-        result = await UserLifecycleWorkflow.offboard(
-            db,
-            target_id=user_id,
-            actor=actor,
-            payload=payload,
-            request=request,
-        )
-        await db.commit()
-    except DBAPIError as exc:
-        await db.rollback()
-        if getattr(exc.orig, "sqlstate", None) in {"55P03", "40P01", "40001"}:
-            raise HTTPException(
-                status_code=409,
-                detail={
-                    "code": "offboarding_busy",
-                    "message": "职责正在变化，请刷新预览后重试",
-                },
-            ) from exc
-        raise
-    return result
+    return await execute_offboarding(
+        request,
+        credentials,
+        commands,
+        "commit_offboarding",
+        user_id,
+        payload.model_dump(mode="json"),
+    )
 
 
 @router.post(

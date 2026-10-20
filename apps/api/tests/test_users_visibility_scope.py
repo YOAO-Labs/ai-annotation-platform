@@ -591,31 +591,38 @@ async def test_pa_offboarding_blocked_on_disabled_unassigned_account(
     """
 
     suspended = await create_user(
-        db_session, "annotator", "suspended-free@e.test", "Suspended Free"
+        db_session, "employee", "suspended-free@e.test", "Suspended Free"
     )
     suspended.is_active = False
     suspended.disabled_kind = "suspended"
-    await db_session.flush()
-
+    suspended_id = suspended.id
     headers = _headers(project_admin)
+    sa_headers = _headers(super_admin)
+    await db_session.commit()
     preview = await httpx_client.get(
-        f"/api/v1/users/{suspended.id}/offboarding-preview", headers=headers
+        f"/api/v1/users/{suspended_id}/offboarding-preview", headers=headers
     )
     assert preview.status_code == 403, preview.text
+    assert (
+        preview.json()["detail"]
+        == "该用户已停用且不在你管理的项目内，须由超级管理员处理"
+    )
 
     commit = await httpx_client.post(
-        f"/api/v1/users/{suspended.id}/offboarding",
+        f"/api/v1/users/{suspended_id}/offboarding",
         json={"preview_version": "0", "reason": "越权尝试"},
         headers=headers,
     )
     assert commit.status_code == 403, commit.text
+    assert commit.json()["detail"] == preview.json()["detail"]
 
     # Super admins keep full offboarding access to the same account.
     sa_preview = await httpx_client.get(
-        f"/api/v1/users/{suspended.id}/offboarding-preview",
-        headers=_headers(super_admin),
+        f"/api/v1/users/{suspended_id}/offboarding-preview",
+        headers=sa_headers,
     )
     assert sa_preview.status_code == 200, sa_preview.text
+    assert sa_preview.json()["user"]["id"] == str(suspended_id)
 
 
 async def test_pa_writes_blocked_on_super_admin(
