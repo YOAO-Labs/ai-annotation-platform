@@ -143,6 +143,7 @@ DECLARE
     v_scheduled_at timestamptz;
     v_audit_id bigint;
     v_prior_update_setting text;
+    v_ip inet;
 BEGIN
     IF p_event IS NULL OR p_event NOT IN (
         'user.deactivation_request', 'user.deactivation_cancel',
@@ -159,6 +160,7 @@ BEGIN
     IF v_count <> 4 OR NOT (p_context ?& ARRAY['method', 'path', 'ip', 'request_id']) THEN
         RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'invalid deactivation audit context';
     END IF;
+    v_ip := NULLIF(p_context->>'ip', '')::inet;
     IF pg_catalog.jsonb_typeof(p_actor) IS DISTINCT FROM 'object' THEN
         RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'invalid deactivation audit actor';
     END IF;
@@ -255,7 +257,7 @@ BEGIN
     ) VALUES (
         v_actor_id, v_actor_email, v_actor_role, v_action, 'user', v_actor_id::text,
         p_context->>'method', p_context->>'path', 200,
-        p_context->>'ip', p_context->>'request_id', v_detail_json
+        v_ip, p_context->>'request_id', v_detail_json
     ) RETURNING id INTO v_audit_id;
 
     IF p_event = 'user.deactivation_approve' THEN

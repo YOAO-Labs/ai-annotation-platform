@@ -150,8 +150,10 @@ async def test_deactivation_and_publisher_logins_have_exact_function_surfaces(
                 "schema": "aap-identity-deactivation-policy/v1",
                 "policy": "aap-identity-deactivation/v1",
             }
-            invalid = await connection.fetchval(
-                "SELECT aap_identity_deactivation_v1.execute_deactivation_command('{}'::jsonb)"
+            invalid = json.loads(
+                await connection.fetchval(
+                    "SELECT aap_identity_deactivation_v1.execute_deactivation_command('{}'::jsonb)"
+                )
             )
             assert invalid["error"]["code"] == "invalid_request"
         elif role_name == "identity_deactivation_operator":
@@ -163,8 +165,10 @@ async def test_deactivation_and_publisher_logins_have_exact_function_surfaces(
                 "schema": "aap-identity-deactivation-due-policy/v1",
                 "policy": "aap-identity-deactivation-due/v1",
             }
-            invalid = await connection.fetchval(
-                "SELECT aap_identity_deactivation_v1.process_due_deactivations('{}'::jsonb)"
+            invalid = json.loads(
+                await connection.fetchval(
+                    "SELECT aap_identity_deactivation_v1.process_due_deactivations('{}'::jsonb)"
+                )
             )
             assert invalid["error"]["code"] == "invalid_request"
         else:
@@ -176,8 +180,10 @@ async def test_deactivation_and_publisher_logins_have_exact_function_surfaces(
                 "schema": "aap-notifications-delivery-policy/v1",
                 "policy": "aap-notifications-delivery/v1",
             }
-            invalid = await connection.fetchval(
-                "SELECT aap_notifications_v1.claim_identity_deliveries('{}'::jsonb)"
+            invalid = json.loads(
+                await connection.fetchval(
+                    "SELECT aap_notifications_v1.claim_identity_deliveries('{}'::jsonb)"
+                )
             )
             assert invalid["error"]["code"] == "invalid_request"
 
