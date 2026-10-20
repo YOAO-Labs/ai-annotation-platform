@@ -18,6 +18,7 @@ from aap_identity.mail_contract import (
     MailLease,
     decode_mail_delivery_policy,
 )
+from aap_identity.mail_v2_contract import InvitationMailV2Lease, MailV2Lease
 from aap_identity.mail_postgres import MailPostgresData
 from pydantic import SecretStr
 
@@ -25,6 +26,7 @@ from .mail_config import MailWorkerSettings
 
 _TOKEN = re.compile(r"^[0-9a-f]{64}$")
 _RETRYABLE = frozenset({"retry", "unknown", "invalid_key"})
+MailWorkItem = MailLease | MailV2Lease
 
 
 class MailExecutor:
@@ -68,7 +70,7 @@ class MailExecutor:
     def _key_value(self) -> str:
         return self._key.get_secret_value()
 
-    def _decode_token(self, lease: MailLease) -> str | None:
+    def _decode_token(self, lease: MailWorkItem) -> str | None:
         key = self._key_value()
         try:
             from aap_identity.recovery_crypto import (
@@ -84,7 +86,12 @@ class MailExecutor:
                 key,
                 lease.encryption_id,
             )
-            if not isinstance(token, str) or _TOKEN.fullmatch(token) is None:
+            if not isinstance(token, str):
+                return None
+            if lease.purpose == "invitation":
+                if not 1 <= len(token) <= 64:
+                    return None
+            elif _TOKEN.fullmatch(token) is None:
                 return None
             if token_hash(token) != lease.token_hash:
                 return None
@@ -95,15 +102,17 @@ class MailExecutor:
             return None
 
     @staticmethod
-    def _link(lease: MailLease, token: str) -> str:
+    def _link(lease: MailWorkItem, token: str) -> str:
         if any(character in lease.frontend_base_url for character in "\r\n\x00"):
             raise ValueError("Invalid frontend URL")
         parts = urlsplit(lease.frontend_base_url)
         if parts.username or parts.password:
             raise ValueError("Invalid frontend URL")
-        endpoint = (
-            "reset-password" if lease.purpose == "password_reset" else "verify-email"
-        )
+        endpoint = {
+            "password_reset": "reset-password",
+            "email_verification": "verify-email",
+            "invitation": "register",
+        }[lease.purpose]
         path = f"{parts.path.rstrip('/')}/{endpoint}"
         query = "&".join(
             part for part in (parts.query, urlencode({"token": token})) if part
@@ -111,7 +120,7 @@ class MailExecutor:
         return urlunsplit((parts.scheme, parts.netloc, path, query, parts.fragment))
 
     @staticmethod
-    def _message(lease: MailLease, token: str, sender: str) -> EmailMessage:
+    def _message(lease: MailWorkItem, token: str, sender: str) -> EmailMessage:
         if any(character in lease.email for character in "\r\n\x00"):
             raise ValueError("Invalid recipient")
         url = MailExecutor._link(lease, token)
@@ -127,13 +136,32 @@ class MailExecutor:
                 f"{url}\n\n"
                 "如果你没有发起此请求，请忽略此邮件。你的密码不会因此改变。\n"
             )
-        else:
+        elif lease.purpose == "email_verification":
             message["Subject"] = "[AI 标注平台] 验证你的邮箱"
             message.set_content(
                 "欢迎注册 AI 标注平台！\n\n"
                 "请点击以下链接验证你的邮箱（24 小时内有效）：\n"
                 f"{url}\n\n"
                 "如果你没有注册本平台，请忽略此邮件。\n"
+            )
+        else:
+            assert isinstance(lease, InvitationMailV2Lease)
+            target = (
+                f"项目「{lease.project_name}」" if lease.project_name else "AI 标注平台"
+            )
+            role_line = (
+                f"项目角色：{lease.project_member_role}\n"
+                if lease.project_member_role
+                else ""
+            )
+            expiry_line = f"链接有效期至：{lease.expires_at.astimezone().isoformat()}\n"
+            message["Subject"] = "[AI 标注平台] 你有一份新的邀请"
+            message.set_content(
+                f"你收到一份加入 {target} 的邀请。\n\n"
+                f"{role_line}{expiry_line}"
+                "请点击以下链接接受邀请：\n"
+                f"{url}\n\n"
+                "如果你不认识邀请人，请忽略此邮件。\n"
             )
         return message
 
@@ -184,7 +212,7 @@ class MailExecutor:
         except (AttributeError, TypeError, ValueError):
             return "unknown", "transport_failed"
 
-    async def _renew(self, lease: MailLease, timeout: float) -> bool:
+    async def _renew(self, lease: MailWorkItem, timeout: float) -> bool:
         try:
             async with asyncio.timeout(timeout):
                 return await self.data.renew_mail(lease)
@@ -192,7 +220,7 @@ class MailExecutor:
             return False
 
     async def _send_with_renewal(
-        self, lease: MailLease, policy: MailDeliveryPolicy, message: EmailMessage
+        self, lease: MailWorkItem, policy: MailDeliveryPolicy, message: EmailMessage
     ) -> tuple[tuple[str, str] | None, bool]:
         remaining = (lease.lease_expires_at - datetime.now(UTC)).total_seconds()
         if remaining <= 0:
@@ -229,7 +257,7 @@ class MailExecutor:
 
     async def _finish(
         self,
-        lease: MailLease,
+        lease: MailWorkItem,
         outcome: str,
         reason: str,
     ) -> bool:
@@ -244,7 +272,7 @@ class MailExecutor:
     @staticmethod
     def _summary(
         state: str,
-        lease: MailLease | None = None,
+        lease: MailWorkItem | None = None,
         *,
         outcome=None,
         reason=None,
