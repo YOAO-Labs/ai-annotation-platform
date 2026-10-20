@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.task import Task
 from app.db.models.task_lock import TaskLock
-from app.db.models.user import User
+from app.services.identity_account_lock_data import IdentityAccountLockData
 
 # 退出重进时 acquire 与 release(DELETE)/并发 acquire 会在 task_locks 上交错加锁，
 # Postgres 可能判定死锁(40P01) / 序列化失败(40001)。死锁会 abort 整个事务，
@@ -33,17 +33,20 @@ async def assert_task_user_active(
 ) -> bool:
     """Serialize task acquisition with account suspension.
 
-    The shared read lock is acquired before the per-task advisory lock. User
-    offboarding takes the matching User write lock before locking task rows, so
+    The shared account read lock is acquired before the per-task advisory lock.
+    Identity offboarding takes the matching account write lock before task rows, so
     a request that passed authentication before suspension either commits its
     task operation first or observes the inactive account and stops.
     """
 
-    stmt = select(User.is_active).where(User.id == user_id)
     if lock:
-        stmt = stmt.with_for_update(read=True)
-    active = (await db.execute(stmt)).scalar_one_or_none()
-    return bool(active)
+        accounts = await IdentityAccountLockData(db).lock_accounts(
+            [user_id], mode="share", nowait=False
+        )
+        actor = accounts.get(user_id)
+    else:
+        actor = await IdentityAccountLockData(db).read_actor_status(user_id)
+    return actor is not None and actor.is_active
 
 
 def _is_retryable_db_error(exc: DBAPIError) -> bool:

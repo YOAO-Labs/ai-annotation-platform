@@ -36,7 +36,7 @@ from app.services.task_creation_contract import (
     ProjectManagerFacts,
     decode_creation_reply,
 )
-from app.services.identity_contracts import IdentityActorFacts
+from app.services.identity_contracts import IdentityActorFacts, IdentityActorStatus
 from app.services.identity_account_lock_data import IdentityAccountLockData
 
 
@@ -74,7 +74,7 @@ def assert_membership_role_compatible(platform_role: str, project_role: str) -> 
 
 def _manager_access(
     *,
-    user: User | IdentityActorFacts,
+    user: User | IdentityActorFacts | IdentityActorStatus,
     project: Project,
     access_kind: str,
     is_super_admin: bool,
@@ -104,7 +104,7 @@ def _invalid_account() -> HTTPException:
 
 
 def is_privileged_for_project(
-    user: User | IdentityActorFacts, project: Project
+    user: User | IdentityActorFacts | IdentityActorStatus, project: Project
 ) -> bool:
     """An active super administrator or a project owner with an admin role."""
 
@@ -141,23 +141,21 @@ async def resolve_project_access(
         )
         return access
 
-    fresh_user = await db.get(User, actor_id, populate_existing=True)
-    if fresh_user is None or not fresh_user.is_active:
+    actor = await IdentityAccountLockData(db).read_actor_status(actor_id)
+    if actor is None or not actor.is_active:
         raise _invalid_account()
     fresh_project = await db.get(Project, project.id, populate_existing=True)
     if fresh_project is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="项目不存在")
-    user, project = fresh_user, fresh_project
-
     return await _resolve_current_project_access(
-        db, user=user, project=project, lock_membership=lock_membership
+        db, user=actor, project=fresh_project, lock_membership=lock_membership
     )
 
 
 async def _resolve_current_project_access(
     db: AsyncSession,
     *,
-    user: User | IdentityActorFacts,
+    user: User | IdentityActorFacts | IdentityActorStatus,
     project: Project,
     lock_membership: bool,
     nowait: bool = False,

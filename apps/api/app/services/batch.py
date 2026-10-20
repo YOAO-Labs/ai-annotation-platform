@@ -17,7 +17,6 @@ from app.db.models.task_batch import TaskBatch
 from app.db.models.task_lock import TaskLock
 from app.db.models.dataset import DatasetItem
 from app.db.models.project import Project
-from app.db.models.user import User
 from app.schemas.batch import BatchCreate, BatchUpdate, BatchSplitRequest
 from app.services.display_id import next_display_id
 from app.services.progress import (
@@ -29,6 +28,7 @@ from app.services.labeling_scene import resolve_task_scene_frames
 from app.services.labeling_write_scope import LabelingBatchWriteScope
 from app.services.labeling_write_guard import lock_labeling_batch_write
 from app.services.task_lock import TaskLockService
+from app.services.identity_account_lock_data import IdentityAccountLockData
 
 # v0.16.x 拆分：角色权限守卫已抽到 batch_permissions.py，此处冗余别名 re-export，
 # 保持 `from app.services.batch import assert_can_transition/REVERSE_TRANSITIONS/...` 旧入口不变。
@@ -87,7 +87,7 @@ class BatchService:
     ) -> None:
         """Lock and validate every user that will receive batch work.
 
-        User rows are locked before any batch or task row in all assignment
+        Account rows are locked before any batch or task row in all assignment
         paths. Offboarding uses nonblocking locks and either retries a busy
         account or completes before this method rechecks its state. Membership is
         checked separately because the member role is part of the assignment
@@ -97,20 +97,9 @@ class BatchService:
             return
 
         target_ids = sorted({user_id for _, user_id in targets})
-        users = (
-            (
-                await self.db.execute(
-                    select(User)
-                    .where(User.id.in_(target_ids))
-                    .order_by(User.id)
-                    .with_for_update(read=True)
-                    .execution_options(populate_existing=True)
-                )
-            )
-            .scalars()
-            .all()
+        users_by_id = await IdentityAccountLockData(self.db).lock_accounts(
+            target_ids, mode="share", nowait=False
         )
-        users_by_id = {user.id: user for user in users}
 
         members = (
             (
@@ -1219,7 +1208,6 @@ class BatchService:
         from sqlalchemy.exc import DBAPIError
 
         from app.db.models.project import Project
-        from app.db.models.user import User
         from app.services.annotation_evidence import lock_tasks_for_evidence
         from app.services.workspace_contract import ProjectCapability
         from app.services.project_access import resolve_project_access
@@ -1233,9 +1221,6 @@ class BatchService:
         if not batch_ids:
             return {}
         if not await assert_task_user_active(self.db, actor_id):
-            raise HTTPException(status_code=401, detail="账号已停用")
-        actor = await self.db.get(User, actor_id, populate_existing=True)
-        if actor is None:
             raise HTTPException(status_code=401, detail="账号已停用")
 
         project_ids_stmt = (
@@ -1273,7 +1258,7 @@ class BatchService:
             if project is None:
                 raise HTTPException(status_code=404, detail="Batch not found")
             access = await resolve_project_access(
-                self.db, actor_id=actor.id, project=project, lock_membership=True
+                self.db, actor_id=actor_id, project=project, lock_membership=True
             )
             if not (
                 access.is_manager or access.has(ProjectCapability.REVIEW_WRITE.value)

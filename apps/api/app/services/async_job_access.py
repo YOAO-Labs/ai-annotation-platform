@@ -8,8 +8,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.enums import PlatformRole, ProjectRole
 from app.db.models.async_job import AsyncJob, AsyncJobKind
 from app.db.models.project import Project
-from app.db.models.user import User
 from app.services import task_access
+from app.services.identity_account_lock_data import IdentityAccountLockData
 from app.services.workspace_contract import ProjectCapability
 from app.services.project_access import resolve_project_access
 
@@ -27,8 +27,8 @@ async def _can_access_job(
     job = await db.get(AsyncJob, job.id, populate_existing=True)
     if job is None:
         return False
-    user = await db.get(User, actor_id, populate_existing=True)
-    if user is None or not user.is_active:
+    actor = await IdentityAccountLockData(db).read_actor_status(actor_id)
+    if actor is None or not actor.is_active:
         return False
     project_id = job.project_id or job.retained_project_id
     if project_id is None:
@@ -36,16 +36,16 @@ async def _can_access_job(
             return False
         if job.kind not in GLOBAL_ASYNC_JOB_KINDS:
             return False
-        if user.role == PlatformRole.SUPER_ADMIN.value:
+        if actor.role == PlatformRole.SUPER_ADMIN.value:
             return True
-        return job.user_id == user.id
+        return job.user_id == actor.id
     project = await db.get(Project, project_id, populate_existing=True)
     if project is None:
         return False
-    if user.role == PlatformRole.SUPER_ADMIN.value:
+    if actor.role == PlatformRole.SUPER_ADMIN.value:
         return True
     try:
-        access = await resolve_project_access(db, actor_id=user.id, project=project)
+        access = await resolve_project_access(db, actor_id=actor.id, project=project)
     except HTTPException:
         return False
     if access.is_manager:
@@ -55,7 +55,7 @@ async def _can_access_job(
         and ProjectCapability.EXPORT_ANNOTATIONS.value not in access.capabilities
     ):
         return False
-    if job.user_id == user.id:
+    if job.user_id == actor.id:
         return True
     if job.kind not in {"mask_qc", "point_cloud_quality"}:
         return False
@@ -68,6 +68,6 @@ async def _can_access_job(
         return False
     if not task_ids:
         return False
-    return await task_access.visible_task_ids(db, project, user.id, task_ids) == set(
+    return await task_access.visible_task_ids(db, project, actor.id, task_ids) == set(
         task_ids
     )
