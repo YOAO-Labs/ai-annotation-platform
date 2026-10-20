@@ -158,6 +158,7 @@ async def _start_container_identity(
     enable_directory=False,
     enable_admin_password=False,
     enable_platform_role=False,
+    enable_briefs=False,
     enable_suspension=False,
     enable_deactivation=False,
     enable_deactivation_operator=False,
@@ -203,6 +204,7 @@ async def _start_container_identity(
             "PLATFORM_ROLE",
             "IDENTITY_PLATFORM_ROLE_DATABASE_URL",
         ),
+        (enable_briefs, "BRIEFS", "IDENTITY_BRIEFS_DATABASE_URL"),
         (enable_suspension, "SUSPENSION", "IDENTITY_SUSPENSION_DATABASE_URL"),
         (enable_deactivation, "DEACTIVATION", "IDENTITY_DEACTIVATION_DATABASE_URL"),
         (
@@ -351,6 +353,7 @@ def _start_identity(
     enable_directory=False,
     enable_admin_password=False,
     enable_platform_role=False,
+    enable_briefs=False,
     enable_suspension=False,
     enable_deactivation=False,
     enable_deactivation_operator=False,
@@ -385,6 +388,8 @@ def _start_identity(
         values["admin_password_database_url"] = _dsn("ADMIN_PASSWORD", test_engine)
     if enable_platform_role:
         values["platform_role_database_url"] = _dsn("PLATFORM_ROLE", test_engine)
+    if enable_briefs:
+        values["briefs_database_url"] = _dsn("BRIEFS", test_engine)
     if enable_suspension:
         values["suspension_database_url"] = _dsn("SUSPENSION", test_engine)
     if enable_deactivation:
@@ -456,6 +461,8 @@ def _start_api(
             "IDENTITY_ADMIN_PASSWORD_DATABASE_URL_FILE": "",
             "IDENTITY_PLATFORM_ROLE_DATABASE_URL": "",
             "IDENTITY_PLATFORM_ROLE_DATABASE_URL_FILE": "",
+            "IDENTITY_BRIEFS_DATABASE_URL": "",
+            "IDENTITY_BRIEFS_DATABASE_URL_FILE": "",
             "IDENTITY_SUSPENSION_DATABASE_URL": "",
             "IDENTITY_SUSPENSION_DATABASE_URL_FILE": "",
             "IDENTITY_DEACTIVATION_DATABASE_URL": "",
