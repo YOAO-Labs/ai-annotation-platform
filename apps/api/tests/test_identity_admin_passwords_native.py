@@ -148,6 +148,7 @@ async def _add_target(test_engine, *, role: str = "viewer") -> tuple[uuid.UUID, 
                 is_active=True,
             )
         )
+        await session.flush()
         session.add(
             ApiKey(
                 id=key_id,
@@ -521,6 +522,7 @@ async def test_project_admin_preserves_employee_exception_and_owned_member_scope
     try:
         async with maker.begin() as session:
             session.add(project)
+            await session.flush()
             session.add(
                 ProjectMember(
                     id=uuid.uuid4(),
