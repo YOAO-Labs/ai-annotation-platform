@@ -377,6 +377,7 @@ name = "aap-workspace"
 version = "0.1.0"
 source = { editable = "../workspace" }
 dependencies = [
+    { name = "aap-inference" },
     { name = "aap-workspace-contract" },
     { name = "pydantic" },
 ]
@@ -384,15 +385,19 @@ dependencies = [
 [package.optional-dependencies]
 postgres = [
     { name = "asyncpg" },
+    { name = "httpx" },
 ]
 
 [package.metadata]
 requires-dist = [
+    { name = "aap-inference", editable = "../inference" },
     { name = "aap-workspace-contract", editable = "../_shared/workspace_contract" },
     { name = "asyncpg", marker = "extra == 'postgres'", specifier = ">=0.29" },
     { name = "asyncpg", marker = "extra == 'runtime'", specifier = ">=0.29" },
     { name = "fastapi", marker = "extra == 'runtime'", specifier = ">=0.115" },
     { name = "httpx", marker = "extra == 'client'", specifier = ">=0.27" },
+    { name = "httpx", marker = "extra == 'postgres'", specifier = ">=0.28" },
+    { name = "httpx", marker = "extra == 'runtime'", specifier = ">=0.28" },
     { name = "httpx", marker = "extra == 'test'", specifier = ">=0.27" },
     { name = "pydantic", specifier = ">=2.10" },
     { name = "pydantic-settings", marker = "extra == 'runtime'", specifier = ">=2.6" },

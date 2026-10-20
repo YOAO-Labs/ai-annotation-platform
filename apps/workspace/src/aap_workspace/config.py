@@ -25,6 +25,12 @@ class RuntimeSettings(BaseSettings):
     membership_database_url_file: str = ""
     owner_transfer_database_url: SecretStr | None = Field(default=None, repr=False)
     owner_transfer_database_url_file: str = ""
+    configuration_database_url: SecretStr | None = Field(default=None, repr=False)
+    configuration_database_url_file: str = ""
+    configuration_setup_timeout_seconds: float = Field(default=10, gt=0)
+    configuration_video_segment_size_frames: int = Field(default=18000, ge=1)
+    configuration_video_tracker_window_size_frames: int = Field(default=300, ge=1)
+    configuration_video_tracker_sam3_window_size_frames: int = Field(default=16, ge=1)
     membership_control_token: SecretStr | None = Field(default=None, repr=False)
     membership_control_token_file: str = ""
     host: str = "0.0.0.0"
@@ -43,6 +49,11 @@ class RuntimeSettings(BaseSettings):
     def transfer_database_url(self) -> str:
         return secret_source(
             self.owner_transfer_database_url, self.owner_transfer_database_url_file
+        )
+
+    def config_database_url(self) -> str:
+        return secret_source(
+            self.configuration_database_url, self.configuration_database_url_file
         )
 
     def control_token(self) -> str:

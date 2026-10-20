@@ -23,22 +23,38 @@ from .owner_transfer_contract import (
     decode_owner_transfer_request,
 )
 from .owner_transfer_postgres import OwnerTransferPostgresData
+from .configuration import ConfigurationManager
+from .configuration_contract import (
+    ConfigurationInvalidRequest,
+    ConfigurationUnavailable,
+    decode_configuration_request,
+)
+from .configuration_postgres import ConfigurationPostgresData
 
 
 def create_app(
-    settings: RuntimeSettings | None = None, *, data=None, owner_transfer_data=None
+    settings: RuntimeSettings | None = None,
+    *,
+    data=None,
+    owner_transfer_data=None,
+    configuration_data=None,
 ) -> FastAPI:
     settings = settings or RuntimeSettings()
     control = settings.control_token().encode("utf-8")
     transfer_dsn = settings.transfer_database_url()
+    config_dsn = settings.config_database_url()
     if owner_transfer_data is None and transfer_dsn:
         owner_transfer_data = OwnerTransferPostgresData(
             transfer_dsn, command_timeout=settings.timeout_seconds
         )
+    if configuration_data is None and config_dsn:
+        configuration_data = ConfigurationPostgresData(
+            config_dsn, command_timeout=settings.timeout_seconds
+        )
     if data is None and (
         settings.membership_database_url
         or settings.membership_database_url_file
-        or owner_transfer_data is None
+        or (owner_transfer_data is None and configuration_data is None)
     ):
         data = MembershipPostgresData(
             settings.database_url(), command_timeout=settings.timeout_seconds
@@ -64,8 +80,15 @@ def create_app(
                         await data.membership_policy()
                     if owner_transfer_data is not None:
                         await owner_transfer_data.owner_transfer_policy()
+                    if configuration_data is not None:
+                        await configuration_data.configuration_policy()
             return {"status": "ready"}
-        except (MembershipUnavailable, OwnerTransferUnavailable, TimeoutError):
+        except (
+            MembershipUnavailable,
+            OwnerTransferUnavailable,
+            ConfigurationUnavailable,
+            TimeoutError,
+        ):
             return JSONResponse({"detail": "Workspace unavailable"}, status_code=503)
 
     def register_command(path, decoder, manager, binding, invalid, unavailable, label):
@@ -128,5 +151,32 @@ def create_app(
         OwnerTransferInvalidRequest,
         OwnerTransferUnavailable,
         "owner transfer",
+    )
+
+    def configuration_manager(binding):
+        from aap_inference.capabilities import CapabilityLimits
+
+        return ConfigurationManager(
+            binding,
+            setup_timeout=settings.configuration_setup_timeout_seconds,
+            video_segment_size_frames=settings.configuration_video_segment_size_frames,
+            capability_limits=CapabilityLimits(
+                video_tracker_window_size_frames=(
+                    settings.configuration_video_tracker_window_size_frames
+                ),
+                video_tracker_sam3_window_size_frames=(
+                    settings.configuration_video_tracker_sam3_window_size_frames
+                ),
+            ),
+        )
+
+    register_command(
+        "/v1/workspace/configuration/execute",
+        decode_configuration_request,
+        configuration_manager,
+        configuration_data,
+        ConfigurationInvalidRequest,
+        ConfigurationUnavailable,
+        "configuration",
     )
     return app

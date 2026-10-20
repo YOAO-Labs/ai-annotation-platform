@@ -99,11 +99,11 @@ BEGIN
     END IF;
 END $$;
 
-REVOKE ALL ON SCHEMA aap_identity_v1, aap_identity_keys_v1, aap_identity_sessions_v1, aap_identity_accounts_v1, aap_identity_recovery_v1, aap_identity_groups_v1, aap_identity_deactivation_v1, aap_identity_invitations_v1, aap_identity_mail_v2, aap_identity_directory_v1, aap_identity_admin_passwords_v1, aap_identity_platform_roles_v1, aap_identity_suspensions_v1, aap_identity_deletions_v1, aap_identity_offboarding_v1, aap_identity_briefs_v1, aap_workspace_owner_transfer_v1, aap_workspace_membership_v1, aap_workspace_v1, aap_assets_v1,
+REVOKE ALL ON SCHEMA aap_identity_v1, aap_identity_keys_v1, aap_identity_sessions_v1, aap_identity_accounts_v1, aap_identity_recovery_v1, aap_identity_groups_v1, aap_identity_deactivation_v1, aap_identity_invitations_v1, aap_identity_mail_v2, aap_identity_directory_v1, aap_identity_admin_passwords_v1, aap_identity_platform_roles_v1, aap_identity_suspensions_v1, aap_identity_deletions_v1, aap_identity_offboarding_v1, aap_identity_briefs_v1, aap_workspace_owner_transfer_v1, aap_workspace_configuration_v1, aap_workspace_membership_v1, aap_workspace_v1, aap_assets_v1,
     aap_labeling_v1, aap_jobs_v1, aap_learning_v1, aap_inference_v1,
     aap_insights_v1, aap_diagnostics_v1, aap_export_v1, aap_audit_v1, aap_settings_v1, aap_notifications_v1 FROM PUBLIC;
 REVOKE ALL ON ALL FUNCTIONS IN SCHEMA aap_identity_v1, aap_workspace_v1,
-    aap_identity_keys_v1, aap_identity_sessions_v1, aap_identity_accounts_v1, aap_identity_recovery_v1, aap_identity_groups_v1, aap_identity_deactivation_v1, aap_identity_invitations_v1, aap_identity_mail_v2, aap_identity_directory_v1, aap_identity_admin_passwords_v1, aap_identity_platform_roles_v1, aap_identity_suspensions_v1, aap_identity_deletions_v1, aap_identity_offboarding_v1, aap_identity_briefs_v1, aap_workspace_owner_transfer_v1, aap_workspace_membership_v1, aap_assets_v1, aap_labeling_v1, aap_jobs_v1, aap_learning_v1,
+    aap_identity_keys_v1, aap_identity_sessions_v1, aap_identity_accounts_v1, aap_identity_recovery_v1, aap_identity_groups_v1, aap_identity_deactivation_v1, aap_identity_invitations_v1, aap_identity_mail_v2, aap_identity_directory_v1, aap_identity_admin_passwords_v1, aap_identity_platform_roles_v1, aap_identity_suspensions_v1, aap_identity_deletions_v1, aap_identity_offboarding_v1, aap_identity_briefs_v1, aap_workspace_owner_transfer_v1, aap_workspace_configuration_v1, aap_workspace_membership_v1, aap_assets_v1, aap_labeling_v1, aap_jobs_v1, aap_learning_v1,
     aap_inference_v1, aap_insights_v1, aap_diagnostics_v1, aap_export_v1,
     aap_audit_v1, aap_settings_v1, aap_notifications_v1 FROM PUBLIC;
 REVOKE ALL ON SCHEMA aap_identity_v1, aap_identity_keys_v1, aap_identity_sessions_v1, aap_identity_accounts_v1, aap_identity_recovery_v1, aap_identity_groups_v1, aap_identity_deactivation_v1, aap_identity_invitations_v1, aap_identity_mail_v2, aap_identity_directory_v1, aap_identity_admin_passwords_v1, aap_identity_platform_roles_v1, aap_identity_suspensions_v1, aap_identity_deletions_v1, aap_identity_offboarding_v1, aap_identity_briefs_v1, aap_workspace_v1, aap_assets_v1,
@@ -318,6 +318,57 @@ GRANT SELECT (
     created_at, updated_at
 ) ON public.projects TO :"workspace_owner";
 GRANT UPDATE (owner_id, updated_at) ON public.projects TO :"workspace_owner";
+GRANT SELECT (ml_backend_pool_id) ON public.projects TO :"workspace_owner";
+GRANT INSERT (
+    id, display_id, name, type_label, type_key, data_type, owner_id, status,
+    ai_enabled, due_date, sampling, maximum_annotations, show_overlap_first,
+    iou_dedup_threshold, box_threshold, text_threshold, ai_interactive_enabled,
+    raster_mask_native_editing_enabled, mask_qc_config, point_cloud_quality_config,
+    rendering_config, annotation_guide, guide_assets, video_sampling,
+    video_collaboration, scene_mode, prefer_same_scene_continuation,
+    scene_continuation_window_min, default_variants, preannotate_pipeline,
+    tool_bindings, label_config
+) ON public.projects TO :"workspace_owner";
+GRANT UPDATE (
+    name, type_label, type_key, data_type, status, ai_enabled, due_date,
+    sampling, maximum_annotations, show_overlap_first, iou_dedup_threshold,
+    box_threshold, text_threshold, ai_interactive_enabled,
+    raster_mask_native_editing_enabled, mask_qc_config, point_cloud_quality_config,
+    rendering_config, annotation_guide, guide_assets, video_sampling,
+    video_collaboration, scene_mode, prefer_same_scene_continuation,
+    scene_continuation_window_min, default_variants, preannotate_pipeline,
+    tool_bindings, label_config, ml_backend_pool_id
+) ON public.projects TO :"workspace_owner";
+GRANT SELECT (
+    id, display_id, name, description, type_label, type_key, data_type,
+    tool_bindings, label_config, ai_enabled, sampling, maximum_annotations,
+    show_overlap_first, iou_dedup_threshold, box_threshold, text_threshold,
+    rendering_config, annotation_guide, scope, organization_id, created_by,
+    source_project_id, usage_count, created_at, updated_at
+), INSERT (
+    id, display_id, name, description, type_label, type_key, data_type,
+    tool_bindings, label_config, ai_enabled, sampling, maximum_annotations,
+    show_overlap_first, iou_dedup_threshold, box_threshold, text_threshold,
+    rendering_config, annotation_guide, scope, organization_id, created_by,
+    source_project_id
+), UPDATE (
+    name, description, type_label, type_key, data_type, tool_bindings,
+    label_config, ai_enabled, sampling, maximum_annotations, show_overlap_first,
+    iou_dedup_threshold, box_threshold, text_threshold, rendering_config,
+    annotation_guide, scope, organization_id, usage_count, updated_at
+), DELETE ON public.project_templates TO :"workspace_owner";
+GRANT USAGE ON SEQUENCE public.display_seq_projects,
+    public.display_seq_project_templates TO :"workspace_owner";
+GRANT SELECT, INSERT, UPDATE, DELETE
+    ON public.workspace_configuration_operation_states,
+       public.workspace_configuration_operation_attempts TO :"workspace_owner";
+GRANT SELECT (
+    operation_id, actor_id, operation, target_id, request_hash, result, selectors,
+    frozen_scope, frozen_organization_id, frozen_creator_id, created_at
+), INSERT (
+    operation_id, actor_id, operation, target_id, request_hash, result, selectors,
+    frozen_scope, frozen_organization_id, frozen_creator_id
+) ON public.workspace_configuration_operation_receipts TO :"workspace_owner";
 GRANT SELECT (id, project_id, user_id, role), INSERT (id, project_id, user_id, role, assigned_by),
     UPDATE (id), DELETE
     ON public.project_members TO :"workspace_owner";
@@ -744,9 +795,11 @@ GRANT SELECT (project_id), DELETE ON public.project_ml_backend_pool,
     public.project_pipelines TO :"inference_owner";
 GRANT SELECT (registry_id, pool_id) ON public.ml_backend_pool_members
     TO :"inference_owner";
-GRANT SELECT (id, enabled, routing_generation),
+GRANT SELECT (id, enabled, routing_generation, legacy_instance_id),
     UPDATE (enabled, routing_generation, updated_at)
     ON public.ml_backend_service_pools TO :"inference_owner";
+GRANT SELECT (id, url, auth_method, auth_token, extra_params)
+    ON public.ml_backend_registry TO :"inference_owner";
 GRANT SELECT (id, pool_id, enabled), INSERT (id, project_id, pool_id, enabled),
     UPDATE (enabled, updated_at)
     ON public.project_ml_backend_pool TO :"inference_owner";
@@ -781,6 +834,11 @@ GRANT USAGE ON SCHEMA aap_jobs_v1 TO :"jobs_owner", :"labeling_owner",
 GRANT USAGE ON SCHEMA aap_learning_v1
     TO :"learning_owner", :"workspace_owner", :"assets_owner";
 GRANT USAGE ON SCHEMA aap_inference_v1 TO :"inference_owner", :"workspace_owner";
+GRANT USAGE ON SCHEMA aap_workspace_configuration_v1 TO :"workspace_owner";
+GRANT EXECUTE ON FUNCTION
+    aap_workspace_configuration_v1.configuration_policy(),
+    aap_workspace_configuration_v1.configuration_step(jsonb, text, jsonb, text[], text[])
+    TO :"workspace_owner";
 GRANT USAGE ON SCHEMA aap_insights_v1 TO :"insights_owner", :"workspace_owner";
 GRANT USAGE ON SCHEMA aap_diagnostics_v1
     TO :"diagnostics_owner", :"workspace_owner";
@@ -863,6 +921,20 @@ GRANT EXECUTE ON FUNCTION
     aap_labeling_v1.workspace_configuration_video_facts(uuid),
     aap_inference_v1.enable_workspace_project_backend(uuid, uuid)
     TO :"workspace_owner";
+GRANT EXECUTE ON FUNCTION
+    aap_assets_v1.workspace_configuration_dataset_rows(uuid),
+    aap_assets_v1.workspace_configuration_dataset_scenes(uuid),
+    aap_assets_v1.read_media_summaries(uuid[]),
+    aap_labeling_v1.workspace_configuration_task_count(uuid),
+    aap_labeling_v1.workspace_configuration_annotation_count(uuid),
+    aap_labeling_v1.workspace_configuration_tracker_count(uuid),
+    aap_labeling_v1.workspace_configuration_video_items(uuid),
+    aap_inference_v1.workspace_configuration_source_pool(uuid),
+    aap_inference_v1.workspace_configuration_backend(uuid)
+    TO :"workspace_owner";
+GRANT EXECUTE ON FUNCTION
+    aap_assets_v1.workspace_configuration_existing_item_ids(uuid[])
+    TO :"labeling_owner";
 GRANT EXECUTE ON FUNCTION
     aap_labeling_v1.read_membership_work(uuid, uuid, uuid, uuid),
     aap_labeling_v1.lock_membership_work(uuid, uuid, text, boolean),
@@ -1537,6 +1609,32 @@ ALTER FUNCTION aap_workspace_owner_transfer_v1.owner_transfer_policy()
 ALTER FUNCTION aap_workspace_owner_transfer_v1.transfer_project_owner(jsonb)
     OWNER TO :"workspace_owner";
 REVOKE CREATE ON SCHEMA aap_workspace_owner_transfer_v1 FROM :"workspace_owner";
+GRANT CREATE ON SCHEMA aap_workspace_configuration_v1 TO :"workspace_owner";
+ALTER FUNCTION aap_workspace_configuration_v1.configuration_policy()
+    OWNER TO :"workspace_owner";
+ALTER FUNCTION aap_workspace_configuration_v1.configuration_step(jsonb, text, jsonb, text[], text[])
+    OWNER TO :"workspace_owner";
+ALTER FUNCTION aap_workspace_configuration_v1._step_success(jsonb, text, jsonb)
+    OWNER TO :"workspace_owner";
+ALTER FUNCTION aap_workspace_configuration_v1._step_failure(jsonb, text, integer, jsonb, jsonb, boolean)
+    OWNER TO :"workspace_owner";
+ALTER FUNCTION aap_workspace_configuration_v1._has_exact_keys(jsonb, text[])
+    OWNER TO :"workspace_owner";
+ALTER FUNCTION aap_workspace_configuration_v1._configuration_actor(uuid, boolean, text)
+    OWNER TO :"workspace_owner";
+ALTER FUNCTION aap_workspace_configuration_v1._configuration_project_snapshot(uuid, text)
+    OWNER TO :"workspace_owner";
+ALTER FUNCTION aap_workspace_configuration_v1._configuration_project_access(jsonb, jsonb, boolean)
+    OWNER TO :"workspace_owner";
+ALTER FUNCTION aap_workspace_configuration_v1._configuration_template_snapshot(uuid, boolean)
+    OWNER TO :"workspace_owner";
+ALTER FUNCTION aap_workspace_configuration_v1._configuration_template_visible(jsonb, jsonb)
+    OWNER TO :"workspace_owner";
+ALTER FUNCTION aap_workspace_configuration_v1._guard_unfinished_attempt()
+    OWNER TO :"workspace_owner";
+ALTER FUNCTION aap_workspace_configuration_v1._cleanup_unwritten_state()
+    OWNER TO :"workspace_owner";
+REVOKE CREATE ON SCHEMA aap_workspace_configuration_v1 FROM :"workspace_owner";
 ALTER FUNCTION aap_identity_v1.read_workspace_membership_accounts(uuid[])
     OWNER TO :"identity_owner";
 ALTER FUNCTION aap_audit_v1.record_workspace_membership_event(
@@ -1607,6 +1705,12 @@ ALTER FUNCTION aap_assets_v1.list_dataset_projects(uuid, uuid)
 ALTER FUNCTION aap_assets_v1.list_project_datasets(uuid, uuid)
     OWNER TO :"assets_owner";
 ALTER FUNCTION aap_assets_v1.workspace_configuration_datasets(uuid)
+    OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1.workspace_configuration_dataset_rows(uuid)
+    OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1.workspace_configuration_dataset_scenes(uuid)
+    OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1.workspace_configuration_existing_item_ids(uuid[])
     OWNER TO :"assets_owner";
 ALTER VIEW aap_assets_v1.project_dataset_item_sources OWNER TO :"assets_owner";
 ALTER FUNCTION aap_assets_v1.lock_dataset_reference(uuid) OWNER TO :"assets_owner";
@@ -1736,6 +1840,14 @@ ALTER FUNCTION aap_labeling_v1.detach_deleted_dataset_attribution(uuid)
 ALTER FUNCTION aap_labeling_v1.project_dataset_task_counts(uuid)
     OWNER TO :"labeling_owner";
 ALTER FUNCTION aap_labeling_v1.workspace_configuration_video_facts(uuid)
+    OWNER TO :"labeling_owner";
+ALTER FUNCTION aap_labeling_v1.workspace_configuration_task_count(uuid)
+    OWNER TO :"labeling_owner";
+ALTER FUNCTION aap_labeling_v1.workspace_configuration_annotation_count(uuid)
+    OWNER TO :"labeling_owner";
+ALTER FUNCTION aap_labeling_v1.workspace_configuration_tracker_count(uuid)
+    OWNER TO :"labeling_owner";
+ALTER FUNCTION aap_labeling_v1.workspace_configuration_video_items(uuid)
     OWNER TO :"labeling_owner";
 ALTER VIEW aap_labeling_v1.project_catalog_counters OWNER TO :"labeling_owner";
 DO $$
@@ -1878,6 +1990,10 @@ ALTER FUNCTION aap_inference_v1.clear_project_ml_backend_pool(uuid)
 ALTER FUNCTION aap_inference_v1.clear_project_pipelines(uuid)
     OWNER TO :"inference_owner";
 ALTER FUNCTION aap_inference_v1.enable_workspace_project_backend(uuid, uuid)
+    OWNER TO :"inference_owner";
+ALTER FUNCTION aap_inference_v1.workspace_configuration_source_pool(uuid)
+    OWNER TO :"inference_owner";
+ALTER FUNCTION aap_inference_v1.workspace_configuration_backend(uuid)
     OWNER TO :"inference_owner";
 REVOKE CREATE ON SCHEMA aap_inference_v1 FROM :"inference_owner";
 

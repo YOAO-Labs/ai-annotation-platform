@@ -116,15 +116,20 @@ async def validate_project_collaboration_update(
 
     item_result = await step("video_items", {})
     item_ids = list(item_result["dataset_item_ids"])
-    media_result = await step("video_media", {"item_ids": item_ids})
-    summaries = media_result["summaries"]
+    summaries = {}
+    for offset in range(0, len(item_ids), 500):
+        media_result = await step(
+            "video_media", {"item_ids": item_ids[offset : offset + 500]}
+        )
+        summaries.update(media_result["summaries"])
+    # Missing sources precede pending metadata and sampling failures, even when
+    # an earlier item in the input list has one of those conditions.
+    if any(not _summary_for(summaries, item_id)[0] for item_id in item_ids):
+        raise ConfigurationPolicyError(
+            503, {"reason": "video_media_summary_unavailable"}
+        )
     for item_id in item_ids:
-        found, metadata = _summary_for(summaries, item_id)
-        if not found:
-            raise ConfigurationPolicyError(
-                503,
-                {"reason": "video_media_summary_unavailable"},
-            )
+        _, metadata = _summary_for(summaries, item_id)
         if metadata is None:
             raise ConfigurationPolicyError(
                 503,

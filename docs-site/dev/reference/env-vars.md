@@ -729,6 +729,10 @@ last_reviewed: 2026-10-21
 | `WORKSPACE_OWNER_TRANSFER_URL` | `—` | 转移命令复用上面的 control token 和 timeout；默认借用 caller transaction 且不提交。 |
 | `WORKSPACE_OWNER_TRANSFER_DATABASE_URL` | `—` | — |
 | `WORKSPACE_OWNER_TRANSFER_DATABASE_URL_FILE` | `—` | — |
+| `WORKSPACE_CONFIGURATION_URL` | `—` | Project/template configuration writes: empty selects the caller transaction. Select URL or DSN, never both. Remote failures do not select another writer. |
+| `WORKSPACE_CONFIGURATION_DATABASE_URL` | `—` | — |
+| `WORKSPACE_CONFIGURATION_DATABASE_URL_FILE` | `—` | — |
+| `WORKSPACE_CONFIGURATION_TIMEOUT_SECONDS` | `30` | — |
 | `WORKSPACE_RUNTIME_MEMBERSHIP_DATABASE_URL_FILE` | `—` | 独立 Compose runtime 的宿主 secret-file selectors，容器内映射为上面的数据库与控制 token 配置。 |
 | `WORKSPACE_RUNTIME_OWNER_TRANSFER_DATABASE_URL_FILE` | `—` | — |
 | `WORKSPACE_RUNTIME_CONTROL_TOKEN_FILE` | `—` | — |

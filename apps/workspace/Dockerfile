@@ -3,6 +3,9 @@ RUN python -m pip install --no-cache-dir uv==0.11.29
 ENV UV_PROJECT_ENVIRONMENT=/opt/venv UV_COMPILE_BYTECODE=1 UV_PYTHON_DOWNLOADS=never
 WORKDIR /build
 COPY apps/_shared/workspace_contract /_shared/workspace_contract
+COPY apps/_shared/task_contract /_shared/task_contract
+COPY apps/_shared/protocol_v2 /_shared/protocol_v2
+COPY apps/inference /inference
 COPY apps/workspace/pyproject.toml apps/workspace/uv.lock ./
 RUN uv sync --frozen --no-dev --extra runtime --no-install-project
 COPY apps/workspace/src ./src

@@ -7,16 +7,18 @@ name = "aap-workspace"
 version = "0.1.0"
 description = "Portable Workspace membership, owner-transfer and configuration values/policy"
 requires-python = ">=3.11"
-dependencies = ["aap-workspace-contract", "pydantic>=2.10"]
+dependencies = ["aap-workspace-contract", "aap-inference", "pydantic>=2.10"]
 
 [tool.uv.sources]
 aap-workspace-contract = { path = "../_shared/workspace_contract", editable = true }
+aap-inference = { path = "../inference", editable = true }
 
 [project.optional-dependencies]
-postgres = ["asyncpg>=0.29"]
+postgres = ["asyncpg>=0.29", "httpx>=0.28"]
 runtime = [
     "asyncpg>=0.29",
     "fastapi>=0.115",
+    "httpx>=0.28",
     "pydantic-settings>=2.6",
     "uvicorn>=0.30",
 ]
@@ -30,6 +32,7 @@ where = ["src"]
 aap_workspace = [
     "membership_protocol.schema.json",
     "owner_transfer_protocol.schema.json",
+    "configuration_protocol.schema.json",
 ]
 
 [tool.pytest.ini_options]

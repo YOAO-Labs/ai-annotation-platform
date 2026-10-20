@@ -875,11 +875,7 @@ BEGIN
             MESSAGE = 'invalid Workspace configuration selectors';
     END IF;
     IF (v_operation IN ('create_project', 'create_template') AND v_target_id IS NOT NULL)
-       OR (v_operation NOT IN ('create_project', 'create_template') AND v_target_id IS NULL)
-       OR (v_operation = 'duplicate_template'
-           AND v_target_id IS DISTINCT FROM NULLIF(
-               v_selectors->>'template_id', ''
-           )::uuid) THEN
+       OR (v_operation NOT IN ('create_project', 'create_template') AND v_target_id IS NULL) THEN
         RAISE EXCEPTION USING ERRCODE = '22023',
             MESSAGE = 'invalid Workspace configuration target binding';
     END IF;
@@ -2347,8 +2343,6 @@ BEGIN
         v_id := CASE
             WHEN v_operation = 'create_project'
             THEN v_state.template_id
-            WHEN v_operation IN ('create_template', 'update_template', 'delete_template', 'duplicate_template')
-            THEN v_resource_id
             ELSE NULL
         END;
         v_result := pg_catalog.jsonb_build_object(

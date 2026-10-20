@@ -2,8 +2,10 @@
 
 `aap-workspace` contains portable contracts and policy for project membership
 creation, role previews, role changes, member removal, and project owner transfer. The core package
-uses Pydantic and the shared Workspace projection contract; runtime, PostgreSQL,
-and HTTP dependencies are optional.
+uses Pydantic, the shared Workspace projection contract and Inference's portable
+configuration validation. Inference transitively imports shared protocol FastAPI
+error helpers and lifecycle crypto. Runtime and PostgreSQL bindings are optional;
+the PostgreSQL extra includes HTTP dependencies for existing backend setup probes.
 
 The manager accepts a small data port that owns transaction boundaries and
 executes the Workspace native prepare/apply capabilities. It contains no API,
@@ -26,6 +28,10 @@ is a local transport replacement experiment; Native still owns business policy.
 Project/template configuration values and pure kind, clone and authorization
 policy also live here. The API directly consumes those models and policy; its
 configuration writes still use the existing caller-owned ORM transaction. The
-four Native cross-owner configuration dependencies do not add a standalone
-configuration command or runtime selector. See ADR-0135 for this boundary and
-the remaining owner extraction.
+four initial Native cross-owner configuration dependencies are complemented by
+phased facts and a six-command owner under `aap-workspace-configuration/v1`.
+Its fixed step capability uses function-only credentials and one transaction;
+the standalone HTTP runtime can enable configuration without membership or
+owner transfer. Public API caller integration and full independent-owner
+qualification remain in progress. See ADR-0136 for the current evidence and
+remaining gates; adjacent writers and the full Workspace module remain open.

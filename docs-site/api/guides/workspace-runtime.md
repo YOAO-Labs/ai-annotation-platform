@@ -50,3 +50,23 @@ API 可选 `WORKSPACE_OWNER_TRANSFER_URL`，或二选一的 `WORKSPACE_OWNER_TRA
 Node conformance provider 以标准 PostgreSQL 协议调用相同的两项函数，不代理 Python/API；其业务规则仍由 Native 执行。该提供方仅服务于本地单命令替换实验。完整 Workspace、独立数据库、生产容量与其他模块的剩余门槛继续推进。
 
 负责人转移切片的 66 个去重选定案例已完成本地限定验收，包含四条绑定路径与旧响应对照、受限数据库权限、事务错误、丢响应恢复、关联备份恢复和 Python／Node 镜像重启。独立 Node 提供方只覆盖这个命令的传输与事务，完整 Workspace 的语言替换仍待后续工作。验证范围见 [ADR-0134](/dev/adr/0134-workspace-project-owner-transfer)。
+
+## 配置命令实现与验收状态
+
+项目创建／更新及模板创建／更新／删除／复制已有封闭私有协议
+`aap-workspace-configuration/v1`，入口为
+`POST /v1/workspace/configuration/execute`。受限
+`workspace_configuration_client` 只有 `configuration_policy()` 和
+`configuration_step(jsonb,text,jsonb,text[],text[])` 两项能力。配置独立运行使用
+`WORKSPACE_CONFIGURATION_DATABASE_URL(_FILE)`，复用 control token；本地 Compose
+文件为 `docker-compose.workspace-configuration.yml`，端口8174。
+
+配置服务保存不可变成功回执，在同一事务中执行分阶段写入和当前权限围栏。
+默认 API 数据端口借用调用方事务；独立连接只持有自己的业务事务，不提交 API
+连接上的无关 pending work。后端探测超时及视频参数需要与 API 保持一致，具体变量见
+[环境变量参考](/dev/reference/env-vars)。
+
+目前完成了纯策略、连接层及六项真实命令的基础本地验收。公开配置调用者仍走原路径，
+路由集成、完整旧响应对照、恢复／镜像与其他边界验收继续进行；这一步不代表完整
+Workspace 已独立部署。状态与事务取舍见
+[ADR-0136](/dev/adr/0136-workspace-configuration-command-owner)。

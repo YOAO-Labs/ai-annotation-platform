@@ -133,3 +133,58 @@ def test_sampling_step_preserves_rounding_and_invalid_configuration_fallbacks():
     assert derive_video_sampling_step(10.0, {"mode": "fps", "target_fps": 6.0}) == 2
     assert derive_video_sampling_step(None, {"mode": "fps", "target_fps": 6.0}) == 1
     assert derive_video_sampling_step(30.0, {"mode": "none"}) == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("item_count", [0, 501])
+async def test_media_summary_reads_keep_legacy_batch_size_and_empty_shortcut(
+    item_count,
+):
+    item_ids = [str(UUID(int=index + 1)) for index in range(item_count)]
+    batches = []
+
+    async def step(action, args):
+        if action == "video_annotations":
+            return {"annotation_count": 0}
+        if action == "video_trackers":
+            return {"active_tracker_count": 0}
+        if action == "video_items":
+            return {"dataset_item_ids": item_ids}
+        assert action == "video_media"
+        batches.append(args["item_ids"])
+        assert len(args["item_ids"]) <= 500
+        return {
+            "summaries": {
+                item: {"frame_count": 10, "fps": 30} for item in args["item_ids"]
+            }
+        }
+
+    await validate_project_collaboration_update(
+        requested=VideoCollaborationConfig(enabled=True, overlap_frames=1),
+        project=_project(),
+        data_type="video",
+        step=step,
+        video_segment_size_frames=255,
+    )
+    assert [len(batch) for batch in batches] == ([] if item_count == 0 else [500, 1])
+
+
+@pytest.mark.asyncio
+async def test_missing_summary_precedes_earlier_pending_metadata():
+    missing = str(UUID(int=1))
+    steps = Steps(
+        video_annotations={"annotation_count": 0},
+        video_trackers={"active_tracker_count": 0},
+        video_items={"dataset_item_ids": [str(_ITEM), missing]},
+        video_media={"summaries": {str(_ITEM): None}},
+    )
+    with pytest.raises(ConfigurationPolicyError) as caught:
+        await validate_project_collaboration_update(
+            requested=VideoCollaborationConfig(enabled=True, overlap_frames=1),
+            project=_project(),
+            data_type="video",
+            step=steps,
+            video_segment_size_frames=255,
+        )
+    assert caught.value.detail == {"reason": "video_media_summary_unavailable"}
+    assert caught.value.headers is None

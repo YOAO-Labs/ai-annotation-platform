@@ -572,6 +572,22 @@ Node conformance provider 只用于本地替换实验，Native 持有业务策�
 它不代表整个 Workspace 已能替换或已选定生产实现语言。部署与失败语义见
 [Workspace 运行指南](docs-site/api/guides/workspace-runtime.md)。
 
+### Workspace 配置命令
+
+配置命令的独立服务实现见 [ADR-0136](docs/adr/0136-workspace-configuration-command-owner.md)。
+当前公开配置路由仍使用原请求事务，完整对照验收与路由切换正在实施。
+私有端点为 `POST /v1/workspace/configuration/execute`；独立运行使用
+`WORKSPACE_CONFIGURATION_DATABASE_URL(_FILE)` 和共享 control token。
+`docker-compose.workspace-configuration.yml` 仅绑定本机端口8174，宿主 secret
+选择器为 `WORKSPACE_RUNTIME_CONFIGURATION_DATABASE_URL_FILE` 与
+`WORKSPACE_RUNTIME_CONTROL_TOKEN_FILE`。运行时的
+`WORKSPACE_CONFIGURATION_SETUP_TIMEOUT_SECONDS` 和三个视频参数应与 API
+的 `ML_HEALTH_TIMEOUT`、`VIDEO_SEGMENT_SIZE_FRAMES`、
+`VIDEO_TRACKER_WINDOW_SIZE_FRAMES`、`VIDEO_TRACKER_SAM3_WINDOW_SIZE_FRAMES`
+一致；Compose 已映射这些值。API 的 `WORKSPACE_CONFIGURATION_URL`／
+`WORKSPACE_CONFIGURATION_DATABASE_URL(_FILE)` 选择器随公开调用者集成接入，
+`WORKSPACE_CONFIGURATION_TIMEOUT_SECONDS` 默认30秒，默认借用事务不新增超时。
+
 ### 设计系统
 
 前端设计系统基于 Tailwind CSS + shadcn/ui。运行时主题 Token 定义在 `apps/web/src/styles/shadcn.css`：
