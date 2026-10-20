@@ -25,7 +25,22 @@ from pydantic import (
 
 MEMBERSHIP_PROTOCOL = "aap-workspace-membership/v1"
 MEMBERSHIP_NATIVE_PROTOCOL = "aap-workspace-membership-native/v1"
+MEMBERSHIP_NATIVE_TEXT_CODEC = "json-string-ascii/v1"
+MEMBERSHIP_NATIVE_TEXT_FIELDS = ("preview_token", "reason")
 LABELING_MEMBERSHIP_WORK_PROTOCOL = "aap-labeling-membership-work/v1"
+
+
+def native_membership_command_json(command: dict) -> str:
+    """Carry opaque text through JSONB without changing logical HTTP values."""
+    request = command["request"] if "request" in command else command
+    if request["operation"] == "change_role":
+        payload = dict(request["payload"])
+        for field in MEMBERSHIP_NATIVE_TEXT_FIELDS:
+            payload[field] = json.dumps(payload[field], ensure_ascii=True)
+        request = {**request, "payload": payload}
+        command = {**command, "request": request} if "request" in command else request
+    return json.dumps(command, ensure_ascii=True, allow_nan=False)
+
 
 MembershipOperation: TypeAlias = Literal[
     "add_member", "preview_role_change", "change_role", "remove_member"
@@ -257,6 +272,7 @@ MembershipReply: TypeAlias = MembershipSuccess | MembershipFailure
 
 class MembershipPolicyReply(_NativeModel):
     protocol: Literal["aap-workspace-membership-native/v1"] = Field(alias="schema")
+    opaque_text_codec: Literal["json-string-ascii/v1"]
     operations: list[MembershipOperation]
 
     @field_validator("operations")
@@ -511,6 +527,13 @@ def _json_bytes(payload: dict | bytes | str | BaseModel) -> bytes:
 
 _REQUEST_ADAPTER = TypeAdapter(MembershipRequest)
 _PUBLIC_REPLY_ADAPTER = TypeAdapter(MembershipReply)
+
+
+def decode_membership_policy(payload: dict | bytes | str) -> MembershipPolicyReply:
+    try:
+        return MembershipPolicyReply.model_validate_json(_json_bytes(payload))
+    except (ValidationError, ValueError, TypeError, UnicodeError, RecursionError):
+        raise MembershipUnavailable() from None
 
 
 def _validated_request(request: MembershipRequest) -> MembershipRequest:

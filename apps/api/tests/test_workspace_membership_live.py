@@ -408,6 +408,26 @@ async def test_project_member_http_preserves_the_actual_legacy_contract(
             "replacement_annotator_id": str(users["annotator"].id),
             "preview_token": ready["preview_token"],
         }
+        for expected_version in (1, 2):
+            for field in ("preview_token", "reason"):
+                body = {
+                    **common,
+                    "expected_version": expected_version,
+                    "preview_token": "0" * 64,
+                    field: "\u0000",
+                }
+                await _node_public(
+                    api.origin,
+                    token,
+                    method="PATCH",
+                    path=path + f"/{memberships['member'].id}/role",
+                    body=body,
+                    operation="change_role",
+                    aliases=aliases,
+                    expected=legacy["responses"][
+                        "stale_version" if expected_version == 2 else "stale_snapshot"
+                    ],
+                )
         await call(
             "invalid_version",
             "PATCH",
@@ -497,7 +517,7 @@ async def test_project_member_http_preserves_the_actual_legacy_contract(
             business_rows = [
                 row for row in audit_rows if not row.action.startswith("http.")
             ]
-            assert len(audit_rows) - len(business_rows) == 18
+            assert len(audit_rows) - len(business_rows) == 22
             audit_values = [
                 {
                     "action": row.action,

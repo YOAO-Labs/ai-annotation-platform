@@ -585,6 +585,11 @@
     "MembershipPolicyReply": {
       "additionalProperties": false,
       "properties": {
+        "opaque_text_codec": {
+          "const": "json-string-ascii/v1",
+          "title": "Opaque Text Codec",
+          "type": "string"
+        },
         "operations": {
           "items": {
             "enum": ["add_member", "preview_role_change", "change_role", "remove_member"],
@@ -599,7 +604,7 @@
           "type": "string"
         }
       },
-      "required": ["schema", "operations"],
+      "required": ["schema", "opaque_text_codec", "operations"],
       "title": "MembershipPolicyReply",
       "type": "object"
     },
@@ -1337,5 +1342,12 @@
     {
       "$ref": "#/$defs/NativeMembershipFailure"
     }
-  ]
+  ],
+  "x-postgresql-text-codec": {
+    "http_values": "unchanged logical strings",
+    "name": "json-string-ascii/v1",
+    "operation": "change_role",
+    "payload_fields": ["preview_token", "reason"],
+    "representation": "ASCII JSON string literal"
+  }
 }

@@ -7,11 +7,14 @@ from contextlib import asynccontextmanager
 import json
 
 from .contract import (
+    MEMBERSHIP_NATIVE_TEXT_CODEC,
     MembershipUnavailable,
     MembershipInvalidRequest,
     NativeMembershipApplyRequest,
     decode_membership_request,
+    decode_membership_policy,
     decode_native_membership_reply,
+    native_membership_command_json,
 )
 
 _NATIVE_SCHEMA = "aap-workspace-membership-native/v1"
@@ -49,7 +52,7 @@ class MembershipPostgresTransaction:
             )
             raw = await self.connection.fetchval(
                 f"SELECT aap_workspace_membership_v1.{function}($1::jsonb)",
-                json.dumps(payload, ensure_ascii=True, allow_nan=False),
+                native_membership_command_json(payload),
             )
             reply = decode_native_membership_reply(
                 request, raw.encode("utf-8") if isinstance(raw, str) else raw
@@ -108,6 +111,13 @@ class MembershipPostgresData:
         try:
             connection = await self._connect()
             async with connection.transaction(readonly=not write):
+                try:
+                    policy = await connection.fetchval(
+                        "SELECT aap_workspace_membership_v1.membership_policy()"
+                    )
+                except asyncpg.PostgresError:
+                    raise MembershipUnavailable() from None
+                decode_membership_policy(policy)
                 yield MembershipPostgresTransaction(connection)
         except MembershipUnavailable:
             raise
@@ -145,8 +155,9 @@ class MembershipPostgresData:
             )
             if (
                 not isinstance(raw, dict)
-                or set(raw) != {"schema", "operations"}
+                or set(raw) != {"schema", "operations", "opaque_text_codec"}
                 or raw["schema"] != _NATIVE_SCHEMA
+                or raw["opaque_text_codec"] != MEMBERSHIP_NATIVE_TEXT_CODEC
                 or not isinstance(raw["operations"], list)
                 or not all(isinstance(value, str) for value in raw["operations"])
                 or len(raw["operations"]) != len(_OPERATIONS)

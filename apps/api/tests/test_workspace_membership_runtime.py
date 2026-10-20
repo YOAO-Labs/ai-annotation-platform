@@ -23,7 +23,11 @@ from app.config import settings
 from app.db.models.audit_log import AuditLog
 from app.db.models.project_member import ProjectMember
 from app.db.models.user import User
-from app.services.workspace_membership import add_member
+from app.services.workspace_membership import (
+    add_member,
+    change_role,
+    preview_role_change,
+)
 from tests.factory import create_membership, create_project, create_user
 from tests.test_asset_storage_cleanup_runtime import (
     _docker,
@@ -375,6 +379,330 @@ async def test_native_audit_rejection_requires_explicit_caller_rollback(
         async with test_engine.begin() as db:
             await db.execute(text(f"DROP TRIGGER {trigger} ON public.audit_logs"))
             await db.execute(text(f"DROP FUNCTION public.{trigger}()"))
+
+
+@pytest.mark.parametrize("binding", ["caller", "dedicated"])
+@pytest.mark.parametrize("field", ["preview_token", "reason"])
+@pytest.mark.parametrize("expected_version", [1, 2])
+async def test_opaque_nul_text_keeps_legacy_conflict_precedence(
+    test_engine, monkeypatch, binding, field, expected_version
+):
+    monkeypatch.setattr(settings, "workspace_membership_url", "")
+    monkeypatch.setattr(settings, "workspace_membership_database_url_file", "")
+    monkeypatch.setattr(
+        settings,
+        "workspace_membership_database_url",
+        _workspace_dsn(test_engine) if binding == "dedicated" else "",
+    )
+    maker, actor_id, employee_id, project_id = await _seed_owned_member_scope(
+        test_engine
+    )
+    async with maker.begin() as db:
+        member = await create_membership(
+            db,
+            project_id=project_id,
+            user_id=employee_id,
+            role="annotator",
+            assigned_by=actor_id,
+        )
+        member_id = member.id
+    async with maker() as caller:
+        assert (
+            await caller.scalar(
+                text("SELECT json_typeof(CAST(:literal AS json))"),
+                {"literal": json.dumps("\u0000", ensure_ascii=True)},
+            )
+            == "string"
+        )
+        with pytest.raises(HTTPException) as rejected:
+            await change_role(
+                caller,
+                project_id=project_id,
+                actor_id=actor_id,
+                member_id=member_id,
+                target_role="viewer",
+                expected_version=expected_version,
+                preview_token="\u0000" if field == "preview_token" else "0" * 64,
+                reason="\u0000" if field == "reason" else "Conflict precedence",
+            )
+        assert rejected.value.status_code == 409
+        assert rejected.value.detail["reason"] == (
+            "stale_member_version"
+            if expected_version == 2
+            else "stale_resource_snapshot"
+        )
+    async with maker() as observer:
+        member = await observer.get(ProjectMember, member_id)
+        assert member.role == "annotator" and member.version == 1
+        assert (
+            await observer.scalar(
+                select(func.count(AuditLog.id)).where(AuditLog.actor_id == actor_id)
+            )
+            == 0
+        )
+
+
+@pytest.mark.parametrize("binding", ["caller", "dedicated"])
+async def test_current_nul_reason_still_aborts_at_audit_without_effects(
+    test_engine, monkeypatch, binding
+):
+    import asyncpg
+
+    monkeypatch.setattr(settings, "workspace_membership_url", "")
+    monkeypatch.setattr(settings, "workspace_membership_database_url_file", "")
+    monkeypatch.setattr(
+        settings,
+        "workspace_membership_database_url",
+        _workspace_dsn(test_engine) if binding == "dedicated" else "",
+    )
+    maker, actor_id, employee_id, project_id = await _seed_owned_member_scope(
+        test_engine
+    )
+    async with maker.begin() as db:
+        member = await create_membership(
+            db,
+            project_id=project_id,
+            user_id=employee_id,
+            role="annotator",
+            assigned_by=actor_id,
+        )
+        member_id = member.id
+    async with maker() as caller:
+        preview = await preview_role_change(
+            caller,
+            project_id=project_id,
+            actor_id=actor_id,
+            member_id=member_id,
+            target_role="viewer",
+        )
+        assert preview["blockers"] == []
+        with pytest.raises((DBAPIError, asyncpg.PostgresError)) as rejected:
+            await change_role(
+                caller,
+                project_id=project_id,
+                actor_id=actor_id,
+                member_id=member_id,
+                target_role="viewer",
+                expected_version=1,
+                preview_token=preview["preview_token"],
+                reason="\u0000",
+            )
+        original = (
+            rejected.value.orig
+            if isinstance(rejected.value, DBAPIError)
+            else rejected.value
+        )
+        assert original.sqlstate == "22P05"
+        if binding == "caller":
+            with pytest.raises(DBAPIError) as aborted:
+                await caller.scalar(text("SELECT 1"))
+            assert aborted.value.orig.sqlstate == "25P02"
+        else:
+            assert await caller.scalar(text("SELECT 1")) == 1
+        await caller.rollback()
+    async with maker() as observer:
+        member = await observer.get(ProjectMember, member_id)
+        assert member.role == "annotator" and member.version == 1
+        assert (
+            await observer.scalar(
+                select(func.count(AuditLog.id)).where(AuditLog.actor_id == actor_id)
+            )
+            == 0
+        )
+        assert (
+            await observer.scalar(
+                text(
+                    "SELECT count(*) FROM public.workspace_membership_operation_receipts WHERE actor_id=:actor"
+                ),
+                {"actor": actor_id},
+            )
+            == 0
+        )
+
+
+@pytest.mark.parametrize("binding", ["caller", "dedicated"])
+async def test_literal_reason_and_receipt_fingerprint_keep_exact_text(
+    test_engine, monkeypatch, binding
+):
+    from aap_workspace.contract import decode_membership_request
+    from aap_workspace.manager import MembershipManager
+    from aap_workspace.postgres import MembershipPostgresData
+    from app.services.workspace_membership_data import WorkspaceMembershipData
+
+    monkeypatch.setattr(settings, "workspace_membership_url", "")
+    monkeypatch.setattr(settings, "workspace_membership_database_url_file", "")
+    dsn = _workspace_dsn(test_engine)
+    monkeypatch.setattr(
+        settings,
+        "workspace_membership_database_url",
+        dsn if binding == "dedicated" else "",
+    )
+    maker, actor_id, employee_id, project_id = await _seed_owned_member_scope(
+        test_engine
+    )
+    async with maker.begin() as db:
+        member = await create_membership(
+            db,
+            project_id=project_id,
+            user_id=employee_id,
+            role="annotator",
+            assigned_by=actor_id,
+        )
+        member_id = member.id
+    reasons = ["\\u0000", "null", "\u007f", '  "quote" \\ \n  ', "ß 中 😀"]
+    async with maker() as caller:
+        manager = MembershipManager(
+            MembershipPostgresData(dsn)
+            if binding == "dedicated"
+            else WorkspaceMembershipData(caller)
+        )
+        for index, reason in enumerate(reasons):
+            role = "viewer" if index % 2 == 0 else "annotator"
+            preview = await preview_role_change(
+                caller,
+                project_id=project_id,
+                actor_id=actor_id,
+                member_id=member_id,
+                target_role=role,
+            )
+            request = decode_membership_request(
+                _command(
+                    "change_role",
+                    actor_id,
+                    project_id,
+                    {
+                        "member_id": str(member_id),
+                        "target_role": role,
+                        "expected_version": index + 1,
+                        "preview_token": preview["preview_token"],
+                        "reason": reason,
+                        "replacement_annotator_id": None,
+                        "replacement_reviewer_id": None,
+                    },
+                )
+            )
+            original = await manager.execute(request)
+            assert original.ok and original.data.member.version == index + 2
+            assert await manager.execute(request) == original
+            changed = request.model_copy(
+                update={
+                    "payload": request.payload.model_copy(
+                        update={"reason": reason + "changed"}
+                    )
+                }
+            )
+            conflict = await manager.execute(changed)
+            assert not conflict.ok and conflict.error.detail == {
+                "reason": "operation_conflict"
+            }
+        await caller.rollback()
+    async with maker() as observer:
+        rows = list(
+            (
+                await observer.scalars(
+                    select(AuditLog)
+                    .where(AuditLog.actor_id == actor_id)
+                    .order_by(AuditLog.id)
+                )
+            ).all()
+        )
+        assert [row.detail_json["reason"] for row in rows] == reasons
+        assert await observer.scalar(
+            text(
+                "SELECT count(*) FROM public.workspace_membership_operation_receipts WHERE actor_id=:actor"
+            ),
+            {"actor": actor_id},
+        ) == len(reasons)
+
+
+@pytest.mark.parametrize("binding", ["caller", "dedicated", "remote"])
+async def test_execute_rejects_an_unready_native_text_codec(
+    test_engine, monkeypatch, tmp_path, binding
+):
+    monkeypatch.setattr(settings, "workspace_membership_url", "")
+    monkeypatch.setattr(settings, "workspace_membership_database_url_file", "")
+    monkeypatch.setattr(
+        settings,
+        "workspace_membership_database_url",
+        _workspace_dsn(test_engine) if binding == "dedicated" else "",
+    )
+    maker, actor_id, employee_id, project_id = await _seed_owned_member_scope(
+        test_engine
+    )
+    owner = None
+    control = secrets.token_urlsafe(32)
+    async with test_engine.connect() as db:
+        original = await db.scalar(
+            text(
+                "SELECT pg_get_functiondef('aap_workspace_membership_v1.membership_policy()'::regprocedure)"
+            )
+        )
+    try:
+        if binding == "remote":
+            owner = await _start_workspace(test_engine, tmp_path, control)
+        async with test_engine.begin() as db:
+            await db.execute(
+                text("""
+                CREATE OR REPLACE FUNCTION aap_workspace_membership_v1.membership_policy()
+                RETURNS jsonb LANGUAGE sql STABLE SECURITY DEFINER
+                SET search_path=pg_catalog,pg_temp AS $body$
+                SELECT pg_catalog.jsonb_build_object(
+                    'schema','aap-workspace-membership-native/v1',
+                    'operations',pg_catalog.jsonb_build_array(
+                        'add_member','preview_role_change','change_role','remove_member'))
+                $body$
+            """)
+            )
+        if binding == "remote":
+            async with httpx.AsyncClient(
+                base_url=owner.origin, trust_env=False, timeout=5
+            ) as client:
+                assert (await client.get("/ready")).status_code == 503
+                response = await client.post(
+                    "/v1/workspace/membership/execute",
+                    headers={"Authorization": f"Bearer {control}"},
+                    json=_command(
+                        "add_member",
+                        actor_id,
+                        project_id,
+                        {
+                            "target_user_id": str(employee_id),
+                            "project_role": "annotator",
+                        },
+                    ),
+                )
+                assert response.status_code == 503
+        else:
+            async with maker() as caller:
+                with pytest.raises(HTTPException) as rejected:
+                    await add_member(
+                        caller,
+                        project_id=project_id,
+                        actor_id=actor_id,
+                        target_user_id=employee_id,
+                        project_role="annotator",
+                    )
+                assert rejected.value.status_code == 503
+        async with maker() as observer:
+            assert (
+                await observer.scalar(
+                    select(func.count(ProjectMember.id)).where(
+                        ProjectMember.project_id == project_id
+                    )
+                )
+                == 0
+            )
+            assert (
+                await observer.scalar(
+                    select(func.count(AuditLog.id)).where(AuditLog.actor_id == actor_id)
+                )
+                == 0
+            )
+    finally:
+        async with test_engine.begin() as db:
+            await db.execute(text(original))
+        if owner is not None:
+            owner.stop()
 
 
 async def test_readiness_rejects_nonmodule_definer_and_explicit_function_grants(

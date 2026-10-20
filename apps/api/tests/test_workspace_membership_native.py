@@ -61,6 +61,7 @@ async def test_workspace_membership_client_has_only_native_rpcs_and_no_raw_acces
         )
         assert json.loads(policy) == {
             "schema": "aap-workspace-membership-native/v1",
+            "opaque_text_codec": "json-string-ascii/v1",
             "operations": [
                 "add_member",
                 "preview_role_change",

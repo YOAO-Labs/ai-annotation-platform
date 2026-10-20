@@ -218,7 +218,7 @@ function stringifyLossless(value, { sortKeys = false, pythonStrings = false } = 
       else if (character === "\r") result += "\\r";
       else if (character === "\t") result += "\\t";
       else if (point < 0x20) result += `\\u${point.toString(16).padStart(4, "0")}`;
-      else if (point <= 0x7f) result += character;
+      else if (point < 0x7f) result += character;
       else if (point <= 0xffff) result += `\\u${point.toString(16).padStart(4, "0")}`;
       else {
         const adjusted = point - 0x10000;
@@ -843,10 +843,23 @@ function validateAppliedData(request, value) {
   }
 }
 
+function nativeRequest(request) {
+  if (request.operation !== "change_role") return request;
+  return {
+    ...request,
+    payload: {
+      ...request.payload,
+      preview_token: stringifyLossless(request.payload.preview_token, { pythonStrings: true }),
+      reason: stringifyLossless(request.payload.reason, { pythonStrings: true }),
+    },
+  };
+}
+
 function validateNativePolicy(value) {
   if (
-    !exact(value, ["schema", "operations"]) ||
+    !exact(value, ["schema", "operations", "opaque_text_codec"]) ||
     value.schema !== "aap-workspace-membership-native/v1" ||
+    value.opaque_text_codec !== "json-string-ascii/v1" ||
     !Array.isArray(value.operations)
   )
     fail();
@@ -1232,7 +1245,7 @@ async function runNative(input) {
     const policy = parseStrictJson(policyLines[0]);
     validateNativePolicy(policy);
 
-    const requestJson = stringifyLossless(input.request);
+    const requestJson = stringifyLossless(nativeRequest(input.request));
     const requestHex = Buffer.from(requestJson, "utf8").toString("hex");
     const prepareLines = await query(
       `SELECT aap_workspace_membership_v1.prepare_membership_command(convert_from(decode('${requestHex}', 'hex'), 'UTF8')::jsonb);`,
@@ -1287,7 +1300,7 @@ async function runNative(input) {
 
     const apply = {
       schema: nativeSchema,
-      request: input.request,
+      request: nativeRequest(input.request),
       transaction_id: facts.transaction_id,
     };
     const applyHex = Buffer.from(stringifyLossless(apply), "utf8").toString("hex");
@@ -1406,6 +1419,27 @@ function selfCheck() {
   });
   if (legacyRoleRequest.payload.project_role !== "legacy role") fail();
   checks += 5;
+  for (const [value, encoded] of [
+    ["x\u0000y", '"x\\u0000y"'],
+    ["\\u0000", '"\\\\u0000"'],
+    ["\u007f", '"\\u007f"'],
+    ["ß 中 😀", '"\\u00df \\u4e2d \\ud83d\\ude00"'],
+    [' "\\\n', '" \\"\\\\\\n"'],
+    ["null", '"null"'],
+  ]) {
+    const request = {
+      ...requests[2],
+      payload: { ...requests[2].payload, reason: value, preview_token: value },
+    };
+    const carried = nativeRequest(request);
+    if (
+      carried.payload.reason !== encoded ||
+      carried.payload.preview_token !== encoded ||
+      request.payload.reason !== value
+    )
+      fail();
+    checks += 1;
+  }
 
   validateCallInput({
     mode: "public_http",

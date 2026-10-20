@@ -31,6 +31,7 @@ from aap_workspace.contract import (
     decode_membership_reply,
     decode_membership_request,
     decode_native_membership_reply,
+    native_membership_command_json,
 )
 
 _ACTOR = uuid.UUID("4c524267-d44b-4419-9dcb-1afd9630d80a")
@@ -337,6 +338,7 @@ def test_native_replay_and_apply_results_are_closed_and_bound():
 def test_policy_reply_capability_names_are_exact():
     reply = MembershipPolicyReply(
         schema=MEMBERSHIP_NATIVE_PROTOCOL,
+        opaque_text_codec="json-string-ascii/v1",
         operations=[
             "add_member",
             "preview_role_change",
@@ -348,8 +350,44 @@ def test_policy_reply_capability_names_are_exact():
     with pytest.raises(ValidationError):
         MembershipPolicyReply(
             schema=MEMBERSHIP_NATIVE_PROTOCOL,
+            opaque_text_codec="json-string-ascii/v1",
             operations=["add_member", "preview_role_change", "change_role", "unknown"],
         )
+    for codec in (None, "unknown"):
+        values = reply.model_dump(mode="json", by_alias=True)
+        if codec is None:
+            values.pop("opaque_text_codec")
+        else:
+            values["opaque_text_codec"] = codec
+        with pytest.raises(ValidationError):
+            MembershipPolicyReply.model_validate(values)
+
+
+@pytest.mark.parametrize(
+    "value", ["x\u0000y", "\\u0000", "\u007f", "ß 中 😀", ' "\\\n', "null"]
+)
+@pytest.mark.parametrize("apply", [False, True])
+def test_native_opaque_text_survives_jsonb_transport_without_changing_logical_input(
+    value, apply
+):
+    request = _request().model_dump(mode="json", by_alias=True)
+    request["payload"].update(preview_token=value, reason=value)
+    original = json.dumps(request, ensure_ascii=True)
+    command = (
+        {
+            "schema": MEMBERSHIP_NATIVE_PROTOCOL,
+            "request": request,
+            "transaction_id": "1",
+        }
+        if apply
+        else request
+    )
+    carried = json.loads(native_membership_command_json(command))
+    payload = (carried["request"] if apply else carried)["payload"]
+    for field in ("reason", "preview_token"):
+        assert payload[field].isascii() and "\u0000" not in payload[field]
+        assert json.loads(payload[field]) == value
+    assert json.dumps(request, ensure_ascii=True) == original
 
 
 def test_native_apply_request_uses_exact_private_envelope():

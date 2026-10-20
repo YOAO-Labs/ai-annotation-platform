@@ -172,7 +172,9 @@ BEGIN
            AND pg_catalog.jsonb_typeof(v_payload->'expected_version') = 'number'
            AND (v_payload->>'expected_version') ~ '^-?(0|[1-9][0-9]*)$'
            AND pg_catalog.jsonb_typeof(v_payload->'preview_token') = 'string'
-           AND pg_catalog.jsonb_typeof(v_payload->'reason') = 'string';
+           AND pg_catalog.json_typeof((v_payload->>'preview_token')::json) = 'string'
+           AND pg_catalog.jsonb_typeof(v_payload->'reason') = 'string'
+           AND pg_catalog.json_typeof((v_payload->>'reason')::json) = 'string';
     ELSE
         RETURN aap_workspace_membership_v1._has_exact_keys(
                    v_payload,
@@ -181,6 +183,8 @@ BEGIN
            AND pg_catalog.jsonb_typeof(v_payload->'member_id') = 'string'
            AND (v_payload->>'member_id') ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$';
     END IF;
+EXCEPTION WHEN invalid_text_representation OR untranslatable_character THEN
+    RETURN false;
 END;
 $function$;
 -- aap-statement-break
@@ -227,6 +231,7 @@ SET search_path = pg_catalog, pg_temp
 AS $function$
     SELECT pg_catalog.jsonb_build_object(
         'schema', 'aap-workspace-membership-native/v1',
+        'opaque_text_codec', 'json-string-ascii/v1',
         'operations', ARRAY[
             'add_member', 'preview_role_change', 'change_role', 'remove_member'
         ]::text[]
@@ -1285,7 +1290,7 @@ BEGIN
                 'from_role', v_old_role,
                 'to_role', v_target_role,
                 'version', v_member_record->'version',
-                'reason', v_request #>> '{payload,reason}',
+                'reason', (v_request #>> '{payload,reason}')::jsonb,
                 'replacement_annotator_id', v_replacement_annotator_id,
                 'replacement_reviewer_id', v_replacement_reviewer_id,
                 'released_lock_count', v_lock_ids

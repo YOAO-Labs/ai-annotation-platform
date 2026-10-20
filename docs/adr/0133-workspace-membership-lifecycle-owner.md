@@ -72,6 +72,16 @@ database URL and control token. Compose host selectors are
 requests; the API client timeout defaults to 30 seconds. These selectors do
 not change the public API or its OpenAPI schema.
 
+Native SQL transports `change_role.preview_token` and `reason` as canonical
+ASCII JSON string literals inside their string fields. Public HTTP values
+remain unchanged. The required `opaque_text_codec` policy field is
+`json-string-ascii/v1`; both SQL adapters check it in the execution transaction,
+and standalone readiness checks it too. A mixed migration/runtime codec cannot
+execute commands. The request fingerprint binds these encoded values. Policy compares
+the original token, and Native converts reason to JSONB only at Audit detail
+construction. This preserves stale-version/snapshot conflicts before a NUL
+reason can produce the original Audit error and transaction rollback.
+
 Local qualification is pending. No runtime, image, database, or production
 deployment result is implied by this decision record.
 

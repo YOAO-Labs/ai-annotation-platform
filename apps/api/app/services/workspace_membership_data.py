@@ -6,13 +6,16 @@ from contextlib import asynccontextmanager
 import json
 
 from sqlalchemy import text
+from sqlalchemy.exc import SQLAlchemyError
 
 from aap_workspace.contract import (
     MembershipInvalidRequest,
     NativeMembershipApplyRequest,
     MembershipUnavailable,
     decode_membership_request,
+    decode_membership_policy,
     decode_native_membership_reply,
+    native_membership_command_json,
 )
 
 
@@ -28,6 +31,13 @@ class WorkspaceMembershipData:
         try:
             if self.db.autoflush:
                 await self.db.flush()
+            try:
+                policy = await self.db.scalar(
+                    text("SELECT aap_workspace_membership_v1.membership_policy()")
+                )
+            except SQLAlchemyError:
+                raise MembershipUnavailable() from None
+            decode_membership_policy(policy)
             yield self
             if write:
                 await self.db.flush()
@@ -53,7 +63,7 @@ class WorkspaceMembershipData:
                     f"SELECT aap_workspace_membership_v1.{function}"
                     "(CAST(:command AS jsonb))"
                 ),
-                {"command": json.dumps(payload, ensure_ascii=True, allow_nan=False)},
+                {"command": native_membership_command_json(payload)},
             )
             if isinstance(raw, str):
                 raw = raw.encode("utf-8")

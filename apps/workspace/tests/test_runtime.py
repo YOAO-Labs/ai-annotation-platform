@@ -153,6 +153,19 @@ class Connection:
         self.closed = False
         self.aborted = False
 
+    async def fetchval(self, statement):
+        assert statement == "SELECT aap_workspace_membership_v1.membership_policy()"
+        return {
+            "schema": "aap-workspace-membership-native/v1",
+            "opaque_text_codec": "json-string-ascii/v1",
+            "operations": [
+                "add_member",
+                "preview_role_change",
+                "change_role",
+                "remove_member",
+            ],
+        }
+
     @asynccontextmanager
     async def transaction(self, *, readonly):
         try:

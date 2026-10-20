@@ -14,6 +14,8 @@ sys.path.insert(0, str(ROOT / "src"))
 from pydantic import TypeAdapter  # noqa: E402
 
 from aap_workspace.contract import (  # noqa: E402
+    MEMBERSHIP_NATIVE_TEXT_CODEC,
+    MEMBERSHIP_NATIVE_TEXT_FIELDS,
     MembershipFailure,
     MembershipPolicyReply,
     MembershipRequest,
@@ -38,6 +40,13 @@ def render_schema() -> dict:
     ).json_schema()
     schema["$schema"] = "https://json-schema.org/draft/2020-12/schema"
     schema["$id"] = "aap-workspace-membership/v1"
+    schema["x-postgresql-text-codec"] = {
+        "name": MEMBERSHIP_NATIVE_TEXT_CODEC,
+        "operation": "change_role",
+        "payload_fields": list(MEMBERSHIP_NATIVE_TEXT_FIELDS),
+        "representation": "ASCII JSON string literal",
+        "http_values": "unchanged logical strings",
+    }
     return schema
 
 
