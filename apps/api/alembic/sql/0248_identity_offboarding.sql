@@ -1241,7 +1241,10 @@ BEGIN
         );
     END IF;
     IF NOT v_target_active
-       AND v_target_disabled_kind NOT IN ('suspended', 'emergency_suspended') THEN
+       AND (
+           v_target_disabled_kind IS NULL
+           OR v_target_disabled_kind NOT IN ('suspended', 'emergency_suspended')
+       ) THEN
         RETURN aap_identity_offboarding_v1._failure(
             'state_forbidden', 409,
             pg_catalog.to_jsonb('账号当前状态不可交接'::text)

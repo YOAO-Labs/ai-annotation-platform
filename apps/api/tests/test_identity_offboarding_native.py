@@ -17,10 +17,19 @@ import aap_identity
 from aap_identity.authenticator import Authenticator
 from aap_identity.contract import IdentityUnavailable
 from aap_identity.offboarding_contract import (
+    OffboardingApplyPayload,
     OffboardingFailure,
+    OffboardingScopeBasis,
     decode_offboarding_request,
+    decode_native_offboarding_reply,
+    native_apply_offboarding_command,
+    native_prepare_offboarding_command,
 )
-from aap_identity.offboarding_manager import OffboardingManager
+from aap_identity.offboarding_manager import (
+    OffboardingManager,
+    offboarding_derivation_id,
+    offboarding_request_fingerprint,
+)
 from aap_identity.offboarding_postgres import OffboardingPostgresData
 from aap_identity.postgres import PostgresData
 from app.db.models.api_key import ApiKey
@@ -640,6 +649,126 @@ async def test_reserved_active_super_admin_does_not_allow_stopping_last_unreserv
             ).one()
             assert status.is_active is True
             assert status.credential_generation == 0
+            assert (
+                await session.scalar(
+                    text(
+                        "SELECT count(*) FROM public.identity_offboarding_operation_receipts "
+                        "WHERE operation_id=:id"
+                    ),
+                    {"id": operation_id},
+                )
+                == 0
+            )
+            assert (
+                await session.scalar(
+                    text(
+                        "SELECT count(*) FROM public.audit_logs "
+                        "WHERE target_id=:id AND action='user.offboard'"
+                    ),
+                    {"id": str(target_id)},
+                )
+                == 0
+            )
+    finally:
+        await _cleanup_offboarding_world(
+            test_engine,
+            actor_ids=[actor_id],
+            target_ids=[target_id],
+            operation_ids=[operation_id],
+        )
+
+
+@pytest.mark.asyncio
+async def test_native_apply_rejects_inactive_null_disabled_kind_without_effects(
+    test_engine,
+):
+    actor_id, _ = await _add_user(test_engine, "super_admin")
+    target_id, _ = await _add_user(test_engine, "employee", active=False)
+    maker = async_sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
+    async with maker.begin() as session:
+        await session.execute(
+            text(
+                "UPDATE public.users SET disabled_kind=NULL, status='offline' "
+                "WHERE id=:target"
+            ),
+            {"target": target_id},
+        )
+
+    secret = "identity-offboarding-null-kind-test-secret"
+    token = _token(actor_id, "super_admin", secret)
+    operation_id = uuid.uuid4()
+    request = _request(
+        target_id,
+        token,
+        operation="commit_offboarding",
+        operation_id=operation_id,
+        preview_version="0" * 64,
+        projects=[],
+    )
+    authenticator = Authenticator(PostgresData(_auth_dsn(test_engine)), secret)
+    verified = await authenticator.authenticate_bound(token)
+    fingerprint = offboarding_request_fingerprint(secret, request)
+    derivation_id = offboarding_derivation_id(secret)
+    prepare_command = native_prepare_offboarding_command(
+        request,
+        actor=verified.principal,
+        expected_key_hash=verified.key_hash,
+        request_fingerprint=fingerprint,
+        derivation_id=derivation_id,
+    )
+    dsn = _offboarding_dsn(test_engine)
+    try:
+        async with OffboardingPostgresData(dsn).transaction() as transaction:
+            prepared_raw = await transaction.prepare_offboarding_command(
+                prepare_command.model_dump(mode="json", by_alias=True)
+            )
+            prepared = decode_native_offboarding_reply(prepare_command, prepared_raw)
+            apply_payload = OffboardingApplyPayload(
+                transaction_id=prepared.data.transaction_id,
+                target_user_id=target_id,
+                expected_target_generation=prepared.data.target_generation,
+                expected_target_is_active=prepared.data.target_is_active,
+                mode="handoff",
+                normalized_reason=None,
+                reason_present=False,
+                owner_plan=[],
+                labeling_plan=[],
+                transfers=[],
+                unresolved=[],
+                scope_basis=OffboardingScopeBasis(
+                    target_role="employee",
+                    target_was_active=False,
+                    project_ids=[],
+                ),
+            )
+            apply_command = native_apply_offboarding_command(
+                request,
+                actor=prepared.principal,
+                expected_key_hash=verified.key_hash,
+                request_fingerprint=fingerprint,
+                derivation_id=derivation_id,
+                payload=apply_payload,
+            )
+            with pytest.raises(OffboardingFailure) as rejected:
+                await transaction.apply_offboarding_command(
+                    apply_command.model_dump(mode="json", by_alias=True)
+                )
+            assert rejected.value.code == "state_forbidden"
+            assert rejected.value.status_code == 409
+
+        async with maker() as session:
+            user = (
+                await session.execute(
+                    text(
+                        "SELECT is_active, credential_generation, disabled_kind "
+                        "FROM public.users WHERE id=:id"
+                    ),
+                    {"id": target_id},
+                )
+            ).one()
+            assert user.is_active is False
+            assert user.credential_generation == 0
+            assert user.disabled_kind is None
             assert (
                 await session.scalar(
                     text(
