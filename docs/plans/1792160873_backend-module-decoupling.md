@@ -2483,7 +2483,7 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   installed-only package passes187 tests and scoped SDK checks55. Node peer's21
   self-checks and actual seven-command/presence calls pass, preserving exact int64.
   Public OpenAPI changes only7 descriptions; schemas/catalog/frontend artifacts
-  are regenerated. All10 owned verifier histories clean up without errors.
+  are regenerated. All11 owned verifier histories clean up without errors.
 - Real installed process/restart/current-revocation and readonly nonroot container
   paths pass. A real API holding only AUTH privileges completes all seven commands
   and real avatar storage; dedicated account/presence DSNs also work. A healthy
@@ -2492,9 +2492,9 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   Backup/restore preserves database/schema/function ACLs and account/key/session
   receipts, retains historical outcome/current principal separation, and refuses
   populated account/session/JTI downgrade while staying at238.
-- Local1CPU/256MiB sampling completes32 reads at concurrency8 in0.204s (p95 .062s)
-  and a16,777,217-byte preference value write/read in1.467s. After-load memory is
-  64.92MiB, not a peak. There is no new65KiB/16MiB account ceiling; this bounded
+- Local1CPU/256MiB sampling completes32 reads at concurrency8 in0.197s (p95 .056s)
+  and a16,777,217-byte preference value write/read in1.452s. After-load memory is
+  65.45MiB, not a peak. There is no new65KiB/16MiB account ceiling; this bounded
   sample does not establish production capacity or an alternate-language provider.
 - Earlier failures remain in raw reports: missing code-owner validator permission
   fixed with the existing Audit capability; protected cleanup/OID/SQL type-alias
@@ -2523,3 +2523,26 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
 - The module matrix now includes the completed seven self-account commands and
   separate presence operator, while retaining registration, recovery/email,
   group/admin, other-user hydration and multi-owner lifecycle as unfinished work.
+
+### Identity self-account assembled artifact verification
+
+- Committed source `fa1c1a3a8` supplies the final independent Identity image and
+  API image. The API's network-disabled/read-only cold proof matches all35
+  installed Identity source/schema files and21 affected API/dependency/native
+  migration/snapshot files. Its nine public self-account routes consume command
+  values, the presence task has the real unchanged zero-argument signature, SQL
+  bind values are hidden, public OpenAPI matches exactly and migration head is0238.
+- All five live account cases pass again against the corrected installed process
+  and nonroot/read-only provider image: Node seven-command/presence interoperability,
+  lost-reply restart and current credential fences, an AUTH-only real API with
+  actual avatar storage, explicit missing-capability503/no fallback, dedicated
+  account/presence DSNs, and the updated1CPU/256MiB large-preference sample above.
+  The first final-wire invocation used system Python and failed preflight without
+  provisioning resources; the project Python rerun is the current passing result.
+- Three clean modifier worktrees and branches are removed after exact stable
+  patch-identity equivalence and absence of runtime state. All owned verifier
+  resources and proof containers are removed. Fresh read-only checks keep the
+  primary checkout clean at `856fa79c8`, its database at0234 and the unrelated
+  test database at0218; only the original four infrastructure containers remain.
+  This remains local qualification on the integration branch, with no upstream,
+  push, release, remote CI, production or primary Identity cutover.
