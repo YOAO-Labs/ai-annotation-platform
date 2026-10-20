@@ -343,9 +343,21 @@ class NativeSuspendAccountCommand(_NativeCommandBase):
     payload: SuspendAccountPayload
 
 
+class NativeReactivateAccountPayload(ClosedModel):
+    target_user_id: uuid.UUID
+    reason_present: bool
+
+    @field_validator("reason_present", mode="before")
+    @classmethod
+    def strict_reason_present(cls, value):
+        if type(value) is not bool:
+            raise ValueError("reason_present must be a boolean")
+        return value
+
+
 class NativeReactivateAccountCommand(_NativeCommandBase):
     operation: Literal["reactivate_account"]
-    payload: ReactivateAccountPayload
+    payload: NativeReactivateAccountPayload
 
 
 NativeSuspensionCommand: TypeAlias = Annotated[
@@ -364,6 +376,12 @@ def native_suspension_command(
     derivation_id: str,
 ) -> NativeSuspensionCommand:
     values = request.model_dump(mode="json", by_alias=True)
+    if request.operation == "reactivate_account":
+        reason = request.payload.reason
+        values["payload"] = {
+            "target_user_id": str(request.payload.target_user_id),
+            "reason_present": bool((reason or "").strip()),
+        }
     values.update(
         {
             "schema": NATIVE_SUSPENSION_PROTOCOL,

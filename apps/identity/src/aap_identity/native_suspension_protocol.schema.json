@@ -256,7 +256,7 @@
           "type": "string"
         },
         "payload": {
-          "$ref": "#/$defs/ReactivateAccountPayload"
+          "$ref": "#/$defs/NativeReactivateAccountPayload"
         },
         "request_fingerprint": {
           "pattern": "^[0-9a-f]{64}$",
@@ -281,6 +281,23 @@
         "payload"
       ],
       "title": "NativeReactivateAccountCommand",
+      "type": "object"
+    },
+    "NativeReactivateAccountPayload": {
+      "additionalProperties": false,
+      "properties": {
+        "reason_present": {
+          "title": "Reason Present",
+          "type": "boolean"
+        },
+        "target_user_id": {
+          "format": "uuid",
+          "title": "Target User Id",
+          "type": "string"
+        }
+      },
+      "required": ["target_user_id", "reason_present"],
+      "title": "NativeReactivateAccountPayload",
       "type": "object"
     },
     "NativeReactivateAccountReply": {
@@ -588,31 +605,6 @@
       },
       "required": ["reason"],
       "title": "ProjectBusyDetail",
-      "type": "object"
-    },
-    "ReactivateAccountPayload": {
-      "additionalProperties": false,
-      "properties": {
-        "reason": {
-          "anyOf": [
-            {
-              "maxLength": 500,
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Reason"
-        },
-        "target_user_id": {
-          "format": "uuid",
-          "title": "Target User Id",
-          "type": "string"
-        }
-      },
-      "required": ["target_user_id", "reason"],
-      "title": "ReactivateAccountPayload",
       "type": "object"
     },
     "SessionAuditContext": {

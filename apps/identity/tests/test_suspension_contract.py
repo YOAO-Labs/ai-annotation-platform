@@ -23,6 +23,7 @@ from session_helpers import principal
 from suspension_helpers import (
     OPAQUE_KEY_HASH,
     SUSPENSION_SECRET,
+    TARGET_ID,
     native_command,
     native_success,
     suspension_request,
@@ -135,9 +136,49 @@ def test_native_command_is_exact_and_hides_bearer_and_api_key_hash():
     assert "private-suspension-token" not in repr(command)
     assert OPAQUE_KEY_HASH not in repr(command)
     assert "private-suspension-token" not in json.dumps(raw)
+    assert raw["payload"] == {
+        "target_user_id": str(TARGET_ID),
+        "reason_present": True,
+    }
+    assert "reason" not in raw["payload"]
     assert decode_native_suspension_command(raw) == command
     with pytest.raises(IdentityUnavailable):
+        decode_native_suspension_command(
+            {**raw, "payload": {**raw["payload"], "reason_present": 1}}
+        )
+    with pytest.raises(IdentityUnavailable):
         decode_native_suspension_command({**raw, "unexpected": True})
+
+
+def test_nul_and_unicode_whitespace_stay_wire_only_and_derive_legacy_truthiness():
+    nul_request = suspension_request("reactivate_account", reason="\x00")
+    empty_request = suspension_request("reactivate_account", reason="")
+    nul_command = native_command(nul_request)
+    empty_command = native_command(empty_request)
+    assert nul_command.payload.reason_present is True
+    assert empty_command.payload.reason_present is False
+    assert nul_command.payload.reason_present != empty_command.payload.reason_present
+    assert suspension_request_fingerprint(SUSPENSION_SECRET, nul_request) != (
+        suspension_request_fingerprint(SUSPENSION_SECRET, empty_request)
+    )
+    native_json = json.dumps(nul_command.model_dump(mode="json", by_alias=True))
+    assert "\\u0000" not in native_json
+    assert "reason" not in nul_command.model_dump(mode="json", by_alias=True)["payload"]
+
+    whitespace_request = suspension_request("reactivate_account", reason="\u00a0\u3000")
+    null_request = suspension_request("reactivate_account", reason=None)
+    whitespace_command = native_command(whitespace_request)
+    null_command = native_command(null_request)
+    assert whitespace_request.payload.reason == "\u00a0\u3000"
+    assert whitespace_command.payload.reason_present is False
+    assert null_command.payload.reason_present is False
+    assert suspension_request_fingerprint(SUSPENSION_SECRET, whitespace_request) != (
+        suspension_request_fingerprint(SUSPENSION_SECRET, null_request)
+    )
+    assert (
+        "reason"
+        not in whitespace_command.model_dump(mode="json", by_alias=True)["payload"]
+    )
 
 
 def test_noop_suspend_preserves_historical_disabled_kind_and_replay_flag_is_private():

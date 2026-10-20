@@ -359,9 +359,10 @@ after acceptance. Accepted self-deactivation reservations survive both
 operations.
 
 Suspension receipts also cover the existing inactive-target no-op, without an
-Audit row or credential retirement. Reactivation receipts store only the
-`reason_present` audit fact, not the raw reason. The closed wire and native DTOs
-are `suspension_protocol.schema.json` and
+Audit row or credential retirement. The reactivation wire binds the raw reason,
+while the native command carries only its Python `str.strip()`-based
+`reason_present` boolean; neither Audit nor receipts store the raw reason. The
+closed wire and native DTOs are `suspension_protocol.schema.json` and
 `native_suspension_protocol.schema.json`.
 
 ## Registration and credential recovery

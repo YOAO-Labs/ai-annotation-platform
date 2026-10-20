@@ -109,7 +109,8 @@ async def test_manager_binds_unicode_reason_and_validates_before_commit():
     assert command.request_fingerprint == suspension_request_fingerprint(
         SUSPENSION_SECRET, request
     )
-    assert command.payload.reason == " 　恢复 "
+    assert command.payload.reason_present is True
+    assert "reason" not in command.model_dump(mode="json", by_alias=True)["payload"]
     assert request.token not in json.dumps(
         command.model_dump(mode="json", by_alias=True)
     )
