@@ -639,10 +639,12 @@ GRANT UPDATE (
     thumbnail_path, blurhash
 ) ON public.tasks TO :"labeling_owner";
 GRANT UPDATE (updated_at) ON public.tasks TO :"labeling_owner";
-GRANT UPDATE (assignee_id, reviewer_id, assigned_at) ON public.tasks TO :"labeling_owner";
+GRANT UPDATE (assignee_id, reviewer_id, assigned_at, reviewer_claimed_at)
+    ON public.tasks TO :"labeling_owner";
 GRANT SELECT (
     display_id, annotation_contributor_ids, review_round_id,
-    review_contributor_ids, review_submitter_id
+    review_contributor_ids, review_submitter_id, assignee_is_override,
+    reviewer_is_override, reviewer_claimed_at
 ) ON public.tasks TO :"labeling_owner";
 GRANT UPDATE (id) ON public.task_dataset_item_links TO :"labeling_owner";
 GRANT USAGE ON SEQUENCE public.display_seq_tasks TO :"labeling_owner";

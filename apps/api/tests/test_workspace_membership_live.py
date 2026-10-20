@@ -250,7 +250,7 @@ def _normalize(value, aliases: dict[str, str]):
 
 
 @pytest.mark.parametrize("binding", ["remote_container", "dedicated_dsn"])
-async def test_auth_only_project_member_http_preserves_the_actual_legacy_contract(
+async def test_project_member_http_preserves_the_actual_legacy_contract(
     test_engine, tmp_path, binding
 ):
     runtime_helpers = pytest.importorskip("tests.test_workspace_membership_runtime")

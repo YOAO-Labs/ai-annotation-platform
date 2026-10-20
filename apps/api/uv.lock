@@ -351,6 +351,34 @@ dependencies = [
 requires-dist = [{ name = "aap-task-contract", editable = "../_shared/task_contract" }]
 
 [[package]]
+name = "aap-workspace"
+version = "0.1.0"
+source = { editable = "../workspace" }
+dependencies = [
+    { name = "pydantic" },
+]
+
+[package.optional-dependencies]
+postgres = [
+    { name = "asyncpg" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "asyncpg", marker = "extra == 'postgres'", specifier = ">=0.29" },
+    { name = "asyncpg", marker = "extra == 'runtime'", specifier = ">=0.29" },
+    { name = "fastapi", marker = "extra == 'runtime'", specifier = ">=0.115" },
+    { name = "httpx", marker = "extra == 'client'", specifier = ">=0.27" },
+    { name = "httpx", marker = "extra == 'test'", specifier = ">=0.27" },
+    { name = "pydantic", specifier = ">=2.5" },
+    { name = "pydantic-settings", marker = "extra == 'runtime'", specifier = ">=2.6" },
+    { name = "pytest", marker = "extra == 'test'", specifier = ">=8.3" },
+    { name = "pytest-asyncio", marker = "extra == 'test'", specifier = ">=0.24" },
+    { name = "uvicorn", marker = "extra == 'runtime'", specifier = ">=0.30" },
+]
+provides-extras = ["postgres", "runtime", "client", "test"]
+
+[[package]]
 name = "aap-workspace-contract"
 version = "0.1.0"
 source = { editable = "../_shared/workspace_contract" }
@@ -410,6 +438,7 @@ dependencies = [
     { name = "aap-protocol-v2" },
     { name = "aap-task-contract" },
     { name = "aap-training-contract" },
+    { name = "aap-workspace", extra = ["postgres"] },
     { name = "aap-workspace-contract" },
     { name = "alembic" },
     { name = "asyncpg" },
@@ -466,6 +495,7 @@ requires-dist = [
     { name = "aap-protocol-v2", editable = "../_shared/protocol_v2" },
     { name = "aap-task-contract", editable = "../_shared/task_contract" },
     { name = "aap-training-contract", editable = "../_shared/training_contract" },
+    { name = "aap-workspace", extras = ["postgres"], editable = "../workspace" },
     { name = "aap-workspace-contract", editable = "../_shared/workspace_contract" },
     { name = "alembic", specifier = ">=1.14.0" },
     { name = "asyncpg", specifier = ">=0.30.0" },

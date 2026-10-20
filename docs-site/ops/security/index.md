@@ -342,8 +342,8 @@ UserBrief 只供已经通过授权检查的 task、project、result 等调用方
 | --------------------------- | -------------------------------------------------------------------------------------------------------------- |
 | 角色枚举                    | `apps/api/app/db/enums.py`                                                                                     |
 | 项目授权解析                | `apps/api/app/services/project_access.py`                                                                      |
-| 成员角色变更 / 交接工作流   | `apps/api/app/application/project_membership.py`                                                               |
-| 成员行所有者                | `apps/api/app/services/project_membership.py`                                                                  |
+| 成员角色变更 / 交接策略     | `apps/workspace/src/aap_workspace/{manager,policy}.py`                                                         |
+| 成员行所有者 / 调用适配     | `aap_workspace_membership_v1`；`apps/api/app/services/workspace_membership{,_data}.py`                         |
 | UserBrief 内部读取 owner    | `apps/identity/src/aap_identity/{briefs_contract,briefs_manager,briefs_postgres}.py`                           |
 | UserBrief caller helpers    | `apps/api/app/services/user_brief.py::resolve_briefs[_with_project_role]`                                      |
 | 离职预览 / 提交 owner       | `apps/identity/src/aap_identity/offboarding_{contract,manager,postgres}.py`                                    |

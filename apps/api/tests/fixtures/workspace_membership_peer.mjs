@@ -623,7 +623,7 @@ function validatePublicReply(request, raw) {
       fail();
     if (!exact(raw.error, ["status_code", "detail", "headers", "rollback"])) fail();
     const status = integer(raw.error.status_code);
-    if (status < 100n || status > 599n) fail();
+    if (status < 400n || status > 599n) fail();
     if (raw.error.headers !== null) {
       if (!isRecord(raw.error.headers)) fail();
       for (const [key, value] of Object.entries(raw.error.headers)) {
@@ -782,7 +782,8 @@ function validateNativeReply(request, raw) {
       !exact(raw.error, ["status_code", "detail", "headers", "rollback"])
     )
       fail();
-    integer(raw.error.status_code);
+    const status = integer(raw.error.status_code);
+    if (status < 400n || status > 599n) fail();
     bool(raw.error.rollback);
     if (raw.error.headers !== null && !isRecord(raw.error.headers)) fail();
     return raw;

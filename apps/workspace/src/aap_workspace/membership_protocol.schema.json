@@ -13,10 +13,7 @@
           "type": "string"
         }
       },
-      "required": [
-        "target_user_id",
-        "project_role"
-      ],
+      "required": ["target_user_id", "project_role"],
       "title": "AddMemberPayload",
       "type": "object"
     },
@@ -99,11 +96,7 @@
           "type": "string"
         }
       },
-      "required": [
-        "id",
-        "role",
-        "is_active"
-      ],
+      "required": ["id", "role", "is_active"],
       "title": "MembershipAccountFacts",
       "type": "object"
     },
@@ -132,13 +125,7 @@
           "type": "string"
         }
       },
-      "required": [
-        "id",
-        "name",
-        "email",
-        "role",
-        "is_active"
-      ],
+      "required": ["id", "name", "email", "role", "is_active"],
       "title": "MembershipActorFacts",
       "type": "object"
     },
@@ -157,12 +144,26 @@
           "title": "Ip"
         },
         "method": {
-          "title": "Method",
-          "type": "string"
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Method"
         },
         "path": {
-          "title": "Path",
-          "type": "string"
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Path"
         },
         "request_id": {
           "anyOf": [
@@ -176,12 +177,7 @@
           "title": "Request Id"
         }
       },
-      "required": [
-        "method",
-        "path",
-        "ip",
-        "request_id"
-      ],
+      "required": ["method", "path", "ip", "request_id"],
       "title": "MembershipAuditContext",
       "type": "object"
     },
@@ -265,16 +261,13 @@
           "type": "boolean"
         },
         "status_code": {
+          "maximum": 599,
+          "minimum": 400,
           "title": "Status Code",
           "type": "integer"
         }
       },
-      "required": [
-        "status_code",
-        "detail",
-        "headers",
-        "rollback"
-      ],
+      "required": ["status_code", "detail", "headers", "rollback"],
       "title": "MembershipError",
       "type": "object"
     },
@@ -330,12 +323,7 @@
           ]
         },
         "operation": {
-          "enum": [
-            "add_member",
-            "preview_role_change",
-            "change_role",
-            "remove_member"
-          ],
+          "enum": ["add_member", "preview_role_change", "change_role", "remove_member"],
           "title": "Operation",
           "type": "string"
         },
@@ -399,12 +387,7 @@
           "type": "boolean"
         },
         "operation": {
-          "enum": [
-            "add_member",
-            "preview_role_change",
-            "change_role",
-            "remove_member"
-          ],
+          "enum": ["add_member", "preview_role_change", "change_role", "remove_member"],
           "title": "Operation",
           "type": "string"
         },
@@ -424,15 +407,7 @@
           "type": "string"
         }
       },
-      "required": [
-        "schema",
-        "ok",
-        "operation_id",
-        "operation",
-        "actor_id",
-        "project_id",
-        "error"
-      ],
+      "required": ["schema", "ok", "operation_id", "operation", "actor_id", "project_id", "error"],
       "title": "MembershipFailure",
       "type": "object"
     },
@@ -603,9 +578,7 @@
           "$ref": "#/$defs/MembershipRecord"
         }
       },
-      "required": [
-        "member"
-      ],
+      "required": ["member"],
       "title": "MembershipMemberData",
       "type": "object"
     },
@@ -614,12 +587,7 @@
       "properties": {
         "operations": {
           "items": {
-            "enum": [
-              "add_member",
-              "preview_role_change",
-              "change_role",
-              "remove_member"
-            ],
+            "enum": ["add_member", "preview_role_change", "change_role", "remove_member"],
             "type": "string"
           },
           "title": "Operations",
@@ -631,10 +599,7 @@
           "type": "string"
         }
       },
-      "required": [
-        "schema",
-        "operations"
-      ],
+      "required": ["schema", "operations"],
       "title": "MembershipPolicyReply",
       "type": "object"
     },
@@ -732,10 +697,7 @@
           "title": "Owner Id"
         }
       },
-      "required": [
-        "id",
-        "owner_id"
-      ],
+      "required": ["id", "owner_id"],
       "title": "MembershipProjectFacts",
       "type": "object"
     },
@@ -766,13 +728,7 @@
           "type": "integer"
         }
       },
-      "required": [
-        "id",
-        "project_id",
-        "user_id",
-        "role",
-        "version"
-      ],
+      "required": ["id", "project_id", "user_id", "role", "version"],
       "title": "MembershipReceiverFacts",
       "type": "object"
     },
@@ -864,10 +820,7 @@
           "type": "boolean"
         }
       },
-      "required": [
-        "member_id",
-        "removed"
-      ],
+      "required": ["member_id", "removed"],
       "title": "MembershipRemovedData",
       "type": "object"
     },
@@ -885,12 +838,7 @@
           "type": "string"
         },
         "operation": {
-          "enum": [
-            "add_member",
-            "preview_role_change",
-            "change_role",
-            "remove_member"
-          ],
+          "enum": ["add_member", "preview_role_change", "change_role", "remove_member"],
           "title": "Operation",
           "type": "string"
         },
@@ -908,14 +856,7 @@
           "$ref": "#/$defs/MembershipSuccess"
         }
       },
-      "required": [
-        "kind",
-        "operation_id",
-        "operation",
-        "actor_id",
-        "project_id",
-        "reply"
-      ],
+      "required": ["kind", "operation_id", "operation", "actor_id", "project_id", "reply"],
       "title": "MembershipReplayData",
       "type": "object"
     },
@@ -931,12 +872,7 @@
           "$ref": "#/$defs/MembershipAuditContext"
         },
         "operation": {
-          "enum": [
-            "add_member",
-            "preview_role_change",
-            "change_role",
-            "remove_member"
-          ],
+          "enum": ["add_member", "preview_role_change", "change_role", "remove_member"],
           "title": "Operation",
           "type": "string"
         },
@@ -1013,12 +949,7 @@
           "type": "boolean"
         },
         "operation": {
-          "enum": [
-            "add_member",
-            "preview_role_change",
-            "change_role",
-            "remove_member"
-          ],
+          "enum": ["add_member", "preview_role_change", "change_role", "remove_member"],
           "title": "Operation",
           "type": "string"
         },
@@ -1038,15 +969,7 @@
           "type": "string"
         }
       },
-      "required": [
-        "schema",
-        "ok",
-        "operation_id",
-        "operation",
-        "actor_id",
-        "project_id",
-        "data"
-      ],
+      "required": ["schema", "ok", "operation_id", "operation", "actor_id", "project_id", "data"],
       "title": "MembershipSuccess",
       "type": "object"
     },
@@ -1203,12 +1126,7 @@
           "type": "string"
         },
         "operation": {
-          "enum": [
-            "add_member",
-            "preview_role_change",
-            "change_role",
-            "remove_member"
-          ],
+          "enum": ["add_member", "preview_role_change", "change_role", "remove_member"],
           "title": "Operation",
           "type": "string"
         },
@@ -1237,14 +1155,7 @@
           "title": "Result"
         }
       },
-      "required": [
-        "kind",
-        "operation_id",
-        "operation",
-        "actor_id",
-        "project_id",
-        "result"
-      ],
+      "required": ["kind", "operation_id", "operation", "actor_id", "project_id", "result"],
       "title": "NativeMembershipAppliedData",
       "type": "object"
     },
@@ -1264,11 +1175,7 @@
           "type": "string"
         }
       },
-      "required": [
-        "schema",
-        "request",
-        "transaction_id"
-      ],
+      "required": ["schema", "request", "transaction_id"],
       "title": "NativeMembershipApplyRequest",
       "type": "object"
     },
@@ -1289,11 +1196,7 @@
           "type": "string"
         }
       },
-      "required": [
-        "schema",
-        "ok",
-        "data"
-      ],
+      "required": ["schema", "ok", "data"],
       "title": "NativeMembershipApplySuccess",
       "type": "object"
     },
@@ -1314,11 +1217,7 @@
           "type": "string"
         }
       },
-      "required": [
-        "schema",
-        "ok",
-        "error"
-      ],
+      "required": ["schema", "ok", "error"],
       "title": "NativeMembershipFailure",
       "type": "object"
     },
@@ -1347,11 +1246,7 @@
           "type": "string"
         }
       },
-      "required": [
-        "schema",
-        "ok",
-        "data"
-      ],
+      "required": ["schema", "ok", "data"],
       "title": "NativeMembershipPrepareSuccess",
       "type": "object"
     },
@@ -1410,9 +1305,7 @@
           "type": "string"
         }
       },
-      "required": [
-        "member_id"
-      ],
+      "required": ["member_id"],
       "title": "RemoveMemberPayload",
       "type": "object"
     }

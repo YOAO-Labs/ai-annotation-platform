@@ -15,8 +15,8 @@ from app.db.models.project_member import ProjectMember
 from app.db.models.task import Task
 from app.db.models.task_lock import TaskLock
 from app.db.models.user import User
-from app.application.project_membership import remove_member
-from app.services.project_membership import preview_role_change
+from app.services.workspace_membership import remove_member
+from app.services.workspace_membership import preview_role_change
 from tests.factory import (
     create_membership,
     create_project,
@@ -220,7 +220,9 @@ async def test_unfinished_annotation_work_requires_and_applies_handoff(
     )
     assert changed.status_code == 200, changed.text
 
-    refreshed = await db_session.scalar(select(Task).where(Task.id == task.id))
+    refreshed = await db_session.scalar(
+        select(Task).where(Task.id == task.id).execution_options(populate_existing=True)
+    )
     assert refreshed is not None
     assert refreshed.assignee_id == receiver.id
 
@@ -345,8 +347,8 @@ async def test_invalid_and_self_receivers_rejected_without_counted_work(
     # Self receiver is rejected even with no outstanding work.
     self_preview = await preview_role_change(
         db_session,
-        project=project,
-        actor=owner,
+        project_id=project.id,
+        actor_id=owner.id,
         member_id=member.id,
         target_role="reviewer",
         replacement_annotator_id=employee.id,
@@ -357,8 +359,8 @@ async def test_invalid_and_self_receivers_rejected_without_counted_work(
     # An incompatible platform/project receiver is rejected with no counted work.
     invalid_preview = await preview_role_change(
         db_session,
-        project=project,
-        actor=owner,
+        project_id=project.id,
+        actor_id=owner.id,
         member_id=member.id,
         target_role="reviewer",
         replacement_annotator_id=viewer.id,
@@ -409,8 +411,8 @@ async def test_invalid_receiver_does_not_bypass_active_lock_blocking(
 
     no_replacement = await preview_role_change(
         db_session,
-        project=project,
-        actor=owner,
+        project_id=project.id,
+        actor_id=owner.id,
         member_id=member.id,
         target_role="viewer",
         replacement_annotator_id=None,
@@ -421,8 +423,8 @@ async def test_invalid_receiver_does_not_bypass_active_lock_blocking(
 
     invalid_replacement = await preview_role_change(
         db_session,
-        project=project,
-        actor=owner,
+        project_id=project.id,
+        actor_id=owner.id,
         member_id=member.id,
         target_role="viewer",
         replacement_annotator_id=viewer.id,
@@ -475,8 +477,8 @@ async def test_last_reviewer_coverage_includes_unassigned_review_work(
     # target-owned review work still needs an explicit handoff.
     with_peer = await preview_role_change(
         db_session,
-        project=project,
-        actor=owner,
+        project_id=project.id,
+        actor_id=owner.id,
         member_id=member.id,
         target_role="annotator",
         replacement_annotator_id=None,
@@ -495,13 +497,13 @@ async def test_last_reviewer_coverage_includes_unassigned_review_work(
         )
     ).scalar_one()
     await remove_member(
-        db_session, project=project, actor=owner, member_id=alternate.id
+        db_session, project_id=project.id, actor_id=owner.id, member_id=alternate.id
     )
 
     last = await preview_role_change(
         db_session,
-        project=project,
-        actor=owner,
+        project_id=project.id,
+        actor_id=owner.id,
         member_id=member.id,
         target_role="annotator",
         replacement_annotator_id=None,
@@ -511,8 +513,8 @@ async def test_last_reviewer_coverage_includes_unassigned_review_work(
 
     covered = await preview_role_change(
         db_session,
-        project=project,
-        actor=owner,
+        project_id=project.id,
+        actor_id=owner.id,
         member_id=member.id,
         target_role="annotator",
         replacement_annotator_id=None,
@@ -564,8 +566,8 @@ async def test_reviewer_coverage_checks_frozen_evidence_of_remaining_reviewer(
 
     preview = await preview_role_change(
         db_session,
-        project=project,
-        actor=owner,
+        project_id=project.id,
+        actor_id=owner.id,
         member_id=member.id,
         target_role="annotator",
         replacement_annotator_id=None,
@@ -582,8 +584,8 @@ async def test_reviewer_coverage_checks_frozen_evidence_of_remaining_reviewer(
     # A replacement receiver restores coverage.
     covered = await preview_role_change(
         db_session,
-        project=project,
-        actor=owner,
+        project_id=project.id,
+        actor_id=owner.id,
         member_id=member.id,
         target_role="annotator",
         replacement_annotator_id=None,
@@ -614,8 +616,8 @@ async def test_removal_ignores_target_role_pairing_and_allows_idle_admin(
 
     preview = await preview_role_change(
         db_session,
-        project=project,
-        actor=owner,
+        project_id=project.id,
+        actor_id=owner.id,
         member_id=member.id,
         target_role="viewer",
         replacement_annotator_id=None,
@@ -624,7 +626,9 @@ async def test_removal_ignores_target_role_pairing_and_allows_idle_admin(
     assert "target_role_incompatible" in preview["blockers"]
 
     # Removal does not change the platform role, so the idle admin is removable.
-    await remove_member(db_session, project=project, actor=owner, member_id=member.id)
+    await remove_member(
+        db_session, project_id=project.id, actor_id=owner.id, member_id=member.id
+    )
     remaining = await db_session.scalar(
         select(ProjectMember).where(ProjectMember.id == member.id)
     )
@@ -653,7 +657,9 @@ async def test_removal_allows_idle_disabled_member(db_session: AsyncSession):
     disabled_user.is_active = False
     await db_session.flush()
 
-    await remove_member(db_session, project=project, actor=owner, member_id=member.id)
+    await remove_member(
+        db_session, project_id=project.id, actor_id=owner.id, member_id=member.id
+    )
     remaining = await db_session.scalar(
         select(ProjectMember).where(ProjectMember.id == member.id)
     )

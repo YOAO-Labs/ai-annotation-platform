@@ -41,10 +41,10 @@ class MembershipData(Protocol):
     ) -> AsyncContextManager[MembershipTransaction]: ...
 
 
-class _RollbackBusinessFailure(Exception):
+class MembershipCommandFailure(Exception):
     def __init__(self, error: MembershipError):
         self.error = error
-        super().__init__("Membership operation requires transaction rollback")
+        super().__init__("Membership operation rejected")
 
 
 class MembershipManager:
@@ -75,7 +75,7 @@ class MembershipManager:
                 )
                 if isinstance(prepared, NativeMembershipFailure):
                     deferred_error = prepared.error
-                    self._require_rollback_if_requested(deferred_error)
+                    self._fail_transaction(deferred_error)
                 elif isinstance(prepared, NativeMembershipPrepareSuccess):
                     if prepared.data.kind == "replay":
                         if request.operation == "preview_role_change":
@@ -88,19 +88,19 @@ class MembershipManager:
                         else:
                             deferred_error = self._policy_error(request, facts)
                             if deferred_error is not None:
-                                self._require_rollback_if_requested(deferred_error)
+                                self._fail_transaction(deferred_error)
                             else:
                                 applied = await self._apply(request, facts, transaction)
                                 if isinstance(applied, MembershipError):
                                     deferred_error = applied
-                                    self._require_rollback_if_requested(deferred_error)
+                                    self._fail_transaction(deferred_error)
                                 else:
                                     reply = applied
                 else:
                     # `prepare_membership_command` must return facts, a frozen
                     # replay, or a failure; an applied result is out of phase.
                     raise MembershipUnavailable()
-        except _RollbackBusinessFailure as exc:
+        except MembershipCommandFailure as exc:
             deferred_error = exc.error
 
         if deferred_error is not None:
@@ -110,9 +110,8 @@ class MembershipManager:
         return reply
 
     @staticmethod
-    def _require_rollback_if_requested(error: MembershipError) -> None:
-        if error.rollback:
-            raise _RollbackBusinessFailure(error)
+    def _fail_transaction(error: MembershipError) -> None:
+        raise MembershipCommandFailure(error)
 
     @staticmethod
     def _policy_error(
@@ -144,8 +143,6 @@ class MembershipManager:
             ),
         )
         if isinstance(native, NativeMembershipFailure):
-            if native.error.rollback:
-                raise _RollbackBusinessFailure(native.error)
             return native.error
         if not isinstance(native, NativeMembershipApplySuccess):
             raise MembershipUnavailable()

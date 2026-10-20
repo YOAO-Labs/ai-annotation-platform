@@ -10,10 +10,6 @@ from app.application.preannotation_contract import (
 from app.application.project_workspace import (
     transfer_project_owner as transfer_project_owner_workflow,
 )
-from app.application.project_membership import (
-    change_role as change_project_member_role,
-    remove_member as remove_project_member,
-)
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from fastapi.responses import Response
 from pydantic import BaseModel
@@ -41,10 +37,13 @@ from app.db.enums import (
 )
 from app.services.workspace_contract import ProjectCapability
 from app.services.project_access import resolve_project_access
-from app.services.project_membership import (
+from app.services.workspace_membership import (
     add_member as add_project_member,
+    change_role as change_project_member_role,
     preview_role_change as preview_project_member_role_change,
+    remove_member as remove_project_member,
 )
+from aap_workspace.contract import MembershipRecord
 from app.services.user_brief import resolve_briefs
 from app.schemas.user import UserBrief
 from app.db.models.user import User
@@ -1249,7 +1248,7 @@ async def list_mention_candidates(
     return out
 
 
-def _member_value(member: ProjectMember, target) -> ProjectMemberOut:
+def _member_value(member: ProjectMember | MembershipRecord, target) -> ProjectMemberOut:
     return ProjectMemberOut(
         id=member.id,
         user_id=member.user_id,
@@ -1264,7 +1263,9 @@ def _member_value(member: ProjectMember, target) -> ProjectMemberOut:
     )
 
 
-async def _member_out(db: AsyncSession, member: ProjectMember) -> ProjectMemberOut:
+async def _member_out(
+    db: AsyncSession, member: ProjectMember | MembershipRecord
+) -> ProjectMemberOut:
     briefs = await resolve_briefs(db, [member.user_id])
     return _member_value(member, briefs.get(str(member.user_id)))
 
@@ -1279,8 +1280,8 @@ async def add_member(
 ):
     member = await add_project_member(
         db,
-        project=project,
-        actor=current_user,
+        project_id=project.id,
+        actor_id=current_user.id,
         target_user_id=body.user_id,
         project_role=body.role,
     )
@@ -1303,8 +1304,8 @@ async def preview_member_role_change(
 
     result = await preview_project_member_role_change(
         db,
-        project=project,
-        actor=current_user,
+        project_id=project.id,
+        actor_id=current_user.id,
         member_id=member_id,
         target_role=body.project_role,
         replacement_annotator_id=body.replacement_annotator_id,
@@ -1329,8 +1330,8 @@ async def change_member_role(
 
     member = await change_project_member_role(
         db,
-        project=project,
-        actor=current_user,
+        project_id=project.id,
+        actor_id=current_user.id,
         member_id=member_id,
         target_role=body.project_role,
         expected_version=body.expected_version,
@@ -1351,7 +1352,7 @@ async def remove_member(
     _access=Depends(require_project_capability(ProjectCapability.MEMBER_MANAGE.value)),
 ):
     await remove_project_member(
-        db, project=project, actor=current_user, member_id=member_id
+        db, project_id=project.id, actor_id=current_user.id, member_id=member_id
     )
     return Response(status_code=204)
 

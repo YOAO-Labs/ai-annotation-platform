@@ -8,19 +8,13 @@
         "875c0b54-97a3-4957-b02d-bb62e35a16f0",
         "bf992496-8118-40e6-a31e-f23f4f80b899"
       ],
-      "batch_annotator_ids": [
-        "4f0f231b-259e-476e-a425-55b88be70c15"
-      ],
-      "batch_reviewer_ids": [
-        "4f0f231b-259e-476e-a425-55b88be70c15"
-      ],
+      "batch_annotator_ids": ["4f0f231b-259e-476e-a425-55b88be70c15"],
+      "batch_reviewer_ids": ["4f0f231b-259e-476e-a425-55b88be70c15"],
       "batches": {
         "4f0f231b-259e-476e-a425-55b88be70c15": {
           "admin_locked": false,
           "annotator_id": "be846de2-ab3d-426e-b118-0f82d3affd06",
-          "assigned_user_ids": [
-            "be846de2-ab3d-426e-b118-0f82d3affd06"
-          ],
+          "assigned_user_ids": ["be846de2-ab3d-426e-b118-0f82d3affd06"],
           "reviewer_id": "be846de2-ab3d-426e-b118-0f82d3affd06",
           "status": "annotating"
         }
@@ -29,16 +23,12 @@
         "21d8223c-3f55-44f2-9ff8-6ab5974d5912",
         "99dba796-09a2-4e34-ba75-1c66c95e4d31"
       ],
-      "lock_task_ids": [
-        "bf992496-8118-40e6-a31e-f23f4f80b899"
-      ],
+      "lock_task_ids": ["bf992496-8118-40e6-a31e-f23f4f80b899"],
       "materialization_annotation_task_ids": [
         "55157b6a-837f-4995-b377-d1dc699abd61",
         "bd09ad6e-5841-4b54-9473-b2682aac8c06"
       ],
-      "materialization_review_task_ids": [
-        "55157b6a-837f-4995-b377-d1dc699abd61"
-      ],
+      "materialization_review_task_ids": ["55157b6a-837f-4995-b377-d1dc699abd61"],
       "member": {
         "id": "423ad7f4-5aa8-4baf-9d75-69317fec493d",
         "role": "annotator",
@@ -66,12 +56,8 @@
         },
         "reviewer": null
       },
-      "review_claim_task_ids": [
-        "bd09ad6e-5841-4b54-9473-b2682aac8c06"
-      ],
-      "review_task_ids": [
-        "bd09ad6e-5841-4b54-9473-b2682aac8c06"
-      ],
+      "review_claim_task_ids": ["bd09ad6e-5841-4b54-9473-b2682aac8c06"],
+      "review_task_ids": ["bd09ad6e-5841-4b54-9473-b2682aac8c06"],
       "tasks": {
         "1fd87f84-3623-4c88-8013-9791ee8103c4": {
           "annotation_contributors": [],
@@ -154,9 +140,7 @@
           "version": 1
         }
       },
-      "unassigned_review_task_ids": [
-        "1fd87f84-3623-4c88-8013-9791ee8103c4"
-      ]
+      "unassigned_review_task_ids": ["1fd87f84-3623-4c88-8013-9791ee8103c4"]
     },
     "target_role": "reviewer"
   },
@@ -173,35 +157,23 @@
       {
         "code": "active_locks",
         "message": "成员持有效工作锁，需在交接中释放后才能变更职责",
-        "task_ids": [
-          "bf992496-8118-40e6-a31e-f23f4f80b899"
-        ]
+        "task_ids": ["bf992496-8118-40e6-a31e-f23f4f80b899"]
       }
     ],
-    "blockers": [
-      "unfinished_annotation_work",
-      "unfinished_review_work",
-      "active_locks"
-    ],
+    "blockers": ["unfinished_annotation_work", "unfinished_review_work", "active_locks"],
     "preview_token": "5142888ac75cffd1caa7d9cdde366913f00f96c85928e813516754723771f280",
     "snapshot": {
       "annotation_task_ids": [
         "875c0b54-97a3-4957-b02d-bb62e35a16f0",
         "bf992496-8118-40e6-a31e-f23f4f80b899"
       ],
-      "batch_annotator_ids": [
-        "4f0f231b-259e-476e-a425-55b88be70c15"
-      ],
-      "batch_reviewer_ids": [
-        "4f0f231b-259e-476e-a425-55b88be70c15"
-      ],
+      "batch_annotator_ids": ["4f0f231b-259e-476e-a425-55b88be70c15"],
+      "batch_reviewer_ids": ["4f0f231b-259e-476e-a425-55b88be70c15"],
       "batches": {
         "4f0f231b-259e-476e-a425-55b88be70c15": {
           "admin_locked": false,
           "annotator_id": "be846de2-ab3d-426e-b118-0f82d3affd06",
-          "assigned_user_ids": [
-            "be846de2-ab3d-426e-b118-0f82d3affd06"
-          ],
+          "assigned_user_ids": ["be846de2-ab3d-426e-b118-0f82d3affd06"],
           "reviewer_id": "be846de2-ab3d-426e-b118-0f82d3affd06",
           "status": "annotating"
         }
@@ -210,16 +182,12 @@
         "21d8223c-3f55-44f2-9ff8-6ab5974d5912",
         "99dba796-09a2-4e34-ba75-1c66c95e4d31"
       ],
-      "lock_task_ids": [
-        "bf992496-8118-40e6-a31e-f23f4f80b899"
-      ],
+      "lock_task_ids": ["bf992496-8118-40e6-a31e-f23f4f80b899"],
       "materialization_annotation_task_ids": [
         "55157b6a-837f-4995-b377-d1dc699abd61",
         "bd09ad6e-5841-4b54-9473-b2682aac8c06"
       ],
-      "materialization_review_task_ids": [
-        "55157b6a-837f-4995-b377-d1dc699abd61"
-      ],
+      "materialization_review_task_ids": ["55157b6a-837f-4995-b377-d1dc699abd61"],
       "member": {
         "id": "423ad7f4-5aa8-4baf-9d75-69317fec493d",
         "role": "annotator",
@@ -239,12 +207,8 @@
         "annotator": null,
         "reviewer": null
       },
-      "review_claim_task_ids": [
-        "bd09ad6e-5841-4b54-9473-b2682aac8c06"
-      ],
-      "review_task_ids": [
-        "bd09ad6e-5841-4b54-9473-b2682aac8c06"
-      ],
+      "review_claim_task_ids": ["bd09ad6e-5841-4b54-9473-b2682aac8c06"],
+      "review_task_ids": ["bd09ad6e-5841-4b54-9473-b2682aac8c06"],
       "tasks": {
         "1fd87f84-3623-4c88-8013-9791ee8103c4": {
           "annotation_contributors": [],
@@ -327,9 +291,7 @@
           "version": 1
         }
       },
-      "unassigned_review_task_ids": [
-        "1fd87f84-3623-4c88-8013-9791ee8103c4"
-      ]
+      "unassigned_review_task_ids": ["1fd87f84-3623-4c88-8013-9791ee8103c4"]
     },
     "target_role": "viewer"
   },
@@ -344,29 +306,20 @@
         "message": "质检接收人必须是该项目中启用且职责匹配的员工"
       }
     ],
-    "blockers": [
-      "identical_replacement_responsibility",
-      "invalid_replacement_reviewer"
-    ],
+    "blockers": ["identical_replacement_responsibility", "invalid_replacement_reviewer"],
     "preview_token": "2b6e0adfa14c4c0ab69b8ae86cde023340fc90933bf807a181c088d301425351",
     "snapshot": {
       "annotation_task_ids": [
         "875c0b54-97a3-4957-b02d-bb62e35a16f0",
         "bf992496-8118-40e6-a31e-f23f4f80b899"
       ],
-      "batch_annotator_ids": [
-        "4f0f231b-259e-476e-a425-55b88be70c15"
-      ],
-      "batch_reviewer_ids": [
-        "4f0f231b-259e-476e-a425-55b88be70c15"
-      ],
+      "batch_annotator_ids": ["4f0f231b-259e-476e-a425-55b88be70c15"],
+      "batch_reviewer_ids": ["4f0f231b-259e-476e-a425-55b88be70c15"],
       "batches": {
         "4f0f231b-259e-476e-a425-55b88be70c15": {
           "admin_locked": false,
           "annotator_id": "be846de2-ab3d-426e-b118-0f82d3affd06",
-          "assigned_user_ids": [
-            "be846de2-ab3d-426e-b118-0f82d3affd06"
-          ],
+          "assigned_user_ids": ["be846de2-ab3d-426e-b118-0f82d3affd06"],
           "reviewer_id": "be846de2-ab3d-426e-b118-0f82d3affd06",
           "status": "annotating"
         }
@@ -375,16 +328,12 @@
         "21d8223c-3f55-44f2-9ff8-6ab5974d5912",
         "99dba796-09a2-4e34-ba75-1c66c95e4d31"
       ],
-      "lock_task_ids": [
-        "bf992496-8118-40e6-a31e-f23f4f80b899"
-      ],
+      "lock_task_ids": ["bf992496-8118-40e6-a31e-f23f4f80b899"],
       "materialization_annotation_task_ids": [
         "55157b6a-837f-4995-b377-d1dc699abd61",
         "bd09ad6e-5841-4b54-9473-b2682aac8c06"
       ],
-      "materialization_review_task_ids": [
-        "55157b6a-837f-4995-b377-d1dc699abd61"
-      ],
+      "materialization_review_task_ids": ["55157b6a-837f-4995-b377-d1dc699abd61"],
       "member": {
         "id": "423ad7f4-5aa8-4baf-9d75-69317fec493d",
         "role": "annotator",
@@ -420,12 +369,8 @@
           "user_id": "17312f02-c340-4d33-b0c4-97edb34f8ab4"
         }
       },
-      "review_claim_task_ids": [
-        "bd09ad6e-5841-4b54-9473-b2682aac8c06"
-      ],
-      "review_task_ids": [
-        "bd09ad6e-5841-4b54-9473-b2682aac8c06"
-      ],
+      "review_claim_task_ids": ["bd09ad6e-5841-4b54-9473-b2682aac8c06"],
+      "review_task_ids": ["bd09ad6e-5841-4b54-9473-b2682aac8c06"],
       "tasks": {
         "1fd87f84-3623-4c88-8013-9791ee8103c4": {
           "annotation_contributors": [],
@@ -508,9 +453,7 @@
           "version": 1
         }
       },
-      "unassigned_review_task_ids": [
-        "1fd87f84-3623-4c88-8013-9791ee8103c4"
-      ]
+      "unassigned_review_task_ids": ["1fd87f84-3623-4c88-8013-9791ee8103c4"]
     },
     "target_role": "viewer"
   },
@@ -527,35 +470,23 @@
       {
         "code": "active_locks",
         "message": "成员持有效工作锁，需在交接中释放后才能变更职责",
-        "task_ids": [
-          "bf992496-8118-40e6-a31e-f23f4f80b899"
-        ]
+        "task_ids": ["bf992496-8118-40e6-a31e-f23f4f80b899"]
       }
     ],
-    "blockers": [
-      "invalid_replacement_annotator",
-      "unfinished_review_work",
-      "active_locks"
-    ],
+    "blockers": ["invalid_replacement_annotator", "unfinished_review_work", "active_locks"],
     "preview_token": "8154b92b40ffeb5e7ce438856a21e220d436ecadb0c8ffecb3d1fd2d7d1770fe",
     "snapshot": {
       "annotation_task_ids": [
         "875c0b54-97a3-4957-b02d-bb62e35a16f0",
         "bf992496-8118-40e6-a31e-f23f4f80b899"
       ],
-      "batch_annotator_ids": [
-        "4f0f231b-259e-476e-a425-55b88be70c15"
-      ],
-      "batch_reviewer_ids": [
-        "4f0f231b-259e-476e-a425-55b88be70c15"
-      ],
+      "batch_annotator_ids": ["4f0f231b-259e-476e-a425-55b88be70c15"],
+      "batch_reviewer_ids": ["4f0f231b-259e-476e-a425-55b88be70c15"],
       "batches": {
         "4f0f231b-259e-476e-a425-55b88be70c15": {
           "admin_locked": false,
           "annotator_id": "be846de2-ab3d-426e-b118-0f82d3affd06",
-          "assigned_user_ids": [
-            "be846de2-ab3d-426e-b118-0f82d3affd06"
-          ],
+          "assigned_user_ids": ["be846de2-ab3d-426e-b118-0f82d3affd06"],
           "reviewer_id": "be846de2-ab3d-426e-b118-0f82d3affd06",
           "status": "annotating"
         }
@@ -564,16 +495,12 @@
         "21d8223c-3f55-44f2-9ff8-6ab5974d5912",
         "99dba796-09a2-4e34-ba75-1c66c95e4d31"
       ],
-      "lock_task_ids": [
-        "bf992496-8118-40e6-a31e-f23f4f80b899"
-      ],
+      "lock_task_ids": ["bf992496-8118-40e6-a31e-f23f4f80b899"],
       "materialization_annotation_task_ids": [
         "55157b6a-837f-4995-b377-d1dc699abd61",
         "bd09ad6e-5841-4b54-9473-b2682aac8c06"
       ],
-      "materialization_review_task_ids": [
-        "55157b6a-837f-4995-b377-d1dc699abd61"
-      ],
+      "materialization_review_task_ids": ["55157b6a-837f-4995-b377-d1dc699abd61"],
       "member": {
         "id": "423ad7f4-5aa8-4baf-9d75-69317fec493d",
         "role": "annotator",
@@ -601,12 +528,8 @@
         },
         "reviewer": null
       },
-      "review_claim_task_ids": [
-        "bd09ad6e-5841-4b54-9473-b2682aac8c06"
-      ],
-      "review_task_ids": [
-        "bd09ad6e-5841-4b54-9473-b2682aac8c06"
-      ],
+      "review_claim_task_ids": ["bd09ad6e-5841-4b54-9473-b2682aac8c06"],
+      "review_task_ids": ["bd09ad6e-5841-4b54-9473-b2682aac8c06"],
       "tasks": {
         "1fd87f84-3623-4c88-8013-9791ee8103c4": {
           "annotation_contributors": [],
@@ -689,9 +612,7 @@
           "version": 1
         }
       },
-      "unassigned_review_task_ids": [
-        "1fd87f84-3623-4c88-8013-9791ee8103c4"
-      ]
+      "unassigned_review_task_ids": ["1fd87f84-3623-4c88-8013-9791ee8103c4"]
     },
     "target_role": "viewer"
   },
@@ -702,28 +623,20 @@
     "snapshot": {
       "annotation_task_ids": [],
       "batch_annotator_ids": [],
-      "batch_reviewer_ids": [
-        "4f0f231b-259e-476e-a425-55b88be70c15"
-      ],
+      "batch_reviewer_ids": ["4f0f231b-259e-476e-a425-55b88be70c15"],
       "batches": {
         "4f0f231b-259e-476e-a425-55b88be70c15": {
           "admin_locked": false,
           "annotator_id": "17312f02-c340-4d33-b0c4-97edb34f8ab4",
-          "assigned_user_ids": [
-            "17312f02-c340-4d33-b0c4-97edb34f8ab4"
-          ],
+          "assigned_user_ids": ["17312f02-c340-4d33-b0c4-97edb34f8ab4"],
           "reviewer_id": "be846de2-ab3d-426e-b118-0f82d3affd06",
           "status": "annotating"
         }
       },
-      "eligible_reviewer_ids": [
-        "21d8223c-3f55-44f2-9ff8-6ab5974d5912"
-      ],
+      "eligible_reviewer_ids": ["21d8223c-3f55-44f2-9ff8-6ab5974d5912"],
       "lock_task_ids": [],
       "materialization_annotation_task_ids": [],
-      "materialization_review_task_ids": [
-        "55157b6a-837f-4995-b377-d1dc699abd61"
-      ],
+      "materialization_review_task_ids": ["55157b6a-837f-4995-b377-d1dc699abd61"],
       "member": {
         "id": "423ad7f4-5aa8-4baf-9d75-69317fec493d",
         "role": "reviewer",
@@ -751,12 +664,8 @@
           "user_id": "99dba796-09a2-4e34-ba75-1c66c95e4d31"
         }
       },
-      "review_claim_task_ids": [
-        "bd09ad6e-5841-4b54-9473-b2682aac8c06"
-      ],
-      "review_task_ids": [
-        "bd09ad6e-5841-4b54-9473-b2682aac8c06"
-      ],
+      "review_claim_task_ids": ["bd09ad6e-5841-4b54-9473-b2682aac8c06"],
+      "review_task_ids": ["bd09ad6e-5841-4b54-9473-b2682aac8c06"],
       "tasks": {
         "1fd87f84-3623-4c88-8013-9791ee8103c4": {
           "annotation_contributors": [],
@@ -791,17 +700,13 @@
           "version": 1
         },
         "bd09ad6e-5841-4b54-9473-b2682aac8c06": {
-          "annotation_contributors": [
-            "17312f02-c340-4d33-b0c4-97edb34f8ab4"
-          ],
+          "annotation_contributors": ["17312f02-c340-4d33-b0c4-97edb34f8ab4"],
           "assignee_id": "be846de2-ab3d-426e-b118-0f82d3affd06",
           "assignee_is_override": false,
           "batch_id": "4f0f231b-259e-476e-a425-55b88be70c15",
           "effective_assignee_id": "be846de2-ab3d-426e-b118-0f82d3affd06",
           "effective_reviewer_id": "be846de2-ab3d-426e-b118-0f82d3affd06",
-          "review_contributors": [
-            "17312f02-c340-4d33-b0c4-97edb34f8ab4"
-          ],
+          "review_contributors": ["17312f02-c340-4d33-b0c4-97edb34f8ab4"],
           "review_round_id": "ac6508de-f7f3-446e-babd-fbcb2db6e613",
           "review_submitter_id": "17312f02-c340-4d33-b0c4-97edb34f8ab4",
           "reviewer_claimed": true,
@@ -811,9 +716,7 @@
           "version": 1
         }
       },
-      "unassigned_review_task_ids": [
-        "1fd87f84-3623-4c88-8013-9791ee8103c4"
-      ]
+      "unassigned_review_task_ids": ["1fd87f84-3623-4c88-8013-9791ee8103c4"]
     },
     "target_role": "viewer"
   },
@@ -828,29 +731,20 @@
         "message": "成员仍有未完成的审核工作，需显式指派接收人"
       }
     ],
-    "blockers": [
-      "same_role",
-      "unfinished_review_work"
-    ],
+    "blockers": ["same_role", "unfinished_review_work"],
     "preview_token": "5142888ac75cffd1caa7d9cdde366913f00f96c85928e813516754723771f280",
     "snapshot": {
       "annotation_task_ids": [
         "875c0b54-97a3-4957-b02d-bb62e35a16f0",
         "bf992496-8118-40e6-a31e-f23f4f80b899"
       ],
-      "batch_annotator_ids": [
-        "4f0f231b-259e-476e-a425-55b88be70c15"
-      ],
-      "batch_reviewer_ids": [
-        "4f0f231b-259e-476e-a425-55b88be70c15"
-      ],
+      "batch_annotator_ids": ["4f0f231b-259e-476e-a425-55b88be70c15"],
+      "batch_reviewer_ids": ["4f0f231b-259e-476e-a425-55b88be70c15"],
       "batches": {
         "4f0f231b-259e-476e-a425-55b88be70c15": {
           "admin_locked": false,
           "annotator_id": "be846de2-ab3d-426e-b118-0f82d3affd06",
-          "assigned_user_ids": [
-            "be846de2-ab3d-426e-b118-0f82d3affd06"
-          ],
+          "assigned_user_ids": ["be846de2-ab3d-426e-b118-0f82d3affd06"],
           "reviewer_id": "be846de2-ab3d-426e-b118-0f82d3affd06",
           "status": "annotating"
         }
@@ -859,16 +753,12 @@
         "21d8223c-3f55-44f2-9ff8-6ab5974d5912",
         "99dba796-09a2-4e34-ba75-1c66c95e4d31"
       ],
-      "lock_task_ids": [
-        "bf992496-8118-40e6-a31e-f23f4f80b899"
-      ],
+      "lock_task_ids": ["bf992496-8118-40e6-a31e-f23f4f80b899"],
       "materialization_annotation_task_ids": [
         "55157b6a-837f-4995-b377-d1dc699abd61",
         "bd09ad6e-5841-4b54-9473-b2682aac8c06"
       ],
-      "materialization_review_task_ids": [
-        "55157b6a-837f-4995-b377-d1dc699abd61"
-      ],
+      "materialization_review_task_ids": ["55157b6a-837f-4995-b377-d1dc699abd61"],
       "member": {
         "id": "423ad7f4-5aa8-4baf-9d75-69317fec493d",
         "role": "annotator",
@@ -888,12 +778,8 @@
         "annotator": null,
         "reviewer": null
       },
-      "review_claim_task_ids": [
-        "bd09ad6e-5841-4b54-9473-b2682aac8c06"
-      ],
-      "review_task_ids": [
-        "bd09ad6e-5841-4b54-9473-b2682aac8c06"
-      ],
+      "review_claim_task_ids": ["bd09ad6e-5841-4b54-9473-b2682aac8c06"],
+      "review_task_ids": ["bd09ad6e-5841-4b54-9473-b2682aac8c06"],
       "tasks": {
         "1fd87f84-3623-4c88-8013-9791ee8103c4": {
           "annotation_contributors": [],
@@ -976,9 +862,7 @@
           "version": 1
         }
       },
-      "unassigned_review_task_ids": [
-        "1fd87f84-3623-4c88-8013-9791ee8103c4"
-      ]
+      "unassigned_review_task_ids": ["1fd87f84-3623-4c88-8013-9791ee8103c4"]
     },
     "target_role": "annotator"
   },
@@ -996,35 +880,23 @@
       {
         "code": "active_locks",
         "message": "成员持有效工作锁，需在交接中释放后才能变更职责",
-        "task_ids": [
-          "bf992496-8118-40e6-a31e-f23f4f80b899"
-        ]
+        "task_ids": ["bf992496-8118-40e6-a31e-f23f4f80b899"]
       }
     ],
-    "blockers": [
-      "self_replacement",
-      "unfinished_review_work",
-      "active_locks"
-    ],
+    "blockers": ["self_replacement", "unfinished_review_work", "active_locks"],
     "preview_token": "beb2de72992fbd187d2b8ca56ce21017e1dbd7e88f7d985334a6ecf242dc3590",
     "snapshot": {
       "annotation_task_ids": [
         "875c0b54-97a3-4957-b02d-bb62e35a16f0",
         "bf992496-8118-40e6-a31e-f23f4f80b899"
       ],
-      "batch_annotator_ids": [
-        "4f0f231b-259e-476e-a425-55b88be70c15"
-      ],
-      "batch_reviewer_ids": [
-        "4f0f231b-259e-476e-a425-55b88be70c15"
-      ],
+      "batch_annotator_ids": ["4f0f231b-259e-476e-a425-55b88be70c15"],
+      "batch_reviewer_ids": ["4f0f231b-259e-476e-a425-55b88be70c15"],
       "batches": {
         "4f0f231b-259e-476e-a425-55b88be70c15": {
           "admin_locked": false,
           "annotator_id": "be846de2-ab3d-426e-b118-0f82d3affd06",
-          "assigned_user_ids": [
-            "be846de2-ab3d-426e-b118-0f82d3affd06"
-          ],
+          "assigned_user_ids": ["be846de2-ab3d-426e-b118-0f82d3affd06"],
           "reviewer_id": "be846de2-ab3d-426e-b118-0f82d3affd06",
           "status": "annotating"
         }
@@ -1033,16 +905,12 @@
         "21d8223c-3f55-44f2-9ff8-6ab5974d5912",
         "99dba796-09a2-4e34-ba75-1c66c95e4d31"
       ],
-      "lock_task_ids": [
-        "bf992496-8118-40e6-a31e-f23f4f80b899"
-      ],
+      "lock_task_ids": ["bf992496-8118-40e6-a31e-f23f4f80b899"],
       "materialization_annotation_task_ids": [
         "55157b6a-837f-4995-b377-d1dc699abd61",
         "bd09ad6e-5841-4b54-9473-b2682aac8c06"
       ],
-      "materialization_review_task_ids": [
-        "55157b6a-837f-4995-b377-d1dc699abd61"
-      ],
+      "materialization_review_task_ids": ["55157b6a-837f-4995-b377-d1dc699abd61"],
       "member": {
         "id": "423ad7f4-5aa8-4baf-9d75-69317fec493d",
         "role": "annotator",
@@ -1070,12 +938,8 @@
         },
         "reviewer": null
       },
-      "review_claim_task_ids": [
-        "bd09ad6e-5841-4b54-9473-b2682aac8c06"
-      ],
-      "review_task_ids": [
-        "bd09ad6e-5841-4b54-9473-b2682aac8c06"
-      ],
+      "review_claim_task_ids": ["bd09ad6e-5841-4b54-9473-b2682aac8c06"],
+      "review_task_ids": ["bd09ad6e-5841-4b54-9473-b2682aac8c06"],
       "tasks": {
         "1fd87f84-3623-4c88-8013-9791ee8103c4": {
           "annotation_contributors": [],
@@ -1158,9 +1022,7 @@
           "version": 1
         }
       },
-      "unassigned_review_task_ids": [
-        "1fd87f84-3623-4c88-8013-9791ee8103c4"
-      ]
+      "unassigned_review_task_ids": ["1fd87f84-3623-4c88-8013-9791ee8103c4"]
     },
     "target_role": "viewer"
   },
@@ -1169,50 +1031,34 @@
       {
         "code": "review_contributors_unknown",
         "message": "相关任务缺少可信的标注贡献者证据，不能为该任务指派质检接收人",
-        "task_ids": [
-          "bd09ad6e-5841-4b54-9473-b2682aac8c06"
-        ]
+        "task_ids": ["bd09ad6e-5841-4b54-9473-b2682aac8c06"]
       }
     ],
-    "blockers": [
-      "review_contributors_unknown"
-    ],
+    "blockers": ["review_contributors_unknown"],
     "preview_token": "788935ce243b8bfb4f23e6d7340d48855de97a25ca5b6b9435645abc99b7e266",
     "snapshot": {
       "annotation_task_ids": [
         "875c0b54-97a3-4957-b02d-bb62e35a16f0",
         "bf992496-8118-40e6-a31e-f23f4f80b899"
       ],
-      "batch_annotator_ids": [
-        "4f0f231b-259e-476e-a425-55b88be70c15"
-      ],
-      "batch_reviewer_ids": [
-        "4f0f231b-259e-476e-a425-55b88be70c15"
-      ],
+      "batch_annotator_ids": ["4f0f231b-259e-476e-a425-55b88be70c15"],
+      "batch_reviewer_ids": ["4f0f231b-259e-476e-a425-55b88be70c15"],
       "batches": {
         "4f0f231b-259e-476e-a425-55b88be70c15": {
           "admin_locked": false,
           "annotator_id": "be846de2-ab3d-426e-b118-0f82d3affd06",
-          "assigned_user_ids": [
-            "be846de2-ab3d-426e-b118-0f82d3affd06"
-          ],
+          "assigned_user_ids": ["be846de2-ab3d-426e-b118-0f82d3affd06"],
           "reviewer_id": "be846de2-ab3d-426e-b118-0f82d3affd06",
           "status": "annotating"
         }
       },
-      "eligible_reviewer_ids": [
-        "21d8223c-3f55-44f2-9ff8-6ab5974d5912"
-      ],
-      "lock_task_ids": [
-        "bf992496-8118-40e6-a31e-f23f4f80b899"
-      ],
+      "eligible_reviewer_ids": ["21d8223c-3f55-44f2-9ff8-6ab5974d5912"],
+      "lock_task_ids": ["bf992496-8118-40e6-a31e-f23f4f80b899"],
       "materialization_annotation_task_ids": [
         "55157b6a-837f-4995-b377-d1dc699abd61",
         "bd09ad6e-5841-4b54-9473-b2682aac8c06"
       ],
-      "materialization_review_task_ids": [
-        "55157b6a-837f-4995-b377-d1dc699abd61"
-      ],
+      "materialization_review_task_ids": ["55157b6a-837f-4995-b377-d1dc699abd61"],
       "member": {
         "id": "423ad7f4-5aa8-4baf-9d75-69317fec493d",
         "role": "annotator",
@@ -1248,12 +1094,8 @@
           "user_id": "99dba796-09a2-4e34-ba75-1c66c95e4d31"
         }
       },
-      "review_claim_task_ids": [
-        "bd09ad6e-5841-4b54-9473-b2682aac8c06"
-      ],
-      "review_task_ids": [
-        "bd09ad6e-5841-4b54-9473-b2682aac8c06"
-      ],
+      "review_claim_task_ids": ["bd09ad6e-5841-4b54-9473-b2682aac8c06"],
+      "review_task_ids": ["bd09ad6e-5841-4b54-9473-b2682aac8c06"],
       "tasks": {
         "1fd87f84-3623-4c88-8013-9791ee8103c4": {
           "annotation_contributors": [],
@@ -1336,9 +1178,7 @@
           "version": 1
         }
       },
-      "unassigned_review_task_ids": [
-        "1fd87f84-3623-4c88-8013-9791ee8103c4"
-      ]
+      "unassigned_review_task_ids": ["1fd87f84-3623-4c88-8013-9791ee8103c4"]
     },
     "target_role": "viewer"
   }

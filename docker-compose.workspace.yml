@@ -1,0 +1,30 @@
+services:
+  workspace-membership:
+    image: aap-workspace:local
+    build:
+      context: .
+      dockerfile: apps/workspace/Dockerfile
+    environment:
+      WORKSPACE_HOST: 0.0.0.0
+      WORKSPACE_PORT: 8172
+      WORKSPACE_MEMBERSHIP_DATABASE_URL_FILE: /run/secrets/membership_database_url
+      WORKSPACE_MEMBERSHIP_CONTROL_TOKEN_FILE: /run/secrets/membership_control_token
+    secrets:
+      - membership_database_url
+      - membership_control_token
+    ports:
+      - "127.0.0.1:8172:8172"
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=32m
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 64
+    mem_limit: 256m
+    cpus: 1
+
+secrets:
+  membership_database_url:
+    file: ${WORKSPACE_RUNTIME_MEMBERSHIP_DATABASE_URL_FILE:?Set Workspace membership function-only DSN file}
+  membership_control_token:
+    file: ${WORKSPACE_RUNTIME_CONTROL_TOKEN_FILE:?Set Workspace private bearer file}

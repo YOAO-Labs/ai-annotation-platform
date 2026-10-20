@@ -55,7 +55,7 @@ BEGIN
     END IF;
 
     RETURN QUERY
-    SELECT account.id, account.name, account.email, account.role,
+    SELECT account.id, account.name::text, account.email::text, account.role::text,
            account.is_active
     FROM public.users AS account
     WHERE account.id = ANY(p_account_ids)

@@ -354,18 +354,10 @@ BEGIN
         v_member_id := (v_payload->>'member_id')::uuid;
     END IF;
 
-    -- A prepared write owns the connection until apply or rollback. Do not
-    -- silently replace another command's transaction-local binding.
+    -- A rejected policy can leave the caller transaction open. A new prepare
+    -- supersedes the unapplied binding; the old apply then fails its binding.
     IF NOT v_is_preview THEN
-        v_binding := NULLIF(
-            pg_catalog.current_setting('aap.workspace_membership_prepare', true), ''
-        );
-        IF v_binding IS NOT NULL THEN
-            RETURN aap_workspace_membership_v1._failure(
-                409,
-                pg_catalog.jsonb_build_object('reason', 'operation_conflict')
-            );
-        END IF;
+        PERFORM pg_catalog.set_config('aap.workspace_membership_prepare', '', true);
     END IF;
 
     SELECT receipt.operation_id, receipt.actor_id, receipt.project_id,

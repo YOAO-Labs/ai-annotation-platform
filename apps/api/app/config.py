@@ -276,6 +276,13 @@ class Settings(BaseSettings):
     identity_mail_settings_database_url: str = Field(default="", repr=False)
     identity_mail_settings_database_url_file: str = ""
 
+    workspace_membership_url: str = ""
+    workspace_membership_control_token: str = Field(default="", repr=False)
+    workspace_membership_control_token_file: str = ""
+    workspace_membership_database_url: str = Field(default="", repr=False)
+    workspace_membership_database_url_file: str = ""
+    workspace_membership_timeout_seconds: float = Field(default=30, gt=0, le=3600)
+
     media_probe_url: str = ""
     media_probe_token: str = Field(default="", repr=False)
     media_probe_timeout_seconds: float = Field(default=90, gt=0, le=3600)

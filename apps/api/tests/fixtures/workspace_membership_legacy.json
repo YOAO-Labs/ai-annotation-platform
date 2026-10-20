@@ -1,0 +1,2958 @@
+{
+  "kind": "actual-legacy-workspace-membership",
+  "base_head": "5b0267e5f440fc36c48c5ccb640ca51e97fd6a8a",
+  "aliases": {
+    "4c524267-d44b-4419-9dcb-1afd9630d80a": "owner",
+    "be846de2-ab3d-426e-b118-0f82d3affd06": "member",
+    "17312f02-c340-4d33-b0c4-97edb34f8ab4": "annotator",
+    "99dba796-09a2-4e34-ba75-1c66c95e4d31": "reviewer",
+    "21d8223c-3f55-44f2-9ff8-6ab5974d5912": "other_reviewer",
+    "25e85a6b-c459-4607-a943-862e75207091": "new_employee",
+    "c2d6f940-aea8-4b01-a5c7-b73968e1584b": "viewer",
+    "705ffe3a-dddc-4d15-8bb8-870f88af6586": "project",
+    "423ad7f4-5aa8-4baf-9d75-69317fec493d": "membership_member",
+    "b64ecc6b-6169-4a59-8793-85aba7c691d7": "membership_annotator",
+    "d24589a9-085d-4cda-9871-8e134902c927": "membership_reviewer",
+    "01d91f14-9681-43dc-b220-d2f083af0fe7": "membership_other_reviewer",
+    "4f0f231b-259e-476e-a425-55b88be70c15": "batch",
+    "bf992496-8118-40e6-a31e-f23f4f80b899": "task_annotation",
+    "875c0b54-97a3-4957-b02d-bb62e35a16f0": "task_inherited",
+    "55157b6a-837f-4995-b377-d1dc699abd61": "task_history",
+    "bd09ad6e-5841-4b54-9473-b2682aac8c06": "task_review",
+    "1fd87f84-3623-4c88-8013-9791ee8103c4": "task_pool",
+    "ac6508de-f7f3-446e-babd-fbcb2db6e613": "review_round",
+    "2a7a0a31-9297-4d47-8772-07cfa5a12a0a": "membership_added"
+  },
+  "responses": {
+    "list_before": {
+      "status": 200,
+      "body": [
+        {
+          "id": "$membership_member",
+          "user_id": "$member",
+          "user_name": "member",
+          "user_email": "member-baseline-member-5d4037e1e0f9455f946020661971a621@example.test",
+          "role": "annotator",
+          "platform_role": "employee",
+          "version": 1,
+          "assigned_at": "<timestamp>",
+          "updated_at": "<timestamp>",
+          "avatar_ref": null
+        },
+        {
+          "id": "$membership_annotator",
+          "user_id": "$annotator",
+          "user_name": "annotator",
+          "user_email": "member-baseline-annotator-95f76b3ddf1a432ab99f0ed4bf65b5e7@example.test",
+          "role": "annotator",
+          "platform_role": "employee",
+          "version": 1,
+          "assigned_at": "<timestamp>",
+          "updated_at": "<timestamp>",
+          "avatar_ref": null
+        },
+        {
+          "id": "$membership_reviewer",
+          "user_id": "$reviewer",
+          "user_name": "reviewer",
+          "user_email": "member-baseline-reviewer-76f5ba4523a64734adf24f9acb2a73e7@example.test",
+          "role": "reviewer",
+          "platform_role": "employee",
+          "version": 1,
+          "assigned_at": "<timestamp>",
+          "updated_at": "<timestamp>",
+          "avatar_ref": null
+        },
+        {
+          "id": "$membership_other_reviewer",
+          "user_id": "$other_reviewer",
+          "user_name": "other_reviewer",
+          "user_email": "member-baseline-other_reviewer-e1742ade64f14fbf9873262f8314f027@example.test",
+          "role": "reviewer",
+          "platform_role": "employee",
+          "version": 1,
+          "assigned_at": "<timestamp>",
+          "updated_at": "<timestamp>",
+          "avatar_ref": null
+        }
+      ]
+    },
+    "same_role": {
+      "status": 200,
+      "body": {
+        "member_id": "$membership_member",
+        "user_id": "$member",
+        "current_role": "annotator",
+        "current_version": 1,
+        "target_role": "annotator",
+        "requires_handoff": true,
+        "blockers": ["same_role", "unfinished_review_work"],
+        "blocker_details": [
+          {
+            "code": "same_role",
+            "message": "目标职责与当前职责相同"
+          },
+          {
+            "code": "unfinished_review_work",
+            "message": "成员仍有未完成的审核工作，需显式指派接收人"
+          }
+        ],
+        "resource_snapshot": {
+          "member": {
+            "id": "$membership_member",
+            "user_id": "$member",
+            "role": "annotator",
+            "version": 1
+          },
+          "member_account": {
+            "exists": true,
+            "is_active": true,
+            "platform_role": "employee"
+          },
+          "project": {
+            "id": "$project",
+            "owner_id": "$owner"
+          },
+          "annotation_task_ids": ["$task_inherited", "$task_annotation"],
+          "review_task_ids": ["$task_review"],
+          "unassigned_review_task_ids": ["$task_pool"],
+          "lock_task_ids": ["$task_annotation"],
+          "review_claim_task_ids": ["$task_review"],
+          "materialization_annotation_task_ids": ["$task_history", "$task_review"],
+          "materialization_review_task_ids": ["$task_history"],
+          "batch_annotator_ids": ["$batch"],
+          "batch_reviewer_ids": ["$batch"],
+          "eligible_reviewer_ids": ["$other_reviewer", "$reviewer"],
+          "tasks": {
+            "task_pool": {
+              "status": "review",
+              "version": 1,
+              "batch_id": null,
+              "assignee_id": null,
+              "assignee_is_override": false,
+              "reviewer_id": null,
+              "reviewer_is_override": false,
+              "reviewer_claimed": false,
+              "review_round_id": null,
+              "effective_assignee_id": null,
+              "effective_reviewer_id": null,
+              "review_submitter_id": null,
+              "annotation_contributors": [],
+              "review_contributors": []
+            },
+            "task_history": {
+              "status": "completed",
+              "version": 1,
+              "batch_id": "$batch",
+              "assignee_id": null,
+              "assignee_is_override": false,
+              "reviewer_id": null,
+              "reviewer_is_override": false,
+              "reviewer_claimed": false,
+              "review_round_id": null,
+              "effective_assignee_id": "$member",
+              "effective_reviewer_id": "$member",
+              "review_submitter_id": null,
+              "annotation_contributors": [],
+              "review_contributors": []
+            },
+            "task_inherited": {
+              "status": "pending",
+              "version": 1,
+              "batch_id": "$batch",
+              "assignee_id": null,
+              "assignee_is_override": false,
+              "reviewer_id": null,
+              "reviewer_is_override": false,
+              "reviewer_claimed": false,
+              "review_round_id": null,
+              "effective_assignee_id": "$member",
+              "effective_reviewer_id": "$member",
+              "review_submitter_id": null,
+              "annotation_contributors": [],
+              "review_contributors": []
+            },
+            "task_review": {
+              "status": "review",
+              "version": 1,
+              "batch_id": "$batch",
+              "assignee_id": null,
+              "assignee_is_override": false,
+              "reviewer_id": "$member",
+              "reviewer_is_override": false,
+              "reviewer_claimed": true,
+              "review_round_id": null,
+              "effective_assignee_id": "$member",
+              "effective_reviewer_id": "$member",
+              "review_submitter_id": null,
+              "annotation_contributors": null,
+              "review_contributors": null
+            },
+            "task_annotation": {
+              "status": "in_progress",
+              "version": 1,
+              "batch_id": "$batch",
+              "assignee_id": "$member",
+              "assignee_is_override": false,
+              "reviewer_id": null,
+              "reviewer_is_override": false,
+              "reviewer_claimed": false,
+              "review_round_id": null,
+              "effective_assignee_id": "$member",
+              "effective_reviewer_id": "$member",
+              "review_submitter_id": null,
+              "annotation_contributors": [],
+              "review_contributors": []
+            }
+          },
+          "batches": {
+            "batch": {
+              "status": "annotating",
+              "annotator_id": "$member",
+              "reviewer_id": "$member",
+              "assigned_user_ids": ["$member"],
+              "admin_locked": false
+            }
+          },
+          "receivers": {
+            "annotator": null,
+            "reviewer": null
+          }
+        },
+        "preview_token": "<digest>"
+      }
+    },
+    "blocked_viewer": {
+      "status": 200,
+      "body": {
+        "member_id": "$membership_member",
+        "user_id": "$member",
+        "current_role": "annotator",
+        "current_version": 1,
+        "target_role": "viewer",
+        "requires_handoff": true,
+        "blockers": ["unfinished_annotation_work", "unfinished_review_work", "active_locks"],
+        "blocker_details": [
+          {
+            "code": "unfinished_annotation_work",
+            "message": "成员仍有未完成的标注工作，需显式指派接收人"
+          },
+          {
+            "code": "unfinished_review_work",
+            "message": "成员仍有未完成的审核工作，需显式指派接收人"
+          },
+          {
+            "code": "active_locks",
+            "message": "成员持有效工作锁，需在交接中释放后才能变更职责",
+            "task_ids": ["$task_annotation"]
+          }
+        ],
+        "resource_snapshot": {
+          "member": {
+            "id": "$membership_member",
+            "user_id": "$member",
+            "role": "annotator",
+            "version": 1
+          },
+          "member_account": {
+            "exists": true,
+            "is_active": true,
+            "platform_role": "employee"
+          },
+          "project": {
+            "id": "$project",
+            "owner_id": "$owner"
+          },
+          "annotation_task_ids": ["$task_inherited", "$task_annotation"],
+          "review_task_ids": ["$task_review"],
+          "unassigned_review_task_ids": ["$task_pool"],
+          "lock_task_ids": ["$task_annotation"],
+          "review_claim_task_ids": ["$task_review"],
+          "materialization_annotation_task_ids": ["$task_history", "$task_review"],
+          "materialization_review_task_ids": ["$task_history"],
+          "batch_annotator_ids": ["$batch"],
+          "batch_reviewer_ids": ["$batch"],
+          "eligible_reviewer_ids": ["$other_reviewer", "$reviewer"],
+          "tasks": {
+            "task_pool": {
+              "status": "review",
+              "version": 1,
+              "batch_id": null,
+              "assignee_id": null,
+              "assignee_is_override": false,
+              "reviewer_id": null,
+              "reviewer_is_override": false,
+              "reviewer_claimed": false,
+              "review_round_id": null,
+              "effective_assignee_id": null,
+              "effective_reviewer_id": null,
+              "review_submitter_id": null,
+              "annotation_contributors": [],
+              "review_contributors": []
+            },
+            "task_history": {
+              "status": "completed",
+              "version": 1,
+              "batch_id": "$batch",
+              "assignee_id": null,
+              "assignee_is_override": false,
+              "reviewer_id": null,
+              "reviewer_is_override": false,
+              "reviewer_claimed": false,
+              "review_round_id": null,
+              "effective_assignee_id": "$member",
+              "effective_reviewer_id": "$member",
+              "review_submitter_id": null,
+              "annotation_contributors": [],
+              "review_contributors": []
+            },
+            "task_inherited": {
+              "status": "pending",
+              "version": 1,
+              "batch_id": "$batch",
+              "assignee_id": null,
+              "assignee_is_override": false,
+              "reviewer_id": null,
+              "reviewer_is_override": false,
+              "reviewer_claimed": false,
+              "review_round_id": null,
+              "effective_assignee_id": "$member",
+              "effective_reviewer_id": "$member",
+              "review_submitter_id": null,
+              "annotation_contributors": [],
+              "review_contributors": []
+            },
+            "task_review": {
+              "status": "review",
+              "version": 1,
+              "batch_id": "$batch",
+              "assignee_id": null,
+              "assignee_is_override": false,
+              "reviewer_id": "$member",
+              "reviewer_is_override": false,
+              "reviewer_claimed": true,
+              "review_round_id": null,
+              "effective_assignee_id": "$member",
+              "effective_reviewer_id": "$member",
+              "review_submitter_id": null,
+              "annotation_contributors": null,
+              "review_contributors": null
+            },
+            "task_annotation": {
+              "status": "in_progress",
+              "version": 1,
+              "batch_id": "$batch",
+              "assignee_id": "$member",
+              "assignee_is_override": false,
+              "reviewer_id": null,
+              "reviewer_is_override": false,
+              "reviewer_claimed": false,
+              "review_round_id": null,
+              "effective_assignee_id": "$member",
+              "effective_reviewer_id": "$member",
+              "review_submitter_id": null,
+              "annotation_contributors": [],
+              "review_contributors": []
+            }
+          },
+          "batches": {
+            "batch": {
+              "status": "annotating",
+              "annotator_id": "$member",
+              "reviewer_id": "$member",
+              "assigned_user_ids": ["$member"],
+              "admin_locked": false
+            }
+          },
+          "receivers": {
+            "annotator": null,
+            "reviewer": null
+          }
+        },
+        "preview_token": "<digest>"
+      }
+    },
+    "self_receiver": {
+      "status": 200,
+      "body": {
+        "member_id": "$membership_member",
+        "user_id": "$member",
+        "current_role": "annotator",
+        "current_version": 1,
+        "target_role": "viewer",
+        "requires_handoff": true,
+        "blockers": ["self_replacement", "unfinished_review_work", "active_locks"],
+        "blocker_details": [
+          {
+            "code": "self_replacement",
+            "message": "接收人不能是正在变更职责的成员本人",
+            "project_role": "annotator"
+          },
+          {
+            "code": "unfinished_review_work",
+            "message": "成员仍有未完成的审核工作，需显式指派接收人"
+          },
+          {
+            "code": "active_locks",
+            "message": "成员持有效工作锁，需在交接中释放后才能变更职责",
+            "task_ids": ["$task_annotation"]
+          }
+        ],
+        "resource_snapshot": {
+          "member": {
+            "id": "$membership_member",
+            "user_id": "$member",
+            "role": "annotator",
+            "version": 1
+          },
+          "member_account": {
+            "exists": true,
+            "is_active": true,
+            "platform_role": "employee"
+          },
+          "project": {
+            "id": "$project",
+            "owner_id": "$owner"
+          },
+          "annotation_task_ids": ["$task_inherited", "$task_annotation"],
+          "review_task_ids": ["$task_review"],
+          "unassigned_review_task_ids": ["$task_pool"],
+          "lock_task_ids": ["$task_annotation"],
+          "review_claim_task_ids": ["$task_review"],
+          "materialization_annotation_task_ids": ["$task_history", "$task_review"],
+          "materialization_review_task_ids": ["$task_history"],
+          "batch_annotator_ids": ["$batch"],
+          "batch_reviewer_ids": ["$batch"],
+          "eligible_reviewer_ids": ["$other_reviewer", "$reviewer"],
+          "tasks": {
+            "task_pool": {
+              "status": "review",
+              "version": 1,
+              "batch_id": null,
+              "assignee_id": null,
+              "assignee_is_override": false,
+              "reviewer_id": null,
+              "reviewer_is_override": false,
+              "reviewer_claimed": false,
+              "review_round_id": null,
+              "effective_assignee_id": null,
+              "effective_reviewer_id": null,
+              "review_submitter_id": null,
+              "annotation_contributors": [],
+              "review_contributors": []
+            },
+            "task_history": {
+              "status": "completed",
+              "version": 1,
+              "batch_id": "$batch",
+              "assignee_id": null,
+              "assignee_is_override": false,
+              "reviewer_id": null,
+              "reviewer_is_override": false,
+              "reviewer_claimed": false,
+              "review_round_id": null,
+              "effective_assignee_id": "$member",
+              "effective_reviewer_id": "$member",
+              "review_submitter_id": null,
+              "annotation_contributors": [],
+              "review_contributors": []
+            },
+            "task_inherited": {
+              "status": "pending",
+              "version": 1,
+              "batch_id": "$batch",
+              "assignee_id": null,
+              "assignee_is_override": false,
+              "reviewer_id": null,
+              "reviewer_is_override": false,
+              "reviewer_claimed": false,
+              "review_round_id": null,
+              "effective_assignee_id": "$member",
+              "effective_reviewer_id": "$member",
+              "review_submitter_id": null,
+              "annotation_contributors": [],
+              "review_contributors": []
+            },
+            "task_review": {
+              "status": "review",
+              "version": 1,
+              "batch_id": "$batch",
+              "assignee_id": null,
+              "assignee_is_override": false,
+              "reviewer_id": "$member",
+              "reviewer_is_override": false,
+              "reviewer_claimed": true,
+              "review_round_id": null,
+              "effective_assignee_id": "$member",
+              "effective_reviewer_id": "$member",
+              "review_submitter_id": null,
+              "annotation_contributors": null,
+              "review_contributors": null
+            },
+            "task_annotation": {
+              "status": "in_progress",
+              "version": 1,
+              "batch_id": "$batch",
+              "assignee_id": "$member",
+              "assignee_is_override": false,
+              "reviewer_id": null,
+              "reviewer_is_override": false,
+              "reviewer_claimed": false,
+              "review_round_id": null,
+              "effective_assignee_id": "$member",
+              "effective_reviewer_id": "$member",
+              "review_submitter_id": null,
+              "annotation_contributors": [],
+              "review_contributors": []
+            }
+          },
+          "batches": {
+            "batch": {
+              "status": "annotating",
+              "annotator_id": "$member",
+              "reviewer_id": "$member",
+              "assigned_user_ids": ["$member"],
+              "admin_locked": false
+            }
+          },
+          "receivers": {
+            "annotator": {
+              "user_id": "$member",
+              "exists": true,
+              "is_active": true,
+              "platform_role": "employee",
+              "membership_id": "$membership_member",
+              "membership_version": 1,
+              "membership_role": "annotator"
+            },
+            "reviewer": null
+          }
+        },
+        "preview_token": "<digest>"
+      }
+    },
+    "invalid_receiver": {
+      "status": 200,
+      "body": {
+        "member_id": "$membership_member",
+        "user_id": "$member",
+        "current_role": "annotator",
+        "current_version": 1,
+        "target_role": "viewer",
+        "requires_handoff": true,
+        "blockers": ["invalid_replacement_annotator", "unfinished_review_work", "active_locks"],
+        "blocker_details": [
+          {
+            "code": "invalid_replacement_annotator",
+            "message": "标注接收人必须是该项目中启用且职责匹配的员工"
+          },
+          {
+            "code": "unfinished_review_work",
+            "message": "成员仍有未完成的审核工作，需显式指派接收人"
+          },
+          {
+            "code": "active_locks",
+            "message": "成员持有效工作锁，需在交接中释放后才能变更职责",
+            "task_ids": ["$task_annotation"]
+          }
+        ],
+        "resource_snapshot": {
+          "member": {
+            "id": "$membership_member",
+            "user_id": "$member",
+            "role": "annotator",
+            "version": 1
+          },
+          "member_account": {
+            "exists": true,
+            "is_active": true,
+            "platform_role": "employee"
+          },
+          "project": {
+            "id": "$project",
+            "owner_id": "$owner"
+          },
+          "annotation_task_ids": ["$task_inherited", "$task_annotation"],
+          "review_task_ids": ["$task_review"],
+          "unassigned_review_task_ids": ["$task_pool"],
+          "lock_task_ids": ["$task_annotation"],
+          "review_claim_task_ids": ["$task_review"],
+          "materialization_annotation_task_ids": ["$task_history", "$task_review"],
+          "materialization_review_task_ids": ["$task_history"],
+          "batch_annotator_ids": ["$batch"],
+          "batch_reviewer_ids": ["$batch"],
+          "eligible_reviewer_ids": ["$other_reviewer", "$reviewer"],
+          "tasks": {
+            "task_pool": {
+              "status": "review",
+              "version": 1,
+              "batch_id": null,
+              "assignee_id": null,
+              "assignee_is_override": false,
+              "reviewer_id": null,
+              "reviewer_is_override": false,
+              "reviewer_claimed": false,
+              "review_round_id": null,
+              "effective_assignee_id": null,
+              "effective_reviewer_id": null,
+              "review_submitter_id": null,
+              "annotation_contributors": [],
+              "review_contributors": []
+            },
+            "task_history": {
+              "status": "completed",
+              "version": 1,
+              "batch_id": "$batch",
+              "assignee_id": null,
+              "assignee_is_override": false,
+              "reviewer_id": null,
+              "reviewer_is_override": false,
+              "reviewer_claimed": false,
+              "review_round_id": null,
+              "effective_assignee_id": "$member",
+              "effective_reviewer_id": "$member",
+              "review_submitter_id": null,
+              "annotation_contributors": [],
+              "review_contributors": []
+            },
+            "task_inherited": {
+              "status": "pending",
+              "version": 1,
+              "batch_id": "$batch",
+              "assignee_id": null,
+              "assignee_is_override": false,
+              "reviewer_id": null,
+              "reviewer_is_override": false,
+              "reviewer_claimed": false,
+              "review_round_id": null,
+              "effective_assignee_id": "$member",
+              "effective_reviewer_id": "$member",
+              "review_submitter_id": null,
+              "annotation_contributors": [],
+              "review_contributors": []
+            },
+            "task_review": {
+              "status": "review",
+              "version": 1,
+              "batch_id": "$batch",
+              "assignee_id": null,
+              "assignee_is_override": false,
+              "reviewer_id": "$member",
+              "reviewer_is_override": false,
+              "reviewer_claimed": true,
+              "review_round_id": null,
+              "effective_assignee_id": "$member",
+              "effective_reviewer_id": "$member",
+              "review_submitter_id": null,
+              "annotation_contributors": null,
+              "review_contributors": null
+            },
+            "task_annotation": {
+              "status": "in_progress",
+              "version": 1,
+              "batch_id": "$batch",
+              "assignee_id": "$member",
+              "assignee_is_override": false,
+              "reviewer_id": null,
+              "reviewer_is_override": false,
+              "reviewer_claimed": false,
+              "review_round_id": null,
+              "effective_assignee_id": "$member",
+              "effective_reviewer_id": "$member",
+              "review_submitter_id": null,
+              "annotation_contributors": [],
+              "review_contributors": []
+            }
+          },
+          "batches": {
+            "batch": {
+              "status": "annotating",
+              "annotator_id": "$member",
+              "reviewer_id": "$member",
+              "assigned_user_ids": ["$member"],
+              "admin_locked": false
+            }
+          },
+          "receivers": {
+            "annotator": {
+              "user_id": "$viewer",
+              "exists": true,
+              "is_active": true,
+              "platform_role": "viewer",
+              "membership_id": null,
+              "membership_version": null,
+              "membership_role": null
+            },
+            "reviewer": null
+          }
+        },
+        "preview_token": "<digest>"
+      }
+    },
+    "identical_receiver": {
+      "status": 200,
+      "body": {
+        "member_id": "$membership_member",
+        "user_id": "$member",
+        "current_role": "annotator",
+        "current_version": 1,
+        "target_role": "viewer",
+        "requires_handoff": true,
+        "blockers": ["identical_replacement_responsibility", "invalid_replacement_reviewer"],
+        "blocker_details": [
+          {
+            "code": "identical_replacement_responsibility",
+            "message": "标注接收人与质检接收人不能是同一账号"
+          },
+          {
+            "code": "invalid_replacement_reviewer",
+            "message": "质检接收人必须是该项目中启用且职责匹配的员工"
+          }
+        ],
+        "resource_snapshot": {
+          "member": {
+            "id": "$membership_member",
+            "user_id": "$member",
+            "role": "annotator",
+            "version": 1
+          },
+          "member_account": {
+            "exists": true,
+            "is_active": true,
+            "platform_role": "employee"
+          },
+          "project": {
+            "id": "$project",
+            "owner_id": "$owner"
+          },
+          "annotation_task_ids": ["$task_inherited", "$task_annotation"],
+          "review_task_ids": ["$task_review"],
+          "unassigned_review_task_ids": ["$task_pool"],
+          "lock_task_ids": ["$task_annotation"],
+          "review_claim_task_ids": ["$task_review"],
+          "materialization_annotation_task_ids": ["$task_history", "$task_review"],
+          "materialization_review_task_ids": ["$task_history"],
+          "batch_annotator_ids": ["$batch"],
+          "batch_reviewer_ids": ["$batch"],
+          "eligible_reviewer_ids": ["$other_reviewer", "$reviewer"],
+          "tasks": {
+            "task_pool": {
+              "status": "review",
+              "version": 1,
+              "batch_id": null,
+              "assignee_id": null,
+              "assignee_is_override": false,
+              "reviewer_id": null,
+              "reviewer_is_override": false,
+              "reviewer_claimed": false,
+              "review_round_id": null,
+              "effective_assignee_id": null,
+              "effective_reviewer_id": null,
+              "review_submitter_id": null,
+              "annotation_contributors": [],
+              "review_contributors": []
+            },
+            "task_history": {
+              "status": "completed",
+              "version": 1,
+              "batch_id": "$batch",
+              "assignee_id": null,
+              "assignee_is_override": false,
+              "reviewer_id": null,
+              "reviewer_is_override": false,
+              "reviewer_claimed": false,
+              "review_round_id": null,
+              "effective_assignee_id": "$member",
+              "effective_reviewer_id": "$member",
+              "review_submitter_id": null,
+              "annotation_contributors": [],
+              "review_contributors": []
+            },
+            "task_inherited": {
+              "status": "pending",
+              "version": 1,
+              "batch_id": "$batch",
+              "assignee_id": null,
+              "assignee_is_override": false,
+              "reviewer_id": null,
+              "reviewer_is_override": false,
+              "reviewer_claimed": false,
+              "review_round_id": null,
+              "effective_assignee_id": "$member",
+              "effective_reviewer_id": "$member",
+              "review_submitter_id": null,
+              "annotation_contributors": [],
+              "review_contributors": []
+            },
+            "task_review": {
+              "status": "review",
+              "version": 1,
+              "batch_id": "$batch",
+              "assignee_id": null,
+              "assignee_is_override": false,
+              "reviewer_id": "$member",
+              "reviewer_is_override": false,
+              "reviewer_claimed": true,
+              "review_round_id": null,
+              "effective_assignee_id": "$member",
+              "effective_reviewer_id": "$member",
+              "review_submitter_id": null,
+              "annotation_contributors": null,
+              "review_contributors": null
+            },
+            "task_annotation": {
+              "status": "in_progress",
+              "version": 1,
+              "batch_id": "$batch",
+              "assignee_id": "$member",
+              "assignee_is_override": false,
+              "reviewer_id": null,
+              "reviewer_is_override": false,
+              "reviewer_claimed": false,
+              "review_round_id": null,
+              "effective_assignee_id": "$member",
+              "effective_reviewer_id": "$member",
+              "review_submitter_id": null,
+              "annotation_contributors": [],
+              "review_contributors": []
+            }
+          },
+          "batches": {
+            "batch": {
+              "status": "annotating",
+              "annotator_id": "$member",
+              "reviewer_id": "$member",
+              "assigned_user_ids": ["$member"],
+              "admin_locked": false
+            }
+          },
+          "receivers": {
+            "annotator": {
+              "user_id": "$annotator",
+              "exists": true,
+              "is_active": true,
+              "platform_role": "employee",
+              "membership_id": "$membership_annotator",
+              "membership_version": 1,
+              "membership_role": "annotator"
+            },
+            "reviewer": {
+              "user_id": "$annotator",
+              "exists": true,
+              "is_active": true,
+              "platform_role": "employee",
+              "membership_id": null,
+              "membership_version": null,
+              "membership_role": null
+            }
+          }
+        },
+        "preview_token": "<digest>"
+      }
+    },
+    "unknown_review_evidence": {
+      "status": 200,
+      "body": {
+        "member_id": "$membership_member",
+        "user_id": "$member",
+        "current_role": "annotator",
+        "current_version": 1,
+        "target_role": "viewer",
+        "requires_handoff": true,
+        "blockers": ["review_contributors_unknown"],
+        "blocker_details": [
+          {
+            "code": "review_contributors_unknown",
+            "message": "相关任务缺少可信的标注贡献者证据，不能为该任务指派质检接收人",
+            "task_ids": ["$task_review"]
+          }
+        ],
+        "resource_snapshot": {
+          "member": {
+            "id": "$membership_member",
+            "user_id": "$member",
+            "role": "annotator",
+            "version": 1
+          },
+          "member_account": {
+            "exists": true,
+            "is_active": true,
+            "platform_role": "employee"
+          },
+          "project": {
+            "id": "$project",
+            "owner_id": "$owner"
+          },
+          "annotation_task_ids": ["$task_inherited", "$task_annotation"],
+          "review_task_ids": ["$task_review"],
+          "unassigned_review_task_ids": ["$task_pool"],
+          "lock_task_ids": ["$task_annotation"],
+          "review_claim_task_ids": ["$task_review"],
+          "materialization_annotation_task_ids": ["$task_history", "$task_review"],
+          "materialization_review_task_ids": ["$task_history"],
+          "batch_annotator_ids": ["$batch"],
+          "batch_reviewer_ids": ["$batch"],
+          "eligible_reviewer_ids": ["$other_reviewer"],
+          "tasks": {
+            "task_pool": {
+              "status": "review",
+              "version": 1,
+              "batch_id": null,
+              "assignee_id": null,
+              "assignee_is_override": false,
+              "reviewer_id": null,
+              "reviewer_is_override": false,
+              "reviewer_claimed": false,
+              "review_round_id": null,
+              "effective_assignee_id": null,
+              "effective_reviewer_id": null,
+              "review_submitter_id": null,
+              "annotation_contributors": [],
+              "review_contributors": []
+            },
+            "task_history": {
+              "status": "completed",
+              "version": 1,
+              "batch_id": "$batch",
+              "assignee_id": null,
+              "assignee_is_override": false,
+              "reviewer_id": null,
+              "reviewer_is_override": false,
+              "reviewer_claimed": false,
+              "review_round_id": null,
+              "effective_assignee_id": "$member",
+              "effective_reviewer_id": "$member",
+              "review_submitter_id": null,
+              "annotation_contributors": [],
+              "review_contributors": []
+            },
+            "task_inherited": {
+              "status": "pending",
+              "version": 1,
+              "batch_id": "$batch",
+              "assignee_id": null,
+              "assignee_is_override": false,
+              "reviewer_id": null,
+              "reviewer_is_override": false,
+              "reviewer_claimed": false,
+              "review_round_id": null,
+              "effective_assignee_id": "$member",
+              "effective_reviewer_id": "$member",
+              "review_submitter_id": null,
+              "annotation_contributors": [],
+              "review_contributors": []
+            },
+            "task_review": {
+              "status": "review",
+              "version": 1,
+              "batch_id": "$batch",
+              "assignee_id": null,
+              "assignee_is_override": false,
+              "reviewer_id": "$member",
+              "reviewer_is_override": false,
+              "reviewer_claimed": true,
+              "review_round_id": null,
+              "effective_assignee_id": "$member",
+              "effective_reviewer_id": "$member",
+              "review_submitter_id": null,
+              "annotation_contributors": null,
+              "review_contributors": null
+            },
+            "task_annotation": {
+              "status": "in_progress",
+              "version": 1,
+              "batch_id": "$batch",
+              "assignee_id": "$member",
+              "assignee_is_override": false,
+              "reviewer_id": null,
+              "reviewer_is_override": false,
+              "reviewer_claimed": false,
+              "review_round_id": null,
+              "effective_assignee_id": "$member",
+              "effective_reviewer_id": "$member",
+              "review_submitter_id": null,
+              "annotation_contributors": [],
+              "review_contributors": []
+            }
+          },
+          "batches": {
+            "batch": {
+              "status": "annotating",
+              "annotator_id": "$member",
+              "reviewer_id": "$member",
+              "assigned_user_ids": ["$member"],
+              "admin_locked": false
+            }
+          },
+          "receivers": {
+            "annotator": {
+              "user_id": "$annotator",
+              "exists": true,
+              "is_active": true,
+              "platform_role": "employee",
+              "membership_id": "$membership_annotator",
+              "membership_version": 1,
+              "membership_role": "annotator"
+            },
+            "reviewer": {
+              "user_id": "$reviewer",
+              "exists": true,
+              "is_active": true,
+              "platform_role": "employee",
+              "membership_id": "$membership_reviewer",
+              "membership_version": 1,
+              "membership_role": "reviewer"
+            }
+          }
+        },
+        "preview_token": "<digest>"
+      }
+    },
+    "blocked_removal": {
+      "status": 409,
+      "body": {
+        "detail": {
+          "reason": "member_removal_blocked",
+          "blockers": [
+            {
+              "code": "unfinished_annotation_work",
+              "message": "成员仍有未完成的标注工作，需显式指派接收人"
+            },
+            {
+              "code": "unfinished_review_work",
+              "message": "成员仍有未完成的审核工作，需显式指派接收人"
+            },
+            {
+              "code": "active_locks",
+              "message": "成员持有效工作锁，需在交接中释放后才能变更职责",
+              "task_ids": ["$task_annotation"]
+            }
+          ],
+          "resource_snapshot": {
+            "member": {
+              "id": "$membership_member",
+              "user_id": "$member",
+              "role": "annotator",
+              "version": 1
+            },
+            "member_account": {
+              "exists": true,
+              "is_active": true,
+              "platform_role": "employee"
+            },
+            "project": {
+              "id": "$project",
+              "owner_id": "$owner"
+            },
+            "annotation_task_ids": ["$task_inherited", "$task_annotation"],
+            "review_task_ids": ["$task_review"],
+            "unassigned_review_task_ids": ["$task_pool"],
+            "lock_task_ids": ["$task_annotation"],
+            "review_claim_task_ids": ["$task_review"],
+            "materialization_annotation_task_ids": ["$task_history", "$task_review"],
+            "materialization_review_task_ids": ["$task_history"],
+            "batch_annotator_ids": ["$batch"],
+            "batch_reviewer_ids": ["$batch"],
+            "eligible_reviewer_ids": ["$other_reviewer", "$reviewer"],
+            "tasks": {
+              "task_pool": {
+                "status": "review",
+                "version": 1,
+                "batch_id": null,
+                "assignee_id": null,
+                "assignee_is_override": false,
+                "reviewer_id": null,
+                "reviewer_is_override": false,
+                "reviewer_claimed": false,
+                "review_round_id": null,
+                "effective_assignee_id": null,
+                "effective_reviewer_id": null,
+                "review_submitter_id": null,
+                "annotation_contributors": [],
+                "review_contributors": []
+              },
+              "task_history": {
+                "status": "completed",
+                "version": 1,
+                "batch_id": "$batch",
+                "assignee_id": null,
+                "assignee_is_override": false,
+                "reviewer_id": null,
+                "reviewer_is_override": false,
+                "reviewer_claimed": false,
+                "review_round_id": null,
+                "effective_assignee_id": "$member",
+                "effective_reviewer_id": "$member",
+                "review_submitter_id": null,
+                "annotation_contributors": [],
+                "review_contributors": []
+              },
+              "task_inherited": {
+                "status": "pending",
+                "version": 1,
+                "batch_id": "$batch",
+                "assignee_id": null,
+                "assignee_is_override": false,
+                "reviewer_id": null,
+                "reviewer_is_override": false,
+                "reviewer_claimed": false,
+                "review_round_id": null,
+                "effective_assignee_id": "$member",
+                "effective_reviewer_id": "$member",
+                "review_submitter_id": null,
+                "annotation_contributors": [],
+                "review_contributors": []
+              },
+              "task_review": {
+                "status": "review",
+                "version": 1,
+                "batch_id": "$batch",
+                "assignee_id": null,
+                "assignee_is_override": false,
+                "reviewer_id": "$member",
+                "reviewer_is_override": false,
+                "reviewer_claimed": true,
+                "review_round_id": null,
+                "effective_assignee_id": "$member",
+                "effective_reviewer_id": "$member",
+                "review_submitter_id": null,
+                "annotation_contributors": null,
+                "review_contributors": null
+              },
+              "task_annotation": {
+                "status": "in_progress",
+                "version": 1,
+                "batch_id": "$batch",
+                "assignee_id": "$member",
+                "assignee_is_override": false,
+                "reviewer_id": null,
+                "reviewer_is_override": false,
+                "reviewer_claimed": false,
+                "review_round_id": null,
+                "effective_assignee_id": "$member",
+                "effective_reviewer_id": "$member",
+                "review_submitter_id": null,
+                "annotation_contributors": [],
+                "review_contributors": []
+              }
+            },
+            "batches": {
+              "batch": {
+                "status": "annotating",
+                "annotator_id": "$member",
+                "reviewer_id": "$member",
+                "assigned_user_ids": ["$member"],
+                "admin_locked": false
+              }
+            },
+            "receivers": {
+              "annotator": null,
+              "reviewer": null
+            }
+          }
+        }
+      }
+    },
+    "annotation_handoff_ready": {
+      "status": 200,
+      "body": {
+        "member_id": "$membership_member",
+        "user_id": "$member",
+        "current_role": "annotator",
+        "current_version": 1,
+        "target_role": "reviewer",
+        "requires_handoff": false,
+        "blockers": [],
+        "blocker_details": [],
+        "resource_snapshot": {
+          "member": {
+            "id": "$membership_member",
+            "user_id": "$member",
+            "role": "annotator",
+            "version": 1
+          },
+          "member_account": {
+            "exists": true,
+            "is_active": true,
+            "platform_role": "employee"
+          },
+          "project": {
+            "id": "$project",
+            "owner_id": "$owner"
+          },
+          "annotation_task_ids": ["$task_inherited", "$task_annotation"],
+          "review_task_ids": ["$task_review"],
+          "unassigned_review_task_ids": ["$task_pool"],
+          "lock_task_ids": ["$task_annotation"],
+          "review_claim_task_ids": ["$task_review"],
+          "materialization_annotation_task_ids": ["$task_history", "$task_review"],
+          "materialization_review_task_ids": ["$task_history"],
+          "batch_annotator_ids": ["$batch"],
+          "batch_reviewer_ids": ["$batch"],
+          "eligible_reviewer_ids": ["$other_reviewer", "$reviewer"],
+          "tasks": {
+            "task_pool": {
+              "status": "review",
+              "version": 1,
+              "batch_id": null,
+              "assignee_id": null,
+              "assignee_is_override": false,
+              "reviewer_id": null,
+              "reviewer_is_override": false,
+              "reviewer_claimed": false,
+              "review_round_id": null,
+              "effective_assignee_id": null,
+              "effective_reviewer_id": null,
+              "review_submitter_id": null,
+              "annotation_contributors": [],
+              "review_contributors": []
+            },
+            "task_history": {
+              "status": "completed",
+              "version": 1,
+              "batch_id": "$batch",
+              "assignee_id": null,
+              "assignee_is_override": false,
+              "reviewer_id": null,
+              "reviewer_is_override": false,
+              "reviewer_claimed": false,
+              "review_round_id": null,
+              "effective_assignee_id": "$member",
+              "effective_reviewer_id": "$member",
+              "review_submitter_id": null,
+              "annotation_contributors": [],
+              "review_contributors": []
+            },
+            "task_inherited": {
+              "status": "pending",
+              "version": 1,
+              "batch_id": "$batch",
+              "assignee_id": null,
+              "assignee_is_override": false,
+              "reviewer_id": null,
+              "reviewer_is_override": false,
+              "reviewer_claimed": false,
+              "review_round_id": null,
+              "effective_assignee_id": "$member",
+              "effective_reviewer_id": "$member",
+              "review_submitter_id": null,
+              "annotation_contributors": [],
+              "review_contributors": []
+            },
+            "task_review": {
+              "status": "review",
+              "version": 1,
+              "batch_id": "$batch",
+              "assignee_id": null,
+              "assignee_is_override": false,
+              "reviewer_id": "$member",
+              "reviewer_is_override": false,
+              "reviewer_claimed": true,
+              "review_round_id": null,
+              "effective_assignee_id": "$member",
+              "effective_reviewer_id": "$member",
+              "review_submitter_id": null,
+              "annotation_contributors": null,
+              "review_contributors": null
+            },
+            "task_annotation": {
+              "status": "in_progress",
+              "version": 1,
+              "batch_id": "$batch",
+              "assignee_id": "$member",
+              "assignee_is_override": false,
+              "reviewer_id": null,
+              "reviewer_is_override": false,
+              "reviewer_claimed": false,
+              "review_round_id": null,
+              "effective_assignee_id": "$member",
+              "effective_reviewer_id": "$member",
+              "review_submitter_id": null,
+              "annotation_contributors": [],
+              "review_contributors": []
+            }
+          },
+          "batches": {
+            "batch": {
+              "status": "annotating",
+              "annotator_id": "$member",
+              "reviewer_id": "$member",
+              "assigned_user_ids": ["$member"],
+              "admin_locked": false
+            }
+          },
+          "receivers": {
+            "annotator": {
+              "user_id": "$annotator",
+              "exists": true,
+              "is_active": true,
+              "platform_role": "employee",
+              "membership_id": "$membership_annotator",
+              "membership_version": 1,
+              "membership_role": "annotator"
+            },
+            "reviewer": null
+          }
+        },
+        "preview_token": "<digest>"
+      }
+    },
+    "invalid_version": {
+      "status": 422,
+      "body": {
+        "detail": [
+          {
+            "type": "greater_than_equal",
+            "loc": ["body", "expected_version"],
+            "msg": "Input should be greater than or equal to 1",
+            "input": 0,
+            "ctx": {
+              "ge": 1
+            }
+          }
+        ]
+      }
+    },
+    "stale_version": {
+      "status": 409,
+      "body": {
+        "detail": {
+          "reason": "stale_member_version",
+          "current_version": 1
+        }
+      }
+    },
+    "stale_snapshot": {
+      "status": 409,
+      "body": {
+        "detail": {
+          "reason": "stale_resource_snapshot",
+          "detail": "资源已变化，请重新预览"
+        }
+      }
+    },
+    "annotation_handoff": {
+      "status": 200,
+      "body": {
+        "id": "$membership_member",
+        "user_id": "$member",
+        "user_name": "member",
+        "user_email": "member-baseline-member-5d4037e1e0f9455f946020661971a621@example.test",
+        "role": "reviewer",
+        "platform_role": "employee",
+        "version": 2,
+        "assigned_at": "<timestamp>",
+        "updated_at": "<timestamp>",
+        "avatar_ref": null
+      }
+    },
+    "review_handoff_ready": {
+      "status": 200,
+      "body": {
+        "member_id": "$membership_member",
+        "user_id": "$member",
+        "current_role": "reviewer",
+        "current_version": 2,
+        "target_role": "viewer",
+        "requires_handoff": false,
+        "blockers": [],
+        "blocker_details": [],
+        "resource_snapshot": {
+          "member": {
+            "id": "$membership_member",
+            "user_id": "$member",
+            "role": "reviewer",
+            "version": 2
+          },
+          "member_account": {
+            "exists": true,
+            "is_active": true,
+            "platform_role": "employee"
+          },
+          "project": {
+            "id": "$project",
+            "owner_id": "$owner"
+          },
+          "annotation_task_ids": [],
+          "review_task_ids": ["$task_review"],
+          "unassigned_review_task_ids": ["$task_pool"],
+          "lock_task_ids": [],
+          "review_claim_task_ids": ["$task_review"],
+          "materialization_annotation_task_ids": [],
+          "materialization_review_task_ids": ["$task_history"],
+          "batch_annotator_ids": [],
+          "batch_reviewer_ids": ["$batch"],
+          "eligible_reviewer_ids": ["$other_reviewer"],
+          "tasks": {
+            "task_pool": {
+              "status": "review",
+              "version": 1,
+              "batch_id": null,
+              "assignee_id": null,
+              "assignee_is_override": false,
+              "reviewer_id": null,
+              "reviewer_is_override": false,
+              "reviewer_claimed": false,
+              "review_round_id": null,
+              "effective_assignee_id": null,
+              "effective_reviewer_id": null,
+              "review_submitter_id": null,
+              "annotation_contributors": [],
+              "review_contributors": []
+            },
+            "task_history": {
+              "status": "completed",
+              "version": 1,
+              "batch_id": "$batch",
+              "assignee_id": "$member",
+              "assignee_is_override": false,
+              "reviewer_id": null,
+              "reviewer_is_override": false,
+              "reviewer_claimed": false,
+              "review_round_id": null,
+              "effective_assignee_id": "$member",
+              "effective_reviewer_id": "$member",
+              "review_submitter_id": null,
+              "annotation_contributors": [],
+              "review_contributors": []
+            },
+            "task_review": {
+              "status": "review",
+              "version": 1,
+              "batch_id": "$batch",
+              "assignee_id": "$member",
+              "assignee_is_override": false,
+              "reviewer_id": "$member",
+              "reviewer_is_override": false,
+              "reviewer_claimed": true,
+              "review_round_id": "$review_round",
+              "effective_assignee_id": "$member",
+              "effective_reviewer_id": "$member",
+              "review_submitter_id": "$annotator",
+              "annotation_contributors": ["$annotator"],
+              "review_contributors": ["$annotator"]
+            }
+          },
+          "batches": {
+            "batch": {
+              "status": "annotating",
+              "annotator_id": "$annotator",
+              "reviewer_id": "$member",
+              "assigned_user_ids": ["$annotator"],
+              "admin_locked": false
+            }
+          },
+          "receivers": {
+            "annotator": null,
+            "reviewer": {
+              "user_id": "$reviewer",
+              "exists": true,
+              "is_active": true,
+              "platform_role": "employee",
+              "membership_id": "$membership_reviewer",
+              "membership_version": 1,
+              "membership_role": "reviewer"
+            }
+          }
+        },
+        "preview_token": "<digest>"
+      }
+    },
+    "review_handoff": {
+      "status": 200,
+      "body": {
+        "id": "$membership_member",
+        "user_id": "$member",
+        "user_name": "member",
+        "user_email": "member-baseline-member-5d4037e1e0f9455f946020661971a621@example.test",
+        "role": "viewer",
+        "platform_role": "employee",
+        "version": 3,
+        "assigned_at": "<timestamp>",
+        "updated_at": "<timestamp>",
+        "avatar_ref": null
+      }
+    },
+    "idle_removal": {
+      "status": 204,
+      "body": null
+    },
+    "missing_removal": {
+      "status": 404,
+      "body": {
+        "detail": "成员不存在"
+      }
+    },
+    "add": {
+      "status": 201,
+      "body": {
+        "id": "$membership_added",
+        "user_id": "$new_employee",
+        "user_name": "new_employee",
+        "user_email": "member-baseline-new_employee-ef8685e84fe447bdbd1720b6a4461161@example.test",
+        "role": "annotator",
+        "platform_role": "employee",
+        "version": 1,
+        "assigned_at": "<timestamp>",
+        "updated_at": "<timestamp>",
+        "avatar_ref": null
+      }
+    },
+    "duplicate_add": {
+      "status": 409,
+      "body": {
+        "detail": "该用户已在项目中"
+      }
+    },
+    "list_after": {
+      "status": 200,
+      "body": [
+        {
+          "id": "$membership_annotator",
+          "user_id": "$annotator",
+          "user_name": "annotator",
+          "user_email": "member-baseline-annotator-95f76b3ddf1a432ab99f0ed4bf65b5e7@example.test",
+          "role": "annotator",
+          "platform_role": "employee",
+          "version": 1,
+          "assigned_at": "<timestamp>",
+          "updated_at": "<timestamp>",
+          "avatar_ref": null
+        },
+        {
+          "id": "$membership_reviewer",
+          "user_id": "$reviewer",
+          "user_name": "reviewer",
+          "user_email": "member-baseline-reviewer-76f5ba4523a64734adf24f9acb2a73e7@example.test",
+          "role": "reviewer",
+          "platform_role": "employee",
+          "version": 1,
+          "assigned_at": "<timestamp>",
+          "updated_at": "<timestamp>",
+          "avatar_ref": null
+        },
+        {
+          "id": "$membership_other_reviewer",
+          "user_id": "$other_reviewer",
+          "user_name": "other_reviewer",
+          "user_email": "member-baseline-other_reviewer-e1742ade64f14fbf9873262f8314f027@example.test",
+          "role": "reviewer",
+          "platform_role": "employee",
+          "version": 1,
+          "assigned_at": "<timestamp>",
+          "updated_at": "<timestamp>",
+          "avatar_ref": null
+        },
+        {
+          "id": "$membership_added",
+          "user_id": "$new_employee",
+          "user_name": "new_employee",
+          "user_email": "member-baseline-new_employee-ef8685e84fe447bdbd1720b6a4461161@example.test",
+          "role": "annotator",
+          "platform_role": "employee",
+          "version": 1,
+          "assigned_at": "<timestamp>",
+          "updated_at": "<timestamp>",
+          "avatar_ref": null
+        }
+      ]
+    }
+  },
+  "digest_vectors": {
+    "same_role": {
+      "snapshot": {
+        "member": {
+          "id": "423ad7f4-5aa8-4baf-9d75-69317fec493d",
+          "user_id": "be846de2-ab3d-426e-b118-0f82d3affd06",
+          "role": "annotator",
+          "version": 1
+        },
+        "member_account": {
+          "exists": true,
+          "is_active": true,
+          "platform_role": "employee"
+        },
+        "project": {
+          "id": "705ffe3a-dddc-4d15-8bb8-870f88af6586",
+          "owner_id": "4c524267-d44b-4419-9dcb-1afd9630d80a"
+        },
+        "annotation_task_ids": [
+          "875c0b54-97a3-4957-b02d-bb62e35a16f0",
+          "bf992496-8118-40e6-a31e-f23f4f80b899"
+        ],
+        "review_task_ids": ["bd09ad6e-5841-4b54-9473-b2682aac8c06"],
+        "unassigned_review_task_ids": ["1fd87f84-3623-4c88-8013-9791ee8103c4"],
+        "lock_task_ids": ["bf992496-8118-40e6-a31e-f23f4f80b899"],
+        "review_claim_task_ids": ["bd09ad6e-5841-4b54-9473-b2682aac8c06"],
+        "materialization_annotation_task_ids": [
+          "55157b6a-837f-4995-b377-d1dc699abd61",
+          "bd09ad6e-5841-4b54-9473-b2682aac8c06"
+        ],
+        "materialization_review_task_ids": ["55157b6a-837f-4995-b377-d1dc699abd61"],
+        "batch_annotator_ids": ["4f0f231b-259e-476e-a425-55b88be70c15"],
+        "batch_reviewer_ids": ["4f0f231b-259e-476e-a425-55b88be70c15"],
+        "eligible_reviewer_ids": [
+          "21d8223c-3f55-44f2-9ff8-6ab5974d5912",
+          "99dba796-09a2-4e34-ba75-1c66c95e4d31"
+        ],
+        "tasks": {
+          "1fd87f84-3623-4c88-8013-9791ee8103c4": {
+            "status": "review",
+            "version": 1,
+            "batch_id": null,
+            "assignee_id": null,
+            "assignee_is_override": false,
+            "reviewer_id": null,
+            "reviewer_is_override": false,
+            "reviewer_claimed": false,
+            "review_round_id": null,
+            "effective_assignee_id": null,
+            "effective_reviewer_id": null,
+            "review_submitter_id": null,
+            "annotation_contributors": [],
+            "review_contributors": []
+          },
+          "55157b6a-837f-4995-b377-d1dc699abd61": {
+            "status": "completed",
+            "version": 1,
+            "batch_id": "4f0f231b-259e-476e-a425-55b88be70c15",
+            "assignee_id": null,
+            "assignee_is_override": false,
+            "reviewer_id": null,
+            "reviewer_is_override": false,
+            "reviewer_claimed": false,
+            "review_round_id": null,
+            "effective_assignee_id": "be846de2-ab3d-426e-b118-0f82d3affd06",
+            "effective_reviewer_id": "be846de2-ab3d-426e-b118-0f82d3affd06",
+            "review_submitter_id": null,
+            "annotation_contributors": [],
+            "review_contributors": []
+          },
+          "875c0b54-97a3-4957-b02d-bb62e35a16f0": {
+            "status": "pending",
+            "version": 1,
+            "batch_id": "4f0f231b-259e-476e-a425-55b88be70c15",
+            "assignee_id": null,
+            "assignee_is_override": false,
+            "reviewer_id": null,
+            "reviewer_is_override": false,
+            "reviewer_claimed": false,
+            "review_round_id": null,
+            "effective_assignee_id": "be846de2-ab3d-426e-b118-0f82d3affd06",
+            "effective_reviewer_id": "be846de2-ab3d-426e-b118-0f82d3affd06",
+            "review_submitter_id": null,
+            "annotation_contributors": [],
+            "review_contributors": []
+          },
+          "bd09ad6e-5841-4b54-9473-b2682aac8c06": {
+            "status": "review",
+            "version": 1,
+            "batch_id": "4f0f231b-259e-476e-a425-55b88be70c15",
+            "assignee_id": null,
+            "assignee_is_override": false,
+            "reviewer_id": "be846de2-ab3d-426e-b118-0f82d3affd06",
+            "reviewer_is_override": false,
+            "reviewer_claimed": true,
+            "review_round_id": null,
+            "effective_assignee_id": "be846de2-ab3d-426e-b118-0f82d3affd06",
+            "effective_reviewer_id": "be846de2-ab3d-426e-b118-0f82d3affd06",
+            "review_submitter_id": null,
+            "annotation_contributors": null,
+            "review_contributors": null
+          },
+          "bf992496-8118-40e6-a31e-f23f4f80b899": {
+            "status": "in_progress",
+            "version": 1,
+            "batch_id": "4f0f231b-259e-476e-a425-55b88be70c15",
+            "assignee_id": "be846de2-ab3d-426e-b118-0f82d3affd06",
+            "assignee_is_override": false,
+            "reviewer_id": null,
+            "reviewer_is_override": false,
+            "reviewer_claimed": false,
+            "review_round_id": null,
+            "effective_assignee_id": "be846de2-ab3d-426e-b118-0f82d3affd06",
+            "effective_reviewer_id": "be846de2-ab3d-426e-b118-0f82d3affd06",
+            "review_submitter_id": null,
+            "annotation_contributors": [],
+            "review_contributors": []
+          }
+        },
+        "batches": {
+          "4f0f231b-259e-476e-a425-55b88be70c15": {
+            "status": "annotating",
+            "annotator_id": "be846de2-ab3d-426e-b118-0f82d3affd06",
+            "reviewer_id": "be846de2-ab3d-426e-b118-0f82d3affd06",
+            "assigned_user_ids": ["be846de2-ab3d-426e-b118-0f82d3affd06"],
+            "admin_locked": false
+          }
+        },
+        "receivers": {
+          "annotator": null,
+          "reviewer": null
+        }
+      },
+      "preview_token": "5142888ac75cffd1caa7d9cdde366913f00f96c85928e813516754723771f280",
+      "blockers": ["same_role", "unfinished_review_work"],
+      "blocker_details": [
+        {
+          "code": "same_role",
+          "message": "目标职责与当前职责相同"
+        },
+        {
+          "code": "unfinished_review_work",
+          "message": "成员仍有未完成的审核工作，需显式指派接收人"
+        }
+      ]
+    },
+    "blocked_viewer": {
+      "snapshot": {
+        "member": {
+          "id": "423ad7f4-5aa8-4baf-9d75-69317fec493d",
+          "user_id": "be846de2-ab3d-426e-b118-0f82d3affd06",
+          "role": "annotator",
+          "version": 1
+        },
+        "member_account": {
+          "exists": true,
+          "is_active": true,
+          "platform_role": "employee"
+        },
+        "project": {
+          "id": "705ffe3a-dddc-4d15-8bb8-870f88af6586",
+          "owner_id": "4c524267-d44b-4419-9dcb-1afd9630d80a"
+        },
+        "annotation_task_ids": [
+          "875c0b54-97a3-4957-b02d-bb62e35a16f0",
+          "bf992496-8118-40e6-a31e-f23f4f80b899"
+        ],
+        "review_task_ids": ["bd09ad6e-5841-4b54-9473-b2682aac8c06"],
+        "unassigned_review_task_ids": ["1fd87f84-3623-4c88-8013-9791ee8103c4"],
+        "lock_task_ids": ["bf992496-8118-40e6-a31e-f23f4f80b899"],
+        "review_claim_task_ids": ["bd09ad6e-5841-4b54-9473-b2682aac8c06"],
+        "materialization_annotation_task_ids": [
+          "55157b6a-837f-4995-b377-d1dc699abd61",
+          "bd09ad6e-5841-4b54-9473-b2682aac8c06"
+        ],
+        "materialization_review_task_ids": ["55157b6a-837f-4995-b377-d1dc699abd61"],
+        "batch_annotator_ids": ["4f0f231b-259e-476e-a425-55b88be70c15"],
+        "batch_reviewer_ids": ["4f0f231b-259e-476e-a425-55b88be70c15"],
+        "eligible_reviewer_ids": [
+          "21d8223c-3f55-44f2-9ff8-6ab5974d5912",
+          "99dba796-09a2-4e34-ba75-1c66c95e4d31"
+        ],
+        "tasks": {
+          "1fd87f84-3623-4c88-8013-9791ee8103c4": {
+            "status": "review",
+            "version": 1,
+            "batch_id": null,
+            "assignee_id": null,
+            "assignee_is_override": false,
+            "reviewer_id": null,
+            "reviewer_is_override": false,
+            "reviewer_claimed": false,
+            "review_round_id": null,
+            "effective_assignee_id": null,
+            "effective_reviewer_id": null,
+            "review_submitter_id": null,
+            "annotation_contributors": [],
+            "review_contributors": []
+          },
+          "55157b6a-837f-4995-b377-d1dc699abd61": {
+            "status": "completed",
+            "version": 1,
+            "batch_id": "4f0f231b-259e-476e-a425-55b88be70c15",
+            "assignee_id": null,
+            "assignee_is_override": false,
+            "reviewer_id": null,
+            "reviewer_is_override": false,
+            "reviewer_claimed": false,
+            "review_round_id": null,
+            "effective_assignee_id": "be846de2-ab3d-426e-b118-0f82d3affd06",
+            "effective_reviewer_id": "be846de2-ab3d-426e-b118-0f82d3affd06",
+            "review_submitter_id": null,
+            "annotation_contributors": [],
+            "review_contributors": []
+          },
+          "875c0b54-97a3-4957-b02d-bb62e35a16f0": {
+            "status": "pending",
+            "version": 1,
+            "batch_id": "4f0f231b-259e-476e-a425-55b88be70c15",
+            "assignee_id": null,
+            "assignee_is_override": false,
+            "reviewer_id": null,
+            "reviewer_is_override": false,
+            "reviewer_claimed": false,
+            "review_round_id": null,
+            "effective_assignee_id": "be846de2-ab3d-426e-b118-0f82d3affd06",
+            "effective_reviewer_id": "be846de2-ab3d-426e-b118-0f82d3affd06",
+            "review_submitter_id": null,
+            "annotation_contributors": [],
+            "review_contributors": []
+          },
+          "bd09ad6e-5841-4b54-9473-b2682aac8c06": {
+            "status": "review",
+            "version": 1,
+            "batch_id": "4f0f231b-259e-476e-a425-55b88be70c15",
+            "assignee_id": null,
+            "assignee_is_override": false,
+            "reviewer_id": "be846de2-ab3d-426e-b118-0f82d3affd06",
+            "reviewer_is_override": false,
+            "reviewer_claimed": true,
+            "review_round_id": null,
+            "effective_assignee_id": "be846de2-ab3d-426e-b118-0f82d3affd06",
+            "effective_reviewer_id": "be846de2-ab3d-426e-b118-0f82d3affd06",
+            "review_submitter_id": null,
+            "annotation_contributors": null,
+            "review_contributors": null
+          },
+          "bf992496-8118-40e6-a31e-f23f4f80b899": {
+            "status": "in_progress",
+            "version": 1,
+            "batch_id": "4f0f231b-259e-476e-a425-55b88be70c15",
+            "assignee_id": "be846de2-ab3d-426e-b118-0f82d3affd06",
+            "assignee_is_override": false,
+            "reviewer_id": null,
+            "reviewer_is_override": false,
+            "reviewer_claimed": false,
+            "review_round_id": null,
+            "effective_assignee_id": "be846de2-ab3d-426e-b118-0f82d3affd06",
+            "effective_reviewer_id": "be846de2-ab3d-426e-b118-0f82d3affd06",
+            "review_submitter_id": null,
+            "annotation_contributors": [],
+            "review_contributors": []
+          }
+        },
+        "batches": {
+          "4f0f231b-259e-476e-a425-55b88be70c15": {
+            "status": "annotating",
+            "annotator_id": "be846de2-ab3d-426e-b118-0f82d3affd06",
+            "reviewer_id": "be846de2-ab3d-426e-b118-0f82d3affd06",
+            "assigned_user_ids": ["be846de2-ab3d-426e-b118-0f82d3affd06"],
+            "admin_locked": false
+          }
+        },
+        "receivers": {
+          "annotator": null,
+          "reviewer": null
+        }
+      },
+      "preview_token": "5142888ac75cffd1caa7d9cdde366913f00f96c85928e813516754723771f280",
+      "blockers": ["unfinished_annotation_work", "unfinished_review_work", "active_locks"],
+      "blocker_details": [
+        {
+          "code": "unfinished_annotation_work",
+          "message": "成员仍有未完成的标注工作，需显式指派接收人"
+        },
+        {
+          "code": "unfinished_review_work",
+          "message": "成员仍有未完成的审核工作，需显式指派接收人"
+        },
+        {
+          "code": "active_locks",
+          "message": "成员持有效工作锁，需在交接中释放后才能变更职责",
+          "task_ids": ["bf992496-8118-40e6-a31e-f23f4f80b899"]
+        }
+      ]
+    },
+    "self_receiver": {
+      "snapshot": {
+        "member": {
+          "id": "423ad7f4-5aa8-4baf-9d75-69317fec493d",
+          "user_id": "be846de2-ab3d-426e-b118-0f82d3affd06",
+          "role": "annotator",
+          "version": 1
+        },
+        "member_account": {
+          "exists": true,
+          "is_active": true,
+          "platform_role": "employee"
+        },
+        "project": {
+          "id": "705ffe3a-dddc-4d15-8bb8-870f88af6586",
+          "owner_id": "4c524267-d44b-4419-9dcb-1afd9630d80a"
+        },
+        "annotation_task_ids": [
+          "875c0b54-97a3-4957-b02d-bb62e35a16f0",
+          "bf992496-8118-40e6-a31e-f23f4f80b899"
+        ],
+        "review_task_ids": ["bd09ad6e-5841-4b54-9473-b2682aac8c06"],
+        "unassigned_review_task_ids": ["1fd87f84-3623-4c88-8013-9791ee8103c4"],
+        "lock_task_ids": ["bf992496-8118-40e6-a31e-f23f4f80b899"],
+        "review_claim_task_ids": ["bd09ad6e-5841-4b54-9473-b2682aac8c06"],
+        "materialization_annotation_task_ids": [
+          "55157b6a-837f-4995-b377-d1dc699abd61",
+          "bd09ad6e-5841-4b54-9473-b2682aac8c06"
+        ],
+        "materialization_review_task_ids": ["55157b6a-837f-4995-b377-d1dc699abd61"],
+        "batch_annotator_ids": ["4f0f231b-259e-476e-a425-55b88be70c15"],
+        "batch_reviewer_ids": ["4f0f231b-259e-476e-a425-55b88be70c15"],
+        "eligible_reviewer_ids": [
+          "21d8223c-3f55-44f2-9ff8-6ab5974d5912",
+          "99dba796-09a2-4e34-ba75-1c66c95e4d31"
+        ],
+        "tasks": {
+          "1fd87f84-3623-4c88-8013-9791ee8103c4": {
+            "status": "review",
+            "version": 1,
+            "batch_id": null,
+            "assignee_id": null,
+            "assignee_is_override": false,
+            "reviewer_id": null,
+            "reviewer_is_override": false,
+            "reviewer_claimed": false,
+            "review_round_id": null,
+            "effective_assignee_id": null,
+            "effective_reviewer_id": null,
+            "review_submitter_id": null,
+            "annotation_contributors": [],
+            "review_contributors": []
+          },
+          "55157b6a-837f-4995-b377-d1dc699abd61": {
+            "status": "completed",
+            "version": 1,
+            "batch_id": "4f0f231b-259e-476e-a425-55b88be70c15",
+            "assignee_id": null,
+            "assignee_is_override": false,
+            "reviewer_id": null,
+            "reviewer_is_override": false,
+            "reviewer_claimed": false,
+            "review_round_id": null,
+            "effective_assignee_id": "be846de2-ab3d-426e-b118-0f82d3affd06",
+            "effective_reviewer_id": "be846de2-ab3d-426e-b118-0f82d3affd06",
+            "review_submitter_id": null,
+            "annotation_contributors": [],
+            "review_contributors": []
+          },
+          "875c0b54-97a3-4957-b02d-bb62e35a16f0": {
+            "status": "pending",
+            "version": 1,
+            "batch_id": "4f0f231b-259e-476e-a425-55b88be70c15",
+            "assignee_id": null,
+            "assignee_is_override": false,
+            "reviewer_id": null,
+            "reviewer_is_override": false,
+            "reviewer_claimed": false,
+            "review_round_id": null,
+            "effective_assignee_id": "be846de2-ab3d-426e-b118-0f82d3affd06",
+            "effective_reviewer_id": "be846de2-ab3d-426e-b118-0f82d3affd06",
+            "review_submitter_id": null,
+            "annotation_contributors": [],
+            "review_contributors": []
+          },
+          "bd09ad6e-5841-4b54-9473-b2682aac8c06": {
+            "status": "review",
+            "version": 1,
+            "batch_id": "4f0f231b-259e-476e-a425-55b88be70c15",
+            "assignee_id": null,
+            "assignee_is_override": false,
+            "reviewer_id": "be846de2-ab3d-426e-b118-0f82d3affd06",
+            "reviewer_is_override": false,
+            "reviewer_claimed": true,
+            "review_round_id": null,
+            "effective_assignee_id": "be846de2-ab3d-426e-b118-0f82d3affd06",
+            "effective_reviewer_id": "be846de2-ab3d-426e-b118-0f82d3affd06",
+            "review_submitter_id": null,
+            "annotation_contributors": null,
+            "review_contributors": null
+          },
+          "bf992496-8118-40e6-a31e-f23f4f80b899": {
+            "status": "in_progress",
+            "version": 1,
+            "batch_id": "4f0f231b-259e-476e-a425-55b88be70c15",
+            "assignee_id": "be846de2-ab3d-426e-b118-0f82d3affd06",
+            "assignee_is_override": false,
+            "reviewer_id": null,
+            "reviewer_is_override": false,
+            "reviewer_claimed": false,
+            "review_round_id": null,
+            "effective_assignee_id": "be846de2-ab3d-426e-b118-0f82d3affd06",
+            "effective_reviewer_id": "be846de2-ab3d-426e-b118-0f82d3affd06",
+            "review_submitter_id": null,
+            "annotation_contributors": [],
+            "review_contributors": []
+          }
+        },
+        "batches": {
+          "4f0f231b-259e-476e-a425-55b88be70c15": {
+            "status": "annotating",
+            "annotator_id": "be846de2-ab3d-426e-b118-0f82d3affd06",
+            "reviewer_id": "be846de2-ab3d-426e-b118-0f82d3affd06",
+            "assigned_user_ids": ["be846de2-ab3d-426e-b118-0f82d3affd06"],
+            "admin_locked": false
+          }
+        },
+        "receivers": {
+          "annotator": {
+            "user_id": "be846de2-ab3d-426e-b118-0f82d3affd06",
+            "exists": true,
+            "is_active": true,
+            "platform_role": "employee",
+            "membership_id": "423ad7f4-5aa8-4baf-9d75-69317fec493d",
+            "membership_version": 1,
+            "membership_role": "annotator"
+          },
+          "reviewer": null
+        }
+      },
+      "preview_token": "beb2de72992fbd187d2b8ca56ce21017e1dbd7e88f7d985334a6ecf242dc3590",
+      "blockers": ["self_replacement", "unfinished_review_work", "active_locks"],
+      "blocker_details": [
+        {
+          "code": "self_replacement",
+          "message": "接收人不能是正在变更职责的成员本人",
+          "project_role": "annotator"
+        },
+        {
+          "code": "unfinished_review_work",
+          "message": "成员仍有未完成的审核工作，需显式指派接收人"
+        },
+        {
+          "code": "active_locks",
+          "message": "成员持有效工作锁，需在交接中释放后才能变更职责",
+          "task_ids": ["bf992496-8118-40e6-a31e-f23f4f80b899"]
+        }
+      ]
+    },
+    "invalid_receiver": {
+      "snapshot": {
+        "member": {
+          "id": "423ad7f4-5aa8-4baf-9d75-69317fec493d",
+          "user_id": "be846de2-ab3d-426e-b118-0f82d3affd06",
+          "role": "annotator",
+          "version": 1
+        },
+        "member_account": {
+          "exists": true,
+          "is_active": true,
+          "platform_role": "employee"
+        },
+        "project": {
+          "id": "705ffe3a-dddc-4d15-8bb8-870f88af6586",
+          "owner_id": "4c524267-d44b-4419-9dcb-1afd9630d80a"
+        },
+        "annotation_task_ids": [
+          "875c0b54-97a3-4957-b02d-bb62e35a16f0",
+          "bf992496-8118-40e6-a31e-f23f4f80b899"
+        ],
+        "review_task_ids": ["bd09ad6e-5841-4b54-9473-b2682aac8c06"],
+        "unassigned_review_task_ids": ["1fd87f84-3623-4c88-8013-9791ee8103c4"],
+        "lock_task_ids": ["bf992496-8118-40e6-a31e-f23f4f80b899"],
+        "review_claim_task_ids": ["bd09ad6e-5841-4b54-9473-b2682aac8c06"],
+        "materialization_annotation_task_ids": [
+          "55157b6a-837f-4995-b377-d1dc699abd61",
+          "bd09ad6e-5841-4b54-9473-b2682aac8c06"
+        ],
+        "materialization_review_task_ids": ["55157b6a-837f-4995-b377-d1dc699abd61"],
+        "batch_annotator_ids": ["4f0f231b-259e-476e-a425-55b88be70c15"],
+        "batch_reviewer_ids": ["4f0f231b-259e-476e-a425-55b88be70c15"],
+        "eligible_reviewer_ids": [
+          "21d8223c-3f55-44f2-9ff8-6ab5974d5912",
+          "99dba796-09a2-4e34-ba75-1c66c95e4d31"
+        ],
+        "tasks": {
+          "1fd87f84-3623-4c88-8013-9791ee8103c4": {
+            "status": "review",
+            "version": 1,
+            "batch_id": null,
+            "assignee_id": null,
+            "assignee_is_override": false,
+            "reviewer_id": null,
+            "reviewer_is_override": false,
+            "reviewer_claimed": false,
+            "review_round_id": null,
+            "effective_assignee_id": null,
+            "effective_reviewer_id": null,
+            "review_submitter_id": null,
+            "annotation_contributors": [],
+            "review_contributors": []
+          },
+          "55157b6a-837f-4995-b377-d1dc699abd61": {
+            "status": "completed",
+            "version": 1,
+            "batch_id": "4f0f231b-259e-476e-a425-55b88be70c15",
+            "assignee_id": null,
+            "assignee_is_override": false,
+            "reviewer_id": null,
+            "reviewer_is_override": false,
+            "reviewer_claimed": false,
+            "review_round_id": null,
+            "effective_assignee_id": "be846de2-ab3d-426e-b118-0f82d3affd06",
+            "effective_reviewer_id": "be846de2-ab3d-426e-b118-0f82d3affd06",
+            "review_submitter_id": null,
+            "annotation_contributors": [],
+            "review_contributors": []
+          },
+          "875c0b54-97a3-4957-b02d-bb62e35a16f0": {
+            "status": "pending",
+            "version": 1,
+            "batch_id": "4f0f231b-259e-476e-a425-55b88be70c15",
+            "assignee_id": null,
+            "assignee_is_override": false,
+            "reviewer_id": null,
+            "reviewer_is_override": false,
+            "reviewer_claimed": false,
+            "review_round_id": null,
+            "effective_assignee_id": "be846de2-ab3d-426e-b118-0f82d3affd06",
+            "effective_reviewer_id": "be846de2-ab3d-426e-b118-0f82d3affd06",
+            "review_submitter_id": null,
+            "annotation_contributors": [],
+            "review_contributors": []
+          },
+          "bd09ad6e-5841-4b54-9473-b2682aac8c06": {
+            "status": "review",
+            "version": 1,
+            "batch_id": "4f0f231b-259e-476e-a425-55b88be70c15",
+            "assignee_id": null,
+            "assignee_is_override": false,
+            "reviewer_id": "be846de2-ab3d-426e-b118-0f82d3affd06",
+            "reviewer_is_override": false,
+            "reviewer_claimed": true,
+            "review_round_id": null,
+            "effective_assignee_id": "be846de2-ab3d-426e-b118-0f82d3affd06",
+            "effective_reviewer_id": "be846de2-ab3d-426e-b118-0f82d3affd06",
+            "review_submitter_id": null,
+            "annotation_contributors": null,
+            "review_contributors": null
+          },
+          "bf992496-8118-40e6-a31e-f23f4f80b899": {
+            "status": "in_progress",
+            "version": 1,
+            "batch_id": "4f0f231b-259e-476e-a425-55b88be70c15",
+            "assignee_id": "be846de2-ab3d-426e-b118-0f82d3affd06",
+            "assignee_is_override": false,
+            "reviewer_id": null,
+            "reviewer_is_override": false,
+            "reviewer_claimed": false,
+            "review_round_id": null,
+            "effective_assignee_id": "be846de2-ab3d-426e-b118-0f82d3affd06",
+            "effective_reviewer_id": "be846de2-ab3d-426e-b118-0f82d3affd06",
+            "review_submitter_id": null,
+            "annotation_contributors": [],
+            "review_contributors": []
+          }
+        },
+        "batches": {
+          "4f0f231b-259e-476e-a425-55b88be70c15": {
+            "status": "annotating",
+            "annotator_id": "be846de2-ab3d-426e-b118-0f82d3affd06",
+            "reviewer_id": "be846de2-ab3d-426e-b118-0f82d3affd06",
+            "assigned_user_ids": ["be846de2-ab3d-426e-b118-0f82d3affd06"],
+            "admin_locked": false
+          }
+        },
+        "receivers": {
+          "annotator": {
+            "user_id": "c2d6f940-aea8-4b01-a5c7-b73968e1584b",
+            "exists": true,
+            "is_active": true,
+            "platform_role": "viewer",
+            "membership_id": null,
+            "membership_version": null,
+            "membership_role": null
+          },
+          "reviewer": null
+        }
+      },
+      "preview_token": "8154b92b40ffeb5e7ce438856a21e220d436ecadb0c8ffecb3d1fd2d7d1770fe",
+      "blockers": ["invalid_replacement_annotator", "unfinished_review_work", "active_locks"],
+      "blocker_details": [
+        {
+          "code": "invalid_replacement_annotator",
+          "message": "标注接收人必须是该项目中启用且职责匹配的员工"
+        },
+        {
+          "code": "unfinished_review_work",
+          "message": "成员仍有未完成的审核工作，需显式指派接收人"
+        },
+        {
+          "code": "active_locks",
+          "message": "成员持有效工作锁，需在交接中释放后才能变更职责",
+          "task_ids": ["bf992496-8118-40e6-a31e-f23f4f80b899"]
+        }
+      ]
+    },
+    "identical_receiver": {
+      "snapshot": {
+        "member": {
+          "id": "423ad7f4-5aa8-4baf-9d75-69317fec493d",
+          "user_id": "be846de2-ab3d-426e-b118-0f82d3affd06",
+          "role": "annotator",
+          "version": 1
+        },
+        "member_account": {
+          "exists": true,
+          "is_active": true,
+          "platform_role": "employee"
+        },
+        "project": {
+          "id": "705ffe3a-dddc-4d15-8bb8-870f88af6586",
+          "owner_id": "4c524267-d44b-4419-9dcb-1afd9630d80a"
+        },
+        "annotation_task_ids": [
+          "875c0b54-97a3-4957-b02d-bb62e35a16f0",
+          "bf992496-8118-40e6-a31e-f23f4f80b899"
+        ],
+        "review_task_ids": ["bd09ad6e-5841-4b54-9473-b2682aac8c06"],
+        "unassigned_review_task_ids": ["1fd87f84-3623-4c88-8013-9791ee8103c4"],
+        "lock_task_ids": ["bf992496-8118-40e6-a31e-f23f4f80b899"],
+        "review_claim_task_ids": ["bd09ad6e-5841-4b54-9473-b2682aac8c06"],
+        "materialization_annotation_task_ids": [
+          "55157b6a-837f-4995-b377-d1dc699abd61",
+          "bd09ad6e-5841-4b54-9473-b2682aac8c06"
+        ],
+        "materialization_review_task_ids": ["55157b6a-837f-4995-b377-d1dc699abd61"],
+        "batch_annotator_ids": ["4f0f231b-259e-476e-a425-55b88be70c15"],
+        "batch_reviewer_ids": ["4f0f231b-259e-476e-a425-55b88be70c15"],
+        "eligible_reviewer_ids": [
+          "21d8223c-3f55-44f2-9ff8-6ab5974d5912",
+          "99dba796-09a2-4e34-ba75-1c66c95e4d31"
+        ],
+        "tasks": {
+          "1fd87f84-3623-4c88-8013-9791ee8103c4": {
+            "status": "review",
+            "version": 1,
+            "batch_id": null,
+            "assignee_id": null,
+            "assignee_is_override": false,
+            "reviewer_id": null,
+            "reviewer_is_override": false,
+            "reviewer_claimed": false,
+            "review_round_id": null,
+            "effective_assignee_id": null,
+            "effective_reviewer_id": null,
+            "review_submitter_id": null,
+            "annotation_contributors": [],
+            "review_contributors": []
+          },
+          "55157b6a-837f-4995-b377-d1dc699abd61": {
+            "status": "completed",
+            "version": 1,
+            "batch_id": "4f0f231b-259e-476e-a425-55b88be70c15",
+            "assignee_id": null,
+            "assignee_is_override": false,
+            "reviewer_id": null,
+            "reviewer_is_override": false,
+            "reviewer_claimed": false,
+            "review_round_id": null,
+            "effective_assignee_id": "be846de2-ab3d-426e-b118-0f82d3affd06",
+            "effective_reviewer_id": "be846de2-ab3d-426e-b118-0f82d3affd06",
+            "review_submitter_id": null,
+            "annotation_contributors": [],
+            "review_contributors": []
+          },
+          "875c0b54-97a3-4957-b02d-bb62e35a16f0": {
+            "status": "pending",
+            "version": 1,
+            "batch_id": "4f0f231b-259e-476e-a425-55b88be70c15",
+            "assignee_id": null,
+            "assignee_is_override": false,
+            "reviewer_id": null,
+            "reviewer_is_override": false,
+            "reviewer_claimed": false,
+            "review_round_id": null,
+            "effective_assignee_id": "be846de2-ab3d-426e-b118-0f82d3affd06",
+            "effective_reviewer_id": "be846de2-ab3d-426e-b118-0f82d3affd06",
+            "review_submitter_id": null,
+            "annotation_contributors": [],
+            "review_contributors": []
+          },
+          "bd09ad6e-5841-4b54-9473-b2682aac8c06": {
+            "status": "review",
+            "version": 1,
+            "batch_id": "4f0f231b-259e-476e-a425-55b88be70c15",
+            "assignee_id": null,
+            "assignee_is_override": false,
+            "reviewer_id": "be846de2-ab3d-426e-b118-0f82d3affd06",
+            "reviewer_is_override": false,
+            "reviewer_claimed": true,
+            "review_round_id": null,
+            "effective_assignee_id": "be846de2-ab3d-426e-b118-0f82d3affd06",
+            "effective_reviewer_id": "be846de2-ab3d-426e-b118-0f82d3affd06",
+            "review_submitter_id": null,
+            "annotation_contributors": null,
+            "review_contributors": null
+          },
+          "bf992496-8118-40e6-a31e-f23f4f80b899": {
+            "status": "in_progress",
+            "version": 1,
+            "batch_id": "4f0f231b-259e-476e-a425-55b88be70c15",
+            "assignee_id": "be846de2-ab3d-426e-b118-0f82d3affd06",
+            "assignee_is_override": false,
+            "reviewer_id": null,
+            "reviewer_is_override": false,
+            "reviewer_claimed": false,
+            "review_round_id": null,
+            "effective_assignee_id": "be846de2-ab3d-426e-b118-0f82d3affd06",
+            "effective_reviewer_id": "be846de2-ab3d-426e-b118-0f82d3affd06",
+            "review_submitter_id": null,
+            "annotation_contributors": [],
+            "review_contributors": []
+          }
+        },
+        "batches": {
+          "4f0f231b-259e-476e-a425-55b88be70c15": {
+            "status": "annotating",
+            "annotator_id": "be846de2-ab3d-426e-b118-0f82d3affd06",
+            "reviewer_id": "be846de2-ab3d-426e-b118-0f82d3affd06",
+            "assigned_user_ids": ["be846de2-ab3d-426e-b118-0f82d3affd06"],
+            "admin_locked": false
+          }
+        },
+        "receivers": {
+          "annotator": {
+            "user_id": "17312f02-c340-4d33-b0c4-97edb34f8ab4",
+            "exists": true,
+            "is_active": true,
+            "platform_role": "employee",
+            "membership_id": "b64ecc6b-6169-4a59-8793-85aba7c691d7",
+            "membership_version": 1,
+            "membership_role": "annotator"
+          },
+          "reviewer": {
+            "user_id": "17312f02-c340-4d33-b0c4-97edb34f8ab4",
+            "exists": true,
+            "is_active": true,
+            "platform_role": "employee",
+            "membership_id": null,
+            "membership_version": null,
+            "membership_role": null
+          }
+        }
+      },
+      "preview_token": "2b6e0adfa14c4c0ab69b8ae86cde023340fc90933bf807a181c088d301425351",
+      "blockers": ["identical_replacement_responsibility", "invalid_replacement_reviewer"],
+      "blocker_details": [
+        {
+          "code": "identical_replacement_responsibility",
+          "message": "标注接收人与质检接收人不能是同一账号"
+        },
+        {
+          "code": "invalid_replacement_reviewer",
+          "message": "质检接收人必须是该项目中启用且职责匹配的员工"
+        }
+      ]
+    },
+    "unknown_review_evidence": {
+      "snapshot": {
+        "member": {
+          "id": "423ad7f4-5aa8-4baf-9d75-69317fec493d",
+          "user_id": "be846de2-ab3d-426e-b118-0f82d3affd06",
+          "role": "annotator",
+          "version": 1
+        },
+        "member_account": {
+          "exists": true,
+          "is_active": true,
+          "platform_role": "employee"
+        },
+        "project": {
+          "id": "705ffe3a-dddc-4d15-8bb8-870f88af6586",
+          "owner_id": "4c524267-d44b-4419-9dcb-1afd9630d80a"
+        },
+        "annotation_task_ids": [
+          "875c0b54-97a3-4957-b02d-bb62e35a16f0",
+          "bf992496-8118-40e6-a31e-f23f4f80b899"
+        ],
+        "review_task_ids": ["bd09ad6e-5841-4b54-9473-b2682aac8c06"],
+        "unassigned_review_task_ids": ["1fd87f84-3623-4c88-8013-9791ee8103c4"],
+        "lock_task_ids": ["bf992496-8118-40e6-a31e-f23f4f80b899"],
+        "review_claim_task_ids": ["bd09ad6e-5841-4b54-9473-b2682aac8c06"],
+        "materialization_annotation_task_ids": [
+          "55157b6a-837f-4995-b377-d1dc699abd61",
+          "bd09ad6e-5841-4b54-9473-b2682aac8c06"
+        ],
+        "materialization_review_task_ids": ["55157b6a-837f-4995-b377-d1dc699abd61"],
+        "batch_annotator_ids": ["4f0f231b-259e-476e-a425-55b88be70c15"],
+        "batch_reviewer_ids": ["4f0f231b-259e-476e-a425-55b88be70c15"],
+        "eligible_reviewer_ids": ["21d8223c-3f55-44f2-9ff8-6ab5974d5912"],
+        "tasks": {
+          "1fd87f84-3623-4c88-8013-9791ee8103c4": {
+            "status": "review",
+            "version": 1,
+            "batch_id": null,
+            "assignee_id": null,
+            "assignee_is_override": false,
+            "reviewer_id": null,
+            "reviewer_is_override": false,
+            "reviewer_claimed": false,
+            "review_round_id": null,
+            "effective_assignee_id": null,
+            "effective_reviewer_id": null,
+            "review_submitter_id": null,
+            "annotation_contributors": [],
+            "review_contributors": []
+          },
+          "55157b6a-837f-4995-b377-d1dc699abd61": {
+            "status": "completed",
+            "version": 1,
+            "batch_id": "4f0f231b-259e-476e-a425-55b88be70c15",
+            "assignee_id": null,
+            "assignee_is_override": false,
+            "reviewer_id": null,
+            "reviewer_is_override": false,
+            "reviewer_claimed": false,
+            "review_round_id": null,
+            "effective_assignee_id": "be846de2-ab3d-426e-b118-0f82d3affd06",
+            "effective_reviewer_id": "be846de2-ab3d-426e-b118-0f82d3affd06",
+            "review_submitter_id": null,
+            "annotation_contributors": [],
+            "review_contributors": []
+          },
+          "875c0b54-97a3-4957-b02d-bb62e35a16f0": {
+            "status": "pending",
+            "version": 1,
+            "batch_id": "4f0f231b-259e-476e-a425-55b88be70c15",
+            "assignee_id": null,
+            "assignee_is_override": false,
+            "reviewer_id": null,
+            "reviewer_is_override": false,
+            "reviewer_claimed": false,
+            "review_round_id": null,
+            "effective_assignee_id": "be846de2-ab3d-426e-b118-0f82d3affd06",
+            "effective_reviewer_id": "be846de2-ab3d-426e-b118-0f82d3affd06",
+            "review_submitter_id": null,
+            "annotation_contributors": [],
+            "review_contributors": []
+          },
+          "bd09ad6e-5841-4b54-9473-b2682aac8c06": {
+            "status": "review",
+            "version": 1,
+            "batch_id": "4f0f231b-259e-476e-a425-55b88be70c15",
+            "assignee_id": null,
+            "assignee_is_override": false,
+            "reviewer_id": "be846de2-ab3d-426e-b118-0f82d3affd06",
+            "reviewer_is_override": false,
+            "reviewer_claimed": true,
+            "review_round_id": null,
+            "effective_assignee_id": "be846de2-ab3d-426e-b118-0f82d3affd06",
+            "effective_reviewer_id": "be846de2-ab3d-426e-b118-0f82d3affd06",
+            "review_submitter_id": null,
+            "annotation_contributors": null,
+            "review_contributors": null
+          },
+          "bf992496-8118-40e6-a31e-f23f4f80b899": {
+            "status": "in_progress",
+            "version": 1,
+            "batch_id": "4f0f231b-259e-476e-a425-55b88be70c15",
+            "assignee_id": "be846de2-ab3d-426e-b118-0f82d3affd06",
+            "assignee_is_override": false,
+            "reviewer_id": null,
+            "reviewer_is_override": false,
+            "reviewer_claimed": false,
+            "review_round_id": null,
+            "effective_assignee_id": "be846de2-ab3d-426e-b118-0f82d3affd06",
+            "effective_reviewer_id": "be846de2-ab3d-426e-b118-0f82d3affd06",
+            "review_submitter_id": null,
+            "annotation_contributors": [],
+            "review_contributors": []
+          }
+        },
+        "batches": {
+          "4f0f231b-259e-476e-a425-55b88be70c15": {
+            "status": "annotating",
+            "annotator_id": "be846de2-ab3d-426e-b118-0f82d3affd06",
+            "reviewer_id": "be846de2-ab3d-426e-b118-0f82d3affd06",
+            "assigned_user_ids": ["be846de2-ab3d-426e-b118-0f82d3affd06"],
+            "admin_locked": false
+          }
+        },
+        "receivers": {
+          "annotator": {
+            "user_id": "17312f02-c340-4d33-b0c4-97edb34f8ab4",
+            "exists": true,
+            "is_active": true,
+            "platform_role": "employee",
+            "membership_id": "b64ecc6b-6169-4a59-8793-85aba7c691d7",
+            "membership_version": 1,
+            "membership_role": "annotator"
+          },
+          "reviewer": {
+            "user_id": "99dba796-09a2-4e34-ba75-1c66c95e4d31",
+            "exists": true,
+            "is_active": true,
+            "platform_role": "employee",
+            "membership_id": "d24589a9-085d-4cda-9871-8e134902c927",
+            "membership_version": 1,
+            "membership_role": "reviewer"
+          }
+        }
+      },
+      "preview_token": "788935ce243b8bfb4f23e6d7340d48855de97a25ca5b6b9435645abc99b7e266",
+      "blockers": ["review_contributors_unknown"],
+      "blocker_details": [
+        {
+          "code": "review_contributors_unknown",
+          "message": "相关任务缺少可信的标注贡献者证据，不能为该任务指派质检接收人",
+          "task_ids": ["bd09ad6e-5841-4b54-9473-b2682aac8c06"]
+        }
+      ]
+    },
+    "annotation_handoff_ready": {
+      "snapshot": {
+        "member": {
+          "id": "423ad7f4-5aa8-4baf-9d75-69317fec493d",
+          "user_id": "be846de2-ab3d-426e-b118-0f82d3affd06",
+          "role": "annotator",
+          "version": 1
+        },
+        "member_account": {
+          "exists": true,
+          "is_active": true,
+          "platform_role": "employee"
+        },
+        "project": {
+          "id": "705ffe3a-dddc-4d15-8bb8-870f88af6586",
+          "owner_id": "4c524267-d44b-4419-9dcb-1afd9630d80a"
+        },
+        "annotation_task_ids": [
+          "875c0b54-97a3-4957-b02d-bb62e35a16f0",
+          "bf992496-8118-40e6-a31e-f23f4f80b899"
+        ],
+        "review_task_ids": ["bd09ad6e-5841-4b54-9473-b2682aac8c06"],
+        "unassigned_review_task_ids": ["1fd87f84-3623-4c88-8013-9791ee8103c4"],
+        "lock_task_ids": ["bf992496-8118-40e6-a31e-f23f4f80b899"],
+        "review_claim_task_ids": ["bd09ad6e-5841-4b54-9473-b2682aac8c06"],
+        "materialization_annotation_task_ids": [
+          "55157b6a-837f-4995-b377-d1dc699abd61",
+          "bd09ad6e-5841-4b54-9473-b2682aac8c06"
+        ],
+        "materialization_review_task_ids": ["55157b6a-837f-4995-b377-d1dc699abd61"],
+        "batch_annotator_ids": ["4f0f231b-259e-476e-a425-55b88be70c15"],
+        "batch_reviewer_ids": ["4f0f231b-259e-476e-a425-55b88be70c15"],
+        "eligible_reviewer_ids": [
+          "21d8223c-3f55-44f2-9ff8-6ab5974d5912",
+          "99dba796-09a2-4e34-ba75-1c66c95e4d31"
+        ],
+        "tasks": {
+          "1fd87f84-3623-4c88-8013-9791ee8103c4": {
+            "status": "review",
+            "version": 1,
+            "batch_id": null,
+            "assignee_id": null,
+            "assignee_is_override": false,
+            "reviewer_id": null,
+            "reviewer_is_override": false,
+            "reviewer_claimed": false,
+            "review_round_id": null,
+            "effective_assignee_id": null,
+            "effective_reviewer_id": null,
+            "review_submitter_id": null,
+            "annotation_contributors": [],
+            "review_contributors": []
+          },
+          "55157b6a-837f-4995-b377-d1dc699abd61": {
+            "status": "completed",
+            "version": 1,
+            "batch_id": "4f0f231b-259e-476e-a425-55b88be70c15",
+            "assignee_id": null,
+            "assignee_is_override": false,
+            "reviewer_id": null,
+            "reviewer_is_override": false,
+            "reviewer_claimed": false,
+            "review_round_id": null,
+            "effective_assignee_id": "be846de2-ab3d-426e-b118-0f82d3affd06",
+            "effective_reviewer_id": "be846de2-ab3d-426e-b118-0f82d3affd06",
+            "review_submitter_id": null,
+            "annotation_contributors": [],
+            "review_contributors": []
+          },
+          "875c0b54-97a3-4957-b02d-bb62e35a16f0": {
+            "status": "pending",
+            "version": 1,
+            "batch_id": "4f0f231b-259e-476e-a425-55b88be70c15",
+            "assignee_id": null,
+            "assignee_is_override": false,
+            "reviewer_id": null,
+            "reviewer_is_override": false,
+            "reviewer_claimed": false,
+            "review_round_id": null,
+            "effective_assignee_id": "be846de2-ab3d-426e-b118-0f82d3affd06",
+            "effective_reviewer_id": "be846de2-ab3d-426e-b118-0f82d3affd06",
+            "review_submitter_id": null,
+            "annotation_contributors": [],
+            "review_contributors": []
+          },
+          "bd09ad6e-5841-4b54-9473-b2682aac8c06": {
+            "status": "review",
+            "version": 1,
+            "batch_id": "4f0f231b-259e-476e-a425-55b88be70c15",
+            "assignee_id": null,
+            "assignee_is_override": false,
+            "reviewer_id": "be846de2-ab3d-426e-b118-0f82d3affd06",
+            "reviewer_is_override": false,
+            "reviewer_claimed": true,
+            "review_round_id": null,
+            "effective_assignee_id": "be846de2-ab3d-426e-b118-0f82d3affd06",
+            "effective_reviewer_id": "be846de2-ab3d-426e-b118-0f82d3affd06",
+            "review_submitter_id": null,
+            "annotation_contributors": null,
+            "review_contributors": null
+          },
+          "bf992496-8118-40e6-a31e-f23f4f80b899": {
+            "status": "in_progress",
+            "version": 1,
+            "batch_id": "4f0f231b-259e-476e-a425-55b88be70c15",
+            "assignee_id": "be846de2-ab3d-426e-b118-0f82d3affd06",
+            "assignee_is_override": false,
+            "reviewer_id": null,
+            "reviewer_is_override": false,
+            "reviewer_claimed": false,
+            "review_round_id": null,
+            "effective_assignee_id": "be846de2-ab3d-426e-b118-0f82d3affd06",
+            "effective_reviewer_id": "be846de2-ab3d-426e-b118-0f82d3affd06",
+            "review_submitter_id": null,
+            "annotation_contributors": [],
+            "review_contributors": []
+          }
+        },
+        "batches": {
+          "4f0f231b-259e-476e-a425-55b88be70c15": {
+            "status": "annotating",
+            "annotator_id": "be846de2-ab3d-426e-b118-0f82d3affd06",
+            "reviewer_id": "be846de2-ab3d-426e-b118-0f82d3affd06",
+            "assigned_user_ids": ["be846de2-ab3d-426e-b118-0f82d3affd06"],
+            "admin_locked": false
+          }
+        },
+        "receivers": {
+          "annotator": {
+            "user_id": "17312f02-c340-4d33-b0c4-97edb34f8ab4",
+            "exists": true,
+            "is_active": true,
+            "platform_role": "employee",
+            "membership_id": "b64ecc6b-6169-4a59-8793-85aba7c691d7",
+            "membership_version": 1,
+            "membership_role": "annotator"
+          },
+          "reviewer": null
+        }
+      },
+      "preview_token": "e61a4259eabd5a456764fa3f82e0725873935484a087427dca771be95d6023fc",
+      "blockers": [],
+      "blocker_details": []
+    },
+    "review_handoff_ready": {
+      "snapshot": {
+        "member": {
+          "id": "423ad7f4-5aa8-4baf-9d75-69317fec493d",
+          "user_id": "be846de2-ab3d-426e-b118-0f82d3affd06",
+          "role": "reviewer",
+          "version": 2
+        },
+        "member_account": {
+          "exists": true,
+          "is_active": true,
+          "platform_role": "employee"
+        },
+        "project": {
+          "id": "705ffe3a-dddc-4d15-8bb8-870f88af6586",
+          "owner_id": "4c524267-d44b-4419-9dcb-1afd9630d80a"
+        },
+        "annotation_task_ids": [],
+        "review_task_ids": ["bd09ad6e-5841-4b54-9473-b2682aac8c06"],
+        "unassigned_review_task_ids": ["1fd87f84-3623-4c88-8013-9791ee8103c4"],
+        "lock_task_ids": [],
+        "review_claim_task_ids": ["bd09ad6e-5841-4b54-9473-b2682aac8c06"],
+        "materialization_annotation_task_ids": [],
+        "materialization_review_task_ids": ["55157b6a-837f-4995-b377-d1dc699abd61"],
+        "batch_annotator_ids": [],
+        "batch_reviewer_ids": ["4f0f231b-259e-476e-a425-55b88be70c15"],
+        "eligible_reviewer_ids": ["21d8223c-3f55-44f2-9ff8-6ab5974d5912"],
+        "tasks": {
+          "1fd87f84-3623-4c88-8013-9791ee8103c4": {
+            "status": "review",
+            "version": 1,
+            "batch_id": null,
+            "assignee_id": null,
+            "assignee_is_override": false,
+            "reviewer_id": null,
+            "reviewer_is_override": false,
+            "reviewer_claimed": false,
+            "review_round_id": null,
+            "effective_assignee_id": null,
+            "effective_reviewer_id": null,
+            "review_submitter_id": null,
+            "annotation_contributors": [],
+            "review_contributors": []
+          },
+          "55157b6a-837f-4995-b377-d1dc699abd61": {
+            "status": "completed",
+            "version": 1,
+            "batch_id": "4f0f231b-259e-476e-a425-55b88be70c15",
+            "assignee_id": "be846de2-ab3d-426e-b118-0f82d3affd06",
+            "assignee_is_override": false,
+            "reviewer_id": null,
+            "reviewer_is_override": false,
+            "reviewer_claimed": false,
+            "review_round_id": null,
+            "effective_assignee_id": "be846de2-ab3d-426e-b118-0f82d3affd06",
+            "effective_reviewer_id": "be846de2-ab3d-426e-b118-0f82d3affd06",
+            "review_submitter_id": null,
+            "annotation_contributors": [],
+            "review_contributors": []
+          },
+          "bd09ad6e-5841-4b54-9473-b2682aac8c06": {
+            "status": "review",
+            "version": 1,
+            "batch_id": "4f0f231b-259e-476e-a425-55b88be70c15",
+            "assignee_id": "be846de2-ab3d-426e-b118-0f82d3affd06",
+            "assignee_is_override": false,
+            "reviewer_id": "be846de2-ab3d-426e-b118-0f82d3affd06",
+            "reviewer_is_override": false,
+            "reviewer_claimed": true,
+            "review_round_id": "ac6508de-f7f3-446e-babd-fbcb2db6e613",
+            "effective_assignee_id": "be846de2-ab3d-426e-b118-0f82d3affd06",
+            "effective_reviewer_id": "be846de2-ab3d-426e-b118-0f82d3affd06",
+            "review_submitter_id": "17312f02-c340-4d33-b0c4-97edb34f8ab4",
+            "annotation_contributors": ["17312f02-c340-4d33-b0c4-97edb34f8ab4"],
+            "review_contributors": ["17312f02-c340-4d33-b0c4-97edb34f8ab4"]
+          }
+        },
+        "batches": {
+          "4f0f231b-259e-476e-a425-55b88be70c15": {
+            "status": "annotating",
+            "annotator_id": "17312f02-c340-4d33-b0c4-97edb34f8ab4",
+            "reviewer_id": "be846de2-ab3d-426e-b118-0f82d3affd06",
+            "assigned_user_ids": ["17312f02-c340-4d33-b0c4-97edb34f8ab4"],
+            "admin_locked": false
+          }
+        },
+        "receivers": {
+          "annotator": null,
+          "reviewer": {
+            "user_id": "99dba796-09a2-4e34-ba75-1c66c95e4d31",
+            "exists": true,
+            "is_active": true,
+            "platform_role": "employee",
+            "membership_id": "d24589a9-085d-4cda-9871-8e134902c927",
+            "membership_version": 1,
+            "membership_role": "reviewer"
+          }
+        }
+      },
+      "preview_token": "a0f6eff16b177a5af877fd8896887745d703702e55c4daf7cd40999ea250338b",
+      "blockers": [],
+      "blocker_details": []
+    }
+  },
+  "audits": [
+    {
+      "action": "project.member_role_change",
+      "target_type": "project_member",
+      "target_id": "$membership_member",
+      "detail": {
+        "reason": "baseline rotation",
+        "to_role": "reviewer",
+        "user_id": "$member",
+        "version": 2,
+        "from_role": "annotator",
+        "project_id": "$project",
+        "released_lock_count": 1,
+        "replacement_reviewer_id": null,
+        "replacement_annotator_id": "$annotator"
+      },
+      "actor_id": "$owner",
+      "actor_role": "project_admin"
+    },
+    {
+      "action": "project.member_role_change",
+      "target_type": "project_member",
+      "target_id": "$membership_member",
+      "detail": {
+        "reason": "baseline review rotation",
+        "to_role": "viewer",
+        "user_id": "$member",
+        "version": 3,
+        "from_role": "reviewer",
+        "project_id": "$project",
+        "released_lock_count": 0,
+        "replacement_reviewer_id": "$reviewer",
+        "replacement_annotator_id": null
+      },
+      "actor_id": "$owner",
+      "actor_role": "project_admin"
+    },
+    {
+      "action": "project.member_remove",
+      "target_type": "project_member",
+      "target_id": "$membership_member",
+      "detail": {
+        "user_id": "$member",
+        "project_id": "$project",
+        "project_role": "viewer"
+      },
+      "actor_id": "$owner",
+      "actor_role": "project_admin"
+    },
+    {
+      "action": "project.member_add",
+      "target_type": "project_member",
+      "target_id": "$membership_added",
+      "detail": {
+        "user_id": "$new_employee",
+        "project_id": "$project",
+        "project_role": "annotator",
+        "platform_role": "employee"
+      },
+      "actor_id": "$owner",
+      "actor_role": "project_admin"
+    }
+  ],
+  "sql_calls": {
+    "list_before": 7,
+    "same_role": 23,
+    "blocked_viewer": 23,
+    "self_receiver": 24,
+    "invalid_receiver": 24,
+    "identical_receiver": 28,
+    "unknown_review_evidence": 29,
+    "blocked_removal": 37,
+    "annotation_handoff_ready": 26,
+    "invalid_version": 8,
+    "stale_version": 12,
+    "stale_snapshot": 43,
+    "annotation_handoff": 56,
+    "review_handoff_ready": 25,
+    "review_handoff": 51,
+    "idle_removal": 34,
+    "missing_removal": 10,
+    "add": 17,
+    "duplicate_add": 11,
+    "list_after": 7
+  },
+  "assigned_user_id_vectors": [
+    {
+      "input": null,
+      "from_user_id": "be846de2-ab3d-426e-b118-0f82d3affd06",
+      "to_user_id": "17312f02-c340-4d33-b0c4-97edb34f8ab4",
+      "output": ["17312f02-c340-4d33-b0c4-97edb34f8ab4"]
+    },
+    {
+      "input": [],
+      "from_user_id": "be846de2-ab3d-426e-b118-0f82d3affd06",
+      "to_user_id": "17312f02-c340-4d33-b0c4-97edb34f8ab4",
+      "output": ["17312f02-c340-4d33-b0c4-97edb34f8ab4"]
+    },
+    {
+      "input": ["be846de2-ab3d-426e-b118-0f82d3affd06"],
+      "from_user_id": "be846de2-ab3d-426e-b118-0f82d3affd06",
+      "to_user_id": "17312f02-c340-4d33-b0c4-97edb34f8ab4",
+      "output": ["17312f02-c340-4d33-b0c4-97edb34f8ab4"]
+    },
+    {
+      "input": [
+        "be846de2-ab3d-426e-b118-0f82d3affd06",
+        "be846de2-ab3d-426e-b118-0f82d3affd06",
+        "17312f02-c340-4d33-b0c4-97edb34f8ab4"
+      ],
+      "from_user_id": "be846de2-ab3d-426e-b118-0f82d3affd06",
+      "to_user_id": "17312f02-c340-4d33-b0c4-97edb34f8ab4",
+      "output": [
+        "17312f02-c340-4d33-b0c4-97edb34f8ab4",
+        "17312f02-c340-4d33-b0c4-97edb34f8ab4",
+        "17312f02-c340-4d33-b0c4-97edb34f8ab4"
+      ]
+    },
+    {
+      "input": ["17312f02-c340-4d33-b0c4-97edb34f8ab4"],
+      "from_user_id": "be846de2-ab3d-426e-b118-0f82d3affd06",
+      "to_user_id": "17312f02-c340-4d33-b0c4-97edb34f8ab4",
+      "output": ["17312f02-c340-4d33-b0c4-97edb34f8ab4", "17312f02-c340-4d33-b0c4-97edb34f8ab4"]
+    },
+    {
+      "input": ["legacy", "be846de2-ab3d-426e-b118-0f82d3affd06", "legacy"],
+      "from_user_id": "be846de2-ab3d-426e-b118-0f82d3affd06",
+      "to_user_id": "17312f02-c340-4d33-b0c4-97edb34f8ab4",
+      "output": ["legacy", "17312f02-c340-4d33-b0c4-97edb34f8ab4", "legacy"]
+    },
+    {
+      "input": [
+        null,
+        true,
+        42,
+        1.0,
+        {
+          "legacy": "value"
+        },
+        "be846de2-ab3d-426e-b118-0f82d3affd06"
+      ],
+      "from_user_id": "be846de2-ab3d-426e-b118-0f82d3affd06",
+      "to_user_id": "17312f02-c340-4d33-b0c4-97edb34f8ab4",
+      "output": [
+        "None",
+        "True",
+        "42",
+        "1.0",
+        "{'legacy': 'value'}",
+        "17312f02-c340-4d33-b0c4-97edb34f8ab4"
+      ]
+    },
+    {
+      "input": [["true", "false", "null", true, false, null]],
+      "from_user_id": "be846de2-ab3d-426e-b118-0f82d3affd06",
+      "to_user_id": "17312f02-c340-4d33-b0c4-97edb34f8ab4",
+      "output": [
+        "['true', 'false', 'null', True, False, None]",
+        "17312f02-c340-4d33-b0c4-97edb34f8ab4"
+      ]
+    },
+    {
+      "input": [["quote'", "quote\"", "both'\"", "back\\slash", "line\nfeed", "tab\tvalue"]],
+      "from_user_id": "be846de2-ab3d-426e-b118-0f82d3affd06",
+      "to_user_id": "17312f02-c340-4d33-b0c4-97edb34f8ab4",
+      "output": [
+        "[\"quote'\", 'quote\"', 'both\\'\"', 'back\\\\slash', 'line\\nfeed', 'tab\\tvalue']",
+        "17312f02-c340-4d33-b0c4-97edb34f8ab4"
+      ]
+    },
+    {
+      "input": [
+        {
+          "bool": false,
+          "text": "null",
+          "nested": [
+            "true",
+            null,
+            {
+              "text": "false"
+            }
+          ]
+        }
+      ],
+      "from_user_id": "be846de2-ab3d-426e-b118-0f82d3affd06",
+      "to_user_id": "17312f02-c340-4d33-b0c4-97edb34f8ab4",
+      "output": [
+        "{'bool': False, 'text': 'null', 'nested': ['true', None, {'text': 'false'}]}",
+        "17312f02-c340-4d33-b0c4-97edb34f8ab4"
+      ]
+    },
+    {
+      "input": [["雪", "👩‍💻", " ", "​", " ", ""]],
+      "from_user_id": "be846de2-ab3d-426e-b118-0f82d3affd06",
+      "to_user_id": "17312f02-c340-4d33-b0c4-97edb34f8ab4",
+      "output": [
+        "['雪', '👩\\u200d💻', '\\xa0', '\\u200b', '\\u2028', '\\ue000']",
+        "17312f02-c340-4d33-b0c4-97edb34f8ab4"
+      ]
+    },
+    {
+      "input": [1.23e-5, 1200000000000000.0, 1e-300, -12.5, 0.0],
+      "from_user_id": "be846de2-ab3d-426e-b118-0f82d3affd06",
+      "to_user_id": "17312f02-c340-4d33-b0c4-97edb34f8ab4",
+      "output": [
+        "1.23e-05",
+        "1200000000000000.0",
+        "1e-300",
+        "-12.5",
+        "0.0",
+        "17312f02-c340-4d33-b0c4-97edb34f8ab4"
+      ]
+    }
+  ],
+  "additional_participant_vectors_origin": {
+    "base_head": "5b0267e5f440fc36c48c5ccb640ca51e97fd6a8a",
+    "method": "BatchService._replace_assigned_user_id",
+    "method_source_sha256": "5a4daf4e52012299f03cf626b7bfb5057eb3ef81acd71e354131dab168814a0b",
+    "kind": "frozen Git source execution; first seven were captured before extraction"
+  }
+}

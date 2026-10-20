@@ -57,8 +57,8 @@ class _NativeModel(ClosedModel):
 
 
 class MembershipAuditContext(ClosedModel):
-    method: StrictStr
-    path: StrictStr
+    method: StrictStr | None
+    path: StrictStr | None
     ip: StrictStr | None
     request_id: StrictStr | None
 
@@ -212,7 +212,7 @@ MembershipReplyData: TypeAlias = (
 
 
 class MembershipError(ClosedModel):
-    status_code: StrictInt
+    status_code: StrictInt = Field(ge=400, le=599)
     detail: JsonValue
     headers: dict[StrictStr, StrictStr] | None
     rollback: StrictBool

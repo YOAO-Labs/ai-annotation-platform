@@ -259,6 +259,7 @@ class FakeData:
         self.apply_error = apply_error
         self.events = []
         self.active = False
+        self.committed = False
         self.write_modes = []
         self.prepared = None
         self.applied = None
@@ -276,6 +277,7 @@ class FakeData:
             self.events.append(("exit_exception", type(exc).__name__))
             raise
         else:
+            self.committed = write
             self.active = False
             self.events.append(("exit", None))
 
@@ -410,7 +412,8 @@ async def test_policy_failure_is_converted_only_after_transaction_context_exits(
 
     def fail_only_after_context(request_value, error):
         assert data.active is False
-        assert data.events[-1] == ("exit", None)
+        assert data.events[-1] == ("exit_exception", "MembershipCommandFailure")
+        assert data.committed is False
         return build_failure(request_value, error)
 
     monkeypatch.setattr(
@@ -443,7 +446,7 @@ async def test_native_rollback_failure_exits_as_exception_then_returns_failure(
 
     def fail_only_after_rollback(request_value, error_value):
         assert data.active is False
-        assert data.events[-1] == ("exit_exception", "_RollbackBusinessFailure")
+        assert data.events[-1] == ("exit_exception", "MembershipCommandFailure")
         return build_failure(request_value, error_value)
 
     monkeypatch.setattr(
@@ -474,7 +477,8 @@ async def test_apply_business_failure_is_returned_after_transaction_exit(monkeyp
 
     def fail_only_after_context(request_value, error_value):
         assert data.active is False
-        assert data.events[-1] == ("exit", None)
+        assert data.events[-1] == ("exit_exception", "MembershipCommandFailure")
+        assert data.committed is False
         return build_failure(request_value, error_value)
 
     monkeypatch.setattr(

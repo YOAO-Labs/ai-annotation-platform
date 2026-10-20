@@ -46,6 +46,8 @@ _SPATIAL_RETIRED_MODULES = (
 )
 
 REMOVED_MODULES = (
+    "app.services.project_membership",
+    "app.application.project_membership",
     "app.services.invitation",
     "app.application.invitation_acceptance",
     "app.services.deactivation_service",
@@ -206,7 +208,8 @@ DOMAIN_PACKAGES = (
         allowed_app_imports=(),
     ),
     DomainSpec(package="project_write_guard", legacy_facades=()),
-    DomainSpec(package="project_membership", legacy_facades=()),
+    DomainSpec(package="workspace_membership", legacy_facades=()),
+    DomainSpec(package="workspace_membership_data", legacy_facades=()),
     DomainSpec(
         package="workspace_contract",
         legacy_facades=(),

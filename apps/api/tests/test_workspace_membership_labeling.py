@@ -41,7 +41,7 @@ def _function_body(sql: str, name: str) -> str:
     return match.group(1)
 
 
-def test_membership_labeling_has_only_the_five_frozen_capabilities() -> None:
+def test_membership_labeling_public_capabilities_match_the_frozen_contract() -> None:
     sql = _SQL.read_text()
     signatures = re.findall(
         r"CREATE FUNCTION aap_labeling_v1\.([a-z_]+)\((.*?)\)\s*RETURNS",
@@ -51,6 +51,7 @@ def test_membership_labeling_has_only_the_five_frozen_capabilities() -> None:
     normalized = {
         name: ", ".join(re.findall(r"\bp_[a-z_]+\s+(uuid|text|boolean)\b", arguments))
         for name, arguments in signatures
+        if not name.startswith("_")
     }
     assert normalized == _SIGNATURES
     for name, arguments in _SIGNATURES.items():
@@ -237,24 +238,27 @@ async def test_annotation_handoff_matches_frozen_legacy_assigned_id_vectors(
     )
     project = await create_project(db_session, owner_id=owner.id)
 
-    vectors = [
-        (None, [str(receiver.id)]),
-        ([], [str(receiver.id)]),
-        ([str(source.id)], [str(receiver.id)]),
+    fixture = json.loads(
         (
-            [str(source.id), str(source.id), str(receiver.id)],
-            [str(receiver.id), str(receiver.id), str(receiver.id)],
-        ),
-        ([str(receiver.id)], [str(receiver.id), str(receiver.id)]),
-        (
-            ["legacy", str(source.id), "legacy"],
-            ["legacy", str(receiver.id), "legacy"],
-        ),
-        (
-            [None, True, 42, 1.0, {"legacy": "value"}, str(source.id)],
-            ["None", "True", "42", "1.0", "{'legacy': 'value'}", str(receiver.id)],
-        ),
-    ]
+            Path(__file__).resolve().parent
+            / "fixtures/workspace_membership_legacy.json"
+        ).read_text()
+    )
+    vectors = []
+    for vector in fixture["assigned_user_id_vectors"]:
+
+        def bind(value):
+            if isinstance(value, list):
+                return [bind(item) for item in value]
+            if isinstance(value, dict):
+                return {bind(key): bind(item) for key, item in value.items()}
+            if isinstance(value, str):
+                return value.replace(vector["from_user_id"], str(source.id)).replace(
+                    vector["to_user_id"], str(receiver.id)
+                )
+            return value
+
+        vectors.append((bind(vector["input"]), bind(vector["output"])))
     original_assigned_at = datetime(2020, 1, 2, tzinfo=timezone.utc)
     original_updated_at = datetime(2020, 1, 1, tzinfo=timezone.utc)
     saved: list[tuple[uuid.UUID, uuid.UUID, list[str]]] = []

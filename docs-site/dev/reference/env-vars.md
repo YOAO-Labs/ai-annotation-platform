@@ -4,7 +4,7 @@ audience: [dev, ops]
 type: reference
 since: v0.9.0
 status: stable
-last_reviewed: 2026-10-20
+last_reviewed: 2026-10-21
 ---
 
 # 环境变量参考
@@ -715,3 +715,16 @@ last_reviewed: 2026-10-20
 | `ASSETS_IMAGES_POLL_SECONDS` | `5` | — |
 | `ASSETS_IMAGES_LEGACY_BUCKET` | `—` | 留空依次使用 MINIO_BUCKET / MINIO_BUCKET_ANNOTATIONS；独立进程必须显式选定历史 Task 桶。 |
 | `ASSETS_IMAGES_SRGB_PROFILE` | `—` | 留空使用 IMAGE_PYRAMID_SRGB_PROFILE，再使用镜像内的 ICC 文件。 |
+
+## Workspace 项目成员生命周期命令（可选独立运行）。API 可选择私有 runtime URL、
+
+| 变量 | 默认值 | 说明 |
+|---|---|---|
+| `WORKSPACE_MEMBERSHIP_URL` | `—` | 专用事务 DSN 或默认 caller Session；直接值与 _FILE 二选一，显式失败不回退。 |
+| `WORKSPACE_MEMBERSHIP_CONTROL_TOKEN` | `—` | — |
+| `WORKSPACE_MEMBERSHIP_CONTROL_TOKEN_FILE` | `—` | — |
+| `WORKSPACE_MEMBERSHIP_DATABASE_URL` | `—` | — |
+| `WORKSPACE_MEMBERSHIP_DATABASE_URL_FILE` | `—` | — |
+| `WORKSPACE_MEMBERSHIP_TIMEOUT_SECONDS` | `30` | — |
+| `WORKSPACE_RUNTIME_MEMBERSHIP_DATABASE_URL_FILE` | `—` | 独立 Compose runtime 的宿主 secret-file selectors，容器内映射为上面的数据库与控制 token 配置。 |
+| `WORKSPACE_RUNTIME_CONTROL_TOKEN_FILE` | `—` | — |
