@@ -1,0 +1,1041 @@
+{
+  "$defs": {
+    "AccountFailureDetail": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "anyOf": [
+            {
+              "enum": [
+                "invalid_request",
+                "credential_invalid",
+                "credential_revoked",
+                "generation_outdated",
+                "token_expired",
+                "user_inactive",
+                "invalid_account_role",
+                "credential_busy"
+              ],
+              "type": "string"
+            },
+            {
+              "enum": ["account_busy", "operation_conflict", "policy_rejected"],
+              "type": "string"
+            }
+          ],
+          "title": "Code"
+        },
+        "detail": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "items": {
+                "$ref": "#/$defs/AccountValidationIssue"
+              },
+              "type": "array"
+            },
+            {
+              "$ref": "#/$defs/NamedPresetsConflictDetail"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Detail"
+        },
+        "status_code": {
+          "anyOf": [
+            {
+              "maximum": 599,
+              "minimum": 400,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Status Code"
+        }
+      },
+      "required": ["code", "status_code", "detail"],
+      "title": "AccountFailureDetail",
+      "type": "object"
+    },
+    "AccountFailureReply": {
+      "additionalProperties": false,
+      "properties": {
+        "error": {
+          "$ref": "#/$defs/AccountFailureDetail"
+        },
+        "ok": {
+          "const": false,
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "schema": {
+          "const": "aap-identity-accounts/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "ok", "error"],
+      "title": "AccountFailureReply",
+      "type": "object"
+    },
+    "AccountRecord": {
+      "additionalProperties": false,
+      "properties": {
+        "avatar_ref": {
+          "anyOf": [
+            {
+              "maxLength": 80,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Avatar Ref"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "deactivation_requested_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Deactivation Requested At"
+        },
+        "deactivation_scheduled_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Deactivation Scheduled At"
+        },
+        "disabled_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Disabled At"
+        },
+        "disabled_by": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Disabled By"
+        },
+        "disabled_kind": {
+          "anyOf": [
+            {
+              "maxLength": 32,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Disabled Kind"
+        },
+        "disabled_reason": {
+          "anyOf": [
+            {
+              "maxLength": 500,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Disabled Reason"
+        },
+        "email": {
+          "maxLength": 255,
+          "title": "Email",
+          "type": "string"
+        },
+        "email_verified_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Email Verified At"
+        },
+        "group_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Group Id"
+        },
+        "group_name": {
+          "anyOf": [
+            {
+              "maxLength": 100,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Group Name"
+        },
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "is_active": {
+          "title": "Is Active",
+          "type": "boolean"
+        },
+        "last_login_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Last Login At"
+        },
+        "last_seen_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Last Seen At"
+        },
+        "name": {
+          "maxLength": 100,
+          "title": "Name",
+          "type": "string"
+        },
+        "password_admin_reset_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Password Admin Reset At"
+        },
+        "preferences": {
+          "additionalProperties": true,
+          "title": "Preferences",
+          "type": "object"
+        },
+        "role": {
+          "enum": ["super_admin", "project_admin", "employee", "viewer"],
+          "title": "Role",
+          "type": "string"
+        },
+        "status": {
+          "maxLength": 20,
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "email",
+        "name",
+        "role",
+        "group_name",
+        "group_id",
+        "status",
+        "is_active",
+        "disabled_kind",
+        "disabled_at",
+        "disabled_by",
+        "disabled_reason",
+        "email_verified_at",
+        "last_login_at",
+        "last_seen_at",
+        "password_admin_reset_at",
+        "deactivation_requested_at",
+        "deactivation_scheduled_at",
+        "preferences",
+        "avatar_ref",
+        "created_at"
+      ],
+      "title": "AccountRecord",
+      "type": "object"
+    },
+    "AccountReply": {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "$ref": "#/$defs/AccountResultData"
+        },
+        "ok": {
+          "const": true,
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "operation": {
+          "enum": [
+            "read_self_account",
+            "get_preferences",
+            "heartbeat",
+            "update_name",
+            "patch_preferences",
+            "change_password",
+            "set_avatar_ref"
+          ],
+          "title": "Operation",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "principal": {
+          "$ref": "#/$defs/Principal"
+        },
+        "schema": {
+          "const": "aap-identity-accounts/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "ok", "operation", "operation_id", "principal", "data"],
+      "title": "AccountReply",
+      "type": "object"
+    },
+    "AccountResultData": {
+      "additionalProperties": false,
+      "properties": {
+        "account": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AccountRecord"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "changed": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Changed"
+        },
+        "preferences": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Preferences"
+        },
+        "previous_avatar_ref": {
+          "anyOf": [
+            {
+              "maxLength": 80,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Previous Avatar Ref"
+        }
+      },
+      "required": ["account", "preferences", "previous_avatar_ref", "changed"],
+      "title": "AccountResultData",
+      "type": "object"
+    },
+    "AccountValidationIssue": {
+      "additionalProperties": false,
+      "properties": {
+        "loc": {
+          "items": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              }
+            ]
+          },
+          "title": "Loc",
+          "type": "array"
+        },
+        "msg": {
+          "title": "Msg",
+          "type": "string"
+        },
+        "type": {
+          "minLength": 1,
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": ["type", "loc", "msg"],
+      "title": "AccountValidationIssue",
+      "type": "object"
+    },
+    "ChangePasswordPayload": {
+      "additionalProperties": false,
+      "properties": {
+        "new_password": {
+          "maxLength": 128,
+          "minLength": 8,
+          "title": "New Password",
+          "type": "string"
+        },
+        "old_password": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Old Password",
+          "type": "string"
+        }
+      },
+      "required": ["old_password", "new_password"],
+      "title": "ChangePasswordPayload",
+      "type": "object"
+    },
+    "ChangePasswordRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "audit_context": {
+          "$ref": "#/$defs/SessionAuditContext"
+        },
+        "operation": {
+          "const": "change_password",
+          "title": "Operation",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/ChangePasswordPayload"
+        },
+        "schema": {
+          "const": "aap-identity-accounts/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "token": {
+          "maxLength": 16384,
+          "minLength": 1,
+          "title": "Token",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "operation_id", "token", "audit_context", "operation", "payload"],
+      "title": "ChangePasswordRequest",
+      "type": "object"
+    },
+    "EmptyPayload": {
+      "additionalProperties": false,
+      "properties": {},
+      "title": "EmptyPayload",
+      "type": "object"
+    },
+    "GetPreferencesRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "audit_context": {
+          "$ref": "#/$defs/SessionAuditContext"
+        },
+        "operation": {
+          "const": "get_preferences",
+          "title": "Operation",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/EmptyPayload"
+        },
+        "schema": {
+          "const": "aap-identity-accounts/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "token": {
+          "maxLength": 16384,
+          "minLength": 1,
+          "title": "Token",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "operation_id", "token", "audit_context", "operation", "payload"],
+      "title": "GetPreferencesRequest",
+      "type": "object"
+    },
+    "HeartbeatRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "audit_context": {
+          "$ref": "#/$defs/SessionAuditContext"
+        },
+        "operation": {
+          "const": "heartbeat",
+          "title": "Operation",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/EmptyPayload"
+        },
+        "schema": {
+          "const": "aap-identity-accounts/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "token": {
+          "maxLength": 16384,
+          "minLength": 1,
+          "title": "Token",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "operation_id", "token", "audit_context", "operation", "payload"],
+      "title": "HeartbeatRequest",
+      "type": "object"
+    },
+    "NamedPresetsConflictDetail": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "const": "named_presets_conflict",
+          "title": "Code",
+          "type": "string"
+        },
+        "currentRevision": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Currentrevision"
+        },
+        "message": {
+          "const": "\u547d\u540d\u5e03\u5c40\u9884\u8bbe\u5df2\u5728\u5176\u4ed6\u4f1a\u8bdd\u66f4\u65b0\uff0c\u8bf7\u5237\u65b0\u540e\u91cd\u8bd5",
+          "title": "Message",
+          "type": "string"
+        }
+      },
+      "required": ["code", "message"],
+      "title": "NamedPresetsConflictDetail",
+      "type": "object"
+    },
+    "PatchPreferencesPayload": {
+      "additionalProperties": false,
+      "properties": {
+        "patch": {
+          "additionalProperties": true,
+          "title": "Patch",
+          "type": "object"
+        }
+      },
+      "required": ["patch"],
+      "title": "PatchPreferencesPayload",
+      "type": "object"
+    },
+    "PatchPreferencesRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "audit_context": {
+          "$ref": "#/$defs/SessionAuditContext"
+        },
+        "operation": {
+          "const": "patch_preferences",
+          "title": "Operation",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/PatchPreferencesPayload"
+        },
+        "schema": {
+          "const": "aap-identity-accounts/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "token": {
+          "maxLength": 16384,
+          "minLength": 1,
+          "title": "Token",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "operation_id", "token", "audit_context", "operation", "payload"],
+      "title": "PatchPreferencesRequest",
+      "type": "object"
+    },
+    "Principal": {
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "oneOf": [
+            {
+              "properties": {
+                "credential_type": {
+                  "const": "jwt"
+                },
+                "expires_at": {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                "generation": {
+                  "exclusiveMaximum": 9223372036854775808,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "scopes": {
+                  "type": "null"
+                }
+              }
+            },
+            {
+              "properties": {
+                "credential_type": {
+                  "const": "api_key"
+                },
+                "generation": {
+                  "type": "null"
+                },
+                "scopes": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                }
+              }
+            }
+          ]
+        }
+      ],
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "credential_id": {
+          "format": "uuid",
+          "title": "Credential Id",
+          "type": "string"
+        },
+        "credential_type": {
+          "enum": ["jwt", "api_key"],
+          "title": "Credential Type",
+          "type": "string"
+        },
+        "email": {
+          "title": "Email",
+          "type": "string"
+        },
+        "expires_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Expires At"
+        },
+        "generation": {
+          "anyOf": [
+            {
+              "exclusiveMaximum": 9223372036854775808,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Generation"
+        },
+        "is_active": {
+          "const": true,
+          "title": "Is Active",
+          "type": "boolean"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "role": {
+          "enum": ["super_admin", "project_admin", "employee", "viewer"],
+          "title": "Role",
+          "type": "string"
+        },
+        "scopes": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Scopes"
+        }
+      },
+      "required": [
+        "actor_id",
+        "name",
+        "email",
+        "role",
+        "is_active",
+        "credential_type",
+        "credential_id",
+        "generation",
+        "scopes",
+        "expires_at"
+      ],
+      "title": "Principal",
+      "type": "object"
+    },
+    "ReadSelfAccountRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "audit_context": {
+          "$ref": "#/$defs/SessionAuditContext"
+        },
+        "operation": {
+          "const": "read_self_account",
+          "title": "Operation",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/EmptyPayload"
+        },
+        "schema": {
+          "const": "aap-identity-accounts/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "token": {
+          "maxLength": 16384,
+          "minLength": 1,
+          "title": "Token",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "operation_id", "token", "audit_context", "operation", "payload"],
+      "title": "ReadSelfAccountRequest",
+      "type": "object"
+    },
+    "SessionAuditContext": {
+      "additionalProperties": false,
+      "properties": {
+        "ip": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Ip"
+        },
+        "method": {
+          "anyOf": [
+            {
+              "maxLength": 8,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Method"
+        },
+        "path": {
+          "anyOf": [
+            {
+              "maxLength": 256,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Path"
+        },
+        "request_id": {
+          "anyOf": [
+            {
+              "maxLength": 36,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Request Id"
+        }
+      },
+      "required": ["method", "path", "ip", "request_id"],
+      "title": "SessionAuditContext",
+      "type": "object"
+    },
+    "SetAvatarRefPayload": {
+      "additionalProperties": false,
+      "properties": {
+        "avatar_ref": {
+          "anyOf": [
+            {
+              "maxLength": 80,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Avatar Ref"
+        },
+        "bytes": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Bytes"
+        },
+        "kind": {
+          "enum": ["upload", "preset_or_clear"],
+          "title": "Kind",
+          "type": "string"
+        }
+      },
+      "required": ["kind"],
+      "title": "SetAvatarRefPayload",
+      "type": "object"
+    },
+    "SetAvatarRefRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "audit_context": {
+          "$ref": "#/$defs/SessionAuditContext"
+        },
+        "operation": {
+          "const": "set_avatar_ref",
+          "title": "Operation",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/SetAvatarRefPayload"
+        },
+        "schema": {
+          "const": "aap-identity-accounts/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "token": {
+          "maxLength": 16384,
+          "minLength": 1,
+          "title": "Token",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "operation_id", "token", "audit_context", "operation", "payload"],
+      "title": "SetAvatarRefRequest",
+      "type": "object"
+    },
+    "UpdateNamePayload": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "maxLength": 100,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        }
+      },
+      "required": ["name"],
+      "title": "UpdateNamePayload",
+      "type": "object"
+    },
+    "UpdateNameRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "audit_context": {
+          "$ref": "#/$defs/SessionAuditContext"
+        },
+        "operation": {
+          "const": "update_name",
+          "title": "Operation",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/UpdateNamePayload"
+        },
+        "schema": {
+          "const": "aap-identity-accounts/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "token": {
+          "maxLength": 16384,
+          "minLength": 1,
+          "title": "Token",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "operation_id", "token", "audit_context", "operation", "payload"],
+      "title": "UpdateNameRequest",
+      "type": "object"
+    }
+  },
+  "$id": "aap-identity-accounts/v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "anyOf": [
+    {
+      "discriminator": {
+        "mapping": {
+          "change_password": "#/$defs/ChangePasswordRequest",
+          "get_preferences": "#/$defs/GetPreferencesRequest",
+          "heartbeat": "#/$defs/HeartbeatRequest",
+          "patch_preferences": "#/$defs/PatchPreferencesRequest",
+          "read_self_account": "#/$defs/ReadSelfAccountRequest",
+          "set_avatar_ref": "#/$defs/SetAvatarRefRequest",
+          "update_name": "#/$defs/UpdateNameRequest"
+        },
+        "propertyName": "operation"
+      },
+      "oneOf": [
+        {
+          "$ref": "#/$defs/ReadSelfAccountRequest"
+        },
+        {
+          "$ref": "#/$defs/GetPreferencesRequest"
+        },
+        {
+          "$ref": "#/$defs/HeartbeatRequest"
+        },
+        {
+          "$ref": "#/$defs/UpdateNameRequest"
+        },
+        {
+          "$ref": "#/$defs/PatchPreferencesRequest"
+        },
+        {
+          "$ref": "#/$defs/ChangePasswordRequest"
+        },
+        {
+          "$ref": "#/$defs/SetAvatarRefRequest"
+        }
+      ]
+    },
+    {
+      "$ref": "#/$defs/AccountReply"
+    },
+    {
+      "$ref": "#/$defs/AccountFailureReply"
+    }
+  ]
+}

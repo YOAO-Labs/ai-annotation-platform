@@ -17,6 +17,10 @@ class Settings(BaseSettings):
     session_database_url_file: str | None = None
     login_redis_url: SecretStr | None = None
     login_redis_url_file: str | None = None
+    account_database_url: SecretStr | None = None
+    account_database_url_file: str | None = None
+    presence_database_url: SecretStr | None = None
+    presence_database_url_file: str | None = None
     token: SecretStr | None = None
     token_file: str | None = None
     signing_secret: SecretStr | None = None
@@ -86,4 +90,21 @@ class Settings(BaseSettings):
                 raise ValueError(f"Empty {field}")
         if self.session_database_url is not None and self.login_redis_url is None:
             raise ValueError("session_database_url requires login_redis_url")
+        for field in ("account_database_url", "presence_database_url"):
+            value = getattr(self, field)
+            path = getattr(self, field + "_file")
+            if value is not None and path is not None:
+                raise ValueError(f"Set at most one {field} source")
+            if path is not None:
+                try:
+                    with Path(path).open("rb") as stream:
+                        raw = stream.read(4097)
+                    if len(raw) > 4096:
+                        raise ValueError()
+                    value = SecretStr(raw.decode().strip())
+                except (OSError, ValueError, UnicodeError):
+                    raise ValueError(f"Invalid {field} file") from None
+                setattr(self, field, value)
+            if value is not None and not value.get_secret_value().strip():
+                raise ValueError(f"Empty {field}")
         return self

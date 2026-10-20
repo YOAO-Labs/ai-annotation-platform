@@ -36,6 +36,21 @@ from aap_identity.session_contract import (  # noqa: E402
     SessionReply,
     SessionRequest,
 )
+from aap_identity.account_contract import (  # noqa: E402
+    AccountFailureReply,
+    AccountReply,
+    AccountRequest,
+    NativeAccountFailureReply,
+    NativeAccountPolicyReply,
+    NativeAccountReply,
+    NativeApplyCommand,
+    NativePrepareCommand,
+    NativePrepareReply,
+)
+from aap_identity.presence_contract import (  # noqa: E402
+    PresenceReply,
+    PresenceRequest,
+)
 from aap_identity.preference_models import (  # noqa: E402
     UserPreferences,
     UserPreferencesRead,
@@ -132,6 +147,25 @@ def main():
                 | LoginCandidateReply
             ),
             "aap-identity-sessions-native/v1",
+        ),
+        "src/aap_identity/account_protocol.schema.json": render_schema(
+            TypeAdapter(AccountRequest | AccountReply | AccountFailureReply),
+            "aap-identity-accounts/v1",
+        ),
+        "src/aap_identity/native_account_protocol.schema.json": render_schema(
+            TypeAdapter(
+                NativePrepareCommand
+                | NativeApplyCommand
+                | NativePrepareReply
+                | NativeAccountReply
+                | NativeAccountFailureReply
+                | NativeAccountPolicyReply
+            ),
+            "aap-identity-accounts-native/v1",
+        ),
+        "src/aap_identity/presence_protocol.schema.json": render_schema(
+            TypeAdapter(PresenceRequest | PresenceReply),
+            "aap-identity-presence/v1",
         ),
         "src/aap_identity/preferences_write.schema.json": render_schema(
             TypeAdapter(UserPreferences), "aap-identity-preferences-write/v1"

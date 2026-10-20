@@ -34,6 +34,19 @@ from aap_identity.session_contract import (
 )
 from aap_identity.session_manager import SessionManager
 from aap_identity.session_postgres import SessionPostgresData
+from aap_identity.account_contract import (
+    ACCOUNT_POLICY_PROTOCOL,
+    ACCOUNT_PROTOCOL,
+    AccountFailure,
+    account_failure_reply,
+    decode_account_request,
+)
+from aap_identity.account_manager import AccountManager
+from aap_identity.account_postgres import AccountPostgresData
+from aap_identity.presence_contract import (
+    decode_presence_request,
+)
+from aap_identity.presence_postgres import PresencePostgresData
 
 from .config import Settings
 
@@ -45,6 +58,8 @@ def create_app(
     key_data: KeyPostgresData | None = None,
     session_data: SessionPostgresData | None = None,
     login_counter: RedisLoginCounter | None = None,
+    account_data: AccountPostgresData | None = None,
+    presence_data: PresencePostgresData | None = None,
 ) -> FastAPI:
     settings = settings or Settings()
     data = data or PostgresData(
@@ -88,6 +103,23 @@ def create_app(
         if session_data is not None and login_counter is not None
         else None
     )
+    if account_data is None and settings.account_database_url is not None:
+        account_data = AccountPostgresData(
+            settings.account_database_url.get_secret_value(),
+            connect_timeout=settings.connect_timeout_seconds,
+            command_timeout=settings.command_timeout_seconds,
+        )
+    accounts = (
+        AccountManager(auth, account_data, settings.signing_secret.get_secret_value())
+        if account_data is not None and settings.account_database_url is not None
+        else None
+    )
+    if presence_data is None and settings.presence_database_url is not None:
+        presence_data = PresencePostgresData(
+            settings.presence_database_url.get_secret_value(),
+            connect_timeout=settings.connect_timeout_seconds,
+            command_timeout=settings.command_timeout_seconds,
+        )
     slots = asyncio.Semaphore(settings.max_concurrency)
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
 
@@ -108,6 +140,14 @@ def create_app(
                     if session_data is None:
                         raise IdentityUnavailable()
                     session_policy = await session_data.session_policy()
+                if settings.account_database_url is not None:
+                    if account_data is None:
+                        raise IdentityUnavailable()
+                    account_policy = await account_data.account_policy()
+                if settings.presence_database_url is not None:
+                    if presence_data is None:
+                        raise IdentityUnavailable()
+                    await presence_data.check_capability()
             if policy != {
                 "schema": "aap-identity-policy/v1",
                 "issuer": ISSUER,
@@ -126,6 +166,17 @@ def create_app(
                 "refresh_grace_seconds": REFRESH_GRACE_SECONDS,
             }:
                 raise IdentityUnavailable()
+            if settings.account_database_url is not None:
+                account_policy_value = (
+                    account_policy.model_dump(mode="json", by_alias=True)
+                    if hasattr(account_policy, "model_dump")
+                    else account_policy
+                )
+                if account_policy_value != {
+                    "schema": ACCOUNT_POLICY_PROTOCOL,
+                    "policy": ACCOUNT_PROTOCOL,
+                }:
+                    raise IdentityUnavailable()
         except (IdentityUnavailable, TimeoutError):
             return JSONResponse({"status": "unavailable"}, status_code=503)
         return {"status": "ok"}
@@ -246,6 +297,86 @@ def create_app(
         except (IdentityUnavailable, TimeoutError):
             return JSONResponse(
                 {"detail": "Identity session commands unavailable"}, status_code=503
+            )
+        return JSONResponse(reply.model_dump(mode="json", by_alias=True))
+
+    @app.post("/v1/identity/accounts/execute")
+    async def execute_account_command(request: Request):
+        supplied = request.headers.get("authorization", "").encode()
+        expected = ("Bearer " + settings.token.get_secret_value()).encode()
+        if not hmac.compare_digest(supplied, expected):
+            return JSONResponse({"detail": "Unauthorized"}, status_code=401)
+        if (
+            request.headers.get("content-type", "").split(";", 1)[0].strip().lower()
+            != "application/json"
+        ):
+            return JSONResponse(
+                account_failure_reply("invalid_request"), status_code=400
+            )
+        if settings.account_database_url is None or accounts is None:
+            return JSONResponse(
+                {"detail": "Identity account commands unavailable"}, status_code=503
+            )
+        try:
+            async with asyncio.timeout(settings.request_timeout_seconds):
+                async with slots:
+                    body = bytearray()
+                    async for chunk in request.stream():
+                        body.extend(chunk)
+                    try:
+                        parsed = decode_account_request(bytes(body))
+                    except (ValidationError, ValueError, TypeError, UnicodeError):
+                        return JSONResponse(
+                            account_failure_reply("invalid_request"), status_code=400
+                        )
+                    reply = await accounts.execute(parsed)
+        except AccountFailure as error:
+            return JSONResponse(account_failure_reply(error))
+        except (IdentityUnavailable, TimeoutError):
+            return JSONResponse(
+                {"detail": "Identity account commands unavailable"}, status_code=503
+            )
+        return JSONResponse(reply.model_dump(mode="json", by_alias=True))
+
+    @app.post("/v1/identity/presence/mark-inactive")
+    async def mark_inactive_accounts_offline(request: Request):
+        supplied = request.headers.get("authorization", "").encode()
+        expected = ("Bearer " + settings.token.get_secret_value()).encode()
+        if not hmac.compare_digest(supplied, expected):
+            return JSONResponse({"detail": "Unauthorized"}, status_code=401)
+        if (
+            request.headers.get("content-type", "").split(";", 1)[0].strip().lower()
+            != "application/json"
+        ):
+            return JSONResponse({"detail": "Invalid request"}, status_code=400)
+        if settings.presence_database_url is None or presence_data is None:
+            return JSONResponse(
+                {"detail": "Identity presence maintenance unavailable"},
+                status_code=503,
+            )
+        try:
+            async with asyncio.timeout(settings.request_timeout_seconds):
+                async with slots:
+                    body = bytearray()
+                    async for chunk in request.stream():
+                        body.extend(chunk)
+                        if len(body) > 4096:
+                            return JSONResponse(
+                                {"detail": "Invalid request"}, status_code=400
+                            )
+                    try:
+                        parsed = decode_presence_request(bytes(body))
+                    except (IdentityUnavailable, ValueError, TypeError, UnicodeError):
+                        return JSONResponse(
+                            {"detail": "Invalid request"}, status_code=400
+                        )
+                    reply = await presence_data.mark_inactive_accounts_offline(
+                        parsed.cutoff
+                    )
+        except (IdentityUnavailable, TimeoutError):
+            return JSONResponse(
+                {"detail": "Identity presence maintenance unavailable"},
+                status_code=503,
             )
         return JSONResponse(reply.model_dump(mode="json", by_alias=True))
 
