@@ -271,7 +271,7 @@ def qualify_libre(base, temporary, base_model):
         optimizer="sgd",
         seed=0,
         patience=10,
-        pretrained=False,
+        pretrained=None if pretrained else False,
         mosaic=0,
         mixup=0,
         cutmix=0,
@@ -306,6 +306,7 @@ def qualify_libre(base, temporary, base_model):
             **options,
             "project": str(second),
             "resume": str(checkpoint),
+            "pretrained": None,
             "callbacks": [resumed_callbacks],
         }
     )

@@ -136,10 +136,16 @@ def qualification(base, root, base_model=None):
         "evaluation": {
             "report_sha256": "e" * 64,
             "report_digest": digest(result.results_dict),
-            "normalized_model_digest": "f" * 64,
-            "descriptor_digest": "1" * 64,
-            "weights_sha256": hashlib.sha256(raw).hexdigest(),
             "validation_digest": "c" * 64,
+            **(
+                {
+                    "normalized_model_digest": "f" * 64,
+                    "descriptor_digest": "1" * 64,
+                    "weights_sha256": hashlib.sha256(raw).hexdigest(),
+                }
+                if segmentation
+                else {}
+            ),
         },
     }
     pin["source_digest"] = digest(pin)
