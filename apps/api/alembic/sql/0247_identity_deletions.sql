@@ -504,7 +504,8 @@ BEGIN
             );
         END;
         IF v_transferred_count IS NULL OR v_transferred_count < 0 THEN
-            RETURN aap_identity_deletions_v1._failure('unavailable', 503, NULL);
+            RAISE EXCEPTION USING ERRCODE = 'XX000',
+                MESSAGE = 'invalid Identity deletion Labeling transfer result';
         END IF;
     END IF;
 
@@ -535,7 +536,8 @@ BEGIN
         v_context
     );
     IF v_audit_id IS NULL THEN
-        RETURN aap_identity_deletions_v1._failure('unavailable', 503, NULL);
+        RAISE EXCEPTION USING ERRCODE = 'XX000',
+            MESSAGE = 'invalid Identity deletion Audit result';
     END IF;
 
     v_user_record := aap_identity_directory_v1._directory_user(v_target_user_id);

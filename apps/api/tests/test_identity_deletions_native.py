@@ -14,8 +14,17 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 import aap_identity
 from aap_identity.authenticator import Authenticator
-from aap_identity.deletion_contract import DeletionFailure, decode_deletion_request
-from aap_identity.deletion_manager import DeletionManager
+from aap_identity.deletion_contract import (
+    DeletionFailure,
+    decode_deletion_request,
+    decode_native_deletion_reply,
+    native_deletion_command,
+)
+from aap_identity.deletion_manager import (
+    DeletionManager,
+    deletion_derivation_id,
+    deletion_request_fingerprint,
+)
 from aap_identity.deletion_postgres import DeletionPostgresData
 from aap_identity.postgres import PostgresData
 from app.config import settings
@@ -251,6 +260,11 @@ def test_frozen_identity_deletion_artifacts_and_native_owner_boundary():
     assert "updated_at = CURRENT_TIMESTAMP" in support
     assert "retire_account_credentials" not in artifact
     assert "disabled_reason = '管理员删除账号'" in artifact
+    assert (
+        "IF v_transferred_count IS NULL OR v_transferred_count < 0 THEN\n"
+        "            RAISE EXCEPTION"
+    ) in artifact
+    assert "IF v_audit_id IS NULL THEN\n        RAISE EXCEPTION" in artifact
     assert "operation_conflict" in artifact
     assert artifact.index(
         "receipt.target_generation IS DISTINCT FROM v_target_generation"
@@ -1017,6 +1031,63 @@ async def test_malformed_deletion_audit_reply_rolls_back_transfer_and_soft_delet
                 "TO identity_code"
             )
         wrapped = True
+
+        verified = await manager.auth.authenticate_bound(request.token)
+        native_command = native_deletion_command(
+            request,
+            actor=verified.principal,
+            expected_key_hash=verified.key_hash,
+            request_fingerprint=deletion_request_fingerprint(secret, request),
+            derivation_id=deletion_derivation_id(secret),
+        )
+        async with manager.data.transaction() as native_transaction:
+            direct_reply = await native_transaction.execute_deletion_command(
+                native_command.model_dump(mode="json", by_alias=True)
+            )
+        with pytest.raises(DeletionFailure) as direct_failure:
+            decode_native_deletion_reply(native_command, direct_reply)
+        assert direct_failure.value.code == "unavailable"
+        assert direct_failure.value.status_code == 503
+        async with maker() as session:
+            assert (
+                await session.scalar(
+                    text("SELECT is_active FROM public.users WHERE id=:id"),
+                    {"id": target_id},
+                )
+            ) is True
+            assert (
+                await session.scalar(
+                    text("SELECT assignee_id FROM public.tasks WHERE id=:id"),
+                    {"id": task_id},
+                )
+            ) == target_id
+            assert (
+                await session.scalar(
+                    text("SELECT count(*) FROM public.task_locks WHERE id=:id"),
+                    {"id": lock_id},
+                )
+                == 1
+            )
+            assert (
+                await session.scalar(
+                    text(
+                        "SELECT count(*) FROM public.identity_deletion_operation_receipts "
+                        "WHERE operation_id=:id"
+                    ),
+                    {"id": operation_id},
+                )
+                == 0
+            )
+            assert (
+                await session.scalar(
+                    text(
+                        "SELECT count(*) FROM public.audit_logs WHERE target_id=:id "
+                        "AND action='user.delete'"
+                    ),
+                    {"id": str(target_id)},
+                )
+                == 0
+            )
 
         with pytest.raises(DeletionFailure) as malformed:
             await manager.execute(request)
