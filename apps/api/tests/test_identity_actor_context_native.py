@@ -62,7 +62,7 @@ def test_actor_context_artifact_preserves_the_frozen_admission_contract():
 async def test_actor_context_preserves_zero_and_null_and_rejects_stale_accounts(
     test_engine,
 ):
-    fixture = await _seed(test_engine)
+    fixture = await _seed(test_engine, role="super_admin")
     maker = async_sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
     actor_id = fixture["actor_id"]
     key_id = fixture["key_id"]

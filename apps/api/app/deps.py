@@ -3,14 +3,13 @@ from typing import AsyncGenerator, Callable
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from aap_identity.contract import Principal
 from app.db.base import async_session
-from app.db.models.user import User
 from app.db.models.project import Project
 from app.services.workspace_contract import ProjectAccess
 from app.services.identity_contracts import (
+    IdentityActorFacts,
     IdentityCredentialRejected,
     IdentityGatewayUnavailable,
 )
@@ -203,14 +202,11 @@ async def get_current_user(
     request: Request,
     principal: Principal = Depends(get_current_principal),
     db: AsyncSession = Depends(get_db),
-) -> User:
-    result = await db.execute(
-        select(User)
-        .where(User.id == principal.actor_id)
-        .execution_options(populate_existing=True)
-    )
-    user = result.scalar_one_or_none()
-    if user is None or not user.is_active or user.role != principal.role:
+    identity: IdentityGateway = Depends(get_identity_gateway),
+) -> IdentityActorFacts:
+    try:
+        actor = await identity.actor_context(principal, db=db)
+    except IdentityCredentialRejected:
         for field in ("identity_principal", "api_key_scopes", "api_key_id"):
             if hasattr(request.state, field):
                 delattr(request.state, field)
@@ -218,13 +214,17 @@ async def get_current_user(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="无效的认证凭据",
             headers={"WWW-Authenticate": "Bearer"},
-        )
-    # Profile hydration must not overwrite a role change after admission.
-    return user
+        ) from None
+    except IdentityGatewayUnavailable:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="身份认证服务暂不可用",
+        ) from None
+    return IdentityActorFacts(**actor.model_dump())
 
 
 async def get_current_user_id(
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
 ) -> uuid.UUID:
     """Return the authenticated account ID from the shared request resolution."""
     return current_user.id
@@ -235,8 +235,8 @@ def require_roles(*roles: str) -> Callable:
 
     async def checker(
         request: Request,
-        current_user: User = Depends(get_current_user),
-    ) -> User:
+        current_user: IdentityActorFacts = Depends(get_current_user),
+    ) -> IdentityActorFacts:
         principal = getattr(request.state, "identity_principal", None)
         role = principal.role if principal is not None else current_user.role
         if role not in roles:
@@ -250,9 +250,9 @@ def require_roles(*roles: str) -> Callable:
 
 
 async def require_active_task_actor(
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-) -> User:
+) -> IdentityActorFacts:
     """Recheck account state before a task handler takes any resource locks."""
 
     from app.services.task_lock import assert_task_user_active
@@ -295,8 +295,8 @@ def require_scopes(*needed: str) -> Callable:
 
     async def checker(
         request: Request,
-        current_user: User = Depends(get_current_user),
-    ) -> User:
+        current_user: IdentityActorFacts = Depends(get_current_user),
+    ) -> IdentityActorFacts:
         assert_request_scopes(request, *needed)
         return current_user
 

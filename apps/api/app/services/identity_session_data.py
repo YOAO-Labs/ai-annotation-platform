@@ -41,6 +41,23 @@ class IdentitySessionData:
         except SQLAlchemyError:
             raise IdentityGatewayUnavailable() from None
 
+    async def read_actor_context(self, actor_id: uuid.UUID, admitted_role: str) -> dict:
+        try:
+            if self.db.autoflush:
+                await self.db.flush()
+        except SQLAlchemyError:
+            raise IdentityGatewayUnavailable() from None
+        value = await self._scalar(
+            text(
+                "SELECT aap_identity_v1.read_actor_context(:actor_id, :admitted_role)"
+            ),
+            {"actor_id": actor_id, "admitted_role": admitted_role},
+        )
+        result = _json_value(value)
+        if not isinstance(result, dict):
+            raise IdentityGatewayUnavailable()
+        return result
+
     async def read_jwt_principal(
         self,
         actor_id: uuid.UUID,

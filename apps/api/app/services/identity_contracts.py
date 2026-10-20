@@ -29,3 +29,4 @@ class IdentityActorFacts:
     email: str
     role: str
     is_active: bool
+    weekly_target_default: int | None = None

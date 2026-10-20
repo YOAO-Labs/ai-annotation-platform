@@ -1,4 +1,4 @@
--- Grant the five narrow Identity LOGIN surfaces after migrations and
+-- Grant the narrow Identity LOGIN surfaces after migrations and
 -- module-data-grants. Roles must already exist and have no memberships.
 -- Database provisioning must revoke PUBLIC TEMP first; this script changes no PUBLIC ACL.
 -- psql -v expected_database=annotation_test -v migration_role=owner \

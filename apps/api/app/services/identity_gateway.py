@@ -8,6 +8,14 @@ from typing import NoReturn
 from urllib.parse import urlsplit
 
 import httpx
+from aap_identity.actor_contract import (
+    ACTOR_PROTOCOL,
+    ActorContext,
+    ActorContextRequest,
+    decode_actor_reply,
+)
+from aap_identity.actor_reader import ActorContextReader
+from aap_identity.contract import IdentityFailure, IdentityUnavailable, Principal
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -123,24 +131,18 @@ class IdentityGateway:
             raise IdentityGatewayUnavailable() from None
         return principal
 
-    async def _authenticate_remote(self, token: str):
-        from aap_identity.contract import (
-            IdentityFailure,
-            IdentityUnavailable,
-            decode_principal_reply,
-        )
-
+    async def _remote_reply(self, path: str, payload: dict) -> bytes:
         if not self.identity_token:
             raise IdentityGatewayUnavailable()
         try:
-            endpoint = identity_endpoint(self.identity_url, "/v1/identity/authenticate")
+            endpoint = identity_endpoint(self.identity_url, path)
             async with httpx.AsyncClient(
                 timeout=self.timeout_seconds, trust_env=False
             ) as client:
                 async with client.stream(
                     "POST",
                     endpoint,
-                    json={"token": token},
+                    json=payload,
                     headers={"Authorization": f"Bearer {self.identity_token}"},
                 ) as response:
                     if response.status_code != 200:
@@ -152,25 +154,49 @@ class IdentityGateway:
                             raise IdentityGatewayUnavailable()
         except (httpx.HTTPError, httpx.InvalidURL, ValueError):
             raise IdentityGatewayUnavailable() from None
+        return bytes(body)
+
+    async def _authenticate_remote(self, token: str):
+        from aap_identity.contract import decode_principal_reply
+
+        payload = await self._remote_reply(
+            "/v1/identity/authenticate", {"token": token}
+        )
         try:
-            principal = decode_principal_reply(bytes(body))
+            principal = decode_principal_reply(payload)
         except IdentityFailure as exc:
             self._raise_failure(exc.code)
         except IdentityUnavailable:
             raise IdentityGatewayUnavailable() from None
         return principal
 
-    def embedded_authenticator(self, db: AsyncSession | None):
-        from aap_identity.authenticator import Authenticator
-        from aap_identity.postgres import PostgresData
-
-        secret = (
-            self.signing_secret
-            if self.signing_secret is not None
-            else _secret_value(settings.secret_key)
+    async def actor_context(
+        self, principal: Principal, *, db: AsyncSession | None = None
+    ) -> ActorContext:
+        request = ActorContextRequest(
+            schema=ACTOR_PROTOCOL,
+            actor_id=principal.actor_id,
+            admitted_role=principal.role,
         )
         try:
-            if not secret or self.identity_url is not None:
+            async with asyncio.timeout(self.timeout_seconds):
+                if self.identity_url is not None:
+                    payload = await self._remote_reply(
+                        "/v1/identity/actor-context",
+                        request.model_dump(mode="json", by_alias=True),
+                    )
+                    return decode_actor_reply(payload, request)
+                return await ActorContextReader(self.embedded_data(db)).read(request)
+        except IdentityFailure as exc:
+            self._raise_failure(exc.code)
+        except (IdentityUnavailable, TimeoutError):
+            raise IdentityGatewayUnavailable() from None
+
+    def embedded_data(self, db: AsyncSession | None):
+        from aap_identity.postgres import PostgresData
+
+        try:
+            if self.identity_url is not None:
                 raise IdentityGatewayUnavailable()
             dsn = identity_database_source(
                 self.auth_database_url, self.auth_database_url_file
@@ -183,9 +209,21 @@ class IdentityGateway:
                 if not dsn:
                     dsn = identity_postgres_dsn(settings.database_url)
                 data = PostgresData(dsn)
-            return Authenticator(data, secret=secret)
+            return data
         except (OSError, UnicodeError):
             raise IdentityGatewayUnavailable() from None
+
+    def embedded_authenticator(self, db: AsyncSession | None):
+        from aap_identity.authenticator import Authenticator
+
+        secret = (
+            self.signing_secret
+            if self.signing_secret is not None
+            else _secret_value(settings.secret_key)
+        )
+        if not secret:
+            raise IdentityGatewayUnavailable()
+        return Authenticator(self.embedded_data(db), secret=secret)
 
     async def _authenticate_embedded(self, token: str, *, db: AsyncSession | None):
         from aap_identity.contract import IdentityFailure, IdentityUnavailable

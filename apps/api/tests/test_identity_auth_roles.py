@@ -109,11 +109,11 @@ async def test_identity_logins_have_exact_functions_and_no_private_or_ddl_access
                 await connection.fetchval(
                     "SELECT aap_identity_v1.read_actor_context($1,$2)",
                     actor,
-                    "super_admin",
+                    "employee",
                 )
             )
             assert context["data"]["id"] == str(actor)
-            assert context["data"]["role"] == "super_admin"
+            assert context["data"]["role"] == "employee"
             assert context["data"]["is_active"] is True
             assert context["data"]["weekly_target_default"] is None
             result = json.loads(

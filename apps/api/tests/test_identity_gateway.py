@@ -185,6 +185,10 @@ async def test_profile_role_changed_after_admission_is_not_restored():
         async def authenticate(self, token, db):
             return value
 
+        async def actor_context(self, principal, db):
+            assert principal is value and user.role != principal.role
+            raise IdentityCredentialRejected("credential_invalid")
+
     request = Request({"type": "http"})
     with pytest.raises(HTTPException) as error:
         principal = await get_current_principal(
@@ -193,7 +197,7 @@ async def test_profile_role_changed_after_admission_is_not_restored():
             Database(),
             Gateway(),
         )
-        await get_current_user(request, principal, Database())
+        await get_current_user(request, principal, Database(), Gateway())
     assert error.value.status_code == 401 and user.role == "employee"
     assert not hasattr(request.state, "identity_principal")
 

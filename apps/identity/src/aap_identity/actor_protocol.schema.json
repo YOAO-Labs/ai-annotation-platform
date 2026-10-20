@@ -22,12 +22,7 @@
           "type": "string"
         },
         "role": {
-          "enum": [
-            "super_admin",
-            "project_admin",
-            "employee",
-            "viewer"
-          ],
+          "enum": ["super_admin", "project_admin", "employee", "viewer"],
           "title": "Role",
           "type": "string"
         },
@@ -45,14 +40,7 @@
           "title": "Weekly Target Default"
         }
       },
-      "required": [
-        "id",
-        "name",
-        "email",
-        "role",
-        "is_active",
-        "weekly_target_default"
-      ],
+      "required": ["id", "name", "email", "role", "is_active", "weekly_target_default"],
       "title": "ActorContext",
       "type": "object"
     },
@@ -60,17 +48,12 @@
       "additionalProperties": false,
       "properties": {
         "code": {
-          "enum": [
-            "invalid_request",
-            "credential_invalid"
-          ],
+          "enum": ["invalid_request", "credential_invalid"],
           "title": "Code",
           "type": "string"
         }
       },
-      "required": [
-        "code"
-      ],
+      "required": ["code"],
       "title": "ActorContextFailureDetail",
       "type": "object"
     },
@@ -91,11 +74,7 @@
           "type": "string"
         }
       },
-      "required": [
-        "schema",
-        "ok",
-        "error"
-      ],
+      "required": ["schema", "ok", "error"],
       "title": "ActorContextFailureReply",
       "type": "object"
     },
@@ -108,12 +87,7 @@
           "type": "string"
         },
         "admitted_role": {
-          "enum": [
-            "super_admin",
-            "project_admin",
-            "employee",
-            "viewer"
-          ],
+          "enum": ["super_admin", "project_admin", "employee", "viewer"],
           "title": "Admitted Role",
           "type": "string"
         },
@@ -123,11 +97,7 @@
           "type": "string"
         }
       },
-      "required": [
-        "schema",
-        "actor_id",
-        "admitted_role"
-      ],
+      "required": ["schema", "actor_id", "admitted_role"],
       "title": "ActorContextRequest",
       "type": "object"
     },
@@ -148,11 +118,7 @@
           "type": "string"
         }
       },
-      "required": [
-        "schema",
-        "ok",
-        "data"
-      ],
+      "required": ["schema", "ok", "data"],
       "title": "ActorContextSuccess",
       "type": "object"
     }

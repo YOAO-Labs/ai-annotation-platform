@@ -99,7 +99,7 @@ scoped function on the existing AUTH LOGIN is sufficient.
 ## Notes
 
 - Portable contract: `apps/identity/src/aap_identity/actor_contract.py`.
-- Runtime reader: `apps/identity/src/aap_identity_runtime/actor_reader.py`.
+- Runtime reader: `apps/identity/src/aap_identity/actor_reader.py`.
 - API binding: `apps/api/app/services/identity_gateway.py` and
   `apps/api/app/deps.py`.
 - Native read: migration `0250` and the `identity-auth-grants.sql` allowlist.
