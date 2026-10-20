@@ -275,7 +275,9 @@ async def _lifecycle_state(maker, user_id):
 
 
 def _canonical_user(value):
-    return DirectoryUserRecord.model_validate(value).model_dump(mode="json")
+    return DirectoryUserRecord.model_validate_json(
+        json.dumps(value, ensure_ascii=False, allow_nan=False)
+    ).model_dump(mode="json")
 
 
 async def _api_key_rows(maker, user_id):
