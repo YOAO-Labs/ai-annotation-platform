@@ -33,7 +33,7 @@ BEGIN
     END IF;
     IF current_setting('aap.identity_invitation_role') <> 'identity_invitation_client'
        OR current_setting('aap.identity_mail_v2_role') <> 'identity_mail_v2_client'
-       OR (SELECT count(DISTINCT role_name) FROM unnest(role_names) AS role_name) <> 2
+       OR (SELECT count(DISTINCT candidate.name) FROM unnest(role_names) AS candidate(name)) <> 2
        OR EXISTS (
            SELECT 1 FROM unnest(role_names) AS candidate(name)
            WHERE candidate.name = ANY(ARRAY[

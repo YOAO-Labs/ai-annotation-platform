@@ -122,7 +122,7 @@ async def test_identity_invitation_login_has_only_three_functions_and_no_table_a
         },
         policy_sql="SELECT aap_identity_invitations_v1.invitation_policy()",
         policy_value={
-            "schema": "aap-identity-invitation-policy/v1",
+            "schema": "aap-identity-invitations-policy/v1",
             "policy": "aap-identity-invitations/v1",
         },
         command_sql=(
@@ -170,7 +170,7 @@ async def test_mail_v2_login_has_only_four_functions_and_no_table_access():
             "SELECT * FROM public.user_invitations LIMIT 1",
             "SELECT * FROM public.identity_credential_mail_outbox LIMIT 1",
             "SELECT * FROM public.identity_invitation_operation_receipts LIMIT 1",
-            "SELECT aap_identity_mail_v2._mail_failure('invalid_request')",
+            "SELECT aap_identity_invitations_v1._failure('invalid_request')",
             "SELECT aap_identity_invitations_v1.invitation_policy()",
             "SELECT aap_identity_invitations_v1.lock_invitation_mail_scope(gen_random_uuid(),'"
             + "0" * 64

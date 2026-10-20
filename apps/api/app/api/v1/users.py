@@ -10,9 +10,8 @@ from fastapi.responses import StreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, or_
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel
 
-from app.config import settings
 from app.core.ratelimit import limiter
 from app.deps import bearer_scheme, get_db, require_roles
 from app.db.models.user import User
@@ -31,12 +30,10 @@ from app.schemas.management import (
     BulkGroupAssignmentResponse,
     BulkInviteRequest,
     BulkInviteResponse,
-    BulkInviteResultItem,
     RoleImpactPreview,
     UserPage,
     UserPageItem,
 )
-from app.services.invitation import InvitationService, invitation_project_role
 from app.services.csv_export import csv_literal
 from app.services.management import (
     build_user_query,
@@ -49,17 +46,19 @@ from app.services.management import (
 )
 from app.services.audit import (
     AuditService,
-    AuditAction,
     export_detail,
     export_metadata_header,
 )
-from app.services.system_settings_service import SystemSettingsService
 from app.api.v1.group_commands import execute_group, get_group_commands
+from app.api.v1.invitation_commands import (
+    execute_invitation,
+    get_invitation_manager_commands,
+)
+from app.services.identity_invitation_commands import InvitationCommandsPort
 from app.services.identity_group_commands import GroupCommandsPort
 from app.application.legacy_user_lifecycle import (
     admin_reset_password as admin_reset_password_workflow,
     change_user_role as change_user_role_workflow,
-    bulk_error,
     deactivate_user as deactivate_user_workflow,
     delete_user as delete_user_workflow,
 )
@@ -381,181 +380,15 @@ async def export_users(
 async def invite_user(
     payload: InvitationCreate,
     request: Request,
-    db: AsyncSession = Depends(get_db),
-    actor: User = Depends(require_roles(*_MANAGERS)),
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+    commands: InvitationCommandsPort = Depends(get_invitation_manager_commands),
 ):
-    inv = await InvitationService.create(
-        db,
-        email=payload.email,
-        role=payload.role,
-        group_name=payload.group_name,
-        project_id=payload.project_id,
-        project_member_role=payload.project_member_role,
-        actor=actor,
-    )
-    await AuditService.log(
-        db,
-        actor=actor,
-        action=AuditAction.USER_INVITE,
-        target_type="user",
-        target_id=inv.email,
-        request=request,
-        status_code=201,
-        detail={
-            "role": inv.role,
-            "group_name": inv.group_name,
-            "project_id": str(inv.project_id) if inv.project_id else None,
-        },
-    )
-    await db.commit()
-
-    base_url = (
-        await SystemSettingsService.get(db, "frontend_base_url")
-        or settings.frontend_base_url
-    )
-    invite_url = f"{str(base_url).rstrip('/')}/register?token={inv.token}"
-    project_name = None
-    if inv.project_id:
-        from app.db.models.project import Project
-
-        project_name = await db.scalar(
-            select(Project.name).where(Project.id == inv.project_id)
-        )
-    return InvitationCreated(
-        invite_url=invite_url,
-        token=inv.token,
-        expires_at=inv.expires_at,
-        project_id=inv.project_id,
-        project_name=project_name,
-        project_member_role=invitation_project_role(inv),
-    )
-
-
-async def _bulk_invite(
-    payload: BulkInviteRequest,
-    *,
-    preview: bool,
-    request: Request,
-    db: AsyncSession,
-    actor: User,
-) -> BulkInviteResponse:
-    """Run each invitation in its own savepoint.
-
-    Preview uses one enclosing savepoint so quota and duplicate checks see the
-    earlier rows in the same request; the enclosing savepoint is rolled back at
-    the end. Apply keeps successful item savepoints and commits once after all
-    rows have been attempted, allowing failed rows to be retried alone.
-    """
-
-    from app.db.models.project import Project
-
-    preview_tx = await db.begin_nested() if preview else None
-    results: list[BulkInviteResultItem] = []
-    seen_emails: set[str] = set()
-    base_url = (
-        await SystemSettingsService.get(db, "frontend_base_url")
-        or settings.frontend_base_url
-    )
-    try:
-        for index, raw_item in enumerate(payload.items):
-            try:
-                item = InvitationCreate.model_validate(raw_item.model_dump())
-            except ValidationError as exc:
-                results.append(
-                    BulkInviteResultItem(
-                        index=index,
-                        email=raw_item.email,
-                        ok=False,
-                        retryable=True,
-                        error=bulk_error(exc),
-                    )
-                )
-                continue
-            if item.email in seen_emails:
-                results.append(
-                    BulkInviteResultItem(
-                        index=index,
-                        email=item.email,
-                        ok=False,
-                        retryable=True,
-                        error="本批次中邮箱重复",
-                    )
-                )
-                continue
-            item_tx = await db.begin_nested()
-            try:
-                inv = await InvitationService.create(
-                    db,
-                    email=item.email,
-                    role=item.role,
-                    group_name=item.group_name,
-                    project_id=item.project_id,
-                    project_member_role=item.project_member_role,
-                    actor=actor,
-                )
-                await AuditService.log(
-                    db,
-                    actor=actor,
-                    action="user.bulk_invite",
-                    target_type="invitation",
-                    target_id=str(inv.id),
-                    request=request,
-                    status_code=200,
-                    detail={
-                        "email": inv.email,
-                        "role": inv.role,
-                        "project_id": str(inv.project_id) if inv.project_id else None,
-                        "preview": preview,
-                    },
-                )
-                project_name = None
-                if inv.project_id:
-                    project_name = await db.scalar(
-                        select(Project.name).where(Project.id == inv.project_id)
-                    )
-                await item_tx.commit()
-                seen_emails.add(item.email)
-                results.append(
-                    BulkInviteResultItem(
-                        index=index,
-                        email=item.email,
-                        ok=True,
-                        invitation_id=inv.id,
-                        token=inv.token if not preview else None,
-                        invite_url=(
-                            f"{str(base_url).rstrip('/')}/register?token={inv.token}"
-                            if not preview
-                            else None
-                        ),
-                        project_id=inv.project_id,
-                        project_name=project_name,
-                    )
-                )
-            except Exception as exc:
-                await item_tx.rollback()
-                results.append(
-                    BulkInviteResultItem(
-                        index=index,
-                        email=item.email,
-                        ok=False,
-                        retryable=True,
-                        error=bulk_error(exc),
-                    )
-                )
-        if preview:
-            await preview_tx.rollback()  # type: ignore[union-attr]
-        else:
-            await db.commit()
-    except Exception:
-        if preview_tx is not None and preview_tx.is_active:
-            await preview_tx.rollback()
-        raise
-
-    return BulkInviteResponse(
-        items=results,
-        succeeded=sum(item.ok for item in results),
-        failed=sum(not item.ok for item in results),
-        preview=preview,
+    return await execute_invitation(
+        request,
+        credentials,
+        commands,
+        "create_invitation",
+        payload.model_dump(mode="json"),
     )
 
 
@@ -563,11 +396,15 @@ async def _bulk_invite(
 async def preview_bulk_invites(
     payload: BulkInviteRequest,
     request: Request,
-    db: AsyncSession = Depends(get_db),
-    actor: User = Depends(require_roles(*_MANAGERS)),
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+    commands: InvitationCommandsPort = Depends(get_invitation_manager_commands),
 ):
-    return await _bulk_invite(
-        payload, preview=True, request=request, db=db, actor=actor
+    return await execute_invitation(
+        request,
+        credentials,
+        commands,
+        "preview_invitation_batch",
+        payload.model_dump(mode="json"),
     )
 
 
@@ -575,11 +412,15 @@ async def preview_bulk_invites(
 async def apply_bulk_invites(
     payload: BulkInviteRequest,
     request: Request,
-    db: AsyncSession = Depends(get_db),
-    actor: User = Depends(require_roles(*_MANAGERS)),
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+    commands: InvitationCommandsPort = Depends(get_invitation_manager_commands),
 ):
-    return await _bulk_invite(
-        payload, preview=False, request=request, db=db, actor=actor
+    return await execute_invitation(
+        request,
+        credentials,
+        commands,
+        "apply_invitation_batch",
+        payload.model_dump(mode="json"),
     )
 
 

@@ -240,6 +240,9 @@ class Settings(BaseSettings):
     identity_account_database_url_file: str = ""
     identity_group_database_url: str = Field(default="", repr=False)
     identity_group_database_url_file: str = ""
+    identity_invitation_database_url: str = Field(default="", repr=False)
+    identity_invitation_database_url_file: str = ""
+    identity_invitation_mail_timeout_seconds: float = Field(default=60, gt=0, le=120)
     identity_deactivation_database_url: str = Field(default="", repr=False)
     identity_deactivation_database_url_file: str = ""
     identity_deactivation_operator_database_url: str = Field(default="", repr=False)
@@ -254,6 +257,8 @@ class Settings(BaseSettings):
     identity_recovery_mail_key_file: str = ""
     identity_mail_database_url: str = Field(default="", repr=False)
     identity_mail_database_url_file: str = ""
+    identity_mail_v2_database_url: str = Field(default="", repr=False)
+    identity_mail_v2_database_url_file: str = ""
     identity_mail_settings_database_url: str = Field(default="", repr=False)
     identity_mail_settings_database_url_file: str = ""
 

@@ -396,8 +396,9 @@ UUID、素材 UUID 数组与唯一操作 UUID，返回 `aap-task-append/v1` JSON
 项目取消数据集关联也使用 Workspace 原生命令：当前账号/项目管理权、关联代次、学习和标注引用检查、任务删除与计数、Audit、Workspace 回执及 Assets 的派生金字塔清理计划在调用方同一事务中提交或回滚。Jobs 只取消匹配当前 dataset/project/association 代次的冻结 `create_tasks` 作业；任务源文件与共享来源金字塔保留。公开 Dataset/Item 删除使用 Assets 协调命令，保留关联任务、标注与学习证据，活动导入返回冲突。两种删除都只写持久 outbox，由独立清理进程轮询；API 不派发清理 Celery 消息。API 的 `Idempotency-Key` 可选 UUID，成功时回传；SDK/Web 重试应复用原 key。允许的跨域客户端可读取该响应头；production 自定义 `CORS_ALLOW_HEADERS` 时需包含 `Idempotency-Key`。
 
 独立数据接口使用 Identity、Workspace、Assets、Jobs、Labeling、Learning、Inference、
-Insights、Diagnostics、Export、Audit 十一个无登录函数 owner；另有两个独立登录角色
-`append_client` 和 `asset_cleanup_client`。后者只可使用 `aap_assets_v1` 的四项清理函数：
+Insights、Diagnostics、Export、Audit、Settings、Notifications 十三个无登录函数 owner；基础授权脚本另使用
+`append_client`、`asset_cleanup_client` 和 `labeling_mask_gc_client` 三个独立登录角色。
+其中 `asset_cleanup_client` 只可使用 `aap_assets_v1` 的四项清理函数：
 既有 storage outbox 的领取/确认，以及图片垃圾的领取/确认；`append_client` 不可调用这些清理函数。
 `infra/docker/module-data-grants.sql` 只向显式数据库中的既有角色授权，不创建角色或
 修改密码。部署操作者先提供角色及迁移者向其转交函数的权限，再运行：

@@ -6,8 +6,18 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
 from sqlalchemy import delete, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
+from aap_identity.invitation_contract import (
+    NativeInvitationApplyReply,
+    NativeInvitationPrepareReply,
+    decode_native_invitation_apply_command,
+    decode_native_invitation_apply_reply,
+    decode_native_invitation_prepare_command,
+    decode_native_invitation_prepare_reply,
+)
 
 from app.db.models.project import Project
 from app.db.models.user import User
@@ -79,10 +89,32 @@ def _command(
 
 
 async def _call(session: AsyncSession, function: str, command: dict) -> dict:
-    return await session.scalar(
+    reply = await session.scalar(
         text(f"SELECT {function}(CAST(:command AS jsonb))"),
         {"command": json.dumps(command)},
     )
+    if reply.get("ok") is True:
+        model = (
+            NativeInvitationPrepareReply
+            if function.endswith("prepare_invitation_command")
+            else NativeInvitationApplyReply
+        )
+        try:
+            model.model_validate_json(json.dumps(reply))
+        except ValidationError as error:
+            pytest.fail(
+                f"Native reply shape differs: {[(entry['loc'], entry['type']) for entry in error.errors(include_input=False)]}",
+                pytrace=False,
+            )
+        if function.endswith("prepare_invitation_command"):
+            decode_native_invitation_prepare_reply(
+                decode_native_invitation_prepare_command(command), reply
+            )
+        elif function.endswith("apply_invitation_command"):
+            decode_native_invitation_apply_reply(
+                decode_native_invitation_apply_command(command), reply
+            )
+    return reply
 
 
 def test_frozen_invitation_artifacts_and_transaction_contract():
@@ -94,6 +126,15 @@ def test_frozen_invitation_artifacts_and_transaction_contract():
     role_grants = _ROLE_GRANTS.read_text(encoding="utf-8")
     legacy_grants = _LEGACY_GRANTS.read_text(encoding="utf-8")
 
+    portable_schema = json.loads(
+        (
+            _ROOT
+            / "apps/identity/src/aap_identity/native_invitation_protocol.schema.json"
+        ).read_text()
+    )
+    assert {
+        key: value for key, value in schema.items() if not key.startswith("x-")
+    } == portable_schema
     assert "identity_invitation_operation_receipts" in NATIVE_MANAGED_TABLES
     assert 'revision = "0242"' in migration
     assert '"0242_identity_invitations_support.sql"' in migration
@@ -436,6 +477,8 @@ async def test_batch_receipt_replay_rejects_a_project_scope_transfer(test_engine
                 "group_name": None,
                 "project_id": str(project_id),
                 "project_member_role": "viewer",
+                "preview_invitation_id": None,
+                "preview_token": None,
             }
         ]
     }
@@ -485,9 +528,9 @@ async def test_batch_receipt_replay_rejects_a_project_scope_transfer(test_engine
             prepared = await _call(
                 session,
                 "aap_identity_invitations_v1.prepare_invitation_command",
-                command,
+                {key: value for key, value in command.items() if key != "derived"},
             )
-        assert prepared["ok"] is True
+        assert prepared["ok"] is True, prepared
         async with maker.begin() as session:
             applied = await _call(
                 session,
@@ -546,8 +589,8 @@ async def test_batch_preview_executes_create_then_rolls_back_rows_receipts_and_a
                 "group_name": None,
                 "project_id": None,
                 "project_member_role": None,
-                "invitation_id": str(invitation_id),
-                "token": f"preview-secret-{operation_id.hex}",
+                "preview_invitation_id": str(invitation_id),
+                "preview_token": f"preview-secret-{operation_id.hex}",
             }
         ]
     }

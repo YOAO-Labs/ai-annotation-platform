@@ -40,8 +40,8 @@ class InvitationCreate(BaseModel):
 
 
 class InvitationCreated(BaseModel):
-    invite_url: str
-    token: str
+    invite_url: str = Field(repr=False)
+    token: str = Field(repr=False)
     expires_at: datetime
     project_id: UUID | None = None
     project_name: str | None = None
@@ -70,7 +70,7 @@ class InvitationAcceptance(BaseModel):
 
 
 class AcceptInvitationRequest(BaseModel):
-    token: str = Field(min_length=1)
+    token: str = Field(min_length=1, repr=False)
 
 
 class AcceptInvitationResponse(BaseModel):
@@ -79,9 +79,9 @@ class AcceptInvitationResponse(BaseModel):
 
 
 class RegisterRequest(BaseModel):
-    token: str
+    token: str = Field(repr=False)
     name: str = Field(min_length=1, max_length=100)
-    password: str = Field(min_length=8, max_length=128)
+    password: str = Field(min_length=8, max_length=128, repr=False)
 
     @field_validator("password")
     @classmethod
@@ -97,7 +97,7 @@ class RegisterRequest(BaseModel):
 class RegisterResponse(BaseModel):
     # v0.12.0 · 需邮箱验证时不自动登录：access_token 为 None + email_verification_required=True，
     # 前端据此显示「验证邮件已发送」而非进站。邀请注册 / 无需验证时照常返回 token。
-    access_token: str | None = None
+    access_token: str | None = Field(default=None, repr=False)
     token_type: str = "bearer"
     user: UserOut
     email_verification_required: bool = False
@@ -122,8 +122,8 @@ class InvitationOut(BaseModel):
 
 
 class InvitationResendResponse(BaseModel):
-    invite_url: str
-    token: str
+    invite_url: str = Field(repr=False)
+    token: str = Field(repr=False)
     expires_at: datetime
 
 

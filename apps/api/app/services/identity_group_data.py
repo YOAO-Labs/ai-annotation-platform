@@ -3,13 +3,11 @@
 from __future__ import annotations
 
 import json
-import uuid
 from contextlib import asynccontextmanager
 
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm.attributes import set_committed_value
-from fastapi import HTTPException
 
 from aap_identity.contract import IdentityUnavailable
 from aap_identity.group_contract import (
@@ -70,49 +68,3 @@ class IdentityGroupCommandData:
         except BaseException:
             await self.db.rollback()
             raise
-
-
-async def resolve_invitation_group(db, invitation_id: uuid.UUID, token: str):
-    """Keep the legacy acceptance transaction while Identity owns group rows."""
-    try:
-        raw = _json_value(
-            await db.scalar(
-                text(
-                    "SELECT aap_identity_groups_v1.resolve_invitation_group("
-                    ":invitation_id, :token)"
-                ),
-                {"invitation_id": invitation_id, "token": token},
-            )
-        )
-    except SQLAlchemyError as error:
-        await db.rollback()
-        if getattr(getattr(error, "orig", None), "sqlstate", None) in {
-            "55P03",
-            "40001",
-            "40P01",
-        }:
-            raise HTTPException(
-                status_code=409, detail={"reason": "group_busy"}
-            ) from None
-        raise HTTPException(status_code=503, detail="身份分组服务暂不可用") from None
-    if raw is None:
-        return None
-    if raw == {"error": {"code": "invitation_invalid"}}:
-        raise HTTPException(status_code=410, detail="邀请已失效，请联系管理员重发邀请")
-    if raw == {"error": {"code": "invalid_group_name"}}:
-        raise HTTPException(
-            status_code=409,
-            detail="邀请中的数据组名称无效，请联系管理员重发邀请",
-        )
-    try:
-        if (
-            not isinstance(raw, dict)
-            or set(raw) != {"id", "name"}
-            or not isinstance(raw["name"], str)
-            or not 1 <= len(raw["name"]) <= 100
-        ):
-            raise ValueError()
-        return {"id": uuid.UUID(raw["id"]), "name": raw["name"]}
-    except (ValueError, TypeError, AttributeError):
-        await db.rollback()
-        raise HTTPException(status_code=503, detail="身份分组服务暂不可用") from None

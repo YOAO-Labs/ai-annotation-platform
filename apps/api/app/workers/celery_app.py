@@ -14,6 +14,7 @@ celery_app = Celery(
         "app.workers.image_pyramid",
         "app.workers.dataset_import_delivery",
         "app.workers.identity_mail_delivery",
+        "app.workers.identity_mail_v2_delivery",
         "app.workers.notification_delivery",
         "app.workers.cleanup",
         "app.workers.audit",
@@ -72,6 +73,9 @@ celery_app.conf.update(
     task_default_queue="default",
     task_routes={
         "app.workers.identity_mail_delivery.relay_credential_mail": {
+            "queue": "default"
+        },
+        "app.workers.identity_mail_v2_delivery.relay_invitation_mail": {
             "queue": "default"
         },
         "app.workers.tasks.batch_predict": {"queue": "ml"},
@@ -168,6 +172,10 @@ celery_app.conf.update(
     beat_schedule={
         "relay-credential-mail": {
             "task": "app.workers.identity_mail_delivery.relay_credential_mail",
+            "schedule": timedelta(seconds=10),
+        },
+        "relay-invitation-mail": {
+            "task": "app.workers.identity_mail_v2_delivery.relay_invitation_mail",
             "schedule": timedelta(seconds=10),
         },
         "relay-identity-notifications": {

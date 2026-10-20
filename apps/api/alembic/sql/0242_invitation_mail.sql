@@ -55,8 +55,6 @@ ALTER TABLE public.identity_credential_mail_outbox
                 pg_catalog.jsonb_typeof(invitation_context->'project_name') = 'null'
                 OR (
                     pg_catalog.char_length(invitation_context->>'project_name') <= 255
-                    AND pg_catalog.strpos(invitation_context->>'project_name', pg_catalog.chr(10)) = 0
-                    AND pg_catalog.strpos(invitation_context->>'project_name', pg_catalog.chr(13)) = 0
                 )
             )
             AND pg_catalog.jsonb_typeof(invitation_context->'project_member_role')
@@ -67,8 +65,8 @@ ALTER TABLE public.identity_credential_mail_outbox
                     IN ('annotator', 'reviewer', 'viewer')
             )
             AND pg_catalog.jsonb_typeof(invitation_context->'sender_actor') = 'object'
-            AND invitation_context->'sender_actor' ?& ARRAY['actor_id', 'email', 'role']
-            AND invitation_context->'sender_actor' - ARRAY['actor_id', 'email', 'role'] = '{}'::jsonb
+            AND (invitation_context->'sender_actor') ?& ARRAY['actor_id', 'email', 'role']
+            AND (invitation_context->'sender_actor') - ARRAY['actor_id', 'email', 'role'] = '{}'::jsonb
             AND pg_catalog.jsonb_typeof(invitation_context->'sender_actor'->'actor_id') = 'string'
             AND (invitation_context->'sender_actor'->>'actor_id')
                 ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
@@ -77,10 +75,10 @@ ALTER TABLE public.identity_credential_mail_outbox
             AND pg_catalog.jsonb_typeof(invitation_context->'sender_actor'->'role') = 'string'
             AND invitation_context->'sender_actor'->>'role' IN ('super_admin', 'project_admin')
             AND pg_catalog.jsonb_typeof(invitation_context->'audit_context') = 'object'
-            AND invitation_context->'audit_context' ?& ARRAY[
+            AND (invitation_context->'audit_context') ?& ARRAY[
                 'method', 'path', 'ip', 'request_id'
             ]
-            AND invitation_context->'audit_context' - ARRAY[
+            AND (invitation_context->'audit_context') - ARRAY[
                 'method', 'path', 'ip', 'request_id'
             ] = '{}'::jsonb
             AND pg_catalog.jsonb_typeof(invitation_context->'audit_context'->'method')

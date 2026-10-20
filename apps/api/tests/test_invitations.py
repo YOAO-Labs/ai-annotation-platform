@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import secrets
 from datetime import datetime, timedelta, timezone
-from unittest.mock import AsyncMock
 
 import httpx
 import pytest
@@ -15,9 +14,6 @@ from app.db.models.group import Group
 from app.db.models.user import User
 from app.db.models.user_invitation import UserInvitation
 from app.schemas.invitation import InvitationCreate
-from app.services.invitation import (
-    InvitationService,
-)
 
 pytestmark = pytest.mark.asyncio
 
@@ -63,6 +59,7 @@ async def _invitation(
     )
     db.add(invitation)
     await db.flush()
+    await db.commit()
     return invitation
 
 
@@ -182,6 +179,7 @@ async def test_revoked_invitation_cannot_register(
     )
 
     assert response.status_code == 410
+    await db_session.refresh(invitation)
     created = await db_session.scalar(
         select(User).where(User.email == invitation.email)
     )
@@ -358,6 +356,7 @@ async def test_accept_refuses_unconverted_legacy_role(
         },
     )
     assert accept.status_code == 410
+    await db_session.refresh(invitation)
     user = await db_session.scalar(select(User).where(User.email == invitation.email))
     assert user is None
 
@@ -510,6 +509,7 @@ async def test_accept_invitation_rejects_legacy_group_name_over_100_characters(
     )
 
     assert response.status_code == 409
+    await db_session.refresh(invitation)
     created = await db_session.scalar(
         select(User).where(User.email == invitation.email)
     )
@@ -518,21 +518,11 @@ async def test_accept_invitation_rejects_legacy_group_name_over_100_characters(
 
 @pytest.mark.parametrize("offset_us", [-1, 0, 1])
 async def test_rolling_invitation_quota_boundary_is_inclusive_and_actor_scoped(
-    db_session, super_admin, project_admin, monkeypatch, offset_us
+    db_session, super_admin, project_admin, offset_us
 ):
-    from fastapi import HTTPException
-    from app.services.system_settings_service import SystemSettingsService
-    import app.services.invitation as invitation_module
+    from sqlalchemy import text
 
     now = datetime(2026, 9, 10, 1, 0, tzinfo=timezone.utc)
-
-    class FrozenDatetime(datetime):
-        @classmethod
-        def now(cls, tz=None):
-            return now
-
-    monkeypatch.setattr(invitation_module, "datetime", FrozenDatetime)
-    monkeypatch.setattr(SystemSettingsService, "get", AsyncMock(return_value=1))
     actor, _ = super_admin
     other, _ = project_admin
     row = await _invitation(db_session, invited_by=actor, email="boundary@invite.test")
@@ -542,9 +532,10 @@ async def test_rolling_invitation_quota_boundary_is_inclusive_and_actor_scoped(
     )
     other_row.created_at = now
     await db_session.flush()
-    if offset_us >= 0:
-        with pytest.raises(HTTPException) as raised:
-            await InvitationService.check_daily_limit(db_session, actor.id)
-        assert raised.value.status_code == 429
-    else:
-        await InvitationService.check_daily_limit(db_session, actor.id)
+    reached = await db_session.scalar(
+        text(
+            "SELECT aap_identity_invitations_v1.invitation_quota_reached(:actor_id, :now, 1)"
+        ),
+        {"actor_id": actor.id, "now": now},
+    )
+    assert reached is (offset_us >= 0)

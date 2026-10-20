@@ -125,6 +125,7 @@
     },
     "MailV2AcceptedData": {
       "additionalProperties": false,
+      "description": "A false acceptance is a mutation-free stale/fence result.",
       "properties": {
         "accepted": {
           "title": "Accepted",

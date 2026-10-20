@@ -1,11 +1,10 @@
-"""Invitation and diagnostic mail using the shared standard-library SMTP transport."""
+"""SMTP diagnostics using the shared standard-library mail transport."""
 
 from __future__ import annotations
 
 import asyncio
 from email.message import EmailMessage
 from email.utils import formatdate
-from datetime import datetime
 from typing import Any
 
 from aap_mail_transport import MailOutcome, MailReason, SMTPConfig, send_message
@@ -40,15 +39,6 @@ def _plain_text_message(
     return msg
 
 
-async def _send(db: AsyncSession, to_address: str, subject: str, body: str) -> None:
-    """连 SMTP 发一封纯文本邮件。失败抛 SmtpConfigError。"""
-    cfg = await _load_smtp_config(db)
-    msg = _plain_text_message(
-        body, subject=subject, sender=cfg["smtp_from"], recipient=to_address
-    )
-    await asyncio.to_thread(_send_message, cfg, msg)
-
-
 def _send_message(cfg: dict[str, Any], msg: EmailMessage) -> None:
     """Compatibility adapter for existing API callers and their error contract."""
     try:
@@ -72,34 +62,6 @@ def _send_message(cfg: dict[str, Any], msg: EmailMessage) -> None:
     if result.reason == MailReason.MESSAGE_INVALID:
         raise SmtpConfigError("SMTP 邮件内容无效")
     raise SmtpConfigError(f"SMTP 发送失败: {result.reason.value}")
-
-
-async def send_invitation_email(
-    db: AsyncSession,
-    to_address: str,
-    invite_url: str,
-    *,
-    project_name: str | None = None,
-    role: str | None = None,
-    expires_at: datetime | None = None,
-) -> None:
-    """Send an already-created invitation without changing its token."""
-
-    target = f"项目「{project_name}」" if project_name else "AI 标注平台"
-    role_line = f"项目角色：{role}\n" if role else ""
-    expiry_line = (
-        f"链接有效期至：{expires_at.astimezone().isoformat()}\n"
-        if expires_at is not None
-        else ""
-    )
-    body = (
-        f"你收到一份加入 {target} 的邀请。\n\n"
-        f"{role_line}{expiry_line}"
-        "请点击以下链接接受邀请：\n"
-        f"{invite_url}\n\n"
-        "如果你不认识邀请人，请忽略此邮件。\n"
-    )
-    await _send(db, to_address, "[AI 标注平台] 你有一份新的邀请", body)
 
 
 async def send_test_email(db: AsyncSession, to_address: str) -> dict[str, Any]:

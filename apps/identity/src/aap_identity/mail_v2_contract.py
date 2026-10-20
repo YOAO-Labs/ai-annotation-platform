@@ -113,13 +113,6 @@ class InvitationMailV2Lease(_MailV2LeaseBase):
     project_name: str | None = Field(max_length=255, strict=True, repr=False)
     project_member_role: Literal["annotator", "reviewer", "viewer"] | None
 
-    @field_validator("project_name")
-    @classmethod
-    def safe_project_name(cls, value: str | None) -> str | None:
-        if value is not None and any(character in value for character in "\r\n\x00"):
-            raise ValueError("Invalid invitation project name")
-        return value
-
 
 MailV2Lease: TypeAlias = Annotated[
     RecoveryMailV2Lease | InvitationMailV2Lease,

@@ -156,7 +156,7 @@ BEGIN
     v_offset := 1;
     WHILE v_offset <= pg_catalog.cardinality(v_ids) LOOP
         v_reply := aap_workspace_v1.invitation_projects(
-            v_ids[v_offset:pg_catalog.least(v_offset + 499, pg_catalog.cardinality(v_ids))]
+            v_ids[v_offset:LEAST(v_offset + 499, pg_catalog.cardinality(v_ids))]
         );
         IF v_reply->>'schema' IS DISTINCT FROM 'aap-workspace-invitation-projects/v1'
            OR v_reply->'ok' IS DISTINCT FROM 'true'::jsonb
@@ -441,7 +441,7 @@ SECURITY DEFINER
 SET search_path = pg_catalog, pg_temp
 AS $function$
     SELECT pg_catalog.jsonb_build_object(
-        'schema', 'aap-identity-invitation-policy/v1',
+        'schema', 'aap-identity-invitations-policy/v1',
         'policy', 'aap-identity-invitations/v1'
     )
 $function$;
@@ -480,7 +480,7 @@ AS $function$
     SELECT pg_catalog.jsonb_build_object(
         'invitation', NULL, 'invitations', NULL, 'items', NULL,
         'total', NULL, 'page', NULL, 'page_size', NULL, 'pages', NULL,
-        'stats', NULL, 'account', NULL, 'claims', NULL, 'acceptance', NULL,
+        'stats', NULL, 'user', NULL, 'claims', NULL, 'acceptance', NULL,
         'email_verification_required', NULL, 'preview', NULL, 'succeeded', NULL,
         'failed', NULL, 'exported_by', NULL, 'exported_at', NULL,
         'invitation_id', NULL, 'email', NULL, 'mail_status', NULL,
@@ -562,14 +562,14 @@ BEGIN
             SELECT pg_catalog.count(*)::integer INTO v_count
             FROM pg_catalog.jsonb_object_keys(v_item);
             IF pg_catalog.jsonb_typeof(v_item) IS DISTINCT FROM 'object'
-               OR (p_operation = 'preview_invitation_batch' AND v_count <> 8)
-               OR (p_operation = 'apply_invitation_batch' AND v_count <> 6)
+               OR v_count <> 8
                OR NOT (v_item ?& ARRAY[
-                   'index','email','role','group_name','project_id','project_member_role'
-               ]) OR (p_operation = 'preview_invitation_batch'
-                   AND NOT (v_item ?& ARRAY['invitation_id','token']))
+                   'index','email','role','group_name','project_id','project_member_role',
+                   'preview_invitation_id','preview_token'
+               ])
                OR (p_operation = 'apply_invitation_batch'
-                   AND (v_item ? 'invitation_id' OR v_item ? 'token'))
+                   AND (v_item->'preview_invitation_id' IS DISTINCT FROM 'null'::jsonb
+                        OR v_item->'preview_token' IS DISTINCT FROM 'null'::jsonb))
                OR pg_catalog.jsonb_typeof(v_item->'index') IS DISTINCT FROM 'number'
                OR (v_item->>'index') !~ '^(0|[1-9][0-9]*)$'
                OR (v_item->>'index')::numeric NOT BETWEEN 0 AND 499
@@ -593,10 +593,10 @@ BEGIN
             IF v_index = ANY(v_seen) THEN RETURN false; END IF;
             v_seen := pg_catalog.array_append(v_seen, v_index);
             IF p_operation = 'preview_invitation_batch' AND (
-                pg_catalog.jsonb_typeof(v_item->'invitation_id') IS DISTINCT FROM 'string'
-                OR (v_item->>'invitation_id') !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
-                OR pg_catalog.jsonb_typeof(v_item->'token') IS DISTINCT FROM 'string'
-                OR pg_catalog.char_length(v_item->>'token') NOT BETWEEN 1 AND 64
+                pg_catalog.jsonb_typeof(v_item->'preview_invitation_id') IS DISTINCT FROM 'string'
+                OR (v_item->>'preview_invitation_id') !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+                OR pg_catalog.jsonb_typeof(v_item->'preview_token') IS DISTINCT FROM 'string'
+                OR pg_catalog.char_length(v_item->>'preview_token') NOT BETWEEN 1 AND 64
             ) THEN RETURN false; END IF;
         END LOOP;
         RETURN true;
@@ -987,6 +987,7 @@ DECLARE
     v_owner_id uuid;
     v_target_id uuid;
     v_snapshot_target_id uuid;
+    v_invitation_id uuid;
     v_token text;
     v_project_role text;
     v_operation_lock boolean;
@@ -1007,6 +1008,8 @@ DECLARE
     );
     v_now timestamptz := pg_catalog.clock_timestamp();
 BEGIN
+    SELECT account.id,account.name,account.role,account.is_active INTO v_owner
+    FROM public.users AS account WHERE false;
     IF pg_catalog.jsonb_typeof(p_command) IS DISTINCT FROM 'object' THEN
         RETURN aap_identity_invitations_v1._failure('invalid_request');
     END IF;
@@ -1120,7 +1123,7 @@ BEGIN
         v_project := aap_identity_invitations_v1._project_record(v_project_id);
         IF v_project_id IS NOT NULL AND v_project IS NULL THEN
             RETURN aap_identity_invitations_v1._failure(
-                'policy_rejected','project_not_found','目标项目已删除，无法接受邀请'
+                'policy_rejected','project_owner_unavailable','目标项目已删除，无法接受邀请'
             );
         END IF;
         v_owner_id := (v_project->>'owner_id')::uuid;
@@ -1177,7 +1180,7 @@ BEGIN
             v_project := aap_identity_invitations_v1._project_record(v_project_id);
             IF v_project IS NULL THEN
                 RETURN aap_identity_invitations_v1._failure(
-                    'policy_rejected','project_not_found','目标项目已删除，无法接受邀请'
+                    'policy_rejected','project_owner_unavailable','目标项目已删除，无法接受邀请'
                 );
             END IF;
             v_owner_id := (v_project->>'owner_id')::uuid;
@@ -1324,7 +1327,7 @@ BEGIN
         END IF;
         IF v_project_id IS NOT NULL AND v_args->>'role' IN ('super_admin','project_admin') THEN
             RETURN aap_identity_invitations_v1._failure(
-                'policy_rejected','account_project_role','管理员账号不能通过项目邀请加入项目'
+                'policy_rejected','platform_project_role_incompatible','账号平台角色与项目职责不兼容：员工可持有标注员/质检员/观察者，平台观察者仅可持有观察者，管理员通过项目负责人身份管理项目'
             );
         END IF;
         IF v_actor_role = 'project_admin' AND v_args->>'role' NOT IN ('employee','viewer') THEN
@@ -1488,7 +1491,7 @@ BEGIN
             IF v_workspace->'ok' IS DISTINCT FROM 'true'::jsonb THEN
                 IF v_workspace #>> '{error,code}' = 'project_missing' THEN
                     RETURN aap_identity_invitations_v1._failure(
-                        'policy_rejected','project_not_found','目标项目已删除，无法接受邀请'
+                        'policy_rejected','project_owner_unavailable','目标项目已删除，无法接受邀请'
                     );
                 END IF;
                 RETURN aap_identity_invitations_v1._failure('current_scope_busy');
@@ -1531,7 +1534,7 @@ BEGIN
                   AND account.email = v_invitation.email;
                 IF NOT FOUND THEN
                     RETURN aap_identity_invitations_v1._failure(
-                        'policy_rejected','actor_inactive','账号已停用，请联系管理员'
+                        'operation_conflict'
                     );
                 END IF;
                 v_data := v_data || pg_catalog.jsonb_build_object(
@@ -1633,13 +1636,13 @@ BEGIN
         END IF;
         IF v_project_id IS NOT NULL AND v_invitation.role IN ('super_admin','project_admin') THEN
             RETURN aap_identity_invitations_v1._failure(
-                'policy_rejected','account_project_role','管理员账号不能通过项目邀请加入项目'
+                'policy_rejected','platform_project_role_incompatible','账号平台角色与项目职责不兼容：员工可持有标注员/质检员/观察者，平台观察者仅可持有观察者，管理员通过项目负责人身份管理项目'
             );
         END IF;
         IF v_operation = 'register_invitation' THEN
             IF pg_catalog.char_length(COALESCE(v_invitation.group_name,'')) > 100 THEN
                 RETURN aap_identity_invitations_v1._failure(
-                    'policy_rejected','group_name_invalid','邀请中的数据组名称无效，请联系管理员重发'
+                    'policy_rejected','group_name_invalid','邀请中的数据组名称无效，请联系管理员重发邀请'
                 );
             END IF;
             SELECT account.id INTO v_target
@@ -1742,7 +1745,7 @@ BEGIN
             ELSE
                 IF v_invitation.accepted_at IS NOT NULL THEN
                     RETURN aap_identity_invitations_v1._failure(
-                        'policy_rejected','invitation_accepted','该邀请已被接受，无法操作'
+                        'policy_rejected','invitation_accepted',CASE WHEN v_operation = 'revoke_invitation' THEN '该邀请已被接受，无法撤销' ELSE '该邀请已被接受，无法重发' END
                     );
                 END IF;
                 IF v_operation = 'resend_invitation'
@@ -1769,7 +1772,7 @@ BEGIN
                 END IF;
                 IF v_workspace->'ok' IS DISTINCT FROM 'true'::jsonb THEN
                     RETURN aap_identity_invitations_v1._failure(
-                        'policy_rejected','project_not_found','目标项目已删除，无法接受邀请'
+                        'policy_rejected','project_owner_unavailable','目标项目已删除，无法接受邀请'
                     );
                 END IF;
                 v_project := pg_catalog.jsonb_build_object(
@@ -1857,17 +1860,19 @@ BEGIN
                 WHERE outbox.id = v_operation_id
                   AND outbox.purpose = 'invitation'
                   AND outbox.invitation_id = v_invitation.id;
-                IF NOT FOUND OR v_outbox.token_hash <> pg_catalog.encode(
+                IF NOT FOUND OR v_outbox.token_hash IS DISTINCT FROM pg_catalog.encode(
                     pg_catalog.sha256(pg_catalog.convert_to(v_invitation.token,'UTF8')),'hex'
-                ) THEN
+                ) OR v_outbox.email IS DISTINCT FROM v_invitation.email
+                  OR v_outbox.actor_id IS DISTINCT FROM v_invitation.invited_by
+                  OR v_outbox.expires_at IS DISTINCT FROM v_invitation.expires_at THEN
                     RETURN aap_identity_invitations_v1._failure('operation_conflict');
                 END IF;
                 v_result := v_receipt.result || pg_catalog.jsonb_build_object(
                     'mail_status',CASE WHEN v_outbox.status = 'delivered' THEN 'sent'
                         WHEN v_outbox.status IN ('rejected','cancelled','expired') THEN 'failed'
                         ELSE 'pending' END,
-                    'mail_failure_code',CASE WHEN v_outbox.status = 'delivered' THEN NULL
-                        ELSE v_outbox.last_reason END
+                    'mail_failure_code',CASE WHEN v_outbox.status IN ('rejected','cancelled','expired')
+                        THEN v_outbox.last_reason ELSE NULL END
                 );
                 v_data := v_data || pg_catalog.jsonb_build_object(
                     'invitation',aap_identity_invitations_v1._invitation_record(
@@ -1882,8 +1887,7 @@ BEGIN
                 v_data := v_data || pg_catalog.jsonb_build_object(
                     'invitation',aap_identity_invitations_v1._invitation_record(
                         v_invitation.id,CASE WHEN v_project IS NULL THEN NULL ELSE v_project->>'name' END
-                    ),'project',v_project,'invitation_token',v_invitation.token,
-                    'mail_frontend_url',v_policy->>'frontend_base_url'
+                    ),'project',v_project,'invitation_token',v_invitation.token
                 );
             END IF;
         END IF;
@@ -1997,7 +2001,7 @@ BEGIN
         ELSIF v_project_id IS NOT NULL AND v_role = 'viewer' AND v_project_role <> 'viewer' THEN
             v_failure := '账号平台角色与项目职责不兼容：员工可持有标注员/质检员/观察者，平台观察者仅可持有观察者，管理员通过项目负责人身份管理项目';
         ELSIF v_project_id IS NOT NULL AND v_role IN ('super_admin','project_admin') THEN
-            v_failure := '管理员账号不能通过项目邀请加入项目';
+            v_failure := '账号平台角色与项目职责不兼容：员工可持有标注员/质检员/观察者，平台观察者仅可持有观察者，管理员通过项目负责人身份管理项目';
         ELSIF p_actor_role = 'project_admin' AND v_role NOT IN ('employee','viewer') THEN
             v_failure := '项目管理员仅能邀请员工或观察者';
         ELSIF aap_identity_invitations_v1.invitation_quota_reached(
@@ -2071,8 +2075,8 @@ BEGIN
                         SET expires_at = v_now WHERE invitation.id = v_target.id;
                     END LOOP;
                     IF p_preview THEN
-                        v_invitation_id := (v_item->>'invitation_id')::uuid;
-                        v_token := v_item->>'token';
+                        v_invitation_id := (v_item->>'preview_invitation_id')::uuid;
+                        v_token := v_item->>'preview_token';
                     ELSE
                         SELECT value INTO v_token_item
                         FROM pg_catalog.jsonb_array_elements(p_batch_tokens) AS item(value)
@@ -2137,7 +2141,7 @@ BEGIN
     END LOOP;
     RETURN aap_identity_invitations_v1._empty_result() || pg_catalog.jsonb_build_object(
         'items',v_items,'preview',p_preview,'succeeded',v_succeeded,'failed',v_failed,
-        'frontend_base_url',p_policy->'frontend_base_url'
+        'frontend_base_url',CASE WHEN p_preview THEN NULL ELSE p_policy->'frontend_base_url' END
     );
 END;
 $function$;
@@ -2252,6 +2256,8 @@ DECLARE
     v_replayed boolean := false;
     v_operation_lock boolean;
 BEGIN
+    SELECT account.id,account.name,account.role,account.is_active INTO v_owner
+    FROM public.users AS account WHERE false;
     IF pg_catalog.jsonb_typeof(p_command) IS DISTINCT FROM 'object' THEN
         RETURN aap_identity_invitations_v1._failure('invalid_request');
     END IF;
@@ -2426,7 +2432,7 @@ BEGIN
             v_project := aap_identity_invitations_v1._project_record(v_project_id);
             IF v_project IS NULL THEN
                 RETURN aap_identity_invitations_v1._failure(
-                    'policy_rejected','project_not_found','目标项目已删除，无法接受邀请'
+                    'policy_rejected','project_owner_unavailable','目标项目已删除，无法接受邀请'
                 );
             END IF;
             v_owner_id := (v_project->>'owner_id')::uuid;
@@ -2446,7 +2452,7 @@ BEGIN
         v_project := aap_identity_invitations_v1._project_record(v_project_id);
         IF v_project_id IS NOT NULL AND v_project IS NULL THEN
             RETURN aap_identity_invitations_v1._failure(
-                'policy_rejected','project_not_found','目标项目已删除，无法接受邀请'
+                'policy_rejected','project_owner_unavailable','目标项目已删除，无法接受邀请'
             );
         END IF;
         v_owner_id := (v_project->>'owner_id')::uuid;
@@ -2616,7 +2622,7 @@ BEGIN
         END IF;
         IF v_project_id IS NOT NULL AND v_args->>'role' IN ('super_admin','project_admin') THEN
             RETURN aap_identity_invitations_v1._failure(
-                'policy_rejected','account_project_role','管理员账号不能通过项目邀请加入项目'
+                'policy_rejected','platform_project_role_incompatible','账号平台角色与项目职责不兼容：员工可持有标注员/质检员/观察者，平台观察者仅可持有观察者，管理员通过项目负责人身份管理项目'
             );
         END IF;
         IF v_actor_role = 'project_admin' AND v_args->>'role' NOT IN ('employee','viewer') THEN
@@ -2807,7 +2813,7 @@ BEGIN
         ELSE
             IF v_invitation.accepted_at IS NOT NULL THEN
                 RETURN aap_identity_invitations_v1._failure(
-                    'policy_rejected','invitation_accepted','该邀请已被接受，无法操作'
+                    'policy_rejected','invitation_accepted',CASE WHEN v_operation = 'revoke_invitation' THEN '该邀请已被接受，无法撤销' ELSE '该邀请已被接受，无法重发' END
                 );
             END IF;
             IF v_operation = 'resend_invitation'
@@ -2836,7 +2842,7 @@ BEGIN
                 );
                 v_result := aap_identity_invitations_v1._empty_result()
                     || pg_catalog.jsonb_build_object(
-                        'invitation',aap_identity_invitations_v1._invitation_record(v_invitation.id,NULL)
+                        'invitation_id',v_invitation.id
                     );
             ELSE
                 IF v_invitation.role IN ('annotator','reviewer') THEN
@@ -2907,7 +2913,7 @@ BEGIN
             v_workspace := aap_workspace_v1.lock_invitation_project(v_project_id,v_owner_id);
             IF v_workspace->'ok' IS DISTINCT FROM 'true'::jsonb THEN
                 RETURN aap_identity_invitations_v1._failure(
-                    'policy_rejected','project_not_found','目标项目已删除，无法接受邀请'
+                    'policy_rejected','project_owner_unavailable','目标项目已删除，无法接受邀请'
                 );
             END IF;
             v_project := pg_catalog.jsonb_build_object(
@@ -2950,13 +2956,18 @@ BEGIN
             FROM public.identity_credential_mail_outbox AS outbox
             WHERE outbox.id = v_operation_id AND outbox.purpose = 'invitation'
               AND outbox.invitation_id = v_invitation.id;
-            IF NOT FOUND THEN RETURN aap_identity_invitations_v1._failure('operation_conflict'); END IF;
+            IF NOT FOUND OR v_outbox.token_hash IS DISTINCT FROM pg_catalog.encode(
+                pg_catalog.sha256(pg_catalog.convert_to(v_invitation.token,'UTF8')),'hex'
+            ) OR v_outbox.email IS DISTINCT FROM v_invitation.email
+              OR v_outbox.actor_id IS DISTINCT FROM v_invitation.invited_by
+              OR v_outbox.expires_at IS DISTINCT FROM v_invitation.expires_at
+            THEN RETURN aap_identity_invitations_v1._failure('operation_conflict'); END IF;
             v_result := v_receipt.result || pg_catalog.jsonb_build_object(
                 'mail_status',CASE WHEN v_outbox.status = 'delivered' THEN 'sent'
                     WHEN v_outbox.status IN ('rejected','cancelled','expired') THEN 'failed'
                     ELSE 'pending' END,
-                'mail_failure_code',CASE WHEN v_outbox.status = 'delivered' THEN NULL
-                    ELSE v_outbox.last_reason END
+                'mail_failure_code',CASE WHEN v_outbox.status IN ('rejected','cancelled','expired')
+                    THEN v_outbox.last_reason ELSE NULL END
             );
             v_replayed := true;
         ELSE
@@ -3061,7 +3072,7 @@ BEGIN
             v_workspace := aap_workspace_v1.lock_invitation_project(v_project_id,v_owner_id);
             IF v_workspace->'ok' IS DISTINCT FROM 'true'::jsonb THEN
                 RETURN aap_identity_invitations_v1._failure(
-                    'policy_rejected','project_not_found','目标项目已删除，无法接受邀请'
+                    'policy_rejected','project_owner_unavailable','目标项目已删除，无法接受邀请'
                 );
             END IF;
             v_project := pg_catalog.jsonb_build_object(
@@ -3126,7 +3137,7 @@ BEGIN
                   AND account.email = v_invitation.email;
                 IF NOT FOUND THEN
                     RETURN aap_identity_invitations_v1._failure(
-                        'policy_rejected','actor_inactive','账号已停用，请联系管理员'
+                        'operation_conflict'
                     );
                 END IF;
                 IF v_target.password_hash IS DISTINCT FROM v_derived->>'password_hash'
@@ -3183,12 +3194,12 @@ BEGIN
                 END IF;
                 IF v_project_id IS NOT NULL AND v_invitation.role IN ('super_admin','project_admin') THEN
                     RETURN aap_identity_invitations_v1._failure(
-                        'policy_rejected','account_project_role','管理员账号不能通过项目邀请加入项目'
+                        'policy_rejected','platform_project_role_incompatible','账号平台角色与项目职责不兼容：员工可持有标注员/质检员/观察者，平台观察者仅可持有观察者，管理员通过项目负责人身份管理项目'
                     );
                 END IF;
                 IF pg_catalog.char_length(COALESCE(v_invitation.group_name,'')) > 100 THEN
                     RETURN aap_identity_invitations_v1._failure(
-                        'policy_rejected','group_name_invalid','邀请中的数据组名称无效，请联系管理员重发'
+                        'policy_rejected','group_name_invalid','邀请中的数据组名称无效，请联系管理员重发邀请'
                     );
                 END IF;
                 IF EXISTS (SELECT 1 FROM public.users AS account
@@ -3220,9 +3231,13 @@ BEGIN
                    OR v_claims->>'iss' IS DISTINCT FROM 'aap-identity/v1' THEN
                     RETURN aap_identity_invitations_v1._failure('invalid_request');
                 END IF;
-                IF pg_catalog.to_timestamp((v_claims->>'exp')::double precision) <= v_now THEN
-                    RETURN aap_identity_invitations_v1._failure('token_expired');
-                END IF;
+                BEGIN
+                    IF pg_catalog.to_timestamp((v_claims->>'exp')::double precision) <= v_now THEN
+                        RETURN aap_identity_invitations_v1._failure('token_expired');
+                    END IF;
+                EXCEPTION WHEN datetime_field_overflow OR numeric_value_out_of_range THEN
+                    RETURN aap_identity_invitations_v1._failure('invalid_request');
+                END;
                 v_group_name := aap_identity_invitations_v1._strip_unicode_space(v_invitation.group_name);
                 IF v_group_name = '' THEN v_group_name := NULL; END IF;
                 IF v_group_name IS NOT NULL THEN
@@ -3232,7 +3247,7 @@ BEGIN
                     IF pg_catalog.jsonb_typeof(v_group->'error') = 'object' THEN
                         IF v_group #>> '{error,code}' = 'invalid_group_name' THEN
                             RETURN aap_identity_invitations_v1._failure(
-                                'policy_rejected','group_name_invalid','邀请中的数据组名称无效，请联系管理员重发'
+                                'policy_rejected','group_name_invalid','邀请中的数据组名称无效，请联系管理员重发邀请'
                             );
                         END IF;
                         RETURN aap_identity_invitations_v1._failure(
@@ -3298,7 +3313,7 @@ BEGIN
                 );
                 v_result := aap_identity_invitations_v1._empty_result()
                     || pg_catalog.jsonb_build_object(
-                        'account',aap_identity_invitations_v1._account_record(v_user_id),
+                        'user',aap_identity_invitations_v1._account_record(v_user_id),
                         'claims',v_claims,'acceptance',v_acceptance,
                         'email_verification_required',false
                     );
@@ -3373,7 +3388,7 @@ BEGIN
                 );
                 v_result := aap_identity_invitations_v1._empty_result()
                     || pg_catalog.jsonb_build_object(
-                        'account',aap_identity_invitations_v1._account_record(v_actor_id),
+                        'user',aap_identity_invitations_v1._account_record(v_actor_id),
                         'acceptance',v_acceptance
                     );
             END IF;

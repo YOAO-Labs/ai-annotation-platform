@@ -135,5 +135,5 @@ Negative:
   `identity_invitation_data.py`.
 - Deployment details: [Identity private runtime protocol](../../docs-site/api/guides/identity-runtime.md#邀请生命周期)
   and the repository's `docker-compose.identity.yml`.
-- Full-module progress remains in the
-  [backend decoupling plan](../plans/1792160873_backend-module-decoupling.md).
+- Full-module progress remains in
+  `docs/plans/1792160873_backend-module-decoupling.md`.

@@ -46,6 +46,8 @@ _SPATIAL_RETIRED_MODULES = (
 )
 
 REMOVED_MODULES = (
+    "app.services.invitation",
+    "app.application.invitation_acceptance",
     "app.services.deactivation_service",
     "app.services.mask_formats.safe_archive",
     "app.services.role_patterns",
@@ -237,6 +239,8 @@ DOMAIN_PACKAGES = (
         ),
     ),
     DomainSpec(package="identity_group_commands", legacy_facades=()),
+    DomainSpec(package="identity_invitation_commands", legacy_facades=()),
+    DomainSpec(package="identity_mail_v2_delivery", legacy_facades=()),
     DomainSpec(package="quality_job_dispatch", legacy_facades=()),
     DomainSpec(
         package="quality_job_lifecycle", legacy_facades=(), allowed_app_imports=()

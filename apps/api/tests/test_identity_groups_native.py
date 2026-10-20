@@ -299,7 +299,8 @@ def test_frozen_group_artifacts_and_owner_capabilities():
     assert "aap_identity_groups_v1.group_policy()" in legacy_grants
     assert "aap_identity_groups_v1.execute_group_command(jsonb)" in legacy_grants
     assert (
-        "aap_identity_groups_v1.resolve_invitation_group(uuid, text)" in legacy_grants
+        "aap_identity_groups_v1.resolve_invitation_group(uuid, text)"
+        not in legacy_grants
     )
     assert all(
         not sa.text(statement.replace(":", r"\:")).compile().params

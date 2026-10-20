@@ -81,6 +81,16 @@ def invitation_lease(*, key_id: str = "b" * 64) -> InvitationMailV2Lease:
     )
 
 
+def test_invitation_project_name_stays_plain_text_without_becoming_a_header():
+    lease = invitation_lease().model_copy(
+        update={"project_name": "Vision\r\nBcc: hidden@example.test"}
+    )
+    message = MailExecutor._message(lease, TOKEN, "noreply@example.test")
+    assert "Bcc: hidden@example.test" in message.get_content()
+    assert message.get("Bcc") is None
+    assert message["To"] == lease.email
+
+
 class FakeData:
     def __init__(self, delivery=None, *, accepted=True):
         self.delivery = delivery

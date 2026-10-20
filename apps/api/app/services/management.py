@@ -19,23 +19,18 @@ from app.db.models.task import Task
 from app.db.models.task_batch import TaskBatch
 from app.db.models.task_lock import TaskLock
 from app.db.models.user import User
-from app.db.models.user_invitation import UserInvitation
-from app.schemas.invitation import InvitationOut
 from app.schemas.management import (
     BatchDistributionPreview,
     BatchDistributionPreviewItem,
     BatchDistributionRecipient,
-    InvitationStats,
     RoleImpactPreview,
     RoleImpactProject,
     UserStats,
 )
-from app.services.invitation import invitation_project_role
 from app.services.user_lifecycle import UserLifecycleService
 
 
 USER_STATUS = Literal["active", "inactive", "all"]
-INVITATION_STATUS = Literal["pending", "accepted", "expired", "revoked", "all"]
 
 # Project admins manage every *enabled* annotator/reviewer account
 # (unassigned or in other projects' memberships) — interim until
@@ -327,213 +322,6 @@ async def user_stats(
         or 0
     )
     return UserStats(total=total, online=online, weekly_active=weekly_active)
-
-
-def _invitation_status_clause(status: str, now: datetime):
-    if status == "accepted":
-        return UserInvitation.accepted_at.is_not(None)
-    if status == "revoked":
-        return and_(
-            UserInvitation.accepted_at.is_(None),
-            UserInvitation.revoked_at.is_not(None),
-        )
-    if status == "expired":
-        return and_(
-            UserInvitation.accepted_at.is_(None),
-            UserInvitation.revoked_at.is_(None),
-            UserInvitation.expires_at <= now,
-        )
-    if status == "pending":
-        return and_(
-            UserInvitation.accepted_at.is_(None),
-            UserInvitation.revoked_at.is_(None),
-            UserInvitation.expires_at > now,
-        )
-    return true()
-
-
-def build_invitation_query(
-    actor: User,
-    *,
-    status_filter: INVITATION_STATUS = "all",
-    scope: Literal["me", "all"] = "me",
-    project_id: UUID | None = None,
-    role: str | None = None,
-    email: str | None = None,
-    search: str | None = None,
-    created_from: datetime | None = None,
-    created_to: datetime | None = None,
-    now: datetime | None = None,
-):
-    if scope == "me" or actor.role != UserRole.SUPER_ADMIN.value:
-        query = select(UserInvitation).where(UserInvitation.invited_by == actor.id)
-    else:
-        query = select(UserInvitation)
-    if project_id is not None:
-        query = query.where(UserInvitation.project_id == project_id)
-    if role:
-        query = query.where(UserInvitation.role == role)
-    if email and email.strip():
-        query = query.where(UserInvitation.email.ilike(f"%{email.strip()}%"))
-    if search and search.strip():
-        term = f"%{search.strip()}%"
-        query = query.where(
-            or_(
-                UserInvitation.email.ilike(term),
-                UserInvitation.group_name.ilike(term),
-            )
-        )
-    if created_from is not None:
-        query = query.where(UserInvitation.created_at >= created_from)
-    if created_to is not None:
-        query = query.where(UserInvitation.created_at <= created_to)
-    query = query.where(
-        _invitation_status_clause(status_filter, now or datetime.now(timezone.utc))
-    )
-    return query
-
-
-async def _invitation_outputs(
-    db: AsyncSession, rows: list[UserInvitation]
-) -> list[InvitationOut]:
-    if not rows:
-        return []
-    inviter_ids = {row.invited_by for row in rows}
-    inviter_rows = (
-        (await db.execute(select(User).where(User.id.in_(inviter_ids)))).scalars().all()
-    )
-    inviters = {user.id: user for user in inviter_rows}
-    project_ids = {row.project_id for row in rows if row.project_id is not None}
-    if project_ids:
-        project_rows = await db.execute(
-            select(Project).where(Project.id.in_(project_ids))
-        )
-        projects = {
-            project.id: project.name for project in project_rows.scalars().all()
-        }
-    else:
-        projects = {}
-    return [
-        InvitationOut(
-            id=row.id,
-            email=row.email,
-            role=row.role,
-            group_name=row.group_name,
-            project_id=row.project_id,
-            project_name=projects.get(row.project_id),
-            project_member_role=invitation_project_role(row),
-            status=row.status,
-            expires_at=row.expires_at,
-            invited_by=row.invited_by,
-            invited_by_name=(
-                inviters.get(row.invited_by).name
-                if inviters.get(row.invited_by)
-                else None
-            ),
-            accepted_at=row.accepted_at,
-            revoked_at=row.revoked_at,
-            created_at=row.created_at,
-        )
-        for row in rows
-    ]
-
-
-async def fetch_invitation_page(
-    db: AsyncSession,
-    actor: User,
-    *,
-    page: int,
-    page_size: int | None,
-    status_filter: INVITATION_STATUS = "all",
-    scope: Literal["me", "all"] = "me",
-    project_id: UUID | None = None,
-    role: str | None = None,
-    email: str | None = None,
-    search: str | None = None,
-    created_from: datetime | None = None,
-    created_to: datetime | None = None,
-) -> tuple[list[InvitationOut], int]:
-    base = build_invitation_query(
-        actor,
-        status_filter=status_filter,
-        scope=scope,
-        project_id=project_id,
-        role=role,
-        email=email,
-        search=search,
-        created_from=created_from,
-        created_to=created_to,
-    )
-    total = int(
-        await db.scalar(
-            select(func.count()).select_from(base.order_by(None).subquery())
-        )
-        or 0
-    )
-    ordered = base.order_by(UserInvitation.created_at.desc(), UserInvitation.id.desc())
-    if page_size is not None:
-        ordered = ordered.offset((page - 1) * page_size).limit(page_size)
-    rows = (await db.execute(ordered)).scalars().all()
-    return await _invitation_outputs(db, rows), total
-
-
-async def invitation_stats(
-    db: AsyncSession,
-    actor: User,
-    *,
-    status_filter: INVITATION_STATUS = "all",
-    scope: Literal["me", "all"] = "me",
-    project_id: UUID | None = None,
-    role: str | None = None,
-    email: str | None = None,
-    search: str | None = None,
-    created_from: datetime | None = None,
-    created_to: datetime | None = None,
-) -> InvitationStats:
-    now = datetime.now(timezone.utc)
-    base = build_invitation_query(
-        actor,
-        status_filter=status_filter,
-        scope=scope,
-        project_id=project_id,
-        role=role,
-        email=email,
-        search=search,
-        created_from=created_from,
-        created_to=created_to,
-        now=now,
-    )
-    subquery = base.order_by(None).subquery()
-    accepted = and_(subquery.c.accepted_at.is_not(None))
-    revoked = and_(subquery.c.accepted_at.is_(None), subquery.c.revoked_at.is_not(None))
-    expired = and_(
-        subquery.c.accepted_at.is_(None),
-        subquery.c.revoked_at.is_(None),
-        subquery.c.expires_at <= now,
-    )
-    pending = and_(
-        subquery.c.accepted_at.is_(None),
-        subquery.c.revoked_at.is_(None),
-        subquery.c.expires_at > now,
-    )
-    row = (
-        await db.execute(
-            select(
-                func.count(),
-                func.count().filter(pending),
-                func.count().filter(accepted),
-                func.count().filter(expired),
-                func.count().filter(revoked),
-            ).select_from(subquery)
-        )
-    ).one()
-    return InvitationStats(
-        total=int(row[0] or 0),
-        pending=int(row[1] or 0),
-        accepted=int(row[2] or 0),
-        expired=int(row[3] or 0),
-        revoked=int(row[4] or 0),
-    )
 
 
 async def platform_role_change_blockers(

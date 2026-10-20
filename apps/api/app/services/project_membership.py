@@ -1133,32 +1133,6 @@ async def _assert_actor_can_manage(*, actor: User | None, project: Project) -> N
     )
 
 
-async def grant_invitation_membership(
-    db: AsyncSession,
-    *,
-    project_id: uuid.UUID,
-    user_id: uuid.UUID,
-    project_role: str,
-    assigned_by: uuid.UUID,
-) -> None:
-    """Persist invitation membership without owning acceptance orchestration."""
-
-    result = await db.execute(
-        pg_insert(ProjectMember)
-        .values(
-            id=uuid.uuid4(),
-            project_id=project_id,
-            user_id=user_id,
-            role=project_role,
-            assigned_by=assigned_by,
-        )
-        .on_conflict_do_nothing(index_elements=["project_id", "user_id"])
-        .returning(ProjectMember.id)
-    )
-    if result.scalar_one_or_none() is None:
-        raise HTTPException(status_code=409, detail="该账号已是目标项目成员")
-
-
 async def add_member(
     db: AsyncSession,
     *,

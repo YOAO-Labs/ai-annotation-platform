@@ -55501,7 +55501,7 @@
     },
     "/api/v1/auth/invitations/accept": {
       "post": {
-        "description": "Explicitly attach an existing, matching account to an invitation project.",
+        "description": "Explicitly attach the matching account without changing its platform role.",
         "operationId": "accept_invitation_for_existing_user_api_v1_auth_invitations_accept_post",
         "requestBody": {
           "content": {
@@ -61428,7 +61428,7 @@
     },
     "/api/v1/invitations/{invitation_id}/send-email": {
       "post": {
-        "description": "Send an existing invitation; the link and token are never rotated.",
+        "description": "Await the durable sender without holding a business transaction open.",
         "operationId": "send_invitation_email_endpoint_api_v1_invitations__invitation_id__send_email_post",
         "parameters": [
           {

@@ -106,7 +106,7 @@ def test_claim_reply_discriminates_recovery_and_invitation(wire, model):
         assert not hasattr(reply.data.delivery, "actor_id")
 
 
-def test_invitation_lease_rejects_recovery_actor_alias_and_unsafe_context():
+def test_invitation_lease_rejects_recovery_actor_alias_and_unknown_context():
     wire = _invitation_lease()
     with pytest.raises(IdentityUnavailable):
         decode_mail_v2_claim_reply(_reply({**wire, "actor_id": str(uuid.uuid4())}))
@@ -116,10 +116,13 @@ def test_invitation_lease_rejects_recovery_actor_alias_and_unsafe_context():
         )
     with pytest.raises(IdentityUnavailable):
         decode_mail_v2_claim_reply(_reply({**wire, "project_member_role": "admin"}))
-    with pytest.raises(IdentityUnavailable):
+    project_name = "Project\r\nPlain body text"
+    assert (
         decode_mail_v2_claim_reply(
-            _reply({**wire, "project_name": "Project\nInjected"})
-        )
+            _reply({**wire, "project_name": project_name})
+        ).data.delivery.project_name
+        == project_name
+    )
 
 
 def test_claim_request_is_closed_strict_and_rejects_duplicate_json_keys():
