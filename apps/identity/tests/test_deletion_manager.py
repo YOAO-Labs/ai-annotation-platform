@@ -220,6 +220,34 @@ async def test_manager_preserves_pending_409_sample_and_rolls_back_without_echo(
 
 
 @pytest.mark.asyncio
+async def test_manager_preserves_failure_after_super_admin_snapshot_becomes_pa():
+    admitted = principal(role="super_admin")
+    request = deletion_request()
+    data = Data(
+        lambda command: {
+            "schema": NATIVE_DELETION_PROTOCOL,
+            "ok": False,
+            "error": {
+                "code": "delete_role_forbidden",
+                "status_code": 403,
+                "detail": "项目管理员仅能删除员工账号",
+            },
+        }
+    )
+    manager = DeletionManager(
+        Authenticator(VerifiedCredential(admitted, None)), data, DELETION_SECRET
+    )
+
+    with pytest.raises(DeletionFailure) as failure:
+        await manager.execute(request)
+
+    assert failure.value.code == "delete_role_forbidden"
+    assert failure.value.status_code == 403
+    assert failure.value.detail == "项目管理员仅能删除员工账号"
+    assert data.rolled_back and not data.committed
+
+
+@pytest.mark.asyncio
 async def test_auth_failure_does_not_open_transaction():
     data = Data(lambda command: {})
     manager = DeletionManager(

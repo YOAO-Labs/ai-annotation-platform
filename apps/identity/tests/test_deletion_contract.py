@@ -284,6 +284,31 @@ def test_failure_code_details_are_operation_and_receiver_bound():
 
 
 @pytest.mark.parametrize(
+    ("admitted_role", "failure_code", "with_receiver"),
+    [
+        ("super_admin", "delete_role_forbidden", False),
+        ("super_admin", "delete_scope_forbidden", False),
+        ("super_admin", "receiver_scope_forbidden", True),
+        ("employee", "project_busy", False),
+    ],
+)
+def test_mutable_role_snapshot_does_not_reject_owner_failures(
+    admitted_role, failure_code, with_receiver
+):
+    actor = principal(role=admitted_role)
+    request = deletion_request(
+        transfer_to_user_id=RECEIVER_ID if with_receiver else None
+    )
+    with pytest.raises(DeletionFailure) as failure:
+        decode_deletion_reply(
+            request,
+            deletion_failure_reply(failure_code),
+            expected_principal=actor,
+        )
+    assert failure.value.code == failure_code
+
+
+@pytest.mark.parametrize(
     ("actor_role", "target_is_actor", "failure_code", "detail"),
     [
         (

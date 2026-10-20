@@ -447,15 +447,13 @@ def _expected_failure(
         )
     if code == "delete_role_forbidden":
         return (
-            actor.role == "project_admin"
-            and target != actor.actor_id
+            target != actor.actor_id
             and error.status_code == 403
             and detail == _DETAILS[code][1]
         )
     if code == "delete_scope_forbidden":
         return (
-            actor.role == "project_admin"
-            and target != actor.actor_id
+            target != actor.actor_id
             and error.status_code == 403
             and detail == _DETAILS[code][1]
         )
@@ -496,8 +494,7 @@ def _expected_failure(
         )
     if code == "receiver_scope_forbidden":
         return (
-            actor.role == "project_admin"
-            and receiver is not None
+            receiver is not None
             and receiver != target
             and receiver != actor.actor_id
             and error.status_code == 403
@@ -508,7 +505,6 @@ def _expected_failure(
     if code == "project_busy":
         return (
             target != actor.actor_id
-            and actor.role in _MANAGER_ROLES
             and error.status_code == 409
             and isinstance(detail, ProjectBusyDetail)
         )
