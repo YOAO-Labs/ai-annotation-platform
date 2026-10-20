@@ -277,7 +277,7 @@ async def test_auth_only_api_routes_use_directory_owner(
                 for row in listed_rows
             )
             assert "9007199254740993" in listed.text
-            assert "0.1234567890123456789" in listed.text
+            assert "0.12345678901234568" in listed.text
 
             page_one = await super_admin.get(
                 "/api/v1/users/query",

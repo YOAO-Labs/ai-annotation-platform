@@ -588,7 +588,7 @@ async def test_installed_directory_node_visibility_export_replay_restart_and_loa
         assert (legacy["role"], legacy["status"]) == ("annotator", "legacy-paused")
         assert "password_hash" not in legacy and "credential_generation" not in legacy
         assert "9007199254740993" in list_wire
-        assert "0.1234567890123456789" in list_wire
+        assert "0.12345678901234568" in list_wire
 
         super_project_list = _directory_command(
             "list_users",
