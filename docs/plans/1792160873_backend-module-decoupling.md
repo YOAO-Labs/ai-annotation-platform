@@ -3023,7 +3023,7 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   `540d80726f04a230105825dfac1915e9b4931e41` 完成：42 个选定 database/process
   cases 全部通过、零跳过。36 个 DB/restore cases 分为 native 6、roles 3、existing
   reset 5、existing visibility 18、admin restore 1、Directory restore 1、Invitation
-  restore 1、legacy challenge 1；6 个 live cases 是 installed Node owner 1、admin
+  restore 1、legacy challenge 1；6 个 live cases 是 installed Python owner + Node consumer 1、admin
   API remote/dedicated 2、真实 limiter remote/dedicated 2、existing Directory
   dedicated 1。兼容性案例属于不同 slice，故 42 不等于 42 个新 admin-reset 行为。
 - Portable source 与 installed package 各通过 420 项检查。非 editable Identity
@@ -3107,7 +3107,7 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   用时 38.894s，在 network-none/read-only/1 CPU/512 MiB 下核对 94 个 package files、
   89 个 API/native inputs、两个平台角色路由、既有 owner 路由数量、当前 OpenAPI、migration
   head 0245 和 retired helpers absent；cold container 已移除。Live cases 覆盖 installed
-  Node owner、AUTH-only nonroot/read-only Identity remote container 与 dedicated API DSN。
+  Python owner 与 Node consumer、AUTH-only nonroot/read-only Identity remote container 与 dedicated API DSN。
 - 12 个 target、并发 4 的 host-process sample：execute 34 attempts/22 busy retries，
   927.441ms（p50/p95 455.302/920.672ms）；replay 34 attempts/22 retries，907.557ms
   （p50/p95 446.324/907.389ms）。含 Node/HTTP host overhead，不构成生产容量/SLO；12 个
