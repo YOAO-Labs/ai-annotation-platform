@@ -1590,24 +1590,6 @@ async function main() {
     return;
   }
   const raw = parseStrictJson(await readStdin());
-  if (process.argv[2] === "--validate-public") {
-    if (!exact(raw, ["operation", "status", "content_type", "body", "expected", "aliases"])) fail();
-    if (!publicOperations.has(raw.operation) || !isRecord(raw.aliases)) fail();
-    const status = integer(raw.status);
-    if (!exact(raw.expected, ["status", "body"]) || integer(raw.expected.status) !== status) fail();
-    strictString(raw.content_type);
-    if (status !== 204n && !raw.content_type.toLowerCase().includes("application/json")) fail();
-    if (status === 204n && raw.body !== "") fail();
-    let body = null;
-    if (raw.body !== "") body = parseStrictJson(raw.body);
-    if (status >= 200n && status < 300n) validatePublicBody(raw.operation, body);
-    else if (!exact(body, ["detail"])) fail();
-    const normalized = normalizePublic(body, raw.aliases);
-    const expected = normalizePublic(raw.expected.body, raw.aliases);
-    if (!compareValue(normalized, expected)) fail();
-    process.stdout.write(`${stringifyLossless({ ok: true, operation: raw.operation, status })}\n`);
-    return;
-  }
   const input = validateCallInput(raw);
   if (input.mode === "public_http") {
     const result = await runPublicHttp(input);
