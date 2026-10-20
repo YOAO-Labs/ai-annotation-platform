@@ -68,7 +68,7 @@ Verified final report -> compatibility groups -> Study results / comparison link
 - API tests: `apps/api/tests/test_training_studies.py` plus existing `test_training_runs.py` coverage.
 - Web: `apps/web/src/api/trainingStudies.ts`, `trainingRuns.ts`; `apps/web/src/pages/Training/TrainingStudyCreate.tsx`, `TrainingStudyPanel.tsx`, `TrainingStudyPanel.test.tsx`, `TrainingCreatePage.tsx`, `trainingDraftStorage.ts`, `trainingDraftStorage.test.ts`, `useTrainingDraft.ts`, `trainingObservability.ts`; `apps/web/src/pages/Projects/ProjectTrainingPanel.tsx`; affected generated files under `apps/web/src/api/generated/`.
 - Contracts: `apps/api/openapi.snapshot.json`, `packages/python-sdk/api-coverage.toml`, `docs-site/api/guides/_routes.generated.md`. Explicitly classify newly unsupported SDK operations; no independent SDK release.
-- Docs: this plan; backlog README/roadmap promotion links; ADR 0082 and ADR index; `docs-site/user-guide/projects/online-learning.md`, `docs-site/api/guides/training-datasets.md`, `docs-site/dev/concepts/training-datasets.md`, `README.md`, `CHANGELOG.md` Unreleased. Update generated indexes selected by existing scripts. No release bump or push.
+- Docs: this plan; backlog README/roadmap promotion links; ADR 0082 and ADR index; `docs-site/user-guide/online-learning/index.md`, `docs-site/api/guides/training-datasets.md`, `docs-site/dev/concepts/training-datasets.md`, `README.md`, `CHANGELOG.md` Unreleased. Update generated indexes selected by existing scripts. No release bump or push.
 
 ## Gates, commands and rollback detail
 

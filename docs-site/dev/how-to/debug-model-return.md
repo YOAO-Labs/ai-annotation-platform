@@ -10,7 +10,7 @@ last_reviewed: 2026-10-19
 
 模型已训练成功但无法加载、发布或生成预标注时，先确定失败发生在哪个边界。训练执行器、平台 API、推理 Backend 和预标注 Worker 使用不同的接口与凭据，健康检查成功不能证明整条链路可用。
 
-用户操作见[训练模型回流与发布](/user-guide/projects/model-return)，实例、服务池和 Token 的原理见[模型服务接入、路由与认证](../concepts/ml-backend-routing-and-auth)。本页用于定位当前实现中的请求与状态，不要求先修改运行配置。
+用户操作见[模型回流与默认预标](/user-guide/online-learning/models)，实例、服务池和 Token 的原理见[模型服务接入、路由与认证](../concepts/ml-backend-routing-and-auth)。本页用于定位当前实现中的请求与状态，不要求先修改运行配置。
 
 ## 先固定一组排查对象
 

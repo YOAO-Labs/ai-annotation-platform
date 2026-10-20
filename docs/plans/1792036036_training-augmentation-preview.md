@@ -233,7 +233,7 @@ CPU/GPU leases are free. The original two runs and one frozen dataset remain. Th
 disposable test mode was destroyed; temporary probes, caches, screenshots, browser auth
 and the owned draft were removed. The updated owned development runtime remains available.
 
-Official documentation: `docs-site/user-guide/projects/online-learning.md`,
+Official documentation: `docs-site/user-guide/online-learning/index.md`,
 `docs-site/api/guides/training-datasets.md`, `docs-site/dev/concepts/training-datasets.md`,
 `README.md`, ADR `docs/adr/archive/0077-native-augmentation-preview-cpu-ownership.md` and
 the Unreleased `CHANGELOG.md` entry. Python format/lint, OpenAPI consistency, documentation

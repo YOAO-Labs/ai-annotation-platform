@@ -187,7 +187,7 @@ Frozen dataset + managed deployment + explicit settings -> EvaluationRun/attempt
   `apps/web/src/components/jobs/{asyncJobPresentation,AsyncJobDetailModal}.tsx/ts`.
 - Contracts/docs: `apps/api/openapi.snapshot.json`,
   `packages/python-sdk/api-coverage.toml`, `README.md`, `CHANGELOG.md`,
-  `docs-site/{api/guides/training-datasets,user-guide/projects/online-learning,dev/concepts/training-datasets}.md`,
+  `docs-site/{api/guides/training-datasets,user-guide/online-learning/index,dev/concepts/training-datasets}.md`,
   `docs/adr/archive/0079-frozen-sample-evaluation.md`, `docs/adr/README.md`, this plan,
   and its backlog index/roadmap links. Generated API types follow existing codegen.
 
@@ -270,7 +270,7 @@ claiming equivalence to COCO or the native training validator.
   events and fixed lock inodes. The original two runs, one dataset and twelve tasks
   remain; API/web/workers and CPU inference are healthy, and the GPU executor was
   not stopped. Temporary auth/screenshots/build outputs were cleaned.
-- User/API/developer documentation: `docs-site/user-guide/projects/online-learning.md`,
+- User/API/developer documentation: `docs-site/user-guide/online-learning/index.md`,
   `docs-site/api/guides/training-datasets.md`,
   `docs-site/dev/concepts/training-datasets.md`, `README.md`, and `CHANGELOG.md`.
   Architecture: `docs/adr/archive/0079-frozen-sample-evaluation.md` and ADR index.

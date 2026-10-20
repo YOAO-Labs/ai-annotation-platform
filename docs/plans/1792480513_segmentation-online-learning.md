@@ -303,7 +303,7 @@ git diff --check
 
 新增常驻服务、环境变量、CLI 和外部账号均为零。继续使用项目已有数据库／对象存储认证、训练 executor 凭证和模型市场服务认证；外部权重与镜像首次获取沿用现有受控来源和摘要流程，可预先准备以脱离外网运行。编写时只读确认 pnpm、uv、docker 命令和 API venv 存在、官方资料可访问；未确认 Docker daemon、当前 GPU 可用量、镜像与线上认证，均在转实施的 runtime 预检核验，不视为已就绪。
 
-实施相应节点时更新[在线学习用户指南](../../docs-site/user-guide/projects/online-learning.md)、[模型回流指南](../../docs-site/user-guide/projects/model-return.md)、[训练 API 指南](../../docs-site/api/guides/training-datasets.md)、[训练架构说明](../../docs-site/dev/concepts/training-datasets.md)、[预标注架构](../../docs-site/dev/concepts/prediction-pipeline.md)及 CHANGELOG Unreleased；任务发布隔离和原生 mask bridge 各自记录 ADR。API 改动同步 README、生成工件和 SDK 契约。只在真实新增环境配置时修改 .env.example／环境变量文档／DEV，不为预留功能新增开关。
+实施相应节点时更新[在线学习用户指南](../../docs-site/user-guide/online-learning/index.md)、[模型回流指南](../../docs-site/user-guide/online-learning/models.md)、[训练 API 指南](../../docs-site/api/guides/training-datasets.md)、[训练架构说明](../../docs-site/dev/concepts/training-datasets.md)、[预标注架构](../../docs-site/dev/concepts/prediction-pipeline.md)及 CHANGELOG Unreleased；任务发布隔离和原生 mask bridge 各自记录 ADR。API 改动同步 README、生成工件和 SDK 契约。只在真实新增环境配置时修改 .env.example／环境变量文档／DEV，不为预留功能新增开关。
 
 转实施负责人须按以下顺序核对：最新 HEAD／工作区与已交付节点 → 当前 task／bridge／能力 → 数据迁移和旧客户端兼容 → 精确文件清单与生成工件 → 可丢弃数据库与运行镜像 → 本阶段验收／回退 → 将该阶段计划置于 docs/plans 根目录并取得实施授权。旧 A–E／T01–T14 的历史授权不自动延伸到本草案。
 
@@ -333,7 +333,7 @@ git diff --check
 
 - 已实现 S1–S7：任务独立发布与策略、受控原生实例掩码回流、schema 4 RLE 训练、mask 逐样本评估、同项目分割权重初始化、周期重训和带随机对照的主动选样。旧检测及简单多边形身份保持兼容。
 - 发布安排：尚未确定；本次没有升级版本或部署生产环境。
-- 用户文档：`docs-site/user-guide/projects/online-learning.md`、`docs-site/user-guide/projects/model-return.md`。
+- 用户文档：`docs-site/user-guide/online-learning/index.md`、`docs-site/user-guide/online-learning/models.md`。
 - 开发与接口文档：`docs-site/dev/concepts/instance-segmentation-learning.md`、`docs-site/dev/concepts/training-datasets.md`、`docs-site/dev/reference/ml-backend-protocol.md`、`docs-site/dev/reference/yolo-import.md`、`docs-site/api/guides/training-datasets.md`、`docs-site/api/guides/projects.md`；README、DEV、OpenAPI、Web 类型与 SDK 契约同步。
 - ADR：`docs/adr/archive/0089-task-scoped-native-instance-learning.md`；CHANGELOG 已增加 Unreleased 条目。
 

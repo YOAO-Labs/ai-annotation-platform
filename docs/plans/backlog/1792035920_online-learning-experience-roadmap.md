@@ -85,7 +85,7 @@ Manual acceptance covers desktop and 390px mobile, light/dark themes, keyboard u
 
 After every check, remove task-owned screenshots, temporary reports, caches, disposable resources, and test jobs. Preserve the user's retained manual environment and data. Review the final diff and run `git diff --check`.
 
-Implementations update the current [user guide](../../../docs-site/user-guide/projects/online-learning.md), [API guide](../../../docs-site/api/guides/training-datasets.md), [architecture explanation](../../../docs-site/dev/concepts/training-datasets.md), and CHANGELOG as appropriate. Schema/protocol or model-identity changes may require an ADR. Draft creation alone must not claim these features in rendered product documentation.
+Implementations update the current [user guide](../../../docs-site/user-guide/online-learning/index.md), [API guide](../../../docs-site/api/guides/training-datasets.md), [architecture explanation](../../../docs-site/dev/concepts/training-datasets.md), and CHANGELOG as appropriate. Schema/protocol or model-identity changes may require an ADR. Draft creation alone must not claim these features in rendered product documentation.
 
 ## Simplicity, rollback, and promotion ownership
 

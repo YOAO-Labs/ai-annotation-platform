@@ -294,7 +294,7 @@ last_reviewed: 2026-10-19
 - **明确的人工发布**：平台核对收据后，调用标准 `POST /predict`，携带 `context.model_id = "trained:{version_id}"` 与 `context.frozen_model_ref`，在原冻结版本的一张验证图片上试用。成功将部署置为 `ready`；负责人确认结果后才创建项目发布，不自动发布。
 - **项目发布解析与固定路由**：`trained_models.resolve_reference()` 将检测别名 `project-release`、分割别名 `project-release:segment` 或 `trained:{version_id}` 解析为具体候选和已核验部署。预标注入队保存完整冻结引用，wire 请求携带最小权重身份；返回结果的原生类别索引经验证后映射为项目类别。检测支持已合格的整图或父框裁剪管线；分割仅支持整图源阶段，输出原尺寸实例掩码，不支持裁剪、交互提示或视频。目标实例不可用时不会改用其他权重。
 
-实例、服务池、路由模式和访问 Token 的关系见[模型服务接入、路由与认证](./ml-backend-routing-and-auth)，界面验收见[训练模型回流与发布](/user-guide/projects/model-return)。
+实例、服务池、路由模式和访问 Token 的关系见[模型服务接入、路由与认证](./ml-backend-routing-and-auth)，界面验收见[模型回流与默认预标](/user-guide/online-learning/models)。
 
 ---
 

@@ -297,14 +297,14 @@ Add tests/test_project_task_datasets.py and tests/test_task_dataset_backfill.py 
 
 Browser acceptance uses the project's agent-browser workflow against a disposable/seeded development context: mixed-task project; more than one version page; complete detection version; changed baseline; no data; missing preview; partial analysis; preserved segmentation; direct deep link; narrow desktop/mobile; light/dark; keyboard and nested-dialog focus/Escape. No external Ultralytics mutation is needed.
 
-Before each implementation commit, update [training dataset architecture](../../docs-site/dev/concepts/training-datasets.md), [API guide](../../docs-site/api/guides/training-datasets.md), [online-learning user guide](../../docs-site/user-guide/projects/online-learning.md), relevant README/API artifacts, and the Unreleased changelog as affected. Record migration/rollback commands in the existing developer/runtime documentation. Review the final diff, clean all test-generated intermediate artifacts, and distinguish local tests, actual browser verification, and remote CI in the handoff.
+Before each implementation commit, update [training dataset architecture](../../docs-site/dev/concepts/training-datasets.md), [API guide](../../docs-site/api/guides/training-datasets.md), [online-learning user guide](../../docs-site/user-guide/online-learning/index.md), relevant README/API artifacts, and the Unreleased changelog as affected. Record migration/rollback commands in the existing developer/runtime documentation. Review the final diff, clean all test-generated intermediate artifacts, and distinguish local tests, actual browser verification, and remote CI in the handoff.
 
 ## Outcome
 
 - Delivered all four phases: task-first version browsing and accurate server pagination; persistent project/task streams and monotonic membership ordinals; typed detection/segmentation insight adapters; detection distributions, paired frozen-member inspection, centered creation, and explicit exact-version experiment adoption.
 - Landed foundation commits: `8f3adca02`, `c2effd518`, `7c9648ca7`, `44f1a192b`, `197423f2a`, `383e3a315`, `bd176e2a3`, `c7100e6e5`, `b6e52c54e`, and `adb460a2d`. Final API contracts landed in `2cf3da1f0`, and presentation integration landed in `1bb9f9604`.
 - Release milestone: Not yet determined. No application or SDK version was bumped.
-- User documentation: `docs-site/user-guide/projects/online-learning.md`.
+- User documentation: `docs-site/user-guide/online-learning/index.md`.
 - Developer documentation: `docs-site/dev/concepts/training-datasets.md`, `DEV.md`, and `README.md`.
 - API documentation/artifacts: `docs-site/api/guides/training-datasets.md`, `apps/api/openapi.snapshot.json`, regenerated local web types, and the Python SDK API-coverage manifest. The two new management GET resources remain explicitly web-only.
 - ADR: `docs/adr/archive/0087-project-task-dataset-streams.md`, indexed from `docs/adr/README.md`.

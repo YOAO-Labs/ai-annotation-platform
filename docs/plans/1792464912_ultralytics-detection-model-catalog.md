@@ -318,7 +318,7 @@ Credential requirements are unchanged: the user's existing platform session auth
 Update enduring documentation alongside each implemented increment, not by presenting this draft as an already shipped feature:
 
 - [Model-market guide](../../docs-site/user-guide/superadmin/model-market.md): protocol versus model browsing, available actions, role differences, availability reasons, and declared versus checkpoint-verified class metadata.
-- [Model-return guide](../../docs-site/user-guide/projects/model-return.md): publish once, discover and use across entry points, exact version versus current release, class mapping and provenance.
+- [Model-return guide](../../docs-site/user-guide/online-learning/models.md): publish once, discover and use across entry points, exact version versus current release, class mapping and provenance.
 - [Preannotation guide](../../docs-site/user-guide/projects/ai-preannotate.md), [pipeline workflow](../../docs-site/user-guide/workflows/ai-preannotate-pipeline.md), [pipeline library](../../docs-site/user-guide/projects/pipeline-library.md), and [Workbench guide](../../docs-site/user-guide/workbench/index.md): the actual selection and execution boundaries.
 - [Pipeline architecture](../../docs-site/dev/concepts/prediction-pipeline.md), API reference/OpenAPI artifacts, relevant README overview, ADRs, and `CHANGELOG.md`: identities, snapshot retention, retry semantics, and migration limits.
 

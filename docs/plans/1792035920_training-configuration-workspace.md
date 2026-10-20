@@ -55,7 +55,7 @@ New drafts require explicit data/base-model selection. Catalog polling never rep
 - `apps/web/src/pages/Projects/ProjectLearningPage.tsx`: old-link redirection and remove the ready-dataset pagination formerly owned by the modal.
 - `apps/web/src/App.tsx`: lazy route integration with the existing project-management guard. `apps/web/package.json` and `pnpm-lock.yaml`: declare the already locked `yaml@2.8.4` directly; do not use an undeclared transitive dependency.
 - `apps/web/src/api/trainingRuns.ts`: optional abort signals for catalog/schema/preflight requests and reuse of the generated catalog template type, including announced parameter identities. No wire API changes.
-- `docs-site/user-guide/projects/online-learning.md`, `CHANGELOG.md`, this promoted plan, backlog index and dependent draft links.
+- `docs-site/user-guide/online-learning/index.md`, `CHANGELOG.md`, this promoted plan, backlog index and dependent draft links.
 
 ### Configuration and import contract
 

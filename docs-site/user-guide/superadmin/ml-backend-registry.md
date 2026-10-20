@@ -167,7 +167,7 @@ POST   /admin/ml-integrations/service-pools/:pool_id/members/:registry_id/capabi
 - **GPU 资源诊断**：超管可查看逐卡容量、静态预算、desired → effective mode 及配置 blocker。`observe` 仅记录影子决策，不会拒绝、排队或驱逐请求。
 - **`max_concurrency`**：写入 `extra_params.max_concurrency`；本地 semaphore 始终生效，`ML_BACKEND_ROUTER_MODE=enforce` 时再由 Redis route lease 把 API 与多个 Celery worker 收口到同一实例上限。GPU 仲裁的逐资源 effective mode 管显存准入与驱逐，是另一条独立门禁。
 
-训练完成后的候选注册、加载试用和人工发布见[训练模型回流与发布](../projects/model-return)。全局服务注册不会自动把权重加入项目模型。
+训练完成后的候选注册、加载试用和人工发布见[模型回流与默认预标](../online-learning/models)。全局服务注册不会自动把权重加入项目模型。
 
 ## 相关
 

@@ -9,7 +9,7 @@ last_reviewed: 2026-10-19
 
 训练完成后，权重还需要安装到推理服务、通过试用并由负责人发布，才能用于项目预标注。服务的访问凭据、项目启用和请求路由分别检查不同条件，因此服务在线、认证成功和模型可用是几个独立状态。
 
-本页解释这些对象和请求的关系。实际操作入口见 [ML Backend 注册表](../../user-guide/superadmin/ml-backend-registry)、[模型回流](../../user-guide/projects/online-learning#注册模型与回流)和[系统设置](../../user-guide/reference/settings#ml-服务认证与维护)。
+本页解释这些对象和请求的关系。实际操作入口见 [ML Backend 注册表](../../user-guide/superadmin/ml-backend-registry)、[模型回流](../../user-guide/online-learning/models)和[系统设置](../../user-guide/reference/settings#ml-服务认证与维护)。
 
 ## 服务实例、模型和服务池
 

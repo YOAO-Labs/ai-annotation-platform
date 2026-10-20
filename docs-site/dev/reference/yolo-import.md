@@ -48,4 +48,4 @@ YOLO label 文件没有 task id，所以按 label 文件 stem 匹配 task 的图
 
 本页的 `yolo_variant=seg` 导入的是 YOLO 文本多边形，每行转换为内部 `polygon`，不提供原始逐像素掩码。它不能替代受控 `yolo11n-seg` 的实例掩码输出，也不能用于无损保存孔洞和同一实例的断连部件。
 
-平台训练模型回流走 `/managed-models` 安装与固定身份推理，分割权威结果为原图逐实例 canonical COCO RLE，内部使用 `raster_mask` 内容引用。正式逐样本评估直接比较冻结掩码像素；旧多边形真值则显式按固定规则栅格化。接口、运行时收据和任务隔离约束见 [ML Backend 协议契约](./ml-backend-protocol)，人工采纳、修正、审核和下一轮冻结见[训练模型回流与发布](/user-guide/projects/model-return)。
+平台训练模型回流走 `/managed-models` 安装与固定身份推理，分割权威结果为原图逐实例 canonical COCO RLE，内部使用 `raster_mask` 内容引用。正式逐样本评估直接比较冻结掩码像素；旧多边形真值则显式按固定规则栅格化。接口、运行时收据和任务隔离约束见 [ML Backend 协议契约](./ml-backend-protocol)，人工采纳、修正、审核和下一轮冻结见[模型回流与默认预标](/user-guide/online-learning/models)。

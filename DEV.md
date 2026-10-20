@@ -523,6 +523,9 @@ pnpm openapi:check               # CI 校验
 # 文档站
 pnpm docs:dev                    # http://localhost:5173
 pnpm docs:build
+# 从共享训练契约更新两训练仓库的完整参数表；--check 只核对一致性
+apps/api/.venv/bin/python docs-site/scripts/generate-training-reference.py
+apps/api/.venv/bin/python docs-site/scripts/generate-training-reference.py --check
 pnpm --filter @anno/docs-site check:all  # 文档元数据、导航与生成物检查
 ```
 

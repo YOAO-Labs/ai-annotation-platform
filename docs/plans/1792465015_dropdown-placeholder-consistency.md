@@ -20,7 +20,7 @@
 - Added retained selections for pagination, refreshed model/deployment/service lists, connection creation, video/point-cloud controls and receiver/project choices. A missing preset in a different backend/task bucket returns to the prompt without applying another preset. Invalid deployment, merge and receiver choices cannot proceed as a different object.
 - Verification: the full web suite plus corrected asynchronous-wait reruns cover 603 test files and 6,121 passing tests; the four rerun files passed all 58 tests. Nine browser fixture checks passed across desktop light/dark and narrow viewports. Manual browser inspection confirmed both themes, no console errors and no API traffic for the isolated fixture. These checks do not claim a live training/inference run or remote CI.
 - Web lint, the CSS token gate, type checking, formatting and diff checks passed. Five existing lint warnings and two existing style advisories remain. Test output, temporary screenshots/logs, the task browser session and the task Vite server were cleaned up.
-- User documentation: `docs-site/user-guide/projects/online-learning.md`.
+- User documentation: `docs-site/user-guide/online-learning/index.md`.
 - Developer documentation: `docs-site/dev/reference/design-system.md`.
 - CHANGELOG: Unreleased fix entry.
 - Release milestone: Not yet determined.

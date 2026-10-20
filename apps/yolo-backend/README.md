@@ -201,4 +201,4 @@ CI 使用 `bash scripts/run-ml-cpu-tests.sh run yolo` 创建临时虚拟环境�
 
 安装先核对精确 SHA256、字节数、原始类别顺序和 native metadata，再检查全部主模型张量确实加载；仅原生辅助训练头可不进入推理结构。原生单图 Results 的所有检测均保留，按原图尺寸验证坐标、类别和置信度后转换一次百分比。收据固定框架、版本、家族、规格、格式、字节数和运行时资格；模型池以 UUID、权重 SHA 和收据摘要隔离实例与类别缓存，仍遵守原有借用和取消保护。
 
-重建当前镜像时一并安装共享 `aap-training-contract`，保留 checkpoints 卷的 `managed/` 权重与收据。平台完成固定验证图试用后，仍须负责人明确发布或回滚。共享逐样本评估及主动选样目前只接受 Ultralytics；原生推理成功不授予共享评估资格。平台流程见[在线学习](../../docs-site/user-guide/projects/online-learning.md)。
+重建当前镜像时一并安装共享 `aap-training-contract`，保留 checkpoints 卷的 `managed/` 权重与收据。平台完成固定验证图试用后，仍须负责人明确发布或回滚。共享逐样本评估及主动选样目前只接受 Ultralytics；原生推理成功不授予共享评估资格。平台流程见[在线学习](../../docs-site/user-guide/online-learning/index.md)。

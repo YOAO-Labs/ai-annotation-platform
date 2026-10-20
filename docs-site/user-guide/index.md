@@ -4,7 +4,7 @@ aside: false
 audience: [annotator, reviewer, project_admin, super_admin]
 type: explanation
 status: stable
-last_reviewed: 2026-07-12
+last_reviewed: 2026-10-20
 ---
 
 # 用户手册
@@ -29,6 +29,16 @@ last_reviewed: 2026-07-12
   <DocLinkCard title="导出结果" desc="按目标格式导出已完成的标注数据" href="/user-guide/reference/export-formats" />
 </div>
 
+## 在线学习
+
+项目负责人可从训练数据准备一路完成模型回流，再根据数据增长启用自动训练：
+
+<div class="doc-card-grid cols-3">
+  <DocLinkCard title="在线学习总览" desc="了解数据版本、实验、候选模型与默认预标的关系" href="/user-guide/online-learning/" />
+  <DocLinkCard title="完成第一轮与第二轮" desc="从已检查标注开始训练，再用人工修正的数据迭代" href="/user-guide/online-learning/quick-start" />
+  <DocLinkCard title="自动训练策略" desc="按已审核数据的变化门槛与冷却时间触发下一轮" href="/user-guide/online-learning/automation" />
+</div>
+
 ## 按角色定位
 
 需要确认权限范围时，选择与你的工作身份对应的入口：
@@ -45,8 +55,8 @@ last_reviewed: 2026-07-12
 
 需要查概念、快捷键或账号设置时：
 
-- [平台概念与术语](./concepts) — 了解任务、批次和标注的关系。
-- [工作台概览与快捷键](./workbench/) — 查看界面分区和完整快捷键。
-- [设置页](./reference/settings) — 修改密码、通知偏好和标注偏好。
-- 提交 BUG 或问题 — 使用工作台顶栏或其他页面右下角的反馈按钮；普通页面顶栏可查看当前前端版本。
-- [常见问题 FAQ](./faq) — 查找常见使用问题。
+- [平台概念与术语](./concepts)：了解任务、批次和标注的关系。
+- [工作台概览与快捷键](./workbench/)：查看界面分区和完整快捷键。
+- [设置页](./reference/settings)：修改密码、通知偏好和标注偏好。
+- 提交 BUG 或问题：使用工作台顶栏或其他页面右下角的反馈按钮；普通页面顶栏可查看当前前端版本。
+- [常见问题 FAQ](./faq)：查找常见使用问题。

@@ -63,7 +63,7 @@ This is a large change across API, a new shared package, executor/build, and web
 - API: `app/schemas/training_run.py`, `training_hub.py`, `learning_policy.py`; `app/services/training_adapters.py`, `training_runs.py`, `learning_policies.py`; `app/api/v1/training_runs.py`, `training_hub.py`, `learning_policies.py`; `pyproject.toml`, `uv.lock`, and `openapi.snapshot.json`; focused training/learning-policy tests.
 - Executor: `training_executor/adapters.py`, `train.py`, `libreyolo_adapter.py`, `worker.py`; `pyproject.toml`, `uv.lock`, `export_requirements.py`, `requirements.lock`, `Dockerfile`; adapter tests. `docker-compose.training.yml` and `infra/docker/Dockerfile.api` package the shared definition.
 - Web: `api/trainingRuns.ts`, `api/trainingHub.ts`, a read-only parameter inventory view under `pages/Training/`, `TrainingPage.tsx`, and its focused tests. T02 owns the full editor; removed homepage choose/train actions stay removed.
-- Documentation: `README.md`, `CHANGELOG.md`, `docs-site/user-guide/projects/online-learning.md`, `docs-site/api/guides/training-datasets.md`, `docs-site/dev/concepts/training-datasets.md`, `docs-site/ops/deploy/docker-compose.md`, generated API route docs, this plan, backlog links, and `packages/python-sdk/api-coverage.toml` if a new route needs an explicit disposition.
+- Documentation: `README.md`, `CHANGELOG.md`, `docs-site/user-guide/online-learning/index.md`, `docs-site/api/guides/training-datasets.md`, `docs-site/dev/concepts/training-datasets.md`, `docs-site/ops/deploy/docker-compose.md`, generated API route docs, this plan, backlog links, and `packages/python-sdk/api-coverage.toml` if a new route needs an explicit disposition.
 
 ### Settled contracts and compatibility
 
