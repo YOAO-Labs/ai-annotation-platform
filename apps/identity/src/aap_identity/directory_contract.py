@@ -646,7 +646,6 @@ def _validated_failure(
     *,
     command: _WireRequestBase | _NativeCommandBase,
     native: bool,
-    expected_principal: Principal | None,
 ) -> DirectoryFailure:
     model = NativeDirectoryFailureReply if native else DirectoryFailureReply
     try:
@@ -654,18 +653,6 @@ def _validated_failure(
     except (ValidationError, ValueError, TypeError, UnicodeError):
         raise IdentityUnavailable() from None
     if not _expected_failure(command, reply.error):
-        raise IdentityUnavailable()
-    current_role = (
-        command.actor.role
-        if native and isinstance(command, _NativeCommandBase)
-        else expected_principal.role
-        if expected_principal is not None
-        else None
-    )
-    if reply.error.code == "manager_required" and current_role in {
-        "super_admin",
-        "project_admin",
-    }:
         raise IdentityUnavailable()
     if isinstance(command, _WireRequestBase) and reply.error.detail is not None:
         if command.token in reply.error.detail:
@@ -790,7 +777,6 @@ def _decode_success(
             encoded,
             command=command,
             native=native,
-            expected_principal=expected_principal,
         )
     adapter = _NATIVE_DIRECTORY_SUCCESSES if native else _DIRECTORY_SUCCESSES
     try:

@@ -9,6 +9,7 @@ from pydantic import ValidationError
 
 from aap_identity.contract import IdentityUnavailable
 from aap_identity.directory_contract import (
+    NATIVE_DIRECTORY_PROTOCOL,
     DIRECTORY_PROTOCOL,
     DirectoryFailure,
     decode_directory_reply,
@@ -299,12 +300,33 @@ def test_failure_shapes_and_invalid_role_details_are_request_bound():
             "detail": "需要角色权限: super_admin或project_admin",
         },
     }
-    with pytest.raises(IdentityUnavailable):
+    request = directory_request("query_users")
+    stale_manager = principal(role="super_admin")
+    with pytest.raises(DirectoryFailure) as wire_failure:
         decode_directory_reply(
-            directory_request("query_users"),
+            request,
             manager_required,
-            expected_principal=principal(role="super_admin"),
+            expected_principal=stale_manager,
         )
+    assert wire_failure.value.code == "manager_required"
+    assert wire_failure.value.status_code == 403
+    assert wire_failure.value.detail == "需要角色权限: super_admin或project_admin"
+
+    command = native_command(request, actor=stale_manager)
+    native_manager_required = {
+        "schema": NATIVE_DIRECTORY_PROTOCOL,
+        "ok": False,
+        "error": {
+            "code": "manager_required",
+            "status_code": 403,
+            "detail": "需要角色权限: super_admin或project_admin",
+        },
+    }
+    with pytest.raises(DirectoryFailure) as native_failure:
+        decode_native_directory_reply(command, native_manager_required)
+    assert native_failure.value.code == "manager_required"
+    assert native_failure.value.status_code == 403
+    assert native_failure.value.detail == "需要角色权限: super_admin或project_admin"
 
 
 def test_export_receipt_replay_allows_frozen_selection_and_metadata_but_fresh_does_not():
