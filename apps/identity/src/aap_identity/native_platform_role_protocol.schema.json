@@ -1,0 +1,994 @@
+{
+  "$defs": {
+    "DirectoryUserRecord": {
+      "additionalProperties": false,
+      "description": "The exact public UserOut projection, with historical role/status strings.",
+      "properties": {
+        "avatar_ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Avatar Ref"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "deactivation_requested_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Deactivation Requested At"
+        },
+        "deactivation_scheduled_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Deactivation Scheduled At"
+        },
+        "disabled_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Disabled At"
+        },
+        "disabled_by": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Disabled By"
+        },
+        "disabled_kind": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Disabled Kind"
+        },
+        "disabled_reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Disabled Reason"
+        },
+        "email": {
+          "title": "Email",
+          "type": "string"
+        },
+        "email_verified_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Email Verified At"
+        },
+        "group_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Group Id"
+        },
+        "group_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Group Name"
+        },
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "is_active": {
+          "title": "Is Active",
+          "type": "boolean"
+        },
+        "last_login_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Last Login At"
+        },
+        "last_seen_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Last Seen At"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "password_admin_reset_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Password Admin Reset At"
+        },
+        "preferences": {
+          "additionalProperties": true,
+          "title": "Preferences",
+          "type": "object"
+        },
+        "role": {
+          "title": "Role",
+          "type": "string"
+        },
+        "status": {
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "email",
+        "name",
+        "role",
+        "group_name",
+        "group_id",
+        "status",
+        "is_active",
+        "disabled_kind",
+        "disabled_at",
+        "disabled_by",
+        "disabled_reason",
+        "email_verified_at",
+        "last_login_at",
+        "last_seen_at",
+        "password_admin_reset_at",
+        "deactivation_requested_at",
+        "deactivation_scheduled_at",
+        "preferences",
+        "avatar_ref",
+        "created_at"
+      ],
+      "title": "DirectoryUserRecord",
+      "type": "object"
+    },
+    "NativeChangePlatformRoleCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "actor": {
+          "$ref": "#/$defs/Principal"
+        },
+        "audit_context": {
+          "$ref": "#/$defs/SessionAuditContext"
+        },
+        "derivation_id": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Derivation Id",
+          "type": "string"
+        },
+        "expected_key_hash": {
+          "anyOf": [
+            {
+              "maxLength": 255,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Expected Key Hash"
+        },
+        "operation": {
+          "const": "change_platform_role",
+          "title": "Operation",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/PlatformRolePayload"
+        },
+        "request_fingerprint": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Request Fingerprint",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-identity-platform-roles-native/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema",
+        "operation_id",
+        "actor",
+        "expected_key_hash",
+        "request_fingerprint",
+        "derivation_id",
+        "audit_context",
+        "payload",
+        "operation"
+      ],
+      "title": "NativeChangePlatformRoleCommand",
+      "type": "object"
+    },
+    "NativeChangePlatformRoleReply": {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "$ref": "#/$defs/PlatformRoleChangeData"
+        },
+        "ok": {
+          "const": true,
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "operation": {
+          "const": "change_platform_role",
+          "title": "Operation",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "principal": {
+          "$ref": "#/$defs/Principal"
+        },
+        "replayed": {
+          "title": "Replayed",
+          "type": "boolean"
+        },
+        "schema": {
+          "const": "aap-identity-platform-roles-native/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "ok", "operation_id", "principal", "replayed", "operation", "data"],
+      "title": "NativeChangePlatformRoleReply",
+      "type": "object"
+    },
+    "NativePlatformRoleFailureReply": {
+      "additionalProperties": false,
+      "properties": {
+        "error": {
+          "$ref": "#/$defs/PlatformRoleFailureDetail"
+        },
+        "ok": {
+          "const": false,
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "schema": {
+          "const": "aap-identity-platform-roles-native/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "ok", "error"],
+      "title": "NativePlatformRoleFailureReply",
+      "type": "object"
+    },
+    "NativePlatformRolePolicyReply": {
+      "additionalProperties": false,
+      "properties": {
+        "policy": {
+          "const": "aap-identity-platform-roles/v1",
+          "title": "Policy",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-identity-platform-roles-policy/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "policy"],
+      "title": "NativePlatformRolePolicyReply",
+      "type": "object"
+    },
+    "NativePreviewRoleChangeCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "actor": {
+          "$ref": "#/$defs/Principal"
+        },
+        "audit_context": {
+          "$ref": "#/$defs/SessionAuditContext"
+        },
+        "derivation_id": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Derivation Id",
+          "type": "string"
+        },
+        "expected_key_hash": {
+          "anyOf": [
+            {
+              "maxLength": 255,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Expected Key Hash"
+        },
+        "operation": {
+          "const": "preview_role_change",
+          "title": "Operation",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/PlatformRolePayload"
+        },
+        "request_fingerprint": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Request Fingerprint",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-identity-platform-roles-native/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema",
+        "operation_id",
+        "actor",
+        "expected_key_hash",
+        "request_fingerprint",
+        "derivation_id",
+        "audit_context",
+        "payload",
+        "operation"
+      ],
+      "title": "NativePreviewRoleChangeCommand",
+      "type": "object"
+    },
+    "NativePreviewRoleChangeReply": {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "$ref": "#/$defs/PlatformRolePreviewData"
+        },
+        "ok": {
+          "const": true,
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "operation": {
+          "const": "preview_role_change",
+          "title": "Operation",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "principal": {
+          "$ref": "#/$defs/Principal"
+        },
+        "replayed": {
+          "title": "Replayed",
+          "type": "boolean"
+        },
+        "schema": {
+          "const": "aap-identity-platform-roles-native/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "ok", "operation_id", "principal", "replayed", "operation", "data"],
+      "title": "NativePreviewRoleChangeReply",
+      "type": "object"
+    },
+    "PlatformRoleBlockedDetail": {
+      "additionalProperties": false,
+      "properties": {
+        "blockers": {
+          "items": {
+            "enum": [
+              "\u4e0d\u80fd\u4fee\u6539\u81ea\u5df1\u7684\u89d2\u8272",
+              "\u76ee\u6807\u89d2\u8272\u4e0e\u5f53\u524d\u89d2\u8272\u76f8\u540c",
+              "\u4e0d\u80fd\u964d\u7ea7\u6700\u540e\u4e00\u540d\u8d85\u7ea7\u7ba1\u7406\u5458",
+              "\u8d26\u53f7\u4ecd\u6301\u6709\u6807\u6ce8/\u8d28\u68c0\u9879\u76ee\u804c\u8d23\uff0c\u8bf7\u5148\u5728\u9879\u76ee\u4e2d\u53d8\u66f4\u804c\u8d23",
+              "\u8d26\u53f7\u4ecd\u662f\u9879\u76ee\u8d1f\u8d23\u4eba\uff0c\u8bf7\u5148\u8f6c\u79fb\u9879\u76ee\u540e\u53d8\u66f4\u5e73\u53f0\u89d2\u8272",
+              "\u8d26\u53f7\u4ecd\u6709\u672a\u5b8c\u6210\u7684\u6807\u6ce8/\u8d28\u68c0\u5de5\u4f5c\uff0c\u8bf7\u5148\u4ea4\u63a5"
+            ],
+            "type": "string"
+          },
+          "title": "Blockers",
+          "type": "array"
+        },
+        "reason": {
+          "const": "platform_role_change_blocked",
+          "title": "Reason",
+          "type": "string"
+        }
+      },
+      "required": ["reason", "blockers"],
+      "title": "PlatformRoleBlockedDetail",
+      "type": "object"
+    },
+    "PlatformRoleChangeData": {
+      "additionalProperties": false,
+      "properties": {
+        "user": {
+          "$ref": "#/$defs/DirectoryUserRecord"
+        }
+      },
+      "required": ["user"],
+      "title": "PlatformRoleChangeData",
+      "type": "object"
+    },
+    "PlatformRoleFailureDetail": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "anyOf": [
+            {
+              "enum": [
+                "invalid_request",
+                "credential_invalid",
+                "credential_revoked",
+                "generation_outdated",
+                "token_expired",
+                "user_inactive",
+                "invalid_account_role",
+                "credential_busy"
+              ],
+              "type": "string"
+            },
+            {
+              "enum": [
+                "super_admin_required",
+                "target_not_found",
+                "invalid_platform_role",
+                "self_change",
+                "last_super_admin",
+                "account_busy",
+                "project_busy",
+                "platform_role_change_blocked",
+                "operation_conflict",
+                "unavailable"
+              ],
+              "type": "string"
+            }
+          ],
+          "title": "Code"
+        },
+        "detail": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "$ref": "#/$defs/ProjectBusyDetail"
+            },
+            {
+              "$ref": "#/$defs/PlatformRoleBlockedDetail"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Detail"
+        },
+        "status_code": {
+          "anyOf": [
+            {
+              "maximum": 599,
+              "minimum": 400,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Status Code"
+        }
+      },
+      "required": ["code", "status_code", "detail"],
+      "title": "PlatformRoleFailureDetail",
+      "type": "object"
+    },
+    "PlatformRolePayload": {
+      "additionalProperties": false,
+      "properties": {
+        "role": {
+          "title": "Role",
+          "type": "string"
+        },
+        "target_user_id": {
+          "format": "uuid",
+          "title": "Target User Id",
+          "type": "string"
+        }
+      },
+      "required": ["target_user_id", "role"],
+      "title": "PlatformRolePayload",
+      "type": "object"
+    },
+    "PlatformRolePreviewData": {
+      "additionalProperties": false,
+      "properties": {
+        "assigned_batch_count": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Assigned Batch Count",
+          "type": "integer"
+        },
+        "assigned_task_count": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Assigned Task Count",
+          "type": "integer"
+        },
+        "blockers": {
+          "items": {
+            "enum": [
+              "\u4e0d\u80fd\u4fee\u6539\u81ea\u5df1\u7684\u89d2\u8272",
+              "\u76ee\u6807\u89d2\u8272\u4e0e\u5f53\u524d\u89d2\u8272\u76f8\u540c",
+              "\u4e0d\u80fd\u964d\u7ea7\u6700\u540e\u4e00\u540d\u8d85\u7ea7\u7ba1\u7406\u5458",
+              "\u8d26\u53f7\u4ecd\u6301\u6709\u6807\u6ce8/\u8d28\u68c0\u9879\u76ee\u804c\u8d23\uff0c\u8bf7\u5148\u5728\u9879\u76ee\u4e2d\u53d8\u66f4\u804c\u8d23",
+              "\u8d26\u53f7\u4ecd\u662f\u9879\u76ee\u8d1f\u8d23\u4eba\uff0c\u8bf7\u5148\u8f6c\u79fb\u9879\u76ee\u540e\u53d8\u66f4\u5e73\u53f0\u89d2\u8272",
+              "\u8d26\u53f7\u4ecd\u6709\u672a\u5b8c\u6210\u7684\u6807\u6ce8/\u8d28\u68c0\u5de5\u4f5c\uff0c\u8bf7\u5148\u4ea4\u63a5"
+            ],
+            "type": "string"
+          },
+          "title": "Blockers",
+          "type": "array"
+        },
+        "can_change": {
+          "title": "Can Change",
+          "type": "boolean"
+        },
+        "current_role": {
+          "title": "Current Role",
+          "type": "string"
+        },
+        "email": {
+          "title": "Email",
+          "type": "string"
+        },
+        "other_project_count": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Other Project Count",
+          "type": "integer"
+        },
+        "projects": {
+          "items": {
+            "$ref": "#/$defs/PlatformRolePreviewProject"
+          },
+          "title": "Projects",
+          "type": "array"
+        },
+        "requested_role": {
+          "title": "Requested Role",
+          "type": "string"
+        },
+        "review_task_count": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Review Task Count",
+          "type": "integer"
+        },
+        "user_id": {
+          "format": "uuid",
+          "title": "User Id",
+          "type": "string"
+        },
+        "warnings": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Warnings",
+          "type": "array"
+        }
+      },
+      "required": [
+        "user_id",
+        "email",
+        "current_role",
+        "requested_role",
+        "can_change",
+        "blockers",
+        "projects",
+        "assigned_batch_count",
+        "assigned_task_count",
+        "review_task_count",
+        "other_project_count",
+        "warnings"
+      ],
+      "title": "PlatformRolePreviewData",
+      "type": "object"
+    },
+    "PlatformRolePreviewProject": {
+      "additionalProperties": false,
+      "properties": {
+        "annotator_batch_count": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Annotator Batch Count",
+          "type": "integer"
+        },
+        "assigned_task_count": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Assigned Task Count",
+          "type": "integer"
+        },
+        "membership_role": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Membership Role"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "project_name": {
+          "title": "Project Name",
+          "type": "string"
+        },
+        "review_task_count": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Review Task Count",
+          "type": "integer"
+        },
+        "reviewer_batch_count": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Reviewer Batch Count",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "project_id",
+        "project_name",
+        "membership_role",
+        "annotator_batch_count",
+        "reviewer_batch_count",
+        "assigned_task_count",
+        "review_task_count"
+      ],
+      "title": "PlatformRolePreviewProject",
+      "type": "object"
+    },
+    "Principal": {
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "oneOf": [
+            {
+              "properties": {
+                "credential_type": {
+                  "const": "jwt"
+                },
+                "expires_at": {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                "generation": {
+                  "exclusiveMaximum": 9223372036854775808,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "scopes": {
+                  "type": "null"
+                }
+              }
+            },
+            {
+              "properties": {
+                "credential_type": {
+                  "const": "api_key"
+                },
+                "generation": {
+                  "type": "null"
+                },
+                "scopes": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                }
+              }
+            }
+          ]
+        }
+      ],
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "credential_id": {
+          "format": "uuid",
+          "title": "Credential Id",
+          "type": "string"
+        },
+        "credential_type": {
+          "enum": ["jwt", "api_key"],
+          "title": "Credential Type",
+          "type": "string"
+        },
+        "email": {
+          "title": "Email",
+          "type": "string"
+        },
+        "expires_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Expires At"
+        },
+        "generation": {
+          "anyOf": [
+            {
+              "exclusiveMaximum": 9223372036854775808,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Generation"
+        },
+        "is_active": {
+          "const": true,
+          "title": "Is Active",
+          "type": "boolean"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "role": {
+          "enum": ["super_admin", "project_admin", "employee", "viewer"],
+          "title": "Role",
+          "type": "string"
+        },
+        "scopes": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Scopes"
+        }
+      },
+      "required": [
+        "actor_id",
+        "name",
+        "email",
+        "role",
+        "is_active",
+        "credential_type",
+        "credential_id",
+        "generation",
+        "scopes",
+        "expires_at"
+      ],
+      "title": "Principal",
+      "type": "object"
+    },
+    "ProjectBusyDetail": {
+      "additionalProperties": false,
+      "properties": {
+        "reason": {
+          "const": "project_busy",
+          "title": "Reason",
+          "type": "string"
+        }
+      },
+      "required": ["reason"],
+      "title": "ProjectBusyDetail",
+      "type": "object"
+    },
+    "SessionAuditContext": {
+      "additionalProperties": false,
+      "properties": {
+        "ip": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Ip"
+        },
+        "method": {
+          "anyOf": [
+            {
+              "maxLength": 8,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Method"
+        },
+        "path": {
+          "anyOf": [
+            {
+              "maxLength": 256,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Path"
+        },
+        "request_id": {
+          "anyOf": [
+            {
+              "maxLength": 36,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Request Id"
+        }
+      },
+      "required": ["method", "path", "ip", "request_id"],
+      "title": "SessionAuditContext",
+      "type": "object"
+    }
+  },
+  "$id": "aap-identity-platform-roles-native/v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "anyOf": [
+    {
+      "discriminator": {
+        "mapping": {
+          "change_platform_role": "#/$defs/NativeChangePlatformRoleCommand",
+          "preview_role_change": "#/$defs/NativePreviewRoleChangeCommand"
+        },
+        "propertyName": "operation"
+      },
+      "oneOf": [
+        {
+          "$ref": "#/$defs/NativePreviewRoleChangeCommand"
+        },
+        {
+          "$ref": "#/$defs/NativeChangePlatformRoleCommand"
+        }
+      ]
+    },
+    {
+      "discriminator": {
+        "mapping": {
+          "change_platform_role": "#/$defs/NativeChangePlatformRoleReply",
+          "preview_role_change": "#/$defs/NativePreviewRoleChangeReply"
+        },
+        "propertyName": "operation"
+      },
+      "oneOf": [
+        {
+          "$ref": "#/$defs/NativePreviewRoleChangeReply"
+        },
+        {
+          "$ref": "#/$defs/NativeChangePlatformRoleReply"
+        }
+      ]
+    },
+    {
+      "$ref": "#/$defs/NativePlatformRoleFailureReply"
+    },
+    {
+      "$ref": "#/$defs/NativePlatformRolePolicyReply"
+    }
+  ]
+}

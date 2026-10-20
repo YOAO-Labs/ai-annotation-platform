@@ -88,6 +88,15 @@ from aap_identity.presence_contract import (
     decode_presence_request,
 )
 from aap_identity.presence_postgres import PresencePostgresData
+from aap_identity.platform_role_contract import (
+    PLATFORM_ROLE_POLICY_PROTOCOL,
+    PLATFORM_ROLE_PROTOCOL,
+    PlatformRoleFailure,
+    decode_platform_role_request,
+    platform_role_failure_reply,
+)
+from aap_identity.platform_role_manager import PlatformRoleManager
+from aap_identity.platform_role_postgres import PlatformRolePostgresData
 from aap_identity.recovery_contract import (
     RECOVERY_POLICY_PROTOCOL,
     RECOVERY_PROTOCOL,
@@ -129,6 +138,7 @@ def create_app(
     invitation_data: InvitationPostgresData | None = None,
     directory_data: DirectoryPostgresData | None = None,
     admin_password_data: AdminPasswordPostgresData | None = None,
+    platform_role_data: PlatformRolePostgresData | None = None,
 ) -> FastAPI:
     settings = settings or Settings()
     data = data or PostgresData(
@@ -287,6 +297,23 @@ def create_app(
         if admin_password_data is not None
         else None
     )
+    platform_role_configured = (
+        platform_role_data is not None
+        or settings.platform_role_database_url is not None
+    )
+    if platform_role_data is None and settings.platform_role_database_url is not None:
+        platform_role_data = PlatformRolePostgresData(
+            settings.platform_role_database_url.get_secret_value(),
+            connect_timeout=settings.connect_timeout_seconds,
+            command_timeout=settings.command_timeout_seconds,
+        )
+    platform_roles = (
+        PlatformRoleManager(
+            auth, platform_role_data, settings.signing_secret.get_secret_value()
+        )
+        if platform_role_data is not None
+        else None
+    )
     deactivation_configured = (
         deactivation_data is not None or settings.deactivation_database_url is not None
     )
@@ -365,6 +392,12 @@ def create_app(
                         raise IdentityUnavailable()
                     admin_password_policy = (
                         await admin_password_data.admin_password_policy()
+                    )
+                if platform_role_configured:
+                    if platform_role_data is None:
+                        raise IdentityUnavailable()
+                    platform_role_policy = (
+                        await platform_role_data.platform_role_policy()
                     )
                 if deactivation_configured:
                     if deactivation_data is None:
@@ -456,6 +489,17 @@ def create_app(
                 if admin_password_policy_value != {
                     "schema": ADMIN_PASSWORD_POLICY_PROTOCOL,
                     "policy": ADMIN_PASSWORD_PROTOCOL,
+                }:
+                    raise IdentityUnavailable()
+            if platform_role_configured:
+                platform_role_policy_value = (
+                    platform_role_policy.model_dump(mode="json", by_alias=True)
+                    if hasattr(platform_role_policy, "model_dump")
+                    else platform_role_policy
+                )
+                if platform_role_policy_value != {
+                    "schema": PLATFORM_ROLE_POLICY_PROTOCOL,
+                    "policy": PLATFORM_ROLE_PROTOCOL,
                 }:
                     raise IdentityUnavailable()
             if deactivation_configured:
@@ -887,6 +931,52 @@ def create_app(
         except (IdentityUnavailable, TimeoutError):
             return JSONResponse(
                 {"detail": "Identity administrator password service unavailable"},
+                status_code=503,
+            )
+        return JSONResponse(reply.model_dump(mode="json", by_alias=True))
+
+    @app.post("/v1/identity/platform-roles/execute")
+    async def execute_platform_role_command(request: Request):
+        supplied = request.headers.get("authorization", "").encode()
+        expected = ("Bearer " + settings.token.get_secret_value()).encode()
+        if not hmac.compare_digest(supplied, expected):
+            return JSONResponse({"detail": "Unauthorized"}, status_code=401)
+        if (
+            request.headers.get("content-type", "").split(";", 1)[0].strip().lower()
+            != "application/json"
+        ):
+            return JSONResponse(
+                platform_role_failure_reply("invalid_request"), status_code=400
+            )
+        if platform_roles is None:
+            return JSONResponse(
+                {"detail": "Identity platform-role commands unavailable"},
+                status_code=503,
+            )
+        try:
+            async with asyncio.timeout(settings.request_timeout_seconds):
+                async with slots:
+                    body = bytearray()
+                    async for chunk in request.stream():
+                        body.extend(chunk)
+                        if len(body) > 65536:
+                            return JSONResponse(
+                                platform_role_failure_reply("invalid_request"),
+                                status_code=400,
+                            )
+                    try:
+                        parsed = decode_platform_role_request(bytes(body))
+                    except (ValidationError, ValueError, TypeError, UnicodeError):
+                        return JSONResponse(
+                            platform_role_failure_reply("invalid_request"),
+                            status_code=400,
+                        )
+                    reply = await platform_roles.execute(parsed)
+        except PlatformRoleFailure as error:
+            return JSONResponse(platform_role_failure_reply(error))
+        except (IdentityUnavailable, TimeoutError):
+            return JSONResponse(
+                {"detail": "Identity platform-role commands unavailable"},
                 status_code=503,
             )
         return JSONResponse(reply.model_dump(mode="json", by_alias=True))

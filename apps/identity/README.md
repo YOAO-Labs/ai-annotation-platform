@@ -4,8 +4,9 @@ This package contains the JWT/API-key verifier, API-key management, core session
 and self-account command owners, the user-directory read owner, administrator
 password-reset owner, group catalog/assignment owner, and invitation/mail-v2
 owners and their closed contracts. It has one private HTTP process plus separate
-private worker entrypoints. Invitation/MailV2 have completed local qualification;
-directory and administrator password-reset qualification are in progress.
+private worker entrypoints. Invitation/MailV2, directory and administrator
+password reset have completed local qualification; platform-role qualification
+is in progress.
 The runtime has no application, SQLAlchemy, Celery or object-store dependency.
 Admission uses four PostgreSQL capabilities, key management uses two, and
 sessions use three plus a scoped Redis login-counter identity. Each configured
@@ -16,9 +17,10 @@ operations. Self-deactivation adds separate two-function user and due-operator
 capabilities; the Notifications publisher is a distinct three-function/Redis
 process. Invitation commands use a separate three-function Identity capability;
 MailV2 uses its own four-function sender role. User directory reads use a
-separate two-function Identity capability. Platform-role administration,
-dashboard analytics, other-user hydration and remaining multi-owner lifecycle
-remain in the API, so this is not yet a complete Identity service.
+separate two-function Identity capability. Platform-role preview and change use
+their own two-function Identity capability. Dashboard analytics, other-user
+hydration and remaining multi-owner lifecycle remain in the API, so this is not
+yet a complete Identity service.
 
 ## Run
 
@@ -156,8 +158,8 @@ The earlier group slice exposed only the private
 `resolve_invitation_group(uuid,text)` helper to the legacy acceptance workflow;
 the helper remains private to Identity and is not granted to `identity_group_client`.
 The full invitation contract below now owns resolve/register/accept and its
-multi-owner transaction. Group search, directory/admin and all other
-multi-owner lifecycle work remain outside this slice. The optional API/runtime
+multi-owner transaction. Group search and remaining admin/lifecycle work stay
+outside the invitation slice. The optional API/runtime
 `IDENTITY_GROUP_DATABASE_URL(_FILE)` still selects only the two-function GROUP
 owner and never the invitation helper. See [ADR-0120](../../docs/adr/0120-independent-identity-group-catalog-and-assignment.md).
 
@@ -203,8 +205,30 @@ transaction, and `/ready` verifies the exact policy and least-privilege
 capability set. See `admin_password_protocol.schema.json` and
 `native_admin_password_protocol.schema.json` for the closed wire and native
 DTOs. The public API adapter retains the existing reset response and handles
-the temporary password as a secret. Platform-role administration remains in the
-API.
+the temporary password as a secret. Platform-role preview and mutation are
+described below.
+
+## Platform-role preview and change
+
+The private `POST /v1/identity/platform-roles/execute` accepts a current user
+credential in `aap-identity-platform-roles/v1`; its dedicated two-function
+login uses `IDENTITY_PLATFORM_ROLE_DATABASE_URL(_FILE)`. It owns the existing
+super-admin-only role preview and change policies while leaving project
+membership, work assignments, and account lifecycle state untouched. Preview
+keeps the exact twelve-field impact DTO and seven-field project entries;
+mutation returns the exact 21-field User projection, including opaque
+preferences and historical status values.
+
+Role-change receipts preserve the accepted User snapshot. Replaying an operation
+reauthenticates the current super admin and target, then returns that historical
+snapshot without changing the current role or writing a second Audit row. New
+public requests still receive fresh operation IDs. Readiness validates the exact
+policy and function capabilities; a selected unavailable source never falls
+back to the API transaction. The wire, native and supporting Workspace and
+Labeling fact schemas are `platform_role_protocol.schema.json`,
+`native_platform_role_protocol.schema.json`,
+`platform_role_workspace_facts.schema.json` and
+`platform_role_labeling_facts.schema.json`.
 
 ## Invitation lifecycle and MailV2
 

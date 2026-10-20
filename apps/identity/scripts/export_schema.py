@@ -61,6 +61,17 @@ from aap_identity.directory_contract import (  # noqa: E402
     NativeDirectoryPolicyReply,
     NativeDirectorySuccess,
 )
+from aap_identity.platform_role_contract import (  # noqa: E402
+    LabelingPlatformRoleFactsReply,
+    NativePlatformRoleCommand,
+    NativePlatformRoleFailureReply,
+    NativePlatformRolePolicyReply,
+    NativePlatformRoleSuccess,
+    PlatformRoleFailureReply,
+    PlatformRoleReply,
+    PlatformRoleRequest,
+    WorkspacePlatformRoleFactsReply,
+)
 from aap_identity.group_contract import (  # noqa: E402
     GroupFailureReply,
     GroupPolicyReply,
@@ -358,6 +369,29 @@ def main():
                 | NativeDirectoryPolicyReply
             ),
             "aap-identity-directory-native/v1",
+        ),
+        "src/aap_identity/platform_role_protocol.schema.json": render_schema(
+            TypeAdapter(
+                PlatformRoleRequest | PlatformRoleReply | PlatformRoleFailureReply
+            ),
+            "aap-identity-platform-roles/v1",
+        ),
+        "src/aap_identity/native_platform_role_protocol.schema.json": render_schema(
+            TypeAdapter(
+                NativePlatformRoleCommand
+                | NativePlatformRoleSuccess
+                | NativePlatformRoleFailureReply
+                | NativePlatformRolePolicyReply
+            ),
+            "aap-identity-platform-roles-native/v1",
+        ),
+        "src/aap_identity/platform_role_workspace_facts.schema.json": render_schema(
+            TypeAdapter(WorkspacePlatformRoleFactsReply),
+            "aap-workspace-identity-platform-role-facts/v1",
+        ),
+        "src/aap_identity/platform_role_labeling_facts.schema.json": render_schema(
+            TypeAdapter(LabelingPlatformRoleFactsReply),
+            "aap-labeling-identity-platform-role-facts/v1",
         ),
         "src/aap_identity/notification_delivery_protocol.schema.json": render_schema(
             TypeAdapter(

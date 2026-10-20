@@ -1,0 +1,75 @@
+{
+  "$defs": {
+    "WorkspacePlatformRoleMembershipProject": {
+      "additionalProperties": false,
+      "properties": {
+        "membership_role": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Membership Role"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "project_name": {
+          "title": "Project Name",
+          "type": "string"
+        }
+      },
+      "required": ["project_id", "project_name", "membership_role"],
+      "title": "WorkspacePlatformRoleMembershipProject",
+      "type": "object"
+    }
+  },
+  "$id": "aap-workspace-identity-platform-role-facts/v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "membership_projects": {
+      "items": {
+        "$ref": "#/$defs/WorkspacePlatformRoleMembershipProject"
+      },
+      "title": "Membership Projects",
+      "type": "array"
+    },
+    "non_viewer_membership_count": {
+      "maximum": 9223372036854775807,
+      "minimum": 0,
+      "title": "Non Viewer Membership Count",
+      "type": "integer"
+    },
+    "owned_project_count": {
+      "maximum": 9223372036854775807,
+      "minimum": 0,
+      "title": "Owned Project Count",
+      "type": "integer"
+    },
+    "schema": {
+      "const": "aap-workspace-identity-platform-role-facts/v1",
+      "title": "Schema",
+      "type": "string"
+    },
+    "target_user_id": {
+      "format": "uuid",
+      "title": "Target User Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema",
+    "target_user_id",
+    "owned_project_count",
+    "non_viewer_membership_count",
+    "membership_projects"
+  ],
+  "title": "WorkspacePlatformRoleFactsReply",
+  "type": "object"
+}

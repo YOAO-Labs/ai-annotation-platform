@@ -35,6 +35,8 @@ class Settings(BaseSettings):
     directory_database_url_file: str | None = None
     admin_password_database_url: SecretStr | None = None
     admin_password_database_url_file: str | None = None
+    platform_role_database_url: SecretStr | None = None
+    platform_role_database_url_file: str | None = None
     recovery_mail_key: SecretStr | None = None
     recovery_mail_key_file: str | None = None
     token: SecretStr | None = None
@@ -69,6 +71,13 @@ class Settings(BaseSettings):
     @field_validator("admin_password_database_url_file", mode="before")
     @classmethod
     def blank_admin_password_dsn_file_is_unset(cls, value):
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
+
+    @field_validator("platform_role_database_url_file", mode="before")
+    @classmethod
+    def blank_platform_role_dsn_file_is_unset(cls, value):
         if isinstance(value, str) and not value.strip():
             return None
         return value
@@ -137,6 +146,7 @@ class Settings(BaseSettings):
             "invitation_database_url",
             "directory_database_url",
             "admin_password_database_url",
+            "platform_role_database_url",
         ):
             value = getattr(self, field)
             path = getattr(self, field + "_file")
