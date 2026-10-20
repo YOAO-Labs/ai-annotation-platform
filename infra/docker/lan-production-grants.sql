@@ -73,6 +73,7 @@ GRANT USAGE ON SCHEMA aap_identity_v1, aap_identity_keys_v1,
     aap_identity_sessions_v1, aap_identity_accounts_v1, aap_identity_recovery_v1,
     aap_identity_groups_v1, aap_identity_deactivation_v1,
     aap_identity_invitations_v1, aap_identity_mail_v2,
+    aap_identity_directory_v1,
     aap_settings_v1, aap_notifications_v1 TO :"application_role";
 GRANT EXECUTE ON FUNCTION
     aap_identity_v1.authentication_policy(),
@@ -112,6 +113,8 @@ GRANT EXECUTE ON FUNCTION
     aap_identity_invitations_v1.invitation_policy(),
     aap_identity_invitations_v1.prepare_invitation_command(jsonb),
     aap_identity_invitations_v1.apply_invitation_command(jsonb),
+    aap_identity_directory_v1.directory_policy(),
+    aap_identity_directory_v1.execute_directory_command(jsonb),
     aap_identity_mail_v2.mail_policy(),
     aap_identity_mail_v2.claim_mail(jsonb),
     aap_identity_mail_v2.renew_mail(jsonb),
@@ -275,11 +278,13 @@ GRANT EXECUTE ON FUNCTION aap_assets_v1.pending_storage_deletions_v2(
 ),
     aap_assets_v1.complete_storage_deletion(uuid, uuid)
     TO :"asset_cleanup_role";
-REVOKE ALL ON SCHEMA public, aap_identity_v1, aap_workspace_v1,
+REVOKE ALL ON SCHEMA public, aap_identity_v1, aap_identity_directory_v1,
+    aap_workspace_v1,
     aap_labeling_v1, aap_jobs_v1, aap_learning_v1, aap_inference_v1,
     aap_insights_v1, aap_diagnostics_v1, aap_export_v1, aap_audit_v1
     FROM :"asset_cleanup_role";
-REVOKE ALL ON ALL FUNCTIONS IN SCHEMA aap_identity_v1, aap_workspace_v1,
+REVOKE ALL ON ALL FUNCTIONS IN SCHEMA aap_identity_v1, aap_identity_directory_v1,
+    aap_workspace_v1,
     aap_labeling_v1, aap_jobs_v1, aap_learning_v1, aap_inference_v1,
     aap_insights_v1, aap_diagnostics_v1, aap_export_v1, aap_audit_v1
     FROM :"asset_cleanup_role";

@@ -51,6 +51,7 @@ IDENTITY_CLIENT_ROLES = {
     "MAIL": "identity_mail_client",
     "MAIL_V2": "identity_mail_v2_client",
     "MAIL_SETTINGS": "identity_mail_settings_client",
+    "DIRECTORY": "identity_directory_client",
 }
 MODULE_ROLES = (
     "identity_code",
@@ -165,6 +166,8 @@ SQL_ARTIFACTS = (
     "0242_identity_invitations_support.sql",
     "0242_invitation_mail.sql",
     "0242_identity_invitations.sql",
+    "0243_identity_directory_support.sql",
+    "0243_identity_directory.sql",
 )
 SCHEMA_ARTIFACTS = (
     "0191_task_append.schema.json",
@@ -217,8 +220,11 @@ SCHEMA_ARTIFACTS = (
     "0240_identity_groups.schema.json",
     "0241_identity_deactivation.schema.json",
     "0242_identity_invitations.schema.json",
+    "0243_identity_directory.schema.json",
 )
 TEST_FILES = (
+    "tests/test_identity_directory_native.py",
+    "tests/test_identity_directory_roles.py",
     "tests/test_identity_invitations_native.py",
     "tests/test_identity_invitations_roles.py",
     "tests/test_identity_invitation_gateway.py",
@@ -1691,6 +1697,8 @@ def _install_and_rollback_frozen_sql(
         "SELECT aap_identity_recovery_v1.apply_recovery_command(NULL::jsonb);\n"
         "SELECT aap_identity_recovery_v1.mail_policy();\n"
         "SELECT aap_identity_invitations_v1.prepare_invitation_command('{}'::jsonb);\n"
+        "SELECT aap_identity_directory_v1.directory_policy();\n"
+        "SELECT aap_identity_directory_v1.execute_directory_command('{}'::jsonb);\n"
         "SELECT aap_identity_deactivation_v1.deactivation_policy();\n"
         "SELECT aap_identity_deactivation_v1.execute_deactivation_command(NULL::jsonb);\n"
         "SELECT aap_identity_deactivation_v1.due_policy();\n"
@@ -1829,6 +1837,7 @@ def _install_and_rollback_frozen_sql(
         "aap-identity-deactivation-native/v1": "invalid_request",
         "aap-identity-deactivation-due-native/v1": "invalid_request",
         "aap-identity-invitations-native/v1": "invalid_request",
+        "aap-identity-directory-native/v1": "invalid_request",
     }
     if any(
         not any(
@@ -1852,6 +1861,12 @@ def _install_and_rollback_frozen_sql(
         for response in responses.get("aap-project-labeling-delete/v1", [])
     ):
         raise RuntimeError("native Labeling project-delete probe did not succeed")
+    if not any(
+        response.get("schema") == "aap-identity-directory-policy/v1"
+        and response.get("policy") == "aap-identity-directory/v1"
+        for response in responses.get("aap-identity-directory-policy/v1", [])
+    ):
+        raise RuntimeError("native Identity directory policy probe did not succeed")
 
     rollback_state = _psql(
         container_id,
@@ -1868,6 +1883,7 @@ def _install_and_rollback_frozen_sql(
             "AND to_regnamespace('aap_identity_groups_v1') IS NULL "
             "AND to_regnamespace('aap_identity_deactivation_v1') IS NULL "
             "AND to_regnamespace('aap_identity_invitations_v1') IS NULL "
+            "AND to_regnamespace('aap_identity_directory_v1') IS NULL "
             "AND to_regnamespace('aap_identity_mail_v2') IS NULL "
             "AND to_regnamespace('aap_workspace_v1') IS NULL "
             "AND to_regnamespace('aap_assets_v1') IS NULL "
@@ -1888,6 +1904,7 @@ def _install_and_rollback_frozen_sql(
             "AND to_regclass('public.identity_deactivation_operation_receipts') IS NULL "
             "AND to_regclass('public.identity_deactivation_due_receipts') IS NULL "
             "AND to_regclass('public.identity_invitation_operation_receipts') IS NULL "
+            "AND to_regclass('public.identity_directory_export_receipts') IS NULL "
             "AND to_regclass('public.identity_deactivation_requests') IS NULL "
             "AND to_regclass('public.notification_delivery_outbox') IS NULL "
             "AND to_regclass('public.identity_credential_mail_outbox') IS NULL "
@@ -2031,6 +2048,9 @@ def main(argv: list[str] | None = None) -> int:
         identity_invitation_grants_path = (
             ROOT / "infra/docker/identity-invitations-grants.sql"
         )
+        identity_directory_grants_path = (
+            ROOT / "infra/docker/identity-directory-grants.sql"
+        )
         identity_deactivation_grants_path = (
             ROOT / "infra/docker/identity-deactivation-grants.sql"
         )
@@ -2059,6 +2079,7 @@ def main(argv: list[str] | None = None) -> int:
             or not identity_deactivation_grants_path.is_file()
             or not identity_group_grants_path.is_file()
             or not identity_invitation_grants_path.is_file()
+            or not identity_directory_grants_path.is_file()
             or not identity_account_grants_path.is_file()
             or not identity_recovery_grants_path.is_file()
             or any(not path.is_file() for path in artifacts)
@@ -2091,6 +2112,9 @@ def main(argv: list[str] | None = None) -> int:
             encoding="utf-8"
         )
         identity_invitation_grant_sql = identity_invitation_grants_path.read_text(
+            encoding="utf-8"
+        )
+        identity_directory_grant_sql = identity_directory_grants_path.read_text(
             encoding="utf-8"
         )
         identity_group_grant_sql = identity_group_grants_path.read_text(
@@ -2207,8 +2231,8 @@ def main(argv: list[str] | None = None) -> int:
         database = resources["database"]
         evidence["database"] = database
         _, heads = migration_graph(ROOT)
-        if heads != ["0242"]:
-            raise RuntimeError("module-data acceptance requires migration head 0242")
+        if heads != ["0243"]:
+            raise RuntimeError("module-data acceptance requires migration head 0243")
         evidence["migrations"]["head_before_downgrade"] = heads[0]
         phase = "downgrade-to-0189"
         _container_details(
@@ -2562,6 +2586,25 @@ def main(argv: list[str] | None = None) -> int:
                 "audit_owner": "audit_code",
                 "identity_invitation_role": "identity_invitation_client",
                 "identity_mail_v2_role": "identity_mail_v2_client",
+            },
+        )
+        phase = "install-identity-directory-grants"
+        _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="owner",
+            password=owner_password,
+            database=database,
+            sql=identity_directory_grant_sql,
+            variables={
+                "expected_database": database,
+                "migration_role": "owner",
+                "identity_owner": "identity_code",
+                "workspace_owner": "workspace_code",
+                "labeling_owner": "labeling_code",
+                "audit_owner": "audit_code",
+                "identity_directory_role": "identity_directory_client",
             },
         )
         resource_environment = backend.environment()
