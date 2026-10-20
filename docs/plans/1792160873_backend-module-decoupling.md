@@ -1,6 +1,6 @@
 # 后端业务模块解耦与跨语言替换设计
 
-> Status: 进行中。当前目标覆盖 identity、workspace、assets、labeling、inference、learning、insights、jobs、audit、notifications 及运行装配。前序 Python 进程内切片、常驻 API 恢复和既有训练作业执行权交接已完成。assets 视频探测三个操作已提供独立 Python 工件、流式合同及真实调用端的 Node 替换验收；同步 ZIP 与旧前缀扫描已纳入既有 Assets Source 工件及 0215 原生合同，并通过真实隔离服务、受限角色与故障恢复验收。Scene、位姿和标定切片已提取至既有 Catalog 工件，并通过隔离数据库、真实 HTTP/S3 与消费者资格验证；连接管理及本地图片/nuScenes 来源登记已迁入各自合同并完成本地验收；媒体/Blob、其余运维流程和其他模块继续推进。Identity 注册恢复／邮件、分组目录／指派、自助注销／due、完整 invitation lifecycle/MailV2 sender 及四项用户目录读取 owner 均已有对应限定本地资格；当前继续推进平台角色写入、offboarding、其他用户 hydration 与剩余模块，既有 public API filters、字段和 statuses 保持。Go 月报保持独立实验，其可用性和容量不作为本目标门槛。当前各模块缺口见[模块部署与语言替换状态](../../docs-site/dev/concepts/module-deployment.md)。
+> Status: 进行中。当前目标覆盖 identity、workspace、assets、labeling、inference、learning、insights、jobs、audit、notifications 及运行装配。前序 Python 进程内切片、常驻 API 恢复和既有训练作业执行权交接已完成。assets 视频探测三个操作已提供独立 Python 工件、流式合同及真实调用端的 Node 替换验收；同步 ZIP 与旧前缀扫描已纳入既有 Assets Source 工件及 0215 原生合同，并通过真实隔离服务、受限角色与故障恢复验收。Scene、位姿和标定切片已提取至既有 Catalog 工件，并通过隔离数据库、真实 HTTP/S3 与消费者资格验证；连接管理及本地图片/nuScenes 来源登记已迁入各自合同并完成本地验收；媒体/Blob、其余运维流程和其他模块继续推进。Identity 注册恢复／邮件、分组目录／指派、自助注销／due、完整 invitation lifecycle/MailV2 sender 及四项用户目录读取 owner 均已有对应限定本地资格；当前实施管理员临时密码重置 owner，source、Native、API/runtime 资格待 Root 验收。平台角色写入、offboarding、其他用户 hydration 与剩余模块继续留在后续计划，既有 public API filters、字段和 statuses 保持。Go 月报保持独立实验，其可用性和容量不作为本目标门槛。当前各模块缺口见[模块部署与语言替换状态](../../docs-site/dev/concepts/module-deployment.md)。
 >
 > 创建日期：2026-10-16。
 >
@@ -2912,13 +2912,13 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   containers were removed. The protected primary checkout/runtime/databases
   stay unchanged. No push, release, remote CI, production, primary Identity cutover or
   Go expansion was performed.
-- Invitation and Directory read owners are locally qualified. The following
-  Directory section records the four-operation scope and qualification,
-  preserving the differences between legacy list visibility and
-  query/stats/export visibility.
-  Platform-admin writes, cross-owner offboarding, remaining Identity authority
-  and all other module/seven-gate work remain active; this slice does not close
-  the full goal.
+- Invitation and Directory read owners are locally qualified. The preceding
+  Directory section records its four-operation evidence and the differences
+  between legacy list visibility and query/stats/export visibility. The current
+  password-reset owner is a separate pending slice; platform-role writes,
+  cross-owner offboarding, remaining Identity authority and all other
+  module/seven-gate work remain active, so these read owners do not close the
+  full goal.
 
 ### Identity user-directory read owner local qualification
 
@@ -2978,3 +2978,48 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   slice 仍单独维持 68 DB/process、375 installed-package、324 API-assembly checks；
   它们不计入 Directory。平台管理员写入、offboarding、其他用户 hydration、完整
   Identity、十模块／七门槛和 provider replacement 仍待完成。
+
+### Identity administrator password-reset owner (current slice)
+
+- 只把 `POST /api/v1/users/{user_id}/admin-reset-password` 迁入 Identity。公开
+  UUID path、每分钟 3 次限流、成功状态与三个响应字段
+  `temp_password/message/target_email`（含现有中文 message）保持不变。临时密码
+  继续是固定大小写、数字、符号字符集中的 16 位 ASCII，并至少各含一位；明文只
+  出现在原有 public success response 中。
+- 私有协议 `aap-identity-admin-passwords/v1` 有一个
+  `admin_reset_password` operation；request 精确为
+  `schema/operation/operation_id/token/audit_context/payload`，payload 只有
+  `target_user_id`。Native request 绑定已锁定 Principal、仅在 API key 时出现的
+  key hash、request fingerprint/derivation 与 bcrypt-12 hash；不接受调用方 actor，
+  不回传 hash。
+- 平台 role rank 固定为 super-admin 0、project-admin 1、reviewer 2、
+  employee/历史 annotator 3、viewer 4、未知历史 target role 99。Target 必须启用且
+  rank 严格低于当前 actor。Project-admin 可重置任意 active employee，包括未分配或
+  foreign-project employee；其余低等级 target 必须属于 actor 管理的项目。保留历史
+  project/member status 参与，不把角色变更等其他 lifecycle policy 并入此命令。
+- 按 UUID 顺序锁 actor 和 target User 后，才读取 Workspace 易变 scope。Workspace
+  按 UUID 锁 Project 后锁 ProjectMember，并在持锁事务中复核 owner/membership；项目
+  转移或成员移除不能越过重置授权。此路径不使用 Labeling scope、不转派任务，也不
+  增加通用 User fence。
+- Identity 同事务写入 password hash、`password_admin_reset_at`、typed Audit
+  `user.password_admin_reset` 和 private receipt。Audit detail 精确为 target
+  email/role、status 200、target ID 为 UUID，不含 password。成功重置不推进 JWT
+  generation、不撤 API keys；自助改密仍会清 marker。
+- HMAC domain `aap-identity-admin-passwords/v1` 将 operation UUID、actor 与
+  canonical payload 绑定到确定性 16 位密码。每个 public call 新建 UUID，不新增公开
+  idempotency header 或自动 retry；保留 UUID 的 private caller 可确认同一操作。
+  Receipt 不存 plaintext 或 bcrypt 副本。Native 重放同时检查 reset timestamp 和
+  operation-bound SHA-256 当前 bcrypt state fingerprint；自助改密、恢复 reset 或后续
+  重置均导致旧操作返回 409，而不回传 superseded 密码。Profile/context 变化单独仍可
+  还原冻结 email/timestamp。派生向量与 state fingerprint 见
+  [ADR-0124](../adr/0124-independent-identity-admin-password-reset.md)。
+- Migration 0244 创建 `aap_identity_admin_passwords_v1`。无继承
+  `identity_admin_password_client` LOGIN 仅有 `admin_password_policy()` 与
+  `execute_admin_password_command(jsonb)`。API/runtime 使用可选
+  `IDENTITY_ADMIN_PASSWORD_DATABASE_URL(_FILE)`；Compose host selector
+  `IDENTITY_RUNTIME_ADMIN_PASSWORD_DATABASE_URL_FILE` 默认空白，禁用该 capability
+  但不影响现有 Identity startup；显式选择后的 DSN 错误必须 fail closed。
+- Core/Native/Peer 正在实现中。数据库角色、remote/dedicated API binding、restore、
+  replay/supersession、非 root image 和 API cold qualification 均待 Root 提供证据；
+  本节不报告通过数。十模块／七门槛目标继续推进，没有完成平台角色写入、offboarding、
+  production/primary cutover 或 provider-language replacement。

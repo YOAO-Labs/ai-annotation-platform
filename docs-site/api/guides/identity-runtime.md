@@ -23,6 +23,7 @@ Identity 运行时提供认证准入、API key、核心会话、自助账户、�
 | `POST /v1/identity/groups/execute`           | 分组目录、查询、指派预览／执行                 |
 | `POST /v1/identity/invitations/execute`      | 邀请管理、批量操作、注册、接受与耐久邮件发送   |
 | `POST /v1/identity/directory/execute`        | 用户目录列表、查询、统计与导出                 |
+| `POST /v1/identity/admin-passwords/execute`  | 管理员临时密码重置                             |
 | `POST /v1/identity/deactivation/execute`     | 自助注销申请与撤销                             |
 | `POST /v1/identity/deactivation/process-due` | 分页处理已到期的自助注销申请                   |
 | `POST /v1/identity/recovery/execute`         | 开放注册、重置请求／消费、验证邮件重发／消费   |
@@ -238,6 +239,36 @@ Directory read slice 已通过限定的本地资格。Committed source `eeeaa16e
 API image SHA-256 `12eadf471566c1487a5830961928232e9abf4b01728912b03fb18fa70fc60479` 在无网络、只读、512 MiB cold container 核对 82 个 package files、70 个 API/native inputs、Directory 四路由和既有 13 Inv/5 Recovery/8 Group/2 Deactivation 路由、OpenAPI 与 0243 head。Public paths/fields/statuses 不变；OpenAPI 仅 users/stats description 更新。环境文档生成核对 447 个 variables／48 sections，codegen、schema export 通过。所用 API cold-proof 容器已移除。
 
 Live 用 540 个 synthetic users 覆盖超过 500 行与 64 KiB 的 list/export；int64 大页、生命周期引用类别、stale role 403、profile/context frozen export、no-repeat Audit、当前可见性 409、credential-generation fence 与 restart 也通过。受限 remote Identity container 的 1 CPU／256 MiB 边界只适用于该容器。另一个 12 次读取、并发 4 的 host-process sample 为 elapsed 0.232s、p50 0.077s、p95 0.081s，包含 Node process overhead；它不对应上述容器预算，也不是生产容量或 SLO。Node fixture 保留输入 JSON 数值 token 与 wide integers；20 位小数 `0.12345678901234568` 只验证既有后端 canonical form，不主张新的后端十进制精度。此前 Invitation/MailV2 的 68/375/324 counts 仍只属于该 slice。
+
+## 管理员临时密码重置
+
+本 slice 只迁移 `POST /api/v1/users/{user_id}/admin-reset-password`。公开路径、UUID 参数、每分钟 3 次限流和 `AdminResetPasswordResponse` 保持不变；成功响应为 HTTP 200，精确有 `temp_password`、`message`、`target_email` 三字段，message 固定为 `请通过安全渠道告知用户首次登录后立即修改密码`。临时密码 16 个 ASCII 字符，字符集仅 `A-Z`、`a-z`、`0-9`、`!@#$%^&*?`，并至少含一个大写、小写、数字和符号。明文按 secret 处理，不进入 repr、日志、错误或 Audit。
+
+私有 `POST /v1/identity/admin-passwords/execute` 使用 `aap-identity-admin-passwords/v1` 的 `admin_reset_password` operation。Wire request 精确是 `schema/operation/operation_id/token/audit_context/payload`，payload 只有 `{target_user_id}`；token 是真实当前 Bearer JWT／API key，`audit_context` 保留 method/path/ip/request_id 四项 session provenance。Native request 精确有 `schema/operation/operation_id/actor/expected_key_hash/request_fingerprint/derivation_id/audit_context/payload/new_password_hash` 十项，`expected_key_hash` 是仅 API key 凭据时出现的 1–255 字符 opaque 值。Native bcrypt-12 hash 和 wire 明文均须隐藏；Native success 只返回用户 ID/email/reset timestamp 和额外的 `replayed` 标记，manager 在返回前验证两层 envelope。
+
+| code                  | HTTP | detail                                   |
+| --------------------- | ---: | ---------------------------------------- |
+| `invalid_request`     |  400 | `null`                                   |
+| `manager_required`    |  403 | `当前账号已无管理权限`                   |
+| `target_not_found`    |  404 | `用户不存在`                             |
+| `self_reset`          |  400 | `不能给自己重置密码（请用「修改密码」）` |
+| `role_forbidden`      |  403 | `只能重置等级低于你的用户的密码`         |
+| `target_out_of_scope` |  403 | `该用户不在你管理的项目内`               |
+| `account_busy`        |  409 | `账号正在更新，请刷新后重试`             |
+| `operation_conflict`  |  409 | `null`                                   |
+| `unavailable`         |  503 | `null`                                   |
+
+Malformed／unknown／duplicate／extra fields、alias 字段、secret echo 或主体/operation 绑定错误都回滚为安全的 unavailable；不接受内部 Native schema、不回显输入密码或数据库诊断，也不回退到另一 writer。
+
+只允许 active super-admin 与 project-admin。角色等级按 super-admin=0、project-admin=1、reviewer=2、employee/历史 annotator=3、viewer=4、未知历史 target role=99 比较；target 等级必须严格大于 actor。Project-admin 对启用 employee 有全局例外（包含未分配或 foreign-project employee），其他低等级 target 必须属于其管理项目。保留历史 Project／ProjectMember 状态参与范围判断，不增加 active/archive 条件。缺失或停用 target 为 404；self 为 400。
+
+先按 UUID 顺序 `FOR UPDATE NOWAIT` 锁 actor 与 target User，再复核 actor 当前启用状态、manager role 和 credential。Project-admin scope 随后经 Workspace 窄布尔 capability 锁定 Project（UUID 顺序）后锁 membership 并重查 owner/scope，锁持有到调用事务结束；争用 409 `account_busy`。Identity 不读 Workspace 原表，也不调用 Labeling。变更的 password hash、`password_admin_reset_at`、typed Audit 与 receipt 原子提交。Audit 只记录 `user.password_admin_reset`（status 200、target_type user、target_id UUID），detail 精确为 `target_email/target_role`；不记录密码。重置不改变 JWT generation 或 API key，self password change 仍会清 marker。
+
+密码按 signing secret 的独立 HMAC 域 `aap-identity-admin-passwords/v1` 确定性派生，以复用私有 operation UUID 支持响应丢失后确认；每次 public invocation 都生成新 UUID，不增加公开幂等 header，也不自动 transport retry。Bcrypt-12 计算在 SQL 锁外进行。Migration 0244 的 immutable receipt 不存明文或可用 bcrypt hash，也不新增 User 列或触发器；Native 以 operation UUID 绑定的 `password_state_fingerprint` 加 `password_admin_reset_at` 共同验证当前密码状态。自改密、恢复流程或后续重置会使旧结果返回 409，避免重放已失效的临时密码；同 signing secret 的 backup/restore 可重放，epoch 变化冲突。完整派生 stream、HMAC fingerprint 与 receipt fence 见 [ADR-0124](/dev/adr/0124-independent-identity-admin-password-reset)。
+
+Migration 0244 创建 `aap_identity_admin_passwords_v1`。`identity_admin_password_client` LOGIN 仅可执行 `admin_password_policy()` 和 `execute_admin_password_command(jsonb)`，没有 table/column/sequence/DDL 或 foreign-schema 权限。API/runtime 可选 `IDENTITY_ADMIN_PASSWORD_DATABASE_URL` 或 `IDENTITY_ADMIN_PASSWORD_DATABASE_URL_FILE`；Compose host selector 是 `IDENTITY_RUNTIME_ADMIN_PASSWORD_DATABASE_URL_FILE`。selector 留空只关闭该 capability、私有路由返回 503，不影响既有 Identity service 启动；显式 DSN 故障不回退 ORM。
+
+Admin-reset source、migration/role、restore、response-loss/superseded replay、真实 API 和 runtime/image qualification 仍待 Root 验收；本节不添加通过数量。该 slice 不包括平台角色修改、deactivate/delete、offboarding 或其他账号写入。
 
 ## 自助注销与最后一名超级管理员围栏
 
