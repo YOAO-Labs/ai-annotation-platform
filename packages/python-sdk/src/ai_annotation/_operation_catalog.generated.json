@@ -1161,7 +1161,7 @@
       "path": "/api/v1/auth/me/deactivation-request",
       "operation_id": "cancel_self_deactivation_api_v1_auth_me_deactivation_request_delete",
       "summary": "Cancel Self Deactivation",
-      "description": "v0.8.1 · 冷静期内撤销自助注销申请。",
+      "description": "冷静期内撤销自助注销申请。",
       "tags": [
         "me"
       ],
@@ -20074,7 +20074,7 @@
       "path": "/api/v1/users/stats",
       "operation_id": "users_stats_api_v1_users_stats_get",
       "summary": "Users Stats",
-      "description": "v0.8.3 · UsersPage 顶部 4 卡之「本周活跃」与状态聚合。\n\nweekly_active 基于 last_seen_at >= now-7d，比旧的 status==online 更准确\n（旧逻辑只反映瞬时在线状态）。",
+      "description": "用户目录筛选统计，按最近七天活动时间聚合。",
       "tags": [
         "users"
       ],
@@ -24104,7 +24104,7 @@
       "path": "/api/v1/auth/invitations/accept",
       "operation_id": "accept_invitation_for_existing_user_api_v1_auth_invitations_accept_post",
       "summary": "Accept Invitation For Existing User",
-      "description": "Explicitly attach an existing, matching account to an invitation project.",
+      "description": "Explicitly attach the matching account without changing its platform role.",
       "tags": [
         "auth"
       ],
@@ -24312,7 +24312,7 @@
       "path": "/api/v1/auth/me/deactivation-request",
       "operation_id": "request_self_deactivation_api_v1_auth_me_deactivation_request_post",
       "summary": "Request Self Deactivation",
-      "description": "v0.8.1 · 自助注销申请。7 天冷静期，期间可撤销。",
+      "description": "自助注销申请。七天冷静期，期间可撤销。",
       "tags": [
         "me"
       ],
@@ -24659,7 +24659,7 @@
       "path": "/api/v1/auth/send-verification-email",
       "operation_id": "send_verification_email_endpoint_api_v1_auth_send_verification_email_post",
       "summary": "Send Verification Email Endpoint",
-      "description": "v0.12.0 · 重发验证邮件。无论邮箱是否存在 / 已验证都返回 202（防枚举）。",
+      "description": "持久受理验证邮件投递，响应不等待 SMTP。",
       "tags": [
         "auth"
       ],
@@ -24703,7 +24703,7 @@
       "path": "/api/v1/auth/verify-email",
       "operation_id": "verify_email_api_v1_auth_verify_email_post",
       "summary": "Verify Email",
-      "description": "v0.12.0 · 消费验证 token，置 email_verified_at。",
+      "description": "在身份所有者事务中单次消费验证链接并记录审计。",
       "tags": [
         "auth"
       ],
@@ -26761,7 +26761,7 @@
       "path": "/api/v1/invitations/{invitation_id}/send-email",
       "operation_id": "send_invitation_email_endpoint_api_v1_invitations__invitation_id__send_email_post",
       "summary": "Send Invitation Email Endpoint",
-      "description": "Send an existing invitation; the link and token are never rotated.",
+      "description": "Await the durable sender without holding a business transaction open.",
       "tags": [
         "invitations"
       ],
