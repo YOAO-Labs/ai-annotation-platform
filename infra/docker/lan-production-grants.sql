@@ -71,10 +71,12 @@ GRANT USAGE ON SCHEMA aap_workspace_v1, aap_assets_v1, aap_labeling_v1,
 -- Embedded Identity adapters use the same owner capabilities as isolated clients.
 GRANT USAGE ON SCHEMA aap_identity_v1, aap_identity_keys_v1,
     aap_identity_sessions_v1, aap_identity_accounts_v1, aap_identity_recovery_v1,
-    aap_identity_groups_v1,
-    aap_settings_v1 TO :"application_role";
+    aap_identity_groups_v1, aap_identity_deactivation_v1,
+    aap_settings_v1, aap_notifications_v1 TO :"application_role";
 GRANT EXECUTE ON FUNCTION
     aap_identity_v1.authentication_policy(),
+    aap_identity_v1.lock_super_admin_invariant(),
+    aap_identity_v1.super_admin_status(uuid),
     aap_identity_v1.read_jwt_principal(uuid,uuid,bigint,timestamptz,boolean),
     aap_identity_v1.read_api_key_candidates(text,uuid,integer),
     aap_identity_v1.confirm_api_key_principal(uuid,text),
@@ -103,6 +105,13 @@ GRANT EXECUTE ON FUNCTION
     aap_identity_groups_v1.group_policy(),
     aap_identity_groups_v1.execute_group_command(jsonb),
     aap_identity_groups_v1.resolve_invitation_group(uuid, text),
+    aap_identity_deactivation_v1.deactivation_policy(),
+    aap_identity_deactivation_v1.execute_deactivation_command(jsonb),
+    aap_identity_deactivation_v1.due_policy(),
+    aap_identity_deactivation_v1.process_due_deactivations(jsonb),
+    aap_notifications_v1.identity_delivery_policy(),
+    aap_notifications_v1.claim_identity_deliveries(jsonb),
+    aap_notifications_v1.finish_identity_delivery(jsonb),
     aap_settings_v1.mail_delivery_policy(jsonb)
     TO :"application_role";
 GRANT EXECUTE ON FUNCTION aap_workspace_v1.lock_project_reference(uuid),
