@@ -174,4 +174,4 @@
 - [0126 — Identity 管理员停用与恢复账号所有权](0126-independent-identity-suspension-commands.md)
 - [0127 — Identity 管理员删除账号所有权](0127-independent-identity-deletion-commands.md)
 - [0128 — Identity 离职预览与提交所有权（限定本地资格）](0128-independent-identity-offboarding-commands.md)
-- [0129 — Identity 批量 UserBrief 读取](0129-identity-batched-user-brief-reads.md)
+- [0129 — Identity 批量 UserBrief 读取（限定本地资格）](0129-identity-batched-user-brief-reads.md)

@@ -1,6 +1,6 @@
 # 0129 — Identity batched UserBrief reads
 
-- **Status:** Accepted; implementation and local qualification pending
+- **Status:** Accepted; batched UserBrief owner locally qualified
 - **Date:** 2026-10-20
 - **Deciders:** Maintainers
 - **Supersedes:** None
@@ -162,16 +162,57 @@ a new service, dependency, framework, runtime or version bump.
 
 ## Qualification status
 
-Root passed the legacy helper characterization baseline on an owned disposable
-0248 database and cleaned up with no errors. Its six-user fixture, recorded in
-`apps/api/tests/fixtures/identity_briefs_legacy.json`, covers global and project
-responses plus a 1,201-ID request. Legacy embedded query counts were empty=0,
-global=1, project=2 and large=1. This is compatibility evidence for the old
-helper, not a new Identity-owner/runtime result or a performance comparison;
-the single host-time sample is not capacity/SLO evidence. The new portable
-source, installed artifact, SQL roles, HTTP/Node bindings, restore behavior and
-API caller transaction boundaries remain unqualified. Do not infer owner
-throughput or deployment readiness before Root's actual evidence.
+Root's latest selected-case union passed 64 distinct cases with zero skips:
+59 database/process cases plus five pure/static cases. It combines 11 Native,
+39 caller/API and 14 live/restore cases. The 39-case caller suite replaces an
+earlier partial fixture run; reruns are not added again. The 14 live/restore
+cases include two installed-owner bindings, three actual API bindings, the new
+0249 restore and eight affected prior restore/challenge cases. API checks cover
+ordinary employee JWT bindings, the distinction between global reviewer and
+project reviewer role projection, outsider 404/no-PII behavior, and explicit
+remote selection without fallback or overbroad privileges.
+
+Migration 0249 upgrade, frozen SQL installation/rollback, downgrade and restore
+to 0249, exact grants, and owned PostgreSQL/Redis/S3/host/container cleanup all
+passed with no cleanup errors. Source and noneditable installed packages each
+passed 549 tests; 114 installed package hashes match exactly. The installed
+package uses Pydantic 2.14.1 while API uses 2.13.3, and the portable artifact
+contains no app, SQLAlchemy, Celery, Boto3 or Torch runtime. API assembly passed
+625 checks with 132 architecture rules explicitly deferred; Node checks passed
+21 and SDK serialization checks passed 43, with no SDK production-code change.
+Wire schema SHA-256 is
+`3e69854dc30d28e0f5cb1b958d328c526f31f273447032ac62d930a850798d14`; native
+schema SHA-256 is
+`91c438d4857ca90b42e8379260d4834577ab06ede69e2de012f8c93f68d8be22`, and its
+migration snapshot is byte-identical. OpenAPI stayed byte-identical; codegen,
+operation catalog (509 routes/93 modules) and generated environment docs (464
+variables/48 sections) passed.
+
+The nonroot, read-only Identity owner image
+`aap-identity:briefs-local-3713b413718f`
+(`sha256:c86eba7f5b49ef4424ba0a5eab9751d99f866b74e268f3190bfd06615dd89884`,
+source `573517e5ee3e2d0a9dd76af99dbcca05decc4ae0`) passed a real remote API
+binding under 1 CPU/256 MiB. The cold API image
+`aap-api:local-identity-briefs-37051cbfbb77`
+(`sha256:f7a80e3a2b41643d33044dfa5eff5fc49510f16fa3563241989262d5841652e7`,
+source `48a9e36219518ec5698f2a93f22e0bc658b914ae`) verified 114 package and 45
+API/native inputs, all six UserBrief fields, no ORM in the caller helper,
+caller-transaction retention, identical native schema snapshot, current
+OpenAPI, migration head 0249 and hidden SQL parameters. The proof ran without
+network, read-only and at 1 CPU/512 MiB; its container was removed. The 41.875
+seconds is combined build and offline verification, not startup latency.
+Compose configuration-only checks passed both disabled and enabled selector
+states, matched the secret mount and read-only 1 CPU/256 MiB limits, and started
+zero deployments.
+
+The pre-change legacy baseline passed on an owned disposable 0248 database and
+cleaned up with no errors. Its six-user fixture
+`apps/api/tests/fixtures/identity_briefs_legacy.json` covers global/project
+responses, inactive and historical roles, owners without membership, empty-role
+fallback, Unicode/whitespace initials and 1,201 IDs. Captured embedded query
+counts were empty=0, global=1, project=2 and large=1. These are legacy helper
+compatibility measurements and single host samples, not new-owner performance,
+capacity or SLO claims.
 
 The full ten-module/seven-gate objective remains active. This internal read
 extraction does not qualify full Identity, provider-language replacement,

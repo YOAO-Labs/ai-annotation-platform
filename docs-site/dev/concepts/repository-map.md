@@ -79,8 +79,9 @@ last_reviewed: 2026-10-20
   `resolve_briefs_with_project_role` 为已授权的任务／项目／结果补充六字段用户摘要；
   调用者先检查自己的 rows，helper 不接收 actor，也不增加公共资料查询路由。Identity
   portable owner 位于 `apps/identity/src/aap_identity/{briefs_contract,briefs_manager,briefs_postgres}.py`；
-  项目成员角色只通过 Workspace 的窄批量 capability 读取。当前提取与资格仍待完成，
-  旧行为、caller-transaction 和可选 private runtime 边界见
+  项目成员角色只通过 Workspace 的窄批量 capability 读取。该 owner 已通过 64 个 distinct
+  selected cases（59 DB/process、5 pure/static），零跳过；旧行为、caller-transaction 和
+  可选 private runtime 边界见
   [ADR-0129](/dev/adr/0129-identity-batched-user-brief-reads)。
 - 分组目录与账号指派：`api/v1/group_commands.py` 收口 HTTP 请求与权限映射；
   `services/identity_group_commands.py` 选择本地事务、函数 DSN 或 Identity runtime，
