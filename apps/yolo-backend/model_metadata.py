@@ -8,6 +8,7 @@ import os
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
+from training_contract.assets import resolve_prepared_asset
 
 from aap_protocol_v2.model_metadata import (
     ModelClassMetadata,
@@ -25,9 +26,10 @@ def file_signature(path: Path) -> list[int]:
 
 
 class ModelMetadataStore:
-    def __init__(self, checkpoints: Path):
+    def __init__(self, checkpoints: Path, *, model_assets: Path | None = None):
         self.checkpoints = checkpoints
         self.root = checkpoints / ".model-metadata"
+        self.model_assets = model_assets
 
     def _index(self, series: str, size: str) -> Path:
         key = hashlib.sha256(f"detect:{series}:{size}".encode()).hexdigest()
@@ -87,7 +89,13 @@ class ModelMetadataStore:
         variants = {"series": series, "size": size}
         status = "uninspected"
         try:
-            path = self.checkpoints / resolve_weight_filename("detect", series, size)
+            filename = resolve_weight_filename("detect", series, size)
+            prepared = (
+                resolve_prepared_asset(self.model_assets, filename)
+                if self.model_assets is not None
+                else None
+            )
+            path = prepared if prepared is not None else self.checkpoints / filename
             signature = file_signature(path)
             index = json.loads(self._index(series, size).read_text())
             artifact = index["artifact"]

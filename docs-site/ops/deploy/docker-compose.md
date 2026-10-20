@@ -728,6 +728,23 @@ TRAINING_IMAGE="registry.example.com/team/annotation-training:controlled"
 TRAINING_IMAGE_DIGEST="sha256:..."
 ```
 
+`TRAINING_MODELS_PATH` 也是 YOLO Backend 的只读基础资产缓存源。
+同机运行两份 Compose 项目时，将它们配置为相同的绝对路径，才能共用一份物理文件；
+相同存储桶名或相同逻辑卷名不能保证挂载到同一位置。
+跨机部署时，各机器准备自己的本地目录，路径可不同，无需共享文件系统。
+
+管理员使用既有权重准备脚本的 `--asset-manifest` 模式，把审核过的基础权重保存到
+环境现有 `MINIO_TRAINING_BUCKET` 下的 `model-assets/sha256/<sha256>/weights.pt`，
+再使用 `--from-bucket` 在各目标机器准备 `<sha256>.pt` 与 `assets.json`。
+完整命令与清单字段见仓库 `apps/yolo-backend/README.md` 的「受控基础模型与同机缓存」。
+命令在现有管理员存储凭据环境中运行，不把 MinIO 管理凭据分发到运行容器。
+准备完成后再启动或刷新消费者；下载不占用训练租约或 GPU 准入。
+已有受控映射的文件缺失或校验失败时，该节点模型不可用，不会临时改用同名上游文件。
+
+对象存储地址必须从每个目标节点可达；先执行实际认证下载，再检查 API 到 Backend 的控制连接。
+一个节点的缓存或资格通过不代表其他节点已就绪。使用固定实例引用的请求不会因节点失联静默切换。
+保留迁移前的文件和镜像，确认活动读取结束后再清理冗余文件；权重准备命令本身不删除旧文件或训练产物。
+
 将示例仓库替换为部署主机可访问的实际 registry，先完成登录。`TRAINING_IMAGE` 可带标签但不得包含 `@digest`；`TRAINING_IMAGE_DIGEST` 必须是该仓库已发布镜像的 manifest 摘要，不能使用 `docker image inspect` 的 `.Id`。Compose 将二者组成同一个不可变引用用于运行镜像及执行器上报身份，单独改变标签不会绕过摘要固定。
 
 #### 3. 构建镜像并启动执行器

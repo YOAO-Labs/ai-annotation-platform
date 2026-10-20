@@ -12,6 +12,8 @@ from training_executor.worker import runtime_identity
 
 @pytest.fixture
 def controlled_runtime(monkeypatch):
+    from training_contract.catalog import ADAPTERS
+
     monkeypatch.setitem(
         sys.modules,
         "torch",
@@ -32,7 +34,8 @@ def controlled_runtime(monkeypatch):
         lambda *args, **kwargs: "GPU-controlled\n",
     )
     monkeypatch.setattr(
-        "training_executor.worker.importlib.metadata.version", lambda name: "verified"
+        "training_executor.worker.importlib.metadata.version",
+        lambda name: ADAPTERS[name]["version"] if name in ADAPTERS else "verified",
     )
 
 
@@ -77,16 +80,42 @@ def test_bitmap_consumer_and_segmentation_initialization_are_explicit_capabiliti
     from training_contract.catalog import instance_rle_capability
     from training_contract.initialization import (
         POLICY_DIGEST,
-        SEGMENTATION_POLICY_DIGEST,
+        supported_policy_digests,
     )
 
     monkeypatch.setenv(
         "TRAINING_IMAGE_REFERENCE", "registry.test/training:latest@sha256:" + "a" * 64
     )
     runtime = runtime_identity()
-    assert runtime["instance_rle_consumer"] == instance_rle_capability()
+    assert runtime["instance_rle_consumer"] == instance_rle_capability(
+        runtime["frameworks"]["ultralytics"]
+    )
     assert runtime["initialization_policy_digest"] == POLICY_DIGEST
-    assert runtime["initialization_policy_digests"] == [
-        POLICY_DIGEST,
-        SEGMENTATION_POLICY_DIGEST,
-    ]
+    assert runtime["initialization_policy_digests"] == supported_policy_digests(
+        runtime["frameworks"]["ultralytics"]
+    )
+
+
+def test_runtime_reports_only_locally_verified_base_assets(
+    controlled_runtime, monkeypatch, tmp_path
+):
+    import hashlib
+    from training_contract.assets import AssetReference, prepare_asset
+
+    content = b"verified local model"
+    reference = AssetReference(
+        hashlib.sha256(content).hexdigest(), "yolo11n.pt", len(content)
+    )
+    path = prepare_asset(tmp_path, reference, lambda: [content])
+    monkeypatch.setenv("TRAINING_MODELS_DIR", str(tmp_path))
+    monkeypatch.setenv(
+        "TRAINING_IMAGE_REFERENCE", "registry.test/training@sha256:" + "a" * 64
+    )
+    initial = runtime_identity()
+    assert initial["base_asset_sha256"] == [reference.sha256]
+    path.chmod(0o644)
+    path.write_bytes(b"corrupt")
+    assert runtime_identity()["base_asset_sha256"] == []
+    # Heartbeats use this previously frozen runtime object; no asset transfer or
+    # global readiness is inferred from a later change on disk.
+    assert initial["base_asset_sha256"] == [reference.sha256]

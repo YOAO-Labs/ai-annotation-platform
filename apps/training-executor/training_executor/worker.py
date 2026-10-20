@@ -18,6 +18,10 @@ from pathlib import Path
 
 import httpx
 import psutil
+from training_contract.assets import (
+    available_asset_digests,
+    resolve_asset,
+)
 from training_contract.observability import (
     FAILURE_CODES,
     PHASES,
@@ -62,7 +66,7 @@ def runtime_identity():
     from training_contract.preview import POLICY_DIGEST
     from training_contract.initialization import (
         POLICY_DIGEST as INITIALIZATION_POLICY_DIGEST,
-        SEGMENTATION_POLICY_DIGEST as SEGMENTATION_INITIALIZATION_POLICY_DIGEST,
+        supported_policy_digests,
     )
     from training_contract.budget import POLICY_DIGEST as BUDGET_POLICY_DIGEST
 
@@ -97,14 +101,16 @@ def runtime_identity():
         "preview_protocol": 1,
         "observability_protocol": 1,
         "initialization_policy_digest": INITIALIZATION_POLICY_DIGEST,
-        "initialization_policy_digests": [
-            INITIALIZATION_POLICY_DIGEST,
-            SEGMENTATION_INITIALIZATION_POLICY_DIGEST,
-        ],
+        "initialization_policy_digests": supported_policy_digests(
+            frameworks["ultralytics"]
+        ),
         "native_budget_policy_digest": BUDGET_POLICY_DIGEST,
         "preview_policy_digest": POLICY_DIGEST,
-        "supported_configs": supported_identities(),
-        "instance_rle_consumer": instance_rle_capability(),
+        "supported_configs": supported_identities(frameworks),
+        "instance_rle_consumer": instance_rle_capability(frameworks["ultralytics"]),
+        "base_asset_sha256": available_asset_digests(
+            os.environ.get("TRAINING_MODELS_DIR", "/models")
+        ),
         "image_digest": image,
         "gpu_uuid": gpu,
         "frameworks": frameworks,
@@ -604,14 +610,12 @@ class Supervisor:
                     capture.write(b"Controlled training preparation started.\n")
                     config = assignment["config"]
                     atomic_json(directory / "config.json", config)
-                    base = self.models / config["base_model"]["filename"]
-                    if (
-                        not base.is_file()
-                        or digest_file(base) != config["base_model"]["sha256"]
-                    ):
+                    try:
+                        base = resolve_asset(self.models, config["base_model"])
+                    except ValueError as exc:
                         raise InputMismatchError(
                             "Controlled base weights are missing or changed"
-                        )
+                        ) from exc
                     self.download(
                         assignment["dataset_url"],
                         directory / "dataset.zip",

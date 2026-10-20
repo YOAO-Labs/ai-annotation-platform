@@ -39,6 +39,26 @@ def test_persistent_cache_has_real_classes_and_rejects_replaced_weight(tmp_path)
     assert replacement.artifact_sha256 != item.artifact_sha256
 
 
+def test_shared_asset_metadata_resolves_the_prepared_digest_instead_of_legacy_filename(
+    tmp_path,
+):
+    import hashlib
+    from training_contract.assets import AssetReference, prepare_asset
+
+    content = b"verified shared weight"
+    reference = AssetReference(
+        hashlib.sha256(content).hexdigest(), "yolo11n.pt", len(content)
+    )
+    assets = tmp_path / "assets"
+    path = prepare_asset(assets, reference, lambda: [content])
+    store = ModelMetadataStore(tmp_path / "checkpoints", model_assets=assets)
+    observed = observe(store, path)
+    assert store.read("yolo11", "n") == observed
+    path.chmod(0o644)
+    path.write_bytes(b"changed")
+    assert store.read("yolo11", "n").verification_status == "unavailable"
+
+
 def test_signature_fences_loading_race_and_loader_changes(tmp_path):
     path = tmp_path / "yolo11n.pt"
     path.write_bytes(b"first")

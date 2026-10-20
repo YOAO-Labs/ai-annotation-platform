@@ -68,6 +68,52 @@ curl http://localhost:8003/setup | jq .
 python scripts/download_weights.py --series yolo11
 ```
 
+### 受控基础模型与同机缓存
+
+训练器与 YOLO Backend 使用同一个环境的 `MINIO_TRAINING_BUCKET` 保存权威基础权重，
+对象键固定为 `model-assets/sha256/<sha256>/weights.pt`。训练产物保持原有项目与执行路径，
+不因共用存储桶而变成公共资产。桶名相同还需核对存储服务与对象键；同机文件去重则需核对实际挂载源。
+
+管理员准备经过审核的 JSON 清单：`version` 为 `1`，`assets` 为数组，每项填写
+`filename`、64 位小写 `sha256`、实际 `size_bytes` 及上述固定 `object_key`。
+清单须描述受控目录所采用的确切文件；下载同名文件不能代替校验。已有预下载脚本提供受控模式，
+该模式不导入模型框架、不申请 GPU，也不会在缺失时切换到其他上游文件：
+
+```bash
+# 在具备现有 MINIO_* 配置与 boto3 的管理员环境中执行，例如平台 API 虚拟环境。
+# 本地导入、校验并上传权威对象；不会覆盖已有不同内容的对象。
+apps/api/.venv/bin/python apps/yolo-backend/scripts/download_weights.py \
+  --asset-manifest /secure/reviewed-model-assets.json \
+  --source-dir /secure/reviewed-weights \
+  --target-dir /srv/aap/model-assets --publish
+
+# 其他机器独立执行；每台机器的缓存目录可以不同。
+apps/api/.venv/bin/python apps/yolo-backend/scripts/download_weights.py \
+  --asset-manifest /secure/reviewed-model-assets.json \
+  --from-bucket --target-dir /srv/aap/model-assets
+```
+
+命令默认采用现有 `MINIO_TRAINING_BUCKET`（未设置时为 `training`）和 `MINIO_ENDPOINT`，
+可通过 `--bucket`、`--endpoint` 指定部署已有配置。管理员使用现有存储凭据，
+运行中的 Backend 与执行器不需要 MinIO 管理凭据。各节点必须实际访问得到配置的端点；
+跨机不能使用另一台主机的 `localhost` 或 Docker 内部主机名。
+
+缓存以 `<sha256>.pt` 保存物理文件，`assets.json` 保存名称映射。写入使用节点内进程锁、
+临时文件和原子发布，大小及 SHA256 均通过后才对消费者可见。同一节点的并发准备复用同一份文件；
+中断、超限或校验失败不会发布部分文件。已有受控映射缺失或损坏时加载失败，不能退回同名在线下载。
+没有受控映射的历史内置模型仍遵守原有离线设置，应通过同一流程逐步迁移。
+
+同机部署把两个 Compose 项目的 `TRAINING_MODELS_PATH` 设置为相同的**绝对路径**，
+训练器只读挂载为 `/models`，Backend 只读挂载为 `/model-assets`。
+不同机器各自准备本地缓存，无需 NFS；Docker 卷也不会自动跨机器共享。
+Backend 的检查点状态、模型安装收据和评估日志继续保存在单独的可写卷中。
+执行器启动时只报告该节点已校验的资产，新增资产准备完成后需刷新执行器的启动快照。
+桶内存在对象、另一节点可用或已有本地缓存，都不能代替本节点的镜像、设备和操作资格验收。
+
+迁移顺序是复制、核验、切换消费者，最后由管理员在确认无活动读取且保留回滚副本后清理旧文件。
+此命令不删除旧权重、训练产物或其他 Backend 缓存。存储暂时不可达时，已保留所需字节的实例
+仍可加载本地模型；冷节点准备失败，数据包、续训检查点和评估样本仍各自依赖其下载链路。
+
 受管生命周期的代码实现不等于当前部署已经通过验收。默认
 `YOLO_MANAGED_LIFECYCLE_VERIFIED=0` 时，`/setup` 不发布 `managed_lifecycle`，Backend
 拒绝进入 `enforce` 且不会报告可驱逐；只有当前镜像、权重和 GPU 完成多模型池加载、受管全池卸载与

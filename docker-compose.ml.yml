@@ -207,6 +207,9 @@ services:
         bind:
           create_host_path: false
       - yolo_checkpoints:/app/checkpoints
+      # Same host: use the executor's resolved path to reuse one physical blob.
+      # Remote hosts prepare their own directory with the same immutable assets.
+      - ${TRAINING_MODELS_PATH:-./training/models}:/model-assets:ro
     deploy:
       resources:
         reservations:

@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 from aap_task_contract import normalize_task
+from training_contract.assets import resolve_prepared_asset
 
 import asyncio
 import copy
@@ -145,8 +146,9 @@ STRICT_OFFLINE = os.environ.get("YOLO_STRICT_OFFLINE", "0") not in (
     "False",
 )
 CHECKPOINTS_DIR = Path(os.environ.get("YOLO_CHECKPOINTS_DIR", "/app/checkpoints"))
+MODEL_ASSETS_DIR = Path("/model-assets")
 _managed_models = ManagedModelStore(CHECKPOINTS_DIR / "managed")
-_model_metadata = ModelMetadataStore(CHECKPOINTS_DIR)
+_model_metadata = ModelMetadataStore(CHECKPOINTS_DIR, model_assets=MODEL_ASSETS_DIR)
 _evaluation_requests = EvaluationRequestStore(CHECKPOINTS_DIR / "managed-evaluations")
 _mask_evaluation_requests = EvaluationRequestStore(
     CHECKPOINTS_DIR / "managed-mask-evaluations", response_bytes=17 * 1024 * 1024
@@ -208,7 +210,10 @@ def _build_model(task: str, series: str, size: str):
     else:
         filename = resolve_weight_filename(task, series, size)
         model_cls = YOLO
-    weight_path = CHECKPOINTS_DIR / filename
+    # Controlled public assets are prepared before admission. A manifest entry
+    # must resolve on this node; it never falls back to an upstream download.
+    prepared = resolve_prepared_asset(MODEL_ASSETS_DIR, filename)
+    weight_path = prepared if prepared is not None else CHECKPOINTS_DIR / filename
     before = file_signature(weight_path) if weight_path.exists() else None
     if not weight_path.exists():
         if STRICT_OFFLINE:

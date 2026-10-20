@@ -12,6 +12,7 @@ services:
       - training_executor_token
     volumes:
       - training-state:/state
+      # Optional same-host sharing with YOLO Backend's /model-assets mount.
       - ${TRAINING_MODELS_PATH:-./training/models}:/models:ro
     extra_hosts:
       - host.docker.internal:host-gateway
