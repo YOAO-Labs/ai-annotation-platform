@@ -1,6 +1,6 @@
 # YOLO family expansion and training runtime upgrade
 
-> Status: implementation and local CPU qualification delivered. Target-GPU, deployment-capacity, two-host acceptance and runtime rollout remain separate gates; see section 12 for the exact evidence and limits.
+> Status: implementation, local CPU qualification and in-place development rollout delivered. Target-GPU, deployment-capacity and two-host acceptance remain separate gates; see sections 12–13 for the exact evidence and limits.
 > Baseline: `d10bc4a174629a092ab27a3f9d728de0a9e18172`, inspected on 2026-10-20 in `feat/online-learning-opt`.
 > Requested scope: Ultralytics YOLOv8, YOLO11 and YOLO26 at every standard scale; LibreYOLO YOLO9 at every scale actually implemented upstream; update the training executor and YOLO Backend to the latest stable framework releases.
 
@@ -334,7 +334,7 @@ Controlled lifecycle fixtures now support schema 3 with explicit `task`, `base_m
 
 ### Remaining deployment gates
 
-The executor and Backend candidate images were built and their imported framework versions checked, but they were not substituted for the existing development `8.4.177` runtime. A local Docker image configuration ID is not a registry manifest digest and is not written into the administrator's frozen catalog as one. To roll out, publish the candidates, record the immutable deployment identity, prepare the target nodes, configure the exact catalog and mount sources, and refresh the affected executor, Backend and workers through the runtime owner. Retained experiments continue to require their original qualified runtime.
+The executor and Backend candidate images were built and their imported framework versions checked during local qualification. They were subsequently published to the local registry and installed into development as recorded in section 13. A local Docker image configuration ID is not a registry manifest digest; the development catalog now uses the actual published executor manifest digest. Any further target rollout must independently prepare its nodes, qualify its exact deployment identity and refresh its consumers through the runtime owner. Retained experiments continue to require their original qualified runtime.
 
 Locally built candidate configuration IDs (not published manifest digests):
 
@@ -346,6 +346,29 @@ Both local physical GPUs have unrelated active workloads. No GPU fault was injec
 - Target-GPU normal stop/resume, process/network/upload failures, hardware/driver faults, complete controlled-model lifecycle and cross-Backend arbitration for each actual deployment identity.
 - VRAM capacity and latency at the intended image size, batch, class count, pool cap and concurrent workload. The CPU smoke and RSS observations do not establish these budgets.
 - Two independently addressed hosts with separate filesystems, real remote signed-object reachability, independent installation/qualification and node-loss routing. Two local directories or containers do not replace this test.
-- Live new-runtime creation, training, return and preannotation after rollout; broader mobile/theme/keyboard browser acceptance from section 8 has not been claimed by the single development-flow check.
+- Full new-runtime GPU training, return and preannotation after rollout. Live catalog readiness and seven server preflights are recorded in section 13; broader mobile/theme/keyboard browser acceptance from section 8 has not been claimed by the single development-flow check.
 
 Keep lifecycle declarations disabled until their corresponding strict target reports pass. Cache preparation alone does not make a node runtime-compatible, migrate an old experiment or authorize an unqualified GPU operation.
+
+## 13. Development rollout
+
+On 2026-10-20 the user explicitly requested an in-place development replacement rather than a parallel retained service. The idle executor and scheduler were stopped, the development environment configuration was backed up privately, and the existing executor and YOLO Backend services were recreated. Production and unrelated GPU processes were not restarted. The existing training state, executor identity, checkpoint volume, model records and immutable receipts were retained.
+
+Both images were published to the existing local registry. Compose and the training catalog use these actual registry manifest digests:
+
+| Component    | Repository/tag                                                | Manifest digest                                                           |
+| ------------ | ------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| Executor     | `127.0.0.1:5050/aap/training-executor:yolo-families-20261020` | `sha256:aba4f1bbfc25221f0d0f21b3dc38b76ab577bf21a79c5d29a583417009801fe9` |
+| YOLO Backend | `127.0.0.1:5050/aap/yolo-backend:yolo-families-20261020`      | `sha256:e49bb9ced5883d2901bb8499438b1d219b52a51b051beb6d1f3151b02e06efe5` |
+
+The actual running executor and Backend both report Ultralytics `8.4.183`, LibreYOLO `1.6.0`, Torch `2.14.1+cu132` and torchvision `0.29.1+cu132`. Their image configuration IDs match section 12. Both completed a small CUDA arithmetic probe on the assigned RTX 3090 using CUDA `13.2`; the probe processes exited without retaining a model in the service pool. This is a runtime smoke, not a GPU lifecycle or capacity qualification.
+
+The API was restarted. All seven development Celery workers and beat were rebuilt with the new shared contract and recreated; live worker inspection confirmed training-dataset task registration on all seven workers. The normal primary-checkout ownership check passed. The API database health, Web response, Backend health and authenticated setup passed, and the registered Backend's health/capability snapshot was refreshed.
+
+The executor heartbeat reports the published manifest digest, the current framework versions and all 34 prepared asset digests. The live project catalog reports **34/34 compatible and ready**. Server preflight passed for YOLOv8/11/26 nano detection and segmentation plus LibreYOLO9t, using the existing COCO8 datasets. No experiment was submitted by these checks.
+
+The actual executor `/models` and Backend `/model-assets` mounts resolve to the same development host directory, both read-only; a prepared file's device/inode pair was equal in the two running containers. The Backend retains its separate writable managed/checkpoint volume. Its host endpoint remains port `8003`, with a state-owned Compose override pinning the image manifest. `YOLO_MANAGED_LIFECYCLE_VERIFIED` is explicitly `0` for this new image, so the old deployment's assertion is not carried forward.
+
+The final deployment verification record and private rollback configuration are retained under `/home/hehao/.local/state/ai-annotation-platform/development-training/rollouts/20261020-224017-yolo-families/`. The state directory's current catalog, image and verification records were updated, and the task-owned maintenance marker was removed. Build/push/probe logs are temporary and are removed after verification.
+
+Retained `8.4.177` experiments and receipts keep their original identities. Their presence does not grant execution under `8.4.183`; the Backend rejects an unverified training/inference version combination. The original images and backed-up configuration remain available for rollback, while new experiments use the new catalog. The separate GPU-fault, deployment-capacity, complete controlled lifecycle and two-host gates in section 12 remain open.
