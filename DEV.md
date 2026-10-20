@@ -1363,6 +1363,28 @@ HTTP composition 为 `apps/api/app/api/v1/offboarding_commands.py` 的 `require_
 
 Root 已完成该 owner 的限定本地资格：77 个 distinct selected cases（76 DB/process、1 static artifact），零跳过；source/installed suites 各 523 项、109 个安装文件 hash 精确匹配；API assembly 604 项通过、130 条 architecture rules 明确延期，Node 21、SDK 37 项通过。迁移/恢复、受限 owner image 与 cold API image 均通过；完整 hashes、样本边界和 legacy/owner 同夹具 SQL／内存／时间对照见 [ADR-0128](docs/adr/0128-independent-identity-offboarding-commands.md)。这些结果只限定该 owner slice，不代表完整 Identity、生产容量或切换完成。
 
+## Identity 事务内账号事实锁
+
+Migration 0251 在既有 Identity 数据库连接上提供三项 typed SQL capability：
+
+| Function                                                  | Lock mode   |
+| --------------------------------------------------------- | ----------- |
+| `aap_identity_v1.lock_accounts_share(uuid[],boolean)`     | `SHARE`     |
+| `aap_identity_v1.lock_accounts_update(uuid[],boolean)`    | `UPDATE`    |
+| `aap_identity_v1.lock_accounts_key_share(uuid[],boolean)` | `KEY SHARE` |
+
+它们只读并返回闭合的五字段事实 `id/name/email/role/is_active`，不返回 User ORM，也不筛除停用账号或历史／未知角色；不存在的账号省略。Role 是原始字符串，name/email 不清洗。输入 UUID 可重复且不加人为数量上限；锁及回执以排序去重的 UUID 集合为准。`nowait=false` 必须等待并返回实际锁住的当前行版本。SQLSTATE `55P03`、`40001` 和 `40P01` 由数据端口直接向上抛，不得在 Identity adapter 中转为 JSON、重试、savepoint 或 rollback。
+
+`IdentityAccountLockData` 必须使用调用方既有 SQLAlchemy connection/transaction，账号锁在随后的 Workspace、Labeling、Inference 或 Identity 写入提交前持续有效；它不是 HTTP lock RPC、专用 DSN 或独立连接。端口不 commit/rollback、不捕获 DBAPIError，也不清除调用方已有 ORM pending work；text SQL 遵循 `autoflush`／`no_autoflush`。Portable wire 与解码器位于 `apps/identity/src/aap_identity/account_lock_contract.py`，调用方适配器为 `apps/api/app/services/identity_account_lock_data.py`。
+
+函数执行权只加给已有 owner：Workspace owner 三项全有，Labeling 与 Learning 为 SHARE，Inference 为 UPDATE，既有 workflow LOGIN 三项全有。仅授予所需的 schema USAGE／function EXECUTE，不授权 User 原表／列；现有 AUTH 与 credential FENCE LOGIN 不变。`application_role` 的三项 EXECUTE 只写入 LAN production-grants source，未应用到生产数据库。Worker 的初始状态检查复用已存在的 `read_actor_facts(actor_id)`；这不是新增 credential capability。
+
+API wrappers 按自己的契约保留冲突语义：单账号 guard 映射 `account_busy`，账号与项目联合 guard 的任一争用映射 `project_busy`，`project_access` 分别保留 account/project/member busy。`UserLifecycleService.lock_accounts` 对任意 `DBAPIError` 显式 rollback，并维持原 busy 409 文案 `账号正在更新，请刷新后重试`；其他调用方不在数据端口 rollback。锁序仍是排序账号 → Project → membership → 资源，保留各调用方的 lock mode 和 NOWAIT/waiting 选择。
+
+帧 worker 每帧重新获取锁内 actor facts 和当前 project/member/task 权威，不缓存跨帧 actor，也不以 `db.refresh(User)` 代替锁后事实。busy 仍沿用 `permission_changed` 结果，不新增重试；删除账号仍走 `propagate_failed`，停用或当前权限变化仍走既有 `permission_changed`。未锁定的 Workspace 查询和 bootstrap／import User 写入不在这次迁移范围。
+
+Root 的旧实现 baseline 在 owned disposable state 上通过 1 个测试、覆盖 15 个场景；`identity-write-fences-legacy.json` 与 `identity-write-fences-legacy-samples.json` 是旧行为记录，不是新函数资格结果，也不应对新实现重跑。新切片资格待 Root 验证；完整 Identity、十模块／七门槛、生产容量与 primary cutover 仍未完成。精确合同见 [ADR-0131](docs/adr/0131-identity-transactional-account-locks.md)。
+
 ## 普通批量结果检查点
 
 安装当前迁移和 `module-data-grants.sql` 后，为预先创建、无角色成员关系的 `preannotation_result_client` LOGIN 安装精确能力。数据库初始化必须已撤销 PUBLIC 的 TEMP，并按需给现有角色单独重授；授权脚本会核验此项，不隐式修改 PUBLIC ACL。本地一次性验收器执行该初始化：

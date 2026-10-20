@@ -72,9 +72,15 @@ last_reviewed: 2026-10-20
   `app/services/identity_offboarding_data.py`。Portable contract/manager/Postgres adapter 在
   `apps/identity/src/aap_identity/{offboarding_contract,offboarding_manager,offboarding_postgres}.py`。
   旧 API lifecycle coordinator 已移除；`services/user_lifecycle.py` 仅保留
-  `UserLifecycleService.lock_accounts`。Batch handoff/release helpers 已退役，Project owner
+  `UserLifecycleService.lock_accounts`，现经 caller-bound Identity account lock adapter 获取只读事实并保留其显式 rollback 语义。Batch handoff/release helpers 已退役，Project owner
   transfer helper 继续供其他 workflows 使用。各命令的权限、回执和事务边界独立维护；offboarding
   已通过限定的本地资格，精确范围见 [ADR-0128](/dev/adr/0128-independent-identity-offboarding-commands)。
+- 同事务 Identity 账号锁：`apps/api/app/services/identity_account_lock_data.py` 调用
+  `apps/identity/src/aap_identity/account_lock_contract.py` 定义的 SHARE/UPDATE/KEY SHARE 三项
+  Native function；它使用 caller connection 并让锁持续到业务写入提交，只返回 id/name/email/role/is_active
+  五字段事实。没有 lock HTTP endpoint、独立 DSN 或 User 原表授权；账号、Project、membership 与资源
+  的顺序及各 caller 对 NOWAIT、SQLSTATE、busy 和 rollback 的映射仍由原 workflow 持有。跨帧写入每帧重取
+  facts，非锁定 Workspace 查询和 bootstrap/import User writer 仍待处理；详见 [ADR-0131](/dev/adr/0131-identity-transactional-account-locks)。
 - 批量 UserBrief enrichment：现有 `app/services/user_brief.py::resolve_briefs` 与
   `resolve_briefs_with_project_role` 为已授权的任务／项目／结果补充六字段用户摘要；
   调用者先检查自己的 rows，helper 不接收 actor，也不增加公共资料查询路由。Identity

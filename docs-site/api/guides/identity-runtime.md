@@ -42,6 +42,16 @@ Identity 运行时提供认证准入、API key、核心会话、自助账户、�
 
 Identity migration 0250 新增只读 `aap_identity_v1.read_actor_context(uuid,text)`，并把该函数加入既有 `identity_auth_client` 的第五项 allowlist。函数不取锁、不写 Audit/receipt，也不新增 LOGIN、DSN、设置或依赖。该 endpoint 沿用 AUTH 的既有 timeout、并发槽和有界请求体限制。内嵌 reader 留在调用方事务并遵循 `autoflush`／`no_autoflush`，不 commit/rollback；专用 AUTH binding 自行持有有界只读事务。API-key 准入原提交点不变，本次读取不引入新提交。凭据过期、generation/revocation、API-key scope 和 last-used 仍由原准入负责；写入时的账号锁、目标 User 查询和 ORM mutation synchronization 保留在现有路径。本切片已通过限定本地验收，覆盖实际受限权限、事务保留、双向语言 peer、真实 API 和恢复；缺少第五项 AUTH 权限时 readiness 和读取均失败，深层非法 JSON 返回闭合的 400 失败封套。结果不代表完整 Identity 或生产切换。详见 [ADR-0130](/dev/adr/0130-identity-post-admission-actor-context)。
 
+## 调用方事务内的账号事实锁
+
+Account-lock 是内部 PostgreSQL capability，不提供 HTTP lock RPC，也不使用独立 Identity 连接：每个 caller 必须在同一 connection／transaction 中取得账号锁并完成随后属于自己的业务写入。Portable request `aap-identity-account-locks/v1` 固定 `account_ids`、`mode: share|update|key_share` 与严格 boolean `nowait`；重复输入可接受，Native 锁定排序去重后的 UUID。响应只包含现有账号的 `id/name/email/role/is_active` 五项事实。缺失账号省略，停用账号与历史／未知 role 不过滤，role 和 profile 字符串保持原值；没有 ORM、凭据或其他资料字段。
+
+Migration 0251 在 `aap_identity_v1` 提供三项安全函数：`lock_accounts_share(uuid[],boolean)`、`lock_accounts_update(uuid[],boolean)`、`lock_accounts_key_share(uuid[],boolean)`。权限只加给已有 owner/workflow LOGIN 的必要操作，不扩展 AUTH 或 credential FENCE LOGIN，不授予 User 表权限，不新增角色、DSN 或环境设置。适配器校验闭合回复；畸形或错绑定结果按 unavailable 503 失败，不回退 ORM。适配器不 commit/rollback、不捕获 SQLSTATE，也不重试或转成 JSON；PostgreSQL 锁错误会使当前事务保持 aborted。`nowait=false` 等待后返回当前锁定行版本。
+
+账号事实锁必须遵守账号 → Project → membership → resource 的既有顺序，保留每个调用方的 SHARE/UPDATE/KEY SHARE 和 NOWAIT/wait 选择。API 依旧由 caller 映射错误：单账号竞争保持 `account_busy`，账号／项目联合 guard 保持 `project_busy`，Project access 分别区分账号、项目、成员争用。`UserLifecycleService.lock_accounts` 对所有 DBAPIError 显式回滚并保留 `账号正在更新，请刷新后重试` 的旧 409 文案；其他调用方由原事务所有者决定回滚，不能在共享数据端口统一处理。
+
+跨帧 worker 每个待写帧都重新锁定并核对当前账号及项目／成员／任务权限，不使用跨帧快照或 `db.refresh(User)` 替代。忙碌仍映射到既有 `permission_changed`，无新重试；账号删除和停用的终态也保持旧区分。当前未锁定的 Workspace 查询与 bootstrap/import User 写入仍待迁移。旧行为 baseline 的一个测试覆盖 15 个场景，不能算作新实现资格；新 slice qualification 待 Root 验证。细节见 [ADR-0131](/dev/adr/0131-identity-transactional-account-locks)。
+
 ## API key 请求
 
 请求使用 `aap-identity-keys/v1`，具有 `schema`、`operation`、`operation_id`、`token`、`payload` 五个字段。`operation_id` 是调用方预先保存的 UUID；用户身份从有效凭据解析，不能通过请求指定其他 owner。
