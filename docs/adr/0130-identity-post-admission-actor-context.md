@@ -1,6 +1,6 @@
 # 0130 — Identity post-admission actor context
 
-- **Status:** Proposed
+- **Status:** Accepted; shared actor context locally qualified
 - **Date:** 2026-10-20
 - **Deciders:** Maintainers
 - **Supersedes:** None
@@ -33,6 +33,10 @@ Strict/frozen models reject extra fields and aliases. Before accepting success,
 the API binds the returned ID and role to the admitted request and requires the
 active literal. A mismatch or malformed owner response is unavailable, never a
 partial result.
+
+The private route returns HTTP 400 for `invalid_request`, including malformed
+or excessively nested JSON. `credential_invalid` uses a typed HTTP 200 failure
+envelope; the API maps it to its existing HTTP 401 semantics.
 
 `identity_owner` adds the read-only
 `aap_identity_v1.read_actor_context(uuid,text)` function in migration 0250.
@@ -103,5 +107,17 @@ scoped function on the existing AUTH LOGIN is sufficient.
 - API binding: `apps/api/app/services/identity_gateway.py` and
   `apps/api/app/deps.py`.
 - Native read: migration `0250` and the `identity-auth-grants.sql` allowlist.
-- The implementation is in the local qualification tranche; qualification
-  evidence is pending. No production or primary Identity cutover is claimed.
+- The latest affected-case union passed 114 selected cases: 92 database/process
+  and 22 pure/static, with no skips. The union includes current-account fences,
+  caller transaction visibility, actual fifth-capability revocation/readiness,
+  both language-peer directions, remote/dedicated API bindings, eight existing
+  Identity restore cases, and malformed JSON against the final owner container.
+  Targeted retries replace earlier fixture failures rather than adding cases.
+- Source and noneditable installed packages each passed 579 checks; all 117
+  installed files match current source hashes. The fresh restricted API image
+  verified the same 117 package files and 141 API/native files, unchanged public
+  OpenAPI and migration head 0250. SDK auth/dashboard/projects passed 42 checks,
+  Node self-checks passed 27, and 316 architecture checks passed; 132 existing
+  inapplicable architecture rules remain explicitly deferred.
+- These are local slice results. No production or primary Identity cutover,
+  full Identity qualification or ten-module completion is claimed.

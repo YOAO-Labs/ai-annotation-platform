@@ -44,7 +44,6 @@
 - [0025](0025-webhook-event-envelope-versioning.md) — Webhook 事件信封与版本化（草案，未实现）
 - [0034](0034-lidar-axis-convention.md) — 点云数据集 lidar 坐标系约定：dataset 级声明 + 加载侧归一化
 - [0075](0075-platform-identity-vs-project-authority.md) — 平台身份与项目职责分离：员工按项目成员角色授权（本地实现中，未部署）
-- [0130](0130-identity-post-admission-actor-context.md) — 认证准入后的 Identity 主体上下文读取（本地实现中，资格验证待完成）
 
 ### 已采纳（Accepted，归档）
 
@@ -176,3 +175,4 @@
 - [0127 — Identity 管理员删除账号所有权](0127-independent-identity-deletion-commands.md)
 - [0128 — Identity 离职预览与提交所有权（限定本地资格）](0128-independent-identity-offboarding-commands.md)
 - [0129 — Identity 批量 UserBrief 读取（限定本地资格）](0129-identity-batched-user-brief-reads.md)
+- [0130 — Identity 认证后的主体上下文读取（限定本地资格）](0130-identity-post-admission-actor-context.md)
