@@ -78,9 +78,20 @@ def _source_metadata() -> dict:
         capture_output=True,
         text=True,
     ).stdout.strip()
+    for relative in _SOURCE_FILES:
+        committed = subprocess.run(
+            ["git", "show", f"{_BASE_COMMIT}:{relative}"],
+            cwd=_ROOT,
+            check=True,
+            capture_output=True,
+        ).stdout
+        assert committed == (_ROOT / relative).read_bytes(), relative
     return {
         "captured_head": head,
         "pre_port_base": _BASE_COMMIT,
+        "capture_driver_sha256": hashlib.sha256(
+            Path(__file__).read_bytes()
+        ).hexdigest(),
         "runtime_source_sha256": {
             relative: hashlib.sha256((_ROOT / relative).read_bytes()).hexdigest()
             for relative in _SOURCE_FILES
@@ -356,7 +367,7 @@ async def test_capture_legacy_template_query_and_projection_samples(
     organization_ids: list[uuid.UUID] = []
     membership_ids: list[uuid.UUID] = []
     operation_ids: list[uuid.UUID] = []
-    aliases: dict[str, str] = {}
+    aliases: dict[str, str] = {suffix: "$capture_suffix"}
     actors: dict[str, User] = {}
     tokens: dict[str, str] = {}
     template_by_alias: dict[str, ProjectTemplate] = {}
