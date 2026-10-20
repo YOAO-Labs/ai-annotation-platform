@@ -325,7 +325,7 @@ Reactivate 的现有顺序不同：target missing 404 早于 fresh actor manager
 
 Derived project scope 精确保留现有来源：目标拥有的 Project、目标 ProjectMember、TaskBatch annotator/reviewer、Task 直接 assignee/reviewer 和 TaskLock 用户经 Task 关联；全部状态参与，无 TaskBatch fallback；孤儿／null refs 按既有 Project join 消失。Workspace 使用一个 typed helper，并可在内部复用 Labeling 现有 `identity_directory_project_refs(uuid[])`；不新增 Labeling protocol/grant，不加 per-project RPC、ProjectMember/Batch/Task/TaskLock 锁或通用 scope framework。清空旧 batch assignment 时没有锁旧 User 的既有 Labeling race 不在本 slice 内。
 
-两类真实写入都使用现有 credential-retirement helper：generation 加一、撤销当前有效 API keys、消费 unused reset links；旧凭据不能复活。已接受的 self-deactivation reservation fields 原样保留，Admin suspend/reactivate 不取消已受理申请，也不转交成员、批次或任务。Audit 只写一条：`user.deactivate` detail `{email}`；`user.reactivate` detail `{reason_present:boolean}`。Reason presence 遵循 Python Unicode `str.strip()` 语义，原文不进 User/Audit/receipt。Reactivate replay 不退休成功受理后新签发的凭据。
+两类真实写入都使用现有 credential-retirement helper：generation 加一、撤销当前有效 API keys、消费 unused reset links；旧凭据不能复活。已接受的 self-deactivation reservation fields 原样保留，Admin suspend/reactivate 不取消已受理申请，也不转交成员、批次或任务。Audit 只写一条：`user.deactivate` detail `{email}`；`user.reactivate` detail `{reason_present:boolean}`。Reason presence 遵循 Python Unicode `str.strip()` 语义，原文不进 User/Audit/receipt。Reactivate replay 不退休成功受理后新签发的凭据。回放先核对收据绑定及 target generation/active flag，再检查目标 scope/state；后续生命周期变化返回 `operation_conflict`，状态匹配时仍检查 PA-reactivate 当前 scope。
 
 | code                         | HTTP | detail                                 |
 | ---------------------------- | ---: | -------------------------------------- |

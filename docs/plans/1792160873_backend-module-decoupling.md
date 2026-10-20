@@ -3159,8 +3159,8 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   Native 仅接收 strict `reason_present` boolean，不让合法 U+0000 原因进入 PostgreSQL JSONB；原文
   不保存。真实操作通过原 helper retirement generation +1、撤销当前 API keys、消费 unused
   reset links；旧凭据不能复活。成功 receipts 也包含 inactive-suspend no-op；回放重验当前
-  manager/原 authority scope，只有 target generation 与 active flag 仍匹配时才返回冻结 User
-  且不重复副作用。
+  manager 和 receipt binding，先校验 target generation/active flag，后续 lifecycle 变化先返回
+  `operation_conflict`；状态匹配后仍检查 PA-reactivate 当前 scope，才返回冻结 User 且不重复副作用。
 - 可选 API/runtime DSN 是 `IDENTITY_SUSPENSION_DATABASE_URL(_FILE)`，Compose host selector
   是 `IDENTITY_RUNTIME_SUSPENSION_DATABASE_URL_FILE`。Blank selector 只关闭此 capability、
   私有路由 503，不影响既有启动；explicit DSN 必须 readiness pass、失败不 fallback。当前

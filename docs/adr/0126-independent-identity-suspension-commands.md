@@ -226,12 +226,13 @@ target, request fingerprint, derivation, accepted 21-field User snapshot,
 nullable Audit ID and target generation/active flag after acceptance. Receipts
 contain no raw reason/token/credential/hash, Principal or live User FK.
 
-Replay reauthenticates the current manager and preserves the operation's
-current-target authority branch, including the inactive-suspend early return
-and project-admin reactivation scope. It returns the frozen accepted record
-without new retirement, Audit or write only when target generation and active
-flag still match the receipt; later lifecycle changes return
-409 `operation_conflict`. A no-op suspend receipt keeps a late retry from
+Replay reauthenticates the current manager and checks receipt actor, operation,
+target, fingerprint and epoch, then the accepted target generation and active
+flag, before any new target scope/state policy. Later lifecycle changes return
+409 `operation_conflict` and cannot turn an accepted no-op into a fresh mutation.
+When the post-state still matches, preserve the operation's authority branch,
+including inactive-suspend early return and current project-admin reactivation
+scope, before returning the frozen record without retirement, Audit or write. A no-op suspend receipt keeps a late retry from
 becoming a new suspension. Reactivation replay must leave newly issued
 credentials untouched. No User version column, Audit scan or generalized
 supersession framework is added. Actor/payload/epoch mismatch is 409; populated
