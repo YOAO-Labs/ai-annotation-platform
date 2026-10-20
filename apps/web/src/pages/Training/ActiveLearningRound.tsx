@@ -10,6 +10,8 @@ import {
   type Arm,
   type DecisionInput,
   type FeedbackInput,
+  type FrozenSample,
+  type MaskPrediction,
 } from "@/api/activeLearning";
 import { useAuthStore } from "@/stores/authStore";
 import { PageContainer } from "@/components/layout/PageContainer";
@@ -22,13 +24,16 @@ import {
   armLabel,
   definitiveRejection,
   loadPending,
-  reasonLabel,
+  activeLearningReason,
+  activeLearningTask,
   reportOptions,
   roundStatus,
   runningStates,
   savePending,
   useActiveLearningScope,
 } from "./useActiveLearning";
+import { trainingTaskLabel } from "./trainingPresentation";
+import { ActiveLearningMaskPreview } from "./ActiveLearningMaskPreview";
 
 export function ActiveLearningRoundPage() {
   const { id = "", roundId = "" } = useParams();
@@ -77,12 +82,19 @@ export function RoundContent({
       );
       if (value.id !== roundId || value.project_id !== projectId || value.spec.round_id !== roundId)
         throw new Error("选样轮次身份不符");
+      const task = activeLearningTask(value.spec.model_ref.task ?? value.spec.task);
+      if (
+        !task ||
+        (task === "segment" && (value.spec.schema !== 2 || value.spec.task !== "segment"))
+      )
+        throw new Error("选样轮次任务或分割规格不受支持");
       return value;
     },
     refetchInterval: (query) =>
       query.state.data && runningStates.has(query.state.data.status) ? 3000 : false,
   });
   const round = detail.error ? undefined : detail.data;
+  const task = activeLearningTask(round?.spec.model_ref.task ?? round?.spec.task) ?? "detect";
   const attemptId = params.get("attempt") ?? round?.current_attempt_id ?? "";
   const attempt = round?.attempts.find((item) => item.id === attemptId);
   const report = useQuery({
@@ -99,8 +111,20 @@ export function RoundContent({
       round?.accepted_tasks,
     ],
     retry: false,
-    queryFn: ({ signal }) =>
-      guarded(signal, () => activeLearningApi.candidates(projectId, roundId, { signal })),
+    queryFn: async ({ signal }) => {
+      const value = await guarded(signal, () =>
+        activeLearningApi.candidates(projectId, roundId, { signal }),
+      );
+      if (
+        value.items.some((item) =>
+          item.evidence?.predictions.some((prediction) =>
+            task === "segment" ? !("rle" in prediction) : !("xyxy" in prediction),
+          ),
+        )
+      )
+        throw new Error("候选几何证据与本轮任务不一致");
+      return value;
+    },
     enabled: !!round,
     refetchInterval: round && runningStates.has(round.status) ? 3000 : false,
   });
@@ -316,6 +340,14 @@ export function RoundContent({
               <dd className="m-0">
                 <CopyValueButton value={round.spec_digest} label="复制选样规格摘要" />
               </dd>
+              <dt>选样任务</dt>
+              <dd className="m-0">{trainingTaskLabel(task)}</dd>
+              {task === "segment" && (
+                <>
+                  <dt>选样信号</dt>
+                  <dd className="m-0">实例置信度与跨类别原图掩码 IoU</dd>
+                </>
+              )}
               <dt>权重 SHA256</dt>
               <dd className="m-0">
                 <CopyValueButton
@@ -351,14 +383,18 @@ export function RoundContent({
           {!!attempt?.has_report && report.isPending && <p role="status">核验选样报告…</p>}
           {!attempt?.has_report && !["failed", "cancelled", "lost"].includes(round.status) && (
             <p role="status" className="text-sm text-muted-foreground">
-              推理完成并核验证据后显示完整建议。零检测只表示缺少信号。
+              推理完成并核验证据后显示完整建议。{task === "segment" ? "零实例" : "零检测"}
+              只表示缺少信号。
             </p>
           )}
           {report.data && !report.error && (
             <>
               <p className="text-xs text-muted-foreground">
-                低置信度与类别重叠是检测启发式。{report.data.missing_signal_count}{" "}
-                个候选无检测信号；随机对照来自评分前的独立分组。本轮仅验证流程，未证明质量或效率收益。
+                {task === "segment"
+                  ? "低置信度信号取各实例 1−置信度的最大值，重叠信号取跨类别原图掩码 IoU 的最大值；优先级取两者较大值。不使用像素概率，也不是 AP。"
+                  : "低置信度与类别重叠是检测启发式。"}
+                {report.data.missing_signal_count} 个候选无{task === "segment" ? "实例" : "检测"}
+                信号，将随机补位；随机对照来自评分前的独立分组。本轮未证明质量、效率或因果收益。
               </p>
               <div className="grid gap-5 lg:grid-cols-2">
                 {(["active", "random_control"] as Arm[]).map((arm) => (
@@ -400,7 +436,7 @@ export function RoundContent({
                                     className="text-left text-primary hover:underline"
                                     onClick={() => setFocused(item.ordinal)}
                                   >
-                                    #{item.rank} · {reasonLabel[item.reason] ?? item.reason}
+                                    #{item.rank} · {activeLearningReason(item.reason, task)}
                                   </button>
                                   <CopyValueButton
                                     value={item.task_id}
@@ -421,7 +457,8 @@ export function RoundContent({
                                   {item.features.priority === null
                                     ? "未知"
                                     : item.features.priority.toFixed(3)}{" "}
-                                  · {item.features.detections} 个检测
+                                  · {item.features.detections} 个
+                                  {task === "segment" ? "实例" : "检测"}
                                   {item.features.possible_truncation ? " · 输出可能截断" : ""}
                                 </p>
                               </div>
@@ -446,6 +483,12 @@ export function RoundContent({
                       ordinal={focus.ordinal}
                       scope={scope}
                       assert={assert}
+                      sample={sample}
+                      maskPredictions={
+                        task === "segment"
+                          ? (focus.evidence?.predictions as MaskPrediction[])
+                          : undefined
+                      }
                     />
                     <div className="min-w-0 text-xs">
                       <p className="flex items-center gap-1">
@@ -456,19 +499,44 @@ export function RoundContent({
                         张
                       </p>
                       <p>
-                        低置信度 {focus.evidence?.features.low_confidence?.toFixed(3) ?? "未知"} ·
-                        类别重叠 {focus.evidence?.features.ambiguity?.toFixed(3) ?? "未知"}
+                        {task === "segment" ? "实例低置信度" : "低置信度"}{" "}
+                        {focus.evidence?.features.low_confidence?.toFixed(3) ?? "未知"} ·
+                        {task === "segment" ? "跨类掩码 IoU" : "类别重叠"}{" "}
+                        {focus.evidence?.features.ambiguity?.toFixed(3) ?? "未知"}
                       </p>
+                      {task === "segment" && (
+                        <p>
+                          最小实例 {focus.evidence?.features.minimum_instance_pixels ?? "未知"} 像素
+                          · 实例像素合计（含重叠）
+                          {focus.evidence?.features.total_instance_pixels_including_overlap ??
+                            "未知"}{" "}
+                          · 重叠计算游程访问 {focus.evidence?.features.overlap_run_visits ?? "未知"}
+                        </p>
+                      )}
                       <p className="text-muted-foreground">
-                        这些框用于解释选样，没有写入标注真值。
+                        {task === "segment" ? "逐实例掩码" : "这些框"}
+                        用于解释选样，没有写入标注真值。
                       </p>
                       <details>
-                        <summary className="cursor-pointer">查看原生检测框</summary>
+                        <summary className="cursor-pointer">
+                          {task === "segment" ? "查看逐实例掩码证据" : "查看原生检测框"}
+                        </summary>
                         <ul className="max-h-64 overflow-auto pl-4">
-                          {focus.evidence?.predictions.map((box, index) => (
+                          {focus.evidence?.predictions.map((prediction, index) => (
                             <li key={index} className="mt-2 break-words">
-                              类别 {box.class_index} · 置信度 {box.score.toFixed(3)} ·{" "}
-                              {box.xyxy.map((value) => value.toFixed(3)).join(", ")}
+                              类别 {prediction.class_index} · 置信度 {prediction.score.toFixed(3)} ·{" "}
+                              {"rle" in prediction ? (
+                                <>
+                                  {prediction.area_pixels} 像素 · 原图 {prediction.rle.size[1]} ×{" "}
+                                  {prediction.rle.size[0]} ·{" "}
+                                  <CopyValueButton
+                                    value={prediction.mask_sha256}
+                                    label="复制候选实例掩码哈希"
+                                  />
+                                </>
+                              ) : (
+                                prediction.xyxy.map((value) => value.toFixed(3)).join(", ")
+                              )}
                             </li>
                           ))}
                         </ul>
@@ -721,11 +789,15 @@ function CandidateImage({
   ordinal,
   scope,
   assert,
+  sample,
+  maskPredictions,
 }: {
   round: ActiveRound;
   ordinal: number;
   scope: string;
   assert: AssertTrainingOwner;
+  sample: FrozenSample;
+  maskPredictions?: MaskPrediction[];
 }) {
   const image = useQuery({
     queryKey: ["active-learning-image", round.project_id, scope, round.id, ordinal],
@@ -756,13 +828,25 @@ function CandidateImage({
           <CopyableError message={image.error.message} />
         </p>
       )}
-      {!image.error && url?.blob === image.data && (
-        <img
-          className="max-h-80 w-full rounded-md bg-muted object-contain"
-          src={url?.value}
-          alt={`冻结候选 ${ordinal + 1}`}
-        />
-      )}
+      {!image.error &&
+        url &&
+        url.blob === image.data &&
+        (maskPredictions ? (
+          <ActiveLearningMaskPreview
+            scopeKey={`${scope}:${round.id}:${round.spec_digest}:${ordinal}`}
+            sampleUrl={url.value}
+            width={sample.width}
+            height={sample.height}
+            predictions={maskPredictions}
+            assertOwner={assert}
+          />
+        ) : (
+          <img
+            className="max-h-80 w-full rounded-md bg-muted object-contain"
+            src={url?.value}
+            alt={`冻结候选 ${ordinal + 1}`}
+          />
+        ))}
     </div>
   );
 }

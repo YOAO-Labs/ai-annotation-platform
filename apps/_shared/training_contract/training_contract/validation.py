@@ -5,7 +5,7 @@ from aap_task_contract import normalize_task
 from pathlib import PurePath
 
 from .catalog import FIXED, SEGMENTATION_FIXED, definition, schema_identity
-from .dataset import SEGMENTATION
+from .dataset import SEGMENTATION, data_contract, is_instance_rle
 
 CANONICAL = ("epochs", "batch", "imgsz", "seed", "lr0", "patience")
 
@@ -209,6 +209,18 @@ def resolve(framework, base_model, request):
     }
 
 
+def configuration_for_data_contract(configuration, contract):
+    """Add bridge qualification without changing historical parameter schemas."""
+    from copy import deepcopy
+
+    if contract is None or not is_instance_rle(data_contract(contract)):
+        return configuration
+    result = deepcopy(configuration)
+    result["effective_values"]["workers"] = 0
+    result["origins"]["workers"] = "platform:ultralytics-instance-rle-1"
+    return result
+
+
 def verify_frozen(config):
     frozen = config["configuration"]
     identity = frozen["identity"]
@@ -217,7 +229,10 @@ def verify_frozen(config):
         "schema_digest": identity["schema_digest"],
         "values": frozen["user_values"],
     }
-    resolved = resolve(config["framework"], config["base_model"]["id"], request)
+    resolved = configuration_for_data_contract(
+        resolve(config["framework"], config["base_model"]["id"], request),
+        config.get("data_contract"),
+    )
     if (
         resolved != frozen
         or config["adapter_revision"] != 2

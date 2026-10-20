@@ -436,6 +436,14 @@ async def prepare(db, project, body, actor_id, api_key_id=None):
                 422,
             ) from exc
         total += media["size_bytes"]
+        if strategy.strategy_for(ref) == strategy.MASK_STRATEGY:
+            from app.services import sample_evaluation_masks as masks
+
+            if (
+                media["width"] * media["height"] > masks.MAX_PIXELS
+                or max(media["width"], media["height"]) > masks.MAX_DIMENSION
+            ):
+                raise reject("source_budget", "候选原图超过分割评估协议的像素预算", 422)
         if total > MAX_TOTAL_RAW:
             raise reject("source_budget", "候选图片总量超过 128 MiB", 422)
         verified.append(
@@ -471,7 +479,7 @@ async def prepare(db, project, body, actor_id, api_key_id=None):
         "model_ref": ref,
         "profile": profile,
         "profile_digest": profile["profile_digest"],
-        "strategy": strategy.STRATEGY,
+        "strategy": strategy.strategy_for(ref),
         "preprocessing": detection.PREPROCESSING,
         **body.model_dump(
             mode="json",
@@ -485,6 +493,8 @@ async def prepare(db, project, body, actor_id, api_key_id=None):
             },
         ),
     }
+    if strategy.strategy_for(ref) == strategy.MASK_STRATEGY:
+        result.update(schema=2, schema_version=2, task="segment")
     await db.commit()
     return {**result, "preview_digest": content_digest(result)}
 

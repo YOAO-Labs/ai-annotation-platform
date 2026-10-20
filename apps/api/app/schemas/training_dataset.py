@@ -17,6 +17,14 @@ from aap_task_contract import (
 class TrainingDatasetSelection(BaseModel):
     model_config = ConfigDict(extra="forbid")
     task: Literal["detect", "segment"] = DETECTION
+    bridge: (
+        Literal[
+            "ultralytics-bbox-1",
+            "ultralytics-simple-polygon-1",
+            "ultralytics-instance-rle-1",
+        ]
+        | None
+    ) = None
     batch_id: uuid.UUID | None = None
     task_ids: list[uuid.UUID] = Field(default_factory=list, max_length=20000)
     mode: Literal["reviewed", "manager_confirmed"] = "reviewed"
@@ -34,6 +42,8 @@ class TrainingDatasetSelection(BaseModel):
 
     def canonical_payload(self):
         payload = self.model_dump(mode="json")
+        if payload.get("bridge") is None:
+            payload.pop("bridge")
         if self.task == DETECTION:
             payload.pop("task")
         else:
@@ -42,6 +52,12 @@ class TrainingDatasetSelection(BaseModel):
 
     @model_validator(mode="after")
     def explicit_confirmation(self):
+        if self.bridge is not None and self.bridge not in (
+            {"ultralytics-bbox-1"}
+            if self.task == DETECTION
+            else {"ultralytics-simple-polygon-1", "ultralytics-instance-rle-1"}
+        ):
+            raise ValueError("训练桥接与任务不匹配")
         if self.mode == "manager_confirmed" and not self.task_ids:
             raise ValueError("负责人确认模式必须显式选择任务")
         if self.confirmed_negative_ids and (

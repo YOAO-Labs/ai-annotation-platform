@@ -8383,14 +8383,26 @@
             "type": "integer"
           },
           "model_id": {
-            "const": "project-release",
             "default": "project-release",
+            "enum": [
+              "project-release",
+              "project-release:segment"
+            ],
             "title": "Model Id",
             "type": "string"
           },
           "registry_id": {
             "format": "uuid",
             "title": "Registry Id",
+            "type": "string"
+          },
+          "task": {
+            "default": "detect",
+            "enum": [
+              "detect",
+              "segment"
+            ],
+            "title": "Task",
             "type": "string"
           }
         },
@@ -13120,7 +13132,10 @@
             "type": "string"
           },
           "implementation": {
-            "const": "aap-ultralytics-detection",
+            "enum": [
+              "aap-ultralytics-detection",
+              "aap-ultralytics-instance-mask"
+            ],
             "title": "Implementation",
             "type": "string"
           },
@@ -13219,9 +13234,13 @@
                 "$ref": "#/components/schemas/EvaluationAggregate"
               },
               {
+                "$ref": "#/components/schemas/MaskEvaluationAggregate"
+              },
+              {
                 "type": "null"
               }
-            ]
+            ],
+            "title": "Aggregate"
           },
           "attempt_id": {
             "format": "uuid",
@@ -13277,7 +13296,10 @@
             "type": "array"
           },
           "schema": {
-            "const": 1,
+            "enum": [
+              1,
+              2
+            ],
             "title": "Schema",
             "type": "integer"
           },
@@ -13480,9 +13502,13 @@
                 "$ref": "#/components/schemas/DetectionMatching"
               },
               {
+                "$ref": "#/components/schemas/MaskMatching"
+              },
+              {
                 "type": "null"
               }
-            ]
+            ],
+            "title": "Matching"
           },
           "ordinal": {
             "exclusiveMaximum": 32.0,
@@ -13492,7 +13518,14 @@
           },
           "predictions": {
             "items": {
-              "$ref": "#/components/schemas/DetectionPrediction"
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/DetectionPrediction"
+                },
+                {
+                  "$ref": "#/components/schemas/MaskPrediction"
+                }
+              ]
             },
             "maxItems": 100,
             "title": "Predictions",
@@ -13548,7 +13581,14 @@
           },
           "truth": {
             "items": {
-              "$ref": "#/components/schemas/DetectionTruth"
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/DetectionTruth"
+                },
+                {
+                  "$ref": "#/components/schemas/MaskTruth"
+                }
+              ]
             },
             "maxItems": 200,
             "title": "Truth",
@@ -13900,7 +13940,10 @@
             "type": "array"
           },
           "schema": {
-            "const": 1,
+            "enum": [
+              1,
+              2
+            ],
             "title": "Schema",
             "type": "integer"
           },
@@ -15148,7 +15191,14 @@
           },
           "truth": {
             "items": {
-              "$ref": "#/components/schemas/DetectionTruth"
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/DetectionTruth"
+                },
+                {
+                  "$ref": "#/components/schemas/MaskTruth"
+                }
+              ]
             },
             "maxItems": 200,
             "title": "Truth",
@@ -15173,6 +15223,159 @@
           "truth"
         ],
         "title": "FrozenEvaluationSample",
+        "type": "object"
+      },
+      "FrozenSegmentationTrainingInitialization": {
+        "additionalProperties": false,
+        "properties": {
+          "artifact": {
+            "$ref": "#/components/schemas/InitializationArtifact"
+          },
+          "attempt_id": {
+            "format": "uuid",
+            "title": "Attempt Id",
+            "type": "string"
+          },
+          "base_model": {
+            "title": "Base Model",
+            "type": "string"
+          },
+          "binding_digest": {
+            "title": "Binding Digest",
+            "type": "string"
+          },
+          "bindings": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 10000,
+            "minItems": 1,
+            "title": "Bindings",
+            "type": "array"
+          },
+          "classes": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 10000,
+            "minItems": 1,
+            "title": "Classes",
+            "type": "array"
+          },
+          "classes_digest": {
+            "title": "Classes Digest",
+            "type": "string"
+          },
+          "config_digest": {
+            "title": "Config Digest",
+            "type": "string"
+          },
+          "data_contract": {
+            "additionalProperties": true,
+            "title": "Data Contract",
+            "type": "object"
+          },
+          "dataset_digest": {
+            "title": "Dataset Digest",
+            "type": "string"
+          },
+          "dataset_id": {
+            "format": "uuid",
+            "title": "Dataset Id",
+            "type": "string"
+          },
+          "evaluation": {
+            "$ref": "#/components/schemas/SegmentationInitializationEvaluation"
+          },
+          "framework": {
+            "const": "ultralytics",
+            "title": "Framework",
+            "type": "string"
+          },
+          "framework_version": {
+            "title": "Framework Version",
+            "type": "string"
+          },
+          "kind": {
+            "const": "trained_model",
+            "title": "Kind",
+            "type": "string"
+          },
+          "model_family": {
+            "const": "yolo11",
+            "title": "Model Family",
+            "type": "string"
+          },
+          "model_name": {
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Model Name",
+            "type": "string"
+          },
+          "model_version_id": {
+            "format": "uuid",
+            "title": "Model Version Id",
+            "type": "string"
+          },
+          "policy_digest": {
+            "title": "Policy Digest",
+            "type": "string"
+          },
+          "project_id": {
+            "format": "uuid",
+            "title": "Project Id",
+            "type": "string"
+          },
+          "run_id": {
+            "format": "uuid",
+            "title": "Run Id",
+            "type": "string"
+          },
+          "runtime": {
+            "$ref": "#/components/schemas/InitializationRuntime"
+          },
+          "source_digest": {
+            "title": "Source Digest",
+            "type": "string"
+          },
+          "task": {
+            "const": "segment",
+            "title": "Task",
+            "type": "string"
+          },
+          "validation_digest": {
+            "title": "Validation Digest",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "policy_digest",
+          "project_id",
+          "model_version_id",
+          "model_name",
+          "run_id",
+          "attempt_id",
+          "dataset_id",
+          "framework",
+          "framework_version",
+          "task",
+          "model_family",
+          "base_model",
+          "artifact",
+          "classes",
+          "classes_digest",
+          "bindings",
+          "binding_digest",
+          "config_digest",
+          "dataset_digest",
+          "validation_digest",
+          "runtime",
+          "evaluation",
+          "source_digest",
+          "data_contract"
+        ],
+        "title": "FrozenSegmentationTrainingInitialization",
         "type": "object"
       },
       "FrozenTrainingInitialization": {
@@ -19002,6 +19205,15 @@
           "state": {
             "title": "State",
             "type": "string"
+          },
+          "task": {
+            "default": "detect",
+            "enum": [
+              "detect",
+              "segment"
+            ],
+            "title": "Task",
+            "type": "string"
           }
         },
         "required": [
@@ -19115,6 +19327,15 @@
           "parent_id": {
             "format": "uuid",
             "title": "Parent Id",
+            "type": "string"
+          },
+          "task": {
+            "default": "detect",
+            "enum": [
+              "detect",
+              "segment"
+            ],
+            "title": "Task",
             "type": "string"
           }
         },
@@ -20783,6 +21004,85 @@
         "title": "ManagerStatus",
         "type": "object"
       },
+      "MaskAreaMetrics": {
+        "additionalProperties": false,
+        "properties": {
+          "f1": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "F1"
+          },
+          "fn": {
+            "minimum": 0.0,
+            "title": "Fn",
+            "type": "integer"
+          },
+          "fp": {
+            "minimum": 0.0,
+            "title": "Fp",
+            "type": "integer"
+          },
+          "group": {
+            "enum": [
+              "small",
+              "medium",
+              "large"
+            ],
+            "title": "Group",
+            "type": "string"
+          },
+          "precision": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Precision"
+          },
+          "recall": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recall"
+          },
+          "tp": {
+            "minimum": 0.0,
+            "title": "Tp",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "tp",
+          "fp",
+          "fn",
+          "precision",
+          "recall",
+          "f1",
+          "group"
+        ],
+        "title": "MaskAreaMetrics",
+        "type": "object"
+      },
       "MaskCompareMetrics": {
         "properties": {
           "added_pixels": {
@@ -21060,6 +21360,198 @@
           "annotation_id"
         ],
         "title": "MaskDeleteMutation",
+        "type": "object"
+      },
+      "MaskDiagnostic": {
+        "additionalProperties": false,
+        "properties": {
+          "dice": {
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Dice",
+            "type": "number"
+          },
+          "iou": {
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Iou",
+            "type": "number"
+          },
+          "kind": {
+            "enum": [
+              "confusion",
+              "localization"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "prediction_index": {
+            "minimum": 0.0,
+            "title": "Prediction Index",
+            "type": "integer"
+          },
+          "truth_index": {
+            "minimum": 0.0,
+            "title": "Truth Index",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "prediction_index",
+          "truth_index",
+          "iou",
+          "dice",
+          "kind"
+        ],
+        "title": "MaskDiagnostic",
+        "type": "object"
+      },
+      "MaskEvaluationAggregate": {
+        "additionalProperties": false,
+        "properties": {
+          "area_groups": {
+            "items": {
+              "$ref": "#/components/schemas/MaskAreaMetrics"
+            },
+            "maxItems": 3,
+            "minItems": 3,
+            "title": "Area Groups",
+            "type": "array"
+          },
+          "confusion": {
+            "items": {
+              "$ref": "#/components/schemas/ConfusionCount"
+            },
+            "maxItems": 3200,
+            "title": "Confusion",
+            "type": "array"
+          },
+          "diagnostics": {
+            "additionalProperties": {
+              "minimum": 0.0,
+              "type": "integer"
+            },
+            "propertyNames": {
+              "enum": [
+                "confusion",
+                "localization"
+              ]
+            },
+            "title": "Diagnostics",
+            "type": "object"
+          },
+          "f1": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "F1"
+          },
+          "fn": {
+            "minimum": 0.0,
+            "title": "Fn",
+            "type": "integer"
+          },
+          "fp": {
+            "minimum": 0.0,
+            "title": "Fp",
+            "type": "integer"
+          },
+          "matched_mean_dice": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Matched Mean Dice"
+          },
+          "matched_mean_iou": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Matched Mean Iou"
+          },
+          "per_class": {
+            "items": {
+              "$ref": "#/components/schemas/PerClassMetrics"
+            },
+            "maxItems": 1000,
+            "minItems": 1,
+            "title": "Per Class",
+            "type": "array"
+          },
+          "precision": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Precision"
+          },
+          "recall": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recall"
+          },
+          "samples": {
+            "maximum": 32.0,
+            "minimum": 1.0,
+            "title": "Samples",
+            "type": "integer"
+          },
+          "tp": {
+            "minimum": 0.0,
+            "title": "Tp",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "tp",
+          "fp",
+          "fn",
+          "precision",
+          "recall",
+          "f1",
+          "samples",
+          "per_class",
+          "diagnostics",
+          "confusion",
+          "matched_mean_iou",
+          "matched_mean_dice",
+          "area_groups"
+        ],
+        "title": "MaskEvaluationAggregate",
         "type": "object"
       },
       "MaskExpectedVersion": {
@@ -21962,6 +22454,158 @@
         "title": "MaskLineageEdgeOut",
         "type": "object"
       },
+      "MaskMatch": {
+        "additionalProperties": false,
+        "properties": {
+          "dice": {
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Dice",
+            "type": "number"
+          },
+          "iou": {
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Iou",
+            "type": "number"
+          },
+          "prediction_index": {
+            "minimum": 0.0,
+            "title": "Prediction Index",
+            "type": "integer"
+          },
+          "truth_index": {
+            "minimum": 0.0,
+            "title": "Truth Index",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "prediction_index",
+          "truth_index",
+          "iou",
+          "dice"
+        ],
+        "title": "MaskMatch",
+        "type": "object"
+      },
+      "MaskMatching": {
+        "additionalProperties": false,
+        "properties": {
+          "diagnostics": {
+            "items": {
+              "$ref": "#/components/schemas/MaskDiagnostic"
+            },
+            "maxItems": 100,
+            "title": "Diagnostics",
+            "type": "array"
+          },
+          "excluded_prediction_indices": {
+            "items": {
+              "minimum": 0.0,
+              "type": "integer"
+            },
+            "maxItems": 100,
+            "title": "Excluded Prediction Indices",
+            "type": "array"
+          },
+          "f1": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "F1"
+          },
+          "false_negative_indices": {
+            "items": {
+              "minimum": 0.0,
+              "type": "integer"
+            },
+            "maxItems": 200,
+            "title": "False Negative Indices",
+            "type": "array"
+          },
+          "false_positive_indices": {
+            "items": {
+              "minimum": 0.0,
+              "type": "integer"
+            },
+            "maxItems": 100,
+            "title": "False Positive Indices",
+            "type": "array"
+          },
+          "fn": {
+            "minimum": 0.0,
+            "title": "Fn",
+            "type": "integer"
+          },
+          "fp": {
+            "minimum": 0.0,
+            "title": "Fp",
+            "type": "integer"
+          },
+          "matches": {
+            "items": {
+              "$ref": "#/components/schemas/MaskMatch"
+            },
+            "maxItems": 100,
+            "title": "Matches",
+            "type": "array"
+          },
+          "precision": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Precision"
+          },
+          "recall": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recall"
+          },
+          "tp": {
+            "minimum": 0.0,
+            "title": "Tp",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "tp",
+          "fp",
+          "fn",
+          "precision",
+          "recall",
+          "f1",
+          "matches",
+          "false_positive_indices",
+          "false_negative_indices",
+          "excluded_prediction_indices",
+          "diagnostics"
+        ],
+        "title": "MaskMatching",
+        "type": "object"
+      },
       "MaskMutationAffectedReport": {
         "additionalProperties": false,
         "properties": {
@@ -22459,6 +23103,56 @@
           "media"
         ],
         "title": "MaskMutationScope",
+        "type": "object"
+      },
+      "MaskPrediction": {
+        "additionalProperties": false,
+        "properties": {
+          "area_pixels": {
+            "exclusiveMinimum": 0.0,
+            "title": "Area Pixels",
+            "type": "integer"
+          },
+          "class_index": {
+            "minimum": 0.0,
+            "title": "Class Index",
+            "type": "integer"
+          },
+          "index": {
+            "minimum": 0.0,
+            "title": "Index",
+            "type": "integer"
+          },
+          "mask_sha256": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Mask Sha256",
+            "type": "string"
+          },
+          "native_class_index": {
+            "minimum": 0.0,
+            "title": "Native Class Index",
+            "type": "integer"
+          },
+          "rle": {
+            "$ref": "#/components/schemas/CocoRlePayload"
+          },
+          "score": {
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Score",
+            "type": "number"
+          }
+        },
+        "required": [
+          "index",
+          "class_index",
+          "rle",
+          "mask_sha256",
+          "area_pixels",
+          "native_class_index",
+          "score"
+        ],
+        "title": "MaskPrediction",
         "type": "object"
       },
       "MaskQCConfig": {
@@ -23606,6 +24300,60 @@
         "title": "MaskRepairRollbackRequest",
         "type": "object"
       },
+      "MaskTruth": {
+        "additionalProperties": false,
+        "properties": {
+          "annotation_id": {
+            "format": "uuid",
+            "title": "Annotation Id",
+            "type": "string"
+          },
+          "annotation_version": {
+            "exclusiveMinimum": 0.0,
+            "title": "Annotation Version",
+            "type": "integer"
+          },
+          "area_pixels": {
+            "exclusiveMinimum": 0.0,
+            "title": "Area Pixels",
+            "type": "integer"
+          },
+          "class_index": {
+            "minimum": 0.0,
+            "title": "Class Index",
+            "type": "integer"
+          },
+          "index": {
+            "minimum": 0.0,
+            "title": "Index",
+            "type": "integer"
+          },
+          "mask_sha256": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Mask Sha256",
+            "type": "string"
+          },
+          "rasterizer": {
+            "title": "Rasterizer",
+            "type": "string"
+          },
+          "rle": {
+            "$ref": "#/components/schemas/CocoRlePayload"
+          }
+        },
+        "required": [
+          "index",
+          "class_index",
+          "rle",
+          "mask_sha256",
+          "area_pixels",
+          "annotation_id",
+          "annotation_version",
+          "rasterizer"
+        ],
+        "title": "MaskTruth",
+        "type": "object"
+      },
       "MaskUpdateMutation": {
         "additionalProperties": false,
         "properties": {
@@ -24011,6 +24759,13 @@
               }
             ]
           },
+          "current_releases": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/CatalogCurrentRelease"
+            },
+            "title": "Current Releases",
+            "type": "object"
+          },
           "items": {
             "items": {
               "$ref": "#/components/schemas/CatalogEntry"
@@ -24327,6 +25082,15 @@
             "default": false,
             "title": "Sample Confirmed",
             "type": "boolean"
+          },
+          "task": {
+            "default": "detect",
+            "enum": [
+              "detect",
+              "segment"
+            ],
+            "title": "Task",
+            "type": "string"
           }
         },
         "required": [
@@ -24409,6 +25173,15 @@
             "additionalProperties": true,
             "title": "Snapshot",
             "type": "object"
+          },
+          "task": {
+            "default": "detect",
+            "enum": [
+              "detect",
+              "segment"
+            ],
+            "title": "Task",
+            "type": "string"
           }
         },
         "required": [
@@ -37130,6 +37903,45 @@
         "title": "SecondaryInferenceResponse",
         "type": "object"
       },
+      "SegmentationInitializationEvaluation": {
+        "additionalProperties": false,
+        "properties": {
+          "descriptor_digest": {
+            "title": "Descriptor Digest",
+            "type": "string"
+          },
+          "normalized_model_digest": {
+            "title": "Normalized Model Digest",
+            "type": "string"
+          },
+          "report_digest": {
+            "title": "Report Digest",
+            "type": "string"
+          },
+          "report_sha256": {
+            "title": "Report Sha256",
+            "type": "string"
+          },
+          "validation_digest": {
+            "title": "Validation Digest",
+            "type": "string"
+          },
+          "weights_sha256": {
+            "title": "Weights Sha256",
+            "type": "string"
+          }
+        },
+        "required": [
+          "report_sha256",
+          "report_digest",
+          "validation_digest",
+          "normalized_model_digest",
+          "descriptor_digest",
+          "weights_sha256"
+        ],
+        "title": "SegmentationInitializationEvaluation",
+        "type": "object"
+      },
       "Selection": {
         "additionalProperties": false,
         "properties": {
@@ -41260,6 +42072,16 @@
             "title": "Artifact Download",
             "type": "boolean"
           },
+          "instance_rle": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TrainingInstanceRleCapability"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "model_registration": {
             "title": "Model Registration",
             "type": "boolean"
@@ -41799,6 +42621,22 @@
             ],
             "title": "Batch Id"
           },
+          "bridge": {
+            "anyOf": [
+              {
+                "enum": [
+                  "ultralytics-bbox-1",
+                  "ultralytics-simple-polygon-1",
+                  "ultralytics-instance-rle-1"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bridge"
+          },
           "confirmed_negative_ids": {
             "items": {
               "format": "uuid",
@@ -41949,6 +42787,36 @@
           "val"
         ],
         "title": "TrainingDatasetDistributionBin",
+        "type": "object"
+      },
+      "TrainingDatasetFrozenMask": {
+        "properties": {
+          "annotation_id": {
+            "format": "uuid",
+            "title": "Annotation Id",
+            "type": "string"
+          },
+          "annotation_version": {
+            "minimum": 1.0,
+            "title": "Annotation Version",
+            "type": "integer"
+          },
+          "pixel_sha256": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Pixel Sha256",
+            "type": "string"
+          },
+          "rle": {
+            "$ref": "#/components/schemas/CocoRleContent"
+          }
+        },
+        "required": [
+          "annotation_id",
+          "annotation_version",
+          "pixel_sha256",
+          "rle"
+        ],
+        "title": "TrainingDatasetFrozenMask",
         "type": "object"
       },
       "TrainingDatasetInsightAdapter": {
@@ -42419,6 +43287,72 @@
           "media"
         ],
         "title": "TrainingDatasetInsightOverview",
+        "type": "object"
+      },
+      "TrainingDatasetInstanceMask": {
+        "properties": {
+          "annotation_id": {
+            "format": "uuid",
+            "title": "Annotation Id",
+            "type": "string"
+          },
+          "annotation_version": {
+            "title": "Annotation Version",
+            "type": "integer"
+          },
+          "area": {
+            "title": "Area",
+            "type": "number"
+          },
+          "area_pixels": {
+            "title": "Area Pixels",
+            "type": "integer"
+          },
+          "bbox_xyxy": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Bbox Xyxy",
+            "type": "array"
+          },
+          "class_index": {
+            "title": "Class Index",
+            "type": "integer"
+          },
+          "class_name": {
+            "title": "Class Name",
+            "type": "string"
+          },
+          "pixel_sha256": {
+            "title": "Pixel Sha256",
+            "type": "string"
+          },
+          "size": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Size",
+            "type": "array"
+          },
+          "type": {
+            "const": "instance_mask",
+            "default": "instance_mask",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "class_index",
+          "class_name",
+          "annotation_id",
+          "annotation_version",
+          "size",
+          "area",
+          "area_pixels",
+          "bbox_xyxy",
+          "pixel_sha256"
+        ],
+        "title": "TrainingDatasetInstanceMask",
         "type": "object"
       },
       "TrainingDatasetMediaObservations": {
@@ -42971,6 +43905,9 @@
                 },
                 {
                   "$ref": "#/components/schemas/TrainingDatasetNormalizedPolygon"
+                },
+                {
+                  "$ref": "#/components/schemas/TrainingDatasetInstanceMask"
                 }
               ]
             },
@@ -43050,14 +43987,39 @@
       "TrainingDatasetSegmentationStatistics": {
         "properties": {
           "geometry": {
-            "const": "normalized-simple-polygon",
             "default": "normalized-simple-polygon",
+            "enum": [
+              "normalized-simple-polygon",
+              "instance-mask"
+            ],
             "title": "Geometry",
             "type": "string"
           },
           "known_instances": {
             "title": "Known Instances",
             "type": "integer"
+          },
+          "mask_area_pixels_sum": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mask Area Pixels Sum"
+          },
+          "normalized_mask_area_sum": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Normalized Mask Area Sum"
           },
           "polygon_area_sum": {
             "title": "Polygon Area Sum",
@@ -43097,6 +44059,22 @@
               }
             ],
             "title": "Batch Id"
+          },
+          "bridge": {
+            "anyOf": [
+              {
+                "enum": [
+                  "ultralytics-bbox-1",
+                  "ultralytics-simple-polygon-1",
+                  "ultralytics-instance-rle-1"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bridge"
           },
           "confirmed_negative_ids": {
             "items": {
@@ -43665,7 +44643,8 @@
           "revision": {
             "enum": [
               1,
-              2
+              2,
+              3
             ],
             "title": "Revision",
             "type": "integer"
@@ -43990,9 +44969,13 @@
                 "$ref": "#/components/schemas/FrozenTrainingInitialization"
               },
               {
+                "$ref": "#/components/schemas/FrozenSegmentationTrainingInitialization"
+              },
+              {
                 "type": "null"
               }
-            ]
+            ],
+            "title": "Pin"
           },
           "reasons": {
             "items": {
@@ -44014,6 +44997,67 @@
           "reasons"
         ],
         "title": "TrainingInitializationEligibility",
+        "type": "object"
+      },
+      "TrainingInstanceRleCapability": {
+        "properties": {
+          "bridge": {
+            "const": "ultralytics-instance-rle-1",
+            "title": "Bridge",
+            "type": "string"
+          },
+          "framework": {
+            "const": "ultralytics",
+            "title": "Framework",
+            "type": "string"
+          },
+          "limits": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Limits",
+            "type": "object"
+          },
+          "loss_mask_resize": {
+            "title": "Loss Mask Resize",
+            "type": "string"
+          },
+          "models": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Models",
+            "type": "array"
+          },
+          "rasterizer": {
+            "title": "Rasterizer",
+            "type": "string"
+          },
+          "transform": {
+            "title": "Transform",
+            "type": "string"
+          },
+          "validation_mask_resize": {
+            "title": "Validation Mask Resize",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "bridge",
+          "framework",
+          "version",
+          "models",
+          "limits",
+          "rasterizer",
+          "transform",
+          "loss_mask_resize",
+          "validation_mask_resize"
+        ],
+        "title": "TrainingInstanceRleCapability",
         "type": "object"
       },
       "TrainingOrigin": {
@@ -63560,6 +64604,26 @@
               "title": "Offset",
               "type": "integer"
             }
+          },
+          {
+            "in": "query",
+            "name": "task",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "detect",
+                    "segment"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Task"
+            }
           }
         ],
         "responses": {
@@ -67551,6 +68615,20 @@
               "title": "Project Id",
               "type": "string"
             }
+          },
+          {
+            "in": "query",
+            "name": "task",
+            "required": false,
+            "schema": {
+              "default": "detect",
+              "enum": [
+                "detect",
+                "segment"
+              ],
+              "title": "Task",
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -67588,6 +68666,20 @@
             "schema": {
               "format": "uuid",
               "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "task",
+            "required": false,
+            "schema": {
+              "default": "detect",
+              "enum": [
+                "detect",
+                "segment"
+              ],
+              "title": "Task",
               "type": "string"
             }
           }
@@ -67702,6 +68794,20 @@
               "title": "Project Id",
               "type": "string"
             }
+          },
+          {
+            "in": "query",
+            "name": "task",
+            "required": false,
+            "schema": {
+              "default": "detect",
+              "enum": [
+                "detect",
+                "segment"
+              ],
+              "title": "Task",
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -67748,6 +68854,20 @@
             "schema": {
               "format": "uuid",
               "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "task",
+            "required": false,
+            "schema": {
+              "default": "detect",
+              "enum": [
+                "detect",
+                "segment"
+              ],
+              "title": "Task",
               "type": "string"
             }
           },
@@ -67806,6 +68926,20 @@
             "schema": {
               "format": "uuid",
               "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "task",
+            "required": false,
+            "schema": {
+              "default": "detect",
+              "enum": [
+                "detect",
+                "segment"
+              ],
+              "title": "Task",
               "type": "string"
             }
           },
@@ -70499,6 +71633,20 @@
               "minimum": 0,
               "title": "Offset",
               "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "task",
+            "required": false,
+            "schema": {
+              "default": "detect",
+              "enum": [
+                "detect",
+                "segment"
+              ],
+              "title": "Task",
+              "type": "string"
             }
           }
         ],
@@ -74042,6 +75190,26 @@
             }
           },
           {
+            "in": "query",
+            "name": "task",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "detect",
+                    "segment"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Task"
+            }
+          },
+          {
             "description": "创建日期下界，UTC 日期（含）",
             "in": "query",
             "name": "created_from",
@@ -74447,6 +75615,83 @@
           }
         ],
         "summary": "Deploy Model",
+        "tags": [
+          "trained-models"
+        ]
+      }
+    },
+    "/api/v1/projects/{project_id}/trained-models/{version_id}/deployments/{deployment_id}/mask-content/{shape_index}": {
+      "get": {
+        "operationId": "trial_mask_content_api_v1_projects__project_id__trained_models__version_id__deployments__deployment_id__mask_content__shape_index__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "version_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Version Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "deployment_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Deployment Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "shape_index",
+            "required": true,
+            "schema": {
+              "title": "Shape Index",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CocoRleContent"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Trial Mask Content",
         "tags": [
           "trained-models"
         ]
@@ -75457,6 +76702,84 @@
           }
         ],
         "summary": "Sample Detail",
+        "tags": [
+          "training-datasets"
+        ]
+      }
+    },
+    "/api/v1/projects/{project_id}/training-datasets/{version_id}/insights/samples/{task_id}/masks/{annotation_id}": {
+      "get": {
+        "operationId": "sample_mask_api_v1_projects__project_id__training_datasets__version_id__insights_samples__task_id__masks__annotation_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "version_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Version Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "task_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Task Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "annotation_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Annotation Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrainingDatasetFrozenMask"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Sample Mask",
         "tags": [
           "training-datasets"
         ]

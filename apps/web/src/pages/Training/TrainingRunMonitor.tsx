@@ -171,7 +171,9 @@ export function TrainingRunMonitor({
               <p className="font-medium">将训练结果回流到项目</p>
               <p className="mt-1 text-muted-foreground">
                 {registrationEligibility?.qualified
-                  ? "绑定项目类别后，模型会出现在「模型与发布」，供后续试用和发布。"
+                  ? segmentation
+                    ? "绑定 region 项目类别后，可加载试用并人工发布实例分割模型。预测采用逐实例掩码；栅格掩码训练仍须通过数据资格预检。"
+                    : "绑定项目类别后，模型会出现在「模型与发布」，供后续试用和发布。"
                   : (registrationEligibility?.reason ?? "尚未确认回流资格，请刷新后重试。")}
                 {!registrationEligibility?.qualified && " 仍可在「产物与记录」下载权重。"}
               </p>
@@ -181,6 +183,7 @@ export function TrainingRunMonitor({
                 <Link
                   to={`/projects/${run.project_id}/learning?${new URLSearchParams({
                     tab: "models",
+                    model_task: task,
                     register_run: run.id,
                     register_attempt: attempt.id,
                   })}`}

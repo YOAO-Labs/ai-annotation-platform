@@ -68,6 +68,8 @@ install -d -m 700 /tmp/aap-gpu-acceptance
 | SAM3          | image / multiplex / PVS 三池、BF16 CUDA 路径                    | `VALIDATION_SAM3_SHA256`、`VALIDATION_MULTIPLEX_SHA256`       |
 | ONNXTools     | pipeline / detector / va 三句柄、4 条 ORT session               | `VALIDATION_DET_SHA256`、`VALIDATION_VA_SHA256`、经批准代表图 |
 
+部署受控 `trained:<版本>` 实例分割模型时，YOLO 还必须提供三项 `VALIDATION_CONTROLLED_SEGMENT_*` 输入，取得 `controlled_segment` 两轮证据及附加检查。只有普通四任务报告不能关闭该模型路径的资格门禁；准备方法见[实例分割在线学习验收](/dev/how-to/validate-segmentation-online-learning#受控分割模型生命周期)。
+
 公共环境变量为：
 
 - `VALIDATION_GIT_COMMIT`：当前镜像对应的完整 commit；

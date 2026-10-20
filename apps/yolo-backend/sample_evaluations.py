@@ -214,13 +214,16 @@ def verify_input(file_path, request):
 
 
 def observed_inference(model, ctx, width, height):
+    expected_options = ctx._evaluation_profile["options"]
     args = model.predictor.args
-    actual = {key: getattr(args, key, None) for key in FIXED_OPTIONS if key != "stream"}
+    actual = {
+        key: getattr(args, key, None) for key in expected_options if key != "stream"
+    }
     actual["stream"] = False
     if actual.get("imgsz") == [640, 640]:
         actual["imgsz"] = 640
     if (
-        actual != FIXED_OPTIONS
+        actual != expected_options
         or str(model.device) != ctx._evaluation_profile["effective_device"]
     ):
         raise error(
@@ -258,8 +261,9 @@ def observed_inference(model, ctx, width, height):
 class EvaluationRequestStore:
     """Fixed lock inodes protect native work, atomic receipts and delayed POST seals."""
 
-    def __init__(self, root: Path):
+    def __init__(self, root: Path, *, response_bytes=None):
         self.root = root
+        self.response_bytes = response_bytes
 
     @property
     def storage_identity(self):
@@ -321,8 +325,8 @@ class EvaluationRequestStore:
             return None
         try:
             with path.open("rb") as stream:
-                raw = stream.read(MAX_RESPONSE_BYTES + 1)
-            if len(raw) > MAX_RESPONSE_BYTES:
+                raw = stream.read((self.response_bytes or MAX_RESPONSE_BYTES) + 1)
+            if len(raw) > (self.response_bytes or MAX_RESPONSE_BYTES):
                 raise ValueError("Receipt exceeds budget")
             result = json.loads(raw)
             if (
@@ -370,7 +374,7 @@ class EvaluationRequestStore:
         raw = json.dumps(
             record, ensure_ascii=False, separators=(",", ":"), allow_nan=False
         ).encode()
-        if len(raw) > MAX_RESPONSE_BYTES:
+        if len(raw) > (self.response_bytes or MAX_RESPONSE_BYTES):
             raise error(
                 413,
                 "evaluation_response_too_large",

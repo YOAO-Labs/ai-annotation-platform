@@ -7,14 +7,18 @@ from pathlib import Path
 
 from training_contract.catalog import digest
 from training_contract.validation import normalized
-from training_contract.dataset import SEGMENTATION, config_task
+from training_contract.dataset import SEGMENTATION, config_task, is_instance_rle
 
 
 def descriptor(spec, weights, implementation, source_files, options, metrics):
     config = spec["frozen_config"]
     segmentation = config_task(config) == SEGMENTATION
     return {
-        "revision": 2 if segmentation else 1,
+        "revision": 3
+        if is_instance_rle(config.get("data_contract", {}))
+        else 2
+        if segmentation
+        else 1,
         "config_digest": digest(config),
         "candidate": {
             "weights_sha256": weights["sha256"],
@@ -90,6 +94,14 @@ def ultralytics_descriptor(spec, weights, validator, metrics):
         torch_version=version("torch"),
         torchvision_version=version("torchvision"),
     )
+    extra_sources = []
+    if is_instance_rle(spec["frozen_config"].get("data_contract", {})):
+        from .instance_rle import consumer_evidence, InstanceRLEDataset
+        from ultralytics.utils import loss
+
+        options["mask_consumer"] = consumer_evidence()
+        options["data_contract"] = spec["frozen_config"]["data_contract"]
+        extra_sources = [inspect.getfile(InstanceRLEDataset), loss.__file__]
     return descriptor(
         spec,
         weights,
@@ -102,6 +114,7 @@ def ultralytics_descriptor(spec, weights, validator, metrics):
             augment.__file__,
             dataset.__file__,
             *([data_utils.__file__] if segmentation else []),
+            *extra_sources,
         ],
         options,
         metrics,

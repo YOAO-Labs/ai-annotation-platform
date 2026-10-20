@@ -5,7 +5,7 @@ import hashlib
 import json
 from importlib.resources import files
 from aap_task_contract import legacy_training_task, normalize_task
-from .dataset import DETECTION, SEGMENTATION
+from .dataset import DETECTION, SEGMENTATION, INSTANCE_RLE_LIMITS
 
 ADAPTERS = {
     "ultralytics": {"version": "8.4.177", "revision": 1, "model_registration": True},
@@ -449,3 +449,18 @@ def definition_for_identity(framework, base_model, identity):
         if identity == schema_identity(schema):
             return schema
     raise ValueError("未知或不匹配的冻结参数定义")
+
+
+def instance_rle_capability():
+    """Explicit first-revision consumer bounds, separate from old model schemas."""
+    return {
+        "bridge": "ultralytics-instance-rle-1",
+        "framework": "ultralytics",
+        "version": "8.4.177",
+        "models": ["yolo11n-seg"],
+        "limits": dict(INSTANCE_RLE_LIMITS),
+        "rasterizer": "aap-pixel-center-even-odd-1",
+        "transform": "aap-letterbox-nearest-1",
+        "loss_mask_resize": "truth-full-input-plane;prototype-bilinear-upsample-align-corners-false",
+        "validation_mask_resize": "torch.bilinear-align-corners-false-threshold-0.5-to-prototype-plane",
+    }

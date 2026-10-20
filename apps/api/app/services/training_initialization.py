@@ -4,8 +4,21 @@ import asyncio
 import uuid
 
 from fastapi import HTTPException
+from botocore.exceptions import BotoCoreError, ClientError
 from sqlalchemy import select
-from training_contract.initialization import POLICY, POLICY_DIGEST, validate_pin
+from training_contract.initialization import (
+    POLICY,
+    POLICY_DIGEST,
+    SEGMENTATION_POLICY,
+    SEGMENTATION_POLICY_DIGEST,
+    validate_pin,
+)
+from training_contract.dataset import (
+    SEGMENTATION,
+    config_task,
+    data_contract,
+    data_task,
+)
 
 from app.db.models.trained_model import TrainedModelVersion
 from app.db.models.training_dataset import TrainingDatasetVersion
@@ -34,6 +47,9 @@ def model_id(pin):
 def compatible_pin(pin, framework, base_model, classes=None):
     validate_pin(pin)
     reasons = []
+    expected_task = SEGMENTATION if base_model == "yolo11n-seg" else "image-detection"
+    if pin["task"] != expected_task:
+        reasons.append("初始化来源与目标训练任务不同")
     if framework != pin["framework"]:
         reasons.append("来源训练器与当前训练器不同")
     if base_model != pin["base_model"]:
@@ -79,6 +95,15 @@ async def source_pin(db, project_id, version_id):
     ):
         raise ValueError("初始化模型缺少同项目的成功执行与冻结数据来源")
     config, provenance = run.config, version.provenance
+    segmentation = config_task(config) == SEGMENTATION
+    policy = SEGMENTATION_POLICY if segmentation else POLICY
+    source_contract = data_contract(dataset.manifest) if segmentation else None
+    if segmentation and (
+        data_task(source_contract) != SEGMENTATION
+        or config.get("data_contract") != source_contract
+        or config.get("base_model", {}).get("id") != "yolo11n-seg"
+    ):
+        raise ValueError("分割初始化缺少一致的来源任务、架构和数据桥接")
     if (
         version.framework != POLICY["framework"]
         or version.framework_version != POLICY["framework_version"]
@@ -116,7 +141,7 @@ async def source_pin(db, project_id, version_id):
     }
     pin = {
         "kind": "trained_model",
-        "policy_digest": POLICY_DIGEST,
+        "policy_digest": SEGMENTATION_POLICY_DIGEST if segmentation else POLICY_DIGEST,
         "project_id": str(project_id),
         "model_version_id": str(version.id),
         "model_name": version.name,
@@ -125,8 +150,8 @@ async def source_pin(db, project_id, version_id):
         "dataset_id": str(dataset.id),
         "framework": version.framework,
         "framework_version": version.framework_version,
-        "task": POLICY["task"],
-        "model_family": POLICY["model_family"],
+        "task": policy["task"],
+        "model_family": policy["model_family"],
         "base_model": config["base_model"]["id"],
         "artifact": artifact,
         "classes": version.classes,
@@ -146,6 +171,38 @@ async def source_pin(db, project_id, version_id):
             "validation_digest": config["validation_digest"],
         },
     }
+    if segmentation:
+        from app.services.training_artifacts import read_json_artifact
+        from app.services.training_evaluations import parse_evaluation
+
+        try:
+            report = await asyncio.to_thread(read_json_artifact, metrics[0], attempt.id)
+        except (BotoCoreError, ClientError, OSError) as exc:
+            raise ValueError("分割初始化的真实来源评估对象不可用") from exc
+        checked = parse_evaluation(
+            report, run, attempt, metrics[0], weights[0], 0, len(version.classes)
+        )
+        registered = normalized_registration_evaluation(report, checked)
+        if checked["identity_status"] != "verified" or any(
+            version.evaluation.get(key) != registered[key]
+            for key in (
+                "summary",
+                "per_class_available",
+                "comparison_identity_status",
+                "comparison_compatibility_digest",
+                "per_class",
+            )
+        ):
+            raise ValueError("分割初始化模型的注册评估与真实来源报告语义不一致")
+        pin["data_contract"] = source_contract
+        pin["evaluation"] = {
+            "report_sha256": metrics[0]["sha256"],
+            "report_digest": content_digest(report),
+            "normalized_model_digest": content_digest(version.evaluation),
+            "descriptor_digest": content_digest(report["comparison"]),
+            "weights_sha256": weights[0]["sha256"],
+            "validation_digest": config["validation_digest"],
+        }
     pin["source_digest"] = content_digest(pin)
     return validate_pin(pin), metrics[0]
 
@@ -160,6 +217,15 @@ def verify_storage(pin, metrics, *, full):
         report = read_json_artifact(metrics, pin["attempt_id"])
         if content_digest(report) != pin["evaluation"]["report_digest"]:
             raise ValueError("来源评估与候选注册时的报告不一致")
+        if pin["task"] == SEGMENTATION and (
+            content_digest(report.get("comparison"))
+            != pin["evaluation"]["descriptor_digest"]
+            or report.get("validation_digest") != pin["validation_digest"]
+            or report.get("comparison", {}).get("candidate", {}).get("weights_sha256")
+            != artifact["sha256"]
+            or metrics["sha256"] != pin["evaluation"]["report_sha256"]
+        ):
+            raise ValueError("分割初始化真实报告的权重或评估器身份不一致")
     else:
         head = storage.client.head_object(
             Bucket=storage.training_bucket, Key=artifact["key"]
@@ -275,3 +341,18 @@ async def validate_accepted(
         return current
     except (ValueError, KeyError, TypeError) as exc:
         raise HTTPException(status_code=409, detail=str(exc)[:500]) from exc
+
+
+def normalized_registration_evaluation(report, checked):
+    """Compare registration semantics without conflating raw artifact bytes."""
+    return {
+        **report,
+        "summary": checked["summary"],
+        "per_class_available": checked["per_class_available"],
+        "comparison_identity_status": checked["identity_status"],
+        "comparison_compatibility_digest": checked["compatibility_digest"],
+        "per_class": [
+            {"index": row["index"], "name": row["name"], **row["metrics"]}
+            for row in checked["per_class"]
+        ],
+    }

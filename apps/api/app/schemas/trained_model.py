@@ -1,6 +1,7 @@
 from aap_task_contract import normalize_task
 import uuid
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -75,6 +76,13 @@ class ModelReleaseCreate(BaseModel):
     deployment_id: uuid.UUID | None = None
     rollback_from_id: uuid.UUID | None = None
     sample_confirmed: bool = False
+    task: Literal["detect", "segment"] = "detect"
+
+    def request_payload(self):
+        payload = self.model_dump(mode="json")
+        if self.task == "detect":
+            payload.pop("task")
+        return payload
 
     @model_validator(mode="after")
     def require_pair(self):
@@ -95,5 +103,6 @@ class ModelReleaseOut(BaseModel):
     previous_release_id: uuid.UUID | None
     rollback_from_id: uuid.UUID | None
     generation: int
+    task: Literal["detect", "segment"] = "detect"
     snapshot: dict
     created_at: datetime

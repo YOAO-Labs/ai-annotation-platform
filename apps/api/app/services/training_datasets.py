@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import io
+from PIL import Image
 import uuid
 from datetime import datetime, timezone
 
@@ -34,6 +36,10 @@ from training_contract.dataset import (
     SEGMENTATION,
     SEGMENTATION_CONTRACT,
     DETECTION_CONTRACT,
+    INSTANCE_RLE_CONTRACT,
+    DatasetContractError,
+    instance_mask_annotations,
+    is_instance_rle,
 )
 from app.services.training_dataset_insight_adapters import assert_parent_compatible
 
@@ -128,7 +134,39 @@ def capture_source_media(sample: dict) -> dict:
     size = head["ContentLength"]
     if size <= 0 or size > MAX_IMAGE_BYTES:
         raise TrainingDatasetError("image_size_limit", "图片大小超出训练数据范围")
+    dimensions = {}
+    if sample.get("raster_contract") and not (
+        sample.get("expected_width") and sample.get("expected_height")
+    ):
+        # Legacy direct-upload tasks may lack DatasetItem dimensions. Read a
+        # bounded, ETag-pinned header, never a dense image or unbounded object.
+        params = {
+            "Bucket": sample["source_bucket"],
+            "Key": sample["source_key"],
+            "IfMatch": head["ETag"],
+            "Range": "bytes=0-1048575",
+        }
+        if head.get("VersionId"):
+            params["VersionId"] = head["VersionId"]
+        response = storage_service.client.get_object(**params)
+        try:
+            header = response["Body"].read(1024 * 1024 + 1)
+        finally:
+            response["Body"].close()
+        if len(header) > 1024 * 1024:
+            raise TrainingDatasetError(
+                "image_header_limit", "图片尺寸头超过 1 MiB 预检范围"
+            )
+        try:
+            with Image.open(io.BytesIO(header)) as image:
+                width, height = storage_service._logical_image_dimensions(image)
+            dimensions = {"width": width, "height": height}
+        except Exception as exc:
+            raise TrainingDatasetError(
+                "image_dimensions_unavailable", "无法从有界原图头读取标注尺寸"
+            ) from exc
     return {
+        **dimensions,
         "etag": head["ETag"],
         "size_bytes": size,
         "version_id": head.get("VersionId"),
@@ -153,6 +191,13 @@ async def freeze_selection(
             raise TrainingDatasetError(
                 "batch_not_found", "批次不属于当前项目", status_code=404
             )
+    contract = dict(
+        INSTANCE_RLE_CONTRACT
+        if selection.bridge == INSTANCE_RLE_CONTRACT["bridge"]
+        else SEGMENTATION_CONTRACT
+        if selection.task == SEGMENTATION
+        else DETECTION_CONTRACT
+    )
     if selection.parent_id:
         parent = await db.get(TrainingDatasetVersion, selection.parent_id)
         if parent is None or parent.project_id != project.id:
@@ -166,9 +211,7 @@ async def freeze_selection(
         assert_parent_compatible(
             parent.snapshot,
             parent.manifest,
-            SEGMENTATION_CONTRACT
-            if selection.task == SEGMENTATION
-            else DETECTION_CONTRACT,
+            contract,
         )
     annotation_json = (
         select(
@@ -217,7 +260,6 @@ async def freeze_selection(
             "task_not_found", "选中的任务不属于当前项目或批次", status_code=404
         )
     segmentation = selection.task == SEGMENTATION
-    contract = dict(SEGMENTATION_CONTRACT) if segmentation else dict(DETECTION_CONTRACT)
     tool_unit_id = "region" if segmentation else "bbox"
     bindings = rows[0][2] if rows else project.tool_bindings
     binding = bindings.get(tool_unit_id, {})
@@ -273,12 +315,21 @@ async def freeze_selection(
             excluded.append({"task_id": task_id, "code": reason})
             continue
         try:
-            native_labels(active_annotations, classes, contract)
-        except TrainingDatasetError as exc:
+            if is_instance_rle(contract) and item and item.width and item.height:
+                instance_mask_annotations(
+                    active_annotations,
+                    classes,
+                    item.width if item else None,
+                    item.height if item else None,
+                )
+            elif not is_instance_rle(contract):
+                native_labels(active_annotations, classes, contract)
+        except (TrainingDatasetError, DatasetContractError) as exc:
             issues.append({"task_id": task_id, "code": exc.code, "message": str(exc)})
             continue
         samples.append(
             {
+                **({"raster_contract": True} if is_instance_rle(contract) else {}),
                 "task_id": task_id,
                 "task_version": task.version,
                 "annotations": active_annotations,
@@ -303,7 +354,20 @@ async def freeze_selection(
         async with semaphore:
             try:
                 sample["media"] = await asyncio.to_thread(capture_source_media, sample)
-            except TrainingDatasetError as exc:
+                if is_instance_rle(contract):
+                    sample["expected_width"] = sample.get("expected_width") or sample[
+                        "media"
+                    ].get("width")
+                    sample["expected_height"] = sample.get("expected_height") or sample[
+                        "media"
+                    ].get("height")
+                    instance_mask_annotations(
+                        sample["annotations"],
+                        classes,
+                        sample["expected_width"],
+                        sample["expected_height"],
+                    )
+            except (TrainingDatasetError, DatasetContractError) as exc:
                 issues.append(
                     {
                         "task_id": sample["task_id"],
@@ -326,7 +390,18 @@ async def freeze_selection(
             {"code": "insufficient_samples", "message": "至少需要两张合格图片"}
         )
     if (
-        sum(s.get("media", {}).get("size_bytes", 0) for s in samples)
+        sum(
+            s.get("media", {}).get("size_bytes", 0)
+            + (
+                sum(
+                    annotation.get("geometry", {}).get("mask", {}).get("bytes", 0)
+                    for annotation in s["annotations"]
+                )
+                if is_instance_rle(contract)
+                else 0
+            )
+            for s in samples
+        )
         > MAX_DATASET_BYTES
     ):
         issues.append(
@@ -364,6 +439,12 @@ async def freeze_selection(
         "issues": sorted(issues, key=lambda i: (i.get("task_id", ""), i["code"])),
         "excluded": excluded,
     }
+    if is_instance_rle(contract) and report["ready"]:
+        # The caller inserts the immutable version and commits this same
+        # transaction. GC rechecks roots while holding these exact content locks.
+        from app.services.raster_mask_storage import lock_raster_mask_references
+
+        await lock_raster_mask_references(db, snapshot)
     return snapshot, report
 
 

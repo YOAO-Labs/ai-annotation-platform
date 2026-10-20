@@ -264,13 +264,14 @@ async def _run() -> dict[str, Any]:
     sys.path.insert(0, str(app_root))
     import main  # noqa: PLC0415
     from model_registry import resolve_weight_filename  # noqa: PLC0415
+    from managed_models import ManagedModelStore  # noqa: PLC0415
+    from scripts.controlled_segmentation_validation import (  # noqa: PLC0415
+        CHECKS as CONTROLLED_CHECKS,
+        load_controlled_fixture,
+    )
 
     validation_root = Path(tempfile.mkdtemp(prefix="yolo_lifecycle_validation_"))
-    image_path, video_path = _make_inputs(validation_root)
-    gpu = _gpu_metadata(os.getenv("VALIDATION_GPU_UUID") or None)
-    target_uuid = gpu["uuid"]
-    memory: dict[str, Any] = {"gpu_total_mb": gpu["total_memory_mb"]}
-    contract_checks = {name: False for name in REQUIRED_CONTRACT_CHECKS}
+    original_managed_store = main._managed_models  # noqa: SLF001
 
     def token(
         scope: AdmissionScope,
@@ -320,6 +321,17 @@ async def _run() -> dict[str, Any]:
         return response.json()
 
     try:
+        controlled = load_controlled_fixture(validation_root)
+        if controlled is not None:
+            # Qualification must never install into the deployment's real cache.
+            main._managed_models = ManagedModelStore(validation_root / "managed")  # noqa: SLF001
+        image_path, video_path = _make_inputs(validation_root)
+        gpu = _gpu_metadata(os.getenv("VALIDATION_GPU_UUID") or None)
+        target_uuid = gpu["uuid"]
+        memory: dict[str, Any] = {"gpu_total_mb": gpu["total_memory_mb"]}
+        contract_checks = {name: False for name in REQUIRED_CONTRACT_CHECKS}
+        if controlled is not None:
+            contract_checks.update(dict.fromkeys(CONTROLLED_CHECKS, False))
         async with main.lifespan(main.app):
             assert main._gpu_lifecycle is not None  # noqa: SLF001
             assert main._model_pool is not None  # noqa: SLF001
@@ -406,6 +418,19 @@ async def _run() -> dict[str, Any]:
                         "managed lifecycle capability was not advertised"
                     )
                 contract_checks["managed_lifecycle_advertised"] = True
+                if controlled is not None:
+                    await controlled.install(client)
+                    contract_checks["controlled_segment_install"] = True
+                    contract_checks["controlled_segment_receipt_mismatch_rejected"] = (
+                        True
+                    )
+                    await controlled.reject_mismatched_references(
+                        client,
+                        lambda: headers(AdmissionScope.PREDICT, "1"),
+                    )
+                    contract_checks[
+                        "controlled_segment_reference_mismatch_rejected"
+                    ] = True
 
                 closed_tasks = ("detection", "segmentation", "keypoint", "obb")
                 for task in closed_tasks:
@@ -434,6 +459,18 @@ async def _run() -> dict[str, Any]:
                     },
                     headers(AdmissionScope.PREDICT, "1"),
                 )
+                if controlled is not None:
+                    response = await checked_post(
+                        client,
+                        "/predict",
+                        controlled.predict_body(),
+                        headers(AdmissionScope.PREDICT, "1"),
+                    )
+                    controlled.inspect_prediction(
+                        response,
+                        cycle=1,
+                        snapshot=await main._model_pool.snapshot(),  # noqa: SLF001
+                    )
                 contract_checks["real_inference"] = True
                 health = (await client.get("/health")).json()
                 effective = health["compute"]["effective_device"]
@@ -477,6 +514,11 @@ async def _run() -> dict[str, Any]:
                     first_unload["residency"],
                     await main._model_pool.snapshot(),  # noqa: SLF001
                 )
+                if controlled is not None:
+                    controlled.unloaded(
+                        cycle=1,
+                        snapshot=await main._model_pool.snapshot(),  # noqa: SLF001
+                    )
 
                 warmup_body = {
                     "task": "detection",
@@ -492,17 +534,36 @@ async def _run() -> dict[str, Any]:
                         },
                         headers(AdmissionScope.WARMUP, "3"),
                     )
+                if controlled is not None:
+                    response = await checked_post(
+                        client,
+                        "/predict",
+                        controlled.predict_body(),
+                        headers(AdmissionScope.PREDICT, "3"),
+                    )
+                    controlled.inspect_prediction(
+                        response,
+                        cycle=2,
+                        snapshot=await main._model_pool.snapshot(),  # noqa: SLF001
+                    )
+                    contract_checks["controlled_segment_native_rle"] = True
+                    contract_checks["controlled_segment_cold_reload"] = True
                 memory["cycle_2_loaded_mb"] = _gpu_memory_samples(target_uuid, count=3)
+                workload_scope = (
+                    AdmissionScope.PREDICT if controlled else AdmissionScope.WARMUP
+                )
+                workload_path = "/predict" if controlled else "/warmup"
+                workload_body = controlled.predict_body() if controlled else warmup_body
                 contract_checks.update(
                     await exercise_lifecycle_fault_matrix(
                         client=client,
                         lifecycle=main._gpu_lifecycle,  # noqa: SLF001
                         token=token,
-                        workload_scope=AdmissionScope.WARMUP,
+                        workload_scope=workload_scope,
                         drain_scope=AdmissionScope.DRAIN,
                         unload_scope=AdmissionScope.UNLOAD,
-                        workload_path="/warmup",
-                        workload_body=warmup_body,
+                        workload_path=workload_path,
+                        workload_body=workload_body,
                         current_generation="3",
                         stale_generation="1",
                         next_generation="4",
@@ -526,6 +587,8 @@ async def _run() -> dict[str, Any]:
                 memory["cycle_2_unloaded_mb"] = _gpu_memory_samples(target_uuid)
                 final_snapshot = await main._model_pool.snapshot()  # noqa: SLF001
                 _assert_unloaded(final_health["residency"], final_snapshot)
+                if controlled is not None:
+                    controlled.unloaded(cycle=2, snapshot=final_snapshot)
                 if second_unload["residency"]["gpu_loaded"] is not False:
                     raise AssertionError("managed unload did not clear GPU residency")
                 torch_memory = _torch_memory_mb(main.torch)
@@ -565,6 +628,20 @@ async def _run() -> dict[str, Any]:
                     ),
                 ]
             )
+            pool_topology = {
+                "models": {
+                    "cap": int(final_snapshot["cap"]),
+                    "series": series,
+                    "size": size,
+                }
+            }
+            if controlled is not None:
+                controlled_artifacts, controlled_topology = controlled.evidence(
+                    model_approval=model_approval_ref,
+                    fixture_approval=fixture_approval_ref,
+                )
+                artifacts.extend(controlled_artifacts)
+                pool_topology["controlled_segment"] = controlled_topology
             gpu["runtime_version"] = str(main.torch.version.cuda)
             cycles = [
                 memory_cycle_evidence(
@@ -594,13 +671,7 @@ async def _run() -> dict[str, Any]:
                         "ultralytics": str(__import__("ultralytics").__version__),
                         "backend": str(main.BACKEND_VERSION),
                     },
-                    "pool_topology": {
-                        "models": {
-                            "cap": int(final_snapshot["cap"]),
-                            "series": series,
-                            "size": size,
-                        }
-                    },
+                    "pool_topology": pool_topology,
                 },
                 artifacts=artifacts,
                 gpu=gpu,
@@ -610,7 +681,8 @@ async def _run() -> dict[str, Any]:
                 runtime_ephemera_clean=True,
             )
     finally:
-        shutil.rmtree(validation_root, ignore_errors=True)
+        main._managed_models = original_managed_store  # noqa: SLF001
+        shutil.rmtree(validation_root)
 
 
 def _failed_evidence(exc: Exception) -> dict[str, Any]:

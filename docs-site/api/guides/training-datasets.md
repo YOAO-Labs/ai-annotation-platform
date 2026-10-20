@@ -103,15 +103,15 @@ last_reviewed: 2026-10-16
 
 正式创建请求使用相同选择，增加 `name`、UUID `request_id` 和 `preflight_digest`。相同请求标识与内容重复提交返回原版本；相同标识用于不同请求返回 `409`。正式创建重新读取一致快照，摘要与预检不符时返回 `409`，要求重新预检。
 
-`task` 使用 `detect`（默认）或 `segment`。旧名称 `image-detection`、`image-instance-segmentation` 等作为输入别名兼容；输出统一为规范名称。新快照与清单使用 schema 3，显式包含 `task`、`media_type=image`、`format=ultralytics-yolo`、几何类型和桥接修订。历史 schema 1/2、包内容和摘要保持原样，读取时仅派生规范任务。父版本任务不一致返回 `422`；父版本还须有兼容的输出契约、来源媒体及累计 task/content/scene 分组证据，不因属于同一个任务流放宽继承限制。
+`task` 使用 `detect`（默认）或 `segment`。旧名称 `image-detection`、`image-instance-segmentation` 等作为输入别名兼容；输出统一为规范名称。检测和简单多边形桥接的新快照与清单使用 schema 3；原生掩码桥接使用 schema 4 与 `format=aap-instance-rle`。两者显式包含 `task`、`media_type=image`、`format=ultralytics-yolo`、几何类型和桥接修订。历史 schema 1/2、包内容和摘要保持原样，读取时仅派生规范任务。父版本任务不一致返回 `422`；父版本还须有兼容的输出契约、来源媒体及累计 task/content/scene 分组证据，不因属于同一个任务流放宽继承限制。
 
 一个项目可启用多种标注工具，但一个数据版本固定一个任务。`annotation_scope` 记录所选工具与有序类别；检测取 `bbox`，分割取 `region`。其他工具标注排除并计入 `summary.excluded_annotations`，不会使当前任务的合格图片失效。只有其他任务标注的图片不会自动成为当前任务的负样本；须有适用的已审核无目标证据或显式 `confirmed_negative_ids`。所选工具内的非法几何仍阻止构建。
 
 预检同时返回规范任务、媒体、格式、范围、来源和 `summary.objects`。版本列表/详情返回 `task`、`media_type`、`source_media_type`、`format`、`class_count` 与样本/对象/分区摘要。当前物化器只支持图片项目；视频导出先保留原项目采样、协作参数和绝对源帧记录，为后续视频派生图片数据版本提供来源依据。
 
-分割只接受启用区域工具的单一简单多边形，精确去除重复闭合点并规范起点／方向；17 位有效数字保留顶点，原始与 float32 几何均须有效。单实例最多 512 个顶点，单图最多 300 个实例及 8,192 个顶点。孔、多部件、栅格、所选工具内的不支持几何、未知类别、退化、自接触／自相交及原生重复实例阻止构建。清单 `instances` 将一基标签行、类别、行 SHA 与来源标注 ID／版本绑定；无目标成员保留空映射。
+简单多边形桥接 `ultralytics-simple-polygon-1` 只接受启用区域工具的单一简单多边形，精确去除重复闭合点并规范起点／方向；17 位有效数字保留顶点，原始与 float32 几何均须有效。单实例最多 512 个顶点，单图最多 300 个实例及 8,192 个顶点。孔、多部件、栅格、所选工具内的不支持几何、未知类别、退化、自接触／自相交及原生重复实例阻止构建。清单 `instances` 将一基标签行、类别、行 SHA 与来源标注 ID／版本绑定；无目标成员保留空映射。
 
-分割样本详情的 `labels` 返回 `type=polygon`、归一化 `points`、`area`、`annotation_id` 与 `annotation_version`；检测仍返回 `type=bbox` 和中心／宽高。洞察和样本变化筛选的基线须为相同任务，跨任务返回 `422`。去重与验证多重集语义摘要纳入分割任务／几何／桥接身份，不改变检测旧摘要。
+简单多边形桥接的样本详情 `labels` 返回 `type=polygon`、归一化 `points`、`area`、`annotation_id` 与 `annotation_version`；检测仍返回 `type=bbox` 和中心／宽高。洞察和样本变化筛选的基线须为相同任务，跨任务返回 `422`。去重与验证多重集语义摘要纳入分割任务／几何／桥接身份，不改变检测旧摘要。
 
 版本状态为 `pending`、`running`、`ready`、`failed`、`cancelled`。通过 `POST /api/v1/async-jobs/{async_job_id}/cancel` 取消构建。取消和失败均同步数据版本与后台任务状态；旧执行退出前重试或删除返回 `409`。异步失败通过 `error_code` 和中文 `error_message` 展示，已复制的冻结素材可用于重试。
 
@@ -427,3 +427,13 @@ LibreYOLO 注册仅接受已核验的 YOLO9 t/s/m/c 原生检测最佳权重，�
 `model` 的 `predictions` 关系返回 `usage`，匹配候选权重 SHA、类别及绑定身份，同时核对预测复合主键与项目。`retained_count` 最多 1,000，`truncated=true` 表示还有记录；缺少候选身份时计数为 null 并返回 `unavailable_reason`。此范围不含旧格式和删除历史。
 
 决策处置为 `active/research/declined/archived`；说明去除首尾空白后长度 1–2,000。相同模型内相同 UUID 与内容重试返回原记录；变更内容复用 UUID 返回 409。历史只追加，最新序号决定列表处置，不更新项目发布选择或代次。模型列表支持 `archive=exclude/include/only`，默认 `exclude` 仍保留当前发布；模型输出增加处置、决策序号、归档及当前发布标记。历史模型仍可按 ID 读取。
+
+### 原生实例掩码与任务隔离
+
+创建或预检实例分割数据时，显式提交 `task=segment`、`bridge=ultralytics-instance-rle-1`；省略 bridge 保留原多边形默认行为。新掩码契约为 schema 4、format `aap-instance-rle`、geometry `instance-mask`，完整身份和类别顺序进入摘要，禁止跨桥接父版本。
+
+`GET /projects/{project_id}/training-datasets/{version_id}/insights/samples/{task_id}/masks/{annotation_id}` 仅向当前项目负责人返回该冻结成员的 canonical RLE、来源 annotation 版本及像素摘要；不读取当前人工标注。
+
+模型发布 POST body 和发布历史 GET query 的 `task` 默认 `detect`；分割显式传 `segment`。检测动态引用仍为 `project-release`，分割使用 `project-release:segment`，请求入队时解析并冻结。模型目录同时返回 `current_releases`，旧 `current_release` 保留检测默认语义。试用实例可通过 `GET /projects/{project_id}/trained-models/{version_id}/deployments/{deployment_id}/mask-content/{shape_index}` 读取；版本、部署、项目关系与当前管理权限全部核验。
+
+自动策略 PUT body 的 `task` 与 GET／disable／check／triggers／DELETE query 同样默认检测。分割必须提供完整配置、同任务父版本及已合格基础模型，任务间修订和失败基线互不影响；项目级串行限制继续生效。

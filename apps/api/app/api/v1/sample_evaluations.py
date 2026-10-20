@@ -53,10 +53,11 @@ async def qualification(
     ref, profile = await service.qualification(
         db, project, model_version_id, deployment_id
     )
+    selected_engine = service.engine_for(ref)
     return {
         "model_ref": ref,
         "profile": profile,
-        "evaluator": service.engine.EVALUATOR,
+        "evaluator": selected_engine.EVALUATOR,
         "preprocessing": service.engine.PREPROCESSING,
         "limits": {
             "samples": service.engine.MAX_SAMPLES,
@@ -64,7 +65,15 @@ async def qualification(
             "truth_total": service.engine.MAX_TRUTH_TOTAL,
             "predictions_per_image": service.engine.MAX_PREDICTIONS,
             "raw_bytes": service.engine.MAX_RAW_BYTES,
-            "pixels": service.engine.MAX_PIXELS,
+            "pixels": selected_engine.MAX_PIXELS,
+            **(
+                {
+                    "max_dimension": selected_engine.MAX_DIMENSION,
+                    "mask_evidence_bytes_per_sample": selected_engine.MAX_SAMPLE_RLE_BYTES,
+                }
+                if selected_engine is not service.engine
+                else {}
+            ),
         },
     }
 
@@ -228,6 +237,11 @@ async def compare(
             if left["aggregate"][key] is None or right["aggregate"][key] is None
             else right["aggregate"][key] - left["aggregate"][key]
             for key in ("tp", "fp", "fn", "precision", "recall", "f1")
+            + (
+                ("matched_mean_iou", "matched_mean_dice")
+                if runs[0].spec["schema"] == 2
+                else ()
+            )
         }
         available = {}
         for sample in right["samples"]:

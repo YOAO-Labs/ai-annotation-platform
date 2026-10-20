@@ -80,9 +80,23 @@ class FrozenTrainingInitialization(BaseModel):
         return self
 
 
+class SegmentationInitializationEvaluation(InitializationEvaluation):
+    normalized_model_digest: str
+    descriptor_digest: str
+    weights_sha256: str
+
+
+class FrozenSegmentationTrainingInitialization(FrozenTrainingInitialization):
+    task: Literal["segment"]
+    data_contract: dict
+    evaluation: SegmentationInitializationEvaluation
+
+
 class TrainingInitializationEligibility(BaseModel):
     model_version_id: uuid.UUID
     eligible: bool
     reasons: list[str] = Field(max_length=20)
-    pin: FrozenTrainingInitialization | None = None
+    pin: (
+        FrozenTrainingInitialization | FrozenSegmentationTrainingInitialization | None
+    ) = None
     storage_verified: bool = False

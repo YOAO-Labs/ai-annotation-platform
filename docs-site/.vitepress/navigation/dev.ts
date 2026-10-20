@@ -24,6 +24,10 @@ export function createDevSidebar(
         { text: "Alembic 迁移", link: "/dev/how-to/add-migration" },
         { text: "调试 Celery", link: "/dev/how-to/debug-celery" },
         { text: "排查模型回流与路由", link: "/dev/how-to/debug-model-return" },
+        {
+          text: "实例分割在线学习验收",
+          link: "/dev/how-to/validate-segmentation-online-learning",
+        },
         { text: "调试 WebSocket", link: "/dev/how-to/debug-websocket" },
         { text: "更新截图", link: "/dev/how-to/update-screenshots" },
         { text: "更新 Excalidraw 图表", link: "/dev/how-to/update-excalidraw-diagrams" },
@@ -59,6 +63,7 @@ export function createDevSidebar(
             { text: "任务模块", link: "/dev/concepts/task-module" },
             { text: "标注模块", link: "/dev/concepts/annotation-module" },
             { text: "在线学习与训练体系", link: "/dev/concepts/training-datasets" },
+            { text: "实例分割在线学习", link: "/dev/concepts/instance-segmentation-learning" },
             { text: "视频标注工作台", link: "/dev/concepts/video-annotation-workbench" },
             { text: "Scene 与帧索引", link: "/dev/concepts/scene-and-frame-index" },
             { text: "Scene Track 与轨迹生命周期", link: "/dev/concepts/scene-track-lifecycle" },

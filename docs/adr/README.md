@@ -133,3 +133,5 @@
 - [0087](archive/0087-project-task-dataset-streams.md) — 项目按任务派生版本流，管理关联与冻结身份分离
 
 - [0088](archive/0088-model-catalog-and-frozen-pipelines.md) — 模型目录独立投影，管线按阶段冻结并完整重试
+
+- [0089](archive/0089-task-scoped-native-instance-learning.md) — 实例分割采用原生掩码训练与按任务隔离的在线学习

@@ -69,3 +69,24 @@ def test_compose_selects_the_same_digest_pinned_reference_it_advertises():
     service = compose["services"]["training-executor"]
     assert "@${TRAINING_IMAGE_DIGEST" in service["image"]
     assert service["environment"]["TRAINING_IMAGE_REFERENCE"] == service["image"]
+
+
+def test_bitmap_consumer_and_segmentation_initialization_are_explicit_capabilities(
+    controlled_runtime, monkeypatch
+):
+    from training_contract.catalog import instance_rle_capability
+    from training_contract.initialization import (
+        POLICY_DIGEST,
+        SEGMENTATION_POLICY_DIGEST,
+    )
+
+    monkeypatch.setenv(
+        "TRAINING_IMAGE_REFERENCE", "registry.test/training:latest@sha256:" + "a" * 64
+    )
+    runtime = runtime_identity()
+    assert runtime["instance_rle_consumer"] == instance_rle_capability()
+    assert runtime["initialization_policy_digest"] == POLICY_DIGEST
+    assert runtime["initialization_policy_digests"] == [
+        POLICY_DIGEST,
+        SEGMENTATION_POLICY_DIGEST,
+    ]

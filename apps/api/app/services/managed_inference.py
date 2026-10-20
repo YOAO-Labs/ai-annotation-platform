@@ -15,10 +15,19 @@ from app.services.gpu_arbitration.dispatch import build_gpu_dispatch_context_fac
 from app.services.ml_client import MLBackendClient, PredictionResult
 from app.services.ml_routing.client import RoutedMLBackendClient
 from app.services.training_dataset_bridge import content_digest
+from aap_task_contract import normalize_task
 
 
 class RemoteUncertain(Exception):
     """The fixed remote request has no confirmed final receipt."""
+
+
+def segmentation_spec(spec):
+    task = spec.get("model_ref", {}).get("task") or spec.get("task")
+    return (
+        normalize_task(task or ("segment" if spec.get("schema") == 2 else "detect"))
+        == "segment"
+    )
 
 
 def reject(code, message, status=409):
@@ -30,7 +39,7 @@ async def qualification(db, project, model_id, deployment_id):
     if not deployment or deployment.model_version_id != model_id:
         raise reject("deployment_unavailable", "受控部署不存在", 404)
     ref = await trained_models.resolve_reference(
-        db, project, f"trained:{model_id}", deployment.registry_id
+        db, project, f"trained:{model_id}", deployment.registry_id, allow_candidate=True
     )
     if ref["deployment_id"] != str(deployment_id):
         raise reject("deployment_changed", "受控部署身份已变化")
@@ -43,7 +52,10 @@ async def qualification(db, project, model_id, deployment_id):
     backend = await trained_models.enabled_backend(
         db, project.id, deployment.registry_id
     )
-    profile = await MLBackendClient(backend).managed_evaluation_request("profile")
+    segment = normalize_task(ref.get("task") or "detect") == "segment"
+    profile = await MLBackendClient(backend).managed_evaluation_request(
+        "segment/profile" if segment else "profile"
+    )
     checked = EvaluationProfile.model_validate(profile).model_dump(
         mode="json", by_alias=True
     )
@@ -51,6 +63,8 @@ async def qualification(db, project, model_id, deployment_id):
         checked["profile_digest"]
         != content_digest({k: v for k, v in checked.items() if k != "profile_digest"})
         or checked["ultralytics_version"] != "8.4.177"
+        or checked["implementation"]
+        != ("aap-ultralytics-instance-mask" if segment else "aap-ultralytics-detection")
     ):
         raise reject("runtime_unqualified", "推理环境尚未通过逐样本评估资格检查")
     return ref, checked
@@ -81,7 +95,11 @@ def request_identity(spec, row, preprocessing):
             "evaluation": request,
         }
     )
-    return {"evaluation": request, "preprocessing": preprocessing}
+    return {
+        "evaluation": request,
+        "preprocessing": preprocessing,
+        **({"task": "segment"} if segmentation_spec(spec) else {}),
+    }
 
 
 def verify_inference(spec, row, inference):
@@ -140,6 +158,8 @@ def recovered_result(receipt, model_ref):
 async def remote_receipt(client, row, *, seal=False):
     request = row.request["evaluation"]
     path = f"requests/{row.request_id}"
+    if row.request.get("task") == "segment":
+        path = "segment/" + path
     if seal:
         return await client.managed_evaluation_request(
             path + "/seal",
@@ -196,6 +216,7 @@ def checked_receipt(row, receipt):
 
 
 async def predict(db, factory, *, project_id, spec, row, png, owner, operation):
+    segmentation = segmentation_spec(spec)
     routed = RoutedMLBackendClient(
         db,
         requested_registry=uuid.UUID(spec["model_ref"]["registry_id"]),
@@ -213,6 +234,7 @@ async def predict(db, factory, *, project_id, spec, row, png, owner, operation):
             }
         ],
         context={
+            **({"task": "segment"} if segmentation else {}),
             "model_id": f"trained:{spec['model_ref']['model_version_id']}",
             "frozen_model_ref": spec["model_ref"],
             "params": {
@@ -222,6 +244,8 @@ async def predict(db, factory, *, project_id, spec, row, png, owner, operation):
             },
             "sample_evaluation": row.request["evaluation"],
         },
-        max_response_bytes=engine.MAX_RESPONSE_BYTES,
+        max_response_bytes=17 * 1024 * 1024
+        if segmentation
+        else engine.MAX_RESPONSE_BYTES,
     )
     return results[0]

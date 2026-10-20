@@ -2,13 +2,24 @@ import { randomId } from "@/utils/id";
 import { CopyableError } from "@/components/ui/CopyableError";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { trainingDatasetsApi, type TrainingDatasetAnalyzedSampleOut } from "@/api/trainingDatasets";
+import {
+  trainingDatasetsApi,
+  type TrainingDatasetAnalyzedSampleOut,
+  type TrainingDatasetInstanceMask,
+  type TrainingDatasetSampleDetail,
+} from "@/api/trainingDatasets";
 import { useAuthStore } from "@/stores/authStore";
 import { getAuthSessionRevision } from "@/stores/authSession";
 import { Button } from "@/components/ui/Button";
 import { CopyValueButton } from "@/components/ui/CopyValueButton";
 import { Modal } from "@/components/ui/Modal";
 import { useTrainingSessionRevision } from "../Training/trainingViewOwner";
+
+import { FrozenInstanceMaskPreview } from "./FrozenInstanceMaskPreview";
+
+const isInstanceMask = (
+  label: TrainingDatasetSampleDetail["labels"][number],
+): label is TrainingDatasetInstanceMask => "pixel_sha256" in label && "size" in label;
 
 type Props = {
   projectId: string;
@@ -173,6 +184,8 @@ function SamplePreviewContent({
   }, [owner, projectId, sample.version_id, sample.task_id, retry]);
   const value = detail.data;
   const polygons = value?.labels.some((label) => label.type === "polygon") ?? false;
+  const instanceMasks = value?.labels.filter(isInstanceMask) ?? [];
+  const masks = instanceMasks.length > 0;
   return (
     <>
       <p className="mb-3 flex flex-wrap items-center gap-x-1 text-xs text-muted-foreground">
@@ -201,52 +214,66 @@ function SamplePreviewContent({
           </Button>
         </div>
       )}
-      {mediaUrl && (
-        <div className="relative mx-auto w-fit max-w-full overflow-hidden rounded-md border border-border bg-muted">
-          <img
-            src={mediaUrl}
-            alt="冻结样本图片"
-            className="block max-h-[60vh] max-w-full"
-            onError={() => {
-              setMediaError("浏览器无法解码冻结图片预览，请重试或检查持久存储");
-              setMediaUrl("");
-            }}
-          />
-          {boxesVisible && value && !value.sample.issue && (
-            <svg
-              className="pointer-events-none absolute inset-0 size-full text-status-info"
-              viewBox="0 0 1 1"
-              preserveAspectRatio="none"
-              aria-label={polygons ? "冻结多边形" : "冻结矩形框"}
-              role="img"
-            >
-              {value.labels.map((box, index) =>
-                box.type === "polygon" ? (
-                  <polygon
-                    key={index}
-                    points={box.points.map((point) => point.join(",")).join(" ")}
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth={1.5}
-                    vectorEffect="non-scaling-stroke"
-                  />
-                ) : (
-                  <rect
-                    key={index}
-                    x={box.x_center - box.width / 2}
-                    y={box.y_center - box.height / 2}
-                    width={box.width}
-                    height={box.height}
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth={1.5}
-                    vectorEffect="non-scaling-stroke"
-                  />
-                ),
-              )}
-            </svg>
-          )}
-        </div>
+      {mediaUrl && masks && boxesVisible && !value?.sample.issue ? (
+        <FrozenInstanceMaskPreview
+          projectId={projectId}
+          versionId={sample.version_id}
+          taskId={sample.task_id}
+          scopeKey={owner.key}
+          sampleUrl={mediaUrl}
+          labels={instanceMasks}
+          assertOwner={() => {
+            if (!ownsPreview(owner)) throw new DOMException("预览所属会话已变化", "AbortError");
+          }}
+        />
+      ) : (
+        mediaUrl && (
+          <div className="relative mx-auto w-fit max-w-full overflow-hidden rounded-md border border-border bg-muted">
+            <img
+              src={mediaUrl}
+              alt="冻结样本图片"
+              className="block max-h-[60vh] max-w-full"
+              onError={() => {
+                setMediaError("浏览器无法解码冻结图片预览，请重试或检查持久存储");
+                setMediaUrl("");
+              }}
+            />
+            {boxesVisible && value && !value.sample.issue && (
+              <svg
+                className="pointer-events-none absolute inset-0 size-full text-status-info"
+                viewBox="0 0 1 1"
+                preserveAspectRatio="none"
+                aria-label={polygons ? "冻结多边形" : "冻结矩形框"}
+                role="img"
+              >
+                {value.labels.map((box, index) =>
+                  box.type === "polygon" ? (
+                    <polygon
+                      key={index}
+                      points={box.points.map((point) => point.join(",")).join(" ")}
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth={1.5}
+                      vectorEffect="non-scaling-stroke"
+                    />
+                  ) : !isInstanceMask(box) ? (
+                    <rect
+                      key={index}
+                      x={box.x_center - box.width / 2}
+                      y={box.y_center - box.height / 2}
+                      width={box.width}
+                      height={box.height}
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth={1.5}
+                      vectorEffect="non-scaling-stroke"
+                    />
+                  ) : null,
+                )}
+              </svg>
+            )}
+          </div>
+        )
       )}
       {detail.isLoading && (
         <p role="status" className="mt-3 text-xs text-muted-foreground">
@@ -282,7 +309,7 @@ function SamplePreviewContent({
                 checked={boxesVisible}
                 onChange={(event) => setBoxesVisible(event.target.checked)}
               />
-              {polygons ? "显示本页冻结多边形" : "显示本页冻结框"}
+              {masks ? "显示本页冻结实例掩码" : polygons ? "显示本页冻结多边形" : "显示本页冻结框"}
             </label>
             <span className="text-muted-foreground">
               当前显示 {page * 500 + 1}–{page * 500 + value.labels.length} / {value.total} 个实例
@@ -293,9 +320,11 @@ function SamplePreviewContent({
               <thead className="text-muted-foreground">
                 <tr>
                   <th className="py-2 font-medium">冻结类别</th>
-                  <th className="py-2 font-medium">{polygons ? "顶点数量" : "中心位置"}</th>
                   <th className="py-2 font-medium">
-                    {polygons ? "面积占比 / 来源标注" : "宽 × 高（归一化）"}
+                    {masks ? "前景像素 / 像素边界（右下不含）" : polygons ? "顶点数量" : "中心位置"}
+                  </th>
+                  <th className="py-2 font-medium">
+                    {masks || polygons ? "面积占比 / 来源标注" : "宽 × 高（归一化）"}
                   </th>
                 </tr>
               </thead>
@@ -304,12 +333,14 @@ function SamplePreviewContent({
                   <tr key={index} className="border-t border-border">
                     <td className="py-2">{box.class_name}</td>
                     <td className="py-2 tabular-nums">
-                      {box.type === "polygon"
-                        ? `${box.points.length} 个顶点`
-                        : `${box.x_center.toFixed(4)}, ${box.y_center.toFixed(4)}`}
+                      {isInstanceMask(box)
+                        ? `${box.area_pixels} px · [${box.bbox_xyxy.join(", ")}]`
+                        : box.type === "polygon"
+                          ? `${box.points.length} 个顶点`
+                          : `${box.x_center.toFixed(4)}, ${box.y_center.toFixed(4)}`}
                     </td>
                     <td className="py-2 tabular-nums">
-                      {box.type === "polygon" ? (
+                      {box.type === "polygon" || isInstanceMask(box) ? (
                         <span className="inline-flex items-center gap-1">
                           {(box.area * 100).toFixed(2)}% ·
                           <CopyValueButton
@@ -318,6 +349,12 @@ function SamplePreviewContent({
                             label="复制冻结标注 ID"
                           />
                           · 标注版本 {box.annotation_version}
+                          {isInstanceMask(box) && (
+                            <CopyValueButton
+                              value={box.pixel_sha256}
+                              label="复制冻结掩码像素摘要"
+                            />
+                          )}
                         </span>
                       ) : (
                         `${box.width.toFixed(4)} × ${box.height.toFixed(4)}`

@@ -11,6 +11,9 @@ import { TrainingDatasetSamplePreview } from "./TrainingDatasetSamplePreview";
 vi.mock("@/api/trainingDatasets", () => ({
   trainingDatasetsApi: { sample: vi.fn(), sampleMedia: vi.fn() },
 }));
+vi.mock("./FrozenInstanceMaskPreview", () => ({
+  FrozenInstanceMaskPreview: () => <div role="img" aria-label="冻结实例掩码像素预览" />,
+}));
 const clients: QueryClient[] = [];
 const observed = vi.fn();
 const close = vi.fn();
@@ -265,4 +268,36 @@ describe("immutable sample preview", () => {
       ),
     );
   });
+});
+
+it("shows frozen instance mask metadata and never derives a polygon or box overlay", async () => {
+  vi.mocked(trainingDatasetsApi.sample).mockResolvedValueOnce({
+    sample: insightSample,
+    labels: [
+      {
+        type: "instance_mask",
+        annotation_id: "frozen-annotation",
+        annotation_version: 4,
+        class_index: 0,
+        class_name: "冻结掩码车辆",
+        area: 0.125,
+        area_pixels: 100,
+        bbox_xyxy: [10, 20, 30, 40],
+        pixel_sha256: "a".repeat(64),
+        size: [80, 100],
+      },
+    ],
+    total: 1,
+    offset: 0,
+    limit: 500,
+  });
+  const user = userEvent.setup();
+  mount();
+  expect(await screen.findByRole("img", { name: "冻结实例掩码像素预览" })).toBeVisible();
+  expect(screen.getByText("100 px · [10, 20, 30, 40]")).toBeVisible();
+  expect(screen.getByText(/12.50%/)).toHaveTextContent("标注版本 4");
+  expect(screen.getByRole("button", { name: "复制冻结掩码像素摘要" })).toBeVisible();
+  expect(screen.queryByRole("img", { name: "冻结矩形框" })).not.toBeInTheDocument();
+  await user.click(screen.getByLabelText("显示本页冻结实例掩码"));
+  expect(screen.queryByRole("img", { name: "冻结实例掩码像素预览" })).not.toBeInTheDocument();
 });

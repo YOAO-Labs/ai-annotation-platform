@@ -41,6 +41,8 @@ last_reviewed: 2026-10-20
 
 ![AI 预标注步骤条](../images/projects/ai-pre-stepper.png)
 
+项目已人工发布的 YOLO11n 实例分割模型可在模型目录中用于图片整图预标，保留逐实例孔洞和断连部件；暂不用于裁剪阶段、交互提示或视频。模型预测需要人工接受、修正和审核后才能进入下一轮训练，具体步骤见[训练模型回流与发布](./model-return)。
+
 ## 批量预标图像批次
 
 ![项目详情面板（批次列表 + 配置区 + 跑预标按钮 + 导入预测按钮）](../images/projects/ai-pre-config-panel.png)

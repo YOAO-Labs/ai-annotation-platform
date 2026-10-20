@@ -773,6 +773,7 @@
 | POST | `/trained-models` |
 | GET | `/trained-models` |
 | GET | `/trained-models/{version_id}` |
+| GET | `/trained-models/{version_id}/deployments/{deployment_id}/mask-content/{shape_index}` |
 | POST | `/trained-models/{version_id}/deploy` |
 | GET | `/trained-models/{version_id}/download` |
 | GET | `/model-releases` |
@@ -786,6 +787,7 @@
 | GET | `/compare` |
 | GET | `/samples` |
 | GET | `/samples/{task_id}` |
+| GET | `/samples/{task_id}/masks/{annotation_id}` |
 | GET | `/samples/{task_id}/media` |
 
 ## `training_datasets.py`
@@ -913,4 +915,4 @@
 
 ---
 
-_共 84 模块 / 516 路由_
+_共 84 模块 / 518 路由_

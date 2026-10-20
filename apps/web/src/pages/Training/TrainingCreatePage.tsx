@@ -1517,7 +1517,7 @@ function TrainingCreateContent({
               )}
               {segmentation && (
                 <p className="mt-4 text-xs leading-relaxed text-muted-foreground">
-                  实例分割支持单多边形原生训练、检查点续训和产物下载。模型回流、项目权重初始化、增强预览与参数搜索尚未开放。
+                  实例分割支持已资格验证的训练桥接、检查点续训和产物下载；同规格且原生类别顺序一致的项目候选可作为初始化来源，资格以服务端核验为准。增强预览与参数搜索尚未开放。
                 </p>
               )}
               <p className="mt-5 text-xs leading-relaxed text-muted-foreground">

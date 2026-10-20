@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 
 from training_contract.initialization import validate_pin, verify_evidence
+from training_contract.dataset import SEGMENTATION
 from training_contract.observability import InputMismatchError
 
 from .files import digest_file
@@ -59,7 +60,7 @@ def prepare(spec, model):
         }
         if spec.get("resume_path"):
             return {**common, "mode": "checkpoint_resume"}
-        from ultralytics.nn.tasks import DetectionModel
+        from ultralytics.nn.tasks import DetectionModel, SegmentationModel
 
         names = getattr(model.model, "names", None)
         ordered = (
@@ -67,12 +68,17 @@ def prepare(spec, model):
             if isinstance(names, dict)
             else names
         )
+        segmentation = pin["task"] == SEGMENTATION
+        expected_type = SegmentationModel if segmentation else DetectionModel
         if (
-            type(model.model) is not DetectionModel
-            or model.task != "detect"
+            type(model.model) is not expected_type
+            or model.task != ("segment" if segmentation else "detect")
             or Path(model.model.yaml.get("yaml_file", "")).name
             != pin["base_model"] + ".yaml"
-            or model.model.yaml.get("scale") != pin["base_model"][-1]
+            or model.model.yaml.get("scale")
+            != ("n" if segmentation else pin["base_model"][-1])
+            or segmentation
+            and type(model.model.model[-1]).__name__ != "Segment"
             or ordered != pin["classes"]
             or ordered != spec["frozen_config"]["classes"]
         ):
@@ -80,8 +86,17 @@ def prepare(spec, model):
                 "Native initialization artifact, architecture or class identity differs"
             )
         fingerprint, count = tensor_identity(model.model)
+        head_identity = tensor_identity(model.model.model[-1]) if segmentation else None
         return {
             **common,
+            **(
+                {
+                    "mask_head_tensor_digest": head_identity[0],
+                    "mask_head_tensor_count": head_identity[1],
+                }
+                if head_identity
+                else {}
+            ),
             "mode": "weights_only",
             "source_tensor_digest": fingerprint,
             "tensor_count": count,
@@ -99,6 +114,13 @@ def observation(spec, baseline, trainer):
         fingerprint, count = tensor_identity(model)
         if count != baseline["tensor_count"]:
             raise InputMismatchError("Native initialization state tensor count changed")
+        if "mask_head_tensor_digest" in baseline:
+            head_fingerprint, head_count = tensor_identity(model.model[-1])
+            if head_count != baseline["mask_head_tensor_count"]:
+                raise InputMismatchError(
+                    "Native initialization mask head tensor count changed"
+                )
+            evidence["loaded_mask_head_tensor_digest"] = head_fingerprint
         evidence.update(
             loaded_tensor_digest=fingerprint,
             optimizer_state_count=len(trainer.optimizer.state),

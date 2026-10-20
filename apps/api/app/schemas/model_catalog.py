@@ -70,7 +70,8 @@ class CatalogEntry(BaseModel):
 
 class CatalogCurrentRelease(BaseModel):
     entry_id: str
-    model_id: Literal["project-release"] = "project-release"
+    model_id: Literal["project-release", "project-release:segment"] = "project-release"
+    task: Literal["detect", "segment"] = "detect"
     registry_id: UUID
     deployment_id: UUID
     generation: int
@@ -83,4 +84,5 @@ class ModelCatalogResponse(BaseModel):
     page_size: int
     projects: list[CatalogProject] = Field(default_factory=list)
     current_release: CatalogCurrentRelease | None = None
+    current_releases: dict[str, CatalogCurrentRelease] = Field(default_factory=dict)
     task_counts: dict[str, int] = Field(default_factory=dict)

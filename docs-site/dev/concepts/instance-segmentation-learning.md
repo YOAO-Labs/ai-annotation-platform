@@ -1,0 +1,46 @@
+---
+title: 实例分割在线学习
+audience: [developer]
+type: explanation
+status: stable
+last_reviewed: 2026-10-20
+---
+
+# 实例分割在线学习
+
+图片实例分割复用训练、模型部署、人工发布和审核流程。每轮冻结已审核的 `region` 真值，生成候选模型；预测必须经人工接纳、修正和审核，才可进入下一轮。SAM 保持辅助标注用途，本链路训练项目 YOLO11n 实例分割模型。
+
+## 数据与消费者
+
+| 桥接                           | 冻结身份                                                  | 输入                                                     |
+| ------------------------------ | --------------------------------------------------------- | -------------------------------------------------------- |
+| `ultralytics-simple-polygon-1` | schema 3、`ultralytics-yolo`、`normalized-simple-polygon` | 已合格简单多边形；历史 schema 2 继续读取                 |
+| `ultralytics-instance-rle-1`   | schema 4、`aap-instance-rle`、`instance-mask`             | canonical COCO RLE，或显式选择后按冻结规则栅格化的多边形 |
+
+两种桥接分别核验父版本和分区历史，不能直接跨桥接继承。RLE 每实例保留 annotation ID/version、原尺寸、前景像素摘要、面积和半开像素 bbox。孔洞、断连和重叠不转成轮廓或互斥类别图。训练包和独立冻结掩码对象由数据版本所有，训练不依赖当前人工标注。
+
+源 RLE 以任务行锁后内容锁的顺序冻结。pending、running、failed、cancelled 的可重试版本均保活源引用；完整 ready 包建立独立所有权后转移保活。显式删除沿持久清理账本移除引用。部署试用引用也是公共掩码 GC 的根。
+
+原生消费者固定 Ultralytics 8.4.177、`yolo11n-seg`、`overlap_mask=False`、`mask_ratio=1`、workers 0，限制原图 16,000,000 像素、每图 300 实例和累计 128,000,000 个原图 mask 元素；编码和训练 batch 另有独立上限。能力通过 `instance_rle_consumer` 精确核验，旧执行器不能领取新桥接。
+
+消费者记录实际 resize／letterbox／flip 与前景变化。loss 会把 prototype 上采样至输入 mask 平面；验证器按 prototype 分辨率缩小真值。这两条路径分别出具预检证据，不能把 `mask_ratio=1` 解释为全程保留每个细目标。目标在训练输入缩放时完全消失则拒绝；验证平面的 tiny 消失数量单独记录。
+
+## 回流与发布
+
+受控后端只接收已核验的 YOLO11n Segment 权重，检查任务、类别顺序、全部有限 tensor 与固定推理后处理身份。分割 wire 结果为 `region/raster_mask`，`meta.mask_objects` 按 SHA 携带有界 RLE；API 再验证实例索引、原生类别、分数、尺寸和内容地址后交给既有存储服务物化。
+
+分割只支持整图源阶段。原生 `retina_masks` 输出原图二值 mask，禁止使用 `masks.xy` 替代像素。图片试用独立核对冻结图尺寸，前端成功读图和解码后才允许确认发布。
+
+当前发布主键为 `(project_id, task)`，发布代次和回滚限定同任务。`project-release` 保留检测语义；分割别名 `project-release:segment` 在请求接收时解析成精确部署，已排队请求继续使用冻结引用。任务、部署或类别漂移会拒绝执行，不重新选择模型。
+
+## 评估、初始化与自动化
+
+逐样本分割评估采用独立 schema、evaluator 和推理 profile。原图 RLE 真值、预测及报告内联冻结，独立于公共 mask GC；匹配按置信度稳定排序，同类最大 mask IoU 一对一关联。报告保留 TP／FP／FN、错类、定位错误、像素面积组与已匹配实例 IoU／Dice。该报告为固定阈值统计，不是 COCO AP，匹配 Dice 不包含漏检。
+
+分割评估固定最多 100 个预测，因此原图上限进一步收紧至 1,280,000 像素、单边 4096；每样本 RLE 证据 2 MiB，完整规格和报告另受字节、节点和 run 操作预算约束。推理环境、类别、预处理、阈值或冻结基准不同，只能并列展示。
+
+权重初始化固定独立分割 policy、同项目同规格和完全相同原生类别顺序，核验真实 metrics 产物与注册报告的语义身份，分别保存 raw 与规范化摘要。新实验转移全部权重及 mask head，重置 epoch、optimizer、scheduler、scaler、EMA 和 best 状态；本实验续训使用自己的检查点。
+
+自动策略按任务分别保存修订、冷却、成功基线和失败阻断，以 policy ID、修订和候选语义摘要去重。检测与分割共用项目 advisory lock 及活跃自动候选限制。分割策略固定父桥接与完整参数；版本号变化不作为像素修正。策略默认关闭，始终只产生候选。
+
+分割主动选样采用独立 strategy，使用实例置信度和跨类别 mask IoU 启发式，不假造像素概率。历史内容、场景和测试成员继续排除；先分割独立候选池，再评分建议组并保留同预算随机对照。无实例图片走缺失信号的随机探索，接纳仅创建人工批次。

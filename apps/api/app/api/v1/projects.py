@@ -1223,7 +1223,7 @@ async def apply_project_pipeline(
     from app.services.pipeline_template import assert_model_reference_scope
 
     if pipeline.project_id != project.id and any(
-        s.get("model_id") == "project-release"
+        s.get("model_id") in {"project-release", "project-release:segment"}
         or str(s.get("model_id", "")).startswith("trained:")
         for s in canonical_stages
     ):

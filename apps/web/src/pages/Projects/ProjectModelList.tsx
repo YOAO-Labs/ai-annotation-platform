@@ -1,6 +1,6 @@
 import { Link } from "react-router-dom";
 import { Layers } from "lucide-react";
-import { modelMetrics, type TrainedModelOut } from "@/api/trainedModels";
+import { modelMetrics, type ModelTask, type TrainedModelOut } from "@/api/trainedModels";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { TrainingError, TrainingLoading } from "../Training/TrainingFeedback";
@@ -26,6 +26,7 @@ export function ProjectModelList({
   onPage,
   params,
   onRegister,
+  task,
 }: {
   projectId: string;
   filters: TrainingListFilters;
@@ -41,8 +42,13 @@ export function ProjectModelList({
   onPage: (page: number) => void;
   params: URLSearchParams;
   onRegister: () => void;
+  task: ModelTask;
 }) {
-  const filtered = archive !== "exclude" || Object.values(filters).some(Boolean);
+  const filtered =
+    archive !== "exclude" ||
+    Object.entries(filters).some(([key, value]) => key !== "task" && !!value);
+  const modelParams = new URLSearchParams(params);
+  modelParams.set("model_task", task);
   return (
     <section
       aria-label="候选模型"
@@ -75,26 +81,35 @@ export function ProjectModelList({
           <table className="w-full whitespace-nowrap text-left text-xs">
             <thead className="bg-muted/40 text-2xs text-muted-foreground">
               <tr>
-                {["模型名称", "状态", "框架", "类别", "mAP50-95", "创建时间", "操作"].map(
-                  (title) => (
-                    <th key={title} scope="col" className="px-4 py-3 font-medium">
-                      {title}
-                    </th>
-                  ),
-                )}
+                {[
+                  "模型名称",
+                  "状态",
+                  "框架",
+                  "类别",
+                  task === "segment" ? "掩码 mAP50-95" : "mAP50-95",
+                  "创建时间",
+                  "操作",
+                ].map((title) => (
+                  <th key={title} scope="col" className="px-4 py-3 font-medium">
+                    {title}
+                  </th>
+                ))}
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
               {models.items.map((model) => {
                 const metrics = modelMetrics(model);
-                const score = metrics["metrics/mAP50-95(B)"] ?? metrics["metrics/mAP50-95"];
+                const score =
+                  task === "segment"
+                    ? metrics["metrics/mAP50-95(M)"]
+                    : (metrics["metrics/mAP50-95(B)"] ?? metrics["metrics/mAP50-95"]);
                 return (
                   <tr key={model.id} className="hover:bg-muted/20">
                     <td className="px-4 py-3">
                       <Link
                         className="block max-w-64 truncate font-medium text-primary hover:underline"
                         title={model.name}
-                        to={trainingRecordPath(projectId, "models", model.id, params)}
+                        to={trainingRecordPath(projectId, "models", model.id, modelParams)}
                       >
                         {model.name}
                       </Link>
@@ -123,7 +138,7 @@ export function ProjectModelList({
                     <td className="px-4 py-3">
                       <Link
                         className="text-primary hover:underline"
-                        to={trainingRecordPath(projectId, "models", model.id, params)}
+                        to={trainingRecordPath(projectId, "models", model.id, modelParams)}
                       >
                         详情与操作
                       </Link>

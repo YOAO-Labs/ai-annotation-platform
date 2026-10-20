@@ -516,8 +516,10 @@ async def _seed_online_training_profile(*, cache_dir, asset_dir, offline) -> Non
 
     try:
         assets = ensure_profile(
-            "demo",
-            assets=select_profile("demo", required_ids={"coco8"}),
+            "online-training",
+            assets=select_profile(
+                "online-training", required_ids={"coco8", "coco8-seg"}
+            ),
             cache_dir=cache_dir,
             asset_dir=asset_dir,
             offline=offline,
@@ -530,38 +532,45 @@ async def _seed_online_training_profile(*, cache_dir, asset_dir, offline) -> Non
                 owner_id=users["pm"].id,
                 annotator_id=users["anno"].id,
                 reviewer_id=users["qa"].id,
+                segmentation_fixture=assets["coco8-seg"].root,
             )
             await _ensure_demo_memberships(db, display_ids=(PROJECT_DISPLAY_ID,))
-            version = await prepare_baseline(db, project)
+            versions = [
+                await prepare_baseline(db, project, task=task)
+                for task in ("detect", "segment")
+            ]
             await db.commit()
-            version_id, job_id, attempt_id = (
-                version.id,
-                version.async_job_id,
-                version.attempt_id,
-            )
-            pending = version.status == "pending"
-        if pending:
-            # Build the same immutable package as the export worker, synchronously
-            # so this profile also works before Celery consumers are available.
-            await build_dataset(version_id, job_id, attempt_id, Session)
+            builds = [
+                (v.id, v.async_job_id, v.attempt_id, v.status == "pending")
+                for v in versions
+            ]
+        # Materialize both immutable task streams without requiring a worker.
+        for version_id, job_id, attempt_id, pending in builds:
+            if pending:
+                await build_dataset(version_id, job_id, attempt_id, Session)
         async with Session() as db:
             from app.db.models.training_dataset import TrainingDatasetVersion
 
-            version = await db.get(TrainingDatasetVersion, version_id)
-            if version.status != "ready":
-                raise SeedAssetError(
-                    f"COCO8 baseline status={version.status}: "
-                    f"{version.error_message or '在训练数据页面检查、重试或创建新版本'}"
+            for task, (version_id, _, _, _) in zip(
+                ("detect", "segment"), builds, strict=True
+            ):
+                version = await db.get(TrainingDatasetVersion, version_id)
+                if version.status != "ready":
+                    raise SeedAssetError(
+                        f"COCO8 {task} baseline status={version.status}: "
+                        f"{version.error_message or '在训练数据页面检查、重试或创建新版本'}"
+                    )
+                print(
+                    f"  {'add ' if created else 'keep'}  {PROJECT_DISPLAY_ID} "
+                    f"task={task} baseline=ready version={version.id} images=8 split=4/4"
                 )
-            print(
-                f"  {'add ' if created else 'skip'}  {PROJECT_DISPLAY_ID} "
-                f"baseline=ready version={version.id} images=8 split=4/4"
-            )
         backfill_media.delay(str(DATASET_ID))
-        print("  ready 在线训练夹具；登录 pm 后从项目的训练数据选择初始版本。")
+        print("  ready 检测与实例分割夹具；登录 pm，在训练数据按任务选择初始版本。")
         print(
-            "  hint  试跑建议：epochs=1, batch=4, imgsz=320；训练与自动策略由页面明确启动。"
+            "  hint  检测试跑：epochs=1, batch=4, imgsz=320；"
+            "实例分割：yolo11n-seg, epochs=3, batch=1, imgsz=640。"
         )
+        print("  hint  训练与自动策略由页面明确启动。")
     finally:
         await engine.dispose()
 

@@ -126,6 +126,8 @@ class Context(BaseModel):
     _evaluation_profile: dict | None = PrivateAttr(default=None)
     _evaluation_meta: dict | None = PrivateAttr(default=None)
     _managed_receipt_digest: str | None = PrivateAttr(default=None)
+    _managed_receipt: dict | None = PrivateAttr(default=None)
+    _segmentation_meta: dict | None = PrivateAttr(default=None)
     params: PredictParams = Field(default_factory=PredictParams)
     # 类别白名单 (模型原生类别 index 子集). 非空时只检出这些类; 空/缺=全部类别.
     # 平台不做类→项目标签映射 (NG6), 仅在推理层用 ultralytics model.predict(classes=) 过滤.
@@ -161,7 +163,7 @@ class Context(BaseModel):
         }
         model_id = normalized.get("model_id")
         expected = (
-            "detect"
+            normalized.get("task") or "detect"
             if str(model_id or "").startswith("trained:")
             else model_tasks.get(model_id)
         )
@@ -207,7 +209,7 @@ class Context(BaseModel):
     def _validate_combination(self) -> "Context":
         if self.sample_evaluation and (
             not self.frozen_model_ref
-            or self.task != "detect"
+            or self.task not in {"detect", "segment"}
             or self.classes is not None
             or self.params.max_det != 100
         ):
@@ -219,13 +221,21 @@ class Context(BaseModel):
         if self.frozen_model_ref:
             expected_id = f"trained:{self.frozen_model_ref.model_version_id}"
             if (
-                self.task != "detect"
+                self.task not in {"detect", "segment"}
                 or self.type is not None
                 or self.model_id != expected_id
                 or self.text
                 or self.exemplars
             ):
-                raise ValueError("Controlled weights support image detection only")
+                raise ValueError(
+                    "Controlled weights support qualified image detection or segmentation only"
+                )
+            if self.task == "segment" and (
+                self.classes is not None or self.params.max_det > 300
+            ):
+                raise ValueError(
+                    "Controlled segmentation requires full classes and max_det <= 300"
+                )
         elif (
             self.variants is None
             or (self.model_id or "").startswith("trained:")
@@ -240,7 +250,7 @@ class Context(BaseModel):
 def model_key_for_context(ctx: Context) -> tuple[str, str, str]:
     if ctx.frozen_model_ref:
         return (
-            "detect",
+            ctx.task,
             f"trained:{ctx.frozen_model_ref.model_version_id}",
             ctx.frozen_model_ref.sha256
             + (

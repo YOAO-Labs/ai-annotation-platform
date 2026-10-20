@@ -21,6 +21,7 @@ import { PickerPage } from "./SampleEvaluationCreate";
 import { useTrainingViewOwner } from "./trainingViewOwner";
 import {
   armLabel,
+  activeLearningTask,
   definitiveRejection,
   loadPending,
   savePending,
@@ -77,10 +78,6 @@ export function CreateContent({ projectId, scope }: { projectId: string; scope: 
       nms,
     ],
   );
-  const inputKey = JSON.stringify(input);
-  const currentInput = useRef(inputKey);
-  currentInput.current = inputKey;
-  const checkedPreview = preview?.key === inputKey ? preview.value : null;
   const guarded = async <T,>(signal: AbortSignal, operation: () => Promise<T>) => {
     assert(signal);
     const value = await operation();
@@ -112,6 +109,11 @@ export function CreateContent({ projectId, scope }: { projectId: string; scope: 
       return value;
     },
   });
+  const modelTask = activeLearningTask(model.data?.model.task);
+  const inputKey = JSON.stringify([input, modelTask]);
+  const currentInput = useRef(inputKey);
+  currentInput.current = inputKey;
+  const checkedPreview = preview?.key === inputKey ? preview.value : null;
   const backends = useMLBackends(projectId);
   const deploymentOptions = useMemo(() => {
     const ready = (model.data?.deployments ?? [])
@@ -150,6 +152,8 @@ export function CreateContent({ projectId, scope }: { projectId: string; scope: 
       assert();
       const result = await activeLearningApi.preview(projectId, value.input);
       assert();
+      if (activeLearningTask(result.model_ref?.task) !== modelTask)
+        throw new Error("选样预览与候选模型任务不一致");
       return { key: value.key, value: result };
     },
     onSuccess: (value) => {
@@ -187,6 +191,8 @@ export function CreateContent({ projectId, scope }: { projectId: string; scope: 
   });
   const valid =
     model.data?.model.framework === "ultralytics" &&
+    modelTask !== null &&
+    !model.data?.model.archived &&
     !!modelId &&
     !!deploymentId &&
     !model.error &&
@@ -321,10 +327,18 @@ export function CreateContent({ projectId, scope }: { projectId: string; scope: 
                       <option
                         key={item.id}
                         value={item.id}
-                        disabled={item.framework !== "ultralytics"}
+                        disabled={
+                          item.framework !== "ultralytics" ||
+                          !activeLearningTask(item.task) ||
+                          item.archived
+                        }
                       >
                         {item.name} · {item.framework}
-                        {item.framework !== "ultralytics" ? " · 尚未通过共享评估资格" : ""}
+                        {activeLearningTask(item.task) === "segment" ? " · 图片实例分割" : ""}
+                        {item.framework !== "ultralytics" || !activeLearningTask(item.task)
+                          ? " · 尚未通过共享评估资格"
+                          : ""}
+                        {item.archived ? " · 已归档" : ""}
                       </option>
                     ))}
                 </select>
@@ -334,7 +348,8 @@ export function CreateContent({ projectId, scope }: { projectId: string; scope: 
               </div>
             </div>
             <p className="text-xs text-muted-foreground">
-              主动选样当前仅支持已通过共享评估资格的 Ultralytics。LibreYOLO
+              主动选样支持受控 Ultralytics
+              图片目标检测与实例分割，就绪部署仍须通过本轮服务端资格核验。LibreYOLO
               可在模型面板试用、人工发布与回滚。
             </p>
             <div className="text-xs">
@@ -344,7 +359,7 @@ export function CreateContent({ projectId, scope }: { projectId: string; scope: 
                   id="active-learning-deployment"
                   className={`${trainingInputClass} min-w-0 flex-1`}
                   value={deploymentId}
-                  disabled={model.data?.model.framework !== "ultralytics"}
+                  disabled={model.data?.model.framework !== "ultralytics" || !modelTask}
                   onChange={(event) => setDeploymentId(event.target.value)}
                 >
                   <option value="" disabled hidden>
@@ -393,6 +408,12 @@ export function CreateContent({ projectId, scope }: { projectId: string; scope: 
           <p className="mb-0 mt-3 text-xs text-muted-foreground">
             推理上限按实际派发计数，超时不退款。随机对照与主动建议各占一组；审核预算至少为每组数量的两倍。
           </p>
+          {modelTask === "segment" && model.data && (
+            <p className="mb-0 mt-3 text-xs text-muted-foreground">
+              实例分割按实例置信度与跨类别原图掩码 IoU 排序，不使用像素概率。每张原图最多 1,280,000
+              像素、单边 4096、全部实例 RLE 合计 2 MiB，推理最多 100 个实例；无实例信号时随机补位。
+            </p>
+          )}
         </section>
         <section
           className="rounded-lg border border-border bg-card p-4"
@@ -464,7 +485,13 @@ export function CreateContent({ projectId, scope }: { projectId: string; scope: 
           请选择模型、就绪部署和足量候选，并填写有效预算。
         </p>
       )}
-      {[models.error, model.error, pool.error, previewMutation.error, create.error]
+      {[
+        models.error,
+        model.error,
+        pool.error,
+        previewMutation.variables?.key === inputKey ? previewMutation.error : null,
+        create.error,
+      ]
         .filter(Boolean)
         .map((error, index) => (
           <p key={index} role="alert" className="text-sm text-status-danger">
@@ -518,7 +545,10 @@ export function CreateContent({ projectId, scope }: { projectId: string; scope: 
             <CopyValueButton value={checkedPreview.preview_digest} label="复制选样预览摘要" />
           </p>
           <p className="mb-0 text-xs text-muted-foreground">
-            本轮只验证选样流程。框置信度是检测启发式，不能证明样本正确率或效率收益。修改候选、模型或预算后须重新预览。
+            {modelTask === "segment"
+              ? "本轮按实例置信度与跨类别掩码重叠提出建议；这些信号不使用像素概率，也不是 AP 或收益证明。"
+              : "本轮只验证选样流程。框置信度是检测启发式，不能证明样本正确率或效率收益。"}
+            修改候选、模型或预算后须重新预览。
           </p>
         </section>
       )}

@@ -9,6 +9,8 @@ from aap_task_contract import normalize_task
 from training_contract.dataset import (
     DETECTION_CONTRACT,
     SEGMENTATION_CONTRACT,
+    INSTANCE_RLE_CONTRACT,
+    is_instance_rle,
     polygon_area,
 )
 
@@ -35,7 +37,13 @@ def contract_profile(record: dict) -> dict[str, str]:
     """Read accepted legacy equivalents without mutating their stored identity."""
     contract = contract_of(record)
     task = normalize_task(contract["task"])
-    canonical = DETECTION_CONTRACT if task == "detect" else SEGMENTATION_CONTRACT
+    canonical = (
+        INSTANCE_RLE_CONTRACT
+        if is_instance_rle(contract)
+        else DETECTION_CONTRACT
+        if task == "detect"
+        else SEGMENTATION_CONTRACT
+    )
     # Historical schemas omitted media. An explicit different output medium is
     # not an image adapter merely because the legacy task spelling is familiar.
     if record.get("media_type", "image") != "image":
@@ -97,7 +105,59 @@ class FrozenInsightAdapter:
             labels.append(label)
         return text, instances, labels
 
+    def mask_labels(self, annotations, classes, member):
+        mapping = member.get("instances")
+        if not isinstance(mapping, list) or len(mapping) != len(annotations):
+            raise TrainingDatasetError(
+                "frozen_instances_mismatch", "原生掩码来源实例不完整"
+            )
+        labels = []
+        for annotation, instance in zip(
+            sorted(annotations, key=lambda item: item["id"]), mapping, strict=True
+        ):
+            geometry = annotation["geometry"]
+            if (
+                instance["annotation_id"] != annotation["id"]
+                or instance["annotation_version"] != annotation["version"]
+                or instance["class_index"] != classes.index(annotation["class_name"])
+                or instance["source_geometry"] != geometry["type"]
+                or geometry["type"] == "raster_mask"
+                and instance["source_object_sha256"] != geometry["mask"]["sha256"]
+                or geometry["type"] == "polygon"
+                and instance["source_polygon"] != geometry["points"]
+            ):
+                raise TrainingDatasetError(
+                    "frozen_instances_mismatch", "掩码来源版本与训练包不一致"
+                )
+            height, width = instance["size"]
+            labels.append(
+                {
+                    "type": "instance_mask",
+                    "class_index": instance["class_index"],
+                    "class_name": classes[instance["class_index"]],
+                    "annotation_id": instance["annotation_id"],
+                    "annotation_version": instance["annotation_version"],
+                    "area": instance["area_pixels"] / (width * height),
+                    **{
+                        key: instance[key]
+                        for key in ("area_pixels", "bbox_xyxy", "pixel_sha256", "size")
+                    },
+                }
+            )
+        return mapping, labels
+
     def semantic_fingerprint(self, labels: list[dict]) -> str:
+        if self.profile[-1] == INSTANCE_RLE_CONTRACT["bridge"]:
+            return content_digest(
+                {
+                    "data_contract": dict(
+                        zip(PROFILE_FIELDS, self.profile, strict=True)
+                    ),
+                    "labels": sorted(
+                        (label["class_name"], label["pixel_sha256"]) for label in labels
+                    ),
+                }
+            )
         if self.task == "segment":
             return content_digest(
                 {
@@ -125,6 +185,20 @@ class FrozenInsightAdapter:
         )
 
     def statistics(self, members: list[dict]) -> dict:
+        if self.profile[-1] == INSTANCE_RLE_CONTRACT["bridge"]:
+            return {
+                "task": "segment",
+                "schema_version": 1,
+                "geometry": "instance-mask",
+                "known_instances": sum(row["instances"] or 0 for row in members),
+                "polygon_area_sum": 0,
+                "mask_area_pixels_sum": sum(
+                    label["area_pixels"] for row in members for label in row["labels"]
+                ),
+                "normalized_mask_area_sum": sum(
+                    label["area"] for row in members for label in row["labels"]
+                ),
+            }
         if self.task == "segment":
             return {
                 "task": "segment",
@@ -169,6 +243,7 @@ _ADAPTERS = {
     for identifier, contract in (
         ("image-detection-bbox", DETECTION_CONTRACT),
         ("image-segmentation-simple-polygon", SEGMENTATION_CONTRACT),
+        ("image-segmentation-instance-rle", INSTANCE_RLE_CONTRACT),
     )
 }
 

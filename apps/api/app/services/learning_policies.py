@@ -38,13 +38,16 @@ async def project_lock(db, project_id, *, wait=True):
     return True if wait else bool(result)
 
 
-def fixed_template(framework, base_model):
+def fixed_template(framework, base_model, task="detect"):
     from training_contract import definition
 
     template = runs.controlled_template(framework, base_model)
-    if normalize_task(definition(framework, base_model)["task"]) != "detect":
+    if normalize_task(definition(framework, base_model)["task"]) != task or (
+        task == "segment"
+        and (framework != "ultralytics" or base_model != "yolo11n-seg")
+    ):
         raise HTTPException(
-            status_code=422, detail="自动学习策略目前仅通过图片检测资格验证"
+            status_code=422, detail="基础模型与自动策略任务或受控规格不匹配"
         )
     return template
 
@@ -71,7 +74,11 @@ def template_current(policy):
                 policy.config["configuration"]["identity"],
             )
         return (
-            fixed_template(expected["framework"], expected["base_model"]["id"])
+            fixed_template(
+                expected["framework"],
+                expected["base_model"]["id"],
+                getattr(policy, "task", "detect"),
+            )
             == expected
         )
     except (HTTPException, KeyError, ValueError, TypeError):
@@ -264,7 +271,7 @@ async def reconcile(db, policy, trigger):
     duplicate = await db.scalar(
         select(LearningTrigger.id)
         .where(
-            LearningTrigger.project_id == policy.project_id,
+            LearningTrigger.policy_id == policy.id,
             LearningTrigger.policy_revision == policy.revision,
             LearningTrigger.candidate_digest.in_(candidates),
             LearningTrigger.id != trigger.id,
@@ -400,6 +407,20 @@ async def check_policy(db, policy_id, *, force=False):
     if await active_run(db, policy.project_id):
         policy.state, policy.message = "active", "已有自动实验运行，请继续或取消该实验"
         return
+    if await db.scalar(
+        select(LearningTrigger.id)
+        .where(
+            LearningTrigger.project_id == policy.project_id,
+            LearningTrigger.policy_id != policy.id,
+            LearningTrigger.status.in_(ACTIVE_TRIGGERS),
+        )
+        .limit(1)
+    ):
+        policy.state, policy.message = (
+            "active",
+            "项目另一个任务正在构建或运行自动候选，当前任务等待",
+        )
+        return
     policy.last_checked_at = runs.now()
     policy.next_check_at = runs.now() + timedelta(
         minutes=policy.config["check_interval_minutes"]
@@ -426,11 +447,16 @@ async def check_policy(db, policy_id, *, force=False):
         parent_id=policy.baseline_dataset_id or uuid.UUID(policy.config["parent_id"]),
         batch_id=policy.config.get("batch_id"),
         mode="reviewed",
+        task=getattr(policy, "task", "detect"),
+        **({"bridge": policy.config["bridge"]} if policy.config.get("bridge") else {}),
     )
     parent = await db.get(TrainingDatasetVersion, selection.parent_id)
     try:
         valid_parent = (
-            parent is not None and adapter_for(parent.manifest).task == "detect"
+            parent is not None
+            and adapter_for(parent.manifest).task == getattr(policy, "task", "detect")
+            and parent.manifest.get("bridge")
+            == policy.config.get("bridge", parent.manifest.get("bridge"))
         )
     except TrainingDatasetError:
         valid_parent = False
@@ -438,7 +464,7 @@ async def check_policy(db, policy_id, *, force=False):
         policy.enabled, policy.state, policy.message = (
             False,
             "suspended",
-            "自动学习策略的父数据版本不是合格检测任务，请重新保存策略",
+            "自动学习策略的父数据版本任务或桥接不匹配，请重新保存策略",
         )
         return
     snapshot, report = await datasets.freeze_selection(

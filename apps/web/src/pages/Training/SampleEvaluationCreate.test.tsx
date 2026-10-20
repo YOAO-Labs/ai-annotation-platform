@@ -132,6 +132,64 @@ async function choose(selectedDeploymentId = deployment) {
   await screen.findByRole("checkbox", { name: /^选择验证成员 1（/ });
 }
 describe("explicit frozen evaluation creation", () => {
+  it("selects only segmentation data for a segment candidate and applies its pixel budget", async () => {
+    const detail = await vi.mocked(trainedModelsApi.get).getMockImplementation()!(project, model);
+    vi.mocked(trainedModelsApi.get).mockResolvedValue({
+      ...detail,
+      model: { ...detail.model, task: "segment" },
+    });
+    vi.mocked(trainingDatasetsApi.list).mockResolvedValue({
+      total: 2,
+      items: [
+        { id: dataset, name: "冻结数据", task: "segment" },
+        { id: id(45), name: "检测数据", task: "detect" },
+      ],
+    } as never);
+    vi.mocked(trainingDatasetsApi.getSummary).mockResolvedValue({
+      id: dataset,
+      project_id: project,
+      status: "ready",
+      name: "冻结数据",
+      task: "segment",
+    } as never);
+    vi.mocked(sampleEvaluationsApi.qualify).mockResolvedValue({
+      model_ref: {
+        model_version_id: model,
+        deployment_id: deployment,
+        project_id: project,
+        task: "segment",
+      },
+      profile: { ultralytics_version: "8.4.177", effective_device: "cpu" },
+      limits: { pixels: 100, max_dimension: 4096 },
+    } as never);
+    mount();
+    await choose();
+    expect(screen.queryByRole("option", { name: "检测数据" })).not.toBeInTheDocument();
+    expect(screen.getByRole("spinbutton", { name: "匹配 Mask IoU" })).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: /^选择验证成员 1（/ })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "开始逐样本评估" })).toBeDisabled();
+    expect(screen.getByText(/平均 Mask IoU、Dice 仅统计已匹配实例/)).toBeInTheDocument();
+    vi.mocked(sampleEvaluationsApi.qualify).mockResolvedValue({
+      model_ref: {
+        model_version_id: model,
+        deployment_id: deployment,
+        project_id: project,
+        task: "segment",
+      },
+      profile: { ultralytics_version: "8.4.177", effective_device: "cpu" },
+      limits: { pixels: 1_280_000, max_dimension: 4096 },
+    } as never);
+    await act(async () => {
+      await clients[clients.length - 1]!.refetchQueries({
+        queryKey: ["evaluation-qualification", project],
+      });
+    });
+    await waitFor(() =>
+      expect(screen.getByRole("checkbox", { name: /^选择验证成员 1（/ })).toBeEnabled(),
+    );
+    fireEvent.click(screen.getByRole("checkbox", { name: /^选择验证成员 1（/ }));
+    expect(screen.getByRole("button", { name: "开始逐样本评估" })).toBeEnabled();
+  });
   it("retains a deployment that disappears on refresh and requires another explicit choice", async () => {
     mount();
     await choose();

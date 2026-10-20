@@ -2,7 +2,7 @@ schema_version = 1
 
 [[assets]]
 id = "coco8"
-profiles = ["demo"]
+profiles = ["demo", "online-training"]
 urls = ["https://github.com/ultralytics/assets/releases/download/v0.0.0/coco8.zip"]
 sha256 = "54c67fe9ef88313e021ec0e92b73c200167bb0a86633e8df8658d832cca828c9"
 size_bytes = 443158
@@ -25,6 +25,32 @@ notice_url = "https://cocodataset.org/#termsofuse"
 attribution = "COCO images retain the licenses selected by their Flickr authors."
 public_docs_status = "blocked"
 public_docs_notes = "The eight images include NC and ND licenses; keep this asset out of public screenshot profiles."
+
+[[assets]]
+id = "coco8-seg"
+profiles = ["online-training"]
+urls = ["https://github.com/ultralytics/assets/releases/download/v0.0.0/coco8-seg.zip"]
+sha256 = "82c651abd01d556c77769ea834ebff1e77f76a291463e987fb69b63a87e8eb80"
+size_bytes = 449818
+max_bytes = 500000
+max_unpacked_bytes = 3000000
+archive = "zip"
+root = "coco8-seg"
+required_files = [
+  "images/train/000000000009.jpg",
+  "images/val/000000000036.jpg",
+  "labels/train/000000000009.txt",
+  "labels/val/000000000036.txt",
+]
+source = "https://docs.ultralytics.com/datasets/segment/coco8-seg/"
+
+[assets.license]
+artifact_spdx = "GPL-3.0-only"
+media_status = "per-file license required"
+notice_url = "https://cocodataset.org/#termsofuse"
+attribution = "COCO annotations and images retain their upstream terms; image licenses are selected by their Flickr authors."
+public_docs_status = "blocked"
+public_docs_notes = "Uses the same eight COCO8 images, including NC and ND licenses; development-only, excluded from public screenshot profiles."
 
 [[assets]]
 id = "tracking-video"

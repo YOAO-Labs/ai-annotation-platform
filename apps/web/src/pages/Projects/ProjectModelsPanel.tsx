@@ -19,6 +19,7 @@ import {
   trainedModelsApi,
   type ModelReleaseCreate,
   type ModelReleaseOut,
+  type ModelTask,
   type TrainedModelOut,
 } from "@/api/trainedModels";
 import { Plus, RadioTower } from "lucide-react";
@@ -38,20 +39,12 @@ import { Modal } from "@/components/ui/Modal";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { usePermissions } from "@/hooks/usePermissions";
 import { ProjectModelList } from "./ProjectModelList";
+import { ProjectModelMaskTrial } from "./ProjectModelMaskTrial";
 import { trainingRecordPath, useTrainingListFilters } from "../Training/TrainingListControls";
+import { metricLabel, trainingTaskLabel, trainingTaskOf } from "../Training/trainingPresentation";
 
 const inputClass =
   "w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
-const metricNames: Record<string, string> = {
-  "metrics/mAP50-95": "mAP50-95",
-  "metrics/mAP50": "mAP50",
-  "metrics/mAP75": "mAP75",
-  "metrics/AR100": "AR100",
-  "metrics/mAP50-95(B)": "mAP50-95",
-  "metrics/mAP50(B)": "mAP50",
-  "metrics/precision(B)": "Precision",
-  "metrics/recall(B)": "Recall",
-};
 const states: Record<string, string> = {
   checking: "检查中",
   ready: "加载与试用通过",
@@ -69,6 +62,24 @@ function Evaluation({ model }: { model: TrainedModelOut }) {
   const perClass = Array.isArray(model.evaluation.per_class)
     ? model.evaluation.per_class.map(record)
     : [];
+  const detectionColumns = [
+    { key: "precision", label: "Precision" },
+    { key: "recall", label: "Recall" },
+    { key: "mAP50", label: "mAP50" },
+    { key: "mAP50-95", label: "mAP50-95" },
+  ];
+  const perClassColumns =
+    model.task === "segment"
+      ? [
+          { suffix: "B", label: "框" },
+          { suffix: "M", label: "掩码" },
+        ].flatMap((kind) =>
+          detectionColumns.map((column) => ({
+            key: `${column.key}(${kind.suffix})`,
+            label: `${kind.label} ${column.label}`,
+          })),
+        )
+      : detectionColumns;
   return (
     <div className="mt-3 space-y-3 text-xs">
       <p className="text-muted-foreground">
@@ -77,7 +88,7 @@ function Evaluation({ model }: { model: TrainedModelOut }) {
       <dl className="grid grid-cols-2 gap-2 sm:grid-cols-4">
         {Object.entries(metrics).map(([key, value]) => (
           <div key={key} className="rounded-md bg-background p-2">
-            <dt className="text-muted-foreground">{metricNames[key] ?? key}</dt>
+            <dt className="text-muted-foreground">{metricLabel(key)}</dt>
             <dd className="mt-1 font-mono">{numeric(value)}</dd>
           </div>
         ))}
@@ -97,19 +108,20 @@ function Evaluation({ model }: { model: TrainedModelOut }) {
               <thead>
                 <tr>
                   <th className="px-4 py-3">类别</th>
-                  <th className="px-4 py-3">Precision</th>
-                  <th className="px-4 py-3">Recall</th>
-                  <th className="px-4 py-3">mAP50</th>
-                  <th className="px-4 py-3">mAP50-95</th>
+                  {perClassColumns.map((column) => (
+                    <th key={column.key} className="px-4 py-3">
+                      {column.label}
+                    </th>
+                  ))}
                 </tr>
               </thead>
               <tbody>
                 {perClass.map((item, index) => (
                   <tr key={index} className="border-t border-border">
                     <td className="px-4 py-3">{String(item.name ?? item.index)}</td>
-                    {["precision", "recall", "mAP50", "mAP50-95"].map((key) => (
-                      <td key={key} className="p-2 font-mono">
-                        {numeric(item[key])}
+                    {perClassColumns.map((column) => (
+                      <td key={column.key} className="p-2 font-mono">
+                        {numeric(item[column.key])}
                       </td>
                     ))}
                   </tr>
@@ -218,6 +230,7 @@ function TrialImage({ trial }: { trial: Record<string, unknown> }) {
 type ModelsPanelProps = {
   projectId: string;
   classes: string[];
+  taskClasses?: Partial<Record<ModelTask, string[]>>;
   mode?: "list" | "detail";
   initialModelId?: string;
 };
@@ -232,6 +245,12 @@ function inferenceServiceIssues({ backend, enabled }: ProjectMLBackendItem) {
 
 export function ProjectModelsPanel(props: ModelsPanelProps) {
   const revision = useTrainingSessionRevision();
+  const [params] = useSearchParams();
+  const task: ModelTask =
+    params.get("model_task") === "segment" ||
+    (!params.has("model_task") && props.taskClasses && !props.taskClasses.detect)
+      ? "segment"
+      : "detect";
   const scope = useMemo(
     () => ({
       key: randomId(),
@@ -239,19 +258,22 @@ export function ProjectModelsPanel(props: ModelsPanelProps) {
       mode: props.mode,
       modelId: props.initialModelId,
       revision,
+      task,
     }),
-    [props.projectId, props.mode, props.initialModelId, revision],
+    [props.projectId, props.mode, props.initialModelId, revision, task],
   );
-  return <ModelsContent key={scope.key} {...props} scope={scope.key} />;
+  return <ModelsContent key={scope.key} {...props} scope={scope.key} selectedTask={task} />;
 }
 
 function ModelsContent({
   projectId,
-  classes,
+  classes: fallbackClasses,
+  taskClasses,
+  selectedTask,
   scope,
   mode = "list",
   initialModelId = "",
-}: ModelsPanelProps & { scope: string }) {
+}: ModelsPanelProps & { scope: string; selectedTask: ModelTask }) {
   const client = useQueryClient();
   const { role, canAccessPage } = usePermissions();
   const inferenceStatusId = useId();
@@ -290,6 +312,7 @@ function ModelsContent({
     framework: filters.framework,
     created_from: filters.created_from,
     created_to: filters.created_to,
+    task: selectedTask,
   };
   const detailId = initialModelId;
   const [registrationOpen, setRegistrationOpen] = useState(false);
@@ -312,6 +335,7 @@ function ModelsContent({
   const [historyPage, setHistoryPage] = useState(0);
   const [registryId, setRegistryId] = useState("");
   const [confirmed, setConfirmed] = useState<Record<string, boolean>>({});
+  const [trialReady, setTrialReady] = useState<Record<string, boolean>>({});
   const [compareId, setCompareId] = useState("");
   const [error, setError] = useState("");
   const [taskPage, setTaskPage] = useState(0);
@@ -337,7 +361,10 @@ function ModelsContent({
   });
   const runs = useQuery({
     queryKey: ["training-runs", projectId, scope, sourcePage],
-    queryFn: ({ signal }) => read(signal, () => trainingRunsApi.list(projectId, sourcePage * 20)),
+    queryFn: ({ signal }) =>
+      read(signal, () =>
+        trainingRunsApi.list(projectId, sourcePage * 20, { signal }, { task: selectedTask }),
+      ),
     enabled: registrationOpen,
     refetchInterval: 5000,
   });
@@ -346,19 +373,31 @@ function ModelsContent({
     queryFn: ({ signal }) => read(signal, () => trainingRunsApi.get(projectId, runId)),
     enabled: registrationOpen && !!runId,
   });
-  const models = useQuery({
-    queryKey: ["trained-models", projectId, scope, archive, page, listFilters],
-    queryFn: ({ signal }) =>
-      read(signal, () =>
-        trainedModelsApi.list(projectId, page * 20, { signal }, archive, listFilters),
-      ),
-    refetchInterval: 5000,
-  });
   const detail = useQuery({
     queryKey: ["trained-model", projectId, scope, detailId],
     queryFn: ({ signal }) =>
       read(signal, () => trainedModelsApi.get(projectId, detailId, { signal })),
     enabled: !!detailId,
+    refetchInterval: 5000,
+  });
+  const detailTask = detail.data?.model.task ?? "detect";
+  const modelTask: ModelTask | undefined =
+    mode === "detail"
+      ? detail.data && (detailTask === "detect" || detailTask === "segment")
+        ? detailTask
+        : undefined
+      : selectedTask;
+  const classes = taskClasses?.[selectedTask] ?? fallbackClasses;
+  const models = useQuery({
+    queryKey: ["trained-models", projectId, scope, modelTask, archive, page, listFilters],
+    queryFn: ({ signal }) =>
+      read(signal, () =>
+        trainedModelsApi.list(projectId, page * 20, { signal }, archive, {
+          ...listFilters,
+          task: modelTask,
+        }),
+      ),
+    enabled: !!modelTask,
     refetchInterval: 5000,
   });
   const backends = useQuery({
@@ -368,9 +407,10 @@ function ModelsContent({
     refetchInterval: 10000,
   });
   const releases = useQuery({
-    queryKey: ["model-releases", projectId, scope, historyPage],
+    queryKey: ["model-releases", projectId, scope, modelTask, historyPage],
     queryFn: ({ signal }) =>
-      read(signal, () => trainedModelsApi.releases(projectId, historyPage * 20)),
+      read(signal, () => trainedModelsApi.releases(projectId, historyPage * 20, modelTask)),
+    enabled: !!modelTask,
     refetchInterval: 5000,
   });
   const pendingTasks = useQuery({
@@ -404,7 +444,7 @@ function ModelsContent({
     enabled: !!current?.model_version_id,
   });
   const activeModel =
-    detail.data?.model.id === detailId && detail.data.model.project_id === projectId
+    detail.data?.model.id === detailId && detail.data.model.project_id === projectId && !!modelTask
       ? detail.data.model
       : undefined;
   const comparison = models.data?.items.find((item) => item.id === compareId);
@@ -457,7 +497,9 @@ function ModelsContent({
     setError("");
   };
   const showDetail = (id: string) => {
-    navigate(trainingRecordPath(projectId, "models", id, params));
+    const next = new URLSearchParams(params);
+    next.set("model_task", modelTask ?? selectedTask);
+    navigate(trainingRecordPath(projectId, "models", id, next));
     setConfirmed({});
     setRegistryId("");
     setCompareId("");
@@ -466,6 +508,7 @@ function ModelsContent({
   const register = useMutation({
     mutationFn: (view: View) => {
       assertView(view);
+      if (!validRegistration) throw new Error("来源实验或类别绑定不适用于当前任务");
       return trainedModelsApi.register(projectId, {
         request_id: registrationId.current,
         name: name.trim(),
@@ -511,6 +554,7 @@ function ModelsContent({
       view: View;
     }) => {
       assertView(target.view);
+      if (!modelTask || !releases.data) throw new Error("请等待读取当前任务的发布状态");
       const allowed = await confirmDialog({
         title: target.rollbackFromId
           ? "回退项目模型"
@@ -521,12 +565,18 @@ function ModelsContent({
         confirmLabel: target.rollbackFromId ? "确认回退" : target.modelId ? "确认发布" : "确认停用",
       });
       if (!allowed || !ownsView(target.view)) return null;
-      const intent = JSON.stringify([target.modelId, target.deploymentId, target.rollbackFromId]);
+      const intent = JSON.stringify([
+        modelTask,
+        target.modelId,
+        target.deploymentId,
+        target.rollbackFromId,
+      ]);
       if (publishRequest.current?.intent !== intent)
         publishRequest.current = {
           intent,
           body: {
             request_id: randomId(),
+            task: modelTask,
             expected_generation: releases.data?.generation ?? 0,
             model_version_id: target.modelId,
             deployment_id: target.deploymentId,
@@ -579,8 +629,8 @@ function ModelsContent({
       if (!predictRequest.current.payload)
         predictRequest.current.payload = {
           ml_backend_id: String(current?.snapshot.registry_id),
-          model_id: "project-release",
-          task: "detect",
+          model_id: modelTask === "segment" ? "project-release:segment" : "project-release",
+          task: modelTask,
           model_variants: {},
           task_ids: [...selectedTasks].sort(),
           predict_mode: predictMode,
@@ -603,6 +653,7 @@ function ModelsContent({
   });
   const validRegistration =
     source.data?.registration_eligibility?.qualified === true &&
+    (source.data.run.task ?? trainingTaskOf(source.data.run.config)) === selectedTask &&
     !!name.trim() &&
     !!runId &&
     !!selectedAttempt &&
@@ -654,6 +705,30 @@ function ModelsContent({
           模型详情
         </h2>
       )}
+      {mode === "list" && (
+        <label className="mt-4 grid w-fit gap-1 text-xs">
+          模型与发布任务
+          <select
+            className={inputClass}
+            value={selectedTask}
+            onChange={(event) =>
+              updateModelParams({
+                model_task: event.target.value,
+                model_page: undefined,
+                register_run: undefined,
+                register_attempt: undefined,
+              })
+            }
+          >
+            <option value="detect" disabled={!!taskClasses && !taskClasses.detect}>
+              图片目标检测
+            </option>
+            <option value="segment" disabled={!!taskClasses && !taskClasses.segment}>
+              图片实例分割
+            </option>
+          </select>
+        </label>
+      )}
       {error && !registrationOpen && (
         <p
           role="alert"
@@ -677,12 +752,12 @@ function ModelsContent({
           <div className="flex flex-wrap items-center justify-between gap-2">
             <h3 className="flex items-center gap-2 text-sm font-semibold">
               <RadioTower aria-hidden="true" className="size-4 text-muted-foreground" />
-              当前项目发布
+              当前项目发布 · {trainingTaskLabel(modelTask)}
             </h3>
             {current?.model_version_id && (
               <Button
                 size="sm"
-                disabled={publish.isPending}
+                disabled={publish.isPending || !releases.data}
                 onClick={() =>
                   publish.mutate({ view: captureView(), modelId: null, deploymentId: null })
                 }
@@ -731,6 +806,7 @@ function ModelsContent({
           page={page}
           onPage={setPage}
           params={params}
+          task={selectedTask}
           onRegister={() => setRegistrationOpen(true)}
         />
       )}
@@ -754,6 +830,7 @@ function ModelsContent({
             >
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <h2 className="text-sm font-semibold">{activeModel.name}</h2>
+                <Badge>{trainingTaskLabel(modelTask)}</Badge>
                 <div className="flex flex-wrap gap-2">
                   <Button
                     size="sm"
@@ -818,7 +895,7 @@ function ModelsContent({
                           ]),
                         ].map((key) => (
                           <tr key={key} className="border-t border-border">
-                            <td className="px-4 py-3">{metricNames[key] ?? key}</td>
+                            <td className="px-4 py-3">{metricLabel(key)}</td>
                             <td className="p-2 font-mono">
                               {numeric(modelMetrics(activeModel)[key])}
                             </td>
@@ -995,12 +1072,30 @@ function ModelsContent({
                   )}
                   {deployment.status === "ready" && (
                     <>
-                      <TrialImage trial={deployment.trial} />
+                      {modelTask === "segment" ? (
+                        <ProjectModelMaskTrial
+                          projectId={projectId}
+                          modelId={activeModel.id}
+                          deploymentId={deployment.id}
+                          trial={deployment.trial}
+                          assertOwner={() => session.assert()}
+                          onReady={(ready) =>
+                            setTrialReady((previous) =>
+                              previous[deployment.id] === ready
+                                ? previous
+                                : { ...previous, [deployment.id]: ready },
+                            )
+                          }
+                        />
+                      ) : (
+                        <TrialImage trial={deployment.trial} />
+                      )}
                       {!isCurrentTarget(activeModel.id, deployment.id) && (
                         <label className="mt-3 flex items-center gap-2 text-xs">
                           <input
                             type="checkbox"
                             checked={!!confirmed[deployment.id]}
+                            disabled={modelTask === "segment" && !trialReady[deployment.id]}
                             onChange={(event) =>
                               setConfirmed((value) => ({
                                 ...value,
@@ -1017,6 +1112,7 @@ function ModelsContent({
                         disabled={
                           isCurrentTarget(activeModel.id, deployment.id) ||
                           !confirmed[deployment.id] ||
+                          (modelTask === "segment" && !trialReady[deployment.id]) ||
                           publish.isPending ||
                           !releases.data
                         }
@@ -1115,7 +1211,11 @@ function ModelsContent({
                     (run) => run.id === runId && run.status === "succeeded",
                   ) && <option value={runId}>{source.data.run.name}</option>}
                 {runs.data?.items
-                  .filter((run) => run.status === "succeeded")
+                  .filter(
+                    (run) =>
+                      run.status === "succeeded" &&
+                      (run.task ?? trainingTaskOf(run.config)) === selectedTask,
+                  )
                   .map((run) => (
                     <option key={run.id} value={run.id}>
                       {run.name}
@@ -1214,16 +1314,23 @@ function ModelsContent({
                   "尚未取得模型回流资格，请重新加载；仍可在训练实验中下载原生权重。"}
               </p>
             )}
-            {source.data?.registration_eligibility?.qualified === true && (
-              <ModelClassBindings
-                key={runId}
-                nativeClasses={nativeClasses}
-                projectClasses={classes}
-                bindings={bindings}
-                disabled={register.isPending}
-                onChange={(next) => changeRegistration(() => setBindings(next))}
-              />
-            )}
+            {source.data &&
+              (source.data.run.task ?? trainingTaskOf(source.data.run.config)) !== selectedTask && (
+                <p role="alert" className="text-xs text-status-warning">
+                  来源实验任务与当前模型任务不同，请切换任务后重新选择。
+                </p>
+              )}
+            {source.data?.registration_eligibility?.qualified === true &&
+              (source.data.run.task ?? trainingTaskOf(source.data.run.config)) === selectedTask && (
+                <ModelClassBindings
+                  key={runId}
+                  nativeClasses={nativeClasses}
+                  projectClasses={classes}
+                  bindings={bindings}
+                  disabled={register.isPending}
+                  onChange={(next) => changeRegistration(() => setBindings(next))}
+                />
+              )}
             <div className="border-t border-border pt-4">
               <Button
                 type="submit"
@@ -1248,6 +1355,11 @@ function ModelsContent({
               <p className="mt-3 text-xs text-muted-foreground">
                 选择待标图片，用当前发布模型生成候选，再到工作台修正与审核。
               </p>
+              {modelTask === "segment" && (
+                <p className="mt-2 text-xs text-muted-foreground">
+                  逐实例掩码保留孔洞与多部件；当前仅支持整图预标注。人工修正与审核后，可选择原生实例掩码训练桥接，冻结时仍须通过训练资格预检。
+                </p>
+              )}
               <div className="mt-3 max-h-52 space-y-2 overflow-y-auto">
                 {pendingTasks.data?.items.map((task) => (
                   <label key={task.id} className="flex items-center gap-2 text-xs">

@@ -2,7 +2,7 @@
 audience: [dev]
 type: explanation
 status: stable
-last_reviewed: 2026-10-19
+last_reviewed: 2026-10-20
 ---
 
 # AI 预标注接管
@@ -123,6 +123,8 @@ worker 会按三种模式选任务：
 - `Prediction`（多阶段下：下游 attributes union 后整体写一条父框预测，几何分割阶段产出的 polygon 作 `new_shape` 追加进同一 `result` 数组）
 - `PredictionMeta`（多阶段额外写 `extra.pipeline = { stage_count, enriched_attr_keys, stages: [...] }` 追溯每个属性来自哪个 backend / model）
 - `task.total_predictions` 聚合
+
+受控实例分割整图源阶段使用原图 `raster_mask` 内容引用，保留孔洞与断连；`PredictionMeta.extra` 只记录冻结身份和血缘，不重复保存掩码正文。人工采纳及下一轮训练见[实例分割闭环](./instance-segmentation-learning)。
 
 失败时写：
 

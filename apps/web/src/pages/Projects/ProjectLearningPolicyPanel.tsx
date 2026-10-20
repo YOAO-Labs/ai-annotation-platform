@@ -2,14 +2,19 @@ import { CopyableError } from "@/components/ui/CopyableError";
 import { randomId } from "@/utils/id";
 import { normalizeTask } from "@/api/generated/capabilityVocab.gen";
 import { useMemo, useRef, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   learningPoliciesApi,
   type LearningPolicyOut,
   type LearningPolicySave,
+  type LearningTask,
 } from "@/api/learningPolicies";
 import { trainingRunsApi } from "@/api/trainingRuns";
 import { trainingDatasetsApi } from "@/api/trainingDatasets";
+import { datasetParentReason } from "./datasetCompatibility";
+import { instanceMaskBridge, supportsInstanceMaskBridge } from "../Training/trainingDatasetBridges";
+import { trainingTaskLabel } from "../Training/trainingPresentation";
 import { Button } from "@/components/ui/Button";
 import { CopyValueButton } from "@/components/ui/CopyValueButton";
 import { ArrowRight } from "lucide-react";
@@ -135,30 +140,80 @@ function initial(policy: LearningPolicyOut | null): Form {
   };
 }
 
-export function ProjectLearningPolicyPanel({ projectId }: { projectId: string }) {
+export function ProjectLearningPolicyPanel({
+  projectId,
+  taskAvailability,
+}: {
+  projectId: string;
+  taskAvailability?: Record<LearningTask, boolean>;
+}) {
+  const [params, setParams] = useSearchParams();
+  const task: LearningTask =
+    params.get("policy_task") === "segment" ||
+    (!params.has("policy_task") && taskAvailability?.detect === false)
+      ? "segment"
+      : "detect";
   const userId = useAuthStore((state) => state.user?.id ?? "");
   const token = useAuthStore((state) => state.token ?? "");
   const sessionRevision = useTrainingSessionRevision();
   const owner = useMemo(
-    () => ({ projectId, userId, sessionToken: token, sessionRevision, key: randomId() }),
-    [projectId, userId, token, sessionRevision],
+    () => ({ projectId, userId, sessionToken: token, sessionRevision, task, key: randomId() }),
+    [projectId, userId, token, sessionRevision, task],
   );
-  return <ProjectLearningPolicyContent key={owner.key} projectId={projectId} />;
+  return (
+    <ProjectLearningPolicyContent
+      key={owner.key}
+      projectId={projectId}
+      task={task}
+      taskAvailability={taskAvailability}
+      onTask={(value) =>
+        setParams((previous) => {
+          const next = new URLSearchParams(previous);
+          if (value === "detect") next.delete("policy_task");
+          else next.set("policy_task", value);
+          return next;
+        })
+      }
+    />
+  );
 }
 
-function ProjectLearningPolicyContent({ projectId }: { projectId: string }) {
-  const view = useTrainingViewOwner(projectId, "policy");
+function ProjectLearningPolicyContent({
+  projectId,
+  task,
+  onTask,
+  taskAvailability,
+}: {
+  projectId: string;
+  task: LearningTask;
+  onTask: (task: LearningTask) => void;
+  taskAvailability?: Record<LearningTask, boolean>;
+}) {
+  const view = useTrainingViewOwner(projectId, `policy:${task}`);
+  const supported = taskAvailability?.[task] !== false;
   const [scope] = useState(() => randomId());
   const queryClient = useQueryClient();
   const policy = useQuery({
-    queryKey: ["learning-policy", projectId, scope],
-    queryFn: () => learningPoliciesApi.get(projectId),
+    queryKey: ["learning-policy", projectId, task, scope],
+    queryFn: async () => {
+      view.assert();
+      const value = await (task === "detect"
+        ? learningPoliciesApi.get(projectId)
+        : learningPoliciesApi.get(projectId, task));
+      view.assert();
+      if (value && (value.task ?? "detect") !== task)
+        throw new Error("策略响应与所选任务不一致，请重新加载");
+      return value;
+    },
     refetchInterval: 3000,
   });
   const [page, setPage] = useState(0);
   const history = useQuery({
-    queryKey: ["learning-triggers", projectId, page, scope],
-    queryFn: () => learningPoliciesApi.triggers(projectId, page * 20),
+    queryKey: ["learning-triggers", projectId, task, page, scope],
+    queryFn: () =>
+      task === "detect"
+        ? learningPoliciesApi.triggers(projectId, page * 20)
+        : learningPoliciesApi.triggers(projectId, page * 20, task),
     refetchInterval: 3000,
   });
   const catalog = useQuery({
@@ -167,8 +222,9 @@ function ProjectLearningPolicyContent({ projectId }: { projectId: string }) {
   });
   const [datasetPage, setDatasetPage] = useState(0);
   const datasets = useQuery({
-    queryKey: ["policy-datasets", projectId, datasetPage, scope],
-    queryFn: () => trainingDatasetsApi.list(projectId, datasetPage * 20),
+    queryKey: ["policy-datasets", projectId, task, datasetPage, scope],
+    queryFn: () =>
+      trainingDatasetsApi.list(projectId, datasetPage * 20, undefined, undefined, { task }),
   });
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<Form>(empty);
@@ -182,6 +238,52 @@ function ProjectLearningPolicyContent({ projectId }: { projectId: string }) {
     draft: Form;
     revision: number;
   } | null>(null);
+  const parameterSchema = useQuery({
+    queryKey: ["policy-parameter-schema", projectId, task, scope, draft.framework, draft.base],
+    queryFn: async ({ signal }) => {
+      view.assert(signal);
+      const schema = await trainingRunsApi.parameterSchema(projectId, draft.framework, draft.base, {
+        signal,
+      });
+      view.assert(signal);
+      if (schema.task !== task || schema.framework !== draft.framework)
+        throw new Error("训练配置与当前任务或训练器不一致");
+      return schema;
+    },
+    enabled:
+      editing &&
+      task === "segment" &&
+      draft.framework === "ultralytics" &&
+      draft.base === "yolo11n-seg" &&
+      !draft.configuration,
+    retry: false,
+  });
+  const parent = useQuery({
+    queryKey: ["policy-parent", projectId, task, scope, draft.parent],
+    queryFn: async ({ signal }) => {
+      view.assert(signal);
+      const result = await trainingDatasetsApi.getSummary(projectId, draft.parent, { signal });
+      view.assert(signal);
+      if (result.id !== draft.parent) throw new Error("初始划分数据响应与当前选择不一致");
+      return result;
+    },
+    enabled: editing && task === "segment" && !!draft.parent,
+    retry: false,
+  });
+  const selectedParent = parent.data ?? datasets.data?.items.find((d) => d.id === draft.parent);
+  const policyBridge =
+    typeof policy.data?.config.bridge === "string" ? policy.data.config.bridge : undefined;
+  const parentReason =
+    task === "segment" && selectedParent
+      ? datasetParentReason(selectedParent, task, policyBridge)
+      : null;
+  const nativeMaskSupported = supportsInstanceMaskBridge(catalog.data);
+  const qualifiedSegmentBase = catalog.data?.items.some(
+    (item) =>
+      item.framework === "ultralytics" &&
+      item.compatible !== false &&
+      item.base_models.some((base) => base.id === "yolo11n-seg" && base.task === "segment"),
+  );
   const draftRef = useRef(draft);
   draftRef.current = draft;
   const refresh = () => {
@@ -198,6 +300,27 @@ function ProjectLearningPolicyContent({ projectId }: { projectId: string }) {
       view.assert();
       setError("");
       if (kind === "save") {
+        if (!supported) throw new Error("项目尚未启用当前任务工具");
+        if (task === "segment") {
+          if (
+            draft.framework !== "ultralytics" ||
+            draft.base !== "yolo11n-seg" ||
+            !qualifiedSegmentBase
+          )
+            throw new Error("实例分割自动训练仅支持已资格验证的 yolo11n-seg");
+          if (!parent.isSuccess || parentReason)
+            throw new Error(parentReason ?? "请等待初始划分数据核验完成");
+          if (
+            selectedParent?.contract_profile?.bridge === instanceMaskBridge &&
+            !nativeMaskSupported
+          )
+            throw new Error("当前执行器未提供原生实例掩码桥接资格");
+          if (
+            !draft.configuration &&
+            (!parameterSchema.data || parameterSchema.data.task !== "segment")
+          )
+            throw new Error("请等待读取完整分割训练配置");
+        }
         for (const value of [draft.threshold, draft.interval, draft.cooldown])
           if (!value.trim() || !Number.isFinite(Number(value)))
             throw new Error("门槛、检查间隔和冷却时间必须为明确的有限数值");
@@ -208,11 +331,20 @@ function ProjectLearningPolicyContent({ projectId }: { projectId: string }) {
             return [key, Number(value)];
           }),
         );
-        const configuration = draft.configuration
+        const canonical =
+          draft.configuration ??
+          (task === "segment" && parameterSchema.data
+            ? {
+                schema_id: parameterSchema.data.schema_id,
+                schema_digest: parameterSchema.data.schema_digest,
+                values: {},
+              }
+            : undefined);
+        const configuration = canonical
           ? {
-              ...draft.configuration,
+              ...canonical,
               values: {
-                ...draft.configuration.values,
+                ...canonical.values,
                 ...Object.fromEntries(
                   Object.entries(numeric).filter(
                     ([key]) => draft.parameters[key] !== draft.originalParameters?.[key],
@@ -223,6 +355,7 @@ function ProjectLearningPolicyContent({ projectId }: { projectId: string }) {
           : null;
         const body: LearningPolicySave = {
           expected_revision: revision,
+          ...(task === "segment" ? { task } : {}),
           enabled: draft.enabled,
           parent_id: draft.parent,
           batch_id: draft.batch,
@@ -239,8 +372,13 @@ function ProjectLearningPolicyContent({ projectId }: { projectId: string }) {
         };
         await learningPoliciesApi.save(projectId, body);
       } else if (kind === "disable")
-        await learningPoliciesApi.disable(projectId, policy.data!.revision);
-      else if (kind === "check") await learningPoliciesApi.check(projectId);
+        await (task === "detect"
+          ? learningPoliciesApi.disable(projectId, policy.data!.revision)
+          : learningPoliciesApi.disable(projectId, policy.data!.revision, task));
+      else if (kind === "check")
+        await (task === "detect"
+          ? learningPoliciesApi.check(projectId)
+          : learningPoliciesApi.check(projectId, task));
       else if (
         await confirmDialog({
           title: "删除自动策略与触发记录",
@@ -250,7 +388,9 @@ function ProjectLearningPolicyContent({ projectId }: { projectId: string }) {
         })
       ) {
         view.assert();
-        await learningPoliciesApi.remove(projectId);
+        await (task === "detect"
+          ? learningPoliciesApi.remove(projectId)
+          : learningPoliciesApi.remove(projectId, task));
       }
     },
     onSuccess: () => {
@@ -283,7 +423,6 @@ function ProjectLearningPolicyContent({ projectId }: { projectId: string }) {
     value: string | boolean,
   ) => setDraft((d) => ({ ...d, [key]: value }));
   const template = catalog.data?.items.find((t) => t.framework === draft.framework);
-  const selectedParent = datasets.data?.items.find((d) => d.id === draft.parent);
   const currentConfig = policy.data?.config as
     | { min_changed_samples?: number; check_interval_minutes?: number; cooldown_minutes?: number }
     | undefined;
@@ -303,13 +442,14 @@ function ProjectLearningPolicyContent({ projectId }: { projectId: string }) {
           candidate.origin.revision_id!,
         ),
       );
+      view.assert();
       if (!latest.compatible) throw new Error(latest.incompatibility ?? "配方不兼容");
       if (
         normalizeTask(
           (latest.snapshot as ReusableSnapshot).configuration.identity.task ?? "detect",
-        ) !== "detect"
+        ) !== task
       )
-        throw new Error("自动学习策略目前仅支持图片检测配方");
+        throw new Error("配方任务与当前自动训练任务不同");
       let before: ReusableSnapshot | null = null;
       if (captured.configuration)
         before = await trainingRecipesApi.resolve(projectId, {
@@ -361,15 +501,20 @@ function ProjectLearningPolicyContent({ projectId }: { projectId: string }) {
           preview.candidate.origin.revision_id!,
         ),
       );
+      view.assert();
       if (!latest.compatible || latest.snapshot_digest !== preview.candidate.snapshot_digest)
         throw new Error(latest.incompatibility ?? "配方已变化");
       if (
         normalizeTask(
           (latest.snapshot as ReusableSnapshot).configuration.identity.task ?? "detect",
-        ) !== "detect"
+        ) !== task
       )
-        throw new Error("自动学习策略目前仅支持图片检测配方");
-      const current = await learningPoliciesApi.get(projectId);
+        throw new Error("配方任务与当前自动训练任务不同");
+      const current = await (task === "detect"
+        ? learningPoliciesApi.get(projectId)
+        : learningPoliciesApi.get(projectId, task));
+      if (current && (current.task ?? "detect") !== task)
+        throw new Error("策略响应与所选任务不一致，请重新加载");
       if ((current?.revision ?? 0) !== preview.revision)
         throw new Error("策略已变化，保留编辑内容；请刷新后再采纳");
       if (!view.owns() || draftRef.current !== preview.draft) return;
@@ -428,6 +573,21 @@ function ProjectLearningPolicyContent({ projectId }: { projectId: string }) {
           </Badge>
         }
       />
+      <label className="mb-4 grid w-fit gap-1 text-xs">
+        自动训练任务
+        <select
+          className={inputClass}
+          value={task}
+          onChange={(event) => onTask(event.target.value as LearningTask)}
+        >
+          <option value="detect" disabled={taskAvailability?.detect === false}>
+            图片目标检测
+          </option>
+          <option value="segment" disabled={taskAvailability?.segment === false}>
+            图片实例分割
+          </option>
+        </select>
+      </label>
       <div className="space-y-5 rounded-xl border border-border bg-card p-4 sm:p-5">
         {(policy.error || catalog.error || history.error || error) && (
           <p role="alert" className="text-sm text-status-danger">
@@ -436,6 +596,15 @@ function ProjectLearningPolicyContent({ projectId }: { projectId: string }) {
                 error || policy.error?.message || catalog.error?.message || history.error?.message
               }
             />
+          </p>
+        )}
+        <p className="text-xs text-muted-foreground">
+          {trainingTaskLabel(task)} ·
+          每个任务独立保存策略与基线；同项目自动训练串行执行，候选模型始终由负责人发布。
+        </p>
+        {!supported && (
+          <p className="text-xs text-status-warning">
+            项目尚未启用当前任务工具，仍可关闭已有策略。
           </p>
         )}
         {policy.isPending && <TrainingLoading label="正在加载自动训练策略…" rows={2} />}
@@ -513,7 +682,7 @@ function ProjectLearningPolicyContent({ projectId }: { projectId: string }) {
               size="sm"
               variant="primary"
               onClick={begin}
-              disabled={busy || policy.isPending || !catalog.data?.enabled}
+              disabled={busy || policy.isPending || !catalog.data?.enabled || !supported}
             >
               {policy.data ? "编辑自动策略" : "配置自动策略"}
             </Button>
@@ -615,17 +784,27 @@ function ProjectLearningPolicyContent({ projectId }: { projectId: string }) {
                     </option>
                     {draft.parent &&
                       (!selectedParent ||
+                        !datasets.data?.items.some((item) => item.id === draft.parent) ||
                         selectedParent.status !== "ready" ||
-                        (selectedParent.task ?? "detect") !== "detect") && (
+                        (selectedParent.task ?? "detect") !== task) && (
                         <option value={draft.parent}>
                           {selectedParent?.name ?? "当前策略的初始数据"}（未在可选列表中）
                         </option>
                       )}
                     {datasets.data?.items
-                      .filter((d) => d.status === "ready" && (d.task ?? "detect") === "detect")
+                      .filter((d) => d.status === "ready" && (d.task ?? "detect") === task)
                       .map((d) => (
-                        <option value={d.id} key={d.id}>
+                        <option
+                          value={d.id}
+                          key={d.id}
+                          disabled={
+                            task === "segment" && !!datasetParentReason(d, task, policyBridge)
+                          }
+                        >
                           {d.name}
+                          {task === "segment" && datasetParentReason(d, task, policyBridge)
+                            ? ` · ${datasetParentReason(d, task, policyBridge)}`
+                            : ""}
                         </option>
                       ))}
                   </select>
@@ -642,11 +821,13 @@ function ProjectLearningPolicyContent({ projectId }: { projectId: string }) {
                       change("base", "");
                     }}
                   >
-                    {catalog.data?.items.map((t) => (
-                      <option key={t.framework} value={t.framework}>
-                        {t.framework} {t.version}
-                      </option>
-                    ))}
+                    {catalog.data?.items
+                      .filter((t) => task === "detect" || t.framework === "ultralytics")
+                      .map((t) => (
+                        <option key={t.framework} value={t.framework}>
+                          {t.framework} {t.version}
+                        </option>
+                      ))}
                   </select>
                 </label>
                 <label className="space-y-1 text-xs">
@@ -663,10 +844,17 @@ function ProjectLearningPolicyContent({ projectId }: { projectId: string }) {
                     </option>
                     {draft.base &&
                       !template?.base_models.some(
-                        (model) => model.id === draft.base && (model.task ?? "detect") === "detect",
+                        (model) =>
+                          model.id === draft.base &&
+                          (model.task ?? "detect") === task &&
+                          (task === "detect" || model.id === "yolo11n-seg"),
                       ) && <option value={draft.base}>{draft.base}（当前不可用）</option>}
                     {template?.base_models
-                      .filter((m) => (m.task ?? "detect") === "detect")
+                      .filter(
+                        (m) =>
+                          (m.task ?? "detect") === task &&
+                          (task === "detect" || m.id === "yolo11n-seg"),
+                      )
                       .map((m) => (
                         <option value={m.id} key={m.id}>
                           {m.id}
@@ -749,6 +937,27 @@ function ProjectLearningPolicyContent({ projectId }: { projectId: string }) {
                   </Button>
                 </div>
               )}
+              {task === "segment" && (parentReason || parent.error || parameterSchema.error) && (
+                <p role="alert" className="text-xs text-status-danger">
+                  <CopyableError
+                    message={
+                      parentReason ?? parent.error?.message ?? parameterSchema.error?.message
+                    }
+                  />
+                </p>
+              )}
+              {task === "segment" &&
+                selectedParent?.contract_profile?.bridge === instanceMaskBridge &&
+                !nativeMaskSupported && (
+                  <p className="text-xs text-status-warning">
+                    当前执行器未提供原生实例掩码桥接资格，暂不能保存此数据的自动训练策略。
+                  </p>
+                )}
+              {task === "segment" && (
+                <p className="text-xs text-muted-foreground">
+                  实例分割使用完整冻结配置；初始数据、后续基线及训练桥接保持一致。仅接受同任务配方与初始化来源。
+                </p>
+              )}
               <p className="text-sm text-muted-foreground">
                 范围：{draft.batch ? "保留当前策略的指定批次" : "整个项目"}
                 。继承初始划分，之后继承最近成功基线；验证集变化不会增加训练样本计数。保存会产生新的策略修订，并取消旧修订尚未开始的候选和排队实验，已经开始的实验继续。
@@ -770,7 +979,16 @@ function ProjectLearningPolicyContent({ projectId }: { projectId: string }) {
                     !draft.base ||
                     !draft.threshold ||
                     Number(draft.threshold) < 1 ||
-                    !template
+                    !template ||
+                    (task === "segment" &&
+                      (draft.framework !== "ultralytics" ||
+                        draft.base !== "yolo11n-seg" ||
+                        !qualifiedSegmentBase ||
+                        !parent.isSuccess ||
+                        !!parentReason ||
+                        (!draft.configuration && !parameterSchema.isSuccess) ||
+                        (selectedParent?.contract_profile?.bridge === instanceMaskBridge &&
+                          !nativeMaskSupported)))
                   }
                   onClick={() => action.mutate("save")}
                 >

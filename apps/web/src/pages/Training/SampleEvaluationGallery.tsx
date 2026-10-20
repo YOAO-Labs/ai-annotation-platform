@@ -23,6 +23,7 @@ import {
 import { useTrainingViewOwner } from "./trainingViewOwner";
 import { SampleEvaluationImage } from "./SampleEvaluationImage";
 import { PickerPage } from "./SampleEvaluationCreate";
+import { evaluationTask } from "./useSampleEvaluation";
 
 export function SampleEvaluationGallery({
   run,
@@ -235,6 +236,7 @@ export function SampleEvaluationGallery({
                 sample={selected}
                 classes={run.spec.classes}
                 scope={`${scope}:image:${selected.ordinal}`}
+                task={evaluationTask(run.spec)}
               />
               {selected.status !== "succeeded" ? (
                 <p role="status" className="mt-4 text-sm text-status-caution">
@@ -247,7 +249,11 @@ export function SampleEvaluationGallery({
                   )}
                 </p>
               ) : (
-                <SampleEvidence sample={selected} classes={run.spec.classes} />
+                <SampleEvidence
+                  sample={selected}
+                  classes={run.spec.classes}
+                  task={evaluationTask(run.spec)}
+                />
               )}
               <details className="mt-4 text-xs text-muted-foreground">
                 <summary className="cursor-pointer">冻结成员身份与执行来源</summary>
@@ -304,9 +310,11 @@ export function SampleEvaluationGallery({
 function SampleEvidence({
   sample,
   classes,
+  task,
 }: {
   sample: EvaluationSampleResult;
   classes: string[];
+  task: "detect" | "segment";
 }) {
   const matching = sample.matching!;
   return (
@@ -316,7 +324,9 @@ function SampleEvidence({
       </p>
       <div className="mt-3 grid gap-4 xl:grid-cols-2">
         <div>
-          <h4 className="font-medium">冻结真值（实线）</h4>
+          <h4 className="font-medium">
+            {task === "segment" ? "冻结真值掩码（蓝色）" : "冻结真值（实线）"}
+          </h4>
           <ul className="mt-2 max-h-64 space-y-2 overflow-auto">
             {sample.truth.map((box) => (
               <li key={box.index}>
@@ -325,7 +335,9 @@ function SampleEvidence({
                 </span>{" "}
                 · {matching.false_negative_indices.includes(box.index) ? "漏检 FN" : "已匹配 TP"}
                 <code className="mt-0.5 block text-muted-foreground">
-                  {box.xyxy.map((v) => v.toFixed(4)).join(", ")}
+                  {"rle" in box
+                    ? `${box.area_pixels.toLocaleString()} 原图像素`
+                    : box.xyxy.map((v) => v.toFixed(4)).join(", ")}
                 </code>
               </li>
             ))}
@@ -335,7 +347,9 @@ function SampleEvidence({
           )}
         </div>
         <div>
-          <h4 className="font-medium">预测（虚线）</h4>
+          <h4 className="font-medium">
+            {task === "segment" ? "预测掩码（橙色）" : "预测（虚线）"}
+          </h4>
           <ul className="mt-2 max-h-64 space-y-2 overflow-auto">
             {(sample.predictions ?? []).map((box) => {
               const match = matching.matches.find((item) => item.prediction_index === box.index);
@@ -349,30 +363,38 @@ function SampleEvidence({
                   </span>{" "}
                   · {metricValue(box.score, true)} ·{" "}
                   {match
-                    ? `TP → 真值 #${match.truth_index}，IoU ${match.iou.toFixed(3)}`
+                    ? `TP → 真值 #${match.truth_index}，${task === "segment" ? "Mask IoU" : "IoU"} ${match.iou.toFixed(3)}${"dice" in match ? `，Dice ${Number(match.dice).toFixed(3)}` : ""}`
                     : matching.excluded_prediction_indices.includes(box.index)
                       ? "低于固定阈值，不计入匹配"
                       : "误检 FP"}
                   {diagnostic && (
                     <span className="block text-status-caution">
                       {diagnostic.kind === "confusion" ? "类别混淆" : "定位偏差"} → 真值 #
-                      {diagnostic.truth_index}，IoU {diagnostic.iou.toFixed(3)}
+                      {diagnostic.truth_index}，{task === "segment" ? "Mask IoU" : "IoU"}{" "}
+                      {diagnostic.iou.toFixed(3)}
                     </span>
                   )}
                   <code className="mt-0.5 block text-muted-foreground">
-                    {box.xyxy.map((v) => v.toFixed(4)).join(", ")}
+                    {"rle" in box
+                      ? `${box.area_pixels.toLocaleString()} 原图像素`
+                      : box.xyxy.map((v) => v.toFixed(4)).join(", ")}
                   </code>
                 </li>
               );
             })}
           </ul>
           {!sample.predictions?.length && (
-            <p className="mt-2 text-muted-foreground">没有预测框。</p>
+            <p className="mt-2 text-muted-foreground">
+              {task === "segment" ? "没有预测实例掩码。" : "没有预测框。"}
+            </p>
           )}
         </div>
       </div>
       <p className="mt-3 text-muted-foreground">
-        坐标为逻辑图片上的归一化 x1, y1, x2, y2。混淆与定位诊断解释已有 FP/FN，不重复增加主计数。
+        {task === "segment"
+          ? "Mask IoU、Dice 直接比较原图掩码像素，仅已匹配实例计入均值；漏检另计 FN，不是 AP/mAP。"
+          : "坐标为逻辑图片上的归一化 x1, y1, x2, y2。"}
+        混淆与定位诊断解释已有 FP/FN，不重复增加主计数。
       </p>
     </div>
   );

@@ -13,6 +13,10 @@ from training_contract.dataset import (
     config_task,
     data_contract,
     segmentation_labels,
+    is_instance_rle,
+    instance_rle_budget,
+    instance_rle_evidence,
+    INSTANCE_RLE_LIMITS,
 )
 from training_contract.observability import (
     InputMismatchError,
@@ -100,6 +104,9 @@ def validate_dataset(spec):
             or digest_file(label) != sample["label_sha256"]
         ):
             raise ValueError("Frozen image or explicit label file missing or changed")
+        if is_instance_rle(contract):
+            validate_instance_rle_sample(label, sample, classes)
+            continue
         text = label.read_text()
         if segmentation:
             lines = text.splitlines()
@@ -172,3 +179,56 @@ def train(spec, output, *, progress=None):
         from .libreyolo_adapter import libreyolo_train
 
         libreyolo_train(spec, output, progress=progress)
+
+
+def validate_instance_rle_sample(label, sample, classes):
+    """Verify portable labels and exact instance mapping before native decoding."""
+    limit = INSTANCE_RLE_LIMITS["max_sample_label_bytes"]
+    if label.stat().st_size > limit:
+        raise ValueError("Frozen RLE sample exceeds encoded object budget")
+    payload = json.loads(label.read_text())
+    width, height = sample["width"], sample["height"]
+    mapping = sample.get("instances")
+    if (
+        payload.get("schema") != 1
+        or payload.get("size") != [height, width]
+        or not isinstance(mapping, list)
+        or not isinstance(payload.get("instances"), list)
+        or len(mapping) != len(payload["instances"])
+    ):
+        raise ValueError("Frozen RLE instance receipt missing or dimensions differ")
+    instance_rle_budget(width, height, len(mapping))
+    seen, encoded = set(), 0
+    semantics = []
+    for instance, source in zip(payload["instances"], mapping, strict=True):
+        identifier, version = (
+            instance.get("annotation_id"),
+            instance.get("annotation_version"),
+        )
+        index = instance.get("class_index")
+        if (
+            not isinstance(identifier, str)
+            or not identifier
+            or identifier in seen
+            or type(version) is not int
+            or version < 1
+            or type(index) is not int
+            or not 0 <= index < len(classes)
+            or instance.get("source_geometry") not in {"polygon", "raster_mask"}
+        ):
+            raise ValueError("Invalid frozen RLE instance identity")
+        seen.add(identifier)
+        evidence = instance_rle_evidence(instance.get("rle"))
+        if evidence["size"] != [height, width] or any(
+            instance.get(key) != value for key, value in evidence.items()
+        ):
+            raise ValueError("Frozen RLE evidence mismatch")
+        if {key: value for key, value in instance.items() if key != "rle"} != source:
+            raise ValueError("Frozen RLE line-to-source mapping changed")
+        encoded += evidence["rle_bytes"]
+        semantics.append((index, evidence["pixel_sha256"]))
+    instance_rle_budget(width, height, len(mapping), encoded)
+    from training_contract.catalog import digest
+
+    if sample.get("semantic_label_sha256") != digest(sorted(semantics)):
+        raise ValueError("Frozen RLE semantic label digest mismatch")

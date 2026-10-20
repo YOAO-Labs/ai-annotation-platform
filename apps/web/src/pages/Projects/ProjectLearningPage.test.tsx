@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { trainingDatasetsApi } from "@/api/trainingDatasets";
+import { trainingRunsApi } from "@/api/trainingRuns";
 import { batchesApi } from "@/api/batches";
 import { tasksApi } from "@/api/tasks";
 import { asyncJobsApi } from "@/api/asyncJobs";
@@ -50,6 +51,7 @@ vi.mock("./ProjectLearningPolicyPanel", () => ({ ProjectLearningPolicyPanel: () 
 vi.mock("@/hooks/useProjects", () => ({
   useProject: vi.fn(),
 }));
+vi.mock("@/api/trainingRuns", () => ({ trainingRunsApi: { catalog: vi.fn() } }));
 vi.mock("@/api/batches", () => ({ batchesApi: { list: vi.fn().mockResolvedValue([]) } }));
 vi.mock("@/api/asyncJobs", () => ({ asyncJobsApi: { cancel: vi.fn() } }));
 vi.mock("@/api/tasks", () => ({
@@ -162,6 +164,20 @@ beforeEach(() => {
     },
   } as never);
   useAuthStore.getState().setAuth("session-a", { id: "user-a" } as MeResponse);
+  vi.mocked(trainingRunsApi.catalog).mockResolvedValue({
+    items: [
+      {
+        framework: "ultralytics",
+        base_models: [
+          {
+            id: "yolo11n-seg",
+            task: "segment",
+            capabilities: { instance_rle: { bridge: "ultralytics-instance-rle-1" } },
+          },
+        ],
+      },
+    ],
+  } as never);
   vi.mocked(trainingDatasetsApi.taskDatasets).mockResolvedValue({
     items: [],
     pending_membership_count: 0,
@@ -231,14 +247,16 @@ describe("project learning data versions", () => {
       unrecognized_version_count: 0,
     } as never);
     mount();
-    await waitFor(() => expect(screen.getByLabelText("数据集任务")).toHaveValue("pose"));
+    await waitFor(() => expect(screen.getByLabelText("数据类型筛选")).toHaveValue("pose"));
     expect(screen.getByRole("button", { name: "准备新版本" })).toBeDisabled();
-    expect(trainingDatasetsApi.list).toHaveBeenLastCalledWith(
-      "project-1",
-      0,
-      undefined,
-      expect.anything(),
-      { task: "pose" },
+    await waitFor(() =>
+      expect(trainingDatasetsApi.list).toHaveBeenLastCalledWith(
+        "project-1",
+        0,
+        undefined,
+        expect.anything(),
+        { task: "pose" },
+      ),
     );
   });
   it("shows unavailable task capabilities and diagnoses unrecognized history without opening it as detection", async () => {
@@ -379,7 +397,7 @@ describe("project learning data versions", () => {
     await user.type(screen.getByLabelText("版本名称"), "检测迭代");
     await user.keyboard("{Escape}");
     expect(screen.getByRole("button", { name: "准备新版本" })).toHaveFocus();
-    await user.selectOptions(screen.getByLabelText("数据集任务"), "segment");
+    await user.selectOptions(screen.getByLabelText("数据类型筛选"), "segment");
     await waitFor(() =>
       expect(trainingDatasetsApi.list).toHaveBeenCalledWith(
         "project-1",
@@ -395,7 +413,7 @@ describe("project learning data versions", () => {
     await user.clear(screen.getByLabelText("版本名称"));
     await user.type(screen.getByLabelText("版本名称"), "分割迭代");
     await user.keyboard("{Escape}");
-    await user.selectOptions(screen.getByLabelText("数据集任务"), "detect");
+    await user.selectOptions(screen.getByLabelText("数据类型筛选"), "detect");
     await user.click(screen.getByRole("button", { name: "准备新版本" }));
     expect(screen.getByLabelText("版本名称")).toHaveValue("检测迭代");
     expect(trainingDatasetsApi.create).not.toHaveBeenCalled();
@@ -589,7 +607,7 @@ describe("project learning data versions", () => {
     await user.click(screen.getByRole("button", { name: "准备新版本" }));
     expect(screen.getByLabelText("版本名称")).toBeEnabled();
     await user.keyboard("{Escape}");
-    await user.selectOptions(screen.getByLabelText("数据集任务"), "detect");
+    await user.selectOptions(screen.getByLabelText("数据类型筛选"), "detect");
     await user.click(screen.getByRole("button", { name: "准备新版本" }));
     expect(screen.getByLabelText("版本名称")).toHaveValue("仅检测的请求");
     expect(screen.getByLabelText("版本名称")).toBeDisabled();
@@ -951,7 +969,7 @@ describe("project learning data versions", () => {
         { task: "detect", q: "第一轮", status: "ready" },
       ),
     );
-    await user.selectOptions(screen.getByLabelText("数据集任务"), "segment");
+    await user.selectOptions(screen.getByLabelText("数据类型筛选"), "segment");
     await waitFor(() =>
       expect(trainingDatasetsApi.list).toHaveBeenLastCalledWith(
         "project-1",
@@ -961,8 +979,76 @@ describe("project learning data versions", () => {
         { task: "segment", q: "第一轮", status: "ready" },
       ),
     );
+    await user.selectOptions(screen.getByLabelText("数据类型筛选"), "all");
+    await waitFor(() =>
+      expect(trainingDatasetsApi.list).toHaveBeenLastCalledWith(
+        "project-1",
+        0,
+        undefined,
+        expect.anything(),
+        { q: "第一轮", status: "ready" },
+      ),
+    );
     expect(trainingDatasetsApi.getSummary).not.toHaveBeenCalled();
   });
+  it("restores all data types from the URL and resets filters without hiding either task", async () => {
+    const segment = { ...version, id: "segment-version", task: "segment", name: "第一轮分割" };
+    vi.mocked(trainingDatasetsApi.list).mockImplementation(
+      async (_project, _offset, _status, _options, filters) => ({
+        items: (filters?.task === "detect" ? [version] : [version, segment]) as never[],
+        total: 22,
+      }),
+    );
+    vi.mocked(useProject).mockReturnValue({
+      data: {
+        data_type: "image",
+        tool_bindings: {
+          bbox: { enabled: true, classes: ["car"] },
+          region: { enabled: true, classes: ["car"] },
+        },
+      },
+    } as never);
+    const user = userEvent.setup();
+    mount(
+      "/projects/project-1/learning?tab=data&data_task=all&data_list_page=1&data_list_q=第一轮&data_list_status=ready",
+    );
+    expect(await screen.findByRole("link", { name: "查看详情：第一轮分割" })).toBeVisible();
+    expect(screen.getByLabelText("数据类型筛选")).toHaveValue("all");
+    expect(screen.getByRole("columnheader", { name: "数据类型" })).toBeVisible();
+    expect(screen.getByRole("link", { name: "查看详情：第一轮" })).toBeVisible();
+    expect(trainingDatasetsApi.list).toHaveBeenLastCalledWith(
+      "project-1",
+      20,
+      undefined,
+      expect.anything(),
+      { q: "第一轮", status: "ready" },
+    );
+    await user.selectOptions(screen.getByLabelText("数据类型筛选"), "detect");
+    await waitFor(() =>
+      expect(trainingDatasetsApi.list).toHaveBeenLastCalledWith(
+        "project-1",
+        0,
+        undefined,
+        expect.anything(),
+        { task: "detect", q: "第一轮", status: "ready" },
+      ),
+    );
+    await user.click(screen.getByRole("button", { name: "重置筛选" }));
+    await waitFor(() =>
+      expect(trainingDatasetsApi.list).toHaveBeenLastCalledWith(
+        "project-1",
+        0,
+        undefined,
+        expect.anything(),
+        {},
+      ),
+    );
+    expect(screen.getByLabelText("数据类型筛选")).toHaveValue("all");
+    expect(screen.getByRole("textbox", { name: "搜索数据版本名称" })).toHaveValue("");
+    expect(screen.getByRole("combobox", { name: "数据版本状态筛选" })).toHaveValue("");
+    expect(await screen.findByRole("link", { name: "查看详情：第一轮分割" })).toBeVisible();
+  });
+
   it("retains data rows without a loading placeholder during background refresh", async () => {
     vi.mocked(trainingDatasetsApi.list).mockResolvedValueOnce({
       items: [version as never],
@@ -1022,7 +1108,7 @@ describe("project learning data versions", () => {
     vi.mocked(trainingDatasetsApi.getSummary).mockResolvedValue(segment as never);
     mount();
     expect(await screen.findByRole("link", { name: "查看详情：分割最新版本" })).toBeVisible();
-    expect(screen.getByLabelText("数据集任务")).toHaveValue("segment");
+    expect(screen.getByLabelText("数据类型筛选")).toHaveValue("segment");
     expect(trainingDatasetsApi.getSummary).not.toHaveBeenCalled();
   });
 
@@ -1074,4 +1160,96 @@ it("redirects legacy model detail links and preserves the model list context", a
       "/projects/project-1/learning/models/model-1?tab=models&model_q=%E5%80%99%E9%80%89&model_page=2&archive=only",
     ),
   ).toBeVisible();
+});
+
+it("selects native instance masks explicitly, preserves each bridge draft and prevents cross-bridge parents", async () => {
+  const nativeBridge = "ultralytics-instance-rle-1";
+  const polygon = {
+    ...version,
+    task: "segment" as const,
+    name: "多边形父版本",
+    contract_profile: {
+      ...version.contract_profile,
+      task: "segment",
+      geometry: "normalized-simple-polygon",
+      bridge: "ultralytics-simple-polygon-1",
+    },
+  };
+  const native = {
+    ...polygon,
+    id: "native",
+    name: "掩码父版本",
+    contract_profile: {
+      ...polygon.contract_profile,
+      schema: 4,
+      format: "aap-instance-rle",
+      geometry: "instance-mask",
+      bridge: nativeBridge,
+    },
+  };
+  vi.mocked(trainingDatasetsApi.list).mockResolvedValue({
+    items: [polygon, native] as never,
+    total: 2,
+  });
+  const user = userEvent.setup();
+  mount("/projects/project-1/learning?tab=data&data_task=segment");
+  await user.click(await screen.findByRole("button", { name: "准备新版本" }));
+  await user.clear(screen.getByLabelText("版本名称"));
+  await user.type(screen.getByLabelText("版本名称"), "多边形草稿");
+  await user.selectOptions(screen.getByLabelText("分割训练桥接"), nativeBridge);
+  expect(screen.getByLabelText("版本名称")).not.toHaveValue("多边形草稿");
+  expect(screen.getByRole("option", { name: /多边形父版本.*桥接不同/ })).toBeDisabled();
+  expect(screen.getByRole("option", { name: "掩码父版本" })).toBeEnabled();
+  await user.selectOptions(screen.getByLabelText("分割训练桥接"), "polygon");
+  expect(screen.getByLabelText("版本名称")).toHaveValue("多边形草稿");
+  await user.selectOptions(screen.getByLabelText("分割训练桥接"), nativeBridge);
+  await user.click(screen.getByRole("button", { name: "检查训练数据" }));
+  await waitFor(() =>
+    expect(trainingDatasetsApi.preflight).toHaveBeenCalledWith(
+      "project-1",
+      expect.objectContaining({ task: "segment", bridge: nativeBridge }),
+    ),
+  );
+  await user.click(await screen.findByRole("button", { name: "创建数据版本" }));
+  await waitFor(() =>
+    expect(trainingDatasetsApi.create).toHaveBeenCalledWith(
+      "project-1",
+      expect.objectContaining({ task: "segment", bridge: nativeBridge }),
+    ),
+  );
+});
+
+it("ignores a late polygon preflight after switching to the native mask bridge", async () => {
+  let resolve!: (value: typeof report) => void;
+  vi.mocked(trainingDatasetsApi.preflight).mockReturnValueOnce(
+    new Promise((done) => {
+      resolve = done;
+    }),
+  );
+  const user = userEvent.setup();
+  mount("/projects/project-1/learning?tab=data&data_task=segment");
+  await user.click(await screen.findByRole("button", { name: "准备新版本" }));
+  await user.click(screen.getByRole("button", { name: "检查训练数据" }));
+  await user.selectOptions(screen.getByLabelText("分割训练桥接"), "ultralytics-instance-rle-1");
+  await act(async () => resolve(report));
+  expect(screen.getByRole("button", { name: "创建数据版本" })).toBeDisabled();
+  expect(trainingDatasetsApi.create).not.toHaveBeenCalled();
+  expect(screen.getByLabelText("分割训练桥接")).toHaveValue("ultralytics-instance-rle-1");
+});
+
+it("keeps the native mask bridge unavailable when an older catalog omits qualification", async () => {
+  vi.mocked(trainingRunsApi.catalog).mockResolvedValue({
+    items: [
+      {
+        framework: "ultralytics",
+        base_models: [{ id: "yolo11n-seg", task: "segment", capabilities: { tasks: ["segment"] } }],
+      },
+    ],
+  } as never);
+  const user = userEvent.setup();
+  mount("/projects/project-1/learning?tab=data&data_task=segment");
+  await user.click(await screen.findByRole("button", { name: "准备新版本" }));
+  expect(
+    await screen.findByRole("option", { name: "原生实例掩码训练（当前执行器尚未取得资格）" }),
+  ).toBeDisabled();
 });

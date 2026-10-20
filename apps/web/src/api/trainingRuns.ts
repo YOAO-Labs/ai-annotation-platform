@@ -9,7 +9,6 @@ import type {
   TrainingEvaluationOut,
   TrainingInitialization,
   TrainingInitializationEligibility,
-  FrozenTrainingInitialization,
   TrainingRunDetail,
 } from "./generated/types.gen";
 
@@ -21,8 +20,9 @@ export type {
   TrainingEvaluationOut,
   TrainingInitialization,
   TrainingInitializationEligibility,
-  FrozenTrainingInitialization,
 };
+
+export type FrozenTrainingInitialization = NonNullable<TrainingInitializationEligibility["pin"]>;
 
 export interface TrainingCatalog {
   enabled: boolean;

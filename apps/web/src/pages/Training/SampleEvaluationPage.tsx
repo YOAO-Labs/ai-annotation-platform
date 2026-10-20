@@ -23,7 +23,7 @@ import {
   metricValue,
   parseEvaluationState,
 } from "./sampleEvaluation";
-import { evaluationReportOptions } from "./useSampleEvaluation";
+import { evaluationReportOptions, evaluationTask } from "./useSampleEvaluation";
 import { useTrainingSessionRevision, useTrainingViewOwner } from "./trainingViewOwner";
 import { SampleEvaluationGallery } from "./SampleEvaluationGallery";
 import { PickerPage } from "./SampleEvaluationCreate";
@@ -403,8 +403,9 @@ function EvaluationContent({
                   <div>
                     <dt className="text-muted-foreground">固定匹配设置</dt>
                     <dd className="mt-1">
-                      置信度 ≥ {run.spec.confidence} · 匹配 IoU ≥ {run.spec.matching_iou} · NMS IoU{" "}
-                      {run.spec.nms_iou}
+                      置信度 ≥ {run.spec.confidence} ·{" "}
+                      {evaluationTask(run.spec) === "segment" ? "匹配 Mask IoU" : "匹配 IoU"} ≥{" "}
+                      {run.spec.matching_iou} · NMS IoU {run.spec.nms_iou}
                     </dd>
                   </div>
                   <div className="flex items-center gap-1">
@@ -719,6 +720,16 @@ const metrics = [
   ["recall", "召回率", true],
   ["f1", "F1", true],
 ] as const;
+const maskMetrics = [
+  ["matched_mean_iou", "已匹配 Mask IoU", true],
+  ["matched_mean_dice", "已匹配 Dice", true],
+] as const;
+type MetricKey = (typeof metrics)[number][0] | (typeof maskMetrics)[number][0];
+function aggregateValue(aggregate: EvaluationAggregate | null | undefined, key: MetricKey) {
+  if (key === "matched_mean_iou" || key === "matched_mean_dice")
+    return aggregate && "matched_mean_iou" in aggregate ? aggregate[key] : undefined;
+  return aggregate?.[key];
+}
 function AggregateMetrics({ aggregate }: { aggregate: EvaluationAggregate }) {
   return (
     <section className="mt-5 rounded-lg border border-border bg-card p-4" aria-label="完整评估指标">
@@ -732,6 +743,55 @@ function AggregateMetrics({ aggregate }: { aggregate: EvaluationAggregate }) {
           </div>
         ))}
       </dl>
+      {"matched_mean_iou" in aggregate && (
+        <div className="mt-4 border-t border-border pt-4">
+          <dl className="grid grid-cols-2 gap-4">
+            {maskMetrics.map(([key, label]) => (
+              <div key={key}>
+                <dt className="text-xs text-muted-foreground">{label}</dt>
+                <dd className="mt-1 text-lg font-semibold tabular-nums">
+                  {metricValue(aggregate[key], true)}
+                </dd>
+              </div>
+            ))}
+          </dl>
+          <p className="mt-2 text-xs text-muted-foreground">
+            Mask IoU、Dice 均值仅统计已匹配实例，漏检另计 FN；固定阈值像素指标不是 AP/mAP。
+          </p>
+          <div className="overflow-auto">
+            <table className="mt-3 w-full text-xs" aria-label="按原图掩码像素面积统计">
+              <caption className="mb-2 text-left text-muted-foreground">
+                按原图前景像素面积分组：小 &lt; 1,024；中 1,024–9,215；大 ≥ 9,216。TP/FN
+                按真值面积，FP 按预测面积。
+              </caption>
+              <thead>
+                <tr>
+                  <th className="py-2 text-left font-normal">面积组</th>
+                  {metrics.map(([, label]) => (
+                    <th key={label} className="px-2 py-2 text-right font-normal">
+                      {label}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {aggregate.area_groups.map((group) => (
+                  <tr key={group.group} className="border-t border-border">
+                    <th className="py-2 text-left font-normal">
+                      {{ small: "小", medium: "中", large: "大" }[group.group]}
+                    </th>
+                    {metrics.map(([key, , fraction]) => (
+                      <td key={key} className="px-2 py-2 text-right tabular-nums">
+                        {metricValue(group[key], fraction)}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
       <details className="mt-4 text-xs">
         <summary className="cursor-pointer text-muted-foreground">按类别统计与诊断</summary>
         <div className="mt-3 max-h-80 overflow-auto">
@@ -789,6 +849,11 @@ function ComparisonResults({
       ? undefined
       : data.sample_pairs.find((item) => item.left_ordinal === ordinal);
   const second = data.candidates[1];
+  const comparisonMetrics = data.candidates.some(
+    (item) => item.aggregate && "matched_mean_iou" in item.aggregate,
+  )
+    ? [...metrics, ...maskMetrics]
+    : metrics;
   return (
     <div className="mt-4">
       {!data.compatible && (
@@ -819,12 +884,12 @@ function ComparisonResults({
             </tr>
           </thead>
           <tbody>
-            {metrics.map(([key, label, fraction]) => (
+            {comparisonMetrics.map(([key, label, fraction]) => (
               <tr key={key} className="border-t border-border">
                 <th className="py-2 text-left font-normal">{label}</th>
                 {data.candidates.map((item) => (
                   <td key={item.evaluation_id} className="px-3 py-2 text-right tabular-nums">
-                    {metricValue(item.aggregate?.[key], fraction)}
+                    {metricValue(aggregateValue(item.aggregate, key), fraction)}
                   </td>
                 ))}
                 {data.compatible && (

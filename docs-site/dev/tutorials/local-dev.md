@@ -91,6 +91,8 @@ API 文档预览入口：
 
 ### 2. 准备 COCO8 检测夹具
 
+同一入口同时准备实例分割夹具。
+
 在已经确认的开发数据库和对象存储中运行：
 
 ```bash
@@ -98,9 +100,9 @@ cd apps/api
 PYTHONPATH=. uv run python scripts/seed.py --profile online-training
 ```
 
-这个显式 profile 创建 8 张已审核检测图片，保留原始 4 张训练图与 4 张验证图，并同步构建初始数据版本。它不会自动创建训练实验、开启自动策略或发布模型。失败、取消或中断后可重跑同一命令；仍在执行或清理时按提示稍后重试。缓存和离线参数见 [COCO8 夹具说明](https://github.com/yyq19990828/ai-annotation-platform/blob/main/DEV.md#coco8-在线训练夹具)。
+这个显式 profile 创建 8 张已审核图片、30 个检测框和 30 个实例掩膜，保留原始 4 张训练图与 4 张验证图，并同步构建检测与原生 RLE 分割两个初始数据版本。旧检测夹具只有在任务未被人工修改、没有锁或草稿时才能增补分割；已有分割夹具重跑保留人工修改。它不会自动创建训练实验、开启自动策略或发布模型。失败、取消或中断后可重跑同一命令；仍在执行或清理时按提示稍后重试。缓存和离线参数见 [COCO8 夹具说明](https://github.com/yyq19990828/ai-annotation-platform/blob/main/DEV.md#coco8-在线训练夹具)。
 
-进入界面后依次创建实验、确认成功执行记录、添加模型、加载试用并人工发布，参见[在线学习用户指南](/user-guide/projects/online-learning)和[模型回流链路排查](../how-to/debug-model-return)。仓库没有一条命令替代这组人工确认步骤的全栈训练冒烟脚本。
+进入界面后依次创建实验、确认成功执行记录、添加模型、加载试用并人工发布，参见[在线学习用户指南](/user-guide/projects/online-learning)和[模型回流链路排查](../how-to/debug-model-return)。实例分割的逐项操作和目标 GPU 独立验收见[实例分割在线学习验收](../how-to/validate-segmentation-online-learning)。
 
 ---
 

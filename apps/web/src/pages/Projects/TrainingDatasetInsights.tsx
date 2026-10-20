@@ -20,6 +20,7 @@ import { TrainingDatasetClassChart, TrainingDatasetSplitChart } from "./Training
 import { TrainingDatasetDetectionCharts } from "./TrainingDatasetDetectionCharts";
 import { TrainingDatasetSampleComparison } from "./TrainingDatasetSampleComparison";
 import { datasetComparisonReason, datasetParentReason } from "./datasetCompatibility";
+import { instanceMaskBridge } from "../Training/trainingDatasetBridges";
 import { useTrainingSessionRevision } from "../Training/trainingViewOwner";
 
 const inputClass =
@@ -362,7 +363,10 @@ function InsightsContent({
               <span>
                 {version.contract_profile.source_media_type ?? "未知来源"} →{" "}
                 {version.contract_profile.media_type ?? "未知输出"} ·{" "}
-                {version.contract_profile.geometry}
+                {version.contract_profile.geometry} ·{" "}
+                {version.contract_profile.bridge === instanceMaskBridge
+                  ? "原生实例掩码训练"
+                  : "原生训练桥接"}
               </span>
             )}
             {version.completed_at && (
@@ -681,7 +685,9 @@ function InsightsContent({
               <Distribution
                 title={
                   version.task === segmentationTask
-                    ? "归一化多边形面积分布（实例）"
+                    ? version.contract_profile?.bridge === instanceMaskBridge
+                      ? "归一化实例掩码面积分布（实例）"
+                      : "归一化多边形面积分布（实例）"
                     : "归一化矩形框面积分布（实例）"
                 }
                 rows={data.box_area_bins}

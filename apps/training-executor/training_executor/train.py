@@ -15,7 +15,7 @@ from .files import atomic_json, atomic_bytes, immutable_copy
 from training_contract import verify_native
 from training_contract.catalog import digest
 from training_contract.validation import normalized
-from training_contract.dataset import SEGMENTATION, config_task
+from training_contract.dataset import SEGMENTATION, config_task, is_instance_rle
 from training_contract.observability import (
     InputMismatchError,
     NativeConfigurationMismatch,
@@ -276,7 +276,13 @@ def ultralytics_train(spec: dict, output: Path, progress=None):
 
     segmentation = config_task(spec["frozen_config"]) == SEGMENTATION
     native_task = "segment" if segmentation else "detect"
+    raster = is_instance_rle(spec["frozen_config"].get("data_contract", {}))
     trainer_class = SegmentationTrainer if segmentation else DetectionTrainer
+    if raster:
+        from .instance_rle import InstanceRLETrainer, consumer_evidence
+
+        trainer_class = InstanceRLETrainer
+        atomic_json(output / "rle-consumer.json", consumer_evidence())
 
     class FixedBatchTrainer(trainer_class):
         def preprocess_batch(self, batch):
@@ -435,6 +441,14 @@ def ultralytics_train(spec: dict, output: Path, progress=None):
     from .evaluation import ultralytics_descriptor
 
     report = ultralytics_report(result, spec)
+    if raster:
+        report["mask_consumer"] = consumer_evidence()
+        report["mask_resolution"] = {
+            split: json.loads(
+                (output / f"framework/rle-{split}-preflight.json").read_text()
+            )
+            for split in ("train", "val")
+        }
     report["comparison"] = ultralytics_descriptor(
         spec, weights, model.trainer.validator, report["summary"]
     )

@@ -539,7 +539,7 @@ def segmentation_dataset(tmp_path):
     }
     manifest_path = tmp_path / "manifest.json"
     manifest = json.loads(manifest_path.read_text())
-    manifest.update(**SEGMENTATION_CONTRACT, format="ultralytics-segmentation")
+    manifest.update(SEGMENTATION_CONTRACT)
     for sample in manifest["samples"]:
         annotations = (
             []

@@ -132,7 +132,7 @@ describe("managed project training", () => {
     mount("older");
     expect(await screen.findByRole("link", { name: "回流到项目模型" })).toHaveAttribute(
       "href",
-      "/projects/project/learning?tab=models&register_run=run&register_attempt=older",
+      "/projects/project/learning?tab=models&model_task=detect&register_run=run&register_attempt=older",
     );
   });
   it("explains why a successful training result cannot return as a project model", async () => {

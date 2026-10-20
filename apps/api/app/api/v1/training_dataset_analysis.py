@@ -26,6 +26,7 @@ from app.schemas.training_dataset_analysis import (
     TrainingDatasetSamplePage,
     TrainingDatasetSampleDetail,
     TrainingDatasetInsightComparison,
+    TrainingDatasetFrozenMask,
 )
 from app.services import training_dataset_analysis as service
 from app.services.training_dataset_bridge import TrainingDatasetError
@@ -230,6 +231,39 @@ async def sample_detail(
         "limit": limit,
         "offset": offset,
     }
+
+
+@router.get(
+    "/samples/{task_id}/masks/{annotation_id}", response_model=TrainingDatasetFrozenMask
+)
+async def sample_mask(
+    version_id: uuid.UUID,
+    task_id: uuid.UUID,
+    annotation_id: uuid.UUID,
+    project: Project = Depends(require_project_owner),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    version, _, _ = await authorized_analysis(db, project, user, version_id)
+    retained = await db.scalar(
+        select(TrainingDatasetVersion.id)
+        .where(
+            TrainingDatasetVersion.id == version.id,
+            TrainingDatasetVersion.project_id == project.id,
+        )
+        .with_for_update(read=True)
+    )
+    if retained is None:
+        raise HTTPException(status_code=404, detail="数据版本已删除")
+    row = await sample_row(db, version_id, task_id)
+    try:
+        return await asyncio.to_thread(
+            service.read_instance_mask, project.id, version, row, annotation_id
+        )
+    except TrainingDatasetError as exc:
+        raise HTTPException(
+            status_code=exc.status_code, detail={"code": exc.code, "message": str(exc)}
+        ) from exc
 
 
 @router.get(

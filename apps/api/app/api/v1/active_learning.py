@@ -3,6 +3,7 @@
 import asyncio
 import time
 import uuid
+from typing import Literal
 
 from fastapi import APIRouter, Depends, Query, Request, Response
 from sqlalchemy import func, select
@@ -142,14 +143,28 @@ async def list_rounds(
     db: AsyncSession = Depends(get_db),
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
+    task: Literal["detect", "segment"] | None = None,
 ) -> dict:
-    total = await db.scalar(
-        select(func.count()).select_from(Round).where(Round.project_id == project.id)
-    )
+    predicates = [Round.project_id == project.id]
+    if task is not None:
+        aliases = (
+            [
+                "segment",
+                "segmentation",
+                "image-instance-segmentation",
+                "instance-segmentation",
+            ]
+            if task == "segment"
+            else ["detect", "detection", "image-detection"]
+        )
+        predicates.append(
+            func.coalesce(Round.spec["model_ref"]["task"].astext, "detect").in_(aliases)
+        )
+    total = await db.scalar(select(func.count()).select_from(Round).where(*predicates))
     rows = (
         await db.scalars(
             select(Round)
-            .where(Round.project_id == project.id)
+            .where(*predicates)
             .order_by(Round.created_at.desc(), Round.id.desc())
             .limit(limit)
             .offset(offset)

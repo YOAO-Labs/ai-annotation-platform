@@ -149,6 +149,97 @@ async def setup_policy(db, client, owner, token, *, enabled=True, threshold=1):
     )
 
 
+async def test_task_policies_have_independent_revision_disable_and_history(
+    db_session, super_admin, httpx_client, monkeypatch, frozen_source
+):
+    from training_contract import definition
+    from training_contract.dataset import INSTANCE_RLE_CONTRACT
+
+    owner, token = super_admin
+    project, parent, detect, path, body = await setup_policy(
+        db_session, httpx_client, owner, token
+    )
+    configured = copy.deepcopy(settings.training_catalog_json)
+    configured["ultralytics"]["base_models"]["yolo11n-seg"] = {
+        "filename": "yolo11n-seg.pt",
+        "sha256": "9" * 64,
+    }
+    monkeypatch.setattr(settings, "training_catalog_json", configured)
+    segment_parent = TrainingDatasetVersion(
+        project_id=project.id,
+        creator_id=owner.id,
+        request_id=uuid.uuid4(),
+        request_digest="1" * 64,
+        snapshot_digest="2" * 64,
+        name="Mask parent",
+        status="ready",
+        snapshot={**INSTANCE_RLE_CONTRACT, "samples": []},
+        manifest={**manifest(), **INSTANCE_RLE_CONTRACT},
+        package_key="fixture/masks.zip",
+        package_sha256="3" * 64,
+    )
+    db_session.add(segment_parent)
+    await db_session.flush()
+    schema = definition("ultralytics", "yolo11n-seg")
+    segment_body = {key: value for key, value in body.items() if key != "parameters"}
+    segment_body.update(
+        task="segment",
+        parent_id=str(segment_parent.id),
+        base_model="yolo11n-seg",
+        configuration={
+            "schema_id": schema["schema_id"],
+            "schema_digest": schema["schema_digest"],
+            "values": {"epochs": 3},
+        },
+    )
+    auth = {"Authorization": "Bearer " + token}
+    saved = await httpx_client.put(path, json=segment_body, headers=auth)
+    assert saved.status_code == 200, saved.text
+    assert saved.json()["task"] == "segment" and saved.json()["revision"] == 1
+    segment = await db_session.get(LearningPolicy, uuid.UUID(saved.json()["id"]))
+    assert segment.config["bridge"] == "ultralytics-instance-rle-1"
+    assert segment.config["configuration"]["effective_values"]["workers"] == 0
+    assert service.template_current(segment)
+    assert (await httpx_client.get(path, headers=auth)).json()["id"] == str(detect.id)
+    assert (
+        await httpx_client.get(path, params={"task": "segment"}, headers=auth)
+    ).json()["id"] == str(segment.id)
+    # A building candidate for detection also excludes a segmentation build.
+    trigger = LearningTrigger(
+        policy_id=detect.id,
+        project_id=project.id,
+        policy_revision=1,
+        dataset_id=parent.id,
+        source_digest="4" * 64,
+        status="building",
+    )
+    db_session.add(trigger)
+    await db_session.flush()
+    await service.check_policy(db_session, segment.id, force=True)
+    assert segment.state == "active" and "另一个任务" in segment.message
+    assert (
+        await db_session.scalar(
+            select(func.count())
+            .select_from(LearningTrigger)
+            .where(LearningTrigger.policy_id == segment.id)
+        )
+        == 0
+    )
+    disabled = await httpx_client.post(
+        path + "/disable",
+        params={"task": "segment", "expected_revision": 1},
+        headers=auth,
+    )
+    assert disabled.status_code == 200 and disabled.json()["revision"] == 2
+    await db_session.refresh(detect)
+    assert detect.enabled and detect.revision == 1
+    segment_history = await httpx_client.get(
+        path + "/triggers", params={"task": "segment"}, headers=auth
+    )
+    detect_history = await httpx_client.get(path + "/triggers", headers=auth)
+    assert segment_history.json()["total"] == 0 and detect_history.json()["total"] == 1
+
+
 async def build_candidate(db, policy, value=None):
     await service.check_policy(db, policy.id, force=True)
     await db.flush()

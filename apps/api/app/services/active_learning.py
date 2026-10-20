@@ -103,6 +103,7 @@ def validate_spec(round):
             }
         )
         ref, profile = spec["model_ref"], spec["profile"]
+        segment = engine.strategy_for(ref) == engine.MASK_STRATEGY
         prepared = {
             key: value
             for key, value in spec.items()
@@ -113,7 +114,11 @@ def validate_spec(round):
         )
         samples = engine.partition(samples, checked.seed, checked.batch_size)
         if (
-            spec["schema"] != 1
+            spec["schema"] != (2 if segment else 1)
+            or (
+                segment
+                and (spec.get("task") != "segment" or spec.get("schema_version") != 2)
+            )
             or content_digest(spec) != round.spec_digest
             or spec["round_id"] != str(round.id)
             or spec["preview_digest"] != content_digest(prepared)
@@ -148,7 +153,7 @@ def validate_spec(round):
                 mode="json", by_alias=True
             )
             != profile
-            or spec["strategy"] != engine.STRATEGY
+            or spec["strategy"] != engine.strategy_for(ref)
             or spec["preprocessing"] != detection.PREPROCESSING
             or type(spec["issued_at"]) is not int
             or spec["issued_at"] <= 0
@@ -166,6 +171,16 @@ def validate_spec(round):
                 or sample["preprocessing"]["derived_sha256"] != sample["derived_sha256"]
             ):
                 raise ValueError("Frozen source differs")
+            if segment:
+                from app.services import sample_evaluation_masks as masks
+
+                if (
+                    sample["width"] * sample["height"] > masks.MAX_PIXELS
+                    or max(sample["width"], sample["height"]) > masks.MAX_DIMENSION
+                ):
+                    raise ValueError(
+                        "Frozen segmentation source exceeds its profile budget"
+                    )
     except (KeyError, TypeError, ValueError, OverflowError) as exc:
         raise reject("spec_corrupt", "冻结选样规格未通过身份与预算检查") from exc
     return spec
@@ -432,9 +447,19 @@ def successful_evidence(round, attempt, row, result):
         or (result.meta or {}).get("trained_model") != identity
     ):
         raise ValueError("Prediction task or native model differs")
-    predictions = detection.predictions_from_wire(
-        result.result, list(range(len(spec["model_ref"]["classes"])))
-    )
+    if engine.strategy_for(spec["model_ref"]) == engine.MASK_STRATEGY:
+        from app.services.sample_evaluation_masks import normalize_predictions
+
+        predictions = normalize_predictions(
+            {"result": result.result, "meta": result.meta},
+            list(range(len(spec["model_ref"]["classes"]))),
+            width=sample["width"],
+            height=sample["height"],
+        )
+    else:
+        predictions = detection.predictions_from_wire(
+            result.result, list(range(len(spec["model_ref"]["classes"])))
+        )
     evidence = {
         "ordinal": row.ordinal,
         "task_id": sample["task_id"],
@@ -444,7 +469,7 @@ def successful_evidence(round, attempt, row, result):
         "binding_digest": row.request["evaluation"]["binding_digest"],
         "produced_attempt_id": str(attempt.id),
         "predictions": predictions,
-        "features": engine.features(predictions),
+        "features": engine.prediction_features(predictions, spec["model_ref"]),
         "inference": inference,
     }
     return {**evidence, "evidence_digest": content_digest(evidence)}
@@ -459,10 +484,24 @@ def verified_evidence(round, row):
         or row.request != managed.request_identity(spec, row, sample["preprocessing"])
     ):
         raise reject("evidence_unavailable", "候选尚无已核验的成功证据")
-    predictions = [
-        DetectionPrediction.model_validate(prediction).model_dump(mode="json")
-        for prediction in evidence["predictions"]
-    ]
+    if engine.strategy_for(spec["model_ref"]) == engine.MASK_STRATEGY:
+        from app.services.sample_evaluation_masks import checked_predictions
+
+        predictions = checked_predictions(
+            evidence["predictions"],
+            class_count=len(spec["model_ref"]["classes"]),
+            native_to_benchmark=list(range(len(spec["model_ref"]["classes"]))),
+        )
+        if any(
+            row["rle"]["size"] != [sample["height"], sample["width"]]
+            for row in predictions
+        ):
+            raise reject("evidence_corrupt", "掩码证据尺寸与冻结原图不同")
+    else:
+        predictions = [
+            DetectionPrediction.model_validate(prediction).model_dump(mode="json")
+            for prediction in evidence["predictions"]
+        ]
     expected = {
         "ordinal": row.ordinal,
         "task_id": sample["task_id"],
@@ -472,7 +511,7 @@ def verified_evidence(round, row):
         "binding_digest": row.request["evaluation"]["binding_digest"],
         "produced_attempt_id": str(row.produced_attempt_id),
         "predictions": predictions,
-        "features": engine.features(predictions),
+        "features": engine.prediction_features(predictions, spec["model_ref"]),
         "inference": evidence["inference"],
     }
     if (
@@ -500,11 +539,11 @@ async def build_report(db, round, attempt):
     if any(row.produced_attempt_id not in attempts for row in rows):
         raise reject("evidence_corrupt", "候选证据不属于本轮次的执行尝试")
     report = {
-        "schema": 1,
+        "schema": round.spec["schema"],
         "round_id": str(round.id),
         "attempt_id": str(attempt.id),
         "spec_digest": round.spec_digest,
-        "strategy": engine.STRATEGY,
+        "strategy": engine.strategy_for(round.spec["model_ref"]),
         "ranking": engine.ranking(round.spec, evidence),
         "missing_signal_count": sum(
             not item["predictions"] for item in evidence.values()

@@ -4,6 +4,7 @@ import re
 import uuid
 
 from .catalog import digest
+from .dataset import SEGMENTATION, config_task, data_contract, data_task
 
 MAX_WEIGHTS_BYTES = 2 * 1024**3
 POLICY = {
@@ -24,6 +25,25 @@ POLICY = {
     "maximum_bytes": MAX_WEIGHTS_BYTES,
 }
 POLICY_DIGEST = digest(POLICY)
+SEGMENTATION_POLICY = {
+    **POLICY,
+    "revision": 2,
+    "task": SEGMENTATION,
+    "qualified_models": ["yolo11n-seg"],
+    "source_data_identity": "exact-frozen-contract-and-bridge",
+    "evaluation_identity": "raw-report-and-normalized-registration-separately-frozen",
+}
+SEGMENTATION_POLICY_DIGEST = digest(SEGMENTATION_POLICY)
+
+
+def policy_for_pin(pin):
+    if isinstance(pin, dict) and pin.get("policy_digest") == POLICY_DIGEST:
+        return POLICY
+    if isinstance(pin, dict) and pin.get("policy_digest") == SEGMENTATION_POLICY_DIGEST:
+        return SEGMENTATION_POLICY
+    raise ValueError("初始化来源尚未通过当前原生资格验证")
+
+
 VARIANTS = {f"yolo11{scale}" for scale in "nsmlx"}
 PIN_KEYS = {
     "kind",
@@ -58,19 +78,25 @@ def is_sha256(value):
 
 
 def validate_pin(pin):
-    if not isinstance(pin, dict) or set(pin) != PIN_KEYS:
+    policy = policy_for_pin(pin)
+    segmentation = policy is SEGMENTATION_POLICY
+    if set(pin) != PIN_KEYS | ({"data_contract"} if segmentation else set()):
         raise ValueError("初始化来源的冻结字段不完整")
     if (
         pin["kind"] != "trained_model"
-        or pin["policy_digest"] != POLICY_DIGEST
         or any(
-            pin[key] != POLICY[key]
+            pin[key] != policy[key]
             for key in ("framework", "framework_version", "task", "model_family")
         )
         or not isinstance(pin["base_model"], str)
-        or pin["base_model"] not in VARIANTS
+        or pin["base_model"] not in ({"yolo11n-seg"} if segmentation else VARIANTS)
     ):
         raise ValueError("初始化来源尚未通过当前原生资格验证")
+    if segmentation and (
+        data_task(pin["data_contract"]) != SEGMENTATION
+        or data_contract(pin["data_contract"]) != pin["data_contract"]
+    ):
+        raise ValueError("分割初始化缺少精确冻结的来源数据桥接")
     for key in ("project_id", "model_version_id", "run_id", "attempt_id", "dataset_id"):
         if not isinstance(pin[key], str) or str(uuid.UUID(pin[key])) != pin[key]:
             raise ValueError("初始化来源标识无效")
@@ -126,10 +152,10 @@ def validate_pin(pin):
             isinstance(value, str) and 0 < len(value) <= 150
             for value in runtime.values()
         )
-        or runtime["torch"].split("+", 1)[0] != POLICY["torch"]
-        or runtime["torchvision"].split("+", 1)[0] != POLICY["torchvision"]
+        or runtime["torch"].split("+", 1)[0] != policy["torch"]
+        or runtime["torchvision"].split("+", 1)[0] != policy["torchvision"]
         or re.fullmatch(r"3\.12\.\d+", runtime["python"]) is None
-        or runtime["cuda"] != POLICY["cuda"]
+        or runtime["cuda"] != policy["cuda"]
         or not runtime["image_digest"].startswith("sha256:")
         or not is_sha256(runtime["image_digest"][7:])
     ):
@@ -137,9 +163,19 @@ def validate_pin(pin):
     evaluation = pin["evaluation"]
     if (
         not isinstance(evaluation, dict)
-        or set(evaluation) != {"report_sha256", "report_digest", "validation_digest"}
+        or set(evaluation)
+        != (
+            {"report_sha256", "report_digest", "validation_digest"}
+            | (
+                {"normalized_model_digest", "descriptor_digest", "weights_sha256"}
+                if segmentation
+                else set()
+            )
+        )
         or not all(is_sha256(value) for value in evaluation.values())
         or evaluation["validation_digest"] != pin["validation_digest"]
+        or segmentation
+        and evaluation["weights_sha256"] != artifact["sha256"]
         or digest({key: value for key, value in pin.items() if key != "source_digest"})
         != pin["source_digest"]
     ):
@@ -149,24 +185,34 @@ def validate_pin(pin):
 
 def compatible_runtime(config, runtime):
     pin = validate_pin(config["initialization"])
+    policy = policy_for_pin(pin)
     return bool(
         config.get("adapter_revision") == 2
         and config.get("framework") == pin["framework"]
         and config.get("framework_version") == pin["framework_version"]
         and config.get("base_model", {}).get("id") == pin["base_model"]
         and config.get("classes") == pin["classes"]
-        and runtime.get("initialization_policy_digest") == POLICY_DIGEST
-        and runtime.get("torch", "").split("+", 1)[0] == POLICY["torch"]
-        and runtime.get("torchvision", "").split("+", 1)[0] == POLICY["torchvision"]
+        and (
+            runtime.get("initialization_policy_digest") == pin["policy_digest"]
+            or isinstance(runtime.get("initialization_policy_digests"), list)
+            and pin["policy_digest"] in runtime["initialization_policy_digests"]
+        )
+        and (
+            policy is POLICY
+            or config_task(config) == SEGMENTATION
+            and data_task(config["data_contract"]) == SEGMENTATION
+        )
+        and runtime.get("torch", "").split("+", 1)[0] == policy["torch"]
+        and runtime.get("torchvision", "").split("+", 1)[0] == policy["torchvision"]
         and re.fullmatch(r"3\.12\.\d+", runtime.get("python", "")) is not None
-        and runtime.get("cuda") == POLICY["cuda"]
+        and runtime.get("cuda") == policy["cuda"]
     )
 
 
 def verify_evidence(config, evidence, *, resumed):
     pin = validate_pin(config["initialization"])
     if not isinstance(evidence, dict) or (
-        evidence.get("policy_digest") != POLICY_DIGEST
+        evidence.get("policy_digest") != pin["policy_digest"]
         or evidence.get("source_digest") != pin["source_digest"]
         or evidence.get("source_sha256") != pin["artifact"]["sha256"]
         or evidence.get("mode") != ("checkpoint_resume" if resumed else "weights_only")
@@ -194,3 +240,12 @@ def verify_evidence(config, evidence, *, resumed):
         or evidence.get("best_weights_present") is not False
     ):
         raise ValueError("原生初始化未完整转移权重或未重置训练状态")
+
+    if policy_for_pin(pin) is SEGMENTATION_POLICY and (
+        not is_sha256(evidence.get("mask_head_tensor_digest"))
+        or evidence["mask_head_tensor_digest"]
+        != evidence.get("loaded_mask_head_tensor_digest")
+        or type(evidence.get("mask_head_tensor_count")) is not int
+        or evidence["mask_head_tensor_count"] <= 0
+    ):
+        raise ValueError("分割初始化未完整转移原生 mask head 权重")

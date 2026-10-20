@@ -1,10 +1,12 @@
 import { CopyableError } from "@/components/ui/CopyableError";
+import type { ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { Database } from "lucide-react";
 import type { TrainingDatasetSummary } from "@/api/trainingDatasets";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { ProgressBar } from "@/components/ui/ProgressBar";
+import { TASKS } from "@/api/generated/capabilityVocab.gen";
 import { TrainingError, TrainingLoading } from "../Training/TrainingFeedback";
 import {
   TrainingListControls,
@@ -81,6 +83,9 @@ export function ProjectTrainingDataVersions({
   filters,
   onFilter,
   onReset,
+  taskFilter,
+  hasExtraFilters = false,
+  showTask = false,
 }: {
   data?: { items: TrainingDatasetSummary[]; total: number };
   loading: boolean;
@@ -95,6 +100,9 @@ export function ProjectTrainingDataVersions({
   filters: TrainingListFilters;
   onFilter: (values: Partial<TrainingListFilters>) => void;
   onReset: () => void;
+  taskFilter?: ReactNode;
+  hasExtraFilters?: boolean;
+  showTask?: boolean;
 }) {
   return (
     <section
@@ -107,7 +115,10 @@ export function ProjectTrainingDataVersions({
         onChange={onFilter}
         onReset={onReset}
         statuses={statuses}
-      />
+        hasExtraFilters={hasExtraFilters}
+      >
+        {taskFilter}
+      </TrainingListControls>
       {loading && <TrainingLoading label="正在加载数据版本…" />}
       {error && (
         <div className="p-3">
@@ -118,13 +129,20 @@ export function ProjectTrainingDataVersions({
         <table aria-label="训练数据版本列表" className="w-full whitespace-nowrap text-left text-xs">
           <thead className="bg-muted/40 text-2xs text-muted-foreground">
             <tr>
-              {["版本名称", "状态", "样本数", "类别数", "训练包", "创建时间", "操作"].map(
-                (label) => (
-                  <th key={label} scope="col" className="px-4 py-3 font-medium">
-                    {label}
-                  </th>
-                ),
-              )}
+              {[
+                "版本名称",
+                ...(showTask ? ["数据类型"] : []),
+                "状态",
+                "样本数",
+                "类别数",
+                "训练包",
+                "创建时间",
+                "操作",
+              ].map((label) => (
+                <th key={label} scope="col" className="px-4 py-3 font-medium">
+                  {label}
+                </th>
+              ))}
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
@@ -159,6 +177,11 @@ export function ProjectTrainingDataVersions({
                       </p>
                     )}
                   </td>
+                  {showTask && (
+                    <td className="px-4 py-3 text-muted-foreground">
+                      {version.task ? (TASKS[version.task]?.label ?? version.task) : "未识别"}
+                    </td>
+                  )}
                   <td className="px-4 py-3">
                     <Badge
                       dot

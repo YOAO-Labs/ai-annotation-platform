@@ -2,7 +2,7 @@
 audience: [dev]
 type: explanation
 status: stable
-last_reviewed: 2026-10-19
+last_reviewed: 2026-10-20
 ---
 
 # AI 模型集成
@@ -291,11 +291,11 @@ histogram_quantile(0.95,
 - **内置模型目录（Ultralytics + LibreYOLO）**：
   - 覆盖 Ultralytics 多任务多系列（`detection` / `segmentation` / `pose` / `obb` / `classification`，含 YOLOv8 / YOLOv11 / YOLOv12）以及 LibreYOLO 检测模型族（`YOLO9` / `YOLOX`）。
   - 协议 v2 多模型目录（详 [ADR-0036](../adr/archive/0036-ml-backend-capability-protocol-v2-multi-model)）暴露全部预置权重，前端模型市场按 `task` × `series` × `size` 分组渲染。权重经 `yolo_checkpoints` 卷持久化。
-- **在线训练受管模型热加载（`/managed-models`）**：
-  - `apps/yolo-backend/managed_models.py` 中的 `ManagedModelRegistry` 支持在不重启容器的情况下，接收平台下发的 `POST /managed-models` 请求，拉取预签名权重（PyTorch `.pt` 或 ONNX `.onnx`）、校验 SHA256 与文件大小，并写入 `/data/managed-models/{version_id}/meta.json`。
-  - 注册后的模型以 `model_id = "managed:{version_id}"` 动态合入 `/setup.models[]`，平台通过 `GET /managed-models/{version_id}` 对账回执并执行 Trial `POST /predict` 冒烟推理后，即可投入项目批量预标与主动学习重打分（详见 [受控模型热加载协议](../reference/ml-backend-protocol#12-受控模型热加载协议) 与 [在线学习与训练体系](./training-datasets)）。
-- **逐样本评估代理端点（`/managed-evaluation/*`）**：
-  - `apps/yolo-backend/sample_evaluations.py` 暴露 `/managed-evaluation/ultralytics/sample-evaluations` 与 `/managed-evaluation/libreyolo/sample-evaluations`，供离线评估 worker 对验证集样本批量计算逐图 TP / FP / FN、置信度分布与错误分类，支撑实验工作台的样本级诊断。
+- **在线训练受控模型安装（`/managed-models`）**：
+  - `apps/yolo-backend/managed_models.py` 的 `ManagedModelStore` 接收 `POST /managed-models`，下载受控原生权重并核验字节数、SHA-256、任务、框架、架构和类别顺序，在 checkpoint 目录的 `managed/{version_id}` 原子保存 `weights.pt` 与 `receipt.json`。
+  - 平台用 `trained:{version_id}` 和冻结引用访问具体部署。安装后须完成固定图片试用，再由负责人按任务人工发布，才能用于普通预标；候选评估与主动选样有各自的资格检查。受控实例分割首批限定 `yolo11n-seg`，输出原图逐实例 RLE。详见[受控模型部署协议](../reference/ml-backend-protocol)与[实例分割闭环](./instance-segmentation-learning)。
+- **逐样本评估收据端点（`/managed-evaluation/*`）**：
+  - 真实推理复用 `POST /predict` 的 `context.sample_evaluation`；辅助 GET profile、GET requests 和 POST seal 用于环境核验、持久收据和停止／恢复。分割使用独立 `/managed-evaluation/segment/*` 命名空间。平台评估器从冻结真值及预测计算 TP／FP／FN、mask IoU／Dice 与错误诊断；LibreYOLO 尚未开放共享逐样本评估。
 
 ### 6.2 onnxtools-backend（8004 / `gpu-onnxtools`）
 

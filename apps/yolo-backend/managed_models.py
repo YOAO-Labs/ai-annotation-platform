@@ -1,4 +1,4 @@
-"""Authenticated, immutable installation of platform-produced detection weights."""
+"""Authenticated, immutable installation of qualified platform-produced weights."""
 
 from __future__ import annotations
 
@@ -18,6 +18,7 @@ from fastapi import HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from aap_backend_runtime.backend_auth import backend_credential
 from training_contract.model_return import LIBRE_FORMAT, LIBRE_RUNTIME, libre_identity
+from managed_segmentation import validate_receipt as validate_segmentation_receipt
 
 
 def digest(value):
@@ -40,7 +41,7 @@ class InstallRequest(ManagedModelRef):
     classes: list[str] = Field(min_length=1, max_length=1000)
     framework: Literal["ultralytics", "libreyolo"]
     framework_version: str = Field(min_length=1, max_length=50)
-    task: Literal["detection"]
+    task: Literal["detection", "segmentation"]
     size_bytes: int = Field(gt=0, le=2 * 1024**3)
     download_url: str = Field(max_length=10000)
     model_family: str | None = None
@@ -48,6 +49,7 @@ class InstallRequest(ManagedModelRef):
     artifact_format: str | None = None
     artifact_size_bytes: int | None = None
     runtime_qualification: dict | None = None
+    output_contract: str | None = None
 
     @model_validator(mode="after")
     def validate_identity(self):
@@ -71,7 +73,11 @@ class InstallRequest(ManagedModelRef):
             self.artifact_size_bytes,
             self.runtime_qualification,
         )
-        if self.framework == "libreyolo":
+        if self.task == "segmentation":
+            validate_segmentation_receipt(self.model_dump(mode="json"))
+        elif self.output_contract is not None:
+            raise ValueError("Unexpected output contract for detection install")
+        elif self.framework == "libreyolo":
             identity = libre_identity(f"LibreYOLO9{self.model_size}")
             if (
                 self.framework_version != "1.6.0"
@@ -116,6 +122,12 @@ class ManagedModelStore:
                 raise ValueError("Installed identity mismatch")
             if verify and file_digest(path) != receipt["sha256"]:
                 raise ValueError("Installed artifact digest mismatch")
+            if receipt.get("task") == "segmentation":
+                validate_segmentation_receipt(receipt)
+                if digest(receipt["classes"]) != receipt["classes_digest"]:
+                    raise ValueError("Installed segmentation classes differ")
+            elif receipt.get("output_contract") is not None:
+                raise ValueError("Unexpected detection output contract")
             if receipt.get("framework") == "libreyolo" and (
                 receipt.get("framework_version") != "1.6.0"
                 or receipt.get("model_family") != "yolo9"
@@ -151,13 +163,46 @@ class ManagedModelStore:
             raise ValueError("Unverified training/inference framework combination")
         model = YOLO(str(path))
         model.to("cpu")
-        if model.task != "detect" or not isinstance(model.names, dict):
-            raise ValueError("Expected a native detection checkpoint")
+        segmentation = expected["task"] == "segmentation"
+        if model.task != ("segment" if segmentation else "detect") or not isinstance(
+            model.names, dict
+        ):
+            raise ValueError("Expected a native task-matched checkpoint")
+        if any(type(index) is not int for index in model.names) or set(
+            model.names
+        ) != set(range(len(model.names))):
+            raise ValueError("Checkpoint names must have contiguous native indexes")
         names = [model.names[i] for i in range(len(model.names))]
         if names != expected["classes"] or digest(names) != expected["classes_digest"]:
             raise ValueError(
                 "Checkpoint native classes differ from the registered order"
             )
+        if segmentation:
+            from managed_segmentation import verify_runtime
+            from ultralytics.nn.modules.head import Segment
+            import torch
+
+            validate_segmentation_receipt(expected)
+            verify_runtime()
+            architecture = model.model.yaml
+            head = model.model.model[-1]
+            if (
+                architecture.get("scale") != "n"
+                or Path(architecture.get("yaml_file", "")).stem != "yolo11n-seg"
+                or type(head) is not Segment
+                or head.nc != len(names)
+                or not names
+                or len(set(names)) != len(names)
+                or any(not isinstance(name, str) or not name for name in names)
+            ):
+                raise ValueError("Unqualified segmentation architecture or classes")
+            tensors = list(model.model.state_dict().values())
+            if not tensors or any(
+                not torch.isfinite(tensor).all().item() for tensor in tensors
+            ):
+                raise ValueError(
+                    "Segmentation checkpoint has missing or non-finite state"
+                )
         return model
 
     async def install(self, body: InstallRequest):

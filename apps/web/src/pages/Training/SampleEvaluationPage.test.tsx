@@ -314,6 +314,73 @@ afterEach(() => {
 });
 
 describe("frozen evaluation evidence navigation", () => {
+  it("shows original-pixel mask metrics, matched Dice and area groups separately from FN", async () => {
+    const pixel = {
+      index: 0,
+      class_index: 0,
+      rle: { encoding: "coco_rle" as const, size: [3, 3] as [number, number], counts: [0, 9] },
+      area_pixels: 9,
+      mask_sha256: hash,
+    };
+    const maskSample: EvaluationSampleResult = {
+      ...sample(),
+      width: 3,
+      height: 3,
+      truth: [
+        { ...pixel, annotation_id: id(101), annotation_version: 1, rasterizer: "native-rle-1" },
+      ],
+      predictions: [{ ...pixel, native_class_index: 0, score: 0.9 }],
+      matching: {
+        ...sample().matching!,
+        diagnostics: [],
+        matches: [{ prediction_index: 0, truth_index: 0, iou: 1, dice: 1 }],
+      },
+    };
+    const maskAggregate = {
+      ...aggregate,
+      matched_mean_iou: 1,
+      matched_mean_dice: 1,
+      area_groups: ["small", "medium", "large"].map((group) => ({
+        group: group as "small" | "medium" | "large",
+        tp: group === "small" ? 1 : 0,
+        fp: 0,
+        fn: 0,
+        precision: group === "small" ? 1 : null,
+        recall: group === "small" ? 1 : null,
+        f1: group === "small" ? 1 : null,
+      })),
+    };
+    const maskRun = run();
+    maskRun.spec.schema = 2;
+    maskRun.spec.model_ref.task = "segment";
+    vi.mocked(sampleEvaluationsApi.get).mockResolvedValue(maskRun);
+    vi.mocked(sampleEvaluationsApi.report).mockResolvedValue({
+      ...report(),
+      schema: 2,
+      samples: [maskSample],
+      aggregate: maskAggregate,
+    });
+    vi.mocked(sampleEvaluationsApi.samples).mockResolvedValue({
+      evaluation_id: evaluation,
+      attempt_id: attempt,
+      spec_digest: hash,
+      report_sha256: hash,
+      total: 1,
+      offset: 0,
+      limit: 12,
+      items: [maskSample],
+    });
+    vi.mocked(sampleEvaluationsApi.image).mockReturnValue(new Promise(() => {}));
+    mount();
+    expect(
+      await screen.findByRole("table", { name: "按原图掩码像素面积统计" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("已匹配 Dice")).toBeInTheDocument();
+    expect(screen.getByText(/TP → 真值 #0，Mask IoU 1.000，Dice 1.000/)).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: "真值掩码，蓝色" })).toBeInTheDocument();
+    expect(screen.getAllByText(/漏检另计 FN/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/不是 AP\/mAP/).length).toBeGreaterThan(0);
+  });
   it("rejects malformed, duplicate and reversed URL filters without silently replacing them", () => {
     for (const query of [
       "attempt=bad",

@@ -817,60 +817,76 @@ describe("exact frozen-version experiment handoff", () => {
   });
 });
 
-it("filters segmentation weights by dataset task and preserves an incompatible selection until explicitly replaced", async () => {
-  const task = "segment" as const;
-  const segmented = {
-    ...dataset,
-    task,
-    contract_profile: {
-      ...dataset.contract_profile,
+it.each(["ultralytics-simple-polygon-1", "ultralytics-instance-rle-1"])(
+  "filters segmentation weights for %s and preserves an incompatible selection until explicitly replaced",
+  async (bridge) => {
+    const task = "segment" as const;
+    const segmented = {
+      ...dataset,
       task,
-      geometry: "normalized-simple-polygon",
-      bridge: "ultralytics-simple-polygon-1",
-    },
-  };
-  vi.mocked(trainingDatasetsApi.list).mockResolvedValue({ items: [segmented], total: 1 } as never);
-  vi.mocked(trainingDatasetsApi.get).mockResolvedValue(segmented as never);
-  vi.mocked(trainingRunsApi.catalog).mockResolvedValue({
-    ...catalog,
-    items: [
-      {
-        ...catalog.items[0],
-        base_models: [
-          ...catalog.items[0].base_models,
-          { id: "yolo11n-seg", filename: "yolo11n-seg.pt", sha256: "a".repeat(64), task },
-        ],
+      contract_profile: {
+        ...dataset.contract_profile,
+        task,
+        schema: bridge === "ultralytics-instance-rle-1" ? 4 : 3,
+        format: bridge === "ultralytics-instance-rle-1" ? "aap-instance-rle" : "ultralytics-yolo",
+        geometry:
+          bridge === "ultralytics-instance-rle-1" ? "instance-mask" : "normalized-simple-polygon",
+        bridge,
       },
-    ],
-  });
-  vi.mocked(trainingRunsApi.parameterSchema).mockImplementation(async (_p, _f, base) =>
-    base === "yolo11n-seg" ? { ...schema, task, schema_id: "seg-2" } : schema,
-  );
-  const initial = {
-    ...emptyTrainingDraft(trainingDraftOwner("user-1", "project-1")),
-    datasetId: dataset.id,
-    name: "分割实验",
-    baseModel: "yolo11n",
-    schemaId: schema.schema_id,
-    schemaDigest: schema.schema_digest,
-  };
-  saveTrainingDraft(initial);
-  mount();
-  await screen.findByRole("alert");
-  expect(screen.getByLabelText("基础权重")).toHaveValue("yolo11n");
-  expect(screen.getByRole("button", { name: "下一步" })).toBeDisabled();
-  expect(
-    screen.getByRole("option", { name: /yolo11n（目录不可用或与数据任务不匹配）/ }),
-  ).toBeDisabled();
-  const candidateReads = vi.mocked(trainedModelsApi.list).mock.calls.length;
-  await userEvent.selectOptions(screen.getByLabelText("基础权重"), "yolo11n-seg");
-  await waitFor(() => expect(screen.getByRole("button", { name: "下一步" })).toBeEnabled());
-  expect(screen.getByText(/实例分割支持单多边形原生训练/)).toBeVisible();
-  expect(screen.getByLabelText("初始化权重").querySelectorAll("option")).toHaveLength(1);
-  expect(screen.getByText(/分割暂不支持从项目候选模型初始化/)).toBeVisible();
-  expect(trainedModelsApi.list).toHaveBeenCalledTimes(candidateReads);
-  expect(trainingRunsApi.preflight).not.toHaveBeenCalled();
-});
+    };
+    vi.mocked(trainingDatasetsApi.list).mockResolvedValue({
+      items: [segmented],
+      total: 1,
+    } as never);
+    vi.mocked(trainingDatasetsApi.get).mockResolvedValue(segmented as never);
+    vi.mocked(trainingRunsApi.catalog).mockResolvedValue({
+      ...catalog,
+      items: [
+        {
+          ...catalog.items[0],
+          base_models: [
+            ...catalog.items[0].base_models,
+            { id: "yolo11n-seg", filename: "yolo11n-seg.pt", sha256: "a".repeat(64), task },
+          ],
+        },
+      ],
+    });
+    vi.mocked(trainingRunsApi.parameterSchema).mockImplementation(async (_p, _f, base) =>
+      base === "yolo11n-seg" ? { ...schema, task, schema_id: "seg-2" } : schema,
+    );
+    const initial = {
+      ...emptyTrainingDraft(trainingDraftOwner("user-1", "project-1")),
+      datasetId: dataset.id,
+      name: "分割实验",
+      baseModel: "yolo11n",
+      schemaId: schema.schema_id,
+      schemaDigest: schema.schema_digest,
+    };
+    saveTrainingDraft(initial);
+    mount();
+    await screen.findByRole("alert");
+    expect(screen.getByLabelText("基础权重")).toHaveValue("yolo11n");
+    expect(screen.getByRole("button", { name: "下一步" })).toBeDisabled();
+    expect(
+      screen.getByRole("option", { name: /yolo11n（目录不可用或与数据任务不匹配）/ }),
+    ).toBeDisabled();
+    const candidateReads = vi.mocked(trainedModelsApi.list).mock.calls.length;
+    await userEvent.selectOptions(screen.getByLabelText("基础权重"), "yolo11n-seg");
+    await waitFor(() => expect(screen.getByRole("button", { name: "下一步" })).toBeEnabled());
+    expect(screen.getByText(/实例分割支持已资格验证的训练桥接/)).toBeVisible();
+    expect(screen.getByLabelText("初始化权重").querySelectorAll("option")).toHaveLength(1);
+    expect(screen.queryByText(/尚未取得项目权重初始化资格/)).not.toBeInTheDocument();
+    await waitFor(() => expect(trainedModelsApi.list).toHaveBeenCalledTimes(candidateReads + 1));
+    expect(trainedModelsApi.list).toHaveBeenLastCalledWith(
+      "project-1",
+      0,
+      expect.any(Object),
+      "include",
+      { task: "segment" },
+    );
+    expect(trainingRunsApi.preflight).not.toHaveBeenCalled();
+  },
+);
 
 const initializationId = "99999999-9999-4999-8999-999999999999";
 const initializationPin = {

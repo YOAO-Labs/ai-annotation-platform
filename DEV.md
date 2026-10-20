@@ -169,9 +169,9 @@ pnpm dev:worktree -- exec --mode dev -- sh -c 'cd apps/api && .venv/bin/python s
 
 主开发 API 仅监听宿主 `127.0.0.1:8000` 时，训练执行器的本机 Compose override 需设置 `network_mode: host`，并将 `TRAINING_API_URL` 指向 `http://127.0.0.1:8000/api/v1/internal/training`。凭据文件保持 `0600`，将执行器 `user` 配置为其所有者的 UID/GID，并让持久 `/state` 卷归该用户所有；执行器移除了全部 capabilities，不能依靠 root 绕过文件权限。该 override 只用于独立训练 Compose 项目，不加入核心 worker 的 Compose 配置。
 
-已验证适配器为 Ultralytics 8.4.177 与 LibreYOLO 1.6.0；两者支持图片检测，Ultralytics 还支持受控 `yolo11n-seg` 简单多边形实例分割。LibreYOLO 目录项使用同样的 `version`、`image_digest` 和 `base_models` 结构，基础模型 ID 为 `LibreYOLO9t`，文件名 `LibreYOLO9t.pt`。官方模型来自 `LibreYOLO/LibreYOLO9t` 的固定修订 `66ac39d1ac9b880076b96ad4674ef9235ca1a15e`，大小 8,645,036 字节，SHA-256 为 `b4d7e93f9e0393830fb42e6135c0e3464b2673b05e5ecf4b7f2374ec18e39eb2`。先下载并核验字节和原生加载，再将只读文件及实际镜像身份配置到目录；执行器不会自动下载基础权重。
+已验证适配器为 Ultralytics 8.4.177 与 LibreYOLO 1.6.0；两者支持图片检测，Ultralytics 还支持受控 `yolo11n-seg` 简单多边形与原生掩码实例分割。LibreYOLO 目录项使用同样的 `version`、`image_digest` 和 `base_models` 结构，基础模型 ID 为 `LibreYOLO9t`，文件名 `LibreYOLO9t.pt`。官方模型来自 `LibreYOLO/LibreYOLO9t` 的固定修订 `66ac39d1ac9b880076b96ad4674ef9235ca1a15e`，大小 8,645,036 字节，SHA-256 为 `b4d7e93f9e0393830fb42e6135c0e3464b2673b05e5ecf4b7f2374ec18e39eb2`。先下载并核验字节和原生加载，再将只读文件及实际镜像身份配置到目录；执行器不会自动下载基础权重。
 
-启用实例分割前，核验 [官方 YOLO11n 分割权重](https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo11n-seg.pt)：大小 6,182,636 字节，SHA-256 为 `55ed65c56c91713d23e8402371c6c49a6fd84f257f7dce452e8d70e41dcbe152`。将文件加入只读基础权重目录，在 Ultralytics 的 `base_models` 中加入 `yolo11n-seg`，其 `filename` 为 `yolo11n-seg.pt`，`sha256` 为上述摘要。任务与资格从受控参数定义派生，不能通过添加任意模型 ID 开放新规格。共享契约变化后重建实际训练／推理镜像，再刷新目标 API、Celery 和 scheduler，确认目录中的分割参数身份与执行器相容。分割模型回流、逐样本评估、增强预览、项目权重初始化、策略和参数搜索仍需独立资格验证。
+启用实例分割前，核验 [官方 YOLO11n 分割权重](https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo11n-seg.pt)：大小 6,182,636 字节，SHA-256 为 `55ed65c56c91713d23e8402371c6c49a6fd84f257f7dce452e8d70e41dcbe152`。将文件加入只读基础权重目录，在 Ultralytics 的 `base_models` 中加入 `yolo11n-seg`，其 `filename` 为 `yolo11n-seg.pt`，`sha256` 为上述摘要。任务与资格从受控参数定义派生，不能通过添加任意模型 ID 开放新规格。共享契约变化后重建实际训练／推理镜像，再刷新目标 API、Celery 和 scheduler，确认目录中的分割参数身份与执行器相容。原生掩码训练需执行器明确上报 `instance_rle_consumer`；分割受控回流、逐样本 mask 评估、项目权重初始化、任务独立策略和主动选样各自核验资格，增强预览及参数搜索仍受原有任务限制。升级应用迁移后重建开发 API worker、YOLO 与训练执行器镜像，保持目录中的实际 registry image digest 一致；原有实验需要目录明确声明兼容镜像。见[实例分割链路](docs-site/dev/concepts/instance-segmentation-learning.md)。
 
 ```bash
 hf download LibreYOLO/LibreYOLO9t LibreYOLO9t.pt \
@@ -783,15 +783,18 @@ cd apps/api
 PYTHONPATH=. uv run python scripts/seed.py --profile online-training
 ```
 
-该入口复用版本化素材清单，首次下载并校验约 443 KB 的 COCO8 归档到
+该入口复用版本化素材清单，首次下载并校验 COCO8 与 COCO8-seg 两份归档（合计约 0.9 MB）到
 `~/.cache/ai-annotation-platform/seed-assets`；可用 `--cache-dir` 指定缓存、
-`--offline` 复用已缓存素材，或通过 `--asset-dir` 提供包含 `coco8/` 的本地素材目录。
+`--offline` 复用已缓存素材，或通过 `--asset-dir` 提供同时包含 `coco8/` 与 `coco8-seg/` 的本地素材目录。
 需要当前开发栈的 PostgreSQL、MinIO 和 Redis；数据包在脚本内同步构建，不依赖 export worker。
 
 生成项目 **COCO8 在线训练（dev）**（`P-COCO8-TRAIN`）和数据集 `DS-COCO8-TRAIN`，
-使用 COCO 80 类、8 张原图及 30 个原始检测框，任务均已完成审核。`pm` 是负责人，
-`anno` / `anno2` / `anno3`、`qa`、`viewer` 获得各自的项目职责。初始训练数据版本包含真实原图与标注，
-保留官方 4 张训练图 / 4 张验证图划分；后续创建版本时选择该父版本可继承分区。
+使用 COCO 80 类、8 张原图、30 个原始检测框及 30 个实例掩膜，任务均已完成审核。
+分割标注来自官方 COCO8-seg 多边形，经 COCO 栅格化后以原图 RLE 保存；不会将检测框转成掩膜。`pm` 是负责人，
+`anno` / `anno2` / `anno3`、`qa`、`viewer` 获得各自的项目职责。检测和实例分割分别生成独立的初始训练数据版本，均包含真实原图与对应标注，
+保留官方 4 张训练图 / 4 张验证图划分；后续创建版本时选择同任务的父版本可继承分区。
+升级旧检测夹具时只在原任务尚未人工修改、无锁或草稿时增补分割；不符合条件会拒绝增补。
+分割已生成后重跑会保留人工修改或删除的掩膜，原检测快照、训练记录及发布均不变。
 重跑保留已有任务、标注、数据版本、实验和策略；固定编号被其他数据占用时拒绝覆盖。
 初始版本构建失败、取消或因进程退出遗留在运行状态时，重跑命令会基于同一冻结快照重新构建；
 若上次构建仍在执行或清理，命令会提示稍后重试。也可到项目「训练数据」查看失败原因并重试。
@@ -801,6 +804,10 @@ PYTHONPATH=. uv run python scripts/seed.py --profile online-training
 `epochs=1`、`batch=4`、`imgsz=320`、`seed=42`。自动训练可引用该初始数据版本，
 将变化门槛设为 `1`、检查间隔设为 `1` 分钟、冷却设为 `0`，再明确保存并启用。
 首次成功后，修改并重新审核训练分区标注可验证下一轮触发；仅验证分区变化不触发训练。
+实例分割选择 `yolo11n-seg`、原生 RLE 数据版本，建议 `epochs=3`、`batch=1`、`imgsz=640`、`seed=42`；
+本夹具在 640 输入及验证器 160 掩膜平面预检中没有实例完全消失。
+完整人工验收及目标 GPU 故障、受控模型生命周期验收见
+[实例分割在线学习验收](docs-site/dev/how-to/validate-segmentation-online-learning.md)。
 夹具不创建实验或启用策略，也不要求生成时已开启训练目录。COCO8 用于流程试跑，不能据此评估模型质量。
 
 ## 下一步计划

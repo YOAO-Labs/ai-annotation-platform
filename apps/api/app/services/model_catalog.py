@@ -342,7 +342,7 @@ async def list_catalog(
             decisions.setdefault(decision.model_version_id, decision.disposition)
     selections = (
         {
-            s.project_id: s.release_id
+            (s.project_id, s.task): s.release_id
             for s in (
                 await db.scalars(
                     select(ProjectModelSelection).where(
@@ -354,13 +354,17 @@ async def list_catalog(
         if projects
         else {}
     )
-    current_release = None
+    current_releases = {}
     for version in versions:
         history = releases[version.id]
         if not manager and not history:
             continue
         owner = projects[version.project_id]
-        current = next((r for r in history if r.id == selections.get(owner.id)), None)
+        version_task = trained_models.model_task(version)
+        current = next(
+            (r for r in history if r.id == selections.get((owner.id, version_task))),
+            None,
+        )
         archived = decisions.get(version.id) in {"archived", "declined"}
         publication = (
             "current"
@@ -408,7 +412,7 @@ async def list_catalog(
                 class_meta.verification_status = "verified"
                 class_meta.inspected_at = deployment.checked_at
                 trained_models.validate_bindings(
-                    owner, version.classes, version.bindings
+                    owner, version.classes, version.bindings, version_task
                 )
             except HTTPException:
                 code, reason = (
@@ -422,8 +426,9 @@ async def list_catalog(
                     m
                     for m in cached_capabilities(backend).get("models", [])
                     if isinstance(m, dict)
-                    and m.get("id") == "detect"
-                    and m.get("task") == "detect"
+                    and m.get("id")
+                    == ("segment" if version_task == "segment" else "detect")
+                    and m.get("task") == version_task
                 ),
                 {},
             )
@@ -446,8 +451,9 @@ async def list_catalog(
                 for backend in qualified_backends
                 for m in cached_capabilities(backend).get("models", [])
                 if isinstance(m, dict)
-                and m.get("task") == "detect"
-                and m.get("id") == "detect"
+                and m.get("task") == version_task
+                and m.get("id")
+                == ("segment" if version_task == "segment" else "detect")
             ),
             {},
         )
@@ -457,8 +463,12 @@ async def list_catalog(
             task=normalize_task(version.provenance.get("task", "detect")),
             infra="pytorch",
             supported_prompts=["none"],
-            supported_inputs=["full_image", "crop"],
-            supported_geometric_outputs=["bbox"],
+            supported_inputs=["full_image"]
+            if version_task == "segment"
+            else ["full_image", "crop"],
+            supported_geometric_outputs=["mask"]
+            if version_task == "segment"
+            else ["bbox"],
             output_attribute_types=["class"],
             classes=[
                 {"index": i, "name": name} for i, name in enumerate(version.classes)
@@ -503,8 +513,12 @@ async def list_catalog(
             and current_placement.ready
             and project is not None
         ):
-            current_release = CatalogCurrentRelease(
+            current_releases[version_task] = CatalogCurrentRelease(
                 entry_id=entry.id,
+                task=version_task,
+                model_id="project-release:segment"
+                if version_task == "segment"
+                else "project-release",
                 registry_id=current_placement.registry_id,
                 deployment_id=current.deployment_id,
                 generation=current.generation,
@@ -569,6 +583,7 @@ async def list_catalog(
         page=page,
         page_size=page_size,
         projects=[CatalogProject(id=p.id, name=p.name) for p in projects.values()],
-        current_release=current_release,
+        current_release=current_releases.get(task or "detect"),
+        current_releases=current_releases,
         task_counts=dict(task_counts),
     )

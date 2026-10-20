@@ -292,6 +292,27 @@ class YoloPredictor:
             if ctx.sample_evaluation
             else {}
         )
+        controlled_segment = task == "segment" and ctx.frozen_model_ref is not None
+        if controlled_segment:
+            from managed_segmentation import (
+                FIXED_OPTIONS as SEGMENT_OPTIONS,
+                validate_budget,
+                validate_receipt,
+            )
+
+            if ctx._managed_receipt is None:
+                raise ValueError("Controlled segmentation requires a verified receipt")
+            validate_receipt(ctx._managed_receipt)
+            validate_budget(img_w, img_h, params.max_det)
+            options = (
+                {
+                    key: value
+                    for key, value in ctx._evaluation_profile["options"].items()
+                    if key not in {"max_det", "classes", "verbose"}
+                }
+                if ctx.sample_evaluation
+                else dict(SEGMENT_OPTIONS)
+            )
         if ctx.builtin_model_ref:
             from fastapi import HTTPException
 
@@ -341,6 +362,10 @@ class YoloPredictor:
         inference_ms = int(elapsed * 1000)
         if ctx.sample_evaluation:
             ctx._evaluation_meta = observed_inference(model, ctx, img_w, img_h)
+        if controlled_segment and len(results) != 1:
+            raise ValueError(
+                "Controlled segmentation requires exactly one native result"
+            )
         if not results:
             return [], inference_ms
 
@@ -355,7 +380,14 @@ class YoloPredictor:
         if task == "detect":
             items = _emit_detection(result, names, img_w, img_h)
         elif task == "segment":
-            items = _emit_segmentation(result, names, img_w, img_h)
+            if controlled_segment:
+                from managed_segmentation import emit_instances
+
+                items, ctx._segmentation_meta = emit_instances(
+                    result, ctx._managed_receipt, img_w, img_h, params.max_det
+                )
+            else:
+                items = _emit_segmentation(result, names, img_w, img_h)
         elif task == "pose":
             items = _emit_keypoint(result, names, img_w, img_h)
         elif task == "obb":

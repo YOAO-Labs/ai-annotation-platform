@@ -47,13 +47,15 @@ AI 预标注流水线以 `async_jobs(kind=batch_predict)` 作为用户可见任�
 
 `prediction_execution_snapshots` 保存不可变的规范阶段配置、摘要及 schema 版本。`async_jobs.execution_snapshot_id` 和 `failed_predictions.execution_snapshot_id` 都引用该记录，失败记录不会因为原始作业过期而丢失管线。后台清理只删除无任何作业或失败引用的过期快照，已放弃但可恢复的失败也保留引用。
 
-每个受控阶段冻结确切版本、部署、registry、权重／类别／项目绑定摘要及发布代次。`project-release` 只在新提交时解析；相同幂等键在查到原作业后复用原快照。内置阶段冻结已声明的具体规格和参数默认值；已有权重核验时，`builtin_model_ref` 在实际借出的模型上检查权重、类别和加载器身份。未核验的旧声明仅保证配置冻结，不宣称物理权重已验证。
+每个受控阶段冻结确切版本、部署、registry、权重／类别／项目绑定摘要及发布代次。检测别名 `project-release`、分割别名 `project-release:segment` 只在新提交时解析；相同幂等键在查到原作业后复用原快照。内置阶段冻结已声明的具体规格和参数默认值；已有权重核验时，`builtin_model_ref` 在实际借出的模型上检查权重、类别和加载器身份。未核验的旧声明仅保证配置冻结，不宣称物理权重已验证。
 
 初跑与失败重试共用 `_run_task_pipeline`。重试只重跑失败任务的完整原始阶段树，沿用各阶段队列设备和受控部署；不重新解析当前发布。下游失败记录 `partial`、阶段错误和策略允许的候选，完整重试成功后将旧部分候选标为已被替代，保留其来源和人工采纳结果。无快照的历史失败维持旧单阶段重试。
 
 WorkBench 请求要求项目 `annotation.write` 和当前题有效编辑／分派权限，批量请求仍要求项目管理权限。Worker 在推理前和最终写入锁内复校验账号、项目、任务、批次、分派和编辑锁；任务推理期间迁批次时拒绝最终写入。
 
 预测元数据保留每阶段实际实例、模型引用和稳定 shape／直接父 shape 身份。`parent_box_idx` 属于直接父阶段；裁剪缓存按父阶段隔离，上传 key 包含内容摘要。受控框明确使用百分比坐标，ROI 回映尊重 `coordinate_units`，不把小于 1% 的框误判为归一化坐标。
+
+受控 `yolo11n-seg` 仅作为图片整图源阶段运行；裁剪、交互与视频组合在统一校验边界拒绝。后端返回原尺寸逐实例 RLE，平台验证类别、实例索引、尺寸及预算后，经现有掩码存储物化为 `raster_mask` 引用；预测正文与对象不复制到元数据。人工接受、修正及审核后才能进入下一轮训练，见[实例分割闭环](./instance-segmentation-learning)。
 
 详细决策见 [模型目录与冻结管线](../adr/archive/0088-model-catalog-and-frozen-pipelines)。
 
@@ -306,7 +308,7 @@ worker 累加各阶段 stats（源阶段 `{detected}`、下游 `{targeted, ok, f
 ### backend 来源、自训练模型与显存保护
 
 - **全局注册 + 项目启用**：一个物理 backend 全局只注册一行，项目按需勾选启用，**没有项目级数量上限**（同一兼容实例也可执行多个检测阶段）。
-- **项目自训练模型路由（`project-release`）**：选择 `project-release` 时，新请求读取项目当前发布并冻结为 `trained:{version_id}`，通过已核验的确切 YOLO 部署执行；原请求重试使用快照中的版本，与内置模型共享管线执行器（详见 [在线学习与训练体系](./training-datasets#模型回流与托管注册表)）。
+- **项目自训练模型路由**：检测使用 `project-release`，分割使用 `project-release:segment`；新请求读取对应任务的当前发布并冻结为 `trained:{version_id}`，通过已核验的确切 YOLO 部署执行；原请求重试使用快照中的版本，与内置模型共享管线执行器（详见 [在线学习与训练体系](./training-datasets#_4-4-预标注动态回流与收据协议)）。
 - **并发限速（`max_concurrency`）**：每个全局注册行的 `extra_params.max_concurrency` 始终限制单进程 / 事件循环的并行请求；`ML_BACKEND_ROUTER_MODE=off|observe` 时 API 与多个 Celery worker 仍会叠加，路由模式为 `enforce` 时再由 Redis route lease 收口为跨进程实例上限。
 - **GPU 显存仲裁（`GPU_ARBITER_MODE`）**：
   - `observe` 模式：在所有可加载端点的 HTTP 发送前，按稳定 `gpu_resource_id` 对同卡预算和新鲜 residency 快照计算 `would-*` 决策，只写结构化日志且旁路短超时放行，不改变业务请求结果。

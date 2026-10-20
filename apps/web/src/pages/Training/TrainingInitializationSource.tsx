@@ -17,11 +17,13 @@ export function useTrainingInitializationSource(
   value?: TrainingInitialization,
   task = "detect",
 ) {
-  const supportsProjectWeights = task === "detect" && !baseModel.endsWith("-seg");
+  const supportsProjectWeights =
+    (task === "detect" && !baseModel.endsWith("-seg")) ||
+    (task === "segment" && framework === "ultralytics" && baseModel === "yolo11n-seg");
   const selectedId = value?.kind === "trained_model" ? (value.model_version_id ?? "") : "";
   const view = useTrainingViewOwner(
     projectId,
-    JSON.stringify([framework, baseModel, datasetId, selectedId]),
+    JSON.stringify([framework, baseModel, datasetId, selectedId, task]),
   );
   const scope = useMemo(() => ({ owner: view.owner, key: randomId() }), [view.owner]).key;
   const source = useQuery({
@@ -51,7 +53,7 @@ export function useTrainingInitializationSource(
       !source.isFetching &&
       !!value.source_digest &&
       value.source_digest === source.data.pin?.source_digest);
-  return { source, valid, selectedId, supportsProjectWeights };
+  return { source, valid, selectedId, supportsProjectWeights, task };
 }
 
 export function TrainingInitializationSource({
@@ -67,7 +69,7 @@ export function TrainingInitializationSource({
   qualification: ReturnType<typeof useTrainingInitializationSource>;
   onChange: (value: TrainingInitialization | undefined) => void;
 }) {
-  const view = useTrainingViewOwner(projectId, "initialization-choices");
+  const view = useTrainingViewOwner(projectId, `initialization-choices:${qualification.task}`);
   const scope = useMemo(() => ({ owner: view.owner, key: randomId() }), [view.owner]).key;
   const choices = useInfiniteQuery({
     queryKey: ["training-initialization-choices", projectId, scope],
@@ -75,7 +77,13 @@ export function TrainingInitializationSource({
     enabled: qualification.supportsProjectWeights,
     queryFn: async ({ pageParam, signal }) => {
       view.assert(signal);
-      const result = await trainedModelsApi.list(projectId, pageParam, { signal }, "include");
+      const result = await trainedModelsApi.list(
+        projectId,
+        pageParam,
+        { signal },
+        "include",
+        ...(qualification.task === "segment" ? [{ task: "segment" as const }] : []),
+      );
       view.assert(signal);
       return result;
     },
@@ -135,7 +143,7 @@ export function TrainingInitializationSource({
       </div>
       {!qualification.supportsProjectWeights && (
         <p className="text-muted-foreground">
-          分割暂不支持从项目候选模型初始化，请使用预训练基础权重；中断后可从本实验检查点续训。
+          当前任务或基础模型尚未取得项目权重初始化资格，请使用预训练基础权重；中断后可从本实验检查点续训。
         </p>
       )}
       {choices.hasNextPage && (

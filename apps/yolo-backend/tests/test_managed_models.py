@@ -216,7 +216,7 @@ def test_controlled_context_has_a_separate_pool_key_and_never_uses_builtin_defau
         body.sha256,
     )
     assert context.variants is None
-    for unsupported in ("text", "segmentation", "tracker", "exemplar"):
+    for unsupported in ("text", "keypoint", "tracker", "exemplar"):
         with pytest.raises(ValidationError):
             Context(type=unsupported, model_id=context.model_id, frozen_model_ref=ref)
     with pytest.raises(ValidationError):

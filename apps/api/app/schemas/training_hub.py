@@ -9,11 +9,24 @@ from pydantic import BaseModel, Field, JsonValue, AliasChoices
 from app.schemas.training_run import TrainingRunOut
 
 
+class TrainingInstanceRleCapability(BaseModel):
+    bridge: Literal["ultralytics-instance-rle-1"]
+    framework: Literal["ultralytics"]
+    version: str
+    models: list[str]
+    limits: dict[str, int]
+    rasterizer: str
+    transform: str
+    loss_mask_resize: str
+    validation_mask_resize: str
+
+
 class TrainingCapabilities(BaseModel):
     tasks: list[str] = Field(validation_alias=AliasChoices("tasks", "task_types"))
     resume: bool
     artifact_download: bool
     model_registration: bool
+    instance_rle: TrainingInstanceRleCapability | None = None
 
 
 class TrainingBaseModel(BaseModel):

@@ -58,10 +58,11 @@ def retryable_publication_response(response, *, storage=False):
 
 def runtime_identity():
     import torch
-    from training_contract.catalog import supported_identities
+    from training_contract.catalog import supported_identities, instance_rle_capability
     from training_contract.preview import POLICY_DIGEST
     from training_contract.initialization import (
         POLICY_DIGEST as INITIALIZATION_POLICY_DIGEST,
+        SEGMENTATION_POLICY_DIGEST as SEGMENTATION_INITIALIZATION_POLICY_DIGEST,
     )
     from training_contract.budget import POLICY_DIGEST as BUDGET_POLICY_DIGEST
 
@@ -96,9 +97,14 @@ def runtime_identity():
         "preview_protocol": 1,
         "observability_protocol": 1,
         "initialization_policy_digest": INITIALIZATION_POLICY_DIGEST,
+        "initialization_policy_digests": [
+            INITIALIZATION_POLICY_DIGEST,
+            SEGMENTATION_INITIALIZATION_POLICY_DIGEST,
+        ],
         "native_budget_policy_digest": BUDGET_POLICY_DIGEST,
         "preview_policy_digest": POLICY_DIGEST,
         "supported_configs": supported_identities(),
+        "instance_rle_consumer": instance_rle_capability(),
         "image_digest": image,
         "gpu_uuid": gpu,
         "frameworks": frameworks,
@@ -306,6 +312,9 @@ class Supervisor:
             ("metrics.json", "metrics"),
             ("config.json", "config"),
             ("native-config.json", "config"),
+            ("rle-consumer.json", "config"),
+            ("rle-train-preflight.json", "config"),
+            ("rle-val-preflight.json", "config"),
             ("train.log", "log"),
             ("observability.json", "telemetry"),
         ):

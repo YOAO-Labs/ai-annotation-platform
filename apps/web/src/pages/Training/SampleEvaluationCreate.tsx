@@ -70,6 +70,7 @@ function CreateContent({ projectId, scope }: { projectId: string; scope: string 
     retry: false,
   });
   const backends = useMLBackends(projectId);
+  const task = model.data?.model.task === "segment" ? "segment" : "detect";
   const datasets = useQuery({
     queryKey: ["evaluation-datasets", projectId, scope, datasetPage],
     queryFn: ({ signal }) =>
@@ -79,18 +80,17 @@ function CreateContent({ projectId, scope }: { projectId: string; scope: string 
     retry: false,
   });
   const dataset = useQuery({
-    queryKey: ["evaluation-dataset", projectId, scope, datasetId],
+    queryKey: ["evaluation-dataset", projectId, scope, datasetId, task],
     queryFn: async ({ signal }) => {
       const data = await guarded(signal, () =>
         trainingDatasetsApi.getSummary(projectId, datasetId, { signal }),
       );
       if (data.id !== datasetId || data.project_id !== projectId)
         throw new Error("冻结数据版本身份不符");
-      if ((data.task ?? "detect") !== "detect")
-        throw new Error("样本评估目前仅支持图片检测数据版本");
+      if ((data.task ?? "detect") !== task) throw new Error("冻结数据版本须与候选模型属于同一任务");
       return data;
     },
-    enabled: !!datasetId,
+    enabled: !!datasetId && !!model.data,
     retry: false,
   });
   const samples = useQuery({
@@ -174,6 +174,7 @@ function CreateContent({ projectId, scope }: { projectId: string; scope: string 
     model.data?.deployments.some((item) => item.id === deploymentId && item.status === "ready") &&
     !dataset.error &&
     dataset.data?.status === "ready" &&
+    (dataset.data.task ?? "detect") === task &&
     selected.length > 0 &&
     selected.length <= 32 &&
     numericValid &&
@@ -244,6 +245,9 @@ function CreateContent({ projectId, scope }: { projectId: string; scope: string 
                     onChange={(e) => {
                       setModelId(e.target.value);
                       setDeploymentId("");
+                      setDatasetId("");
+                      setSelected([]);
+                      setSamplePage(0);
                     }}
                   >
                     <option value="" disabled hidden>
@@ -401,7 +405,7 @@ function CreateContent({ projectId, scope }: { projectId: string; scope: string 
               <div className="mt-4 grid gap-3 sm:grid-cols-3">
                 {[
                   ["预测置信度", confidence, setConfidence],
-                  ["匹配 IoU", matchingIou, setMatchingIou],
+                  [task === "segment" ? "匹配 Mask IoU" : "匹配 IoU", matchingIou, setMatchingIou],
                   ["NMS IoU", nmsIou, setNmsIou],
                 ].map(([label, value, setter]) => (
                   <label key={label as string} className="space-y-1 text-xs">
@@ -422,6 +426,8 @@ function CreateContent({ projectId, scope }: { projectId: string; scope: string 
               <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
                 按置信度排序后进行同类一对一匹配，使用包含等号的阈值。报告 TP、FP、FN
                 和精确率、召回率、F1，不报告 AP/mAP。
+                {task === "segment" &&
+                  "分割按原图掩码像素匹配；平均 Mask IoU、Dice 仅统计已匹配实例，漏检另计 FN。"}
               </p>
             </section>
           </div>
@@ -444,6 +450,7 @@ function CreateContent({ projectId, scope }: { projectId: string; scope: string 
                   id="evaluation-dataset"
                   className={`${trainingInputClass} min-w-0 flex-1`}
                   value={datasetId}
+                  disabled={!model.data || !!model.error}
                   onChange={(e) => {
                     setDatasetId(e.target.value);
                     setSelected([]);
@@ -459,7 +466,7 @@ function CreateContent({ projectId, scope }: { projectId: string; scope: string 
                     </option>
                   )}
                   {datasets.data?.items
-                    .filter((item) => (item.task ?? "detect") === "detect")
+                    .filter((item) => (item.task ?? "detect") === task)
                     .map((item) => (
                       <option key={item.id} value={item.id}>
                         {item.name}
@@ -496,7 +503,12 @@ function CreateContent({ projectId, scope }: { projectId: string; scope: string 
                       !item.height ||
                       (item.instances ?? 201) > 200 ||
                       (item.size_bytes ?? Infinity) > 16 * 1024 * 1024 ||
-                      (item.width ?? Infinity) * (item.height ?? Infinity) > 16000000;
+                      (item.width ?? Infinity) * (item.height ?? Infinity) >
+                        (qualification.data?.limits?.pixels ??
+                          (task === "segment" ? 1_280_000 : 16_000_000)) ||
+                      (task === "segment" &&
+                        Math.max(item.width ?? Infinity, item.height ?? Infinity) >
+                          (qualification.data?.limits?.max_dimension ?? 4096));
                     return (
                       <div key={item.task_id} className="flex items-start gap-3 py-3 text-xs">
                         <label className="flex min-w-0 flex-1 items-start gap-3">

@@ -96,6 +96,70 @@ jq -e '.passed == true and .runtime_ephemera_clean == true' \
 进程级 cuBLAS workspace，再释放 allocator cache，避免池对象已空但显存仍被工作区占用。验收器会先做
 一次真实卷积 priming 与全卸载，以成熟 CUDA/cuDNN context 作为随后两轮 90% 工作集回收的稳定基线。
 
+### 受控分割权重的部署资格
+
+普通 `segment` 验收不代替受控 `trained:<model_version_id>` 路径。部署项目训练得到的
+`yolo11n-seg` 时，额外提供同一份真实 checkpoint、代表性原图及以下严格 JSON 夹具。
+三个环境变量必须同时设置；未设置时保留原有普通模型验收。目标 GPU、运行镜像、pool cap
+和业务权重仍须与待部署环境一致，目标卡必须独占。
+
+```json
+{
+  "schema": 1,
+  "frozen_model_ref": {
+    "model_version_id": "77123456-1234-4234-8234-123456789abc",
+    "sha256": "<best.pt 的小写 SHA-256>",
+    "classes_digest": "<有序原生类别数组的规范 JSON SHA-256>"
+  },
+  "classes": ["shape"],
+  "confidence": 0.01,
+  "max_det": 20,
+  "min_instances": 1
+}
+```
+
+`classes` 必须精确等于 checkpoint 的原生类别顺序；`classes_digest` 使用
+`sha256(json.dumps(classes, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode())`。
+`model_version_id` 可用正式候选身份，或批准的离线验收夹具 UUID；不得因此声称已完成平台注册。
+`min_instances` 至少为 1：选择确实能产出实例的代表图和已批准阈值，空结果不能关闭原生 RLE 门禁。
+夹具、原图和 checkpoint 均记录审批引用及内容摘要，不能用结构相似的其他权重代替。
+
+将这三个文件放在独立的 `FIXTURE_DIR`，挂载为只读；在前述普通验收命令中增加：
+
+```bash
+  -v "$FIXTURE_DIR:/fixtures:ro" \
+  -e VALIDATION_CONTROLLED_SEGMENT_WEIGHTS=/fixtures/best.pt \
+  -e VALIDATION_CONTROLLED_SEGMENT_FIXTURE=/fixtures/controlled.json \
+  -e VALIDATION_CONTROLLED_SEGMENT_IMAGE=/fixtures/representative.jpg \
+```
+
+验收器先冻结私有输入副本，通过临时 loopback HTTP 服务调用真实 `/managed-models` 安装流程，
+核验权重、原生架构、runtime 和持久 receipt，再核对 GET receipt。安装目录位于本次临时目录，
+不会覆盖部署现有受控缓存。相同版本的冲突 receipt，以及 SHA／类别摘要错配的冻结引用都必须拒绝。
+两轮各自冷加载确切的 `trained:` 权重与 receipt 池键，经真实 `/predict` 核验原图尺寸 RLE、
+逐实例类别／置信度和对象摘要，确认 CUDA 驻留后执行同池卸载。第二轮共享故障矩阵使用该受控
+`/predict` 请求，保留 partial header、token replay、旧 generation、取消计费和 busy unload 检查。
+
+除既有严格证据外，必须同时检查以下附加结果：
+
+```bash
+jq -e '
+  .passed == true and .runtime_ephemera_clean == true and
+  .contract_checks.controlled_segment_install == true and
+  .contract_checks.controlled_segment_reference_mismatch_rejected == true and
+  .contract_checks.controlled_segment_receipt_mismatch_rejected == true and
+  .contract_checks.controlled_segment_native_rle == true and
+  .contract_checks.controlled_segment_cold_reload == true and
+  (.deployment.pool_topology.controlled_segment.cycles | length) == 2 and
+  (.deployment.pool_topology.controlled_segment.cycles |
+    all(.cold_load == true and .unloaded == true and .instances >= 1))
+' "$EVIDENCE_DIR/yolo-managed-lifecycle.json"
+```
+
+`deployment.pool_topology.controlled_segment` 保留冻结引用、receipt／runtime 资格摘要、原图／夹具
+摘要、尺寸和每轮实例数。通用的两轮显存回收阈值及完整空池要求继续适用。此验收验证推理后端
+生命周期；训练执行器的 GPU checkpoint 恢复、宿主／驱动故障和跨后端仲裁仍分别验收。
+
 ## 结果映射
 
 | task         | result.type                          | apps/api Geometry        |

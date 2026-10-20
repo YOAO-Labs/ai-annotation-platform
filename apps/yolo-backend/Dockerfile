@@ -30,7 +30,7 @@ COPY yolo-backend/main.py yolo-backend/predictor.py yolo-backend/schemas.py \
     yolo-backend/model_pool.py yolo-backend/model_registry.py \
     yolo-backend/class_names.py yolo-backend/model_metadata.py yolo-backend/observability.py \
     yolo-backend/gpu_lifecycle.py yolo-backend/managed_models.py yolo-backend/libreyolo_adapter.py \
-    yolo-backend/sample_evaluations.py ./
+    yolo-backend/sample_evaluations.py yolo-backend/managed_segmentation.py yolo-backend/segmentation_evaluations.py ./
 COPY yolo-backend/scripts/ ./scripts/
 COPY yolo-backend/tests/ ./tests/
 RUN chmod -R a+rX /app && mkdir -p /app/checkpoints /app/.config/Ultralytics \

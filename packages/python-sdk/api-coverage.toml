@@ -339,3 +339,7 @@ watched_tags = ["projects", "datasets", "batches", "tasks", "annotations", "anno
 "POST /api/v1/projects/{project_id}/active-learning-rounds/{round_id}/feedback" = { status = "excluded", reason = "web-only" }
 "POST /api/v1/projects/{project_id}/active-learning-rounds/{round_id}/retry" = { status = "excluded", reason = "web-only" }
 "POST /api/v1/projects/{project_id}/active-learning-rounds:preview" = { status = "excluded", reason = "web-only" }
+
+"GET /api/v1/projects/{project_id}/trained-models/{version_id}/deployments/{deployment_id}/mask-content/{shape_index}" = { status = "excluded", reason = "web-only" }
+
+"GET /api/v1/projects/{project_id}/training-datasets/{version_id}/insights/samples/{task_id}/masks/{annotation_id}" = { status = "excluded", reason = "web-only" }

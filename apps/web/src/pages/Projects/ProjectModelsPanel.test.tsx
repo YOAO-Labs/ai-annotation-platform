@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Routes, Route, useLocation, useNavigate } from "react-router-dom";
@@ -30,6 +30,7 @@ vi.mock("@/api/trainedModels", async (original) => ({
     releases: vi.fn(),
     publish: vi.fn(),
     download: vi.fn(),
+    trialMaskContent: vi.fn(),
   },
 }));
 vi.mock("@/api/trainingRuns", () => ({ trainingRunsApi: { list: vi.fn(), get: vi.fn() } }));
@@ -91,7 +92,11 @@ function Navigation() {
   return <output data-testid="location">{location.pathname + location.search}</output>;
 }
 
-function mount(entry = "/", classes = ["车辆", "行人"]) {
+function mount(
+  entry = "/",
+  classes = ["车辆", "行人"],
+  taskClasses?: { detect?: string[]; segment?: string[] },
+) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
@@ -105,7 +110,13 @@ function mount(entry = "/", classes = ["车辆", "行人"]) {
         <Routes>
           <Route
             path="/projects/:id/learning"
-            element={<ProjectModelsPanel projectId="project-1" classes={classes} />}
+            element={
+              <ProjectModelsPanel
+                projectId="project-1"
+                classes={classes}
+                taskClasses={taskClasses}
+              />
+            }
           />
           <Route path="/projects/:id/learning/models/:modelId" element={<TrainingModelPage />} />
           <Route
@@ -173,6 +184,102 @@ afterEach(() => {
 });
 
 describe("ProjectModelsPanel", () => {
+  it("keeps the detection per-class columns and metric values", async () => {
+    const user = userEvent.setup();
+    mount("/projects/project-1/learning/models/model-1");
+    await screen.findByLabelText("模型版本详情");
+    await user.click(screen.getByText("分类别结果（仅列出验证集中出现的类别）"));
+    const table = screen.getByRole("table");
+    expect(
+      within(table)
+        .getAllByRole("columnheader")
+        .map((header) => header.textContent),
+    ).toEqual(["类别", "Precision", "Recall", "mAP50", "mAP50-95"]);
+    expect(
+      within(within(table).getAllByRole("row")[1])
+        .getAllByRole("cell")
+        .map((cell) => cell.textContent),
+    ).toEqual(["car", "0.5000", "0.6000", "0.7000", "0.4000"]);
+  });
+  it("shows distinct box and mask per-class metrics from parsed segmentation keys, including real zeros and gaps", async () => {
+    vi.mocked(trainedModelsApi.get).mockResolvedValue({
+      model: {
+        ...model,
+        task: "segment",
+        evaluation: {
+          ...model.evaluation,
+          summary: { "metrics/mAP50-95(B)": 0.82, "metrics/mAP50-95(M)": 0 },
+          per_class: [
+            {
+              index: 0,
+              name: "shape",
+              "precision(B)": 0.91,
+              "recall(B)": 0.88,
+              "mAP50(B)": 0.86,
+              "mAP50-95(B)": 0.82,
+              "precision(M)": 0,
+              "recall(M)": 0,
+              "mAP50(M)": 0,
+              "mAP50-95(M)": 0,
+            },
+            {
+              index: 1,
+              name: "person",
+              "precision(B)": 0.61,
+              "recall(B)": 0.52,
+              "mAP50(B)": 0.43,
+              "mAP50-95(B)": 0.34,
+              "precision(M)": null,
+              "mAP50(M)": 0.12,
+              "mAP50-95(M)": 0,
+            },
+          ],
+        },
+      },
+      deployments: [],
+    });
+    const user = userEvent.setup();
+    mount("/projects/project-1/learning/models/model-1");
+    await screen.findByLabelText("模型版本详情");
+    await user.click(screen.getByText("分类别结果（仅列出验证集中出现的类别）"));
+    const table = screen.getByRole("table");
+    expect(
+      within(table)
+        .getAllByRole("columnheader")
+        .map((header) => header.textContent),
+    ).toEqual([
+      "类别",
+      "框 Precision",
+      "框 Recall",
+      "框 mAP50",
+      "框 mAP50-95",
+      "掩码 Precision",
+      "掩码 Recall",
+      "掩码 mAP50",
+      "掩码 mAP50-95",
+    ]);
+    const rows = within(table).getAllByRole("row");
+    expect(
+      within(rows[1])
+        .getAllByRole("cell")
+        .map((cell) => cell.textContent),
+    ).toEqual([
+      "shape",
+      "0.9100",
+      "0.8800",
+      "0.8600",
+      "0.8200",
+      "0.0000",
+      "0.0000",
+      "0.0000",
+      "0.0000",
+    ]);
+    expect(
+      within(rows[2])
+        .getAllByRole("cell")
+        .map((cell) => cell.textContent),
+    ).toEqual(["person", "0.6100", "0.5200", "0.4300", "0.3400", "—", "—", "0.1200", "0.0000"]);
+  });
   it("opens registration from an experiment with the exact execution outside the first source page", async () => {
     vi.mocked(trainingRunsApi.list).mockResolvedValue({ items: [], total: 40 });
     vi.mocked(trainingRunsApi.get).mockResolvedValue({
@@ -793,6 +900,7 @@ it("preserves model filters and pagination through detail navigation", async () 
     expect.any(Object),
     "include",
     {
+      task: "detect",
       q: "第一",
       framework: "ultralytics",
       created_from: "2026-10-14",
@@ -1015,3 +1123,148 @@ it.each(["super_admin", "project_admin", "employee"])(
     expect(trainedModelsApi.deploy).not.toHaveBeenCalled();
   },
 );
+
+it("isolates task release generations, resets pagination and ignores a late detection response", async () => {
+  let resolveDetection!: (value: typeof releases) => void;
+  const late = new Promise<typeof releases>((resolve) => {
+    resolveDetection = resolve;
+  });
+  vi.mocked(trainedModelsApi.releases).mockImplementation((_project, _offset, task) =>
+    task === "segment"
+      ? Promise.resolve({
+          ...releases,
+          generation: 3,
+          current: {
+            id: "segment-release",
+            model_version_id: "segment-model",
+            deployment_id: "segment-deploy",
+            generation: 3,
+            task: "segment",
+            snapshot: { registry_id: "backend-1" },
+          },
+        } as never)
+      : late,
+  );
+  vi.mocked(trainedModelsApi.list).mockImplementation(
+    (_project, _offset, _options, _archive, filters) =>
+      Promise.resolve({
+        total: 100,
+        items: [
+          {
+            ...model,
+            name: filters?.task === "segment" ? "分割候选" : "检测候选",
+            task: filters?.task,
+          },
+        ],
+      }),
+  );
+  const user = userEvent.setup();
+  mount("/projects/project-1/learning?tab=models&model_page=2");
+  await screen.findByRole("link", { name: "检测候选" });
+  await user.selectOptions(screen.getByLabelText("模型与发布任务"), "segment");
+  await screen.findByRole("link", { name: "分割候选" });
+  expect(screen.getByTestId("location")).toHaveTextContent("model_task=segment");
+  expect(screen.getByTestId("location").textContent).not.toContain("model_page");
+  expect(trainedModelsApi.list).toHaveBeenLastCalledWith(
+    "project-1",
+    0,
+    expect.any(Object),
+    "exclude",
+    expect.objectContaining({ task: "segment" }),
+  );
+  expect(trainedModelsApi.releases).toHaveBeenLastCalledWith("project-1", 0, "segment");
+  expect(screen.getByLabelText("当前项目发布")).toHaveTextContent("发布代次 3");
+  await act(async () => resolveDetection({ ...releases, generation: 99 }));
+  expect(screen.getByLabelText("当前项目发布")).toHaveTextContent("发布代次 3");
+  expect(screen.getByLabelText("当前项目发布")).not.toHaveTextContent("99");
+  await user.click(screen.getByRole("button", { name: "停用受控模型" }));
+  await waitFor(() =>
+    expect(trainedModelsApi.publish).toHaveBeenCalledWith(
+      "project-1",
+      expect.objectContaining({ task: "segment", expected_generation: 3, model_version_id: null }),
+    ),
+  );
+});
+
+it("loads the model's actual task for a direct detail URL before allowing publication", async () => {
+  vi.mocked(trainedModelsApi.get).mockResolvedValue({
+    model: { ...model, task: "segment" },
+    deployments: [{ ...deployment, trial: { ...deployment.trial, sample_url: "/sample.png" } }],
+  });
+  const user = userEvent.setup();
+  mount("/projects/project-1/learning/models/model-1");
+  await screen.findByLabelText("模型版本详情");
+  expect(trainedModelsApi.releases).toHaveBeenCalledWith("project-1", 0, "segment");
+  expect(trainedModelsApi.releases).not.toHaveBeenCalledWith("project-1", 0, "detect");
+  fireEvent.load(screen.getByAltText("冻结样本与逐实例掩码"));
+  await waitFor(() =>
+    expect(screen.getByLabelText("已查看固定验证样本，确认用于后续人工试用")).toBeEnabled(),
+  );
+  await user.click(screen.getByLabelText("已查看固定验证样本，确认用于后续人工试用"));
+  await user.click(screen.getByRole("button", { name: "发布此模型" }));
+  await waitFor(() =>
+    expect(trainedModelsApi.publish).toHaveBeenCalledWith(
+      "project-1",
+      expect.objectContaining({ task: "segment", expected_generation: 7 }),
+    ),
+  );
+});
+
+it("uses the segmentation release alias and does not open unqualified segmentation registration", async () => {
+  vi.mocked(trainedModelsApi.releases).mockResolvedValue({
+    ...releases,
+    current: {
+      id: "release",
+      model_version_id: model.id,
+      deployment_id: deployment.id,
+      generation: 7,
+      task: "segment",
+      snapshot: { registry_id: "backend-1" },
+    },
+  } as never);
+  vi.mocked(trainingRunsApi.get).mockResolvedValue({
+    run: { id: "run-1", task: "segment", config: { classes: ["car"] } },
+    attempts: [{ id: "attempt-1", status: "succeeded", ordinal: 1 }],
+    registration_eligibility: { qualified: false, reason: "该分割规格尚未资格验证" },
+  } as never);
+  const user = userEvent.setup();
+  mount("/projects/project-1/learning?tab=models&model_task=segment");
+  await user.click(await screen.findByRole("checkbox", { name: "T-1 · car.png" }));
+  await user.click(screen.getByRole("button", { name: "用当前发布模型预标注" }));
+  await waitFor(() =>
+    expect(dataManagerTaskActionsApi.preannotate).toHaveBeenCalledWith(
+      "project-1",
+      expect.objectContaining({ model_id: "project-release:segment", task: "segment" }),
+      expect.any(Object),
+    ),
+  );
+  await act(async () =>
+    navigate("/projects/project-1/learning?tab=models&model_task=segment&register_run=run-1"),
+  );
+  await screen.findByText("该分割规格尚未资格验证");
+  expect(screen.getByRole("button", { name: "从训练结果添加模型" })).toBeDisabled();
+  expect(screen.queryByLabelText("原生类别 0 · car")).not.toBeInTheDocument();
+});
+
+it("binds qualified segmentation runs only to region categories", async () => {
+  vi.mocked(trainingRunsApi.get).mockResolvedValue({
+    run: { id: "run-1", task: "segment", config: { classes: ["car"] } },
+    attempts: [{ id: "attempt-1", status: "succeeded", ordinal: 1 }],
+    registration_eligibility: { qualified: true, reason: null },
+  } as never);
+  const user = userEvent.setup();
+  mount("/projects/project-1/learning?tab=models&model_task=segment&register_run=run-1", [], {
+    detect: ["检测车辆"],
+    segment: ["分割车辆"],
+  });
+  const binding = await screen.findByLabelText("原生类别 0 · car");
+  expect(within(binding).queryByRole("option", { name: "检测车辆" })).not.toBeInTheDocument();
+  await user.selectOptions(binding, "分割车辆");
+  await user.click(screen.getByRole("button", { name: "从训练结果添加模型" }));
+  await waitFor(() =>
+    expect(trainedModelsApi.register).toHaveBeenCalledWith(
+      "project-1",
+      expect.objectContaining({ bindings: ["分割车辆"] }),
+    ),
+  );
+});

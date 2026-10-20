@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from aap_protocol_v2.backend_auth import managed_provider
 
-from aap_task_contract import normalize_task_fields
+from aap_task_contract import normalize_task, normalize_task_fields
 from training_contract.dataset import config_task
 
 import asyncio
@@ -13,7 +13,7 @@ import uuid
 from datetime import datetime, timezone
 
 from fastapi import HTTPException
-from sqlalchemy import select
+from sqlalchemy import case, func, select
 from training_contract.model_return import registration_eligibility
 
 from app.db.models.ml_backend_registry import MLBackendRegistry
@@ -34,22 +34,60 @@ from app.services.training_artifacts import read_json_artifact
 from app.services.training_evaluations import parse_evaluation
 
 
-def project_classes(project):
-    binding = (project.tool_bindings or {}).get("bbox", {})
+def model_task(version):
+    task = normalize_task((version.provenance or {}).get("task", "detect"))
+    if task not in {"detect", "segment"}:
+        raise HTTPException(status_code=409, detail="模型训练任务身份无效")
+    return task
+
+
+def model_task_expression():
+    value = func.coalesce(TrainedModelVersion.provenance["task"].astext, "detect")
+    return case(
+        (value.in_(["detect", "detection", "image-detection"]), "detect"),
+        (
+            value.in_(
+                [
+                    "segment",
+                    "segmentation",
+                    "image-instance-segmentation",
+                    "instance-segmentation",
+                ]
+            ),
+            "segment",
+        ),
+        else_=value,
+    )
+
+
+def release_task(model_id):
+    return {"project-release": "detect", "project-release:segment": "segment"}.get(
+        model_id
+    )
+
+
+def project_classes(project, task="detect"):
+    binding = (project.tool_bindings or {}).get(
+        "region" if task == "segment" else "bbox", {}
+    )
     values = binding.get("classes", []) if binding.get("enabled") else []
     return [v["name"] if isinstance(v, dict) else v for v in values]
 
 
-def validate_bindings(project, classes, bindings):
-    allowed = project_classes(project)
+def validate_bindings(project, classes, bindings, task="detect"):
+    allowed = project_classes(project, task)
     if (
         not classes
         or len(bindings) != len(classes)
         or any(b not in allowed for b in bindings)
     ):
         raise HTTPException(
-            status_code=422, detail="须为每个原生类别绑定当前项目的矩形框类别"
+            status_code=422, detail="须为每个原生类别绑定当前项目对应工具的类别"
         )
+    if task == "segment":
+        from app.services.raster_mask_storage import assert_raster_mask_write_enabled
+
+        assert_raster_mask_write_enabled(project)
 
 
 async def register(db, project, user, body):
@@ -89,14 +127,24 @@ async def register(db, project, user, body):
         )
     weights, metrics = weight_artifacts[0], metric_artifacts[0]
     classes = run.config["classes"]
-    validate_bindings(project, classes, body.bindings)
+    validate_bindings(project, classes, body.bindings, config_task(run.config))
     try:
         await asyncio.to_thread(verify_artifact, weights["key"], weights, attempt.id)
         evaluation = await asyncio.to_thread(read_json_artifact, metrics, attempt.id)
-        if run.config["framework"] == "libreyolo":
+        if (
+            run.config["framework"] == "libreyolo"
+            or config_task(run.config) == "segment"
+        ):
             checked = parse_evaluation(
                 evaluation, run, attempt, metrics, weights, 0, len(classes)
             )
+            if (
+                config_task(run.config) == "segment"
+                and checked["identity_status"] != "verified"
+            ):
+                raise ValueError(
+                    "Segmentation requires verified candidate and evaluator identity"
+                )
             evaluation = {
                 **evaluation,
                 "summary": checked["summary"],
@@ -170,9 +218,21 @@ def expected_receipt(version):
         "classes": version.classes,
         "framework": version.framework,
         "framework_version": version.framework_version,
-        "task": "detection",
+        "task": "segmentation" if model_task(version) == "segment" else "detection",
     }
-    if version.framework == "libreyolo":
+    if model_task(version) == "segment":
+        from training_contract.model_return import segmentation_identity
+
+        try:
+            qualification = segmentation_identity(
+                version.provenance["base_model"]["id"]
+            )
+        except (KeyError, ValueError, TypeError) as exc:
+            raise HTTPException(status_code=409, detail="模型分割回流资格缺失") from exc
+        if version.provenance.get("model_return") != qualification:
+            raise HTTPException(status_code=409, detail="模型分割回流资格已变化")
+        receipt.update(qualification)
+    elif version.framework == "libreyolo":
         qualification = registration_eligibility(
             {
                 "framework": version.framework,
@@ -294,6 +354,13 @@ async def install_and_trial(db, project, version, deployment):
     if len(results) != 1 or str(results[0].task_id) != sample["task_id"]:
         raise HTTPException(status_code=422, detail="样本试用返回的任务身份不匹配")
     validate_and_map_results(results, ref)
+    if model_task(version) == "segment":
+        from app.services.controlled_segmentation import materialize_masks
+
+        dimensions = [sample["height"], sample["width"]]
+        if results[0].meta["segmentation"]["dimensions"] != dimensions:
+            raise ValueError("Trial masks differ from frozen source dimensions")
+        await materialize_masks(db, results[0].result, results[0].meta)
     return receipt, {
         "task_id": sample["task_id"],
         "validation_digest": version.provenance["validation_digest"],
@@ -301,6 +368,11 @@ async def install_and_trial(db, project, version, deployment):
         "result": results[0].result,
         "score": results[0].score,
         "sample_scope": "one_fixed_validation_image",
+        **(
+            {"segmentation": results[0].meta["segmentation"]}
+            if model_task(version) == "segment"
+            else {}
+        ),
     }
 
 
@@ -321,7 +393,7 @@ def frozen_reference(version, deployment, release=None):
 
 def wire_context(ref, params=None):
     return {
-        "task": "detect",
+        "task": normalize_task(ref.get("task", "detection")),
         "model_id": f"trained:{ref['model_version_id']}",
         "model_variants": {},
         "params": params or {},
@@ -333,7 +405,8 @@ def wire_context(ref, params=None):
 
 def is_controlled(model_id):
     return bool(
-        model_id and (model_id.startswith("trained:") or model_id == "project-release")
+        model_id
+        and (model_id.startswith("trained:") or release_task(model_id) is not None)
     )
 
 
@@ -361,7 +434,7 @@ def assert_image_scope(
         or project.data_type != "image"
         or execution_unit not in {None, "image", "task"}
     ):
-        raise HTTPException(status_code=422, detail="受控模型仅支持图片矩形框检测")
+        raise HTTPException(status_code=422, detail="受控模型仅支持图片检测或实例分割")
     stages = [
         s.model_dump() if hasattr(s, "model_dump") else s
         for s in (pipeline_stages or [])
@@ -387,8 +460,19 @@ def assert_image_scope(
             or (stage.get("roi") or {}).get("mode")
             or ("full_image" if root else "crop")
         )
+        stage_task = normalize_task(
+            (stage.get("frozen_model_ref") or {}).get("task")
+            or stage.get("task")
+            or release_task(stage.get("model_id"))
+            or "detect"
+        )
         if (
-            stage.get("task") not in {None, "detect"}
+            stage_task not in {"detect", "segment"}
+            or (
+                stage.get("task") is not None
+                and normalize_task(stage["task"]) != stage_task
+            )
+            or (stage_task == "segment" and (not root or mode != "full_image"))
             or stage.get("prompt_type")
             or stage.get("model_variants")
             or (root and (prompt or stage.get("roi")))
@@ -400,11 +484,15 @@ def assert_image_scope(
         ):
             raise HTTPException(
                 status_code=422,
-                detail="受控检测阶段只支持整图或父框裁剪输入、矩形框输出，不支持交互提示",
+                detail="受控分割只支持整图 region 输出；受控检测支持整图或父框裁剪；均不支持交互提示",
             )
 
 
 def validate_and_map_results(results, ref):
+    if normalize_task(ref.get("task", "detection")) == "segment":
+        from app.services.controlled_segmentation import validate_results
+
+        return validate_results(results, ref)
     identity = {k: ref[k] for k in ("model_version_id", "sha256", "classes_digest")}
     for result in results:
         if (result.meta or {}).get("trained_model") != identity:
@@ -462,14 +550,15 @@ def validate_and_map_results(results, ref):
         result.model_version = f"trained:{ref['model_version_id']}"
 
 
-async def resolve_reference(db, project, model_id, registry_id):
-    if not model_id or not (
-        model_id.startswith("trained:") or model_id == "project-release"
-    ):
+async def resolve_reference(
+    db, project, model_id, registry_id, *, allow_candidate=False
+):
+    if not is_controlled(model_id):
         return None
     release = None
-    if model_id == "project-release":
-        selection = await db.get(ProjectModelSelection, project.id)
+    task = release_task(model_id)
+    if task is not None:
+        selection = await db.get(ProjectModelSelection, (project.id, task))
         release = (
             await db.get(ModelRelease, selection.release_id)
             if selection and selection.release_id
@@ -477,6 +566,8 @@ async def resolve_reference(db, project, model_id, registry_id):
         )
         if not release or not release.model_version_id:
             raise HTTPException(status_code=409, detail="项目尚未启用受控模型发布")
+        if release.task != task or release.project_id != project.id:
+            raise HTTPException(status_code=409, detail="项目发布任务身份不一致")
         version_id = release.model_version_id
     else:
         try:
@@ -484,6 +575,8 @@ async def resolve_reference(db, project, model_id, registry_id):
         except ValueError as exc:
             raise HTTPException(status_code=422, detail="模型版本标识无效") from exc
     version = await load_version(db, project.id, version_id)
+    if task is not None and model_task(version) != task:
+        raise HTTPException(status_code=409, detail="模型与项目发布的任务不一致")
     if release is None:
         from app.db.models.model_decision import ModelDecision
 
@@ -501,12 +594,14 @@ async def resolve_reference(db, project, model_id, registry_id):
             .order_by(ModelDecision.sequence.desc())
             .limit(1)
         )
-        if not published or (decision and decision.disposition == "archived"):
+        if (not published and not allow_candidate) or (
+            decision and decision.disposition == "archived"
+        ):
             raise HTTPException(
                 status_code=409,
                 detail="普通推理只能使用已发布且未归档的模型；候选模型请先加载与试用",
             )
-    validate_bindings(project, version.classes, version.bindings)
+    validate_bindings(project, version.classes, version.bindings, model_task(version))
     deployment = await db.scalar(
         select(ModelDeployment).where(
             ModelDeployment.model_version_id == version.id,
@@ -533,7 +628,7 @@ async def validate_frozen_reference(db, project_id, ref):
     if content_digest(payload) != ref.get("reference_digest"):
         raise ValueError("Controlled model reference digest mismatch")
     version = await load_version(db, project_id, uuid.UUID(ref["model_version_id"]))
-    validate_bindings(project, version.classes, version.bindings)
+    validate_bindings(project, version.classes, version.bindings, model_task(version))
     deployment = await db.get(ModelDeployment, uuid.UUID(ref["deployment_id"]))
     if (
         not deployment
@@ -546,6 +641,16 @@ async def validate_frozen_reference(db, project_id, ref):
         if ref.get("release_id")
         else None
     )
+    if ref.get("release_id") and (
+        not release
+        or release.project_id != project_id
+        or release.task != model_task(version)
+        or release.model_version_id != version.id
+        or release.deployment_id != deployment.id
+    ):
+        raise ValueError(
+            "Controlled release belongs to a different project, task or model"
+        )
     if frozen_reference(version, deployment, release) != ref:
         raise ValueError("Controlled model reference changed")
     await enabled_backend(db, project_id, deployment.registry_id)
@@ -553,7 +658,7 @@ async def validate_frozen_reference(db, project_id, ref):
 
 
 async def publish(db, project, user, body):
-    digest = content_digest(body.model_dump(mode="json"))
+    digest = content_digest(body.request_payload())
     existing = await db.scalar(
         select(ModelRelease).where(
             ModelRelease.project_id == project.id,
@@ -568,11 +673,14 @@ async def publish(db, project, user, body):
         select(ProjectModelSelection)
         .where(
             ProjectModelSelection.project_id == project.id,
+            ProjectModelSelection.task == body.task,
         )
         .with_for_update()
     )
     if not selection:
-        selection = ProjectModelSelection(project_id=project.id, generation=0)
+        selection = ProjectModelSelection(
+            project_id=project.id, task=body.task, generation=0
+        )
         db.add(selection)
         await db.flush()
     if selection.generation != body.expected_generation:
@@ -594,7 +702,11 @@ async def publish(db, project, user, body):
     version = deployment = None
     if body.model_version_id:
         version = await load_version(db, project.id, body.model_version_id)
-        validate_bindings(project, version.classes, version.bindings)
+        if model_task(version) != body.task:
+            raise HTTPException(status_code=422, detail="模型与发布任务不一致")
+        validate_bindings(
+            project, version.classes, version.bindings, model_task(version)
+        )
         deployment = await db.get(ModelDeployment, body.deployment_id)
         if (
             not deployment
@@ -613,12 +725,14 @@ async def publish(db, project, user, body):
         if (
             not previous
             or previous.project_id != project.id
+            or previous.task != body.task
             or previous.model_version_id != body.model_version_id
             or previous.deployment_id != body.deployment_id
         ):
             raise HTTPException(status_code=422, detail="回退目标与历史发布不一致")
     release = ModelRelease(
         project_id=project.id,
+        task=body.task,
         creator_id=user.id,
         request_id=body.request_id,
         request_digest=digest,

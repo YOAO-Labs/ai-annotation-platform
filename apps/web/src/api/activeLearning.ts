@@ -1,4 +1,17 @@
 import { apiClient } from "./client";
+import type { CocoRleContent } from "./generated/types.gen";
+
+export type SelectionTask = "detect" | "segment";
+export type DetectionPrediction = { class_index: number; score: number; xyxy: number[] };
+export type MaskPrediction = {
+  index: number;
+  class_index: number;
+  native_class_index: number;
+  score: number;
+  rle: CocoRleContent;
+  mask_sha256: string;
+  area_pixels: number;
+};
 
 export type SelectionInput = {
   model_version_id: string;
@@ -23,6 +36,9 @@ export type Features = {
   priority: number | null;
   detections: number;
   possible_truncation: boolean;
+  minimum_instance_pixels?: number | null;
+  total_instance_pixels_including_overlap?: number;
+  overlap_run_visits?: number;
 };
 export type FrozenSample = {
   ordinal: number;
@@ -42,6 +58,7 @@ export type Preview = {
   omitted: Array<{ task_id: string; reason: string }>;
   model_ref: Record<string, unknown>;
   profile: Record<string, unknown>;
+  strategy?: Record<string, unknown>;
   batch_size: number;
   max_inference_dispatches: number;
   max_review_tasks: number;
@@ -60,6 +77,9 @@ export type ActiveRound = {
     candidate_count: number;
     profile_digest: string;
     expires_at: number;
+    task?: SelectionTask;
+    schema?: number;
+    strategy?: Record<string, unknown>;
   };
   inference_dispatches: number;
   accepted_tasks: number;
@@ -103,7 +123,7 @@ export type Candidate = {
   has_image: boolean;
   evidence: {
     features: Features;
-    predictions: Array<{ class_index: number; score: number; xyxy: number[] }>;
+    predictions: Array<DetectionPrediction | MaskPrediction>;
   } | null;
 };
 export type DecisionInput = {
@@ -167,9 +187,9 @@ export const activeLearningApi = {
     apiClient.post<Preview>(`${base(projectId)}:preview`, body),
   create: (projectId: string, body: CreateRound) =>
     apiClient.post<ActiveRound>(base(projectId), body),
-  list: (projectId: string, offset = 0, options?: RequestInit) =>
+  list: (projectId: string, offset = 0, options?: RequestInit, task?: SelectionTask) =>
     apiClient.get<{ items: ActiveRound[]; total: number }>(
-      `${base(projectId)}?limit=20&offset=${offset}`,
+      `${base(projectId)}?limit=20&offset=${offset}${task ? `&task=${task}` : ""}`,
       options,
     ),
   get: (projectId: string, id: string, options?: RequestInit) =>

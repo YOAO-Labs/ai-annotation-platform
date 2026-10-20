@@ -25,14 +25,21 @@ const pin = {
   validation_digest: "c".repeat(64),
 };
 const clients: QueryClient[] = [];
-function Content({ initial }: { initial?: TrainingInitialization }) {
+function Content({
+  initial,
+  task = "detect",
+}: {
+  initial?: TrainingInitialization;
+  task?: string;
+}) {
   const [value, setValue] = useState(initial);
   const qualification = useTrainingInitializationSource(
     "project",
     "ultralytics",
-    "yolo11n",
+    task === "segment" ? "yolo11n-seg" : "yolo11n",
     "dataset",
     value,
+    task,
   );
   return (
     <>
@@ -47,12 +54,12 @@ function Content({ initial }: { initial?: TrainingInitialization }) {
     </>
   );
 }
-function mount(initial?: TrainingInitialization) {
+function mount(initial?: TrainingInitialization, task = "detect") {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   clients.push(client);
   return render(
     <QueryClientProvider client={client}>
-      <Content initial={initial} />
+      <Content initial={initial} task={task} />
     </QueryClientProvider>,
   );
 }
@@ -166,4 +173,25 @@ it("rejects a delayed qualification after a batched authentication ABA", async (
     resolve({ model_version_id: modelId, eligible: false, reasons: ["旧会话错误"], pin } as never),
   );
   expect(screen.queryByText("旧会话错误")).not.toBeInTheDocument();
+});
+
+it("qualifies segmentation weights and lists candidates only within the segmentation task", async () => {
+  mount(
+    { kind: "trained_model", model_version_id: modelId, source_digest: pin.source_digest },
+    "segment",
+  );
+  await waitFor(() =>
+    expect(trainingRunsApi.initializationSource).toHaveBeenCalledWith(
+      "project",
+      modelId,
+      "ultralytics",
+      "yolo11n-seg",
+      "dataset",
+      expect.any(Object),
+    ),
+  );
+  expect(trainedModelsApi.list).toHaveBeenCalledWith("project", 0, expect.any(Object), "include", {
+    task: "segment",
+  });
+  expect(screen.queryByText(/尚未取得项目权重初始化资格/)).not.toBeInTheDocument();
 });

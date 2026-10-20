@@ -317,6 +317,50 @@ def test_profile_records_actual_pinned_source_and_shared_storage_identity(tmp_pa
     )
 
 
+def test_mask_profile_and_persistent_receipts_have_independent_identity_and_budget(
+    tmp_path,
+    monkeypatch,
+):
+    import segmentation_evaluations
+    from segmentation_evaluations import qualification_profile as mask_profile
+
+    monkeypatch.setattr(segmentation_evaluations, "verify_runtime", lambda: None)
+
+    detect = EvaluationRequestStore(tmp_path / "detection")
+    segment = EvaluationRequestStore(
+        tmp_path / "segmentation", response_bytes=17 * 1024 * 1024
+    )
+    profile = mask_profile("cpu", segment.storage_identity)
+    assert profile["implementation"] == "aap-ultralytics-instance-mask"
+    assert profile["options"]["retina_masks"] is True
+    assert (
+        profile["profile_digest"]
+        != qualification_profile("cpu", detect.storage_identity)["profile_digest"]
+    )
+    assert profile["storage_identity"] != str(detect.storage_identity)
+    body = request(segment).model_copy(
+        update={"profile_digest": profile["profile_digest"]}
+    )
+    large = response()
+    large["results"][0]["meta"]["mask_evidence"] = "a" * (300 * 1024)
+    with segment.execution(body) as record:
+        segment.publish(body, record, large)
+    assert (
+        EvaluationRequestStore(segment.root, response_bytes=17 * 1024 * 1024).receipt(
+            body.request_id,
+            binding_digest=body.binding_digest,
+            storage_identity=body.storage_identity,
+        )["response"]
+        == large
+    )
+    with pytest.raises(HTTPException):
+        detect.receipt(
+            body.request_id,
+            binding_digest=body.binding_digest,
+            storage_identity=body.storage_identity,
+        )
+
+
 def test_input_is_exact_bounded_metadata_free_rgb_png(tmp_path, monkeypatch):
     import sample_evaluations as module
 
@@ -376,10 +420,11 @@ def test_evaluation_context_cannot_escape_controlled_single_full_class_contract(
         {"classes": [0]},
         {"params": {"max_det": 300}},
         {"frozen_model_ref": None},
-        {"type": "segmentation"},
+        {"type": "keypoint"},
     ):
         with pytest.raises(ValidationError):
             Context.model_validate({**wire, **change})
+    assert Context.model_validate({**wire, "type": "segmentation"}).task == "segment"
     with pytest.raises(ValidationError):
         BatchPredictRequest.model_validate(
             {
@@ -546,6 +591,7 @@ async def test_transport_cancellation_keeps_native_lock_until_exit_then_seal_blo
         lambda _: {
             **req.context.frozen_model_ref.model_dump(mode="json"),
             "framework": "ultralytics",
+            "task": "detection",
         },
     )
     task = asyncio.create_task(main._run_sample_evaluation(req, operation=None))
@@ -599,6 +645,7 @@ async def test_cold_native_loader_keeps_request_lock_after_borrower_leaves(
         lambda _: {
             **req.context.frozen_model_ref.model_dump(mode="json"),
             "framework": "ultralytics",
+            "task": "detection",
         },
     )
     task = asyncio.create_task(main._run_sample_evaluation(req, operation=None))

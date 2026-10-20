@@ -1,5 +1,7 @@
 import { apiClient } from "./client";
 import type {
+  TrainingDatasetFrozenMask,
+  TrainingDatasetInstanceMask,
   TrainingDatasetCreate,
   TrainingDatasetOut,
   TrainingDatasetPage,
@@ -18,15 +20,17 @@ import type {
 } from "./generated/types.gen";
 
 export type {
+  TrainingDatasetCreate,
+  TrainingDatasetSelection,
+  TrainingDatasetSampleDetail,
+  TrainingDatasetInstanceMask,
   TrainingDatasetOut,
   TrainingDatasetPreflight,
-  TrainingDatasetSelection,
   TrainingDatasetSummary,
   TrainingDatasetInsightOverview,
   TrainingDatasetInsightComparison,
   TrainingDatasetClassPage,
   TrainingDatasetSamplePage,
-  TrainingDatasetSampleDetail,
   TrainingDatasetAnalyzedSampleOut,
 };
 
@@ -122,6 +126,17 @@ export const trainingDatasetsApi = {
   sample: (projectId: string, id: string, taskId: string, offset = 0, options?: RequestInit) =>
     apiClient.get<TrainingDatasetSampleDetail>(
       `${base(projectId)}/${id}/insights/samples/${taskId}?limit=500&offset=${offset}`,
+      options,
+    ),
+  sampleMask: (
+    projectId: string,
+    id: string,
+    taskId: string,
+    annotationId: string,
+    options?: RequestInit,
+  ) =>
+    apiClient.get<TrainingDatasetFrozenMask>(
+      `${base(projectId)}/${id}/insights/samples/${taskId}/masks/${annotationId}`,
       options,
     ),
   sampleMedia: (projectId: string, id: string, taskId: string, options?: RequestInit) =>

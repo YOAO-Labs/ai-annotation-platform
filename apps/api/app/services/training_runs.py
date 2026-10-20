@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from aap_task_contract import normalize_task, legacy_training_task
-from training_contract.catalog import definition_for_identity
+from training_contract.catalog import definition_for_identity, instance_rle_capability
 import asyncio
 import hashlib
 import hmac
@@ -15,8 +15,8 @@ from fastapi import HTTPException
 from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert
 from training_contract import definition, resolve, schema_identity, verify_native
-from training_contract.validation import CANONICAL
-from training_contract.dataset import DETECTION, SEGMENTATION
+from training_contract.validation import CANONICAL, configuration_for_data_contract
+from training_contract.dataset import DETECTION, SEGMENTATION, is_instance_rle
 from training_contract.observability import failure_receipt, redact_text
 
 from app.config import settings
@@ -103,7 +103,14 @@ def catalog():
                         "sha256": sha,
                         "filename": filename,
                         "task": task,
-                        "capabilities": capabilities(framework, task),
+                        "capabilities": {
+                            **capabilities(framework, task, name),
+                            **(
+                                {"instance_rle": instance_rle_capability()}
+                                if name == "yolo11n-seg"
+                                else {}
+                            ),
+                        },
                     }
                 )
         if valid_models:
@@ -177,6 +184,11 @@ def controlled_template(framework, base_model):
 
 def runtime_compatible(config, runtime):
     framework = config["framework"]
+    if (
+        is_instance_rle(config.get("data_contract", {}))
+        and runtime.get("instance_rle_consumer") != instance_rle_capability()
+    ):
+        return False
     if config.get("study_budget"):
         from training_contract.budget import POLICY_DIGEST
 
@@ -316,7 +328,7 @@ async def frozen_config(db, project_id, body: TrainingRunCreate):
     config = {
         "task": normalize_task(contract["task"]),
         "media_type": "image",
-        "format": "ultralytics-yolo",
+        "format": contract.get("format", "ultralytics-yolo"),
         "adapter_revision": ADAPTERS[body.framework]["revision"],
         "framework": body.framework,
         "framework_version": template["version"],
@@ -334,8 +346,11 @@ async def frozen_config(db, project_id, body: TrainingRunCreate):
     if normalize_task(contract["task"]) == SEGMENTATION or contract["schema"] == 3:
         config["data_contract"] = contract
     if body.configuration is not None:
-        configuration = resolve_configuration(
-            body.framework, body.base_model, body.configuration.model_dump()
+        configuration = configuration_for_data_contract(
+            resolve_configuration(
+                body.framework, body.base_model, body.configuration.model_dump()
+            ),
+            contract,
         )
         config.update(
             adapter_revision=2,
@@ -346,7 +361,7 @@ async def frozen_config(db, project_id, body: TrainingRunCreate):
             fixed_options={
                 key: value
                 for key, value in configuration["effective_values"].items()
-                if configuration["origins"][key] == "platform"
+                if configuration["origins"][key].split(":", 1)[0] == "platform"
             },
         )
     pin = await initialization.resolve(

@@ -122,6 +122,20 @@ async def _purge_async() -> dict:
 _MASK_REFERENCE_QUERIES = (
     """
     SELECT DISTINCT value #>> '{}' AS object_key
+    FROM training_dataset_versions,
+         LATERAL jsonb_path_query(snapshot, '$.**.object_key') value
+    WHERE status <> 'ready'
+      AND snapshot->>'bridge' = 'ultralytics-instance-rle-1'
+      AND value #>> '{}' LIKE 'raster-masks/sha256/%'
+    """,
+    """
+    SELECT DISTINCT value #>> '{}' AS object_key
+    FROM trained_model_deployments,
+         LATERAL jsonb_path_query(trial, '$.**.object_key') value
+    WHERE value #>> '{}' LIKE 'raster-masks/sha256/%'
+    """,
+    """
+    SELECT DISTINCT value #>> '{}' AS object_key
     FROM annotations, LATERAL jsonb_path_query(geometry, '$.**.object_key') value
     WHERE is_active IS TRUE AND value #>> '{}' LIKE 'raster-masks/sha256/%'
     """,
@@ -180,6 +194,22 @@ _MASK_REFERENCE_QUERIES = (
 )
 
 _MASK_REFERENCE_EXISTS_QUERIES = (
+    """
+    SELECT EXISTS (
+        SELECT 1 FROM training_dataset_versions,
+             LATERAL jsonb_path_query(snapshot, '$.**.object_key') value
+        WHERE status <> 'ready'
+          AND snapshot->>'bridge' = 'ultralytics-instance-rle-1'
+          AND value #>> '{}' = :key
+    )
+    """,
+    """
+    SELECT EXISTS (
+        SELECT 1 FROM trained_model_deployments,
+             LATERAL jsonb_path_query(trial, '$.**.object_key') value
+        WHERE value #>> '{}' = :key
+    )
+    """,
     """
     SELECT EXISTS (
         SELECT 1
