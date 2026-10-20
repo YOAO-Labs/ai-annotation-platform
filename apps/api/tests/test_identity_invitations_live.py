@@ -139,7 +139,7 @@ def _start_mail_v2(test_engine, directory, encryption_key, smtp, *, port=None):
         "IDENTITY_MAIL_V2_SMTP_FROM": "noreply@example.test",
         "IDENTITY_MAIL_V2_POLL_INTERVAL_SECONDS": "0.1",
         "IDENTITY_MAIL_V2_LEASE_SECONDS": "2",
-        "IDENTITY_MAIL_V2_RETRY_DELAY_SECONDS": "0.2",
+        "IDENTITY_MAIL_V2_RETRY_DELAY_SECONDS": "1",
         "IDENTITY_MAIL_V2_CONNECT_TIMEOUT_SECONDS": "3",
         "IDENTITY_MAIL_V2_COMMAND_TIMEOUT_SECONDS": "5",
     }
@@ -818,7 +818,7 @@ async def test_public_resolve_register_creates_group_membership_and_rolls_back_t
                         "SELECT count(*) FROM public.audit_logs "
                         "WHERE actor_id=:actor AND action='user.register' AND target_id=:target"
                     ),
-                    {"actor": actor, "target": str(new_user_id)},
+                    {"actor": new_user_id, "target": str(new_user_id)},
                 )
                 == 1
             )
@@ -1527,6 +1527,7 @@ async def test_mail_v2_recovers_unknown_delivery_keeps_v1_draining_and_suppresse
         smtp_v2 = SMTPInbox(lose_ack=1)
         mail_v2 = _start_mail_v2(test_engine, tmp_path, encryption_key, smtp_v2)
         await smtp_v2.wait(2)
+        await _wait_row_status(maker, current_send_id, "delivered", timeout=20)
         current_rows = await _mail_rows(maker, current_row.id)
         assert len(current_rows) == 2
         stale_row, delivered_row = current_rows
@@ -1690,6 +1691,22 @@ async def test_invitation_container_unbounded_catalog_has_only_three_owner_funct
         assert listed["ok"] and len(listed["data"]["items"]) >= count
         list_bytes = len(json.dumps(listed).encode())
         assert list_bytes > 64 * 1024
+
+        for page, page_size in ((2**31, 1), (2**63 - 1, 500)):
+            beyond_end = _command(
+                "query_invitations",
+                token,
+                {
+                    "page": page,
+                    "page_size": page_size,
+                    "status": "all",
+                    "scope": "me",
+                },
+            )
+            queried = await asyncio.to_thread(_node, identity, control, beyond_end)
+            assert queried["ok"] and queried["data"]["items"] == []
+            assert queried["data"]["page"] == page
+            assert queried["data"]["total"] >= count
 
         export = _command(
             "export_invitations",

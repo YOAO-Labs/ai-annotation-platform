@@ -613,7 +613,7 @@ BEGIN
                 'search','created_from','created_to'
             ]) OR pg_catalog.jsonb_typeof(p_args->'page') IS DISTINCT FROM 'number'
               OR (p_args->>'page') !~ '^[1-9][0-9]*$'
-              OR (p_args->>'page')::numeric > 2147483647
+              OR (p_args->>'page')::numeric > 9223372036854775807
               OR pg_catalog.jsonb_typeof(p_args->'page_size') IS DISTINCT FROM 'number'
               OR (p_args->>'page_size') !~ '^[1-9][0-9]*$'
               OR (p_args->>'page_size')::numeric NOT BETWEEN 1 AND 500 THEN RETURN false; END IF;
@@ -688,8 +688,8 @@ DECLARE
     v_accepted bigint;
     v_expired bigint;
     v_revoked bigint;
-    v_page integer := CASE WHEN p_kind = 'list_invitations' THEN 1
-                           ELSE (p_args->>'page')::integer END;
+    v_page bigint := CASE WHEN p_kind = 'list_invitations' THEN 1
+                          ELSE (p_args->>'page')::bigint END;
     v_page_size integer := CASE WHEN p_kind = 'list_invitations' THEN NULL
                                 ELSE (p_args->>'page_size')::integer END;
     v_offset bigint := 0;
@@ -730,7 +730,9 @@ BEGIN
         END IF;
     END IF;
     IF v_page_size IS NOT NULL THEN
-        v_offset := (v_page::bigint - 1) * v_page_size::bigint;
+        v_offset := LEAST(
+            (v_page::numeric - 1) * v_page_size, 9223372036854775807
+        )::bigint;
     END IF;
 
     WITH filtered AS MATERIALIZED (
@@ -1532,13 +1534,14 @@ BEGIN
                 FROM public.users AS account
                 WHERE account.id = v_operation_id AND account.is_active
                   AND account.email = v_invitation.email;
-                IF NOT FOUND THEN
+                IF NOT FOUND OR v_target_id IS DISTINCT FROM v_operation_id THEN
                     RETURN aap_identity_invitations_v1._failure(
                         'operation_conflict'
                     );
                 END IF;
                 v_data := v_data || pg_catalog.jsonb_build_object(
                     'existing_password_hash',v_target.password_hash,
+                    'target',aap_identity_invitations_v1._native_actor(v_operation_id),
                     'invitation',aap_identity_invitations_v1._invitation_record(
                         v_invitation.id,CASE WHEN v_project IS NULL THEN NULL ELSE v_project->>'name' END
                     ),'project',v_project,'replayed',true,'result',v_receipt.result
@@ -3132,7 +3135,8 @@ BEGIN
                    OR v_receipt.derivation_id IS DISTINCT FROM v_derivation_id THEN
                     RETURN aap_identity_invitations_v1._failure('operation_conflict');
                 END IF;
-                SELECT account.* INTO v_target FROM public.users AS account
+                SELECT account.password_hash,account.credential_generation,account.role
+                INTO v_target FROM public.users AS account
                 WHERE account.id = v_operation_id AND account.is_active
                   AND account.email = v_invitation.email;
                 IF NOT FOUND THEN

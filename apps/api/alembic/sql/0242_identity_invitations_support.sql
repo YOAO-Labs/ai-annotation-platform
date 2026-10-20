@@ -521,7 +521,7 @@ BEGIN
         method, path, status_code, ip, request_id, detail_json
     ) VALUES (
         v_actor_id, v_actor_email, v_actor_role, v_action, v_target_type,
-        v_target_id, p_context->>'method', p_context->>'path', v_status,
+        pg_catalog.left(v_target_id, 64), p_context->>'method', p_context->>'path', v_status,
         NULLIF(p_context->>'ip', '')::inet, p_context->>'request_id', p_detail
     ) RETURNING id INTO v_audit_id;
     RETURN v_audit_id;

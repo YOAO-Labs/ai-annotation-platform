@@ -1466,7 +1466,9 @@ function decodeInvitationResponse(request, source, status, contentType, expected
     typeof contentType !== "string" ||
     contentType.split(";", 1)[0].trim().toLowerCase() !== "application/json"
   ) {
-    fail();
+    const error = new Error("Invalid Identity invitation transport");
+    error.transportStatus = Number.isInteger(status) ? status : 0;
+    throw error;
   }
   const preliminary = parseStrictJson(source).document;
   const parsed = parseStrictJson(
@@ -2289,8 +2291,16 @@ if (isDirectExecution()) {
       process.exitCode = 1;
     }
   } else {
-    main().catch(() => {
-      process.stderr.write("Identity invitation peer failed\n");
+    main().catch((error) => {
+      const lines = [
+        ...String(error?.stack || "").matchAll(/identity_invitations_peer\.mjs:(\d+):\d+/g),
+      ]
+        .slice(0, 5)
+        .map((match) => match[1]);
+      const status = Number.isInteger(error?.transportStatus) ? error.transportStatus : null;
+      process.stderr.write(
+        `Identity invitation peer failed; status: ${status}; validation lines: ${lines.join(",")}\n`,
+      );
       process.exitCode = 1;
     });
   }

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import uuid
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -10,9 +11,14 @@ from pydantic import ValidationError
 from sqlalchemy import delete, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from aap_identity.authenticator import Authenticator
+from aap_identity.invitation_manager import InvitationManager
+from aap_identity.invitation_postgres import InvitationPostgresData
+from aap_identity.postgres import PostgresData
 from aap_identity.invitation_contract import (
     NativeInvitationApplyReply,
     NativeInvitationPrepareReply,
+    decode_invitation_request,
     decode_native_invitation_apply_command,
     decode_native_invitation_apply_reply,
     decode_native_invitation_prepare_command,
@@ -23,6 +29,8 @@ from app.db.models.project import Project
 from app.db.models.user import User
 from app.db.models.user_invitation import UserInvitation
 from app.db.native_schema import NATIVE_MANAGED_TABLES
+from tests.factory import create_project
+from tests.test_identity_admission_live import _dsn, _token
 from tests.test_identity_auth_native import _cleanup, _seed
 
 
@@ -35,6 +43,86 @@ _MIGRATION = Path(__file__).parents[1] / "alembic/versions/0242_identity_invitat
 _MODULE_GRANTS = _ROOT / "infra/docker/module-data-grants.sql"
 _ROLE_GRANTS = _ROOT / "infra/docker/identity-invitations-grants.sql"
 _LEGACY_GRANTS = _ROOT / "infra/docker/lan-production-grants.sql"
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(
+    os.getenv("AAP_MODULE_DATA_ROLE_ACCEPTANCE") != "1",
+    reason="requires the explicitly enabled owned function-only role verifier",
+)
+async def test_narrow_postgres_client_creates_project_invitation(test_engine):
+    fixture = await _seed(test_engine, role="super_admin", create_key=False)
+    maker = async_sessionmaker(test_engine, expire_on_commit=False)
+    operation_id = uuid.uuid4()
+    secret = "native-project-invitation-test-secret"
+    project = None
+    email = f"narrow-project-invitation-{operation_id.hex}@invite.test"
+    try:
+        async with maker.begin() as db:
+            project = await create_project(db, owner_id=fixture["actor_id"])
+        request = decode_invitation_request(
+            {
+                "schema": "aap-identity-invitations/v1",
+                "operation": "create_invitation",
+                "operation_id": str(operation_id),
+                "token": _token(fixture["actor_id"], secret),
+                "payload": {
+                    "email": email,
+                    "role": "employee",
+                    "project_id": str(project.id),
+                    "project_member_role": "annotator",
+                    "group_name": "  Native group  ",
+                },
+                "audit_context": _context(),
+            }
+        )
+        reply = await InvitationManager(
+            Authenticator(PostgresData(_dsn("AUTH", test_engine)), secret),
+            InvitationPostgresData(_dsn("INVITATION", test_engine)),
+            secret,
+        ).execute(request)
+        assert reply.data.project_id == project.id
+        assert reply.data.project_member_role == "annotator"
+        async with maker() as db:
+            assert (
+                await db.scalar(
+                    text(
+                        "SELECT email FROM public.user_invitations WHERE token=:token"
+                    ),
+                    {"token": reply.data.token},
+                )
+                == email
+            )
+            assert (
+                await db.scalar(
+                    text(
+                        "SELECT target_id FROM public.audit_logs WHERE actor_id=:actor AND action='user.invite'"
+                    ),
+                    {"actor": fixture["actor_id"]},
+                )
+                == email[:64]
+            )
+    finally:
+        async with maker.begin() as db:
+            await db.execute(text("SET LOCAL app.allow_audit_update='true'"))
+            await db.execute(
+                text("DELETE FROM public.audit_logs WHERE actor_id=:id"),
+                {"id": fixture["actor_id"]},
+            )
+            await db.execute(
+                text(
+                    "DELETE FROM public.identity_invitation_operation_receipts WHERE operation_id=:id"
+                ),
+                {"id": operation_id},
+            )
+            await db.execute(
+                delete(UserInvitation).where(
+                    UserInvitation.invited_by == fixture["actor_id"]
+                )
+            )
+            if project is not None:
+                await db.execute(delete(Project).where(Project.id == project.id))
+        await _cleanup(test_engine, fixture)
 
 
 def _context() -> dict[str, str]:
