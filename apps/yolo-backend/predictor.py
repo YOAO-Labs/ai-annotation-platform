@@ -36,7 +36,12 @@ from model_registry import (
 )
 from observability import record_inference
 from schemas import Context, model_key_for_context
-from sample_evaluations import FIXED_OPTIONS, observed_inference
+from sample_evaluations import (
+    observed_inference,
+    receipt_base_model,
+    model_options,
+    verify_inference_branch,
+)
 
 logger = logging.getLogger("yolo-backend.predictor")
 
@@ -286,13 +291,17 @@ class YoloPredictor:
         options = (
             {
                 key: value
-                for key, value in FIXED_OPTIONS.items()
+                for key, value in ctx._evaluation_profile["options"].items()
                 if key not in {"max_det", "classes", "verbose"}
             }
             if ctx.sample_evaluation
             else {}
         )
         controlled_segment = task == "segment" and ctx.frozen_model_ref is not None
+        if ctx.frozen_model_ref and ctx._managed_receipt:
+            base_model = receipt_base_model(ctx._managed_receipt)
+            if base_model is not None:
+                options["nms"] = model_options(base_model)["nms"]
         if controlled_segment:
             from managed_segmentation import (
                 FIXED_OPTIONS as SEGMENT_OPTIONS,
@@ -311,7 +320,14 @@ class YoloPredictor:
                     if key not in {"max_det", "classes", "verbose"}
                 }
                 if ctx.sample_evaluation
-                else dict(SEGMENT_OPTIONS)
+                else {
+                    **SEGMENT_OPTIONS,
+                    **(
+                        {"nms": model_options(base_model)["nms"]}
+                        if base_model is not None
+                        else {}
+                    ),
+                }
             )
         if ctx.builtin_model_ref:
             from fastapi import HTTPException
@@ -357,6 +373,8 @@ class YoloPredictor:
             **options,
         )
         elapsed = time.monotonic() - started
+        if ctx.frozen_model_ref and ctx._managed_receipt:
+            verify_inference_branch(model, ctx._managed_receipt)
         _, series, size = model_key_for_context(ctx)
         record_inference(task, series, size, elapsed)
         inference_ms = int(elapsed * 1000)

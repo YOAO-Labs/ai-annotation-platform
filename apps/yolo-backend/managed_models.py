@@ -6,6 +6,7 @@ import asyncio
 from contextlib import asynccontextmanager
 import fcntl
 import hashlib
+import importlib
 import json
 import os
 import secrets
@@ -19,7 +20,17 @@ import httpx
 from fastapi import HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from aap_backend_runtime.backend_auth import backend_credential
-from training_contract.model_return import LIBRE_FORMAT, LIBRE_RUNTIME, libre_identity
+from training_contract.model_return import (
+    LIBRE_FORMAT,
+    LIBRE_RUNTIME,
+    libre_identity,
+    ultralytics_identity,
+)
+from training_contract.models import model_spec
+from training_contract.native_architecture import (
+    validate_architecture_yaml,
+    matches_architecture_signature,
+)
 from managed_segmentation import validate_receipt as validate_segmentation_receipt
 
 
@@ -87,7 +98,11 @@ class InstallRequest(ManagedModelRef):
                 or self.artifact_size_bytes != self.size_bytes
             ):
                 raise ValueError("Unqualified native managed identity")
-        elif any(value is not None for value in extra):
+        elif self.framework_version == "8.4.183":
+            validate_detection_receipt(self.model_dump(mode="json"))
+        elif self.framework_version != "8.4.177" or any(
+            value is not None for value in extra
+        ):
             raise ValueError("Unexpected qualification fields for legacy install")
         return self
 
@@ -107,6 +122,50 @@ def file_digest(path):
         for chunk in iter(lambda: stream.read(1024 * 1024), b""):
             result.update(chunk)
     return result.hexdigest()
+
+
+def validate_detection_receipt(receipt):
+    expected = ultralytics_identity(
+        f"{receipt.get('model_family')}{receipt.get('model_size')}",
+        framework_version=receipt.get("framework_version"),
+    )
+    if (
+        receipt.get("task") != "detection"
+        or receipt.get("framework") != "ultralytics"
+        or receipt.get("framework_version") != "8.4.183"
+        or any(receipt.get(key) != value for key, value in expected.items())
+        or receipt.get("artifact_format") is not None
+        or receipt.get("artifact_size_bytes") is not None
+        or receipt.get("output_contract") is not None
+    ):
+        raise ValueError("Unqualified detection receipt")
+
+
+def verify_native_runtime(receipt):
+    runtime = receipt["runtime_qualification"]
+    for name in ("ultralytics", "torch", "torchvision"):
+        if importlib.import_module(name).__version__ != runtime[name]:
+            raise ValueError("Unqualified native inference runtime")
+    for name, expected in runtime.get("source_sha256", {}).items():
+        source = Path(importlib.import_module(name).__file__).read_bytes()
+        if hashlib.sha256(source).hexdigest() != expected:
+            raise ValueError("Native inference source identity changed")
+
+
+def _reference_model(base_model, classes):
+    import torch
+    from ultralytics.nn.tasks import DetectionModel, SegmentationModel
+
+    source_classes = None
+    if isinstance(base_model, tuple):
+        base_model, source_classes = base_model
+    native_type = SegmentationModel if base_model.endswith("-seg") else DetectionModel
+    with torch.random.fork_rng(devices=[]), torch.device("cpu"), torch.no_grad():
+        model = native_type(base_model + ".yaml", nc=classes, verbose=False)
+        if source_classes is not None:
+            source = native_type(base_model + ".yaml", nc=source_classes, verbose=False)
+            model.load(source, verbose=False)
+        return model
 
 
 class ManagedModelStore:
@@ -252,6 +311,11 @@ class ManagedModelStore:
                     raise ValueError("Installed segmentation classes differ")
             elif receipt.get("output_contract") is not None:
                 raise ValueError("Unexpected detection output contract")
+            elif (
+                receipt.get("framework") == "ultralytics"
+                and receipt.get("framework_version") == "8.4.183"
+            ):
+                validate_detection_receipt(receipt)
             if receipt.get("framework") == "libreyolo" and (
                 receipt.get("framework_version") != "1.6.0"
                 or receipt.get("model_family") != "yolo9"
@@ -301,32 +365,56 @@ class ManagedModelStore:
             raise ValueError(
                 "Checkpoint native classes differ from the registered order"
             )
-        if segmentation:
-            from managed_segmentation import verify_runtime
-            from ultralytics.nn.modules.head import Segment
-            import torch
+        if segmentation or expected["framework_version"] == "8.4.183":
+            from ultralytics.nn.modules import head as native_heads
+            from ultralytics.nn.tasks import yaml_model_load
 
-            validate_segmentation_receipt(expected)
-            verify_runtime()
+            base_model = f"{expected.get('model_family')}{expected.get('model_size')}{'-seg' if segmentation else ''}"
+            spec = model_spec("ultralytics", base_model)
             architecture = model.model.yaml
             head = model.model.model[-1]
+            validate_architecture_yaml(
+                architecture, spec, yaml_model_load(spec.yaml_filename)
+            )
             if (
-                architecture.get("scale") != "n"
-                or Path(architecture.get("yaml_file", "")).stem != "yolo11n-seg"
-                or type(head) is not Segment
+                type(head) is not getattr(native_heads, spec.head)
                 or head.nc != len(names)
-                or not names
+                or (getattr(head, "one2one_cv2", None) is not None) != spec.end2end
+                or spec.end2end
+                and head.reg_max != 1
+                or not matches_architecture_signature(
+                    model.model,
+                    spec.id,
+                    head.nc,
+                    _reference_model,
+                    ultralytics.__version__,
+                )
+            ):
+                raise ValueError(
+                    "Unqualified native model family, scale, head or inference branch"
+                )
+            if not segmentation:
+                validate_detection_receipt(expected)
+                verify_native_runtime(expected)
+        if segmentation:
+            from managed_segmentation import verify_runtime
+
+            validate_segmentation_receipt(expected)
+            verify_runtime(expected["framework_version"])
+            if (
+                not names
                 or len(set(names)) != len(names)
                 or any(not isinstance(name, str) or not name for name in names)
             ):
                 raise ValueError("Unqualified segmentation architecture or classes")
+        if segmentation or expected["framework_version"] == "8.4.183":
+            import torch
+
             tensors = list(model.model.state_dict().values())
             if not tensors or any(
                 not torch.isfinite(tensor).all().item() for tensor in tensors
             ):
-                raise ValueError(
-                    "Segmentation checkpoint has missing or non-finite state"
-                )
+                raise ValueError("Native checkpoint has missing or non-finite state")
         return model
 
     async def install(self, body: InstallRequest):

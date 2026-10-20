@@ -126,6 +126,35 @@ def _installed(controlled):
     return controlled
 
 
+@pytest.mark.parametrize("base_model", ["yolov8x-seg", "yolo11m-seg", "yolo26l-seg"])
+def test_new_fixture_freezes_each_model_and_runtime_without_changing_legacy(
+    controlled, base_model
+):
+    from scripts.controlled_segmentation_validation import _read_fixture
+    from training_contract.model_return import segmentation_identity
+
+    controlled.fixture.update(
+        schema=2, base_model=base_model, framework_version="8.4.183"
+    )
+    controlled.fixture_json.write_text(json.dumps(controlled.fixture))
+    assert _read_fixture(controlled.fixture_json) == controlled.fixture
+    controlled.receipt = {
+        **controlled.reference,
+        "classes": controlled.fixture["classes"],
+        "framework": "ultralytics",
+        "framework_version": "8.4.183",
+        "task": "segmentation",
+        **segmentation_identity(base_model, framework_version="8.4.183"),
+    }
+    assert controlled.receipt["runtime_qualification"]["nms"] is (
+        False if base_model.startswith("yolo26") else None
+    )
+    controlled.fixture["framework_version"] = "8.4.177"
+    controlled.fixture_json.write_text(json.dumps(controlled.fixture))
+    with pytest.raises(ValueError):
+        _read_fixture(controlled.fixture_json)
+
+
 def _prediction(controlled):
     ref = _installed(controlled).receipt
     mask = np.zeros((1, 7, 11), dtype=np.uint8)

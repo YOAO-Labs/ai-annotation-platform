@@ -25,7 +25,7 @@ from aap_protocol_v2.mask_interaction import (
 )
 from managed_models import InstallRequest, ManagedModelRef, digest, file_digest
 from managed_segmentation import validate_budget
-from training_contract.model_return import SEGMENTATION_RUNTIME, segmentation_identity
+from training_contract.model_return import segmentation_identity
 
 
 INPUT_ENV = (
@@ -54,10 +54,19 @@ def _read_fixture(path: Path) -> dict:
     if not 0 < path.stat().st_size <= 64 * 1024:
         raise ValueError("Controlled fixture JSON exceeds its byte budget")
     value = json.loads(path.read_bytes())
-    if not isinstance(value, dict) or set(value) != FIXTURE_FIELDS:
-        raise ValueError("Controlled fixture fields differ from the contract")
-    if type(value["schema"]) is not int or value["schema"] != 1:
+    if not isinstance(value, dict) or value.get("schema") not in {1, 2}:
         raise ValueError("Unsupported controlled fixture schema")
+    fields = FIXTURE_FIELDS | (
+        {"base_model", "framework_version"} if value["schema"] == 2 else set()
+    )
+    if set(value) != fields:
+        raise ValueError("Controlled fixture fields differ from the contract")
+    if type(value["schema"]) is not int:
+        raise ValueError("Unsupported controlled fixture schema")
+    if value["schema"] == 2:
+        segmentation_identity(
+            value["base_model"], framework_version=value["framework_version"]
+        )
     ref = ManagedModelRef.model_validate(value["frozen_model_ref"])
     if ref.model_dump(mode="json") != value["frozen_model_ref"]:
         raise ValueError("Controlled fixture requires canonical model reference")
@@ -159,9 +168,12 @@ class ControlledSegmentationFixture:
             **self.reference,
             "classes": self.fixture["classes"],
             "framework": "ultralytics",
-            "framework_version": SEGMENTATION_RUNTIME["ultralytics"],
+            "framework_version": self.fixture.get("framework_version", "8.4.177"),
             "task": "segmentation",
-            **segmentation_identity("yolo11n-seg"),
+            **segmentation_identity(
+                self.fixture.get("base_model", "yolo11n-seg"),
+                framework_version=self.fixture.get("framework_version", "8.4.177"),
+            ),
         }
         with _weight_server(self.weights) as download_url:
             body = InstallRequest.model_validate(
@@ -223,8 +235,10 @@ class ControlledSegmentationFixture:
             != {
                 "output_contract": self.receipt["output_contract"],
                 "dimensions": self.dimensions,
-                "mask_processing": SEGMENTATION_RUNTIME["mask_processing"],
-                "decoder": SEGMENTATION_RUNTIME["decoder"],
+                "mask_processing": self.receipt["runtime_qualification"][
+                    "mask_processing"
+                ],
+                "decoder": self.receipt["runtime_qualification"]["decoder"],
                 "runtime_qualification": self.receipt["runtime_qualification"],
             }
         ):
@@ -337,6 +351,8 @@ class ControlledSegmentationFixture:
         ]
         return artifacts, {
             "frozen_model_ref": self.reference,
+            "base_model": self.fixture.get("base_model", "yolo11n-seg"),
+            "framework_version": self.fixture.get("framework_version", "8.4.177"),
             "receipt_digest": digest(self.receipt),
             "output_contract": self.receipt["output_contract"],
             "runtime_qualification_digest": digest(

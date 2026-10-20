@@ -119,6 +119,7 @@ def test_ultralytics_resume_preserves_best_even_without_new_improvement_and_reca
 
     s = spec(tmp_path)
     s["framework"] = s["frozen_config"]["framework"] = "ultralytics"
+    s["frozen_config"]["framework_version"] = "8.4.177"
     first, second = tmp_path / "first", tmp_path / "second"
     first.mkdir()
     second.mkdir()
@@ -183,6 +184,7 @@ def test_ultralytics_resume_rejects_corrupt_best_bytes_and_config_identity(tmp_p
 
     s = spec(tmp_path)
     s["framework"] = s["frozen_config"]["framework"] = "ultralytics"
+    s["frozen_config"]["framework_version"] = "8.4.177"
     resume = tmp_path / "resume.pt"
     blob = {
         "version": "8.4.177",
@@ -238,6 +240,7 @@ def test_ultralytics_new_or_tied_best_updates_receipt_without_mutating_native_fi
 
     s = spec(tmp_path)
     s["framework"] = s["frozen_config"]["framework"] = "ultralytics"
+    s["frozen_config"]["framework_version"] = "8.4.177"
     callbacks = UltralyticsCheckpoints(s, tmp_path)
     last, best = tmp_path / "last.pt", tmp_path / "best.pt"
     for epoch, fitness in enumerate([0.0, 0.9, 0.9]):
@@ -271,6 +274,7 @@ def test_ultralytics_legacy_checkpoint_without_receipt_is_not_reinterpreted_as_v
 
     s = spec(tmp_path)
     s["framework"] = s["frozen_config"]["framework"] = "ultralytics"
+    s["frozen_config"]["framework_version"] = "8.4.177"
     resume = tmp_path / "legacy.pt"
     torch.save(
         {
@@ -436,6 +440,13 @@ def test_incompatible_or_incomplete_checkpoint_is_rejected(tmp_path, field, valu
         validate_checkpoint(blob, s, epoch=1)
 
 
+def test_libre_resume_rejects_checkpoint_from_another_model_scale(tmp_path):
+    s = spec(tmp_path)
+    s["frozen_config"]["base_model"] = {"id": "libreyolo9s"}
+    with pytest.raises(ValueError, match="identity"):
+        validate_checkpoint(native_checkpoint(s), s, epoch=1)
+
+
 def test_native_restore_warnings_fail_instead_of_silently_restarting_optimizer():
     record = logging.LogRecord(
         "libreyolo.training.trainer",
@@ -515,7 +526,7 @@ def segmentation_dataset(tmp_path):
     from training_contract.validation import CANONICAL
 
     s = dataset(tmp_path)
-    schema = definition("ultralytics", "yolo11n-seg")
+    schema = definition("ultralytics", "yolo11n-seg", version="8.4.177")
     configuration = resolve(
         "ultralytics",
         "yolo11n-seg",

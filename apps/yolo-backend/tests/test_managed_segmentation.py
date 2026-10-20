@@ -275,6 +275,14 @@ def test_pinned_native_checkpoint_reload_postprocessing_and_non_square_inference
     target = tmp_path / "own.pt"
     model.save(target)
     ref = receipt()
+    import ultralytics
+
+    ref.update(
+        framework_version=ultralytics.__version__,
+        **segmentation_identity(
+            "yolo11n-seg", framework_version=ultralytics.__version__
+        ),
+    )
     ref["classes"] = [model.names[index] for index in range(len(model.names))]
     ref["classes_digest"] = digest(ref["classes"])
     loaded = ManagedModelStore.inspect(target, ref)

@@ -1,7 +1,8 @@
 """Bounded native consumer qualification; defaults to CPU and cleans fixtures.
 
-Use the pinned executor image, mount this checkout read-only, and provide a
-writable temporary directory. GPU execution requires the platform resource owner
+Use the pinned backend image with both native adapters and this checkout mounted
+read-only. Training and managed-return installation share a temporary directory.
+GPU execution requires the platform resource owner
 and is deliberately not acquired or bypassed by this probe.
 """
 
@@ -17,6 +18,7 @@ import tempfile
 import numpy as np
 from PIL import Image
 import torch
+import ultralytics
 from ultralytics import YOLO, settings
 from ultralytics.cfg import get_cfg
 
@@ -31,6 +33,7 @@ from training_executor.instance_rle import (
     transform_mask,
 )
 from training_executor.train import UltralyticsCheckpoints
+from training_executor.native_identity import validate_architecture
 
 
 def encode(mask):
@@ -121,7 +124,7 @@ class Interrupted(Exception):
     pass
 
 
-def qualify(base_path, temporary):
+def qualify(base_path, temporary, base_model=None):
     torch.set_num_threads(4)
     settings.update(
         {"sync": False, "wandb": False, "mlflow": False, "tensorboard": False}
@@ -134,9 +137,19 @@ def qualify(base_path, temporary):
         shutil.copyfile(
             "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", USER_CONFIG_DIR / font
         )
+    if base_model is not None and not base_model.endswith("-seg"):
+        from native_family_qualification import qualify_detection, qualify_libre
+
+        if base_model.lower().startswith("libreyolo"):
+            return qualify_libre(base_path, temporary, base_model)
+        return qualify_detection(base_path, temporary, base_model)
     root = Path(temporary) / "data"
     root.mkdir()
     originals = fixture(root)
+    native = YOLO(base_path, task="segment")
+    base_model = base_model or Path(native.model.yaml["yaml_file"]).stem
+    identity = validate_architecture(native.model, base_model)
+    nms = False if identity.end2end else None
     args = get_cfg(
         overrides={
             "task": "segment",
@@ -145,6 +158,7 @@ def qualify(base_path, temporary):
             "workers": 0,
             "overlap_mask": False,
             "mask_ratio": 1,
+            "nms": nms,
         }
     )
     dataset = InstanceRLEDataset(root, args, "train", 1)
@@ -177,7 +191,8 @@ def qualify(base_path, temporary):
     frozen = {
         "task": "segment",
         "framework": "ultralytics",
-        "framework_version": "8.4.177",
+        "framework_version": ultralytics.__version__,
+        "base_model": {"id": base_model},
         "adapter_revision": 2,
         "classes": ["shape"],
         "data_contract": INSTANCE_RLE_CONTRACT,
@@ -193,7 +208,6 @@ def qualify(base_path, temporary):
     first = Path(temporary) / "first"
     first.mkdir()
     checkpoints = UltralyticsCheckpoints(spec, first)
-    native = YOLO(base_path, task="segment")
     native.add_callback("on_train_start", checkpoints.started)
     native.add_callback("on_model_save", checkpoints.saved)
 
@@ -213,6 +227,7 @@ def qualify(base_path, temporary):
         workers=0,
         overlap_mask=False,
         mask_ratio=1,
+        nms=nms,
         amp=False,
         cache=False,
         deterministic=True,
@@ -280,8 +295,18 @@ def qualify(base_path, temporary):
         result.results_dict,
     )
     assert evaluator["revision"] == 3
+    from native_family_qualification import qualify_managed_return
+
     return {
-        "native_version": "8.4.177",
+        "native_version": ultralytics.__version__,
+        "base_model": base_model,
+        "head": identity.head,
+        "initialization": "pretrained"
+        if Path(base_path).suffix == ".pt"
+        else "scratch",
+        "managed_return": qualify_managed_return(best, base_model, Path(temporary)),
+        "end2end": bool(resumed.trainer.validator.end2end),
+        "nms": resumed.trainer.validator.args.nms,
         "device": "cpu",
         "input_shape": [96, 160],
         "train_shape": [128, 128],
@@ -303,8 +328,25 @@ def qualify(base_path, temporary):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--base", required=True)
+    group = parser.add_mutually_exclusive_group(required=True)
+    group.add_argument("--base")
+    group.add_argument("--manifest")
+    parser.add_argument("--model")
+    parser.add_argument("--output")
+    parser.add_argument("--timeout", type=int, default=1200)
     parsed = parser.parse_args()
-    with tempfile.TemporaryDirectory(prefix="aap-rle-native-") as temporary:
-        report = qualify(parsed.base, temporary)
+    if parsed.manifest:
+        from qualification_matrix import run_matrix
+
+        report = run_matrix(
+            Path(__file__),
+            parsed.manifest,
+            timeout=parsed.timeout,
+            output=parsed.output,
+        )
+    else:
+        with tempfile.TemporaryDirectory(prefix="aap-rle-native-") as temporary:
+            report = qualify(parsed.base, temporary, parsed.model)
+        if parsed.output:
+            Path(parsed.output).write_text(json.dumps(report, indent=2) + "\n")
     print("AAP_RLE_QUALIFICATION=" + json.dumps(report, sort_keys=True))

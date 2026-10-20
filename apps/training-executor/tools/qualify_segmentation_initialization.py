@@ -9,20 +9,23 @@ import tempfile
 import uuid
 
 from ultralytics import YOLO, settings
+import ultralytics
 from ultralytics.utils import USER_CONFIG_DIR
 
 from training_contract.catalog import digest
 from training_contract.dataset import INSTANCE_RLE_CONTRACT
-from training_contract.initialization import SEGMENTATION_POLICY_DIGEST, validate_pin
+from training_contract.initialization import policy_for_model, validate_pin
 from training_executor.initialization import prepare, observation, validate_input
 from training_executor.instance_rle import InstanceRLETrainer
+from training_executor.native_identity import validate_architecture
+from ultralytics.models.yolo.detect import DetectionTrainer
 
 
 class ObservedFreshState(Exception):
     pass
 
 
-def qualification(base, root):
+def qualification(base, root, base_model=None):
     import torch
 
     torch.set_num_threads(4)
@@ -36,8 +39,21 @@ def qualification(base, root):
         )
     data = root / "data"
     data.mkdir()
-    helper = runpy.run_path(str(Path(__file__).with_name("qualify_instance_rle.py")))
-    helper["fixture"](data)
+    source = YOLO(base)
+    base_model = base_model or Path(source.model.yaml["yaml_file"]).stem
+    identity = validate_architecture(source.model, base_model)
+    segmentation = identity.task == "segment"
+    if segmentation:
+        helper = runpy.run_path(
+            str(Path(__file__).with_name("qualify_instance_rle.py"))
+        )
+        helper["fixture"](data)
+    else:
+        from native_family_qualification import detection_fixture
+
+        detection_fixture(data)
+    trainer_class = InstanceRLETrainer if segmentation else DetectionTrainer
+    policy = policy_for_model(base_model, ultralytics.__version__)
     options = dict(
         data=str(data / "data.yaml"),
         device="cpu",
@@ -46,6 +62,7 @@ def qualification(base, root):
         workers=0,
         overlap_mask=False,
         mask_ratio=1,
+        nms=False if identity.end2end else None,
         amp=False,
         cache=False,
         deterministic=True,
@@ -68,9 +85,8 @@ def qualification(base, root):
         exist_ok=False,
         name="framework",
     )
-    source = YOLO(base, task="segment")
     result = source.train(
-        trainer=InstanceRLETrainer,
+        trainer=trainer_class,
         **{**options, "epochs": 1, "project": str(root / "source")},
     )
     weights = root / "source/framework/weights/best.pt"
@@ -88,15 +104,15 @@ def qualification(base, root):
     classes = ["shape"]
     pin = {
         "kind": "trained_model",
-        "policy_digest": SEGMENTATION_POLICY_DIGEST,
+        "policy_digest": digest(policy),
         **identifiers,
         "model_name": "Native CPU qualification",
         "framework": "ultralytics",
-        "framework_version": "8.4.177",
-        "task": "segment",
-        "model_family": "yolo11",
-        "base_model": "yolo11n-seg",
-        "data_contract": INSTANCE_RLE_CONTRACT,
+        "framework_version": ultralytics.__version__,
+        "task": policy["task"],
+        "model_family": identity.family,
+        "base_model": identity.id,
+        **({"data_contract": INSTANCE_RLE_CONTRACT} if segmentation else {}),
         "artifact": {
             "role": "weights",
             "key": f"projects/{identifiers['project_id']}/runs/{identifiers['run_id']}/attempts/{identifiers['attempt_id']}/best.pt",
@@ -132,13 +148,13 @@ def qualification(base, root):
         "frozen_config": {
             "initialization": pin,
             "classes": classes,
-            "task": "segment",
-            "data_contract": INSTANCE_RLE_CONTRACT,
+            "task": policy["task"],
+            **({"data_contract": INSTANCE_RLE_CONTRACT} if segmentation else {}),
         },
         "initialization_path": str(weights),
     }
     validate_input(spec)
-    candidate = YOLO(str(weights), task="segment")
+    candidate = YOLO(str(weights), task=identity.task)
     baseline = prepare(spec, candidate)
     captured = {}
 
@@ -149,7 +165,7 @@ def qualification(base, root):
     candidate.add_callback("on_train_start", inspect)
     try:
         candidate.train(
-            trainer=InstanceRLETrainer,
+            trainer=trainer_class,
             **{
                 **options,
                 "epochs": 3,
@@ -161,11 +177,14 @@ def qualification(base, root):
         pass
     assert captured["start_epoch"] == 0 and captured["optimizer_state_count"] == 0
     assert captured["source_tensor_digest"] == captured["loaded_tensor_digest"]
-    assert (
-        captured["mask_head_tensor_digest"]
-        == captured["loaded_mask_head_tensor_digest"]
-    )
+    if segmentation:
+        assert (
+            captured["mask_head_tensor_digest"]
+            == captured["loaded_mask_head_tensor_digest"]
+        )
     return {
+        "base_model": base_model,
+        "native_version": ultralytics.__version__,
         "device": "cpu",
         "source_epochs": 1,
         "target_epochs": 3,
@@ -178,8 +197,24 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("--base", required=True)
+    group = parser.add_mutually_exclusive_group(required=True)
+    group.add_argument("--base")
+    group.add_argument("--manifest")
+    parser.add_argument("--model")
+    parser.add_argument("--output")
+    parser.add_argument("--timeout", type=int, default=1200)
     args = parser.parse_args()
-    with tempfile.TemporaryDirectory(prefix="aap-segment-initialization-") as temporary:
-        report = qualification(args.base, Path(temporary))
+    if args.manifest:
+        from qualification_matrix import run_matrix
+
+        report = run_matrix(
+            Path(__file__), args.manifest, timeout=args.timeout, output=args.output
+        )
+    else:
+        with tempfile.TemporaryDirectory(
+            prefix="aap-segment-initialization-"
+        ) as temporary:
+            report = qualification(args.base, Path(temporary), args.model)
+        if args.output:
+            Path(args.output).write_text(json.dumps(report, indent=2) + "\n")
     print("AAP_SEGMENT_INITIALIZATION=" + json.dumps(report, sort_keys=True))

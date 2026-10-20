@@ -9,6 +9,7 @@ from training_contract.dataset import SEGMENTATION
 from training_contract.observability import InputMismatchError
 
 from .files import digest_file
+from .native_identity import validate_architecture
 
 
 def tensor_identity(model):
@@ -70,15 +71,10 @@ def prepare(spec, model):
         )
         segmentation = pin["task"] == SEGMENTATION
         expected_type = SegmentationModel if segmentation else DetectionModel
+        validate_architecture(model.model, pin["base_model"], classes=len(ordered))
         if (
             type(model.model) is not expected_type
             or model.task != ("segment" if segmentation else "detect")
-            or Path(model.model.yaml.get("yaml_file", "")).name
-            != pin["base_model"] + ".yaml"
-            or model.model.yaml.get("scale")
-            != ("n" if segmentation else pin["base_model"][-1])
-            or segmentation
-            and type(model.model.model[-1]).__name__ != "Segment"
             or ordered != pin["classes"]
             or ordered != spec["frozen_config"]["classes"]
         ):

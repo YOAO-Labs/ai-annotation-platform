@@ -8,6 +8,7 @@ from pathlib import Path, PurePosixPath
 import yaml
 from .files import digest_file
 from training_contract import ADAPTERS, verify_frozen
+from training_contract.models import model_spec, supports_version
 from training_contract.dataset import (
     SEGMENTATION,
     config_task,
@@ -28,7 +29,12 @@ def adapter_for(config):
     adapter = ADAPTERS.get(config["framework"])
     if (
         not adapter
-        or config["framework_version"] != adapter["version"]
+        or config["framework_version"]
+        not in (
+            {"8.4.177", "8.4.183"}
+            if config["framework"] == "ultralytics"
+            else {adapter["version"]}
+        )
         or config["adapter_revision"] not in {1, 2}
     ):
         raise ValueError("Unsupported frozen training adapter identity")
@@ -36,7 +42,14 @@ def adapter_for(config):
         verify_frozen(config)
     elif "configuration" in config:
         raise ValueError("Legacy adapter cannot interpret v2 parameters")
-    return adapter
+    if config.get("base_model") is not None and not supports_version(
+        model_spec(config["framework"], config["base_model"]["id"]),
+        config["framework_version"],
+    ):
+        raise ValueError(
+            "Frozen model does not have a qualified framework implementation"
+        )
+    return {**adapter, "version": config["framework_version"]}
 
 
 def validate_dataset(spec):

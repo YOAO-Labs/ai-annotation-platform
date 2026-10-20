@@ -1,4 +1,4 @@
-"""Qualified bitmap consumer for Ultralytics 8.4.177, without global patches."""
+"""Qualified bitmap consumer with bounded instance and semantic targets."""
 
 from __future__ import annotations
 
@@ -27,6 +27,20 @@ from training_contract.observability import InputMismatchError
 from .files import atomic_json
 
 MAX_LABEL_BYTES = INSTANCE_RLE_LIMITS["max_sample_label_bytes"]
+MAX_SEMANTIC_CLASS_PIXELS = 64_000_000
+
+
+def semantic_target(masks, classes):
+    """Match native Format: smallest covering instance, first input on area ties."""
+    height, width = masks.shape[-2:]
+    result = np.zeros((height, width), dtype=np.float32)
+    smallest = np.full((height, width), height * width + 1, dtype=np.int64)
+    for mask, native_class in zip(masks, classes, strict=True):
+        area = int(mask.sum())
+        covered = (mask != 0) & (area < smallest)
+        result[covered] = native_class
+        smallest[covered] = area
+    return torch.from_numpy(result)
 
 
 def decode_rle(rle):
@@ -86,6 +100,15 @@ class InstanceRLEDataset(Dataset):
         self.augment = split == "train" if augment is None else augment
         self.imgsz = args.imgsz
         manifest = json.loads((self.root / "manifest.json").read_text())
+        self.semantic = getattr(args, "nms", None) is False
+        if (
+            self.semantic
+            and batch_size * len(manifest["classes"]) * self.imgsz**2
+            > MAX_SEMANTIC_CLASS_PIXELS
+        ):
+            raise InputMismatchError(
+                "Semantic targets exceed 64M class pixels; reduce batch, classes or imgsz"
+            )
         self.samples = [
             sample for sample in manifest["samples"] if sample["split"] == split
         ]
@@ -199,6 +222,7 @@ class InstanceRLEDataset(Dataset):
             "cls": torch.tensor(classes, dtype=torch.float32).reshape(-1, 1),
             "bboxes": torch.tensor(boxes, dtype=torch.float32).reshape(-1, 4),
             "masks": torch.from_numpy(masks),
+            "sem_masks": semantic_target(masks, [item[0] for item in classes]),
             "batch_idx": torch.zeros(count),
             "im_file": self.im_files[index],
             "ori_shape": (height, width),
@@ -317,4 +341,6 @@ def consumer_evidence():
             inspect.getsource(SegmentationValidator._prepare_batch).encode()
         ).hexdigest(),
         "limits": dict(INSTANCE_RLE_LIMITS),
+        "semantic_target": "smallest-covering-instance;first-input-on-equal-area;background-zero",
+        "max_semantic_class_pixels": MAX_SEMANTIC_CLASS_PIXELS,
     }

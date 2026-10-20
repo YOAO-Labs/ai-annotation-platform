@@ -93,7 +93,17 @@ def ultralytics_descriptor(spec, weights, validator, metrics):
         imgsz=validator.dataloader.dataset.imgsz,
         torch_version=version("torch"),
         torchvision_version=version("torchvision"),
+        end2end=bool(getattr(validator, "end2end", False)),
     )
+    from training_contract.models import model_spec
+
+    expected = model_spec("ultralytics", spec["frozen_config"]["base_model"]["id"])
+    if options["end2end"] != expected.end2end or (
+        expected.end2end and options["nms"] is not False
+    ):
+        raise ValueError(
+            "Observed evaluator inference branch differs from frozen model"
+        )
     extra_sources = []
     if is_instance_rle(spec["frozen_config"].get("data_contract", {})):
         from .instance_rle import consumer_evidence, InstanceRLEDataset

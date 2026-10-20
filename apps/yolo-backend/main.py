@@ -985,12 +985,15 @@ async def managed_model_receipt(version_id: str, request: Request):
 
 
 @app.get("/managed-evaluation/profile")
-async def evaluation_profile(request: Request):
+async def evaluation_profile(
+    request: Request, base_model: str | None = Query(default=None, max_length=64)
+):
     authenticate_managed(request)
     return await asyncio.to_thread(
         qualification_profile,
         effective_device(DEVICE),
         _evaluation_requests.storage_identity,
+        *([base_model] if base_model is not None else []),
     )
 
 
@@ -1016,7 +1019,9 @@ async def seal_evaluation_request(
 
 
 @app.get("/managed-evaluation/segment/profile")
-async def mask_evaluation_profile(request: Request):
+async def mask_evaluation_profile(
+    request: Request, base_model: str | None = Query(default=None, max_length=64)
+):
     from segmentation_evaluations import qualification_profile as mask_profile
 
     authenticate_managed(request)
@@ -1024,6 +1029,7 @@ async def mask_evaluation_profile(request: Request):
         mask_profile,
         effective_device(DEVICE),
         _mask_evaluation_requests.storage_identity,
+        *([base_model] if base_model is not None else []),
     )
 
 
@@ -1162,6 +1168,8 @@ async def _run_predict(
 
 
 async def _run_sample_evaluation(req, *, operation):
+    from sample_evaluations import receipt_base_model
+
     ctx = req.context
     request = ctx.sample_evaluation
     receipt = await asyncio.to_thread(
@@ -1182,6 +1190,11 @@ async def _run_sample_evaluation(req, *, operation):
         profile_function,
         effective_device(DEVICE),
         store.storage_identity,
+        *(
+            [receipt_base_model(receipt)]
+            if receipt_base_model(receipt) is not None
+            else []
+        ),
     )
     if profile["profile_digest"] != request.profile_digest:
         raise evaluation_error(

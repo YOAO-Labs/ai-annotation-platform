@@ -23,6 +23,7 @@ from training_contract.observability import (
     failure_receipt,
 )
 from .observability import NativeProgress
+from .native_identity import validate_architecture
 
 
 def record_native_configuration(spec, output, observed, runtime_options, evidence=None):
@@ -200,7 +201,7 @@ class UltralyticsCheckpoints:
         if isinstance(names, dict) and set(names) == set(range(len(names))):
             names = [names[index] for index in range(len(names))]
         if (
-            blob.get("version") != "8.4.177"
+            blob.get("version") != self.spec["frozen_config"]["framework_version"]
             or blob.get("train_args", {}).get("task")
             != (
                 "segment"
@@ -216,16 +217,18 @@ class UltralyticsCheckpoints:
             raise InputMismatchError(
                 "Native checkpoint version, task, class or epoch identity mismatch"
             )
-        if config_task(self.spec["frozen_config"]) == SEGMENTATION:
-            yaml = getattr(model, "yaml", {})
-            if (
-                yaml.get("scale") != "n"
-                or Path(yaml.get("yaml_file", "")).stem != "yolo11n-seg"
-                or type(model.model[-1]).__name__ != "Segment"
-            ):
-                raise InputMismatchError(
-                    "Unqualified segmentation checkpoint architecture"
+        if (
+            self.spec["frozen_config"]["framework_version"] == "8.4.183"
+            or config_task(self.spec["frozen_config"]) == SEGMENTATION
+        ):
+            try:
+                validate_architecture(
+                    model,
+                    self.spec["frozen_config"]["base_model"]["id"],
+                    classes=len(names),
                 )
+            except (ValueError, AttributeError, KeyError, TypeError) as exc:
+                raise InputMismatchError("Unqualified checkpoint architecture") from exc
 
     def started(self, trainer):
         if self.best_bytes is not None:
@@ -307,7 +310,7 @@ def ultralytics_report(result, spec, comparison=None):
         "validation_digest": spec["frozen_config"]["validation_digest"],
         "evaluation": {
             "framework": "ultralytics",
-            "version": "8.4.177",
+            "version": spec["frozen_config"]["framework_version"],
             "task": "instance-segmentation" if segmentation else "detection",
             "split": "val",
             "imgsz": spec["parameters"]["imgsz"],
@@ -333,7 +336,7 @@ def ultralytics_train(spec: dict, output: Path, progress=None):
     from ultralytics.models.yolo.segment import SegmentationTrainer
     from ultralytics.utils import USER_CONFIG_DIR
 
-    if ultralytics.__version__ != "8.4.177":
+    if ultralytics.__version__ != spec["frozen_config"]["framework_version"]:
         raise NativeRuntimeMismatch("Unexpected Ultralytics runtime")
     settings.update(
         {"sync": False, "wandb": False, "mlflow": False, "tensorboard": False}
@@ -427,12 +430,10 @@ def ultralytics_train(spec: dict, output: Path, progress=None):
     model = YOLO(model_path, task=native_task)
     if model.task != native_task:
         raise InputMismatchError("Loaded weights do not match the frozen native task")
-    if segmentation and (
-        model.model.yaml.get("scale") != "n"
-        or Path(model.model.yaml.get("yaml_file", "")).stem != "yolo11n-seg"
-        or type(model.model.model[-1]).__name__ != "Segment"
-    ):
-        raise InputMismatchError("Unqualified segmentation base architecture")
+    try:
+        validate_architecture(model.model, spec["frozen_config"]["base_model"]["id"])
+    except (ValueError, AttributeError, KeyError, TypeError) as exc:
+        raise InputMismatchError("Unqualified native base architecture") from exc
     initialization_baseline = prepare_initialization(spec, model)
 
     def started(trainer):

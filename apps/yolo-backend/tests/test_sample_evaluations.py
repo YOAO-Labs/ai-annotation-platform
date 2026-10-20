@@ -305,7 +305,9 @@ def test_capacity_cleanup_never_unlinks_lock_inode_or_running_native_request(
 def test_profile_records_actual_pinned_source_and_shared_storage_identity(tmp_path):
     store = EvaluationRequestStore(tmp_path)
     profile = qualification_profile("cpu", store.storage_identity)
-    assert profile["ultralytics_version"] == "8.4.177"
+    import importlib.metadata
+
+    assert profile["ultralytics_version"] == importlib.metadata.version("ultralytics")
     assert profile["options"] == FIXED_OPTIONS
     assert profile["options"]["quantize"] == 32 and profile["options"]["rect"] is False
     assert len(profile["source_digest"]) == 64

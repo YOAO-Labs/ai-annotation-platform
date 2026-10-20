@@ -18,8 +18,8 @@ from aap_protocol_v2.mask_interaction import (
 )
 from training_contract.model_return import (
     SEGMENTATION_OUTPUT_CONTRACT,
-    SEGMENTATION_RUNTIME,
     segmentation_identity,
+    segmentation_runtime,
 )
 
 MAX_MASK_ELEMENTS = 128_000_000
@@ -35,23 +35,27 @@ FIXED_OPTIONS = {
 }
 
 
-def verify_runtime():
+def verify_runtime(framework_version=None):
     """Check the actual imported code, including letterbox/crop helpers."""
+    actual_version = importlib.import_module("ultralytics").__version__
+    runtime = segmentation_runtime(framework_version or actual_version)
     for name in ("ultralytics", "torch", "torchvision"):
-        if importlib.import_module(name).__version__ != SEGMENTATION_RUNTIME[name]:
+        if importlib.import_module(name).__version__ != runtime[name]:
             raise ValueError("Unqualified segmentation inference runtime")
-    for name, expected in SEGMENTATION_RUNTIME["source_sha256"].items():
+    for name, expected in runtime["source_sha256"].items():
         source = Path(importlib.import_module(name).__file__).read_bytes()
         if hashlib.sha256(source).hexdigest() != expected:
             raise ValueError("Segmentation postprocessing source identity changed")
 
 
 def validate_receipt(receipt):
-    expected = segmentation_identity("yolo11n-seg")
+    expected = segmentation_identity(
+        f"{receipt.get('model_family')}{receipt.get('model_size')}-seg",
+        framework_version=receipt.get("framework_version"),
+    )
     if (
         receipt.get("task") != "segmentation"
         or receipt.get("framework") != "ultralytics"
-        or receipt.get("framework_version") != SEGMENTATION_RUNTIME["ultralytics"]
         or any(receipt.get(key) != value for key, value in expected.items())
         or receipt.get("artifact_format") is not None
         or receipt.get("artifact_size_bytes") is not None
@@ -189,8 +193,8 @@ def emit_instances(result, receipt, width, height, max_det):
         "segmentation": {
             "output_contract": SEGMENTATION_OUTPUT_CONTRACT,
             "dimensions": [height, width],
-            "mask_processing": SEGMENTATION_RUNTIME["mask_processing"],
-            "decoder": SEGMENTATION_RUNTIME["decoder"],
+            "mask_processing": receipt["runtime_qualification"]["mask_processing"],
+            "decoder": receipt["runtime_qualification"]["decoder"],
             "runtime_qualification": receipt["runtime_qualification"],
         },
     }

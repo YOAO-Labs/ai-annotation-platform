@@ -7,9 +7,12 @@ import shutil
 import pytest
 
 
-@pytest.mark.parametrize("task", ["detect", "segment"])
+@pytest.mark.parametrize(
+    "base_model",
+    ["yolov8n", "yolo11n", "yolo26n", "yolov8n-seg", "yolo11n-seg", "yolo26n-seg"],
+)
 def test_native_training_metrics_are_separate_unaugmented_and_rng_neutral(
-    tmp_path, task
+    tmp_path, base_model
 ):
     torch = pytest.importorskip("torch")
     np = pytest.importorskip("numpy")
@@ -17,6 +20,11 @@ def test_native_training_metrics_are_separate_unaugmented_and_rng_neutral(
     from PIL import Image, ImageDraw
     from ultralytics import YOLO
     from ultralytics.utils import USER_CONFIG_DIR
+    from training_contract.models import model_spec
+
+    spec = model_spec("ultralytics", base_model)
+    task = spec.task
+    torch.set_num_threads(2)
 
     from training_executor.instance_rle import InstanceRLETrainer
     from training_executor.train import (
@@ -76,7 +84,9 @@ def test_native_training_metrics_are_separate_unaugmented_and_rng_neutral(
                     ],
                 )
             )
-    (tmp_path / "manifest.json").write_text(json.dumps({"samples": samples}))
+    (tmp_path / "manifest.json").write_text(
+        json.dumps({"samples": samples, "classes": ["shape"]})
+    )
     data = tmp_path / "data.yaml"
     data.write_text(
         f"path: {tmp_path}\ntrain: images/train\nval: images/val\nnames: ['shape']\n"
@@ -108,9 +118,7 @@ def test_native_training_metrics_are_separate_unaugmented_and_rng_neutral(
             {
                 "base_path": "/unused/pretrained.pt",
                 "frozen_config": {
-                    "base_model": {
-                        "id": "yolo11n-seg" if task == "segment" else "yolo11n"
-                    },
+                    "base_model": {"id": base_model},
                     "configuration": {"effective_values": {"pretrained": False}},
                 },
             }
@@ -135,6 +143,7 @@ def test_native_training_metrics_are_separate_unaugmented_and_rng_neutral(
         project=str(tmp_path),
         name="native",
         overlap_mask=False,
+        nms=False if spec.end2end else None,
     )
     assert len(records) == 2
     for metrics in records:
@@ -143,7 +152,12 @@ def test_native_training_metrics_are_separate_unaugmented_and_rng_neutral(
                 key = f"metrics/{name}{suffix}"
                 assert key in metrics and f"train/{key}" in metrics
         for name in (
-            ("box", "cls", "dfl", "seg") if task == "segment" else ("box", "cls", "dfl")
+            "box",
+            "cls",
+            "l1" if spec.end2end else "dfl",
+            *(["seg", "sem"] if task == "segment" else []),
         ):
             assert f"train/{name}_loss" in metrics
             assert f"val/{name}_loss" in metrics
+        if spec.end2end:
+            assert "train/dfl_loss" not in metrics and "val/dfl_loss" not in metrics
