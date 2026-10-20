@@ -364,7 +364,6 @@ async def test_installed_owner_offboarding_handoff_response_loss_replay_and_reti
             project_ids.extend([project.id, empty_roles_project.id])
             for member, member_project, member_role in (
                 (target, project, "annotator"),
-                (target, project, "reviewer"),
                 (annotator_receiver, project, "annotator"),
                 (reviewer_receiver, project, "reviewer"),
                 (annotator_receiver, empty_roles_project, "annotator"),
@@ -379,7 +378,7 @@ async def test_installed_owner_offboarding_handoff_response_loss_replay_and_reti
                 )
             batch = await create_batch(db, project_id=project.id, name="双职责批次")
             batch.annotator_id = target.id
-            batch.reviewer_id = target.id
+            batch.reviewer_id = reviewer_receiver.id
             batch.updated_at = old_time
             batch.assigned_user_ids = [
                 str(target.id),
@@ -581,6 +580,14 @@ async def test_installed_owner_offboarding_handoff_response_loss_replay_and_reti
         assert [item["role"] for item in frozen_result["transfers"]] == (
             expected_transfer_roles
         )
+        transfer_batch_ids = {
+            (item["project_id"], item["role"]): item["batch_ids"]
+            for item in frozen_result["transfers"]
+        }
+        assert transfer_batch_ids[(str(project.id), "annotator")] == [str(batch.id)]
+        assert transfer_batch_ids[(str(project.id), "reviewer")] == []
+        assert transfer_batch_ids[(str(project.id), "owner")] == []
+        assert transfer_batch_ids[(str(empty_roles_project.id), "owner")] == []
         assert frozen_result["unresolved"] == []
         assert frozen_result["revoked_api_key_ids"] == [str(api_key.id)]
 
@@ -611,7 +618,7 @@ async def test_installed_owner_offboarding_handoff_response_loss_replay_and_reti
         assert project_states[empty_roles_project.id].owner_id == owner_receiver.id
         assert project_states[project.id].updated_at > old_time
         assert project_states[empty_roles_project.id].updated_at > old_time
-        assert len(member_ids) == 2
+        assert len(member_ids) == 1
         assert current_key.revoked_at is not None
         assert current_reset is not None
         assert await _lock_ids(maker, target.id) == []
@@ -802,13 +809,6 @@ async def test_installed_owner_emergency_offboarding_preserves_work_and_redacts_
                 role="annotator",
                 assigned_by=actor_id,
             )
-            await create_membership(
-                db,
-                project_id=project.id,
-                user_id=target.id,
-                role="reviewer",
-                assigned_by=actor_id,
-            )
             batch = await create_batch(db, project_id=project.id, name="待交接批次")
             batch.annotator_id = target.id
             batch.reviewer_id = target.id
@@ -862,6 +862,7 @@ async def test_installed_owner_emergency_offboarding_preserves_work_and_redacts_
             "no_owner_receiver",
             "no_annotator_receiver",
             "no_reviewer_receiver",
+            "historic_mixed_role",
         ]
         reason = "  应急处置😀  "
         commit_request = _offboarding_request(
@@ -927,7 +928,7 @@ async def test_installed_owner_emergency_offboarding_preserves_work_and_redacts_
         assert task_state["assignee_id"] == target.id
         assert task_state["reviewer_id"] == target.id
         assert task_state["updated_at"] == old_time
-        assert membership_count == 2
+        assert membership_count == 1
         assert await _lock_ids(maker, target.id) == []
         account = await _account_state(maker, target.id)
         assert account["is_active"] is False
