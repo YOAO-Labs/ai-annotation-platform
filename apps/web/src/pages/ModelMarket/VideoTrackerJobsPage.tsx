@@ -220,7 +220,7 @@ export function VideoTrackerJobsPanel({ projectId }: { projectId?: string }) {
   };
 
   return (
-    <div className="flex flex-col gap-4 px-7 py-5 text-foreground">
+    <div className="flex min-w-0 flex-col gap-4">
       <Card>
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-3">
           <div>

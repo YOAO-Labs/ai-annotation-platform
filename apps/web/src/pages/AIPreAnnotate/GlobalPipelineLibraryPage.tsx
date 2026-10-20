@@ -415,15 +415,6 @@ export default function GlobalPipelineLibraryPage() {
 
   return (
     <div className={styles.page}>
-      <div className={styles.pageIntro}>
-        <div>
-          <h1 className={styles.pageTitle}>编排库</h1>
-          <div className={styles.pageSubtitle}>
-            从全局 backend/model 池创建可复用编排；项目页只负责套用到当前项目。
-          </div>
-        </div>
-      </div>
-
       <Card>
         <div className={styles.toolbar}>
           <div className={styles.toolbarGroup}>
