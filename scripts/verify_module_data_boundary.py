@@ -51,6 +51,7 @@ IDENTITY_CLIENT_ROLES = {
     "MAIL": "identity_mail_client",
     "MAIL_V2": "identity_mail_v2_client",
     "MAIL_SETTINGS": "identity_mail_settings_client",
+    "ADMIN_PASSWORD": "identity_admin_password_client",
     "DIRECTORY": "identity_directory_client",
 }
 MODULE_ROLES = (
@@ -168,6 +169,8 @@ SQL_ARTIFACTS = (
     "0242_identity_invitations.sql",
     "0243_identity_directory_support.sql",
     "0243_identity_directory.sql",
+    "0244_identity_admin_passwords_support.sql",
+    "0244_identity_admin_passwords.sql",
 )
 SCHEMA_ARTIFACTS = (
     "0191_task_append.schema.json",
@@ -221,8 +224,12 @@ SCHEMA_ARTIFACTS = (
     "0241_identity_deactivation.schema.json",
     "0242_identity_invitations.schema.json",
     "0243_identity_directory.schema.json",
+    "0244_identity_admin_passwords.schema.json",
 )
 TEST_FILES = (
+    "tests/test_identity_admin_passwords_native.py",
+    "tests/test_identity_admin_passwords_roles.py",
+    "tests/test_identity_admin_passwords_restore.py",
     "tests/test_identity_directory_native.py",
     "tests/test_identity_directory_roles.py",
     "tests/test_identity_invitations_native.py",
@@ -1699,6 +1706,8 @@ def _install_and_rollback_frozen_sql(
         "SELECT aap_identity_invitations_v1.prepare_invitation_command('{}'::jsonb);\n"
         "SELECT aap_identity_directory_v1.directory_policy();\n"
         "SELECT aap_identity_directory_v1.execute_directory_command('{}'::jsonb);\n"
+        "SELECT aap_identity_admin_passwords_v1.admin_password_policy();\n"
+        "SELECT aap_identity_admin_passwords_v1.execute_admin_password_command('{}'::jsonb);\n"
         "SELECT aap_identity_deactivation_v1.deactivation_policy();\n"
         "SELECT aap_identity_deactivation_v1.execute_deactivation_command(NULL::jsonb);\n"
         "SELECT aap_identity_deactivation_v1.due_policy();\n"
@@ -1838,6 +1847,7 @@ def _install_and_rollback_frozen_sql(
         "aap-identity-deactivation-due-native/v1": "invalid_request",
         "aap-identity-invitations-native/v1": "invalid_request",
         "aap-identity-directory-native/v1": "invalid_request",
+        "aap-identity-admin-passwords-native/v1": "invalid_request",
     }
     if any(
         not any(
@@ -1867,6 +1877,14 @@ def _install_and_rollback_frozen_sql(
         for response in responses.get("aap-identity-directory-policy/v1", [])
     ):
         raise RuntimeError("native Identity directory policy probe did not succeed")
+    if not any(
+        response.get("schema") == "aap-identity-admin-passwords-policy/v1"
+        and response.get("policy") == "aap-identity-admin-passwords/v1"
+        for response in responses.get("aap-identity-admin-passwords-policy/v1", [])
+    ):
+        raise RuntimeError(
+            "native Identity admin-password policy probe did not succeed"
+        )
 
     rollback_state = _psql(
         container_id,
@@ -1884,6 +1902,7 @@ def _install_and_rollback_frozen_sql(
             "AND to_regnamespace('aap_identity_deactivation_v1') IS NULL "
             "AND to_regnamespace('aap_identity_invitations_v1') IS NULL "
             "AND to_regnamespace('aap_identity_directory_v1') IS NULL "
+            "AND to_regnamespace('aap_identity_admin_passwords_v1') IS NULL "
             "AND to_regnamespace('aap_identity_mail_v2') IS NULL "
             "AND to_regnamespace('aap_workspace_v1') IS NULL "
             "AND to_regnamespace('aap_assets_v1') IS NULL "
@@ -1905,6 +1924,7 @@ def _install_and_rollback_frozen_sql(
             "AND to_regclass('public.identity_deactivation_due_receipts') IS NULL "
             "AND to_regclass('public.identity_invitation_operation_receipts') IS NULL "
             "AND to_regclass('public.identity_directory_export_receipts') IS NULL "
+            "AND to_regclass('public.identity_admin_password_reset_receipts') IS NULL "
             "AND to_regclass('public.identity_deactivation_requests') IS NULL "
             "AND to_regclass('public.notification_delivery_outbox') IS NULL "
             "AND to_regclass('public.identity_credential_mail_outbox') IS NULL "
@@ -2051,6 +2071,9 @@ def main(argv: list[str] | None = None) -> int:
         identity_directory_grants_path = (
             ROOT / "infra/docker/identity-directory-grants.sql"
         )
+        identity_admin_password_grants_path = (
+            ROOT / "infra/docker/identity-admin-passwords-grants.sql"
+        )
         identity_deactivation_grants_path = (
             ROOT / "infra/docker/identity-deactivation-grants.sql"
         )
@@ -2080,6 +2103,7 @@ def main(argv: list[str] | None = None) -> int:
             or not identity_group_grants_path.is_file()
             or not identity_invitation_grants_path.is_file()
             or not identity_directory_grants_path.is_file()
+            or not identity_admin_password_grants_path.is_file()
             or not identity_account_grants_path.is_file()
             or not identity_recovery_grants_path.is_file()
             or any(not path.is_file() for path in artifacts)
@@ -2116,6 +2140,9 @@ def main(argv: list[str] | None = None) -> int:
         )
         identity_directory_grant_sql = identity_directory_grants_path.read_text(
             encoding="utf-8"
+        )
+        identity_admin_password_grant_sql = (
+            identity_admin_password_grants_path.read_text(encoding="utf-8")
         )
         identity_group_grant_sql = identity_group_grants_path.read_text(
             encoding="utf-8"
@@ -2231,8 +2258,8 @@ def main(argv: list[str] | None = None) -> int:
         database = resources["database"]
         evidence["database"] = database
         _, heads = migration_graph(ROOT)
-        if heads != ["0243"]:
-            raise RuntimeError("module-data acceptance requires migration head 0243")
+        if heads != ["0244"]:
+            raise RuntimeError("module-data acceptance requires migration head 0244")
         evidence["migrations"]["head_before_downgrade"] = heads[0]
         phase = "downgrade-to-0189"
         _container_details(
@@ -2605,6 +2632,24 @@ def main(argv: list[str] | None = None) -> int:
                 "labeling_owner": "labeling_code",
                 "audit_owner": "audit_code",
                 "identity_directory_role": "identity_directory_client",
+            },
+        )
+        phase = "install-identity-admin-password-grants"
+        _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="owner",
+            password=owner_password,
+            database=database,
+            sql=identity_admin_password_grant_sql,
+            variables={
+                "expected_database": database,
+                "migration_role": "owner",
+                "identity_owner": "identity_code",
+                "workspace_owner": "workspace_code",
+                "audit_owner": "audit_code",
+                "identity_admin_password_role": "identity_admin_password_client",
             },
         )
         resource_environment = backend.environment()
