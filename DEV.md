@@ -1225,7 +1225,7 @@ Fernet key 应单独配置，不与 JWT secret 共用。轮换时保留旧 key�
 
 Producer 的直启策略名是 `IDENTITY_ALLOW_OPEN_REGISTRATION`、`IDENTITY_EMAIL_VERIFICATION_REQUIRED` 和 `IDENTITY_FRONTEND_BASE_URL`；Compose 主机端以 `IDENTITY_RUNTIME_ALLOW_OPEN_REGISTRATION`、`IDENTITY_RUNTIME_EMAIL_VERIFICATION_REQUIRED`、`IDENTITY_RUNTIME_FRONTEND_BASE_URL` 提供值。SMTP 环境 fallback 与主 API 现存的 `SMTP_*` SMTP 测试邮件配置分开；Settings 中的 mail policy 优先。mail worker `/health` 为 liveness，`/ready` 检查 8171 端口上的原生能力、Settings 与 key；Compose 覆盖镜像原先检查 8170 的 healthcheck，容器只读并以 UID 10003 运行。
 
-Recovery/mail、分组目录／指派与 self-deactivation/outbox 已有本地 Identity owner slice；完整 invitation lifecycle 与独立 MailV2 sender 是当前开发 slice，消费者／角色资格待 Root 验收。Identity 未完整独立，日常认证环境未切换，也没有另一语言 provider；Go 月报仍是独立实验。用户目录／平台管理员和其他多 owner lifecycle 仍留在 API。详见 [ADR-0119](docs/adr/0119-independent-identity-recovery-and-mail.md)、[ADR-0120](docs/adr/0120-independent-identity-group-catalog-and-assignment.md)、[ADR-0121](docs/adr/0121-identity-self-deactivation-and-notification-delivery.md) 与下方 [ADR-0122](docs/adr/0122-independent-identity-invitations-and-mail-v2.md)。
+Recovery/mail、分组目录／指派、自助注销／outbox 与完整 invitation lifecycle／MailV2 均有已限定的本地 Identity owner qualification；当前 Directory slice 正把四项用户目录读取迁入 Identity，source integration、native、API/runtime 绑定与数据权限资格待 Root 验收。平台角色写入、管理员改密、其他用户资料水合和其余多 owner lifecycle 仍留在 API。Identity 未完整独立，日常认证环境未切换，也没有另一语言 provider；Go 月报仍是独立实验。详见 [ADR-0119](docs/adr/0119-independent-identity-recovery-and-mail.md)、[ADR-0120](docs/adr/0120-independent-identity-group-catalog-and-assignment.md)、[ADR-0121](docs/adr/0121-identity-self-deactivation-and-notification-delivery.md)、[ADR-0122](docs/adr/0122-independent-identity-invitations-and-mail-v2.md) 与下方 [ADR-0123](docs/adr/0123-independent-identity-directory-reads.md)。
 
 ### Identity 分组目录与指派
 
@@ -1275,7 +1275,13 @@ Migration 0242 按顺序安装 `0242_identity_invitations_support.sql`、`0242_i
 
 独立 sender `python -m aap_identity_runtime.mail_worker_v2` 通过可选 `mail-v2` Compose profile 运行。它只得到 MailV2 DSN、`MAIL_SETTINGS` DSN、Recovery Fernet key 与 SMTP fallback，不带 Identity/Auth/control/JWT signing secret；邮箱/链接发送在 lease commit 后执行，不持 SQL 锁。host `IDENTITY_RUNTIME_MAIL_V2_DATABASE_URL_FILE` 选择自己的四函数 DSN；现有 `IDENTITY_RUNTIME_MAIL_SETTINGS_DATABASE_URL_FILE` 与 `IDENTITY_RUNTIME_RECOVERY_MAIL_KEY_FILE` 挂载复用，旧的 `IDENTITY_MAIL_SMTP_*` host fallback 映射成 `IDENTITY_MAIL_V2_SMTP_*`。SMTP unknown outcome 是 at-least-once，同 Message-ID 可能重发；当前 invitation 仍保持 valid。API embedded kick 可选 `IDENTITY_MAIL_V2_DATABASE_URL` 或 `IDENTITY_MAIL_V2_DATABASE_URL_FILE`，不注入 SMTP 凭据到 producer。轮换 Fernet key 时保留旧 key，直到相关 pending 邮件送达或被人工处理。
 
-邀请／MailV2 source和隔离验收正在实施；本页没有添加通过计数。Root 后续会按实际运行记录 migration/role、consumer、durable intent、SMTP uncertainty、sender restart、backup/restore 结果。该切片不完成用户目录、平台角色后台、全部 Identity、多语言 provider 或生产部署。
+邀请／MailV2 已通过本地限定资格；68 个数据库／进程用例、375 个已安装 Identity package 检查、324 个 API assembly 检查及其边界见[后端解耦计划](docs/plans/1792160873_backend-module-decoupling.md)。这些结果只覆盖 invitation/MailV2，不代表当前 Directory slice、完整 Identity、多语言 provider 或生产部署已完成。
+
+### Identity 用户目录只读 owner
+
+当前 Directory slice 只覆盖 `GET /api/v1/users`、`/users/query`、`/users/stats`、`/users/export` 四项读取，私有协议是 `aap-identity-directory/v1` 的 `list_users`、`query_users`、`user_stats` 和 `export_users`。API/runtime 可选专用 Identity Directory LOGIN DSN：环境名为 `IDENTITY_DIRECTORY_DATABASE_URL` 或 `IDENTITY_DIRECTORY_DATABASE_URL_FILE`，每对最多设置一项；独立 Compose 主机侧用 `IDENTITY_RUNTIME_DIRECTORY_DATABASE_URL_FILE` 选择 secret 文件，容器内映射回 `IDENTITY_DIRECTORY_DATABASE_URL_FILE`。这项能力只有 `directory_policy()` 与 `execute_directory_command(jsonb)` 两个函数权限，不授予 User/Workspace/Labeling 表读权。
+
+Public list 的 project-admin active-employee picker 与 query/stats/export 的 global read-only super-admin arm 是两套旧行为，必须分开保留。成员、管理和 lifecycle flags 经 Workspace 与 Labeling 的批量 typed projections 在同一数据库 snapshot 计算；export receipt 只冻结 8 个导出字段、metadata 与 Audit ID，授权重放不重复 Audit。协议精度、外国项目的既有 literal intersection、筛选/排序、CSV header 与 Audit detail 见[Identity 私有运行协议](docs-site/api/guides/identity-runtime.md#用户目录读取)与 [ADR-0123](docs/adr/0123-independent-identity-directory-reads.md)。此 slice 的 source、migration/grants、实际 API/standalone runtime、export lost-response 和 restore qualification 均待 Root 完成；不计入前述 invitation 68/375/324 结果，也不声称 Identity、生产或多语言 provider 已完成。
 
 ## 普通批量结果检查点
 

@@ -9,7 +9,7 @@ last_reviewed: 2026-10-20
 
 协议对象只接受声明的 wire 字段名：版本字段为 `schema`。内部 Python 字段名 `protocol` 无论单独使用还是与 `schema` 同时提交都被拒绝；opaque 偏好值中的同名键不受影响。
 
-Identity 运行时提供认证准入、API key、核心会话、自助账户、全局分组目录与指派、完整邀请生命周期、自助注销、注销到期处理、账号恢复和在线扫描命令，供受信任的服务调用。公开用户接口仍是 `/api/v1/auth/` 和 `/api/v1/me/api-keys`。私有接口要求独立控制 Bearer；需要用户身份的操作将凭据放在 JSON 的 `token` 中，不能代替控制凭据。注册/邀请证明凭据另置于 `payload`，与调用者身份 token 分开。账号恢复使用匿名请求或单次挑战证明，邮件与注销通知分别由独立执行进程投递。
+Identity 运行时提供认证准入、API key、核心会话、自助账户、全局分组目录与指派、完整邀请生命周期、四项用户目录读取、自助注销、注销到期处理、账号恢复和在线扫描命令，供受信任的服务调用。公开用户接口仍是 `/api/v1/auth/`、`/api/v1/me/api-keys` 与 `/api/v1/users`。私有接口要求独立控制 Bearer；需要用户身份的操作将凭据放在 JSON 的 `token` 中，不能代替控制凭据。注册/邀请证明凭据另置于 `payload`，与调用者身份 token 分开。账号恢复使用匿名请求或单次挑战证明，邮件与注销通知分别由独立执行进程投递。
 
 | 接口                                         | 用途                                           |
 | -------------------------------------------- | ---------------------------------------------- |
@@ -22,6 +22,7 @@ Identity 运行时提供认证准入、API key、核心会话、自助账户、�
 | `POST /v1/identity/presence/mark-inactive`   | 按已固定的 cutoff 批量标记离线                 |
 | `POST /v1/identity/groups/execute`           | 分组目录、查询、指派预览／执行                 |
 | `POST /v1/identity/invitations/execute`      | 邀请管理、批量操作、注册、接受与耐久邮件发送   |
+| `POST /v1/identity/directory/execute`        | 用户目录列表、查询、统计与导出                 |
 | `POST /v1/identity/deactivation/execute`     | 自助注销申请与撤销                             |
 | `POST /v1/identity/deactivation/process-due` | 分页处理已到期的自助注销申请                   |
 | `POST /v1/identity/recovery/execute`         | 开放注册、重置请求／消费、验证邮件重发／消费   |
@@ -88,7 +89,7 @@ API 保留通用限流和 Turnstile 验证，提供方重新检查失败计数�
 
 成功命令的状态、JTI／代次、业务审计和冻结声明回执共同提交。错误密码、停用或未验证的登录也会提交其经过验证的业务审计；格式错误或绑定错误的提供方响应不用于确认事务。响应丢失后重放要求当前认证，另一个有效凭据可用于恢复同一账号的冻结结果。重放不会再次登出新凭据、推进代次、记录业务审计或刷新旧声明；历史 token 可能已经失效。登录重放重新检查当前密码和 gate，账号角色取当前资料，签发声明保持冻结。
 
-提供方的签发时长、邮箱验证、失败计数阈值／窗口和 Redis 实例必须与边缘及剩余签发端匹配。修改签发策略或 signing secret 后，旧操作回执冲突。原生策略固定 issuer、HS256 和七天宽限；含会话回执时拒绝降级。分组目录／指派与完整 invitation lifecycle 采用独立 Identity owners；用户目录／平台管理员及其他用户 hydration 仍留在 API，整体日常签名能力尚未撤除。
+提供方的签发时长、邮箱验证、失败计数阈值／窗口和 Redis 实例必须与边缘及剩余签发端匹配。修改签发策略或 signing secret 后，旧操作回执冲突。原生策略固定 issuer、HS256 和七天宽限；含会话回执时拒绝降级。分组目录／指派与完整 invitation lifecycle 采用独立 Identity owners；当前 Directory slice 迁移四项用户只读操作，平台角色／lifecycle 写入及其他用户 hydration 仍留在 API，整体日常签名能力尚未撤除。
 
 为保证重放字节稳定，JWT header 使用紧凑 JSON `alg`、`typ`，payload 字段顺序固定为 `sub`、`role`、`exp`、`jti`、`gen`、`iss`。UUID 为小写规范形式，代次和时间为十进制整数，Base64URL 不带填充。HS256 key 是 `HMAC-SHA256(secret UTF-8, issuer UTF-8)` 的小写 hex 字符串，再按 UTF-8 作为 HMAC key。会话派生 master 使用相同 secret 与独立域 `aap-identity-sessions/v1`；其 SHA-256 是派生标识，登录指纹是该 master 对按键排序、紧凑且非 ASCII 以 Unicode 转义表示的 `{email,password}` JSON 的 HMAC-SHA256。仓库的 `apps/identity/tests/fixtures/session_vectors.json` 提供公开测试向量，不含部署凭据；Python 和 Node 都核对相同结果。这是跨语言原语／序列化证据，尚非另一语言的完整提供方验收。
 
@@ -116,7 +117,7 @@ API 保留通用限流和 Turnstile 验证，提供方重新检查失败计数�
 
 账户角色只有 `account_policy`、`prepare_account_command`、`apply_account_command` 三函数；扫描角色只有 `mark_inactive_accounts_offline`。扫描请求是 `{schema:"aap-identity-presence/v1",cutoff:"带时区时间"}`，成功响应为相同 schema 和严格非负 64 位 affected。它保留 `online AND (last_seen_at IS NULL OR last_seen_at < cutoff)`，不新增 active 过滤。就绪检查只查询权限，不执行扫描。
 
-账户偏好保留原有大小和基数集合，不套用会话的 64 KiB 请求或准入的 16 MiB 响应上限；并发、截止时间及部署资源仍是实际运行边界。字节处理不持远程 SQL 锁。确定拒绝时清理新头像暂存对象，提交未知时保留字节并先核对资料／回执；旧对象只在确认提交后尽力清理。用户目录／平台管理员及多 owner lifecycle 继续按[模块台账](/dev/concepts/module-deployment)推进。
+账户偏好保留原有大小和基数集合，不套用会话的 64 KiB 请求或准入的 16 MiB 响应上限；并发、截止时间及部署资源仍是实际运行边界。字节处理不持远程 SQL 锁。确定拒绝时清理新头像暂存对象，提交未知时保留字节并先核对资料／回执；旧对象只在确认提交后尽力清理。平台角色／管理员写入、其他用户 hydration 及多 owner lifecycle 继续按[模块台账](/dev/concepts/module-deployment)推进。
 
 ## 分组目录与指派
 
@@ -199,7 +200,38 @@ Invitation API 使用可选 `IDENTITY_INVITATION_DATABASE_URL(_FILE)` 和 `IDENT
 
 可选 Compose `--profile mail-v2` 启动 `identity-mail-v2`：它使用 `IDENTITY_RUNTIME_MAIL_V2_DATABASE_URL_FILE` 新文件；既有 `IDENTITY_RUNTIME_MAIL_SETTINGS_DATABASE_URL_FILE` 和 `IDENTITY_RUNTIME_RECOVERY_MAIL_KEY_FILE` 分别映射到 V2 `IDENTITY_MAIL_V2_SETTINGS_DATABASE_URL_FILE`、`IDENTITY_MAIL_V2_ENCRYPTION_KEY_FILE`；原宿主机 `IDENTITY_MAIL_SMTP_*` fallback 映射到 `IDENTITY_MAIL_V2_SMTP_*`。身份、Settings、key 和 SMTP 只授予 sender；`identity-admission` 没有 SMTP fallback credentials。V1 `identity-mail` 服务/LOGIN 仍有效并只领取 recovery intents。迁移 0242 先加载 `0242_identity_invitations_support.sql`，再 Mail 的 `0242_invitation_mail.sql`，最后 `0242_identity_invitations.sql`；grant 入口见 [DEV.md](https://github.com/yyq19990828/ai-annotation-platform/blob/main/DEV.md) 和 [ADR-0122](/dev/adr/0122-independent-identity-invitations-and-mail-v2)。
 
-完整邀请所有权仍是进行中的一块，不代表用户目录、平台角色管理、其他用户 hydration、全部 offboarding、整个 Identity、另一语言 provider 或生产容量已完成。`v1` 恢复邮件保持原协议；没有新的 Notifications event、Jobs backfill、生产切换或 Go 扩展。
+Invitation/MailV2 已完成本地限定资格，前述 68 database/process cases、375 installed-package checks 和 324 API assembly checks 仅覆盖该 slice。当前 Directory slice 与平台角色管理、其他用户 hydration、全部 offboarding、整个 Identity、另一语言 provider 和生产容量仍待完成。`v1` 恢复邮件保持原协议；没有新的 Notifications event、Jobs backfill、生产切换或 Go 扩展。
+
+## 用户目录读取
+
+本目录 slice 覆盖四个既有只读 HTTP operation：`GET /api/v1/users`、`/users/query`、`/users/stats` 和 `/users/export`。公开 paths、filters、defaults、DTO、status、CSV/JSON 和 SDK REST 调用保持不变。Identity 私有 `POST /v1/identity/directory/execute` 使用 `aap-identity-directory/v1`，body 精确包含 `schema`、`operation`、`operation_id`、`token`、`audit_context`、`payload` 六项。`token` 是当前非空 JWT/API-key credential，不是 actor 或 public User assertion；请求追踪继续使用 Session 的 method/path/ip/request_id context。
+
+| operation      | payload 与 defaults                                                               | data                                                                    |
+| -------------- | --------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| `list_users`   | `role=null`、`status=active`、`project_id=null`                                   | `{users: DirectoryUserRecord[]}`；公开 API 继续返回数组。               |
+| `query_users`  | `page=1`、`page_size=50`、`status=active`、`project_id/group_id/role/search=null` | `{items,total,page,page_size,pages}`；每项加两项管理 flags。            |
+| `user_stats`   | `status=active`、`project_id/group_id/role/search=null`，与 query 共用 filters    | `{total,online,weekly_active}`。                                        |
+| `export_users` | 同一组 filters，另有 `format=csv`（或 `json`）                                    | `{users: DirectoryExportRecord[],exported_by,exported_at,request_id}`。 |
+
+Wire success 精确是 `{schema,ok:true,operation,operation_id,principal,data}`；failure 使用闭合 `error={code,status_code,detail}`。Native success 在同一 envelope 上另带 strict boolean `replayed`。Query 的 count/page/page_size/pages 是精确 signed int64，`pages=ceil(total/page_size)` 且仅在 total=0 时为 0；页内 flags 是严格 boolean。
+
+不要把 legacy list 和 query/stats/export 合并成同一角色范围。Super-admin 的 `list_users` 返回匹配 status/role 的全部用户；传 `project_id` 时和所选项目成员取交集。Project-admin 只有在 `role=employee AND status=active` 时可看全局 active employee 候选，否则只看 self 与其自有项目成员，且 legacy `project_id` 输入被忽略。Legacy list 仅按 `created_at DESC` 排序，不新增 tie-order 保证。
+
+Query、stats、export 无 `project_id` 时，super-admin 看全部匹配用户；project-admin 看 self、自有项目成员、所有 active employee 和所有 active super-admin。额外的 active super-admin 只是只读联系人，除非该用户也满足现有 own-member 条件。带 `project_id` 时，super-admin 与选中项目成员取交集；project-admin 将 self／自有项目成员集合与选定项目成员取交集，不带 global employee 或 super-admin arm。保留当前字面范围：这个交集不额外要求所选项目归该 project-admin 所有，所以同时是其 self/own-member、且加入被筛外国项目的用户仍可能出现。
+
+`status` 允许 `active/inactive/all`，默认 `active`；`role` 不做 trim 或小写转换，也不增加任意短长度上限。非法或旧平台角色返回业务 400，detail 仍是 `非法平台角色: {submitted role}`，而不是输入 schema 422；该拒绝绑定实际 role 值。`search` 最长 255 字符，按 Python `str.strip()` 修剪，保留 email/name 的 ILIKE wildcard 行为；`group_id` 精确匹配。Query `page` 是正 signed int64，默认 1；`page_size` 是 1–500，默认 50，native offset 必须避免溢出。Query/export 按 `created_at DESC, id DESC` 排序。List 与 export 没有新增总行或响应字节上限。统计为 `total/online/weekly_active` 三个非负 int64，其中后两项不得超过 total；7 天 cutoff 含等号，并与读取使用同一 snapshot。
+
+每个用户 record 精确保留现有 `UserOut`／`AccountRecord` 的 21 个字段：`id/email/name/role/group_name/group_id/status/is_active/disabled_kind/disabled_at/disabled_by/disabled_reason/email_verified_at/last_login_at/last_seen_at/password_admin_reset_at/deactivation_requested_at/deactivation_scheduled_at/preferences/avatar_ref/created_at`。role/status 是原始 string，preferences 是 opaque JSON，不筛未知 keys 或舍入嵌套数字。UUID、datetime、boolean 保持类型；密码、credential hash、generation 和 API key 不进入输出。Query item 只新增 `is_managed`、`is_lifecycle_managed` 两个严格 boolean。Super-admin 两者为 true；project-admin 的 `is_managed` 表示 self、自有项目成员或 active employee，`is_lifecycle_managed` 还要求用户的派生项目均由当前 actor 管理。Derived projects 包括目标拥有项目、所有 memberships、TaskBatch annotator/reviewer、Task assignee/reviewer 和 TaskLock→Task；历史、停用、archived rows 仍参与，孤儿引用保留旧 inner-join Project 语义。
+
+Scope flags 来自窄批量 owner projections：Workspace 的 `identity_directory_owned_member_ids(uuid)`、`identity_directory_project_member_ids(uuid)` 与 `identity_directory_lifecycle_blocked(uuid,uuid[])`，以及 Labeling 的 `identity_directory_project_refs(uuid[])`（最多 500 个用户）。Workspace 只获得这项 Labeling capability；Identity 不读 Workspace/Labeling 原始表。Selected rows、total 与 flags 使用同一 SQL snapshot，不能改为逐用户 RPC。Audit 只提供 `record_identity_directory_export(...)` 这一封闭 typed user-export capability。
+
+Export row 精确包含 `id/email/name/role/group_name/group_id/status/created_at`。CSV 保留 8 列、UTF-8 BOM、formula escaping、ISO timestamp、media type 和原 attachment filename；JSON `_export_meta` 保留 `exported_by`、带时区 `exported_at`、`request_id` 和 count。新 export 以 status 200 写唯一 `user.export` Audit，`target_type=user`、`target_id=null`，detail 保留 `format/count/actor_email/ip/request_id`。Identity successful export receipt freezes 8 个字段、metadata 和 Audit ID；重放仍需当前凭据与 manager role，并按当前 export scope 和原 `project_id` 重新核验所有冻结用户 ID。旧搜索、group、status filters 不重新应用，profile/context 变化单独不阻止返回原冻结行与 metadata；若用户已删除或不再可见，则返回 `409 operation_conflict`。receipt 没有 live User FK，也不复制整个 User/preferences。其它三个 read operation 不建 receipt。
+
+Native protocol 是 `aap-identity-directory-native/v1`，policy schema/protocol 分别是 `aap-identity-directory-policy/v1` 和 `aap-identity-directory/v1`。Native request 精确包含 `schema/operation/operation_id/actor/expected_key_hash/request_fingerprint/derivation_id/audit_context/payload`；`actor` 来自已认证 Principal，`expected_key_hash` 仅 API-key 凭据时存在，原 token 不进入 native args 或 receipts。`identity_directory_client` LOGIN 精确只有 `directory_policy()` 和 `execute_directory_command(jsonb)`，没有 table/column/sequence/DDL 或 foreign-schema 权限；readiness 拒绝额外 grants。Native success 另带的 `replayed` 由 manager 去除，wire success 保持 `schema/ok/operation/operation_id/principal/data` 六项。失败只有闭合 `code/status_code/detail`；已知附加 code 为 `invalid_request` 400、`manager_required` 403、`invalid_platform_role` 400、`current_scope_busy` 与 `operation_conflict` 409、`unavailable` 503。未知、畸形或 actor/op/UUID 不匹配均 rollback，不泄漏服务器诊断或 fallback。
+
+Migration 0243 将创建目标 schema `aap_identity_directory_v1`。API 与 Identity runtime 可通过 `IDENTITY_DIRECTORY_DATABASE_URL` 或 `IDENTITY_DIRECTORY_DATABASE_URL_FILE` 选择此函数 owner；可选 Compose host selector 为 `IDENTITY_RUNTIME_DIRECTORY_DATABASE_URL_FILE`，容器内仍使用 `IDENTITY_DIRECTORY_DATABASE_URL_FILE`。部署独立 runtime 时必须提供该 LOGIN；显式 DSN 的连接失败不回退到 API ORM。Platform-role change、管理员重置密码、deactivate/delete/offboarding/reactivation、bootstrap/import 和 dashboard analytics 不属于这四项 reads。
+
+Directory source、native grants/migration、实际 API、独立 runtime/image、export response-loss replay 与备份恢复仍待 Root 验收；本节不报告 directory pass counts。前一邀请/MailV2 slice 的 68 database/process、375 installed-package、324 API-assembly counts 只适用于它原有的 scope，不能作为 directory qualification。
 
 ## 自助注销与最后一名超级管理员围栏
 

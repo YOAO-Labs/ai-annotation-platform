@@ -1,6 +1,6 @@
 # 后端业务模块解耦与跨语言替换设计
 
-> Status: 进行中。当前目标覆盖 identity、workspace、assets、labeling、inference、learning、insights、jobs、audit、notifications 及运行装配。前序 Python 进程内切片、常驻 API 恢复和既有训练作业执行权交接已完成。assets 视频探测三个操作已提供独立 Python 工件、流式合同及真实调用端的 Node 替换验收；同步 ZIP 与旧前缀扫描已纳入既有 Assets Source 工件及 0215 原生合同，并通过真实隔离服务、受限角色与故障恢复验收。Scene、位姿和标定切片已提取至既有 Catalog 工件，并通过隔离数据库、真实 HTTP/S3 与消费者资格验证；连接管理及本地图片/nuScenes 来源登记已迁入各自合同并完成本地验收；媒体/Blob、其余运维流程和其他模块继续推进。Identity 注册恢复／邮件、分组目录／指派及自助注销／due 均已完成对应本地 owner 与限定资格；当前推进完整 invitation lifecycle 与 Durable MailV2 sender，身份／Workspace／Audit 原事务和现有 public API shape 保持，邀请消费、邮件 v2 sender、公共 200/502 wait 与 Compose profile 的资格待本次实际验收。Go 月报保持独立实验，其可用性和容量不作为本目标门槛。当前各模块缺口见[模块部署与语言替换状态](../../docs-site/dev/concepts/module-deployment.md)。
+> Status: 进行中。当前目标覆盖 identity、workspace、assets、labeling、inference、learning、insights、jobs、audit、notifications 及运行装配。前序 Python 进程内切片、常驻 API 恢复和既有训练作业执行权交接已完成。assets 视频探测三个操作已提供独立 Python 工件、流式合同及真实调用端的 Node 替换验收；同步 ZIP 与旧前缀扫描已纳入既有 Assets Source 工件及 0215 原生合同，并通过真实隔离服务、受限角色与故障恢复验收。Scene、位姿和标定切片已提取至既有 Catalog 工件，并通过隔离数据库、真实 HTTP/S3 与消费者资格验证；连接管理及本地图片/nuScenes 来源登记已迁入各自合同并完成本地验收；媒体/Blob、其余运维流程和其他模块继续推进。Identity 注册恢复／邮件、分组目录／指派、自助注销／due 与完整 invitation lifecycle/MailV2 sender 均已有对应限定本地资格；当前推进四项用户目录读取 owner，原有 public filters 和角色可见性保持，native／API／runtime qualification 待本次实际验收。Go 月报保持独立实验，其可用性和容量不作为本目标门槛。当前各模块缺口见[模块部署与语言替换状态](../../docs-site/dev/concepts/module-deployment.md)。
 >
 > 创建日期：2026-10-16。
 >
@@ -2911,8 +2911,62 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   containers were removed. The protected primary checkout/runtime/databases
   stay unchanged. No push, release, remote CI, production, primary Identity cutover or
   Go expansion was performed.
-- Invitation ownership is now locally qualified. Next is the four-operation
-  Identity directory read owner, preserving the current differences between
-  legacy list visibility and query/stats/export visibility. Platform-admin
-  writes, cross-owner offboarding, remaining Identity authority and all other
-  module/seven-gate work remain active; this slice does not close the full goal.
+- Invitation ownership is locally qualified. The following directory section
+  records the current four-operation Identity read owner, preserving the
+  differences between legacy list visibility and query/stats/export visibility.
+  Platform-admin writes, cross-owner offboarding, remaining Identity authority
+  and all other module/seven-gate work remain active; this slice does not close
+  the full goal.
+
+### Identity user-directory read owner (current slice)
+
+- This slice moves only the four public reads `GET /api/v1/users`,
+  `/users/query`, `/users/stats` and `/users/export` to the versioned
+  `aap-identity-directory/v1` private contract. Public routes, filters,
+  defaults, `UserOut`/page models, statuses, SDK behavior and CSV/JSON output
+  remain unchanged. Platform-role changes, administrative password reset,
+  deactivate/delete, offboarding/reactivation, bootstrap/import provisioning
+  and dashboard analytics remain separate API workflows.
+- The protocol operations are `list_users`, `query_users`, `user_stats` and
+  `export_users`. Its exact request fields are `schema`, `operation`,
+  `operation_id`, current credential `token`, `audit_context` and `payload`.
+  The native request binds the authenticated Principal, current credential
+  facts, operation fingerprint/epoch and payload without forwarding the raw
+  bearer.
+- Preserve two separate project-admin visibility rules. Legacy list exposes
+  the global active-employee candidate mode only for `role=employee` and
+  `status=active`; otherwise it returns self plus owned-project members and
+  ignores `project_id`. Query/stats/export add global active employees and
+  read-only active super-admins when unfiltered. With `project_id`, these
+  global arms disappear and the literal self/owned-member intersection with
+  requested project members remains, including a member of a foreign project.
+  Query lifecycle flags preserve project-owner, membership, TaskBatch, Task
+  assignment and TaskLock-derived references, including historical/inactive
+  rows and the previous inner-join behavior for orphaned project refs.
+- Workspace supplies member and lifecycle-blocked projections; Labeling
+  supplies deduplicated project references for batches of at most 500 users.
+  User selection, total and flags share one SQL snapshot. Identity receives no
+  foreign-table read grants or per-user RPC dependency. The exact
+  `identity_directory_client` LOGIN has `directory_policy()` and
+  `execute_directory_command(jsonb)` only, under migration 0243.
+- Reads are receipt-free. Export alone writes `user.export`; its successful
+  receipt freezes the eight exported fields, metadata and Audit ID, contains no
+  live User FK or raw credentials, and prevents duplicate Audit on authorized
+  replay. Replay rechecks each frozen User ID under current export visibility
+  and the original `project_id`; it does not reapply search/group/status filters.
+  Deleted or newly invisible rows conflict, while profile/context changes alone
+  may return the original frozen export. It does not impose a total-row or byte
+  cap.
+- API/runtime select `IDENTITY_DIRECTORY_DATABASE_URL(_FILE)`; the optional
+  Compose host selector is `IDENTITY_RUNTIME_DIRECTORY_DATABASE_URL_FILE`.
+  Existing caller-transaction assembly and the standalone Identity runtime
+  both require precise function-only capability boundaries; explicit failures
+  must not select another writer.
+- Implementation, migration/grants, real API and standalone runtime binding,
+  export response-loss replay, backup/restore and local artifact qualification
+  remain pending Root verification. This section adds no pass count. The
+  previous invitation slice remains separately qualified at 68 database/
+  process cases, 375 installed-package checks and 324 API-assembly checks;
+  none of those counts covers directory reads. The ten-module/seven-gate goal
+  remains active; there is no primary Identity cutover, production deployment,
+  push/release, remote CI or Go expansion in this slice.

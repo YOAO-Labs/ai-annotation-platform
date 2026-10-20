@@ -168,3 +168,4 @@
 - [0120 — Identity 分组目录与指派独立所有权](0120-independent-identity-group-catalog-and-assignment.md)
 - [0121 — Identity 自助注销与通知投递所有权](0121-identity-self-deactivation-and-notification-delivery.md)
 - [0122 — Identity 邀请生命周期与 durable MailV2 投递所有权](0122-independent-identity-invitations-and-mail-v2.md)
+- [0123 — Identity 用户目录读取所有权与可见性合同](0123-independent-identity-directory-reads.md)
