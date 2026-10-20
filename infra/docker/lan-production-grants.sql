@@ -71,6 +71,7 @@ GRANT USAGE ON SCHEMA aap_workspace_v1, aap_assets_v1, aap_labeling_v1,
 -- Embedded Identity adapters use the same owner capabilities as isolated clients.
 GRANT USAGE ON SCHEMA aap_identity_v1, aap_identity_keys_v1,
     aap_identity_sessions_v1, aap_identity_accounts_v1, aap_identity_recovery_v1,
+    aap_identity_groups_v1,
     aap_settings_v1 TO :"application_role";
 GRANT EXECUTE ON FUNCTION
     aap_identity_v1.authentication_policy(),
@@ -99,6 +100,9 @@ GRANT EXECUTE ON FUNCTION
     aap_identity_recovery_v1.claim_mail(jsonb),
     aap_identity_recovery_v1.renew_mail(jsonb),
     aap_identity_recovery_v1.finish_mail(jsonb),
+    aap_identity_groups_v1.group_policy(),
+    aap_identity_groups_v1.execute_group_command(jsonb),
+    aap_identity_groups_v1.resolve_invitation_group(uuid, text),
     aap_settings_v1.mail_delivery_policy(jsonb)
     TO :"application_role";
 GRANT EXECUTE ON FUNCTION aap_workspace_v1.lock_project_reference(uuid),
