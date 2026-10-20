@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from pydantic import Field, SecretStr, model_validator
+from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -31,6 +31,8 @@ class Settings(BaseSettings):
     deactivation_operator_database_url_file: str | None = None
     invitation_database_url: SecretStr | None = None
     invitation_database_url_file: str | None = None
+    directory_database_url: SecretStr | None = None
+    directory_database_url_file: str | None = None
     recovery_mail_key: SecretStr | None = None
     recovery_mail_key_file: str | None = None
     token: SecretStr | None = None
@@ -54,6 +56,13 @@ class Settings(BaseSettings):
     max_invitations_per_day: int = Field(default=30, ge=1, le=1000)
     login_captcha_threshold: int = Field(default=5, ge=0)
     login_failed_window_seconds: int = Field(default=3600, gt=0)
+
+    @field_validator("directory_database_url_file", mode="before")
+    @classmethod
+    def blank_directory_dsn_file_is_unset(cls, value):
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
 
     @model_validator(mode="after")
     def secrets(self) -> Settings:
@@ -117,6 +126,7 @@ class Settings(BaseSettings):
             "deactivation_database_url",
             "deactivation_operator_database_url",
             "invitation_database_url",
+            "directory_database_url",
         ):
             value = getattr(self, field)
             path = getattr(self, field + "_file")

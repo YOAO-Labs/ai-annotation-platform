@@ -64,6 +64,15 @@ from aap_identity.deactivation_postgres import (
     DeactivationDuePostgresData,
     DeactivationPostgresData,
 )
+from aap_identity.directory_contract import (
+    DIRECTORY_POLICY_PROTOCOL,
+    DIRECTORY_PROTOCOL,
+    DirectoryFailure,
+    decode_directory_request,
+    directory_failure_reply,
+)
+from aap_identity.directory_manager import DirectoryManager
+from aap_identity.directory_postgres import DirectoryPostgresData
 from aap_identity.login_counter import RedisLoginCounter
 from aap_identity.postgres import PostgresData
 from aap_identity.presence_contract import (
@@ -109,6 +118,7 @@ def create_app(
     deactivation_data: DeactivationPostgresData | None = None,
     deactivation_due_data: DeactivationDuePostgresData | None = None,
     invitation_data: InvitationPostgresData | None = None,
+    directory_data: DirectoryPostgresData | None = None,
 ) -> FastAPI:
     settings = settings or Settings()
     data = data or PostgresData(
@@ -234,6 +244,22 @@ def create_app(
         if invitation_data is not None
         else None
     )
+    directory_configured = (
+        directory_data is not None or settings.directory_database_url is not None
+    )
+    if directory_data is None and settings.directory_database_url is not None:
+        directory_data = DirectoryPostgresData(
+            settings.directory_database_url.get_secret_value(),
+            connect_timeout=settings.connect_timeout_seconds,
+            command_timeout=settings.command_timeout_seconds,
+        )
+    directory = (
+        DirectoryManager(
+            auth, directory_data, settings.signing_secret.get_secret_value()
+        )
+        if directory_data is not None
+        else None
+    )
     deactivation_configured = (
         deactivation_data is not None or settings.deactivation_database_url is not None
     )
@@ -303,6 +329,10 @@ def create_app(
                     if invitation_data is None:
                         raise IdentityUnavailable()
                     invitation_policy = await invitation_data.invitation_policy()
+                if directory_configured:
+                    if directory_data is None:
+                        raise IdentityUnavailable()
+                    directory_policy = await directory_data.directory_policy()
                 if deactivation_configured:
                     if deactivation_data is None:
                         raise IdentityUnavailable()
@@ -371,6 +401,17 @@ def create_app(
                 if invitation_policy_value != {
                     "schema": INVITATION_POLICY_PROTOCOL,
                     "policy": INVITATION_PROTOCOL,
+                }:
+                    raise IdentityUnavailable()
+            if directory_configured:
+                directory_policy_value = (
+                    directory_policy.model_dump(mode="json", by_alias=True)
+                    if hasattr(directory_policy, "model_dump")
+                    else directory_policy
+                )
+                if directory_policy_value != {
+                    "schema": DIRECTORY_POLICY_PROTOCOL,
+                    "policy": DIRECTORY_PROTOCOL,
                 }:
                     raise IdentityUnavailable()
             if deactivation_configured:
@@ -714,6 +755,48 @@ def create_app(
         except (IdentityUnavailable, TimeoutError):
             return JSONResponse(
                 {"detail": "Identity group commands unavailable"},
+                status_code=503,
+            )
+        return JSONResponse(reply.model_dump(mode="json", by_alias=True))
+
+    @app.post("/v1/identity/directory/execute")
+    async def execute_directory_command(request: Request):
+        supplied = request.headers.get("authorization", "").encode()
+        expected = ("Bearer " + settings.token.get_secret_value()).encode()
+        if not hmac.compare_digest(supplied, expected):
+            return JSONResponse({"detail": "Unauthorized"}, status_code=401)
+        if (
+            request.headers.get("content-type", "").split(";", 1)[0].strip().lower()
+            != "application/json"
+        ):
+            return JSONResponse(
+                directory_failure_reply(DirectoryFailure("invalid_request", 400)),
+                status_code=400,
+            )
+        if directory is None:
+            return JSONResponse(
+                {"detail": "Identity directory commands unavailable"},
+                status_code=503,
+            )
+        try:
+            async with asyncio.timeout(settings.request_timeout_seconds):
+                async with slots:
+                    body = await request.body()
+                    try:
+                        parsed = decode_directory_request(body)
+                    except (ValidationError, ValueError, TypeError, UnicodeError):
+                        return JSONResponse(
+                            directory_failure_reply(
+                                DirectoryFailure("invalid_request", 400)
+                            ),
+                            status_code=400,
+                        )
+                    reply = await directory.execute(parsed)
+        except DirectoryFailure as error:
+            return JSONResponse(directory_failure_reply(error))
+        except (IdentityUnavailable, TimeoutError):
+            return JSONResponse(
+                {"detail": "Identity directory commands unavailable"},
                 status_code=503,
             )
         return JSONResponse(reply.model_dump(mode="json", by_alias=True))

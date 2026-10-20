@@ -1,10 +1,11 @@
 # Identity
 
 This package contains the JWT/API-key verifier, API-key management, core sessions
-and self-account command owners, the group catalog/assignment owner, and the
-invitation/mail-v2 owners and their closed contracts. It has one private HTTP
-process plus separate private worker entrypoints. Invitation/mail-v2
-qualification is pending.
+and self-account command owners, the user-directory read owner, the group
+catalog/assignment owner, and the invitation/mail-v2 owners and their closed
+contracts. It has one private HTTP process plus separate private worker
+entrypoints. Invitation/MailV2 have completed local qualification; directory
+qualification is part of the current slice.
 The runtime has no application, SQLAlchemy, Celery or object-store dependency.
 Admission uses four PostgreSQL capabilities, key management uses two, and
 sessions use three plus a scoped Redis login-counter identity. Each configured
@@ -14,10 +15,10 @@ password recovery and email verification now have five versioned recovery
 operations. Self-deactivation adds separate two-function user and due-operator
 capabilities; the Notifications publisher is a distinct three-function/Redis
 process. Invitation commands use a separate three-function Identity capability;
-MailV2 uses its own four-function sender role. User directory/platform administration,
-other-user hydration and
-multi-owner lifecycle remain in the API, so this is not yet a complete Identity
-service.
+MailV2 uses its own four-function sender role. User directory reads use a
+separate two-function Identity capability. Platform-role/password administration,
+dashboard analytics, other-user hydration and multi-owner lifecycle remain in
+the API, so this is not yet a complete Identity service.
 
 ## Run
 
@@ -76,7 +77,7 @@ command requiring a final-write fence must explicitly call the native current
 principal lock on its own transaction. Admission by itself is not that fence.
 
 The package distributes admission, key, session, account, presence, group,
-invitation, recovery, MailV1 and MailV2 schemas.
+directory, invitation, recovery, MailV1 and MailV2 schemas.
 Generate/check them with `scripts/export_schema.py` / `--check`. Native data
 and privilege contracts live with migrations and the corresponding
 `infra/docker/identity-*-grants.sql` files. The Go experiment is not involved
@@ -159,6 +160,28 @@ multi-owner transaction. Group search, directory/admin and all other
 multi-owner lifecycle work remain outside this slice. The optional API/runtime
 `IDENTITY_GROUP_DATABASE_URL(_FILE)` still selects only the two-function GROUP
 owner and never the invitation helper. See [ADR-0120](../../docs/adr/0120-independent-identity-group-catalog-and-assignment.md).
+
+## User directory reads
+
+`POST /v1/identity/directory/execute` accepts the control bearer plus a current
+user credential in `aap-identity-directory/v1`. It owns four reads:
+`list_users`, `query_users`, `user_stats` and `export_users`. The optional
+`IDENTITY_DIRECTORY_DATABASE_URL(_FILE)` selects its dedicated PostgreSQL login;
+there is no fallback to the application session when this owner is configured.
+Readiness requires the exact `directory_policy()` and
+`execute_directory_command(jsonb)` capabilities and rejects direct table,
+column, sequence, schema-creation and extra callable-function grants. The
+default `public` schema name visibility is not treated as data authority; public
+schema creation and direct relation/function access are still rejected.
+
+Legacy `/users` listing and management `/users/query` intentionally keep their
+different project-admin visibility rules. The owner returns the frozen user
+projection and query capability flags; CSV/JSON rendering and HTTP response
+formatting stay in the API. Export rows, metadata, audit and the operation
+receipt commit atomically. Search uses Python's full Unicode `str.strip()`
+semantics and PostgreSQL ILIKE; the owner does not add a row-count or response
+byte cap. See `directory_protocol.schema.json` and
+`native_directory_protocol.schema.json` for the closed private DTOs.
 
 ## Invitation lifecycle and MailV2
 

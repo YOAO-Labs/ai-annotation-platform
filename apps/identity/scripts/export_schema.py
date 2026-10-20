@@ -43,6 +43,15 @@ from aap_identity.deactivation_contract import (  # noqa: E402
     NativeDeactivationFailureReply,
     NativeDeactivationSuccess,
 )
+from aap_identity.directory_contract import (  # noqa: E402
+    DirectoryFailureReply,
+    DirectoryReply,
+    DirectoryRequest,
+    NativeDirectoryCommand,
+    NativeDirectoryFailureReply,
+    NativeDirectoryPolicyReply,
+    NativeDirectorySuccess,
+)
 from aap_identity.group_contract import (  # noqa: E402
     GroupFailureReply,
     GroupPolicyReply,
@@ -312,6 +321,19 @@ def main():
                 | DeactivationDuePolicyReply
             ),
             "aap-identity-deactivation-due-native/v1",
+        ),
+        "src/aap_identity/directory_protocol.schema.json": render_schema(
+            TypeAdapter(DirectoryRequest | DirectoryReply | DirectoryFailureReply),
+            "aap-identity-directory/v1",
+        ),
+        "src/aap_identity/native_directory_protocol.schema.json": render_schema(
+            TypeAdapter(
+                NativeDirectoryCommand
+                | NativeDirectorySuccess
+                | NativeDirectoryFailureReply
+                | NativeDirectoryPolicyReply
+            ),
+            "aap-identity-directory-native/v1",
         ),
         "src/aap_identity/notification_delivery_protocol.schema.json": render_schema(
             TypeAdapter(
