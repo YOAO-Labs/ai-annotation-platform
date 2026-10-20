@@ -106,7 +106,6 @@ DECLARE
     v_actor_role text;
     v_scope_has_projects boolean;
     v_scope_all_projects_owned boolean;
-    v_scope_found boolean;
     v_super_admin_status jsonb;
     v_other_unreserved bigint;
     v_retirement jsonb;
@@ -332,17 +331,21 @@ BEGIN
         IF v_target_active THEN
             BEGIN
                 SELECT scope.has_projects, scope.all_projects_owned
-                INTO v_scope_has_projects, v_scope_all_projects_owned
+                INTO STRICT v_scope_has_projects, v_scope_all_projects_owned
                 FROM aap_workspace_v1.lock_identity_suspension_scope(
                     v_actor_id, v_target_user_id, v_operation
                 ) AS scope;
-                v_scope_found := FOUND;
             EXCEPTION WHEN lock_not_available OR serialization_failure OR deadlock_detected THEN
                 RETURN aap_identity_suspensions_v1._failure(
                     'project_busy', 409, v_project_failure
                 );
+            WHEN no_data_found OR too_many_rows THEN
+                RETURN aap_identity_suspensions_v1._failure(
+                    'unavailable', 503, NULL
+                );
             END;
-            IF NOT v_scope_found THEN
+            IF v_scope_has_projects IS NULL
+               OR v_scope_all_projects_owned IS NULL THEN
                 RETURN aap_identity_suspensions_v1._failure('unavailable', 503, NULL);
             END IF;
             IF v_actor_role = 'project_admin' THEN
@@ -460,18 +463,22 @@ BEGIN
             END IF;
             BEGIN
                 SELECT scope.has_projects, scope.all_projects_owned
-                INTO v_scope_has_projects, v_scope_all_projects_owned
+                INTO STRICT v_scope_has_projects, v_scope_all_projects_owned
                 FROM aap_workspace_v1.lock_identity_suspension_scope(
                     v_actor_id, v_target_user_id, v_operation
                 ) AS scope;
-                v_scope_found := FOUND;
             EXCEPTION WHEN lock_not_available OR serialization_failure OR deadlock_detected THEN
                 RETURN aap_identity_suspensions_v1._failure(
                     'account_busy', 409,
                     pg_catalog.to_jsonb('账号正在更新，请刷新后重试'::text)
                 );
+            WHEN no_data_found OR too_many_rows THEN
+                RETURN aap_identity_suspensions_v1._failure(
+                    'unavailable', 503, NULL
+                );
             END;
-            IF NOT v_scope_found THEN
+            IF v_scope_has_projects IS NULL
+               OR v_scope_all_projects_owned IS NULL THEN
                 RETURN aap_identity_suspensions_v1._failure('unavailable', 503, NULL);
             END IF;
             IF NOT v_scope_has_projects THEN

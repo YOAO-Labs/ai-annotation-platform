@@ -418,6 +418,11 @@ def test_frozen_suspension_artifacts_and_native_lock_contract():
     assert "_strip_unicode_space(v_reason)" not in artifact
     assert "ARRAY['target_user_id', 'reason_present']" in artifact
     assert "pg_catalog.jsonb_typeof(v_payload->'reason_present')" in artifact
+    assert (
+        artifact.count("INTO STRICT v_scope_has_projects, v_scope_all_projects_owned")
+        == 2
+    )
+    assert artifact.count("v_scope_has_projects IS NULL") == 2
     assert "deactivation_requested_at =" not in artifact
     assert "deactivation_scheduled_at =" not in artifact
     assert "disabled_reason = '管理员停用账号'" in artifact
@@ -720,6 +725,125 @@ async def test_reactivate_reason_presence_uses_python_unicode_strip_semantics(
             actor_ids=[actor_id],
             target_ids=[target_id],
             operation_ids=[suspend_id, reactivate_id],
+        )
+
+
+@pytest.mark.parametrize(
+    "scope_rows",
+    [
+        "SELECT NULL::boolean AS has_projects, NULL::boolean AS all_projects_owned",
+        "SELECT true AS has_projects, false AS all_projects_owned "
+        "UNION ALL SELECT true, false",
+    ],
+)
+@pytest.mark.asyncio
+async def test_malformed_workspace_scope_reply_fails_closed_without_effects(
+    test_engine, scope_rows: str
+):
+    fixture = await _seed(test_engine, role="project_admin", create_key=False)
+    actor_id = fixture["actor_id"]
+    target_id, _ = await _add_user(test_engine, "employee")
+    secret = "identity-suspension-invalid-scope-test-secret"
+    manager = _manager(test_engine, secret)
+    request_id = uuid.uuid4()
+    request = _request(
+        "suspend_account",
+        target_id,
+        _token(actor_id, "project_admin", secret),
+        operation_id=request_id,
+    )
+    maker = async_sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
+    function = "aap_workspace_v1.lock_identity_suspension_scope"
+    original_name = f"_sus_scope_orig_{uuid.uuid4().hex}"
+    original = f"aap_workspace_v1.{original_name}"
+    wrapped = False
+    override = f"""
+        CREATE FUNCTION {function}(
+            p_actor_id uuid, p_target_id uuid, p_operation text
+        ) RETURNS TABLE(has_projects boolean, all_projects_owned boolean)
+        LANGUAGE sql VOLATILE PARALLEL UNSAFE SECURITY DEFINER
+        SET search_path = pg_catalog, pg_temp
+        AS $function$ {scope_rows} $function$
+    """
+    try:
+        async with maker.begin() as session:
+            connection = await session.connection()
+            await connection.exec_driver_sql(
+                f"ALTER FUNCTION {function}(uuid, uuid, text) RENAME TO {original_name}"
+            )
+            await connection.exec_driver_sql(override)
+            await connection.exec_driver_sql(
+                f"REVOKE ALL ON FUNCTION {function}(uuid, uuid, text) FROM PUBLIC"
+            )
+            await connection.exec_driver_sql(
+                f"ALTER FUNCTION {function}(uuid, uuid, text) OWNER TO workspace_code"
+            )
+            await connection.exec_driver_sql(
+                f"GRANT EXECUTE ON FUNCTION {function}(uuid, uuid, text) TO identity_code"
+            )
+        wrapped = True
+
+        with pytest.raises(SuspensionFailure) as failure:
+            await manager.execute(request)
+        assert failure.value.code == "unavailable"
+        assert failure.value.status_code == 503
+        assert failure.value.detail is None
+
+        async with maker() as session:
+            target = (
+                (
+                    await session.execute(
+                        text(
+                            "SELECT is_active, credential_generation, disabled_kind "
+                            "FROM public.users WHERE id=:id"
+                        ),
+                        {"id": target_id},
+                    )
+                )
+                .mappings()
+                .one()
+            )
+            assert target == {
+                "is_active": True,
+                "credential_generation": 0,
+                "disabled_kind": None,
+            }
+            assert (
+                await session.scalar(
+                    text(
+                        "SELECT count(*) FROM public.identity_suspension_operation_receipts "
+                        "WHERE operation_id=:id"
+                    ),
+                    {"id": request_id},
+                )
+                == 0
+            )
+            assert (
+                await session.scalar(
+                    text(
+                        "SELECT count(*) FROM public.audit_logs WHERE target_id=:id "
+                        "AND action IN ('user.deactivate', 'user.reactivate')"
+                    ),
+                    {"id": str(target_id)},
+                )
+                == 0
+            )
+    finally:
+        if wrapped:
+            async with maker.begin() as session:
+                connection = await session.connection()
+                await connection.exec_driver_sql(
+                    f"DROP FUNCTION {function}(uuid, uuid, text)"
+                )
+                await connection.exec_driver_sql(
+                    f"ALTER FUNCTION {original}(uuid, uuid, text) "
+                    "RENAME TO lock_identity_suspension_scope"
+                )
+        await _cleanup_world(
+            test_engine,
+            actor_ids=[actor_id],
+            target_ids=[target_id],
+            operation_ids=[request_id],
         )
 
 
