@@ -17,6 +17,7 @@ postgres = [
     { name = "asyncpg" },
 ]
 runtime = [
+    { name = "aap-mail-transport" },
     { name = "asyncpg" },
     { name = "fastapi" },
     { name = "pydantic-settings" },
@@ -31,6 +32,7 @@ test = [
 
 [package.metadata]
 requires-dist = [
+    { name = "aap-mail-transport", marker = "extra == 'runtime'", editable = "../_shared/mail_transport" },
     { name = "asyncpg", marker = "extra == 'postgres'", specifier = ">=0.29" },
     { name = "asyncpg", marker = "extra == 'runtime'", specifier = ">=0.29" },
     { name = "bcrypt", specifier = ">=4.0" },
@@ -45,6 +47,11 @@ requires-dist = [
     { name = "uvicorn", marker = "extra == 'runtime'", specifier = ">=0.30" },
 ]
 provides-extras = ["postgres", "runtime", "test"]
+
+[[package]]
+name = "aap-mail-transport"
+version = "0.1.0"
+source = { editable = "../_shared/mail_transport" }
 
 [[package]]
 name = "annotated-doc"

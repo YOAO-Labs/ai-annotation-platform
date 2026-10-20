@@ -73,6 +73,8 @@ def _apply_command(
     token_ciphertext: str | None = None,
     encryption_id: str | None = None,
 ) -> dict:
+    if command["operation"] in {"consume_password_reset", "consume_email_verification"}:
+        token_hash = command["args"]["token_hash"]
     return {
         **command,
         "password_hash": password_hash,

@@ -75,7 +75,7 @@ CREATE TABLE public.identity_credential_mail_outbox (
     challenge_id uuid NOT NULL,
     purpose text NOT NULL CHECK (purpose IN ('password_reset', 'email_verification')),
     email text NOT NULL CHECK (pg_catalog.char_length(email) BETWEEN 3 AND 255),
-    frontend_base_url text NOT NULL CHECK (pg_catalog.char_length(frontend_base_url) <= 2048),
+    frontend_base_url text NOT NULL,
     token_hash text NOT NULL CHECK (token_hash COLLATE "C" ~ '^[0-9a-f]{64}$'),
     token_ciphertext text NOT NULL CHECK (pg_catalog.char_length(token_ciphertext) BETWEEN 1 AND 4096),
     encryption_id text NOT NULL CHECK (encryption_id COLLATE "C" ~ '^[0-9a-f]{64}$'),
@@ -138,8 +138,7 @@ BEGIN
     FROM pg_catalog.jsonb_object_keys(p_fallbacks);
     IF v_count <> 2 OR NOT (p_fallbacks ?& ARRAY['allow_open_registration', 'frontend_base_url'])
        OR pg_catalog.jsonb_typeof(p_fallbacks->'allow_open_registration') IS DISTINCT FROM 'boolean'
-       OR pg_catalog.jsonb_typeof(p_fallbacks->'frontend_base_url') IS DISTINCT FROM 'string'
-       OR pg_catalog.char_length(p_fallbacks->>'frontend_base_url') > 2048 THEN
+       OR pg_catalog.jsonb_typeof(p_fallbacks->'frontend_base_url') IS DISTINCT FROM 'string' THEN
         RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'invalid recovery fallbacks';
     END IF;
 
@@ -325,7 +324,7 @@ BEGIN
            OR pg_catalog.jsonb_typeof(p_detail->'email_verification_required') IS DISTINCT FROM 'boolean' THEN
             RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'invalid registration audit detail';
         END IF;
-        v_action := 'auth.register';
+        v_action := 'user.register';
         v_status_code := 201;
     ELSIF p_event = 'consume_password_reset' THEN
         SELECT pg_catalog.count(*)::integer INTO v_details
@@ -614,7 +613,6 @@ BEGIN
     ) OR pg_catalog.jsonb_typeof(v_config->'allow_open_registration') IS DISTINCT FROM 'boolean'
        OR pg_catalog.jsonb_typeof(v_config->'email_verification_required') IS DISTINCT FROM 'boolean'
        OR pg_catalog.jsonb_typeof(v_config->'frontend_base_url') IS DISTINCT FROM 'string'
-       OR pg_catalog.char_length(v_config->>'frontend_base_url') > 2048
        OR pg_catalog.jsonb_typeof(v_config->'expire_minutes') IS DISTINCT FROM 'number'
        OR (v_config->>'expire_minutes') !~ '^[1-9][0-9]*$' THEN
         RETURN aap_identity_recovery_v1._failure('invalid_request');
@@ -631,7 +629,7 @@ BEGIN
     IF v_operation IN ('register_open', 'request_password_reset') THEN
         SELECT pg_catalog.count(*)::integer INTO v_field_count
         FROM pg_catalog.jsonb_object_keys(v_args);
-        IF v_field_count <> CASE WHEN v_operation = 'register_open' THEN 3 ELSE 2 END
+        IF v_field_count <> (CASE WHEN v_operation = 'register_open' THEN 3 ELSE 2 END)
            OR NOT (v_args ?& ARRAY['email', 'captcha_verified'])
            OR EXISTS (
                SELECT 1 FROM pg_catalog.jsonb_object_keys(v_args) AS field(name)
@@ -773,6 +771,7 @@ BEGIN
             IF EXISTS (SELECT 1 FROM public.users AS account WHERE account.email = v_email) THEN
                 RETURN aap_identity_recovery_v1._failure('email_exists');
             END IF;
+            v_eligible := true;
         ELSIF v_operation = 'request_password_reset' THEN
             IF NOT v_captcha THEN
                 RETURN aap_identity_recovery_v1._failure('captcha_required');
@@ -1014,6 +1013,10 @@ BEGIN
     v_now := pg_catalog.clock_timestamp();
     v_policy := v_data->'policy';
     v_args := v_prepare_request->'args';
+    IF v_operation IN ('consume_password_reset', 'consume_email_verification')
+       AND v_new_token_hash IS DISTINCT FROM v_args->>'token_hash' THEN
+        RETURN aap_identity_recovery_v1._failure('invalid_request');
+    END IF;
     v_actor := v_data->'actor';
     v_actor_id := CASE
         WHEN pg_catalog.jsonb_typeof(v_data->'actor') = 'object'
@@ -1023,6 +1026,10 @@ BEGIN
 
     IF pg_catalog.jsonb_typeof(v_data->'replay') = 'object' THEN
         IF v_operation = 'register_open' THEN
+            IF v_new_token_hash IS NOT NULL OR v_ciphertext IS NOT NULL
+               OR v_encryption_id IS NOT NULL THEN
+                RETURN aap_identity_recovery_v1._failure('operation_conflict');
+            END IF;
             IF pg_catalog.jsonb_typeof(v_data->'replay'->'claims') = 'object' THEN
                 IF v_password_hash IS NULL
                    OR v_password_hash IS DISTINCT FROM v_data->>'password_hash' THEN
@@ -1031,7 +1038,9 @@ BEGIN
             ELSIF v_password_hash IS NOT NULL THEN
                 RETURN aap_identity_recovery_v1._failure('operation_conflict');
             END IF;
-        ELSIF v_password_hash IS NOT NULL OR v_new_token_hash IS NOT NULL
+        ELSIF v_password_hash IS NOT NULL
+           OR (v_operation NOT IN ('consume_password_reset', 'consume_email_verification')
+               AND v_new_token_hash IS NOT NULL)
            OR v_ciphertext IS NOT NULL OR v_encryption_id IS NOT NULL THEN
             RETURN aap_identity_recovery_v1._failure('operation_conflict');
         END IF;
@@ -1174,7 +1183,7 @@ BEGIN
         );
     ELSIF v_operation = 'consume_password_reset' THEN
         IF v_actor_id IS NULL OR pg_catalog.jsonb_typeof(v_data->'token') IS DISTINCT FROM 'object'
-           OR v_new_token_hash IS NOT NULL OR v_ciphertext IS NOT NULL OR v_encryption_id IS NOT NULL THEN
+           OR v_ciphertext IS NOT NULL OR v_encryption_id IS NOT NULL THEN
             RETURN aap_identity_recovery_v1._failure('invalid_request');
         END IF;
         IF (v_data->'actor'->>'is_active')::boolean THEN
@@ -1237,7 +1246,7 @@ BEGIN
         );
     ELSE
         IF v_actor_id IS NULL OR pg_catalog.jsonb_typeof(v_data->'token') IS DISTINCT FROM 'object'
-           OR v_password_hash IS NOT NULL OR v_new_token_hash IS NOT NULL
+           OR v_password_hash IS NOT NULL
            OR v_ciphertext IS NOT NULL OR v_encryption_id IS NOT NULL THEN
             RETURN aap_identity_recovery_v1._failure('invalid_request');
         END IF;
@@ -1427,6 +1436,10 @@ BEGIN
         IF NOT FOUND THEN
             CONTINUE;
         END IF;
+        v_now := pg_catalog.clock_timestamp();
+        IF v_invalid_status IS NULL AND v_token_expires <= v_now THEN
+            v_invalid_status := 'expired';
+        END IF;
         IF NOT (
             (v_outbox.status = 'pending' AND v_outbox.available_at <= v_now)
             OR (v_outbox.status = 'leased' AND v_outbox.lease_expires_at <= v_now)
@@ -1582,6 +1595,7 @@ BEGIN
     FROM public.identity_credential_mail_outbox AS outbox
     WHERE outbox.id = v_delivery_id
     FOR UPDATE;
+    v_now := pg_catalog.clock_timestamp();
     IF NOT FOUND OR v_outbox.status <> 'leased'
        OR v_outbox.worker_id IS DISTINCT FROM v_worker_id
        OR v_outbox.lease_token IS DISTINCT FROM v_lease_token
@@ -1742,6 +1756,7 @@ BEGIN
     FROM public.identity_credential_mail_outbox AS outbox
     WHERE outbox.id = v_delivery_id
     FOR UPDATE;
+    v_now := pg_catalog.clock_timestamp();
     IF NOT FOUND OR v_outbox.status <> 'leased'
        OR v_outbox.worker_id IS DISTINCT FROM v_worker_id
        OR v_outbox.lease_token IS DISTINCT FROM v_lease_token

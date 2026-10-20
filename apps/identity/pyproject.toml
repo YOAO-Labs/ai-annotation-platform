@@ -26,6 +26,7 @@ aap-mail-transport = { path = "../_shared/mail_transport", editable = true }
 
 [project.scripts]
 aap-identity = "aap_identity_runtime.__main__:main"
+aap-identity-mail = "aap_identity_runtime.mail_worker:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/aap_identity", "src/aap_identity_runtime"]

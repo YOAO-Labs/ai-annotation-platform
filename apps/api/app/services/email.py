@@ -1,10 +1,4 @@
-"""v0.8.1 · 简易 SMTP 发送 + 测试连通性
-
-仅供 admin UI 「发送测试邮件」按钮使用，使用纯标准库 SMTP transport。
-正式邮件 digest（v0.7.0 通知偏好 email channel）仍待 LLM 聚类闭环后启用。
-
-读取 SystemSettingsService（DB override 优先，env fallback）。
-"""
+"""Invitation and diagnostic mail using the shared standard-library SMTP transport."""
 
 from __future__ import annotations
 
@@ -78,41 +72,6 @@ def _send_message(cfg: dict[str, Any], msg: EmailMessage) -> None:
     if result.reason == MailReason.MESSAGE_INVALID:
         raise SmtpConfigError("SMTP 邮件内容无效")
     raise SmtpConfigError(f"SMTP 发送失败: {result.reason.value}")
-
-
-async def send_verification_email(
-    db: AsyncSession, to_address: str, verify_url: str
-) -> None:
-    """v0.12.0 · 发送邮箱验证链接。SMTP 未配置 / 发送失败抛 SmtpConfigError。"""
-    body = (
-        "欢迎注册 AI 标注平台！\n\n"
-        "请点击以下链接验证你的邮箱（24 小时内有效）：\n"
-        f"{verify_url}\n\n"
-        "如果你没有注册本平台，请忽略此邮件。\n"
-    )
-    await _send(db, to_address, "[AI 标注平台] 验证你的邮箱", body)
-
-
-async def send_password_reset_email(
-    db: AsyncSession,
-    to_address: str,
-    reset_url: str,
-    *,
-    expires_in_hours: int = 1,
-) -> None:
-    """发送密码重置链接。
-
-    复用现有 SMTP 配置和发送路径；配置缺失或 SMTP 调用失败时向调用方抛出
-    :class:`SmtpConfigError`，由账号恢复入口记录可定位的诊断信息并保持对外
-    的防枚举响应。
-    """
-    body = (
-        "你收到这封邮件，是因为有人请求重置你的 AI 标注平台密码。\n\n"
-        f"请在 {expires_in_hours} 小时内点击以下链接设置新密码：\n"
-        f"{reset_url}\n\n"
-        "如果你没有发起此请求，请忽略此邮件。你的密码不会因此改变。\n"
-    )
-    await _send(db, to_address, "[AI 标注平台] 重置你的密码", body)
 
 
 async def send_invitation_email(

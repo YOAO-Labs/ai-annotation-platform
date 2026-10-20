@@ -60,6 +60,14 @@ IDENTITY_RUNTIME_CAPABILITIES = (
     "aap_identity_accounts_v1.prepare_account_command(jsonb)",
     "aap_identity_accounts_v1.apply_account_command(jsonb)",
     "aap_identity_accounts_v1.mark_inactive_accounts_offline(timestamptz)",
+    "aap_identity_recovery_v1.recovery_policy()",
+    "aap_identity_recovery_v1.prepare_recovery_command(jsonb)",
+    "aap_identity_recovery_v1.apply_recovery_command(jsonb)",
+    "aap_identity_recovery_v1.mail_policy()",
+    "aap_identity_recovery_v1.claim_mail(jsonb)",
+    "aap_identity_recovery_v1.renew_mail(jsonb)",
+    "aap_identity_recovery_v1.finish_mail(jsonb)",
+    "aap_settings_v1.mail_delivery_policy(jsonb)",
 )
 VIDEO_RUNTIME_CAPABILITIES = (
     "aap_assets_v1.capture_accepted_video_manifest(uuid,uuid,uuid,jsonb)",
@@ -525,7 +533,7 @@ class LocalResources:
                     f"GRANT USAGE ON SCHEMA public TO {role}",
                     f"GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO {role}",
                     f"GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO {role}",
-                    f"GRANT USAGE ON SCHEMA aap_workspace_v1, aap_assets_v1, aap_labeling_v1, aap_jobs_v1, aap_identity_v1, aap_identity_keys_v1, aap_identity_sessions_v1, aap_identity_accounts_v1 TO {role}",
+                    f"GRANT USAGE ON SCHEMA aap_workspace_v1, aap_assets_v1, aap_labeling_v1, aap_jobs_v1, aap_identity_v1, aap_identity_keys_v1, aap_identity_sessions_v1, aap_identity_accounts_v1, aap_identity_recovery_v1, aap_settings_v1 TO {role}",
                     "GRANT SELECT ON aap_assets_v1.spatial_item_references, "
                     f"aap_assets_v1.spatial_scene_references TO {role}",
                     f"GRANT EXECUTE ON FUNCTION aap_workspace_v1.lock_project_reference(uuid), "

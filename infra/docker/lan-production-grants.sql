@@ -68,6 +68,39 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO :"applica
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO :"application_role";
 GRANT USAGE ON SCHEMA aap_workspace_v1, aap_assets_v1, aap_labeling_v1,
     aap_jobs_v1 TO :"application_role";
+-- Embedded Identity adapters use the same owner capabilities as isolated clients.
+GRANT USAGE ON SCHEMA aap_identity_v1, aap_identity_keys_v1,
+    aap_identity_sessions_v1, aap_identity_accounts_v1, aap_identity_recovery_v1,
+    aap_settings_v1 TO :"application_role";
+GRANT EXECUTE ON FUNCTION
+    aap_identity_v1.authentication_policy(),
+    aap_identity_v1.read_jwt_principal(uuid,uuid,bigint,timestamptz,boolean),
+    aap_identity_v1.read_api_key_candidates(text,uuid,integer),
+    aap_identity_v1.confirm_api_key_principal(uuid,text),
+    aap_identity_v1.get_credential_generation(uuid),
+    aap_identity_v1.advance_credential_generation(uuid),
+    aap_identity_v1.revoke_jti(uuid,timestamptz),
+    aap_identity_v1.is_jti_revoked(uuid),
+    aap_identity_v1.retire_account_credentials(uuid),
+    aap_identity_v1.lock_current_principal(uuid,text,uuid,bigint,timestamptz,text[]),
+    aap_identity_keys_v1.key_policy(),
+    aap_identity_keys_v1.execute_key_command(jsonb),
+    aap_identity_sessions_v1.session_policy(),
+    aap_identity_sessions_v1.read_login_candidate(text),
+    aap_identity_sessions_v1.execute_session_command(jsonb),
+    aap_identity_accounts_v1.account_policy(),
+    aap_identity_accounts_v1.prepare_account_command(jsonb),
+    aap_identity_accounts_v1.apply_account_command(jsonb),
+    aap_identity_accounts_v1.mark_inactive_accounts_offline(timestamptz),
+    aap_identity_recovery_v1.recovery_policy(),
+    aap_identity_recovery_v1.prepare_recovery_command(jsonb),
+    aap_identity_recovery_v1.apply_recovery_command(jsonb),
+    aap_identity_recovery_v1.mail_policy(),
+    aap_identity_recovery_v1.claim_mail(jsonb),
+    aap_identity_recovery_v1.renew_mail(jsonb),
+    aap_identity_recovery_v1.finish_mail(jsonb),
+    aap_settings_v1.mail_delivery_policy(jsonb)
+    TO :"application_role";
 GRANT EXECUTE ON FUNCTION aap_workspace_v1.lock_project_reference(uuid),
     aap_workspace_v1.lock_project_manager(uuid, uuid),
     aap_workspace_v1.delete_project(uuid, uuid, uuid, jsonb),

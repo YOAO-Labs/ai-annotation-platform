@@ -469,7 +469,7 @@ last_reviewed: 2026-10-20
 |---|---|---|
 | `AAP_WORKTREE_MODE` | `—` | 由 pnpm dev:worktree 向子进程注入 dev/test/e2e；不要手工配置。 pytest / Playwright 据此拒绝在 dev 模式运行破坏性测试；测试连接、队列和存储也由入口覆盖。 |
 
-## Identity 认证准入（可选独立进程，不进入默认 Compose）
+## Identity 认证与账号恢复（可选独立进程，不进入默认 Compose）
 
 | 变量 | 默认值 | 说明 |
 |---|---|---|
@@ -486,11 +486,23 @@ last_reviewed: 2026-10-20
 | `IDENTITY_ACCOUNT_DATABASE_URL_FILE` | `—` | — |
 | `IDENTITY_PRESENCE_DATABASE_URL` | `—` | — |
 | `IDENTITY_PRESENCE_DATABASE_URL_FILE` | `—` | — |
-| `IDENTITY_RUNTIME_DATABASE_URL_FILE` | `—` | 独立 Compose 的八个 secret 文件。各项能力分开授予函数 LOGIN。 Redis 身份只需 login_failed:* 的 GET/INCRBY/EXPIRE/DEL；签名 secret 与所有现存签发端相同。 |
+| `IDENTITY_RECOVERY_DATABASE_URL` | `—` | API 内嵌恢复与 mail kick 的四组配置；每一对直接值／文件最多设置一项。 未配置 recovery DSN 时沿用调用方事务；配置 recovery DSN 后，MAIL 和 MAIL_SETTINGS DSN 必须同时指定。 两个 mail DSN 都留空时，内嵌 mail kick 复用应用连接；显式 DSN 只成对使用。 |
+| `IDENTITY_RECOVERY_DATABASE_URL_FILE` | `—` | — |
+| `IDENTITY_RECOVERY_MAIL_KEY` | `—` | — |
+| `IDENTITY_RECOVERY_MAIL_KEY_FILE` | `—` | — |
+| `IDENTITY_MAIL_DATABASE_URL` | `—` | — |
+| `IDENTITY_MAIL_DATABASE_URL_FILE` | `—` | — |
+| `IDENTITY_MAIL_SETTINGS_DATABASE_URL` | `—` | — |
+| `IDENTITY_MAIL_SETTINGS_DATABASE_URL_FILE` | `—` | — |
+| `IDENTITY_RUNTIME_DATABASE_URL_FILE` | `—` | 独立 Compose 的运行时 secret 文件选择器；左侧是宿主机路径，容器内会映射为 IDENTITY_*_FILE。 各数据库身份只授权对应函数。Fernet key 与 producer 使用同一秘密，并独立于 JWT secret。 Redis 身份只需 login_failed:* 的 GET/INCRBY/EXPIRE/DEL；签名 secret 与所有现存签发端相同。 |
 | `IDENTITY_RUNTIME_KEY_DATABASE_URL_FILE` | `—` | — |
 | `IDENTITY_RUNTIME_SESSION_DATABASE_URL_FILE` | `—` | — |
 | `IDENTITY_RUNTIME_ACCOUNT_DATABASE_URL_FILE` | `—` | — |
 | `IDENTITY_RUNTIME_PRESENCE_DATABASE_URL_FILE` | `—` | — |
+| `IDENTITY_RUNTIME_RECOVERY_DATABASE_URL_FILE` | `—` | — |
+| `IDENTITY_RUNTIME_RECOVERY_MAIL_KEY_FILE` | `—` | — |
+| `IDENTITY_RUNTIME_MAIL_DATABASE_URL_FILE` | `—` | — |
+| `IDENTITY_RUNTIME_MAIL_SETTINGS_DATABASE_URL_FILE` | `—` | — |
 | `IDENTITY_RUNTIME_LOGIN_REDIS_URL_FILE` | `—` | — |
 | `IDENTITY_RUNTIME_TOKEN_FILE` | `—` | — |
 | `IDENTITY_RUNTIME_SIGNING_SECRET_FILE` | `—` | — |
@@ -498,6 +510,13 @@ last_reviewed: 2026-10-20
 | `IDENTITY_RUNTIME_EMAIL_VERIFICATION_REQUIRED` | `false` | — |
 | `IDENTITY_RUNTIME_LOGIN_CAPTCHA_THRESHOLD` | `5` | — |
 | `IDENTITY_RUNTIME_LOGIN_FAILED_WINDOW_SECONDS` | `3600` | — |
+| `IDENTITY_RUNTIME_ALLOW_OPEN_REGISTRATION` | `false` | — |
+| `IDENTITY_RUNTIME_FRONTEND_BASE_URL` | `http://localhost:3000` | — |
+| `IDENTITY_MAIL_SMTP_HOST` | `—` | Standalone mail worker fallbacks; Settings DB values take precedence. Blank password means no SMTP authentication. These IDENTITY_MAIL_SMTP_* values are distinct from legacy API SMTP_HOST / SMTP_PORT / SMTP_USER / SMTP_PASSWORD / SMTP_FROM. |
+| `IDENTITY_MAIL_SMTP_PORT` | `0` | — |
+| `IDENTITY_MAIL_SMTP_USER` | `—` | — |
+| `IDENTITY_MAIL_SMTP_PASSWORD` | `—` | — |
+| `IDENTITY_MAIL_SMTP_FROM` | `—` | — |
 
 ## 独立 Assets 来源服务（可选，不进入默认 Compose）
 

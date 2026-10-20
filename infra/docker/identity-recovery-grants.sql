@@ -150,10 +150,6 @@ BEGIN
         settings_oid,
         mail_settings_function,
         'EXECUTE'
-    ) OR NOT pg_catalog.has_function_privilege(
-        current_setting('aap.identity_mail_settings_role'),
-        mail_settings_function,
-        'EXECUTE'
     ) OR pg_catalog.has_function_privilege(
         current_setting('aap.identity_mail_settings_role'),
         recovery_settings_function,
@@ -214,7 +210,6 @@ DO $$
 DECLARE
     role_entry record;
     role_oid oid;
-    allowed_functions oid[];
     callable_count integer;
     recovery_schema oid := pg_catalog.to_regnamespace('aap_identity_recovery_v1');
     settings_schema oid := pg_catalog.to_regnamespace('aap_settings_v1');

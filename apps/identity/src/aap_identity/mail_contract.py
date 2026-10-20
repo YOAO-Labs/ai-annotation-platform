@@ -193,9 +193,7 @@ class MailLease(ClosedModel):
     actor_id: uuid.UUID
     purpose: Literal["password_reset", "email_verification"]
     email: str = Field(min_length=3, max_length=255, strict=True)
-    frontend_base_url: str = Field(
-        min_length=1, max_length=2048, strict=True, repr=False
-    )
+    frontend_base_url: str = Field(min_length=1, strict=True, repr=False)
     token_hash: str = Field(pattern=_HEX_64, strict=True, repr=False)
     token_ciphertext: str = Field(
         min_length=1, max_length=4096, strict=True, repr=False

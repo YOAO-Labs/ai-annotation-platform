@@ -54,28 +54,6 @@ class IdentityCommandService:
             )
         return user
 
-    async def create_open_registration_account(
-        self,
-        *,
-        email: str,
-        name: str,
-        password_hash: str,
-        email_verification_required: bool,
-        now: datetime,
-    ) -> User:
-        user = User(
-            email=email,
-            name=name,
-            password_hash=password_hash,
-            role=UserRole.VIEWER.value,
-            status="offline" if email_verification_required else "online",
-            is_active=True,
-            email_verified_at=None if email_verification_required else now,
-        )
-        self.db.add(user)
-        await self.db.flush()
-        return user
-
     async def create_invited_account(
         self,
         *,

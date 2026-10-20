@@ -151,7 +151,7 @@
       "properties": {
         "allow_open_registration": { "type": "boolean" },
         "email_verification_required": { "type": "boolean" },
-        "frontend_base_url": { "type": "string", "maxLength": 2048 },
+        "frontend_base_url": { "type": "string" },
         "expire_minutes": { "type": "integer", "minimum": 1, "maximum": 525600 }
       }
     },
@@ -382,7 +382,7 @@
       "properties": {
         "allow_open_registration": { "type": "boolean" },
         "email_verification_required": { "type": "boolean" },
-        "frontend_base_url": { "type": "string", "maxLength": 2048 },
+        "frontend_base_url": { "type": "string" },
         "expire_minutes": { "type": "integer", "minimum": 1, "maximum": 525600 },
         "password_reset_ttl_seconds": { "const": 3600 },
         "email_verification_ttl_seconds": { "const": 86400 }
@@ -585,7 +585,7 @@
         "actor_id": { "$ref": "#/$defs/Uuid" },
         "purpose": { "enum": ["password_reset", "email_verification"] },
         "email": { "type": "string", "maxLength": 255 },
-        "frontend_base_url": { "type": "string", "maxLength": 2048 },
+        "frontend_base_url": { "type": "string" },
         "token_hash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
         "token_ciphertext": { "type": "string", "minLength": 1, "maxLength": 4096 },
         "encryption_id": { "type": "string", "pattern": "^[0-9a-f]{64}$" },

@@ -9,7 +9,7 @@ last_reviewed: 2026-10-20
 
 协议对象只接受声明的 wire 字段名：版本字段为 `schema`。内部 Python 字段名 `protocol` 无论单独使用还是与 `schema` 同时提交都被拒绝；opaque 偏好值中的同名键不受影响。
 
-Identity 运行时提供认证准入、API key、核心会话、自助账户和在线扫描命令，供受信任的服务调用。公开用户接口仍是 `/api/v1/auth/` 和 `/api/v1/me/api-keys`。私有接口要求独立控制 Bearer；用户凭据放在 JSON 的 `token` 中，不能代替控制凭据。
+Identity 运行时提供认证准入、API key、核心会话、自助账户、账号恢复和在线扫描命令，供受信任的服务调用。公开用户接口仍是 `/api/v1/auth/` 和 `/api/v1/me/api-keys`。私有接口要求独立控制 Bearer；需要用户身份的操作将凭据放在 JSON 的 `token` 中，不能代替控制凭据。账号恢复使用匿名请求或单次挑战证明，邮件由同一工件的独立执行进程投递。
 
 | 接口                                       | 用途                                           |
 | ------------------------------------------ | ---------------------------------------------- |
@@ -20,6 +20,7 @@ Identity 运行时提供认证准入、API key、核心会话、自助账户和�
 | `POST /v1/identity/sessions/execute`       | 登录、刷新、登出和全端登出                     |
 | `POST /v1/identity/accounts/execute`       | 当前资料、改名、偏好、心跳、改密和头像引用     |
 | `POST /v1/identity/presence/mark-inactive` | 按已固定的 cutoff 批量标记离线                 |
+| `POST /v1/identity/recovery/execute`       | 开放注册、重置请求／消费、验证邮件重发／消费   |
 
 ## API key 请求
 
@@ -83,7 +84,7 @@ API 保留通用限流和 Turnstile 验证，提供方重新检查失败计数�
 
 成功命令的状态、JTI／代次、业务审计和冻结声明回执共同提交。错误密码、停用或未验证的登录也会提交其经过验证的业务审计；格式错误或绑定错误的提供方响应不用于确认事务。响应丢失后重放要求当前认证，另一个有效凭据可用于恢复同一账号的冻结结果。重放不会再次登出新凭据、推进代次、记录业务审计或刷新旧声明；历史 token 可能已经失效。登录重放重新检查当前密码和 gate，账号角色取当前资料，签发声明保持冻结。
 
-提供方的签发时长、邮箱验证、失败计数阈值／窗口和 Redis 实例必须与边缘及剩余签发端匹配。修改签发策略或 signing secret 后，旧操作回执冲突。原生策略固定 issuer、HS256 和七天宽限；含会话回执时拒绝降级。开放注册、邀请注册、密码／邮件及其他账号流程仍有待提取，API 整体尚未撤除签名能力。
+提供方的签发时长、邮箱验证、失败计数阈值／窗口和 Redis 实例必须与边缘及剩余签发端匹配。修改签发策略或 signing secret 后，旧操作回执冲突。原生策略固定 issuer、HS256 和七天宽限；含会话回执时拒绝降级。邀请注册及分组／管理员流程仍有待提取，API 整体尚未撤除签名能力。
 
 为保证重放字节稳定，JWT header 使用紧凑 JSON `alg`、`typ`，payload 字段顺序固定为 `sub`、`role`、`exp`、`jti`、`gen`、`iss`。UUID 为小写规范形式，代次和时间为十进制整数，Base64URL 不带填充。HS256 key 是 `HMAC-SHA256(secret UTF-8, issuer UTF-8)` 的小写 hex 字符串，再按 UTF-8 作为 HMAC key。会话派生 master 使用相同 secret 与独立域 `aap-identity-sessions/v1`；其 SHA-256 是派生标识，登录指纹是该 master 对按键排序、紧凑且非 ASCII 以 Unicode 转义表示的 `{email,password}` JSON 的 HMAC-SHA256。仓库的 `apps/identity/tests/fixtures/session_vectors.json` 提供公开测试向量，不含部署凭据；Python 和 Node 都核对相同结果。这是跨语言原语／序列化证据，尚非另一语言的完整提供方验收。
 
@@ -111,4 +112,38 @@ API 保留通用限流和 Turnstile 验证，提供方重新检查失败计数�
 
 账户角色只有 `account_policy`、`prepare_account_command`、`apply_account_command` 三函数；扫描角色只有 `mark_inactive_accounts_offline`。扫描请求是 `{schema:"aap-identity-presence/v1",cutoff:"带时区时间"}`，成功响应为相同 schema 和严格非负 64 位 affected。它保留 `online AND (last_seen_at IS NULL OR last_seen_at < cutoff)`，不新增 active 过滤。就绪检查只查询权限，不执行扫描。
 
-账户偏好保留原有大小和基数集合，不套用会话的 64 KiB 请求或准入的 16 MiB 响应上限；并发、截止时间及部署资源仍是实际运行边界。字节处理不持远程 SQL 锁。确定拒绝时清理新头像暂存对象，提交未知时保留字节并先核对资料／回执；旧对象只在确认提交后尽力清理。注册、密码恢复／邮件验证、分组／管理员及多 owner 生命周期继续按[模块台账](/dev/concepts/module-deployment)推进。
+账户偏好保留原有大小和基数集合，不套用会话的 64 KiB 请求或准入的 16 MiB 响应上限；并发、截止时间及部署资源仍是实际运行边界。字节处理不持远程 SQL 锁。确定拒绝时清理新头像暂存对象，提交未知时保留字节并先核对资料／回执；旧对象只在确认提交后尽力清理。邀请、分组／管理员及多 owner 生命周期继续按[模块台账](/dev/concepts/module-deployment)推进。
+
+## 开放注册与账号恢复
+
+`POST /v1/identity/recovery/execute` 接受 `aap-identity-recovery/v1`，请求字段固定为 `schema`、`operation`、`operation_id`、`audit_context`、`payload`。操作 UUID 在首次发送前固定；审计上下文仍是四个可空字段。API 保留公开限流、密码输入校验和 Turnstile 验证；只有受信任的 API 边缘可以提交 `captcha_verified`。
+
+| operation                    | payload                                         |
+| ---------------------------- | ----------------------------------------------- |
+| `register_open`              | `email`、`name`、`password`、`captcha_verified` |
+| `request_password_reset`     | `email`、`captcha_verified`                     |
+| `resend_email_verification`  | `email`                                         |
+| `consume_password_reset`     | `token`、`new_password`                         |
+| `consume_email_verification` | `token`                                         |
+
+成功响应是匹配操作和 UUID 的 `{schema,ok:true,operation,operation_id,data}`。data 固定包含 `account`、`claims`、`access_token`、`email_verification_required`、`completed` 五字段；没有原始挑战 token 或链接。
+
+- 注册创建无数据组的 `viewer`、代次 0，返回账户与验证标记。需要验证时状态为 offline，claims／access_token 为 null；否则为 online，返回冻结声明及 JWT。两种情况 `last_login_at` 都为 null。
+- 请求／重发的五字段全部为 null，未知邮箱和无资格目标也写入不可重新定向的空结果回执。
+- 消费只返回布尔 completed，其余字段为 null。停用账户的有效重置挑战被单次消费并返回 false；邮箱验证不会重新启用账户。
+
+失败响应为 `{schema,ok:false,error:{code,status_code,detail}}`。封闭错误包括 `registration_disabled` 403、`email_exists` 409、`captcha_required` 400、`policy_rejected` 422、`operation_conflict` 409 和无效链接 400。服务或能力不可用为 503；形状、摘要、操作或 UUID 绑定错误不能确认提交，也不会回退其他写入者。密码诊断不含 input／ctx，私有请求体上限为 64 KiB。
+
+所有者在同一连接内持有 User 和挑战行锁，运行 bcrypt，再重新检查并提交账号、挑战、邮件意图、业务审计与回执。重置会清除管理员重置标记并推进 JWT 代次，API key 保持有效。相同操作回放只返回冻结结果，不重复变更或审计。注册回放要求当前同 ID／邮箱且启用；曾签发 JWT 的回放还需当前密码验证。冻结账户角色、验证策略与声明不随当前资料或部署策略变化，历史 JWT 仍可能已失效。公开接口没有新增幂等 header 或自动重试。
+
+挑战表以 SHA-256 摘要和签发邮箱保存单次证明，迁移在原位摘要旧 token，因此现有有效链接仍可消费。邮件 outbox 只保存 Fernet 密文与 key epoch，恢复回执不保存姓名、邮箱、密码、原始 token 或 JWT。消费条件为当前邮箱仍匹配且 `now < expires_at`；保留任一挑战、回执或邮件意图时拒绝降级。
+
+## 独立账号邮件执行
+
+同一个安装包或镜像以 `python -m aap_identity_runtime.mail_worker` 启动邮件进程，默认健康端口 8171。它只有 `MAIL` 四函数连接、独立的 `MAIL_SETTINGS` 单函数连接及 Fernet key，不需要认证控制 token、AUTH 数据连接或 JWT signing secret。`/health` 检查进程，`/ready` 检查所需权限、策略和 key 格式；就绪不保证 SMTP 可送达。
+
+执行器先提交有期限的领取租约，再读取密文并发信，网络等待期间续租。User → 挑战 → outbox 的行锁不跨 SMTP。领取、续租和完成在锁等待结束后按数据库当前时间检查；过期或旧租约不能确认投递。进程失联后，另一执行器可以接管过期租约。
+
+已投递和确定拒绝为终态；临时故障、DATA 后断线等结果不明状态继续使用同一挑战、密文与 Message-ID 重试。投递属于至少一次语义，用户可能收到多封相同有效链接。错误 key epoch 保留待投递项，不破坏仍有效的挑战；轮换前应排空旧邮件或保留对应旧 key 的执行器。缺少 SMTP 配置或确定拒绝只使对应重置挑战作废，验证挑战保持有效。
+
+`RECOVERY` LOGIN 仅有 `recovery_policy`、`prepare_recovery_command`、`apply_recovery_command`；`MAIL` 仅有 `mail_policy`、`claim_mail`、`renew_mail`、`finish_mail`；`MAIL_SETTINGS` 仅有 Settings 的 `mail_delivery_policy`。客户端均无直接表、序列或 DDL 权限。内嵌装配与专用连接选择、Compose secret 文件和授权命令见 [DEV.md](https://github.com/yyq19990828/ai-annotation-platform/blob/main/DEV.md#注册密码恢复与凭据邮件)。设计与剩余模块边界见 [ADR-0119](/dev/adr/0119-independent-identity-recovery-and-mail)及[模块台账](/dev/concepts/module-deployment)。

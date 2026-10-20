@@ -1,36 +1,21 @@
 import uuid
 
-from datetime import datetime, timezone
-
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
 from app.core.ratelimit import limiter
 from app.core.password import validate_password_strength
 from app.deps import bearer_scheme, get_db, get_current_principal
-from app.db.models.user import User
-from app.db.base import async_session
 from app.schemas.user import Token, LoginRequest, UserOut
 from app.schemas.invitation import OpenRegisterRequest, RegisterResponse
-from app.core.security import (
-    create_access_token,
-    hash_password,
-)
-from app.services.audit import AuditAction, AuditService, audit_origin_from_request
+from app.services.audit import audit_origin_from_request
 from app.middleware.request_id import request_id_var
 from app.services.captcha_service import verify_turnstile_token
 from app.services import login_failed_counter
-from app.services.password_reset import PasswordResetService
-from app.services.email_verification import EmailVerificationService
-from app.services.email import (
-    SmtpConfigError,
-    send_password_reset_email,
-    send_verification_email,
-)
 from app.services.system_settings_service import SystemSettingsService
-from app.services.identity_commands import IdentityCommandService
+from app.services.identity_mail_delivery import kick_credential_mail
+from app.services.identity_recovery_commands import RecoveryCommandsPort
 
 from app.config import settings
 from aap_identity.contract import IdentityUnavailable, Principal
@@ -42,16 +27,15 @@ from app.services.identity_session_commands import (
     SessionCommandsPort,
 )
 from app.api.v1.account_commands import execute_account, get_account_commands
-import logging
+from app.api.v1.recovery_commands import execute_recovery, get_recovery_commands
 
-logger = logging.getLogger("anno-api.auth")
 router = APIRouter()
 
 
 class ForgotPasswordRequest(BaseModel):
     email: str = Field(min_length=3, max_length=255)
     # v0.8.7 · Cloudflare Turnstile token；TURNSTILE_ENABLED=False 时忽略。
-    captcha_token: str | None = None
+    captcha_token: str | None = Field(default=None, repr=False)
 
     @field_validator("email")
     @classmethod
@@ -60,8 +44,8 @@ class ForgotPasswordRequest(BaseModel):
 
 
 class ResetPasswordRequest(BaseModel):
-    token: str = Field(min_length=1)
-    new_password: str = Field(min_length=8, max_length=128)
+    token: str = Field(min_length=1, repr=False)
+    new_password: str = Field(min_length=8, max_length=128, repr=False)
 
     @field_validator("new_password")
     @classmethod
@@ -73,7 +57,7 @@ class ResetPasswordRequest(BaseModel):
 
 
 class VerifyEmailRequest(BaseModel):
-    token: str = Field(min_length=1)
+    token: str = Field(min_length=1, repr=False)
 
 
 class ResendVerificationRequest(BaseModel):
@@ -83,41 +67,6 @@ class ResendVerificationRequest(BaseModel):
     @classmethod
     def _normalize(cls, v: str) -> str:
         return (v or "").strip().lower()
-
-
-async def _dispatch_verification_email(db: AsyncSession, user: User) -> None:
-    """生成验证 token + 发信。SMTP 未配置 / 发送失败时仅记日志（dev 友好），不阻断注册。"""
-    token = await EmailVerificationService(db).create_token(user)
-    base_url = (
-        await SystemSettingsService.get(db, "frontend_base_url")
-        or settings.frontend_base_url
-    )
-    verify_url = f"{str(base_url).rstrip('/')}/verify-email?token={token}"
-    smtp_host = await SystemSettingsService.get(db, "smtp_host")
-    # 含明文一次性 token 的 url 仅在非 production 落日志（dev 友好）；production 只记
-    # user_id + 原因，避免 token 经集中式日志扩散后被用于 24h 内冒充验证。
-    is_prod = settings.environment == "production"
-    if not smtp_host:
-        if is_prod:
-            logger.info(
-                "Email verification pending for user %s: SMTP not configured", user.id
-            )
-        else:
-            logger.info(
-                "Email verification token for %s (SMTP not configured): %s",
-                user.email,
-                verify_url,
-            )
-        return
-    try:
-        await send_verification_email(db, user.email, verify_url)
-    except SmtpConfigError as e:
-        if is_prod:
-            logger.warning("发送验证邮件失败 (user %s): %s", user.id, e)
-        else:
-            logger.warning(
-                "发送验证邮件失败 (%s): %s; url=%s", user.email, e, verify_url
-            )
 
 
 def get_session_commands(
@@ -287,15 +236,22 @@ async def forgot_password(
     data: ForgotPasswordRequest,
     request: Request,
     background_tasks: BackgroundTasks,
+    commands: RecoveryCommandsPort = Depends(get_recovery_commands),
 ):
     if not await verify_turnstile_token(
         data.captcha_token, request.client.host if request.client else None
     ):
         raise HTTPException(status_code=400, detail="captcha_failed")
 
-    # Run both existing and unknown addresses through the same post-response
-    # path so SMTP latency cannot identify registered accounts.
-    background_tasks.add_task(_complete_password_recovery, data.email)
+    operation_id = uuid.uuid4()
+    await execute_recovery(
+        request,
+        commands,
+        "request_password_reset",
+        {"email": data.email, "captcha_verified": True},
+        operation_id=operation_id,
+    )
+    background_tasks.add_task(kick_credential_mail, operation_id)
     return {
         "message": (
             "如果该邮箱已注册，您将收到一封包含重置链接的邮件。"
@@ -304,70 +260,20 @@ async def forgot_password(
     }
 
 
-async def _complete_password_recovery(email: str) -> None:
-    async with async_session() as db:
-        svc = PasswordResetService(db)
-        token = await svc.create_token(email)
-        if not token:
-            return
-        # 先持久化 token，再触发外部 SMTP 副作用，避免「邮件已发送但提交失败」
-        # 产生用户永远无法使用的链接。发送失败时在后续事务中立即标记失效。
-        await db.commit()
-        base_url = (
-            await SystemSettingsService.get(db, "frontend_base_url")
-            or settings.frontend_base_url
-        )
-        reset_url = f"{str(base_url).rstrip('/')}/reset-password?token={token}"
-        try:
-            await send_password_reset_email(
-                db,
-                email,
-                reset_url,
-                expires_in_hours=svc.TOKEN_EXPIRY_HOURS,
-            )
-        except SmtpConfigError as exc:
-            # 保持统一 202 响应以防邮箱枚举；仅记录不含 token 的定位信息。
-            await svc.invalidate_token(token)
-            logger.warning("Password reset email unavailable for %s: %s", email, exc)
-        else:
-            # 只有 SMTP 调用正常返回后才记录已发送；token 已在调用前持久化。
-            logger.info("Password reset email sent for %s", email)
-
-        await db.commit()
-
-
 @router.post("/reset-password")
 async def reset_password(
     data: ResetPasswordRequest,
     request: Request,
-    db: AsyncSession = Depends(get_db),
+    commands: RecoveryCommandsPort = Depends(get_recovery_commands),
 ):
-    svc = PasswordResetService(db)
-    user = await svc.consume_token(data.token)
-    if not user:
-        # consume_token 会将已关联停用账号的 token 标记为已消费；提交这个结果，
-        # 防止账号日后重新启用后仍可使用停用期间签发的旧链接。
-        await db.commit()
+    result = await execute_recovery(
+        request,
+        commands,
+        "consume_password_reset",
+        {"token": data.token, "new_password": data.new_password},
+    )
+    if not result["completed"]:
         raise HTTPException(status_code=400, detail="重置链接无效或已过期")
-
-    IdentityCommandService(db).set_password_for_locked_user(
-        user, hash_password(data.new_password)
-    )
-    await AuditService.log(
-        db,
-        actor=user,
-        action=AuditAction.USER_PASSWORD_CHANGE,
-        target_type="user",
-        target_id=str(user.id),
-        request=request,
-        status_code=200,
-        detail={"method": "reset_token"},
-    )
-    # 密码恢复必须让之前签发的所有会话立即失效；新登录会读取递增后的代际号。
-    from app.core.token_blacklist import increment_user_generation
-
-    await increment_user_generation(str(user.id), db=db)
-    await db.commit()
     return {"message": "密码已重置，请使用新密码登录"}
 
 
@@ -375,23 +281,14 @@ async def reset_password(
 async def verify_email(
     data: VerifyEmailRequest,
     request: Request,
-    db: AsyncSession = Depends(get_db),
+    commands: RecoveryCommandsPort = Depends(get_recovery_commands),
 ):
-    """v0.12.0 · 消费验证 token，置 email_verified_at。"""
-    user = await EmailVerificationService(db).consume_token(data.token)
-    if not user:
-        raise HTTPException(status_code=400, detail="验证链接无效或已过期")
-    await AuditService.log(
-        db,
-        actor=user,
-        action=AuditAction.USER_REGISTER,
-        target_type="user",
-        target_id=str(user.id),
-        request=request,
-        status_code=200,
-        detail={"email": user.email, "result": "email_verified"},
+    """在身份所有者事务中单次消费验证链接并记录审计。"""
+    result = await execute_recovery(
+        request, commands, "consume_email_verification", {"token": data.token}
     )
-    await db.commit()
+    if not result["completed"]:
+        raise HTTPException(status_code=400, detail="验证链接无效或已过期")
     return {"message": "邮箱已验证，请登录"}
 
 
@@ -400,14 +297,19 @@ async def verify_email(
 async def send_verification_email_endpoint(
     data: ResendVerificationRequest,
     request: Request,
-    db: AsyncSession = Depends(get_db),
+    background_tasks: BackgroundTasks,
+    commands: RecoveryCommandsPort = Depends(get_recovery_commands),
 ):
-    """v0.12.0 · 重发验证邮件。无论邮箱是否存在 / 已验证都返回 202（防枚举）。"""
-    result = await db.execute(select(User).where(User.email == data.email))
-    user = result.scalar_one_or_none()
-    if user is not None and user.email_verified_at is None:
-        await _dispatch_verification_email(db, user)
-        await db.commit()
+    """持久受理验证邮件投递，响应不等待 SMTP。"""
+    operation_id = uuid.uuid4()
+    await execute_recovery(
+        request,
+        commands,
+        "resend_email_verification",
+        {"email": data.email},
+        operation_id=operation_id,
+    )
+    background_tasks.add_task(kick_credential_mail, operation_id)
     return {"message": "如果该邮箱待验证，您将收到一封包含验证链接的邮件"}
 
 
@@ -422,69 +324,32 @@ async def registration_status(db: AsyncSession = Depends(get_db)):
 async def register_open(
     payload: OpenRegisterRequest,
     request: Request,
-    db: AsyncSession = Depends(get_db),
+    background_tasks: BackgroundTasks,
+    commands: RecoveryCommandsPort = Depends(get_recovery_commands),
 ):
-    if not await SystemSettingsService.get(db, "allow_open_registration"):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="开放注册未启用",
-        )
-
-    if not await verify_turnstile_token(
+    captcha_verified = await verify_turnstile_token(
         payload.captcha_token, request.client.host if request.client else None
-    ):
-        raise HTTPException(status_code=400, detail="captcha_failed")
-
-    existing = await db.execute(select(User).where(User.email == payload.email))
-    if existing.scalar_one_or_none() is not None:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="该邮箱已被注册",
-        )
-
-    require_verification = settings.email_verification_required
-    now = datetime.now(timezone.utc)
-    user = await IdentityCommandService(db).create_open_registration_account(
-        email=payload.email,
-        name=payload.name,
-        password_hash=hash_password(payload.password),
-        email_verification_required=require_verification,
-        now=now,
     )
 
-    await AuditService.log(
-        db,
-        actor=user,
-        action=AuditAction.USER_REGISTER,
-        target_type="user",
-        target_id=str(user.id),
-        request=request,
-        status_code=201,
-        detail={
-            "email": user.email,
-            "role": user.role,
-            "method": "open_registration",
-            "email_verification_required": require_verification,
+    operation_id = uuid.uuid4()
+    result = await execute_recovery(
+        request,
+        commands,
+        "register_open",
+        {
+            "email": payload.email,
+            "name": payload.name,
+            "password": payload.password,
+            "captcha_verified": captcha_verified,
         },
+        operation_id=operation_id,
     )
-
-    if require_verification:
-        await _dispatch_verification_email(db, user)
-        await db.commit()
-        await db.refresh(user)
-        return RegisterResponse(
-            access_token=None,
-            user=UserOut.model_validate(user),
-            email_verification_required=True,
-        )
-
-    await db.commit()
-    await db.refresh(user)
-    token = create_access_token(subject=str(user.id), role=user.role)
+    if result["email_verification_required"]:
+        background_tasks.add_task(kick_credential_mail, operation_id)
     return RegisterResponse(
-        access_token=token,
-        token_type="bearer",
-        user=UserOut.model_validate(user),
+        access_token=result["access_token"],
+        user=UserOut.model_validate(result["account"]),
+        email_verification_required=result["email_verification_required"],
     )
 
 

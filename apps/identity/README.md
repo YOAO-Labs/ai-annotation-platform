@@ -171,8 +171,8 @@ instead of silently polling the API database. If both mail DSNs are omitted,
 the embedded mail kick may use the API session. A remote `IDENTITY_URL` requires
 the selected Identity owner to run its own mail worker; the API does not poll a
 remote outbox. The recovery key can be derived from the signing secret when the
-API runs embedded, but independent Compose deployment requires the explicit
-shared Fernet key file. Runtime direct
+API runs embedded. The independent runtime requires an explicit shared Fernet
+key whenever recovery is enabled; Compose requires its key file. Runtime direct
 configuration uses `IDENTITY_RECOVERY_DATABASE_URL(_FILE)` and
 `IDENTITY_RECOVERY_MAIL_KEY(_FILE)` for the producer, and `IDENTITY_MAIL_*` DSN,
 encryption-key and SMTP settings for the worker. The Compose wrapper names

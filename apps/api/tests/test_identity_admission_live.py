@@ -52,12 +52,12 @@ pytestmark = [
 INSTALLATION_PROBE = """
 import hashlib, importlib.util, json, os, sys
 from pathlib import Path
-import aap_identity, aap_identity_runtime
+import aap_identity, aap_identity_runtime, aap_mail_transport
 assert all(importlib.util.find_spec(name) is None for name in
            ('app', 'sqlalchemy', 'celery', 'boto3', 'torch'))
 assert importlib.util.find_spec('redis') is not None
 files = {}
-for module in (aap_identity, aap_identity_runtime):
+for module in (aap_identity, aap_identity_runtime, aap_mail_transport):
     directory = Path(module.__file__).resolve().parent
     assert directory.is_relative_to(Path(sys.prefix).resolve())
     assert 'site-packages' in directory.parts
@@ -81,6 +81,16 @@ def _verify_installation(output):
         for path in source.rglob("*")
         if path.suffix in (".py", ".json")
     }
+    mail_source = ROOT / "apps/_shared/mail_transport/src"
+    expected.update(
+        {
+            str(path.relative_to(mail_source)): hashlib.sha256(
+                path.read_bytes()
+            ).hexdigest()
+            for path in mail_source.rglob("*")
+            if path.suffix in (".py", ".json")
+        }
+    )
     assert report["files"] == expected
     return report
 
@@ -144,6 +154,7 @@ async def _start_container_identity(
     login_redis_url=None,
     enable_accounts=True,
     enable_presence=True,
+    recovery_mail_key=None,
 ):
     image = _inspect_docker(os.environ["AAP_IDENTITY_RUNTIME_IMAGE"])
     identity = os.environ["AAP_IDENTITY_RUNTIME_IDENTITY"]
@@ -177,6 +188,14 @@ async def _start_container_identity(
                 .set(host="host.docker.internal")
                 .render_as_string(hide_password=False)
             )
+    if recovery_mail_key is not None:
+        values["IDENTITY_RECOVERY_DATABASE_URL"] = (
+            make_url(_dsn("RECOVERY", test_engine))
+            .set(host="host.docker.internal")
+            .render_as_string(hide_password=False)
+        )
+        values["IDENTITY_RECOVERY_MAIL_KEY"] = recovery_mail_key
+        values["IDENTITY_ALLOW_OPEN_REGISTRATION"] = "true"
     envfile = directory / "identity-container.env"
     envfile.touch(mode=0o600)
     envfile.write_text("".join(f"{name}={value}\n" for name, value in values.items()))
@@ -298,6 +317,7 @@ def _start_identity(
     enable_presence=True,
     login_redis_url=None,
     session_settings=None,
+    recovery_mail_key=None,
 ):
     interpreter = Path(os.environ["AAP_IDENTITY_RUNTIME_PYTHON"])
     assert interpreter.is_file()
@@ -315,6 +335,9 @@ def _start_identity(
         values["account_database_url"] = _dsn("ACCOUNTS", test_engine)
     if enable_presence:
         values["presence_database_url"] = _dsn("PRESENCE", test_engine)
+    if recovery_mail_key is not None:
+        values["recovery_database_url"] = _dsn("RECOVERY", test_engine)
+        values["recovery_mail_key"] = recovery_mail_key
     environment = {
         "PATH": os.environ.get("PATH", ""),
         "IDENTITY_HOST": "127.0.0.1",
@@ -361,6 +384,14 @@ def _start_api(
             "IDENTITY_ACCOUNT_DATABASE_URL_FILE": "",
             "IDENTITY_PRESENCE_DATABASE_URL": "",
             "IDENTITY_PRESENCE_DATABASE_URL_FILE": "",
+            "IDENTITY_RECOVERY_DATABASE_URL": "",
+            "IDENTITY_RECOVERY_DATABASE_URL_FILE": "",
+            "IDENTITY_RECOVERY_MAIL_KEY": "",
+            "IDENTITY_RECOVERY_MAIL_KEY_FILE": "",
+            "IDENTITY_MAIL_DATABASE_URL": "",
+            "IDENTITY_MAIL_DATABASE_URL_FILE": "",
+            "IDENTITY_MAIL_SETTINGS_DATABASE_URL": "",
+            "IDENTITY_MAIL_SETTINGS_DATABASE_URL_FILE": "",
             "MIGRATION_DATABASE_URL": "",
             "ALEMBIC_AUTO_UPGRADE": "false",
             "E2E_SEED_ENABLED": "false",

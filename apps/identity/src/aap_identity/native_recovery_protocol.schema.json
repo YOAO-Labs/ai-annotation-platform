@@ -326,7 +326,6 @@
           "type": "integer"
         },
         "frontend_base_url": {
-          "maxLength": 2048,
           "minLength": 1,
           "title": "Frontend Base Url",
           "type": "string"
@@ -1450,7 +1449,6 @@
           "type": "integer"
         },
         "frontend_base_url": {
-          "maxLength": 2048,
           "minLength": 1,
           "title": "Frontend Base Url",
           "type": "string"

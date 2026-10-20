@@ -544,7 +544,7 @@ class RecoveryTokenRecord(ClosedModel):
 class RecoveryPolicy(ClosedModel):
     allow_open_registration: bool
     email_verification_required: bool
-    frontend_base_url: str = Field(min_length=1, max_length=2048, strict=True)
+    frontend_base_url: str = Field(min_length=1, strict=True)
     expire_minutes: int = Field(ge=1, le=525600, strict=True)
     password_reset_ttl_seconds: Literal[3600]
     email_verification_ttl_seconds: Literal[86400]
@@ -611,7 +611,7 @@ class NativeConsumeArgs(_NativeArgs):
 class NativeRecoveryConfig(ClosedModel):
     allow_open_registration: bool
     email_verification_required: bool
-    frontend_base_url: str = Field(min_length=1, max_length=2048, strict=True)
+    frontend_base_url: str = Field(min_length=1, strict=True)
     expire_minutes: int = Field(ge=1, le=525600, strict=True)
 
     @field_validator(

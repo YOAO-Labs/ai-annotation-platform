@@ -182,7 +182,8 @@ may be omitted for an embedded kick through the API session. If `IDENTITY_URL`
 selects a remote owner, that owner must run its own durable mail worker; the API
 does not poll a remote outbox. The producer's explicit Fernet key is separate
 from JWT signing; embedded mode has a derived-key fallback, while the independent
-Compose profile requires an explicit key file.
+runtime requires an explicit key when recovery is enabled. Compose supplies it
+through a key file.
 
 Compose host selectors use `IDENTITY_RUNTIME_*_FILE`; they name host paths that
 Compose mounts as runtime-specific `IDENTITY_*_FILE` values. They are not the

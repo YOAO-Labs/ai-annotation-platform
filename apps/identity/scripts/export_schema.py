@@ -35,6 +35,15 @@ from aap_identity.key_contract import (  # noqa: E402
     NativeKeyFailureReply,
     NativeKeyReply,
 )
+from aap_identity.mail_contract import (  # noqa: E402
+    MailAcceptedReply,
+    MailClaimReply,
+    MailClaimRequest,
+    MailDeliveryPolicy,
+    MailFinishRequest,
+    MailPolicyReply,
+    MailRenewRequest,
+)
 from aap_identity.preference_models import (  # noqa: E402
     UserPreferences,
     UserPreferencesRead,
@@ -192,6 +201,20 @@ def main():
                 | NativeRecoveryPolicyReply
             ),
             "aap-identity-recovery-native/v1",
+        ),
+        "src/aap_identity/native_mail_protocol.schema.json": render_schema(
+            TypeAdapter(
+                MailClaimRequest
+                | MailRenewRequest
+                | MailFinishRequest
+                | MailClaimReply
+                | MailAcceptedReply
+                | MailPolicyReply
+            ),
+            "aap-identity-recovery-mail-native/v1",
+        ),
+        "src/aap_identity/mail_settings_protocol.schema.json": render_schema(
+            TypeAdapter(MailDeliveryPolicy), "aap-identity-mail-settings/v1"
         ),
         "src/aap_identity/preferences_write.schema.json": render_schema(
             TypeAdapter(UserPreferences), "aap-identity-preferences-write/v1"

@@ -1079,13 +1079,20 @@ function validatePeerInput(value) {
 function validateIssuedPrincipal(source, status, contentType, account, claims) {
   parseStrictJson(source, [{ path: ["data", "generation"], max: maxInt64, asBigInt: true }]);
   const issued = parseIdentityReceipt(source, status, contentType);
+  if (!issued.ok) {
+    if (
+      !new Set(["generation_outdated", "token_expired", "credential_revoked", "user_inactive"]).has(
+        issued.error.code,
+      )
+    )
+      fail();
+    return { ok: false, error: { code: issued.error.code } };
+  }
   if (
-    !issued.ok ||
     issued.principal.actor_id !== account.id ||
     issued.principal.credential_type !== "jwt" ||
     issued.principal.credential_id !== claims.jti ||
-    issued.principal.generation_decimal !== claims.gen.toString(10) ||
-    issued.principal.role !== claims.role
+    issued.principal.generation_decimal !== claims.gen.toString(10)
   ) {
     fail();
   }

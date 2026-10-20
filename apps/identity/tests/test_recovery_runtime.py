@@ -52,13 +52,22 @@ class Data:
 
 
 def settings(**changes):
-    return Settings(
-        database_url="postgresql://unused-auth-database",
-        token=CONTROL,
-        signing_secret=SECRET,
-        recovery_database_url="postgresql://unused-recovery-database",
-        **changes,
-    )
+    values = {
+        "database_url": "postgresql://unused-auth-database",
+        "token": CONTROL,
+        "signing_secret": SECRET,
+        "recovery_database_url": "postgresql://unused-recovery-database",
+        "recovery_mail_key": mail_key_from_secret(SECRET),
+    }
+    values.update(changes)
+    return Settings(**values)
+
+
+def test_independent_recovery_requires_an_explicit_mail_key():
+    with pytest.raises(
+        ValidationError, match="recovery_database_url requires recovery_mail_key"
+    ):
+        settings(recovery_mail_key=None)
 
 
 @pytest.mark.asyncio

@@ -240,6 +240,14 @@ class Settings(BaseSettings):
     identity_account_database_url_file: str = ""
     identity_presence_database_url: str = Field(default="", repr=False)
     identity_presence_database_url_file: str = ""
+    identity_recovery_database_url: str = Field(default="", repr=False)
+    identity_recovery_database_url_file: str = ""
+    identity_recovery_mail_key: str = Field(default="", repr=False)
+    identity_recovery_mail_key_file: str = ""
+    identity_mail_database_url: str = Field(default="", repr=False)
+    identity_mail_database_url_file: str = ""
+    identity_mail_settings_database_url: str = Field(default="", repr=False)
+    identity_mail_settings_database_url_file: str = ""
 
     media_probe_url: str = ""
     media_probe_token: str = Field(default="", repr=False)

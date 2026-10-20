@@ -1,0 +1,337 @@
+{
+  "$defs": {
+    "MailAcceptedData": {
+      "additionalProperties": false,
+      "properties": {
+        "accepted": {
+          "title": "Accepted",
+          "type": "boolean"
+        }
+      },
+      "required": ["accepted"],
+      "title": "MailAcceptedData",
+      "type": "object"
+    },
+    "MailAcceptedReply": {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "$ref": "#/$defs/MailAcceptedData"
+        },
+        "ok": {
+          "const": true,
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "schema": {
+          "const": "aap-identity-recovery-mail-native/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "ok", "data"],
+      "title": "MailAcceptedReply",
+      "type": "object"
+    },
+    "MailClaimData": {
+      "additionalProperties": false,
+      "properties": {
+        "delivery": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MailLease"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": ["delivery"],
+      "title": "MailClaimData",
+      "type": "object"
+    },
+    "MailClaimReply": {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "$ref": "#/$defs/MailClaimData"
+        },
+        "ok": {
+          "const": true,
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "schema": {
+          "const": "aap-identity-recovery-mail-native/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "ok", "data"],
+      "title": "MailClaimReply",
+      "type": "object"
+    },
+    "MailClaimRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "delivery_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Delivery Id"
+        },
+        "lease_seconds": {
+          "maximum": 300,
+          "minimum": 1,
+          "title": "Lease Seconds",
+          "type": "integer"
+        },
+        "schema": {
+          "const": "aap-identity-recovery-mail-native/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "worker_id": {
+          "format": "uuid",
+          "title": "Worker Id",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "worker_id", "lease_seconds", "delivery_id"],
+      "title": "MailClaimRequest",
+      "type": "object"
+    },
+    "MailFinishRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "delivery_id": {
+          "format": "uuid",
+          "title": "Delivery Id",
+          "type": "string"
+        },
+        "lease_token": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Lease Token",
+          "type": "string"
+        },
+        "outcome": {
+          "enum": ["delivered", "rejected", "retry", "unknown", "invalid_key"],
+          "title": "Outcome",
+          "type": "string"
+        },
+        "reason": {
+          "enum": [
+            "sent",
+            "not_configured",
+            "message_invalid",
+            "tls_failed",
+            "auth_failed",
+            "recipient_rejected",
+            "sender_rejected",
+            "data_rejected",
+            "connect_failed",
+            "transport_failed",
+            "derivation_unavailable"
+          ],
+          "title": "Reason",
+          "type": "string"
+        },
+        "retry_delay_seconds": {
+          "anyOf": [
+            {
+              "maximum": 300,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Retry Delay Seconds"
+        },
+        "schema": {
+          "const": "aap-identity-recovery-mail-native/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "worker_id": {
+          "format": "uuid",
+          "title": "Worker Id",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "delivery_id", "worker_id", "lease_token", "outcome", "reason"],
+      "title": "MailFinishRequest",
+      "type": "object"
+    },
+    "MailLease": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "attempt": {
+          "exclusiveMaximum": 9223372036854775808,
+          "minimum": 1,
+          "title": "Attempt",
+          "type": "integer"
+        },
+        "email": {
+          "maxLength": 255,
+          "minLength": 3,
+          "title": "Email",
+          "type": "string"
+        },
+        "encryption_id": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Encryption Id",
+          "type": "string"
+        },
+        "expires_at": {
+          "format": "date-time",
+          "title": "Expires At",
+          "type": "string"
+        },
+        "frontend_base_url": {
+          "minLength": 1,
+          "title": "Frontend Base Url",
+          "type": "string"
+        },
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "lease_expires_at": {
+          "format": "date-time",
+          "title": "Lease Expires At",
+          "type": "string"
+        },
+        "lease_token": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Lease Token",
+          "type": "string"
+        },
+        "purpose": {
+          "enum": ["password_reset", "email_verification"],
+          "title": "Purpose",
+          "type": "string"
+        },
+        "token_ciphertext": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "title": "Token Ciphertext",
+          "type": "string"
+        },
+        "token_hash": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Token Hash",
+          "type": "string"
+        },
+        "worker_id": {
+          "format": "uuid",
+          "title": "Worker Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "actor_id",
+        "purpose",
+        "email",
+        "frontend_base_url",
+        "token_hash",
+        "token_ciphertext",
+        "encryption_id",
+        "expires_at",
+        "attempt",
+        "worker_id",
+        "lease_token",
+        "lease_expires_at"
+      ],
+      "title": "MailLease",
+      "type": "object"
+    },
+    "MailPolicyReply": {
+      "additionalProperties": false,
+      "properties": {
+        "policy": {
+          "const": "aap-identity-recovery-mail/v1",
+          "title": "Policy",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-identity-recovery-mail-policy/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "policy"],
+      "title": "MailPolicyReply",
+      "type": "object"
+    },
+    "MailRenewRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "delivery_id": {
+          "format": "uuid",
+          "title": "Delivery Id",
+          "type": "string"
+        },
+        "lease_token": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Lease Token",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-identity-recovery-mail-native/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "worker_id": {
+          "format": "uuid",
+          "title": "Worker Id",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "delivery_id", "worker_id", "lease_token"],
+      "title": "MailRenewRequest",
+      "type": "object"
+    }
+  },
+  "$id": "aap-identity-recovery-mail-native/v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "anyOf": [
+    {
+      "$ref": "#/$defs/MailClaimRequest"
+    },
+    {
+      "$ref": "#/$defs/MailRenewRequest"
+    },
+    {
+      "$ref": "#/$defs/MailFinishRequest"
+    },
+    {
+      "$ref": "#/$defs/MailClaimReply"
+    },
+    {
+      "$ref": "#/$defs/MailAcceptedReply"
+    },
+    {
+      "$ref": "#/$defs/MailPolicyReply"
+    }
+  ]
+}

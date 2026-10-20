@@ -212,6 +212,7 @@ postgres = [
 
 [package.metadata]
 requires-dist = [
+    { name = "aap-mail-transport", marker = "extra == 'runtime'", editable = "../_shared/mail_transport" },
     { name = "asyncpg", marker = "extra == 'postgres'", specifier = ">=0.29" },
     { name = "asyncpg", marker = "extra == 'runtime'", specifier = ">=0.29" },
     { name = "bcrypt", specifier = ">=4.0" },
@@ -261,6 +262,11 @@ requires-dist = [
     { name = "uvicorn", marker = "extra == 'test'", specifier = ">=0.34.0" },
 ]
 provides-extras = ["client", "runtime", "server", "test"]
+
+[[package]]
+name = "aap-mail-transport"
+version = "0.1.0"
+source = { editable = "../_shared/mail_transport" }
 
 [[package]]
 name = "aap-media-probe"
@@ -398,6 +404,7 @@ dependencies = [
     { name = "aap-audit-contract" },
     { name = "aap-identity", extra = ["postgres"] },
     { name = "aap-labeling-mask-gc", extra = ["client"] },
+    { name = "aap-mail-transport" },
     { name = "aap-media-probe", extra = ["client"] },
     { name = "aap-preannotation-results" },
     { name = "aap-protocol-v2" },
@@ -453,6 +460,7 @@ requires-dist = [
     { name = "aap-audit-contract", editable = "../_shared/audit_contract" },
     { name = "aap-identity", extras = ["postgres"], editable = "../identity" },
     { name = "aap-labeling-mask-gc", extras = ["client"], editable = "../labeling-mask-gc" },
+    { name = "aap-mail-transport", editable = "../_shared/mail_transport" },
     { name = "aap-media-probe", extras = ["client"], editable = "../media-probe" },
     { name = "aap-preannotation-results", editable = "../preannotation-results" },
     { name = "aap-protocol-v2", editable = "../_shared/protocol_v2" },

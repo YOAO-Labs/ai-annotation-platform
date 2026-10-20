@@ -138,4 +138,6 @@ class Settings(BaseSettings):
             and not self.recovery_mail_key.get_secret_value().strip()
         ):
             raise ValueError("Empty recovery_mail_key")
+        if self.recovery_database_url is not None and self.recovery_mail_key is None:
+            raise ValueError("recovery_database_url requires recovery_mail_key")
         return self

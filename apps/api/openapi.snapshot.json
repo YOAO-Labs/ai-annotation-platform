@@ -56285,7 +56285,7 @@
     },
     "/api/v1/auth/send-verification-email": {
       "post": {
-        "description": "v0.12.0 · 重发验证邮件。无论邮箱是否存在 / 已验证都返回 202（防枚举）。",
+        "description": "持久受理验证邮件投递，响应不等待 SMTP。",
         "operationId": "send_verification_email_endpoint_api_v1_auth_send_verification_email_post",
         "requestBody": {
           "content": {
@@ -56325,7 +56325,7 @@
     },
     "/api/v1/auth/verify-email": {
       "post": {
-        "description": "v0.12.0 · 消费验证 token，置 email_verified_at。",
+        "description": "在身份所有者事务中单次消费验证链接并记录审计。",
         "operationId": "verify_email_api_v1_auth_verify_email_post",
         "requestBody": {
           "content": {

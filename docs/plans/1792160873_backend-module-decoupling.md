@@ -2546,3 +2546,55 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   test database at0218; only the original four infrastructure containers remain.
   This remains local qualification on the integration branch, with no upstream,
   push, release, remote CI, production or primary Identity cutover.
+
+### Identity registration, recovery and durable credential mail
+
+- The existing Identity artifact now owns open registration, password-reset
+  request/consumption and email-verification resend/consumption. API handlers keep
+  CAPTCHA, limits and public response translation, without User/challenge ORM
+  reads. Registration creates the original viewer/offline-or-online projection;
+  account, initial verification intent, business Audit and receipt commit together.
+- Migration 0239 hashes old challenge values in place and freezes issued email,
+  preserving valid legacy links and used/expiry metadata. Reset advances JWT
+  generation and clears the administrator-reset marker while retaining API keys.
+  Inactive resets consume their challenge without changing passwords; verification
+  never reactivates an account. Successful receipts survive account deletion
+  without retaining raw name/email/password/token/JWT fields.
+- A separate process from the same installed package/image owns mail execution.
+  MAIL has four functions and MAIL_SETTINGS one Settings snapshot function, with
+  no table/sequence/TEMP/foreign-module rights, AUTH/control/JWT secret or Recovery
+  DSN. The explicit producer/worker Fernet key is independent of signing authority.
+  Embedded legacy composition keeps its scoped function allowlist.
+- Claim commits before SMTP, renews during IO and fences completion with current
+  database time after lock waits. Lost DATA acknowledgements, key mismatch and
+  sender death retain the same challenge/ciphertext/Message-ID for retry. A second
+  readonly nonroot container takes over the expired lease after the first sender
+  is killed during DATA. SMTP remains at least once, with possible duplicate mail.
+- The current group has 78 distinct backend passes, 241 installed-package passes,
+  and 53 distinct worktree checks. Node has 30 self-checks and executes all five
+  operations against the installed owner, including current role versus frozen
+  claims and historical JWT generation failure on replay. Both package/API
+  Pydantic environments pass frozen schema checks.
+- A real API using AUTH-only database credentials completes registration,
+  verification, uniform reset requests, reset and resend through its remote owner;
+  an available owner missing Recovery returns 503 without fallback. Real SMTP
+  observes committed User/Audit/outbox state and an unlocked User during DATA.
+  Two actual Celery dispatches execute across separate event loops without pooled
+  connection leakage; task-level factories hide SQL bind values.
+- Backup/restore retains all prior Identity authority and new recovery receipts,
+  hashes, mail ciphertext and exact role ACLs. Populated downgrade is refused;
+  the independent empty clone round-trip preserves usable old non-hex links.
+  A pre-existing long frontend URL still delivers without a new 2048-character cap.
+- A local 1 CPU / 256 MiB sampling completes eight registrations at concurrency four in
+  2.066s, with observed p95 1.168s. This bounded sample does not establish
+  production capacity or an alternate-language provider. Go stays an experiment.
+- Initial migration/grant syntax and ordering errors, a pre-lock lease timestamp,
+  registration eligibility/Audit mismatch and the consume hash-envelope mismatch
+  were fixed before qualification. Fixture cleanup respects the original token
+  foreign keys. Historical failures remain in the scoped verifier reports.
+- ADR-0119, API/deployment guides, Compose, environment references, OpenAPI and
+  frontend generated artifacts describe the assembled group. Group/admin,
+  invitations, other-user hydration, multi-owner lifecycle, final write fences,
+  full Identity credentials/cutover and the other module gates remain unfinished.
+  Current evidence is retained in
+  `.worktree/identity-recovery-verification-current.json`; the full goal stays active.

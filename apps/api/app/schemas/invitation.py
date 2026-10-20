@@ -130,10 +130,10 @@ class InvitationResendResponse(BaseModel):
 class OpenRegisterRequest(BaseModel):
     email: str = Field(min_length=3, max_length=255)
     name: str = Field(min_length=1, max_length=100)
-    password: str = Field(min_length=8, max_length=128)
+    password: str = Field(min_length=8, max_length=128, repr=False)
     # v0.8.7 · Cloudflare Turnstile token；TURNSTILE_ENABLED=False 时忽略，
     # production 启用后必填且必须通过 siteverify。
-    captcha_token: str | None = None
+    captcha_token: str | None = Field(default=None, repr=False)
 
     @field_validator("email")
     @classmethod

@@ -150,7 +150,12 @@ async def _request_validation_error_handler(
     """Keep specialized 422 envelopes stable and omit credential input/context."""
 
     path = request.url.path
-    if path == "/api/v1/auth/me/password":
+    if path in {
+        "/api/v1/auth/me/password",
+        "/api/v1/auth/reset-password",
+        "/api/v1/auth/verify-email",
+        "/api/v1/auth/register-open",
+    }:
         return JSONResponse(
             status_code=422,
             content={

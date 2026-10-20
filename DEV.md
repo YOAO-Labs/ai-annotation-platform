@@ -1203,6 +1203,7 @@ Native 0239 将两个 token 表的现存明文 token 原地改为 SHA-256 摘要
 ```bash
 psql -v expected_database=annotation_test -v migration_role=owner \
   -v identity_owner=identity_code \
+  -v audit_owner=audit_code -v settings_owner=settings_code \
   -v identity_recovery_role=identity_recovery_client \
   -v identity_mail_role=identity_mail_client \
   -v identity_mail_settings_role=identity_mail_settings_client \
@@ -1215,9 +1216,11 @@ Recovery LOGIN 只有 `recovery_policy()`、`prepare_recovery_command(jsonb)`、
 
 Fernet key 应单独配置，不与 JWT secret 共用。轮换时保留旧 key，直到旧密钥加密的待投递行排空；换 key 不会改变 hash-only 链接的有效性，但缺少旧 key 的行无法解密投递。SMTP 超时后仍可能产生重复邮件，不能把结果未知当成未发送。
 
-`.env.example` 区分 API 配置与 Compose 宿主机的 secret-file 选择器。API 可配置八个字段，即四组直接值／文件：`IDENTITY_RECOVERY_DATABASE_URL` 与 `IDENTITY_RECOVERY_DATABASE_URL_FILE`、`IDENTITY_RECOVERY_MAIL_KEY` 与 `IDENTITY_RECOVERY_MAIL_KEY_FILE`、`IDENTITY_MAIL_DATABASE_URL` 与 `IDENTITY_MAIL_DATABASE_URL_FILE`、`IDENTITY_MAIL_SETTINGS_DATABASE_URL` 与 `IDENTITY_MAIL_SETTINGS_DATABASE_URL_FILE`；每对最多设置一项。Recovery DSN 留空时使用 API 调用方事务；指定 Recovery DSN 后，MAIL 与 `MAIL_SETTINGS` 两个 DSN 必须同时指定，否则 fail closed，不会静默轮询 API 数据库。若两个 mail DSN 都留空，嵌入式 mail kick 复用 API session。若 API 选用远程 `IDENTITY_URL`，该 Identity owner 旁必须部署自己的 mail worker；本 API 不会扫描远程 outbox。Compose 主机路径选择器分别是 `IDENTITY_RUNTIME_RECOVERY_DATABASE_URL_FILE`、`IDENTITY_RUNTIME_RECOVERY_MAIL_KEY_FILE`、`IDENTITY_RUNTIME_MAIL_DATABASE_URL_FILE` 和 `IDENTITY_RUNTIME_MAIL_SETTINGS_DATABASE_URL_FILE`；Admission 容器映射为 `IDENTITY_RECOVERY_DATABASE_URL_FILE`、`IDENTITY_RECOVERY_MAIL_KEY_FILE`，Mail worker 映射为 `IDENTITY_MAIL_DATABASE_URL_FILE`、`IDENTITY_MAIL_SETTINGS_DATABASE_URL_FILE`、`IDENTITY_MAIL_ENCRYPTION_KEY_FILE`。四个 PostgreSQL 文件与共用 Fernet key 文件都必须显式配置；secret-file 读取失败不会回退。
+`.env.example` 区分 API 配置与 Compose 宿主机的 secret-file 选择器。API 可配置八个字段，即四组直接值／文件：`IDENTITY_RECOVERY_DATABASE_URL` 与 `IDENTITY_RECOVERY_DATABASE_URL_FILE`、`IDENTITY_RECOVERY_MAIL_KEY` 与 `IDENTITY_RECOVERY_MAIL_KEY_FILE`、`IDENTITY_MAIL_DATABASE_URL` 与 `IDENTITY_MAIL_DATABASE_URL_FILE`、`IDENTITY_MAIL_SETTINGS_DATABASE_URL` 与 `IDENTITY_MAIL_SETTINGS_DATABASE_URL_FILE`；每对最多设置一项。Recovery DSN 留空时使用 API 调用方事务；指定 Recovery DSN 后，MAIL 与 `MAIL_SETTINGS` 两个 DSN 必须同时指定，否则 fail closed，不会静默轮询 API 数据库。若两个 mail DSN 都留空，嵌入式 mail kick 复用 API session。若 API 选用远程 `IDENTITY_URL`，该 Identity owner 旁必须部署自己的 mail worker；本 API 不会扫描远程 outbox。Compose 主机路径选择器分别是 `IDENTITY_RUNTIME_RECOVERY_DATABASE_URL_FILE`、`IDENTITY_RUNTIME_RECOVERY_MAIL_KEY_FILE`、`IDENTITY_RUNTIME_MAIL_DATABASE_URL_FILE` 和 `IDENTITY_RUNTIME_MAIL_SETTINGS_DATABASE_URL_FILE`；Admission 容器映射为 `IDENTITY_RECOVERY_DATABASE_URL_FILE`、`IDENTITY_RECOVERY_MAIL_KEY_FILE`，Mail worker 映射为 `IDENTITY_MAIL_DATABASE_URL_FILE`、`IDENTITY_MAIL_SETTINGS_DATABASE_URL_FILE`、`IDENTITY_MAIL_ENCRYPTION_KEY_FILE`。上述三个 PostgreSQL DSN 文件与共用 Fernet key 文件都必须显式配置；secret-file 读取失败不会回退。
 
 普通单体 API 的 `application_role` 增加了 Identity public-function allowlist，源文件为 `infra/docker/lan-production-grants.sql`；这是 grants source 的改动，尚未应用到生产数据库。隔离 service 使用上面的三个专用 LOGIN 与同一函数集合，不把这项单体授权解释为 API 全角色已实现最小权限。
+
+独立运行时启用 Recovery DSN 时，必须显式提供共享 Fernet key；API 默认内嵌模式才保留由签名 secret 派生邮件 key 的兼容路径。
 
 Producer 的直启策略名是 `IDENTITY_ALLOW_OPEN_REGISTRATION`、`IDENTITY_EMAIL_VERIFICATION_REQUIRED` 和 `IDENTITY_FRONTEND_BASE_URL`；Compose 主机端以 `IDENTITY_RUNTIME_ALLOW_OPEN_REGISTRATION`、`IDENTITY_RUNTIME_EMAIL_VERIFICATION_REQUIRED`、`IDENTITY_RUNTIME_FRONTEND_BASE_URL` 提供值。SMTP 环境 fallback 与主 API 现存的 `SMTP_*` SMTP 测试邮件配置分开；Settings 中的 mail policy 优先。mail worker `/health` 为 liveness，`/ready` 检查 8171 端口上的原生能力、Settings 与 key；Compose 覆盖镜像原先检查 8170 的 healthcheck，容器只读并以 UID 10003 运行。
 

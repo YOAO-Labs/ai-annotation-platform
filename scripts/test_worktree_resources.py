@@ -14,6 +14,7 @@ from sqlalchemy.engine import make_url
 
 from worktree_env import atomic_json, load_identity, read_state, topology
 from worktree_resources import (
+    IDENTITY_RUNTIME_CAPABILITIES,
     IMAGE_ACCEPTED_INPUT_RUNTIME_CAPABILITIES,
     IMAGE_ACCEPTED_RUNTIME_CAPABILITIES,
     IMAGE_LABELING_INPUT_RUNTIME_CAPABILITIES,
@@ -357,6 +358,26 @@ class BucketUpgradeTests(unittest.TestCase):
         atomic_json(self.path, changed)
         with self.assertRaisesRegex(ValueError, "目标.*不一致"):
             LocalResources(self.target["resources"], self.settings, code_root=self.root)
+
+    def test_lan_runtime_preserves_embedded_identity_capabilities(self):
+        sql = (
+            Path(__file__).resolve().parents[1]
+            / "infra/docker/lan-production-grants.sql"
+        ).read_text()
+        grants = re.findall(
+            r'GRANT EXECUTE ON FUNCTION\s+(.*?)\s+TO\s+:"application_role";',
+            sql,
+            flags=re.DOTALL,
+        )
+        normalized = re.sub(r"\s+", "", ",".join(grants))
+        for signature in IDENTITY_RUNTIME_CAPABILITIES:
+            self.assertIn(signature, normalized)
+        for private in (
+            "aap_identity_recovery_v1._actor_record(uuid)",
+            "aap_identity_recovery_v1._token_record(text,uuid)",
+            "aap_settings_v1.identity_recovery_policy(jsonb)",
+        ):
+            self.assertNotIn(private, normalized)
 
     def test_lan_runtime_grants_exact_video_capabilities_without_sweep_or_gc(self):
         grant_file = (
