@@ -33,8 +33,8 @@ all offboarding, or Identity as a complete module.
 
 Keep the existing public routes and `UserOut` response:
 
-- `POST /api/v1/me/deactivation-request`
-- `DELETE /api/v1/me/deactivation-request`
+- `POST /api/v1/auth/me/deactivation-request`
+- `DELETE /api/v1/auth/me/deactivation-request`
 
 The API composes them with private `POST /v1/identity/deactivation/execute`,
 using the closed `aap-identity-deactivation/v1` protocol:

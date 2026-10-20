@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from typing import Any, Iterable
 
 from fastapi import HTTPException, Request, status
-from sqlalchemy import func, or_, select, text
+from sqlalchemy import or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.enums import PROJECT_ROLES as _VALID_PROJECT_ROLES
@@ -563,14 +563,9 @@ class UserLifecycleWorkflow:
             raise HTTPException(status_code=403, detail="当前账号已无管理权限")
         if actor.id == target.id:
             raise HTTPException(status_code=400, detail="不能交接自己")
-        if target.role == UserRole.SUPER_ADMIN.value:
-            count = await db.scalar(
-                select(func.count(User.id)).where(
-                    User.role == UserRole.SUPER_ADMIN.value,
-                    User.is_active.is_(True),
-                )
-            )
-            if int(count or 0) <= 1:
+        if target.is_active and target.role == UserRole.SUPER_ADMIN.value:
+            remaining = await UserLifecycleService.super_admin_status(db, target.id)
+            if remaining["other_unreserved"] == 0:
                 raise HTTPException(
                     status_code=400, detail="不能停用最后一名超级管理员"
                 )
@@ -678,6 +673,7 @@ class UserLifecycleWorkflow:
             if receiver_id is not None
         }
         user_ids = sorted({actor.id, target_id, *receiver_ids})
+        await UserLifecycleService.lock_super_admin_invariant(db)
         users_by_id = await UserLifecycleService.lock_accounts(db, user_ids)
         target = users_by_id.get(target_id)
         if target is None:
@@ -904,6 +900,7 @@ class UserLifecycleWorkflow:
         reason: str | None,
         request: Request | None = None,
     ) -> UserOut:
+        await UserLifecycleService.lock_super_admin_invariant(db)
         accounts = await UserLifecycleService.lock_accounts(db, [target_id, actor.id])
         target = accounts.get(target_id)
         actor = accounts.get(actor.id)

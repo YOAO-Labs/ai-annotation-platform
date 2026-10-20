@@ -1,33 +1,65 @@
-"""v0.8.1 · 自助注销冷静期到期任务
-
-每日 04:00 UTC 触发：扫描 deactivation_scheduled_at <= now 的活跃用户，
-执行软删 + GDPR 脱敏 + 清三字段 + 通知所有 super_admin。
-"""
+"""Drain durable Identity deactivation pages using stable Celery execution IDs."""
 
 from __future__ import annotations
 
 import asyncio
 import logging
+import uuid
 
-from app.services.deactivation_service import DeactivationService
+from aap_identity.deactivation_contract import decode_deactivation_due_request
+from app.services.identity_contracts import IdentityGatewayUnavailable
+from app.services.identity_deactivation_commands import (
+    DeactivationOperatorBusy,
+    IdentityDeactivationDueCommands,
+)
+from app.services.identity_gateway import get_identity_gateway
 from app.workers._db import task_session
 from app.workers.celery_app import celery_app
 
 log = logging.getLogger(__name__)
 
 
-@celery_app.task(name="app.workers.deactivation.process_deactivation_requests")
-def process_deactivation_requests() -> dict:
-    return asyncio.run(_process_async())
+@celery_app.task(
+    bind=True,
+    name="app.workers.deactivation.process_deactivation_requests",
+    autoretry_for=(IdentityGatewayUnavailable, DeactivationOperatorBusy),
+    retry_backoff=True,
+    retry_jitter=True,
+    retry_kwargs={"max_retries": None},
+)
+def process_deactivation_requests(self) -> dict:
+    task_id = self.request.id
+    try:
+        run_id = uuid.UUID(task_id) if task_id else uuid.uuid4()
+    except ValueError:
+        run_id = uuid.uuid5(uuid.NAMESPACE_URL, f"aap-deactivation-task:{task_id}")
+    return asyncio.run(_process_async(run_id))
 
 
-async def _process_async() -> dict:
+async def _process_async(run_id: uuid.UUID | None = None) -> dict:
+    run_id = run_id or uuid.uuid4()
+    processed = 0
+    blocked = 0
+    page = 0
     async with task_session() as db:
-        n, pending = await DeactivationService.execute_due(db)
-        await db.commit()
-        if pending:
-            from app.services.notification import NotificationService
-
-            await NotificationService(db).publish_committed(pending)
-    log.info("process_deactivation_requests done: processed=%d", n)
-    return {"processed": n}
+        operator = IdentityDeactivationDueCommands(db, get_identity_gateway())
+        while True:
+            request = decode_deactivation_due_request(
+                {
+                    "schema": "aap-identity-deactivation-due/v1",
+                    "operation_id": str(uuid.uuid5(run_id, f"batch:{page}")),
+                    "limit": 256,
+                }
+            )
+            result = await operator.process_due_deactivations(request)
+            processed += result.processed
+            blocked += result.blocked_last_super_admin
+            if not result.has_more or result.processed == 0:
+                break
+            page += 1
+    log.info(
+        "process_deactivation_requests done: processed=%d blocked_last_super_admin=%d",
+        processed,
+        blocked,
+    )
+    return {"processed": processed}

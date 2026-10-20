@@ -488,6 +488,14 @@ last_reviewed: 2026-10-20
 | `IDENTITY_PRESENCE_DATABASE_URL_FILE` | `—` | — |
 | `IDENTITY_GROUP_DATABASE_URL` | `—` | 内嵌 API 分组目录／指派可选 GROUP 两函数 LOGIN；留空使用当前 caller transaction。 |
 | `IDENTITY_GROUP_DATABASE_URL_FILE` | `—` | — |
+| `IDENTITY_DEACTIVATION_DATABASE_URL` | `—` | 自助注销用户命令与到期 operator 命令使用不同能力；每对 DSN／文件最多设置一项。 |
+| `IDENTITY_DEACTIVATION_DATABASE_URL_FILE` | `—` | — |
+| `IDENTITY_DEACTIVATION_OPERATOR_DATABASE_URL` | `—` | — |
+| `IDENTITY_DEACTIVATION_OPERATOR_DATABASE_URL_FILE` | `—` | — |
+| `NOTIFICATION_PUBLISH_DATABASE_URL` | `—` | API/Celery durable-notification relay 的可选 Notifications DSN；Redis 复用现有 Celery task 设置。 |
+| `NOTIFICATION_PUBLISH_DATABASE_URL_FILE` | `—` | — |
+| `NOTIFICATION_PUBLISH_REDIS_URL` | `—` | 独立 notification publisher 的 Redis DSN；与可选 Notifications 数据库 DSN 成对配置。 |
+| `NOTIFICATION_PUBLISH_REDIS_URL_FILE` | `—` | — |
 | `IDENTITY_RECOVERY_DATABASE_URL` | `—` | API 内嵌恢复与 mail kick 的四组配置；每一对直接值／文件最多设置一项。 未配置 recovery DSN 时沿用调用方事务；配置 recovery DSN 后，MAIL 和 MAIL_SETTINGS DSN 必须同时指定。 两个 mail DSN 都留空时，内嵌 mail kick 复用应用连接；显式 DSN 只成对使用。 |
 | `IDENTITY_RECOVERY_DATABASE_URL_FILE` | `—` | — |
 | `IDENTITY_RECOVERY_MAIL_KEY` | `—` | — |
@@ -502,6 +510,10 @@ last_reviewed: 2026-10-20
 | `IDENTITY_RUNTIME_ACCOUNT_DATABASE_URL_FILE` | `—` | — |
 | `IDENTITY_RUNTIME_PRESENCE_DATABASE_URL_FILE` | `—` | — |
 | `IDENTITY_RUNTIME_GROUP_DATABASE_URL_FILE` | `—` | — |
+| `IDENTITY_RUNTIME_DEACTIVATION_DATABASE_URL_FILE` | `—` | — |
+| `IDENTITY_RUNTIME_DEACTIVATION_OPERATOR_DATABASE_URL_FILE` | `—` | — |
+| `IDENTITY_RUNTIME_NOTIFICATION_PUBLISH_DATABASE_URL_FILE` | `—` | — |
+| `IDENTITY_RUNTIME_NOTIFICATION_PUBLISH_REDIS_URL_FILE` | `—` | — |
 | `IDENTITY_RUNTIME_RECOVERY_DATABASE_URL_FILE` | `—` | — |
 | `IDENTITY_RUNTIME_RECOVERY_MAIL_KEY_FILE` | `—` | — |
 | `IDENTITY_RUNTIME_MAIL_DATABASE_URL_FILE` | `—` | — |

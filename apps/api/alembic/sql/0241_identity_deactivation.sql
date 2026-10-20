@@ -805,7 +805,7 @@ BEGIN
         IF v_user.deactivation_requested_at IS NOT NULL
            OR v_user.deactivation_scheduled_at IS NOT NULL THEN
             RETURN aap_identity_deactivation_v1._failure(
-                'policy_rejected', 400,
+                'policy_rejected', 400::smallint,
                 pg_catalog.to_jsonb('已有进行中的注销申请'::text)
             );
         END IF;
@@ -814,12 +814,12 @@ BEGIN
             IF (v_status->>'other_active')::integer = 0 THEN
                 v_message := '您是最后一名超级管理员，请先指定继任者再申请注销';
                 RETURN aap_identity_deactivation_v1._failure(
-                    'policy_rejected', 400, pg_catalog.to_jsonb(v_message)
+                    'policy_rejected', 400::smallint, pg_catalog.to_jsonb(v_message)
                 );
             ELSIF (v_status->>'other_unreserved')::integer = 0 THEN
                 v_message := '其余超级管理员均已申请注销，请先让其他管理员撤销申请或指定继任者';
                 RETURN aap_identity_deactivation_v1._failure(
-                    'policy_rejected', 400, pg_catalog.to_jsonb(v_message)
+                    'policy_rejected', 400::smallint, pg_catalog.to_jsonb(v_message)
                 );
             END IF;
         END IF;
@@ -869,7 +869,7 @@ BEGIN
         IF v_user.deactivation_requested_at IS NULL
            AND v_user.deactivation_scheduled_at IS NULL THEN
             RETURN aap_identity_deactivation_v1._failure(
-                'policy_rejected', 400,
+                'policy_rejected', 400::smallint,
                 pg_catalog.to_jsonb('当前无待生效的注销申请'::text)
             );
         END IF;

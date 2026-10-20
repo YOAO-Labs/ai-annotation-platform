@@ -154,6 +154,8 @@ async def _start_container_identity(
     login_redis_url=None,
     enable_accounts=True,
     enable_groups=False,
+    enable_deactivation=False,
+    enable_deactivation_operator=False,
     enable_presence=True,
     recovery_mail_key=None,
 ):
@@ -182,6 +184,12 @@ async def _start_container_identity(
     for enabled, kind, variable in (
         (enable_accounts, "ACCOUNTS", "IDENTITY_ACCOUNT_DATABASE_URL"),
         (enable_groups, "GROUP", "IDENTITY_GROUP_DATABASE_URL"),
+        (enable_deactivation, "DEACTIVATION", "IDENTITY_DEACTIVATION_DATABASE_URL"),
+        (
+            enable_deactivation_operator,
+            "DEACTIVATION_OPERATOR",
+            "IDENTITY_DEACTIVATION_OPERATOR_DATABASE_URL",
+        ),
         (enable_presence, "PRESENCE", "IDENTITY_PRESENCE_DATABASE_URL"),
     ):
         if enabled:
@@ -317,6 +325,8 @@ def _start_identity(
     enable_sessions=True,
     enable_accounts=True,
     enable_groups=False,
+    enable_deactivation=False,
+    enable_deactivation_operator=False,
     enable_presence=True,
     login_redis_url=None,
     session_settings=None,
@@ -338,6 +348,12 @@ def _start_identity(
         values["account_database_url"] = _dsn("ACCOUNTS", test_engine)
     if enable_groups:
         values["group_database_url"] = _dsn("GROUP", test_engine)
+    if enable_deactivation:
+        values["deactivation_database_url"] = _dsn("DEACTIVATION", test_engine)
+    if enable_deactivation_operator:
+        values["deactivation_operator_database_url"] = _dsn(
+            "DEACTIVATION_OPERATOR", test_engine
+        )
     if enable_presence:
         values["presence_database_url"] = _dsn("PRESENCE", test_engine)
     if recovery_mail_key is not None:
@@ -389,6 +405,12 @@ def _start_api(
             "IDENTITY_ACCOUNT_DATABASE_URL_FILE": "",
             "IDENTITY_GROUP_DATABASE_URL": "",
             "IDENTITY_GROUP_DATABASE_URL_FILE": "",
+            "IDENTITY_DEACTIVATION_DATABASE_URL": "",
+            "IDENTITY_DEACTIVATION_DATABASE_URL_FILE": "",
+            "IDENTITY_DEACTIVATION_OPERATOR_DATABASE_URL": "",
+            "IDENTITY_DEACTIVATION_OPERATOR_DATABASE_URL_FILE": "",
+            "NOTIFICATION_PUBLISH_DATABASE_URL": "",
+            "NOTIFICATION_PUBLISH_DATABASE_URL_FILE": "",
             "IDENTITY_PRESENCE_DATABASE_URL": "",
             "IDENTITY_PRESENCE_DATABASE_URL_FILE": "",
             "IDENTITY_RECOVERY_DATABASE_URL": "",

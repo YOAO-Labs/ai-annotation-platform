@@ -1244,7 +1244,7 @@ Create/update/delete、单人指派和批量 apply 写成功操作 receipt，并
 
 ### Identity 自助注销与 durable 通知投递
 
-公开 `/api/v1/me/deactivation-request` 的 POST/DELETE 保持现有路径和 `UserOut`；身份命令位于 `POST /v1/identity/deactivation/execute`，使用 `aap-identity-deactivation/v1` 的 request/cancel 两项用户命令。到期处理位于 `POST /v1/identity/deactivation/process-due`，使用 `aap-identity-deactivation-due/v1` 的 operator 页面；它不接收用户 token、指定 user IDs 或调用方时钟。七天冷静期和 Python `str.strip()`/reason 长度保持既有语义，原因不会写入响应、Audit detail 或通知 payload。
+公开 `/api/v1/auth/me/deactivation-request` 的 POST/DELETE 保持现有路径和 `UserOut`；身份命令位于 `POST /v1/identity/deactivation/execute`，使用 `aap-identity-deactivation/v1` 的 request/cancel 两项用户命令。到期处理位于 `POST /v1/identity/deactivation/process-due`，使用 `aap-identity-deactivation-due/v1` 的 operator 页面；它不接收用户 token、指定 user IDs 或调用方时钟。七天冷静期和 Python `str.strip()`/reason 长度保持既有语义，申请／撤销响应不新增原因字段；Audit detail 与通知 payload 不包含原因正文。
 
 申请、取消与到期处理共用 versioned Identity owner。自助申请已经接受后，管理员 suspension/reactivation 不会取消它；仅显式取消或成功到期注销清除三个 `deactivation_*` 请求字段。请求超级管理员注销时必须至少还有另一名启用且未预留注销申请的超级管理员；Legacy API 的超管降级／停用／删除／离职也共用同一全局 try-advisory fence。所有这些减员操作先取 fence 再按 UUID 排序锁用户，争用返回 `409`。到期对每个超级管理员再核对当前实际启用数；若它将成为最后一个，保留申请／ledger 并返回 `blocked_last_super_admin`，不批准、不审计、不发完成通知。
 

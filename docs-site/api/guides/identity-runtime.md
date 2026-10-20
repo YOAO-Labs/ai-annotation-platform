@@ -152,7 +152,7 @@ Invitation 接受仍走原 coordinator。它可在既有邀请事务中调用私
 
 ## 自助注销与最后一名超级管理员围栏
 
-公开 `POST /api/v1/me/deactivation-request` 与 `DELETE /api/v1/me/deactivation-request` 保持现有路径和 `UserOut` 响应。API 以 `aap-identity-deactivation/v1` 调用 `POST /v1/identity/deactivation/execute`；该协议只接受 `schema`、`operation`、`operation_id`、`token`、`audit_context` 与 `payload`。`operation_id` 为 UUID，`token` 是 1–16,384 字符的有效 JWT／API key，且按 secret 处理。
+公开 `POST /api/v1/auth/me/deactivation-request` 与 `DELETE /api/v1/auth/me/deactivation-request` 保持现有路径和 `UserOut` 响应。API 以 `aap-identity-deactivation/v1` 调用 `POST /v1/identity/deactivation/execute`；该协议只接受 `schema`、`operation`、`operation_id`、`token`、`audit_context` 与 `payload`。`operation_id` 为 UUID，`token` 是 1–16,384 字符的有效 JWT／API key，且按 secret 处理。
 
 | operation                   | payload                                           | success data               |
 | --------------------------- | ------------------------------------------------- | -------------------------- |

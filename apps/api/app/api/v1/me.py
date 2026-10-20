@@ -14,7 +14,12 @@ from app.db.models.user import User
 from app.schemas.me import AvatarRefUpdate, PasswordChange, ProfileUpdate
 from app.schemas.user import UserOut, UserPreferencesRead
 from app.api.v1.account_commands import execute_account, get_account_commands
+from app.api.v1.deactivation_commands import (
+    execute_deactivation,
+    get_deactivation_commands,
+)
 from app.services.identity_account_commands import AccountCommandsPort
+from app.services.identity_deactivation_commands import DeactivationCommandsPort
 from app.services import avatar as avatar_service
 from app.services.avatar_image import (
     ALLOWED_CONTENT_TYPES as ALLOWED_IMAGE_CONTENT_TYPES,
@@ -22,8 +27,6 @@ from app.services.avatar_image import (
     AvatarImageError,
     normalize_avatar,
 )
-from app.services.deactivation_service import DeactivationService
-from app.services.notification import NotificationService
 
 router = APIRouter()
 
@@ -182,18 +185,18 @@ async def change_password(
 async def request_self_deactivation(
     payload: DeactivationRequest,
     request: Request,
-    db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    _principal: Principal = Depends(get_current_principal),
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+    commands: DeactivationCommandsPort = Depends(get_deactivation_commands),
 ):
-    """v0.8.1 · 自助注销申请。7 天冷静期，期间可撤销。"""
-    pending_notifications = await DeactivationService.request(
-        db, user=user, reason=payload.reason, request=request
+    """自助注销申请。七天冷静期，期间可撤销。"""
+    return await execute_deactivation(
+        request,
+        credentials,
+        commands,
+        "request_self_deactivation",
+        {"reason": payload.reason},
     )
-    await db.commit()
-    if pending_notifications:
-        await NotificationService(db).publish_committed(pending_notifications)
-    await db.refresh(user)
-    return user
 
 
 @router.get("/preferences", response_model=UserPreferencesRead)
@@ -230,14 +233,14 @@ async def update_preferences(
 @router.delete("/deactivation-request", response_model=UserOut)
 async def cancel_self_deactivation(
     request: Request,
-    db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    _principal: Principal = Depends(get_current_principal),
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+    commands: DeactivationCommandsPort = Depends(get_deactivation_commands),
 ):
-    """v0.8.1 · 冷静期内撤销自助注销申请。"""
-    await DeactivationService.cancel(db, user=user, request=request)
-    await db.commit()
-    await db.refresh(user)
-    return user
+    """冷静期内撤销自助注销申请。"""
+    return await execute_deactivation(
+        request, credentials, commands, "cancel_self_deactivation", {}
+    )
 
 
 # Workbench task-event ingestion

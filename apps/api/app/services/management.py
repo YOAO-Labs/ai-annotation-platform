@@ -31,6 +31,7 @@ from app.schemas.management import (
     UserStats,
 )
 from app.services.invitation import invitation_project_role
+from app.services.user_lifecycle import UserLifecycleService
 
 
 USER_STATUS = Literal["active", "inactive", "all"]
@@ -631,19 +632,12 @@ async def role_impact_preview(
     if requested_role == target.role:
         blockers.append("目标角色与当前角色相同")
     if (
-        target.role == UserRole.SUPER_ADMIN.value
+        target.is_active
+        and target.role == UserRole.SUPER_ADMIN.value
         and requested_role != UserRole.SUPER_ADMIN.value
     ):
-        active_super_admins = int(
-            await db.scalar(
-                select(func.count(User.id)).where(
-                    User.role == UserRole.SUPER_ADMIN.value,
-                    User.is_active.is_(True),
-                )
-            )
-            or 0
-        )
-        if active_super_admins <= 1:
+        remaining = await UserLifecycleService.super_admin_status(db, target.id)
+        if remaining["other_unreserved"] == 0:
             blockers.append("不能降级最后一名超级管理员")
 
     if requested_role != target.role:

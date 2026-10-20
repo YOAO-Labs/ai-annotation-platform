@@ -36,17 +36,6 @@ _PA_ASSIGNABLE_ROLES = {UserRole.EMPLOYEE.value}
 _PENDING_TASK_STATUSES = ("pending", "in_progress", "review", "rejected")
 
 
-async def count_active_super_admins(db: AsyncSession) -> int:
-    return (
-        await db.execute(
-            select(func.count(User.id)).where(
-                User.role == UserRole.SUPER_ADMIN.value,
-                User.is_active.is_(True),
-            )
-        )
-    ).scalar_one()
-
-
 async def project_admin_project_member(
     db: AsyncSession, *, actor: User, target: User
 ) -> bool:
@@ -124,12 +113,19 @@ async def _count_task_locks(db: AsyncSession, *, target_id: UUID) -> int:
 
 
 async def _lock_legacy_lifecycle_target(
-    db: AsyncSession, user_id: str, actor: User, receiver_id: UUID | None = None
+    db: AsyncSession,
+    user_id: str,
+    actor: User,
+    receiver_id: UUID | None = None,
+    *,
+    protect_super_admin: bool = False,
 ) -> tuple[User, User]:
     try:
         target_id = UUID(user_id)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail="用户不存在") from exc
+    if protect_super_admin:
+        await UserLifecycleService.lock_super_admin_invariant(db)
     ids = [target_id, actor.id]
     if receiver_id:
         ids.append(receiver_id)
@@ -176,7 +172,7 @@ async def delete_user(
     transfer_to_user_id: UUID | None,
 ) -> User:
     user, actor = await _lock_legacy_lifecycle_target(
-        db, user_id, actor, transfer_to_user_id
+        db, user_id, actor, transfer_to_user_id, protect_super_admin=True
     )
     if user.id == actor.id:
         raise HTTPException(status_code=400, detail="不能删除自己")
@@ -196,7 +192,9 @@ async def delete_user(
             )
 
     if user.role == UserRole.SUPER_ADMIN.value:
-        if await count_active_super_admins(db) <= 1:
+        if (await UserLifecycleService.super_admin_status(db, user.id))[
+            "other_unreserved"
+        ] == 0:
             raise HTTPException(status_code=400, detail="不能删除最后一名超级管理员")
 
     pending_count, sample_ids = await _count_pending_tasks(db, target_id=user.id)
@@ -299,7 +297,9 @@ async def delete_user(
 async def deactivate_user(
     db: AsyncSession, *, user_id: str, actor: User, request: Request
 ) -> User:
-    user, actor = await _lock_legacy_lifecycle_target(db, user_id, actor)
+    user, actor = await _lock_legacy_lifecycle_target(
+        db, user_id, actor, protect_super_admin=True
+    )
     if user.id == actor.id:
         raise HTTPException(status_code=400, detail="不能停用自己")
     if not user.is_active:
@@ -319,7 +319,9 @@ async def deactivate_user(
             )
 
     if user.role == UserRole.SUPER_ADMIN.value:
-        if await count_active_super_admins(db) <= 1:
+        if (await UserLifecycleService.super_admin_status(db, user.id))[
+            "other_unreserved"
+        ] == 0:
             raise HTTPException(status_code=400, detail="不能停用最后一名超级管理员")
 
     set_disabled_metadata(
@@ -366,6 +368,7 @@ async def change_user_role(
     # ORM identity cannot decide the mutation.
     # The shared account owner refreshes both authority rows under the lock.
 
+    await UserLifecycleService.lock_super_admin_invariant(db)
     await UserLifecycleService.lock_accounts(db, [actor.id, user.id])
     fresh_actor = await db.get(User, actor.id, populate_existing=True)
     if (
@@ -419,7 +422,9 @@ async def change_user_role(
         old_role == UserRole.SUPER_ADMIN.value
         and new_role != UserRole.SUPER_ADMIN.value
     ):
-        if await count_active_super_admins(db) <= 1:
+        if (await UserLifecycleService.super_admin_status(db, user.id))[
+            "other_unreserved"
+        ] == 0:
             raise HTTPException(status_code=400, detail="不能降级最后一名超级管理员")
 
     set_platform_role(user, new_role)

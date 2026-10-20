@@ -87,6 +87,10 @@ class NotificationDeliveryPostgresData:
                   AND namespace.nspname NOT LIKE 'pg_toast%'
                   AND namespace.nspname NOT LIKE 'pg_temp_%'
                   AND function.prokind IN ('f', 'p', 'a', 'w')
+                  AND function.prorettype NOT IN (
+                      'pg_catalog.trigger'::pg_catalog.regtype,
+                      'pg_catalog.event_trigger'::pg_catalog.regtype
+                  )
                   AND (
                       pg_catalog.left(namespace.nspname, 4) = 'aap_'
                       OR function.prosecdef
@@ -132,6 +136,9 @@ class NotificationDeliveryPostgresData:
                           )
                           OR pg_catalog.has_table_privilege(
                               current_user, relation.oid, 'TRIGGER'
+                          )
+                          OR pg_catalog.has_any_column_privilege(
+                              current_user, relation.oid, 'SELECT,INSERT,UPDATE,REFERENCES'
                           )
                       )
                 )

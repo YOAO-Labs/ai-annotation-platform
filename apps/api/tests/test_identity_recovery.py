@@ -21,6 +21,15 @@ from aap_identity.account_contract import AccountFailure, decode_account_request
 from aap_identity.account_manager import AccountManager
 from aap_identity.account_postgres import AccountPostgresData
 from aap_identity.contract import IdentityFailure
+from aap_identity.deactivation_contract import (
+    decode_deactivation_due_request,
+    decode_deactivation_request,
+)
+from aap_identity.deactivation_manager import DeactivationManager
+from aap_identity.deactivation_postgres import (
+    DeactivationDuePostgresData,
+    DeactivationPostgresData,
+)
 from aap_identity.group_contract import decode_group_request
 from aap_identity.group_manager import GroupManager
 from aap_identity.group_postgres import GroupPostgresData
@@ -29,6 +38,7 @@ from aap_identity.key_manager import KeyManager
 from aap_identity.key_postgres import KeyPostgresData
 from aap_identity.mail_contract import MAIL_POLICY
 from aap_identity.mail_postgres import MailPostgresData, MailSettingsPostgresData
+from aap_identity.notification_delivery_postgres import NotificationDeliveryPostgresData
 from aap_identity.recovery_contract import RecoveryFailure, decode_recovery_request
 from aap_identity.recovery_crypto import (
     decrypt_mail_token,
@@ -234,6 +244,7 @@ async def test_restored_authority_retains_revocation_and_refuses_populated_downg
     session_id = uuid.uuid4()
     account_id = uuid.uuid4()
     group_id = uuid.uuid4()
+    deactivation_id, due_id = uuid.uuid4(), uuid.uuid4()
     snapshot = tmp_path / "authority.dump"
 
     class Counter:
@@ -431,6 +442,41 @@ async def test_restored_authority_retains_revocation_and_refuses_populated_downg
             GroupPostgresData(_dsn("GROUP", test_engine)),
             secret,
         ).execute(group_command)
+        deactivation_command = decode_deactivation_request(
+            {
+                "schema": "aap-identity-deactivation/v1",
+                "operation": "request_self_deactivation",
+                "operation_id": str(deactivation_id),
+                "token": session_token,
+                "payload": {"reason": None},
+                "audit_context": {
+                    "method": "POST",
+                    "path": "/recovery/deactivation",
+                    "ip": None,
+                    "request_id": None,
+                },
+            }
+        )
+        original_deactivation = await DeactivationManager(
+            Authenticator(PostgresData(_dsn("AUTH", test_engine)), secret),
+            DeactivationPostgresData(_dsn("DEACTIVATION", test_engine)),
+            secret,
+        ).execute(deactivation_command)
+        due_command = decode_deactivation_due_request(
+            {
+                "schema": "aap-identity-deactivation-due/v1",
+                "operation_id": str(due_id),
+                "limit": 16,
+            }
+        )
+        original_due = await DeactivationDuePostgresData(
+            _dsn("DEACTIVATION_OPERATOR", test_engine)
+        ).process_due_deactivations(due_command)
+        assert original_due.processed == 0
+        original_deliveries = await NotificationDeliveryPostgresData(
+            _dsn("NOTIFICATION_PUBLISH", test_engine)
+        ).claim_deliveries(uuid.uuid4())
+        assert len(original_deliveries) == 2
         dump = _postgres_tool(
             test_engine,
             ["pg_dump", "-U", "owner", "-Fc", test_engine.url.database],
@@ -483,6 +529,45 @@ async def test_restored_authority_retains_revocation_and_refuses_populated_downg
         assert principal.credential_id == key_id
         assert principal.scopes == ["datasets:read"]
         assert (await auth.authenticate(session_token)).credential_id == session_id
+
+        def restored_dsn(kind):
+            return (
+                make_url(_dsn(kind, test_engine))
+                .set(database=clone)
+                .render_as_string(hide_password=False)
+            )
+
+        deactivation_data = DeactivationPostgresData(restored_dsn("DEACTIVATION"))
+        assert (
+            await deactivation_data.deactivation_policy()
+        ).policy == "aap-identity-deactivation/v1"
+        restored_deactivation = await DeactivationManager(
+            auth, deactivation_data, secret
+        ).execute(deactivation_command)
+        assert restored_deactivation.data == original_deactivation.data
+        due_data = DeactivationDuePostgresData(restored_dsn("DEACTIVATION_OPERATOR"))
+        assert (
+            await due_data.due_policy()
+        ).policy == "aap-identity-deactivation-due/v1"
+        assert await due_data.process_due_deactivations(due_command) == original_due
+        assert (
+            await NotificationDeliveryPostgresData(
+                restored_dsn("NOTIFICATION_PUBLISH")
+            ).delivery_policy()
+        ).policy == "aap-notifications-delivery/v1"
+        async with restored.connect() as db:
+            rows = (
+                await db.execute(
+                    text(
+                        "SELECT notification_id,worker_id,lease_id,lease_expires_at FROM notification_delivery_outbox WHERE operation_id=:id"
+                    ),
+                    {"id": deactivation_id},
+                )
+            ).all()
+            assert {tuple(row) for row in rows} == {
+                (item.id, item.worker_id, item.lease_id, item.lease_expires_at)
+                for item in original_deliveries
+            }
 
         session_url = make_url(_dsn("SESSIONS", test_engine)).set(database=clone)
         session_data = SessionPostgresData(
@@ -719,6 +804,27 @@ async def test_restored_authority_retains_revocation_and_refuses_populated_downg
 
         _refuse_downgrade(
             owner_url,
+            revision="0240",
+            message=b"Cannot remove Identity deactivation while retained results or delivery state exists",
+        )
+        async with restored.begin() as db:
+            assert (
+                await db.scalar(text("SELECT version_num FROM alembic_version"))
+                == "0241"
+            )
+            for table in (
+                "notification_delivery_outbox",
+                "identity_deactivation_operation_receipts",
+                "identity_deactivation_due_receipts",
+                "identity_deactivation_requests",
+            ):
+                await db.execute(text(f"DELETE FROM public.{table}"))
+        removed_deactivation = _alembic(owner_url, "downgrade", "0240")
+        assert removed_deactivation.returncode == 0, (
+            "Owned empty deactivation downgrade failed"
+        )
+        _refuse_downgrade(
+            owner_url,
             revision="0239",
             message=b"Cannot remove Identity group operation receipts",
         )
@@ -850,7 +956,7 @@ async def test_restored_authority_retains_revocation_and_refuses_populated_downg
         record_property("restored_snapshot_sha256", hashlib.sha256(dump).hexdigest())
         record_property(
             "restored_authority",
-            "generation,jti,api-key,key-receipt,session-receipt,account-receipt,group-receipt,recovery-replay,credential-mail,database-schema-function-acls",
+            "generation,jti,api-key,key-receipt,session-receipt,account-receipt,group-receipt,deactivation-receipt,due-receipt,notification-delivery-lease,recovery-replay,credential-mail,database-schema-function-acls",
         )
     finally:
         snapshot.unlink(missing_ok=True)
@@ -904,6 +1010,24 @@ async def test_restored_authority_retains_revocation_and_refuses_populated_downg
                 await _cleanup(recovery_maker, recovery_actor, [])
             finally:
                 async with maker.begin() as db:
+                    await db.execute(
+                        text(
+                            "DELETE FROM public.identity_deactivation_operation_receipts WHERE actor_id=:id"
+                        ),
+                        {"id": actor},
+                    )
+                    await db.execute(
+                        text(
+                            "DELETE FROM public.identity_deactivation_requests WHERE user_id=:id"
+                        ),
+                        {"id": actor},
+                    )
+                    await db.execute(
+                        text(
+                            "DELETE FROM public.identity_deactivation_due_receipts WHERE operation_id=:id"
+                        ),
+                        {"id": due_id},
+                    )
                     await db.execute(
                         text(
                             "DELETE FROM public.identity_group_operation_receipts WHERE actor_id=:id"

@@ -42,6 +42,15 @@ OWNER_LABEL = "org.aap.worktree-owner"
 OWNER_TAG = "aap-worktree-owner"
 IDENTITY_RUNTIME_CAPABILITIES = (
     "aap_identity_v1.authentication_policy()",
+    "aap_identity_v1.lock_super_admin_invariant()",
+    "aap_identity_v1.super_admin_status(uuid)",
+    "aap_identity_deactivation_v1.deactivation_policy()",
+    "aap_identity_deactivation_v1.execute_deactivation_command(jsonb)",
+    "aap_identity_deactivation_v1.due_policy()",
+    "aap_identity_deactivation_v1.process_due_deactivations(jsonb)",
+    "aap_notifications_v1.identity_delivery_policy()",
+    "aap_notifications_v1.claim_identity_deliveries(jsonb)",
+    "aap_notifications_v1.finish_identity_delivery(jsonb)",
     "aap_identity_v1.read_jwt_principal(uuid,uuid,bigint,timestamptz,boolean)",
     "aap_identity_v1.read_api_key_candidates(text,uuid,integer)",
     "aap_identity_v1.confirm_api_key_principal(uuid,text)",
@@ -536,7 +545,7 @@ class LocalResources:
                     f"GRANT USAGE ON SCHEMA public TO {role}",
                     f"GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO {role}",
                     f"GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO {role}",
-                    f"GRANT USAGE ON SCHEMA aap_workspace_v1, aap_assets_v1, aap_labeling_v1, aap_jobs_v1, aap_identity_v1, aap_identity_keys_v1, aap_identity_sessions_v1, aap_identity_accounts_v1, aap_identity_recovery_v1, aap_identity_groups_v1, aap_settings_v1 TO {role}",
+                    f"GRANT USAGE ON SCHEMA aap_workspace_v1, aap_assets_v1, aap_labeling_v1, aap_jobs_v1, aap_identity_v1, aap_identity_keys_v1, aap_identity_sessions_v1, aap_identity_accounts_v1, aap_identity_recovery_v1, aap_identity_groups_v1, aap_identity_deactivation_v1, aap_notifications_v1, aap_settings_v1 TO {role}",
                     "GRANT SELECT ON aap_assets_v1.spatial_item_references, "
                     f"aap_assets_v1.spatial_scene_references TO {role}",
                     f"GRANT EXECUTE ON FUNCTION aap_workspace_v1.lock_project_reference(uuid), "

@@ -63,6 +63,34 @@ class IdentitySessionData:
     def __init__(self, db: AsyncSession) -> None:
         self.db = db
 
+    async def lock_super_admin_invariant(self) -> bool:
+        value = await self._scalar(
+            text("SELECT aap_identity_v1.lock_super_admin_invariant()"), {}
+        )
+        if type(value) is not bool:
+            raise IdentityGatewayUnavailable()
+        return value
+
+    async def super_admin_status(self, excluded_user_id: uuid.UUID | None) -> dict:
+        value = _json_value(
+            await self._scalar(
+                text("SELECT aap_identity_v1.super_admin_status(:excluded_user_id)"),
+                {"excluded_user_id": excluded_user_id},
+            )
+        )
+        if (
+            not isinstance(value, dict)
+            or set(value) != {"schema", "other_active", "other_unreserved"}
+            or value["schema"] != "aap-identity-super-admin-status/v1"
+            or any(
+                type(value[name]) is not int or not 0 <= value[name] < 2**63
+                for name in ("other_active", "other_unreserved")
+            )
+            or value["other_unreserved"] > value["other_active"]
+        ):
+            raise IdentityGatewayUnavailable()
+        return value
+
     async def _scalar(self, statement, parameters: dict):
         try:
             return await self.db.scalar(statement, parameters)

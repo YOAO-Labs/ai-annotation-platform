@@ -171,7 +171,7 @@ Content-Type: application/json
 
 ### 自助注销申请
 
-当前登录用户可通过 `POST /api/v1/me/deactivation-request` 申请注销，body 可传 `{}` 或 `{ "reason": "..." }`；reason 最长 500 个 Unicode 字符。七天冷静期内可调用 `DELETE /api/v1/me/deactivation-request` 撤销。成功响应仍是当前 `UserOut`，不附带通知集合；注销命令不回显 reason，也不会将其写入 Audit detail 或通知 payload。到期后已有 `disabled_reason` 字段仍按原用户生命周期语义保留停用说明。
+当前登录用户可通过 `POST /api/v1/auth/me/deactivation-request` 申请注销，body 可传 `{}` 或 `{ "reason": "..." }`；reason 最长 500 个 Unicode 字符。七天冷静期内可调用 `DELETE /api/v1/auth/me/deactivation-request` 撤销。成功响应仍是当前 `UserOut`，不附带通知集合；注销命令不回显 reason，也不会将其写入 Audit detail 或通知 payload。到期后已有 `disabled_reason` 字段仍按原用户生命周期语义保留停用说明。
 
 申请已接受后，管理员对账号执行 suspension 或之后 reactivate 都不会自动取消这项申请。只有用户显式撤销，或到期处理成功，才清除注销请求字段。到期时再次检查启用超级管理员；若该用户已经是最后一名实际启用超级管理员，会保留申请等待后续管理员恢复／指定继任者，不会完成注销。
 

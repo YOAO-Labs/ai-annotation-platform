@@ -169,7 +169,7 @@ async def test_malformed_finish_reply_rolls_back_owner_mutation(monkeypatch):
 
 
 class PolicyConnection(FakeConnection):
-    def __init__(self, grants, *, table_access=False):
+    def __init__(self, grants, *, table_access=False, column_access=False):
         super().__init__(
             {
                 "schema": NOTIFICATION_DELIVERY_POLICY_PROTOCOL,
@@ -178,12 +178,15 @@ class PolicyConnection(FakeConnection):
         )
         self.grants = grants
         self.table_access = table_access
+        self.column_access = column_access
         self.queries = []
 
     async def fetchval(self, sql, *args):
         self.queries.append(sql)
         if "has_table_privilege" in sql:
-            return self.table_access
+            return self.table_access or (
+                self.column_access and "has_any_column_privilege" in sql
+            )
         return await super().fetchval(sql, *args)
 
     async def fetch(self, sql):
@@ -225,6 +228,14 @@ async def test_readiness_requires_exact_global_function_capabilities_and_no_tabl
     connection = PolicyConnection(
         [*grants, ("aap_identity_v1", "unsafe", "uuid", True)]
     )
+    monkeypatch.setitem(sys.modules, "asyncpg", _asyncpg(connection))
+    with pytest.raises(IdentityUnavailable):
+        await NotificationDeliveryPostgresData(
+            "postgresql://publisher/db"
+        ).delivery_policy()
+    assert connection.rolled_back and connection.closed
+
+    connection = PolicyConnection(grants, column_access=True)
     monkeypatch.setitem(sys.modules, "asyncpg", _asyncpg(connection))
     with pytest.raises(IdentityUnavailable):
         await NotificationDeliveryPostgresData(

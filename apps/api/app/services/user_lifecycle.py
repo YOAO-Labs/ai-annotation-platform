@@ -88,6 +88,29 @@ class UserLifecycleService:
     """Own account-row locking and identity-derived lifecycle project scope."""
 
     @staticmethod
+    async def lock_super_admin_invariant(db: AsyncSession) -> None:
+        """Take the Identity reservation fence before any lifecycle User lock."""
+        try:
+            acquired = await IdentitySessionData(db).lock_super_admin_invariant()
+        except IdentityGatewayUnavailable:
+            raise HTTPException(
+                status_code=503, detail="身份生命周期服务暂不可用"
+            ) from None
+        if not acquired:
+            raise HTTPException(status_code=409, detail="账号正在更新，请刷新后重试")
+
+    @staticmethod
+    async def super_admin_status(
+        db: AsyncSession, excluded_user_id: uuid.UUID | None
+    ) -> dict:
+        try:
+            return await IdentitySessionData(db).super_admin_status(excluded_user_id)
+        except IdentityGatewayUnavailable:
+            raise HTTPException(
+                status_code=503, detail="身份生命周期服务暂不可用"
+            ) from None
+
+    @staticmethod
     async def lock_accounts(
         db: AsyncSession,
         user_ids: Iterable[uuid.UUID],

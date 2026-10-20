@@ -240,6 +240,12 @@ class Settings(BaseSettings):
     identity_account_database_url_file: str = ""
     identity_group_database_url: str = Field(default="", repr=False)
     identity_group_database_url_file: str = ""
+    identity_deactivation_database_url: str = Field(default="", repr=False)
+    identity_deactivation_database_url_file: str = ""
+    identity_deactivation_operator_database_url: str = Field(default="", repr=False)
+    identity_deactivation_operator_database_url_file: str = ""
+    notification_publish_database_url: str = Field(default="", repr=False)
+    notification_publish_database_url_file: str = ""
     identity_presence_database_url: str = Field(default="", repr=False)
     identity_presence_database_url_file: str = ""
     identity_recovery_database_url: str = Field(default="", repr=False)

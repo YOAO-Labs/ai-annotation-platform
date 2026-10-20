@@ -14,6 +14,7 @@ celery_app = Celery(
         "app.workers.image_pyramid",
         "app.workers.dataset_import_delivery",
         "app.workers.identity_mail_delivery",
+        "app.workers.notification_delivery",
         "app.workers.cleanup",
         "app.workers.audit",
         "app.workers.deactivation",
@@ -134,6 +135,10 @@ celery_app.conf.update(
         "app.workers.cross_frame_job.run_cross_frame_job": {"queue": "default"},
         # v0.7.6 · audit 异步 INSERT 走独立队列，不与 ml/media 抢资源
         "app.workers.audit.persist_audit_entry": {"queue": "audit"},
+        "app.workers.deactivation.process_deactivation_requests": {"queue": "default"},
+        "app.workers.notification_delivery.relay_identity_notifications": {
+            "queue": "default"
+        },
         # v0.8.4 · task_events 批量 INSERT 走独立队列
         "app.workers.task_events.persist_task_events_batch": {"queue": "audit"},
         # Owner-required tasks have a dedicated queue, separate from ordinary workers.
@@ -163,6 +168,10 @@ celery_app.conf.update(
     beat_schedule={
         "relay-credential-mail": {
             "task": "app.workers.identity_mail_delivery.relay_credential_mail",
+            "schedule": timedelta(seconds=10),
+        },
+        "relay-identity-notifications": {
+            "task": "app.workers.notification_delivery.relay_identity_notifications",
             "schedule": timedelta(seconds=10),
         },
         "relay-prediction-retry-deliveries": {

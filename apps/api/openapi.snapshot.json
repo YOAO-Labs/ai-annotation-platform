@@ -55863,7 +55863,7 @@
     },
     "/api/v1/auth/me/deactivation-request": {
       "delete": {
-        "description": "v0.8.1 · 冷静期内撤销自助注销申请。",
+        "description": "冷静期内撤销自助注销申请。",
         "operationId": "cancel_self_deactivation_api_v1_auth_me_deactivation_request_delete",
         "responses": {
           "200": {
@@ -55888,7 +55888,7 @@
         ]
       },
       "post": {
-        "description": "v0.8.1 · 自助注销申请。7 天冷静期，期间可撤销。",
+        "description": "自助注销申请。七天冷静期，期间可撤销。",
         "operationId": "request_self_deactivation_api_v1_auth_me_deactivation_request_post",
         "requestBody": {
           "content": {

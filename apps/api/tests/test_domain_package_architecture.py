@@ -46,6 +46,7 @@ _SPATIAL_RETIRED_MODULES = (
 )
 
 REMOVED_MODULES = (
+    "app.services.deactivation_service",
     "app.services.mask_formats.safe_archive",
     "app.services.role_patterns",
     "app.services.dataset_frame_grouping",

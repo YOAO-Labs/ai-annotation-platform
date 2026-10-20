@@ -58,7 +58,6 @@ from aap_identity.notification_delivery_contract import (  # noqa: E402
     NotificationDeliveryPolicyReply,
     NotificationFinishReply,
     NotificationFinishRequest,
-    NotificationLease,
 )
 from aap_identity.key_contract import (  # noqa: E402
     KeyFailureReply,
@@ -282,12 +281,11 @@ def main():
         ),
         "src/aap_identity/notification_delivery_protocol.schema.json": render_schema(
             TypeAdapter(
-                NotificationClaimRequest
+                NotificationDeliveryPolicyReply
+                | NotificationClaimRequest
                 | NotificationClaimReply
                 | NotificationFinishRequest
                 | NotificationFinishReply
-                | NotificationDeliveryPolicyReply
-                | NotificationLease
             ),
             "aap-notifications-delivery/v1",
         ),

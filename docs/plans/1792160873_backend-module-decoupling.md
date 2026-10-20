@@ -1,6 +1,6 @@
 # 后端业务模块解耦与跨语言替换设计
 
-> Status: 进行中。当前目标覆盖 identity、workspace、assets、labeling、inference、learning、insights、jobs、audit、notifications 及运行装配。前序 Python 进程内切片、常驻 API 恢复和既有训练作业执行权交接已完成。assets 视频探测三个操作已提供独立 Python 工件、流式合同及真实调用端的 Node 替换验收；同步 ZIP 与旧前缀扫描已纳入既有 Assets Source 工件及 0215 原生合同，并通过真实隔离服务、受限角色与故障恢复验收。Scene、位姿和标定切片已提取至既有 Catalog 工件，并通过隔离数据库、真实 HTTP/S3 与消费者资格验证；连接管理及本地图片/nuScenes 来源登记已迁入各自合同并完成本地验收；媒体/Blob、其余运维流程和其他模块继续推进。Identity 注册恢复／邮件和分组目录／指派均已有本地 owner 及消费者资格；当前继续抽取自助注销／到期处理，并将其两类通知交由 Notifications outbox／publisher，最终超级管理员围栏跨入既有 API 生命周期写入。该切片的 database/API/Celery/Redis 资格尚待实际验收。Go 月报保持独立实验，其可用性和容量不作为本目标门槛。当前各模块缺口见[模块部署与语言替换状态](../../docs-site/dev/concepts/module-deployment.md)。
+> Status: 进行中。当前目标覆盖 identity、workspace、assets、labeling、inference、learning、insights、jobs、audit、notifications 及运行装配。前序 Python 进程内切片、常驻 API 恢复和既有训练作业执行权交接已完成。assets 视频探测三个操作已提供独立 Python 工件、流式合同及真实调用端的 Node 替换验收；同步 ZIP 与旧前缀扫描已纳入既有 Assets Source 工件及 0215 原生合同，并通过真实隔离服务、受限角色与故障恢复验收。Scene、位姿和标定切片已提取至既有 Catalog 工件，并通过隔离数据库、真实 HTTP/S3 与消费者资格验证；连接管理及本地图片/nuScenes 来源登记已迁入各自合同并完成本地验收；媒体/Blob、其余运维流程和其他模块继续推进。Identity 注册恢复／邮件和分组目录／指派均已有本地 owner 及消费者资格；当前继续抽取自助注销／到期处理，并将其两类通知交由 Notifications outbox／publisher，最终超级管理员围栏跨入既有 API 生命周期写入。该切片已通过隔离本地 database/API/Celery/Redis、并发最终超管保护及备份恢复验收，最终 API 镜像装配检查继续收尾。Go 月报保持独立实验，其可用性和容量不作为本目标门槛。当前各模块缺口见[模块部署与语言替换状态](../../docs-site/dev/concepts/module-deployment.md)。
 >
 > 创建日期：2026-10-16。
 >
@@ -2758,10 +2758,24 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   functions and a Redis identity. The independent non-HTTP process and the
   every-ten-second default-queue relay use the same executor, committed leases
   and stable Notification ID; delivery remains at-least-once.
-- API and standalone Compose configuration, migration artifact order and the
-  three restricted roles are recorded in DEV and ADR-0121. This plan entry adds
-  no deactivation pass count or qualification claim: database grants, the shared
-  legacy fence, due replay/no-progress behavior, Redis outage recovery and
-  standalone publisher consumer acceptance remain pending Root's actual checks.
-  No production deployment, daily Identity cutover, alternate-language provider
-  or Go expansion is included.
+- Local qualification passes 68 distinct database/process cases: exact 2/2/3
+  LOGIN surfaces, self/cancel receipts, legacy reducers and accepted-operation
+  persistence, final-SA races, frozen due pages, a bounded read-only container,
+  AUTH-only API database use with dedicated and remote owners, and two fresh
+  event loops through each existing Celery task entry point. Celery entry-point
+  checks use eager execution; they do not claim a new broker/prefork qualification.
+- The real Notifications publisher commits leases before Redis, recovers a killed
+  process with the same message ID, and needs no Identity authority credentials.
+  Owned backup/restore preserves self/due receipts and delivery lease identities;
+  populated downgrade is refused. Original failed runs are retained with their
+  corrections (Audit inet conversion, native smallint policy overloads and a
+  proof-only image identity environment variable). All owned run resources were
+  removed; no unrelated development database or service was changed.
+- The current noneditable Identity installation passes 323 package tests, and
+  28 API/notification boundary tests pass. Current-source runtime image inputs
+  are fingerprinted; final committed API image assembly remains to be recorded.
+  API/standalone Compose configuration and migration order are documented in DEV
+  and ADR-0121. No production deployment, daily Identity cutover,
+  alternate-language provider or Go expansion is included. The full module goal
+  remains active, including invitations, directory/admin ownership and the
+  remaining module matrix.
