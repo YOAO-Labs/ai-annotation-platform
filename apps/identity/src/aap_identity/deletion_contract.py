@@ -310,11 +310,18 @@ def deletion_failure_reply(
                 status_code, detail = _DETAILS[code]
             except KeyError:
                 raise ValueError("Failure requires status and detail") from None
-    return DeletionFailureReply(
-        schema=DELETION_PROTOCOL,
-        ok=False,
-        error={"code": code, "status_code": status_code, "detail": detail},
-    ).model_dump(mode="json", by_alias=True)
+    encoded = json.dumps(
+        {
+            "schema": DELETION_PROTOCOL,
+            "ok": False,
+            "error": {"code": code, "status_code": status_code, "detail": detail},
+        },
+        ensure_ascii=True,
+        allow_nan=False,
+    )
+    return DeletionFailureReply.model_validate_json(encoded).model_dump(
+        mode="json", by_alias=True
+    )
 
 
 class _NativeCommand(ClosedModel):

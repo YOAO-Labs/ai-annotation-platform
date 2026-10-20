@@ -251,6 +251,25 @@ def test_pending_detail_is_count_bound_and_strict():
         decode_deletion_reply(request, failure, expected_principal=actor)
 
 
+def test_failure_builder_revalidates_json_uuid_samples():
+    sample_id = uuid.uuid4()
+    failure = DeletionFailure(
+        "has_pending_tasks",
+        409,
+        {
+            "reason": "has_pending_tasks",
+            "pending_task_count": 1,
+            "locked_task_count": 0,
+            "sample_task_ids": [str(sample_id)],
+            "message": "该用户当前有 1 个未完成任务、0 个锁定任务，需先转交",
+        },
+    )
+    reply = deletion_failure_reply(failure)
+    assert reply["error"]["detail"]["sample_task_ids"] == [str(sample_id)]
+    assert reply["error"]["code"] == "has_pending_tasks"
+    assert "private-deletion-bearer" not in json.dumps(reply)
+
+
 def test_failure_code_details_are_operation_and_receiver_bound():
     request = deletion_request()
     actor = principal(role="super_admin")

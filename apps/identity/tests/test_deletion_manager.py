@@ -11,6 +11,7 @@ from aap_identity.deletion_contract import (
     NATIVE_DELETION_PROTOCOL,
     DeletionFailure,
     decode_native_deletion_command,
+    deletion_failure_reply,
 )
 from aap_identity.deletion_manager import (
     DeletionManager,
@@ -177,6 +178,44 @@ async def test_manager_accepts_only_closed_native_failure_then_rolls_back():
     with pytest.raises(DeletionFailure) as failure:
         await manager.execute(request)
     assert failure.value.code == "manager_required"
+    assert data.rolled_back and not data.committed
+
+
+@pytest.mark.asyncio
+async def test_manager_preserves_pending_409_sample_and_rolls_back_without_echo():
+    actor = principal(role="super_admin")
+    token = "sensitive-delete-bearer"
+    request = deletion_request(token=token)
+    sample_id = "cccccccc-cccc-4ccc-8ccc-cccccccccccc"
+    data = Data(
+        lambda command: {
+            "schema": NATIVE_DELETION_PROTOCOL,
+            "ok": False,
+            "error": {
+                "code": "has_pending_tasks",
+                "status_code": 409,
+                "detail": {
+                    "reason": "has_pending_tasks",
+                    "pending_task_count": 1,
+                    "locked_task_count": 2,
+                    "sample_task_ids": [sample_id],
+                    "message": ("该用户当前有 1 个未完成任务、2 个锁定任务，需先转交"),
+                },
+            },
+        }
+    )
+    manager = DeletionManager(
+        Authenticator(VerifiedCredential(actor, None)), data, DELETION_SECRET
+    )
+
+    with pytest.raises(DeletionFailure) as failure:
+        await manager.execute(request)
+
+    assert failure.value.code == "has_pending_tasks"
+    assert failure.value.status_code == 409
+    assert failure.value.detail["sample_task_ids"] == [sample_id]
+    public = deletion_failure_reply(failure.value)
+    assert token not in json.dumps(public)
     assert data.rolled_back and not data.committed
 
 
