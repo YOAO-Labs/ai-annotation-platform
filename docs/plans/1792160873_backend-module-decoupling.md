@@ -1,6 +1,6 @@
 # 后端业务模块解耦与跨语言替换设计
 
-> Status: 进行中。当前目标覆盖 identity、workspace、assets、labeling、inference、learning、insights、jobs、audit、notifications 及运行装配。前序 Python 进程内切片、常驻 API 恢复和既有训练作业执行权交接已完成。assets 视频探测三个操作已提供独立 Python 工件、流式合同及真实调用端的 Node 替换验收；同步 ZIP 与旧前缀扫描已纳入既有 Assets Source 工件及 0215 原生合同，并通过真实隔离服务、受限角色与故障恢复验收。Scene、位姿和标定切片已提取至既有 Catalog 工件，并通过隔离数据库、真实 HTTP/S3 与消费者资格验证；连接管理及本地图片/nuScenes 来源登记已迁入各自合同并完成本地验收；媒体/Blob、其余运维流程和其他模块继续推进。Identity 注册恢复／邮件和分组目录／指派均已有本地 owner 及消费者资格；当前继续抽取自助注销／到期处理，并将其两类通知交由 Notifications outbox／publisher，最终超级管理员围栏跨入既有 API 生命周期写入。该切片已通过隔离本地 database/API/Celery/Redis、并发最终超管保护及备份恢复验收，最终 API 镜像装配检查继续收尾。Go 月报保持独立实验，其可用性和容量不作为本目标门槛。当前各模块缺口见[模块部署与语言替换状态](../../docs-site/dev/concepts/module-deployment.md)。
+> Status: 进行中。当前目标覆盖 identity、workspace、assets、labeling、inference、learning、insights、jobs、audit、notifications 及运行装配。前序 Python 进程内切片、常驻 API 恢复和既有训练作业执行权交接已完成。assets 视频探测三个操作已提供独立 Python 工件、流式合同及真实调用端的 Node 替换验收；同步 ZIP 与旧前缀扫描已纳入既有 Assets Source 工件及 0215 原生合同，并通过真实隔离服务、受限角色与故障恢复验收。Scene、位姿和标定切片已提取至既有 Catalog 工件，并通过隔离数据库、真实 HTTP/S3 与消费者资格验证；连接管理及本地图片/nuScenes 来源登记已迁入各自合同并完成本地验收；媒体/Blob、其余运维流程和其他模块继续推进。Identity 注册恢复／邮件和分组目录／指派均已有本地 owner 及消费者资格；当前继续抽取自助注销／到期处理，并将其两类通知交由 Notifications outbox／publisher，最终超级管理员围栏跨入既有 API 生命周期写入。该切片已通过隔离本地 database/API/Celery/Redis、并发最终超管保护及备份恢复验收，独立运行与 API 装配镜像均已验证与提交源码一致。Go 月报保持独立实验，其可用性和容量不作为本目标门槛。当前各模块缺口见[模块部署与语言替换状态](../../docs-site/dev/concepts/module-deployment.md)。
 >
 > 创建日期：2026-10-16。
 >
@@ -2773,9 +2773,45 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   removed; no unrelated development database or service was changed.
 - The current noneditable Identity installation passes 323 package tests, and
   28 API/notification boundary tests pass. Current-source runtime image inputs
-  are fingerprinted; final committed API image assembly remains to be recorded.
+  are fingerprinted and match source commit `d5597b946`; the final committed API
+  image assembly is qualified below.
   API/standalone Compose configuration and migration order are documented in DEV
   and ADR-0121. No production deployment, daily Identity cutover,
   alternate-language provider or Go expansion is included. The full module goal
   remains active, including invitations, directory/admin ownership and the
   remaining module matrix.
+
+### Identity deactivation assembled artifact verification
+
+- Source commit `d5597b946` binds the current runtime image inputs and all 66
+  installed portable package source/schema files. The noneditable installation
+  passes 323 tests; the API/notification boundary passes 28 cases. Architecture
+  and OpenAPI checks pass 298 cases, with 122 explicitly empty lazy-root skips;
+  all 53 worktree unit checks and 49 changed-file Ruff checks pass.
+- Runtime image `aap-identity:deactivation-local-22bbf3337fef` is built from those
+  exact inputs. The real read-only provider and independent notification process
+  retain their function-only identities. Local database/process qualification
+  passes 68 distinct cases, including the completed restore and lease checks.
+- API image `aap-api:local-identity-deactivation-2fd479d97774` is built from that
+  clean source commit and cold-verified with network disabled, a read-only root
+  and a 512 MiB limit. All 66 installed package files and 50 API/native files
+  match; the migration head is 0241 and the served OpenAPI equals the snapshot.
+  Both public self-deactivation routes have Principal/value dependencies, with
+  no local User hydration. Existing five recovery and eight group routes remain
+  assembled, and due/publisher task names, signatures, default routing and beat
+  registration match their committed consumers.
+- Documentation builds in 13.65 seconds; frontmatter checks 194 pages, ADR index
+  checks 121 decisions, and plan freshness has zero stale plans. The environment
+  reference contains 436 variables. All source commit hooks pass.
+- Seven modifier commits are patch-equivalent to their integrated commits; only
+  those five clean task worktrees/branches are removed. Every owned PostgreSQL,
+  Redis, storage scope and process/proof container is removed. The original
+  primary checkout remains clean at `856fa79c8`; protected database heads remain
+  0234 and 0218, and the original four infrastructure containers stay running.
+- Canonical scoped evidence is
+  `.worktree/identity-deactivation-verification-current.json`. No required work
+  remains in this group. The full module goal remains active: invitation,
+  directory/admin and multi-owner lifecycle ownership, remaining module
+  extraction, complete credential closure and replacement-provider gates remain.
+  No primary Identity cutover, production deployment, remote CI, push, release or
+  Go expansion was performed.
