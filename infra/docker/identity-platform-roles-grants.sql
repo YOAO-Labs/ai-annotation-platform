@@ -222,8 +222,8 @@ DECLARE
     );
     actual_functions text[];
     expected_functions text[] := ARRAY[
-        'aap_identity_platform_roles_v1.platform_role_policy()',
-        'aap_identity_platform_roles_v1.execute_platform_role_command(jsonb)'
+        'aap_identity_platform_roles_v1.execute_platform_role_command(jsonb)',
+        'aap_identity_platform_roles_v1.platform_role_policy()'
     ];
 BEGIN
     SELECT COALESCE(pg_catalog.array_agg(

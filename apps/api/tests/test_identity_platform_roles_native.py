@@ -261,6 +261,12 @@ def test_frozen_identity_platform_role_artifacts_and_snapshot_order():
     assert "aap_identity_platform_roles_v1.execute_platform_role_command(jsonb)" in (
         role_grants
     )
+    expected_functions = role_grants.split("expected_functions text[] := ARRAY[", 1)[
+        1
+    ].split("];", 1)[0]
+    assert expected_functions.index(
+        "execute_platform_role_command"
+    ) < expected_functions.index("platform_role_policy")
     assert "identity_platform_role_client" in role_grants
     assert "aap_identity_platform_roles_v1.execute_platform_role_command(jsonb)" in (
         lan_grants
