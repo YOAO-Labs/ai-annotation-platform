@@ -18,7 +18,7 @@ class PostgresData:
         self.connect_timeout = connect_timeout
         self.command_timeout = command_timeout
 
-    async def _call(self, function: str, *args) -> dict:
+    async def _call(self, function: str, *args, readonly: bool = False) -> dict:
         import asyncpg
 
         connection = None
@@ -29,7 +29,12 @@ class PostgresData:
                 command_timeout=self.command_timeout,
                 server_settings={"application_name": "aap-identity-admission"},
             )
-            async with connection.transaction():
+            transaction = (
+                connection.transaction(readonly=True)
+                if readonly
+                else connection.transaction()
+            )
+            async with transaction:
                 params = ",".join(f"${i}" for i in range(1, len(args) + 1))
                 raw = await connection.fetchval(
                     f"SELECT aap_identity_v1.{function}({params})", *args
@@ -43,6 +48,7 @@ class PostgresData:
                             "aap_identity_v1.read_jwt_principal(uuid,uuid,bigint,timestamptz,boolean)",
                             "aap_identity_v1.read_api_key_candidates(text,uuid,integer)",
                             "aap_identity_v1.confirm_api_key_principal(uuid,text)",
+                            "aap_identity_v1.read_actor_context(uuid,text)",
                         ],
                     )
                     if allowed is not True:
@@ -94,3 +100,8 @@ class PostgresData:
         self, key_id: uuid.UUID, expected_hash: str
     ) -> dict:
         return await self._call("confirm_api_key_principal", key_id, expected_hash)
+
+    async def read_actor_context(self, actor_id: uuid.UUID, admitted_role: str) -> dict:
+        return await self._call(
+            "read_actor_context", actor_id, admitted_role, readonly=True
+        )

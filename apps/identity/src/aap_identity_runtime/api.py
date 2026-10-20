@@ -12,6 +12,13 @@ from aap_identity.account_contract import (
 )
 from aap_identity.account_manager import AccountManager
 from aap_identity.account_postgres import AccountPostgresData
+from aap_identity.actor_contract import (
+    ActorContextRequest,
+    actor_failure_reply,
+    actor_reply,
+    decode_actor_request,
+)
+from aap_identity.actor_reader import ActorContextReader
 from aap_identity.admin_password_contract import (
     ADMIN_PASSWORD_POLICY_PROTOCOL,
     ADMIN_PASSWORD_PROTOCOL,
@@ -187,6 +194,7 @@ def create_app(
         command_timeout=settings.command_timeout_seconds,
     )
     auth = Authenticator(data, settings.signing_secret.get_secret_value())
+    actor_context_reader = ActorContextReader(data)
     if key_data is None and settings.key_database_url is not None:
         key_data = KeyPostgresData(
             settings.key_database_url.get_secret_value(),
@@ -719,6 +727,45 @@ def create_app(
                 {"detail": "Identity authentication unavailable"}, status_code=503
             )
         return JSONResponse(principal_reply(principal))
+
+    @app.post("/v1/identity/actor-context")
+    async def read_actor_context(request: Request):
+        supplied = request.headers.get("authorization", "").encode()
+        expected = ("Bearer " + settings.token.get_secret_value()).encode()
+        if not hmac.compare_digest(supplied, expected):
+            return JSONResponse({"detail": "Unauthorized"}, status_code=401)
+        if (
+            request.headers.get("content-type", "").split(";", 1)[0].strip().lower()
+            != "application/json"
+        ):
+            return JSONResponse(actor_failure_reply("invalid_request"), status_code=400)
+        try:
+            async with asyncio.timeout(settings.request_timeout_seconds):
+                body = bytearray()
+                async for chunk in request.stream():
+                    body.extend(chunk)
+                    if len(body) > 65536:
+                        return JSONResponse(
+                            actor_failure_reply("invalid_request"), status_code=400
+                        )
+                parsed: ActorContextRequest = decode_actor_request(bytes(body))
+                async with slots:
+                    actor = await actor_context_reader.read(parsed)
+        except IdentityFailure as error:
+            if error.code not in {"invalid_request", "credential_invalid"}:
+                return JSONResponse(
+                    {"detail": "Identity actor context unavailable"},
+                    status_code=503,
+                )
+            return JSONResponse(
+                actor_failure_reply(error.code),
+                status_code=400 if error.code == "invalid_request" else 200,
+            )
+        except (IdentityUnavailable, TimeoutError):
+            return JSONResponse(
+                {"detail": "Identity actor context unavailable"}, status_code=503
+            )
+        return JSONResponse(actor_reply(actor))
 
     @app.post("/v1/identity/api-keys/execute")
     async def execute_api_key_command(request: Request):

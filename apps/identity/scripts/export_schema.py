@@ -36,6 +36,11 @@ from aap_identity.contract import (  # noqa: E402
     FailureReply,
     PrincipalReply,
 )
+from aap_identity.actor_contract import (  # noqa: E402
+    ActorContextFailureReply,
+    ActorContextRequest,
+    ActorContextSuccess,
+)
 from aap_identity.deactivation_contract import (  # noqa: E402
     DeactivationDueFailureReply,
     DeactivationDuePolicyReply,
@@ -260,6 +265,12 @@ def main():
                 AuthenticateRequest | PrincipalReply | FailureReply | CandidatesPage
             ),
             "aap-identity/v1",
+        ),
+        "src/aap_identity/actor_protocol.schema.json": render_schema(
+            TypeAdapter(
+                ActorContextRequest | ActorContextSuccess | ActorContextFailureReply
+            ),
+            "aap-identity-actor/v1",
         ),
         "src/aap_identity/key_protocol.schema.json": render_schema(
             TypeAdapter(KeyRequest | KeyReply | KeyFailureReply),
