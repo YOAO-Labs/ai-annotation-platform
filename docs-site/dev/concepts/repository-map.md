@@ -174,8 +174,7 @@ last_reviewed: 2026-10-20
 
 1. 路由进入：`apps/web/src/App.tsx` → 页面路由；项目内入口经
    `RequireProjectAccess` 调 `useProjectAccess` 取得能力集。
-2. 后端鉴权：`app/deps.py::get_current_user`（停用账号 401）→
-   路由内 `resolve_project_access()` 建立不可变 `ProjectAccess`。
+2. 后端鉴权：`app/deps.py::get_current_user` 先由现有 AUTH 完成 JWT/API-key 准入，再用其 actor UUID 和 admitted role 读取 Identity 当前主体上下文；缺失/停用/role drift 保持 401，owner 或响应错误保持 503。随后路由内的 `resolve_project_access()` 独立建立不可变 `ProjectAccess`，不会把 actor-context 当项目能力或写权限票据。该内部读取只替代准入后的 profile hydration，不替代项目/写入围栏，详见 [ADR-0130](/dev/adr/0130-identity-post-admission-actor-context)。
 3. 取任务：`app/services/scheduler.py` 派题；任务锁语义在 `app/services/task_lock.py`。
    视频共享上下文和采样在 `app/services/video_context.py`；帧服务负责构建，
    片段、协作、导出、追踪与质检单向依赖该下层所有者。

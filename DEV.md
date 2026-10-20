@@ -1112,6 +1112,8 @@ Celery 原任务仍在 `cleanup` 队列运行，兼容原 `dry_run` 参数，并
 
 `apps/identity` 提供同一个 JWT／API key 验证器及私有 `POST /v1/identity/authenticate`。`IDENTITY_URL` 留空时在 API 内装配；设置后使用 `IDENTITY_TOKEN` 和独立服务，错误不会回退。`IDENTITY_AUTH_DATABASE_URL` 或 `_FILE` 可在内嵌模式选择函数专用 LOGIN，两项不能同时设置；显式文件错误不会改用应用连接。未配置时，本地请求复用调用方事务，socket 使用独立短事务。
 
+准入成功后，`deps.get_current_user` 使用同一 AUTH capability 调用私有 `POST /v1/identity/actor-context`，只读取当前账号的 name、email、role、active 状态和 weekly target。请求传入已准入的 actor UUID 与 role，不再重复验签、generation/revocation、API key last-used 或 scope；缺失、停用或 role drift 仍映射为原 401/Bearer challenge，服务失败或无效响应为原 503，选定的远程/专用绑定不回退 ORM。此读取沿用现有 `IDENTITY_URL`、`IDENTITY_AUTH_DATABASE_URL(_FILE)`、control bearer 和连接限额，不新增 DSN、LOGIN 或环境变量。迁移 0250 将 `read_actor_context(uuid,text)` 加入既有 AUTH LOGIN 的第五项函数能力；本切片的限定本地资格待 Root 验证。写路径账号锁、目标 User 查询与 ORM 状态同步仍留在各自调用事务中。字段和失败语义见 [ADR-0130](docs/adr/0130-identity-post-admission-actor-context.md)。
+
 同一运行时也提供 `POST /v1/identity/api-keys/execute`，持有 API key 五项管理命令和可重放回执。公开路由只消费主体和值消息，不水合 User 或写 key ORM。内嵌装配可另设 `IDENTITY_KEY_DATABASE_URL(_FILE)` 使用命令专用 LOGIN；两项最多一项，显式错误不会回到应用连接。远程装配复用 `IDENTITY_URL`，写入由独立服务持有。
 
 先安装迁移及 module-data owner grants，再为预先创建、无继承／成员关系的四个 LOGIN 安装精确权限：
@@ -1126,7 +1128,7 @@ psql -v expected_database=annotation_test -v migration_role=owner \
   -f infra/docker/identity-auth-grants.sql
 ```
 
-PUBLIC 的 TEMP 须在数据库初始化时撤销。准入 LOGIN 只有四项函数能力，不持有业务表、Redis、队列或对象存储权限。密码恢复、登出和账号生命周期通过调用方同一 SQL 事务维护持久 generation／JTI；单纯远程认证不会替业务命令取得最终写入围栏。
+PUBLIC 的 TEMP 须在数据库初始化时撤销。准入 LOGIN 只有五项函数能力，包括迁移 0250 增加的 `read_actor_context(uuid,text)`；仍不持有业务表、Redis、队列或对象存储权限。主体上下文不是写权限或目标授权票据；密码恢复、登出和账号生命周期仍由调用方事务及各自账户锁维护持久 generation／JTI 与写入围栏。
 
 另为预先创建、无继承／成员关系的 `identity_key_client` 安装两项命令能力：
 

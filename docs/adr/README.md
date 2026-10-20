@@ -44,6 +44,7 @@
 - [0025](0025-webhook-event-envelope-versioning.md) — Webhook 事件信封与版本化（草案，未实现）
 - [0034](0034-lidar-axis-convention.md) — 点云数据集 lidar 坐标系约定：dataset 级声明 + 加载侧归一化
 - [0075](0075-platform-identity-vs-project-authority.md) — 平台身份与项目职责分离：员工按项目成员角色授权（本地实现中，未部署）
+- [0130](0130-identity-post-admission-actor-context.md) — 认证准入后的 Identity 主体上下文读取（本地实现中，资格验证待完成）
 
 ### 已采纳（Accepted，归档）
 

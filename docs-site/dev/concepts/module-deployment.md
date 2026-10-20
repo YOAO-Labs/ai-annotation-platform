@@ -35,6 +35,8 @@ last_reviewed: 2026-10-20
 
 这些模块的公开 HTTP 仍由主 API 聚合。现有端口、owner 表台账和架构守卫证明的是代码内部依赖方向及选定写入职责，不证明独立二进制、独立部署、最小凭据或跨语言兼容。下述建题数据接口也只覆盖选定的事务操作，不改变模块整体未完成的判断。
 
+Identity 正在将认证后的主体资料读取绑定到既有 AUTH owner：私有 actor-context 使用同一远程服务或 AUTH LOGIN，只新增第五个只读函数，不引入新 DSN、角色或运行单元。它只刷新 admitted account 的基础资料与 weekly target，不重新验证凭据，也不承接后续写入授权；写路径的账号锁、目标 User 查询和 ORM 状态同步保留。本切片本地资格待 Root 验证，不能据此宣称 Identity 独立部署、全模块凭据收口或全目标完成。合同见 [ADR-0130](/dev/adr/0130-identity-post-admission-actor-context)。
+
 ## 已存在的运行边界
 
 生产 Compose 将 API 和按队列拆开的 Celery workers 都构建自 `infra/docker/Dockerfile.api`。worker 使用主 API 代码与共享数据库配置，并持有执行所需的 Redis/对象存储能力。队列隔离可以限制并发和资源，但没有形成业务模块的工件、数据权限或协议边界。

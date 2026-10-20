@@ -16,6 +16,7 @@ Identity 运行时提供认证准入、API key、核心会话、自助账户、�
 | `GET /health`                                | 进程存活                                       |
 | `GET /ready`                                 | 原生策略和所配置能力的精确函数权限             |
 | `POST /v1/identity/authenticate`             | JWT／API key 准入，返回 `aap-identity/v1` 主体 |
+| `POST /v1/identity/actor-context`            | 准入后读取当前主体的基础资料事实               |
 | `POST /v1/identity/api-keys/execute`         | API key 列表、创建、修改、轮换和撤销           |
 | `POST /v1/identity/sessions/execute`         | 登录、刷新、登出和全端登出                     |
 | `POST /v1/identity/accounts/execute`         | 当前资料、改名、偏好、心跳、改密和头像引用     |
@@ -32,6 +33,14 @@ Identity 运行时提供认证准入、API key、核心会话、自助账户、�
 | `POST /v1/identity/deactivation/execute`     | 自助注销申请与撤销                             |
 | `POST /v1/identity/deactivation/process-due` | 分页处理已到期的自助注销申请                   |
 | `POST /v1/identity/recovery/execute`         | 开放注册、重置请求／消费、验证邮件重发／消费   |
+
+## 认证后的主体上下文
+
+`POST /v1/identity/actor-context` 是既有 AUTH 准入后的私有只读调用，使用同一个 control Bearer，为已准入账号读取当前主体事实；它不会再次认证凭据。请求使用 `aap-identity-actor/v1`，字段精确为 `schema`、`actor_id` 和 `admitted_role`，不携带 JWT、API key、scope、audit context 或调用方提供的资料。
+
+成功 envelope 为 `schema/ok/data`，其中 `ok: true`，`data` 严格包含 `id`、`name`、`email`、`role`、`is_active: true` 与 nullable int32 `weekly_target_default`。name/email 保留数据库原值；响应不含偏好、头像、密码或凭据。API 将返回的 `id`、`role` 和 active 状态绑定到本次准入结果。失败 envelope 的 `error.code` 只能是 `invalid_request` 或 `credential_invalid`；账号缺失、停用或精确 role 不匹配仍映射到现有 API 401 和 Bearer challenge。owner 未配置／不可用、超时、响应损坏或绑定不符映射到现有 503，不回退 API ORM。
+
+Identity migration 0250 新增只读 `aap_identity_v1.read_actor_context(uuid,text)`，并把该函数加入既有 `identity_auth_client` 的第五项 allowlist。函数不取锁、不写 Audit/receipt，也不新增 LOGIN、DSN、设置或依赖。该 endpoint 沿用 AUTH 的既有 timeout、并发槽和有界请求体限制。内嵌 reader 留在调用方事务并遵循 `autoflush`／`no_autoflush`，不 commit/rollback；专用 AUTH binding 自行持有有界只读事务。API-key 准入原提交点不变，本次读取不引入新提交。凭据过期、generation/revocation、API-key scope 和 last-used 仍由原准入负责；写入时的账号锁、目标 User 查询和 ORM mutation synchronization 保留在现有路径。本切片本地资格仍待 Root 证据，不代表完整 Identity 或生产切换。详见 [ADR-0130](/dev/adr/0130-identity-post-admission-actor-context)。
 
 ## API key 请求
 
