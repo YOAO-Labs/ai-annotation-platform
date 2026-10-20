@@ -152,6 +152,19 @@ def test_create_project_admin_scope_preserves_the_legacy_410_failure():
         )
     assert exc_info.value.status_code == 410
 
+    with pytest.raises(InvitationFailure) as owner_info:
+        decode_invitation_reply(
+            project_request,
+            failure(
+                project_request,
+                "invitation_scope_invalid",
+                410,
+                "目标项目当前没有可用的负责人",
+            ),
+            expected_principal=principal(role="project_admin"),
+        )
+    assert owner_info.value.status_code == 410
+
     account_request = invitation_request("create_invitation")
     with pytest.raises(IdentityUnavailable):
         decode_invitation_reply(
@@ -209,8 +222,21 @@ def test_native_create_policy_accepts_only_request_bound_project_scope_details()
         decode_native_invitation_prepare_reply(command, native_failure)
     assert exc_info.value.status_code == 409
 
+    native_failure["error"] = {
+        "code": "policy_rejected",
+        "policy": "project_owner_unavailable",
+        "detail": "目标项目当前没有可用的负责人",
+    }
+    with pytest.raises(InvitationFailure) as owner_info:
+        decode_native_invitation_prepare_reply(command, native_failure)
+    assert owner_info.value.status_code == 410
+
     wrong_project_role = detail.replace("审核员", "标注员")
-    native_failure["error"]["detail"] = wrong_project_role
+    native_failure["error"] = {
+        "code": "policy_rejected",
+        "policy": "incompatible_account_role",
+        "detail": wrong_project_role,
+    }
     with pytest.raises(IdentityUnavailable):
         decode_native_invitation_prepare_reply(command, native_failure)
 

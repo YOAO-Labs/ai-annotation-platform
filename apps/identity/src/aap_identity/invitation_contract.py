@@ -1078,10 +1078,10 @@ def _operation_allows_failure(
         return operation in _PROOF_OPERATIONS | {"send_invitation_email"}
     if code == "invitation_scope_invalid":
         if operation == "create_invitation":
-            return (
-                request.payload.project_id is not None
-                and failure.detail == "邀请人已不再管理目标项目"
-            )
+            return request.payload.project_id is not None and failure.detail in {
+                "邀请人已不再管理目标项目",
+                "目标项目当前没有可用的负责人",
+            }
         return operation in {
             "resolve_invitation",
             "register_invitation",
@@ -1484,9 +1484,19 @@ class InvitationNativeResult(ClosedModel):
                 "frontend_base_url",
             },
             "list_invitations": {"invitations"},
-            "query_invitations": {"items", "total", "page", "page_size", "pages"},
+            "query_invitations": {
+                "invitations",
+                "total",
+                "page",
+                "page_size",
+                "pages",
+            },
             "invitation_stats": {"stats"},
-            "export_invitations": {"items", "exported_by", "exported_at"},
+            "export_invitations": {
+                "invitations",
+                "exported_by",
+                "exported_at",
+            },
             "revoke_invitation": {"invitation_id"},
             "resend_invitation": {"invitation", "frontend_base_url"},
             "send_invitation_email": {
@@ -1548,7 +1558,7 @@ class InvitationNativeResult(ClosedModel):
             if any(
                 value is None
                 for value in (
-                    self.items,
+                    self.invitations,
                     self.total,
                     self.page,
                     self.page_size,
@@ -1561,7 +1571,7 @@ class InvitationNativeResult(ClosedModel):
                 if self.total and self.page_size
                 else 0
             )
-            if self.pages != expected_pages or len(self.items or []) > (
+            if self.pages != expected_pages or len(self.invitations or []) > (
                 self.page_size or 0
             ):
                 raise IdentityUnavailable()
@@ -1570,7 +1580,7 @@ class InvitationNativeResult(ClosedModel):
                 raise IdentityUnavailable()
         elif operation == "export_invitations":
             if (
-                self.items is None
+                self.invitations is None
                 or self.exported_by is None
                 or self.exported_at is None
             ):
@@ -1881,6 +1891,7 @@ def _expected_policy_detail(
             "send_invitation_email",
         },
         "project_owner_unavailable": {
+            "create_invitation",
             "resolve_invitation",
             "register_invitation",
             "accept_invitation",
@@ -1930,6 +1941,8 @@ def _expected_policy_detail(
         if policy == "project_admin_scope" and (
             command.actor.role != "project_admin" or args.project_id is None
         ):
+            raise IdentityUnavailable()
+        if policy == "project_owner_unavailable" and args.project_id is None:
             raise IdentityUnavailable()
         if policy == "already_member" and args.project_id is None:
             raise IdentityUnavailable()

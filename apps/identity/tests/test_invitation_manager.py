@@ -2,14 +2,17 @@ from __future__ import annotations
 
 import json
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime
 
 import pytest
 
 from aap_identity.authenticator import VerifiedCredential
 from aap_identity.contract import IdentityUnavailable
 from aap_identity.invitation_contract import (
+    NativeBatchResultItem,
     decode_native_invitation_apply_command,
     decode_native_invitation_prepare_command,
+    decode_invitation_reply,
 )
 from aap_identity.invitation_crypto import invitation_request_fingerprint
 from aap_identity.invitation_manager import InvitationManager, _safe_bulk_native_error
@@ -161,6 +164,53 @@ def test_bulk_native_error_text_is_bound_to_its_item():
             "邮箱 attacker@example.test 已注册，请选择目标项目后邀请该用户加入",
             item,
         )
+
+
+def test_query_and_export_native_catalog_rows_project_to_public_items():
+    manager = InvitationManager(None, None, INVITATION_SECRET)
+    actor = ACTOR
+    record = invitation_record()
+
+    query = invitation_request("query_invitations")
+    query_native = result(invitations=[record], total=1, page=1, page_size=50, pages=1)
+    query_native.validate_for(query.operation, query.operation_id)
+    query_wire = manager._wire_reply(query, query_native, actor)
+    query_reply = decode_invitation_reply(query, query_wire, expected_principal=actor)
+    assert query_reply.data.items == [record]
+
+    export = invitation_request("export_invitations")
+    export_native = result(
+        invitations=[record],
+        exported_by=actor.email,
+        exported_at=datetime.now(UTC),
+    )
+    export_native.validate_for(export.operation, export.operation_id)
+    export_wire = manager._wire_reply(export, export_native, actor)
+    export_reply = decode_invitation_reply(
+        export, export_wire, expected_principal=actor
+    )
+    assert export_reply.data.items == [record]
+
+    batch_shaped_catalog = result(
+        items=[
+            NativeBatchResultItem(
+                index=0,
+                email=record.email,
+                ok=True,
+                retryable=False,
+                invitation_id=record.id,
+                project_id=record.project_id,
+                project_name=record.project_name,
+                error=None,
+            )
+        ],
+        total=1,
+        page=1,
+        page_size=50,
+        pages=1,
+    )
+    with pytest.raises(IdentityUnavailable):
+        batch_shaped_catalog.validate_for(query.operation, query.operation_id)
 
 
 @pytest.mark.asyncio

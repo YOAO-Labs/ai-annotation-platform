@@ -728,7 +728,7 @@ class InvitationManager:
             if any(
                 value is None
                 for value in (
-                    result.items,
+                    result.invitations,
                     result.total,
                     result.page,
                     result.page_size,
@@ -737,7 +737,7 @@ class InvitationManager:
             ):
                 raise IdentityUnavailable()
             data = InvitationPageData(
-                items=result.items,
+                items=result.invitations,
                 total=result.total,
                 page=result.page,
                 page_size=result.page_size,
@@ -749,13 +749,13 @@ class InvitationManager:
             data = result.stats.model_dump(mode="json")
         elif operation == "export_invitations":
             if (
-                result.items is None
+                result.invitations is None
                 or result.exported_by is None
                 or result.exported_at is None
             ):
                 raise IdentityUnavailable()
             data = InvitationExportData(
-                items=result.items,
+                items=result.invitations,
                 exported_by=result.exported_by,
                 exported_at=result.exported_at,
             ).model_dump(mode="json")
