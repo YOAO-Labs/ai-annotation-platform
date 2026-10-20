@@ -25,7 +25,7 @@ _FUNCTIONS = (
     "aap_identity_directory_v1._valid_payload(text,jsonb)",
     "aap_identity_directory_v1._strip_unicode_space(text)",
     "aap_identity_directory_v1._has_exact_keys(jsonb,text[])",
-    "aap_identity_directory_v1._failure(text,smallint,text)",
+    "aap_identity_directory_v1._failure(text,integer,text)",
     "aap_audit_v1.record_identity_directory_export(jsonb,jsonb,jsonb)",
     "aap_workspace_v1.identity_directory_lifecycle_blocked(uuid,uuid[])",
     "aap_labeling_v1.identity_directory_project_refs(uuid[])",

@@ -1,7 +1,6 @@
 import csv
 import io
 import json
-from datetime import datetime, timezone
 from typing import Literal
 from uuid import UUID
 
@@ -9,7 +8,6 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, sta
 from fastapi.responses import StreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, or_
 from pydantic import BaseModel
 
 from app.core.ratelimit import limiter
@@ -32,23 +30,13 @@ from app.schemas.management import (
     BulkInviteResponse,
     RoleImpactPreview,
     UserPage,
-    UserPageItem,
 )
 from app.services.csv_export import csv_literal
 from app.services.management import (
-    build_user_query,
-    fetch_lifecycle_blocked_ids,
-    fetch_managed_user_ids,
-    fetch_user_page,
     role_impact_preview,
-    validate_platform_role_filter,
-    user_stats as management_user_stats,
 )
-from app.services.audit import (
-    AuditService,
-    export_detail,
-    export_metadata_header,
-)
+from app.api.v1.directory_commands import execute_directory, get_directory_commands
+from app.services.identity_directory_commands import DirectoryCommandsPort
 from app.api.v1.group_commands import execute_group, get_group_commands
 from app.api.v1.invitation_commands import (
     execute_invitation,
@@ -68,7 +56,6 @@ from sqlalchemy.exc import DBAPIError
 router = APIRouter()
 
 _MANAGERS = (UserRole.SUPER_ADMIN, UserRole.PROJECT_ADMIN)
-_PA_ASSIGNABLE_ROLES = {UserRole.EMPLOYEE.value}
 
 
 class UsersStats(BaseModel):
@@ -77,8 +64,19 @@ class UsersStats(BaseModel):
     weekly_active: int
 
 
+def _directory_filters(status_filter, project_id, group_id, role, search):
+    return {
+        "status": status_filter,
+        "project_id": str(project_id) if project_id is not None else None,
+        "group_id": str(group_id) if group_id is not None else None,
+        "role": role,
+        "search": search,
+    }
+
+
 @router.get("/stats", response_model=UsersStats)
 async def users_stats(
+    request: Request,
     status_filter: Literal["active", "inactive", "all"] = Query(
         "active", alias="status"
     ),
@@ -86,32 +84,22 @@ async def users_stats(
     group_id: UUID | None = Query(None),
     role: str | None = Query(None),
     search: str | None = Query(None, max_length=255),
-    db: AsyncSession = Depends(get_db),
-    actor: User = Depends(require_roles(*_MANAGERS)),
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+    commands: DirectoryCommandsPort = Depends(get_directory_commands),
 ):
-    """v0.8.3 · UsersPage 顶部 4 卡之「本周活跃」与状态聚合。
-
-    weekly_active 基于 last_seen_at >= now-7d，比旧的 status==online 更准确
-    （旧逻辑只反映瞬时在线状态）。
-    """
-    stats = await management_user_stats(
-        db,
-        actor,
-        project_id=project_id,
-        group_id=group_id,
-        role=role,
-        status_filter=status_filter,
-        search=search,
-    )
-    return UsersStats(
-        total=stats.total,
-        online=stats.online,
-        weekly_active=stats.weekly_active,
+    """用户目录筛选统计，按最近七天活动时间聚合。"""
+    return await execute_directory(
+        request,
+        credentials,
+        commands,
+        "user_stats",
+        _directory_filters(status_filter, project_id, group_id, role, search),
     )
 
 
 @router.get("/query", response_model=UserPage)
 async def query_users(
+    request: Request,
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=500),
     status_filter: Literal["active", "inactive", "all"] = Query(
@@ -121,65 +109,25 @@ async def query_users(
     group_id: UUID | None = Query(None),
     role: str | None = Query(None),
     search: str | None = Query(None, max_length=255),
-    db: AsyncSession = Depends(get_db),
-    actor: User = Depends(require_roles(*_MANAGERS)),
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+    commands: DirectoryCommandsPort = Depends(get_directory_commands),
 ):
-    rows, total = await fetch_user_page(
-        db,
-        actor,
-        page=page,
-        page_size=page_size,
-        project_id=project_id,
-        group_id=group_id,
-        role=role,
-        status_filter=status_filter,
-        search=search,
-    )
-    # Rows outside the project-bounded manage scope are still listed for
-    # lookup; flag manageability per row so the UI can disable actions only
-    # where writes would truly be denied. Manage scope = own-project members
-    # plus every enabled annotator/reviewer (interim platform-wide arm);
-    # enabled super admins stay visible but read-only. Lifecycle writes are
-    # gated separately: they stay project-bounded to the actor's own
-    # projects even for rows the wider arm makes manageable.
-    managed_ids: set[UUID] | None = None
-    lifecycle_blocked: set[UUID] = set()
-    if actor.role == UserRole.PROJECT_ADMIN.value:
-        managed_ids = await fetch_managed_user_ids(db, actor)
-        lifecycle_blocked = await fetch_lifecycle_blocked_ids(
-            db, actor=actor, user_ids=[user.id for user in rows]
-        )
-
-    def _page_item(user: User) -> UserPageItem:
-        item = UserPageItem.model_validate(user)
-        item.is_managed = (
-            True
-            if managed_ids is None or user.id == actor.id
-            else (
-                user.id in managed_ids
-                or (user.is_active and user.role in _PA_ASSIGNABLE_ROLES)
-            )
-        )
-        item.is_lifecycle_managed = (
-            True
-            if managed_ids is None
-            else item.is_managed and user.id not in lifecycle_blocked
-        )
-        return item
-
-    items = [_page_item(user) for user in rows]
-    pages = (total + page_size - 1) // page_size if total else 0
-    return UserPage(
-        items=items,
-        total=total,
-        page=page,
-        page_size=page_size,
-        pages=pages,
+    return await execute_directory(
+        request,
+        credentials,
+        commands,
+        "query_users",
+        {
+            **_directory_filters(status_filter, project_id, group_id, role, search),
+            "page": page,
+            "page_size": page_size,
+        },
     )
 
 
 @router.get("", response_model=list[UserOut])
 async def list_users(
+    request: Request,
     role: str | None = None,
     status_filter: Literal["active", "inactive", "all"] = Query(
         "active", alias="status"
@@ -187,8 +135,8 @@ async def list_users(
     project_id: UUID | None = Query(
         None, description="可选项目过滤；project_admin 入参被忽略，强制限定到其管理项目"
     ),
-    db: AsyncSession = Depends(get_db),
-    actor: User = Depends(require_roles(*_MANAGERS)),
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+    commands: DirectoryCommandsPort = Depends(get_directory_commands),
 ):
     """用户列表。
     - super_admin：默认全量；可选 `project_id` 过滤到该项目成员。
@@ -196,40 +144,18 @@ async def list_users(
       * `role=employee`：放开限制返回全量候选（用于指派 modal 选人）。
       * 其他场景：限定到 `Project.owner_id == actor.id` 的项目成员（actor 自身始终可见）。
     """
-    from app.db.models.project import Project
-    from app.db.models.project_member import ProjectMember
-
-    # Legacy/unknown role filters are rejected, never silently empty.
-    role = validate_platform_role_filter(role)
-
-    q = select(User)
-    if status_filter == "active":
-        q = q.where(User.is_active.is_(True))
-    elif status_filter == "inactive":
-        q = q.where(User.is_active.is_(False))
-    if role:
-        q = q.where(User.role == role)
-
-    if actor.role == UserRole.PROJECT_ADMIN.value:
-        if role in _PA_ASSIGNABLE_ROLES and status_filter == "active":
-            # 指派候选人场景：必须看到全量员工，否则永远没有可指派对象
-            pass
-        else:
-            members_subq = (
-                select(ProjectMember.user_id)
-                .join(Project, Project.id == ProjectMember.project_id)
-                .where(Project.owner_id == actor.id)
-            )
-            q = q.where(or_(User.id.in_(members_subq), User.id == actor.id))
-    elif project_id is not None:
-        # super_admin 显式按项目过滤
-        members_subq = select(ProjectMember.user_id).where(
-            ProjectMember.project_id == project_id
-        )
-        q = q.where(User.id.in_(members_subq))
-
-    result = await db.execute(q.order_by(User.created_at.desc()))
-    return result.scalars().all()
+    data = await execute_directory(
+        request,
+        credentials,
+        commands,
+        "list_users",
+        {
+            "role": role,
+            "status": status_filter,
+            "project_id": str(project_id) if project_id is not None else None,
+        },
+    )
+    return data["users"]
 
 
 _ExportFormat = Literal["csv", "json"]
@@ -237,6 +163,7 @@ _ExportFormat = Literal["csv", "json"]
 
 @router.get("/export")
 async def export_users(
+    request: Request,
     format: _ExportFormat = Query("csv"),
     status_filter: Literal["active", "inactive", "all"] = Query(
         "active", alias="status"
@@ -245,130 +172,85 @@ async def export_users(
     group_id: UUID | None = Query(None),
     role: str | None = Query(None),
     search: str | None = Query(None, max_length=255),
-    request: Request = None,  # type: ignore[assignment]
-    db: AsyncSession = Depends(get_db),
-    actor: User = Depends(require_roles(*_MANAGERS)),
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+    commands: DirectoryCommandsPort = Depends(get_directory_commands),
 ):
-    rows = (
-        (
-            await db.execute(
-                build_user_query(
-                    actor,
-                    project_id=project_id,
-                    group_id=group_id,
-                    role=role,
-                    status_filter=status_filter,
-                    search=search,
-                ).order_by(User.created_at.desc(), User.id.desc())
-            )
-        )
-        .scalars()
-        .all()
+    data = await execute_directory(
+        request,
+        credentials,
+        commands,
+        "export_users",
+        {
+            **_directory_filters(status_filter, project_id, group_id, role, search),
+            "format": format,
+        },
     )
-
-    ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-
-    if format == "json":
-        payload_rows = [
-            {
-                "id": str(u.id),
-                "email": u.email,
-                "name": u.name,
-                "role": u.role,
-                "group_name": u.group_name,
-                "group_id": str(u.group_id) if u.group_id else None,
-                "status": u.status,
-                "created_at": u.created_at.isoformat(),
-            }
-            for u in rows
-        ]
-        # v0.8.1 · 文件首部 _export_meta 字段（审计可追溯）
-        from app.middleware.request_id import request_id_var
-
-        wrapped = {
-            "_export_meta": {
-                "exported_by": actor.email,
-                "exported_at": datetime.now(timezone.utc).isoformat(),
-                "request_id": request_id_var.get() or None,
-                "count": len(rows),
-            },
-            "users": payload_rows,
+    rows = [
+        {
+            **row,
+            "id": str(row["id"]),
+            "group_id": str(row["group_id"]) if row["group_id"] else None,
+            "created_at": row["created_at"].isoformat(),
         }
-        body = json.dumps(wrapped, ensure_ascii=False, indent=2)
-        await AuditService.log(
-            db,
-            actor=actor,
-            action="user.export",
-            target_type="user",
-            target_id=None,
-            request=request,
-            status_code=200,
-            detail=export_detail(
-                actor=actor,
-                request=request,
-                base={"format": "json", "count": len(rows)},
-            ),
+        for row in data["users"]
+    ]
+    exported_at = data["exported_at"]
+    ts = exported_at.strftime("%Y%m%d_%H%M%S")
+    if format == "json":
+        body = json.dumps(
+            {
+                "_export_meta": {
+                    "exported_by": data["exported_by"],
+                    "exported_at": exported_at.isoformat(),
+                    "request_id": data["request_id"],
+                    "count": len(rows),
+                },
+                "users": rows,
+            },
+            ensure_ascii=False,
+            indent=2,
         )
-        await db.commit()
-        return StreamingResponse(
-            iter([body]),
-            media_type="application/json; charset=utf-8",
-            headers={"Content-Disposition": f'attachment; filename="users_{ts}.json"'},
+        media_type = "application/json; charset=utf-8"
+    else:
+        buf = io.StringIO()
+        buf.write("\ufeff")
+        buf.write(
+            f"# Exported by: {data['exported_by'] or 'anonymous'}\n"
+            f"# Exported at: {exported_at.isoformat()}\n"
+            f"# Request ID: {data['request_id'] or ''}\n"
         )
-
-    # CSV
-    buf = io.StringIO()
-    # Excel UTF-8 BOM 兼容
-    buf.write("﻿")
-    # v0.8.1 · 首部审计 metadata 注释行（pandas/Excel 可 comment='#' 跳过）
-    buf.write(export_metadata_header(actor=actor, fmt="csv", request=request))
-    writer = csv.writer(buf)
-    writer.writerow(
-        [
-            "id",
-            "email",
-            "name",
-            "role",
-            "group_name",
-            "group_id",
-            "status",
-            "created_at",
-        ]
-    )
-    for u in rows:
+        writer = csv.writer(buf)
         writer.writerow(
             [
-                str(u.id),
-                csv_literal(u.email),
-                csv_literal(u.name),
-                u.role,
-                csv_literal(u.group_name or ""),
-                str(u.group_id) if u.group_id else "",
-                u.status,
-                u.created_at.isoformat(),
+                "id",
+                "email",
+                "name",
+                "role",
+                "group_name",
+                "group_id",
+                "status",
+                "created_at",
             ]
         )
-    body = buf.getvalue()
-
-    await AuditService.log(
-        db,
-        actor=actor,
-        action="user.export",
-        target_type="user",
-        target_id=None,
-        request=request,
-        status_code=200,
-        detail=export_detail(
-            actor=actor,
-            request=request,
-            base={"format": "csv", "count": len(rows)},
-        ),
-    )
-    await db.commit()
+        for row in rows:
+            writer.writerow(
+                [
+                    row["id"],
+                    csv_literal(row["email"]),
+                    csv_literal(row["name"]),
+                    row["role"],
+                    csv_literal(row["group_name"] or ""),
+                    row["group_id"] or "",
+                    row["status"],
+                    row["created_at"],
+                ]
+            )
+        body = buf.getvalue()
+        media_type = "text/csv; charset=utf-8"
     return StreamingResponse(
         iter([body]),
-        media_type="text/csv; charset=utf-8",
-        headers={"Content-Disposition": f'attachment; filename="users_{ts}.csv"'},
+        media_type=media_type,
+        headers={"Content-Disposition": f'attachment; filename="users_{ts}.{format}"'},
     )
 
 

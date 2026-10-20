@@ -4,20 +4,17 @@ from __future__ import annotations
 
 import hashlib
 import json
-from datetime import datetime, timezone
-from typing import Literal
 from uuid import UUID
 
 from fastapi import HTTPException
-from sqlalchemy import and_, func, or_, select, true, union
+from sqlalchemy import and_, func, or_, select, true
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.enums import PLATFORM_ROLES, TaskStatus, UserRole
+from app.db.enums import TaskStatus, UserRole
 from app.db.models.project import Project
 from app.db.models.project_member import ProjectMember
 from app.db.models.task import Task
 from app.db.models.task_batch import TaskBatch
-from app.db.models.task_lock import TaskLock
 from app.db.models.user import User
 from app.schemas.management import (
     BatchDistributionPreview,
@@ -25,12 +22,9 @@ from app.schemas.management import (
     BatchDistributionRecipient,
     RoleImpactPreview,
     RoleImpactProject,
-    UserStats,
 )
 from app.services.user_lifecycle import UserLifecycleService
 
-
-USER_STATUS = Literal["active", "inactive", "all"]
 
 # Project admins manage every *enabled* annotator/reviewer account
 # (unassigned or in other projects' memberships) — interim until
@@ -50,71 +44,6 @@ def _managed_user_ids(actor: User):
         .join(Project, Project.id == ProjectMember.project_id)
         .where(Project.owner_id == actor.id)
     )
-
-
-async def fetch_managed_user_ids(db: AsyncSession, actor: User) -> set[UUID]:
-    """Own-project member ids of a project admin (one concrete SELECT).
-
-    Note this is only the project-bounded part of the manage scope; the
-    platform-wide enabled annotator/reviewer arm is composed per row by
-    callers (see ``query_users``) because the row itself already carries
-    ``role`` / ``is_active``.
-    """
-
-    rows = (await db.execute(_managed_user_ids(actor))).scalars().all()
-    return set(rows)
-
-
-async def fetch_lifecycle_blocked_ids(
-    db: AsyncSession, *, actor: User, user_ids: list[UUID]
-) -> set[UUID]:
-    """Ids among ``user_ids`` whose derived projects leave the actor's scope.
-
-    Mirrors the project arms of ``UserLifecycleService._project_ids_for_target``
-    (owned projects, memberships, batch assignments, tasks/locks) and keeps
-    the users touching at least one project NOT owned by ``actor``. The
-    lifecycle endpoints reject exactly these targets for project admins even
-    though account-level writes use the wider manage scope, so the users page
-    can hide offboarding / delete / reactivate up front instead of surfacing
-    buttons that always end in 403.
-    """
-
-    if not user_ids:
-        return set()
-
-    ids = sorted(set(user_ids))
-    foreign_arms = (
-        # Projects the user owns.
-        select(Project.owner_id.label("user_id")).where(
-            Project.owner_id.in_(ids),
-            Project.owner_id != actor.id,
-        ),
-        # Project memberships.
-        select(ProjectMember.user_id.label("user_id"))
-        .join(Project, Project.id == ProjectMember.project_id)
-        .where(ProjectMember.user_id.in_(ids), Project.owner_id != actor.id),
-        # Batch assignments (annotator / reviewer).
-        select(TaskBatch.annotator_id.label("user_id"))
-        .join(Project, Project.id == TaskBatch.project_id)
-        .where(TaskBatch.annotator_id.in_(ids), Project.owner_id != actor.id),
-        select(TaskBatch.reviewer_id.label("user_id"))
-        .join(Project, Project.id == TaskBatch.project_id)
-        .where(TaskBatch.reviewer_id.in_(ids), Project.owner_id != actor.id),
-        # Task assignments (assignee / reviewer).
-        select(Task.assignee_id.label("user_id"))
-        .join(Project, Project.id == Task.project_id)
-        .where(Task.assignee_id.in_(ids), Project.owner_id != actor.id),
-        select(Task.reviewer_id.label("user_id"))
-        .join(Project, Project.id == Task.project_id)
-        .where(Task.reviewer_id.in_(ids), Project.owner_id != actor.id),
-        # Task locks.
-        select(TaskLock.user_id.label("user_id"))
-        .join(Task, Task.id == TaskLock.task_id)
-        .join(Project, Project.id == Task.project_id)
-        .where(TaskLock.user_id.in_(ids), Project.owner_id != actor.id),
-    )
-    rows = (await db.execute(union(*foreign_arms))).scalars().all()
-    return {row for row in rows if row is not None}
 
 
 def user_scope_clause(
@@ -159,169 +88,6 @@ def user_scope_clause(
         )
         clause = and_(clause, User.id.in_(project_users))
     return clause
-
-
-def user_visibility_clause(
-    actor: User,
-    *,
-    project_id: UUID | None = None,
-):
-    """Scope read-only management queries (list / stats / export).
-
-    Super admins see all users.  Project admins see their manage scope
-    (``user_scope_clause``: self, own-project members, every enabled
-    annotator/reviewer) plus every *enabled* super admin as read-only
-    contact/lookup — that extra arm never grants management, and super-admin
-    rows stay non-manageable for project admins.  Deactivated accounts
-    outside the admin's projects, other project admins, and viewers stay
-    hidden.
-
-    When ``project_id`` is given the clause stays project-bounded exactly
-    like ``user_scope_clause``: a foreign project yields nothing, so the
-    platform-wide arms cannot disclose cross-project membership.
-    """
-
-    if project_id is not None:
-        # Delegates to the strict project-bounded branch of the manage scope
-        # (self + own-project members ∩ that project); the platform-wide arms
-        # never apply to project-filtered queries.
-        return user_scope_clause(actor, project_id=project_id)
-
-    if actor.role == UserRole.SUPER_ADMIN.value:
-        return true()
-
-    return or_(
-        user_scope_clause(actor),
-        and_(
-            User.is_active.is_(True),
-            User.role == UserRole.SUPER_ADMIN.value,
-        ),
-    )
-
-
-def validate_platform_role_filter(role: str | None) -> str | None:
-    """Reject legacy/unknown staff-role filters instead of returning nothing.
-
-    ``role=annotator``/``reviewer`` was the old global staff query; after the
-    employee cutover it must be a validation error, never a silently empty set.
-    """
-
-    if role is None:
-        return None
-    if role not in PLATFORM_ROLES:
-        raise HTTPException(status_code=400, detail=f"非法平台角色: {role}")
-    return role
-
-
-def build_user_query(
-    actor: User,
-    *,
-    project_id: UUID | None = None,
-    group_id: UUID | None = None,
-    role: str | None = None,
-    status_filter: USER_STATUS = "active",
-    search: str | None = None,
-):
-    role = validate_platform_role_filter(role)
-    query = select(User).where(user_visibility_clause(actor, project_id=project_id))
-    if status_filter == "active":
-        query = query.where(User.is_active.is_(True))
-    elif status_filter == "inactive":
-        query = query.where(User.is_active.is_(False))
-    if group_id is not None:
-        query = query.where(User.group_id == group_id)
-    if role:
-        query = query.where(User.role == role)
-    if search and search.strip():
-        term = f"%{search.strip()}%"
-        query = query.where(or_(User.email.ilike(term), User.name.ilike(term)))
-    return query
-
-
-async def fetch_user_page(
-    db: AsyncSession,
-    actor: User,
-    *,
-    page: int,
-    page_size: int,
-    project_id: UUID | None = None,
-    group_id: UUID | None = None,
-    role: str | None = None,
-    status_filter: USER_STATUS = "active",
-    search: str | None = None,
-) -> tuple[list[User], int]:
-    base = build_user_query(
-        actor,
-        project_id=project_id,
-        group_id=group_id,
-        role=role,
-        status_filter=status_filter,
-        search=search,
-    )
-    total = int(
-        await db.scalar(
-            select(func.count()).select_from(base.order_by(None).subquery())
-        )
-        or 0
-    )
-    rows = (
-        (
-            await db.execute(
-                base.order_by(User.created_at.desc(), User.id.desc())
-                .offset((page - 1) * page_size)
-                .limit(page_size)
-            )
-        )
-        .scalars()
-        .all()
-    )
-    return rows, total
-
-
-async def user_stats(
-    db: AsyncSession,
-    actor: User,
-    *,
-    project_id: UUID | None = None,
-    group_id: UUID | None = None,
-    role: str | None = None,
-    status_filter: USER_STATUS = "active",
-    search: str | None = None,
-) -> UserStats:
-    from datetime import timedelta
-
-    base = build_user_query(
-        actor,
-        project_id=project_id,
-        group_id=group_id,
-        role=role,
-        status_filter=status_filter,
-        search=search,
-    )
-    cutoff = datetime.now(timezone.utc) - timedelta(days=7)
-    total = int(
-        await db.scalar(
-            select(func.count()).select_from(base.order_by(None).subquery())
-        )
-        or 0
-    )
-    online = int(
-        await db.scalar(
-            select(func.count()).select_from(
-                base.where(User.status == "online").order_by(None).subquery()
-            )
-        )
-        or 0
-    )
-    weekly_active = int(
-        await db.scalar(
-            select(func.count()).select_from(
-                base.where(User.last_seen_at >= cutoff).order_by(None).subquery()
-            )
-        )
-        or 0
-    )
-    return UserStats(total=total, online=online, weekly_active=weekly_active)
 
 
 async def platform_role_change_blockers(

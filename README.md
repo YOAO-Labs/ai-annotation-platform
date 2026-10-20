@@ -377,7 +377,7 @@ SDK 和 CLI 支持视频媒体／分段租约、追踪候选与质量审阅、Ma
 
 账户／会话、用户／分组／邀请、根健康、系统设置、审计、连接器及 ML 运维可通过 SDK 和 CLI 显式操作，见 [账户、管理与运维](./docs-site/dev/sdk/account-and-operations.md)。项目管理员的审计、预标队列与分组操作由服务器按项目归属限制；批量部分失败和健康降级保留机器可读回执及非零退出码。
 
-Identity 准入、API key、核心会话、自助账户、注册恢复／邮件、分组目录／指派及自助注销已有本地 owner 切片；最近一项已通过受限 owner、最终超管围栏、分页 due、durable 通知投递与恢复资格。当前工作转向完整邀请生命周期：13 项现有管理／注册／接受操作进入 Identity，Invitation 与 Workspace member 写入保持同事务，并新增独立 MailV2 sender。公开接口仍返回既有成功／失败状态和当前链接，邮件发送由 durable intent、有限等待与可恢复 worker 协调。该邀请／邮件切片尚待独立资格验证，不代表 Identity 全模块部署、另一语言替换或生产准备；用户目录／平台管理员、其他用户资料和多模块账号生命周期仍在推进。新验证器的受控切换要求旧 JWT 重新登录，API key 状态保留；当前日常环境尚未执行该切换，见[认证与权限](./docs-site/api/guides/auth.md)、[Identity 私有运行协议](./docs-site/api/guides/identity-runtime.md)、[ADR-0122](./docs/adr/0122-independent-identity-invitations-and-mail-v2.md)及 [DEV.md](./DEV.md#identity-独立认证准入)。
+Identity 准入、API key、核心会话、自助账户、注册恢复／邮件、分组目录／指派、自助注销，以及完整邀请生命周期与 MailV2 已有本地 owner 资格。用户目录的列表、分页、统计和导出已接入同一 Identity 工件，保留原可见范围、公开响应与导出审计；目录的独立进程、工件与切换验收继续进行。平台管理员写入、其他用户资料和多模块账号生命周期仍在推进，完整 Identity、另一语言提供方与生产容量尚未完成。新验证器的受控切换要求旧 JWT 重新登录，API key 状态保留；日常环境尚未切换，见[认证与权限](./docs-site/api/guides/auth.md)、[Identity 私有运行协议](./docs-site/api/guides/identity-runtime.md)、[目录 ADR](./docs/adr/0123-independent-identity-directory-reads.md)及 [DEV.md](./DEV.md#identity-独立认证准入)。
 
 项目与批次维护、数据回填、成员绩效、搜索、指引资源及预测／标注导入见 [项目、批次与数据运维](./docs-site/dev/sdk/project-workflows.md)。分派绑定原预览版本，项目范围约束先于查询限制，批次导出与项目导出使用相同能力检查。
 

@@ -175,7 +175,9 @@ def test_frozen_identity_directory_native_artifacts():
     assert "operation text NOT NULL CHECK (operation = 'export_users')" in support
     assert "FOR UPDATE" not in artifact
     assert "identity_directory_project_refs(uuid[])" in support
-    assert "record_identity_directory_export(jsonb,jsonb,jsonb)" in module_grants
+    assert "record_identity_directory_export(jsonb,jsonb,jsonb)" in "".join(
+        module_grants.split()
+    )
     assert "identity_directory_project_refs(uuid[])" in role_grants
     assert "aap_identity_directory_v1.execute_directory_command(jsonb)" in lan_grants
     assert "password_hash" not in artifact

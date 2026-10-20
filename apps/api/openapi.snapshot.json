@@ -86010,7 +86010,7 @@
     },
     "/api/v1/users/stats": {
       "get": {
-        "description": "v0.8.3 · UsersPage 顶部 4 卡之「本周活跃」与状态聚合。\n\nweekly_active 基于 last_seen_at >= now-7d，比旧的 status==online 更准确\n（旧逻辑只反映瞬时在线状态）。",
+        "description": "用户目录筛选统计，按最近七天活动时间聚合。",
         "operationId": "users_stats_api_v1_users_stats_get",
         "parameters": [
           {

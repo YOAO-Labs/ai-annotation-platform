@@ -1197,7 +1197,7 @@ ALTER FUNCTION aap_identity_mail_v2.finish_mail(jsonb)
 REVOKE CREATE ON SCHEMA aap_identity_invitations_v1, aap_identity_mail_v2
     FROM :"identity_owner";
 
-ALTER FUNCTION aap_identity_directory_v1._failure(text, smallint, text)
+ALTER FUNCTION aap_identity_directory_v1._failure(text, integer, text)
     OWNER TO :"identity_owner";
 ALTER FUNCTION aap_identity_directory_v1._has_exact_keys(jsonb, text[])
     OWNER TO :"identity_owner";

@@ -1,7 +1,7 @@
 """Project-admin read visibility vs manage scope for user management endpoints.
 
 Issue #115: 项目管理员在成员分配中可见未分配标注员，但在用户与权限列表中不可见。
-Read scope (list / stats / export via ``build_user_query``) includes enabled
+Directory query / stats / export read scope includes enabled
 annotators/reviewers (incl. unassigned ones, matching the member-assignment
 candidate picker) and enabled super admins (read-only lookup).
 
@@ -651,11 +651,13 @@ async def test_pa_writes_blocked_on_super_admin(
 
 
 async def test_legacy_role_filters_are_rejected(
-    httpx_client: httpx.AsyncClient, super_admin
+    httpx_client: httpx.AsyncClient, super_admin, db_session
 ):
     """role=annotator/reviewer must be a validation error, not an empty list."""
 
     _, token = super_admin
+    # Owner failures roll back their transaction; keep the fixture in its outer savepoint.
+    await db_session.commit()
     headers = {"Authorization": f"Bearer {token}"}
     for url in ("/api/v1/users", "/api/v1/users/query", "/api/v1/users/stats"):
         response = await httpx_client.get(

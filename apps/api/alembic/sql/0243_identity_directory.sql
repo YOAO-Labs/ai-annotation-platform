@@ -1,7 +1,7 @@
 -- Native implementation of the public administrator user-directory reads.
 CREATE FUNCTION aap_identity_directory_v1._failure(
     p_code text,
-    p_status_code smallint DEFAULT NULL,
+    p_status_code integer DEFAULT NULL,
     p_detail text DEFAULT NULL
 )
 RETURNS jsonb
@@ -20,7 +20,7 @@ AS $function$
     )
 $function$;
 -- aap-statement-break
-REVOKE ALL ON FUNCTION aap_identity_directory_v1._failure(text, smallint, text)
+REVOKE ALL ON FUNCTION aap_identity_directory_v1._failure(text, integer, text)
     FROM PUBLIC;
 -- aap-statement-break
 CREATE FUNCTION aap_identity_directory_v1._has_exact_keys(
@@ -547,7 +547,7 @@ BEGIN
                 ), totals AS MATERIALIZED (
                     SELECT pg_catalog.count(*)::bigint AS total FROM scope
                 ), selected AS MATERIALIZED (
-                    SELECT account.*
+                    SELECT account.id, account.created_at, account.role, account.is_active
                     FROM public.users AS account
                     JOIN scope ON scope.id = account.id
                     ORDER BY account.created_at DESC, account.id DESC
@@ -696,7 +696,8 @@ BEGIN
         v_replayed := true;
     ELSE
         WITH selected AS MATERIALIZED (
-            SELECT account.*
+            SELECT account.id, account.email, account.name, account.role,
+                   account.group_name, account.group_id, account.status, account.created_at
             FROM public.users AS account
             WHERE account.id IN (
                 SELECT aap_identity_directory_v1._scope_user_ids(

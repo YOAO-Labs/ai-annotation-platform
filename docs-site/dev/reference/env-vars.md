@@ -488,6 +488,8 @@ last_reviewed: 2026-10-20
 | `IDENTITY_PRESENCE_DATABASE_URL_FILE` | `—` | — |
 | `IDENTITY_GROUP_DATABASE_URL` | `—` | 内嵌 API 分组目录／指派可选 GROUP 两函数 LOGIN；留空使用当前 caller transaction。 |
 | `IDENTITY_GROUP_DATABASE_URL_FILE` | `—` | — |
+| `IDENTITY_DIRECTORY_DATABASE_URL` | `—` | User directory reads use an optional two-function Identity LOGIN; leave empty for the caller transaction. |
+| `IDENTITY_DIRECTORY_DATABASE_URL_FILE` | `—` | — |
 | `IDENTITY_INVITATION_DATABASE_URL` | `—` | Complete Identity invitation lifecycle uses an optional three-function owner; mail-v2 is a separate optional four-function sender. |
 | `IDENTITY_INVITATION_DATABASE_URL_FILE` | `—` | — |
 | `IDENTITY_MAIL_V2_DATABASE_URL` | `—` | — |
@@ -516,6 +518,7 @@ last_reviewed: 2026-10-20
 | `IDENTITY_RUNTIME_ACCOUNT_DATABASE_URL_FILE` | `—` | — |
 | `IDENTITY_RUNTIME_PRESENCE_DATABASE_URL_FILE` | `—` | — |
 | `IDENTITY_RUNTIME_GROUP_DATABASE_URL_FILE` | `—` | — |
+| `IDENTITY_RUNTIME_DIRECTORY_DATABASE_URL_FILE` | `—` | — |
 | `IDENTITY_RUNTIME_INVITATION_DATABASE_URL_FILE` | `—` | — |
 | `IDENTITY_RUNTIME_MAIL_V2_DATABASE_URL_FILE` | `—` | Required when starting the optional `mail-v2` Compose profile. |
 | `IDENTITY_RUNTIME_DEACTIVATION_DATABASE_URL_FILE` | `—` | — |

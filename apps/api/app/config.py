@@ -240,6 +240,8 @@ class Settings(BaseSettings):
     identity_account_database_url_file: str = ""
     identity_group_database_url: str = Field(default="", repr=False)
     identity_group_database_url_file: str = ""
+    identity_directory_database_url: str = Field(default="", repr=False)
+    identity_directory_database_url_file: str = ""
     identity_invitation_database_url: str = Field(default="", repr=False)
     identity_invitation_database_url_file: str = ""
     identity_invitation_mail_timeout_seconds: float = Field(default=60, gt=0, le=120)

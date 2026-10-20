@@ -16,6 +16,7 @@ services:
       IDENTITY_ACCOUNT_DATABASE_URL_FILE: /run/secrets/identity_account_database_url
       IDENTITY_PRESENCE_DATABASE_URL_FILE: /run/secrets/identity_presence_database_url
       IDENTITY_GROUP_DATABASE_URL_FILE: /run/secrets/identity_group_database_url
+      IDENTITY_DIRECTORY_DATABASE_URL_FILE: ${IDENTITY_RUNTIME_DIRECTORY_DATABASE_URL_FILE:+/run/secrets/identity_directory_database_url}
       IDENTITY_INVITATION_DATABASE_URL_FILE: /run/secrets/identity_invitation_database_url
       IDENTITY_DEACTIVATION_DATABASE_URL_FILE: /run/secrets/identity_deactivation_database_url
       IDENTITY_DEACTIVATION_OPERATOR_DATABASE_URL_FILE: /run/secrets/identity_deactivation_operator_database_url
@@ -38,6 +39,7 @@ services:
       - identity_account_database_url
       - identity_presence_database_url
       - identity_group_database_url
+      - identity_directory_database_url
       - identity_invitation_database_url
       - identity_deactivation_database_url
       - identity_deactivation_operator_database_url
@@ -160,6 +162,8 @@ secrets:
     file: ${IDENTITY_RUNTIME_PRESENCE_DATABASE_URL_FILE:?Set Identity presence operator DSN file}
   identity_group_database_url:
     file: ${IDENTITY_RUNTIME_GROUP_DATABASE_URL_FILE:?Set Identity group function-only DSN file}
+  identity_directory_database_url:
+    file: ${IDENTITY_RUNTIME_DIRECTORY_DATABASE_URL_FILE:-/dev/null}
   identity_invitation_database_url:
     file: ${IDENTITY_RUNTIME_INVITATION_DATABASE_URL_FILE:?Set Identity invitation function-only DSN file}
   identity_mail_v2_database_url:
