@@ -250,6 +250,12 @@ function UsersPageContent() {
     { status: "active" },
     !!deleting && !!transferStage,
   );
+  const eligibleTransferUsers = transferUsers.filter(
+    (user) =>
+      user.id !== deleting?.id &&
+      user.is_active &&
+      (user.role === "employee" || user.role === "project_admin"),
+  );
   const selectedUsers = useMemo(() => Object.values(selectedUsersById), [selectedUsersById]);
   const pageUserIds = filtered.map((user) => user.id);
   const allPageSelected =
@@ -1146,19 +1152,20 @@ function UsersPageContent() {
                     onChange={(e) => setTransferToId(e.target.value)}
                     className={`${SELECT_BASE} w-full cursor-pointer px-2.5 py-2 text-sm`}
                   >
-                    <option value="">— 选择接收用户 —</option>
-                    {transferUsers
-                      .filter(
-                        (u: UserResponse) =>
-                          u.id !== deleting.id &&
-                          u.is_active &&
-                          (u.role === "employee" || u.role === "project_admin"),
-                      )
-                      .map((u: UserResponse) => (
-                        <option key={u.id} value={u.id}>
-                          {u.name} ({ROLE_LABELS[u.role as UserRole] ?? u.role}) · {u.email}
+                    <option value="" disabled hidden>
+                      选择接收用户
+                    </option>
+                    {transferToId &&
+                      !eligibleTransferUsers.some((user) => user.id === transferToId) && (
+                        <option value={transferToId} disabled hidden>
+                          已选接收用户（暂不可用）
                         </option>
-                      ))}
+                      )}
+                    {eligibleTransferUsers.map((u: UserResponse) => (
+                      <option key={u.id} value={u.id}>
+                        {u.name} ({ROLE_LABELS[u.role as UserRole] ?? u.role}) · {u.email}
+                      </option>
+                    ))}
                   </select>
                 </div>
               </>
@@ -1185,6 +1192,11 @@ function UsersPageContent() {
               <Button
                 variant="danger"
                 onClick={async () => {
+                  if (
+                    transferStage &&
+                    !eligibleTransferUsers.some((user) => user.id === transferToId)
+                  )
+                    return;
                   try {
                     await deleteUser.mutateAsync({
                       userId: deleting.id,
@@ -1223,7 +1235,11 @@ function UsersPageContent() {
                     void err;
                   }
                 }}
-                disabled={deleteUser.isPending || (transferStage !== null && !transferToId)}
+                disabled={
+                  deleteUser.isPending ||
+                  (transferStage !== null &&
+                    !eligibleTransferUsers.some((user) => user.id === transferToId))
+                }
               >
                 <Icon name="trash" size={12} />
                 {deleteUser.isPending

@@ -85,7 +85,7 @@ export const userGuideSidebar: DefaultTheme.SidebarItem[] = [
     collapsed: true,
     items: [
       { text: "AI 能力总览", link: "/user-guide/ai/" },
-      { text: "当前题 AI 与二次推理", link: "/user-guide/ai/current-task-inference" },
+      { text: "单图／单帧 AI 与二次推理", link: "/user-guide/ai/current-task-inference" },
       { text: "审阅 AI 候选", link: "/user-guide/ai/candidate-review" },
       { text: "交互式智能工具 (SAM)", link: "/user-guide/workbench/sam-tool" },
       { text: "批量与多阶段预标", link: "/user-guide/projects/ai-preannotate" },

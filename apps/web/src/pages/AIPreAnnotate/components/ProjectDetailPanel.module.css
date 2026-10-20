@@ -201,6 +201,7 @@
   max-height: 96px;
   margin-bottom: 6px;
   overflow-y: auto;
+  scrollbar-gutter: stable;
 }
 
 .aliasChip {
@@ -538,6 +539,7 @@
   max-height: 168px;
   padding: 3px;
   overflow-y: auto;
+  scrollbar-gutter: stable;
   background: var(--sc-popover);
   border: 1px solid var(--sc-border);
   border-radius: var(--sc-radius);

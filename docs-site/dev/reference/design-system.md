@@ -144,6 +144,16 @@ Web 应用的暗色模式由 `<html data-theme="dark">` 驱动。`shadcn.css` �
 
 <span id="icon-semantics" aria-hidden="true"></span>
 
+## 下拉菜单的提示与选项
+
+原生 `select` 中的「请选择」「加载中」「暂无可用项」使用 `<option disabled hidden>`，保留当前字段的提示显示，但不进入可选列表。共享主题根据被选中的 `disabled hidden` 选项自动应用 `--sc-muted-foreground`；真实选项恢复 `--sc-foreground`，禁用选项保持弱化。此规则同样适用于保留非空执行 ID 的临时提示，不依赖提示文案或空字符串判断。
+
+「全部」「不绑定」「首次划分」等具有业务含义的空值仍为正常选项。需要撤销选择时，提供明确的取消／清除按钮或「退出当前分段」动作，不能让隐藏提示兼任清除入口。清除比较基线时同步重置其类别、页码和变化筛选；保留当前数据版本。异步加载、分页或权限变化时，继续保留已有精确 ID，不自动改选列表中的第一项。
+
+选项只放辨识条目所需的名称、状态及来源；用途、操作指导等说明放在控件下方，以弱化文字展示，必要时通过 `aria-describedby` 关联。空列表按业务状态禁用控件。Radix Select 使用 `SelectValue` 的 `placeholder`，提示不应创建为 `SelectItem`，Trigger 已内置占位文字样式。
+
+浏览器回归使用 `pnpm --filter @anno/web test:e2e:layout --grep 'native prompts|real empty filter|Radix placeholders'`，覆盖明暗主题、窄屏、键盘选择、普通空值筛选和类别绑定清除，夹具不依赖 API 或数据库。
+
 ## 图标语义规范（Icon Semantics）
 
 应用以 Lucide 作为主图标库，`components/ui/Icon.tsx` 统一渲染 Lucide 图标与 `annotationIcons.ts` 中的少量标注专用图标（共用 24px 网格、`currentColor`、描边宽度与无障碍装饰属性）：
@@ -151,6 +161,20 @@ Web 应用的暗色模式由 `<html data-theme="dark">` 驱动。`shadcn.css` �
 - **跨页语义一致**：相同动作（搜索、保存、删除）在不同页面复用同一图标，不追求全局图标唯一；但在同一导航栏或工具组内，不同选项必须具备清晰的轮廓区分度，不能仅靠颜色或角标区分。
 - **消费既有注册表**：侧边栏导航描述符、画布工具（经由 `TOOL_REGISTRY` / `ALL_TOOLS` 的 `ToolMeta.icon`）与项目配置工具组（`TOOL_UNIT_GROUPS`）是图标的唯一真源，消费方不得另建平行映射表。
 - **标注工具图形约定**：图像与视频单帧工具共享基础几何图形；多边形/折线轨迹增加尾帧轮廓，Mask 轨迹结合区域轮廓；旋转框使用带手柄的倾斜矩形，关键点使用连接节点；Mask 涂抹使用画笔，智能涂鸦使用带标记笔触，画布评论保留铅笔，剪刀用于裁剪与点云框选。
+
+## 滚动区域与布局稳定性
+
+原生纵向滚动区域使用 `scrollbar-gutter: stable`，在短内容和长内容之间保持相同的内容宽度。应用的共享策略位于 `apps/web/src/styles/scrollbars.css`，由 `shadcn.css` 加载：
+
+- Tailwind 的 `overflow-auto`、`overflow-y-auto`、`overflow-scroll`、`overflow-y-scroll` 已统一扩展，响应式和状态变体也会保留这项行为。
+- CSS Modules 中自行声明的 `overflow: auto/scroll` 或 `overflow-y: auto/scroll` 必须同时声明 `scrollbar-gutter: stable`。无高度约束的代码块、宽表格和横向标签栏使用 `overflow-x-auto` / `overflow-x: auto`。
+- 独立页面的根节点和原生 `textarea` 预留滚动条空间；主应用壳层和全屏工作台关闭根节点预留，由内部滚动区域承担。不要给所有元素统一设置 gutter，`overflow: hidden` 的画布和裁剪容器也会因此损失宽度。
+- Radix 弹窗打开时保留根节点 gutter，并在支持该属性的浏览器中关闭 `react-remove-scroll-bar` 额外的 body 右外边距补偿，避免重复空白；滚动锁和焦点管理仍由 Radix 负责。
+- Radix ScrollArea、隐藏原生滚动条的工具栏及 Dockview 自绘滚动条不需要额外预留；Dockview 原生纵向标签溢出菜单单独覆盖。编辑器的纵向预留由受高度约束的外层负责，内部横向代码区保持原有空间。
+
+文档站独立在 `docs-theme.css` 中覆盖根节点、侧栏、移动导航、菜单、目录下拉和搜索结果；保留横向表格、代码块及隐藏滚动条目录的行为。隔离在 iframe 内的 API Reference 由 `public/api-reference.html` 为其根节点及 Scalar 原生滚动容器单独设置 gutter。
+
+运行 `pnpm --filter @anno/web test:e2e:layout` 可在无 API、无数据库的浏览器夹具中验证长短内容切换、弹窗滚动锁、工作台画布及自绘／横向滚动。该测试使用真实共享样式和本地组件，覆盖桌面明暗主题与窄屏，并显式保留原生滚动条。
 
 <span id="validation" aria-hidden="true"></span>
 

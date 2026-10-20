@@ -48,7 +48,7 @@ function ProjectCard({ item, onClick }: { item: PreannotateProjectSummary; onCli
             {item.project_name}
           </div>
           <div className={styles.projectMeta}>
-            {item.project_display_id ?? "—"} · {item.data_type}
+            {item.project_display_id ?? "—"} · {mediaLabel(item.data_type)}
           </div>
         </div>
         <Icon name="chevRight" size={14} />
@@ -57,8 +57,8 @@ function ProjectCard({ item, onClick }: { item: PreannotateProjectSummary; onCli
       <div className={styles.backendRow}>
         <span className={`${styles.backendChip} ${backendStateClass(item.ml_backend_state)}`}>
           <Icon name="bot" size={10} />
-          {item.ml_backend_name ?? "(未绑定)"}
-          {item.ml_backend_state && ` · ${item.ml_backend_state}`}
+          <span className={styles.backendName}>{item.ml_backend_name ?? "未配置推理服务"}</span>
+          {item.ml_backend_state && ` · ${backendStateLabel(item.ml_backend_state)}`}
         </span>
         {item.ml_backend_max_concurrency != null && (
           <span className={styles.concurrencyText}>
@@ -86,7 +86,7 @@ function ProjectCard({ item, onClick }: { item: PreannotateProjectSummary; onCli
       </div>
 
       {item.last_job_at && (
-        <div className={styles.lastJobText}>最近 job · {formatRelative(item.last_job_at)}</div>
+        <div className={styles.lastJobText}>最近运行 · {formatRelative(item.last_job_at)}</div>
       )}
     </button>
   );
@@ -120,9 +120,9 @@ function EmptyState() {
     <Card>
       <div className={styles.emptyState}>
         <Icon name="bot" size={28} />
-        <div className={styles.emptyTitle}>暂无接入 ML backend 的项目</div>
+        <div className={styles.emptyTitle}>暂无可预标的项目</div>
         <div className={styles.emptyHint}>
-          先在「模式市场」注册 backend 或在项目设置中绑定一个 backend，再回到这里跑预标。
+          在「项目设置 → AI 配置」中启用推理服务后，即可在这里选择项目并运行预标。
         </div>
       </div>
     </Card>
@@ -140,7 +140,25 @@ function formatRelative(iso: string): string {
 }
 
 function backendStateClass(state: PreannotateProjectSummary["ml_backend_state"]): string {
-  if (state === "ready") return styles.backendReady;
+  if (state === "ready" || state === "connected") return styles.backendReady;
   if (state === "mismatch") return styles.backendMismatch;
+  if (state === "error") return styles.backendError;
   return styles.backendDefault;
+}
+
+function mediaLabel(type: string): string {
+  const labels: Record<string, string> = { image: "图片", video: "视频", lidar: "3D 点云" };
+  return labels[type] ?? type;
+}
+
+function backendStateLabel(state: string): string {
+  const labels: Record<string, string> = {
+    connected: "已连接",
+    ready: "已就绪",
+    disconnected: "未连接",
+    error: "连接异常",
+    mismatch: "能力不匹配",
+    connecting: "连接中",
+  };
+  return labels[state] ?? state;
 }

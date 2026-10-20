@@ -41,7 +41,7 @@ export function PresetRow({ presets, onApply, onSave, onRemove, disabled }: Prop
       <div className={styles.presetRow}>
         <select
           className={styles.presetSelect}
-          value={selectedId}
+          value={selected?.id ?? ""}
           disabled={disabled || presets.length === 0}
           onChange={(e) => {
             const id = e.target.value;
@@ -50,7 +50,9 @@ export function PresetRow({ presets, onApply, onSave, onRemove, disabled }: Prop
             if (p) onApply(p);
           }}
         >
-          <option value="">{presets.length === 0 ? "暂无预设" : "选择预设…"}</option>
+          <option value="" disabled hidden>
+            {presets.length === 0 ? "暂无预设" : "选择预设…"}
+          </option>
           {presets.map((p) => (
             <option key={p.id} value={p.id}>
               {p.name}

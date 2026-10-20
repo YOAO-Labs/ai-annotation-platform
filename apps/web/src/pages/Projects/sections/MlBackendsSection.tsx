@@ -284,7 +284,7 @@ export function MlBackendsSection({ project }: { project: ProjectResponse }) {
               }}
               className={cn(CONTROL_CLASS, "cursor-pointer")}
             >
-              <option value="">未设项目主后端（项目按肉眼标注运行，AI 待接入）</option>
+              <option value="">不设置项目主后端</option>
               {enabledBackends.map((b) => (
                 <option key={b.id} value={b.id}>
                   {b.name}

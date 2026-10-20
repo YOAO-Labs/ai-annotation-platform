@@ -103,7 +103,7 @@ export const WORKBENCH_PANEL_REGISTRY = {
     stages: ["image", "video"],
     capabilities: SIDE_CAPABILITIES,
     id: "ai-task",
-    title: "当前题 AI",
+    title: "单图 AI",
     renderer: "always",
     defaultPosition: "right",
     minWidth: 320,
@@ -184,6 +184,15 @@ export const PERIPHERAL_PANELS = [
 ] as const;
 
 export const defaultDockWidth = (width: number): number => Math.round(width * 0.15);
+
+export const workbenchAiScopeLabel = (isVideoTask: boolean): "单图" | "单帧" =>
+  isVideoTask ? "单帧" : "单图";
+
+export function workbenchPanelTitle(id: PanelId, context: WorkspaceContext): string {
+  return id === "ai-task"
+    ? `${workbenchAiScopeLabel(context.endsWith(":video"))} AI`
+    : WORKBENCH_PANEL_REGISTRY[id].title;
+}
 
 /** A docked panel must fit the preset sidebar; floating groups keep their own limits. */
 export function panelMinimumWidth(id: PanelId, workspaceWidth: number): number {

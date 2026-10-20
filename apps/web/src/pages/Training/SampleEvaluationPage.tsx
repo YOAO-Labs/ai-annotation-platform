@@ -439,7 +439,7 @@ function EvaluationContent({
                         update({ attempt: e.target.value, sample: undefined, page: undefined })
                       }
                     >
-                      <option value="" disabled>
+                      <option value="" disabled hidden>
                         选择执行尝试
                       </option>
                       {state.attemptId && !attempt && (
@@ -546,27 +546,51 @@ function EvaluationContent({
                 <p className="mt-2 text-xs text-muted-foreground">
                   只在冻结基准、类别、用途、匹配设置和推理环境一致时显示差值。差值为第二候选减当前候选，不提供自动排名。
                 </p>
-                <label className="mt-3 block max-w-xl space-y-1 text-xs">
-                  第二个明确评估
-                  <select
-                    className={trainingInputClass}
-                    value={state.secondId ?? ""}
-                    onChange={(e) => update({ second: e.target.value || undefined })}
-                  >
-                    <option value="">选择第二个评估</option>
-                    {state.secondId &&
-                      !list.data?.items.some((item) => item.id === state.secondId) && (
-                        <option value={state.secondId}>{state.secondId}</option>
-                      )}
-                    {list.data?.items
-                      .filter((item) => item.id !== run.id)
-                      .map((item) => (
-                        <option key={item.id} value={item.id}>
-                          {item.name} · {evaluationStatus[item.status]}
-                        </option>
-                      ))}
-                  </select>
-                </label>
+                <div className="mt-3 flex max-w-xl items-end gap-2">
+                  <label className="min-w-0 flex-1 space-y-1 text-xs">
+                    第二个明确评估
+                    <select
+                      className={trainingInputClass}
+                      value={state.secondId ?? ""}
+                      onChange={(e) => update({ second: e.target.value || undefined })}
+                    >
+                      <option value="" disabled hidden>
+                        选择第二个评估
+                      </option>
+                      {state.secondId &&
+                        !list.data?.items.some(
+                          (item) => item.id === state.secondId && item.id !== run.id,
+                        ) && (
+                          <option
+                            value={state.secondId}
+                            disabled={state.secondId === run.id}
+                            hidden={state.secondId === run.id}
+                          >
+                            {state.secondId === run.id
+                              ? `${run.name}（不能与自身比较）`
+                              : state.secondId}
+                          </option>
+                        )}
+                      {list.data?.items
+                        .filter((item) => item.id !== run.id)
+                        .map((item) => (
+                          <option key={item.id} value={item.id}>
+                            {item.name} · {evaluationStatus[item.status]}
+                          </option>
+                        ))}
+                    </select>
+                  </label>
+                  {state.secondId && (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => update({ second: undefined })}
+                    >
+                      取消评估比较
+                    </Button>
+                  )}
+                </div>
                 <PickerPage
                   page={pickerPage}
                   total={list.data?.total ?? 0}

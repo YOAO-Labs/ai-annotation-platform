@@ -189,6 +189,8 @@ export function CreateContent({ projectId, scope }: { projectId: string; scope: 
     model.data?.model.framework === "ultralytics" &&
     !!modelId &&
     !!deploymentId &&
+    !model.error &&
+    deploymentOptions.some(({ item }) => item.id === deploymentId) &&
     selected.length >= 2 &&
     selected.length <= 32 &&
     [input.seed, input.batch_size, input.max_inference_dispatches, input.max_review_tasks].every(
@@ -210,7 +212,7 @@ export function CreateContent({ projectId, scope }: { projectId: string; scope: 
     input.nms_iou <= 1;
   const frozen = !!pending || create.isPending;
   const submit = () => {
-    if (!checkedPreview || !name.trim()) return;
+    if (!valid || !checkedPreview || !name.trim()) return;
     const body = {
       ...input,
       request_id: randomId(),
@@ -305,7 +307,15 @@ export function CreateContent({ projectId, scope }: { projectId: string; scope: 
                     setDeploymentId("");
                   }}
                 >
-                  <option value="">选择模型</option>
+                  <option value="" disabled hidden>
+                    选择模型
+                  </option>
+                  {modelId &&
+                    (models.error || !models.data?.items.some((item) => item.id === modelId)) && (
+                      <option value={modelId}>
+                        {model.data?.model.name ?? "已选候选模型（未在当前列表中）"}
+                      </option>
+                    )}
                   {!models.error &&
                     models.data?.items.map((item) => (
                       <option
@@ -337,7 +347,16 @@ export function CreateContent({ projectId, scope }: { projectId: string; scope: 
                   disabled={model.data?.model.framework !== "ultralytics"}
                   onChange={(event) => setDeploymentId(event.target.value)}
                 >
-                  <option value="">选择部署</option>
+                  <option value="" disabled hidden>
+                    选择部署
+                  </option>
+                  {deploymentId &&
+                    (model.error ||
+                      !deploymentOptions.some(({ item }) => item.id === deploymentId)) && (
+                      <option value={deploymentId} disabled hidden>
+                        已选部署（暂不可用，请重新选择）
+                      </option>
+                    )}
                   {!model.error &&
                     deploymentOptions.map(({ item, label }) => (
                       <option key={item.id} value={item.id}>
@@ -473,7 +492,9 @@ export function CreateContent({ projectId, scope }: { projectId: string; scope: 
         </Button>
         <Button
           variant="primary"
-          disabled={!checkedPreview || !name.trim() || frozen || previewMutation.isPending}
+          disabled={
+            !valid || !checkedPreview || !name.trim() || frozen || previewMutation.isPending
+          }
           onClick={submit}
         >
           {create.isPending ? "创建中…" : "创建选样轮次"}

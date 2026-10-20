@@ -61,10 +61,6 @@ export default function AIPreAnnotateJobsPage() {
 
   return (
     <div className={styles.page}>
-      <div className={styles.pageIntro}>
-        <h1 className={styles.pageTitle}>AI 任务历史</h1>
-        <span className={styles.pageSubtitle}>图像批量预标 + 视频追踪，一处看全模态后台任务。</span>
-      </div>
       <TabRow
         tabs={JOB_TABS}
         active={tab === "video" ? "视频" : "图像"}
@@ -214,7 +210,7 @@ function ImageJobsPanel({ projectId }: { projectId?: string }) {
   return (
     <Card>
       <div className={styles.cardHeader}>
-        <span>历史 job ({total})</span>
+        <span className="shrink-0">图片预标任务 ({total})</span>
         <FilterGroup compact label="筛选" hideLabel className="flex-wrap">
           <FilterSelect
             compact
@@ -491,7 +487,7 @@ function EmptyState() {
   return (
     <div className={styles.emptyState}>
       <Icon name="sparkles" size={28} />
-      <div className={styles.emptyTitle}>暂无 prediction job 历史</div>
+      <div className={styles.emptyTitle}>暂无图片预标任务</div>
       <div className={styles.emptyHint}>在「执行预标」页跑一次预标，结果会出现在这里。</div>
     </div>
   );

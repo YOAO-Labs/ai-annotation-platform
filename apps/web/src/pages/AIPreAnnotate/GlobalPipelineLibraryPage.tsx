@@ -423,15 +423,6 @@ export default function GlobalPipelineLibraryPage() {
 
   return (
     <div className={styles.page}>
-      <div className={styles.pageIntro}>
-        <div>
-          <h1 className={styles.pageTitle}>编排库</h1>
-          <div className={styles.pageSubtitle}>
-            从全局 backend/model 池创建可复用编排；项目页只负责套用到当前项目。
-          </div>
-        </div>
-      </div>
-
       <Card>
         <div className={styles.toolbar}>
           <div className={styles.toolbarGroup}>
@@ -553,15 +544,17 @@ export default function GlobalPipelineLibraryPage() {
                     value={srcExecUnit}
                     onChange={(e) => setSrcExecUnit(e.target.value as "video" | "frame")}
                   >
-                    <option value="video">整段序列（detect-then-track 追踪）</option>
-                    <option value="frame">逐帧（图像检测逐帧跑，落单帧框）</option>
+                    <option value="video">整段序列</option>
+                    <option value="frame">逐帧</option>
                   </select>
                 </label>
               )}
               <div className={styles.stageEmptyHint}>
                 {isVideoTracking
-                  ? "源模型只列 tracker；下游对轨迹富集。"
-                  : "源模型只列图像检测；下游对检出框富集。"}
+                  ? "对整段视频做多目标追踪，生成跨帧轨迹；源模型只列 tracker，下游对轨迹富集。"
+                  : srcDataType === "video"
+                    ? "对每一帧独立做图像检测，生成无跨帧关联的单帧框；下游对检出框富集。"
+                    : "源模型只列图像检测；下游对检出框富集。"}
               </div>
             </div>
             {/* 源模型 stage (SOURCE_SID, 后端 stage 0): 选中时显示; 池按数据源声明过滤。 */}

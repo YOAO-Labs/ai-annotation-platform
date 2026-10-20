@@ -610,10 +610,17 @@ function ProjectLearningPolicyContent({ projectId }: { projectId: string }) {
                     value={draft.parent}
                     onChange={(e) => change("parent", e.target.value)}
                   >
-                    <option value="">选择已就绪版本</option>
-                    {draft.parent && !selectedParent && (
-                      <option value={draft.parent}>当前策略的初始数据</option>
-                    )}
+                    <option value="" disabled hidden>
+                      选择已就绪版本
+                    </option>
+                    {draft.parent &&
+                      (!selectedParent ||
+                        selectedParent.status !== "ready" ||
+                        (selectedParent.task ?? "detect") !== "detect") && (
+                        <option value={draft.parent}>
+                          {selectedParent?.name ?? "当前策略的初始数据"}（未在可选列表中）
+                        </option>
+                      )}
                     {datasets.data?.items
                       .filter((d) => d.status === "ready" && (d.task ?? "detect") === "detect")
                       .map((d) => (
@@ -651,11 +658,13 @@ function ProjectLearningPolicyContent({ projectId }: { projectId: string }) {
                     disabled={!!draft.configuration}
                     onChange={(e) => change("base", e.target.value)}
                   >
-                    <option value="">明确选择基础权重</option>
+                    <option value="" disabled hidden>
+                      明确选择基础权重
+                    </option>
                     {draft.base &&
-                      !template?.base_models.some((model) => model.id === draft.base) && (
-                        <option value={draft.base}>{draft.base}（当前不可用）</option>
-                      )}
+                      !template?.base_models.some(
+                        (model) => model.id === draft.base && (model.task ?? "detect") === "detect",
+                      ) && <option value={draft.base}>{draft.base}（当前不可用）</option>}
                     {template?.base_models
                       .filter((m) => (m.task ?? "detect") === "detect")
                       .map((m) => (

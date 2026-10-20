@@ -55,7 +55,7 @@ tracker 先按能力确定请求所属服务池，再进入路由选择：
 
 ## 面板与布局状态
 
-AI 追踪与 AI 单题是两个独立的 Dockview panel，可以同时停靠、成组或浮动。顶部入口只显示或聚焦已有实例；布局隐藏不会关闭 tracker session、取消后台 job 或清空方向、范围与种子草稿，业务取消仍由面板内动作处理。
+AI 追踪与 单帧 AI是两个独立的 Dockview panel，可以同时停靠、成组或浮动。顶部入口只显示或聚焦已有实例；布局隐藏不会关闭 tracker session、取消后台 job 或清空方向、范围与种子草稿，业务取消仍由面板内动作处理。
 
 两个工具的空间状态进入账号级、按 context 保存的 `workbench.layout.workspace` schema 4。旧 `wb:video-tracker-panel-*` 与 `wb:ai-popover-*` 坐标 key 保留供旧构建回滚，新客户端不再读取、写入或上传它们。
 

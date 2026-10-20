@@ -110,6 +110,32 @@ afterEach(() => {
 });
 
 describe("frozen training data insights", () => {
+  it("preserves a requested self baseline instead of displaying another version", async () => {
+    vi.mocked(trainingDatasetsApi.list).mockResolvedValue({
+      items: [insightVersion, { ...insightVersion, id: "dataset-old" }],
+      total: 2,
+    });
+    mount(`&data_view=compare&data_baseline=${insightVersion.id}`);
+    const select = await screen.findByLabelText("选择比较基线");
+    await waitFor(() => expect(trainingDatasetsApi.list).toHaveBeenCalled());
+    expect(select).toHaveValue(insightVersion.id);
+    expect(select).toHaveDisplayValue(`${insightVersion.name}（不能作为自身基线）`);
+  });
+  it("clears the baseline and dependent filters while preserving the selected data version", async () => {
+    const user = userEvent.setup();
+    mount(
+      "&data_view=compare&data_baseline=dataset-old&data_class=0&data_page=2&data_change=removed",
+    );
+    const clear = await screen.findByRole("button", { name: "清除比较基线" });
+    await user.click(clear);
+    expect(screen.getByLabelText("选择比较基线")).toHaveValue("");
+    const query = new URLSearchParams(screen.getByTestId("url").textContent!);
+    expect(query.get("dataset")).toBe("dataset-new");
+    expect(query.get("data_baseline")).toBeNull();
+    expect(query.get("data_class")).toBeNull();
+    expect(query.get("data_page")).toBe("0");
+    expect(query.get("data_change")).toBe("all");
+  });
   it("retires paired preview state when a view changes so browser history cannot revive it", async () => {
     const user = userEvent.setup();
     mount("&data_view=samples&data_baseline=dataset-old&data_change=labels_changed");

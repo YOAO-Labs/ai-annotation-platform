@@ -891,7 +891,9 @@ export function ProjectDetailPanel({ projectId, onBack, summary, initialCatalogM
                   disabled={projectPipelinesQ.isLoading || libraryPipelines.length === 0}
                 >
                   {libraryPipelines.length === 0 ? (
-                    <option value="">暂无可套用编排</option>
+                    <option value="" disabled hidden>
+                      暂无可套用编排
+                    </option>
                   ) : (
                     libraryPipelines.map((p) => (
                       <option key={p.id} value={p.id}>
@@ -960,8 +962,8 @@ export function ProjectDetailPanel({ projectId, onBack, summary, initialCatalogM
                       value={executionUnit}
                       onChange={(e) => setExecutionUnit(e.target.value as "video" | "frame")}
                     >
-                      <option value="video">整段序列（detect-then-track 追踪）</option>
-                      <option value="frame">逐帧（图像检测逐帧跑，落单帧框）</option>
+                      <option value="video">整段序列</option>
+                      <option value="frame">逐帧</option>
                     </select>
                     <span className={styles.mutedText}>
                       {executionUnit === "video"

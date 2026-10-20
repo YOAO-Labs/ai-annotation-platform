@@ -73,7 +73,11 @@ export function ContinuousCreationControls({
               disabled={readOnly || units.length === 0}
               className={INPUT_CLASS}
             >
-              {!unit && <option value="">选择工具</option>}
+              {!unit && (
+                <option value="" disabled hidden>
+                  选择工具
+                </option>
+              )}
               {units.map((item) => (
                 <option key={item.id} value={item.id}>
                   {item.label}

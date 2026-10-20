@@ -4,7 +4,7 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { act, render, screen, fireEvent, waitFor } from "@testing-library/react";
-import { MemoryRouter, useLocation, useNavigate } from "react-router-dom";
+import { MemoryRouter, Routes, Route, useLocation, useNavigate } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { MeResponse } from "@/api/auth";
 import { useAuthStore } from "@/stores/authStore";
@@ -38,6 +38,7 @@ vi.mock("@/utils/workbenchNavigation", () => ({
 }));
 
 import AIPreAnnotateJobsPage from "./AIPreAnnotateJobsPage";
+import AIPreAnnotateLayout from "./AIPreAnnotateLayout";
 
 function makeJob(overrides: Record<string, unknown> = {}) {
   return {
@@ -75,7 +76,11 @@ function renderUI(initialPath = "/ai-pre/jobs") {
     <QueryClientProvider client={qc}>
       <MemoryRouter initialEntries={[initialPath]}>
         <LocationProbe />
-        <AIPreAnnotateJobsPage />
+        <Routes>
+          <Route path="/ai-pre" element={<AIPreAnnotateLayout />}>
+            <Route path="jobs" element={<AIPreAnnotateJobsPage />} />
+          </Route>
+        </Routes>
       </MemoryRouter>
     </QueryClientProvider>,
   );
@@ -139,15 +144,15 @@ describe("AIPreAnnotateJobsPage", () => {
     mockAsyncJobsList.mockResolvedValue({ items: [], total: 0 });
     renderUI();
     // 等待 query 完成
-    await screen.findByText("暂无 prediction job 历史");
-    expect(screen.getByText("历史 job (0)")).toBeInTheDocument();
+    await screen.findByText("暂无图片预标任务");
+    expect(screen.getByText("图片预标任务 (0)")).toBeInTheDocument();
   });
 
   it("有数据 → 渲染 job 行中的项目名与状态", async () => {
     mockAsyncJobsList.mockResolvedValue({ items: [makeJob()], total: 1 });
     renderUI();
     await screen.findByText("Demo Project");
-    expect(screen.getByText("历史 job (1)")).toBeInTheDocument();
+    expect(screen.getByText("图片预标任务 (1)")).toBeInTheDocument();
     expect(screen.getAllByText("已完成").length).toBeGreaterThan(0);
     expect(mockAsyncJobsList).toHaveBeenCalledWith(
       expect.objectContaining({ kind: ["batch_predict", "prediction_retry"] }),
@@ -213,7 +218,7 @@ describe("AIPreAnnotateJobsPage", () => {
   it("状态过滤 select → 传参给 asyncJobsApi.list", async () => {
     mockAsyncJobsList.mockResolvedValue({ items: [], total: 0 });
     renderUI();
-    await screen.findByText("暂无 prediction job 历史");
+    await screen.findByText("暂无图片预标任务");
     const select = screen.getByRole("combobox") as HTMLSelectElement;
     fireEvent.change(select, { target: { value: "failed" } });
     // 变更后重新调用 list
@@ -226,7 +231,7 @@ describe("AIPreAnnotateJobsPage", () => {
     mockAsyncJobsList.mockResolvedValue({ items: [], total: 41 });
     renderUI("/ai-pre/jobs?tab=image&project_id=p9&status=failed&q=%20car%20&page=2");
 
-    await screen.findByText("暂无 prediction job 历史");
+    await screen.findByText("暂无图片预标任务");
     expect(screen.getByDisplayValue("car")).toBeInTheDocument();
     await waitFor(() => expect(screen.getByTestId("location-search")).toHaveTextContent("q=car"));
     expect(mockAsyncJobsList).toHaveBeenCalledWith(
@@ -242,7 +247,7 @@ describe("AIPreAnnotateJobsPage", () => {
 
   it("图像关键字与第一页在防抖后原子写回可恢复 URL", async () => {
     renderUI("/ai-pre/jobs?tab=image&q=old&page=3");
-    await screen.findByText("暂无 prediction job 历史");
+    await screen.findByText("暂无图片预标任务");
 
     fireEvent.change(screen.getByPlaceholderText("搜索 prompt..."), {
       target: { value: "  bus  " },
@@ -261,7 +266,7 @@ describe("AIPreAnnotateJobsPage", () => {
   it("图像关键字从第二页防抖后与页码原子切换", async () => {
     mockAsyncJobsList.mockResolvedValue({ items: [], total: 41 });
     renderUI("/ai-pre/jobs?tab=image&page=2");
-    await screen.findByText("暂无 prediction job 历史");
+    await screen.findByText("暂无图片预标任务");
     mockAsyncJobsList.mockClear();
 
     fireEvent.change(screen.getByPlaceholderText("搜索 prompt..."), {
@@ -289,7 +294,7 @@ describe("AIPreAnnotateJobsPage", () => {
 
   it("图像未应用草稿在重新加载时仍恢复已应用页码和关键字", async () => {
     const rendered = renderUI("/ai-pre/jobs?tab=image&q=old&page=3");
-    await screen.findByText("暂无 prediction job 历史");
+    await screen.findByText("暂无图片预标任务");
     mockAsyncJobsList.mockClear();
 
     fireEvent.change(screen.getByPlaceholderText("搜索 prompt..."), {
@@ -302,7 +307,7 @@ describe("AIPreAnnotateJobsPage", () => {
     rendered.unmount();
     mockAsyncJobsList.mockClear();
     renderUI(`/ai-pre/jobs${reloadSearch}`);
-    await screen.findByText("暂无 prediction job 历史");
+    await screen.findByText("暂无图片预标任务");
     expect(screen.getByDisplayValue("old")).toBeInTheDocument();
     expect(mockAsyncJobsList).toHaveBeenCalledWith(
       expect.objectContaining({ search: "old", offset: 40 }),
@@ -312,7 +317,7 @@ describe("AIPreAnnotateJobsPage", () => {
 
   it("外部 URL 导航以新图像筛选原子替换草稿", async () => {
     renderUI("/ai-pre/jobs?tab=image&project_id=p1&status=failed&q=old&page=2");
-    await screen.findByText("暂无 prediction job 历史");
+    await screen.findByText("暂无图片预标任务");
     mockAsyncJobsList.mockClear();
 
     fireEvent.change(screen.getByPlaceholderText("搜索 prompt..."), {
@@ -341,7 +346,7 @@ describe("AIPreAnnotateJobsPage", () => {
 
   it("外部图像 URL 恢复期间再次输入仍能完成新的防抖提交", async () => {
     renderUI("/ai-pre/jobs?tab=image&q=old");
-    await screen.findByText("暂无 prediction job 历史");
+    await screen.findByText("暂无图片预标任务");
     mockAsyncJobsList.mockClear();
 
     fireEvent.click(screen.getByRole("button", { name: "外部导航" }));
@@ -365,7 +370,7 @@ describe("AIPreAnnotateJobsPage", () => {
     const user = { id: "image-u1", role: "employee" } as MeResponse;
     useAuthStore.getState().setAuth("image-token-1", user);
     renderUI();
-    await screen.findByText("暂无 prediction job 历史");
+    await screen.findByText("暂无图片预标任务");
     mockAsyncJobsList.mockClear();
 
     act(() => useAuthStore.getState().setAuth("image-token-2", user));
@@ -378,7 +383,7 @@ describe("AIPreAnnotateJobsPage", () => {
   it("关键字防抖期间切换状态先使用已应用关键字", async () => {
     mockAsyncJobsList.mockResolvedValue({ items: [], total: 0 });
     renderUI("/ai-pre/jobs?tab=image&page=3&q=old");
-    await screen.findByText("暂无 prediction job 历史");
+    await screen.findByText("暂无图片预标任务");
     mockAsyncJobsList.mockClear();
 
     fireEvent.change(screen.getByPlaceholderText("搜索 prompt..."), {

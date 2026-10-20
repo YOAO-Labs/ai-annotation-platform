@@ -95,7 +95,7 @@ function BackendSourceSelect({
           onChange={(e) => onChange(e.target.value)}
           className={clsx(styles.input, styles.selectInput)}
         >
-          <option value="">-- 暂不绑定 (创建后到设置页注册) --</option>
+          <option value="">暂不绑定</option>
           {items.map((b) => {
             const hint = modalityHint(b);
             return (
@@ -106,6 +106,9 @@ function BackendSourceSelect({
             );
           })}
         </select>
+      )}
+      {!selected && items.length > 0 && (
+        <p className={styles.helpText}>创建项目后，可到项目设置注册 ML Backend。</p>
       )}
       {selected && (
         <div className={styles.helpText}>

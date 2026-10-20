@@ -7,13 +7,14 @@
 
 .grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr));
   gap: 12px;
 }
 
 .projectCard {
   display: flex;
   flex-direction: column;
+  min-width: 0;
   gap: 10px;
   padding: 14px;
   border: 1px solid var(--sc-border);
@@ -29,6 +30,11 @@
   border-color: var(--sc-brand);
 }
 
+.projectCard:focus-visible {
+  outline: 2px solid var(--sc-ring);
+  outline-offset: 2px;
+}
+
 .cardTopRow {
   display: flex;
   align-items: flex-start;
@@ -42,7 +48,7 @@
 
 .projectName {
   overflow: hidden;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -65,6 +71,8 @@
   display: inline-flex;
   align-items: center;
   gap: 4px;
+  min-width: 0;
+  max-width: 100%;
   padding: 2px 8px;
   border-radius: 999px;
   background: var(--sc-muted);
@@ -81,6 +89,17 @@
 
 .backendDefault {
   color: var(--sc-muted-foreground);
+}
+
+.backendError {
+  color: var(--sc-status-danger);
+}
+
+.backendName {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .concurrencyText,
