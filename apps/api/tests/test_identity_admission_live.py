@@ -162,6 +162,7 @@ async def _start_container_identity(
     enable_deactivation=False,
     enable_deactivation_operator=False,
     enable_deletions=False,
+    enable_offboarding=False,
     enable_presence=True,
     recovery_mail_key=None,
 ):
@@ -210,6 +211,7 @@ async def _start_container_identity(
             "IDENTITY_DEACTIVATION_OPERATOR_DATABASE_URL",
         ),
         (enable_deletions, "DELETION", "IDENTITY_DELETION_DATABASE_URL"),
+        (enable_offboarding, "OFFBOARDING", "IDENTITY_OFFBOARDING_DATABASE_URL"),
         (enable_presence, "PRESENCE", "IDENTITY_PRESENCE_DATABASE_URL"),
     ):
         if enabled:
@@ -353,6 +355,7 @@ def _start_identity(
     enable_deactivation=False,
     enable_deactivation_operator=False,
     enable_deletions=False,
+    enable_offboarding=False,
     enable_presence=True,
     login_redis_url=None,
     session_settings=None,
@@ -392,6 +395,8 @@ def _start_identity(
         )
     if enable_deletions:
         values["deletion_database_url"] = _dsn("DELETION", test_engine)
+    if enable_offboarding:
+        values["offboarding_database_url"] = _dsn("OFFBOARDING", test_engine)
     if enable_presence:
         values["presence_database_url"] = _dsn("PRESENCE", test_engine)
     if recovery_mail_key is not None:
@@ -459,6 +464,8 @@ def _start_api(
             "IDENTITY_DEACTIVATION_OPERATOR_DATABASE_URL_FILE": "",
             "IDENTITY_DELETION_DATABASE_URL": "",
             "IDENTITY_DELETION_DATABASE_URL_FILE": "",
+            "IDENTITY_OFFBOARDING_DATABASE_URL": "",
+            "IDENTITY_OFFBOARDING_DATABASE_URL_FILE": "",
             "NOTIFICATION_PUBLISH_DATABASE_URL": "",
             "NOTIFICATION_PUBLISH_DATABASE_URL_FILE": "",
             "IDENTITY_PRESENCE_DATABASE_URL": "",
