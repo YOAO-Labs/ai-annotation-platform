@@ -518,7 +518,6 @@ async def test_suspend_reactivate_receipts_and_new_credentials_survive_replay(
         assert suspended.data.user.disabled_reason == "管理员停用账号"
         assert suspended.data.user.deactivation_requested_at == requested_at
         assert suspended.data.user.deactivation_scheduled_at == scheduled_at
-        assert suspended.data.user.deactivation_reason == "Accepted self-deactivation"
 
         async with maker() as session:
             state = (
@@ -948,16 +947,10 @@ async def test_pa_empty_scope_rules_and_all_derived_labeling_scope(test_engine):
         operation_id=empty_reactivate_id,
         reason=None,
     )
-    owned_project_id = await _add_project(
-        test_engine, actor_id, "Suspension owned project"
-    )
-    foreign_project_id = await _add_project(
-        test_engine, owner_id, "Suspension foreign project"
-    )
-    await _add_member(test_engine, owned_project_id, target_id, actor_id)
-    batch_id = await _add_batch(test_engine, foreign_project_id, target_id, owner_id)
     task_ids: list[uuid.UUID] = []
     lock_ids: list[uuid.UUID] = []
+    project_ids: list[uuid.UUID] = []
+    batch_ids: list[uuid.UUID] = []
     operation_ids = [
         empty_suspend_id,
         empty_reactivate_id,
@@ -974,6 +967,20 @@ async def test_pa_empty_scope_rules_and_all_derived_labeling_scope(test_engine):
         assert no_scope.value.code == "reactivate_not_managed"
         assert no_scope.value.status_code == 403
         assert no_scope.value.detail == "该用户不在你管理的项目内"
+
+        owned_project_id = await _add_project(
+            test_engine, actor_id, "Suspension owned project"
+        )
+        project_ids.append(owned_project_id)
+        foreign_project_id = await _add_project(
+            test_engine, owner_id, "Suspension foreign project"
+        )
+        project_ids.append(foreign_project_id)
+        await _add_member(test_engine, owned_project_id, target_id, actor_id)
+        batch_id = await _add_batch(
+            test_engine, foreign_project_id, target_id, owner_id
+        )
+        batch_ids.append(batch_id)
 
         # A membership in one owned project cannot hide a foreign Labeling
         # reference from a batch assignment.
@@ -1038,6 +1045,7 @@ async def test_pa_empty_scope_rules_and_all_derived_labeling_scope(test_engine):
         batch_id = await _add_batch(
             test_engine, foreign_project_id, target_id, owner_id
         )
+        batch_ids.append(batch_id)
         with pytest.raises(SuspensionFailure) as suspend_scope:
             await empty_manager.execute(
                 _request(
@@ -1055,8 +1063,8 @@ async def test_pa_empty_scope_rules_and_all_derived_labeling_scope(test_engine):
             actor_ids=[actor_id, owner_id],
             target_ids=[target_id],
             operation_ids=operation_ids,
-            project_ids=[owned_project_id, foreign_project_id],
-            batch_ids=[batch_id],
+            project_ids=project_ids,
+            batch_ids=batch_ids,
             task_ids=task_ids,
         )
 

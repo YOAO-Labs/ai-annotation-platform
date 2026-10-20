@@ -309,10 +309,18 @@ async def test_suspension_policy_rejects_database_temp_and_recovers_after_revoke
 
         async with owner_engine.begin() as owner:
             assert await owner.scalar(text("SELECT current_database()")) == database
+            await owner.execute(
+                text(
+                    "SELECT pg_catalog.set_config("
+                    "'aap.temp_probe_role', :role_name, true)"
+                ),
+                {"role_name": role_name},
+            )
             await owner.exec_driver_sql(
                 "DO $test$ BEGIN EXECUTE pg_catalog.format("
-                "'GRANT TEMPORARY ON DATABASE %I TO identity_suspension_client', "
-                "pg_catalog.current_database()); END $test$"
+                "'GRANT TEMPORARY ON DATABASE %I TO %I', "
+                "pg_catalog.current_database(), "
+                "pg_catalog.current_setting('aap.temp_probe_role')); END $test$"
             )
         temp_granted = True
 
@@ -333,10 +341,18 @@ async def test_suspension_policy_rejects_database_temp_and_recovers_after_revoke
         try:
             if temp_granted:
                 async with owner_engine.begin() as owner:
+                    await owner.execute(
+                        text(
+                            "SELECT pg_catalog.set_config("
+                            "'aap.temp_probe_role', :role_name, true)"
+                        ),
+                        {"role_name": role_name},
+                    )
                     await owner.exec_driver_sql(
                         "DO $test$ BEGIN EXECUTE pg_catalog.format("
                         "'REVOKE TEMPORARY ON DATABASE %I FROM "
-                        "identity_suspension_client', pg_catalog.current_database()); "
+                        "%I', pg_catalog.current_database(), "
+                        "pg_catalog.current_setting('aap.temp_probe_role')); "
                         "END $test$"
                     )
         finally:
