@@ -9,7 +9,7 @@ last_reviewed: 2026-10-20
 
 协议对象只接受声明的 wire 字段名：版本字段为 `schema`。内部 Python 字段名 `protocol` 无论单独使用还是与 `schema` 同时提交都被拒绝；opaque 偏好值中的同名键不受影响。
 
-Identity 运行时提供认证准入、API key、核心会话、自助账户、全局分组目录与指派、完整邀请生命周期、四项用户目录读取、自助注销、注销到期处理、账号恢复和在线扫描命令，供受信任的服务调用。公开用户接口仍是 `/api/v1/auth/`、`/api/v1/me/api-keys` 与 `/api/v1/users`。私有接口要求独立控制 Bearer；需要用户身份的操作将凭据放在 JSON 的 `token` 中，不能代替控制凭据。注册/邀请证明凭据另置于 `payload`，与调用者身份 token 分开。账号恢复使用匿名请求或单次挑战证明，邮件与注销通知分别由独立执行进程投递。
+Identity 运行时提供认证准入、API key、核心会话、自助账户、全局分组目录与指派、完整邀请生命周期、四项用户目录读取、自助注销、注销到期处理、账号恢复和在线扫描命令；平台角色预览／变更 owner 正在接入，尚待限定资格。公开用户接口仍是 `/api/v1/auth/`、`/api/v1/me/api-keys` 与 `/api/v1/users`。私有接口要求独立控制 Bearer；需要用户身份的操作将凭据放在 JSON 的 `token` 中，不能代替控制凭据。注册/邀请证明凭据另置于 `payload`，与调用者身份 token 分开。账号恢复使用匿名请求或单次挑战证明，邮件与注销通知分别由独立执行进程投递。
 
 | 接口                                         | 用途                                           |
 | -------------------------------------------- | ---------------------------------------------- |
@@ -24,6 +24,7 @@ Identity 运行时提供认证准入、API key、核心会话、自助账户、�
 | `POST /v1/identity/invitations/execute`      | 邀请管理、批量操作、注册、接受与耐久邮件发送   |
 | `POST /v1/identity/directory/execute`        | 用户目录列表、查询、统计与导出                 |
 | `POST /v1/identity/admin-passwords/execute`  | 管理员临时密码重置                             |
+| `POST /v1/identity/platform-roles/execute`   | 平台角色预览与变更                             |
 | `POST /v1/identity/deactivation/execute`     | 自助注销申请与撤销                             |
 | `POST /v1/identity/deactivation/process-due` | 分页处理已到期的自助注销申请                   |
 | `POST /v1/identity/recovery/execute`         | 开放注册、重置请求／消费、验证邮件重发／消费   |
@@ -90,7 +91,7 @@ API 保留通用限流和 Turnstile 验证，提供方重新检查失败计数�
 
 成功命令的状态、JTI／代次、业务审计和冻结声明回执共同提交。错误密码、停用或未验证的登录也会提交其经过验证的业务审计；格式错误或绑定错误的提供方响应不用于确认事务。响应丢失后重放要求当前认证，另一个有效凭据可用于恢复同一账号的冻结结果。重放不会再次登出新凭据、推进代次、记录业务审计或刷新旧声明；历史 token 可能已经失效。登录重放重新检查当前密码和 gate，账号角色取当前资料，签发声明保持冻结。
 
-提供方的签发时长、邮箱验证、失败计数阈值／窗口和 Redis 实例必须与边缘及剩余签发端匹配。修改签发策略或 signing secret 后，旧操作回执冲突。原生策略固定 issuer、HS256 和七天宽限；含会话回执时拒绝降级。分组目录／指派与完整 invitation lifecycle 采用独立 Identity owners；当前 Directory slice 迁移四项用户只读操作，平台角色／lifecycle 写入及其他用户 hydration 仍留在 API，整体日常签名能力尚未撤除。
+提供方的签发时长、邮箱验证、失败计数阈值／窗口和 Redis 实例必须与边缘及剩余签发端匹配。修改签发策略或 signing secret 后，旧操作回执冲突。原生策略固定 issuer、HS256 和七天宽限；含会话回执时拒绝降级。分组目录／指派与完整 invitation lifecycle 采用独立 Identity owners；Directory 已迁移四项用户只读操作，平台角色预览／变更当前由新 Identity owner slice 接管但资格待验；此 slice 不覆盖其他用户 hydration 或 cross-owner offboarding。整体日常签名能力尚未撤除。
 
 为保证重放字节稳定，JWT header 使用紧凑 JSON `alg`、`typ`，payload 字段顺序固定为 `sub`、`role`、`exp`、`jti`、`gen`、`iss`。UUID 为小写规范形式，代次和时间为十进制整数，Base64URL 不带填充。HS256 key 是 `HMAC-SHA256(secret UTF-8, issuer UTF-8)` 的小写 hex 字符串，再按 UTF-8 作为 HMAC key。会话派生 master 使用相同 secret 与独立域 `aap-identity-sessions/v1`；其 SHA-256 是派生标识，登录指纹是该 master 对按键排序、紧凑且非 ASCII 以 Unicode 转义表示的 `{email,password}` JSON 的 HMAC-SHA256。仓库的 `apps/identity/tests/fixtures/session_vectors.json` 提供公开测试向量，不含部署凭据；Python 和 Node 都核对相同结果。这是跨语言原语／序列化证据，尚非另一语言的完整提供方验收。
 
@@ -269,6 +270,45 @@ Malformed／unknown／duplicate／extra fields、alias 字段、secret echo 或�
 Migration 0244 创建 `aap_identity_admin_passwords_v1`。`identity_admin_password_client` LOGIN 仅可执行 `admin_password_policy()` 和 `execute_admin_password_command(jsonb)`，没有 table/column/sequence/DDL 或 foreign-schema 权限。API/runtime 可选 `IDENTITY_ADMIN_PASSWORD_DATABASE_URL` 或 `IDENTITY_ADMIN_PASSWORD_DATABASE_URL_FILE`；Compose host selector 是 `IDENTITY_RUNTIME_ADMIN_PASSWORD_DATABASE_URL_FILE`。selector 留空只关闭该 capability、私有路由返回 503，不影响既有 Identity service 启动；显式 DSN 故障不回退 ORM。
 
 管理员重置 slice 已通过本地限定验收：42 个选定数据库／进程案例全部通过且零跳过，其中 36 个 DB/restore 案例与 6 个 live 案例包含 Directory、Invitation、legacy challenge 等兼容路径，不能视为 42 个全新的 admin-reset 案例。Identity portable source 与 installed package 各通过 420 项检查；API/architecture 467 项通过、126 条 lazy rule 明确延期；SDK user/CLI/OpenAPI 35 项通过，公开 OpenAPI 保持不变。非 root、只读 Identity 镜像及禁网、只读、512 MiB API cold image 均通过，镜像哈希、输入清单和精确分类见 [ADR-0124](/dev/adr/0124-independent-identity-admin-password-reset)。一次 12 目标、并发 4 的 host-process sample 含 Node/HTTP/bcrypt 开销，不对应 Identity 容器预算，也不构成生产容量或 SLO。该 qualification 仅覆盖本地；不包括平台角色修改、deactivate/delete、offboarding 或其他账号写入，也不表示生产部署或主认证切换完成。
+
+## 平台角色预览与变更
+
+本 owner slice 只迁移两个超级管理员路由：`GET /api/v1/users/{user_id}/role/preview?role=...` 与 `PATCH /api/v1/users/{user_id}/role`。方法、路径、既有 `RoleImpactPreview`／用户响应、errors、SDK／CLI 行为保持不变，没有 public CAS 或幂等 header。Preview 的 `user_id` 保持 UUID、`role` 是必填且 `min_length=1` 的字符串；Mutation 的 path 参数继续是字符串，body 是 `RoleChangePayload`，extra fields 继续被忽略，非法 mutation UUID 仍返回 404。请求角色只接受 `super_admin`、`project_admin`、`employee`、`viewer`；不 trim／lowercase，也不增加任意短长度上限。非法值返回 400 `非法平台角色: {role}`，缺失／停用目标 404 `用户不存在`，修改自己 400 `不能修改自己的角色`。Current actor 必须仍是 active super-admin，否则 403 `当前账号已无管理权限`。
+
+私有 endpoint 是 `POST /v1/identity/platform-roles/execute`，协议 `aap-identity-platform-roles/v1`，operations 为 `preview_role_change` 与 `change_platform_role`。Wire request 精确为 `schema/operation/operation_id/token/audit_context/payload`，payload 是 `{target_user_id,role}`；raw token 隐藏，actor 只能由当前凭据解析。Native request 精确有 `schema/operation/operation_id/actor/expected_key_hash/request_fingerprint/derivation_id/audit_context/payload`；API-key `expected_key_hash` 保持 opaque 1–255 字符。Native success 多一个严格 boolean `replayed`。完整 schema、错误与 receipt 约束见 [ADR-0125](/dev/adr/0125-independent-identity-platform-role-commands)。
+
+Preview data 精确有 12 个字段：`user_id/email/current_role/requested_role/can_change/blockers/projects/assigned_batch_count/assigned_task_count/review_task_count/other_project_count/warnings`。项目行精确包含 `project_id/project_name/membership_role/annotator_batch_count/reviewer_batch_count/assigned_task_count/review_task_count`，其中 membership role 可为 null。项目是 target 的成员项目，按 project name、UUID 排序，不加 status/archive 筛选；所有状态都计入展示 counts，且只按 batch annotator/reviewer 与 Task assignee/reviewer 的直接 assignment 计数，不套用 blocker 的 COALESCE fallback。同一 batch 同时占两个角色槽位会计两次；总数只汇总成员项目，不与 viewer blocker 计数混用。`other_project_count` 对当前 super-admin-only surface 固定为 0。Warnings 固定为：
+
+- `平台角色对所有项目生效；已有项目成员身份和批次负责人不会自动改变。`
+- `若新平台角色与现有项目身份不匹配，成员可能无法继续标注或审核；请检查并重新分派。`
+
+Work blockers 按顺序判断：目标已有非 viewer ProjectMember 且请求角色为 manager 或 viewer；目标仍拥有 Project 且请求角色为 employee/viewer；只对 viewer，未完成 task 的 effective assignee/reviewer 仍指向目标。后者仅查询 pending、in_progress、rejected、review；explicit Task assignment 覆盖 batch fallback，unbatched task 也参与，TaskBatch 用 outer join；一个 task 即使命中两个 assignment 也只阻止一次，TaskLock 不参与。Preview blocker 顺序是 self、same role、last super-admin、上述三类工作职责；same role 不计算 work blockers，active target 不会出现 `用户已停用` blocker。Preview 是 advisory，无 last-SA reservation fence；`can_change` 等于 blocker 列表为空。
+
+三类工作 blocker 的精确文案依次为 `账号仍持有标注/质检项目职责，请先在项目中变更职责`、`账号仍是项目负责人，请先转移项目后变更平台角色`、`账号仍有未完成的标注/质检工作，请先交接`。Mutation 的 `platform_role_change_blocked` 409 按此顺序返回 blocker list。
+
+Mutation 用共享 last-super-admin fence 先于 actor/target User 的 UUID 排序 `FOR UPDATE NOWAIT` 锁。锁后 re-entrant 检查当前 JWT 代次／有效期或 API-key 状态／hash／scope，再确认 actor 仍为 active super-admin。真实变更先算 work blockers；若从 super-admin 降级，再检查至少有另一名 active 且未登记注销请求／计划的 super-admin。若两类条件同时触发，work-blocker 409 优先于最后一名 super-admin 的 400。然后 Workspace 按 UUID 顺序 NOWAIT 锁定 target-owned Projects；竞争返回 409 `{reason:project_busy}`，账号／global fence 竞争返回 409 `账号正在更新，请刷新后重试`。同角色 mutation 不锁 Project、不写 Audit，但成功 receipt 仍冻结结果。ProjectMember、batch owner 与 Task 均不改写。
+
+| code                           | HTTP | detail / error body                                    |
+| ------------------------------ | ---: | ------------------------------------------------------ |
+| `invalid_request`              |  400 | `null`                                                 |
+| `super_admin_required`         |  403 | `当前账号已无管理权限`                                 |
+| `target_not_found`             |  404 | `用户不存在`                                           |
+| `invalid_platform_role`        |  400 | `非法平台角色: {rawrole}`                              |
+| `self_change`                  |  400 | `不能修改自己的角色`                                   |
+| `last_super_admin`             |  400 | `不能降级最后一名超级管理员`                           |
+| `account_busy`                 |  409 | `账号正在更新，请刷新后重试`                           |
+| `project_busy`                 |  409 | `{reason:project_busy}`                                |
+| `platform_role_change_blocked` |  409 | `{reason:platform_role_change_blocked,blockers:[...]}` |
+| `operation_conflict`           |  409 | `null`                                                 |
+| `unavailable`                  |  503 | `null`                                                 |
+
+Identity authentication errors keep their established codes with null status/detail. Unknown or malformed fields, duplicate/alias keys, secret echo and operation/principal mismatch roll back as `unavailable` without diagnostic leakage or fallback.
+
+成功 role change 在同一事务写入 role、一个 `user.role_change` Audit 和 receipt；Audit detail 精确为 email/old_role/new_role。No-op receipt 不产生 Audit。Mutation response 使用 21 字段 Directory-user 兼容投影，不包含凭据、hash 或 generation；raw status、nullable metadata 与 opaque preferences 保留。Role change 不推进 JWT generation，也不撤销 API keys。receipt 冻结原本已接受的用户快照。Replay 总是重新验证 active super-admin actor 和 active target，但不重算 blockers 或 last-SA mutation 条件、不重放写入，也不重复 Audit。若 target 角色经历 A→B→A，原 B 操作重放仍返回冻结 B 快照，数据库维持 A；same-role no-op 也不能在重试时变为新写入。不存在 User version 字段、supersession guard 或 Audit scan。Actor、payload 或 epoch 错配返回 409 `operation_conflict`；Public PATCH 每次使用新 operation UUID，没有公开 replay key。
+
+Workspace 的 `identity_platform_role_facts(target UUID)` 返回封闭 `schema/target_user_id/owned_project_count/non_viewer_membership_count/membership_projects`，每个项目只有 `project_id/project_name/membership_role`，按 project name/UUID 排序；raw membership count 不改成 join 后数量。`lock_identity_platform_role_owned_projects(target UUID)` 只在 mutation 后锁 target-owned projects 并返回 strict boolean。Labeling 的 `identity_platform_role_facts(target UUID, ordered_membership_project_ids UUID[])` 一次返回 `schema/target_user_id/unfinished_effective_work_count/membership_projects`，每项只有 `project_id/annotator_batch_count/reviewer_batch_count/assigned_task_count/review_task_count`，同序且包含零计数。封闭 projection schema 分别为 `platform_role_workspace_facts.schema.json`（`aap-workspace-identity-platform-role-facts/v1`）与 `platform_role_labeling_facts.schema.json`（`aap-labeling-identity-platform-role-facts/v1`）；Identity 不读取 Workspace／Labeling 原表，Labeling 也不反向调用 Workspace，Audit 只授予当前角色事件的 typed write。Project facts、blockers、counts 与 last-SA 读取符合各自的 snapshot/lock 顺序要求。
+
+Migration 0245 创建 `aap_identity_platform_roles_v1`。`identity_platform_role_client` LOGIN 仅能执行 `platform_role_policy()` 与 `execute_platform_role_command(jsonb)`。API/runtime 可选 `IDENTITY_PLATFORM_ROLE_DATABASE_URL(_FILE)`，Compose host selector 为 `IDENTITY_RUNTIME_PLATFORM_ROLE_DATABASE_URL_FILE`；留空只关闭此 capability、route 返回 503，既有 Identity service 仍可启动。API 直接 DSN 必须先调用 policy/readiness；显式 DSN 故障不回退 ORM。该 owner 的数据库、runtime、restore、API 和 image qualification 待 Root 验收；已经完成的 admin-reset 与 Directory 数字分别属于 ADR-0124、ADR-0123，不计入本 slice。
 
 ## 自助注销与最后一名超级管理员围栏
 

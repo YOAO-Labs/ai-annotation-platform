@@ -170,3 +170,4 @@
 - [0122 — Identity 邀请生命周期与 durable MailV2 投递所有权](0122-independent-identity-invitations-and-mail-v2.md)
 - [0123 — Identity 用户目录读取所有权与可见性合同](0123-independent-identity-directory-reads.md)
 - [0124 — Identity 管理员临时密码重置所有权](0124-independent-identity-admin-password-reset.md)
+- [0125 — Identity 平台角色预览与变更所有权](0125-independent-identity-platform-role-commands.md)
