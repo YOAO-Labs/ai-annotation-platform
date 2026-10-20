@@ -1,6 +1,6 @@
 # 0124 — Identity 管理员临时密码重置所有权
 
-- **Status:** Accepted; source implementation is in progress and local qualification is pending
+- **Status:** Accepted; locally qualified slice (2026-10-20)
 - **Date:** 2026-10-20
 - **Deciders:** Maintainers
 - **Supersedes:** None
@@ -144,17 +144,14 @@ and detail exactly `{target_email,target_role}`; it never contains the password.
 Every replay reauthenticates the actor, reapplies current target scope and checks
 both the target's current `password_admin_reset_at` and an operation-bound
 `password_state_fingerprint`. Native computes this private receipt digest as
-`hex(SHA256(UTF8("aap-identity-admin-password-state/v1:" + canonical_operation_uuid
-
-- ":" + applied_bcrypt_hash)))`; it stores neither the usable bcrypt hash nor the
-plaintext. A self-change, recovery reset or later administrative reset
+`hex(SHA256(UTF8("aap-identity-admin-password-state/v1:" + canonical_operation_uuid + ":" + applied_bcrypt_hash)))`; it stores neither the usable bcrypt hash nor the plaintext. A self-change, recovery reset or later administrative reset
 supersedes the receipt and returns 409 `operation_conflict`, even if timestamps
-  collide. Profile or request-context changes alone may replay the frozen email
-  and timestamp. Identity credentials remain valid: do not bump JWT generation or
-  revoke API keys. Self password change continues to clear the reset marker.
-  Do not add User columns or triggers for replay state. Populated receipts block
-  downgrade; backup/restore with the same signing secret preserves replay, while
-  a changed derivation epoch conflicts safely.
+collide. Profile or request-context changes alone may replay the frozen email
+and timestamp. Identity credentials remain valid: do not bump JWT generation or
+revoke API keys. Self password change continues to clear the reset marker.
+Do not add User columns or triggers for replay state. Populated receipts block
+downgrade; backup/restore with the same signing secret preserves replay, while
+a changed derivation epoch conflicts safely.
 
 ### Native grants and configuration
 
@@ -175,6 +172,44 @@ makes the private route unavailable (503). An explicitly selected missing,
 unavailable or misprivileged DSN fails closed with no writer fallback. Local API
 binding and remote Identity runtime use the same portable manager/native command.
 
+### Local qualification
+
+The assembled source revision `540d80726f04a230105825dfac1915e9b4931e41`
+passed 42 distinct selected database/process cases with zero skips after
+targeted fixture reruns. The set comprises 36 database/restore cases—six native,
+three role, five existing reset, 18 existing visibility, and one each for admin
+restore, Directory restore, Invitation restore and the legacy challenge—and six
+live cases: one installed Node owner, remote and dedicated admin API bindings,
+remote and dedicated real-rate-limiter bindings, and one existing dedicated
+Directory binding. These are a cross-slice compatibility set, not 42 new
+admin-reset-only cases.
+
+Portable source and installed packages each passed 420 checks. The noneditable
+Identity package contains 87 files with exact hashes and no application,
+SQLAlchemy, Celery, Boto3 or Torch dependency; installed Pydantic is 2.14.1.
+Node 22 self-checks passed. The API/architecture suite passed 467 checks with
+126 explicitly deferred lazy rules. SDK user/CLI/OpenAPI checks passed 35;
+public OpenAPI stayed unchanged. Schema and code generation checks passed, and
+the environment documentation covers 450 variables in 48 sections.
+
+The nonroot, read-only Identity image
+`sha256:58e97125a477558db72e1f2e70a4c5cef0dd5bd53b08333e25e962ebc0292c9a`
+contains the 87 package files and passed runtime/API proof. The API cold image
+`sha256:6aa45b1892cec307e334570745846e615d8c9647978d743c023f26d3901676f2`
+passed in 38.223 seconds with network disabled, read-only filesystem and a
+512 MiB limit. It verified 87 package files and 80 API/native inputs, the reset
+route plus existing Directory, Invitation, Recovery, Group and Deactivation
+routes, unchanged OpenAPI, migration head 0244, and absence of the obsolete
+writer/generator. SQL parameters were hidden and the cold container was removed.
+
+The actual Identity container proof used nonroot, read-only, 1 CPU and 256 MiB.
+Separate host-process samples with 12 targets and concurrency four measured
+33 attempts/21 busy retries in 2.543434 seconds (p50 1.703565, p95 2.543272),
+then 34 attempts/22 retries in 2.640446 seconds (p50 1.708559, p95 2.640287).
+These include Node, HTTP and bcrypt overhead; they are not measurements under the container
+limits and establish neither production capacity nor an SLO. Confirmation left
+12 receipts, 12 Audit rows, JWT generation and API-key rows unchanged.
+
 ## Consequences
 
 Positive:
@@ -192,9 +227,9 @@ Negative:
 - Password derivation, bcrypt and the receipt fingerprint become versioned
   protocol details; secret rotation must remain coordinated with outstanding
   receipts.
-- Core source, Native grants/migration, Peer Node/API checks and the public
-  adapter are in progress. Qualification remains pending until Root reports
-  the actual database, runtime, restore, API and image evidence.
+- This slice is locally qualified across its database, runtime, restore, API
+  and image checks. The evidence is local only and does not establish
+  production capacity or cutover readiness.
 - Platform-role writes, offboarding, other-user hydration, full Identity, the
   ten-module/seven-gate objective, production capacity and a replacement
   language provider remain outside this slice.

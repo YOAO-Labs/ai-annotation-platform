@@ -268,7 +268,7 @@ Malformed／unknown／duplicate／extra fields、alias 字段、secret echo 或�
 
 Migration 0244 创建 `aap_identity_admin_passwords_v1`。`identity_admin_password_client` LOGIN 仅可执行 `admin_password_policy()` 和 `execute_admin_password_command(jsonb)`，没有 table/column/sequence/DDL 或 foreign-schema 权限。API/runtime 可选 `IDENTITY_ADMIN_PASSWORD_DATABASE_URL` 或 `IDENTITY_ADMIN_PASSWORD_DATABASE_URL_FILE`；Compose host selector 是 `IDENTITY_RUNTIME_ADMIN_PASSWORD_DATABASE_URL_FILE`。selector 留空只关闭该 capability、私有路由返回 503，不影响既有 Identity service 启动；显式 DSN 故障不回退 ORM。
 
-Admin-reset source、migration/role、restore、response-loss/superseded replay、真实 API 和 runtime/image qualification 仍待 Root 验收；本节不添加通过数量。该 slice 不包括平台角色修改、deactivate/delete、offboarding 或其他账号写入。
+管理员重置 slice 已通过本地限定验收：42 个选定数据库／进程案例全部通过且零跳过，其中 36 个 DB/restore 案例与 6 个 live 案例包含 Directory、Invitation、legacy challenge 等兼容路径，不能视为 42 个全新的 admin-reset 案例。Identity portable source 与 installed package 各通过 420 项检查；API/architecture 467 项通过、126 条 lazy rule 明确延期；SDK user/CLI/OpenAPI 35 项通过，公开 OpenAPI 保持不变。非 root、只读 Identity 镜像及禁网、只读、512 MiB API cold image 均通过，镜像哈希、输入清单和精确分类见 [ADR-0124](/dev/adr/0124-independent-identity-admin-password-reset)。一次 12 目标、并发 4 的 host-process sample 含 Node/HTTP/bcrypt 开销，不对应 Identity 容器预算，也不构成生产容量或 SLO。该 qualification 仅覆盖本地；不包括平台角色修改、deactivate/delete、offboarding 或其他账号写入，也不表示生产部署或主认证切换完成。
 
 ## 自助注销与最后一名超级管理员围栏
 

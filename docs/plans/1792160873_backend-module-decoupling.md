@@ -1,6 +1,6 @@
 # 后端业务模块解耦与跨语言替换设计
 
-> Status: 进行中。当前目标覆盖 identity、workspace、assets、labeling、inference、learning、insights、jobs、audit、notifications 及运行装配。前序 Python 进程内切片、常驻 API 恢复和既有训练作业执行权交接已完成。assets 视频探测三个操作已提供独立 Python 工件、流式合同及真实调用端的 Node 替换验收；同步 ZIP 与旧前缀扫描已纳入既有 Assets Source 工件及 0215 原生合同，并通过真实隔离服务、受限角色与故障恢复验收。Scene、位姿和标定切片已提取至既有 Catalog 工件，并通过隔离数据库、真实 HTTP/S3 与消费者资格验证；连接管理及本地图片/nuScenes 来源登记已迁入各自合同并完成本地验收；媒体/Blob、其余运维流程和其他模块继续推进。Identity 注册恢复／邮件、分组目录／指派、自助注销／due、完整 invitation lifecycle/MailV2 sender 及四项用户目录读取 owner 均已有对应限定本地资格；当前实施管理员临时密码重置 owner，source、Native、API/runtime 资格待 Root 验收。平台角色写入、offboarding、其他用户 hydration 与剩余模块继续留在后续计划，既有 public API filters、字段和 statuses 保持。Go 月报保持独立实验，其可用性和容量不作为本目标门槛。当前各模块缺口见[模块部署与语言替换状态](../../docs-site/dev/concepts/module-deployment.md)。
+> Status: 进行中。当前目标覆盖 identity、workspace、assets、labeling、inference、learning、insights、jobs、audit、notifications 及运行装配。前序 Python 进程内切片、常驻 API 恢复和既有训练作业执行权交接已完成。assets 视频探测三个操作已提供独立 Python 工件、流式合同及真实调用端的 Node 替换验收；同步 ZIP 与旧前缀扫描已纳入既有 Assets Source 工件及 0215 原生合同，并通过真实隔离服务、受限角色与故障恢复验收。Scene、位姿和标定切片已提取至既有 Catalog 工件，并通过隔离数据库、真实 HTTP/S3 与消费者资格验证；连接管理及本地图片/nuScenes 来源登记已迁入各自合同并完成本地验收；媒体/Blob、其余运维流程和其他模块继续推进。Identity 注册恢复／邮件、分组目录／指派、自助注销／due、完整 invitation lifecycle/MailV2 sender、四项用户目录读取及管理员临时密码重置 owner 均已有对应限定本地资格。平台角色写入、offboarding、其他用户 hydration 与剩余模块继续留在后续计划，既有 public API filters、字段和 statuses 保持。Go 月报保持独立实验，其可用性和容量不作为本目标门槛。当前各模块缺口见[模块部署与语言替换状态](../../docs-site/dev/concepts/module-deployment.md)。
 >
 > 创建日期：2026-10-16。
 >
@@ -2979,7 +2979,7 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   它们不计入 Directory。平台管理员写入、offboarding、其他用户 hydration、完整
   Identity、十模块／七门槛和 provider replacement 仍待完成。
 
-### Identity administrator password-reset owner (current slice)
+### Identity administrator password-reset owner (locally qualified slice)
 
 - 只把 `POST /api/v1/users/{user_id}/admin-reset-password` 迁入 Identity。公开
   UUID path、每分钟 3 次限流、成功状态与三个响应字段
@@ -3019,7 +3019,34 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   `IDENTITY_ADMIN_PASSWORD_DATABASE_URL(_FILE)`；Compose host selector
   `IDENTITY_RUNTIME_ADMIN_PASSWORD_DATABASE_URL_FILE` 默认空白，禁用该 capability
   但不影响现有 Identity startup；显式选择后的 DSN 错误必须 fail closed。
-- Core/Native/Peer 正在实现中。数据库角色、remote/dedicated API binding、restore、
-  replay/supersession、非 root image 和 API cold qualification 均待 Root 提供证据；
-  本节不报告通过数。十模块／七门槛目标继续推进，没有完成平台角色写入、offboarding、
-  production/primary cutover 或 provider-language replacement。
+- 本地联合验收以 assembled source revision
+  `540d80726f04a230105825dfac1915e9b4931e41` 完成：42 个选定 database/process
+  cases 全部通过、零跳过。36 个 DB/restore cases 分为 native 6、roles 3、existing
+  reset 5、existing visibility 18、admin restore 1、Directory restore 1、Invitation
+  restore 1、legacy challenge 1；6 个 live cases 是 installed Node owner 1、admin
+  API remote/dedicated 2、真实 limiter remote/dedicated 2、existing Directory
+  dedicated 1。兼容性案例属于不同 slice，故 42 不等于 42 个新 admin-reset 行为。
+- Portable source 与 installed package 各通过 420 项检查。非 editable Identity
+  package 有 87 个逐文件 hash 匹配的源码文件，且不依赖 application、SQLAlchemy、
+  Celery、Boto3 或 Torch；安装版 Pydantic 为 2.14.1。Node 22 self-checks 通过；
+  API/architecture 467 项通过、126 条 lazy rules 明确延期；SDK user/CLI/OpenAPI
+  35 项通过且 public OpenAPI 未变。Schema/codegen 和环境文档检查通过，后者覆盖
+  450 个变量、48 个分组。
+- Identity image `sha256:58e97125a477558db72e1f2e70a4c5cef0dd5bd53b08333e25e962ebc0292c9a`
+  含 87 个 package files，并通过 nonroot/read-only runtime/API proof。API cold
+  image `sha256:6aa45b1892cec307e334570745846e615d8c9647978d743c023f26d3901676f2`
+  用时 38.223s，在 network-none/read-only/512 MiB 下核验 87 个 package files、
+  80 个 API/native inputs、admin-reset route 与既有 4 Directory、13 Invitation、
+  5 Recovery、8 Group、2 Deactivation routes，OpenAPI unchanged、migration head
+  0244、obsolete writer/generator absent、SQL parameters hidden；临时容器已移除。
+  Artifact 为 `.worktree/identity-admin-password-api-artifact.json`。
+- 实际 Identity 容器使用 nonroot/read-only/1 CPU/256 MiB。另有 12 个 target、并发
+  4 的 host-process sample：33 attempts/21 busy retries 用时 2.543434s，p50/p95
+  1.703565/2.543272s；confirmation 34 attempts/22 retries 用时 2.640446s，p50/p95
+  1.708559/2.640287s。包含 Node/HTTP/bcrypt 开销，不能当作 Identity 容器预算或
+  production capacity/SLO。12 个 receipts 与 Audit 在 confirmation 后未增加；JWT
+  generation 与 API-key rows 未变。
+- 本地资格不代表 production/primary cutover、remote CI、push/release 或 Go 扩展。
+  平台角色写入、offboarding、other-user hydration、其他 Identity owners、十模块／
+  七门槛目标与 provider replacement 仍待完成；Directory 与 Invitation/MailV2
+  的历史资格仍分别按其 own slice 统计。
