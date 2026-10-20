@@ -157,6 +157,8 @@ GRANT SELECT (
     deactivation_scheduled_at
 )
     ON public.users TO :"identity_owner";
+GRANT SELECT (organization_id, user_id, deleted_at)
+    ON public.organization_members TO :"identity_owner";
 GRANT INSERT (
     id, email, name, password_hash, credential_generation, role, group_name,
     group_id, status, is_active, email_verified_at, preferences
@@ -740,6 +742,14 @@ GRANT SELECT (project_id), DELETE ON public.project_task_datasets,
 -- Other owners expose only their project cleanup predicates and row mutations.
 GRANT SELECT (project_id), DELETE ON public.project_ml_backend_pool,
     public.project_pipelines TO :"inference_owner";
+GRANT SELECT (registry_id, pool_id) ON public.ml_backend_pool_members
+    TO :"inference_owner";
+GRANT SELECT (id, enabled, routing_generation),
+    UPDATE (enabled, routing_generation, updated_at)
+    ON public.ml_backend_service_pools TO :"inference_owner";
+GRANT SELECT (id, pool_id, enabled), INSERT (id, project_id, pool_id, enabled),
+    UPDATE (enabled, updated_at)
+    ON public.project_ml_backend_pool TO :"inference_owner";
 GRANT SELECT (project_id), DELETE ON public.project_task_views TO :"insights_owner";
 GRANT SELECT (project_id, task_id), UPDATE (project_id, task_id)
     ON public.bug_reports TO :"diagnostics_owner";
@@ -849,6 +859,11 @@ GRANT EXECUTE ON FUNCTION
     aap_audit_v1.record_workspace_membership_event(text, jsonb, uuid, jsonb, jsonb)
     TO :"workspace_owner";
 GRANT EXECUTE ON FUNCTION
+    aap_assets_v1.workspace_configuration_datasets(uuid),
+    aap_labeling_v1.workspace_configuration_video_facts(uuid),
+    aap_inference_v1.enable_workspace_project_backend(uuid, uuid)
+    TO :"workspace_owner";
+GRANT EXECUTE ON FUNCTION
     aap_labeling_v1.read_membership_work(uuid, uuid, uuid, uuid),
     aap_labeling_v1.lock_membership_work(uuid, uuid, text, boolean),
     aap_labeling_v1.handoff_membership_annotation(uuid, uuid, uuid),
@@ -898,6 +913,9 @@ GRANT EXECUTE ON FUNCTION aap_identity_v1.lock_active_actor(uuid)
     TO :"workspace_owner", :"assets_owner", :"labeling_owner";
 GRANT EXECUTE ON FUNCTION aap_identity_v1.read_actor_facts(uuid)
     TO :"workspace_owner", :"assets_owner", :"labeling_owner";
+GRANT EXECUTE ON FUNCTION
+    aap_identity_v1.workspace_configuration_org_scope(uuid, uuid)
+    TO :"workspace_owner";
 GRANT EXECUTE ON FUNCTION
     aap_identity_v1.lock_accounts_share(uuid[], boolean),
     aap_identity_v1.lock_accounts_update(uuid[], boolean),
@@ -1161,6 +1179,8 @@ GRANT CREATE ON SCHEMA aap_identity_briefs_v1 TO :"identity_owner";
 ALTER FUNCTION aap_identity_v1.lock_active_actor(uuid) OWNER TO :"identity_owner";
 ALTER FUNCTION aap_identity_v1.lock_audit_actor(uuid) OWNER TO :"identity_owner";
 ALTER FUNCTION aap_identity_v1.read_actor_facts(uuid) OWNER TO :"identity_owner";
+ALTER FUNCTION aap_identity_v1.workspace_configuration_org_scope(uuid, uuid)
+    OWNER TO :"identity_owner";
 ALTER FUNCTION aap_identity_v1.read_provisioning_account(text)
     OWNER TO :"identity_owner";
 ALTER FUNCTION aap_identity_v1.create_provisioning_account(jsonb)
@@ -1586,6 +1606,8 @@ ALTER FUNCTION aap_assets_v1.list_dataset_projects(uuid, uuid)
     OWNER TO :"assets_owner";
 ALTER FUNCTION aap_assets_v1.list_project_datasets(uuid, uuid)
     OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1.workspace_configuration_datasets(uuid)
+    OWNER TO :"assets_owner";
 ALTER VIEW aap_assets_v1.project_dataset_item_sources OWNER TO :"assets_owner";
 ALTER FUNCTION aap_assets_v1.lock_dataset_reference(uuid) OWNER TO :"assets_owner";
 ALTER FUNCTION aap_assets_v1.lock_current_association(uuid, uuid) OWNER TO :"assets_owner";
@@ -1712,6 +1734,8 @@ ALTER FUNCTION aap_labeling_v1.guard_dataset_source_deletion(uuid, uuid)
 ALTER FUNCTION aap_labeling_v1.detach_deleted_dataset_attribution(uuid)
     OWNER TO :"labeling_owner";
 ALTER FUNCTION aap_labeling_v1.project_dataset_task_counts(uuid)
+    OWNER TO :"labeling_owner";
+ALTER FUNCTION aap_labeling_v1.workspace_configuration_video_facts(uuid)
     OWNER TO :"labeling_owner";
 ALTER VIEW aap_labeling_v1.project_catalog_counters OWNER TO :"labeling_owner";
 DO $$
@@ -1852,6 +1876,8 @@ GRANT CREATE ON SCHEMA aap_inference_v1 TO :"inference_owner";
 ALTER FUNCTION aap_inference_v1.clear_project_ml_backend_pool(uuid)
     OWNER TO :"inference_owner";
 ALTER FUNCTION aap_inference_v1.clear_project_pipelines(uuid)
+    OWNER TO :"inference_owner";
+ALTER FUNCTION aap_inference_v1.enable_workspace_project_backend(uuid, uuid)
     OWNER TO :"inference_owner";
 REVOKE CREATE ON SCHEMA aap_inference_v1 FROM :"inference_owner";
 

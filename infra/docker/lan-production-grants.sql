@@ -157,6 +157,13 @@ GRANT EXECUTE ON FUNCTION
     aap_workspace_owner_transfer_v1.owner_transfer_policy(),
     aap_workspace_owner_transfer_v1.transfer_project_owner(jsonb)
     TO :"application_role";
+-- These cross-owner dependencies are called only by Workspace SECURITY DEFINER code.
+REVOKE ALL ON FUNCTION
+    aap_identity_v1.workspace_configuration_org_scope(uuid, uuid),
+    aap_assets_v1.workspace_configuration_datasets(uuid),
+    aap_labeling_v1.workspace_configuration_video_facts(uuid),
+    aap_inference_v1.enable_workspace_project_backend(uuid, uuid)
+    FROM :"application_role";
 GRANT EXECUTE ON FUNCTION aap_workspace_v1.lock_project_reference(uuid),
     aap_workspace_v1.lock_project_manager(uuid, uuid),
     aap_workspace_v1.delete_project(uuid, uuid, uuid, jsonb),
