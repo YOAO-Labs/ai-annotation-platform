@@ -1,6 +1,6 @@
 # 后端业务模块解耦与跨语言替换设计
 
-> Status: 进行中。当前目标覆盖 identity、workspace、assets、labeling、inference、learning、insights、jobs、audit、notifications 及运行装配。前序 Python 进程内切片、常驻 API 恢复和既有训练作业执行权交接已完成。assets 视频探测三个操作已提供独立 Python 工件、流式合同及真实调用端的 Node 替换验收；同步 ZIP 与旧前缀扫描已纳入既有 Assets Source 工件及 0215 原生合同，并通过真实隔离服务、受限角色与故障恢复验收。Scene、位姿和标定切片已提取至既有 Catalog 工件，并通过隔离数据库、真实 HTTP/S3 与消费者资格验证；连接管理及本地图片/nuScenes 来源登记已迁入各自合同并完成本地验收；媒体/Blob、其余运维流程和其他模块继续推进。Identity 注册恢复／邮件、分组目录／指派、自助注销／due、完整 invitation lifecycle/MailV2 sender、四项用户目录读取、管理员临时密码重置与平台角色预览／变更 owner 均已有各自限定的本地资格；管理员暂停／恢复账号 owner 已通过限定的本地资格；下一项最小 Identity 写入范围为 DELETE。offboarding、其他用户 hydration 与剩余模块继续推进，既有 public API filters、字段和 statuses 保持。Go 月报保持独立实验，其可用性和容量不作为本目标门槛。当前各模块缺口见[模块部署与语言替换状态](../../docs-site/dev/concepts/module-deployment.md)。
+> Status: 进行中。当前目标覆盖 identity、workspace、assets、labeling、inference、learning、insights、jobs、audit、notifications 及运行装配。前序 Python 进程内切片、常驻 API 恢复和既有训练作业执行权交接已完成。assets 视频探测三个操作已提供独立 Python 工件、流式合同及真实调用端的 Node 替换验收；同步 ZIP 与旧前缀扫描已纳入既有 Assets Source 工件及 0215 原生合同，并通过真实隔离服务、受限角色与故障恢复验收。Scene、位姿和标定切片已提取至既有 Catalog 工件，并通过隔离数据库、真实 HTTP/S3 与消费者资格验证；连接管理及本地图片/nuScenes 来源登记已迁入各自合同并完成本地验收；媒体/Blob、其余运维流程和其他模块继续推进。Identity 注册恢复／邮件、分组目录／指派、自助注销／due、完整 invitation lifecycle/MailV2 sender、四项用户目录读取、管理员临时密码重置与平台角色预览／变更 owner 均已有各自限定的本地资格；管理员暂停／恢复账号 owner 已通过限定的本地资格；管理员 DELETE owner 是当前待 Root 验收切片。offboarding、其他用户 hydration 与剩余模块继续推进，既有 public API filters、字段和 statuses 保持。Go 月报保持独立实验，其可用性和容量不作为本目标门槛。当前各模块缺口见[模块部署与语言替换状态](../../docs-site/dev/concepts/module-deployment.md)。
 >
 > 创建日期：2026-10-16。
 >
@@ -3193,6 +3193,70 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   production/primary cutover 与 provider replacement 仍未完成；详见
   [ADR-0126](../adr/0126-independent-identity-suspension-commands.md)。
 
-- 下一项最小 Identity 范围是 `DELETE /api/v1/users/{id}`。现有 DELETE 不会退休凭据，且可能
-  转移 Task assignee、释放 TaskLock；offboarding pair、registration-status settings 和
-  dashboard hydration 仍是独立范围。
+- S/R 之后锁定的下一项最小 Identity 范围是 `DELETE /api/v1/users/{id}`，本计划下节跟踪
+  该 owner。现有 DELETE 不退休凭据，且可能转移 Task assignee、释放 TaskLock；offboarding
+  pair、registration-status settings 和 dashboard hydration 仍是独立范围。
+
+### Identity account deletion owner (qualification pending)
+
+- 本 slice 仅迁移 `DELETE /api/v1/users/{user_id}`。保留字符串 path、malformed UUID 404、
+  可空 `DeleteUserPayload`／`transfer_to_user_id`、忽略 public extra fields、manager roles、
+  public errors 与 21-field `UserOut`；每次公开调用生成新 private UUID，不加 CAS/idempotency
+  header。HTTP composition 位于 `apps/api/app/api/v1/deletion_commands.py`，调用方选择器与
+  本地数据 adapter 为 `services/identity_deletion_commands.py` 和
+  `services/identity_deletion_data.py`，公开 route 仍在 `users.py`。
+- Private endpoint 是 `POST /v1/identity/deletions/execute`，wire schema
+  `aap-identity-deletions/v1`，native schema `aap-identity-deletions-native/v1`，policy schema/
+  value 为 `aap-identity-deletions-policy/v1`／`aap-identity-deletions/v1`，唯一 operation
+  `delete_account`。Wire payload 精确为 `{target_user_id,transfer_to_user_id}`，缺省 receiver
+  正规化为 null；HMAC 使用独立 `aap-identity-deletions/v1` domain、规范 UUID 和 operation
+  payload，不纳入 Audit context。Native/Wire reply 必须在事务内通过 closed-model validation。
+- 精确锁序是 shared last-super-admin fence → UUID 排序 actor/target/可选 receiver User
+  `FOR UPDATE NOWAIT` → current credential/manager。Current manager check 先于 target lookup；
+  missing target 返回 404，self-delete 返回 400。之后 inactive target 返回完整 no-op record，跳过
+  target role、project、receiver、work、Audit 和修改；要保存 receipt 以阻止旧重试后来变成新删除。
+  Active target 先对全部 derived Projects 取 `FOR KEY SHARE NOWAIT`；PA 仅可删除 employee，空
+  scope 允许，非空时全归 actor 管理，旧 active-employee manages-target helper 不增加成员关系要求。
+  Scope 后保留 last-unreserved-SA 条件。准入时已 inactive 仍为 401；admission 后 owner 检出 actor
+  inactive 映射为旧 public 403。
+- Work blocker 只数 direct `Task.assignee_id` 且状态在 pending/in_progress/review/rejected 的行，
+  不含 reviewer、TaskBatch fallback 或 finished work；target 的 TaskLocks 全计入，含 expired。
+  无 receiver 且任一计数非零时 409 `has_pending_tasks` 返回 count 与最多 5 个按
+  `created_at DESC` 排序的 sample UUID。Supplied receiver 即使计数为零也校验 active、not-target
+  和 employee/project_admin role；PA 还须覆盖每个 pending direct task 的 distinct 非空 project，
+  receiver 为 actor 时保留例外。只改 eligible Task assignee／`assigned_at` 并释放所有 target
+  TaskLocks；不改 reviewer、TaskBatch 或 ProjectMember，不引入新 Task/Batch 锁序。
+- Soft delete 写 inactive/offline/deleted metadata 与一次 typed `USER_DELETE` Audit；Task transfer、
+  TaskLock release、metadata、Audit／redaction 与 receipt 同事务提交。它不退休凭据：generation、
+  API-key `revoked_at`、reset-link `used_at` 与 JWT/JTI 均不变，已受理 self-deactivation 字段也
+  不变。Audit detail 保留 `email/role/transferred_to/transferred_count/released_locks`；旧 Audit
+  只清 target `actor_email/actor_role`，保留 actor id、detail、IP 和 target。仅当计数非零时在删除
+  Audit 加 `redacted_audit_rows`。这只是部分历史 actor redaction，不宣称完整擦除。
+- Receipt 冻结 actor／operation／target／optional receiver、fingerprint／derivation、User snapshot、
+  nullable Audit ID 和 post-target generation/active，不含凭据、hash、raw token、Principal 或 live
+  User FK。Replay 重验当前 manager，先查 receipt binding 与 target generation/active；不匹配返回
+  `operation_conflict`，匹配则因 target 已 inactive 返回冻结结果，不重做转交、释放锁、Audit 或脱敏，
+  也不处理 acceptance 后新增的工作／Audit／credential。
+- Migration 0247 建 `aap_identity_deletions_v1` 与
+  `public.identity_deletion_operation_receipts`；LOGIN `identity_deletion_client` 只可执行
+  `deletion_policy()` 后执行 `execute_deletion_command(jsonb)`。Owner-only typed helpers 为 Workspace
+  `lock_identity_deletion_scope(actor_uuid,target_uuid)`，返回 exactly one nonnull row
+  `(has_projects boolean,all_projects_owned boolean)`；Workspace
+  `identity_deletion_transfer_covered(receiver_uuid,project_uuids[])` 返回 nonnull boolean；Labeling
+  `identity_deletion_work(target_uuid)` 返回 exactly one nonnull row
+  `(pending_task_count bigint,locked_task_count bigint,sample_task_ids uuid[],pending_project_ids uuid[])`，
+  `transfer_identity_deletion_work(from_uuid,to_uuid)` 返回 nonnull bigint；Audit
+  `record_identity_deletion_event(actor_json,target_uuid,detail_json,context_json)` 返回 AuditID bigint。
+  无 raw cross-owner table grants；offboarding 继续使用 shared `release_user_task_locks`。
+- API/runtime optional DSN 为 `IDENTITY_DELETION_DATABASE_URL(_FILE)`，Compose host selector 为
+  `IDENTITY_RUNTIME_DELETION_DATABASE_URL_FILE`。Blank selector 仅关闭 DELETE capability 并返回
+  503，不影响现有 Identity startup；explicit DSN 必须通过 readiness，失败不 fallback。Source/DB/
+  restore/runtime/replay/API/image qualification 等待 Root 证据。Root 初始 source checks 有 494 个
+  portable source-package tests、576 个 API assembly checks（129 条 architecture rules 显式延期）、
+  SDK 35 checks；OpenAPI 只有 DELETE operation description 一处变化，public paths/schemas/fields
+  不变。这些不构成 owner qualification；database/restore、installed-package、live API、owner/cold
+  image checks 仍待完成。完整协议、业务错误表和部分 redaction 限制见
+  [ADR-0127](../adr/0127-independent-identity-deletion-commands.md)。
+- 本 slice 后仍需独立完成 offboarding preview/commit、registration-status settings、dashboard
+  hydration 及其他跨 owner Identity lifecycle。十模块／七门槛目标保持 active；完整 Identity、生产
+  切换／容量及 provider-language replacement 均未完成。

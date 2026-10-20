@@ -65,11 +65,15 @@ last_reviewed: 2026-10-20
   不把历史作业或 Scope DTO 当授权。
 - 作业读取/取消/重试值接口：`app/application/async_job_contracts.py`；SQL 可见性实现为 `app/services/async_job_access.py::_can_access_job`，ORM 留在读取与命令适配器内；
   明细与取消重查当前项目、导出能力及审核任务范围，不把历史作业归属当作当前授权。
-- 账号与责任交接：`app/application/{user_lifecycle,legacy_user_lifecycle,project_membership,project_workspace}.py`
-  组合身份、workspace 与 labeling 所有者；账号写入在
-  `services/{user_lifecycle,identity_commands}.py`，
-  成员行在 `services/project_membership.py`，任务/批次交接在 `BatchService`，
-  GDPR 审计历史脱敏在 `AuditService`。预览/CAS、传统删除与离职、SQL/Redis 时序不混同。
+- 账号与责任交接：`app/application/{user_lifecycle,project_membership,project_workspace}.py`
+  组合身份、workspace 与 labeling 所有者；账号锁/元数据辅助逻辑在
+  `services/{user_lifecycle,identity_commands}.py`，成员行在
+  `services/project_membership.py`。管理员 DELETE 通过
+  `api/v1/deletion_commands.py`、`services/identity_deletion_commands.py` 与
+  `services/identity_deletion_data.py` 接入 Identity owner；暂停／恢复使用独立 owner。
+  删除的 Task 转交、TaskLock 释放和历史 actor 脱敏在同一 typed command boundary 内协调，
+  共享 TaskLock 释放仍供离职流程使用。DELETE、平台角色、暂停／恢复与 offboarding 的
+  权限、回执及 SQL/Redis 时序分别保留，不合并为通用生命周期命令。
 - 分组目录与账号指派：`api/v1/group_commands.py` 收口 HTTP 请求与权限映射；
   `services/identity_group_commands.py` 选择本地事务、函数 DSN 或 Identity runtime，
   `services/identity_group_data.py` 只适配当前 SQL Session 上的本地 Group command data。

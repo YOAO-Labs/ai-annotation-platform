@@ -26,6 +26,7 @@ Identity 运行时提供认证准入、API key、核心会话、自助账户、�
 | `POST /v1/identity/admin-passwords/execute`  | 管理员临时密码重置                             |
 | `POST /v1/identity/platform-roles/execute`   | 平台角色预览与变更                             |
 | `POST /v1/identity/suspensions/execute`      | 管理员停用与恢复账号                           |
+| `POST /v1/identity/deletions/execute`        | 管理员删除账号与可选任务转交                   |
 | `POST /v1/identity/deactivation/execute`     | 自助注销申请与撤销                             |
 | `POST /v1/identity/deactivation/process-due` | 分页处理已到期的自助注销申请                   |
 | `POST /v1/identity/recovery/execute`         | 开放注册、重置请求／消费、验证邮件重发／消费   |
@@ -354,6 +355,20 @@ Native schema `aap-identity-suspensions-native/v1` uses the distinct HMAC domain
 Successful suspend—including inactive-target no-op—and successful reactivate have immutable receipts storing the accepted `{user: ...}`, nullable Audit ID and target generation/active flag, never raw reason/token/hash/credential/Principal/live User FK. Replay authenticates the current manager and rechecks the original target authority branch. Inactive-suspend early return remains before project-admin role/scope checks, including on replay; project-admin reactivation still rechecks its current project scope. A changed target generation or active flag returns 409 `operation_conflict`; otherwise return the frozen record without new retirement/write/Audit. Populated receipts block downgrade.
 
 Migration 0246 creates `aap_identity_suspensions_v1` and `public.identity_suspension_operation_receipts`. `identity_suspension_client` LOGIN has only `suspension_policy()` and `execute_suspension_command(jsonb)`; API direct DSN must pass policy/readiness first. API/runtime optional variables are `IDENTITY_SUSPENSION_DATABASE_URL(_FILE)`; Compose host selector is `IDENTITY_RUNTIME_SUSPENSION_DATABASE_URL_FILE`. A blank selector disables just this capability and returns 503 without blocking existing Identity startup; explicit failures do not fall back. The owner has local qualification: 77 distinct selected database/process cases passed with zero skips (73 database/restore and four live), source and installed package suites each passed 468 tests, and 99 installed package hashes match. API architecture passed 543 checks with 128 explicit deferrals; Node passed 46 checks and SDK passed 35. The cold API image passed; exact image hashes, route/input coverage and host-sample limits are in [ADR-0126](/dev/adr/0126-independent-identity-suspension-commands). This does not change the separate self-deactivation workflow or qualify full Identity, production capacity or cutover.
+
+## 管理员删除账号
+
+此 owner slice 只覆盖管理员 `DELETE /api/v1/users/{user_id}`。保留公开字符串 path、malformed UUID 404、可空 `DeleteUserPayload` 与 `transfer_to_user_id`、忽略 extra fields、现有 manager 权限、errors 和 21 字段 `UserOut`。每次公开调用仍使用新的 private operation UUID，不增加 replay header。
+
+私有 endpoint 为 `POST /v1/identity/deletions/execute`，operation 是 `delete_account`，wire schema 为 `aap-identity-deletions/v1`。Wire request 精确含 `schema/operation/operation_id/token/audit_context/payload`；payload 是 `{target_user_id,transfer_to_user_id}`，公开请求省略 receiver 时也会规范化为 null。Native schema 为 `aap-identity-deletions-native/v1`，由认证 actor 与 credential binding 替代 token。HMAC 使用独立 `aap-identity-deletions/v1` domain，不纳入 Audit context。冻结字段 schema、closed errors 与 replay 顺序见 [ADR-0127](/dev/adr/0127-independent-identity-deletion-commands)。
+
+Owner 在共享 last-super-admin fence 后，按 UUID 顺序锁 actor、target 与可选 receiver User，并在锁内重新验证当前 active manager 和 credential。Current manager check 先于 target lookup；target missing 返回 404，self-delete 返回 400。之后 inactive target 返回完整当前 record no-op，不执行 role/project/receiver/work 检查、Audit 或修改。Active target 锁全部 derived Projects；PA 只可删除 employee，空集合允许，非空时每个 Project 都须由 actor 管理；旧 active-employee manages-target helper 在此分支不增加成员关系要求。完成该 scope 检查后再保留 last-unreserved-super-admin 围栏。首次准入凭据已停用仍返回 401；准入后才失活的 actor 保持旧 public 403。
+
+删除阻塞只统计 target 的直接 assignee Task，状态为 `pending`、`in_progress`、`review` 或 `rejected`；reviewer work、TaskBatch fallback 和完成态不计入。所有 target TaskLock 都计数，包括过期锁。没有 receiver 且任一计数为正时返回 `has_pending_tasks`，sample 最多五个任务 UUID。传入 receiver 时即使无工作也会校验：必须启用、不能是 target、角色为 employee 或 project_admin。PA 还须覆盖每个待转交直接任务所在的 distinct nonnull Project；receiver 是 actor 时保留既有例外。转交只更新 Task assignee 与 `assigned_at`，并释放所有 target TaskLock。
+
+DELETE 保留与 suspend/reactivate 不同的凭据行为：写 inactive/offline/deleted metadata，但不推进 generation、不改 API-key revoke state、reset-link use state 或 JWT/JTI。已接受的 self-deactivation fields 保持不变。Typed `USER_DELETE` Audit 保留原有 transfer detail；既有 Audit 行只清除 target 的 `actor_email`／`actor_role`，保留 ID、detail、IP 和 target。该历史 actor redaction 是部分处理，不代表完整擦除。成功删除和 inactive no-op 都冻结 receipt；重放重新认证当前 manager、核对 target generation/active state，匹配时返回冻结响应，不重复转交、释放 TaskLock、Audit 或脱敏；target 后续变化返回 `operation_conflict`。
+
+Migration 0247 与 `identity_deletion_client` 只开放 `deletion_policy()` 和 `execute_deletion_command(jsonb)`。API/runtime 可选 `IDENTITY_DELETION_DATABASE_URL(_FILE)`；Compose host selector 为 `IDENTITY_RUNTIME_DELETION_DATABASE_URL_FILE`。Selector 留空只关闭本 capability，private route 返回 503；显式 DSN 必须通过 readiness，失败不 fallback。Root 初始 source checks 通过 portable package 494 项、API assembly 576 项（129 条 architecture rules 明确延期）、SDK 35 项；OpenAPI 仅 DELETE description 有变化，public paths/schemas/fields 不变。这些不构成 owner qualification；DB/restore、installed package、live API 与 images 仍待验收。offboarding、registration-status settings 与 dashboard hydration 不在此 slice。
 
 ## 自助注销与最后一名超级管理员围栏
 
