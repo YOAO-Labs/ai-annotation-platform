@@ -99,27 +99,27 @@ BEGIN
     END IF;
 END $$;
 
-REVOKE ALL ON SCHEMA aap_identity_v1, aap_identity_keys_v1, aap_identity_sessions_v1, aap_workspace_v1, aap_assets_v1,
+REVOKE ALL ON SCHEMA aap_identity_v1, aap_identity_keys_v1, aap_identity_sessions_v1, aap_identity_accounts_v1, aap_workspace_v1, aap_assets_v1,
     aap_labeling_v1, aap_jobs_v1, aap_learning_v1, aap_inference_v1,
     aap_insights_v1, aap_diagnostics_v1, aap_export_v1, aap_audit_v1, aap_settings_v1, aap_notifications_v1 FROM PUBLIC;
 REVOKE ALL ON ALL FUNCTIONS IN SCHEMA aap_identity_v1, aap_workspace_v1,
-    aap_identity_keys_v1, aap_identity_sessions_v1, aap_assets_v1, aap_labeling_v1, aap_jobs_v1, aap_learning_v1,
+    aap_identity_keys_v1, aap_identity_sessions_v1, aap_identity_accounts_v1, aap_assets_v1, aap_labeling_v1, aap_jobs_v1, aap_learning_v1,
     aap_inference_v1, aap_insights_v1, aap_diagnostics_v1, aap_export_v1,
     aap_audit_v1, aap_settings_v1, aap_notifications_v1 FROM PUBLIC;
-REVOKE ALL ON SCHEMA aap_identity_v1, aap_identity_keys_v1, aap_identity_sessions_v1, aap_workspace_v1, aap_assets_v1,
+REVOKE ALL ON SCHEMA aap_identity_v1, aap_identity_keys_v1, aap_identity_sessions_v1, aap_identity_accounts_v1, aap_workspace_v1, aap_assets_v1,
     aap_labeling_v1, aap_jobs_v1, aap_learning_v1, aap_inference_v1,
     aap_insights_v1, aap_diagnostics_v1, aap_export_v1, aap_audit_v1, aap_settings_v1, aap_notifications_v1
     FROM :"asset_cleanup_role";
 REVOKE ALL ON ALL FUNCTIONS IN SCHEMA aap_identity_v1, aap_workspace_v1,
-    aap_identity_keys_v1, aap_identity_sessions_v1, aap_assets_v1, aap_labeling_v1, aap_jobs_v1, aap_learning_v1,
+    aap_identity_keys_v1, aap_identity_sessions_v1, aap_identity_accounts_v1, aap_assets_v1, aap_labeling_v1, aap_jobs_v1, aap_learning_v1,
     aap_inference_v1, aap_insights_v1, aap_diagnostics_v1, aap_export_v1,
     aap_audit_v1 FROM :"asset_cleanup_role";
-REVOKE ALL ON SCHEMA aap_identity_v1, aap_identity_keys_v1, aap_identity_sessions_v1, aap_workspace_v1, aap_assets_v1,
+REVOKE ALL ON SCHEMA aap_identity_v1, aap_identity_keys_v1, aap_identity_sessions_v1, aap_identity_accounts_v1, aap_workspace_v1, aap_assets_v1,
     aap_labeling_v1, aap_jobs_v1, aap_learning_v1, aap_inference_v1,
     aap_insights_v1, aap_diagnostics_v1, aap_export_v1, aap_audit_v1,
     aap_settings_v1, aap_notifications_v1 FROM :"mask_gc_role";
 REVOKE ALL ON ALL FUNCTIONS IN SCHEMA aap_identity_v1, aap_workspace_v1,
-    aap_identity_keys_v1, aap_identity_sessions_v1, aap_assets_v1, aap_labeling_v1, aap_jobs_v1, aap_learning_v1,
+    aap_identity_keys_v1, aap_identity_sessions_v1, aap_identity_accounts_v1, aap_assets_v1, aap_labeling_v1, aap_jobs_v1, aap_learning_v1,
     aap_inference_v1, aap_insights_v1, aap_diagnostics_v1, aap_export_v1,
     aap_audit_v1, aap_settings_v1, aap_notifications_v1 FROM :"mask_gc_role";
 GRANT CONNECT ON DATABASE :"expected_database" TO :"workflow_role";
@@ -140,13 +140,17 @@ GRANT USAGE ON SCHEMA public TO :"identity_owner", :"workspace_owner",
     :"inference_owner", :"insights_owner", :"diagnostics_owner",
     :"export_owner", :"audit_owner", :"settings_owner", :"notifications_owner";
 
--- Identity and Workspace provide only the current actor/project facts needed
--- to retain their row locks through the caller-owned transaction.
+-- Identity owns current authentication facts and the bounded self-account
+-- projection needed while it retains each User row lock through the transaction.
 GRANT SELECT (
-    id, name, email, role, is_active, credential_generation, email_verified_at,
-    password_hash, last_login_at, last_seen_at, status
+    id, name, email, role, group_name, group_id, is_active, credential_generation,
+    disabled_kind, disabled_at, disabled_by, disabled_reason, email_verified_at,
+    last_login_at, last_seen_at, password_admin_reset_at, deactivation_requested_at,
+    deactivation_scheduled_at, preferences, avatar_ref, password_hash, status,
+    created_at
 ), UPDATE (
-    id, credential_generation, last_login_at, last_seen_at, status
+    id, credential_generation, last_login_at, last_seen_at, status, name, preferences,
+    password_hash, password_admin_reset_at, avatar_ref
 )
     ON public.users TO :"identity_owner";
 GRANT SELECT (
@@ -169,6 +173,12 @@ GRANT SELECT (
     operation_id, actor_id, operation, request_scope, result, audit_id
 )
     ON public.identity_session_operation_receipts TO :"identity_owner";
+GRANT SELECT (
+    operation_id, actor_id, operation, request_scope, result, audit_id, created_at
+), INSERT (
+    operation_id, actor_id, operation, request_scope, result, audit_id
+)
+    ON public.identity_account_operation_receipts TO :"identity_owner";
 GRANT SELECT (id, owner_id, data_type, scene_mode, display_id, name), UPDATE (id),
     DELETE ON public.projects TO :"workspace_owner";
 GRANT SELECT (
@@ -578,7 +588,8 @@ GRANT SELECT (project_id), DELETE ON public.export_artifacts TO :"export_owner";
 -- dataset -> current authority -> association -> Jobs/Labeling lock order.
 GRANT USAGE ON SCHEMA aap_identity_v1
     TO :"identity_owner", :"workspace_owner", :"assets_owner", :"audit_owner", :"labeling_owner";
-GRANT USAGE ON SCHEMA aap_identity_keys_v1, aap_identity_sessions_v1 TO :"identity_owner";
+GRANT USAGE ON SCHEMA aap_identity_keys_v1, aap_identity_sessions_v1,
+    aap_identity_accounts_v1 TO :"identity_owner";
 GRANT USAGE ON SCHEMA aap_workspace_v1 TO :"workspace_owner", :"assets_owner",
     :"labeling_owner", :"jobs_owner", :"workflow_role";
 GRANT USAGE ON SCHEMA aap_assets_v1 TO :"assets_owner", :"labeling_owner",
@@ -599,6 +610,9 @@ GRANT USAGE ON SCHEMA aap_export_v1 TO :"export_owner", :"workspace_owner";
 GRANT USAGE ON SCHEMA aap_audit_v1
     TO :"identity_owner", :"audit_owner", :"workspace_owner", :"assets_owner";
 GRANT EXECUTE ON FUNCTION aap_audit_v1.record_identity_session_event(
+    text, jsonb, jsonb, jsonb
+) TO :"identity_owner";
+GRANT EXECUTE ON FUNCTION aap_audit_v1.record_identity_account_event(
     text, jsonb, jsonb, jsonb
 ) TO :"identity_owner";
 
@@ -845,6 +859,7 @@ GRANT EXECUTE ON FUNCTION aap_workspace_v1.delete_project(uuid, uuid, uuid, json
 GRANT CREATE ON SCHEMA aap_identity_v1 TO :"identity_owner";
 GRANT CREATE ON SCHEMA aap_identity_keys_v1 TO :"identity_owner";
 GRANT CREATE ON SCHEMA aap_identity_sessions_v1 TO :"identity_owner";
+GRANT CREATE ON SCHEMA aap_identity_accounts_v1 TO :"identity_owner";
 ALTER FUNCTION aap_identity_v1.lock_active_actor(uuid) OWNER TO :"identity_owner";
 ALTER FUNCTION aap_identity_v1.lock_audit_actor(uuid) OWNER TO :"identity_owner";
 ALTER FUNCTION aap_identity_v1.read_actor_facts(uuid) OWNER TO :"identity_owner";
@@ -889,6 +904,21 @@ ALTER FUNCTION aap_identity_sessions_v1.read_login_candidate(text)
 ALTER FUNCTION aap_identity_sessions_v1.execute_session_command(jsonb)
     OWNER TO :"identity_owner";
 REVOKE CREATE ON SCHEMA aap_identity_sessions_v1 FROM :"identity_owner";
+ALTER FUNCTION aap_identity_accounts_v1._failure(text, smallint, jsonb)
+    OWNER TO :"identity_owner";
+ALTER FUNCTION aap_identity_accounts_v1._account_record(uuid)
+    OWNER TO :"identity_owner";
+ALTER FUNCTION aap_identity_accounts_v1._lock_current_actor(jsonb, text, text)
+    OWNER TO :"identity_owner";
+ALTER FUNCTION aap_identity_accounts_v1.account_policy()
+    OWNER TO :"identity_owner";
+ALTER FUNCTION aap_identity_accounts_v1.prepare_account_command(jsonb)
+    OWNER TO :"identity_owner";
+ALTER FUNCTION aap_identity_accounts_v1.apply_account_command(jsonb)
+    OWNER TO :"identity_owner";
+ALTER FUNCTION aap_identity_accounts_v1.mark_inactive_accounts_offline(timestamptz)
+    OWNER TO :"identity_owner";
+REVOKE CREATE ON SCHEMA aap_identity_accounts_v1 FROM :"identity_owner";
 
 GRANT CREATE ON SCHEMA aap_workspace_v1 TO :"workspace_owner";
 ALTER FUNCTION aap_workspace_v1.lock_project_reference(uuid) OWNER TO :"workspace_owner";
@@ -1210,6 +1240,9 @@ REVOKE CREATE ON SCHEMA aap_export_v1 FROM :"export_owner";
 
 GRANT CREATE ON SCHEMA aap_audit_v1 TO :"audit_owner";
 ALTER FUNCTION aap_audit_v1.record_identity_session_event(
+    text, jsonb, jsonb, jsonb
+) OWNER TO :"audit_owner";
+ALTER FUNCTION aap_audit_v1.record_identity_account_event(
     text, jsonb, jsonb, jsonb
 ) OWNER TO :"audit_owner";
 ALTER FUNCTION aap_audit_v1.record_project_deletion(

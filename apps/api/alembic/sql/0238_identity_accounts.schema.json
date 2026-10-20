@@ -1,0 +1,591 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:aap:identity-accounts-native:v1",
+  "title": "Identity native self-account commands and presence operator",
+  "oneOf": [
+    { "$ref": "#/$defs/AccountPolicy" },
+    { "$ref": "#/$defs/PrepareCommand" },
+    { "$ref": "#/$defs/ApplyCommand" },
+    { "$ref": "#/$defs/PrepareReply" },
+    { "$ref": "#/$defs/SuccessReply" },
+    { "$ref": "#/$defs/FailureReply" },
+    { "$ref": "#/$defs/PresenceRequest" },
+    { "$ref": "#/$defs/PresenceReply" }
+  ],
+  "$defs": {
+    "Principal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "actor_id",
+        "name",
+        "email",
+        "role",
+        "is_active",
+        "credential_type",
+        "credential_id",
+        "generation",
+        "scopes",
+        "expires_at"
+      ],
+      "properties": {
+        "actor_id": { "type": "string", "format": "uuid" },
+        "name": { "type": "string" },
+        "email": { "type": "string" },
+        "role": { "enum": ["super_admin", "project_admin", "employee", "viewer"] },
+        "is_active": { "const": true },
+        "credential_type": { "enum": ["jwt", "api_key"] },
+        "credential_id": { "type": "string", "format": "uuid" },
+        "generation": {
+          "anyOf": [
+            { "type": "integer", "minimum": 0, "maximum": 9223372036854775807 },
+            { "type": "null" }
+          ]
+        },
+        "scopes": {
+          "anyOf": [{ "type": "array", "items": { "type": "string" } }, { "type": "null" }]
+        },
+        "expires_at": {
+          "anyOf": [{ "type": "string", "format": "date-time" }, { "type": "null" }]
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "credential_type": { "const": "jwt" } } },
+          "then": {
+            "properties": {
+              "generation": { "type": "integer", "minimum": 0, "maximum": 9223372036854775807 },
+              "scopes": { "type": "null" },
+              "expires_at": { "type": "string", "format": "date-time" }
+            }
+          },
+          "else": {
+            "properties": {
+              "generation": { "type": "null" },
+              "scopes": { "type": "array", "items": { "type": "string" } },
+              "expires_at": {
+                "anyOf": [{ "type": "string", "format": "date-time" }, { "type": "null" }]
+              }
+            }
+          }
+        }
+      ]
+    },
+    "AccountRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "email",
+        "name",
+        "role",
+        "group_name",
+        "group_id",
+        "status",
+        "is_active",
+        "disabled_kind",
+        "disabled_at",
+        "disabled_by",
+        "disabled_reason",
+        "email_verified_at",
+        "last_login_at",
+        "last_seen_at",
+        "password_admin_reset_at",
+        "deactivation_requested_at",
+        "deactivation_scheduled_at",
+        "preferences",
+        "avatar_ref",
+        "created_at"
+      ],
+      "properties": {
+        "id": { "type": "string", "format": "uuid" },
+        "email": { "type": "string" },
+        "name": { "type": "string" },
+        "role": { "enum": ["super_admin", "project_admin", "employee", "viewer"] },
+        "group_name": { "type": ["string", "null"] },
+        "group_id": { "type": ["string", "null"], "format": "uuid" },
+        "status": { "type": "string" },
+        "is_active": { "type": "boolean" },
+        "disabled_kind": { "type": ["string", "null"] },
+        "disabled_at": { "$ref": "#/$defs/NullableDateTime" },
+        "disabled_by": { "type": ["string", "null"], "format": "uuid" },
+        "disabled_reason": { "type": ["string", "null"] },
+        "email_verified_at": { "$ref": "#/$defs/NullableDateTime" },
+        "last_login_at": { "$ref": "#/$defs/NullableDateTime" },
+        "last_seen_at": { "$ref": "#/$defs/NullableDateTime" },
+        "password_admin_reset_at": { "$ref": "#/$defs/NullableDateTime" },
+        "deactivation_requested_at": { "$ref": "#/$defs/NullableDateTime" },
+        "deactivation_scheduled_at": { "$ref": "#/$defs/NullableDateTime" },
+        "preferences": { "type": "object" },
+        "avatar_ref": { "type": ["string", "null"], "maxLength": 80 },
+        "created_at": { "type": "string", "format": "date-time" }
+      }
+    },
+    "NullableDateTime": {
+      "anyOf": [{ "type": "string", "format": "date-time" }, { "type": "null" }]
+    },
+    "AuditContext": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["method", "path", "ip", "request_id"],
+      "properties": {
+        "method": { "anyOf": [{ "type": "string", "maxLength": 8 }, { "type": "null" }] },
+        "path": { "anyOf": [{ "type": "string", "maxLength": 256 }, { "type": "null" }] },
+        "ip": { "anyOf": [{ "type": "string", "maxLength": 64 }, { "type": "null" }] },
+        "request_id": { "anyOf": [{ "type": "string", "maxLength": 36 }, { "type": "null" }] }
+      }
+    },
+    "AccountPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "policy"],
+      "properties": {
+        "schema": { "const": "aap-identity-accounts-policy/v1" },
+        "policy": { "const": "aap-identity-accounts/v1" }
+      }
+    },
+    "PrepareCommand": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "operation",
+        "operation_id",
+        "actor",
+        "expected_key_hash",
+        "request_fingerprint",
+        "derivation_id",
+        "audit_context"
+      ],
+      "properties": {
+        "schema": { "const": "aap-identity-accounts-native/v1" },
+        "operation": {
+          "enum": [
+            "read_self_account",
+            "get_preferences",
+            "heartbeat",
+            "update_name",
+            "patch_preferences",
+            "change_password",
+            "set_avatar_ref"
+          ]
+        },
+        "operation_id": { "type": "string", "format": "uuid" },
+        "actor": { "$ref": "#/$defs/Principal" },
+        "expected_key_hash": {
+          "anyOf": [{ "type": "string", "minLength": 1, "maxLength": 255 }, { "type": "null" }]
+        },
+        "request_fingerprint": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "derivation_id": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "audit_context": { "$ref": "#/$defs/AuditContext" }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "actor": { "properties": { "credential_type": { "const": "api_key" } } }
+            }
+          },
+          "then": {
+            "properties": {
+              "expected_key_hash": { "type": "string", "minLength": 1, "maxLength": 255 }
+            }
+          },
+          "else": { "properties": { "expected_key_hash": { "type": "null" } } }
+        }
+      ]
+    },
+    "ApplyCommand": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "operation",
+        "operation_id",
+        "actor",
+        "expected_key_hash",
+        "request_fingerprint",
+        "derivation_id",
+        "audit_context",
+        "base_value",
+        "new_value",
+        "response_preferences"
+      ],
+      "properties": {
+        "schema": { "const": "aap-identity-accounts-native/v1" },
+        "operation": {
+          "enum": [
+            "read_self_account",
+            "get_preferences",
+            "heartbeat",
+            "update_name",
+            "patch_preferences",
+            "change_password",
+            "set_avatar_ref"
+          ]
+        },
+        "operation_id": { "type": "string", "format": "uuid" },
+        "actor": { "$ref": "#/$defs/Principal" },
+        "expected_key_hash": {
+          "anyOf": [{ "type": "string", "minLength": 1, "maxLength": 255 }, { "type": "null" }]
+        },
+        "request_fingerprint": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "derivation_id": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "audit_context": { "$ref": "#/$defs/AuditContext" },
+        "base_value": {},
+        "new_value": {},
+        "response_preferences": { "type": ["object", "null"] }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "actor": { "properties": { "credential_type": { "const": "api_key" } } }
+            }
+          },
+          "then": {
+            "properties": {
+              "expected_key_hash": { "type": "string", "minLength": 1, "maxLength": 255 }
+            }
+          },
+          "else": { "properties": { "expected_key_hash": { "type": "null" } } }
+        },
+        {
+          "if": { "properties": { "operation": { "const": "heartbeat" } } },
+          "then": {
+            "properties": {
+              "base_value": { "type": "null" },
+              "new_value": { "type": "null" },
+              "response_preferences": { "type": "null" }
+            }
+          },
+          "else": {
+            "properties": {
+              "operation": {
+                "enum": ["update_name", "patch_preferences", "change_password", "set_avatar_ref"]
+              }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "operation": { "const": "update_name" } } },
+          "then": {
+            "properties": {
+              "base_value": { "type": "string", "maxLength": 100 },
+              "new_value": { "type": "string", "minLength": 1, "maxLength": 100 },
+              "response_preferences": { "type": "null" }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "operation": { "const": "patch_preferences" } } },
+          "then": {
+            "properties": {
+              "base_value": { "type": "object" },
+              "new_value": { "type": "object" },
+              "response_preferences": { "type": "object" }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "operation": { "const": "change_password" } } },
+          "then": {
+            "properties": {
+              "base_value": { "type": "string", "minLength": 1, "maxLength": 255 },
+              "new_value": {
+                "type": "string",
+                "pattern": "^\\$2[aby]\\$(0[4-9]|[12][0-9]|3[01])\\$[./A-Za-z0-9]{53}$"
+              },
+              "response_preferences": { "type": "null" }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "operation": { "const": "set_avatar_ref" } } },
+          "then": {
+            "properties": {
+              "base_value": { "type": ["string", "null"], "maxLength": 80 },
+              "new_value": { "$ref": "#/$defs/AvatarReference" },
+              "response_preferences": { "type": "null" }
+            }
+          }
+        }
+      ]
+    },
+    "AvatarReference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["avatar_ref", "kind", "bytes"],
+      "properties": {
+        "avatar_ref": { "type": ["string", "null"], "maxLength": 80 },
+        "kind": { "enum": ["upload", "preset_or_clear"] },
+        "bytes": { "type": ["integer", "null"], "minimum": 0 }
+      },
+      "oneOf": [
+        {
+          "properties": {
+            "avatar_ref": { "type": "string", "pattern": "^upload:[0-9a-f]{32}$" },
+            "kind": { "const": "upload" },
+            "bytes": { "type": "integer", "minimum": 0 }
+          }
+        },
+        {
+          "properties": {
+            "avatar_ref": {
+              "anyOf": [
+                { "type": "string", "pattern": "^preset:[a-z0-9-]{1,40}$" },
+                { "type": "null" }
+              ]
+            },
+            "kind": { "const": "preset_or_clear" },
+            "bytes": { "type": "null" }
+          }
+        }
+      ]
+    },
+    "AccountResultData": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["account", "preferences", "previous_avatar_ref", "changed"],
+      "properties": {
+        "account": { "anyOf": [{ "$ref": "#/$defs/AccountRecord" }, { "type": "null" }] },
+        "preferences": { "type": ["object", "null"] },
+        "previous_avatar_ref": { "type": ["string", "null"], "maxLength": 80 },
+        "changed": { "type": ["boolean", "null"] }
+      }
+    },
+    "PrepareReply": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "ok", "operation", "operation_id", "principal", "data"],
+      "properties": {
+        "schema": { "const": "aap-identity-accounts-native/v1" },
+        "ok": { "const": true },
+        "operation": {
+          "enum": [
+            "read_self_account",
+            "get_preferences",
+            "heartbeat",
+            "update_name",
+            "patch_preferences",
+            "change_password",
+            "set_avatar_ref"
+          ]
+        },
+        "operation_id": { "type": "string", "format": "uuid" },
+        "principal": { "$ref": "#/$defs/Principal" },
+        "data": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["account", "password_hash", "replay"],
+          "properties": {
+            "account": { "$ref": "#/$defs/AccountRecord" },
+            "password_hash": { "type": ["string", "null"], "maxLength": 255 },
+            "replay": { "anyOf": [{ "$ref": "#/$defs/AccountResultData" }, { "type": "null" }] }
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "operation": { "const": "change_password" } } },
+          "else": {
+            "properties": {
+              "data": { "properties": { "password_hash": { "type": "null" } } }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "data": {
+                "properties": {
+                  "replay": { "$ref": "#/$defs/AccountResultData" }
+                }
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "data": { "properties": { "password_hash": { "type": "null" } } }
+            }
+          }
+        }
+      ]
+    },
+    "SuccessReply": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "ok", "operation", "operation_id", "principal", "data"],
+      "properties": {
+        "schema": { "const": "aap-identity-accounts-native/v1" },
+        "ok": { "const": true },
+        "operation": {
+          "enum": [
+            "read_self_account",
+            "get_preferences",
+            "heartbeat",
+            "update_name",
+            "patch_preferences",
+            "change_password",
+            "set_avatar_ref"
+          ]
+        },
+        "operation_id": { "type": "string", "format": "uuid" },
+        "principal": { "$ref": "#/$defs/Principal" },
+        "data": { "$ref": "#/$defs/AccountResultData" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "operation": { "const": "read_self_account" } } },
+          "then": {
+            "properties": {
+              "data": {
+                "properties": {
+                  "account": { "$ref": "#/$defs/AccountRecord" },
+                  "preferences": { "type": "null" },
+                  "previous_avatar_ref": { "type": "null" },
+                  "changed": { "type": "null" }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "operation": { "const": "update_name" } } },
+          "then": {
+            "properties": {
+              "data": {
+                "properties": {
+                  "account": { "$ref": "#/$defs/AccountRecord" },
+                  "preferences": { "type": "null" },
+                  "previous_avatar_ref": { "type": "null" },
+                  "changed": { "type": "boolean" }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "operation": { "const": "set_avatar_ref" } } },
+          "then": {
+            "properties": {
+              "data": {
+                "properties": {
+                  "account": { "$ref": "#/$defs/AccountRecord" },
+                  "preferences": { "type": "null" },
+                  "previous_avatar_ref": { "type": ["string", "null"] },
+                  "changed": { "type": "boolean" }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "operation": { "enum": ["get_preferences", "patch_preferences"] } }
+          },
+          "then": {
+            "properties": {
+              "data": {
+                "properties": {
+                  "account": { "type": "null" },
+                  "preferences": { "type": "object" },
+                  "previous_avatar_ref": { "type": "null" },
+                  "changed": { "type": "null" }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "operation": { "enum": ["heartbeat", "change_password"] } } },
+          "then": {
+            "properties": {
+              "data": {
+                "properties": {
+                  "account": { "type": "null" },
+                  "preferences": { "type": "null" },
+                  "previous_avatar_ref": { "type": "null" },
+                  "changed": { "type": "null" }
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "FailureReply": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "ok", "error"],
+      "properties": {
+        "schema": { "const": "aap-identity-accounts-native/v1" },
+        "ok": { "const": false },
+        "error": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["code", "status_code", "detail"],
+          "properties": {
+            "code": {
+              "enum": [
+                "invalid_request",
+                "credential_invalid",
+                "credential_revoked",
+                "generation_outdated",
+                "token_expired",
+                "user_inactive",
+                "invalid_account_role",
+                "credential_busy",
+                "account_busy",
+                "operation_conflict",
+                "policy_rejected"
+              ]
+            },
+            "status_code": { "type": ["integer", "null"], "minimum": 400, "maximum": 599 },
+            "detail": {}
+          }
+        }
+      }
+    },
+    "PresenceRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "cutoff"],
+      "properties": {
+        "schema": { "const": "aap-identity-presence/v1" },
+        "cutoff": { "type": "string", "format": "date-time" }
+      }
+    },
+    "PresenceReply": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "affected"],
+      "properties": {
+        "schema": { "const": "aap-identity-presence/v1" },
+        "affected": { "type": "integer", "minimum": 0, "maximum": 9223372036854775807 }
+      }
+    }
+  },
+  "x-postgresql-functions": [
+    "aap_identity_accounts_v1.account_policy()",
+    "aap_identity_accounts_v1.prepare_account_command(jsonb)",
+    "aap_identity_accounts_v1.apply_account_command(jsonb)",
+    "aap_identity_accounts_v1.mark_inactive_accounts_offline(timestamptz)"
+  ],
+  "x-audit-function": "aap_audit_v1.record_identity_account_event(text, jsonb, jsonb, jsonb)",
+  "x-native-errors": [
+    "invalid_request",
+    "credential_invalid",
+    "credential_revoked",
+    "generation_outdated",
+    "token_expired",
+    "user_inactive",
+    "invalid_account_role",
+    "credential_busy",
+    "account_busy",
+    "operation_conflict",
+    "policy_rejected"
+  ],
+  "x-account-receipts": "Only name, preference, password-change acknowledgements, and avatar-reference results are frozen; secrets and bearer tokens are never stored, and receipts cascade with their actor.",
+  "x-account-lock-order": "Acquire the current User lock before the JTI or API-key lock, then acquire a nonblocking operation lock and validate receipts. Preference writes wait for the User row; other account writes fail fast."
+}
