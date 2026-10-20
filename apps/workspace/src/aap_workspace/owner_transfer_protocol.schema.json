@@ -1,0 +1,207 @@
+{
+  "$defs": {
+    "JsonValue": {},
+    "OwnerTransferError": {
+      "additionalProperties": false,
+      "properties": {
+        "detail": {
+          "$ref": "#/$defs/JsonValue"
+        },
+        "rollback": {
+          "title": "Rollback",
+          "type": "boolean"
+        },
+        "status_code": {
+          "maximum": 599,
+          "minimum": 400,
+          "title": "Status Code",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "status_code",
+        "detail",
+        "rollback"
+      ],
+      "title": "OwnerTransferError",
+      "type": "object"
+    },
+    "OwnerTransferFailure": {
+      "additionalProperties": false,
+      "properties": {
+        "error": {
+          "$ref": "#/$defs/OwnerTransferError"
+        },
+        "ok": {
+          "const": false,
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "schema": {
+          "const": "aap-workspace-owner-transfer/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema",
+        "ok",
+        "error"
+      ],
+      "title": "OwnerTransferFailure",
+      "type": "object"
+    },
+    "OwnerTransferPolicy": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-workspace-owner-transfer/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema"
+      ],
+      "title": "OwnerTransferPolicy",
+      "type": "object"
+    },
+    "OwnerTransferRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "new_owner_id": {
+          "format": "uuid",
+          "title": "New Owner Id",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-workspace-owner-transfer/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema",
+        "operation_id",
+        "actor_id",
+        "project_id",
+        "new_owner_id"
+      ],
+      "title": "OwnerTransferRequest",
+      "type": "object"
+    },
+    "OwnerTransferResult": {
+      "additionalProperties": false,
+      "properties": {
+        "changed": {
+          "title": "Changed",
+          "type": "boolean"
+        },
+        "previous_owner_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Previous Owner Id"
+        },
+        "updated_at": {
+          "format": "date-time",
+          "title": "Updated At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "previous_owner_id",
+        "updated_at",
+        "changed"
+      ],
+      "title": "OwnerTransferResult",
+      "type": "object"
+    },
+    "OwnerTransferSuccess": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "data": {
+          "$ref": "#/$defs/OwnerTransferResult"
+        },
+        "new_owner_id": {
+          "format": "uuid",
+          "title": "New Owner Id",
+          "type": "string"
+        },
+        "ok": {
+          "const": true,
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-workspace-owner-transfer/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema",
+        "ok",
+        "operation_id",
+        "actor_id",
+        "project_id",
+        "new_owner_id",
+        "data"
+      ],
+      "title": "OwnerTransferSuccess",
+      "type": "object"
+    }
+  },
+  "$id": "aap-workspace-owner-transfer/v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "anyOf": [
+    {
+      "$ref": "#/$defs/OwnerTransferRequest"
+    },
+    {
+      "$ref": "#/$defs/OwnerTransferPolicy"
+    },
+    {
+      "$ref": "#/$defs/OwnerTransferSuccess"
+    },
+    {
+      "$ref": "#/$defs/OwnerTransferFailure"
+    }
+  ]
+}
