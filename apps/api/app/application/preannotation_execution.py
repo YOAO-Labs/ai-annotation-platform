@@ -1,5 +1,5 @@
 from aap_task_contract import normalize_task_fields
-from app.services.ml_capabilities import resolve_model_task
+from aap_inference import resolve_model_task
 from app.application.preannotation_contract import (
     BatchPredictionRequest,
     FramePreannotationDispatchRequest,

@@ -5,6 +5,7 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
+from aap_inference import extract_capabilities
 from aap_protocol_v2 import MAX_MASK_RESPONSE_BYTES
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -29,8 +30,8 @@ from app.services.mask_repair import (
     store_repair_result_rle,
 )
 from app.services.ml_backend import MLBackendService
-from app.services.ml_capabilities import extract_capabilities
 from app.services.ml_client import MLBackendClient
+from app.services.inference_limits import capability_limits_from_settings
 from app.services.ml_interaction_proxy import (
     normalize_native_mask_response,
     prepare_interactive_context,
@@ -96,7 +97,7 @@ async def _run_sam_candidate(
             "output_geometry": "mask",
             **({"model_id": action["model_id"]} if action.get("model_id") else {}),
         },
-        extract_capabilities(setup),
+        extract_capabilities(setup, limits=capability_limits_from_settings()),
         task_id=str(task.id),
         requested_backend_id=str(backend_id),
     )

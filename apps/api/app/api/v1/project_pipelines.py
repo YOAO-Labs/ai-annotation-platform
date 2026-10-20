@@ -5,6 +5,7 @@ from __future__ import annotations
 import uuid
 from typing import Annotated
 
+from aap_inference import PipelineValidationError
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -112,7 +113,10 @@ async def create_pipeline(
     db: AsyncSession = Depends(get_db),
     user: IdentityActorFacts = Depends(get_current_user),
 ):
-    pipeline = await create_pipeline_command(db, data, user)
+    try:
+        pipeline = await create_pipeline_command(db, data, user)
+    except PipelineValidationError as exc:
+        raise HTTPException(status_code=422, detail=exc.detail) from exc
     await db.commit()
     await db.refresh(pipeline)
     return await _serialize(db, pipeline)
@@ -136,7 +140,10 @@ async def update_pipeline(
     db: AsyncSession = Depends(get_db),
     user: IdentityActorFacts = Depends(get_current_user),
 ):
-    pipeline = await update_pipeline_command(db, pipeline_id, data, user)
+    try:
+        pipeline = await update_pipeline_command(db, pipeline_id, data, user)
+    except PipelineValidationError as exc:
+        raise HTTPException(status_code=422, detail=exc.detail) from exc
     await db.commit()
     await db.refresh(pipeline)
     return await _serialize(db, pipeline)

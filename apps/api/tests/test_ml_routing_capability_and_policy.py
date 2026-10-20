@@ -153,7 +153,7 @@ def test_variant_axes_normalized_and_sorted() -> None:
 
 
 def _production_caps(*, model_id: str = "detector", task: str = "detection") -> dict:
-    from app.services.ml_capabilities import extract_capabilities
+    from aap_inference import extract_capabilities
 
     result = extract_capabilities(
         {

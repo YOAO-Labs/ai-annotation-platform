@@ -16,6 +16,7 @@ import asyncio
 import logging
 from datetime import UTC, datetime
 
+from aap_inference import extract_capabilities
 import httpx
 from sqlalchemy import select
 
@@ -23,7 +24,7 @@ from app.config import settings
 from app.db.base import async_session
 from app.db.models.ml_backend_registry import MLBackendRegistry
 from app.services.capability_instances import _observe_urls, _probe_setup
-from app.services.ml_capabilities import extract_capabilities
+from app.services.inference_limits import capability_limits_from_settings
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +43,11 @@ async def sync_env_backends() -> None:
         for url, setup in zip(urls, setups):
             if isinstance(setup, BaseException):
                 setup = None
-            caps = extract_capabilities(setup) if setup else None
+            caps = (
+                extract_capabilities(setup, limits=capability_limits_from_settings())
+                if setup
+                else None
+            )
             existing = (
                 await db.execute(
                     select(MLBackendRegistry).where(MLBackendRegistry.url == url)

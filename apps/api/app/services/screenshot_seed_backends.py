@@ -8,6 +8,7 @@ from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import urlsplit
 
+from aap_inference import extract_capabilities
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -15,8 +16,8 @@ from app.db.models.ml_backend_registry import MLBackendRegistry, ProjectMLBacken
 from app.db.models.project import Project
 from app.config import settings
 from app.services.ml_backend import MLBackendService
-from app.services.ml_capabilities import extract_capabilities
 from app.services.ml_client import MLBackendClient
+from app.services.inference_limits import capability_limits_from_settings
 from app.services.screenshot_seed_spec import (
     BACKEND_REQUIREMENTS,
     PROJECT_SPECS,
@@ -185,7 +186,9 @@ async def _refresh_candidates(
             backend.state = "error"
             backend.error_message = probe.error
             continue
-        capabilities = extract_capabilities(probe.setup)
+        capabilities = extract_capabilities(
+            probe.setup, limits=capability_limits_from_settings()
+        )
         if not capabilities:
             backend.state = "error"
             backend.error_message = "setup response has no usable capabilities"

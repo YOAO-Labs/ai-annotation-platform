@@ -18,12 +18,13 @@ import asyncio
 import logging
 
 import httpx
+from aap_inference import extract_capabilities
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.db.models.ml_backend_registry import MLBackendRegistry
-from app.services.ml_capabilities import extract_capabilities
+from app.services.inference_limits import capability_limits_from_settings
 
 logger = logging.getLogger(__name__)
 
@@ -151,7 +152,11 @@ async def load_capability_instances(db: AsyncSession) -> list[dict]:
                 ]
             )
         for i, setup in zip(needs_probe, setups):
-            snapshots[i] = extract_capabilities(setup) if setup else None
+            snapshots[i] = (
+                extract_capabilities(setup, limits=capability_limits_from_settings())
+                if setup
+                else None
+            )
 
     instances: list[dict] = []
     for b, caps in zip(backends, snapshots):

@@ -1280,10 +1280,14 @@ class MLBackendService:
         caps: dict | None = None
         if healthy and meta is not None:
             # v0.10.37 · 顺带探 /setup, 把能力快照落进 health_meta["capabilities"]。
-            from app.services.ml_capabilities import extract_capabilities
+            from aap_inference import extract_capabilities
+            from app.services.inference_limits import capability_limits_from_settings
 
             try:
-                caps = extract_capabilities(await client.setup())
+                caps = extract_capabilities(
+                    await client.setup(),
+                    limits=capability_limits_from_settings(),
+                )
             except Exception:
                 caps = None
 

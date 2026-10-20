@@ -6,6 +6,7 @@ import time
 import uuid
 
 import httpx
+from aap_inference import extract_capabilities, resolve_model_task
 from aap_protocol_v2 import (
     MAX_MASK_RESPONSE_BYTES,
     CocoRlePayload,
@@ -65,7 +66,7 @@ from app.services.ml_backend import (
     MLBackendURLConflict,
 )
 from app.services import ml_client as ml_client_module
-from app.services.ml_capabilities import extract_capabilities
+from app.services.inference_limits import capability_limits_from_settings
 from app.services.ml_interaction_proxy import (
     normalize_native_mask_response,
     prepare_interactive_context,
@@ -836,7 +837,7 @@ async def _prepare_safe_interactive_context(
     if not uses_mask_contract:
         return dict(context), None
     setup = await _fetch_setup_cached(backend, backend_id)
-    capabilities = extract_capabilities(setup)
+    capabilities = extract_capabilities(setup, limits=capability_limits_from_settings())
     return prepare_interactive_context(
         context,
         capabilities,
@@ -1117,7 +1118,7 @@ async def get_ml_backend_capabilities(
         raise HTTPException(status_code=404, detail="ML Backend not found")
 
     setup = await _fetch_setup_cached(backend, backend_id)
-    return extract_capabilities(setup) or {}
+    return extract_capabilities(setup, limits=capability_limits_from_settings()) or {}
 
 
 @router.post(
@@ -1142,7 +1143,7 @@ async def refresh_ml_backend_capabilities(
 
     _setup_cache.pop(backend_id, None)
     setup = await _fetch_setup_cached(backend, backend_id)
-    return extract_capabilities(setup) or {}
+    return extract_capabilities(setup, limits=capability_limits_from_settings()) or {}
 
 
 @router.post(
@@ -1475,8 +1476,6 @@ async def predict_frame(
                 else None
             ),
         )
-        from app.services.ml_capabilities import resolve_model_task
-
         if context is not None:
             context["task"] = resolve_model_task(
                 backend, context.get("model_id"), context.get("task")

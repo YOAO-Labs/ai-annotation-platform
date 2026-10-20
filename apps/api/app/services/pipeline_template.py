@@ -6,14 +6,12 @@ import copy
 import uuid
 
 from fastapi import HTTPException
-from pydantic import ValidationError
 from sqlalchemy import func, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.enums import UserRole
 from app.db.models.project_pipeline import ProjectPipeline
 from app.db.models.user import User
-from app.schemas.preannotate import PreannotateRequest
 from app.schemas.project_pipeline import (
     ProjectPipelineCreate,
     ProjectPipelineUpdate,
@@ -22,38 +20,6 @@ from app.schemas.project_pipeline import (
 from app.services.project_access import resolve_project_access_by_id
 from app.services.project_template import list_user_org_ids
 from app.services.identity_contracts import IdentityActorFacts
-
-
-def validate_saved_pipeline(stages) -> list[dict] | None:
-    """Validate saved stages structurally, without backend availability checks.
-
-    PipelineStage normalizes stored backend ID strings through the public request
-    schema. Backend existence and project enablement are apply-time checks.
-    """
-    if not stages:
-        return stages
-    if not isinstance(stages, list) or not all(isinstance(s, dict) for s in stages):
-        raise HTTPException(
-            status_code=422, detail="preannotate_pipeline 须为阶段对象数组"
-        )
-    roots = [s for s in stages if s.get("parent_stage") is None]
-    if len(roots) != 1:
-        raise HTTPException(
-            status_code=422,
-            detail="preannotate_pipeline 须恰有一个源阶段 (parent_stage=None)",
-        )
-    try:
-        parsed = PreannotateRequest(
-            ml_backend_id=roots[0].get("ml_backend_id"), pipeline_stages=stages
-        )
-        return [
-            stage.model_dump(mode="json", exclude_unset=True)
-            for stage in parsed.pipeline_stages
-        ]
-    except ValidationError as exc:
-        raise HTTPException(
-            status_code=422, detail=f"preannotate_pipeline 校验失败: {exc}"
-        ) from exc
 
 
 async def _assert_project_visible(
@@ -172,6 +138,8 @@ async def create_pipeline(
         await _assert_project_visible(db, data.project_id, user)
 
     payload = data.model_dump()
+    from aap_inference import validate_saved_pipeline
+
     payload["stages"] = validate_saved_pipeline(payload["stages"])
     make_default = data.is_default
     if make_default:
@@ -221,6 +189,8 @@ async def update_pipeline(
     if project_id is not None:
         await _assert_project_visible(db, project_id, user)
     if payload.get("stages") is not None:
+        from aap_inference import validate_saved_pipeline
+
         payload["stages"] = validate_saved_pipeline(payload["stages"])
     # Moving a default to another project must not implicitly displace that
     # project's current default unless the caller explicitly requests it.

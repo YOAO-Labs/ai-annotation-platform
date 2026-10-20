@@ -4,16 +4,13 @@ from __future__ import annotations
 
 import uuid
 
+from aap_inference import validate_saved_pipeline
 from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.project_pipeline import ProjectPipeline
 from app.services.project_access import lock_current_project_access
-from app.services.pipeline_template import (
-    apply_pipeline,
-    unenabled_backend_ids,
-    validate_saved_pipeline,
-)
+from app.services.pipeline_template import apply_pipeline, unenabled_backend_ids
 
 
 async def apply_saved_pipeline(

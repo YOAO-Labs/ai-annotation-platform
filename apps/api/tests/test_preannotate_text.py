@@ -405,7 +405,7 @@ async def test_preannotate_sizes_normalized_retry_context(
 
 
 def test_preannotate_rejects_child_stage_sorted_before_root():
-    from app.schemas.preannotate import PreannotateRequest
+    from aap_inference import PreannotateRequest
 
     backend_id = uuid.uuid4()
     with pytest.raises(ValidationError):

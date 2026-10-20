@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from aap_inference import resolve_model_task
+
 from aap_protocol_v2.predict import normalize_context_task
 from aap_task_contract import (
     TASK_ALIASES,
@@ -8,7 +10,6 @@ from aap_task_contract import (
     normalize_modality_fields,
     normalize_task,
 )
-from app.services.ml_capabilities import resolve_model_task
 
 import asyncio
 from contextlib import asynccontextmanager

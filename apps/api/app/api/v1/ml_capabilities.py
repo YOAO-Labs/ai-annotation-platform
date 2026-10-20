@@ -9,6 +9,14 @@
 
 from __future__ import annotations
 
+from aap_inference.capability_registry import (
+    GEOMETRIES,
+    INFRAS,
+    INPUTS,
+    MODALITIES,
+    PROMPTS,
+    TASKS,
+)
 from aap_task_contract import TASK_ALIASES
 
 import hashlib
@@ -34,14 +42,6 @@ from app.schemas.ml_capabilities import (
     SuggestedBackendItem,
 )
 from app.services.capability_instances import load_capability_instances
-from app.services.capability_registry import (
-    GEOMETRIES,
-    INFRAS,
-    INPUTS,
-    MODALITIES,
-    PROMPTS,
-    TASKS,
-)
 from app.services.identity_contracts import IdentityActorFacts
 
 router = APIRouter()
