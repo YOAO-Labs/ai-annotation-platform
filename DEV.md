@@ -1307,7 +1307,7 @@ Embedded SQLAlchemy adapter 必须留在调用方同一事务并且从不 commit
 
 `projects._serialize_project` 和 `_serialize_project_list` 使用同一个全局 `resolve_briefs` 批量 owner，只读取显示所需的 name/avatar 引用，不把资料用作授权事实。`owner_name` 与 `owner_avatar_ref` 继续可空，`owner_id` 仍是必需 UUID；缺少用户时两个显示字段保持 `null`。原始空值、空白、Unicode 名称与头像引用不清洗，停用和历史 owner 也不筛除。列表/查询先完成现有授权、过滤、排序、count 和分页，只查询该页返回的 owner IDs；一个 list/page 只发一次批量读取，共享 owner 不重复查询，空页不调用 Identity。详情、创建、patch、改名和转移对非空 owner ID 在现有授权及 commit/refresh 位置各查询一次。显式传入空 lookup 不会触发二次查询。`/datasets/{id}/projects` 保持两个 owner 显示字段为 `null`。
 
-旧 HTTP 响应基线在 owned database 上通过一个案例并清理成功，记录于 `apps/api/tests/fixtures/project_owner_profiles_legacy.json`；fixture 覆盖四个项目、三个 owner 与 list/page/detail 的旧 owner 查询次数 4/2/1。新消费者验证通过 59 个选定案例（53 DB/process、6 pure/static），零跳过；SDK projects 23 项通过，包含两项 list/detail 捕获序列化用例，SDK 生产代码未改。已有 Identity package 与 owner image 沿用前一 UserBrief slice，没有重复计入其 64 案例或 114 个文件 hash。新 API cold image 与 Root 的 OpenAPI/codegen/catalog 核对仍待完成；这些检查通过前不把该消费者标为完整 API/image qualification。每个 list/page 只减少 owner 资料读取的 N+1；其他项目计数仍存在，不能推导整个列表 SQL 数量恒定。
+旧 HTTP 响应基线在 owned database 上通过一个案例并清理成功，记录于 `apps/api/tests/fixtures/project_owner_profiles_legacy.json`；fixture 覆盖四个项目、三个 owner 与 list/page/detail 的旧 owner 查询次数 4/2/1。新消费者验证通过 59 个选定案例（53 DB/process、6 pure/static），零跳过；SDK projects 23 项通过，包含两项 list/detail 捕获序列化用例，SDK 生产代码未改。已有 Identity package 与 owner image 沿用前一 UserBrief slice，没有重复计入其 64 案例或 114 个文件 hash。更新后的 API cold image 与 OpenAPI/codegen/catalog 核对均通过；镜像 source/hash 与检查范围见 ADR-0129。每个 list/page 只减少 owner 资料读取的 N+1；其他项目计数仍存在，不能推导整个列表 SQL 数量恒定。
 
 ### Identity 管理员临时密码重置
 

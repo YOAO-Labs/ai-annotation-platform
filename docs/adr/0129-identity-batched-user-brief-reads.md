@@ -281,8 +281,8 @@ remote/DSN failures do not fall back to local User reads.
 The old HTTP baseline passed one owned-database case and cleaned up successfully.
 Its responses are captured in
 `apps/api/tests/fixtures/project_owner_profiles_legacy.json`; the fixture has
-four projects and three owners (including one shared, inactive and historical
-owner). Old owner-query counts were four for a list, two for a page and one for a
+four projects and three owners (one shared owner plus separate inactive and
+historical owners). Old owner-query counts were four for a list, two for a page and one for a
 detail response. The focused consumer suite passed 56 checks and three existing
 remote/dedicated/disabled API cases passed, for 59 affected selected cases
 (53 database/process and six pure/static), without skips. Coverage includes one
@@ -291,10 +291,19 @@ visibility and pagination before lookup, empty/missing/null cases, existing
 write regressions and the dataset-linked null-field guard. SDK project tests
 passed 23 checks, including the two captured list/detail serialization cases;
 no SDK production code changed. The existing 114-file Identity package and
-qualified owner image were reused, not requalified. The fresh API image and
-Root-owned OpenAPI/codegen/catalog checks are still pending; this consumer
-evidence does not combine with the member-list or 64-case UserBrief owner
-qualification.
+qualified owner image were reused, not requalified. OpenAPI remained byte-identical,
+codegen and the operation catalog checks passed (509 routes/93 modules). This
+consumer evidence does not combine with the member-list or 64-case UserBrief
+owner qualification.
+
+The updated API image `aap-api:local-identity-project-owners-9aad08927178`
+(`sha256:44d9df86b309a97e2e070416be34f1f7e25fbe1e8132b92873973fe11d792791`,
+source `8f3e240b0c2ff2e11f4b7807addccbf1889eea49`) verified 114 package and 47
+API/native source hashes. Its offline read-only proof at 1 CPU/512 MiB confirmed
+required owner IDs, nullable display fields, no User ORM reads in the owner
+serializers, the unchanged member projection and current OpenAPI/native snapshot.
+The container was removed. The 14.072 seconds measures build and offline
+verification together, not startup latency. The Identity owner image was reused.
 
 The full ten-module/seven-gate objective remains active. This internal read
 extraction does not qualify full Identity, provider-language replacement,

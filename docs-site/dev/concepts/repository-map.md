@@ -94,7 +94,7 @@ last_reviewed: 2026-10-20
   filters、order、count、pagination 选定页面，再对页面 distinct owner IDs 批量读取一次；
   空页无 owner I/O，single serializer 收到 `{}` 时不重复查询。创建、详情、patch、改名和
   转移对非空 owner ID 各读取一次；dataset-linked 项目路径仍保留 null 显示字段。59 个选定消费者案例
-  （53 DB/process、6 pure/static）通过，最终 API image/contract checks pending；见 ADR-0129。
+  （53 DB/process、6 pure/static）通过，更新后的 API image/contract checks 也已通过；见 ADR-0129。
 - 分组目录与账号指派：`api/v1/group_commands.py` 收口 HTTP 请求与权限映射；
   `services/identity_group_commands.py` 选择本地事务、函数 DSN 或 Identity runtime，
   `services/identity_group_data.py` 只适配当前 SQL Session 上的本地 Group command data。
