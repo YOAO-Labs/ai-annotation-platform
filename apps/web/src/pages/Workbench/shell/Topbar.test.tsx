@@ -105,6 +105,34 @@ it("preserves native segment selector keys without activating overflow menu acti
 });
 
 describe("Topbar · AI 工具入口", () => {
+  it("updates the inference scope when switching between image and video tasks", () => {
+    const props: ComponentProps<typeof Topbar> = {
+      projectName: "测试",
+      projectDisplayId: "P-1",
+      task: undefined,
+      taskIdx: 0,
+      taskTotal: 1,
+      aiRunning: false,
+      isSubmitting: false,
+      onShowHotkeys: vi.fn(),
+      onPrev: vi.fn(),
+      onNext: vi.fn(),
+      onSubmit: vi.fn(),
+      onRunAi: vi.fn(),
+    };
+    const { rerender } = render(<Topbar {...props} />);
+    const button = screen.getByTestId("workbench-ai-single");
+    expect(button).toHaveTextContent("单图");
+    expect(button).toHaveAccessibleName("单图");
+    expect(button).toHaveAttribute("title", "打开单图 AI 面板，对当前图片运行 AI");
+    rerender(<Topbar {...props} isVideoTask />);
+    expect(button).toHaveTextContent("单帧");
+    expect(button).toHaveAccessibleName("单帧");
+    expect(button).toHaveAttribute("title", "打开单帧 AI 面板，对当前帧运行 AI");
+    rerender(<Topbar {...props} isVideoTask aiOpen />);
+    expect(button).toHaveAttribute("title", "聚焦单帧 AI 面板");
+  });
+
   it("keeps unavailable AI entries visible, explains why, and blocks clicks", () => {
     const onRunAi = vi.fn();
     const onToggleTracker = vi.fn();
@@ -133,7 +161,7 @@ describe("Topbar · AI 工具入口", () => {
         trackerDisabledReason={reason}
       />,
     );
-    for (const name of ["AI 单题", "追踪"]) {
+    for (const name of ["单图", "追踪"]) {
       const button = screen.getByRole("button", { name });
       expect(button).toBeVisible();
       expect(button).toBeDisabled();
@@ -145,12 +173,12 @@ describe("Topbar · AI 工具入口", () => {
     expect(onToggleTracker).not.toHaveBeenCalled();
     rerender(<Topbar {...props} />);
     fireEvent.click(screen.getByRole("button", { name: "追踪" }));
-    fireEvent.click(screen.getByRole("button", { name: "AI 单题" }));
+    fireEvent.click(screen.getByRole("button", { name: "单图" }));
     expect(onToggleTracker).toHaveBeenCalledOnce();
     expect(onRunAi).toHaveBeenCalledOnce();
   });
 
-  it("将 AI 追踪放在 AI 单题左侧，并复用同一按钮样式", () => {
+  it("将 AI 追踪放在 单图左侧，并复用同一按钮样式", () => {
     const onToggleTracker = vi.fn();
     const onRunAi = vi.fn();
 

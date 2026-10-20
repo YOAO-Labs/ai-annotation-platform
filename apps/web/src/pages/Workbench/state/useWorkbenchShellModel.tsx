@@ -491,7 +491,7 @@ export function useWorkbenchShellModel({
   const aiRunUnavailableReason =
     selectedBackend?.state === "connected" && routing.capIndex[selectedBackend.id]?.reachable
       ? undefined
-      : (aiUnavailableReason ?? "当前 AI 后端不可用，请在 AI 单题面板中选择已连接的后端");
+      : (aiUnavailableReason ?? "当前 AI 后端不可用，请在推理面板中选择已连接的后端");
 
   const meUserId = useAuthStore((s) => s.user?.id);
   const { hasPermission } = usePermissions();
@@ -5622,6 +5622,7 @@ export function useWorkbenchShellModel({
       aiOpen: workspaceState.aiTaskVisible,
       aiDisabled: aiEntryDisabled,
       aiDisabledReason: aiUnavailableReason,
+      isVideoTask,
       onToggleTracker: isVideoTask ? togglePropagateDialog : undefined,
       trackerOpen: workspaceState.videoTrackerVisible,
       trackerRunning: Boolean(trackingJobId),

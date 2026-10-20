@@ -120,7 +120,7 @@ Shell 持有当前会话的 `scenePlaybackActive`，将预览状态接到 `useTa
 
 这个边界保证视频 bbox / track 新建时也能显示 class picker，不再依赖 `ImageStage.overlay`。
 
-视频候选审阅条仍使用 `WorkbenchLayout.stageOverlay`，相对中间 Stage 定位。当前题 AI 与视频追踪是独立 Dockview panel，视频标注中可以同时显示；打开入口会显示或聚焦已有实例，不创建第二份业务 session。
+视频候选审阅条仍使用 `WorkbenchLayout.stageOverlay`，相对中间 Stage 定位。单图／单帧 AI 与视频追踪是独立 Dockview panel，视频标注中可以同时显示；打开入口会显示或聚焦已有实例，不创建第二份业务 session。
 
 ## 交互 AI 顶栏与状态来源
 
@@ -136,7 +136,7 @@ Shell 持有当前会话的 `scenePlaybackActive`，将预览状态接到 `useTa
 - **轨迹身份与上下文条**：`VideoKonvaStage` 从完整 `annotations` 与 `selectedId` 获取 bbox、polygon、polyline 或 Mask 轨迹身份；当前帧的可见几何、ghost、隐藏或 outside 过滤不决定轨迹是否存在。`videoTrackContext` 复用现有几何解析与可见关键帧导航，派生关键帧、插值、保持、outside 和本帧无几何。`VideoTrackContextBar` 在画布面板的正常布局流中占据上方一行，不持有第二份选择、播放或持久化状态，也不依赖详细时间轴的显隐。视频的公共工具浮层与 `stageOverlay` 一起传入下方的画布容器，与原绘制节点互为兄弟；它们使用相同画布坐标，不覆盖轨迹条，也不把工具事件冒泡到绘制节点。
 - **关键帧解析与写守卫**：来源读取原始关键帧字段；Mask 保持使用实际解析锚点，缺字段不采用 renderer 的人工兜底。`AnnotationOut` 的 JSON 序列化保留旧关键帧来源缺失，写入 schema 默认值和存量数据不变。补关键帧走既有几何 upsert 与 `onUpdate`；Mask outside 继续走版本校验和历史 owner。入口共同检查任务只读、标注锁、会话轨迹锁、工作帧范围及绘制/播放状态；条内事件通过 `data-workbench-track-context` 让后台快捷键退让，条仅可见时不屏蔽画布按键。
 
-## 当前题 AI 请求与 Inspector 阶段
+## 单图／单帧 AI 请求与 Inspector 阶段
 
 `AIPredictionPopover` 从当前题请求及现有候选数量派生 idle / running / review / error 展示；`useWorkbenchAiRequest` 只持有普通预测的请求归属，不接管 SAM 或 tracker 执行器。图片与项目编排仍调用 `useTriggerPreannotation`，视频仍调用 `mlBackendsApi.predictFrame`。
 
@@ -192,7 +192,7 @@ Shell 持有当前会话的 `scenePlaybackActive`，将预览状态接到 `useTa
 | `class-palette` | 类别面板                        | `onlyWhenVisible`；允许停靠、标签、浮动与隐藏                          |
 | `inspector`     | 标注详情、人工标注与 AI 候选    | `always`；隐藏时保留未完成的属性编辑                                   |
 | `discussion`    | 评论、历史、Issue               | `always`；隐藏时保留未发送输入                                         |
-| `ai-task`       | 当前题 AI 运行与候选审阅        | `always`；仅图片、视频标注 context 提供入口                            |
+| `ai-task`       | 单图／单帧 AI 运行与候选审阅    | `always`；仅图片、视频标注 context 提供入口                            |
 | `video-tracker` | 视频追踪配置与运行              | `always`；仅视频标注 context 提供入口                                  |
 | `tri-view`      | 俯视、侧视、正视三行精修        | `always`；仅 3D context 提供入口，作为一个面板移动与隐藏               |
 | `camera-view`   | 相机停靠图库                    | `always`；仅 3D context 提供入口，禁止原生图库浮窗，模式由整组命令切换 |

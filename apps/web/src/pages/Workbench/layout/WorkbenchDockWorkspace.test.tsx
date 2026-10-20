@@ -705,7 +705,8 @@ describe("stable Dockview React workspace", () => {
     const view = render(fixture("annotate:video", commands));
     fireEvent.click(await screen.findByRole("button", { name: "布局" }));
     fireEvent.click(screen.getByText("面板与高级布局"));
-    expect(screen.getByRole("button", { name: "当前题 AI" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "单帧 AI" })).toBeInTheDocument();
+    expect(state.api!.getPanel("ai-task")!.title).toBe("单帧 AI");
     expect(
       within(screen.getByText("面板与高级布局").closest("details")!).getByRole("button", {
         name: "视频追踪",
@@ -724,7 +725,7 @@ describe("stable Dockview React workspace", () => {
 
     view.rerender(fixture("review:video", commands));
     fireEvent.click(screen.getByRole("button", { name: "布局" }));
-    expect(screen.queryByRole("button", { name: "当前题 AI" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "单帧 AI" })).toBeNull();
     expect(screen.queryByRole("button", { name: "视频追踪" })).toBeNull();
     expect(screen.queryByRole("button", { name: "视频追踪布局" })).toBeNull();
   });

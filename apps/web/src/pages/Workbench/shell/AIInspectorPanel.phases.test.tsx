@@ -165,6 +165,18 @@ function inspectorProps(overrides: Partial<InspectorProps> = {}): InspectorProps
 }
 
 describe("AIPredictionPopover phases", () => {
+  it("keeps panel names and run actions consistent with the image/video scope", () => {
+    const props = popoverProps();
+    const { rerender } = render(<AIPredictionPopover {...props} />);
+    expect(screen.getByText("单图 AI")).toBeVisible();
+    expect(screen.getByRole("button", { name: "关闭单图 AI" })).toBeVisible();
+    expect(screen.getByTestId("ai-prediction-primary-action")).toHaveTextContent("运行当前图片");
+    rerender(<AIPredictionPopover {...props} isVideoTask />);
+    expect(screen.getByText("单帧 AI")).toBeVisible();
+    expect(screen.getByRole("button", { name: "关闭单帧 AI" })).toBeVisible();
+    expect(screen.getByTestId("ai-prediction-primary-action")).toHaveTextContent("运行当前帧");
+  });
+
   it("gates pipelines independently of the selected single-task backend", () => {
     const props = popoverProps({
       runUnavailableReason: "当前后端离线",
@@ -219,7 +231,7 @@ describe("AIPredictionPopover phases", () => {
     fireEvent.change(prompt, { target: { value: "person" } });
     expect(props.cfg.setPrompt).toHaveBeenCalledWith("person");
     expect(screen.getByTestId("preannotate-config-form")).not.toBeVisible();
-    expect(screen.getByTestId("ai-prediction-primary-action")).toHaveTextContent("运行当前题");
+    expect(screen.getByTestId("ai-prediction-primary-action")).toHaveTextContent("运行当前图片");
     fireEvent.click(screen.getByTestId("ai-prediction-primary-action"));
     expect(props.onRunAi).toHaveBeenCalledTimes(1);
     expect(props.onAcceptAll).not.toHaveBeenCalled();
@@ -378,7 +390,7 @@ describe("AIPredictionPopover phases", () => {
     );
     expect(screen.getByTestId("ai-prediction-phase")).toHaveAttribute("data-phase", "idle");
     expect(screen.getByText(/本次请求已取消/)).toBeVisible();
-    expect(screen.getByTestId("ai-prediction-primary-action")).toHaveTextContent("运行当前题");
+    expect(screen.getByTestId("ai-prediction-primary-action")).toHaveTextContent("运行当前图片");
   });
 
   it("retains pipeline, threshold, bulk scope and efficiency in advanced configuration", () => {

@@ -28,6 +28,7 @@ import type { RasterMaskRecordStatus } from "../stage/shared/useRasterMaskRecord
 import { displayClassName } from "../stage/colors";
 import { AttributeForm, getMissingRequired } from "./AttributeForm";
 import { PreannotateConfigForm } from "@/pages/AIPreAnnotate/components/PreannotateConfigForm";
+import { workbenchAiScopeLabel } from "../layout/workbenchPanelRegistry";
 import { type PreannotateConfig } from "@/pages/AIPreAnnotate/components/usePreannotateConfig";
 import {
   AI_PANEL_HEADER_CLASS,
@@ -633,6 +634,7 @@ export function AIPredictionPopover({
   projectMlBackendId,
 }: AIPredictionPopoverProps) {
   const [advancedOpen, setAdvancedOpen] = useState(false);
+  const aiPanelTitle = `${workbenchAiScopeLabel(!!isVideoTask)} AI`;
   const advancedId = useId();
   const running = request ? request.status === "running" : aiRunning;
   const batchEligibleCount = batchEligibleCountProp ?? aiBoxCount;
@@ -686,7 +688,7 @@ export function AIPredictionPopover({
             <span className={AI_PANEL_ICON_CLASS}>
               <Icon name="bot" size={14} />
             </span>
-            <b className="whitespace-nowrap text-sm">当前题 AI</b>
+            <b className="whitespace-nowrap text-sm">{aiPanelTitle}</b>
           </div>
           <div className="flex items-center gap-1.5">
             <Badge variant={phase === "error" ? "danger" : "ai"} className="gap-1 text-2xs">
@@ -698,8 +700,8 @@ export function AIPredictionPopover({
               variant="ghost"
               size="sm"
               onClick={onClose}
-              aria-label="关闭当前题 AI"
-              title="关闭当前题 AI"
+              aria-label={`关闭${aiPanelTitle}`}
+              title={`关闭${aiPanelTitle}`}
               className="px-1.5 py-0.5"
             >
               <Icon name="x" size={12} />
@@ -772,7 +774,7 @@ export function AIPredictionPopover({
                     </dd>
                     <dt className="text-muted-foreground">范围</dt>
                     <dd className="m-0 text-foreground">
-                      {summary.frameIndex == null ? "当前题" : `当前帧 F${summary.frameIndex}`}
+                      {summary.frameIndex == null ? "当前图片" : `当前帧 F${summary.frameIndex}`}
                     </dd>
                     {requestInputSummary(summary.input).map(([label, value]) => (
                       <div key={label} className="contents">
@@ -884,7 +886,13 @@ export function AIPredictionPopover({
                 name={phase === "idle" ? "wandSparkles" : phase === "error" ? "rotate-ccw" : "list"}
                 size={12}
               />
-              {phase === "idle" ? "运行当前题" : phase === "error" ? "重试本次请求" : "审阅候选"}
+              {phase === "idle"
+                ? isVideoTask
+                  ? "运行当前帧"
+                  : "运行当前图片"
+                : phase === "error"
+                  ? "重试本次请求"
+                  : "审阅候选"}
             </Button>
           )}
 
@@ -955,13 +963,13 @@ export function AIPredictionPopover({
                 className="mt-2 w-full"
                 title={
                   projectPipelineRunnable
-                    ? "按项目已保存的多阶段编排，对当前题运行完整流程"
+                    ? "按项目已保存的多阶段编排，对当前图片运行完整流程"
                     : `编排引用的 ${pipelineMissingBackendCount} 个后端不可用，请检查后端启用、连接和能力状态`
                 }
               >
                 <Icon name="layers" size={12} />
                 {projectPipelineRunnable
-                  ? `运行当前题（项目编排 · ${projectPipelineStageCount} 阶段）`
+                  ? `运行当前图片（项目编排 · ${projectPipelineStageCount} 阶段）`
                   : `编排引用 ${pipelineMissingBackendCount} 个后端不可用`}
               </Button>
             )}

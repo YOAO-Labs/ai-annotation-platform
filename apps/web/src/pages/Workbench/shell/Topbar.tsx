@@ -11,6 +11,7 @@ import type { TaskResponse } from "@/types";
 import type { VideoSegment } from "@/api/videoTracker";
 import type { GuardedNavigate } from "@/utils/workbenchNavigation";
 import type { WorkspaceSide, WorkspaceSideState } from "../layout/workbenchLayoutExecutor";
+import { workbenchAiScopeLabel } from "../layout/workbenchPanelRegistry";
 
 // 与主界面 TopBar 共用同一懒加载通知入口；工作台传入自己的导航回调。
 const NotificationsPopover = lazy(() =>
@@ -44,6 +45,7 @@ interface TopbarProps {
   aiOpen?: boolean;
   aiDisabled?: boolean;
   aiDisabledReason?: string;
+  isVideoTask?: boolean;
   /** 视频任务的画布级 AI 追踪入口。 */
   onToggleTracker?: () => void;
   trackerOpen?: boolean;
@@ -120,6 +122,7 @@ export function Topbar({
   aiOpen = false,
   aiDisabled = false,
   aiDisabledReason,
+  isVideoTask = false,
   onToggleTracker,
   trackerOpen = false,
   trackerRunning = false,
@@ -176,6 +179,7 @@ export function Topbar({
   }, [confThreshold]);
 
   const indexLabel = taskTotal > 0 && taskIdx >= 0 ? `${taskIdx + 1} / ${taskTotal}` : "";
+  const aiLabel = workbenchAiScopeLabel(isVideoTask);
 
   const smartItems: DropdownItem[] = [];
   if (onSmartNextOpen)
@@ -495,12 +499,16 @@ export function Topbar({
                   variant="ai"
                   size="sm"
                   onClick={onRunAi}
-                  aria-label="AI 单题"
+                  aria-label={aiLabel}
                   aria-pressed={aiOpen}
                   disabled={aiDisabled}
                   aria-description={aiDisabled ? aiDisabledReason : undefined}
                   title={
-                    aiDisabled ? aiDisabledReason : aiOpen ? "聚焦 AI 单题面板" : "打开 AI 单题面板"
+                    aiDisabled
+                      ? aiDisabledReason
+                      : aiOpen
+                        ? `聚焦${aiLabel} AI 面板`
+                        : `打开${aiLabel} AI 面板，对${isVideoTask ? "当前帧" : "当前图片"}运行 AI`
                   }
                   className="h-7 px-3 disabled:pointer-events-auto disabled:border-border disabled:bg-muted disabled:text-muted-foreground disabled:hover:translate-y-0 @max-[1100px]:w-7 @max-[1100px]:p-0"
                   data-testid="workbench-ai-single"
@@ -514,7 +522,7 @@ export function Topbar({
                   ) : (
                     <Icon name="wandSparkles" size={13} />
                   )}
-                  <span className="@max-[1100px]:hidden">AI</span>
+                  <span className="@max-[1100px]:hidden">{aiLabel}</span>
                 </Button>
               )}
             </>
