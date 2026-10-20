@@ -75,3 +75,34 @@ def test_mail_v2_migration_keeps_v1_claim_renew_and_finish_recovery_only():
     assert "aap_identity_mail_v2.claim_mail(jsonb)" in sql
     assert "aap_identity_mail_v2.renew_mail(jsonb)" in sql
     assert "aap_identity_mail_v2.finish_mail(jsonb)" in sql
+
+
+def test_mail_v2_false_acceptance_paths_are_mutation_free():
+    repository = Path(__file__).resolve().parents[3]
+    sql = (repository / "apps/api/alembic/sql/0242_invitation_mail.sql").read_text()
+
+    def v2_function(name: str) -> str:
+        start_marker = f"CREATE FUNCTION aap_identity_mail_v2.{name}(p_request jsonb)"
+        revoke_marker = (
+            f"REVOKE ALL ON FUNCTION aap_identity_mail_v2.{name}(jsonb) FROM PUBLIC;"
+        )
+        start = sql.index(start_marker)
+        end = sql.index(revoke_marker, start)
+        return sql[start:end]
+
+    renew = v2_function("renew_mail")
+    renew_scope_failure = renew.split(
+        "IF v_scope->'ok' IS DISTINCT FROM 'true'::jsonb THEN", 1
+    )[1].split("v_scope_data := v_scope->'data';", 1)[0]
+    assert "UPDATE public.identity_credential_mail_outbox" not in renew_scope_failure
+    assert renew.count("v_accepted := true;") == 1
+
+    finish = v2_function("finish_mail")
+    finish_scope_failure = finish.split(
+        "IF v_scope->'ok' IS DISTINCT FROM 'true'::jsonb THEN", 1
+    )[1].split("v_scope_data := v_scope->'data';", 1)[0]
+    stale_lease = finish.split("IF NOT FOUND OR v_outbox.status <> 'leased'", 1)[
+        1
+    ].split("IF v_outcome = 'delivered' THEN", 1)[0]
+    assert "UPDATE public.identity_credential_mail_outbox" not in finish_scope_failure
+    assert "UPDATE public.identity_credential_mail_outbox" not in stale_lease

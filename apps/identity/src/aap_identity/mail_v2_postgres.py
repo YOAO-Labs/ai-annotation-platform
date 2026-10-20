@@ -31,6 +31,8 @@ _MAIL_V2_CAPABILITIES = {
 
 
 class _RollbackAndReturn(Exception):
+    """Return a valid stale result after rolling back the read-only owner call."""
+
     def __init__(self, value: bool):
         self.value = value
 
@@ -116,10 +118,16 @@ class MailV2PostgresData:
                 FROM pg_catalog.pg_proc AS function
                 JOIN pg_catalog.pg_namespace AS namespace
                   ON namespace.oid = function.pronamespace
+                JOIN pg_catalog.pg_type AS return_type
+                  ON return_type.oid = function.prorettype
                 WHERE namespace.nspname NOT IN ('pg_catalog', 'information_schema')
                   AND namespace.nspname NOT LIKE 'pg_toast%'
                   AND namespace.nspname NOT LIKE 'pg_temp_%'
                   AND function.prokind IN ('f', 'p', 'a', 'w')
+                  AND NOT (
+                      return_type.typnamespace = 'pg_catalog'::pg_catalog.regnamespace
+                      AND return_type.typname IN ('trigger', 'event_trigger')
+                  )
                   AND (
                       pg_catalog.left(namespace.nspname, 4) = 'aap_'
                       OR function.prosecdef
@@ -165,6 +173,10 @@ class MailV2PostgresData:
                           )
                           OR pg_catalog.has_table_privilege(
                               current_user, relation.oid, 'TRIGGER'
+                          )
+                          OR pg_catalog.has_any_column_privilege(
+                              current_user, relation.oid,
+                              'SELECT,INSERT,UPDATE,REFERENCES'
                           )
                       )
                 )

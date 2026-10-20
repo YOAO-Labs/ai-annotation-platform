@@ -49,10 +49,13 @@ def _invitation_reply(worker_id: uuid.UUID) -> dict:
 
 
 class FakeConnection:
-    def __init__(self, result=None, *, grants=(), table_access=False):
+    def __init__(
+        self, result=None, *, grants=(), table_access=False, column_access=False
+    ):
         self.result = result
         self.grants = grants
         self.table_access = table_access
+        self.column_access = column_access
         self.calls = []
         self.in_transaction = False
         self.committed = False
@@ -75,7 +78,7 @@ class FakeConnection:
     async def fetchval(self, sql, *args):
         self.calls.append((sql, args, self.in_transaction))
         if "has_table_privilege" in sql:
-            return self.table_access
+            return self.table_access or self.column_access
         return json.dumps(self.result)
 
     async def fetch(self, sql):
@@ -86,9 +89,11 @@ class FakeConnection:
                 "proname": name,
                 "args": args,
                 "prosecdef": prosecdef,
+                "prorettype": return_type,
             }
-            for schema, name, args, prosecdef in self.grants
-            if schema.startswith("aap_") or prosecdef
+            for schema, name, args, prosecdef, return_type in self.grants
+            if (schema.startswith("aap_") or prosecdef)
+            and return_type not in {"trigger", "event_trigger"}
         ]
 
     async def close(self, *, timeout):
@@ -181,7 +186,7 @@ async def test_v2_finish_malformed_reply_rolls_back_and_stale_reply_returns_fals
 
 
 class PolicyConnection(FakeConnection):
-    def __init__(self, grants, *, table_access=False):
+    def __init__(self, grants, *, table_access=False, column_access=False):
         super().__init__(
             {
                 "schema": MAIL_V2_POLICY_PROTOCOL,
@@ -189,6 +194,7 @@ class PolicyConnection(FakeConnection):
             },
             grants=grants,
             table_access=table_access,
+            column_access=column_access,
         )
 
 
@@ -197,11 +203,19 @@ async def test_v2_readiness_requires_exact_four_functions_and_no_table_access(
     monkeypatch,
 ):
     grants = [
-        ("aap_identity_mail_v2", "mail_policy", "", True),
-        ("aap_identity_mail_v2", "claim_mail", "jsonb", True),
-        ("aap_identity_mail_v2", "renew_mail", "jsonb", True),
-        ("aap_identity_mail_v2", "finish_mail", "jsonb", True),
-        ("public", "safe_extension_helper", "text", False),
+        ("aap_identity_mail_v2", "mail_policy", "", True, "jsonb"),
+        ("aap_identity_mail_v2", "claim_mail", "jsonb", True, "jsonb"),
+        ("aap_identity_mail_v2", "renew_mail", "jsonb", True, "jsonb"),
+        ("aap_identity_mail_v2", "finish_mail", "jsonb", True, "jsonb"),
+        ("public", "safe_extension_helper", "text", False, "text"),
+        ("aap_identity_mail_v2", "trigger_hook", "trigger", True, "trigger"),
+        (
+            "aap_identity_mail_v2",
+            "event_trigger_hook",
+            "event_trigger",
+            True,
+            "event_trigger",
+        ),
     ]
     connection = PolicyConnection(grants)
     monkeypatch.setitem(sys.modules, "asyncpg", _asyncpg(connection))
@@ -210,9 +224,17 @@ async def test_v2_readiness_requires_exact_four_functions_and_no_table_access(
     assert connection.committed and connection.closed
     queries = [call[0] for call in connection.calls]
     assert any("oidvectortypes(function.proargtypes)" in query for query in queries)
+    capability_sql = next(query for query in queries if "pg_proc" in query)
+    assert "function.prorettype" in capability_sql
+    assert "return_type.typname IN ('trigger', 'event_trigger')" in capability_sql
+    assert any("has_any_column_privilege" in query for query in queries)
 
     for unsafe_grants, table_access in (
-        ([*grants, ("aap_identity_invitations_v1", "unsafe", "uuid", True)], False),
+        (
+            [*grants, ("aap_identity_invitations_v1", "unsafe", "uuid", True, "jsonb")],
+            False,
+        ),
+        ([*grants, ("public", "unsafe_definer", "uuid", True, "jsonb")], False),
         (grants, True),
     ):
         connection = PolicyConnection(unsafe_grants, table_access=table_access)
@@ -220,3 +242,9 @@ async def test_v2_readiness_requires_exact_four_functions_and_no_table_access(
         with pytest.raises(IdentityUnavailable):
             await MailV2PostgresData("postgresql://mail-v2/db").mail_policy()
         assert connection.rolled_back and connection.closed
+
+    connection = PolicyConnection(grants, column_access=True)
+    monkeypatch.setitem(sys.modules, "asyncpg", _asyncpg(connection))
+    with pytest.raises(IdentityUnavailable):
+        await MailV2PostgresData("postgresql://mail-v2/db").mail_policy()
+    assert connection.rolled_back and connection.closed

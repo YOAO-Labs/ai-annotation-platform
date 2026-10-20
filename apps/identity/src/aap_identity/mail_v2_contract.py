@@ -145,6 +145,8 @@ class MailV2ClaimReply(ClosedModel):
 
 
 class MailV2AcceptedData(ClosedModel):
+    """A false acceptance is a mutation-free stale/fence result."""
+
     accepted: bool
 
     @field_validator("accepted", mode="before")

@@ -956,6 +956,7 @@ BEGIN
         RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'invalid invitation mail scope reply';
     END IF;
     IF v_scope->'ok' IS DISTINCT FROM 'true'::jsonb THEN
+        -- A stale scope is mutation-free; the client can roll this call back.
         IF v_scope->'ok' IS DISTINCT FROM 'false'::jsonb
            OR v_scope->'error'->>'code' IS NULL
            OR v_scope->'error'->>'code' NOT IN (
@@ -1157,6 +1158,7 @@ BEGIN
         RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'invalid invitation mail scope reply';
     END IF;
     IF v_scope->'ok' IS DISTINCT FROM 'true'::jsonb THEN
+        -- A stale scope is mutation-free; the client can roll this call back.
         IF v_scope->'ok' IS DISTINCT FROM 'false'::jsonb
            OR v_scope->'error'->>'code' IS NULL
            OR v_scope->'error'->>'code' NOT IN (
@@ -1190,6 +1192,7 @@ BEGIN
        OR v_outbox.token_hash IS DISTINCT FROM (v_scope_data->>'token_hash')
        OR v_outbox.actor_id IS DISTINCT FROM (v_scope_data->>'invited_by')::uuid
        OR v_outbox.expires_at IS DISTINCT FROM (v_scope_data->>'expires_at')::timestamptz THEN
+        -- Stale leases are mutation-free; only the claim path retires stale intents.
         RETURN pg_catalog.jsonb_build_object(
             'schema', 'aap-identity-mail-native/v2', 'ok', true,
             'data', pg_catalog.jsonb_build_object('accepted', false)
