@@ -282,6 +282,33 @@ async def test_authorized_task_and_batch_routes_use_selected_briefs_owner(
             )
             assert member_reviewer["avatar_ref"] is None
 
+            project_response = await client.get(
+                f"/api/v1/projects/{caller['project_id']}", headers=headers
+            )
+            project_page = await client.get(
+                "/api/v1/projects/query", params={"page_size": 1}, headers=headers
+            )
+            project_list = await client.get(
+                "/api/v1/projects",
+                params={"search": f"Authorized brief callers {suffix}"},
+                headers=headers,
+            )
+            assert project_response.status_code == 200, project_response.text
+            assert project_page.status_code == 200, project_page.text
+            assert project_list.status_code == 200, project_list.text
+            assert project_page.json()["total"] == 1
+            assert len(project_list.json()) == 1
+            for project_body in (
+                project_response.json(),
+                project_page.json()["items"][0],
+                project_list.json()[0],
+            ):
+                assert project_body["id"] == str(caller["project_id"])
+                assert project_body["owner_id"] == str(actor_id)
+                assert project_body["owner_name"] == "Live Identity user"
+                assert project_body["owner_avatar_ref"] is None
+                assert project_body["my_project_role"] == "annotator"
+
             hidden_task = await client.get(
                 f"/api/v1/tasks/{caller['task_id']}", headers=outsider_headers
             )
@@ -306,6 +333,11 @@ async def test_authorized_task_and_batch_routes_use_selected_briefs_owner(
             assert hidden_members.json() == {"detail": "项目不存在"}
             assert "Batch reviewer" not in hidden_members.text
             assert f"brief-batch-user-{suffix}@example.test" not in hidden_members.text
+            hidden_project = await client.get(
+                f"/api/v1/projects/{caller['project_id']}", headers=outsider_headers
+            )
+            assert hidden_project.status_code == 404, hidden_project.text
+            assert hidden_project.json() == {"detail": "项目不存在"}
     finally:
         if api:
             api.stop()
@@ -375,12 +407,22 @@ async def test_remote_briefs_owner_failure_does_not_fall_back_to_local_orm(
             member_response = await client.get(
                 f"/api/v1/projects/{caller['project_id']}/members", headers=headers
             )
+            project_response = await client.get(
+                f"/api/v1/projects/{caller['project_id']}", headers=headers
+            )
+            project_page = await client.get("/api/v1/projects/query", headers=headers)
         assert response.status_code == 503, response.text
         assert secret not in response.text and control not in response.text
         assert member_response.status_code == 503, member_response.text
         assert (
             secret not in member_response.text and control not in member_response.text
         )
+        assert project_response.status_code == 503, project_response.text
+        assert project_page.status_code == 503, project_page.text
+        assert (
+            secret not in project_response.text and control not in project_response.text
+        )
+        assert secret not in project_page.text and control not in project_page.text
     finally:
         if api:
             api.stop()

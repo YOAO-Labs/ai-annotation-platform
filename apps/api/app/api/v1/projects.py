@@ -46,6 +46,7 @@ from app.services.project_membership import (
     preview_role_change as preview_project_member_role_change,
 )
 from app.services.user_brief import resolve_briefs
+from app.schemas.user import UserBrief
 from app.db.models.user import User
 from app.db.models.project import Project
 from app.db.models.project_member import ProjectMember
@@ -414,21 +415,18 @@ async def _serialize_project(
     *,
     ai_completed_lookup: dict[uuid.UUID, int] | None = None,
     batch_summary_lookup: dict[uuid.UUID, dict] | None = None,
+    owner_lookup: dict[str, UserBrief] | None = None,
 ) -> dict:
     """补齐 owner_name + member_count + ai_completed_tasks，转 dict 以喂给 ProjectOut。
 
     v0.7.0：in_progress_tasks 已是持久化列（alembic 0028）；ai_completed_tasks 由调用方
     通过 ai_completed_lookup 批量提供（list_projects 路径）或 fallback 单独查询。
     """
-    owner_name = None
-    owner_avatar_ref = None
-    if project.owner_id:
-        owner_row = await db.execute(
-            select(User.name, User.avatar_ref).where(User.id == project.owner_id)
-        )
-        owner_row = owner_row.first()
-        if owner_row is not None:
-            owner_name, owner_avatar_ref = owner_row
+    if owner_lookup is None:
+        owner_lookup = await resolve_briefs(db, [project.owner_id])
+    owner = owner_lookup.get(str(project.owner_id))
+    owner_name = owner.name if owner is not None else None
+    owner_avatar_ref = owner.avatar_ref if owner is not None else None
     count_row = await db.execute(
         select(func.count())
         .select_from(ProjectMember)
@@ -583,12 +581,14 @@ async def _serialize_project_list(
         ).all()
         ai_lookup = {row[0]: int(row[1]) for row in ai_rows}
 
+    owner_lookup = await resolve_briefs(db, {p.owner_id for p in projects})
     return [
         await _serialize_project(
             db,
             p,
             ai_completed_lookup=ai_lookup,
             batch_summary_lookup=bs_lookup,
+            owner_lookup=owner_lookup,
         )
         for p in projects
     ]
