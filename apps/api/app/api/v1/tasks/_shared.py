@@ -36,6 +36,7 @@ from app.services.assets_media_summary import AssetsTaskMediaSummaryReader
 from app.services.assets_media_summary_contract import TaskMediaSummary
 from app.services.assets_media import browser_media_url, media_gateway
 from app.services.image_source_references import image_source_references
+from app.services.identity_contracts import IdentityActorFacts
 
 logger = logging.getLogger(__name__)
 
@@ -178,7 +179,7 @@ async def _assert_current_project_member(db: AsyncSession, project, user: User) 
 async def require_task_annotation_write(
     task_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: IdentityActorFacts = Depends(get_current_user),
 ) -> ProjectAccess:
     """FastAPI dependency: annotation write authority for ``task_id``.
 
@@ -200,7 +201,7 @@ async def require_task_annotation_write(
 async def require_task_annotation_write_strict(
     task_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: IdentityActorFacts = Depends(get_current_user),
 ) -> ProjectAccess:
     """Annotation write authority without the reviewer review-adjustment path."""
 
@@ -218,7 +219,7 @@ async def require_task_annotation_write_strict(
 async def require_task_annotation_write_lifecycle(
     task_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: IdentityActorFacts = Depends(get_current_user),
 ) -> ProjectAccess:
     """Annotation-phase capability for a task *lifecycle* transition.
 
@@ -239,7 +240,7 @@ async def require_task_annotation_write_lifecycle(
 async def require_task_review_write(
     task_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: IdentityActorFacts = Depends(get_current_user),
 ) -> ProjectAccess:
     """FastAPI dependency: review write authority for ``task_id``."""
 

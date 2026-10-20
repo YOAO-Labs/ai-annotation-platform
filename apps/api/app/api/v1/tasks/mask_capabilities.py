@@ -10,7 +10,6 @@ from app.api.v1.tasks._shared import (
     _load_task_or_404,
 )
 from app.db.models.project import Project
-from app.db.models.user import User
 from app.deps import get_current_user, get_db, require_scopes
 from app.schemas.task import TaskMaskCapabilitiesResponse
 from app.services.raster_mask_capabilities import evaluate_raster_mask_capabilities
@@ -20,6 +19,7 @@ from app.utils.raster_mask_rle import (
     MAX_IMAGE_MASK_PIXELS,
     MAX_MASK_RUNS,
 )
+from app.services.identity_contracts import IdentityActorFacts
 
 router = APIRouter()
 
@@ -32,7 +32,7 @@ router = APIRouter()
 async def get_mask_capabilities(
     task_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
 ) -> TaskMaskCapabilitiesResponse:
     task = await _load_task_or_404(db, task_id)
     access = await task_access.resolve_task_access(db, task, current_user.id)

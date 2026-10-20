@@ -29,6 +29,7 @@ from app.services.data_management.task_filters import (
     compile_filter,
     visible_tasks_stmt,
 )
+from app.services.identity_contracts import IdentityActorFacts
 
 
 _NUMERIC_OPS = {"eq", "ne", "gt", "gte", "lt", "lte", "in"}
@@ -282,7 +283,7 @@ async def count_entity_filters(
     project_id,
     entity_scope: str,
     filters: list[dict[str, Any]],
-    user: User,
+    user: User | IdentityActorFacts,
     project: Project,
     project_role: str | None = None,
 ) -> list[int]:

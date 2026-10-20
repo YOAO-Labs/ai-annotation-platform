@@ -12,7 +12,6 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.project import Project
-from app.db.models.user import User
 from app.deps import (
     get_current_user,
     get_db,
@@ -27,6 +26,7 @@ from app.schemas.guide_asset import (
 )
 from app.application.project_guide_assets import ProjectGuideAssetWorkflow
 from app.services.storage import storage_service
+from app.services.identity_contracts import IdentityActorFacts
 
 
 router = APIRouter()
@@ -40,7 +40,7 @@ async def guide_asset_upload_init(
     data: GuideAssetUploadInitRequest,
     project: Project = Depends(require_project_owner),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
 ):
     upload = await ProjectGuideAssetWorkflow(
         db, storage=storage_service
@@ -62,7 +62,7 @@ async def guide_asset_upload_complete(
     payload: dict,
     project: Project = Depends(require_project_owner),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
 ):
     key = payload.get("key")
     original_name = payload.get("original_name")
@@ -89,7 +89,7 @@ async def guide_asset_delete(
     key: str,
     project: Project = Depends(require_project_owner),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
 ):
     result = await ProjectGuideAssetWorkflow(db, storage=storage_service).delete_asset(
         actor_id=current_user.id, project_id=project.id, key=key
@@ -107,7 +107,7 @@ async def guide_asset_sign_url(
     key: str,
     project: Project = Depends(require_project_visible),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
 ):
     signed_url = await ProjectGuideAssetWorkflow(
         db, storage=storage_service

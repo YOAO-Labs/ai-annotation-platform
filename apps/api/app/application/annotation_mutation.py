@@ -37,6 +37,7 @@ from app.services.video_collaboration import (
     heartbeat_task_lock_for_legacy_video,
 )
 from app.services.workspace_contract import ProjectAccess
+from app.services.identity_contracts import IdentityActorFacts
 
 
 def validate_annotation_update_preconditions(
@@ -135,7 +136,7 @@ async def _load_single_task_for_ids(
 class _AnnotationBulkUpdateSqlAdapter(AnnotationBulkUpdatePort):
     """Bind the legacy bulk command to its current actor and write transaction."""
 
-    def __init__(self, db: AsyncSession, *, actor: User) -> None:
+    def __init__(self, db: AsyncSession, *, actor: User | IdentityActorFacts) -> None:
         self._db = db
         self._actor = actor
 
@@ -208,7 +209,7 @@ class _AnnotationMutationSqlAdapter(AnnotationMutationPort):
         db: AsyncSession,
         *,
         task: Task,
-        actor: User,
+        actor: User | IdentityActorFacts,
         access: ProjectAccess,
         verified_mask_content: _VerifiedMaskContent | None = None,
     ) -> None:

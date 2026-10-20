@@ -29,6 +29,7 @@ from app.db.models.project_member import ProjectMember
 from app.db.models.task import Task
 from app.db.models.user import User
 from app.services.workspace_contract import platform_role_is_manager
+from app.services.identity_contracts import IdentityActorFacts
 
 #: Platform roles allowed to open the personal annotator/reviewer dashboards.
 #: Legacy ``annotator`` / ``reviewer`` account values are intentionally absent;
@@ -76,7 +77,9 @@ def valid_membership_conditions():
     return _valid_membership_conditions()
 
 
-def membership_project_ids(user: User, *project_roles: str) -> Select[tuple[object]]:
+def membership_project_ids(
+    user: User | IdentityActorFacts, *project_roles: str
+) -> Select[tuple[object]]:
     """Project IDs where ``user`` holds a valid membership, optionally role-filtered."""
 
     stmt = (
@@ -102,7 +105,7 @@ def member_user_ids(project_id, *project_roles: str) -> Select[tuple[object]]:
     return stmt
 
 
-def _managed_project_ids(user: User) -> Select[tuple[object]]:
+def _managed_project_ids(user: User | IdentityActorFacts) -> Select[tuple[object]]:
     return select(Project.id).where(Project.owner_id == user.id)
 
 
@@ -117,7 +120,9 @@ def managed_project_scope_clause(user: User, project_column):
     return false()
 
 
-def project_scope_clause(user: User, project_column, *, project_roles=()):
+def project_scope_clause(
+    user: User | IdentityActorFacts, project_column, *, project_roles=()
+):
     """SQL predicate restricting ``project_column`` to the account's projects.
 
     * super administrator → ``None`` (no restriction)
@@ -143,7 +148,7 @@ def project_scope_clause(user: User, project_column, *, project_roles=()):
     return or_(*arms)
 
 
-def task_project_scope(user: User, *, project_roles=()):
+def task_project_scope(user: User | IdentityActorFacts, *, project_roles=()):
     """``project_scope_clause`` bound to ``Task.project_id``."""
 
     return project_scope_clause(user, Task.project_id, project_roles=project_roles)

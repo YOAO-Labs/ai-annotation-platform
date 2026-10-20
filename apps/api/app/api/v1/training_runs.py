@@ -18,7 +18,6 @@ from app.db.models.training_run import (
     TrainingResourceLease,
     TrainingRun,
 )
-from app.db.models.user import User
 from app.deps import (
     get_current_user,
     get_current_user_id,
@@ -57,6 +56,7 @@ from app.services import training_adapters as adapters
 from app.services.storage import storage_service as storage
 from app.services.training_dataset_bridge import content_digest
 from app.services.training_authority_contract import TrainingAuthorityPort
+from app.services.identity_contracts import IdentityActorFacts
 
 router = APIRouter(
     prefix="/projects/{project_id}/training-runs",
@@ -163,7 +163,7 @@ async def create_run(
     body: TrainingRunCreate,
     request: Request,
     project: Project = Depends(require_project_owner),
-    user: User = Depends(get_current_user),
+    user: IdentityActorFacts = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     run, created = await service.admit(
@@ -274,7 +274,7 @@ async def get_evaluation(
     offset: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=100),
     project: Project = Depends(require_project_owner),
-    user: User = Depends(get_current_user),
+    user: IdentityActorFacts = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     from app.services.training_evaluations import read_evaluation
@@ -302,7 +302,7 @@ async def get_evaluation(
 async def cancel_run(
     run_id: uuid.UUID,
     project: Project = Depends(require_project_owner),
-    user: User = Depends(get_current_user),
+    user: IdentityActorFacts = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     run = await service.cancel(db, project.id, run_id, user)
@@ -336,7 +336,7 @@ async def download_artifact(
     attempt_id: uuid.UUID,
     name: str,
     project: Project = Depends(require_project_owner),
-    user: User = Depends(get_current_user),
+    user: IdentityActorFacts = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     await lock_project_manager(db, user.id, project.id)

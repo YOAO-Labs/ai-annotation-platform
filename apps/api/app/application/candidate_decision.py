@@ -21,12 +21,15 @@ from app.services.video_collaboration import (
     assert_video_annotation_write_scope,
     heartbeat_task_lock_for_legacy_video,
 )
+from app.services.identity_contracts import IdentityActorFacts
 
 
 class _CandidateDecisionSqlAdapter(CandidateDecisionPort):
     """Keep ORM rows and commit details inside one bound request transaction."""
 
-    def __init__(self, db: AsyncSession, *, task: Task, actor: User) -> None:
+    def __init__(
+        self, db: AsyncSession, *, task: Task, actor: User | IdentityActorFacts
+    ) -> None:
         self._db = db
         self._task = task
         self._actor = actor
@@ -102,7 +105,7 @@ class _CandidateDecisionSqlAdapter(CandidateDecisionPort):
 
 
 def bind_candidate_decision_port(
-    db: AsyncSession, *, task: Task, actor: User
+    db: AsyncSession, *, task: Task, actor: User | IdentityActorFacts
 ) -> CandidateDecisionPort:
     """Bind candidate decisions without crossing the API boundary with ORM rows."""
     return _CandidateDecisionSqlAdapter(db, task=task, actor=actor)

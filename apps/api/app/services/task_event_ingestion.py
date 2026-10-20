@@ -25,6 +25,7 @@ from app.db.models.user import User
 from app.schemas.task_event import TaskEventIn
 from app.services.workspace_contract import ProjectCapability
 from app.services.project_access import resolve_project_access
+from app.services.identity_contracts import IdentityActorFacts
 
 MAX_EVENT_DURATION_MS = 4 * 60 * 60 * 1000
 MAX_ANNOTATION_COUNT = 1_000_000
@@ -148,7 +149,7 @@ async def assert_task_event_access(
     db: AsyncSession,
     *,
     task: Task,
-    user: User,
+    user: User | IdentityActorFacts,
     kind: str,
     started_at: datetime | None = None,
     ended_at: datetime | None = None,
@@ -246,7 +247,7 @@ def _fingerprint(payload: Mapping[str, Any]) -> tuple[Any, ...]:
 async def validate_api_events(
     db: AsyncSession,
     *,
-    user: User,
+    user: User | IdentityActorFacts,
     events: Iterable[TaskEventIn],
     now: datetime | None = None,
 ) -> tuple[list[dict[str, Any]], list[TaskEventRejection]]:

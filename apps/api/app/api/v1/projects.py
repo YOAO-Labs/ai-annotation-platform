@@ -114,6 +114,7 @@ from app.application.project_pipeline import apply_saved_pipeline
 from app.application.project_workspace_configuration import (
     WorkspaceConfigurationWorkflow,
 )
+from app.services.identity_contracts import IdentityActorFacts
 
 router = APIRouter()
 logger = logging.getLogger("app.api.projects")
@@ -274,7 +275,7 @@ async def _capture_video_input_manifest(
     return header
 
 
-def _visible_project_filter(user: User):
+def _visible_project_filter(user: User | IdentityActorFacts):
     """构造按当前用户可见性过滤项目的子查询条件 (Project 主查询)。
 
     统一口径：super_admin 全见；项目负责人见自有项目；其余账号见其成员项目。
@@ -297,7 +298,7 @@ def _visible_project_filter(user: User):
 
 
 async def _my_project_roles(
-    db: AsyncSession, user: User, projects: list[Project]
+    db: AsyncSession, user: User | IdentityActorFacts, projects: list[Project]
 ) -> dict[uuid.UUID, str]:
     """Membership role of the requesting account per project (managers: absent)."""
 
@@ -498,7 +499,7 @@ def _project_filter_datetime(value: str | None, *, end_of_day: bool = False):
 
 
 def _project_list_query(
-    user: User,
+    user: User | IdentityActorFacts,
     *,
     status: str | None = None,
     search: str | None = None,
@@ -607,7 +608,7 @@ async def list_projects(
     created_from: str | None = None,  # ISO date "2026-01-01"
     created_to: str | None = None,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: IdentityActorFacts = Depends(get_current_user),
 ):
     q = _project_list_query(
         user,
@@ -640,7 +641,7 @@ async def query_projects(
     created_from: str | None = None,
     created_to: str | None = None,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: IdentityActorFacts = Depends(get_current_user),
 ):
     q = _project_list_query(
         user,
@@ -673,7 +674,7 @@ async def query_projects(
 @router.get("/stats", response_model=ProjectStats)
 async def get_stats(
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: IdentityActorFacts = Depends(get_current_user),
 ):
     from app.db.models.annotation import Annotation
 
@@ -748,7 +749,7 @@ async def get_stats(
 async def create_project(
     data: ProjectCreate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_roles(*_MANAGERS)),
+    current_user: IdentityActorFacts = Depends(require_roles(*_MANAGERS)),
 ):
     project, template = await WorkspaceConfigurationWorkflow(db).create_project(
         data.model_dump(exclude_unset=True), actor_id=current_user.id
@@ -764,7 +765,7 @@ async def create_project(
 async def get_project(
     project: Project = Depends(require_project_visible),
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: IdentityActorFacts = Depends(get_current_user),
 ):
     out = await _serialize_project(db, project)
     roles = await _my_project_roles(db, user, [project])
@@ -942,7 +943,7 @@ async def update_project(
     data: ProjectUpdate,
     project: Project = Depends(require_project_owner),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
 ):
     project = await WorkspaceConfigurationWorkflow(db).update_project(
         project.id,
@@ -967,7 +968,7 @@ async def apply_project_pipeline(
     body: ProjectPipelineApplyRequest,
     project: Project = Depends(require_project_owner),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
 ):
     pipeline = await db.get(ProjectPipeline, body.pipeline_id)
     if pipeline is None:
@@ -1029,7 +1030,7 @@ async def rename_class(
     body: ClassRenameRequest,
     project: Project = Depends(require_project_owner),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
 ):
     """B-13 · 原子地把类别 old_name 重命名为 new_name:
     - 更新 tool_bindings 中对应 unit (或所有 unit) 的 classes[].name (强隔离 · 仅本 unit)
@@ -1094,7 +1095,7 @@ async def cleanup_annotation_orphans(
     body: ProjectCleanupOrphansRequest | None = None,
     project: Project = Depends(require_project_owner),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
 ):
     dry_run = True if body is None else body.dry_run
     result = await cleanup_project_annotation_orphans(
@@ -1127,7 +1128,7 @@ async def transfer_owner(
     body: ProjectTransferRequest,
     project_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_roles(UserRole.SUPER_ADMIN)),
+    current_user: IdentityActorFacts = Depends(require_roles(UserRole.SUPER_ADMIN)),
 ):
     project = await transfer_project_owner_workflow(
         db,
@@ -1144,7 +1145,7 @@ async def transfer_owner(
 async def get_project_access(
     project: Project = Depends(require_project_visible),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
 ):
     """Resolved project access for the current account.
 
@@ -1273,7 +1274,7 @@ async def add_member(
     body: ProjectMemberCreate,
     project: Project = Depends(require_project_owner),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
     _access=Depends(require_project_capability(ProjectCapability.MEMBER_MANAGE.value)),
 ):
     member = await add_project_member(
@@ -1295,7 +1296,7 @@ async def preview_member_role_change(
     body: ProjectMemberRolePreviewRequest,
     project: Project = Depends(require_project_owner),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
     _access=Depends(require_project_capability(ProjectCapability.MEMBER_MANAGE.value)),
 ):
     """Read-only role-change preview: blockers, resource snapshot and token."""
@@ -1321,7 +1322,7 @@ async def change_member_role(
     body: ProjectMemberRoleChangeRequest,
     project: Project = Depends(require_project_owner),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
     _access=Depends(require_project_capability(ProjectCapability.MEMBER_MANAGE.value)),
 ):
     """Role change with expected version, preview token and explicit handoff."""
@@ -1346,7 +1347,7 @@ async def remove_member(
     member_id: uuid.UUID,
     project: Project = Depends(require_project_owner),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
     _access=Depends(require_project_capability(ProjectCapability.MEMBER_MANAGE.value)),
 ):
     await remove_project_member(
@@ -1437,7 +1438,7 @@ async def export_project(
         description="MOTS 输出帧号基准：0 或 1",
     ),
     project: Project = Depends(require_project_visible),
-    actor: User = Depends(get_current_user),
+    actor: IdentityActorFacts = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
     _access=Depends(
         require_project_capability(ProjectCapability.EXPORT_ANNOTATIONS.value)
@@ -1812,7 +1813,7 @@ async def _validate_workbench_task_scope(
     *,
     project: Project,
     task_ids: list[uuid.UUID],
-    actor: User,
+    actor: User | IdentityActorFacts,
 ) -> list[uuid.UUID]:
     """校验工作台「当前题 AI」的单题执行范围 (issue #121)。
 
@@ -1869,7 +1870,7 @@ async def trigger_preannotation(
     request: Request,
     project: Project = Depends(require_project_owner),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
     idempotency_key: str | None = Header(
         default=None,
         alias="Idempotency-Key",
@@ -2908,7 +2909,7 @@ async def cleanup_orphan_tasks(
     request: Request,
     project: Project = Depends(require_project_owner),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
 ):
     """v0.6.7 二修 B-10：删除本项目所有「无源 task」（含 annotations / locks / comments），重算 counters。
 
@@ -2942,7 +2943,7 @@ async def cleanup_orphan_tasks(
 async def list_project_datasets(
     project_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
 ):
     """List linked datasets after the Assets owner rechecks current project visibility."""
     result = await AssetsCatalogGateway(db).list_project_datasets(

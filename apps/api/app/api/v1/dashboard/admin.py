@@ -40,6 +40,7 @@ from app.services.dashboard_stats import (
     _reject_reason_breakdown,
 )
 from app.api.v1.audit_logs import _managed_audit_scope
+from app.services.identity_contracts import IdentityActorFacts
 
 router = APIRouter()
 
@@ -47,7 +48,7 @@ router = APIRouter()
 @router.get("/admin", response_model=AdminDashboardStats)
 async def admin_dashboard(
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_roles(UserRole.SUPER_ADMIN)),
+    _: IdentityActorFacts = Depends(require_roles(UserRole.SUPER_ADMIN)),
 ):
     users_result = await db.execute(select(User).where(User.is_active.is_(True)))
     users = users_result.scalars().all()
@@ -153,7 +154,7 @@ async def admin_dashboard(
 
 
 async def _resolve_people_scope(
-    db: AsyncSession, current_user: User, project: str | None
+    db: AsyncSession, current_user: User | IdentityActorFacts, project: str | None
 ) -> uuid.UUID | None:
     """v0.12.6 (A3) · 解析成员绩效的项目范围 + 强制 RBAC。
 
@@ -195,7 +196,7 @@ async def admin_people_list(
     sort: str = Query("throughput"),
     q: str | None = Query(None),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(
+    current_user: IdentityActorFacts = Depends(
         require_roles(UserRole.SUPER_ADMIN, UserRole.PROJECT_ADMIN)
     ),
 ):
@@ -536,7 +537,7 @@ async def admin_people_export(
     sort: str = Query("throughput"),
     q: str | None = Query(None),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(
+    current_user: IdentityActorFacts = Depends(
         require_roles(UserRole.SUPER_ADMIN, UserRole.PROJECT_ADMIN)
     ),
 ):
@@ -578,7 +579,7 @@ async def admin_person_detail(
     period: str = Query("4w"),
     project: str | None = Query(None),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(
+    current_user: IdentityActorFacts = Depends(
         require_roles(UserRole.SUPER_ADMIN, UserRole.PROJECT_ADMIN)
     ),
 ):
@@ -867,7 +868,7 @@ _RANGE_DAYS = {"7d": 7, "30d": 30}
 async def prediction_cost_stats(
     range: str = Query("30d", pattern="^(7d|30d)$"),
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_roles(UserRole.SUPER_ADMIN)),
+    _: IdentityActorFacts = Depends(require_roles(UserRole.SUPER_ADMIN)),
 ):
     """v0.8.6 F4 · 过去 N 天预测调用数 / 平均耗时 / 失败率 / 总成本。
 

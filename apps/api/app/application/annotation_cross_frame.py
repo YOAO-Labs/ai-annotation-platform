@@ -33,6 +33,7 @@ from app.services.audit_origin_contract import AuditOriginContext
 from app.services import task_access
 from app.services.task_lock import TaskLockService
 from app.services.workspace_contract import ProjectAccess
+from app.services.identity_contracts import IdentityActorFacts
 
 
 async def _load_task_or_404(db: AsyncSession, task_id: UUID) -> Task:
@@ -50,7 +51,7 @@ class _AnnotationCrossFrameSqlAdapter(AnnotationCrossFramePort):
         db: AsyncSession,
         *,
         source_task: Task,
-        actor: User,
+        actor: User | IdentityActorFacts,
         access: ProjectAccess,
     ) -> None:
         self._db = db

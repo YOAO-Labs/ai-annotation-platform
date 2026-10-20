@@ -8,7 +8,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.services.training_claims import project_lock
 from app.services.project_write_guard import lock_project_manager
 from app.db.models.project import Project
-from app.db.models.user import User
 from app.deps import get_current_user, get_db, require_project_owner, require_scopes
 from app.schemas.model_lineage import (
     LineageOut,
@@ -18,6 +17,7 @@ from app.schemas.model_lineage import (
     NodeKind,
 )
 from app.services import model_lineage as service
+from app.services.identity_contracts import IdentityActorFacts
 
 router = APIRouter(
     prefix="/projects/{project_id}",
@@ -59,7 +59,7 @@ async def create_decision(
     version_id: uuid.UUID,
     body: ModelDecisionCreate,
     project: Project = Depends(require_project_owner),
-    user: User = Depends(get_current_user),
+    user: IdentityActorFacts = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     await project_lock(db, project.id)

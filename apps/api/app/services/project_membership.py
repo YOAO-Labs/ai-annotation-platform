@@ -44,6 +44,7 @@ from app.services.scheduler import (
     effective_task_reviewer_expr,
 )
 from app.services.user_lifecycle import UserLifecycleService
+from app.services.identity_contracts import IdentityActorFacts
 
 _BUSY_SQLSTATES = {"55P03", "40P01", "40001"}
 
@@ -1118,7 +1119,9 @@ _REMOVAL_IGNORED_BLOCKER_CODES = frozenset({"same_role", "target_role_incompatib
 # ---------------------------------------------------------------------------
 
 
-async def _assert_actor_can_manage(*, actor: User | None, project: Project) -> None:
+async def _assert_actor_can_manage(
+    *, actor: User | IdentityActorFacts | None, project: Project
+) -> None:
     """Recheck actor activity and manager authority *after* locks are held."""
 
     if actor is None or not actor.is_active:
@@ -1137,7 +1140,7 @@ async def add_member(
     db: AsyncSession,
     *,
     project: Project,
-    actor: User,
+    actor: User | IdentityActorFacts,
     target_user_id: uuid.UUID,
     project_role: str,
 ) -> ProjectMember:
@@ -1204,7 +1207,7 @@ async def preview_role_change(
     db: AsyncSession,
     *,
     project: Project,
-    actor: User,
+    actor: User | IdentityActorFacts,
     member_id: uuid.UUID,
     target_role: str,
     replacement_annotator_id: uuid.UUID | None,

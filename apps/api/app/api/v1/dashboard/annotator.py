@@ -40,6 +40,7 @@ from app.services.dashboard_stats import (
     _period_window,
     _reject_reason_breakdown,
 )
+from app.services.identity_contracts import IdentityActorFacts
 
 router = APIRouter()
 
@@ -51,7 +52,9 @@ router = APIRouter()
 async def annotator_project_onboarding(
     project_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_roles(*DASHBOARD_PLATFORM_ROLES)),
+    current_user: IdentityActorFacts = Depends(
+        require_roles(*DASHBOARD_PLATFORM_ROLES)
+    ),
 ):
     """Return durable checklist signals for the current user and project.
 
@@ -178,7 +181,9 @@ async def annotator_project_onboarding(
 @router.get("/annotator", response_model=AnnotatorDashboardStats)
 async def annotator_dashboard(
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_roles(*DASHBOARD_PLATFORM_ROLES)),
+    current_user: IdentityActorFacts = Depends(
+        require_roles(*DASHBOARD_PLATFORM_ROLES)
+    ),
 ):
     # Current annotation work follows the *project* annotator role.  An
     # employee who is only a reviewer elsewhere must not see that project's
@@ -429,7 +434,9 @@ async def annotator_dashboard(
 @router.get("/annotator/batches", response_model=list[MyBatchItem])
 async def my_batches(
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_roles(*DASHBOARD_PLATFORM_ROLES)),
+    current_user: IdentityActorFacts = Depends(
+        require_roles(*DASHBOARD_PLATFORM_ROLES)
+    ),
 ):
     """v0.7.1 B-17 · 标注员视角的「我的批次」：仅返回当前用户被分派、且处于
     active / annotating / rejected / reviewing 的批次。让标注员从 dashboard
@@ -601,7 +608,7 @@ async def my_batches(
 async def my_performance(
     period: str = Query("4w"),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
 ):
     """v0.12.3 · 标注员自助绩效（取经合集 §4.1 个人页）。
 

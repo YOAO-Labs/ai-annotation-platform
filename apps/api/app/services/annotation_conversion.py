@@ -31,6 +31,7 @@ from app.schemas.annotation_conversion import (
     AnnotationConversionLineageOut,
     AnnotationConversionSummary,
 )
+from app.services.identity_contracts import IdentityActorFacts
 from app.services.annotation import AnnotationService
 from app.services.annotation_evidence import record_annotation_actor
 from app.services.annotation_propagation import _new_track_id
@@ -873,7 +874,7 @@ class AnnotationConversionService:
         self,
         *,
         task: Task,
-        actor: User,
+        actor: User | IdentityActorFacts,
         payload: AnnotationConversionDryRunRequest,
         access: Any = None,
     ) -> AnnotationConversionDryRunResponse:
@@ -966,7 +967,7 @@ class AnnotationConversionService:
     async def _lock_video_segments(
         self,
         task: Task,
-        actor: User,
+        actor: User | IdentityActorFacts,
         project: Project | None,
         frame_indexes: list[int],
     ) -> None:
@@ -1069,7 +1070,7 @@ class AnnotationConversionService:
         self,
         *,
         task_id: uuid.UUID,
-        actor: User,
+        actor: User | IdentityActorFacts,
         payload: AnnotationConversionExecuteRequest,
         request: Request,
         access: Any = None,

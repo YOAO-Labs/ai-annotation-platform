@@ -24,6 +24,7 @@ from app.services.annotation_evidence import (
     refresh_task_evidence,
     task_contributor_snapshot,
 )
+from app.services.identity_contracts import IdentityActorFacts
 
 
 def _now() -> datetime:
@@ -223,7 +224,9 @@ async def _load_segment_for_update(
     return row
 
 
-def _assert_can_touch_lock(row: VideoSegment, user: User, privileged: bool) -> None:
+def _assert_can_touch_lock(
+    row: VideoSegment, user: User | IdentityActorFacts, privileged: bool
+) -> None:
     if privileged or row.locked_by is None or row.locked_by == user.id:
         return
     raise HTTPException(
@@ -246,7 +249,7 @@ async def claim_segment(
     db: AsyncSession,
     ctx: VideoContext,
     segment_id: uuid.UUID,
-    user: User,
+    user: User | IdentityActorFacts,
     *,
     privileged: bool,
 ) -> VideoSegmentOut:
@@ -282,7 +285,7 @@ async def heartbeat_segment(
     db: AsyncSession,
     ctx: VideoContext,
     segment_id: uuid.UUID,
-    user: User,
+    user: User | IdentityActorFacts,
     *,
     privileged: bool,
 ) -> VideoSegmentOut:
@@ -304,7 +307,7 @@ async def release_segment(
     db: AsyncSession,
     ctx: VideoContext,
     segment_id: uuid.UUID,
-    user: User,
+    user: User | IdentityActorFacts,
     *,
     privileged: bool,
 ) -> VideoSegmentOut:
@@ -327,7 +330,7 @@ async def submit_segment(
     db: AsyncSession,
     ctx: VideoContext,
     segment_id: uuid.UUID,
-    user: User,
+    user: User | IdentityActorFacts,
     *,
     privileged: bool,
     task: Task | None = None,

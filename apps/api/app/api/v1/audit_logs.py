@@ -32,6 +32,7 @@ from app.schemas.audit import (
 )
 from app.services.audit_partition_service import AuditPartitionService
 from app.services.audit_summary import build_monthly_summary
+from app.services.identity_contracts import IdentityActorFacts
 
 router = APIRouter()
 
@@ -187,7 +188,9 @@ def _row_to_out(row) -> AuditLogOut:
     return result
 
 
-def _managed_audit_scope(actor: User, *, project_id: UUID | None = None):
+def _managed_audit_scope(
+    actor: User | IdentityActorFacts, *, project_id: UUID | None = None
+):
     conditions = (
         [] if actor.role == UserRole.SUPER_ADMIN else [Project.owner_id == actor.id]
     )
@@ -323,7 +326,9 @@ async def list_audit_logs(
         None, description="A.3：detail_json 字段级过滤——键值"
     ),
     db: AsyncSession = Depends(get_db),
-    actor: User = Depends(require_roles(UserRole.SUPER_ADMIN, UserRole.PROJECT_ADMIN)),
+    actor: IdentityActorFacts = Depends(
+        require_roles(UserRole.SUPER_ADMIN, UserRole.PROJECT_ADMIN)
+    ),
 ):
     base, count_q = _build_base_query(
         action,
@@ -382,7 +387,7 @@ async def get_monthly_audit_summary(
     month: str = Query(..., description="UTC 自然月，格式 YYYY-MM"),
     business_only: bool = Query(True, description="排除 http.* 中间件元数据行"),
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_roles(UserRole.SUPER_ADMIN)),
+    _: IdentityActorFacts = Depends(require_roles(UserRole.SUPER_ADMIN)),
 ):
     """Return authorized monthly audit aggregates from the local calculator."""
     month_start, month_end = _month_bounds(month)
@@ -411,7 +416,7 @@ async def get_monthly_audit_summary(
 
 @router.get("/archives", response_model=list[AuditArchiveOut])
 async def list_audit_archives(
-    _: User = Depends(require_roles(UserRole.SUPER_ADMIN)),
+    _: IdentityActorFacts = Depends(require_roles(UserRole.SUPER_ADMIN)),
 ):
     """列出已归档到 MinIO 冷存储的审计月份（合规回源前置查询）。
 
@@ -426,7 +431,7 @@ async def read_audit_archive(
     month: int = Path(..., ge=1, le=12),
     limit: int = Query(100, ge=1, le=1000),
     offset: int = Query(0, ge=0),
-    _: User = Depends(require_roles(UserRole.SUPER_ADMIN)),
+    _: IdentityActorFacts = Depends(require_roles(UserRole.SUPER_ADMIN)),
 ):
     """回源读取指定月份的归档 jsonl.gz，解压解析后分页返回归档行。
 
@@ -463,7 +468,7 @@ async def export_audit_logs(
     detail_key: str | None = Query(None),
     detail_value: str | None = Query(None),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_roles(UserRole.SUPER_ADMIN)),
+    current_user: IdentityActorFacts = Depends(require_roles(UserRole.SUPER_ADMIN)),
 ):
     _MAX_ROWS = 50_000
     base, count_q = _build_base_query(

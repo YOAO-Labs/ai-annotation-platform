@@ -63,6 +63,7 @@ from app.schemas.project_performance import (
 )
 from app.services.audit import AuditAction
 from app.services.csv_export import csv_literal
+from app.services.identity_contracts import IdentityActorFacts
 
 
 _WORKFLOW_ACTIONS = (
@@ -235,7 +236,7 @@ def _project_audit_filter(project_id: UUID):
 async def resolve_performance_access(
     db: AsyncSession,
     project_id: UUID,
-    user: User,
+    user: User | IdentityActorFacts,
 ) -> Project:
     project = await db.get(Project, project_id)
     if project is None:
@@ -1665,7 +1666,7 @@ async def _load_evidence_page(
 async def _prepare_aggregate(
     db: AsyncSession,
     project_id: UUID,
-    user: User,
+    user: User | IdentityActorFacts,
     scope: ResolvedScope,
     *,
     target_user_id: UUID | None,
@@ -1706,7 +1707,7 @@ async def _prepare_aggregate(
 async def list_members_performance(
     db: AsyncSession,
     project_id: UUID,
-    user: User,
+    user: User | IdentityActorFacts,
     *,
     from_: str | None = None,
     to: str | None = None,
@@ -1755,7 +1756,7 @@ async def member_performance_detail(
     db: AsyncSession,
     project_id: UUID,
     member_id: UUID,
-    user: User,
+    user: User | IdentityActorFacts,
     *,
     from_: str | None = None,
     to: str | None = None,
@@ -1816,7 +1817,7 @@ async def member_performance_events(
     db: AsyncSession,
     project_id: UUID,
     member_id: UUID,
-    user: User,
+    user: User | IdentityActorFacts,
     *,
     from_: str | None = None,
     to: str | None = None,
@@ -1877,7 +1878,7 @@ _CSV_METRICS = (
 async def export_members_csv(
     db: AsyncSession,
     project_id: UUID,
-    user: User,
+    user: User | IdentityActorFacts,
     **kwargs: Any,
 ) -> bytes:
     response = await list_members_performance(

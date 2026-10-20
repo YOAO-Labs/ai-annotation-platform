@@ -20,6 +20,7 @@ from app.db.models.user import User
 from app.schemas.training_dataset import TrainingDatasetCreate, TrainingDatasetSelection
 from app.services import async_job as jobs
 from app.services import project_task_dataset as task_datasets
+from app.services.identity_contracts import IdentityActorFacts
 from app.services.async_job_notify import notify_job_terminal
 from app.services.async_job_terminal import JobTerminal
 from app.services.project_access import resolve_project_access
@@ -369,7 +370,7 @@ async def freeze_selection(
 async def create_version(
     db: AsyncSession,
     project: Project,
-    user: User,
+    user: User | IdentityActorFacts,
     body: TrainingDatasetCreate,
     *,
     api_key_id: str | None,

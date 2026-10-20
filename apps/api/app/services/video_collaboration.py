@@ -18,6 +18,7 @@ from app.schemas.project import VideoCollaborationConfig
 from app.schemas.task import VideoMetadata
 from app.services.assets_media_summary import AssetsTaskMediaSummaryReader
 from app.services.video_context import derive_step
+from app.services.identity_contracts import IdentityActorFacts
 
 
 VIDEO_GEOMETRY_TYPES = frozenset(
@@ -283,7 +284,7 @@ async def assert_video_annotation_write_scope(
     db: AsyncSession,
     *,
     task: Task,
-    user: User,
+    user: User | IdentityActorFacts,
     segment_id: uuid.UUID | None,
     geometry: dict | None,
 ) -> VideoSegment | None:

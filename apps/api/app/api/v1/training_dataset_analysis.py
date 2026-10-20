@@ -17,7 +17,6 @@ from app.db.models.training_dataset import TrainingDatasetVersion
 from app.db.models.training_dataset_analysis import (
     TrainingDatasetAnalyzedSample as Sample,
 )
-from app.db.models.user import User
 from app.deps import get_current_user, get_db, require_project_owner, require_scopes
 from app.schemas.training_dataset_analysis import (
     TrainingDatasetInsightOverview,
@@ -28,6 +27,7 @@ from app.schemas.training_dataset_analysis import (
 )
 from app.services import training_dataset_analysis as service
 from app.services.training_dataset_bridge import TrainingDatasetError
+from app.services.identity_contracts import IdentityActorFacts
 
 router = APIRouter(
     prefix="/projects/{project_id}/training-datasets/{version_id}/insights",
@@ -54,7 +54,7 @@ def comparison_result(baseline, target):
 async def overview(
     version_id: uuid.UUID,
     project: Project = Depends(require_project_owner),
-    user: User = Depends(get_current_user),
+    user: IdentityActorFacts = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     version, analysis, manifest_digest = await authorized_analysis(
@@ -75,7 +75,7 @@ async def overview(
 async def classes(
     version_id: uuid.UUID,
     project: Project = Depends(require_project_owner),
-    user: User = Depends(get_current_user),
+    user: IdentityActorFacts = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
     limit: int = Query(25, ge=1, le=100),
     offset: int = Query(0, ge=0, le=2147483647),
@@ -112,7 +112,7 @@ async def comparison(
     version_id: uuid.UUID,
     baseline_id: uuid.UUID,
     project: Project = Depends(require_project_owner),
-    user: User = Depends(get_current_user),
+    user: IdentityActorFacts = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     _, target, _ = await authorized_analysis(db, project, user, version_id)
@@ -126,7 +126,7 @@ async def comparison(
 async def samples(
     version_id: uuid.UUID,
     project: Project = Depends(require_project_owner),
-    user: User = Depends(get_current_user),
+    user: IdentityActorFacts = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
     limit: int = Query(25, ge=1, le=100),
     offset: int = Query(0, ge=0, le=2147483647),
@@ -215,7 +215,7 @@ async def sample_detail(
     version_id: uuid.UUID,
     task_id: uuid.UUID,
     project: Project = Depends(require_project_owner),
-    user: User = Depends(get_current_user),
+    user: IdentityActorFacts = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
     limit: int = Query(500, ge=1, le=1000),
     offset: int = Query(0, ge=0, le=2147483647),
@@ -249,7 +249,7 @@ async def sample_media(
     version_id: uuid.UUID,
     task_id: uuid.UUID,
     project: Project = Depends(require_project_owner),
-    user: User = Depends(get_current_user),
+    user: IdentityActorFacts = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
     preview: bool = False,
 ):

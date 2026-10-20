@@ -22,7 +22,6 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.notification_preference import NotificationPreference
-from app.db.models.user import User
 from app.deps import get_db, get_current_user
 from app.schemas.notification import NotificationList, NotificationOut, UnreadCount
 from app.services.notification import NotificationService
@@ -33,6 +32,7 @@ from app.services.notification_preferences import (
 from app.services.notification_preferences_command import (
     NotificationPreferenceCommandService,
 )
+from app.services.identity_contracts import IdentityActorFacts
 
 
 class NotificationPreferenceItem(BaseModel):
@@ -71,7 +71,7 @@ async def list_notifications(
     limit: int = Query(30, ge=1, le=100),
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: IdentityActorFacts = Depends(get_current_user),
 ):
     svc = NotificationService(db)
     items, total, unread = await svc.list_for_user(
@@ -87,7 +87,7 @@ async def list_notifications(
 @router.get("/notifications/unread-count", response_model=UnreadCount)
 async def unread_count(
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: IdentityActorFacts = Depends(get_current_user),
 ):
     svc = NotificationService(db)
     return UnreadCount(unread=await svc.unread_count(user.id))
@@ -97,7 +97,7 @@ async def unread_count(
 async def mark_read(
     notification_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: IdentityActorFacts = Depends(get_current_user),
 ):
     svc = NotificationService(db)
     ok = await svc.mark_read(user.id, notification_id)
@@ -114,7 +114,7 @@ async def mark_read(
 @router.post("/notifications/mark-all-read")
 async def mark_all_read(
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: IdentityActorFacts = Depends(get_current_user),
 ):
     svc = NotificationService(db)
     n = await svc.mark_all_read(user.id)
@@ -127,7 +127,7 @@ async def mark_all_read(
 @router.post("/notifications/clear-read")
 async def clear_read_notifications(
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: IdentityActorFacts = Depends(get_current_user),
 ):
     svc = NotificationService(db)
     n = await svc.clear_read(user.id)
@@ -141,7 +141,7 @@ async def clear_read_notifications(
 async def delete_notification(
     notification_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: IdentityActorFacts = Depends(get_current_user),
 ):
     svc = NotificationService(db)
     ok = await svc.delete_for_user(user.id, notification_id)
@@ -161,7 +161,7 @@ def _stored_toast(channels: dict | None, notification_type: str) -> bool | None:
 @router.get("/notification-preferences", response_model=NotificationPreferencesOut)
 async def get_preferences(
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: IdentityActorFacts = Depends(get_current_user),
 ):
     """v0.7.0：返回所有已知 type 的偏好；无记录默认 in_app=True / email=False。
 
@@ -201,7 +201,7 @@ async def get_preferences(
 async def update_preference(
     data: NotificationPreferenceUpdate,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: IdentityActorFacts = Depends(get_current_user),
 ):
     """Upsert 单条偏好；v0.7.0 起 in_app/toast 至少提供一个。
 

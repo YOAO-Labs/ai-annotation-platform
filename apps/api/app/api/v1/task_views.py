@@ -15,7 +15,6 @@ from app.api.v1.tasks import (
 )
 from app.deps import get_current_user, get_db
 from app.db.models.project_task_view import ProjectTaskView
-from app.db.models.user import User
 from app.services.workspace_contract import ProjectAccess
 from app.services.project_access import resolve_project_access_by_id
 from app.schemas.task_view import (
@@ -45,6 +44,7 @@ from app.services.data_management.views import (
     validate_sort,
 )
 from app.services.user_brief import resolve_briefs
+from app.services.identity_contracts import IdentityActorFacts
 
 router = APIRouter()
 
@@ -105,7 +105,7 @@ async def list_task_views(
     project_id: uuid.UUID,
     entity_scope: DataManagerEntityScope = Query(default="tasks"),
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: IdentityActorFacts = Depends(get_current_user),
 ):
     project, access = await resolve_project_access_by_id(
         db, actor_id=user.id, project_id=project_id
@@ -198,7 +198,7 @@ async def create_task_view(
     payload: ProjectTaskViewCreate,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: IdentityActorFacts = Depends(get_current_user),
 ):
     project, access = await resolve_project_access_by_id(
         db, actor_id=user.id, project_id=project_id
@@ -240,7 +240,7 @@ async def get_task_view(
     project_id: uuid.UUID,
     view_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: IdentityActorFacts = Depends(get_current_user),
 ):
     project, access = await resolve_project_access_by_id(
         db, actor_id=user.id, project_id=project_id
@@ -286,7 +286,7 @@ async def update_task_view(
     payload: ProjectTaskViewUpdate,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: IdentityActorFacts = Depends(get_current_user),
 ):
     project, access = await resolve_project_access_by_id(
         db, actor_id=user.id, project_id=project_id
@@ -330,7 +330,7 @@ async def delete_task_view(
     view_id: uuid.UUID,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: IdentityActorFacts = Depends(get_current_user),
 ):
     project, access = await resolve_project_access_by_id(
         db, actor_id=user.id, project_id=project_id
@@ -364,7 +364,7 @@ async def copy_task_view(
     payload: ProjectTaskViewCopyRequest,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: IdentityActorFacts = Depends(get_current_user),
 ):
     project, access = await resolve_project_access_by_id(
         db, actor_id=user.id, project_id=project_id
@@ -408,7 +408,7 @@ async def query_project_tasks(
     project_id: uuid.UUID,
     payload: ProjectTaskQueryRequest,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: IdentityActorFacts = Depends(get_current_user),
 ):
     project, access = await resolve_project_access_by_id(
         db, actor_id=user.id, project_id=project_id
@@ -530,7 +530,7 @@ async def query_task_view_tasks(
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: IdentityActorFacts = Depends(get_current_user),
 ):
     _project, _access = await resolve_project_access_by_id(
         db, actor_id=user.id, project_id=project_id

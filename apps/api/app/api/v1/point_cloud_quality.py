@@ -64,6 +64,7 @@ from app.services.point_cloud_quality.evaluation import (
     create_evaluation,
     list_evaluations,
 )
+from app.services.identity_contracts import IdentityActorFacts
 
 
 router = APIRouter(dependencies=[Depends(require_active_task_actor)])
@@ -91,7 +92,7 @@ async def _assert_request_visible(
     db: AsyncSession,
     *,
     project: Project,
-    user: User,
+    user: User | IdentityActorFacts,
     access: ProjectAccess,
     body: PointCloudQualityRunRequest,
 ) -> None:
@@ -131,7 +132,11 @@ async def _assert_request_visible(
 
 
 async def _assert_issue_visible(
-    db: AsyncSession, issue: PointCloudQualityIssue, user: User, *, lock: bool = False
+    db: AsyncSession,
+    issue: PointCloudQualityIssue,
+    user: User | IdentityActorFacts,
+    *,
+    lock: bool = False,
 ) -> tuple[Project, ProjectAccess]:
     project = await db.get(Project, issue.project_id)
     if project is None:
@@ -180,7 +185,7 @@ async def create_run(
     body: PointCloudQualityRunRequest,
     project: Project = Depends(require_project_visible),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
     quality_dispatcher: QualityJobDispatcher = Depends(get_quality_job_dispatcher),
     access: ProjectAccess = Depends(
         require_project_capability(ProjectCapability.REVIEW_WRITE.value)
@@ -232,7 +237,7 @@ async def get_run(
     run_id: uuid.UUID,
     project: Project = Depends(require_project_visible),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
     access: ProjectAccess = Depends(
         require_project_capability(ProjectCapability.REVIEW_WRITE.value)
     ),
@@ -256,7 +261,7 @@ async def get_run(
 async def get_issues(
     project: Project = Depends(require_project_visible),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
     access: ProjectAccess = Depends(
         require_project_capability(ProjectCapability.REVIEW_WRITE.value)
     ),
@@ -318,7 +323,7 @@ async def get_issues(
 async def get_issue(
     issue_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
 ):
     issue = await db.get(PointCloudQualityIssue, issue_id)
     if issue is None:
@@ -342,7 +347,7 @@ async def patch_issue(
     body: PointCloudQualityIssuePatch,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
 ):
     issue = await db.get(PointCloudQualityIssue, issue_id)
     if issue is None:
@@ -418,7 +423,7 @@ async def create_project_evaluation(
     request: Request,
     project: Project = Depends(require_project_visible),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
     _access: ProjectAccess = Depends(
         require_project_capability(ProjectCapability.PROJECT_MANAGE.value)
     ),
@@ -463,7 +468,7 @@ async def create_project_evaluation(
 async def get_project_evaluations(
     project: Project = Depends(require_project_visible),
     db: AsyncSession = Depends(get_db),
-    _current_user: User = Depends(get_current_user),
+    _current_user: IdentityActorFacts = Depends(get_current_user),
     _access: ProjectAccess = Depends(
         require_project_capability(ProjectCapability.REVIEW_WRITE.value)
     ),
@@ -484,7 +489,7 @@ async def get_project_evaluation(
     evaluation_id: uuid.UUID,
     project: Project = Depends(require_project_visible),
     db: AsyncSession = Depends(get_db),
-    _current_user: User = Depends(get_current_user),
+    _current_user: IdentityActorFacts = Depends(get_current_user),
     _access: ProjectAccess = Depends(
         require_project_capability(ProjectCapability.REVIEW_WRITE.value)
     ),
@@ -504,7 +509,7 @@ async def promote_project_evaluation(
     request: Request,
     project: Project = Depends(require_project_visible),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
     _access: ProjectAccess = Depends(
         require_project_capability(ProjectCapability.PROJECT_MANAGE.value)
     ),

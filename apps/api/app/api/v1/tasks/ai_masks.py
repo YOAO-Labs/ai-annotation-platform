@@ -9,7 +9,6 @@ from app.api.v1.tasks._shared import (
     _load_task_or_404,
     require_task_annotation_write,
 )
-from app.db.models.user import User
 from app.deps import get_current_user, get_db, require_scopes
 from app.schemas.ai_mask import AiMaskAcceptRequest, AiMaskAcceptResponse
 from app.services.labeling_prediction_contract import ApplyPredictionResultError
@@ -18,6 +17,7 @@ from app.services.ai_mask_accept import AiMaskAcceptError, accept_ai_mask_candid
 from app.services.raster_mask_storage import RasterMaskContractError
 from app.services.video_collaboration import assert_video_annotation_write_scope
 from app.observability.metrics import observe_mask_ai_phase, record_mask_ai_operation
+from app.services.identity_contracts import IdentityActorFacts
 
 router = APIRouter()
 
@@ -53,7 +53,7 @@ async def accept_native_ai_mask_candidate(
     request: Request,
     response: Response,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
     access: ProjectAccess = Depends(require_task_annotation_write),
 ):
     """Atomically accept one transient native Mask candidate.

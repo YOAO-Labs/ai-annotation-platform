@@ -9,7 +9,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.mask_format_import import MaskFormatImport
 from app.db.models.project import Project
-from app.db.models.user import User
 from app.services.quality_job_dispatch import QualityJobDispatcher
 from app.deps import (
     get_quality_job_dispatcher,
@@ -47,6 +46,7 @@ from app.services.mask_formats.service import (
 )
 from app.services.storage import storage_service
 from app.services.workspace_contract import ProjectAccess, ProjectCapability
+from app.services.identity_contracts import IdentityActorFacts
 
 
 router = APIRouter()
@@ -80,7 +80,7 @@ async def preflight_mask_format_export(
     body: MaskFormatExportPreflightRequest,
     project: Project = Depends(require_project_visible),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
     _access: ProjectAccess = Depends(
         require_project_capability(ProjectCapability.EXPORT_ANNOTATIONS.value)
     ),
@@ -168,7 +168,7 @@ async def preflight_mask_format_export(
 async def init_mask_format_upload(
     body: MaskFormatUploadInitRequest,
     project: Project = Depends(require_project_owner),
-    user: User = Depends(get_current_user),
+    user: IdentityActorFacts = Depends(get_current_user),
 ) -> MaskFormatUploadInitResponse:
     suffix = re.sub(r"[^A-Za-z0-9._-]+", "_", body.file_name).strip("._") or "import"
     object_key = f"{staged_prefix(project.id, user.id)}{uuid.uuid4()}/{suffix}"
@@ -194,7 +194,7 @@ async def preflight_mask_format_import(
     body: MaskFormatImportPreflightRequest,
     request: Request,
     project: Project = Depends(require_project_owner),
-    user: User = Depends(get_current_user),
+    user: IdentityActorFacts = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> MaskFormatImportPreflightResponse:
     try:
@@ -269,7 +269,7 @@ async def execute_mask_format_import(
     body: MaskFormatImportExecuteRequest,
     request: Request,
     project: Project = Depends(require_project_owner),
-    user: User = Depends(get_current_user),
+    user: IdentityActorFacts = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
     quality_dispatcher: QualityJobDispatcher = Depends(get_quality_job_dispatcher),
 ) -> MaskFormatImportBatchOut:
@@ -327,7 +327,7 @@ async def resume_mask_format_import(
     import_id: uuid.UUID,
     request: Request,
     project: Project = Depends(require_project_owner),
-    user: User = Depends(get_current_user),
+    user: IdentityActorFacts = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
     quality_dispatcher: QualityJobDispatcher = Depends(get_quality_job_dispatcher),
 ) -> MaskFormatImportBatchOut:

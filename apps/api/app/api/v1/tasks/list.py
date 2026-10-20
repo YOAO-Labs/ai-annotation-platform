@@ -42,6 +42,7 @@ from app.api.v1.tasks._shared import (
     _linked_source_references,
     _SEQ_NULL_SENTINEL,
 )
+from app.services.identity_contracts import IdentityActorFacts
 
 router = APIRouter()
 
@@ -50,7 +51,7 @@ def _build_task_query(
     *,
     project_id: uuid.UUID,
     project,
-    user: User,
+    user: User | IdentityActorFacts,
     access: ProjectAccess,
     status: str | None,
     assignee_id: uuid.UUID | None,
@@ -104,7 +105,7 @@ async def list_tasks(
     offset: int = Query(0, ge=0),
     cursor: str | None = None,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: IdentityActorFacts = Depends(get_current_user),
 ):
     project = await assert_project_visible(project_id, db, user.id)
     access = await resolve_project_access(db, actor_id=user.id, project=project)
@@ -191,7 +192,7 @@ async def next_task(
     project_id: uuid.UUID = Query(...),
     batch_id: uuid.UUID | None = None,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
 ):
     project = await assert_project_visible(project_id, db, current_user.id)
     access = await resolve_project_access(db, actor_id=current_user.id, project=project)
@@ -236,7 +237,7 @@ async def next_task(
 async def get_task(
     task_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
 ):
     task = await _load_task_or_404(db, task_id)
     await task_access.assert_task_visible(db, task, current_user.id)
@@ -271,7 +272,7 @@ async def get_task_neighbors(
     task_id: uuid.UUID,
     k: int = Query(1, ge=1, le=20),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
 ):
     """v0.14.0 · 返回 task 在所属 scene 内的前后 k 个邻居 task。
 

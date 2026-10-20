@@ -14,7 +14,6 @@ from app.db.enums import MANAGER_PLATFORM_ROLES
 from app.db.models.project import Project
 from app.db.models.training_dataset import TrainingDatasetVersion
 from app.db.models.training_run import TrainingResourceLease, TrainingRun
-from app.db.models.user import User
 from app.deps import get_current_user, get_db, require_roles, require_scopes
 from app.schemas.training_hub import (
     TrainingHubCatalog,
@@ -25,6 +24,7 @@ from app.schemas.training_run import TrainingRunOut
 from app.services import training_runs as service
 from app.services import training_adapters as adapters
 from app.services.project_aggregates import managed_project_scope_clause
+from app.services.identity_contracts import IdentityActorFacts
 
 router = APIRouter(
     prefix="/training",
@@ -126,7 +126,7 @@ async def projects(
     search: str = Query("", max_length=120),
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
-    user: User = Depends(get_current_user),
+    user: IdentityActorFacts = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     predicates = project_scope(user)
@@ -197,7 +197,7 @@ async def runs(
     framework: Literal["ultralytics", "libreyolo"] | None = None,
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
-    user: User = Depends(get_current_user),
+    user: IdentityActorFacts = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     if adapters.catalog()["enabled"]:

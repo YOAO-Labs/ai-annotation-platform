@@ -67,6 +67,7 @@ from app.db.models.task import Task
 from app.db.models.task_dataset_item_link import TaskDatasetItemLink
 from app.db.models.user import User
 from app.services.assets_spatial_views import spatial_item_references
+from app.services.identity_contracts import IdentityActorFacts
 
 
 DEFAULT_COLUMNS = [
@@ -320,7 +321,7 @@ def builtin_views(
 def validate_filter(
     filter_json: dict[str, Any] | None,
     project: Project | None = None,
-    user: User | None = None,
+    user: User | IdentityActorFacts | None = None,
 ) -> None:
     tree = {} if filter_json is None else filter_json
     validate_filter_tree(tree)
@@ -670,7 +671,7 @@ class TaskViewService:
     def _apply_visibility(
         self,
         stmt: Select,
-        user: User,
+        user: User | IdentityActorFacts,
         project: Project,
         *,
         project_role: str | None = None,
@@ -686,7 +687,7 @@ class TaskViewService:
         project_id: uuid.UUID,
         filter_json: dict[str, Any],
         *,
-        user: User,
+        user: User | IdentityActorFacts,
         project: Project,
         project_role: str | None = None,
     ) -> int:
@@ -705,7 +706,7 @@ class TaskViewService:
         project_id: uuid.UUID,
         filters: list[dict[str, Any]],
         *,
-        user: User,
+        user: User | IdentityActorFacts,
         project: Project,
         project_role: str | None = None,
     ) -> list[int]:
@@ -732,7 +733,7 @@ class TaskViewService:
         columns_json: list[str],
         limit: int,
         offset: int,
-        user: User,
+        user: User | IdentityActorFacts,
         project: Project,
         project_role: str | None = None,
     ) -> tuple[list[Any], int]:

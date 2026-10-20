@@ -16,7 +16,6 @@ from app.db.models.sample_evaluation import (
 )
 from app.db.models.trained_model import ModelDeployment, TrainedModelVersion
 from app.db.models.training_dataset import TrainingDatasetVersion
-from app.db.models.user import User
 from app.deps import (
     get_current_user,
     get_db,
@@ -40,6 +39,7 @@ from app.services.labeling_evaluation_source import (
 )
 from app.services.training_dataset_bridge import TrainingDatasetError, content_digest
 from app.services.training_authority_contract import TrainingAuthorityPort
+from app.services.identity_contracts import IdentityActorFacts
 
 router = APIRouter(
     prefix="/projects/{project_id}/sample-evaluations",
@@ -88,7 +88,7 @@ async def create(
     body: SampleEvaluationCreate,
     request: Request,
     project: Project = Depends(require_project_owner),
-    user: User = Depends(get_current_user),
+    user: IdentityActorFacts = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     digest = content_digest(body.model_dump(mode="json"))
@@ -292,7 +292,7 @@ async def detail(
 async def cancel(
     evaluation_id: uuid.UUID,
     project: Project = Depends(require_project_owner),
-    user: User = Depends(get_current_user),
+    user: IdentityActorFacts = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     await lock_project_manager(db, user.id, project.id)
@@ -311,7 +311,7 @@ async def cancel(
 async def retry(
     evaluation_id: uuid.UUID,
     project: Project = Depends(require_project_owner),
-    user: User = Depends(get_current_user),
+    user: IdentityActorFacts = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
     training_authority: TrainingAuthorityPort = Depends(get_training_authority),
 ):
@@ -454,7 +454,7 @@ async def source(
     ordinal: int,
     request: Request,
     project: Project = Depends(require_project_owner),
-    user: User = Depends(get_current_user),
+    user: IdentityActorFacts = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
     training_authority: TrainingAuthorityPort = Depends(get_training_authority),
 ):
@@ -485,7 +485,7 @@ async def source(
 async def delete(
     evaluation_id: uuid.UUID,
     project: Project = Depends(require_project_owner),
-    user: User = Depends(get_current_user),
+    user: IdentityActorFacts = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     await lock_project_manager(db, user.id, project.id)

@@ -19,6 +19,7 @@ from app.schemas.labeling_assignment import (
     DataManagerTaskAssignmentRequest,
     DataManagerTaskAssignmentResponse,
 )
+from app.services.identity_contracts import IdentityActorFacts
 from app.services.batch import BatchService
 from app.services.scheduler import (
     effective_task_assignee_id,
@@ -298,7 +299,7 @@ class LabelingTaskAssignmentService:
         project_id: uuid.UUID,
         payload: DataManagerTaskAssignmentRequest,
         *,
-        actor: User,
+        actor: User | IdentityActorFacts,
     ) -> DataManagerTaskAssignmentResponse:
         _, access = await resolve_project_access_by_id(
             self.db, actor_id=actor.id, project_id=project_id
@@ -313,7 +314,7 @@ class LabelingTaskAssignmentService:
         project_id: uuid.UUID,
         payload: DataManagerTaskAssignmentApplyRequest,
         *,
-        actor: User,
+        actor: User | IdentityActorFacts,
     ) -> DataManagerTaskAssignmentResponse:
         await lock_project_manager(self.db, actor.id, project_id)
         plan, loaded = await self._plan(project_id, payload, for_update=True)

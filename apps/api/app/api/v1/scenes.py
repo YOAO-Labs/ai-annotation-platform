@@ -15,7 +15,6 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.enums import UserRole
-from app.db.models.user import User
 from app.deps import get_current_user, get_db, require_roles, require_scopes
 from app.schemas.scene import SceneOut, SceneUpdate
 from app.schemas.scene_pose import TrajectoryResponse
@@ -27,6 +26,7 @@ from aap_assets_catalog.spatial_contract import (
     ScenePatch,
 )
 from app.services.assets_spatial import AssetsSpatialGateway, AssetsSpatialGatewayError
+from app.services.identity_contracts import IdentityActorFacts
 
 router = APIRouter()
 _MANAGERS = (UserRole.SUPER_ADMIN, UserRole.PROJECT_ADMIN)
@@ -40,7 +40,7 @@ _MANAGERS = (UserRole.SUPER_ADMIN, UserRole.PROJECT_ADMIN)
 async def list_scenes(
     dataset_id: uuid.UUID = Query(..., description="按 dataset 过滤"),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
 ):
     """列 dataset 下所有 scene(按 created_at 升序)。"""
     gateway = AssetsSpatialGateway(db)
@@ -64,7 +64,7 @@ async def list_scenes(
 async def get_scene(
     scene_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
 ):
     gateway = AssetsSpatialGateway(db)
     await gateway.guard_actor(current_user.id, "read")
@@ -87,7 +87,7 @@ async def get_scene(
 async def get_scene_trajectory(
     scene_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
 ):
     """v0.15.0 · scene 的有序逐帧 ego 轨迹(frame_index 升序)。
 
@@ -129,7 +129,7 @@ async def update_scene(
     payload: SceneUpdate,
     response: Response,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_roles(*_MANAGERS)),
+    current_user: IdentityActorFacts = Depends(require_roles(*_MANAGERS)),
     idempotency_key: uuid.UUID | None = Header(default=None, alias="Idempotency-Key"),
 ):
     """更新 scene 元数据(name / source_format / source_metadata)。

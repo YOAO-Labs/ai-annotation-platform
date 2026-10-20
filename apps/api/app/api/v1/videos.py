@@ -54,6 +54,7 @@ from app.services.video_frame_service import (
     retry_frames as retry_video_frames,
 )
 from app.services.video_segment_service import list_segments as list_video_segments
+from app.services.identity_contracts import IdentityActorFacts
 
 router = APIRouter(dependencies=[Depends(require_active_task_actor)])
 
@@ -76,7 +77,7 @@ def _chapter_out(row: VideoChapter) -> VideoChapterOut:
 
 
 async def _visible_video_task_for_item(
-    db: AsyncSession, dataset_item_id: uuid.UUID, user: User
+    db: AsyncSession, dataset_item_id: uuid.UUID, user: User | IdentityActorFacts
 ) -> Task:
     tasks = (
         await db.execute(
@@ -96,7 +97,7 @@ async def _visible_video_task_for_item(
 
 
 async def _video_chapter_target_context(
-    db: AsyncSession, dataset_item_id: uuid.UUID, user: User
+    db: AsyncSession, dataset_item_id: uuid.UUID, user: User | IdentityActorFacts
 ) -> tuple[uuid.UUID, ProjectAccess]:
     task = await _visible_video_task_for_item(db, dataset_item_id, user)
     access = await task_access.resolve_task_access(db, task, user.id)
@@ -112,7 +113,7 @@ async def get_video_manifest(
     dataset_item_id: uuid.UUID,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
 ):
     task = await _visible_video_task_for_item(db, dataset_item_id, current_user)
     ctx = await AssetsVideoContextReader(db).from_dataset_item(
@@ -128,7 +129,7 @@ async def get_video_manifest(
 async def get_video_segments(
     dataset_item_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
 ):
     task = await _visible_video_task_for_item(db, dataset_item_id, current_user)
     ctx = await AssetsVideoContextReader(db).from_dataset_item(
@@ -150,7 +151,7 @@ async def get_video_frame_timetable(
     from_frame: int | None = Query(default=None, ge=0, alias="from"),
     to_frame: int | None = Query(default=None, ge=0, alias="to"),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
 ):
     task = await _visible_video_task_for_item(db, dataset_item_id, current_user)
     ctx = await AssetsVideoContextReader(db).from_dataset_item(
@@ -206,7 +207,7 @@ async def get_video_chunks(
     from_frame: int | None = Query(default=None, ge=0),
     to_frame: int | None = Query(default=None, ge=0),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
 ):
     task = await _visible_video_task_for_item(db, dataset_item_id, current_user)
     ctx = await AssetsVideoContextReader(db).from_dataset_item(
@@ -234,7 +235,7 @@ async def get_video_chunk(
     chunk_id: int,
     response: Response,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
 ):
     task = await _visible_video_task_for_item(db, dataset_item_id, current_user)
     ctx = await AssetsVideoContextReader(db).from_dataset_item(
@@ -258,7 +259,7 @@ async def get_video_chunk_samples(
     dataset_item_id: uuid.UUID,
     chunk_id: int,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
 ) -> VideoChunkSamplesResponse:
     task = await _visible_video_task_for_item(db, dataset_item_id, current_user)
     await AssetsVideoContextReader(db).from_dataset_item(
@@ -313,7 +314,7 @@ async def get_video_frame(
     format: Literal["webp", "jpeg"] = Query(default="webp"),
     w: int = Query(default=512, ge=1, le=4096),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
 ):
     task = await _visible_video_task_for_item(db, dataset_item_id, current_user)
     ctx = await AssetsVideoContextReader(db).from_dataset_item(
@@ -340,7 +341,7 @@ async def prefetch_video_frame_assets(
     dataset_item_id: uuid.UUID,
     payload: VideoFramePrefetchRequest,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
 ):
     task = await _visible_video_task_for_item(db, dataset_item_id, current_user)
     ctx = await AssetsVideoContextReader(db).from_dataset_item(
@@ -366,7 +367,7 @@ async def retry_video_frame_assets(
     dataset_item_id: uuid.UUID,
     payload: VideoFrameRetryRequest,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
 ):
     task = await _visible_video_task_for_item(db, dataset_item_id, current_user)
     ctx = await AssetsVideoContextReader(db).from_dataset_item(
@@ -389,7 +390,7 @@ async def retry_video_frame_assets(
 async def list_video_chapters(
     dataset_item_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
 ):
     await _visible_video_task_for_item(db, dataset_item_id, current_user)
     rows = (
@@ -416,7 +417,7 @@ async def create_video_chapter(
     payload: VideoChapterCreate,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
 ):
     task_id, expected_access = await _video_chapter_target_context(
         db, dataset_item_id, current_user
@@ -461,7 +462,7 @@ async def update_video_chapter(
     payload: VideoChapterUpdate,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
 ):
     task_id, expected_access = await _video_chapter_target_context(
         db, dataset_item_id, current_user
@@ -507,7 +508,7 @@ async def delete_video_chapter(
     chapter_id: uuid.UUID,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
 ):
     task_id, expected_access = await _video_chapter_target_context(
         db, dataset_item_id, current_user

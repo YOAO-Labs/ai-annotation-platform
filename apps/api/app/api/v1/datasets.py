@@ -65,7 +65,6 @@ from app.deps import (
 )
 from app.db.enums import UserRole
 from app.db.models.project import Project
-from app.db.models.user import User
 from app.services.project_access import resolve_project_access_by_id
 from app.schemas.dataset import (
     DatasetCreate,
@@ -100,6 +99,7 @@ from app.services.assets_import import DatasetImportCapabilities
 from app.services.storage import storage_service
 from app.services.system_settings_service import SystemSettingsService
 from aap_audit_contract import ProjectDeletionAuditContext
+from app.services.identity_contracts import IdentityActorFacts
 
 router = APIRouter()
 
@@ -265,7 +265,7 @@ async def list_datasets(
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0, le=9_223_372_036_854_775_807),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
 ):
     result = await AssetsCatalogGateway(db).list(
         ListDatasetsRequest(
@@ -305,7 +305,7 @@ async def create_dataset(
     data: DatasetCreate,
     response: Response,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_roles(*_MANAGERS)),
+    current_user: IdentityActorFacts = Depends(require_roles(*_MANAGERS)),
     idempotency_key: uuid.UUID | None = Header(default=None, alias="Idempotency-Key"),
 ):
     operation_id = idempotency_key or uuid.uuid4()
@@ -332,7 +332,7 @@ async def create_dataset(
 async def get_dataset(
     dataset_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
 ):
     result = await AssetsCatalogGateway(db).get(
         GetDatasetRequest(actor_id=current_user.id, dataset_id=dataset_id)
@@ -360,7 +360,7 @@ async def update_dataset(
     data: DatasetUpdate,
     response: Response,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_roles(*_MANAGERS)),
+    current_user: IdentityActorFacts = Depends(require_roles(*_MANAGERS)),
     idempotency_key: uuid.UUID | None = Header(default=None, alias="Idempotency-Key"),
 ):
     operation_id = idempotency_key or uuid.uuid4()
@@ -387,7 +387,7 @@ async def update_dataset(
 async def sniff_axis_convention(
     dataset_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_roles(*_MANAGERS)),
+    current_user: IdentityActorFacts = Depends(require_roles(*_MANAGERS)),
 ):
     from aap_assets_catalog.spatial_contract import SniffAxisRequest
     from app.services.assets_spatial import (
@@ -444,7 +444,7 @@ async def delete_dataset(
     request: Request,
     response: Response,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_roles(*_MANAGERS)),
+    current_user: IdentityActorFacts = Depends(require_roles(*_MANAGERS)),
     idempotency_key: uuid.UUID | None = Header(default=None, alias="Idempotency-Key"),
 ):
     gateway = AssetsSourceGateway(db)
@@ -474,7 +474,7 @@ async def list_dataset_items(
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0, le=9_223_372_036_854_775_807),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
 ):
     result = await AssetsCatalogGateway(db).items(
         ListItemsRequest(
@@ -514,7 +514,7 @@ async def import_from_connection(
     request: Request,
     response: Response,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_roles(*_MANAGERS)),
+    current_user: IdentityActorFacts = Depends(require_roles(*_MANAGERS)),
     idempotency_key: uuid.UUID | None = Header(default=None, alias="Idempotency-Key"),
 ):
     from app.services import connector_guard
@@ -587,7 +587,7 @@ async def upload_init(
     data: DatasetUploadInitRequest,
     response: Response,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
     idempotency_key: uuid.UUID | None = Header(default=None, alias="Idempotency-Key"),
 ):
     gateway = AssetsSourceGateway(db)
@@ -629,7 +629,7 @@ async def upload_complete(
     item_id: uuid.UUID,
     response: Response,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
     idempotency_key: uuid.UUID | None = Header(default=None, alias="Idempotency-Key"),
 ):
     request = UploadCompleteRequest(
@@ -726,7 +726,7 @@ async def upload_zip(
     dataset_id: uuid.UUID,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
     idempotency_key: uuid.UUID | None = Header(default=None, alias="Idempotency-Key"),
 ):
     """同步导入一个 ZIP，返回新增/去重/跳过、逐文件失败和场景推断结果。
@@ -775,7 +775,7 @@ async def upload_zip(
 async def scan_items(
     dataset_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_roles(*_MANAGERS)),
+    current_user: IdentityActorFacts = Depends(require_roles(*_MANAGERS)),
     idempotency_key: uuid.UUID | None = Header(default=None, alias="Idempotency-Key"),
 ):
     """同步扫描数据集旧存储前缀，只导入新文件。"""
@@ -820,7 +820,7 @@ async def backfill_dimensions(
         deprecated=True,
         description="Retained for compatibility; the owner scans in bounded batches.",
     ),
-    current_user: User = Depends(require_roles(*_MANAGERS)),
+    current_user: IdentityActorFacts = Depends(require_roles(*_MANAGERS)),
     idempotency_key: uuid.UUID | None = Header(default=None, alias="Idempotency-Key"),
 ):
     """为存量图像接受有界、可回放的持久宽高回填作业。"""
@@ -855,7 +855,7 @@ async def backfill_media_endpoint(
     dataset_id: uuid.UUID,
     response: Response,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_roles(*_MANAGERS)),
+    current_user: IdentityActorFacts = Depends(require_roles(*_MANAGERS)),
     idempotency_key: uuid.UUID | None = Header(default=None, alias="Idempotency-Key"),
 ):
     """接受持久图像缩略图回填，并保留视频元信息回填入口。"""
@@ -911,7 +911,7 @@ async def backfill_scenes_endpoint(
     ),
     dry_run: bool = Query(False),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_roles(*_MANAGERS)),
+    current_user: IdentityActorFacts = Depends(require_roles(*_MANAGERS)),
     idempotency_key: uuid.UUID | None = Header(default=None, alias="Idempotency-Key"),
 ):
     """v0.14.0 · 对 dataset 跑 scene layout backfill,补 scene + frame_index。
@@ -982,7 +982,7 @@ async def delete_item(
     request: Request,
     response: Response,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_roles(*_MANAGERS)),
+    current_user: IdentityActorFacts = Depends(require_roles(*_MANAGERS)),
     idempotency_key: uuid.UUID | None = Header(default=None, alias="Idempotency-Key"),
 ):
     gateway = AssetsSourceGateway(db)
@@ -1012,7 +1012,7 @@ async def link_project(
     data: DatasetLinkRequest,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
 ):
     svc = DatasetService(db)
     ds = await svc.get(dataset_id)
@@ -1080,7 +1080,7 @@ async def preview_unlink_project(
     project_id: uuid.UUID,
     _project: Project = Depends(require_project_owner),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
 ):
     preview = await preview_dataset_unlink(
         db, actor_id=current_user.id, dataset_id=dataset_id, project_id=project_id
@@ -1110,7 +1110,7 @@ async def unlink_project(
     response: Response,
     _project: Project = Depends(require_project_owner),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
     idempotency_key: uuid.UUID | None = Header(default=None, alias="Idempotency-Key"),
 ):
     operation_id = idempotency_key if idempotency_key is not None else uuid.uuid4()
@@ -1138,7 +1138,7 @@ async def unlink_project(
 async def get_linked_projects(
     dataset_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
 ):
     result = await AssetsCatalogGateway(db).list_dataset_projects(
         ListDatasetProjectsRequest(actor_id=current_user.id, dataset_id=dataset_id)

@@ -31,6 +31,7 @@ from app.application.project_workspace_configuration import (
     WorkspaceConfigurationWorkflow,
 )
 from app.services.project_template import assert_template_visible, list_user_org_ids
+from app.services.identity_contracts import IdentityActorFacts
 
 
 router = APIRouter()
@@ -55,7 +56,7 @@ async def list_templates(
     type_key: Annotated[list[str] | None, Query()] = None,
     search: str | None = None,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: IdentityActorFacts = Depends(get_current_user),
 ):
     q = select(ProjectTemplate)
 
@@ -96,7 +97,7 @@ async def list_templates(
 async def create_template(
     data: ProjectTemplateCreate,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: IdentityActorFacts = Depends(get_current_user),
 ):
     template = await WorkspaceConfigurationWorkflow(db).create_template(
         data.model_dump(exclude_unset=True, exclude_none=False),
@@ -120,7 +121,7 @@ async def _load_template_or_404(
 async def get_template(
     template_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: IdentityActorFacts = Depends(get_current_user),
 ):
     template = await _load_template_or_404(db, template_id)
     await assert_template_visible(db, template, user)
@@ -132,7 +133,7 @@ async def update_template(
     template_id: uuid.UUID,
     data: ProjectTemplateUpdate,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: IdentityActorFacts = Depends(get_current_user),
 ):
     template = await WorkspaceConfigurationWorkflow(db).update_template(
         template_id,
@@ -148,7 +149,7 @@ async def update_template(
 async def delete_template(
     template_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: IdentityActorFacts = Depends(get_current_user),
 ):
     await WorkspaceConfigurationWorkflow(db).delete_template(
         template_id, actor_id=user.id
@@ -162,7 +163,7 @@ async def delete_template(
 async def duplicate_template(
     template_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: IdentityActorFacts = Depends(get_current_user),
 ):
     """克隆任意可见模板为当前用户私有模板."""
     template = await WorkspaceConfigurationWorkflow(db).duplicate_template(

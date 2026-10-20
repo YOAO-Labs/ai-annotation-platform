@@ -40,13 +40,14 @@ from app.services.project_membership import (
 )
 from app.services.audit import AuditAction, AuditService
 from app.services.batch import BatchService
+from app.services.identity_contracts import IdentityActorFacts
 
 
 async def change_role(
     db: AsyncSession,
     *,
     project: Project,
-    actor: User,
+    actor: User | IdentityActorFacts,
     member_id: uuid.UUID,
     target_role: str,
     expected_version: int,
@@ -286,7 +287,7 @@ async def remove_member(
     db: AsyncSession,
     *,
     project: Project,
-    actor: User,
+    actor: User | IdentityActorFacts,
     member_id: uuid.UUID,
 ) -> None:
     """Remove an *idle* member after the same blockers used by role change.

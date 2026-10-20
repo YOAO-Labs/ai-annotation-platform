@@ -23,6 +23,7 @@ from app.services.labeling_write_scope import LabelingWriteScope
 from app.services.ml_backend import MLBackendService
 from app.services.secondary_inference_result import SecondaryInferenceResult
 from app.services.video_collaboration import heartbeat_task_lock_for_legacy_video
+from app.services.identity_contracts import IdentityActorFacts
 
 
 class _AnnotationSecondaryInferenceSqlAdapter(SecondaryInferenceWritePort):
@@ -34,7 +35,7 @@ class _AnnotationSecondaryInferenceSqlAdapter(SecondaryInferenceWritePort):
         *,
         task: Task,
         annotation: Annotation,
-        actor: User,
+        actor: User | IdentityActorFacts,
         ml_service: MLBackendService,
     ) -> None:
         self._db = db

@@ -26,7 +26,6 @@ from aap_assets_source.connections_contract import (
 )
 from app.config import settings
 from app.db.enums import UserRole
-from app.db.models.user import User
 from app.deps import get_current_user, get_db, require_roles
 from app.schemas.storage_connection import (
     ConnectorAllowlistOut,
@@ -42,6 +41,7 @@ from app.middleware.request_id import request_id_var
 from app.services.audit import AuditAction, AuditService, audit_origin_from_request
 from app.services.assets_connections import AssetsConnectionsGateway
 from app.services.system_settings_service import SystemSettingsService
+from app.services.identity_contracts import IdentityActorFacts
 
 router = APIRouter()
 
@@ -79,7 +79,7 @@ def _connection_request(model: type[BaseModel], **values):
 @router.get("/allowlist", response_model=ConnectorAllowlistOut)
 async def get_allowlist(
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_roles(UserRole.SUPER_ADMIN)),
+    _: IdentityActorFacts = Depends(require_roles(UserRole.SUPER_ADMIN)),
 ):
     entries, source = await connector_guard.get_allowlist_state(db)
     return ConnectorAllowlistOut(entries=entries, source=source)
@@ -90,7 +90,7 @@ async def update_allowlist(
     payload: ConnectorAllowlistUpdate,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    actor: User = Depends(require_roles(UserRole.SUPER_ADMIN)),
+    actor: IdentityActorFacts = Depends(require_roles(UserRole.SUPER_ADMIN)),
 ):
     try:
         entries = connector_guard.normalize_allowlist(payload.entries)
@@ -117,7 +117,7 @@ async def update_allowlist(
 async def reset_allowlist(
     request: Request,
     db: AsyncSession = Depends(get_db),
-    actor: User = Depends(require_roles(UserRole.SUPER_ADMIN)),
+    actor: IdentityActorFacts = Depends(require_roles(UserRole.SUPER_ADMIN)),
 ):
     await SystemSettingsService.reset(db, "connector_host_allowlist")
     entries = list(settings.connector_host_allowlist)
@@ -137,7 +137,7 @@ async def reset_allowlist(
 
 @router.get("/deployment-sftp-preset", response_model=ConnectorDeploymentSftpPresetOut)
 async def get_deployment_sftp_preset(
-    _: User = Depends(require_roles(UserRole.SUPER_ADMIN)),
+    _: IdentityActorFacts = Depends(require_roles(UserRole.SUPER_ADMIN)),
 ):
     host = settings.connector_deployment_sftp_host.strip()
     return ConnectorDeploymentSftpPresetOut(
@@ -151,7 +151,7 @@ async def get_deployment_sftp_preset(
 @router.get("", response_model=list[StorageConnectionOut])
 async def list_connections(
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: IdentityActorFacts = Depends(get_current_user),
 ):
     connections = await AssetsConnectionsGateway(db).list_connections(user.id)
     return [_connection_out(connection) for connection in connections]
@@ -163,7 +163,7 @@ async def create_connection(
     request: Request,
     response: Response,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(require_roles(*_MANAGERS)),
+    user: IdentityActorFacts = Depends(require_roles(*_MANAGERS)),
     idempotency_key: uuid.UUID | None = Header(default=None, alias="Idempotency-Key"),
 ):
     if payload.scope == "global":
@@ -193,7 +193,7 @@ async def create_connection(
 async def get_connection(
     conn_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: IdentityActorFacts = Depends(get_current_user),
 ):
     result = await AssetsConnectionsGateway(db).read_connection(
         _connection_request(
@@ -210,7 +210,7 @@ async def update_connection(
     request: Request,
     response: Response,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: IdentityActorFacts = Depends(get_current_user),
     idempotency_key: uuid.UUID | None = Header(default=None, alias="Idempotency-Key"),
 ):
     operation_id = idempotency_key or uuid.uuid4()
@@ -237,7 +237,7 @@ async def delete_connection(
     request: Request,
     response: Response,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: IdentityActorFacts = Depends(get_current_user),
     idempotency_key: uuid.UUID | None = Header(default=None, alias="Idempotency-Key"),
 ):
     operation_id = idempotency_key or uuid.uuid4()
@@ -261,7 +261,7 @@ async def test_connection(
     request: Request,
     response: Response,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: IdentityActorFacts = Depends(get_current_user),
     idempotency_key: uuid.UUID | None = Header(default=None, alias="Idempotency-Key"),
 ):
     operation_id = idempotency_key or uuid.uuid4()

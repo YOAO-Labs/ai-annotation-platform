@@ -57,6 +57,7 @@ from app.services.video_tracks import (
     resolve_mask_track_state_at_frame,
 )
 from app.utils.raster_mask_rle import coco_rle_area
+from app.services.identity_contracts import IdentityActorFacts
 
 
 PLAN_TTL = timedelta(minutes=15)
@@ -309,7 +310,7 @@ async def _plan_action(
     db: AsyncSession,
     *,
     project: Project,
-    actor: User,
+    actor: User | IdentityActorFacts,
     action: MaskRepairAction,
     planned_annotations: set[uuid.UUID],
 ) -> tuple[dict[str, Any], dict[str, Any] | None]:
@@ -637,7 +638,7 @@ async def create_repair_plan(
     db: AsyncSession,
     *,
     project: Project,
-    actor: User,
+    actor: User | IdentityActorFacts,
     request: MaskRepairDryRunRequest,
 ) -> MaskRepairDryRunResponse:
     public_items: list[dict[str, Any]] = []
@@ -716,7 +717,7 @@ async def execute_repair_plan(
     db: AsyncSession,
     *,
     project: Project,
-    actor: User,
+    actor: User | IdentityActorFacts,
     receipt: str,
     plan_digest: str,
 ) -> tuple[MaskRepairBatch, bool]:
@@ -786,7 +787,7 @@ async def request_repair_rollback(
     db: AsyncSession,
     *,
     batch_id: uuid.UUID,
-    actor: User,
+    actor: User | IdentityActorFacts,
     expected_result_digest: str,
 ) -> MaskRepairBatch:
     batch = (
@@ -839,7 +840,7 @@ async def resume_repair_batch(
     db: AsyncSession,
     *,
     batch_id: uuid.UUID,
-    actor: User,
+    actor: User | IdentityActorFacts,
 ) -> MaskRepairBatch:
     batch = (
         await db.execute(

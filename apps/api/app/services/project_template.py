@@ -14,6 +14,7 @@ from app.db.models.organization import OrganizationMember
 from app.db.models.project_template import ProjectTemplate
 from app.db.models.user import User
 from app.services.project_clone import CLONEABLE_PROJECT_FIELDS
+from app.services.identity_contracts import IdentityActorFacts
 
 
 # 与模板 model 列对齐的模板载荷字段名 (在 ProjectTemplate 与 Project 之间复制 / 应用).
@@ -21,7 +22,9 @@ from app.services.project_clone import CLONEABLE_PROJECT_FIELDS
 TEMPLATE_PAYLOAD_FIELDS: tuple[str, ...] = CLONEABLE_PROJECT_FIELDS
 
 
-async def list_user_org_ids(db: AsyncSession, user: User) -> list[uuid.UUID]:
+async def list_user_org_ids(
+    db: AsyncSession, user: User | IdentityActorFacts
+) -> list[uuid.UUID]:
     """v0.10.14 · 取出 user 当前所属的全部 organization id (软删未过滤; 与
     OrganizationMember 当前没有 active 字段, 用 deleted_at IS NULL 兼容).
     """
@@ -35,7 +38,7 @@ async def list_user_org_ids(db: AsyncSession, user: User) -> list[uuid.UUID]:
 
 
 async def assert_template_visible(
-    db: AsyncSession, template: ProjectTemplate, user: User
+    db: AsyncSession, template: ProjectTemplate, user: User | IdentityActorFacts
 ) -> None:
     """看不到则 404 隐藏存在性 (与 require_project_visible 风格一致)."""
     from fastapi import HTTPException

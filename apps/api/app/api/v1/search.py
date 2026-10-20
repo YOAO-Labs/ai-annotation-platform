@@ -23,6 +23,7 @@ from app.db.models.task_batch import TaskBatch
 from app.db.models.user import User
 from app.api.v1.projects import _visible_project_filter
 from app.services.scheduler import task_visibility_clause
+from app.services.identity_contracts import IdentityActorFacts
 
 router = APIRouter()
 
@@ -32,7 +33,7 @@ async def global_search(
     q: str = Query(..., min_length=1, max_length=64),
     limit: int = Query(5, ge=1, le=20),
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: IdentityActorFacts = Depends(get_current_user),
 ) -> dict[str, list[dict[str, Any]]]:
     pattern = f"%{q}%"
 

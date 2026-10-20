@@ -77,6 +77,7 @@ from app.utils.raster_mask_rle import (
     MAX_VIDEO_MASK_DIMENSION,
     MAX_VIDEO_MASK_PIXELS,
 )
+from app.services.identity_contracts import IdentityActorFacts
 
 router = APIRouter(dependencies=[Depends(require_active_task_actor)])
 logger = logging.getLogger(__name__)
@@ -126,7 +127,7 @@ def _mask_etag_matches(request: Request, etag: str) -> bool:
 async def _load_visible_mask_annotation(
     annotation_id: uuid.UUID,
     db: AsyncSession,
-    user: User,
+    user: User | IdentityActorFacts,
 ) -> tuple[Annotation, Task, dict]:
     annotation = await db.get(Annotation, annotation_id)
     if annotation is None or not annotation.is_active:
@@ -200,7 +201,7 @@ async def get_annotation_mask_content(
     annotation_id: uuid.UUID,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: IdentityActorFacts = Depends(get_current_user),
 ) -> Response:
     """v0.23.6 · 获取图片掩码内容 (RasterMaskGeometry)。
 
@@ -237,7 +238,7 @@ async def get_annotation_mask_content_frame(
     frame_index: int,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: IdentityActorFacts = Depends(get_current_user),
 ) -> Response:
     annotation, _task, geometry = await _load_visible_mask_annotation(
         annotation_id, db, user
@@ -278,7 +279,7 @@ async def upload_task_mask_content(
     task_id: uuid.UUID,
     payload: dict,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: IdentityActorFacts = Depends(get_current_user),
 ) -> dict:
     # Match all Mask writers: the Task row is the first database row lock.
     task = (
@@ -449,7 +450,7 @@ async def bulk_update_annotations(
     payload: AnnotationBulkUpdateRequest,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: IdentityActorFacts = Depends(get_current_user),
 ):
     """I12 · 批量更新 N 个标注. 失败整体回滚 (单事务).
 
@@ -493,7 +494,7 @@ async def import_annotations(
     overwrite: bool = Form(False),
     project: Project = Depends(require_project_owner),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
 ) -> AAPImportResult:
     """导入 AAP JSON envelope 中的 annotations[] 数组 (v0.10.54, ADR-0028).
 

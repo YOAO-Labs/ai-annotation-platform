@@ -63,6 +63,7 @@ from app.services.scene_track_command import (
     request_digest,
     revert_scene_track_operation,
 )
+from app.services.identity_contracts import IdentityActorFacts
 
 
 router = APIRouter()
@@ -92,7 +93,7 @@ async def _filter_visible_operations(
     db: AsyncSession,
     *,
     project: Project,
-    current_user: User,
+    current_user: User | IdentityActorFacts,
     operations: list[SceneTrackOperation],
     access: ProjectAccess | None = None,
 ) -> list[SceneTrackOperation]:
@@ -119,7 +120,7 @@ async def get_scene_track_detail(
     task_id: uuid.UUID,
     track_id: str,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
 ):
     anchor_task = await _load_task_or_404(db, task_id)
     await task_access.assert_task_visible(db, anchor_task, current_user.id)
@@ -258,7 +259,7 @@ async def get_scene_track_diagnostics(
     task_id: uuid.UUID,
     limit: int = Query(200, ge=1, le=1000),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
 ):
     anchor_task = await _load_task_or_404(db, task_id)
     await task_access.assert_task_visible(db, anchor_task, current_user.id)
@@ -303,7 +304,7 @@ async def _task_access_map(
     db: AsyncSession,
     *,
     project: Project,
-    current_user: User,
+    current_user: User | IdentityActorFacts,
     task_ids: set[uuid.UUID],
     access: ProjectAccess | None = None,
 ) -> dict[uuid.UUID, Task]:
@@ -325,7 +326,7 @@ def _tasks_are_editable(
     tasks: dict[uuid.UUID, Task],
     *,
     task_ids: set[uuid.UUID] | frozenset[uuid.UUID],
-    current_user: User,
+    current_user: User | IdentityActorFacts,
     access: ProjectAccess | None = None,
 ) -> bool:
     if not set(task_ids).issubset(tasks):
@@ -344,7 +345,7 @@ async def _assert_prepared_mutable(
     db: AsyncSession,
     *,
     anchor_task: Task,
-    current_user: User,
+    current_user: User | IdentityActorFacts,
     prepared: PreparedTrackOperation | PreparedSceneTrackCommand,
     access: ProjectAccess | None = None,
 ) -> None:
@@ -404,7 +405,7 @@ async def preview_scene_track_command(
     task_id: uuid.UUID,
     data: SceneTrackCommandRequest,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
     access: ProjectAccess = Depends(require_task_annotation_write),
 ):
     anchor_task = await _load_task_or_404(db, task_id)
@@ -436,7 +437,7 @@ async def execute_scene_track_command(
     data: SceneTrackCommandExecuteRequest,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
     access: ProjectAccess = Depends(require_task_annotation_write),
 ):
     anchor_task = await _load_task_or_404(db, task_id)
@@ -525,7 +526,7 @@ async def list_scene_track_operations(
     track_id: str = Query(..., min_length=1, max_length=64),
     limit: int = Query(20, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
 ):
     anchor_task = await _load_task_or_404(db, task_id)
     await task_access.assert_task_visible(db, anchor_task, current_user.id)
@@ -577,7 +578,7 @@ async def revert_scene_track_command(
     data: SceneTrackRevertRequest,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
     access: ProjectAccess = Depends(require_task_annotation_write),
 ):
     anchor_task = await _load_task_or_404(db, task_id)
@@ -653,7 +654,7 @@ async def list_track_operation_candidates(
     track_id: str = Query(..., min_length=1, max_length=64),
     limit: int = Query(20, ge=1, le=20),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
     access: ProjectAccess = Depends(require_task_annotation_write),
 ):
     anchor_task = await _load_task_or_404(db, task_id)
@@ -721,7 +722,7 @@ async def preview_track_operation(
     task_id: uuid.UUID,
     data: TrackOperationRequest,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
     access: ProjectAccess = Depends(require_task_annotation_write),
 ):
     anchor_task = await _load_task_or_404(db, task_id)
@@ -770,7 +771,7 @@ async def execute_track_operation(
     data: TrackOperationExecuteRequest,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
     access: ProjectAccess = Depends(require_task_annotation_write),
 ):
     anchor_task = await _load_task_or_404(db, task_id)

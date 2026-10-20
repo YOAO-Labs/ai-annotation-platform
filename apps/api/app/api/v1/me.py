@@ -10,7 +10,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from aap_identity.contract import Principal
 from app.core.ratelimit import limiter
 from app.deps import bearer_scheme, get_current_principal, get_current_user, get_db
-from app.db.models.user import User
 from app.schemas.me import AvatarRefUpdate, PasswordChange, ProfileUpdate
 from app.schemas.user import UserOut, UserPreferencesRead
 from app.api.v1.account_commands import execute_account, get_account_commands
@@ -27,6 +26,7 @@ from app.services.avatar_image import (
     AvatarImageError,
     normalize_avatar,
 )
+from app.services.identity_contracts import IdentityActorFacts
 
 router = APIRouter()
 
@@ -273,7 +273,7 @@ def _enqueue_task_events(payload_list: list[dict]) -> bool:
 async def submit_task_events(
     payload: TaskEventBatchIn,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: IdentityActorFacts = Depends(get_current_user),
 ):
     """Accept only closed intervals for tasks the current account can access.
 

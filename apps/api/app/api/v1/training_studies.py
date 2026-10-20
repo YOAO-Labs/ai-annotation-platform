@@ -8,7 +8,6 @@ from sqlalchemy import func, select
 from app.services.project_write_guard import lock_project_manager
 from app.db.models.project import Project
 from app.db.models.training_study import TrainingStudy
-from app.db.models.user import User
 from app.deps import (
     get_current_user,
     get_db,
@@ -20,6 +19,7 @@ from app.schemas.training_study import TrainingStudyCreate
 from app.services import training_studies as service
 from app.services import training_claims as claims
 from app.services.training_authority_contract import TrainingAuthorityPort
+from app.services.identity_contracts import IdentityActorFacts
 
 router = APIRouter(
     prefix="/projects/{project_id}/training-studies",
@@ -31,7 +31,7 @@ router = APIRouter(
 async def preview(
     body: TrainingStudyCreate,
     project: Project = Depends(require_project_owner),
-    user: User = Depends(get_current_user),
+    user: IdentityActorFacts = Depends(get_current_user),
     db=Depends(get_db),
 ) -> dict:
     await claims.project_lock(db, project.id)
@@ -49,7 +49,7 @@ async def create(
     body: TrainingStudyCreate,
     request: Request,
     project: Project = Depends(require_project_owner),
-    user: User = Depends(get_current_user),
+    user: IdentityActorFacts = Depends(get_current_user),
     db=Depends(get_db),
     training_authority: TrainingAuthorityPort = Depends(get_training_authority),
 ) -> dict:
@@ -114,7 +114,7 @@ async def get_study(
 async def cancel(
     study_id: uuid.UUID,
     project: Project = Depends(require_project_owner),
-    user: User = Depends(get_current_user),
+    user: IdentityActorFacts = Depends(get_current_user),
     db=Depends(get_db),
     training_authority: TrainingAuthorityPort = Depends(get_training_authority),
 ) -> dict:

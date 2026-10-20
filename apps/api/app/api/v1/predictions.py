@@ -37,7 +37,6 @@ from app.db.models.ml_backend_registry import MLBackendRegistry as MLBackend
 from app.db.models.prediction import FailedPrediction
 from app.db.models.project import Project
 from app.db.models.task import Task
-from app.db.models.user import User
 from app.schemas.aap_json import AAPImportErrorEntry, AAPImportResult
 from app.schemas.prediction import (
     PredictionPurgeCounts,
@@ -53,6 +52,7 @@ from app.services.prediction import (
     PredictionService,
     assert_can_manage_failed_prediction,
 )
+from app.services.identity_contracts import IdentityActorFacts
 
 
 router = APIRouter()
@@ -103,7 +103,7 @@ async def list_failed_predictions(
         description="v0.8.8 · true 时同时返回已 dismiss 的失败预测；默认隐藏",
     ),
     db: AsyncSession = Depends(get_db),
-    actor: User = Depends(require_roles(*_MANAGERS)),
+    actor: IdentityActorFacts = Depends(require_roles(*_MANAGERS)),
 ):
     base_filter = (
         FailedPrediction.dismissed_at.is_(None) if not include_dismissed else None
@@ -193,7 +193,7 @@ async def dismiss_failed_prediction(
     failed_id: uuid.UUID,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_roles(*_MANAGERS)),
+    current_user: IdentityActorFacts = Depends(require_roles(*_MANAGERS)),
 ) -> Any:
     """v0.8.8 · 永久放弃失败预测（soft-delete）。
 
@@ -234,7 +234,7 @@ async def restore_failed_prediction(
     failed_id: uuid.UUID,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_roles(*_MANAGERS)),
+    current_user: IdentityActorFacts = Depends(require_roles(*_MANAGERS)),
 ) -> Any:
     """v0.8.8 · 误操作恢复：清空 ``dismissed_at``，让该行重回默认列表。"""
     fp = await db.get(FailedPrediction, failed_id)
@@ -281,7 +281,7 @@ async def import_predictions(
     image_height: int | None = Form(None),
     project: Project = Depends(require_project_owner),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
 ) -> AAPImportResult:
     """外部模型预测结果导入端点 (v0.10.15).
 
@@ -480,7 +480,7 @@ async def purge_predictions(
     request: Request,
     project: Project = Depends(require_project_owner),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
 ) -> PredictionPurgeResponse:
     """按来源清理项目预测候选。dry_run=true 仅返回将删除的计数。"""
 

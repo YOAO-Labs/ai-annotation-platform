@@ -8,6 +8,7 @@ is unchanged.
 
 from __future__ import annotations
 
+from app.services.identity_contracts import IdentityActorFacts
 from app.services.data_management.schema import (  # noqa: F401
     _TEXT_OPS,
     _NUMBER_OPS,
@@ -146,7 +147,7 @@ class DataManagerService:
         *,
         project_id,
         filter_json: dict[str, Any],
-        user: User,
+        user: User | IdentityActorFacts,
         project: Project,
         project_role: str | None = None,
     ) -> DataManagerSummaryResponse:
@@ -527,7 +528,7 @@ class DataManagerService:
         filter_json: dict[str, Any],
         limit: int,
         offset: int,
-        user: User,
+        user: User | IdentityActorFacts,
         project: Project,
         project_role: str | None = None,
     ) -> DataManagerMatchesResponse:

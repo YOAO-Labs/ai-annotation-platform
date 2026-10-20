@@ -6,7 +6,6 @@ from app.deps import (
     get_db,
     get_current_user,
 )
-from app.db.models.user import User
 from app.schemas.task import (
     TaskLockResponse,
 )
@@ -20,6 +19,7 @@ from app.api.v1.tasks._shared import (
     _load_task_or_404,
     require_task_annotation_write_lifecycle,
 )
+from app.services.identity_contracts import IdentityActorFacts
 
 router = APIRouter()
 
@@ -28,7 +28,7 @@ router = APIRouter()
 async def acquire_lock(
     task_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
     access: ProjectAccess = Depends(require_task_annotation_write_lifecycle),
 ):
     # B-21：任务的当前 assignee 重进时强制接管残留锁，
@@ -65,7 +65,7 @@ async def acquire_lock(
 async def heartbeat_lock(
     task_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
     access: ProjectAccess = Depends(require_task_annotation_write_lifecycle),
 ):
     task = await _load_task_or_404(db, task_id)
@@ -82,7 +82,7 @@ async def heartbeat_lock(
 async def release_lock(
     task_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
     access: ProjectAccess = Depends(require_task_annotation_write_lifecycle),
 ):
     task = await _load_task_or_404(db, task_id)

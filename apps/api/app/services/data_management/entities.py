@@ -24,6 +24,7 @@ from app.schemas.data_manager import (
     DataManagerObjectOut,
     DataManagerObjectQueryResponse,
 )
+from app.services.identity_contracts import IdentityActorFacts
 from app.services.data_management.cursor import (
     decode_cursor,
     encode_cursor,
@@ -202,7 +203,7 @@ class DataManagerObjectService:
     def _base(
         self,
         project_id: uuid.UUID,
-        user: User,
+        user: User | IdentityActorFacts,
         project: Project,
         *,
         project_role: str | None = None,
@@ -228,7 +229,7 @@ class DataManagerObjectService:
         *,
         project_id: uuid.UUID,
         payload: DataManagerEntityQueryRequest,
-        user: User,
+        user: User | IdentityActorFacts,
         project: Project,
         project_role: str | None = None,
     ) -> DataManagerObjectQueryResponse:
@@ -353,7 +354,7 @@ class DataManagerObjectService:
         *,
         project_id: uuid.UUID,
         annotation_id: uuid.UUID,
-        user: User,
+        user: User | IdentityActorFacts,
         project: Project,
         project_role: str | None = None,
     ) -> DataManagerObjectDetailResponse:

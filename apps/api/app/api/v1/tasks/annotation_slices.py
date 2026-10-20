@@ -5,7 +5,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.tasks._shared import require_task_annotation_write
 from app.application.mask_annotation_slices import _AnnotationSliceSqlAdapter
-from app.db.models.user import User
 from app.deps import get_current_user, get_db, require_scopes
 from app.schemas.annotation_slice import (
     AnnotationSliceResponse,
@@ -15,6 +14,7 @@ from app.schemas.annotation_slice import (
 from app.services.audit import audit_origin_from_request
 from app.services.annotation_slice_contracts import AnnotationSliceError
 from app.services.workspace_contract import ProjectAccess
+from app.services.identity_contracts import IdentityActorFacts
 
 router = APIRouter()
 
@@ -29,7 +29,7 @@ async def commit_polygon_slice(
     payload: PolygonSliceCommitRequest,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
     access: ProjectAccess = Depends(require_task_annotation_write),
 ) -> AnnotationSliceResponse:
     """Split one saved simple image Polygon in an atomic, idempotent transaction."""
@@ -60,7 +60,7 @@ async def restore_annotation_slice(
     payload: AnnotationSliceRestoreRequest,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
 ) -> AnnotationSliceResponse:
     """Restore ledger-owned slice snapshots with the complete last result versions."""
     try:

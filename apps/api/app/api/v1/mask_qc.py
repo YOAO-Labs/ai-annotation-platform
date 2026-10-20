@@ -80,6 +80,7 @@ from app.services.mask_repair import (
     request_repair_rollback,
     resume_repair_batch,
 )
+from app.services.identity_contracts import IdentityActorFacts
 
 router = APIRouter(dependencies=[Depends(require_active_task_actor)])
 
@@ -93,7 +94,7 @@ def _assert_review_authority(access: ProjectAccess) -> None:
 
 
 async def _resolve_task_review_access(
-    db: AsyncSession, *, task: Task, user: User, lock: bool = False
+    db: AsyncSession, *, task: Task, user: User | IdentityActorFacts, lock: bool = False
 ) -> tuple[Project, ProjectAccess]:
     """Resolve and enforce review authority for a task's actual project.
 
@@ -136,7 +137,7 @@ def _raise_mask_repair_error(exc: MaskRepairError) -> None:
 
 
 async def _load_visible_compare_annotation(
-    db: AsyncSession, *, annotation_id: uuid.UUID, user: User
+    db: AsyncSession, *, annotation_id: uuid.UUID, user: User | IdentityActorFacts
 ) -> tuple[Annotation, Task]:
     from app.api.v1.annotations import _load_visible_mask_annotation
 
@@ -195,7 +196,7 @@ async def _assert_run_scope_visible(
     db: AsyncSession,
     *,
     project: Project,
-    user: User,
+    user: User | IdentityActorFacts,
     access: ProjectAccess,
     request: MaskQCRunRequest,
 ) -> None:
@@ -247,7 +248,7 @@ async def create_run(
     body: MaskQCRunRequest,
     project: Project = Depends(require_project_visible),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
     quality_dispatcher: QualityJobDispatcher = Depends(get_quality_job_dispatcher),
     access: ProjectAccess = Depends(
         require_project_capability(ProjectCapability.REVIEW_WRITE.value)
@@ -284,7 +285,7 @@ async def create_run(
 async def get_project_issues(
     project: Project = Depends(require_project_visible),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
     access: ProjectAccess = Depends(
         require_project_capability(ProjectCapability.REVIEW_WRITE.value)
     ),
@@ -355,7 +356,7 @@ async def get_project_issues(
 async def get_task_summary(
     task_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
 ) -> TaskMaskQCSummary:
     task = await db.get(Task, task_id)
     if task is None:
@@ -384,7 +385,7 @@ async def get_mask_compare(
     candidate_digest: str | None = None,
     candidate_instance_id: str | None = None,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
 ) -> MaskCompareOut:
     annotation, task = await _load_visible_compare_annotation(
         db, annotation_id=annotation_id, user=current_user
@@ -418,7 +419,7 @@ async def get_mask_compare_content(
     digest: str = Query(pattern=r"^[0-9a-f]{64}$"),
     frame_index: int | None = Query(default=None, ge=0),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
 ) -> Response:
     annotation, task = await _load_visible_compare_annotation(
         db, annotation_id=annotation_id, user=current_user
@@ -458,7 +459,7 @@ async def get_issue_region_content(
     request: Request,
     digest: str = Query(pattern=r"^[0-9a-f]{64}$"),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
 ) -> Response:
     issue = await db.get(MaskQCIssue, issue_id)
     if issue is None:
@@ -495,7 +496,7 @@ async def get_issue_region_content(
 async def get_issue(
     issue_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
 ) -> MaskQCIssueOut:
     issue = await db.get(MaskQCIssue, issue_id)
     if issue is None:
@@ -515,7 +516,7 @@ async def patch_issue(
     issue_id: uuid.UUID,
     body: MaskQCIssuePatch,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
 ) -> MaskQCIssueOut:
     issue = await db.get(MaskQCIssue, issue_id)
     if issue is None:
@@ -564,7 +565,7 @@ async def _assert_repair_issues_visible(
     db: AsyncSession,
     *,
     project: Project,
-    user: User,
+    user: User | IdentityActorFacts,
     access: ProjectAccess,
     issue_ids: list[uuid.UUID],
 ) -> None:
@@ -590,7 +591,7 @@ async def _load_visible_repair_batch(
     db: AsyncSession,
     *,
     repair_id: uuid.UUID,
-    user: User,
+    user: User | IdentityActorFacts,
     lock: bool = False,
 ) -> MaskRepairBatch:
     batch = await db.get(MaskRepairBatch, repair_id)
@@ -663,7 +664,7 @@ async def dry_run_mask_repairs(
     request: Request,
     project: Project = Depends(require_project_visible),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
     access: ProjectAccess = Depends(
         require_project_capability(ProjectCapability.REVIEW_WRITE.value)
     ),
@@ -709,7 +710,7 @@ async def execute_mask_repairs(
     request: Request,
     project: Project = Depends(require_project_visible),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
     quality_dispatcher: QualityJobDispatcher = Depends(get_quality_job_dispatcher),
     _access: ProjectAccess = Depends(
         require_project_capability(ProjectCapability.REVIEW_WRITE.value)
@@ -759,7 +760,7 @@ async def execute_mask_repairs(
 async def get_mask_repair_batch(
     repair_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
 ) -> MaskRepairBatchOut:
     batch = await _load_visible_repair_batch(db, repair_id=repair_id, user=current_user)
     return batch_out(batch)
@@ -775,7 +776,7 @@ async def resume_mask_repairs(
     repair_id: uuid.UUID,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
     quality_dispatcher: QualityJobDispatcher = Depends(get_quality_job_dispatcher),
 ) -> MaskRepairBatchOut:
     await _load_visible_repair_batch(
@@ -814,7 +815,7 @@ async def rollback_mask_repairs(
     body: MaskRepairRollbackRequest,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
     quality_dispatcher: QualityJobDispatcher = Depends(get_quality_job_dispatcher),
 ) -> MaskRepairBatchOut:
     await _load_visible_repair_batch(

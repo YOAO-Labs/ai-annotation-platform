@@ -13,7 +13,6 @@ from app.services.project_write_guard import lock_project_manager
 from app.api.v1.training_runs import executor_auth
 from app.db.models.project import Project
 from app.db.models.training_preview import TrainingPreview
-from app.db.models.user import User
 from app.deps import (
     get_current_user,
     get_db,
@@ -37,6 +36,7 @@ from app.schemas.training_run import ExecutorFence
 from app.services import training_previews as service
 from app.services.training_dataset_analysis import stream_media
 from app.services.training_authority_contract import TrainingAuthorityPort
+from app.services.identity_contracts import IdentityActorFacts
 
 router = APIRouter(
     prefix="/projects/{project_id}/training-previews",
@@ -64,7 +64,7 @@ async def load(db, project_id, preview_id, *, lock=False):
 @router.get("/capabilities", response_model=PreviewCapabilities)
 async def capabilities(
     project: Project = Depends(require_project_owner),
-    user: User = Depends(get_current_user),
+    user: IdentityActorFacts = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     await lock_project_manager(db, user.id, project.id)
@@ -81,7 +81,7 @@ async def create(
     body: TrainingPreviewCreate,
     request: Request,
     project: Project = Depends(require_project_owner),
-    user: User = Depends(get_current_user),
+    user: IdentityActorFacts = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     await db.execute(
@@ -100,7 +100,7 @@ async def create(
 async def get(
     preview_id: uuid.UUID,
     project: Project = Depends(require_project_owner),
-    user: User = Depends(get_current_user),
+    user: IdentityActorFacts = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     await lock_project_manager(db, user.id, project.id)
@@ -118,7 +118,7 @@ async def get(
 async def cancel(
     preview_id: uuid.UUID,
     project: Project = Depends(require_project_owner),
-    user: User = Depends(get_current_user),
+    user: IdentityActorFacts = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     await lock_project_manager(db, user.id, project.id)
@@ -138,7 +138,7 @@ async def cancel(
 async def expire(
     preview_id: uuid.UUID,
     project: Project = Depends(require_project_owner),
-    user: User = Depends(get_current_user),
+    user: IdentityActorFacts = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     await lock_project_manager(db, user.id, project.id)
@@ -152,7 +152,7 @@ async def image(
     preview_id: uuid.UUID,
     index: int,
     project: Project = Depends(require_project_owner),
-    user: User = Depends(get_current_user),
+    user: IdentityActorFacts = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     await lock_project_manager(db, user.id, project.id)

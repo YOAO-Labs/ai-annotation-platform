@@ -4,7 +4,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
 from app.core.ratelimit import limiter
 from app.db.enums import UserRole
-from app.db.models.user import User
 from app.deps import get_db, require_roles
 from app.schemas.me import (
     SmtpStatus,
@@ -18,6 +17,7 @@ from app.services.system_settings_service import (
     SettingsVersionConflict,
     SystemSettingsService,
 )
+from app.services.identity_contracts import IdentityActorFacts
 
 router = APIRouter()
 
@@ -79,7 +79,7 @@ async def _version_conflict_response(
 @router.get("/system", response_model=SystemSettingsOut)
 async def get_system_settings(
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_roles(UserRole.SUPER_ADMIN)),
+    _: IdentityActorFacts = Depends(require_roles(UserRole.SUPER_ADMIN)),
 ):
     return await _build_response(db)
 
@@ -89,7 +89,7 @@ async def update_system_settings(
     payload: SystemSettingsUpdate,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    actor: User = Depends(require_roles(UserRole.SUPER_ADMIN)),
+    actor: IdentityActorFacts = Depends(require_roles(UserRole.SUPER_ADMIN)),
 ):
     keys = (
         "allow_open_registration",
@@ -150,7 +150,7 @@ async def reset_system_settings(
     payload: SystemSettingsReset,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    actor: User = Depends(require_roles(UserRole.SUPER_ADMIN)),
+    actor: IdentityActorFacts = Depends(require_roles(UserRole.SUPER_ADMIN)),
 ):
     try:
         changes = await SystemSettingsService.reset_many(
@@ -192,7 +192,7 @@ async def reset_system_settings(
 async def test_smtp(
     request: Request,
     db: AsyncSession = Depends(get_db),
-    actor: User = Depends(require_roles(UserRole.SUPER_ADMIN)),
+    actor: IdentityActorFacts = Depends(require_roles(UserRole.SUPER_ADMIN)),
 ):
     """用当前 DB override 的 SMTP 配置发一封测试邮件到 actor.email。"""
     try:

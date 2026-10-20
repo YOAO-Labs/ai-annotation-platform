@@ -25,6 +25,7 @@ from app.services import (
     training_recipes,
     training_runs as runs,
 )
+from app.services.identity_contracts import IdentityActorFacts
 from app.services.project_write_guard import lock_project_manager
 from app.services.training_dataset_bridge import content_digest
 from app.services.training_authority_contract import TrainingAuthorityPort
@@ -136,7 +137,7 @@ async def freeze_plan(db, project_id, body):
 async def create(
     db,
     project: Project,
-    user: User,
+    user: User | IdentityActorFacts,
     body: TrainingStudyCreate,
     *,
     api_key_id=None,
@@ -275,7 +276,7 @@ async def cancel(
     db,
     project_id,
     study_id,
-    user: User,
+    user: User | IdentityActorFacts,
     *,
     training_authority: TrainingAuthorityPort,
 ):

@@ -10,7 +10,6 @@ from app.deps import (
     get_current_user,
     require_scopes,
 )
-from app.db.models.user import User
 from app.db.models.prediction import (
     INTERACTIVE_ACCEPT_PREDICTION_SOURCE,
     Prediction,
@@ -45,6 +44,7 @@ from app.api.v1.tasks._shared import (
     require_task_annotation_write,
 )
 from app.services.workspace_contract import ProjectAccess
+from app.services.identity_contracts import IdentityActorFacts
 
 router = APIRouter()
 
@@ -61,7 +61,7 @@ async def get_predictions(
     limit: int | None = Query(None, ge=1, le=2000),
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
 ):
     """
     返回该任务的预测。每个 Prediction.result 内含多个 shape；当 limit 设定时，
@@ -169,7 +169,7 @@ async def get_prediction_mask_content_frame(
     shape_index: int = Path(ge=0),
     frame_index: int = Path(ge=0),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
 ) -> dict:
     task = await _load_task_or_404(db, task_id)
     await task_access.assert_task_visible(db, task, current_user.id)
@@ -253,7 +253,7 @@ async def accept_prediction(
         ),
     ),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
 ):
     task = await _load_task_or_404(db, task_id)
     access = await task_access.resolve_task_access(db, task, current_user.id)
@@ -319,7 +319,7 @@ async def reject_prediction(
         description="可选: 仅驳回指定下标的 shape; 不传则驳回该 Prediction 全部 shape.",
     ),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
     access: ProjectAccess = Depends(require_task_annotation_write),
 ):
     """B-37 · 驳回 AI 预测候选 shape, 持久化到 predictions.rejected_shape_indexes.

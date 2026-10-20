@@ -4,7 +4,6 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.application.mask_annotation_slices import _MaskMutationSqlAdapter
-from app.db.models.user import User
 from app.deps import get_current_user, get_db, require_scopes
 from app.schemas.mask_mutation import (
     MaskMutationCommitRequest,
@@ -12,6 +11,7 @@ from app.schemas.mask_mutation import (
 )
 from app.services.audit import audit_origin_from_request
 from app.services.mask_mutation_contract import MaskMutationError
+from app.services.identity_contracts import IdentityActorFacts
 
 
 router = APIRouter()
@@ -27,7 +27,7 @@ async def commit_mask_mutations(
     payload: MaskMutationCommitRequest,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
 ) -> MaskMutationCommitResponse:
     """Commit one versioned multi-annotation Mask operation atomically."""
 

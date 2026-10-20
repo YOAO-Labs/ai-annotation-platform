@@ -48,6 +48,7 @@ from app.services.video_tracking.jobs import (
     tracker_job_preview,
 )
 from app.observability.metrics import observe_mask_ai_phase, record_mask_ai_operation
+from app.services.identity_contracts import IdentityActorFacts
 
 router = APIRouter(dependencies=[Depends(require_active_task_actor)])
 
@@ -149,14 +150,14 @@ def _decode_cursor(cursor: str) -> tuple[datetime, uuid.UUID]:
 
 
 async def _load_visible_job_task(
-    db: AsyncSession, job_id: uuid.UUID, user: User
+    db: AsyncSession, job_id: uuid.UUID, user: User | IdentityActorFacts
 ) -> tuple[Task, VideoTrackerJobOut]:
     task, row = await _load_visible_job_task_row(db, job_id, user)
     return task, tracker_job_out(row)
 
 
 async def _load_visible_job_task_row(
-    db: AsyncSession, job_id: uuid.UUID, user: User
+    db: AsyncSession, job_id: uuid.UUID, user: User | IdentityActorFacts
 ) -> tuple[Task, VideoTrackerJob]:
     row = await get_tracker_job(db, job_id)
     task = await db.get(Task, row.task_id)
@@ -169,7 +170,7 @@ async def _load_visible_job_task_row(
 async def _lock_visible_job_task_row(
     db: AsyncSession,
     job_id: uuid.UUID,
-    user: User,
+    user: User | IdentityActorFacts,
     *,
     require_annotation_write: bool = True,
 ) -> tuple[Task, VideoTrackerJob, ProjectAccess]:
@@ -234,7 +235,7 @@ async def _assert_can_cancel(
     db: AsyncSession,
     task: Task,
     body: VideoTrackerJob | VideoTrackerJobOut,
-    user: User,
+    user: User | IdentityActorFacts,
     access: ProjectAccess,
 ) -> None:
     if body.created_by == user.id or access.is_manager:
@@ -248,7 +249,7 @@ async def _assert_can_decide(
     db: AsyncSession,
     task: Task,
     body: VideoTrackerJob,
-    user: User,
+    user: User | IdentityActorFacts,
     access: ProjectAccess,
 ) -> None:
     if task.status == "completed":
@@ -283,7 +284,7 @@ async def list_video_tracker_jobs(
     cursor: str | None = Query(default=None),
     limit: int = Query(default=20, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
-    current_admin: User = Depends(
+    current_admin: IdentityActorFacts = Depends(
         require_roles(UserRole.PROJECT_ADMIN, UserRole.SUPER_ADMIN)
     ),
 ) -> VideoTrackerJobsResponse:
@@ -398,7 +399,7 @@ async def list_video_tracker_jobs(
 async def get_video_tracker_job(
     job_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
 ):
     _, body = await _load_visible_job_task(db, job_id, current_user)
     return body
@@ -413,7 +414,7 @@ async def cancel_video_tracker_job(
     job_id: uuid.UUID,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
 ):
     task, row, access = await _lock_visible_job_task_row(
         db, job_id, current_user, require_annotation_write=False
@@ -507,7 +508,7 @@ async def accept_video_tracker_job(
     job_id: uuid.UUID,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
 ):
     """v0.21.28 · 接受候选: 把 job 暂存结果落库 (主实例回填源轨迹 + 新轨迹建), status=ACCEPTED。"""
     task, row, access = await _lock_visible_job_task_row(db, job_id, current_user)
@@ -546,7 +547,7 @@ async def discard_video_tracker_job(
     job_id: uuid.UUID,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
 ):
     """v0.21.28 · 丢弃候选: status=DISCARDED, 清 staged_result, annotation 零改动。"""
     task, row, access = await _lock_visible_job_task_row(db, job_id, current_user)
@@ -581,7 +582,7 @@ async def decide_video_tracker_candidates(
     body: VideoTrackerDecisionRequest,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
 ):
     """Accept or reject an instance/window or QC issue region selector."""
 
@@ -688,7 +689,7 @@ async def decide_video_tracker_candidates(
 async def get_video_tracker_job_preview(
     job_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
 ):
     """v0.21.28 · 候选预览: 返回 job 暂存的逐帧结果 (接受前渲染候选叠加用)。无 staged → 空。"""
     row = await get_tracker_job(db, job_id)
@@ -707,7 +708,7 @@ async def get_video_tracker_mask_content(
     job_id: uuid.UUID,
     sha256: str,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
 ) -> JSONResponse:
     row = await get_tracker_job(db, job_id)
     task = await db.get(Task, row.task_id)

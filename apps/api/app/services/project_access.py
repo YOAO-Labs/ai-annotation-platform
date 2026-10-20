@@ -36,6 +36,7 @@ from app.services.task_creation_contract import (
     ProjectManagerFacts,
     decode_creation_reply,
 )
+from app.services.identity_contracts import IdentityActorFacts
 
 
 async def lock_creation_project_manager(
@@ -101,7 +102,9 @@ def _invalid_account() -> HTTPException:
     )
 
 
-def is_privileged_for_project(user: User, project: Project) -> bool:
+def is_privileged_for_project(
+    user: User | IdentityActorFacts, project: Project
+) -> bool:
     """An active super administrator or a project owner with an admin role."""
 
     if not user.is_active:

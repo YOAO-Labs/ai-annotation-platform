@@ -25,6 +25,7 @@ from app.services.pipeline_template import (
     list_user_org_ids,
     update_pipeline as update_pipeline_command,
 )
+from app.services.identity_contracts import IdentityActorFacts
 
 router = APIRouter()
 
@@ -66,7 +67,7 @@ async def list_pipelines(
     project_id: uuid.UUID | None = None,
     organization_id: uuid.UUID | None = None,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: IdentityActorFacts = Depends(get_current_user),
 ):
     q = select(ProjectPipeline)
     if user.role != UserRole.SUPER_ADMIN:
@@ -109,7 +110,7 @@ async def list_pipelines(
 async def create_pipeline(
     data: ProjectPipelineCreate,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: IdentityActorFacts = Depends(get_current_user),
 ):
     pipeline = await create_pipeline_command(db, data, user)
     await db.commit()
@@ -121,7 +122,7 @@ async def create_pipeline(
 async def get_pipeline(
     pipeline_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: IdentityActorFacts = Depends(get_current_user),
 ):
     pipeline = await _load_pipeline_or_404(db, pipeline_id)
     await assert_pipeline_visible(db, pipeline, user)
@@ -133,7 +134,7 @@ async def update_pipeline(
     pipeline_id: uuid.UUID,
     data: ProjectPipelineUpdate,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: IdentityActorFacts = Depends(get_current_user),
 ):
     pipeline = await update_pipeline_command(db, pipeline_id, data, user)
     await db.commit()
@@ -145,7 +146,7 @@ async def update_pipeline(
 async def delete_pipeline(
     pipeline_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: IdentityActorFacts = Depends(get_current_user),
 ):
     await delete_pipeline_command(db, pipeline_id, user)
     await db.commit()
