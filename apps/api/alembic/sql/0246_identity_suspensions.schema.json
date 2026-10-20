@@ -1,0 +1,827 @@
+{
+  "$defs": {
+    "DirectoryUserRecord": {
+      "additionalProperties": false,
+      "description": "The exact public UserOut projection, with historical role/status strings.",
+      "properties": {
+        "avatar_ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Avatar Ref"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "deactivation_requested_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Deactivation Requested At"
+        },
+        "deactivation_scheduled_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Deactivation Scheduled At"
+        },
+        "disabled_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Disabled At"
+        },
+        "disabled_by": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Disabled By"
+        },
+        "disabled_kind": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Disabled Kind"
+        },
+        "disabled_reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Disabled Reason"
+        },
+        "email": {
+          "title": "Email",
+          "type": "string"
+        },
+        "email_verified_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Email Verified At"
+        },
+        "group_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Group Id"
+        },
+        "group_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Group Name"
+        },
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "is_active": {
+          "title": "Is Active",
+          "type": "boolean"
+        },
+        "last_login_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Last Login At"
+        },
+        "last_seen_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Last Seen At"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "password_admin_reset_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Password Admin Reset At"
+        },
+        "preferences": {
+          "additionalProperties": true,
+          "title": "Preferences",
+          "type": "object"
+        },
+        "role": {
+          "title": "Role",
+          "type": "string"
+        },
+        "status": {
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "email",
+        "name",
+        "role",
+        "group_name",
+        "group_id",
+        "status",
+        "is_active",
+        "disabled_kind",
+        "disabled_at",
+        "disabled_by",
+        "disabled_reason",
+        "email_verified_at",
+        "last_login_at",
+        "last_seen_at",
+        "password_admin_reset_at",
+        "deactivation_requested_at",
+        "deactivation_scheduled_at",
+        "preferences",
+        "avatar_ref",
+        "created_at"
+      ],
+      "title": "DirectoryUserRecord",
+      "type": "object"
+    },
+    "NativeReactivateAccountCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "actor": {
+          "$ref": "#/$defs/Principal"
+        },
+        "audit_context": {
+          "$ref": "#/$defs/SessionAuditContext"
+        },
+        "derivation_id": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Derivation Id",
+          "type": "string"
+        },
+        "expected_key_hash": {
+          "anyOf": [
+            {
+              "maxLength": 255,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Expected Key Hash"
+        },
+        "operation": {
+          "const": "reactivate_account",
+          "title": "Operation",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/NativeReactivateAccountPayload"
+        },
+        "request_fingerprint": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Request Fingerprint",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-identity-suspensions-native/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema",
+        "operation_id",
+        "actor",
+        "expected_key_hash",
+        "request_fingerprint",
+        "derivation_id",
+        "audit_context",
+        "operation",
+        "payload"
+      ],
+      "title": "NativeReactivateAccountCommand",
+      "type": "object"
+    },
+    "NativeReactivateAccountPayload": {
+      "additionalProperties": false,
+      "properties": {
+        "reason_present": {
+          "title": "Reason Present",
+          "type": "boolean"
+        },
+        "target_user_id": {
+          "format": "uuid",
+          "title": "Target User Id",
+          "type": "string"
+        }
+      },
+      "required": ["target_user_id", "reason_present"],
+      "title": "NativeReactivateAccountPayload",
+      "type": "object"
+    },
+    "NativeReactivateAccountReply": {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "$ref": "#/$defs/SuspensionData"
+        },
+        "ok": {
+          "const": true,
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "operation": {
+          "const": "reactivate_account",
+          "title": "Operation",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "principal": {
+          "$ref": "#/$defs/Principal"
+        },
+        "replayed": {
+          "title": "Replayed",
+          "type": "boolean"
+        },
+        "schema": {
+          "const": "aap-identity-suspensions-native/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "ok", "operation_id", "principal", "replayed", "operation", "data"],
+      "title": "NativeReactivateAccountReply",
+      "type": "object"
+    },
+    "NativeSuspendAccountCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "actor": {
+          "$ref": "#/$defs/Principal"
+        },
+        "audit_context": {
+          "$ref": "#/$defs/SessionAuditContext"
+        },
+        "derivation_id": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Derivation Id",
+          "type": "string"
+        },
+        "expected_key_hash": {
+          "anyOf": [
+            {
+              "maxLength": 255,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Expected Key Hash"
+        },
+        "operation": {
+          "const": "suspend_account",
+          "title": "Operation",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/SuspendAccountPayload"
+        },
+        "request_fingerprint": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Request Fingerprint",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-identity-suspensions-native/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema",
+        "operation_id",
+        "actor",
+        "expected_key_hash",
+        "request_fingerprint",
+        "derivation_id",
+        "audit_context",
+        "operation",
+        "payload"
+      ],
+      "title": "NativeSuspendAccountCommand",
+      "type": "object"
+    },
+    "NativeSuspendAccountReply": {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "$ref": "#/$defs/SuspensionData"
+        },
+        "ok": {
+          "const": true,
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "operation": {
+          "const": "suspend_account",
+          "title": "Operation",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "principal": {
+          "$ref": "#/$defs/Principal"
+        },
+        "replayed": {
+          "title": "Replayed",
+          "type": "boolean"
+        },
+        "schema": {
+          "const": "aap-identity-suspensions-native/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "ok", "operation_id", "principal", "replayed", "operation", "data"],
+      "title": "NativeSuspendAccountReply",
+      "type": "object"
+    },
+    "NativeSuspensionFailureReply": {
+      "additionalProperties": false,
+      "properties": {
+        "error": {
+          "$ref": "#/$defs/SuspensionFailureDetail"
+        },
+        "ok": {
+          "const": false,
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "schema": {
+          "const": "aap-identity-suspensions-native/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "ok", "error"],
+      "title": "NativeSuspensionFailureReply",
+      "type": "object"
+    },
+    "Principal": {
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "oneOf": [
+            {
+              "properties": {
+                "credential_type": {
+                  "const": "jwt"
+                },
+                "expires_at": {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                "generation": {
+                  "exclusiveMaximum": 9223372036854775808,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "scopes": {
+                  "type": "null"
+                }
+              }
+            },
+            {
+              "properties": {
+                "credential_type": {
+                  "const": "api_key"
+                },
+                "generation": {
+                  "type": "null"
+                },
+                "scopes": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                }
+              }
+            }
+          ]
+        }
+      ],
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "credential_id": {
+          "format": "uuid",
+          "title": "Credential Id",
+          "type": "string"
+        },
+        "credential_type": {
+          "enum": ["jwt", "api_key"],
+          "title": "Credential Type",
+          "type": "string"
+        },
+        "email": {
+          "title": "Email",
+          "type": "string"
+        },
+        "expires_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Expires At"
+        },
+        "generation": {
+          "anyOf": [
+            {
+              "exclusiveMaximum": 9223372036854775808,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Generation"
+        },
+        "is_active": {
+          "const": true,
+          "title": "Is Active",
+          "type": "boolean"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "role": {
+          "enum": ["super_admin", "project_admin", "employee", "viewer"],
+          "title": "Role",
+          "type": "string"
+        },
+        "scopes": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Scopes"
+        }
+      },
+      "required": [
+        "actor_id",
+        "name",
+        "email",
+        "role",
+        "is_active",
+        "credential_type",
+        "credential_id",
+        "generation",
+        "scopes",
+        "expires_at"
+      ],
+      "title": "Principal",
+      "type": "object"
+    },
+    "ProjectBusyDetail": {
+      "additionalProperties": false,
+      "properties": {
+        "reason": {
+          "const": "project_busy",
+          "title": "Reason",
+          "type": "string"
+        }
+      },
+      "required": ["reason"],
+      "title": "ProjectBusyDetail",
+      "type": "object"
+    },
+    "SessionAuditContext": {
+      "additionalProperties": false,
+      "properties": {
+        "ip": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Ip"
+        },
+        "method": {
+          "anyOf": [
+            {
+              "maxLength": 8,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Method"
+        },
+        "path": {
+          "anyOf": [
+            {
+              "maxLength": 256,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Path"
+        },
+        "request_id": {
+          "anyOf": [
+            {
+              "maxLength": 36,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Request Id"
+        }
+      },
+      "required": ["method", "path", "ip", "request_id"],
+      "title": "SessionAuditContext",
+      "type": "object"
+    },
+    "SuspendAccountPayload": {
+      "additionalProperties": false,
+      "properties": {
+        "target_user_id": {
+          "format": "uuid",
+          "title": "Target User Id",
+          "type": "string"
+        }
+      },
+      "required": ["target_user_id"],
+      "title": "SuspendAccountPayload",
+      "type": "object"
+    },
+    "SuspensionData": {
+      "additionalProperties": false,
+      "properties": {
+        "user": {
+          "$ref": "#/$defs/DirectoryUserRecord"
+        }
+      },
+      "required": ["user"],
+      "title": "SuspensionData",
+      "type": "object"
+    },
+    "SuspensionFailureDetail": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "anyOf": [
+            {
+              "enum": [
+                "invalid_request",
+                "credential_invalid",
+                "credential_revoked",
+                "generation_outdated",
+                "token_expired",
+                "user_inactive",
+                "invalid_account_role",
+                "credential_busy"
+              ],
+              "type": "string"
+            },
+            {
+              "enum": [
+                "manager_required",
+                "target_not_found",
+                "self_suspend",
+                "self_reactivate",
+                "suspend_role_forbidden",
+                "reactivate_role_forbidden",
+                "reactivate_not_managed",
+                "suspend_scope_forbidden",
+                "reactivate_scope_forbidden",
+                "last_super_admin",
+                "already_active",
+                "not_reactivatable",
+                "account_busy",
+                "project_busy",
+                "operation_conflict",
+                "unavailable"
+              ],
+              "type": "string"
+            }
+          ],
+          "title": "Code"
+        },
+        "detail": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "$ref": "#/$defs/ProjectBusyDetail"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Detail"
+        },
+        "status_code": {
+          "anyOf": [
+            {
+              "maximum": 599,
+              "minimum": 400,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Status Code"
+        }
+      },
+      "required": ["code", "status_code", "detail"],
+      "title": "SuspensionFailureDetail",
+      "type": "object"
+    },
+    "SuspensionPolicyReply": {
+      "additionalProperties": false,
+      "properties": {
+        "policy": {
+          "const": "aap-identity-suspensions/v1",
+          "title": "Policy",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-identity-suspensions-policy/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "policy"],
+      "title": "SuspensionPolicyReply",
+      "type": "object"
+    }
+  },
+  "$id": "aap-identity-suspensions-native/v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "anyOf": [
+    {
+      "discriminator": {
+        "mapping": {
+          "reactivate_account": "#/$defs/NativeReactivateAccountCommand",
+          "suspend_account": "#/$defs/NativeSuspendAccountCommand"
+        },
+        "propertyName": "operation"
+      },
+      "oneOf": [
+        {
+          "$ref": "#/$defs/NativeSuspendAccountCommand"
+        },
+        {
+          "$ref": "#/$defs/NativeReactivateAccountCommand"
+        }
+      ]
+    },
+    {
+      "discriminator": {
+        "mapping": {
+          "reactivate_account": "#/$defs/NativeReactivateAccountReply",
+          "suspend_account": "#/$defs/NativeSuspendAccountReply"
+        },
+        "propertyName": "operation"
+      },
+      "oneOf": [
+        {
+          "$ref": "#/$defs/NativeSuspendAccountReply"
+        },
+        {
+          "$ref": "#/$defs/NativeReactivateAccountReply"
+        }
+      ]
+    },
+    {
+      "$ref": "#/$defs/NativeSuspensionFailureReply"
+    },
+    {
+      "$ref": "#/$defs/SuspensionPolicyReply"
+    }
+  ]
+}
