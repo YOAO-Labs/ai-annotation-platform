@@ -40,6 +40,7 @@ from aap_protocol_v2.lifecycle import (
     sign_admission_token,
 )
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+from training_contract.assets import resolve_prepared_asset
 
 
 CONTROL_SCOPES = {
@@ -216,6 +217,7 @@ def _approved_weights(
     checkpoint_dir: Path,
     filenames: list[str],
     approval_ref: str,
+    model_assets_dir: Path | None = None,
 ) -> list[dict[str, Any]]:
     try:
         manifest = json.loads(_required_env("VALIDATION_WEIGHT_SHA256_JSON"))
@@ -232,8 +234,13 @@ def _approved_weights(
             or any(char not in "0123456789abcdef" for char in expected)
         ):
             raise RuntimeError(f"invalid approved SHA-256 for {filename}")
+        prepared = (
+            resolve_prepared_asset(model_assets_dir, filename)
+            if model_assets_dir is not None
+            else None
+        )
         record = artifact_evidence(
-            checkpoint_dir / filename,
+            prepared if prepared is not None else checkpoint_dir / filename,
             kind="weight",
             approval_ref=approval_ref,
         )
@@ -266,7 +273,6 @@ async def _run() -> dict[str, Any]:
     from model_registry import resolve_weight_filename  # noqa: PLC0415
     from managed_models import ManagedModelStore  # noqa: PLC0415
     from scripts.controlled_segmentation_validation import (  # noqa: PLC0415
-        CHECKS as CONTROLLED_CHECKS,
         load_controlled_fixture,
     )
 
@@ -331,7 +337,7 @@ async def _run() -> dict[str, Any]:
         memory: dict[str, Any] = {"gpu_total_mb": gpu["total_memory_mb"]}
         contract_checks = {name: False for name in REQUIRED_CONTRACT_CHECKS}
         if controlled is not None:
-            contract_checks.update(dict.fromkeys(CONTROLLED_CHECKS, False))
+            contract_checks.update(dict.fromkeys(controlled.checks, False))
         async with main.lifespan(main.app):
             assert main._gpu_lifecycle is not None  # noqa: SLF001
             assert main._model_pool is not None  # noqa: SLF001
@@ -420,16 +426,16 @@ async def _run() -> dict[str, Any]:
                 contract_checks["managed_lifecycle_advertised"] = True
                 if controlled is not None:
                     await controlled.install(client)
-                    contract_checks["controlled_segment_install"] = True
-                    contract_checks["controlled_segment_receipt_mismatch_rejected"] = (
-                        True
-                    )
+                    contract_checks[f"{controlled.check_prefix}_install"] = True
+                    contract_checks[
+                        f"{controlled.check_prefix}_receipt_mismatch_rejected"
+                    ] = True
                     await controlled.reject_mismatched_references(
                         client,
                         lambda: headers(AdmissionScope.PREDICT, "1"),
                     )
                     contract_checks[
-                        "controlled_segment_reference_mismatch_rejected"
+                        f"{controlled.check_prefix}_reference_mismatch_rejected"
                     ] = True
 
                 closed_tasks = ("detection", "segmentation", "keypoint", "obb")
@@ -546,8 +552,8 @@ async def _run() -> dict[str, Any]:
                         cycle=2,
                         snapshot=await main._model_pool.snapshot(),  # noqa: SLF001
                     )
-                    contract_checks["controlled_segment_native_rle"] = True
-                    contract_checks["controlled_segment_cold_reload"] = True
+                    contract_checks[controlled.output_check] = True
+                    contract_checks[f"{controlled.check_prefix}_cold_reload"] = True
                 memory["cycle_2_loaded_mb"] = _gpu_memory_samples(target_uuid, count=3)
                 workload_scope = (
                     AdmissionScope.PREDICT if controlled else AdmissionScope.WARMUP
@@ -611,6 +617,7 @@ async def _run() -> dict[str, Any]:
             checkpoint_dir = Path(main.CHECKPOINTS_DIR)
             artifacts = _approved_weights(
                 checkpoint_dir=checkpoint_dir,
+                model_assets_dir=Path(main.MODEL_ASSETS_DIR),
                 filenames=filenames,
                 approval_ref=model_approval_ref,
             )
@@ -641,7 +648,7 @@ async def _run() -> dict[str, Any]:
                     fixture_approval=fixture_approval_ref,
                 )
                 artifacts.extend(controlled_artifacts)
-                pool_topology["controlled_segment"] = controlled_topology
+                pool_topology[controlled.check_prefix] = controlled_topology
             gpu["runtime_version"] = str(main.torch.version.cuda)
             cycles = [
                 memory_cycle_evidence(

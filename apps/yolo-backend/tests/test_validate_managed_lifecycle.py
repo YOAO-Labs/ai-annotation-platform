@@ -6,6 +6,7 @@ import json
 import pytest
 
 from scripts import validate_managed_lifecycle as validator
+from training_contract.assets import AssetUnavailable
 
 
 def test_approved_weights_require_exact_hash_manifest(tmp_path, monkeypatch) -> None:
@@ -42,6 +43,80 @@ def test_approved_weights_reject_hash_drift(tmp_path, monkeypatch) -> None:
             filenames=["detect.pt"],
             approval_ref="models:approved",
         )
+
+
+def _prepared(tmp_path, monkeypatch):
+    assets = tmp_path / "assets"
+    assets.mkdir()
+    legacy = tmp_path / "checkpoints"
+    legacy.mkdir()
+    content = b"actual prepared bytes"
+    sha = hashlib.sha256(content).hexdigest()
+    blob = assets / f"{sha}.pt"
+    blob.write_bytes(content)
+    (assets / "assets.json").write_text(
+        json.dumps({"version": 1, "assets": [{"filename": "detect.pt", "sha256": sha}]})
+    )
+    monkeypatch.setenv("VALIDATION_WEIGHT_SHA256_JSON", json.dumps({"detect.pt": sha}))
+    return assets, legacy, blob
+
+
+@pytest.mark.parametrize("stale_legacy_copy", [False, True])
+def test_approved_weights_follow_actual_sha_cache_not_old_checkpoint_copy(
+    tmp_path, monkeypatch, stale_legacy_copy
+):
+    assets, legacy, blob = _prepared(tmp_path, monkeypatch)
+    if stale_legacy_copy:
+        (legacy / "detect.pt").write_bytes(b"old incorrect checkpoint")
+    records = validator._approved_weights(
+        checkpoint_dir=legacy,
+        model_assets_dir=assets,
+        filenames=["detect.pt"],
+        approval_ref="models:approved",
+    )
+    assert records == [
+        {
+            "kind": "weight",
+            "name": blob.name,
+            "size_bytes": blob.stat().st_size,
+            "sha256": blob.stem,
+            "approval_ref": "models:approved",
+        }
+    ]
+
+
+@pytest.mark.parametrize("change", ["missing", "corrupt", "malformed_mapping"])
+def test_mapped_asset_failure_cannot_approve_legacy_checkpoint(
+    tmp_path, monkeypatch, change
+):
+    assets, legacy, blob = _prepared(tmp_path, monkeypatch)
+    (legacy / "detect.pt").write_bytes(blob.read_bytes())
+    if change == "missing":
+        blob.unlink()
+    elif change == "corrupt":
+        blob.write_bytes(b"corrupt")
+    else:
+        (assets / "assets.json").write_text("{}")
+    with pytest.raises((AssetUnavailable, ValueError)):
+        validator._approved_weights(
+            checkpoint_dir=legacy,
+            model_assets_dir=assets,
+            filenames=["detect.pt"],
+            approval_ref="models:approved",
+        )
+
+
+def test_unmapped_weight_preserves_checkpoint_fallback(tmp_path, monkeypatch):
+    assets, legacy, blob = _prepared(tmp_path, monkeypatch)
+    (assets / "assets.json").write_text('{"version":1,"assets":[]}')
+    (legacy / "detect.pt").write_bytes(blob.read_bytes())
+    records = validator._approved_weights(
+        checkpoint_dir=legacy,
+        model_assets_dir=assets,
+        filenames=["detect.pt"],
+        approval_ref="models:approved",
+    )
+    assert records[0]["name"] == "detect.pt"
 
 
 def test_failure_path_emits_strict_nonpassing_evidence() -> None:
