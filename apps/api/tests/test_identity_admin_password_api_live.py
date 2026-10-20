@@ -147,7 +147,7 @@ async def test_auth_only_admin_password_api_binding_and_credential_preservation(
         identity_origin = ""
         configuration = {
             "IDENTITY_AUTH_DATABASE_URL": _dsn("AUTH", test_engine),
-            "IDENTITY_ACCOUNT_DATABASE_URL": _dsn("ACCOUNT", test_engine),
+            "IDENTITY_ACCOUNT_DATABASE_URL": _dsn("ACCOUNTS", test_engine),
             "IDENTITY_ADMIN_PASSWORD_DATABASE_URL": _dsn("ADMIN_PASSWORD", test_engine),
         }
     try:
