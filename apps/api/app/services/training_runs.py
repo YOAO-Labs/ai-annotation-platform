@@ -373,6 +373,14 @@ async def frozen_config(db, project_id, body: TrainingRunCreate):
         config["classes"],
     )
     if pin is not None:
+        if (
+            not config.get("configuration", {})
+            .get("effective_values", {})
+            .get("pretrained", True)
+        ):
+            raise HTTPException(
+                status_code=422, detail="从零训练不能同时选择项目模型权重"
+            )
         config["initialization"] = pin
     return config
 

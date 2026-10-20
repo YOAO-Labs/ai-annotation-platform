@@ -90,14 +90,20 @@ export function TrainingRunMonitor({
   const framework = String(run.config.framework ?? "");
   const task = run.task ?? trainingTaskOf(run.config);
   const segmentation = task === segmentationTask;
+  const configuration = run.config.configuration as
+    | { effective_values?: { evaluate_train?: boolean } }
+    | undefined;
   const points = epochPoints(events, framework);
   const keys = [
     ...new Set(points.flatMap((point) => Object.keys(point).filter((key) => key !== "epoch"))),
   ];
-  const scores = keys.filter((key) =>
-    /^metrics\/(mAP50-95|mAP50|mAP75|precision|recall|AR100)(\([BM]\))?$/.test(key),
+  const scorePattern = /^metrics\/(mAP50-95|mAP50|mAP75|precision|recall|AR100)(\([BM]\))?$/;
+  const scores = keys.filter((key) => scorePattern.test(key));
+  const trainingScores = keys.filter(
+    (key) => key.startsWith("train/") && scorePattern.test(key.slice(6)),
   );
-  const losses = keys.filter((key) => /loss/i.test(key));
+  const trainingLosses = keys.filter((key) => key.startsWith("train/") && /loss/i.test(key));
+  const validationLosses = keys.filter((key) => key.startsWith("val/") && /loss/i.test(key));
   const latest = points[points.length - 1];
   const mapKey = scores.find(
     (key) => key.includes("mAP50-95") && (!segmentation || key.endsWith("(M)")),
@@ -428,23 +434,42 @@ export function TrainingRunMonitor({
             ) : (
               <div className="grid gap-4 xl:grid-cols-2">
                 <TrainingMetricChart
+                  title="训练表现"
+                  points={points}
+                  keys={trainingScores}
+                  domain={[0, 1]}
+                  empty={
+                    configuration?.effective_values?.evaluate_train === false
+                      ? "未启用逐轮训练集评估"
+                      : "此执行尚未上报训练集表现"
+                  }
+                />
+                <TrainingMetricChart
+                  title="训练损失"
+                  points={points}
+                  keys={trainingLosses}
+                  empty="此执行尚未上报训练损失"
+                />
+                <TrainingMetricChart
                   title="验证表现"
                   points={points}
                   keys={scores}
                   empty="尚未收到验证指标"
                 />
                 <TrainingMetricChart
-                  title="损失变化"
+                  title="验证损失"
                   points={points}
-                  keys={losses}
-                  empty="此执行尚未上报损失指标"
+                  keys={validationLosses}
+                  empty="此执行尚未上报验证损失"
                 />
               </div>
             )}
             <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
               展示所选执行已上报的指标，训练时每 3
               秒刷新。续训记录分别展示；最近轮次指标与最终最佳权重的评估结果可能不同。
-              {framework === "libreyolo" && "LibreYOLO 使用原生 mAP 与 AR100 指标。"}
+              训练表现来自关闭增强后的训练集评估，损失越低越好；历史未上报的指标不补算，缺失值不补零。
+              {framework === "libreyolo" &&
+                "LibreYOLO 使用原生 mAP 与 AR100 验证指标，仅上报训练总损失，未提供训练集表现。"}
             </p>
             {!!points.length && (
               <details className="mt-4 text-xs">

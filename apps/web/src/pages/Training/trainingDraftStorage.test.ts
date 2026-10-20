@@ -11,6 +11,16 @@ import {
 beforeEach(() => localStorage.clear());
 const owner = trainingDraftOwner("user-1", "project-1");
 
+it("persists task selection and rejects a pending body for another task", () => {
+  const draft = { ...pendingDraft(), task: "segment" as const };
+  expect(saveTrainingDraft({ ...draft, pending: undefined })).toBeNull();
+  expect(readTrainingDraft(owner).draft?.task).toBe("segment");
+  expect(saveTrainingDraft(draft)).not.toBeNull();
+  expect(
+    saveTrainingDraft({ ...draft, pending: { body: { ...draft.pending.body, task: "segment" } } }),
+  ).toBeNull();
+});
+
 it("restores an exact pending study and rejects two pending actions or another request owner", () => {
   const ordinary = pendingDraft();
   const pendingStudy = {

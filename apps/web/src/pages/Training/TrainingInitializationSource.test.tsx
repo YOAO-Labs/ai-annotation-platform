@@ -33,6 +33,7 @@ function Content({
   task?: string;
 }) {
   const [value, setValue] = useState(initial);
+  const [pretrained, setPretrained] = useState(true);
   const qualification = useTrainingInitializationSource(
     "project",
     "ultralytics",
@@ -48,9 +49,15 @@ function Content({
         value={value}
         disabled={false}
         qualification={qualification}
-        onChange={setValue}
+        pretrained={pretrained}
+        supportsScratch
+        onChange={(next, usePretrained = true) => {
+          setValue(next);
+          setPretrained(usePretrained);
+        }}
       />
       <output>{JSON.stringify(value)}</output>
+      <p>{pretrained ? "pretrained" : "scratch"}</p>
     </>
   );
 }
@@ -77,6 +84,19 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   clients.splice(0).forEach((client) => client.clear());
+});
+
+it("switches explicitly between pretrained, random initialization and project weights", async () => {
+  mount({ kind: "trained_model", model_version_id: modelId, source_digest: pin.source_digest });
+  expect(screen.getByRole("region", { name: "模型初始化" })).toBeVisible();
+  const user = userEvent.setup();
+  await user.selectOptions(screen.getByLabelText("初始化权重"), "scratch");
+  expect(screen.getByText("scratch")).toBeVisible();
+  expect(screen.getByText(/仅加载所选模型的架构并随机初始化/)).toBeVisible();
+  expect(screen.getByRole("status")).toBeEmptyDOMElement();
+  await user.selectOptions(screen.getByLabelText("初始化权重"), "");
+  expect(screen.getByText("pretrained")).toBeVisible();
+  expect(screen.getByLabelText("初始化权重")).toHaveValue("");
 });
 
 it("looks up the selected ID independently and keeps an unavailable pin unchanged", async () => {
@@ -123,7 +143,41 @@ it("pages archive-inclusive candidates and preserves object failures", async () 
     20,
     expect.any(Object),
     "include",
+    { task: "detect", framework: "ultralytics" },
   ]);
+});
+
+it("filters project initialization candidates by task, framework and base model", async () => {
+  const candidate = {
+    id: modelId,
+    name: "兼容候选",
+    framework: "ultralytics",
+    task: "detect",
+    provenance: { base_model: { id: "yolo11n" } },
+  };
+  vi.mocked(trainedModelsApi.list).mockResolvedValue({
+    total: 4,
+    items: [
+      candidate,
+      { ...candidate, id: "other-task", name: "分割候选", task: "segment" },
+      { ...candidate, id: "other-framework", name: "其他框架", framework: "libreyolo" },
+      {
+        ...candidate,
+        id: "other-model",
+        name: "其他型号",
+        provenance: { base_model: { id: "yolo11s" } },
+      },
+    ],
+  } as never);
+  mount();
+  await screen.findByRole("option", { name: /兼容候选/ });
+  expect(
+    screen.queryByRole("option", { name: /分割候选|其他框架|其他型号/ }),
+  ).not.toBeInTheDocument();
+  expect(trainedModelsApi.list).toHaveBeenCalledWith("project", 0, expect.any(Object), "include", {
+    task: "detect",
+    framework: "ultralytics",
+  });
 });
 
 it("rejects delayed source A after choosing B and A again", async () => {
@@ -192,6 +246,7 @@ it("qualifies segmentation weights and lists candidates only within the segmenta
   );
   expect(trainedModelsApi.list).toHaveBeenCalledWith("project", 0, expect.any(Object), "include", {
     task: "segment",
+    framework: "ultralytics",
   });
   expect(screen.queryByText(/尚未取得项目权重初始化资格/)).not.toBeInTheDocument();
 });

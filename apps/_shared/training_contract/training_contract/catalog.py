@@ -307,7 +307,11 @@ def digest(value):
     ).hexdigest()
 
 
-def definition(framework, base_model=None, *, legacy=False):
+def definition(framework, base_model=None, *, legacy=False, revision=None):
+    revision = 2 if legacy else revision or (4 if framework == "ultralytics" else 3)
+    if revision not in ({2, 3, 4} if framework == "ultralytics" else {2, 3}):
+        raise ValueError("Unknown training parameter schema revision")
+    legacy = revision == 2
     inventory = json.loads(
         files(__package__).joinpath("native_inventory.json").read_text()
     )[framework]
@@ -322,8 +326,10 @@ def definition(framework, base_model=None, *, legacy=False):
     ):
         raise ValueError("该基础模型家族尚未通过参数契约验证")
     reviewed = {**COMMON, **(ULTRA if framework == "ultralytics" else LIBRE)}
+    if framework == "ultralytics" and revision >= 4:
+        reviewed["pretrained"] = ("使用预训练权重", "basic", BOOL, True)
     result = {
-        "schema_id": f"{framework}-{inventory['version']}-{family}-{'segment' if segmentation else 'detect'}-{'2' if legacy else '3'}",
+        "schema_id": f"{framework}-{inventory['version']}-{family}-{'segment' if segmentation else 'detect'}-{revision}",
         "framework": framework,
         "framework_version": inventory["version"],
         "adapter_revision": 2,
@@ -400,6 +406,25 @@ def definition(framework, base_model=None, *, legacy=False):
         if framework == "libreyolo" and key == "mixup_prob":
             field["aliases"] = ["mixup"]
         result["fields"].append(field)
+    if framework == "ultralytics" and revision >= 4:
+        result["fields"].append(
+            {
+                "key": "evaluate_train",
+                "label": "逐轮评估训练集",
+                "group": "evaluation",
+                "status": "editable",
+                "rules": dict(BOOL),
+                "default": False,
+                "native_default": None,
+                "native_type": "bool",
+                "defined_in": "platform",
+                "aliases": [],
+                "reason": "平台每轮额外调用原生评估器计算训练集 Precision、Recall 和 mAP，关闭增强；增加耗时，不参与最佳权重选择",
+            }
+        )
+        next(field for field in result["fields"] if field["key"] == "pretrained")[
+            "reason"
+        ] = "开启时使用预训练基础权重；关闭时仅使用模型架构随机初始化，与项目权重初始化互斥"
     result["schema_digest"] = digest(result)
     return result
 
@@ -427,7 +452,11 @@ def schema_identity(schema):
 
 def supported_identities():
     result = []
-    for schema in [*definitions(), *definitions(legacy=True)]:
+    historical = [
+        definition("ultralytics", base, revision=3)
+        for base in ("yolo11n", "yolo11n-seg")
+    ]
+    for schema in [*definitions(), *historical, *definitions(legacy=True)]:
         identity = schema_identity(schema)
         result.append(identity)
         if normalize_task(schema["task"]) == SEGMENTATION:
@@ -444,11 +473,18 @@ def supported_identities():
 
 def definition_for_identity(framework, base_model, identity):
     """Select an exact frozen schema; aliases never change its hashed content."""
-    for legacy in (False, True):
-        schema = definition(framework, base_model, legacy=legacy)
+    for schema in compatible_definitions(framework, base_model):
         if identity == schema_identity(schema):
             return schema
     raise ValueError("未知或不匹配的冻结参数定义")
+
+
+def compatible_definitions(framework, base_model):
+    """Keep historical hashed parameter schemas available for frozen experiments."""
+    return [
+        definition(framework, base_model, revision=revision)
+        for revision in ((4, 3, 2) if framework == "ultralytics" else (3, 2))
+    ]
 
 
 def instance_rle_capability():

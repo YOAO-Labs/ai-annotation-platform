@@ -81,8 +81,9 @@ class InstanceRLEDataset(Dataset):
     cache = False
     mosaic = False
 
-    def __init__(self, root, args, split, batch_size):
+    def __init__(self, root, args, split, batch_size, *, augment=None):
         self.root, self.args, self.split = Path(root), args, split
+        self.augment = split == "train" if augment is None else augment
         self.imgsz = args.imgsz
         manifest = json.loads((self.root / "manifest.json").read_text())
         self.samples = [
@@ -141,7 +142,7 @@ class InstanceRLEDataset(Dataset):
         pass
 
     def __getitem__(self, index):
-        return self.item(index, augment=self.split == "train")
+        return self.item(index, augment=self.augment)
 
     def item(self, index, *, augment=False):
         sample = self.samples[index]
@@ -255,7 +256,11 @@ class InstanceRLEDataset(Dataset):
 class InstanceRLEValidator(SegmentationValidator):
     def build_dataset(self, img_path, mode="val", batch=None):
         return InstanceRLEDataset(
-            Path(img_path).parent.parent, self.args, "val", batch or self.args.batch
+            Path(img_path).parent.parent,
+            self.args,
+            self.args.split,
+            batch or self.args.batch,
+            augment=False,
         )
 
 

@@ -4,7 +4,7 @@ import math
 from aap_task_contract import normalize_task
 from pathlib import PurePath
 
-from .catalog import FIXED, SEGMENTATION_FIXED, definition, schema_identity
+from .catalog import FIXED, SEGMENTATION_FIXED, compatible_definitions, schema_identity
 from .dataset import SEGMENTATION, data_contract, is_instance_rle
 
 CANONICAL = ("epochs", "batch", "imgsz", "seed", "lr0", "patience")
@@ -63,9 +63,7 @@ def validate_value(value, rule):
 
 
 def resolve(framework, base_model, request):
-    schemas = [
-        definition(framework, base_model, legacy=legacy) for legacy in (False, True)
-    ]
+    schemas = compatible_definitions(framework, base_model)
     schema = next(
         (
             item
@@ -107,6 +105,8 @@ def resolve(framework, base_model, request):
         key: "user" if key in user_values else "reviewed-default" for key in effective
     }
     fixed = {**FIXED[framework]}
+    if fields.get("pretrained", {}).get("status") == "editable":
+        fixed.pop("pretrained", None)
     if normalize_task(schema["task"]) == SEGMENTATION:
         fixed.update(SEGMENTATION_FIXED)
     effective.update(fixed)
@@ -241,6 +241,10 @@ def verify_frozen(config):
         raise ValueError(
             "Frozen parameter contract identity or effective values mismatch"
         )
+    if config.get("initialization") and not resolved["effective_values"].get(
+        "pretrained", True
+    ):
+        raise ValueError("随机初始化与项目权重初始化不能同时启用")
     if config["parameters"] != {
         key: resolved["effective_values"][key] for key in CANONICAL
     }:
@@ -295,7 +299,7 @@ def verify_native(config, observed, runtime_options):
         or runtime_options["data_dir"] is not None
     ):
         raise ValueError("Native dataset/model derived identity mismatch")
-    expected = {**frozen["effective_values"], **runtime_options}
+    expected = {**native_values(frozen), **runtime_options}
     differences = []
     for key, value in expected.items():
         actual = normalized(observed.get(key))
@@ -309,3 +313,12 @@ def verify_native(config, observed, runtime_options):
             "Native resolved configuration mismatch: " + ", ".join(sorted(differences))
         )
     return {"verified": True, "checked_fields": sorted(expected), **frozen["identity"]}
+
+
+def native_values(configuration):
+    """Platform evaluation options are frozen but are not upstream train arguments."""
+    return {
+        key: value
+        for key, value in configuration["effective_values"].items()
+        if key != "evaluate_train"
+    }

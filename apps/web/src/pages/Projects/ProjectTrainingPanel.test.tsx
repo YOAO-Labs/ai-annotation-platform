@@ -120,6 +120,93 @@ afterEach(() => {
   localStorage.clear();
 });
 describe("managed project training", () => {
+  it.each(["detect", "segment"])(
+    "pairs %s training performance and losses with validation charts",
+    async (task) => {
+      vi.mocked(trainingRunsApi.get).mockResolvedValue({
+        run: { ...run, task },
+        attempts: [],
+      } as never);
+      vi.mocked(trainingRunsApi.events).mockResolvedValue({
+        attempt_id: "attempt",
+        items: [
+          {
+            sequence: 1,
+            kind: "epoch",
+            epoch: 1,
+            metrics: {
+              "train/box_loss": 1.2,
+              "train/dfl_loss": 0.8,
+              "train/cls_loss": 0,
+              ...(task === "segment" ? { "train/seg_loss": 2.3, "train/sem_loss": 0 } : {}),
+              "train/metrics/precision(B)": 0.7,
+              "train/metrics/recall(B)": 0.6,
+              "train/metrics/mAP50(B)": 0.8,
+              "train/metrics/mAP50-95(B)": 0.6,
+              ...(task === "segment" ? { "train/metrics/mAP50-95(M)": 0.4 } : {}),
+              "metrics/mAP50-95(B)": 0.5,
+              "val/box_loss": 1.9,
+              ...(task === "segment" ? { "val/seg_loss": 2.9, "val/sem_loss": 0.1 } : {}),
+            },
+          },
+        ],
+      });
+      mount();
+      const performance = await screen.findByRole("img", { name: "训练表现，1 轮上报数据" });
+      const charts = screen.getAllByRole("region", { name: /损失|表现/ });
+      expect(charts.map((chart) => chart.getAttribute("aria-label"))).toEqual([
+        "训练表现",
+        "训练损失",
+        "验证表现",
+        "验证损失",
+      ]);
+      expect(charts[0]).toContainElement(performance);
+      expect(within(charts[0]).getByText("训练框 Precision")).toBeVisible();
+      expect(within(charts[0]).getByText("训练框 Recall")).toBeVisible();
+      expect(within(charts[0]).getByText("训练框 mAP50–95")).toBeVisible();
+      expect(within(charts[1]).getByText("训练框回归损失")).toBeVisible();
+      expect(within(charts[1]).getByText("训练 DFL 损失")).toBeVisible();
+      expect(within(charts[1]).getByText("训练分类损失")).toBeVisible();
+      expect(within(charts[3]).queryByText("训练框回归损失")).not.toBeInTheDocument();
+      expect(within(charts[3]).getByText("验证框回归损失")).toBeVisible();
+      if (task === "segment") {
+        expect(within(charts[0]).getByText("训练掩码 mAP50–95")).toBeVisible();
+        expect(within(charts[1]).getByText("掩码训练损失")).toBeVisible();
+        expect(within(charts[1]).getByText("语义训练损失")).toBeVisible();
+        expect(within(charts[3]).getByText("语义验证损失")).toBeVisible();
+        expect(within(charts[3]).queryByText("掩码训练损失")).not.toBeInTheDocument();
+      }
+      await userEvent.click(screen.getByText("逐轮指标表 · 1 轮"));
+      expect(screen.getAllByRole("cell", { name: "0.0000" })).toHaveLength(
+        task === "segment" ? 2 : 1,
+      );
+    },
+  );
+  it("keeps historical training loss charts empty when only validation losses were recorded", async () => {
+    vi.mocked(trainingRunsApi.events).mockResolvedValue({
+      attempt_id: "attempt",
+      items: [{ sequence: 1, kind: "epoch", epoch: 1, metrics: { "val/box_loss": 1.9 } }],
+    });
+    mount();
+    expect(await screen.findByRole("img", { name: "验证损失，1 轮上报数据" })).toBeVisible();
+    expect(screen.getByText("此执行尚未上报训练损失")).toBeVisible();
+    expect(screen.getByText("此执行尚未上报训练集表现")).toBeVisible();
+    expect(screen.queryByRole("img", { name: /训练.*损失/ })).not.toBeInTheDocument();
+  });
+  it("preserves LibreYOLO total loss without inventing training components", async () => {
+    vi.mocked(trainingRunsApi.get).mockResolvedValue({
+      run: { ...run, config: { ...run.config, framework: "libreyolo" } },
+      attempts: [],
+    } as never);
+    vi.mocked(trainingRunsApi.events).mockResolvedValue({
+      attempt_id: "attempt",
+      items: [{ sequence: 1, kind: "epoch", epoch: 1, metrics: { "train/loss": 0 } }],
+    });
+    mount();
+    expect(await screen.findByRole("img", { name: "训练损失，1 轮上报数据" })).toBeVisible();
+    expect(screen.getByText(/仅上报训练总损失，未提供训练集表现/)).toBeVisible();
+    expect(screen.getByText("此执行尚未上报验证损失")).toBeVisible();
+  });
   it("links a qualified successful execution to model registration with its exact source", async () => {
     vi.mocked(trainingRunsApi.get).mockResolvedValue({
       run: { ...run, status: "succeeded" },

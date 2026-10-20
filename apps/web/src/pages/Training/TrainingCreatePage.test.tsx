@@ -58,7 +58,7 @@ vi.mock("@/api/trainingRecipes", async (original) => ({
 const field = (
   key: string,
   label: string,
-  value: number,
+  value: number | boolean,
   rules: Record<string, number | string>,
 ): TrainingParameterField => ({
   key,
@@ -69,7 +69,7 @@ const field = (
   status: "editable",
   group: "basic",
   aliases: [],
-  native_type: "number",
+  native_type: typeof value === "boolean" ? "bool" : "number",
   defined_in: "native",
   reason: "",
 });
@@ -330,7 +330,7 @@ describe("immutable recipe and clone reuse", () => {
       }),
     );
     expect(screen.queryByRole("dialog", { name: "核对复用配置" })).not.toBeInTheDocument();
-    expect(screen.getByLabelText("基础权重")).toHaveValue("");
+    expect(screen.getByLabelText("基础模型")).toHaveValue("");
   });
   it("loads the current URL clone after an obsolete in-flight preview releases its lock", async () => {
     const candidate = {
@@ -356,7 +356,7 @@ describe("immutable recipe and clone reuse", () => {
     await act(async () => late.resolve(candidate));
     await screen.findByText("第二来源不存在");
     expect(screen.queryByRole("dialog", { name: "核对复用配置" })).not.toBeInTheDocument();
-    expect(screen.getByLabelText("基础权重")).toHaveValue("");
+    expect(screen.getByLabelText("基础模型")).toHaveValue("");
   });
   it("allows explicit clone retry after editing invalidates a pending source response", async () => {
     const candidate = {
@@ -384,7 +384,7 @@ describe("immutable recipe and clone reuse", () => {
       expect(screen.queryByRole("dialog", { name: "核对复用配置" })).not.toBeInTheDocument(),
     );
     expect(screen.getByLabelText("实验名称")).toHaveValue("保留我的名称");
-    expect(screen.getByLabelText("基础权重")).toHaveValue("yolo11n");
+    expect(screen.getByLabelText("基础模型")).toHaveValue("yolo11n");
   });
   it("rejects the first A response after URL intent changes A to B to A", async () => {
     const late = deferred<Awaited<ReturnType<typeof trainingRecipesApi.clone>>>();
@@ -408,7 +408,7 @@ describe("immutable recipe and clone reuse", () => {
       }),
     );
     expect(screen.queryByRole("dialog", { name: "核对复用配置" })).not.toBeInTheDocument();
-    expect(screen.getByLabelText("基础权重")).toHaveValue("");
+    expect(screen.getByLabelText("基础模型")).toHaveValue("");
   });
 });
 afterEach(() => {
@@ -420,21 +420,125 @@ afterEach(() => {
 async function prepare(review = true) {
   const user = userEvent.setup();
   const view = mount();
+  await user.selectOptions(screen.getByLabelText("实验任务"), "detect");
+  await user.clear(screen.getByLabelText("实验名称"));
   await user.type(screen.getByLabelText("实验名称"), "车辆实验");
   await user.selectOptions(await screen.findByLabelText("训练数据"), "dataset-1");
   await waitFor(() =>
     expect(screen.getByRole("option", { name: /^yolo11n ·/ })).toBeInTheDocument(),
   );
-  await user.selectOptions(screen.getByLabelText("基础权重"), "yolo11n");
+  await user.selectOptions(screen.getByLabelText("基础模型"), "yolo11n");
   await waitFor(() => expect(screen.getByRole("button", { name: "下一步" })).toBeEnabled());
   await user.click(screen.getByRole("button", { name: "下一步" }));
   if (review) await user.click(screen.getByRole("button", { name: "下一步" }));
   return { user, view };
 }
+
+it("persists scratch initialization and sends optional training evaluation in the frozen request", async () => {
+  vi.mocked(trainingRunsApi.parameterSchema).mockResolvedValue({
+    ...schema,
+    fields: [
+      ...schema.fields,
+      field("pretrained", "使用预训练权重", true, { type: "boolean" }),
+      field("evaluate_train", "逐轮评估训练集", false, { type: "boolean" }),
+    ],
+  });
+  const { user, view } = await prepare(false);
+  await user.click(screen.getByRole("button", { name: "上一步" }));
+  await user.selectOptions(screen.getByLabelText("初始化权重"), "scratch");
+  await user.click(screen.getByRole("button", { name: "下一步" }));
+  expect(screen.getByLabelText("逐轮评估训练集")).not.toBeChecked();
+  await user.click(screen.getByLabelText("逐轮评估训练集"));
+  await user.click(screen.getByRole("button", { name: "下一步" }));
+  await user.click(screen.getByRole("button", { name: "检查训练配置" }));
+  await waitFor(() => expect(trainingRunsApi.preflight).toHaveBeenCalledTimes(1));
+  expect(vi.mocked(trainingRunsApi.preflight).mock.calls[0][1].configuration?.values).toMatchObject(
+    {
+      pretrained: false,
+      evaluate_train: true,
+    },
+  );
+  view.unmount();
+  mount();
+  await waitFor(() => expect(screen.getByLabelText("初始化权重")).toHaveValue("scratch"));
+});
 async function check() {
   await userEvent.click(screen.getByRole("button", { name: "检查训练配置" }));
   await screen.findByText("训练检查通过 · 请核对最终配置");
 }
+
+it("selects the task first, filters compatible options and updates only generated names", async () => {
+  const segmented = { ...dataset, id: "segment-data", name: "分割数据", task: "segment" as const };
+  vi.mocked(trainingRunsApi.catalog).mockResolvedValue({
+    ...catalog,
+    items: [
+      {
+        ...catalog.items[0],
+        base_models: [
+          ...catalog.items[0].base_models,
+          {
+            id: "yolo11n-seg",
+            filename: "yolo11n-seg.pt",
+            sha256: "c".repeat(64),
+            task: "segment",
+          },
+        ],
+      },
+      {
+        ...catalog.items[0],
+        framework: "libreyolo",
+        base_models: [
+          { id: "LibreYOLO9t", filename: "LibreYOLO9t.pt", sha256: "d".repeat(64), task: "detect" },
+        ],
+      },
+    ],
+  } as never);
+  vi.mocked(trainingDatasetsApi.list).mockResolvedValue({
+    items: [dataset, segmented],
+    total: 2,
+  } as never);
+  vi.mocked(trainingDatasetsApi.get).mockImplementation(async (_p, id) =>
+    id === segmented.id ? (segmented as never) : (dataset as never),
+  );
+  vi.mocked(trainingRunsApi.parameterSchema).mockImplementation(async (_p, _f, base) =>
+    base.endsWith("-seg") ? { ...schema, task: "segment" } : schema,
+  );
+  const user = userEvent.setup();
+  const view = mount();
+  expect(screen.getByLabelText("实验任务")).toHaveValue("");
+  expect(screen.getByLabelText("训练数据")).toBeDisabled();
+  expect(screen.getByLabelText("基础模型")).toBeDisabled();
+  await user.selectOptions(screen.getByLabelText("实验任务"), "segment");
+  expect((screen.getByLabelText("实验名称") as HTMLInputElement).value).toMatch(
+    /^segment-\d{8}-\d{6}$/,
+  );
+  await screen.findByRole("option", { name: /^分割数据/ });
+  expect(screen.queryByRole("option", { name: /^审核数据/ })).not.toBeInTheDocument();
+  expect(screen.queryByRole("option", { name: /^libreyolo/ })).not.toBeInTheDocument();
+  expect(screen.queryByRole("option", { name: /^yolo11n ·/ })).not.toBeInTheDocument();
+  expect(trainingDatasetsApi.list).toHaveBeenLastCalledWith(
+    "project-1",
+    0,
+    "ready",
+    expect.any(Object),
+    { task: "segment" },
+  );
+  await user.selectOptions(screen.getByLabelText("训练数据"), segmented.id);
+  await user.selectOptions(screen.getByLabelText("基础模型"), "yolo11n-seg");
+  await waitFor(() => expect(screen.getByLabelText("基础模型")).toHaveValue("yolo11n-seg"));
+  await user.selectOptions(screen.getByLabelText("实验任务"), "detect");
+  expect((screen.getByLabelText("实验名称") as HTMLInputElement).value).toMatch(/^detect-/);
+  expect(screen.getByLabelText("训练数据")).toHaveValue("");
+  expect(screen.getByLabelText("基础模型")).toHaveValue("");
+  await user.clear(screen.getByLabelText("实验名称"));
+  await user.type(screen.getByLabelText("实验名称"), "自定义名称");
+  await user.selectOptions(screen.getByLabelText("实验任务"), "segment");
+  expect(screen.getByLabelText("实验名称")).toHaveValue("自定义名称");
+  view.unmount();
+  mount();
+  expect(screen.getByLabelText("实验任务")).toHaveValue("segment");
+  expect(screen.getByLabelText("实验名称")).toHaveValue("自定义名称");
+});
 
 describe("training creation modal", () => {
   it("preflights a training draft on plain HTTP without randomUUID", async () => {
@@ -455,10 +559,11 @@ describe("training creation modal", () => {
     expect(select).toHaveClass("text-muted-foreground");
     expect(select.options[0]).toBeDisabled();
     expect(select.options[0].hidden).toBe(true);
-    const weights = screen.getByLabelText("基础权重") as HTMLSelectElement;
+    const weights = screen.getByLabelText("基础模型") as HTMLSelectElement;
     expect(weights).toHaveClass("text-muted-foreground");
     expect(weights.options[0]).toBeDisabled();
     expect(weights.options[0].hidden).toBe(true);
+    await user.selectOptions(screen.getByLabelText("实验任务"), "detect");
     await user.type(screen.getByLabelText("实验名称"), "权重选择检查");
     await screen.findByRole("option", { name: /^审核数据/ });
     await user.selectOptions(select, "dataset-1");
@@ -531,7 +636,7 @@ describe("exact frozen-version experiment handoff", () => {
       expect(screen.queryByRole("dialog", { name: "核对训练数据版本" })).not.toBeInTheDocument(),
     );
     expect(screen.getByLabelText("训练数据")).toHaveValue(targetId);
-    expect(screen.getByLabelText("基础权重")).toHaveValue("yolo11n");
+    expect(screen.getByLabelText("基础模型")).toHaveValue("yolo11n");
     expect(
       new URL(`http://test${screen.getByTestId("location").textContent}`).searchParams.has(
         "dataset",
@@ -865,13 +970,13 @@ it.each(["ultralytics-simple-polygon-1", "ultralytics-instance-rle-1"])(
     saveTrainingDraft(initial);
     mount();
     await screen.findByRole("alert");
-    expect(screen.getByLabelText("基础权重")).toHaveValue("yolo11n");
+    expect(screen.getByLabelText("基础模型")).toHaveValue("yolo11n");
     expect(screen.getByRole("button", { name: "下一步" })).toBeDisabled();
     expect(
       screen.getByRole("option", { name: /yolo11n（目录不可用或与数据任务不匹配）/ }),
     ).toBeDisabled();
     const candidateReads = vi.mocked(trainedModelsApi.list).mock.calls.length;
-    await userEvent.selectOptions(screen.getByLabelText("基础权重"), "yolo11n-seg");
+    await userEvent.selectOptions(screen.getByLabelText("基础模型"), "yolo11n-seg");
     await waitFor(() => expect(screen.getByRole("button", { name: "下一步" })).toBeEnabled());
     expect(screen.getByText(/实例分割支持已资格验证的训练桥接/)).toBeVisible();
     expect(screen.getByLabelText("初始化权重").querySelectorAll("option")).toHaveLength(1);
@@ -882,7 +987,7 @@ it.each(["ultralytics-simple-polygon-1", "ultralytics-instance-rle-1"])(
       0,
       expect.any(Object),
       "include",
-      { task: "segment" },
+      { task: "segment", framework: "ultralytics" },
     );
     expect(trainingRunsApi.preflight).not.toHaveBeenCalled();
   },
@@ -919,10 +1024,11 @@ it.each([true, false])(
     const user = userEvent.setup();
     const writeText = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue(undefined);
     mount();
-    await screen.findByRole("option", { name: "项目初始模型 · ultralytics" });
+    await user.selectOptions(screen.getByLabelText("实验任务"), "detect");
     await user.selectOptions(await screen.findByLabelText("训练数据"), "dataset-1");
     await screen.findByRole("option", { name: /^yolo11n ·/ });
-    await user.selectOptions(screen.getByLabelText("基础权重"), "yolo11n");
+    await user.selectOptions(screen.getByLabelText("基础模型"), "yolo11n");
+    await screen.findByRole("option", { name: "项目初始模型 · ultralytics" });
     await user.selectOptions(screen.getByLabelText("初始化权重"), initializationId);
     const summary = screen.getByRole("complementary", { name: "实验摘要" });
     expect(
@@ -1200,8 +1306,8 @@ describe("configuration import and recovery", () => {
     await user.type(screen.getByLabelText("初始学习率"), "1e-6");
     await user.click(screen.getByRole("button", { name: /数据与模型/ }));
     await user.selectOptions(screen.getByLabelText("训练器"), "libreyolo");
-    expect(screen.getByLabelText("基础权重")).toHaveValue("");
-    await user.selectOptions(screen.getByLabelText("基础权重"), "LibreYOLO9t");
+    expect(screen.getByLabelText("基础模型")).toHaveValue("");
+    await user.selectOptions(screen.getByLabelText("基础模型"), "LibreYOLO9t");
     await screen.findByRole("dialog", { name: "核对参数切换" });
     expect(screen.getByText("移除 1 项：optimizer")).toBeVisible();
     await user.click(screen.getByRole("button", { name: "接受切换" }));
@@ -1279,7 +1385,13 @@ describe("configuration import and recovery", () => {
     expect(screen.getByLabelText("训练数据")).toHaveValue(dataset.id);
     await user.click(screen.getByRole("button", { name: "加载更早的数据版本" }));
     await waitFor(() =>
-      expect(trainingDatasetsApi.list).toHaveBeenCalledWith("project-1", 20, "ready"),
+      expect(trainingDatasetsApi.list).toHaveBeenCalledWith(
+        "project-1",
+        20,
+        "ready",
+        expect.any(Object),
+        { task: "detect" },
+      ),
     );
   });
   it("requires explicit migration acceptance and retains only compatible fields", async () => {

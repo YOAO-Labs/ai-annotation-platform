@@ -21,6 +21,10 @@ def snapshot(framework, base_model, configuration, initialization_pin=None):
         )
     }
     if initialization_pin:
+        if not value["configuration"]["effective_values"].get("pretrained", True):
+            raise HTTPException(
+                status_code=422, detail="从零训练不能同时选择项目模型权重"
+            )
         reasons = initialization.compatible_pin(
             initialization_pin, framework, base_model
         )

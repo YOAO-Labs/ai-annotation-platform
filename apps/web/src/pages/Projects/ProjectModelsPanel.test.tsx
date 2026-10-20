@@ -184,6 +184,37 @@ afterEach(() => {
 });
 
 describe("ProjectModelsPanel", () => {
+  it.each([
+    { task: "detect", spec: "yolo11n", label: "目标检测" },
+    { task: "segment", spec: "yolo11n-seg", label: "实例分割" },
+  ])(
+    "shows each $task model's frozen identity and scopes the default to its own row",
+    async ({ task, spec, label }) => {
+      vi.mocked(trainedModelsApi.list).mockResolvedValue({
+        total: 2,
+        items: [model, { ...model, id: "model-2", name: "第二模型" }].map((item) => ({
+          ...item,
+          task,
+          provenance: { ...item.provenance, base_model: { id: spec } },
+        })),
+      });
+      vi.mocked(trainedModelsApi.releases).mockResolvedValue({
+        ...releases,
+        current: { model_version_id: model.id, generation: 7, snapshot: {} } as never,
+      });
+      mount(`/projects/project-1/learning?tab=models&model_task=${task}`);
+      const row = (await screen.findByRole("link", { name: model.name })).closest("tr")!;
+      const other = screen.getByRole("link", { name: "第二模型" }).closest("tr")!;
+      expect(within(row).getByText(spec)).toBeInTheDocument();
+      expect(within(row).getByText(label)).toBeInTheDocument();
+      await waitFor(() => expect(within(row).getByText("默认预标")).toBeInTheDocument());
+      expect(within(row).getByRole("button", { name: "停用默认预标" })).toBeEnabled();
+      expect(within(other).getByText(spec)).toBeInTheDocument();
+      expect(within(other).getByText(label)).toBeInTheDocument();
+      expect(within(other).getByText("已注册")).toBeInTheDocument();
+      expect(within(other).queryByRole("button", { name: "停用默认预标" })).not.toBeInTheDocument();
+    },
+  );
   it("keeps the detection per-class columns and metric values", async () => {
     const user = userEvent.setup();
     mount("/projects/project-1/learning/models/model-1");
@@ -409,10 +440,10 @@ describe("ProjectModelsPanel", () => {
     vi.mocked(trainedModelsApi.list).mockReturnValue(new Promise(() => {}));
     vi.mocked(trainedModelsApi.releases).mockReturnValue(new Promise(() => {}));
     mount();
-    expect(screen.getByText("正在读取发布状态…")).toBeVisible();
-    expect(screen.getByText("正在加载候选模型…")).toBeInTheDocument();
+    expect(screen.getByText("正在读取默认预标设置…")).toBeVisible();
+    expect(screen.getByText("正在加载模型列表…")).toBeInTheDocument();
     expect(screen.queryByText("尚未注册模型版本")).not.toBeInTheDocument();
-    expect(screen.queryByText("尚未发布受控模型")).not.toBeInTheDocument();
+    expect(screen.queryByText("未设置默认预标模型")).not.toBeInTheDocument();
   });
   it("takes the empty candidate entry to the source experiment without creating a model", async () => {
     vi.mocked(trainedModelsApi.list).mockResolvedValue({ total: 0, items: [] });
@@ -459,7 +490,7 @@ describe("ProjectModelsPanel", () => {
     mount();
     await user.click(await screen.findByRole("link", { name: "第一候选" }));
     const detail = await screen.findByLabelText("模型版本详情");
-    const publish = within(detail).getByRole("button", { name: "发布此模型" });
+    const publish = within(detail).getByRole("button", { name: "设为默认预标模型" });
     expect(publish).toBeDisabled();
     await user.click(within(detail).getByLabelText("已查看固定验证样本，确认用于后续人工试用"));
     await user.click(publish);
@@ -498,12 +529,12 @@ describe("ProjectModelsPanel", () => {
     });
     const user = userEvent.setup();
     mount();
-    await user.click(await screen.findByText("发布历史与回退"));
-    const historyButton = await screen.findByRole("button", { name: "已是当前发布" });
+    await user.click(await screen.findByText("默认预标切换记录"));
+    const historyButton = await screen.findByRole("button", { name: "已是默认模型" });
     expect(historyButton).toBeDisabled();
     await user.click(screen.getByRole("link", { name: "第一候选" }));
     const detail = await screen.findByLabelText("模型版本详情");
-    expect(await within(detail).findByRole("button", { name: "当前已发布" })).toBeDisabled();
+    expect(await within(detail).findByRole("button", { name: "已设为默认预标" })).toBeDisabled();
     expect(
       within(detail).queryByLabelText("已查看固定验证样本，确认用于后续人工试用"),
     ).not.toBeInTheDocument();
@@ -525,7 +556,7 @@ describe("ProjectModelsPanel", () => {
     await user.click(await screen.findByRole("link", { name: "第一候选" }));
     const detail = await screen.findByLabelText("模型版本详情");
     await user.click(within(detail).getByLabelText("已查看固定验证样本，确认用于后续人工试用"));
-    expect(within(detail).getByRole("button", { name: "发布此模型" })).toBeEnabled();
+    expect(within(detail).getByRole("button", { name: "设为默认预标模型" })).toBeEnabled();
   });
 
   it("keeps publishing disabled until the current release refresh completes", async () => {
@@ -555,7 +586,7 @@ describe("ProjectModelsPanel", () => {
     await user.click(await screen.findByRole("link", { name: "第一候选" }));
     const detail = await screen.findByLabelText("模型版本详情");
     await user.click(within(detail).getByLabelText("已查看固定验证样本，确认用于后续人工试用"));
-    const button = within(detail).getByRole("button", { name: "发布此模型" });
+    const button = within(detail).getByRole("button", { name: "设为默认预标模型" });
     await user.click(button);
     await waitFor(() => expect(trainedModelsApi.publish).toHaveBeenCalledTimes(1));
     expect(button).toBeDisabled();
@@ -569,7 +600,7 @@ describe("ProjectModelsPanel", () => {
         current: published,
       }),
     );
-    expect(await within(detail).findByRole("button", { name: "当前已发布" })).toBeDisabled();
+    expect(await within(detail).findByRole("button", { name: "已设为默认预标" })).toBeDisabled();
   });
 
   it("retains the exact release request after a network error even if polling sees a newer generation", async () => {
@@ -582,10 +613,10 @@ describe("ProjectModelsPanel", () => {
     const detail = await screen.findByLabelText("模型版本详情");
     await user.click(within(detail).getByLabelText("已查看固定验证样本，确认用于后续人工试用"));
     vi.mocked(trainedModelsApi.releases).mockResolvedValue({ ...releases, generation: 8 });
-    await user.click(within(detail).getByRole("button", { name: "发布此模型" }));
+    await user.click(within(detail).getByRole("button", { name: "设为默认预标模型" }));
     await screen.findByText("发布响应丢失");
     const first = vi.mocked(trainedModelsApi.publish).mock.calls[0][1];
-    await user.click(within(detail).getByRole("button", { name: "发布此模型" }));
+    await user.click(within(detail).getByRole("button", { name: "设为默认预标模型" }));
     await waitFor(() => expect(trainedModelsApi.publish).toHaveBeenCalledTimes(2));
     expect(vi.mocked(trainedModelsApi.publish).mock.calls[1][1]).toEqual(first);
     expect(first.expected_generation).toBe(7);
@@ -605,7 +636,7 @@ describe("ProjectModelsPanel", () => {
     } as never);
     mount();
     await user.click(await screen.findByLabelText("T-1 · car.png"));
-    await user.click(screen.getByRole("button", { name: "用当前发布模型预标注" }));
+    await user.click(screen.getByRole("button", { name: "用默认模型预标注" }));
     await waitFor(() => expect(dataManagerTaskActionsApi.preannotate).toHaveBeenCalledTimes(1));
     expect(vi.mocked(dataManagerTaskActionsApi.preannotate).mock.calls[0]).toEqual([
       "project-1",
@@ -726,7 +757,7 @@ it("unifies row details, publication, usage records and model notes without leav
   await user.click(screen.getByRole("tab", { name: "标记与备注" }));
   await user.type(await screen.findByLabelText("标记说明"), "保留以供进一步评估");
   await user.click(screen.getByRole("button", { name: "保存标记与说明" }));
-  await screen.findByText("标记与说明已保存。当前发布的模型未改变。");
+  await screen.findByText("标记与说明已保存。默认预标选择未改变。");
   expect(modelLineageApi.append).toHaveBeenCalledWith(
     "project-1",
     model.id,
@@ -795,7 +826,7 @@ it("ignores a delayed note acknowledgement after switching model tabs", async ()
   const invalidate = vi.spyOn(clients[0], "invalidateQueries");
   await act(async () => resolve({ id: "late" } as never));
   expect(invalidate).not.toHaveBeenCalled();
-  expect(screen.queryByText("标记与说明已保存。当前发布的模型未改变。")).not.toBeInTheDocument();
+  expect(screen.queryByText("标记与说明已保存。默认预标选择未改变。")).not.toBeInTheDocument();
 });
 
 it("rejects delayed publication confirmation after candidate navigation ABA", async () => {
@@ -809,7 +840,7 @@ it("rejects delayed publication confirmation after candidate navigation ABA", as
   );
   mount("/projects/project-1/learning/models/model-1?tab=models");
   await user.click(await screen.findByRole("checkbox", { name: /已查看.*样本/ }));
-  await user.click(screen.getByRole("button", { name: "发布此模型" }));
+  await user.click(screen.getByRole("button", { name: "设为默认预标模型" }));
   await waitFor(() => expect(confirmDialog).toHaveBeenCalled());
   await act(async () => navigate("?tab=models&archive=include"));
   await act(async () => navigate(-1));
@@ -817,14 +848,21 @@ it("rejects delayed publication confirmation after candidate navigation ABA", as
   expect(trainedModelsApi.publish).not.toHaveBeenCalled();
 });
 
-it("loads the current release name when its candidate is outside the displayed page", async () => {
+it("keeps the default preannotation target explicit when it is outside the filtered model page", async () => {
   vi.mocked(trainedModelsApi.list).mockResolvedValue({ items: [], total: 90 });
   vi.mocked(trainedModelsApi.releases).mockResolvedValue({
     ...releases,
     current: { model_version_id: "model-1", generation: 7, snapshot: {} } as never,
   });
-  mount("/projects/project-1/learning?tab=models&model_page=2");
-  expect(await screen.findByText("第一候选 · 发布代次 7")).toBeInTheDocument();
+  mount("/projects/project-1/learning?tab=models&model_page=2&model_q=other");
+  const list = screen.getByRole("region", { name: "模型列表" });
+  expect(within(list).getByLabelText("搜索模型名称")).toHaveValue("other");
+  expect(within(list).getByLabelText("模型与发布任务")).toHaveValue("detect");
+  const preannotation = await within(list).findByRole("region", { name: "使用默认预标模型" });
+  await waitFor(() => expect(preannotation).toHaveTextContent("图片目标检测 · 第一候选"));
+  expect(within(list).getByText("默认预标切换记录")).toBeInTheDocument();
+  expect(screen.queryByRole("region", { name: "当前项目发布" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "停用默认预标" })).not.toBeInTheDocument();
 });
 
 it("keeps registration disabled when the server has not supplied eligibility", async () => {
@@ -909,7 +947,7 @@ it("preserves model filters and pagination through detail navigation", async () 
   );
   await user.click(link);
   await screen.findByLabelText("模型版本详情");
-  expect(screen.queryByLabelText("候选模型")).not.toBeInTheDocument();
+  expect(screen.queryByLabelText("模型列表")).not.toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "从训练结果添加模型" })).not.toBeInTheDocument();
   await user.click(screen.getByRole("link", { name: "返回模型列表" }));
   expect(screen.getByTestId("location").textContent).toContain("model_q=%E7%AC%AC%E4%B8%80");
@@ -933,7 +971,7 @@ it("resets pagination when filtering and clears archive together with model filt
   expect(screen.getByTestId("location").textContent).not.toContain("model_page");
   await user.click(screen.getByRole("button", { name: "重置筛选" }));
   expect(screen.getByLabelText("模型框架筛选")).toHaveValue("");
-  expect(screen.getByLabelText("候选显示范围")).toHaveValue("exclude");
+  expect(screen.getByLabelText("模型显示范围")).toHaveValue("exclude");
 });
 
 it("retries a failed direct model detail request without displaying the list", async () => {
@@ -943,7 +981,7 @@ it("retries a failed direct model detail request without displaying the list", a
     .mockResolvedValue({ model, deployments: [] });
   mount("/projects/project-1/learning/models/model-1?model_page=2");
   await screen.findByText("详情请求失败");
-  expect(screen.queryByLabelText("候选模型")).not.toBeInTheDocument();
+  expect(screen.queryByLabelText("模型列表")).not.toBeInTheDocument();
   await user.click(screen.getByRole("button", { name: "重试" }));
   expect(await screen.findByRole("heading", { name: model.name })).toBeVisible();
 });
@@ -955,7 +993,7 @@ it("does not expose deployment actions for a mismatched model response", async (
   });
   mount("/projects/project-1/learning/models/model-1");
   expect(await screen.findByText("模型详情与当前项目或版本不匹配")).toBeVisible();
-  expect(screen.queryByRole("button", { name: "发布此模型" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "设为默认预标模型" })).not.toBeInTheDocument();
   expect(screen.queryByLabelText("模型版本详情")).not.toBeInTheDocument();
 });
 
@@ -1152,6 +1190,7 @@ it("isolates task release generations, resets pagination and ignores a late dete
         items: [
           {
             ...model,
+            id: filters?.task === "segment" ? "segment-model" : model.id,
             name: filters?.task === "segment" ? "分割候选" : "检测候选",
             task: filters?.task,
           },
@@ -1161,7 +1200,8 @@ it("isolates task release generations, resets pagination and ignores a late dete
   const user = userEvent.setup();
   mount("/projects/project-1/learning?tab=models&model_page=2");
   await screen.findByRole("link", { name: "检测候选" });
-  await user.selectOptions(screen.getByLabelText("模型与发布任务"), "segment");
+  const list = screen.getByRole("region", { name: "模型列表" });
+  await user.selectOptions(within(list).getByLabelText("模型与发布任务"), "segment");
   await screen.findByRole("link", { name: "分割候选" });
   expect(screen.getByTestId("location")).toHaveTextContent("model_task=segment");
   expect(screen.getByTestId("location").textContent).not.toContain("model_page");
@@ -1173,11 +1213,12 @@ it("isolates task release generations, resets pagination and ignores a late dete
     expect.objectContaining({ task: "segment" }),
   );
   expect(trainedModelsApi.releases).toHaveBeenLastCalledWith("project-1", 0, "segment");
-  expect(screen.getByLabelText("当前项目发布")).toHaveTextContent("发布代次 3");
+  const row = screen.getByRole("link", { name: "分割候选" }).closest("tr")!;
+  expect(within(row).getByText("默认预标")).toBeInTheDocument();
+  expect(within(row).getByText("实例分割")).toBeInTheDocument();
   await act(async () => resolveDetection({ ...releases, generation: 99 }));
-  expect(screen.getByLabelText("当前项目发布")).toHaveTextContent("发布代次 3");
-  expect(screen.getByLabelText("当前项目发布")).not.toHaveTextContent("99");
-  await user.click(screen.getByRole("button", { name: "停用受控模型" }));
+  expect(within(row).getByText("默认预标")).toBeInTheDocument();
+  await user.click(screen.getByRole("button", { name: "停用默认预标" }));
   await waitFor(() =>
     expect(trainedModelsApi.publish).toHaveBeenCalledWith(
       "project-1",
@@ -1201,7 +1242,7 @@ it("loads the model's actual task for a direct detail URL before allowing public
     expect(screen.getByLabelText("已查看固定验证样本，确认用于后续人工试用")).toBeEnabled(),
   );
   await user.click(screen.getByLabelText("已查看固定验证样本，确认用于后续人工试用"));
-  await user.click(screen.getByRole("button", { name: "发布此模型" }));
+  await user.click(screen.getByRole("button", { name: "设为默认预标模型" }));
   await waitFor(() =>
     expect(trainedModelsApi.publish).toHaveBeenCalledWith(
       "project-1",
@@ -1230,7 +1271,7 @@ it("uses the segmentation release alias and does not open unqualified segmentati
   const user = userEvent.setup();
   mount("/projects/project-1/learning?tab=models&model_task=segment");
   await user.click(await screen.findByRole("checkbox", { name: "T-1 · car.png" }));
-  await user.click(screen.getByRole("button", { name: "用当前发布模型预标注" }));
+  await user.click(screen.getByRole("button", { name: "用默认模型预标注" }));
   await waitFor(() =>
     expect(dataManagerTaskActionsApi.preannotate).toHaveBeenCalledWith(
       "project-1",

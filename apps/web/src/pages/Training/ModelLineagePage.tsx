@@ -79,9 +79,9 @@ const dispositionHelp = {
   active: "取消其他标记，在默认候选列表中显示。以往的备注仍会保留。",
   research: "标记为需要继续测试或评估，仍保留在默认候选列表中。不会自动创建评估任务。",
   declined:
-    "记录暂时不采用这个模型的意见，仍保留在默认候选列表中。不会阻止发布，也不会停用已发布的模型。",
+    "记录暂时不采用这个模型的意见，仍保留在默认候选列表中。不会改变默认预标选择，也不会停用已加载的模型。",
   archived:
-    "从默认候选列表中隐藏，可在「全部候选」或「仅已归档候选」中查看；当前发布的模型仍会显示。不会删除权重或停用模型。",
+    "从默认候选列表中隐藏，可在「全部模型，包含归档」或「仅已归档模型」中查看；默认预标模型仍会显示。不会删除权重或停用模型。",
 };
 const factNames: Record<string, string> = {
   run_id: "训练实验 ID",
@@ -298,7 +298,7 @@ function LineageContent({
     onSuccess: (_, variables) => {
       if (!session.owns() || view.current !== variables.viewKey) return;
       setNote("");
-      setNotice("标记与说明已保存。当前发布的模型未改变。");
+      setNotice("标记与说明已保存。默认预标选择未改变。");
       request.current = { signature: "", id: randomId() };
       update({ before: undefined });
       void client.invalidateQueries({ queryKey: ["model-decisions", projectId] });
@@ -538,7 +538,7 @@ function LineageContent({
             模型标记与备注
           </h2>
           <p className="mt-2 text-xs text-muted-foreground">
-            记录对这个模型的使用建议和原因，每次保存都会保留操作人、时间及以往说明。标记不会改变当前发布，在「评估与发布」中可加载试用或发布模型。
+            记录对这个模型的使用建议和原因，每次保存都会保留操作人、时间及以往说明。标记不会改变默认预标选择，在「评估与发布」中可加载试用或设置默认模型。
           </p>
           <form
             className="mt-4 space-y-3"

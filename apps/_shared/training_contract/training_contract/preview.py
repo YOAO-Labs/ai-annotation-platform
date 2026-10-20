@@ -1,7 +1,7 @@
 """CPU-only native preview policy, shared without importing any ML framework."""
 
 from .catalog import digest
-from .validation import verify_frozen
+from .validation import native_values as native_training_values, verify_frozen
 from .dataset import DETECTION, config_task
 
 PREVIEW_REVISION = 1
@@ -78,7 +78,7 @@ def validate_request(config, seed, epoch, count):
 def native_values(config):
     """Freeze the pinned inactive segmentation default and CPU materialization."""
     return {
-        **verify_frozen(config)["effective_values"],
+        **native_training_values(verify_frozen(config)),
         **POLICY["native_detection_defaults"],
         "device": "cpu",
         "workers": 0,
