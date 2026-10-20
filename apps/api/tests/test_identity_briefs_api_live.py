@@ -10,6 +10,7 @@ import httpx
 import pytest
 from sqlalchemy import text
 
+from aap_identity.security import create_access_token
 from tests.factory import (
     create_batch,
     create_membership,
@@ -21,7 +22,6 @@ from tests.test_identity_admission_live import (
     _dsn,
     _start_api,
     _start_container_identity,
-    _token,
     _world,
 )
 from tests.test_identity_briefs_live import (
@@ -51,22 +51,34 @@ async def _caller_world(maker, actor_id, suffix):
         project = await create_project(
             db, owner_id=actor_id, name=f"Authorized brief callers {suffix}"
         )
-        task_user = await create_user(
+        caller = await create_user(
             db,
             "employee",
-            f"brief-task-user-{suffix}@example.test",
-            "ßeta task assignee",
+            f"brief-caller-{suffix}@example.test",
+            "Employee annotator",
         )
-        task_user.is_active = False
-        task_user.avatar_ref = None
+        await create_membership(
+            db,
+            project_id=project.id,
+            user_id=caller.id,
+            role="annotator",
+            assigned_by=actor_id,
+        )
+        outsider = await create_user(
+            db,
+            "employee",
+            f"brief-outsider-{suffix}@example.test",
+            "Unassigned employee",
+        )
         task = await create_task(db, project_id=project.id, status="pending")
-        task.assignee_id = task_user.id
+        task.assignee_id = caller.id
         batch_user = await create_user(
             db,
             "employee",
             f"brief-batch-user-{suffix}@example.test",
             "Batch reviewer",
         )
+        task.reviewer_id = batch_user.id
         await create_membership(
             db,
             project_id=project.id,
@@ -80,7 +92,8 @@ async def _caller_world(maker, actor_id, suffix):
     return {
         "project_id": project.id,
         "task_id": task.id,
-        "task_user_id": task_user.id,
+        "caller_id": caller.id,
+        "outsider_id": outsider.id,
         "batch_id": batch.id,
         "batch_user_id": batch_user.id,
     }
@@ -103,7 +116,9 @@ async def test_authorized_task_and_batch_routes_use_selected_briefs_owner(
         user_ids.extend(fixture_world["user_ids"])
         project_ids.extend(fixture_world["project_ids"])
         caller = await _caller_world(maker, actor_id, suffix)
-        user_ids.extend([caller["task_user_id"], caller["batch_user_id"]])
+        user_ids.extend(
+            [caller["caller_id"], caller["outsider_id"], caller["batch_user_id"]]
+        )
         project_ids.append(caller["project_id"])
 
         configuration = {}
@@ -142,7 +157,20 @@ async def test_authorized_task_and_batch_routes_use_selected_briefs_owner(
             database_url=_api_dsn(test_engine),
             configuration=configuration,
         )
-        headers = {"Authorization": f"Bearer {_token(actor_id, secret)}"}
+        caller_token = create_access_token(
+            str(caller["caller_id"]),
+            "employee",
+            secret=secret,
+            expire_minutes=15,
+        )
+        outsider_token = create_access_token(
+            str(caller["outsider_id"]),
+            "employee",
+            secret=secret,
+            expire_minutes=15,
+        )
+        headers = {"Authorization": f"Bearer {caller_token}"}
+        outsider_headers = {"Authorization": f"Bearer {outsider_token}"}
         async with httpx.AsyncClient(
             base_url=api.origin, trust_env=False, timeout=120
         ) as client:
@@ -172,6 +200,7 @@ async def test_authorized_task_and_batch_routes_use_selected_briefs_owner(
             assert task_response.status_code == 200, task_response.text
             task_body = task_response.json()
             assignee = task_body["assignee"]
+            task_reviewer = task_body["reviewer"]
             assert set(assignee) == {
                 "id",
                 "name",
@@ -181,13 +210,23 @@ async def test_authorized_task_and_batch_routes_use_selected_briefs_owner(
                 "avatar_ref",
             }
             assert assignee == {
-                "id": str(caller["task_user_id"]),
-                "name": "ßeta task assignee",
-                "email": f"brief-task-user-{suffix}@example.test",
+                "id": str(caller["caller_id"]),
+                "name": "Employee annotator",
+                "email": f"brief-caller-{suffix}@example.test",
                 "role": "employee",
-                "avatar_initial": "SS",
+                "avatar_initial": "E",
                 "avatar_ref": None,
             }
+            assert set(task_reviewer) == {
+                "id",
+                "name",
+                "email",
+                "role",
+                "avatar_initial",
+                "avatar_ref",
+            }
+            assert task_reviewer["id"] == str(caller["batch_user_id"])
+            assert task_reviewer["role"] == "employee"
 
             batch_response = await client.get(
                 f"/api/v1/projects/{caller['project_id']}/batches/{caller['batch_id']}",
@@ -211,6 +250,23 @@ async def test_authorized_task_and_batch_routes_use_selected_briefs_owner(
                 "avatar_initial": "B",
                 "avatar_ref": None,
             }
+
+            hidden_task = await client.get(
+                f"/api/v1/tasks/{caller['task_id']}", headers=outsider_headers
+            )
+            assert hidden_task.status_code == 404, hidden_task.text
+            assert hidden_task.json()["detail"] == "项目不存在"
+            assert f"brief-caller-{suffix}@example.test" not in hidden_task.text
+            assert "Employee annotator" not in hidden_task.text
+
+            hidden_batch = await client.get(
+                f"/api/v1/projects/{caller['project_id']}/batches/{caller['batch_id']}",
+                headers=outsider_headers,
+            )
+            assert hidden_batch.status_code == 404, hidden_batch.text
+            assert hidden_batch.json()["detail"] == "项目不存在"
+            assert f"brief-batch-user-{suffix}@example.test" not in hidden_batch.text
+            assert "Batch reviewer" not in hidden_batch.text
     finally:
         if api:
             api.stop()
@@ -235,7 +291,9 @@ async def test_remote_briefs_owner_failure_does_not_fall_back_to_local_orm(
     identity = api = None
     try:
         caller = await _caller_world(maker, actor_id, suffix)
-        user_ids.extend([caller["task_user_id"], caller["batch_user_id"]])
+        user_ids.extend(
+            [caller["caller_id"], caller["outsider_id"], caller["batch_user_id"]]
+        )
         project_ids.append(caller["project_id"])
         identity = await _start_container_identity(
             test_engine,
@@ -262,7 +320,13 @@ async def test_remote_briefs_owner_failure_does_not_fall_back_to_local_orm(
             identity.origin,
             database_url=_api_dsn(test_engine),
         )
-        headers = {"Authorization": f"Bearer {_token(actor_id, secret)}"}
+        employee_token = create_access_token(
+            str(caller["caller_id"]),
+            "employee",
+            secret=secret,
+            expire_minutes=15,
+        )
+        headers = {"Authorization": f"Bearer {employee_token}"}
         async with httpx.AsyncClient(
             base_url=api.origin, trust_env=False, timeout=60
         ) as client:
