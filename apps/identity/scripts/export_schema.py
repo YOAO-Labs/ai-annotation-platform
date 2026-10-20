@@ -52,6 +52,25 @@ from aap_identity.group_contract import (  # noqa: E402
     NativeGroupFailureReply,
     NativeGroupSuccess,
 )
+from aap_identity.invitation_contract import (  # noqa: E402
+    InvitationFailureReply,
+    InvitationReply,
+    InvitationRequest,
+    NativeInvitationApplyCommand,
+    NativeInvitationApplyReply,
+    NativeInvitationFailureReply,
+    NativeInvitationPolicyReply,
+    NativeInvitationPrepareCommand,
+    NativeInvitationPrepareReply,
+)
+from aap_identity.mail_v2_contract import (  # noqa: E402
+    MailV2AcceptedReply,
+    MailV2ClaimReply,
+    MailV2ClaimRequest,
+    MailV2FinishRequest,
+    MailV2PolicyReply,
+    MailV2RenewRequest,
+)
 from aap_identity.notification_delivery_contract import (  # noqa: E402
     NotificationClaimReply,
     NotificationClaimRequest,
@@ -247,6 +266,21 @@ def main():
             ),
             "aap-identity-groups-native/v1",
         ),
+        "src/aap_identity/invitation_protocol.schema.json": render_schema(
+            TypeAdapter(InvitationRequest | InvitationReply | InvitationFailureReply),
+            "aap-identity-invitations/v1",
+        ),
+        "src/aap_identity/native_invitation_protocol.schema.json": render_schema(
+            TypeAdapter(
+                NativeInvitationPrepareCommand
+                | NativeInvitationApplyCommand
+                | NativeInvitationPrepareReply
+                | NativeInvitationApplyReply
+                | NativeInvitationFailureReply
+                | NativeInvitationPolicyReply
+            ),
+            "aap-identity-invitations-native/v1",
+        ),
         "src/aap_identity/deactivation_protocol.schema.json": render_schema(
             TypeAdapter(
                 DeactivationRequest | DeactivationReply | DeactivationFailureReply
@@ -299,6 +333,17 @@ def main():
                 | MailPolicyReply
             ),
             "aap-identity-recovery-mail-native/v1",
+        ),
+        "src/aap_identity/mail_v2_protocol.schema.json": render_schema(
+            TypeAdapter(
+                MailV2ClaimRequest
+                | MailV2RenewRequest
+                | MailV2FinishRequest
+                | MailV2ClaimReply
+                | MailV2AcceptedReply
+                | MailV2PolicyReply
+            ),
+            "aap-identity-mail-native/v2",
         ),
         "src/aap_identity/mail_settings_protocol.schema.json": render_schema(
             TypeAdapter(MailDeliveryPolicy), "aap-identity-mail-settings/v1"

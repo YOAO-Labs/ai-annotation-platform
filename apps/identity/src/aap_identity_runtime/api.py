@@ -38,6 +38,15 @@ from aap_identity.group_contract import (
 )
 from aap_identity.group_manager import GroupManager
 from aap_identity.group_postgres import GroupPostgresData
+from aap_identity.invitation_contract import (
+    INVITATION_POLICY_PROTOCOL,
+    INVITATION_PROTOCOL,
+    InvitationFailure,
+    decode_invitation_request,
+    invitation_failure_reply,
+)
+from aap_identity.invitation_manager import InvitationManager
+from aap_identity.invitation_postgres import InvitationPostgresData
 from aap_identity.deactivation_contract import (
     DEACTIVATION_POLICY_PROTOCOL,
     DEACTIVATION_PROTOCOL,
@@ -99,6 +108,7 @@ def create_app(
     group_data: GroupPostgresData | None = None,
     deactivation_data: DeactivationPostgresData | None = None,
     deactivation_due_data: DeactivationDuePostgresData | None = None,
+    invitation_data: InvitationPostgresData | None = None,
 ) -> FastAPI:
     settings = settings or Settings()
     data = data or PostgresData(
@@ -197,6 +207,33 @@ def create_app(
         if group_data is not None
         else None
     )
+    invitation_configured = (
+        invitation_data is not None or settings.invitation_database_url is not None
+    )
+    if invitation_data is None and settings.invitation_database_url is not None:
+        invitation_data = InvitationPostgresData(
+            settings.invitation_database_url.get_secret_value(),
+            connect_timeout=settings.connect_timeout_seconds,
+            command_timeout=settings.command_timeout_seconds,
+        )
+    invitations = (
+        InvitationManager(
+            auth,
+            invitation_data,
+            settings.signing_secret.get_secret_value(),
+            (
+                settings.recovery_mail_key.get_secret_value()
+                if settings.recovery_mail_key is not None
+                else None
+            ),
+            invitation_ttl_days=settings.invitation_ttl_days,
+            max_invitations_per_day=settings.max_invitations_per_day,
+            frontend_base_url=settings.invitation_frontend_base_url,
+            expire_minutes=settings.expire_minutes,
+        )
+        if invitation_data is not None
+        else None
+    )
     deactivation_configured = (
         deactivation_data is not None or settings.deactivation_database_url is not None
     )
@@ -262,6 +299,10 @@ def create_app(
                     if group_data is None:
                         raise IdentityUnavailable()
                     group_policy = await group_data.group_policy()
+                if invitation_configured:
+                    if invitation_data is None:
+                        raise IdentityUnavailable()
+                    invitation_policy = await invitation_data.invitation_policy()
                 if deactivation_configured:
                     if deactivation_data is None:
                         raise IdentityUnavailable()
@@ -319,6 +360,17 @@ def create_app(
                 if group_policy_value != {
                     "schema": GROUP_POLICY_PROTOCOL,
                     "policy": GROUP_PROTOCOL,
+                }:
+                    raise IdentityUnavailable()
+            if invitation_configured:
+                invitation_policy_value = (
+                    invitation_policy.model_dump(mode="json", by_alias=True)
+                    if hasattr(invitation_policy, "model_dump")
+                    else invitation_policy
+                )
+                if invitation_policy_value != {
+                    "schema": INVITATION_POLICY_PROTOCOL,
+                    "policy": INVITATION_PROTOCOL,
                 }:
                     raise IdentityUnavailable()
             if deactivation_configured:
@@ -587,6 +639,45 @@ def create_app(
         except (IdentityUnavailable, TimeoutError):
             return JSONResponse(
                 {"detail": "Identity recovery commands unavailable"},
+                status_code=503,
+            )
+        return JSONResponse(reply.model_dump(mode="json", by_alias=True))
+
+    @app.post("/v1/identity/invitations/execute")
+    async def execute_invitation_command(request: Request):
+        supplied = request.headers.get("authorization", "").encode()
+        expected = ("Bearer " + settings.token.get_secret_value()).encode()
+        if not hmac.compare_digest(supplied, expected):
+            return JSONResponse({"detail": "Unauthorized"}, status_code=401)
+        if (
+            request.headers.get("content-type", "").split(";", 1)[0].strip().lower()
+            != "application/json"
+        ):
+            return JSONResponse(
+                {"detail": "Invalid identity invitation command"}, status_code=400
+            )
+        if invitations is None:
+            return JSONResponse(
+                {"detail": "Identity invitation commands unavailable"},
+                status_code=503,
+            )
+        try:
+            async with asyncio.timeout(settings.request_timeout_seconds):
+                async with slots:
+                    body = await request.body()
+                    try:
+                        parsed = decode_invitation_request(body)
+                    except (ValidationError, ValueError, TypeError, UnicodeError):
+                        return JSONResponse(
+                            {"detail": "Invalid identity invitation command"},
+                            status_code=400,
+                        )
+                    reply = await invitations.execute(parsed)
+        except InvitationFailure as error:
+            return JSONResponse(invitation_failure_reply(parsed, error))
+        except (IdentityUnavailable, TimeoutError):
+            return JSONResponse(
+                {"detail": "Identity invitation commands unavailable"},
                 status_code=503,
             )
         return JSONResponse(reply.model_dump(mode="json", by_alias=True))

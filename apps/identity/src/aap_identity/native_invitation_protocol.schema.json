@@ -1,0 +1,3841 @@
+{
+  "$defs": {
+    "AccountRecord": {
+      "additionalProperties": false,
+      "properties": {
+        "avatar_ref": {
+          "anyOf": [
+            {
+              "maxLength": 80,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Avatar Ref"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "deactivation_requested_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Deactivation Requested At"
+        },
+        "deactivation_scheduled_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Deactivation Scheduled At"
+        },
+        "disabled_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Disabled At"
+        },
+        "disabled_by": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Disabled By"
+        },
+        "disabled_kind": {
+          "anyOf": [
+            {
+              "maxLength": 32,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Disabled Kind"
+        },
+        "disabled_reason": {
+          "anyOf": [
+            {
+              "maxLength": 500,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Disabled Reason"
+        },
+        "email": {
+          "maxLength": 255,
+          "title": "Email",
+          "type": "string"
+        },
+        "email_verified_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Email Verified At"
+        },
+        "group_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Group Id"
+        },
+        "group_name": {
+          "anyOf": [
+            {
+              "maxLength": 100,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Group Name"
+        },
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "is_active": {
+          "title": "Is Active",
+          "type": "boolean"
+        },
+        "last_login_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Last Login At"
+        },
+        "last_seen_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Last Seen At"
+        },
+        "name": {
+          "maxLength": 100,
+          "title": "Name",
+          "type": "string"
+        },
+        "password_admin_reset_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Password Admin Reset At"
+        },
+        "preferences": {
+          "additionalProperties": true,
+          "title": "Preferences",
+          "type": "object"
+        },
+        "role": {
+          "enum": ["super_admin", "project_admin", "employee", "viewer"],
+          "title": "Role",
+          "type": "string"
+        },
+        "status": {
+          "maxLength": 20,
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "email",
+        "name",
+        "role",
+        "group_name",
+        "group_id",
+        "status",
+        "is_active",
+        "disabled_kind",
+        "disabled_at",
+        "disabled_by",
+        "disabled_reason",
+        "email_verified_at",
+        "last_login_at",
+        "last_seen_at",
+        "password_admin_reset_at",
+        "deactivation_requested_at",
+        "deactivation_scheduled_at",
+        "preferences",
+        "avatar_ref",
+        "created_at"
+      ],
+      "title": "AccountRecord",
+      "type": "object"
+    },
+    "CreateInvitationPayload": {
+      "additionalProperties": false,
+      "properties": {
+        "email": {
+          "title": "Email",
+          "type": "string"
+        },
+        "group_name": {
+          "anyOf": [
+            {
+              "maxLength": 100,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Group Name"
+        },
+        "project_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Project Id"
+        },
+        "project_member_role": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Project Member Role"
+        },
+        "role": {
+          "title": "Role",
+          "type": "string"
+        }
+      },
+      "required": ["email", "role"],
+      "title": "CreateInvitationPayload",
+      "type": "object"
+    },
+    "ExportInvitationsPayload": {
+      "additionalProperties": false,
+      "properties": {
+        "created_from": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Created From"
+        },
+        "created_to": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Created To"
+        },
+        "email": {
+          "anyOf": [
+            {
+              "maxLength": 255,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Email"
+        },
+        "format": {
+          "default": "csv",
+          "enum": ["csv", "json"],
+          "title": "Format",
+          "type": "string"
+        },
+        "project_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Project Id"
+        },
+        "role": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Role"
+        },
+        "scope": {
+          "default": "me",
+          "enum": ["me", "all"],
+          "title": "Scope",
+          "type": "string"
+        },
+        "search": {
+          "anyOf": [
+            {
+              "maxLength": 255,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Search"
+        },
+        "status": {
+          "default": "all",
+          "enum": ["pending", "accepted", "expired", "revoked", "all"],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "title": "ExportInvitationsPayload",
+      "type": "object"
+    },
+    "IdPayload": {
+      "additionalProperties": false,
+      "properties": {
+        "invitation_id": {
+          "format": "uuid",
+          "title": "Invitation Id",
+          "type": "string"
+        }
+      },
+      "required": ["invitation_id"],
+      "title": "IdPayload",
+      "type": "object"
+    },
+    "InvitationAcceptance": {
+      "additionalProperties": false,
+      "properties": {
+        "active_batch_count": {
+          "exclusiveMaximum": 9223372036854775808,
+          "minimum": 0,
+          "title": "Active Batch Count",
+          "type": "integer"
+        },
+        "next_action": {
+          "title": "Next Action",
+          "type": "string"
+        },
+        "next_action_label": {
+          "title": "Next Action Label",
+          "type": "string"
+        },
+        "project_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Project Id"
+        },
+        "project_member_role": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Project Member Role"
+        },
+        "project_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Project Name"
+        },
+        "responsible_person_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Responsible Person Name"
+        }
+      },
+      "required": [
+        "project_id",
+        "project_name",
+        "project_member_role",
+        "next_action",
+        "next_action_label",
+        "responsible_person_name",
+        "active_batch_count"
+      ],
+      "title": "InvitationAcceptance",
+      "type": "object"
+    },
+    "InvitationFilters": {
+      "additionalProperties": false,
+      "properties": {
+        "created_from": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Created From"
+        },
+        "created_to": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Created To"
+        },
+        "email": {
+          "anyOf": [
+            {
+              "maxLength": 255,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Email"
+        },
+        "project_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Project Id"
+        },
+        "role": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Role"
+        },
+        "scope": {
+          "default": "me",
+          "enum": ["me", "all"],
+          "title": "Scope",
+          "type": "string"
+        },
+        "search": {
+          "anyOf": [
+            {
+              "maxLength": 255,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Search"
+        },
+        "status": {
+          "default": "all",
+          "enum": ["pending", "accepted", "expired", "revoked", "all"],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "title": "InvitationFilters",
+      "type": "object"
+    },
+    "InvitationNativeResult": {
+      "additionalProperties": false,
+      "properties": {
+        "acceptance": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/InvitationAcceptance"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "claims": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SessionClaims"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "email": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Email"
+        },
+        "email_verification_required": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Email Verification Required"
+        },
+        "exported_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Exported At"
+        },
+        "exported_by": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Exported By"
+        },
+        "failed": {
+          "anyOf": [
+            {
+              "exclusiveMaximum": 9223372036854775808,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Failed"
+        },
+        "frontend_base_url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Frontend Base Url"
+        },
+        "invitation": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/InvitationRecord"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "invitation_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Invitation Id"
+        },
+        "invitations": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/InvitationRecord"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Invitations"
+        },
+        "items": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/NativeBatchResultItem"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Items"
+        },
+        "mail_failure_code": {
+          "anyOf": [
+            {
+              "enum": [
+                "sent",
+                "not_configured",
+                "message_invalid",
+                "tls_failed",
+                "auth_failed",
+                "recipient_rejected",
+                "sender_rejected",
+                "data_rejected",
+                "connect_failed",
+                "transport_failed",
+                "derivation_unavailable"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Mail Failure Code"
+        },
+        "mail_status": {
+          "anyOf": [
+            {
+              "enum": ["pending", "sent", "failed"],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Mail Status"
+        },
+        "page": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Page"
+        },
+        "page_size": {
+          "anyOf": [
+            {
+              "maximum": 500,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Page Size"
+        },
+        "pages": {
+          "anyOf": [
+            {
+              "exclusiveMaximum": 9223372036854775808,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Pages"
+        },
+        "preview": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Preview"
+        },
+        "stats": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/InvitationStats"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "succeeded": {
+          "anyOf": [
+            {
+              "exclusiveMaximum": 9223372036854775808,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Succeeded"
+        },
+        "total": {
+          "anyOf": [
+            {
+              "exclusiveMaximum": 9223372036854775808,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Total"
+        },
+        "user": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AccountRecord"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "invitation",
+        "invitations",
+        "items",
+        "total",
+        "page",
+        "page_size",
+        "pages",
+        "stats",
+        "user",
+        "claims",
+        "acceptance",
+        "email_verification_required",
+        "preview",
+        "succeeded",
+        "failed",
+        "exported_by",
+        "exported_at",
+        "invitation_id",
+        "email",
+        "mail_status",
+        "mail_failure_code",
+        "frontend_base_url"
+      ],
+      "title": "InvitationNativeResult",
+      "type": "object"
+    },
+    "InvitationPolicy": {
+      "additionalProperties": false,
+      "properties": {
+        "expire_minutes": {
+          "maximum": 525600,
+          "minimum": 1,
+          "title": "Expire Minutes",
+          "type": "integer"
+        },
+        "frontend_base_url": {
+          "minLength": 1,
+          "title": "Frontend Base Url",
+          "type": "string"
+        },
+        "invitation_ttl_days": {
+          "maximum": 90,
+          "minimum": 1,
+          "title": "Invitation Ttl Days",
+          "type": "integer"
+        },
+        "max_invitations_per_day": {
+          "maximum": 1000,
+          "minimum": 1,
+          "title": "Max Invitations Per Day",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "max_invitations_per_day",
+        "invitation_ttl_days",
+        "frontend_base_url",
+        "expire_minutes"
+      ],
+      "title": "InvitationPolicy",
+      "type": "object"
+    },
+    "InvitationProofPayload": {
+      "additionalProperties": false,
+      "properties": {
+        "invitation_token": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Invitation Token",
+          "type": "string"
+        }
+      },
+      "required": ["invitation_token"],
+      "title": "InvitationProofPayload",
+      "type": "object"
+    },
+    "InvitationRecord": {
+      "additionalProperties": false,
+      "properties": {
+        "accepted_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Accepted At"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "email": {
+          "title": "Email",
+          "type": "string"
+        },
+        "expires_at": {
+          "format": "date-time",
+          "title": "Expires At",
+          "type": "string"
+        },
+        "group_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Group Name"
+        },
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "invited_by": {
+          "format": "uuid",
+          "title": "Invited By",
+          "type": "string"
+        },
+        "invited_by_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Invited By Name"
+        },
+        "project_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Project Id"
+        },
+        "project_member_role": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Project Member Role"
+        },
+        "project_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Project Name"
+        },
+        "revoked_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Revoked At"
+        },
+        "role": {
+          "title": "Role",
+          "type": "string"
+        },
+        "status": {
+          "enum": ["pending", "accepted", "expired", "revoked"],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "email",
+        "role",
+        "group_name",
+        "project_id",
+        "project_name",
+        "project_member_role",
+        "status",
+        "expires_at",
+        "invited_by",
+        "invited_by_name",
+        "accepted_at",
+        "revoked_at",
+        "created_at"
+      ],
+      "title": "InvitationRecord",
+      "type": "object"
+    },
+    "InvitationStats": {
+      "additionalProperties": false,
+      "properties": {
+        "accepted": {
+          "exclusiveMaximum": 9223372036854775808,
+          "minimum": 0,
+          "title": "Accepted",
+          "type": "integer"
+        },
+        "expired": {
+          "exclusiveMaximum": 9223372036854775808,
+          "minimum": 0,
+          "title": "Expired",
+          "type": "integer"
+        },
+        "pending": {
+          "exclusiveMaximum": 9223372036854775808,
+          "minimum": 0,
+          "title": "Pending",
+          "type": "integer"
+        },
+        "revoked": {
+          "exclusiveMaximum": 9223372036854775808,
+          "minimum": 0,
+          "title": "Revoked",
+          "type": "integer"
+        },
+        "total": {
+          "exclusiveMaximum": 9223372036854775808,
+          "minimum": 0,
+          "title": "Total",
+          "type": "integer"
+        }
+      },
+      "required": ["total", "pending", "accepted", "expired", "revoked"],
+      "title": "InvitationStats",
+      "type": "object"
+    },
+    "ListInvitationsPayload": {
+      "additionalProperties": false,
+      "properties": {
+        "scope": {
+          "default": "me",
+          "enum": ["me", "all"],
+          "title": "Scope",
+          "type": "string"
+        },
+        "status": {
+          "default": "all",
+          "enum": ["pending", "accepted", "expired", "revoked", "all"],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "title": "ListInvitationsPayload",
+      "type": "object"
+    },
+    "NativeAcceptInvitationApply": {
+      "additionalProperties": false,
+      "properties": {
+        "actor": {
+          "$ref": "#/$defs/Principal"
+        },
+        "args": {
+          "$ref": "#/$defs/InvitationProofPayload"
+        },
+        "audit_context": {
+          "$ref": "#/$defs/SessionAuditContext"
+        },
+        "config": {
+          "$ref": "#/$defs/NativeInvitationConfig"
+        },
+        "derivation_id": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Derivation Id",
+          "type": "string"
+        },
+        "derived": {
+          "$ref": "#/$defs/NativeInvitationDerived"
+        },
+        "expected_key_hash": {
+          "anyOf": [
+            {
+              "pattern": "^\\$2[aby]\\$12\\$[./A-Za-z0-9]{53}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Expected Key Hash"
+        },
+        "operation": {
+          "const": "accept_invitation",
+          "title": "Operation",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "request_fingerprint": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Request Fingerprint",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-identity-invitations-native/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema",
+        "operation_id",
+        "actor",
+        "request_fingerprint",
+        "derivation_id",
+        "audit_context",
+        "config",
+        "derived",
+        "operation",
+        "args"
+      ],
+      "title": "NativeAcceptInvitationApply",
+      "type": "object"
+    },
+    "NativeAcceptInvitationPrepare": {
+      "additionalProperties": false,
+      "properties": {
+        "actor": {
+          "$ref": "#/$defs/Principal"
+        },
+        "args": {
+          "$ref": "#/$defs/InvitationProofPayload"
+        },
+        "audit_context": {
+          "$ref": "#/$defs/SessionAuditContext"
+        },
+        "config": {
+          "$ref": "#/$defs/NativeInvitationConfig"
+        },
+        "derivation_id": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Derivation Id",
+          "type": "string"
+        },
+        "expected_key_hash": {
+          "anyOf": [
+            {
+              "pattern": "^\\$2[aby]\\$12\\$[./A-Za-z0-9]{53}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Expected Key Hash"
+        },
+        "operation": {
+          "const": "accept_invitation",
+          "title": "Operation",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "request_fingerprint": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Request Fingerprint",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-identity-invitations-native/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema",
+        "operation_id",
+        "actor",
+        "request_fingerprint",
+        "derivation_id",
+        "audit_context",
+        "config",
+        "operation",
+        "args"
+      ],
+      "title": "NativeAcceptInvitationPrepare",
+      "type": "object"
+    },
+    "NativeApplyBatchPrepare": {
+      "additionalProperties": false,
+      "properties": {
+        "actor": {
+          "$ref": "#/$defs/Principal"
+        },
+        "args": {
+          "$ref": "#/$defs/NativeBatchInvitationArgs"
+        },
+        "audit_context": {
+          "$ref": "#/$defs/SessionAuditContext"
+        },
+        "config": {
+          "$ref": "#/$defs/NativeInvitationConfig"
+        },
+        "derivation_id": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Derivation Id",
+          "type": "string"
+        },
+        "expected_key_hash": {
+          "anyOf": [
+            {
+              "pattern": "^\\$2[aby]\\$12\\$[./A-Za-z0-9]{53}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Expected Key Hash"
+        },
+        "operation": {
+          "const": "apply_invitation_batch",
+          "title": "Operation",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "request_fingerprint": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Request Fingerprint",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-identity-invitations-native/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema",
+        "operation_id",
+        "actor",
+        "request_fingerprint",
+        "derivation_id",
+        "audit_context",
+        "config",
+        "operation",
+        "args"
+      ],
+      "title": "NativeApplyBatchPrepare",
+      "type": "object"
+    },
+    "NativeApplyInvitationBatch": {
+      "additionalProperties": false,
+      "properties": {
+        "actor": {
+          "$ref": "#/$defs/Principal"
+        },
+        "args": {
+          "$ref": "#/$defs/NativeBatchInvitationArgs"
+        },
+        "audit_context": {
+          "$ref": "#/$defs/SessionAuditContext"
+        },
+        "config": {
+          "$ref": "#/$defs/NativeInvitationConfig"
+        },
+        "derivation_id": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Derivation Id",
+          "type": "string"
+        },
+        "derived": {
+          "$ref": "#/$defs/NativeInvitationDerived"
+        },
+        "expected_key_hash": {
+          "anyOf": [
+            {
+              "pattern": "^\\$2[aby]\\$12\\$[./A-Za-z0-9]{53}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Expected Key Hash"
+        },
+        "operation": {
+          "const": "apply_invitation_batch",
+          "title": "Operation",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "request_fingerprint": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Request Fingerprint",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-identity-invitations-native/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema",
+        "operation_id",
+        "actor",
+        "request_fingerprint",
+        "derivation_id",
+        "audit_context",
+        "config",
+        "derived",
+        "operation",
+        "args"
+      ],
+      "title": "NativeApplyInvitationBatch",
+      "type": "object"
+    },
+    "NativeBatchInvitationArgs": {
+      "additionalProperties": false,
+      "properties": {
+        "items": {
+          "items": {
+            "$ref": "#/$defs/NativeBatchInvitationItem"
+          },
+          "maxItems": 500,
+          "title": "Items",
+          "type": "array"
+        }
+      },
+      "required": ["items"],
+      "title": "NativeBatchInvitationArgs",
+      "type": "object"
+    },
+    "NativeBatchInvitationItem": {
+      "additionalProperties": false,
+      "properties": {
+        "email": {
+          "maxLength": 255,
+          "minLength": 3,
+          "title": "Email",
+          "type": "string"
+        },
+        "group_name": {
+          "anyOf": [
+            {
+              "maxLength": 100,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Group Name"
+        },
+        "index": {
+          "exclusiveMaximum": 500,
+          "minimum": 0,
+          "title": "Index",
+          "type": "integer"
+        },
+        "preview_invitation_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Preview Invitation Id"
+        },
+        "preview_token": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Preview Token"
+        },
+        "project_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Project Id"
+        },
+        "project_member_role": {
+          "anyOf": [
+            {
+              "maxLength": 100,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Project Member Role"
+        },
+        "role": {
+          "maxLength": 100,
+          "title": "Role",
+          "type": "string"
+        }
+      },
+      "required": ["index", "email", "role", "group_name", "project_id", "project_member_role"],
+      "title": "NativeBatchInvitationItem",
+      "type": "object"
+    },
+    "NativeBatchResultItem": {
+      "additionalProperties": false,
+      "properties": {
+        "email": {
+          "title": "Email",
+          "type": "string"
+        },
+        "error": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Error"
+        },
+        "index": {
+          "exclusiveMaximum": 500,
+          "minimum": 0,
+          "title": "Index",
+          "type": "integer"
+        },
+        "invitation_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Invitation Id"
+        },
+        "ok": {
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "project_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Project Id"
+        },
+        "project_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Project Name"
+        },
+        "retryable": {
+          "title": "Retryable",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "index",
+        "email",
+        "ok",
+        "retryable",
+        "invitation_id",
+        "project_id",
+        "project_name",
+        "error"
+      ],
+      "title": "NativeBatchResultItem",
+      "type": "object"
+    },
+    "NativeCreateInvitationApply": {
+      "additionalProperties": false,
+      "properties": {
+        "actor": {
+          "$ref": "#/$defs/Principal"
+        },
+        "args": {
+          "$ref": "#/$defs/CreateInvitationPayload"
+        },
+        "audit_context": {
+          "$ref": "#/$defs/SessionAuditContext"
+        },
+        "config": {
+          "$ref": "#/$defs/NativeInvitationConfig"
+        },
+        "derivation_id": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Derivation Id",
+          "type": "string"
+        },
+        "derived": {
+          "$ref": "#/$defs/NativeInvitationDerived"
+        },
+        "expected_key_hash": {
+          "anyOf": [
+            {
+              "pattern": "^\\$2[aby]\\$12\\$[./A-Za-z0-9]{53}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Expected Key Hash"
+        },
+        "operation": {
+          "const": "create_invitation",
+          "title": "Operation",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "request_fingerprint": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Request Fingerprint",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-identity-invitations-native/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema",
+        "operation_id",
+        "actor",
+        "request_fingerprint",
+        "derivation_id",
+        "audit_context",
+        "config",
+        "derived",
+        "operation",
+        "args"
+      ],
+      "title": "NativeCreateInvitationApply",
+      "type": "object"
+    },
+    "NativeCreateInvitationPrepare": {
+      "additionalProperties": false,
+      "properties": {
+        "actor": {
+          "$ref": "#/$defs/Principal"
+        },
+        "args": {
+          "$ref": "#/$defs/CreateInvitationPayload"
+        },
+        "audit_context": {
+          "$ref": "#/$defs/SessionAuditContext"
+        },
+        "config": {
+          "$ref": "#/$defs/NativeInvitationConfig"
+        },
+        "derivation_id": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Derivation Id",
+          "type": "string"
+        },
+        "expected_key_hash": {
+          "anyOf": [
+            {
+              "pattern": "^\\$2[aby]\\$12\\$[./A-Za-z0-9]{53}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Expected Key Hash"
+        },
+        "operation": {
+          "const": "create_invitation",
+          "title": "Operation",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "request_fingerprint": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Request Fingerprint",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-identity-invitations-native/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema",
+        "operation_id",
+        "actor",
+        "request_fingerprint",
+        "derivation_id",
+        "audit_context",
+        "config",
+        "operation",
+        "args"
+      ],
+      "title": "NativeCreateInvitationPrepare",
+      "type": "object"
+    },
+    "NativeDerivedInvitationToken": {
+      "additionalProperties": false,
+      "properties": {
+        "index": {
+          "exclusiveMaximum": 500,
+          "minimum": 0,
+          "title": "Index",
+          "type": "integer"
+        },
+        "invitation_id": {
+          "format": "uuid",
+          "title": "Invitation Id",
+          "type": "string"
+        },
+        "token": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Token",
+          "type": "string"
+        }
+      },
+      "required": ["index", "invitation_id", "token"],
+      "title": "NativeDerivedInvitationToken",
+      "type": "object"
+    },
+    "NativeExportInvitationsPrepare": {
+      "additionalProperties": false,
+      "properties": {
+        "actor": {
+          "$ref": "#/$defs/Principal"
+        },
+        "args": {
+          "$ref": "#/$defs/ExportInvitationsPayload"
+        },
+        "audit_context": {
+          "$ref": "#/$defs/SessionAuditContext"
+        },
+        "config": {
+          "$ref": "#/$defs/NativeInvitationConfig"
+        },
+        "derivation_id": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Derivation Id",
+          "type": "string"
+        },
+        "expected_key_hash": {
+          "anyOf": [
+            {
+              "pattern": "^\\$2[aby]\\$12\\$[./A-Za-z0-9]{53}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Expected Key Hash"
+        },
+        "operation": {
+          "const": "export_invitations",
+          "title": "Operation",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "request_fingerprint": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Request Fingerprint",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-identity-invitations-native/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema",
+        "operation_id",
+        "actor",
+        "request_fingerprint",
+        "derivation_id",
+        "audit_context",
+        "config",
+        "operation",
+        "args"
+      ],
+      "title": "NativeExportInvitationsPrepare",
+      "type": "object"
+    },
+    "NativeInvitationActor": {
+      "additionalProperties": false,
+      "properties": {
+        "credential_generation": {
+          "exclusiveMaximum": 9223372036854775808,
+          "minimum": 0,
+          "title": "Credential Generation",
+          "type": "integer"
+        },
+        "email": {
+          "title": "Email",
+          "type": "string"
+        },
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "is_active": {
+          "title": "Is Active",
+          "type": "boolean"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "role": {
+          "enum": ["super_admin", "project_admin", "employee", "viewer"],
+          "title": "Role",
+          "type": "string"
+        }
+      },
+      "required": ["id", "email", "name", "role", "is_active", "credential_generation"],
+      "title": "NativeInvitationActor",
+      "type": "object"
+    },
+    "NativeInvitationApplyData": {
+      "additionalProperties": false,
+      "properties": {
+        "actor": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/NativeInvitationActor"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "replayed": {
+          "title": "Replayed",
+          "type": "boolean"
+        },
+        "result": {
+          "$ref": "#/$defs/InvitationNativeResult"
+        }
+      },
+      "required": ["actor", "replayed", "result"],
+      "title": "NativeInvitationApplyData",
+      "type": "object"
+    },
+    "NativeInvitationApplyReply": {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "$ref": "#/$defs/NativeInvitationApplyData"
+        },
+        "ok": {
+          "const": true,
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "operation": {
+          "enum": [
+            "create_invitation",
+            "preview_invitation_batch",
+            "apply_invitation_batch",
+            "list_invitations",
+            "query_invitations",
+            "invitation_stats",
+            "export_invitations",
+            "revoke_invitation",
+            "resend_invitation",
+            "send_invitation_email",
+            "resolve_invitation",
+            "register_invitation",
+            "accept_invitation"
+          ],
+          "title": "Operation",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "principal": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Principal"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "schema": {
+          "const": "aap-identity-invitations-native/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "ok", "operation", "operation_id", "principal", "data"],
+      "title": "NativeInvitationApplyReply",
+      "type": "object"
+    },
+    "NativeInvitationConfig": {
+      "additionalProperties": false,
+      "description": "Deployment fallbacks supplied to the owner settings capability.",
+      "properties": {
+        "expire_minutes": {
+          "maximum": 525600,
+          "minimum": 1,
+          "title": "Expire Minutes",
+          "type": "integer"
+        },
+        "frontend_base_url": {
+          "minLength": 1,
+          "title": "Frontend Base Url",
+          "type": "string"
+        },
+        "invitation_ttl_days": {
+          "maximum": 90,
+          "minimum": 1,
+          "title": "Invitation Ttl Days",
+          "type": "integer"
+        },
+        "max_invitations_per_day": {
+          "maximum": 1000,
+          "minimum": 1,
+          "title": "Max Invitations Per Day",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "max_invitations_per_day",
+        "invitation_ttl_days",
+        "frontend_base_url",
+        "expire_minutes"
+      ],
+      "title": "NativeInvitationConfig",
+      "type": "object"
+    },
+    "NativeInvitationDerived": {
+      "additionalProperties": false,
+      "properties": {
+        "batch_tokens": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/NativeDerivedInvitationToken"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Batch Tokens"
+        },
+        "claims": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SessionClaims"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "frontend_base_url": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Frontend Base Url"
+        },
+        "mail_encryption_id": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Mail Encryption Id"
+        },
+        "mail_frontend_url": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Mail Frontend Url"
+        },
+        "mail_token_ciphertext": {
+          "anyOf": [
+            {
+              "maxLength": 8192,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Mail Token Ciphertext"
+        },
+        "mail_token_hash": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Mail Token Hash"
+        },
+        "password_hash": {
+          "anyOf": [
+            {
+              "pattern": "^\\$2[aby]\\$12\\$[./A-Za-z0-9]{53}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Password Hash"
+        },
+        "token": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Token"
+        }
+      },
+      "title": "NativeInvitationDerived",
+      "type": "object"
+    },
+    "NativeInvitationFailureDetail": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "anyOf": [
+            {
+              "enum": [
+                "invalid_request",
+                "credential_invalid",
+                "credential_revoked",
+                "generation_outdated",
+                "token_expired",
+                "user_inactive",
+                "invalid_account_role",
+                "credential_busy"
+              ],
+              "type": "string"
+            },
+            {
+              "enum": [
+                "invalid_request",
+                "policy_rejected",
+                "current_scope_busy",
+                "operation_conflict",
+                "unavailable"
+              ],
+              "type": "string"
+            }
+          ],
+          "title": "Code"
+        },
+        "detail": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Detail"
+        },
+        "policy": {
+          "anyOf": [
+            {
+              "enum": [
+                "invalid_platform_role",
+                "invalid_project_role",
+                "platform_project_role_incompatible",
+                "account_project_role",
+                "project_admin_role_forbidden",
+                "project_not_found",
+                "project_admin_scope",
+                "active_email_exists",
+                "email_exists",
+                "incompatible_account_role",
+                "already_member",
+                "daily_quota",
+                "invitation_not_found",
+                "invitation_used",
+                "invitation_revoked",
+                "invitation_expired",
+                "issuer_inactive",
+                "issuer_role_invalid",
+                "project_owner_unavailable",
+                "legacy_platform_role",
+                "account_only_invitation",
+                "email_mismatch",
+                "actor_inactive",
+                "privileged_resend",
+                "invitation_accepted",
+                "scope_all_forbidden",
+                "group_name_invalid",
+                "manager_required"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Policy"
+        }
+      },
+      "required": ["code"],
+      "title": "NativeInvitationFailureDetail",
+      "type": "object"
+    },
+    "NativeInvitationFailureReply": {
+      "additionalProperties": false,
+      "properties": {
+        "error": {
+          "$ref": "#/$defs/NativeInvitationFailureDetail"
+        },
+        "ok": {
+          "const": false,
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "schema": {
+          "const": "aap-identity-invitations-native/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "ok", "error"],
+      "title": "NativeInvitationFailureReply",
+      "type": "object"
+    },
+    "NativeInvitationPolicyReply": {
+      "additionalProperties": false,
+      "properties": {
+        "policy": {
+          "const": "aap-identity-invitations/v1",
+          "title": "Policy",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-identity-invitations-policy/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "policy"],
+      "title": "NativeInvitationPolicyReply",
+      "type": "object"
+    },
+    "NativeInvitationPrepareData": {
+      "additionalProperties": false,
+      "properties": {
+        "actor": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/NativeInvitationActor"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "existing_password_hash": {
+          "anyOf": [
+            {
+              "pattern": "^\\$2[aby]\\$12\\$[./A-Za-z0-9]{53}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Existing Password Hash"
+        },
+        "invitation": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/InvitationRecord"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "invitation_token": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Invitation Token"
+        },
+        "mail_encryption_id": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Mail Encryption Id"
+        },
+        "mail_frontend_url": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Mail Frontend Url"
+        },
+        "mail_token_ciphertext": {
+          "anyOf": [
+            {
+              "maxLength": 8192,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Mail Token Ciphertext"
+        },
+        "mail_token_hash": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Mail Token Hash"
+        },
+        "membership_exists": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Membership Exists"
+        },
+        "policy": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/InvitationPolicy"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "project": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/NativeInvitationProject"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "replayed": {
+          "title": "Replayed",
+          "type": "boolean"
+        },
+        "result": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/InvitationNativeResult"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "target": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/NativeInvitationActor"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "policy",
+        "actor",
+        "invitation",
+        "project",
+        "target",
+        "membership_exists",
+        "replayed",
+        "result"
+      ],
+      "title": "NativeInvitationPrepareData",
+      "type": "object"
+    },
+    "NativeInvitationPrepareReply": {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "$ref": "#/$defs/NativeInvitationPrepareData"
+        },
+        "ok": {
+          "const": true,
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "operation": {
+          "enum": [
+            "create_invitation",
+            "preview_invitation_batch",
+            "apply_invitation_batch",
+            "list_invitations",
+            "query_invitations",
+            "invitation_stats",
+            "export_invitations",
+            "revoke_invitation",
+            "resend_invitation",
+            "send_invitation_email",
+            "resolve_invitation",
+            "register_invitation",
+            "accept_invitation"
+          ],
+          "title": "Operation",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "principal": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Principal"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "schema": {
+          "const": "aap-identity-invitations-native/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "ok", "operation", "operation_id", "principal", "data"],
+      "title": "NativeInvitationPrepareReply",
+      "type": "object"
+    },
+    "NativeInvitationProject": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "owner_id": {
+          "format": "uuid",
+          "title": "Owner Id",
+          "type": "string"
+        }
+      },
+      "required": ["id", "name", "owner_id"],
+      "title": "NativeInvitationProject",
+      "type": "object"
+    },
+    "NativeInvitationStatsPrepare": {
+      "additionalProperties": false,
+      "properties": {
+        "actor": {
+          "$ref": "#/$defs/Principal"
+        },
+        "args": {
+          "$ref": "#/$defs/InvitationFilters"
+        },
+        "audit_context": {
+          "$ref": "#/$defs/SessionAuditContext"
+        },
+        "config": {
+          "$ref": "#/$defs/NativeInvitationConfig"
+        },
+        "derivation_id": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Derivation Id",
+          "type": "string"
+        },
+        "expected_key_hash": {
+          "anyOf": [
+            {
+              "pattern": "^\\$2[aby]\\$12\\$[./A-Za-z0-9]{53}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Expected Key Hash"
+        },
+        "operation": {
+          "const": "invitation_stats",
+          "title": "Operation",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "request_fingerprint": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Request Fingerprint",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-identity-invitations-native/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema",
+        "operation_id",
+        "actor",
+        "request_fingerprint",
+        "derivation_id",
+        "audit_context",
+        "config",
+        "operation",
+        "args"
+      ],
+      "title": "NativeInvitationStatsPrepare",
+      "type": "object"
+    },
+    "NativeListInvitationsPrepare": {
+      "additionalProperties": false,
+      "properties": {
+        "actor": {
+          "$ref": "#/$defs/Principal"
+        },
+        "args": {
+          "$ref": "#/$defs/ListInvitationsPayload"
+        },
+        "audit_context": {
+          "$ref": "#/$defs/SessionAuditContext"
+        },
+        "config": {
+          "$ref": "#/$defs/NativeInvitationConfig"
+        },
+        "derivation_id": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Derivation Id",
+          "type": "string"
+        },
+        "expected_key_hash": {
+          "anyOf": [
+            {
+              "pattern": "^\\$2[aby]\\$12\\$[./A-Za-z0-9]{53}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Expected Key Hash"
+        },
+        "operation": {
+          "const": "list_invitations",
+          "title": "Operation",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "request_fingerprint": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Request Fingerprint",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-identity-invitations-native/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema",
+        "operation_id",
+        "actor",
+        "request_fingerprint",
+        "derivation_id",
+        "audit_context",
+        "config",
+        "operation",
+        "args"
+      ],
+      "title": "NativeListInvitationsPrepare",
+      "type": "object"
+    },
+    "NativePreviewBatchPrepare": {
+      "additionalProperties": false,
+      "properties": {
+        "actor": {
+          "$ref": "#/$defs/Principal"
+        },
+        "args": {
+          "$ref": "#/$defs/NativeBatchInvitationArgs"
+        },
+        "audit_context": {
+          "$ref": "#/$defs/SessionAuditContext"
+        },
+        "config": {
+          "$ref": "#/$defs/NativeInvitationConfig"
+        },
+        "derivation_id": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Derivation Id",
+          "type": "string"
+        },
+        "expected_key_hash": {
+          "anyOf": [
+            {
+              "pattern": "^\\$2[aby]\\$12\\$[./A-Za-z0-9]{53}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Expected Key Hash"
+        },
+        "operation": {
+          "const": "preview_invitation_batch",
+          "title": "Operation",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "request_fingerprint": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Request Fingerprint",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-identity-invitations-native/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema",
+        "operation_id",
+        "actor",
+        "request_fingerprint",
+        "derivation_id",
+        "audit_context",
+        "config",
+        "operation",
+        "args"
+      ],
+      "title": "NativePreviewBatchPrepare",
+      "type": "object"
+    },
+    "NativeQueryInvitationsPrepare": {
+      "additionalProperties": false,
+      "properties": {
+        "actor": {
+          "$ref": "#/$defs/Principal"
+        },
+        "args": {
+          "$ref": "#/$defs/QueryInvitationsPayload"
+        },
+        "audit_context": {
+          "$ref": "#/$defs/SessionAuditContext"
+        },
+        "config": {
+          "$ref": "#/$defs/NativeInvitationConfig"
+        },
+        "derivation_id": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Derivation Id",
+          "type": "string"
+        },
+        "expected_key_hash": {
+          "anyOf": [
+            {
+              "pattern": "^\\$2[aby]\\$12\\$[./A-Za-z0-9]{53}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Expected Key Hash"
+        },
+        "operation": {
+          "const": "query_invitations",
+          "title": "Operation",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "request_fingerprint": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Request Fingerprint",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-identity-invitations-native/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema",
+        "operation_id",
+        "actor",
+        "request_fingerprint",
+        "derivation_id",
+        "audit_context",
+        "config",
+        "operation",
+        "args"
+      ],
+      "title": "NativeQueryInvitationsPrepare",
+      "type": "object"
+    },
+    "NativeRegisterInvitationApply": {
+      "additionalProperties": false,
+      "properties": {
+        "actor": {
+          "title": "Actor",
+          "type": "null"
+        },
+        "args": {
+          "$ref": "#/$defs/NativeRegisterInvitationArgs"
+        },
+        "audit_context": {
+          "$ref": "#/$defs/SessionAuditContext"
+        },
+        "config": {
+          "$ref": "#/$defs/NativeInvitationConfig"
+        },
+        "derivation_id": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Derivation Id",
+          "type": "string"
+        },
+        "derived": {
+          "$ref": "#/$defs/NativeInvitationDerived"
+        },
+        "expected_key_hash": {
+          "anyOf": [
+            {
+              "pattern": "^\\$2[aby]\\$12\\$[./A-Za-z0-9]{53}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Expected Key Hash"
+        },
+        "operation": {
+          "const": "register_invitation",
+          "title": "Operation",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "request_fingerprint": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Request Fingerprint",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-identity-invitations-native/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema",
+        "operation_id",
+        "actor",
+        "request_fingerprint",
+        "derivation_id",
+        "audit_context",
+        "config",
+        "derived",
+        "operation",
+        "args"
+      ],
+      "title": "NativeRegisterInvitationApply",
+      "type": "object"
+    },
+    "NativeRegisterInvitationArgs": {
+      "additionalProperties": false,
+      "properties": {
+        "invitation_token": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Invitation Token",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 100,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        }
+      },
+      "required": ["invitation_token", "name"],
+      "title": "NativeRegisterInvitationArgs",
+      "type": "object"
+    },
+    "NativeRegisterInvitationPrepare": {
+      "additionalProperties": false,
+      "properties": {
+        "actor": {
+          "title": "Actor",
+          "type": "null"
+        },
+        "args": {
+          "$ref": "#/$defs/NativeRegisterInvitationArgs"
+        },
+        "audit_context": {
+          "$ref": "#/$defs/SessionAuditContext"
+        },
+        "config": {
+          "$ref": "#/$defs/NativeInvitationConfig"
+        },
+        "derivation_id": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Derivation Id",
+          "type": "string"
+        },
+        "expected_key_hash": {
+          "anyOf": [
+            {
+              "pattern": "^\\$2[aby]\\$12\\$[./A-Za-z0-9]{53}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Expected Key Hash"
+        },
+        "operation": {
+          "const": "register_invitation",
+          "title": "Operation",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "request_fingerprint": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Request Fingerprint",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-identity-invitations-native/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema",
+        "operation_id",
+        "actor",
+        "request_fingerprint",
+        "derivation_id",
+        "audit_context",
+        "config",
+        "operation",
+        "args"
+      ],
+      "title": "NativeRegisterInvitationPrepare",
+      "type": "object"
+    },
+    "NativeResendInvitationApply": {
+      "additionalProperties": false,
+      "properties": {
+        "actor": {
+          "$ref": "#/$defs/Principal"
+        },
+        "args": {
+          "$ref": "#/$defs/IdPayload"
+        },
+        "audit_context": {
+          "$ref": "#/$defs/SessionAuditContext"
+        },
+        "config": {
+          "$ref": "#/$defs/NativeInvitationConfig"
+        },
+        "derivation_id": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Derivation Id",
+          "type": "string"
+        },
+        "derived": {
+          "$ref": "#/$defs/NativeInvitationDerived"
+        },
+        "expected_key_hash": {
+          "anyOf": [
+            {
+              "pattern": "^\\$2[aby]\\$12\\$[./A-Za-z0-9]{53}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Expected Key Hash"
+        },
+        "operation": {
+          "const": "resend_invitation",
+          "title": "Operation",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "request_fingerprint": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Request Fingerprint",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-identity-invitations-native/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema",
+        "operation_id",
+        "actor",
+        "request_fingerprint",
+        "derivation_id",
+        "audit_context",
+        "config",
+        "derived",
+        "operation",
+        "args"
+      ],
+      "title": "NativeResendInvitationApply",
+      "type": "object"
+    },
+    "NativeResendInvitationPrepare": {
+      "additionalProperties": false,
+      "properties": {
+        "actor": {
+          "$ref": "#/$defs/Principal"
+        },
+        "args": {
+          "$ref": "#/$defs/IdPayload"
+        },
+        "audit_context": {
+          "$ref": "#/$defs/SessionAuditContext"
+        },
+        "config": {
+          "$ref": "#/$defs/NativeInvitationConfig"
+        },
+        "derivation_id": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Derivation Id",
+          "type": "string"
+        },
+        "expected_key_hash": {
+          "anyOf": [
+            {
+              "pattern": "^\\$2[aby]\\$12\\$[./A-Za-z0-9]{53}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Expected Key Hash"
+        },
+        "operation": {
+          "const": "resend_invitation",
+          "title": "Operation",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "request_fingerprint": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Request Fingerprint",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-identity-invitations-native/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema",
+        "operation_id",
+        "actor",
+        "request_fingerprint",
+        "derivation_id",
+        "audit_context",
+        "config",
+        "operation",
+        "args"
+      ],
+      "title": "NativeResendInvitationPrepare",
+      "type": "object"
+    },
+    "NativeResolveInvitationPrepare": {
+      "additionalProperties": false,
+      "properties": {
+        "actor": {
+          "title": "Actor",
+          "type": "null"
+        },
+        "args": {
+          "$ref": "#/$defs/InvitationProofPayload"
+        },
+        "audit_context": {
+          "$ref": "#/$defs/SessionAuditContext"
+        },
+        "config": {
+          "$ref": "#/$defs/NativeInvitationConfig"
+        },
+        "derivation_id": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Derivation Id",
+          "type": "string"
+        },
+        "expected_key_hash": {
+          "anyOf": [
+            {
+              "pattern": "^\\$2[aby]\\$12\\$[./A-Za-z0-9]{53}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Expected Key Hash"
+        },
+        "operation": {
+          "const": "resolve_invitation",
+          "title": "Operation",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "request_fingerprint": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Request Fingerprint",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-identity-invitations-native/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema",
+        "operation_id",
+        "actor",
+        "request_fingerprint",
+        "derivation_id",
+        "audit_context",
+        "config",
+        "operation",
+        "args"
+      ],
+      "title": "NativeResolveInvitationPrepare",
+      "type": "object"
+    },
+    "NativeRevokeInvitationApply": {
+      "additionalProperties": false,
+      "properties": {
+        "actor": {
+          "$ref": "#/$defs/Principal"
+        },
+        "args": {
+          "$ref": "#/$defs/IdPayload"
+        },
+        "audit_context": {
+          "$ref": "#/$defs/SessionAuditContext"
+        },
+        "config": {
+          "$ref": "#/$defs/NativeInvitationConfig"
+        },
+        "derivation_id": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Derivation Id",
+          "type": "string"
+        },
+        "derived": {
+          "$ref": "#/$defs/NativeInvitationDerived"
+        },
+        "expected_key_hash": {
+          "anyOf": [
+            {
+              "pattern": "^\\$2[aby]\\$12\\$[./A-Za-z0-9]{53}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Expected Key Hash"
+        },
+        "operation": {
+          "const": "revoke_invitation",
+          "title": "Operation",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "request_fingerprint": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Request Fingerprint",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-identity-invitations-native/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema",
+        "operation_id",
+        "actor",
+        "request_fingerprint",
+        "derivation_id",
+        "audit_context",
+        "config",
+        "derived",
+        "operation",
+        "args"
+      ],
+      "title": "NativeRevokeInvitationApply",
+      "type": "object"
+    },
+    "NativeRevokeInvitationPrepare": {
+      "additionalProperties": false,
+      "properties": {
+        "actor": {
+          "$ref": "#/$defs/Principal"
+        },
+        "args": {
+          "$ref": "#/$defs/IdPayload"
+        },
+        "audit_context": {
+          "$ref": "#/$defs/SessionAuditContext"
+        },
+        "config": {
+          "$ref": "#/$defs/NativeInvitationConfig"
+        },
+        "derivation_id": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Derivation Id",
+          "type": "string"
+        },
+        "expected_key_hash": {
+          "anyOf": [
+            {
+              "pattern": "^\\$2[aby]\\$12\\$[./A-Za-z0-9]{53}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Expected Key Hash"
+        },
+        "operation": {
+          "const": "revoke_invitation",
+          "title": "Operation",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "request_fingerprint": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Request Fingerprint",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-identity-invitations-native/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema",
+        "operation_id",
+        "actor",
+        "request_fingerprint",
+        "derivation_id",
+        "audit_context",
+        "config",
+        "operation",
+        "args"
+      ],
+      "title": "NativeRevokeInvitationPrepare",
+      "type": "object"
+    },
+    "NativeSendInvitationEmailApply": {
+      "additionalProperties": false,
+      "properties": {
+        "actor": {
+          "$ref": "#/$defs/Principal"
+        },
+        "args": {
+          "$ref": "#/$defs/IdPayload"
+        },
+        "audit_context": {
+          "$ref": "#/$defs/SessionAuditContext"
+        },
+        "config": {
+          "$ref": "#/$defs/NativeInvitationConfig"
+        },
+        "derivation_id": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Derivation Id",
+          "type": "string"
+        },
+        "derived": {
+          "$ref": "#/$defs/NativeInvitationDerived"
+        },
+        "expected_key_hash": {
+          "anyOf": [
+            {
+              "pattern": "^\\$2[aby]\\$12\\$[./A-Za-z0-9]{53}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Expected Key Hash"
+        },
+        "operation": {
+          "const": "send_invitation_email",
+          "title": "Operation",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "request_fingerprint": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Request Fingerprint",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-identity-invitations-native/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema",
+        "operation_id",
+        "actor",
+        "request_fingerprint",
+        "derivation_id",
+        "audit_context",
+        "config",
+        "derived",
+        "operation",
+        "args"
+      ],
+      "title": "NativeSendInvitationEmailApply",
+      "type": "object"
+    },
+    "NativeSendInvitationEmailPrepare": {
+      "additionalProperties": false,
+      "properties": {
+        "actor": {
+          "$ref": "#/$defs/Principal"
+        },
+        "args": {
+          "$ref": "#/$defs/IdPayload"
+        },
+        "audit_context": {
+          "$ref": "#/$defs/SessionAuditContext"
+        },
+        "config": {
+          "$ref": "#/$defs/NativeInvitationConfig"
+        },
+        "derivation_id": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Derivation Id",
+          "type": "string"
+        },
+        "expected_key_hash": {
+          "anyOf": [
+            {
+              "pattern": "^\\$2[aby]\\$12\\$[./A-Za-z0-9]{53}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Expected Key Hash"
+        },
+        "operation": {
+          "const": "send_invitation_email",
+          "title": "Operation",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "request_fingerprint": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Request Fingerprint",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-identity-invitations-native/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema",
+        "operation_id",
+        "actor",
+        "request_fingerprint",
+        "derivation_id",
+        "audit_context",
+        "config",
+        "operation",
+        "args"
+      ],
+      "title": "NativeSendInvitationEmailPrepare",
+      "type": "object"
+    },
+    "Principal": {
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "oneOf": [
+            {
+              "properties": {
+                "credential_type": {
+                  "const": "jwt"
+                },
+                "expires_at": {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                "generation": {
+                  "exclusiveMaximum": 9223372036854775808,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "scopes": {
+                  "type": "null"
+                }
+              }
+            },
+            {
+              "properties": {
+                "credential_type": {
+                  "const": "api_key"
+                },
+                "generation": {
+                  "type": "null"
+                },
+                "scopes": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                }
+              }
+            }
+          ]
+        }
+      ],
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "credential_id": {
+          "format": "uuid",
+          "title": "Credential Id",
+          "type": "string"
+        },
+        "credential_type": {
+          "enum": ["jwt", "api_key"],
+          "title": "Credential Type",
+          "type": "string"
+        },
+        "email": {
+          "title": "Email",
+          "type": "string"
+        },
+        "expires_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Expires At"
+        },
+        "generation": {
+          "anyOf": [
+            {
+              "exclusiveMaximum": 9223372036854775808,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Generation"
+        },
+        "is_active": {
+          "const": true,
+          "title": "Is Active",
+          "type": "boolean"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "role": {
+          "enum": ["super_admin", "project_admin", "employee", "viewer"],
+          "title": "Role",
+          "type": "string"
+        },
+        "scopes": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Scopes"
+        }
+      },
+      "required": [
+        "actor_id",
+        "name",
+        "email",
+        "role",
+        "is_active",
+        "credential_type",
+        "credential_id",
+        "generation",
+        "scopes",
+        "expires_at"
+      ],
+      "title": "Principal",
+      "type": "object"
+    },
+    "QueryInvitationsPayload": {
+      "additionalProperties": false,
+      "properties": {
+        "created_from": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Created From"
+        },
+        "created_to": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Created To"
+        },
+        "email": {
+          "anyOf": [
+            {
+              "maxLength": 255,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Email"
+        },
+        "page": {
+          "default": 1,
+          "minimum": 1,
+          "title": "Page",
+          "type": "integer"
+        },
+        "page_size": {
+          "default": 50,
+          "maximum": 500,
+          "minimum": 1,
+          "title": "Page Size",
+          "type": "integer"
+        },
+        "project_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Project Id"
+        },
+        "role": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Role"
+        },
+        "scope": {
+          "default": "me",
+          "enum": ["me", "all"],
+          "title": "Scope",
+          "type": "string"
+        },
+        "search": {
+          "anyOf": [
+            {
+              "maxLength": 255,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Search"
+        },
+        "status": {
+          "default": "all",
+          "enum": ["pending", "accepted", "expired", "revoked", "all"],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "title": "QueryInvitationsPayload",
+      "type": "object"
+    },
+    "SessionAuditContext": {
+      "additionalProperties": false,
+      "properties": {
+        "ip": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Ip"
+        },
+        "method": {
+          "anyOf": [
+            {
+              "maxLength": 8,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Method"
+        },
+        "path": {
+          "anyOf": [
+            {
+              "maxLength": 256,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Path"
+        },
+        "request_id": {
+          "anyOf": [
+            {
+              "maxLength": 36,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Request Id"
+        }
+      },
+      "required": ["method", "path", "ip", "request_id"],
+      "title": "SessionAuditContext",
+      "type": "object"
+    },
+    "SessionClaims": {
+      "additionalProperties": false,
+      "properties": {
+        "exp": {
+          "exclusiveMinimum": 0,
+          "title": "Exp",
+          "type": "integer"
+        },
+        "gen": {
+          "exclusiveMaximum": 9223372036854775808,
+          "minimum": 0,
+          "title": "Gen",
+          "type": "integer"
+        },
+        "iss": {
+          "const": "aap-identity/v1",
+          "title": "Iss",
+          "type": "string"
+        },
+        "jti": {
+          "format": "uuid",
+          "title": "Jti",
+          "type": "string"
+        },
+        "role": {
+          "enum": ["super_admin", "project_admin", "employee", "viewer"],
+          "title": "Role",
+          "type": "string"
+        },
+        "sub": {
+          "format": "uuid",
+          "title": "Sub",
+          "type": "string"
+        }
+      },
+      "required": ["sub", "role", "exp", "jti", "gen", "iss"],
+      "title": "SessionClaims",
+      "type": "object"
+    }
+  },
+  "$id": "aap-identity-invitations-native/v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "anyOf": [
+    {
+      "discriminator": {
+        "mapping": {
+          "accept_invitation": "#/$defs/NativeAcceptInvitationPrepare",
+          "apply_invitation_batch": "#/$defs/NativeApplyBatchPrepare",
+          "create_invitation": "#/$defs/NativeCreateInvitationPrepare",
+          "export_invitations": "#/$defs/NativeExportInvitationsPrepare",
+          "invitation_stats": "#/$defs/NativeInvitationStatsPrepare",
+          "list_invitations": "#/$defs/NativeListInvitationsPrepare",
+          "preview_invitation_batch": "#/$defs/NativePreviewBatchPrepare",
+          "query_invitations": "#/$defs/NativeQueryInvitationsPrepare",
+          "register_invitation": "#/$defs/NativeRegisterInvitationPrepare",
+          "resend_invitation": "#/$defs/NativeResendInvitationPrepare",
+          "resolve_invitation": "#/$defs/NativeResolveInvitationPrepare",
+          "revoke_invitation": "#/$defs/NativeRevokeInvitationPrepare",
+          "send_invitation_email": "#/$defs/NativeSendInvitationEmailPrepare"
+        },
+        "propertyName": "operation"
+      },
+      "oneOf": [
+        {
+          "$ref": "#/$defs/NativeCreateInvitationPrepare"
+        },
+        {
+          "$ref": "#/$defs/NativePreviewBatchPrepare"
+        },
+        {
+          "$ref": "#/$defs/NativeApplyBatchPrepare"
+        },
+        {
+          "$ref": "#/$defs/NativeListInvitationsPrepare"
+        },
+        {
+          "$ref": "#/$defs/NativeQueryInvitationsPrepare"
+        },
+        {
+          "$ref": "#/$defs/NativeInvitationStatsPrepare"
+        },
+        {
+          "$ref": "#/$defs/NativeExportInvitationsPrepare"
+        },
+        {
+          "$ref": "#/$defs/NativeRevokeInvitationPrepare"
+        },
+        {
+          "$ref": "#/$defs/NativeResendInvitationPrepare"
+        },
+        {
+          "$ref": "#/$defs/NativeSendInvitationEmailPrepare"
+        },
+        {
+          "$ref": "#/$defs/NativeResolveInvitationPrepare"
+        },
+        {
+          "$ref": "#/$defs/NativeRegisterInvitationPrepare"
+        },
+        {
+          "$ref": "#/$defs/NativeAcceptInvitationPrepare"
+        }
+      ]
+    },
+    {
+      "discriminator": {
+        "mapping": {
+          "accept_invitation": "#/$defs/NativeAcceptInvitationApply",
+          "apply_invitation_batch": "#/$defs/NativeApplyInvitationBatch",
+          "create_invitation": "#/$defs/NativeCreateInvitationApply",
+          "register_invitation": "#/$defs/NativeRegisterInvitationApply",
+          "resend_invitation": "#/$defs/NativeResendInvitationApply",
+          "revoke_invitation": "#/$defs/NativeRevokeInvitationApply",
+          "send_invitation_email": "#/$defs/NativeSendInvitationEmailApply"
+        },
+        "propertyName": "operation"
+      },
+      "oneOf": [
+        {
+          "$ref": "#/$defs/NativeCreateInvitationApply"
+        },
+        {
+          "$ref": "#/$defs/NativeApplyInvitationBatch"
+        },
+        {
+          "$ref": "#/$defs/NativeRevokeInvitationApply"
+        },
+        {
+          "$ref": "#/$defs/NativeResendInvitationApply"
+        },
+        {
+          "$ref": "#/$defs/NativeSendInvitationEmailApply"
+        },
+        {
+          "$ref": "#/$defs/NativeRegisterInvitationApply"
+        },
+        {
+          "$ref": "#/$defs/NativeAcceptInvitationApply"
+        }
+      ]
+    },
+    {
+      "$ref": "#/$defs/NativeInvitationPrepareReply"
+    },
+    {
+      "$ref": "#/$defs/NativeInvitationApplyReply"
+    },
+    {
+      "$ref": "#/$defs/NativeInvitationFailureReply"
+    },
+    {
+      "$ref": "#/$defs/NativeInvitationPolicyReply"
+    }
+  ]
+}

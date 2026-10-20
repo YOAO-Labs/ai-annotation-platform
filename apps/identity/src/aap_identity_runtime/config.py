@@ -29,6 +29,8 @@ class Settings(BaseSettings):
     deactivation_database_url_file: str | None = None
     deactivation_operator_database_url: SecretStr | None = None
     deactivation_operator_database_url_file: str | None = None
+    invitation_database_url: SecretStr | None = None
+    invitation_database_url_file: str | None = None
     recovery_mail_key: SecretStr | None = None
     recovery_mail_key_file: str | None = None
     token: SecretStr | None = None
@@ -45,6 +47,11 @@ class Settings(BaseSettings):
     email_verification_required: bool = False
     allow_open_registration: bool = False
     frontend_base_url: str = Field(default="http://localhost:3000", min_length=1)
+    invitation_frontend_base_url: str = Field(
+        default="http://localhost:5173", min_length=1
+    )
+    invitation_ttl_days: int = Field(default=7, ge=1, le=90)
+    max_invitations_per_day: int = Field(default=30, ge=1, le=1000)
     login_captcha_threshold: int = Field(default=5, ge=0)
     login_failed_window_seconds: int = Field(default=3600, gt=0)
 
@@ -109,6 +116,7 @@ class Settings(BaseSettings):
             "group_database_url",
             "deactivation_database_url",
             "deactivation_operator_database_url",
+            "invitation_database_url",
         ):
             value = getattr(self, field)
             path = getattr(self, field + "_file")
