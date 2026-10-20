@@ -2400,3 +2400,34 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
 - This resolves the preceding threshold5 consumer limitation. Identity account
   reads/commands and lifecycle extraction remain active; no primary runtime,
   signing policy, production, Go, push or release change is made.
+
+### Identity portable account preference policy
+
+- Preference and workspace models, read normalization, sparse patch validation,
+  atomic map replacement, deep merge, named-preset revision CAS, downgrade guards
+  and opaque-value preservation now live in `apps/identity`. The API schemas
+  re-export the same model objects, and the current handlers adapt safe policy
+  errors without moving their User lock or write transaction. Response JSON is
+  constructed before mutation/commit. No independent account endpoint or writer
+  is claimed for this preparatory step.
+- All 38 moved model classes have identical AST structure after removing
+  docstrings. The public OpenAPI differs at 16 description values only; fields,
+  validation structure and public paths are unchanged. SDK operation-catalog
+  provenance and local frontend artifacts are regenerated. Read/write model
+  schemas are distributed with the package; they do not replace the stateful
+  patch policy or establish another-language provider compatibility.
+- Owned PostgreSQL acceptance passes 125 tests: 111 preference route/policy
+  cases, 12 model cases and 2 OpenAPI checks, including concurrent context merge
+  and one-winner named-preset CAS. The installed-only package passes 22 tests
+  from a temporary directory under its locked Pydantic environment, using the
+  10 pure policy cases and 12 existing model cases with only their import changed.
+  New portable cases cover browser numeric transport loss, newer engine
+  retention/rejection, opaque shortcut buckets and explicit unknown-entry reset.
+  Focused SDK account/OpenAPI/discovery checks pass 37 cases. Owned mode resources
+  and the temporary directory are removed.
+- The next account command group still needs native prepare/apply on one owner
+  transaction, current credential revalidation, typed Audit capability and the
+  existing presence scheduler. Avatar objects require commit/cleanup ownership;
+  recovery/email and deactivation need their complete challenge and multi-owner
+  lifecycle contracts. The full module goal remains active, without a primary
+  cutover, Go expansion, production, push, release or remote CI change.

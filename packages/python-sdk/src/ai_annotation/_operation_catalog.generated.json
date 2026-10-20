@@ -21518,7 +21518,7 @@
       "path": "/api/v1/auth/me/preferences",
       "operation_id": "update_preferences_api_v1_auth_me_preferences_patch",
       "summary": "Update Preferences",
-      "description": "锁定最新用户偏好后深合并 PATCH；workspace context 原子替换且禁止版本降级。\n\n入参收 raw dict：先过 legacy 平铺键提升器 + 移除键剥离器（均 v0.16 移除）再手动走\npydantic 校验，校验失败按 FastAPI 原生 422 形态抛出。",
+      "description": "锁定最新偏好快照并应用稀疏 PATCH 策略，保留工作区与命名预设冲突语义。",
       "tags": [
         "me"
       ],

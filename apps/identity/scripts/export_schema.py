@@ -36,6 +36,10 @@ from aap_identity.session_contract import (  # noqa: E402
     SessionReply,
     SessionRequest,
 )
+from aap_identity.preference_models import (  # noqa: E402
+    UserPreferences,
+    UserPreferencesRead,
+)
 
 
 def principal_shape(schema):
@@ -128,6 +132,12 @@ def main():
                 | LoginCandidateReply
             ),
             "aap-identity-sessions-native/v1",
+        ),
+        "src/aap_identity/preferences_write.schema.json": render_schema(
+            TypeAdapter(UserPreferences), "aap-identity-preferences-write/v1"
+        ),
+        "src/aap_identity/preferences_read.schema.json": render_schema(
+            TypeAdapter(UserPreferencesRead), "aap-identity-preferences-read/v1"
         ),
     }
     for relative_path, schema in schemas.items():

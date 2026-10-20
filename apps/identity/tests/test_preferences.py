@@ -210,3 +210,83 @@ def test_workspace_schema_downgrade_is_a_policy_conflict():
 
     assert caught.value.status_code == 409
     assert caught.value.detail == "layout_schema_downgrade"
+
+
+@pytest.mark.parametrize(
+    "stored_number,browser_number",
+    [(2**53 + 1, 2**53), (10**400, None)],
+)
+def test_opaque_presets_restore_numbers_after_browser_transport_loss(
+    stored_number, browser_number
+):
+    preset = {
+        "name": "Future",
+        "schemaVersion": 99,
+        "snapshot": {"counter": stored_number},
+    }
+    existing = {
+        "workbench": {
+            "layout": {
+                "workspace": {
+                    "engine": "dockview@99",
+                    "namedPresets": {"future.id": preset},
+                }
+            }
+        }
+    }
+    transported = copy.deepcopy(preset)
+    transported["snapshot"]["counter"] = browser_number
+    merged, response = patch_preferences(
+        existing,
+        {
+            "workbench": {
+                "layout": {"workspace": {"namedPresets": {"future.id": transported}}}
+            }
+        },
+    )
+    for value in (merged, response):
+        workspace = value["workbench"]["layout"]["workspace"]
+        assert workspace["engine"] == "dockview@99"
+        assert workspace["namedPresets"]["future.id"] == preset
+        assert (
+            type(workspace["namedPresets"]["future.id"]["snapshot"]["counter"]) is int
+        )
+
+
+def test_partial_shortcut_write_preserves_future_buckets_and_can_reset_unknown_entry():
+    existing = {
+        "workbench": {
+            "shortcuts": {
+                "schemaVersion": 99,
+                "common": "future-format",
+                "video": {"legacy.command": {"future": True}},
+            }
+        }
+    }
+    merged, response = patch_preferences(
+        existing,
+        {"workbench": {"shortcuts": {"image": {"image.tool.box": [{"key": "k"}]}}}},
+    )
+    expected = {
+        **existing["workbench"]["shortcuts"],
+        "image": {"image.tool.box": [{"key": "k", "modifiers": []}]},
+    }
+    assert merged["workbench"]["shortcuts"] == expected
+    assert response["workbench"]["shortcuts"] == expected
+    reset, _ = patch_preferences(
+        merged, {"workbench": {"shortcuts": {"video": {"legacy.command": None}}}}
+    )
+    assert reset["workbench"]["shortcuts"] == {**expected, "video": {}}
+    assert existing["workbench"]["shortcuts"]["video"] == {
+        "legacy.command": {"future": True}
+    }
+
+
+def test_new_engine_cannot_be_overwritten_by_current_client():
+    existing = {"workbench": {"layout": {"workspace": {"engine": "dockview@99"}}}}
+    with pytest.raises(PreferencePolicyError) as caught:
+        patch_preferences(
+            existing, _workspace_patch("annotate:image", _workspace_envelope())
+        )
+    assert caught.value.status_code == 409
+    assert caught.value.detail == "layout_engine_downgrade"

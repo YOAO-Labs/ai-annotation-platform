@@ -1,15 +1,17 @@
-# Identity admission
+# Identity
 
-This package contains the single JWT/API-key verifier, a closed
-`aap-identity/v1` principal contract and an independent private HTTP process.
-The process has no application, SQLAlchemy, Redis, Celery or object-store
-dependency. Its PostgreSQL login executes four admission capabilities only.
-Login, registration, API-key management and profile/lifecycle coordinators
-remain in the API and are not qualified as a complete Identity service.
+This package contains the JWT/API-key verifier, API-key management and core
+session command owners, their closed contracts, and one private HTTP process.
+The runtime has no application, SQLAlchemy, Celery or object-store dependency.
+Admission uses four PostgreSQL capabilities, key management uses two, and
+sessions use three plus a scoped Redis login-counter identity. Each configured
+capability has a separate database login. Registration and account/lifecycle
+coordinators remain in the API, so this is not yet a complete Identity service.
 
 ## Run
 
-Install migration 0235 and the exact Identity owner/runtime grants first.
+Install the current migration head and the exact Identity owner/runtime grants
+for the enabled capabilities first.
 Provide exactly one direct value or secret file for each of
 `IDENTITY_DATABASE_URL`, `IDENTITY_TOKEN` and `IDENTITY_SIGNING_SECRET` (file
 variants append `_FILE`). The DSN uses `postgresql://` and the signing secret
@@ -28,8 +30,11 @@ requests return 400, and owner failures/deadlines return 503. Bodies never echo
 the supplied credential. Request bytes, concurrency and deadlines are bounded.
 
 `docker-compose.identity.yml` starts only this optional process. Its nonroot
-image contains installed packages, not an application source bind. It supports
-a read-only root filesystem and requires no Redis/S3 credentials.
+image contains installed packages, not an application source bind, and supports
+a read-only root filesystem. Session commands require their own database DSN
+and Redis identity; admission and API-key management do not use Redis. No
+capability needs S3 credentials. See the [private protocol guide](../../docs-site/api/guides/identity-runtime.md)
+and [local runbook](../../DEV.md) for configuration and exact permissions.
 
 ## Credential cutoff
 
@@ -48,7 +53,23 @@ admission verdict describes the credential at resolution time; a business
 command requiring a final-write fence must explicitly call the native current
 principal lock on its own transaction. Admission by itself is not that fence.
 
-The portable schema is distributed as `aap_identity/protocol.schema.json`.
-Generate/check it with `scripts/export_schema.py` / `--check`. Native data and
-privilege contracts live with migration 0235 and `identity-auth-grants.sql`.
-The Go experiment is not involved in this service.
+The package distributes admission, key and session wire/native schemas.
+Generate/check them with `scripts/export_schema.py` / `--check`. Native data
+and privilege contracts live with migrations and the corresponding
+`infra/docker/identity-*-grants.sql` files. The Go experiment is not involved
+in this service.
+
+## Preference policy
+
+`aap_identity.preferences` owns preference read normalization and sparse patch
+validation/merge. The API holds its existing User lock, calls that pure policy,
+and writes the resulting JSON in its own transaction. There is no private
+account-command endpoint or independent preference writer yet.
+
+The distributed `preferences_write.schema.json` describes the current strict
+editable model after legacy-key promotion and opaque stored-value filtering;
+it is not a replacement for the stateful patch policy. The read schema allows
+opaque future workspace and shortcut data. A replacement must also preserve
+atomic map replacement, revision CAS, schema/engine downgrade errors, safe
+validation diagnostics and unchanged opaque values. Schema validation alone
+does not implement those behaviors.

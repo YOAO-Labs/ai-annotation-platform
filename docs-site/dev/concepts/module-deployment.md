@@ -273,7 +273,7 @@ Assets 的删除事务通过所属模块能力检查引用：相机链接、场�
 
 `apps/identity` 使用 Python 复用现有 bcrypt／JOSE，实现唯一的 JWT／API key 验证器及 `aap-identity/v1` 主体合同。HTTP 与所有 socket 握手／重验消费同一入口；显式远程服务或专用 DSN 故障不回退。原生 generation、JTI 和凭据回收已进入调用方同一事务，准入 LOGIN 只有四项函数权限；命令、最终围栏与过期回收分开授权。
 
-独立安装包与只读、非 root 容器的实际文件摘要匹配当前源码，未安装 API、SQLAlchemy、Redis、Celery、对象存储或 ML 依赖。真实 API 通过 HTTP 消费容器，覆盖 API key 范围／轮换／撤销、登出与全设备登出、WebSocket 握手和逐消息重验，以及服务停机后的 503。独立进程重启后仍拒绝已撤销 JWT；备份还原保留 generation、JTI、API key 和原生权限，含数据时拒绝退回旧权威。Node 客户端验证完整主体绑定并精确保留 64 位代次，是跨语言消费证据，尚不是另一语言的提供方替换实现。有限并发采样只作本地冒烟，不证明生产容量。
+独立安装包与只读、非 root 容器的实际文件摘要匹配当前源码，不依赖 API、SQLAlchemy、Celery、对象存储或 ML；会话能力另使用受限 Redis 计数客户端。真实 API 通过 HTTP 消费容器，覆盖 API key 范围／轮换／撤销、登出与全设备登出、WebSocket 握手和逐消息重验，以及服务停机后的 503。独立进程重启后仍拒绝已撤销 JWT；备份还原保留 generation、JTI、API key 和原生权限，含数据时拒绝退回旧权威。Node 客户端验证完整主体绑定并精确保留 64 位代次，是跨语言消费证据，尚不是另一语言的提供方替换实现。有限并发采样只作本地冒烟，不证明生产容量。
 
 API key 的列表、创建、更新、轮换和撤销也由同一个独立 Identity 工件持有。公开 API 只转发值和消费主体，不再水合 User 或写 API key ORM；独立命令 LOGIN 只有两项函数权限。实际 API 进程使用不能读取身份表的准入 LOGIN，五项操作仍能通过远程所有者完成；缺少命令能力时返回 503，不回退。命令在提交时锁定当前账号和凭据，并比较此前验证的 API key hash，拒绝验证后被轮换的凭据。
 
@@ -282,5 +282,7 @@ API key 的列表、创建、更新、轮换和撤销也由同一个独立 Ident
 核心登录、刷新、登出和全端登出也由同一独立工件持有。三函数 LOGIN 与准入、key、Audit 权限分离；Redis ACL 只允许登录计数。原生命令按 User → 凭据锁重验当前密码 hash、generation、JTI 或 API key，状态、成功回执与 Audit 所有者事件共同提交；有效失败也保留审计。API 只转发值，保留 HTTP 限流和 Turnstile 边缘验证。无身份表权限的 API 已完成全部四项操作，包括 API key 全端登出、错误计数与验证码；独立登录签发的 JWT 通过 REST 和 socket 联调。
 
 会话回执冻结数据库签发的声明，重启、丢响应和备份恢复后可重放，始终重新认证，不重复修改代次、在线状态或审计。当前账号角色可与历史声明分别返回；历史 token 不保证当前仍有效。刷新保留原 JWT 和七天宽限，账号更新 409 与凭据竞争 503、畸形声明及 Bearer challenge 的既有区别已回归。Node 和 Python 核对相同的 Unicode 指纹、精确 64 位代次与冻结签名测试向量，提供跨语言消费及原语／序列化证据；它们尚非另一语言提供方替换或生产容量证明。协议见 [ADR-0117](/dev/adr/0117-independent-identity-session-commands)。
+
+账号偏好的模型、读取归一化、稀疏合并、revision CAS 和版本降级保护由 Identity 包持有；API 仍持有现有用户行锁与写事务。包分发读／写模型 schema，未来语言替换还必须实现完整状态策略，不能把 schema 验证当作整图替换或跳过 opaque 数据保留。该提取是账号命令的前置工作，尚未建立独立偏好写入者。
 
 这些是可独立运行的准入、API key 和核心会话子边界。注册、密码／邮件、其他账号命令、资料水合和多 owner 生命周期仍在 API，剩余签发端共享 codec 与 secret。主体读取不等于所有业务写入已与撤权串行化；只有显式使用当前凭据围栏的事务获得该保证。新 issuer 受控切换会要求旧 JWT 重新登录，API key 状态保留；日常环境仍未切换。Web 登录验证由服务端 `captcha_required` 挑战驱动，失败次数仅作提示，已用证明在失败后丢弃。完整 Identity 与全模块目标保持未完成，见 [ADR-0115](/dev/adr/0115-identity-admission-and-durable-revocation)。

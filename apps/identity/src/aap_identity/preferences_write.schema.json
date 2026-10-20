@@ -1,0 +1,1734 @@
+{
+  "$defs": {
+    "AIToolPreferences": {
+      "additionalProperties": false,
+      "description": "\u6bcf\u7528\u6237\u7684 AI \u5de5\u5177\u504f\u597d\uff0c\u6309 ML backend id \u5206\u6876\u3002\n\n\u4e0d\u540c backend \u7684 /setup.params schema \u4e0d\u540c\uff08gsam2 \u6709 box/text_threshold\uff0csam3 \u6709\nscore_threshold \u7b49\uff09\uff0c\u6545\u6309 backend id \u5404\u5b58\u4e00\u4efd\uff0c\u4e92\u4e0d\u6c61\u67d3\uff1b\u591a\u7528\u6237\u5404\u81ea\u4e00\u4efd preferences\uff0c\n\u5929\u7136\u9694\u79bb\u4e0d\u6253\u67b6\u3002\u503c\u4e3a /setup.params \u5bf9\u5e94\u7684\u81ea\u7531 dict\uff0c\u5e73\u53f0\u53ea\u505a\u5b58\u53d6\u4e0d\u5f3a\u6821\u9a8c\u5b57\u6bb5\u3002\n\n\u65b0\u589e model_by_backend\uff1a\u4ea4\u4e92\u5de5\u5177\u7684\u5f15\u64ce(\u6a21\u578b)\u9009\u62e9\uff0c\u540c\u6837\u6309 backend \u5206\u6876\u3002\n\u672c\u5b50\u6811\u4e3a\u300c\u6df1\u4e00\u5c42\u5408\u5e76\u300d(update_preferences)\uff0c\u6545 params/model \u4e24\u4e2a\u5b50\u952e\u53ef\u5404\u81ea\u72ec\u7acb\u4fdd\u5b58\u3002",
+      "properties": {
+        "interactive_backend_by_project": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Interactive Backend By Project",
+          "type": "object"
+        },
+        "model_by_backend": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Model By Backend",
+          "type": "object"
+        },
+        "params_by_backend": {
+          "additionalProperties": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Params By Backend",
+          "type": "object"
+        },
+        "secondary_by_model": {
+          "additionalProperties": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Secondary By Model",
+          "type": "object"
+        }
+      },
+      "title": "AIToolPreferences",
+      "type": "object"
+    },
+    "CameraPanelState": {
+      "additionalProperties": false,
+      "description": "3D \u60ac\u6d6e\u76f8\u673a\u9762\u677f\u7684\u4f4d\u7f6e + \u6298\u53e0\u6001\u3002\u6309\u76f8\u673a role \u5206\u6876\u5b58\u3002\n\n\u4f4d\u7f6e\u50cf\u7d20\u7531\u524d\u7aef\u6309\u89c6\u56fe\u8ba1\u7b97\u540e\u843d\u5e93;\u65e0\u8be5 role \u952e = \u7528\u9ed8\u8ba4\u8d34\u8fb9\u4f4d\u7f6e + \u81ea\u52a8\u6298\u53e0\u6001\u3002",
+      "properties": {
+        "collapsed": {
+          "default": false,
+          "title": "Collapsed",
+          "type": "boolean"
+        },
+        "x": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "X"
+        },
+        "y": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Y"
+        }
+      },
+      "title": "CameraPanelState",
+      "type": "object"
+    },
+    "FloatingPanelState": {
+      "additionalProperties": false,
+      "description": "\u5de5\u4f5c\u53f0\u6d6e\u7a97\u72b6\u6001\u3002\u50cf\u7d20\u9ed8\u8ba4\u7531\u524d\u7aef\u6309\u7a97\u53e3\u8ba1\u7b97\u3002",
+      "properties": {
+        "detached": {
+          "default": false,
+          "title": "Detached",
+          "type": "boolean"
+        },
+        "h": {
+          "anyOf": [
+            {
+              "maximum": 900,
+              "minimum": 120,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "H"
+        },
+        "w": {
+          "anyOf": [
+            {
+              "maximum": 720,
+              "minimum": 48,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "W"
+        },
+        "x": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "X"
+        },
+        "y": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Y"
+        }
+      },
+      "title": "FloatingPanelState",
+      "type": "object"
+    },
+    "FloatingSelectionState": {
+      "additionalProperties": false,
+      "description": "\u9009\u4e2d\u6807\u6ce8\u6d6e\u52a8\u4fe1\u606f\u5361\u7684\u4f4d\u7f6e\u3001\u5c3a\u5bf8\u4e0e\u6298\u53e0\u6001(\u8de8\u8bbe\u5907)\u3002\n\n\u4e0e\u8fb9\u680f\u6d6e\u7a97\u4e0d\u540c,\u9009\u4e2d\u5361\u65e0\u300c\u5408\u5e76\u56de\u8fb9\u680f\u300d\u8bed\u4e49,\u6545\u53ea\u6709 collapsed(\u65e0 detached);\n\u663e\u9690\u7531\u9009\u4e2d\u72b6\u6001\u9a71\u52a8,\u8fd9\u91cc\u53ea\u6301\u4e45\u5316\u51e0\u4f55\u4e0e\u6298\u53e0\u3002\u5c3a\u5bf8\u754c\u4e0e FloatingPanelState \u4e00\u81f4\u3002",
+      "properties": {
+        "collapsed": {
+          "default": false,
+          "title": "Collapsed",
+          "type": "boolean"
+        },
+        "h": {
+          "anyOf": [
+            {
+              "maximum": 900,
+              "minimum": 120,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "H"
+        },
+        "w": {
+          "anyOf": [
+            {
+              "maximum": 720,
+              "minimum": 48,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "W"
+        },
+        "x": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "X"
+        },
+        "y": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Y"
+        }
+      },
+      "title": "FloatingSelectionState",
+      "type": "object"
+    },
+    "LabelContentByType": {
+      "additionalProperties": false,
+      "description": "\u6807\u7b7e\u5185\u5bb9\u6309\u6807\u6ce8\u7c7b\u578b\u5206\u6bb5\uff1bclass \u4e09\u6bb5\u6052\u663e\uff0c\u4e0d\u5165\u8868\u3002\n\nsingle=\u56fe\u7247\u624b\u5de5\u6846 / track=\u89c6\u9891\u8f68\u8ff9\u6846 / ai=\u56fe\u7247\u9884\u6d4b\u6846\uff0c\u5404\u6bb5\u53ea\u5217\u8be5\u7c7b\u578b\u6709\u610f\u4e49\u7684\u5b57\u6bb5\u3002\n\u65e7\u6241\u5e73 list \u7531 WorkbenchCommonPreferences \u7684 before validator \u8fc1\u79fb\u4e3a\u672c\u7ed3\u6784\u3002",
+      "properties": {
+        "ai": {
+          "items": {
+            "enum": ["source", "score", "id", "attrs"],
+            "type": "string"
+          },
+          "title": "Ai",
+          "type": "array"
+        },
+        "single": {
+          "items": {
+            "enum": ["id", "attrs"],
+            "type": "string"
+          },
+          "title": "Single",
+          "type": "array"
+        },
+        "track": {
+          "items": {
+            "enum": ["id", "state", "attrs"],
+            "type": "string"
+          },
+          "title": "Track",
+          "type": "array"
+        }
+      },
+      "title": "LabelContentByType",
+      "type": "object"
+    },
+    "NamedWorkspacePreset": {
+      "additionalProperties": false,
+      "description": "A layout the user explicitly saved, alongside the live per-context snapshot.\n\nSaving is a personal shortcut: the entry records the context it was captured\nin so the client only offers it for the matching work type. The snapshot\nitself reuses the live envelope grammar, so a preset can never describe a\nlayout the workspace could not restore.",
+      "properties": {
+        "context": {
+          "enum": [
+            "annotate:image",
+            "annotate:video",
+            "annotate:3d",
+            "review:image",
+            "review:video",
+            "review:3d"
+          ],
+          "title": "Context",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 40,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "schemaVersion": {
+          "enum": [1, 2, 3, 4, 5],
+          "title": "Schemaversion",
+          "type": "integer"
+        },
+        "snapshot": {
+          "$ref": "#/$defs/WorkspaceSnapshot"
+        }
+      },
+      "required": ["schemaVersion", "snapshot", "name", "context"],
+      "title": "NamedWorkspacePreset",
+      "type": "object"
+    },
+    "OnboardingPreferences": {
+      "additionalProperties": false,
+      "description": "Cross-device state for the employee/project start checklist.",
+      "properties": {
+        "projects": {
+          "additionalProperties": {
+            "$ref": "#/$defs/OnboardingProjectState"
+          },
+          "title": "Projects",
+          "type": "object"
+        }
+      },
+      "title": "OnboardingPreferences",
+      "type": "object"
+    },
+    "OnboardingProjectState": {
+      "additionalProperties": false,
+      "description": "Per-user onboarding state for one project's current guide revision.\n\nThis lives in the existing user preferences JSONB so guide dismissal and\nreading progress follows the employee across devices without introducing a\nsecond onboarding table.  ``guide_version`` is supplied by the client from\nthe persisted project guide; a changed guide naturally starts a new state.",
+      "properties": {
+        "dismissed": {
+          "default": false,
+          "title": "Dismissed",
+          "type": "boolean"
+        },
+        "guide_read": {
+          "default": false,
+          "title": "Guide Read",
+          "type": "boolean"
+        },
+        "guide_version": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Guide Version",
+          "type": "string"
+        }
+      },
+      "required": ["guide_version"],
+      "title": "OnboardingProjectState",
+      "type": "object"
+    },
+    "PointcloudCameraState": {
+      "additionalProperties": false,
+      "description": "\u70b9\u4e91\u4e3b\u89c6\u89d2\u5feb\u7167\u3002\u7531\u524d\u7aef OrbitControls \u5199\u5165/\u6062\u590d\u3002",
+      "properties": {
+        "mode": {
+          "default": "orbit",
+          "enum": ["orbit", "bev"],
+          "title": "Mode",
+          "type": "string"
+        },
+        "position": {
+          "maxItems": 3,
+          "minItems": 3,
+          "prefixItems": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Position",
+          "type": "array"
+        },
+        "target": {
+          "maxItems": 3,
+          "minItems": 3,
+          "prefixItems": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Target",
+          "type": "array"
+        },
+        "up": {
+          "maxItems": 3,
+          "minItems": 3,
+          "prefixItems": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Up",
+          "type": "array"
+        }
+      },
+      "required": ["position", "target", "up"],
+      "title": "PointcloudCameraState",
+      "type": "object"
+    },
+    "ShortcutBinding": {
+      "additionalProperties": false,
+      "description": "\u5355\u6761\u7ed3\u6784\u5316\u5feb\u6377\u952e\u7ed1\u5b9a\u3002\n\n``key`` \u662f\u89c4\u8303\u5316\u7684 ``KeyboardEvent.key``\uff1a\u5355\u4e2a\u5b57\u7b26\uff08\u4efb\u610f\u5b57\u7b26\uff0c\u5982 ``/``\uff09\u6216\n\u5c0f\u5199\u547d\u540d\u952e\uff08\u5982 ``arrowright``\uff09\u3002``modifiers`` \u662f\u663e\u5f0f\u4fee\u9970\u952e\u96c6\u5408\uff0c\u5339\u914d\u65f6\u8981\u6c42\n\u5b8c\u5168\u4e00\u81f4\uff08``mod`` = \u5e73\u53f0\u4e3b\u4fee\u9970\u952e\uff0cCtrl/\u2318\uff09\u3002",
+      "properties": {
+        "key": {
+          "maxLength": 32,
+          "minLength": 1,
+          "pattern": "^(?:.{1}|[a-z][a-z0-9]{0,31})$",
+          "title": "Key",
+          "type": "string"
+        },
+        "modifiers": {
+          "items": {
+            "enum": ["mod", "alt", "shift"],
+            "type": "string"
+          },
+          "title": "Modifiers",
+          "type": "array"
+        }
+      },
+      "required": ["key"],
+      "title": "ShortcutBinding",
+      "type": "object"
+    },
+    "TriViewFloatState": {
+      "additionalProperties": false,
+      "description": "3D \u4e09\u89c6\u56fe\u6d6e\u5c42\u4f4d\u7f6e\u3001\u5c3a\u5bf8\u4e0e\u6298\u53e0\u6001\u3002",
+      "properties": {
+        "collapsed": {
+          "default": false,
+          "title": "Collapsed",
+          "type": "boolean"
+        },
+        "h": {
+          "anyOf": [
+            {
+              "maximum": 720,
+              "minimum": 240,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "H"
+        },
+        "w": {
+          "anyOf": [
+            {
+              "maximum": 480,
+              "minimum": 200,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "W"
+        },
+        "x": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "X"
+        },
+        "y": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Y"
+        }
+      },
+      "title": "TriViewFloatState",
+      "type": "object"
+    },
+    "UIPreferences": {
+      "additionalProperties": false,
+      "description": "\u5168\u5c40 UI \u504f\u597d\uff08\u5de5\u4f5c\u53f0\u4e4b\u5916\uff09\uff1b\u8ddf\u968f\u8d26\u53f7\u8de8\u8bbe\u5907\u3002\n\n\u4e3b\u9898\u539f\u5148\u53ea\u5b58 localStorage\uff08\u4ec5\u672c\u673a\uff09\uff0c\u5347\u7ea7\u5230\u670d\u52a1\u7aef\u504f\u597d\u540e\u6362\u8bbe\u5907\u767b\u5f55\u5373\u4fdd\u6301\u3002\n'system' = \u8ddf\u968f\u64cd\u4f5c\u7cfb\u7edf prefers-color-scheme\u3002",
+      "properties": {
+        "changelog_seen_version": {
+          "default": "",
+          "title": "Changelog Seen Version",
+          "type": "string"
+        },
+        "secondary_bar_hidden": {
+          "default": false,
+          "title": "Secondary Bar Hidden",
+          "type": "boolean"
+        },
+        "theme": {
+          "default": "system",
+          "enum": ["light", "dark", "system"],
+          "title": "Theme",
+          "type": "string"
+        }
+      },
+      "title": "UIPreferences",
+      "type": "object"
+    },
+    "WorkbenchCommonPreferences": {
+      "additionalProperties": false,
+      "description": "\u8de8\u6a21\u6001\u901a\u7528\u504f\u597d\uff08\u6027\u80fd\u89c2\u6d4b\u7b49\uff09\u3002",
+      "properties": {
+        "autoAdvanceOnDecide": {
+          "default": true,
+          "title": "Autoadvanceondecide",
+          "type": "boolean"
+        },
+        "confirmDelete": {
+          "default": "never",
+          "enum": ["never", "multi_only", "always"],
+          "title": "Confirmdelete",
+          "type": "string"
+        },
+        "crossFrameOverlayEnabled": {
+          "default": false,
+          "title": "Crossframeoverlayenabled",
+          "type": "boolean"
+        },
+        "crossFrameOverlayK": {
+          "default": 1,
+          "enum": [0, 1, 3, 5, 7],
+          "title": "Crossframeoverlayk",
+          "type": "integer"
+        },
+        "crossFrameOverlayScope": {
+          "default": "selected",
+          "enum": ["selected", "all"],
+          "title": "Crossframeoverlayscope",
+          "type": "string"
+        },
+        "fillOpacity": {
+          "default": 0.07,
+          "maximum": 0.6,
+          "minimum": 0,
+          "title": "Fillopacity",
+          "type": "number"
+        },
+        "fillOpacitySelected": {
+          "default": 0.12,
+          "maximum": 0.8,
+          "minimum": 0,
+          "title": "Fillopacityselected",
+          "type": "number"
+        },
+        "focusSelectionEnabled": {
+          "default": false,
+          "title": "Focusselectionenabled",
+          "type": "boolean"
+        },
+        "labelContent": {
+          "$ref": "#/$defs/LabelContentByType"
+        },
+        "labelFontSize": {
+          "default": 12,
+          "maximum": 24,
+          "minimum": 8,
+          "title": "Labelfontsize",
+          "type": "integer"
+        },
+        "labelVisibility": {
+          "default": "always",
+          "enum": ["always", "selected", "none"],
+          "title": "Labelvisibility",
+          "type": "string"
+        },
+        "leftWidthPct": {
+          "default": 15.0,
+          "maximum": 35,
+          "minimum": 10,
+          "title": "Leftwidthpct",
+          "type": "number"
+        },
+        "longTaskSampleRate": {
+          "default": 0.05,
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Longtasksamplerate",
+          "type": "number"
+        },
+        "performanceTier": {
+          "default": "standard",
+          "enum": ["light", "standard", "aggressive"],
+          "title": "Performancetier",
+          "type": "string"
+        },
+        "petEnabled": {
+          "default": true,
+          "title": "Petenabled",
+          "type": "boolean"
+        },
+        "recentClassesLimit": {
+          "default": 5,
+          "maximum": 20,
+          "minimum": 3,
+          "title": "Recentclasseslimit",
+          "type": "integer"
+        },
+        "rightWidthPct": {
+          "default": 15.0,
+          "maximum": 35,
+          "minimum": 10,
+          "title": "Rightwidthpct",
+          "type": "number"
+        },
+        "showAnnotationComments": {
+          "default": true,
+          "title": "Showannotationcomments",
+          "type": "boolean"
+        },
+        "strokeWidth": {
+          "default": 1.5,
+          "maximum": 5,
+          "minimum": 1,
+          "title": "Strokewidth",
+          "type": "number"
+        }
+      },
+      "title": "WorkbenchCommonPreferences",
+      "type": "object"
+    },
+    "WorkbenchImagePreferences": {
+      "additionalProperties": false,
+      "description": "\u56fe\u50cf\u6a21\u6001\u504f\u597d\uff082D \u753b\u5e03\u6e32\u67d3 / \u9876\u70b9\u624b\u67c4\uff09\u3002",
+      "properties": {
+        "afterBoxCreate": {
+          "default": "pick_class",
+          "enum": ["pick_class", "reuse_active"],
+          "title": "Afterboxcreate",
+          "type": "string"
+        },
+        "autoFitOnResize": {
+          "default": true,
+          "title": "Autofitonresize",
+          "type": "boolean"
+        },
+        "controlPointsSize": {
+          "default": 6,
+          "maximum": 20,
+          "minimum": 2,
+          "title": "Controlpointssize",
+          "type": "integer"
+        },
+        "cssImageFilter": {
+          "default": "",
+          "maxLength": 255,
+          "title": "Cssimagefilter",
+          "type": "string"
+        },
+        "fadedOpacity": {
+          "default": 0.35,
+          "maximum": 0.8,
+          "minimum": 0.1,
+          "title": "Fadedopacity",
+          "type": "number"
+        },
+        "maskOverlayOpacity": {
+          "default": 0.45,
+          "maximum": 0.8,
+          "minimum": 0.2,
+          "title": "Maskoverlayopacity",
+          "type": "number"
+        },
+        "smoothImage": {
+          "default": true,
+          "title": "Smoothimage",
+          "type": "boolean"
+        },
+        "snapThresholdPx": {
+          "default": 8,
+          "maximum": 16,
+          "minimum": 4,
+          "title": "Snapthresholdpx",
+          "type": "integer"
+        },
+        "snapToGrid": {
+          "default": false,
+          "title": "Snaptogrid",
+          "type": "boolean"
+        },
+        "zoomStepFactor": {
+          "default": 1.1,
+          "enum": [1.05, 1.1, 1.15, 1.2],
+          "title": "Zoomstepfactor",
+          "type": "number"
+        }
+      },
+      "title": "WorkbenchImagePreferences",
+      "type": "object"
+    },
+    "WorkbenchLayoutPreferences": {
+      "additionalProperties": false,
+      "description": "\u5de5\u4f5c\u53f0\u5e03\u5c40\u504f\u597d\u3002\n\n\u540e\u7aef\u53ea\u6821\u9a8c\u7ed3\u6784\uff1b\u9ed8\u8ba4\u503c\u548c PATCH \u5168\u91cf workbench \u5951\u7ea6\u7531\u524d\u7aef\u7ef4\u62a4\u3002",
+      "properties": {
+        "aiSectionCollapsed": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Aisectioncollapsed"
+        },
+        "attrPanelCollapsed": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Attrpanelcollapsed"
+        },
+        "cameraPanels": {
+          "additionalProperties": {
+            "$ref": "#/$defs/CameraPanelState"
+          },
+          "title": "Camerapanels",
+          "type": "object"
+        },
+        "discussionCollapsed": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Discussioncollapsed"
+        },
+        "floatingClassPalette": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FloatingPanelState"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "floatingDiscussion": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FloatingPanelState"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "floatingInspector": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FloatingPanelState"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "floatingSelection": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FloatingSelectionState"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "floatingTaskQueue": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FloatingPanelState"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "leftOpen": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Leftopen"
+        },
+        "manualSectionCollapsed": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Manualsectioncollapsed"
+        },
+        "pointcloudCamera": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PointcloudCameraState"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "rightOpen": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Rightopen"
+        },
+        "trackSectionCollapsed": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tracksectioncollapsed"
+        },
+        "triViewFloat": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TriViewFloatState"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "workspace": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/WorkbenchWorkspacePreferences"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "title": "WorkbenchLayoutPreferences",
+      "type": "object"
+    },
+    "WorkbenchPointcloudPreferences": {
+      "additionalProperties": false,
+      "description": "\u70b9\u4e91\u6a21\u6001\u504f\u597d\u4e0e\u6e32\u67d3\u3001\u5bfc\u822a\u5b57\u6bb5\u3002",
+      "properties": {
+        "cameraDamping": {
+          "default": 0.1,
+          "maximum": 0.3,
+          "minimum": 0.05,
+          "title": "Cameradamping",
+          "type": "number"
+        },
+        "colorizeBrightness": {
+          "default": 0,
+          "maximum": 0.5,
+          "minimum": -0.5,
+          "title": "Colorizebrightness",
+          "type": "number"
+        },
+        "colorizeContrast": {
+          "default": 1,
+          "maximum": 2.5,
+          "minimum": 0.5,
+          "title": "Colorizecontrast",
+          "type": "number"
+        },
+        "colorizeGamma": {
+          "default": 1,
+          "maximum": 3,
+          "minimum": 0.5,
+          "title": "Colorizegamma",
+          "type": "number"
+        },
+        "colorizeWithCamera": {
+          "default": false,
+          "title": "Colorizewithcamera",
+          "type": "boolean"
+        },
+        "neighborPointCull": {
+          "default": "keep",
+          "enum": ["keep", "cull", "align"],
+          "title": "Neighborpointcull",
+          "type": "string"
+        },
+        "neighborPointOverlay": {
+          "default": false,
+          "title": "Neighborpointoverlay",
+          "type": "boolean"
+        },
+        "neighborPointOverlayK": {
+          "default": 1,
+          "enum": [1, 2, 3],
+          "title": "Neighborpointoverlayk",
+          "type": "integer"
+        },
+        "persistCameraView": {
+          "default": false,
+          "title": "Persistcameraview",
+          "type": "boolean"
+        },
+        "pointMaskSelectMode": {
+          "default": "rect",
+          "enum": ["rect", "lasso", "polygon"],
+          "title": "Pointmaskselectmode",
+          "type": "string"
+        },
+        "pointSize": {
+          "default": 0.06,
+          "maximum": 0.3,
+          "minimum": 0.01,
+          "title": "Pointsize",
+          "type": "number"
+        },
+        "showAxisGizmo": {
+          "default": true,
+          "title": "Showaxisgizmo",
+          "type": "boolean"
+        },
+        "showDepthHint": {
+          "default": false,
+          "title": "Showdepthhint",
+          "type": "boolean"
+        },
+        "showGrid": {
+          "default": true,
+          "title": "Showgrid",
+          "type": "boolean"
+        }
+      },
+      "title": "WorkbenchPointcloudPreferences",
+      "type": "object"
+    },
+    "WorkbenchPreferences": {
+      "additionalProperties": false,
+      "description": "\u6807\u6ce8\u5de5\u4f5c\u53f0\u6e32\u67d3\u504f\u597d\uff08I17 Configuration\uff09\u3002\n\u589e\u52a0 layout \u5b50\u6811\u627f\u8f7d\u8de8\u8bbe\u5907\u5e03\u5c40\u504f\u597d\u3002\n\u5e73\u94fa\u5b57\u6bb5\u62c6\u4e3a common/image/video/pointcloud \u56db\u5b50\u6811\uff1blayout \u4fdd\u6301\u9876\u5c42\u3002\n\u589e\u52a0 shortcuts \u5b50\u6811\u627f\u8f7d\u8d26\u53f7\u7ea7\u5feb\u6377\u952e\u8986\u76d6\uff08\u5199\u8def\u5f84\u4e25\u683c\u6821\u9a8c\uff09\u3002",
+      "properties": {
+        "common": {
+          "$ref": "#/$defs/WorkbenchCommonPreferences"
+        },
+        "image": {
+          "$ref": "#/$defs/WorkbenchImagePreferences"
+        },
+        "layout": {
+          "$ref": "#/$defs/WorkbenchLayoutPreferences"
+        },
+        "pointcloud": {
+          "$ref": "#/$defs/WorkbenchPointcloudPreferences"
+        },
+        "shortcuts": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/WorkbenchShortcutPreferences"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "video": {
+          "$ref": "#/$defs/WorkbenchVideoPreferences"
+        }
+      },
+      "title": "WorkbenchPreferences",
+      "type": "object"
+    },
+    "WorkbenchShortcutPreferences": {
+      "additionalProperties": false,
+      "description": "\u8d26\u53f7\u7ea7\u5feb\u6377\u952e\u8986\u76d6\u3002\n\n\u6bcf\u4e2a\u6876\uff08common / image / video\uff09\u5c06\u547d\u4ee4 ID \u6620\u5c04\u5230\u8be5\u547d\u4ee4\u7684\u5b8c\u6574\u7ec4\u5408\u5217\u8868\uff1a\n\u7f3a\u5931\u6216 ``null`` = \u7528\u9ed8\u8ba4\u7ec4\u5408\uff1b\u7a7a\u5217\u8868 = \u505c\u7528\uff1b\u975e\u7a7a\u5217\u8868\uff08\u22642 \u6761\uff0c\u4e00\u4e3b\u4e00\u5907\uff09=\n\u6574\u4f53\u66ff\u6362\u9ed8\u8ba4\u7ec4\u5408\u3002PATCH \u53ea\u63d0\u4ea4\u53d8\u66f4\u7684\u547d\u4ee4\u6761\u76ee\uff08\u6df1\u5408\u5e76\u6309\u547d\u4ee4\u751f\u6548\uff09\u3002",
+      "properties": {
+        "common": {
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/$defs/ShortcutBinding"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "title": "Common",
+          "type": "object"
+        },
+        "image": {
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/$defs/ShortcutBinding"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "title": "Image",
+          "type": "object"
+        },
+        "schemaVersion": {
+          "const": 1,
+          "default": 1,
+          "title": "Schemaversion",
+          "type": "integer"
+        },
+        "video": {
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/$defs/ShortcutBinding"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "title": "Video",
+          "type": "object"
+        }
+      },
+      "title": "WorkbenchShortcutPreferences",
+      "type": "object"
+    },
+    "WorkbenchVideoPreferences": {
+      "additionalProperties": false,
+      "description": "\u89c6\u9891\u6a21\u6001\u504f\u597d\uff08\u64ad\u653e / \u6b65\u8fdb\uff09\u3002",
+      "properties": {
+        "autoFitOnResize": {
+          "default": true,
+          "title": "Autofitonresize",
+          "type": "boolean"
+        },
+        "defaultPlaybackRate": {
+          "default": 1,
+          "enum": [0.25, 0.5, 1, 2, 4],
+          "title": "Defaultplaybackrate"
+        },
+        "largeFrameStep": {
+          "default": 10,
+          "enum": [5, 10, 30, "grid"],
+          "title": "Largeframestep"
+        },
+        "trackContinueAutoAdvance": {
+          "default": false,
+          "title": "Trackcontinueautoadvance",
+          "type": "boolean"
+        }
+      },
+      "title": "WorkbenchVideoPreferences",
+      "type": "object"
+    },
+    "WorkbenchWorkspacePreferences": {
+      "additionalProperties": false,
+      "properties": {
+        "contexts": {
+          "additionalProperties": {
+            "$ref": "#/$defs/WorkspaceContextEnvelope"
+          },
+          "maxProperties": 6,
+          "propertyNames": {
+            "enum": [
+              "annotate:image",
+              "annotate:video",
+              "annotate:3d",
+              "review:image",
+              "review:video",
+              "review:3d"
+            ]
+          },
+          "title": "Contexts",
+          "type": "object"
+        },
+        "engine": {
+          "const": "dockview@8",
+          "title": "Engine",
+          "type": "string"
+        },
+        "namedPresets": {
+          "maxProperties": 5,
+          "patternProperties": {
+            "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$": {
+              "$ref": "#/$defs/NamedWorkspacePreset"
+            }
+          },
+          "title": "Namedpresets",
+          "type": "object"
+        }
+      },
+      "required": ["engine"],
+      "title": "WorkbenchWorkspacePreferences",
+      "type": "object"
+    },
+    "WorkspaceBranch": {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "items": {
+            "discriminator": {
+              "mapping": {
+                "branch": "#/$defs/WorkspaceBranch",
+                "leaf": "#/$defs/WorkspaceLeaf"
+              },
+              "propertyName": "type"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/$defs/WorkspaceLeaf"
+              },
+              {
+                "$ref": "#/$defs/WorkspaceBranch"
+              }
+            ]
+          },
+          "maxItems": 10,
+          "minItems": 1,
+          "title": "Data",
+          "type": "array"
+        },
+        "size": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Size"
+        },
+        "type": {
+          "const": "branch",
+          "title": "Type",
+          "type": "string"
+        },
+        "visible": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Visible"
+        }
+      },
+      "required": ["type", "data"],
+      "title": "WorkspaceBranch",
+      "type": "object"
+    },
+    "WorkspaceContextEnvelope": {
+      "additionalProperties": false,
+      "properties": {
+        "schemaVersion": {
+          "enum": [1, 2, 3, 4, 5],
+          "title": "Schemaversion",
+          "type": "integer"
+        },
+        "snapshot": {
+          "$ref": "#/$defs/WorkspaceSnapshot"
+        }
+      },
+      "required": ["schemaVersion", "snapshot"],
+      "title": "WorkspaceContextEnvelope",
+      "type": "object"
+    },
+    "WorkspaceDockReturn": {
+      "additionalProperties": false,
+      "properties": {
+        "anchors": {
+          "items": {
+            "enum": [
+              "canvas",
+              "task-queue",
+              "class-palette",
+              "inspector",
+              "discussion",
+              "ai-task",
+              "video-tracker",
+              "tri-view",
+              "camera-view"
+            ],
+            "type": "string"
+          },
+          "maxItems": 8,
+          "minItems": 1,
+          "title": "Anchors",
+          "type": "array"
+        },
+        "direction": {
+          "enum": ["left", "right", "above", "below"],
+          "title": "Direction",
+          "type": "string"
+        },
+        "height": {
+          "exclusiveMinimum": 0,
+          "maximum": 1000000,
+          "title": "Height",
+          "type": "number"
+        },
+        "reference": {
+          "enum": [
+            "canvas",
+            "task-queue",
+            "class-palette",
+            "inspector",
+            "discussion",
+            "ai-task",
+            "video-tracker",
+            "tri-view",
+            "camera-view"
+          ],
+          "title": "Reference",
+          "type": "string"
+        },
+        "width": {
+          "exclusiveMinimum": 0,
+          "maximum": 1000000,
+          "title": "Width",
+          "type": "number"
+        }
+      },
+      "required": ["reference", "anchors", "direction", "width", "height"],
+      "title": "WorkspaceDockReturn",
+      "type": "object"
+    },
+    "WorkspaceFloatingGroup": {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "$ref": "#/$defs/WorkspaceGroup"
+        },
+        "position": {
+          "$ref": "#/$defs/WorkspacePosition"
+        }
+      },
+      "required": ["data", "position"],
+      "title": "WorkspaceFloatingGroup",
+      "type": "object"
+    },
+    "WorkspaceGrid": {
+      "additionalProperties": false,
+      "properties": {
+        "height": {
+          "exclusiveMinimum": 0,
+          "title": "Height",
+          "type": "number"
+        },
+        "maximizedNode": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/WorkspaceMaximizedNode"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "orientation": {
+          "enum": ["HORIZONTAL", "VERTICAL"],
+          "title": "Orientation",
+          "type": "string"
+        },
+        "root": {
+          "discriminator": {
+            "mapping": {
+              "branch": "#/$defs/WorkspaceBranch",
+              "leaf": "#/$defs/WorkspaceLeaf"
+            },
+            "propertyName": "type"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/WorkspaceLeaf"
+            },
+            {
+              "$ref": "#/$defs/WorkspaceBranch"
+            }
+          ],
+          "title": "Root"
+        },
+        "width": {
+          "exclusiveMinimum": 0,
+          "title": "Width",
+          "type": "number"
+        }
+      },
+      "required": ["root", "width", "height", "orientation"],
+      "title": "WorkspaceGrid",
+      "type": "object"
+    },
+    "WorkspaceGroup": {
+      "additionalProperties": false,
+      "properties": {
+        "activeView": {
+          "anyOf": [
+            {
+              "enum": [
+                "canvas",
+                "task-queue",
+                "class-palette",
+                "inspector",
+                "discussion",
+                "ai-task",
+                "video-tracker",
+                "tri-view",
+                "camera-view"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Activeview"
+        },
+        "hideHeader": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Hideheader"
+        },
+        "id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "locked": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "const": "no-drop-target",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Locked"
+        },
+        "views": {
+          "items": {
+            "enum": [
+              "canvas",
+              "task-queue",
+              "class-palette",
+              "inspector",
+              "discussion",
+              "ai-task",
+              "video-tracker",
+              "tri-view",
+              "camera-view"
+            ],
+            "type": "string"
+          },
+          "maxItems": 9,
+          "title": "Views",
+          "type": "array"
+        }
+      },
+      "required": ["id", "views"],
+      "title": "WorkspaceGroup",
+      "type": "object"
+    },
+    "WorkspaceLayout": {
+      "additionalProperties": false,
+      "properties": {
+        "activeGroup": {
+          "anyOf": [
+            {
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Activegroup"
+        },
+        "floatingGroups": {
+          "items": {
+            "$ref": "#/$defs/WorkspaceFloatingGroup"
+          },
+          "maxItems": 9,
+          "title": "Floatinggroups",
+          "type": "array"
+        },
+        "grid": {
+          "$ref": "#/$defs/WorkspaceGrid"
+        },
+        "panels": {
+          "additionalProperties": {
+            "$ref": "#/$defs/WorkspacePanel"
+          },
+          "maxProperties": 9,
+          "minProperties": 5,
+          "propertyNames": {
+            "enum": [
+              "canvas",
+              "task-queue",
+              "class-palette",
+              "inspector",
+              "discussion",
+              "ai-task",
+              "video-tracker",
+              "tri-view",
+              "camera-view"
+            ]
+          },
+          "title": "Panels",
+          "type": "object"
+        }
+      },
+      "required": ["grid", "panels"],
+      "title": "WorkspaceLayout",
+      "type": "object"
+    },
+    "WorkspaceLeaf": {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "$ref": "#/$defs/WorkspaceGroup"
+        },
+        "size": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Size"
+        },
+        "type": {
+          "const": "leaf",
+          "title": "Type",
+          "type": "string"
+        },
+        "visible": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Visible"
+        }
+      },
+      "required": ["type", "data"],
+      "title": "WorkspaceLeaf",
+      "type": "object"
+    },
+    "WorkspaceMaximizedNode": {
+      "additionalProperties": false,
+      "properties": {
+        "location": {
+          "items": {
+            "maximum": 9,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "maxItems": 12,
+          "title": "Location",
+          "type": "array"
+        }
+      },
+      "required": ["location"],
+      "title": "WorkspaceMaximizedNode",
+      "type": "object"
+    },
+    "WorkspacePanel": {
+      "additionalProperties": false,
+      "properties": {
+        "contentComponent": {
+          "const": "workbench-panel",
+          "title": "Contentcomponent",
+          "type": "string"
+        },
+        "id": {
+          "enum": [
+            "canvas",
+            "task-queue",
+            "class-palette",
+            "inspector",
+            "discussion",
+            "ai-task",
+            "video-tracker",
+            "tri-view",
+            "camera-view"
+          ],
+          "title": "Id",
+          "type": "string"
+        },
+        "renderer": {
+          "enum": ["always", "onlyWhenVisible"],
+          "title": "Renderer",
+          "type": "string"
+        },
+        "title": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Title"
+        }
+      },
+      "required": ["id", "contentComponent", "renderer"],
+      "title": "WorkspacePanel",
+      "type": "object"
+    },
+    "WorkspacePosition": {
+      "additionalProperties": false,
+      "properties": {
+        "height": {
+          "exclusiveMinimum": 0,
+          "title": "Height",
+          "type": "number"
+        },
+        "left": {
+          "title": "Left",
+          "type": "number"
+        },
+        "top": {
+          "title": "Top",
+          "type": "number"
+        },
+        "width": {
+          "exclusiveMinimum": 0,
+          "title": "Width",
+          "type": "number"
+        }
+      },
+      "required": ["left", "top", "width", "height"],
+      "title": "WorkspacePosition",
+      "type": "object"
+    },
+    "WorkspaceReturn": {
+      "additionalProperties": false,
+      "properties": {
+        "dock": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/WorkspaceDockReturn"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "group": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$",
+          "title": "Group",
+          "type": "string"
+        },
+        "index": {
+          "maximum": 8,
+          "minimum": 0,
+          "title": "Index",
+          "type": "integer"
+        },
+        "position": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/WorkspacePosition"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": ["group", "index"],
+      "title": "WorkspaceReturn",
+      "type": "object"
+    },
+    "WorkspaceSnapshot": {
+      "additionalProperties": false,
+      "properties": {
+        "cameraPresentation": {
+          "anyOf": [
+            {
+              "enum": ["floating", "docked"],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Camerapresentation"
+        },
+        "layout": {
+          "$ref": "#/$defs/WorkspaceLayout"
+        },
+        "returns": {
+          "additionalProperties": {
+            "$ref": "#/$defs/WorkspaceReturn"
+          },
+          "maxProperties": 8,
+          "propertyNames": {
+            "enum": [
+              "canvas",
+              "task-queue",
+              "class-palette",
+              "inspector",
+              "discussion",
+              "ai-task",
+              "video-tracker",
+              "tri-view",
+              "camera-view"
+            ]
+          },
+          "title": "Returns",
+          "type": "object"
+        },
+        "visibilityIntent": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "enum": ["shown", "hidden"],
+                "type": "string"
+              },
+              "propertyNames": {
+                "enum": ["ai-task", "video-tracker", "tri-view", "camera-view"]
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Visibilityintent"
+        }
+      },
+      "required": ["layout", "returns"],
+      "title": "WorkspaceSnapshot",
+      "type": "object"
+    }
+  },
+  "$id": "aap-identity-preferences-write/v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "User.preferences JSONB root. \u4ec5\u58f0\u660e\u5df2\u77e5\u5b50\u6811\uff1b\u672a\u6765\u6309 epic \u8ffd\u52a0\u3002",
+  "properties": {
+    "ai": {
+      "$ref": "#/$defs/AIToolPreferences"
+    },
+    "namedPresetsRevision": {
+      "default": "0",
+      "pattern": "^(?:0|[0-9a-f]{32})$",
+      "title": "Namedpresetsrevision",
+      "type": "string"
+    },
+    "onboarding": {
+      "$ref": "#/$defs/OnboardingPreferences"
+    },
+    "ui": {
+      "$ref": "#/$defs/UIPreferences"
+    },
+    "workbench": {
+      "$ref": "#/$defs/WorkbenchPreferences"
+    }
+  },
+  "title": "UserPreferences",
+  "type": "object"
+}
