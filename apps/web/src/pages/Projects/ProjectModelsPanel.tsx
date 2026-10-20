@@ -304,8 +304,6 @@ function ModelsContent({
       );
       return next;
     });
-  const lineageHref = (id: string) =>
-    `/projects/${projectId}/learning/lineage/model/${id}?returnTo=${encodeURIComponent(location.pathname + location.search)}`;
   const [name, setName] = useState(newTrainingVersionName);
   const [runId, setRunId] = useState("");
   const [attemptId, setAttemptId] = useState("");
@@ -397,6 +395,8 @@ function ModelsContent({
   const selectedAttempt =
     attemptId || source.data?.attempts.find((item) => item.status === "succeeded")?.id || "";
   const current = releases.data?.current;
+  const isCurrentTarget = (modelId: string | null, deploymentId: string | null) =>
+    !!current && current.model_version_id === modelId && current.deployment_id === deploymentId;
   const currentModel = useQuery({
     queryKey: ["trained-model", projectId, scope, current?.model_version_id],
     queryFn: ({ signal }) =>
@@ -445,11 +445,12 @@ function ModelsContent({
                 : !selectedRegistryId
                   ? "请选择一个在线且已启用的推理服务，再加载此模型。"
                   : "加载后会在固定验证图片上试用；确认结果并手动发布后，才会用于项目预标注。";
-  const refresh = () => {
-    void client.invalidateQueries({ queryKey: ["trained-models", projectId] });
-    void client.invalidateQueries({ queryKey: ["trained-model", projectId] });
-    void client.invalidateQueries({ queryKey: ["model-releases", projectId] });
-  };
+  const refresh = () =>
+    Promise.all([
+      client.invalidateQueries({ queryKey: ["trained-models", projectId] }),
+      client.invalidateQueries({ queryKey: ["trained-model", projectId] }),
+      client.invalidateQueries({ queryKey: ["model-releases", projectId] }),
+    ]);
   const changeRegistration = (change: () => void) => {
     change();
     registrationId.current = randomId();
@@ -535,12 +536,12 @@ function ModelsContent({
         };
       return trainedModelsApi.publish(projectId, publishRequest.current.body);
     },
-    onSuccess: (release, target) => {
+    onSuccess: async (release, target) => {
       if (!ownsView(target.view)) return;
       if (release) {
         publishRequest.current = null;
         setError("");
-        refresh();
+        await refresh();
       }
     },
     onError: (reason: Error, target) => {
@@ -649,9 +650,9 @@ function ModelsContent({
         />
       )}
       {mode === "detail" && (
-        <h1 id="models-title" className="text-lg font-semibold">
+        <h2 id="models-title" className="sr-only">
           模型详情
-        </h1>
+        </h2>
       )}
       {error && !registrationOpen && (
         <p
@@ -730,7 +731,6 @@ function ModelsContent({
           page={page}
           onPage={setPage}
           params={params}
-          lineageHref={lineageHref}
           onRegister={() => setRegistrationOpen(true)}
         />
       )}
@@ -755,12 +755,6 @@ function ModelsContent({
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <h2 className="text-sm font-semibold">{activeModel.name}</h2>
                 <div className="flex flex-wrap gap-2">
-                  <Link
-                    className="rounded-md border border-border px-3 py-2 text-xs text-primary"
-                    to={lineageHref(activeModel.id)}
-                  >
-                    来源与使用记录
-                  </Link>
                   <Button
                     size="sm"
                     disabled={download.isPending}
@@ -975,23 +969,30 @@ function ModelsContent({
                   {deployment.status === "ready" && (
                     <>
                       <TrialImage trial={deployment.trial} />
-                      <label className="mt-3 flex items-center gap-2 text-xs">
-                        <input
-                          type="checkbox"
-                          checked={!!confirmed[deployment.id]}
-                          onChange={(event) =>
-                            setConfirmed((value) => ({
-                              ...value,
-                              [deployment.id]: event.target.checked,
-                            }))
-                          }
-                        />
-                        已查看固定验证样本，确认用于后续人工试用
-                      </label>
+                      {!isCurrentTarget(activeModel.id, deployment.id) && (
+                        <label className="mt-3 flex items-center gap-2 text-xs">
+                          <input
+                            type="checkbox"
+                            checked={!!confirmed[deployment.id]}
+                            onChange={(event) =>
+                              setConfirmed((value) => ({
+                                ...value,
+                                [deployment.id]: event.target.checked,
+                              }))
+                            }
+                          />
+                          已查看固定验证样本，确认用于后续人工试用
+                        </label>
+                      )}
                       <Button
                         size="sm"
                         className="mt-3"
-                        disabled={!confirmed[deployment.id] || publish.isPending || !releases.data}
+                        disabled={
+                          isCurrentTarget(activeModel.id, deployment.id) ||
+                          !confirmed[deployment.id] ||
+                          publish.isPending ||
+                          !releases.data
+                        }
                         onClick={() =>
                           publish.mutate({
                             view: captureView(),
@@ -1000,7 +1001,9 @@ function ModelsContent({
                           })
                         }
                       >
-                        发布此模型
+                        {isCurrentTarget(activeModel.id, deployment.id)
+                          ? "当前已发布"
+                          : "发布此模型"}
                       </Button>
                     </>
                   )}
@@ -1372,7 +1375,10 @@ function ModelsContent({
                   release.deployment_id && (
                     <Button
                       size="sm"
-                      disabled={publish.isPending}
+                      disabled={
+                        publish.isPending ||
+                        isCurrentTarget(release.model_version_id, release.deployment_id)
+                      }
                       onClick={() =>
                         publish.mutate({
                           view: captureView(),
@@ -1382,7 +1388,9 @@ function ModelsContent({
                         })
                       }
                     >
-                      回退到此发布
+                      {isCurrentTarget(release.model_version_id, release.deployment_id)
+                        ? "已是当前发布"
+                        : "回退到此发布"}
                     </Button>
                   )}
               </div>

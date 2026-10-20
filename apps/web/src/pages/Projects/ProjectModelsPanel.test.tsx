@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Routes, Route, useLocation, useNavigate } from "react-router-dom";
 import { trainedModelsApi } from "@/api/trainedModels";
+import { modelLineageApi } from "@/api/modelLineage";
 import { trainingRunsApi } from "@/api/trainingRuns";
 import { mlBackendsApi } from "@/api/ml-backends";
 import { tasksApi } from "@/api/tasks";
@@ -12,6 +13,12 @@ import { useAuthStore } from "@/stores/authStore";
 import { confirmDialog } from "@/components/ui/decisionDialog";
 import { ProjectModelsPanel } from "./ProjectModelsPanel";
 import { TrainingModelPage } from "../Training/TrainingModelPage";
+import { ModelLineagePage } from "../Training/ModelLineagePage";
+
+vi.mock("@/api/modelLineage", async (original) => ({
+  ...(await original<typeof import("@/api/modelLineage")>()),
+  modelLineageApi: { get: vi.fn(), decisions: vi.fn(), append: vi.fn() },
+}));
 
 vi.mock("@/api/trainedModels", async (original) => ({
   ...(await original<typeof import("@/api/trainedModels")>()),
@@ -101,6 +108,10 @@ function mount(entry = "/", classes = ["车辆", "行人"]) {
             element={<ProjectModelsPanel projectId="project-1" classes={classes} />}
           />
           <Route path="/projects/:id/learning/models/:modelId" element={<TrainingModelPage />} />
+          <Route
+            path="/projects/:id/learning/lineage/:kind/:nodeId"
+            element={<ModelLineagePage />}
+          />
         </Routes>
       </MemoryRouter>
     </QueryClientProvider>,
@@ -122,6 +133,20 @@ beforeEach(() => {
   vi.mocked(trainedModelsApi.list).mockResolvedValue({ total: 1, items: [model] });
   vi.mocked(trainedModelsApi.get).mockResolvedValue({ model, deployments: [deployment] });
   vi.mocked(trainedModelsApi.releases).mockResolvedValue(releases);
+  vi.mocked(modelLineageApi.get).mockResolvedValue({
+    node: {
+      kind: "model",
+      id: model.id,
+      name: model.name,
+      created_at: model.created_at,
+      facts: {},
+    },
+    inputs: [],
+    sections: ["deployments", "releases"],
+    items: [],
+  });
+  vi.mocked(modelLineageApi.decisions).mockResolvedValue({ items: [] });
+  vi.mocked(modelLineageApi.append).mockResolvedValue({ id: "decision-1" } as never);
   vi.mocked(trainedModelsApi.register).mockResolvedValue(model);
   vi.mocked(trainedModelsApi.publish).mockResolvedValue({ id: "release-8" } as never);
   vi.mocked(mlBackendsApi.listAvailable).mockResolvedValue({
@@ -343,6 +368,103 @@ describe("ProjectModelsPanel", () => {
     ]);
   });
 
+  it("marks the current deployment as published and blocks a redundant historical rollback", async () => {
+    vi.mocked(trainedModelsApi.releases).mockResolvedValue({
+      ...releases,
+      current_release_id: "release-7",
+      current: {
+        id: "release-7",
+        model_version_id: model.id,
+        deployment_id: deployment.id,
+        generation: 7,
+        snapshot: {},
+      } as never,
+      items: [
+        {
+          id: "release-6",
+          model_version_id: model.id,
+          deployment_id: deployment.id,
+          generation: 6,
+          snapshot: {},
+        },
+      ] as never,
+    });
+    const user = userEvent.setup();
+    mount();
+    await user.click(await screen.findByText("发布历史与回退"));
+    const historyButton = await screen.findByRole("button", { name: "已是当前发布" });
+    expect(historyButton).toBeDisabled();
+    await user.click(screen.getByRole("link", { name: "第一候选" }));
+    const detail = await screen.findByLabelText("模型版本详情");
+    expect(await within(detail).findByRole("button", { name: "当前已发布" })).toBeDisabled();
+    expect(
+      within(detail).queryByLabelText("已查看固定验证样本，确认用于后续人工试用"),
+    ).not.toBeInTheDocument();
+    expect(trainedModelsApi.publish).not.toHaveBeenCalled();
+  });
+
+  it("allows the current model to be published to a different deployment", async () => {
+    vi.mocked(trainedModelsApi.releases).mockResolvedValue({
+      ...releases,
+      current: {
+        model_version_id: model.id,
+        deployment_id: "other-deployment",
+        generation: 7,
+        snapshot: {},
+      } as never,
+    });
+    const user = userEvent.setup();
+    mount();
+    await user.click(await screen.findByRole("link", { name: "第一候选" }));
+    const detail = await screen.findByLabelText("模型版本详情");
+    await user.click(within(detail).getByLabelText("已查看固定验证样本，确认用于后续人工试用"));
+    expect(within(detail).getByRole("button", { name: "发布此模型" })).toBeEnabled();
+  });
+
+  it("keeps publishing disabled until the current release refresh completes", async () => {
+    const published = {
+      id: "release-8",
+      project_id: "project-1",
+      model_version_id: model.id,
+      deployment_id: deployment.id,
+      generation: 8,
+      snapshot: {},
+      previous_release_id: null,
+      rollback_from_id: null,
+      created_at: model.created_at,
+    };
+    let resolveRefresh!: (value: Awaited<ReturnType<typeof trainedModelsApi.releases>>) => void;
+    const refreshed = new Promise<Awaited<ReturnType<typeof trainedModelsApi.releases>>>(
+      (resolve) => {
+        resolveRefresh = resolve;
+      },
+    );
+    vi.mocked(trainedModelsApi.publish).mockImplementation(async () => {
+      vi.mocked(trainedModelsApi.releases).mockReturnValue(refreshed);
+      return published;
+    });
+    const user = userEvent.setup();
+    mount();
+    await user.click(await screen.findByRole("link", { name: "第一候选" }));
+    const detail = await screen.findByLabelText("模型版本详情");
+    await user.click(within(detail).getByLabelText("已查看固定验证样本，确认用于后续人工试用"));
+    const button = within(detail).getByRole("button", { name: "发布此模型" });
+    await user.click(button);
+    await waitFor(() => expect(trainedModelsApi.publish).toHaveBeenCalledTimes(1));
+    expect(button).toBeDisabled();
+    await user.click(button);
+    expect(trainedModelsApi.publish).toHaveBeenCalledTimes(1);
+    await act(async () =>
+      resolveRefresh({
+        ...releases,
+        generation: 8,
+        current_release_id: published.id,
+        current: published,
+      }),
+    );
+    expect(await within(detail).findByRole("button", { name: "当前已发布" })).toBeDisabled();
+  });
+
   it("retains the exact release request after a network error even if polling sees a newer generation", async () => {
     const user = userEvent.setup();
     vi.mocked(trainedModelsApi.publish)
@@ -442,10 +564,113 @@ it("loads a deep-linked archived candidate independently of the list page and pr
     "only",
     expect.objectContaining({ q: "" }),
   );
-  const link = screen.getByRole("link", { name: "来源与使用记录" });
-  expect(decodeURIComponent(link.getAttribute("href")!)).toContain(
-    "returnTo=/projects/project-1/learning/models/model-1?tab=models&archive=only&model_page=2",
+  expect(screen.getByRole("tab", { name: "来源与使用" })).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "返回模型列表" })).toHaveAttribute(
+    "href",
+    "/projects/project-1/learning?tab=models&archive=only&model_page=2",
   );
+});
+
+it("unifies row details, publication, usage records and model notes without leaving the model route", async () => {
+  const user = userEvent.setup();
+  mount("/projects/project-1/learning?tab=models&archive=include&model_page=2");
+  const action = await screen.findByRole("link", { name: "详情与操作" });
+  expect(action.getAttribute("href")).toBe(
+    screen.getByRole("link", { name: model.name }).getAttribute("href"),
+  );
+  await user.click(action);
+  await screen.findByRole("region", { name: "模型版本详情" });
+  expect(screen.getByRole("button", { name: "加载模型并试用" })).toBeInTheDocument();
+  expect(modelLineageApi.get).not.toHaveBeenCalled();
+  expect(modelLineageApi.decisions).not.toHaveBeenCalled();
+  await user.click(screen.getByRole("tab", { name: "来源与使用" }));
+  await screen.findByRole("heading", { name: "来源记录" });
+  expect(screen.getByTestId("location")).toHaveTextContent("/learning/models/model-1?");
+  expect(modelLineageApi.decisions).not.toHaveBeenCalled();
+  await user.click(screen.getByRole("button", { name: "发布记录" }));
+  await waitFor(() =>
+    expect(modelLineageApi.get).toHaveBeenLastCalledWith(
+      "project-1",
+      "model",
+      model.id,
+      "releases",
+      undefined,
+      expect.anything(),
+    ),
+  );
+  await user.click(screen.getByRole("tab", { name: "标记与备注" }));
+  await user.type(await screen.findByLabelText("标记说明"), "保留以供进一步评估");
+  await user.click(screen.getByRole("button", { name: "保存标记与说明" }));
+  await screen.findByText("标记与说明已保存。当前发布的模型未改变。");
+  expect(modelLineageApi.append).toHaveBeenCalledWith(
+    "project-1",
+    model.id,
+    expect.objectContaining({ disposition: "research", note: "保留以供进一步评估" }),
+  );
+  expect(trainedModelsApi.publish).not.toHaveBeenCalled();
+  await user.click(screen.getByRole("tab", { name: "评估与发布" }));
+  await screen.findByRole("button", { name: "下载模型" });
+  await user.click(screen.getByRole("link", { name: "返回模型列表" }));
+  expect(screen.getByTestId("location")).toHaveTextContent(
+    "/projects/project-1/learning?tab=models&archive=include&model_page=2",
+  );
+});
+
+it("opens an old model lineage link in the unified page and preserves its return destination", async () => {
+  mount(
+    "/projects/project-1/learning/lineage/model/model-1?relation=releases&returnTo=%2Fprojects%2Fproject-1%2Flearning%3Ftab%3Dmodels%26archive%3Donly%26model_page%3D2",
+  );
+  await screen.findByRole("heading", { name: "来源记录" });
+  expect(screen.getByRole("tab", { name: "来源与使用", selected: true })).toBeInTheDocument();
+  expect(screen.getByTestId("location")).toHaveTextContent("/learning/models/model-1?");
+  expect(screen.getByRole("link", { name: "返回模型列表" })).toHaveAttribute(
+    "href",
+    "/projects/project-1/learning?tab=models&archive=only&model_page=2",
+  );
+  expect(modelLineageApi.get).toHaveBeenCalledWith(
+    "project-1",
+    "model",
+    model.id,
+    "releases",
+    undefined,
+    expect.anything(),
+  );
+});
+
+it("opens model notes directly and keeps records failures within their own tab", async () => {
+  const user = userEvent.setup();
+  mount("/projects/project-1/learning/models/model-1?tab=models&model_view=notes");
+  await screen.findByLabelText("模型标记");
+  expect(screen.getByRole("tab", { name: "标记与备注", selected: true })).toBeInTheDocument();
+  expect(screen.queryByRole("heading", { name: "来源记录" })).not.toBeInTheDocument();
+  expect(trainedModelsApi.get).not.toHaveBeenCalled();
+  vi.mocked(modelLineageApi.get).mockRejectedValueOnce(new Error("来源暂时无法读取"));
+  await user.click(screen.getByRole("tab", { name: "来源与使用" }));
+  expect(await screen.findByRole("alert")).toHaveTextContent("来源暂时无法读取");
+  await user.click(screen.getByRole("tab", { name: "评估与发布" }));
+  await screen.findByRole("button", { name: "加载模型并试用" });
+  expect(screen.queryByText("来源暂时无法读取")).not.toBeInTheDocument();
+});
+
+it("ignores a delayed note acknowledgement after switching model tabs", async () => {
+  let resolve!: (value: never) => void;
+  vi.mocked(modelLineageApi.append).mockImplementation(
+    () =>
+      new Promise((yes) => {
+        resolve = yes;
+      }),
+  );
+  const user = userEvent.setup();
+  mount("/projects/project-1/learning/models/model-1?model_view=notes");
+  await user.type(await screen.findByLabelText("标记说明"), "仍需评估");
+  await user.click(screen.getByRole("button", { name: "保存标记与说明" }));
+  await waitFor(() => expect(modelLineageApi.append).toHaveBeenCalledTimes(1));
+  await user.click(screen.getByRole("tab", { name: "评估与发布" }));
+  await screen.findByRole("button", { name: "加载模型并试用" });
+  const invalidate = vi.spyOn(clients[0], "invalidateQueries");
+  await act(async () => resolve({ id: "late" } as never));
+  expect(invalidate).not.toHaveBeenCalled();
+  expect(screen.queryByText("标记与说明已保存。当前发布的模型未改变。")).not.toBeInTheDocument();
 });
 
 it("rejects delayed publication confirmation after candidate navigation ABA", async () => {

@@ -25,7 +25,6 @@ export function ProjectModelList({
   page,
   onPage,
   params,
-  lineageHref,
   onRegister,
 }: {
   projectId: string;
@@ -41,7 +40,6 @@ export function ProjectModelList({
   page: number;
   onPage: (page: number) => void;
   params: URLSearchParams;
-  lineageHref: (id: string) => string;
   onRegister: () => void;
 }) {
   const filtered = archive !== "exclude" || Object.values(filters).some(Boolean);
@@ -123,8 +121,11 @@ export function ProjectModelList({
                       {new Date(model.created_at).toLocaleString("zh-CN", { hour12: false })}
                     </td>
                     <td className="px-4 py-3">
-                      <Link className="text-primary hover:underline" to={lineageHref(model.id)}>
-                        来源与使用记录
+                      <Link
+                        className="text-primary hover:underline"
+                        to={trainingRecordPath(projectId, "models", model.id, params)}
+                      >
+                        详情与操作
                       </Link>
                     </td>
                   </tr>

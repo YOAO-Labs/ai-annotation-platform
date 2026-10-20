@@ -577,6 +577,20 @@ async def publish(db, project, user, body):
         await db.flush()
     if selection.generation != body.expected_generation:
         raise HTTPException(status_code=409, detail="发布选择已变化，请刷新后重试")
+    current = (
+        await db.get(ModelRelease, selection.release_id)
+        if selection.release_id
+        else None
+    )
+    if (current.model_version_id if current else None) == body.model_version_id and (
+        current.deployment_id if current else None
+    ) == body.deployment_id:
+        raise HTTPException(
+            status_code=409,
+            detail="该模型及部署已是当前发布，无需重复发布"
+            if body.model_version_id
+            else "项目模型发布已停用，无需重复停用",
+        )
     version = deployment = None
     if body.model_version_id:
         version = await load_version(db, project.id, body.model_version_id)

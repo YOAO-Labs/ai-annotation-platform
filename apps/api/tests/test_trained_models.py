@@ -372,6 +372,13 @@ async def test_release_generation_idempotency_and_verified_rollback(
     _, d2 = await ready_deployment(db_session, project, v2)
     mock_live_receipts(monkeypatch, db_session)
     r1, body1 = await publish(httpx_client, token, project, v1, d1, 0)
+    duplicate = await httpx_client.post(
+        f"/api/v1/projects/{project.id}/model-releases",
+        headers=headers(token),
+        json={**body1, "request_id": str(uuid.uuid4()), "expected_generation": 1},
+    )
+    assert duplicate.status_code == 409
+    assert "无需重复发布" in duplicate.json()["detail"]
     stale = await httpx_client.post(
         f"/api/v1/projects/{project.id}/model-releases",
         headers=headers(token),
@@ -390,6 +397,52 @@ async def test_release_generation_idempotency_and_verified_rollback(
     )
     assert rollback["generation"] == 3 and rollback["previous_release_id"] == r2["id"]
     assert rollback["snapshot"]["model_version_id"] == first["id"]
+    redundant_rollback = await httpx_client.post(
+        f"/api/v1/projects/{project.id}/model-releases",
+        headers=headers(token),
+        json={
+            **body1,
+            "request_id": str(uuid.uuid4()),
+            "expected_generation": 3,
+            "rollback_from_id": r1["id"],
+        },
+    )
+    assert redundant_rollback.status_code == 409
+    history = await httpx_client.get(
+        f"/api/v1/projects/{project.id}/model-releases", headers=headers(token)
+    )
+    assert history.json()["total"] == history.json()["generation"] == 3
+    assert history.json()["current_release_id"] == rollback["id"]
+
+
+async def test_same_model_can_switch_deployment_but_repeated_disable_is_rejected(
+    db_session, super_admin, httpx_client, controlled_artifacts, monkeypatch
+):
+    owner, token = super_admin
+    project, run, attempt = await seed_source(db_session, owner)
+    first, _ = await register(httpx_client, token, project, run, attempt)
+    version = await db_session.get(TrainedModelVersion, uuid.UUID(first["id"]))
+    _, first_deployment = await ready_deployment(db_session, project, version)
+    _, second_deployment = await ready_deployment(db_session, project, version)
+    mock_live_receipts(monkeypatch, db_session)
+    await publish(httpx_client, token, project, version, first_deployment, 0)
+    changed, _ = await publish(
+        httpx_client, token, project, version, second_deployment, 1
+    )
+    assert changed["generation"] == 2
+    route = f"/api/v1/projects/{project.id}/model-releases"
+    body = {"request_id": str(uuid.uuid4()), "expected_generation": 2}
+    stopped = await httpx_client.post(route, headers=headers(token), json=body)
+    assert stopped.status_code == 201 and stopped.json()["generation"] == 3
+    repeated = await httpx_client.post(
+        route,
+        headers=headers(token),
+        json={**body, "request_id": str(uuid.uuid4()), "expected_generation": 3},
+    )
+    assert repeated.status_code == 409
+    history = (await httpx_client.get(route, headers=headers(token))).json()
+    assert history["generation"] == history["total"] == 3
+    assert history["current"]["model_version_id"] is None
 
 
 async def test_pending_job_replay_keeps_original_release_after_new_publication(

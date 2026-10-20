@@ -1,7 +1,7 @@
 import { randomId } from "@/utils/id";
 import { CopyableError } from "@/components/ui/CopyableError";
 import { useMemo, useRef, useState } from "react";
-import { Link, useLocation, useParams, useSearchParams } from "react-router-dom";
+import { Link, Navigate, useLocation, useParams, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, ExternalLink } from "lucide-react";
 import {
@@ -17,6 +17,7 @@ import { Badge } from "@/components/ui/Badge";
 import { CopyValueButton } from "@/components/ui/CopyValueButton";
 import { useTrainingSessionRevision, useTrainingViewOwner } from "./trainingViewOwner";
 import { trainingInputClass } from "./TrainingParameterField";
+import { trainingRecordPath } from "./TrainingListControls";
 
 const kindNames: Record<NodeKind, string> = {
   dataset: "数据版本",
@@ -154,18 +155,24 @@ function existingDetail(projectId: string, node: LineageNode) {
   if (node.kind === "run") return `${base}?tab=training&run=${node.id}`;
   if (node.kind === "attempt" && node.facts?.run_id)
     return `${base}?tab=training&run=${node.facts.run_id}&attempt=${node.id}`;
-  if (node.kind === "model") return `${base}?tab=models&model=${node.id}&archive=include`;
+  if (node.kind === "model") return `${base}/models/${encodeURIComponent(node.id)}`;
   if (node.kind === "evaluation") return `${base}/evaluations/${node.id}`;
   return undefined;
 }
 
 export function ModelLineagePage() {
   const { id = "", kind = "", nodeId = "" } = useParams();
+  const [params] = useSearchParams();
   const revision = useTrainingSessionRevision();
   const scope = useMemo(
     () => ({ key: randomId(), id, kind, nodeId, revision }),
     [id, kind, nodeId, revision],
   );
+  if (kind === "model") {
+    const next = new URLSearchParams(params);
+    next.set("model_view", "records");
+    return <Navigate replace to={trainingRecordPath(id, "models", nodeId, next)} />;
+  }
   if (!Object.prototype.hasOwnProperty.call(kindNames, kind))
     return (
       <PageContainer>
@@ -183,17 +190,45 @@ export function ModelLineagePage() {
     />
   );
 }
+export function ModelLineagePanel({
+  projectId,
+  modelId,
+  view,
+}: {
+  projectId: string;
+  modelId: string;
+  view: "records" | "notes";
+}) {
+  const revision = useTrainingSessionRevision();
+  const scope = useMemo(
+    () => ({ key: randomId(), projectId, modelId, revision }),
+    [projectId, modelId, revision],
+  );
+  return (
+    <LineageContent
+      key={scope.key}
+      projectId={projectId}
+      kind="model"
+      nodeId={modelId}
+      scope={scope.key}
+      view={view}
+    />
+  );
+}
 function LineageContent({
   projectId,
   kind,
   nodeId,
   scope,
+  view: contentView = "page",
 }: {
   projectId: string;
   kind: NodeKind;
   nodeId: string;
   scope: string;
+  view?: "page" | "records" | "notes";
 }) {
+  const embedded = contentView !== "page";
   const session = useTrainingViewOwner(projectId, scope);
   const location = useLocation();
   const [params, setParams] = useSearchParams();
@@ -201,10 +236,12 @@ function LineageContent({
   const viewKey = viewIdentity.key;
   const view = useRef(viewKey);
   view.current = viewKey;
-  const relation = params.get("relation") || undefined;
-  const cursor = params.get("cursor") || undefined;
+  const relation = contentView === "notes" ? undefined : params.get("relation") || undefined;
+  const cursor = contentView === "notes" ? undefined : params.get("cursor") || undefined;
   const before = Number(params.get("before")) > 0 ? Number(params.get("before")) : undefined;
-  const back = lineageReturn(projectId, params.get("returnTo"));
+  const back = embedded
+    ? location.pathname + location.search
+    : lineageReturn(projectId, params.get("returnTo"));
   const trail = (params.get("trail") ?? "").split(",").filter(Boolean).slice(-32);
   const identity = `${kind}:${nodeId}`;
   const cyclic = trail.includes(identity);
@@ -244,7 +281,7 @@ function LineageContent({
         throw new Error("备注记录与当前模型不一致，请重新打开");
       return result;
     },
-    enabled: kind === "model",
+    enabled: kind === "model" && contentView !== "records",
     retry: false,
   });
   const [disposition, setDisposition] = useState<ModelDecisionCreate["disposition"]>("research");
@@ -277,6 +314,10 @@ function LineageContent({
       returnTo: back,
       trail: [...trail, identity].slice(-32).join(","),
     });
+    if (node.kind === "model") {
+      next.set("model_view", "records");
+      return trainingRecordPath(projectId, "models", node.id, next);
+    }
     return `/projects/${projectId}/learning/lineage/${node.kind}/${node.id}?${next}`;
   };
   const nodeLink = (node: LineageNode) => (
@@ -289,23 +330,34 @@ function LineageContent({
   );
   const node = query.data?.node;
   const detailUrl = node ? existingDetail(projectId, node) : undefined;
+  const Container = embedded ? "div" : PageContainer;
   return (
-    <PageContainer>
-      <Link
-        to={back}
-        className="mb-4 inline-flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground"
-      >
-        <ArrowLeft className="size-3.5" />
-        返回来源页面
-      </Link>
+    <Container>
+      {!embedded && (
+        <Link
+          to={back}
+          className="mb-4 inline-flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground"
+        >
+          <ArrowLeft className="size-3.5" />
+          返回来源页面
+        </Link>
+      )}
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <p className="text-xs text-muted-foreground">{kindNames[kind]} · 来源与使用记录</p>
-          <h1 className="mt-1 break-words text-lg font-semibold">
-            {node?.name ?? "来源与使用记录"}
-          </h1>
+          {!embedded && (
+            <p className="text-xs text-muted-foreground">{kindNames[kind]} · 来源与使用记录</p>
+          )}
+          {embedded ? (
+            <h2 className="mt-4 break-words text-sm font-semibold">
+              {node?.name ?? (contentView === "notes" ? "标记与备注" : "来源与使用")}
+            </h2>
+          ) : (
+            <h1 className="mt-1 break-words text-lg font-semibold">
+              {node?.name ?? "来源与使用记录"}
+            </h1>
+          )}
         </div>
-        {detailUrl && (
+        {!embedded && detailUrl && (
           <Link
             to={`${detailUrl}${detailUrl.includes("?") ? "&" : "?"}returnTo=${encodeURIComponent(location.pathname + location.search)}`}
             className="inline-flex items-center gap-1 rounded-md border border-border px-3 py-2 text-xs text-primary"
@@ -315,10 +367,12 @@ function LineageContent({
           </Link>
         )}
       </div>
-      <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
-        查看这条记录来自哪次训练、使用了哪些数据，以及相关的部署、发布和预标注记录。部署检查显示最近结果，历史发布保留发布时的信息。
-      </p>
-      {cyclic && (
+      {contentView !== "notes" && (
+        <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
+          查看这条记录来自哪次训练、使用了哪些数据，以及相关的部署、发布和预标注记录。部署检查显示最近结果，历史发布保留发布时的信息。
+        </p>
+      )}
+      {contentView !== "notes" && cyclic && (
         <p
           role="status"
           className="mt-3 rounded-md bg-status-warning-soft p-3 text-xs text-status-warning"
@@ -328,7 +382,7 @@ function LineageContent({
       )}
       {query.isPending && (
         <p role="status" className="mt-6 text-sm text-muted-foreground">
-          正在加载来源与使用记录…
+          {contentView === "notes" ? "正在加载模型标记…" : "正在加载来源与使用记录…"}
         </p>
       )}
       {query.error && (
@@ -336,7 +390,7 @@ function LineageContent({
           <CopyableError message={query.error.message} />
         </p>
       )}
-      {node && (
+      {node && contentView !== "notes" && (
         <>
           <section className="mt-6 border-y border-border py-4" aria-label="记录信息">
             <div className="flex flex-wrap items-center gap-2">
@@ -478,13 +532,13 @@ function LineageContent({
           )}
         </>
       )}
-      {kind === "model" && node && (
+      {kind === "model" && node && contentView !== "records" && (
         <section className="mt-8 border-t border-border pt-5" aria-labelledby="candidate-decisions">
           <h2 id="candidate-decisions" className="text-sm font-semibold">
             模型标记与备注
           </h2>
           <p className="mt-2 text-xs text-muted-foreground">
-            记录对这个模型的使用建议和原因，每次保存都会保留操作人、时间及以往说明。发布或停用模型请到模型详情页操作。
+            记录对这个模型的使用建议和原因，每次保存都会保留操作人、时间及以往说明。标记不会改变当前发布，在「评估与发布」中可加载试用或发布模型。
           </p>
           <form
             className="mt-4 space-y-3"
@@ -588,6 +642,6 @@ function LineageContent({
           </div>
         </section>
       )}
-    </PageContainer>
+    </Container>
   );
 }

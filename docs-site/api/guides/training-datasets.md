@@ -383,7 +383,7 @@ last_reviewed: 2026-10-16
 
 注册包含 UUID `request_id`、`name`、`run_id`、`attempt_id` 和与原生类别顺序一致的完整 `bindings`。相同标识和请求返回原模型，内容冲突返回 `409`。支持本平台已验证的 Ultralytics 图片检测产物及独立通过原生 CPU 资格检查的 LibreYOLO YOLO9 检测产物。
 
-发布包含 UUID `request_id`、`expected_generation`、`model_version_id`、`deployment_id` 和 `sample_confirmed=true`。回退增加 `rollback_from_id`，且模型与部署必须匹配该历史记录。清除时模型和部署均为 null。并发选择变动返回 `409`，应刷新；丢失响应后的原请求重试返回同一发布。发布不会自动发生。
+发布包含 UUID `request_id`、`expected_generation`、`model_version_id`、`deployment_id` 和 `sample_confirmed=true`。回退增加 `rollback_from_id`，且模型与部署必须匹配该历史记录。清除时模型和部署均为 null。并发选择变动返回 `409`，应刷新。即使使用新的 `request_id`，目标模型版本与部署均未变化时也返回 `409`，不会追加历史或增加 generation；已停用时再次清除同样拒绝。切换到同一模型的其他已就绪部署仍是有效变更。丢失响应后的原请求重试返回同一发布。发布不会自动发生。
 
 既有 `/preannotate` 接受 `model_id="trained:<uuid>"` 或 `"project-release"`。服务端解析并冻结权重、类别绑定、部署与发布来源，客户不能提供冻结引用或权重 URL。`Idempotency-Key` 重放沿用原任务冻结身份。受控模型只接受单阶段整图图片检测，使用现有任务作用域和写入检查；不支持的范围在入队前拒绝，worker 再次校验。结果校验实际模型身份、任务身份及原生类别索引，来源保存在 Prediction 元数据中，失败重试继续使用原身份。
 
