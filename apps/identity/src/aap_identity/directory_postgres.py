@@ -109,6 +109,16 @@ class DirectoryPostgresData:
                           'pg_catalog'::pg_catalog.regnamespace
                       AND return_type.typname IN ('trigger', 'event_trigger')
                   )
+                  AND NOT EXISTS (
+                      SELECT 1
+                      FROM pg_catalog.pg_depend AS dependency
+                      WHERE dependency.classid =
+                          'pg_catalog.pg_proc'::pg_catalog.regclass
+                        AND dependency.objid = function.oid
+                        AND dependency.refclassid =
+                            'pg_catalog.pg_extension'::pg_catalog.regclass
+                        AND dependency.deptype = 'e'
+                  )
                   AND pg_catalog.has_function_privilege(
                       current_user, function.oid, 'EXECUTE'
                   )

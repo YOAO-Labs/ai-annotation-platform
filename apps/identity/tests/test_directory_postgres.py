@@ -88,6 +88,8 @@ async def test_readiness_requires_exact_callable_directory_functions():
         },
     )
     assert "oidvectortypes" in connection.queries[0]
+    assert "pg_depend" in connection.queries[0]
+    assert "dependency.deptype = 'e'" in connection.queries[0]
     assert "has_any_column_privilege" in connection.queries[2]
     assert "has_sequence_privilege" in connection.queries[3]
 
