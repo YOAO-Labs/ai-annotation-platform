@@ -184,6 +184,31 @@ class MailV2PostgresData:
             )
             if has_table_access is not False:
                 raise IdentityUnavailable()
+            has_sequence_access = await connection.fetchval(
+                """
+                SELECT EXISTS (
+                    SELECT 1
+                    FROM pg_catalog.pg_class AS relation
+                    JOIN pg_catalog.pg_namespace AS namespace
+                      ON namespace.oid = relation.relnamespace
+                    WHERE namespace.nspname NOT IN ('pg_catalog', 'information_schema')
+                      AND relation.relkind = 'S'
+                      AND (
+                          pg_catalog.has_sequence_privilege(
+                              current_user, relation.oid, 'USAGE'
+                          )
+                          OR pg_catalog.has_sequence_privilege(
+                              current_user, relation.oid, 'SELECT'
+                          )
+                          OR pg_catalog.has_sequence_privilege(
+                              current_user, relation.oid, 'UPDATE'
+                          )
+                      )
+                )
+                """
+            )
+            if has_sequence_access is not False:
+                raise IdentityUnavailable()
         except IdentityUnavailable:
             raise
         except Exception:

@@ -50,12 +50,19 @@ def _invitation_reply(worker_id: uuid.UUID) -> dict:
 
 class FakeConnection:
     def __init__(
-        self, result=None, *, grants=(), table_access=False, column_access=False
+        self,
+        result=None,
+        *,
+        grants=(),
+        table_access=False,
+        column_access=False,
+        sequence_access=False,
     ):
         self.result = result
         self.grants = grants
         self.table_access = table_access
         self.column_access = column_access
+        self.sequence_access = sequence_access
         self.calls = []
         self.in_transaction = False
         self.committed = False
@@ -77,6 +84,8 @@ class FakeConnection:
 
     async def fetchval(self, sql, *args):
         self.calls.append((sql, args, self.in_transaction))
+        if "has_sequence_privilege" in sql:
+            return self.sequence_access
         if "has_table_privilege" in sql:
             return self.table_access or self.column_access
         return json.dumps(self.result)
@@ -186,7 +195,14 @@ async def test_v2_finish_malformed_reply_rolls_back_and_stale_reply_returns_fals
 
 
 class PolicyConnection(FakeConnection):
-    def __init__(self, grants, *, table_access=False, column_access=False):
+    def __init__(
+        self,
+        grants,
+        *,
+        table_access=False,
+        column_access=False,
+        sequence_access=False,
+    ):
         super().__init__(
             {
                 "schema": MAIL_V2_POLICY_PROTOCOL,
@@ -195,11 +211,12 @@ class PolicyConnection(FakeConnection):
             grants=grants,
             table_access=table_access,
             column_access=column_access,
+            sequence_access=sequence_access,
         )
 
 
 @pytest.mark.asyncio
-async def test_v2_readiness_requires_exact_four_functions_and_no_table_access(
+async def test_v2_readiness_requires_exact_functions_and_no_relation_access(
     monkeypatch,
 ):
     grants = [
@@ -228,16 +245,27 @@ async def test_v2_readiness_requires_exact_four_functions_and_no_table_access(
     assert "function.prorettype" in capability_sql
     assert "return_type.typname IN ('trigger', 'event_trigger')" in capability_sql
     assert any("has_any_column_privilege" in query for query in queries)
+    assert any("has_sequence_privilege" in query for query in queries)
 
-    for unsafe_grants, table_access in (
+    for unsafe_grants, table_access, sequence_access in (
         (
             [*grants, ("aap_identity_invitations_v1", "unsafe", "uuid", True, "jsonb")],
             False,
+            False,
         ),
-        ([*grants, ("public", "unsafe_definer", "uuid", True, "jsonb")], False),
-        (grants, True),
+        (
+            [*grants, ("public", "unsafe_definer", "uuid", True, "jsonb")],
+            False,
+            False,
+        ),
+        (grants, True, False),
+        (grants, False, True),
     ):
-        connection = PolicyConnection(unsafe_grants, table_access=table_access)
+        connection = PolicyConnection(
+            unsafe_grants,
+            table_access=table_access,
+            sequence_access=sequence_access,
+        )
         monkeypatch.setitem(sys.modules, "asyncpg", _asyncpg(connection))
         with pytest.raises(IdentityUnavailable):
             await MailV2PostgresData("postgresql://mail-v2/db").mail_policy()
