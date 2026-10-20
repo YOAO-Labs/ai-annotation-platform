@@ -18,6 +18,7 @@ from sqlalchemy import delete, select, text
 
 from aap_identity.recovery_crypto import token_hash
 from aap_identity.security import create_access_token, decode_access_token
+from aap_identity.directory_contract import DirectoryUserRecord
 from app.db.models.api_key import ApiKey
 from app.db.models.audit_log import AuditLog
 from app.db.models.notification import Notification
@@ -271,6 +272,10 @@ async def _lifecycle_state(maker, user_id):
             .one()
         )
         return dict(row)
+
+
+def _canonical_user(value):
+    return DirectoryUserRecord.model_validate(value).model_dump(mode="json")
 
 
 async def _api_key_rows(maker, user_id):
@@ -639,7 +644,9 @@ async def test_installed_suspension_replay_reservation_credentials_and_host_samp
             _node_response, identity, control, suspend_request
         )
         assert replayed_suspend["ok"] is True
-        assert replayed_suspend["data"]["user"] == suspend_receipt["result"]["user"]
+        assert _canonical_user(replayed_suspend["data"]["user"]) == _canonical_user(
+            suspend_receipt["result"]["user"]
+        )
         assert await _receipts(test_engine, [suspend_operation]) == {
             suspend_operation: suspend_receipt
         }
@@ -735,8 +742,8 @@ async def test_installed_suspension_replay_reservation_credentials_and_host_samp
         replayed_reactivate = await asyncio.to_thread(
             _node, identity, control, reactivate_request
         )
-        assert (
-            replayed_reactivate["data"]["user"] == reactivate_receipt["result"]["user"]
+        assert _canonical_user(replayed_reactivate["data"]["user"]) == _canonical_user(
+            reactivate_receipt["result"]["user"]
         )
         assert (
             await _api_key_rows(maker, reservation_target_id)
