@@ -244,6 +244,69 @@ async def test_suspension_policy_rejects_an_extra_security_definer_function():
 
 
 @pytest.mark.asyncio
+async def test_suspension_policy_rejects_database_temp_and_recovers_after_revoke():
+    dsn = _dsn()
+    database = make_url(dsn).database
+    assert database
+    owner_engine = create_async_engine(settings.effective_migration_database_url)
+    temp_granted = False
+    rejected = False
+    try:
+        baseline = await asyncpg.connect(dsn)
+        try:
+            assert not await baseline.fetchval(
+                "SELECT pg_catalog.has_database_privilege("
+                "current_user,current_database(),'TEMP')"
+            )
+        finally:
+            await baseline.close()
+
+        async with owner_engine.begin() as owner:
+            assert await owner.scalar(text("SELECT current_database()")) == database
+            await owner.exec_driver_sql(
+                "DO $test$ BEGIN EXECUTE pg_catalog.format("
+                "'GRANT TEMPORARY ON DATABASE %I TO identity_suspension_client', "
+                "pg_catalog.current_database()); END $test$"
+            )
+        temp_granted = True
+
+        connection = await asyncpg.connect(dsn)
+        try:
+            assert await connection.fetchval(
+                "SELECT pg_catalog.has_database_privilege("
+                "current_user,current_database(),'TEMP')"
+            )
+        finally:
+            await connection.close()
+
+        try:
+            await SuspensionPostgresData(dsn).suspension_policy()
+        except IdentityUnavailable:
+            rejected = True
+    finally:
+        try:
+            if temp_granted:
+                async with owner_engine.begin() as owner:
+                    await owner.exec_driver_sql(
+                        "DO $test$ BEGIN EXECUTE pg_catalog.format("
+                        "'REVOKE TEMPORARY ON DATABASE %I FROM "
+                        "identity_suspension_client', pg_catalog.current_database()); "
+                        "END $test$"
+                    )
+        finally:
+            await owner_engine.dispose()
+
+    restored = False
+    try:
+        await SuspensionPostgresData(dsn).suspension_policy()
+        restored = True
+    except IdentityUnavailable:
+        pass
+    assert rejected, "suspension readiness accepted database TEMP privilege"
+    assert restored, "suspension readiness remained unavailable after TEMP revoke"
+
+
+@pytest.mark.asyncio
 async def test_public_invoker_helper_cannot_write_suspension_receipts():
     function_name = f"suspension_insert_probe_{uuid.uuid4().hex}"
     owner_engine = create_async_engine(settings.effective_migration_database_url)
