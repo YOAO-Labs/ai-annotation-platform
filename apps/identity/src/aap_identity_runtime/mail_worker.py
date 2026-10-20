@@ -139,10 +139,8 @@ class MailExecutor:
 
     @staticmethod
     def _configured(policy: MailDeliveryPolicy) -> bool:
-        return (
-            policy.smtp_port > 0
-            and bool(policy.smtp_host.strip() and policy.smtp_from.strip())
-            and bool(policy.smtp_user) == bool(policy.smtp_password)
+        return policy.smtp_port > 0 and bool(
+            policy.smtp_host.strip() and policy.smtp_from.strip()
         )
 
     def _send_sync(self, policy: MailDeliveryPolicy, message: EmailMessage):

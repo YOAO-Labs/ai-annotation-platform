@@ -10,7 +10,6 @@ from .mail_contract import (
     MAIL_DELIVERY_POLICY_FIELDS,
     MAIL_NATIVE_PROTOCOL,
     MAIL_POLICY,
-    MailAcceptedReply,
     MailDeliveryPolicy,
     MailFinishRequest,
     MailLease,
@@ -22,6 +21,13 @@ from .mail_contract import (
     decode_mail_policy,
     native_command_json,
 )
+
+
+class _RollbackAndReturn(Exception):
+    """Return a valid stale result only after leaving the transaction rolled back."""
+
+    def __init__(self, value):
+        self.value = value
 
 
 class MailPostgresData:
@@ -53,18 +59,18 @@ class MailPostgresData:
             if not asyncio.current_task().cancelling():
                 raise IdentityUnavailable() from None
 
-    async def _execute(self, sql: str, command=None):
+    async def _execute(self, sql: str, command, decode):
         import asyncpg
 
         connection = None
         try:
             connection = await self._open()
-            raw = (
-                await connection.fetchval(sql, native_command_json(command))
-                if command is not None
-                else await connection.fetchval(sql)
-            )
-            return json.loads(raw) if isinstance(raw, str) else raw
+            async with connection.transaction():
+                raw = await connection.fetchval(sql, native_command_json(command))
+                value = json.loads(raw) if isinstance(raw, str) else raw
+                return decode(value)
+        except _RollbackAndReturn as rollback:
+            return rollback.value
         except IdentityUnavailable:
             raise
         except (
@@ -143,15 +149,25 @@ class MailPostgresData:
         from .mail_contract import decode_mail_claim_request
 
         request = decode_mail_claim_request(command)
-        reply = decode_mail_claim_reply(
-            await self._execute(
-                "SELECT aap_identity_recovery_v1.claim_mail($1::jsonb)", request
-            )
+
+        def decode(value):
+            reply = decode_mail_claim_reply(value)
+            delivery = reply.data.delivery
+            if delivery is not None and (
+                delivery.worker_id != request.worker_id
+                or (
+                    request.delivery_id is not None
+                    and delivery.id != request.delivery_id
+                )
+            ):
+                raise IdentityUnavailable()
+            return delivery
+
+        return await self._execute(
+            "SELECT aap_identity_recovery_v1.claim_mail($1::jsonb)",
+            request,
+            decode,
         )
-        delivery = reply.data.delivery
-        if delivery is not None and delivery.worker_id != request.worker_id:
-            raise IdentityUnavailable()
-        return delivery
 
     async def renew_mail(self, lease: MailLease) -> bool:
         request = MailRenewRequest(
@@ -160,12 +176,20 @@ class MailPostgresData:
             worker_id=lease.worker_id,
             lease_token=lease.lease_token,
         )
-        reply = decode_mail_accepted_reply(
-            await self._execute(
-                "SELECT aap_identity_recovery_v1.renew_mail($1::jsonb)", request
-            )
+        if request.worker_id != lease.worker_id or request.delivery_id != lease.id:
+            raise IdentityUnavailable()
+
+        def decode(value):
+            reply = decode_mail_accepted_reply(value)
+            if not reply.data.accepted:
+                raise _RollbackAndReturn(False)
+            return True
+
+        return await self._execute(
+            "SELECT aap_identity_recovery_v1.renew_mail($1::jsonb)",
+            request,
+            decode,
         )
-        return reply.data.accepted
 
     async def finish_mail(
         self,
@@ -187,12 +211,20 @@ class MailPostgresData:
             )
         except (ValueError, TypeError):
             raise IdentityUnavailable() from None
-        reply: MailAcceptedReply = decode_mail_accepted_reply(
-            await self._execute(
-                "SELECT aap_identity_recovery_v1.finish_mail($1::jsonb)", request
-            )
+        if request.worker_id != lease.worker_id or request.delivery_id != lease.id:
+            raise IdentityUnavailable()
+
+        def decode(value):
+            reply = decode_mail_accepted_reply(value)
+            if not reply.data.accepted:
+                raise _RollbackAndReturn(False)
+            return True
+
+        return await self._execute(
+            "SELECT aap_identity_recovery_v1.finish_mail($1::jsonb)",
+            request,
+            decode,
         )
-        return reply.data.accepted
 
 
 class MailSettingsPostgresData:

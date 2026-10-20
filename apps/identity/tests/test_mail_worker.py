@@ -252,6 +252,29 @@ async def test_missing_smtp_configuration_is_rejected_without_sending():
 
 
 @pytest.mark.asyncio
+async def test_partial_smtp_auth_configuration_still_uses_anonymous_relay():
+    data = FakeData(lease())
+    configs = []
+
+    def transport(config, _message):
+        configs.append(config)
+        return SimpleNamespace(outcome="delivered", reason="sent")
+
+    result = await MailExecutor(
+        data,
+        smtp_policy(smtp_user="relay-user", smtp_password=""),
+        KEY,
+        worker_id=WORKER_ID,
+        transport=transport,
+    ).run_once()
+
+    assert result["outcome"] == "delivered"
+    assert configs[0].user == "relay-user"
+    assert configs[0].password == ""
+    assert data.finished[0][1:] == ("delivered", "sent", None)
+
+
+@pytest.mark.asyncio
 async def test_transport_exception_is_unknown_without_exposing_exception_text():
     data = FakeData(lease())
 

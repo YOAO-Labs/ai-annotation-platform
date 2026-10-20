@@ -8,7 +8,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 from aap_identity.contract import IdentityUnavailable
-from aap_identity.mail_contract import MAIL_NATIVE_PROTOCOL
+from aap_identity.mail_contract import MAIL_NATIVE_PROTOCOL, MailLease
 from aap_identity.mail_postgres import MailPostgresData, MailSettingsPostgresData
 
 
@@ -32,11 +32,26 @@ def _lease(worker_id: uuid.UUID) -> dict:
 
 
 class FakeTransaction:
+    def __init__(self, calls):
+        self.calls = calls
+
     async def __aenter__(self):
         return self
 
-    async def __aexit__(self, *_):
+    async def __aexit__(self, error_type, *_):
+        self.calls.transaction_events.append(
+            "rollback" if error_type is not None else "commit"
+        )
         return False
+
+
+class FakeCalls(list):
+    def __init__(self):
+        super().__init__()
+        self.transaction_events = []
+        self.wrong_claim_worker = False
+        self.accepted_value = True
+        self.accepted_extra = False
 
 
 class FakeConnection:
@@ -44,7 +59,7 @@ class FakeConnection:
         self.calls = calls
 
     def transaction(self):
-        return FakeTransaction()
+        return FakeTransaction(self.calls)
 
     async def fetchval(self, sql, *args):
         self.calls.append((sql, args))
@@ -59,19 +74,25 @@ class FakeConnection:
             )
         if "claim_mail" in sql:
             request = json.loads(args[0])
+            worker_id = uuid.UUID(request["worker_id"])
+            if self.calls.wrong_claim_worker:
+                worker_id = uuid.uuid4()
             return json.dumps(
                 {
                     "schema": MAIL_NATIVE_PROTOCOL,
                     "ok": True,
-                    "data": {"delivery": _lease(uuid.UUID(request["worker_id"]))},
+                    "data": {"delivery": _lease(worker_id)},
                 }
             )
         if "renew_mail" in sql or "finish_mail" in sql:
+            data = {"accepted": self.calls.accepted_value}
+            if self.calls.accepted_extra:
+                data["changed"] = True
             return json.dumps(
                 {
                     "schema": MAIL_NATIVE_PROTOCOL,
                     "ok": True,
-                    "data": {"accepted": True},
+                    "data": data,
                 }
             )
         if "mail_delivery_policy" in sql:
@@ -95,7 +116,7 @@ def fake_asyncpg(monkeypatch):
     module = types.ModuleType("asyncpg")
     module.PostgresError = type("PostgresError", (Exception,), {})
     module.InterfaceError = type("InterfaceError", (Exception,), {})
-    calls = []
+    calls = FakeCalls()
 
     async def connect(*_args, **_kwargs):
         return FakeConnection(calls)
@@ -129,6 +150,12 @@ async def test_mail_data_uses_only_closed_native_functions_and_validates_policy(
     assert any("renew_mail($1::jsonb)" in sql for sql in functions)
     assert any("finish_mail($1::jsonb)" in sql for sql in functions)
     assert all("FROM " not in sql or "unnest(" in sql for sql in functions)
+    assert fake_asyncpg.transaction_events == [
+        "commit",
+        "commit",
+        "commit",
+        "commit",
+    ]
     claim_payload = next(args[0] for sql, args in fake_asyncpg if "claim_mail" in sql)
     assert json.loads(claim_payload) == {
         "schema": MAIL_NATIVE_PROTOCOL,
@@ -136,6 +163,41 @@ async def test_mail_data_uses_only_closed_native_functions_and_validates_policy(
         "lease_seconds": 300,
         "delivery_id": None,
     }
+
+
+@pytest.mark.asyncio
+async def test_mismatched_claim_worker_rolls_back_before_return(fake_asyncpg):
+    fake_asyncpg.wrong_claim_worker = True
+    data = MailPostgresData("postgresql://role/db")
+    with pytest.raises(IdentityUnavailable):
+        await data.claim_mail(uuid.uuid4())
+    assert fake_asyncpg.transaction_events == ["rollback"]
+
+
+@pytest.mark.asyncio
+async def test_malformed_or_stale_accepted_reply_rolls_back_lease_mutation(
+    fake_asyncpg,
+):
+    worker_id = uuid.uuid4()
+    lease = MailLease.model_validate_json(json.dumps(_lease(worker_id)))
+    data = MailPostgresData("postgresql://role/db")
+
+    fake_asyncpg.accepted_value = 1
+    with pytest.raises(IdentityUnavailable):
+        await data.renew_mail(lease)
+    assert fake_asyncpg.transaction_events[-1] == "rollback"
+
+    fake_asyncpg.accepted_value = False
+    assert (
+        await data.finish_mail(
+            lease,
+            outcome="delivered",
+            reason="sent",
+            retry_delay_seconds=None,
+        )
+        is False
+    )
+    assert fake_asyncpg.transaction_events[-1] == "rollback"
 
 
 @pytest.mark.asyncio
