@@ -2695,3 +2695,24 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   and other-user hydration, role/admin commands, the serialized final-super-admin
   invariant and cross-owner offboarding are next. Primary Identity cutover,
   production deployment, remote CI and Go expansion are not part of this group.
+
+### Identity group assembled artifact verification
+
+- Committed source `e9b3d9496` supplies the group assembly. The readonly nonroot
+  runtime image matches 54 installed source files. The committed API image's
+  network-disabled, readonly cold proof matches those same 54 package files and
+  36 API/dependency/native/snapshot files; all eight public group routes avoid
+  local User hydration. The five recovery routes, unchanged OpenAPI, migration
+  head 0240, scheduler signature and hidden SQL parameters also pass.
+- Documentation builds in 13.14 seconds; frontmatter 194, ADR 120, plan freshness,
+  pinned Ruff across all 35 changed Python files and source commit hooks pass.
+  The aggregate current evidence is retained in
+  `.worktree/identity-groups-verification-current.json` and applies only to this
+  group; the complete module goal remains active.
+- Four clean modifier worktrees and their branches are removed after six original
+  commits match integrated stable patch identities and no runtime state exists.
+  Owned verifier resources and proof containers are removed; qualified local
+  images remain available. Fresh read-only checks preserve primary `856fa79c8`,
+  annotation at 0234, the unrelated test database at 0218 and all four original
+  infrastructure containers. No push, remote CI, production or primary cutover
+  was performed.
