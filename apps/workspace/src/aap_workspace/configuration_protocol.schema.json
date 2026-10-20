@@ -1,0 +1,467 @@
+{
+  "$defs": {
+    "ConfigurationErrorDetails": {
+      "additionalProperties": false,
+      "properties": {
+        "detail": {
+          "$ref": "#/$defs/JsonValue"
+        },
+        "headers": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Headers"
+        },
+        "rollback": {
+          "title": "Rollback",
+          "type": "boolean"
+        },
+        "status_code": {
+          "maximum": 599,
+          "minimum": 400,
+          "title": "Status Code",
+          "type": "integer"
+        }
+      },
+      "required": ["status_code", "detail", "headers", "rollback"],
+      "title": "ConfigurationErrorDetails",
+      "type": "object"
+    },
+    "ConfigurationFailure": {
+      "additionalProperties": false,
+      "properties": {
+        "error": {
+          "$ref": "#/$defs/ConfigurationErrorDetails"
+        },
+        "ok": {
+          "const": false,
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "operation": {
+          "enum": [
+            "create_project",
+            "update_project",
+            "create_template",
+            "update_template",
+            "delete_template",
+            "duplicate_template"
+          ],
+          "title": "Operation",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-workspace-configuration/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "ok", "operation_id", "operation", "error"],
+      "title": "ConfigurationFailure",
+      "type": "object"
+    },
+    "ConfigurationPolicy": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-workspace-configuration/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema"],
+      "title": "ConfigurationPolicy",
+      "type": "object"
+    },
+    "ConfigurationRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "operation": {
+          "enum": [
+            "create_project",
+            "update_project",
+            "create_template",
+            "update_template",
+            "delete_template",
+            "duplicate_template"
+          ],
+          "title": "Operation",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "payload_ascii": {
+          "title": "Payload Ascii",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-workspace-configuration/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "selectors": {
+          "$ref": "#/$defs/ConfigurationSelectors"
+        },
+        "target_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Target Id"
+        }
+      },
+      "required": [
+        "schema",
+        "operation_id",
+        "operation",
+        "actor_id",
+        "target_id",
+        "selectors",
+        "payload_ascii"
+      ],
+      "title": "ConfigurationRequest",
+      "type": "object"
+    },
+    "ConfigurationResult": {
+      "additionalProperties": false,
+      "properties": {
+        "resource_id": {
+          "format": "uuid",
+          "title": "Resource Id",
+          "type": "string"
+        },
+        "template_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Template Id"
+        }
+      },
+      "required": ["resource_id", "template_id"],
+      "title": "ConfigurationResult",
+      "type": "object"
+    },
+    "ConfigurationSelectors": {
+      "additionalProperties": false,
+      "properties": {
+        "ml_backend_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Ml Backend Id"
+        },
+        "ml_backend_present": {
+          "title": "Ml Backend Present",
+          "type": "boolean"
+        },
+        "ml_backend_source_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Ml Backend Source Id"
+        },
+        "organization_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Organization Id"
+        },
+        "organization_present": {
+          "title": "Organization Present",
+          "type": "boolean"
+        },
+        "scope": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Scope"
+        },
+        "scope_present": {
+          "title": "Scope Present",
+          "type": "boolean"
+        },
+        "source_project_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Source Project Id"
+        },
+        "template_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Template Id"
+        }
+      },
+      "required": [
+        "source_project_id",
+        "template_id",
+        "ml_backend_source_id",
+        "ml_backend_id",
+        "ml_backend_present",
+        "scope",
+        "scope_present",
+        "organization_id",
+        "organization_present"
+      ],
+      "title": "ConfigurationSelectors",
+      "type": "object"
+    },
+    "ConfigurationStepFailure": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "enum": [
+            "begin",
+            "backend",
+            "source_pool",
+            "video_annotations",
+            "video_trackers",
+            "video_items",
+            "video_media",
+            "task_count",
+            "lock_config",
+            "datasets",
+            "dataset_scenes",
+            "authority",
+            "allocate",
+            "insert",
+            "enable_backend",
+            "binding",
+            "update",
+            "delete",
+            "finish"
+          ],
+          "title": "Action",
+          "type": "string"
+        },
+        "error": {
+          "$ref": "#/$defs/ConfigurationErrorDetails"
+        },
+        "ok": {
+          "const": false,
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "operation": {
+          "enum": [
+            "create_project",
+            "update_project",
+            "create_template",
+            "update_template",
+            "delete_template",
+            "duplicate_template"
+          ],
+          "title": "Operation",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-workspace-configuration/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "ok", "operation_id", "operation", "action", "error"],
+      "title": "ConfigurationStepFailure",
+      "type": "object"
+    },
+    "ConfigurationStepSuccess": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "enum": [
+            "begin",
+            "backend",
+            "source_pool",
+            "video_annotations",
+            "video_trackers",
+            "video_items",
+            "video_media",
+            "task_count",
+            "lock_config",
+            "datasets",
+            "dataset_scenes",
+            "authority",
+            "allocate",
+            "insert",
+            "enable_backend",
+            "binding",
+            "update",
+            "delete",
+            "finish"
+          ],
+          "title": "Action",
+          "type": "string"
+        },
+        "facts": {
+          "additionalProperties": true,
+          "title": "Facts",
+          "type": "object"
+        },
+        "ok": {
+          "const": true,
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "operation": {
+          "enum": [
+            "create_project",
+            "update_project",
+            "create_template",
+            "update_template",
+            "delete_template",
+            "duplicate_template"
+          ],
+          "title": "Operation",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-workspace-configuration/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "ok", "operation_id", "operation", "action", "facts"],
+      "title": "ConfigurationStepSuccess",
+      "type": "object"
+    },
+    "ConfigurationSuccess": {
+      "additionalProperties": false,
+      "properties": {
+        "ok": {
+          "const": true,
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "operation": {
+          "enum": [
+            "create_project",
+            "update_project",
+            "create_template",
+            "update_template",
+            "delete_template",
+            "duplicate_template"
+          ],
+          "title": "Operation",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "result": {
+          "$ref": "#/$defs/ConfigurationResult"
+        },
+        "schema": {
+          "const": "aap-workspace-configuration/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "ok", "operation_id", "operation", "result"],
+      "title": "ConfigurationSuccess",
+      "type": "object"
+    },
+    "JsonValue": {}
+  },
+  "$id": "aap-workspace-configuration/v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "anyOf": [
+    {
+      "$ref": "#/$defs/ConfigurationRequest"
+    },
+    {
+      "$ref": "#/$defs/ConfigurationPolicy"
+    },
+    {
+      "$ref": "#/$defs/ConfigurationSuccess"
+    },
+    {
+      "$ref": "#/$defs/ConfigurationFailure"
+    },
+    {
+      "$ref": "#/$defs/ConfigurationStepSuccess"
+    },
+    {
+      "$ref": "#/$defs/ConfigurationStepFailure"
+    }
+  ]
+}
