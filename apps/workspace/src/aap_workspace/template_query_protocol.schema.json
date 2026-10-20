@@ -1,0 +1,435 @@
+{
+  "$defs": {
+    "TemplateConfigurationReceipt": {
+      "additionalProperties": false,
+      "properties": {
+        "operation": {
+          "enum": ["create_template", "update_template", "duplicate_template"],
+          "title": "Operation",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        }
+      },
+      "required": ["operation_id", "operation"],
+      "title": "TemplateConfigurationReceipt",
+      "type": "object"
+    },
+    "TemplateQueryActor": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "role": {
+          "title": "Role",
+          "type": "string"
+        }
+      },
+      "required": ["id", "role"],
+      "title": "TemplateQueryActor",
+      "type": "object"
+    },
+    "TemplateQueryCreatorNameFacts": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Name"
+        }
+      },
+      "required": ["name"],
+      "title": "TemplateQueryCreatorNameFacts",
+      "type": "object"
+    },
+    "TemplateQueryCreatorNameStep": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "const": "creator_name",
+          "title": "Action",
+          "type": "string"
+        },
+        "facts": {
+          "$ref": "#/$defs/TemplateQueryCreatorNameFacts"
+        },
+        "request": {
+          "$ref": "#/$defs/TemplateQueryRequest"
+        },
+        "schema": {
+          "const": "aap-workspace-template-query/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "request", "action", "facts"],
+      "title": "TemplateQueryCreatorNameStep",
+      "type": "object"
+    },
+    "TemplateQueryError": {
+      "additionalProperties": false,
+      "properties": {
+        "detail": {
+          "const": "\u6a21\u677f\u4e0d\u5b58\u5728",
+          "title": "Detail",
+          "type": "string"
+        },
+        "headers": {
+          "title": "Headers",
+          "type": "null"
+        },
+        "status_code": {
+          "const": 404,
+          "title": "Status Code",
+          "type": "integer"
+        }
+      },
+      "required": ["status_code", "detail", "headers"],
+      "title": "TemplateQueryError",
+      "type": "object"
+    },
+    "TemplateQueryFailure": {
+      "additionalProperties": false,
+      "properties": {
+        "error": {
+          "$ref": "#/$defs/TemplateQueryError"
+        },
+        "ok": {
+          "const": false,
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "request": {
+          "$ref": "#/$defs/TemplateQueryRequest"
+        },
+        "schema": {
+          "const": "aap-workspace-template-query/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "ok", "request", "error"],
+      "title": "TemplateQueryFailure",
+      "type": "object"
+    },
+    "TemplateQueryGetRowStep": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "const": "get_row",
+          "title": "Action",
+          "type": "string"
+        },
+        "facts": {
+          "$ref": "#/$defs/TemplateQueryRowFacts"
+        },
+        "request": {
+          "$ref": "#/$defs/TemplateQueryRequest"
+        },
+        "schema": {
+          "const": "aap-workspace-template-query/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "request", "action", "facts"],
+      "title": "TemplateQueryGetRowStep",
+      "type": "object"
+    },
+    "TemplateQueryListRowsFacts": {
+      "additionalProperties": false,
+      "properties": {
+        "rows_json": {
+          "title": "Rows Json",
+          "type": "string"
+        }
+      },
+      "required": ["rows_json"],
+      "title": "TemplateQueryListRowsFacts",
+      "type": "object"
+    },
+    "TemplateQueryListRowsStep": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "const": "list_rows",
+          "title": "Action",
+          "type": "string"
+        },
+        "facts": {
+          "$ref": "#/$defs/TemplateQueryListRowsFacts"
+        },
+        "request": {
+          "$ref": "#/$defs/TemplateQueryRequest"
+        },
+        "schema": {
+          "const": "aap-workspace-template-query/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "request", "action", "facts"],
+      "title": "TemplateQueryListRowsStep",
+      "type": "object"
+    },
+    "TemplateQueryOrganizationIdsFacts": {
+      "additionalProperties": false,
+      "properties": {
+        "organization_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Organization Ids",
+          "type": "array"
+        }
+      },
+      "required": ["organization_ids"],
+      "title": "TemplateQueryOrganizationIdsFacts",
+      "type": "object"
+    },
+    "TemplateQueryOrganizationIdsStep": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "const": "organization_ids",
+          "title": "Action",
+          "type": "string"
+        },
+        "facts": {
+          "$ref": "#/$defs/TemplateQueryOrganizationIdsFacts"
+        },
+        "request": {
+          "$ref": "#/$defs/TemplateQueryRequest"
+        },
+        "schema": {
+          "const": "aap-workspace-template-query/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "request", "action", "facts"],
+      "title": "TemplateQueryOrganizationIdsStep",
+      "type": "object"
+    },
+    "TemplateQueryPolicy": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-workspace-template-query/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema"],
+      "title": "TemplateQueryPolicy",
+      "type": "object"
+    },
+    "TemplateQueryProjectionRowStep": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "const": "projection_row",
+          "title": "Action",
+          "type": "string"
+        },
+        "facts": {
+          "$ref": "#/$defs/TemplateQueryRowFacts"
+        },
+        "request": {
+          "$ref": "#/$defs/TemplateQueryRequest"
+        },
+        "schema": {
+          "const": "aap-workspace-template-query/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "request", "action", "facts"],
+      "title": "TemplateQueryProjectionRowStep",
+      "type": "object"
+    },
+    "TemplateQueryRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "admitted_actor": {
+          "$ref": "#/$defs/TemplateQueryActor"
+        },
+        "configuration_receipt": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TemplateConfigurationReceipt"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "filters_ascii": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Filters Ascii"
+        },
+        "operation": {
+          "enum": ["list_templates", "get_template", "get_template_projection"],
+          "title": "Operation",
+          "type": "string"
+        },
+        "request_id": {
+          "format": "uuid",
+          "title": "Request Id",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-workspace-template-query/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "target_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Target Id"
+        }
+      },
+      "required": [
+        "schema",
+        "request_id",
+        "operation",
+        "admitted_actor",
+        "target_id",
+        "configuration_receipt",
+        "filters_ascii"
+      ],
+      "title": "TemplateQueryRequest",
+      "type": "object"
+    },
+    "TemplateQueryRowFacts": {
+      "additionalProperties": false,
+      "properties": {
+        "row_json": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Row Json"
+        }
+      },
+      "required": ["row_json"],
+      "title": "TemplateQueryRowFacts",
+      "type": "object"
+    },
+    "TemplateQuerySuccess": {
+      "additionalProperties": false,
+      "properties": {
+        "data_json": {
+          "title": "Data Json",
+          "type": "string"
+        },
+        "ok": {
+          "const": true,
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "request": {
+          "$ref": "#/$defs/TemplateQueryRequest"
+        },
+        "schema": {
+          "const": "aap-workspace-template-query/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "ok", "request", "data_json"],
+      "title": "TemplateQuerySuccess",
+      "type": "object"
+    }
+  },
+  "$id": "aap-workspace-template-query/v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "anyOf": [
+    {
+      "$ref": "#/$defs/TemplateQueryRequest"
+    },
+    {
+      "$ref": "#/$defs/TemplateQueryPolicy"
+    },
+    {
+      "$ref": "#/$defs/TemplateQuerySuccess"
+    },
+    {
+      "$ref": "#/$defs/TemplateQueryFailure"
+    },
+    {
+      "$ref": "#/$defs/TemplateQueryOrganizationIdsStep"
+    },
+    {
+      "$ref": "#/$defs/TemplateQueryListRowsStep"
+    },
+    {
+      "$ref": "#/$defs/TemplateQueryGetRowStep"
+    },
+    {
+      "$ref": "#/$defs/TemplateQueryProjectionRowStep"
+    },
+    {
+      "$ref": "#/$defs/TemplateQueryCreatorNameStep"
+    }
+  ],
+  "x-template-enrichment-columns": ["created_by_name"],
+  "x-template-row-columns": [
+    "id",
+    "display_id",
+    "name",
+    "description",
+    "type_label",
+    "type_key",
+    "data_type",
+    "tool_bindings",
+    "label_config",
+    "ai_enabled",
+    "sampling",
+    "maximum_annotations",
+    "show_overlap_first",
+    "iou_dedup_threshold",
+    "box_threshold",
+    "text_threshold",
+    "rendering_config",
+    "annotation_guide",
+    "scope",
+    "organization_id",
+    "created_by",
+    "source_project_id",
+    "usage_count",
+    "created_at",
+    "updated_at"
+  ]
+}
