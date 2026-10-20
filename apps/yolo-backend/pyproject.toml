@@ -21,7 +21,7 @@ dependencies = [
     "prometheus-client>=0.20",
     "cryptography>=43.0.0",
     "PyJWT>=2.10,<3",
-    "ultralytics==8.4.177",
+    "ultralytics==8.4.183",
     "libreyolo==1.6.0",
     "aap-training-contract",
     "clip",
