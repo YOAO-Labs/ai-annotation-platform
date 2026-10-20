@@ -281,7 +281,7 @@
       "$ref": "#/$defs/InferenceWorkspaceConfigurationBackend"
     }
   ],
-  "$comment": "Every read is a separate VOLATILE capability call so READ COMMITTED transactions can observe the same phase boundaries as the prior service. Credentials are returned only by the private Inference capability response. Output arrays do not promise ordering.",
+  "$comment": "Task count and existing-item filtering are STABLE so callers can embed them in a Project snapshot or Task join and share that statement snapshot. The other staged reads are VOLATILE to retain fresh READ COMMITTED snapshots between phases. Credentials are returned only by the private Inference capability response. Output arrays do not promise ordering.",
   "x-postgresql-functions": [
     "aap_assets_v1.workspace_configuration_dataset_rows(uuid)",
     "aap_assets_v1.workspace_configuration_dataset_scenes(uuid)",

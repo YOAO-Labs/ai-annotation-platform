@@ -1,4 +1,4 @@
--- Narrow, separately snapshotted facts used by the Workspace configuration owner.
+-- Narrow typed facts used by Workspace configuration with legacy snapshot boundaries.
 CREATE FUNCTION aap_assets_v1.workspace_configuration_dataset_rows(
     p_project_id uuid
 )
@@ -83,12 +83,13 @@ REVOKE ALL ON FUNCTION
     aap_assets_v1.workspace_configuration_dataset_scenes(uuid)
     FROM PUBLIC;
 -- aap-statement-break
+-- STABLE lets the Labeling Task join and this existence filter share one snapshot.
 CREATE FUNCTION aap_assets_v1.workspace_configuration_existing_item_ids(
     p_item_ids uuid[]
 )
 RETURNS jsonb
 LANGUAGE plpgsql
-VOLATILE
+STABLE
 PARALLEL UNSAFE
 SECURITY DEFINER
 SET search_path = pg_catalog, pg_temp
@@ -129,12 +130,13 @@ REVOKE ALL ON FUNCTION
     aap_assets_v1.workspace_configuration_existing_item_ids(uuid[])
     FROM PUBLIC;
 -- aap-statement-break
+-- STABLE lets callers bind the persisted counter to their Project row snapshot.
 CREATE FUNCTION aap_labeling_v1.workspace_configuration_task_count(
     p_project_id uuid
 )
 RETURNS jsonb
 LANGUAGE plpgsql
-VOLATILE
+STABLE
 PARALLEL UNSAFE
 SECURITY DEFINER
 SET search_path = pg_catalog, pg_temp
@@ -253,7 +255,6 @@ SECURITY DEFINER
 SET search_path = pg_catalog, pg_temp
 AS $function$
 DECLARE
-    v_task_item_ids uuid[];
     v_existing_items jsonb;
 BEGIN
     IF p_project_id IS NULL THEN
@@ -262,17 +263,16 @@ BEGIN
             MESSAGE = 'invalid Workspace configuration project';
     END IF;
 
-    SELECT COALESCE(
-        pg_catalog.array_agg(DISTINCT task.dataset_item_id),
-        ARRAY[]::uuid[]
+    SELECT aap_assets_v1.workspace_configuration_existing_item_ids(
+        COALESCE(
+            pg_catalog.array_agg(DISTINCT task.dataset_item_id),
+            ARRAY[]::uuid[]
+        )
     )
-    INTO v_task_item_ids
+    INTO v_existing_items
     FROM public.tasks AS task
     WHERE task.project_id = p_project_id
       AND task.dataset_item_id IS NOT NULL;
-
-    v_existing_items :=
-        aap_assets_v1.workspace_configuration_existing_item_ids(v_task_item_ids);
 
     RETURN pg_catalog.jsonb_build_object(
         'schema', 'aap-labeling-workspace-configuration/v1',
