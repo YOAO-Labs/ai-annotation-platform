@@ -7,11 +7,15 @@ import pytest
 from aap_identity.contract import IdentityUnavailable
 from aap_identity.mail_contract import (
     MAIL_NATIVE_PROTOCOL,
+    MailAcceptedReply,
+    MailClaimReply,
     decode_mail_accepted_reply,
+    decode_mail_claim_reply,
     decode_mail_claim_request,
     decode_mail_delivery_policy,
     decode_mail_finish_request,
 )
+from pydantic import ValidationError
 
 
 def test_mail_claim_request_is_closed_strict_and_requires_nullable_delivery_id():
@@ -56,6 +60,28 @@ def test_mail_reply_rejects_extra_fields_and_non_boolean_acceptance():
             }
         )
 
+    claim = {
+        "schema": MAIL_NATIVE_PROTOCOL,
+        "ok": True,
+        "data": {"delivery": None},
+    }
+    accepted = {
+        "schema": MAIL_NATIVE_PROTOCOL,
+        "ok": True,
+        "data": {"accepted": True},
+    }
+    for decoder, reply in (
+        (decode_mail_claim_reply, claim),
+        (decode_mail_accepted_reply, accepted),
+    ):
+        with pytest.raises(IdentityUnavailable):
+            decoder({**reply, "ok": 1})
+
+    with pytest.raises(ValidationError):
+        MailClaimReply.model_validate({**claim, "ok": 1})
+    with pytest.raises(ValidationError):
+        MailAcceptedReply.model_validate({**accepted, "ok": 1})
+
 
 def test_delivery_policy_hides_smtp_password_from_repr_and_rejects_extra_fields():
     policy = decode_mail_delivery_policy(
@@ -76,6 +102,22 @@ def test_delivery_policy_hides_smtp_password_from_repr_and_rejects_extra_fields(
                 "unexpected": "value",
             }
         )
+
+
+def test_delivery_policy_preserves_long_settings_strings():
+    policy = decode_mail_delivery_policy(
+        {
+            "smtp_host": "h" * 300,
+            "smtp_port": 587,
+            "smtp_user": "u" * 300,
+            "smtp_password": "p" * 5000,
+            "smtp_from": "noreply@" + "x" * 400,
+        }
+    )
+    assert len(policy.smtp_host) == 300
+    assert len(policy.smtp_user) == 300
+    assert len(policy.smtp_password) == 5000
+    assert len(policy.smtp_from) == 408
 
 
 def test_retry_finish_requires_bounded_retry_and_closed_safe_reason():

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import hashlib
 import sys
 import threading
@@ -20,7 +21,7 @@ from aap_identity_runtime.mail_worker import MailExecutor, create_app
 from httpx import ASGITransport, AsyncClient
 
 TOKEN = "0123456789abcdef" * 4
-KEY = "dedicated-fernet-key"
+KEY = base64.urlsafe_b64encode(bytes(range(32))).decode("ascii")
 DELIVERY_ID = uuid.UUID("40000000-0000-4000-8000-000000000001")
 WORKER_ID = uuid.UUID("40000000-0000-4000-8000-000000000002")
 

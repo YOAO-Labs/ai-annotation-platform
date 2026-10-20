@@ -8,11 +8,11 @@ from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
-def _read_secret_file(path: str) -> SecretStr:
+def _read_secret_file(path: str, *, max_bytes: int | None = 4096) -> SecretStr:
     try:
         with Path(path).open("rb") as stream:
-            raw = stream.read(4097)
-        if len(raw) > 4096:
+            raw = stream.read(max_bytes + 1) if max_bytes is not None else stream.read()
+        if max_bytes is not None and len(raw) > max_bytes:
             raise ValueError()
         value = raw.decode("utf-8").strip()
         if not value:
@@ -38,12 +38,12 @@ class MailWorkerSettings(BaseSettings):
     encryption_key: SecretStr | None = None
     encryption_key_file: str | None = None
 
-    smtp_host: str = Field(default="", max_length=255)
+    smtp_host: str = ""
     smtp_port: int = Field(default=0, ge=0, le=65535)
-    smtp_user: str = Field(default="", max_length=255, repr=False)
+    smtp_user: str = Field(default="", repr=False)
     smtp_password: SecretStr | None = None
     smtp_password_file: str | None = None
-    smtp_from: str = Field(default="", max_length=320)
+    smtp_from: str = ""
 
     host: str = "127.0.0.1"
     port: int = Field(default=8171, ge=1, le=65535)
@@ -65,12 +65,19 @@ class MailWorkerSettings(BaseSettings):
                 setattr(self, name, value)
             if value is None or not value.get_secret_value().strip():
                 raise ValueError(f"Empty mail {name}")
+            if name == "encryption_key":
+                try:
+                    from aap_identity.recovery_crypto import mail_encryption_id
+
+                    mail_encryption_id(value.get_secret_value())
+                except Exception:
+                    raise ValueError("Invalid mail encryption key") from None
 
         password_path = self.smtp_password_file
         if password_path is not None:
             if self.smtp_password is not None:
                 raise ValueError("Set at most one mail smtp_password source")
-            self.smtp_password = _read_secret_file(password_path)
+            self.smtp_password = _read_secret_file(password_path, max_bytes=None)
         if self.smtp_password is None:
             self.smtp_password = SecretStr("")
 

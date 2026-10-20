@@ -52,6 +52,7 @@ class FakeCalls(list):
         self.wrong_claim_worker = False
         self.accepted_value = True
         self.accepted_extra = False
+        self.ok_value = True
 
 
 class FakeConnection:
@@ -80,7 +81,7 @@ class FakeConnection:
             return json.dumps(
                 {
                     "schema": MAIL_NATIVE_PROTOCOL,
-                    "ok": True,
+                    "ok": self.calls.ok_value,
                     "data": {"delivery": _lease(worker_id)},
                 }
             )
@@ -91,7 +92,7 @@ class FakeConnection:
             return json.dumps(
                 {
                     "schema": MAIL_NATIVE_PROTOCOL,
-                    "ok": True,
+                    "ok": self.calls.ok_value,
                     "data": data,
                 }
             )
@@ -187,6 +188,13 @@ async def test_malformed_or_stale_accepted_reply_rolls_back_lease_mutation(
         await data.renew_mail(lease)
     assert fake_asyncpg.transaction_events[-1] == "rollback"
 
+    fake_asyncpg.accepted_value = True
+    fake_asyncpg.ok_value = 1
+    with pytest.raises(IdentityUnavailable):
+        await data.renew_mail(lease)
+    assert fake_asyncpg.transaction_events[-1] == "rollback"
+
+    fake_asyncpg.ok_value = True
     fake_asyncpg.accepted_value = False
     assert (
         await data.finish_mail(

@@ -102,17 +102,32 @@ def _decode(adapter: TypeAdapter, payload: dict | bytes | str):
         raise IdentityUnavailable() from None
 
 
+def _decode_success(adapter: TypeAdapter, payload: dict | bytes | str):
+    try:
+        raw = _json_bytes(payload)
+        envelope = json.loads(raw)
+        if (
+            not isinstance(envelope, dict)
+            or type(envelope.get("ok")) is not bool
+            or envelope["ok"] is not True
+        ):
+            raise ValueError("Invalid successful mail envelope")
+        return adapter.validate_json(raw)
+    except (ValidationError, ValueError, TypeError, UnicodeError, json.JSONDecodeError):
+        raise IdentityUnavailable() from None
+
+
 class MailPolicyReply(ClosedModel):
     protocol: Literal["aap-identity-recovery-mail-policy/v1"] = Field(alias="schema")
     policy: Literal["aap-identity-recovery-mail/v1"]
 
 
 class MailDeliveryPolicy(ClosedModel):
-    smtp_host: str = Field(max_length=255, strict=True)
+    smtp_host: str = Field(strict=True)
     smtp_port: int = Field(ge=0, le=65535, strict=True)
-    smtp_user: str = Field(max_length=255, strict=True, repr=False)
-    smtp_password: str = Field(max_length=4096, strict=True, repr=False)
-    smtp_from: str = Field(max_length=320, strict=True)
+    smtp_user: str = Field(strict=True, repr=False)
+    smtp_password: str = Field(strict=True, repr=False)
+    smtp_from: str = Field(strict=True)
 
     @field_validator("smtp_host", "smtp_user", "smtp_from")
     @classmethod
@@ -212,6 +227,13 @@ class MailClaimReply(ClosedModel):
     ok: Literal[True]
     data: MailClaimData
 
+    @field_validator("ok", mode="before")
+    @classmethod
+    def strict_ok(cls, value):
+        if type(value) is not bool or value is not True:
+            raise ValueError("Successful mail response requires boolean true")
+        return value
+
 
 class MailAcceptedData(ClosedModel):
     accepted: bool
@@ -228,6 +250,13 @@ class MailAcceptedReply(ClosedModel):
     protocol: Literal["aap-identity-recovery-mail-native/v1"] = Field(alias="schema")
     ok: Literal[True]
     data: MailAcceptedData
+
+    @field_validator("ok", mode="before")
+    @classmethod
+    def strict_ok(cls, value):
+        if type(value) is not bool or value is not True:
+            raise ValueError("Successful mail response requires boolean true")
+        return value
 
 
 _POLICY = TypeAdapter(MailPolicyReply)
@@ -260,11 +289,11 @@ def decode_mail_finish_request(payload: dict | bytes | str) -> MailFinishRequest
 
 
 def decode_mail_claim_reply(payload: dict | bytes | str) -> MailClaimReply:
-    return _decode(_CLAIM_REPLY, payload)
+    return _decode_success(_CLAIM_REPLY, payload)
 
 
 def decode_mail_accepted_reply(payload: dict | bytes | str) -> MailAcceptedReply:
-    return _decode(_ACCEPTED_REPLY, payload)
+    return _decode_success(_ACCEPTED_REPLY, payload)
 
 
 def native_command_json(command: ClosedModel) -> str:
