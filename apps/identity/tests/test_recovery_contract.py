@@ -219,6 +219,34 @@ def test_success_does_not_treat_opaque_account_strings_as_secret_echoes():
     assert reply.data.account.preferences["protocol"] == password
 
 
+def test_registration_reply_cannot_elevate_the_default_viewer_role():
+    request = recovery_request("register_open")
+    issued = claims(
+        request.operation_id, actor_id=request.operation_id, role="employee"
+    )
+    result = {
+        "schema": RECOVERY_PROTOCOL,
+        "ok": True,
+        "operation": "register_open",
+        "operation_id": str(request.operation_id),
+        "data": {
+            "account": account(
+                actor_id=request.operation_id,
+                role="employee",
+                status="online",
+                verified_at=datetime.now(UTC),
+            ).model_dump(mode="json"),
+            "claims": issued.model_dump(mode="json"),
+            "access_token": sign_session_claims(issued, SECRET),
+            "email_verification_required": False,
+            "completed": None,
+        },
+    }
+
+    with pytest.raises(IdentityUnavailable):
+        decode_recovery_reply(request, result)
+
+
 def test_failure_reply_only_exposes_operation_safe_details():
     request = recovery_request("consume_email_verification")
     failure = RecoveryFailure("invalid_request", 400, "验证链接无效或已过期")

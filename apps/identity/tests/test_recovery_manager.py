@@ -160,12 +160,15 @@ async def test_registration_with_verification_atomically_returns_no_jwt():
                 email_verification_required=True,
                 completed=None,
             ),
-            actor_value=actor(actor_id=request.operation_id),
+            actor_value=actor(actor_id=request.operation_id, role="viewer"),
         ),
     )
 
     reply = await manager(data).execute(request)
 
+    assert reply.data.account.role == "viewer"
+    assert reply.data.account.status == "offline"
+    assert reply.data.account.email_verified_at is None
     assert reply.data.account.email == request.payload.email
     assert reply.data.email_verification_required is True
     assert reply.data.access_token is None and reply.data.claims is None
@@ -195,12 +198,19 @@ async def test_immediate_registration_signs_native_claims_and_replay_reuses_hash
             resolved_policy=policy(verify=False),
         ),
         lambda command: apply_reply(
-            command, frozen, actor_value=actor(actor_id=request.operation_id)
+            command,
+            frozen,
+            actor_value=actor(actor_id=request.operation_id, role="viewer"),
         ),
     )
     initial_reply = await manager(initial, verify=False).execute(request)
     assert initial_reply.data.claims == frozen_claims
     assert initial_reply.data.access_token
+    assert initial_reply.data.claims.role == "viewer"
+    assert initial_reply.data.account.role == "viewer"
+    assert initial_reply.data.account.status == "online"
+    assert initial_reply.data.account.email_verified_at is not None
+    assert initial_reply.data.account.last_login_at is None
     assert initial.apply_command.password_hash.startswith("$2b$12$")
     assert initial.apply_command.token_hash is None
     assert initial.apply_command.token_ciphertext is None
@@ -208,7 +218,7 @@ async def test_immediate_registration_signs_native_claims_and_replay_reuses_hash
     replay = Data(
         lambda command: prepare_reply(
             command,
-            actor_value=actor(actor_id=request.operation_id),
+            actor_value=actor(actor_id=request.operation_id, role="viewer"),
             eligible=False,
             replay=frozen,
             password_hash=current_hash,
@@ -217,7 +227,7 @@ async def test_immediate_registration_signs_native_claims_and_replay_reuses_hash
         lambda command: apply_reply(
             command,
             frozen,
-            actor_value=actor(actor_id=request.operation_id),
+            actor_value=actor(actor_id=request.operation_id, role="viewer"),
             replayed=True,
         ),
     )
@@ -233,7 +243,7 @@ async def test_immediate_registration_signs_native_claims_and_replay_reuses_hash
     denied = Data(
         lambda command: prepare_reply(
             command,
-            actor_value=actor(actor_id=request.operation_id),
+            actor_value=actor(actor_id=request.operation_id, role="viewer"),
             replay=frozen,
             password_hash=changed_hash,
             resolved_policy=policy(verify=False),

@@ -237,10 +237,11 @@ class RecoverySuccess(ClosedModel):
                 or data.email_verification_required is None
                 or data.completed is not None
                 or data.account.id != self.operation_id
-                or data.account.role != "employee"
+                or data.account.role != "viewer"
                 or data.account.group_id is not None
                 or data.account.group_name is not None
                 or not data.account.is_active
+                or data.account.last_login_at is not None
             ):
                 raise ValueError("Invalid registration result")
             if data.email_verification_required:
@@ -248,12 +249,14 @@ class RecoverySuccess(ClosedModel):
                     data.claims is not None
                     or data.access_token is not None
                     or data.account.email_verified_at is not None
+                    or data.account.status != "offline"
                 ):
                     raise ValueError("Verified registration must not issue a session")
             elif (
                 data.claims is None
                 or data.access_token is None
                 or data.account.email_verified_at is None
+                or data.account.status != "online"
             ):
                 raise ValueError("Immediate registration must issue a verified session")
             if data.claims is not None and (
@@ -805,19 +808,25 @@ class NativeRecoveryResult(ClosedModel):
                 or self.email_verification_required is None
                 or self.completed is not None
                 or self.account.id != operation_id
-                or self.account.role != "employee"
+                or self.account.role != "viewer"
                 or self.account.group_id is not None
                 or self.account.group_name is not None
                 or not self.account.is_active
+                or self.account.last_login_at is not None
             ):
                 raise IdentityUnavailable()
             if self.email_verification_required:
                 if (
                     self.claims is not None
                     or self.account.email_verified_at is not None
+                    or self.account.status != "offline"
                 ):
                     raise IdentityUnavailable()
-            elif self.claims is None or self.account.email_verified_at is None:
+            elif (
+                self.claims is None
+                or self.account.email_verified_at is None
+                or self.account.status != "online"
+            ):
                 raise IdentityUnavailable()
             if self.claims is not None and (
                 self.claims.sub != self.account.id
@@ -974,6 +983,7 @@ def _validate_prepare_reply(command, reply: NativeRecoveryPrepareReply):
             data.actor is None
             or data.actor.id != command.operation_id
             or data.actor.email != command.args.email
+            or data.actor.role != data.replay.account.role
         ):
             raise IdentityUnavailable()
         if not data.actor.is_active:
@@ -1044,6 +1054,7 @@ def decode_native_recovery_reply(
                 reply.data.result.account.id != command.operation_id
                 or reply.data.actor.id != command.operation_id
                 or reply.data.actor.email != command.args.email
+                or reply.data.actor.role != reply.data.result.account.role
                 or not reply.data.actor.is_active
             ):
                 raise IdentityUnavailable()

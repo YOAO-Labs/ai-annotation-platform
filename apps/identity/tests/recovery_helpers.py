@@ -55,12 +55,17 @@ def recovery_request(operation: str, *, payload=None, operation_id=None):
 
 
 def actor(
-    *, actor_id=ACTOR_ID, email="person@example.test", active=True, verified_at=None
+    *,
+    actor_id=ACTOR_ID,
+    email="person@example.test",
+    role="employee",
+    active=True,
+    verified_at=None,
 ):
     return RecoveryActor(
         id=actor_id,
         email=email,
-        role="employee",
+        role=role,
         is_active=active,
         credential_generation=0,
         email_verified_at=verified_at,
@@ -68,12 +73,23 @@ def actor(
 
 
 def account(
-    *, actor_id=ACTOR_ID, email="person@example.test", verified_at=None
+    *,
+    actor_id=ACTOR_ID,
+    email="person@example.test",
+    role="viewer",
+    status=None,
+    verified_at=None,
 ) -> AccountRecord:
-    return account_record(id=actor_id, email=email, email_verified_at=verified_at)
+    return account_record(
+        id=actor_id,
+        email=email,
+        role=role,
+        status=status or ("online" if verified_at is not None else "offline"),
+        email_verified_at=verified_at,
+    )
 
 
-def claims(operation_id, *, actor_id=ACTOR_ID, role="employee", gen=0):
+def claims(operation_id, *, actor_id=ACTOR_ID, role="viewer", gen=0):
     return SessionClaims(
         sub=actor_id,
         role=role,
