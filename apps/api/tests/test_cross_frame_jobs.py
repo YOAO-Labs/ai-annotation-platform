@@ -2,23 +2,26 @@
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from types import SimpleNamespace
 
 import pytest
 from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.db.models.annotation import Annotation
 from app.db.models.async_job import AsyncJob, AsyncJobStatus
 from app.db.models.dataset import Dataset, DatasetItem, Scene
 from app.db.models.task import Task
+from app.db.models.user import User
 from app.services.cross_frame_job import JOB_KIND
 from app.workers.cross_frame_job import (
     _finish_cancelled,
     _persist_progress,
     execute_cross_frame_job,
 )
-from tests.factory import create_project
+from tests.factory import create_project, create_user
 
 
 def _box3d():
@@ -103,6 +106,42 @@ def _request(annotation_id, *, start=1, end=2, scope="selected"):
         "end_frame": end,
         "conflict_policy": "skip_existing",
     }
+
+
+async def _create_worker_job(db, *, owner_id, target_statuses):
+    project, _, tasks = await _seed_scene(
+        db, owner_id=owner_id, frames=range(len(target_statuses) + 1)
+    )
+    source = await _add_box(db, task=tasks[0], project=project, user_id=owner_id)
+    for frame_index, status in enumerate(target_statuses, start=1):
+        tasks[frame_index].status = status
+    await db.flush()
+    job = AsyncJob(
+        kind=JOB_KIND,
+        project_id=project.id,
+        user_id=owner_id,
+        status=AsyncJobStatus.PENDING.value,
+        payload={
+            "source_task_id": str(tasks[0].id),
+            "sources": [
+                {
+                    "annotation_id": str(source.id),
+                    "version": int(source.version or 1),
+                }
+            ],
+            "targets": [
+                {
+                    "frame_index": frame_index,
+                    "task_id": str(tasks[frame_index].id),
+                    "preflight_state": "ready",
+                }
+                for frame_index in range(1, len(target_statuses) + 1)
+            ],
+        },
+    )
+    db.add(job)
+    await db.flush()
+    return job.id, tasks
 
 
 async def test_create_cross_frame_job_is_explicit_and_singleflight(
@@ -477,3 +516,185 @@ async def test_retry_failed_cross_frame_job_refreshes_source_snapshot(
     assert [target["frame_index"] for target in retry_payload["targets"]] == [2]
     assert retry_payload["sources"][0]["version"] == source.version
     assert len(dispatched) == 2
+
+
+async def test_cross_frame_worker_rechecks_role_after_frame_rollback(
+    test_engine, monkeypatch
+):
+    maker = async_sessionmaker(test_engine, expire_on_commit=False)
+    async with maker.begin() as setup:
+        owner = await create_user(
+            setup,
+            "super_admin",
+            f"cross-frame-owner-{uuid.uuid4()}@worker.test",
+            "Cross-frame owner",
+        )
+        job_id, _ = await _create_worker_job(
+            setup, owner_id=owner.id, target_statuses=["completed", "in_progress"]
+        )
+        owner_id = owner.id
+
+    first_failure_persisted = asyncio.Event()
+    allow_next_frame = asyncio.Event()
+    original_persist = execute_cross_frame_job.__globals__["_persist_progress"]
+    persist_calls = 0
+
+    async def pause_after_first_failure(db, **kwargs):
+        nonlocal persist_calls
+        await original_persist(db, **kwargs)
+        if persist_calls == 0:
+            persist_calls += 1
+            first_failure_persisted.set()
+            await allow_next_frame.wait()
+
+    monkeypatch.setattr(
+        "app.workers.cross_frame_job._persist_progress", pause_after_first_failure
+    )
+
+    async def run_worker():
+        async with maker() as worker_db:
+            await execute_cross_frame_job(worker_db, job_id=job_id)
+
+    worker_task = asyncio.create_task(run_worker())
+    try:
+        await asyncio.wait_for(first_failure_persisted.wait(), timeout=5)
+        async with maker.begin() as change_role:
+            actor = await change_role.get(User, owner_id)
+            assert actor is not None
+            actor.role = "employee"
+        allow_next_frame.set()
+        await asyncio.wait_for(worker_task, timeout=10)
+    finally:
+        allow_next_frame.set()
+        if not worker_task.done():
+            worker_task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await worker_task
+
+    async with maker() as check:
+        job = await check.get(AsyncJob, job_id)
+        assert job is not None
+        assert job.status == AsyncJobStatus.FAILED.value
+        assert job.result["items"][0]["reason"] == "target_task_locked"
+        assert job.result["items"][1]["reason"] == "permission_changed"
+
+
+async def test_cross_frame_account_fence_holds_until_frame_commit(
+    test_engine, monkeypatch
+):
+    maker = async_sessionmaker(test_engine, expire_on_commit=False)
+    async with maker.begin() as setup:
+        owner = await create_user(
+            setup,
+            "super_admin",
+            f"cross-frame-owner-{uuid.uuid4()}@worker.test",
+            "Cross-frame owner",
+        )
+        job_id, _ = await _create_worker_job(
+            setup, owner_id=owner.id, target_statuses=["in_progress"]
+        )
+        owner_id = owner.id
+
+    frame_write_entered = asyncio.Event()
+    allow_frame_write = asyncio.Event()
+    disable_flush_started = asyncio.Event()
+    disable_finished = asyncio.Event()
+
+    class BlockingStager:
+        async def stage_batch(self, **_kwargs):
+            frame_write_entered.set()
+            await allow_frame_write.wait()
+            return 1
+
+    monkeypatch.setattr(
+        "app.workers.cross_frame_job.bind_cross_frame_batch_stager",
+        lambda _db: BlockingStager(),
+    )
+
+    async def run_worker():
+        async with maker() as worker_db:
+            await execute_cross_frame_job(worker_db, job_id=job_id)
+
+    async def disable_actor():
+        async with maker() as disable_db:
+            actor = await disable_db.get(User, owner_id)
+            assert actor is not None
+            actor.is_active = False
+            disable_flush_started.set()
+            await disable_db.flush()
+            await disable_db.commit()
+            disable_finished.set()
+
+    worker_task = asyncio.create_task(run_worker())
+    disable_task = None
+    try:
+        await asyncio.wait_for(frame_write_entered.wait(), timeout=5)
+        disable_task = asyncio.create_task(disable_actor())
+        await asyncio.wait_for(disable_flush_started.wait(), timeout=5)
+        with pytest.raises(asyncio.TimeoutError):
+            await asyncio.wait_for(asyncio.shield(disable_task), timeout=0.05)
+        allow_frame_write.set()
+        await asyncio.wait_for(worker_task, timeout=10)
+        await asyncio.wait_for(disable_task, timeout=10)
+    finally:
+        allow_frame_write.set()
+        for task in (worker_task, disable_task):
+            if task is not None and not task.done():
+                task.cancel()
+                with pytest.raises(asyncio.CancelledError):
+                    await task
+
+    async with maker() as check:
+        job = await check.get(AsyncJob, job_id)
+        actor = await check.get(User, owner_id)
+        assert job is not None and actor is not None
+        assert job.status == AsyncJobStatus.COMPLETED.value
+        assert job.result["success_count"] == 1
+        assert disable_finished.is_set()
+        assert actor.is_active is False
+
+
+async def test_cross_frame_missing_actor_after_rollback_keeps_generic_failure(
+    db_session, super_admin, monkeypatch
+):
+    owner, _ = super_admin
+    job_id, _ = await _create_worker_job(
+        db_session,
+        owner_id=owner.id,
+        target_statuses=["completed", "in_progress", "in_progress"],
+    )
+    from app.services import project_write_guard
+
+    lock_actor = project_write_guard.lock_actor_account_facts
+    lock_calls = 0
+
+    async def missing_on_second_frame(db, actor_id, *, nowait=True):
+        nonlocal lock_calls
+        lock_calls += 1
+        if lock_calls == 2:
+            return None
+        return await lock_actor(db, actor_id, nowait=nowait)
+
+    class SuccessfulStager:
+        async def stage_batch(self, **_kwargs):
+            return 1
+
+    monkeypatch.setattr(
+        project_write_guard, "lock_actor_account_facts", missing_on_second_frame
+    )
+    monkeypatch.setattr(
+        "app.workers.cross_frame_job.bind_cross_frame_batch_stager",
+        lambda _db: SuccessfulStager(),
+    )
+
+    await execute_cross_frame_job(db_session, job_id=job_id)
+    job = await db_session.get(AsyncJob, job_id)
+    await db_session.refresh(job)
+    assert job.status == AsyncJobStatus.FAILED.value
+    assert job.result["failed_count"] == 2
+    assert job.result["success_count"] == 1
+    assert [item["reason"] for item in job.result["items"]] == [
+        "target_task_locked",
+        "propagate_failed",
+        None,
+    ]
