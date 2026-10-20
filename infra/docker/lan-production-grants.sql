@@ -66,8 +66,8 @@ REVOKE CREATE ON SCHEMA public FROM PUBLIC;
 GRANT USAGE, CREATE ON SCHEMA public TO :"application_role";
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO :"application_role";
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO :"application_role";
-GRANT USAGE ON SCHEMA aap_workspace_v1, aap_assets_v1, aap_labeling_v1,
-    aap_jobs_v1 TO :"application_role";
+GRANT USAGE ON SCHEMA aap_workspace_v1, aap_workspace_membership_v1,
+    aap_assets_v1, aap_labeling_v1, aap_jobs_v1 TO :"application_role";
 -- Embedded Identity adapters use the same owner capabilities as isolated clients.
 GRANT USAGE ON SCHEMA aap_identity_v1, aap_identity_keys_v1,
     aap_identity_sessions_v1, aap_identity_accounts_v1, aap_identity_recovery_v1,
@@ -146,6 +146,11 @@ GRANT EXECUTE ON FUNCTION
     aap_notifications_v1.claim_identity_deliveries(jsonb),
     aap_notifications_v1.finish_identity_delivery(jsonb),
     aap_settings_v1.mail_delivery_policy(jsonb)
+    TO :"application_role";
+GRANT EXECUTE ON FUNCTION
+    aap_workspace_membership_v1.membership_policy(),
+    aap_workspace_membership_v1.prepare_membership_command(jsonb),
+    aap_workspace_membership_v1.apply_membership_command(jsonb)
     TO :"application_role";
 GRANT EXECUTE ON FUNCTION aap_workspace_v1.lock_project_reference(uuid),
     aap_workspace_v1.lock_project_manager(uuid, uuid),

@@ -59,6 +59,7 @@ IDENTITY_CLIENT_ROLES = {
     "DIRECTORY": "identity_directory_client",
     "BRIEFS": "identity_briefs_client",
     "PROVISIONING": "identity_provisioning_client",
+    "WORKSPACE_MEMBERSHIP": "workspace_membership_client",
 }
 MODULE_ROLES = (
     "identity_code",
@@ -191,6 +192,9 @@ SQL_ARTIFACTS = (
     "0251_identity_account_locks.sql",
     "0252_identity_provisioning_support.sql",
     "0252_identity_provisioning.sql",
+    "0253_workspace_membership_labeling.sql",
+    "0253_workspace_membership_support.sql",
+    "0253_workspace_membership.sql",
 )
 SCHEMA_ARTIFACTS = (
     "0191_task_append.schema.json",
@@ -255,6 +259,7 @@ SCHEMA_ARTIFACTS = (
     "0250_identity_actor_context.schema.json",
     "0251_identity_account_locks.schema.json",
     "0252_identity_provisioning.schema.json",
+    "0253_workspace_membership.schema.json",
 )
 TEST_FILES = (
     "tests/test_identity_admin_passwords_native.py",
@@ -276,6 +281,9 @@ TEST_FILES = (
     "tests/test_identity_briefs_roles.py",
     "tests/test_identity_briefs_restore.py",
     "tests/test_identity_provisioning_native.py",
+    "tests/test_workspace_membership_native.py",
+    "tests/test_workspace_membership_roles.py",
+    "tests/test_workspace_membership_restore.py",
     "tests/test_identity_actor_context_native.py",
     "tests/test_identity_account_locks_native.py",
     "tests/test_users_role_matrix.py::TestRoleMatrix::test_sa_cannot_demote_last_super_admin",
@@ -2051,6 +2059,15 @@ def _install_and_rollback_frozen_sql(
             "AND action='system.bootstrap_admin' "
             "AND request_id=:'provisioning_request') "
             "AND to_regprocedure('aap_workspace_v1.identity_brief_project_roles(uuid,uuid[])') IS NULL "
+            "AND to_regnamespace('aap_workspace_membership_v1') IS NULL "
+            "AND to_regprocedure('aap_identity_v1.read_workspace_membership_accounts(uuid[])') IS NULL "
+            "AND to_regprocedure('aap_audit_v1.record_workspace_membership_event(text,jsonb,uuid,jsonb,jsonb)') IS NULL "
+            "AND to_regprocedure('aap_labeling_v1.read_membership_work(uuid,uuid,uuid,uuid)') IS NULL "
+            "AND to_regprocedure('aap_labeling_v1.lock_membership_work(uuid,uuid,text,boolean)') IS NULL "
+            "AND to_regprocedure('aap_labeling_v1.handoff_membership_annotation(uuid,uuid,uuid)') IS NULL "
+            "AND to_regprocedure('aap_labeling_v1._membership_python_repr(jsonb)') IS NULL "
+            "AND to_regprocedure('aap_labeling_v1.handoff_membership_reviewer(uuid,uuid,uuid)') IS NULL "
+            "AND to_regprocedure('aap_labeling_v1.release_membership_task_locks(uuid,uuid)') IS NULL "
             "AND to_regprocedure('aap_identity_v1.read_actor_context(uuid,text)') IS NULL "
             "AND to_regprocedure('aap_identity_v1.lock_accounts_share(uuid[],boolean)') IS NULL "
             "AND to_regprocedure('aap_identity_v1.lock_accounts_update(uuid[],boolean)') IS NULL "
@@ -2081,6 +2098,7 @@ def _install_and_rollback_frozen_sql(
             "AND to_regclass('public.identity_suspension_operation_receipts') IS NULL "
             "AND to_regclass('public.identity_deletion_operation_receipts') IS NULL "
             "AND to_regclass('public.identity_offboarding_operation_receipts') IS NULL "
+            "AND to_regclass('public.workspace_membership_operation_receipts') IS NULL "
             "AND to_regclass('public.identity_deactivation_requests') IS NULL "
             "AND to_regclass('public.notification_delivery_outbox') IS NULL "
             "AND to_regclass('public.identity_credential_mail_outbox') IS NULL "
@@ -2250,6 +2268,9 @@ def main(argv: list[str] | None = None) -> int:
         identity_provisioning_grants_path = (
             ROOT / "infra/docker/identity-provisioning-grants.sql"
         )
+        workspace_membership_grants_path = (
+            ROOT / "infra/docker/workspace-membership-grants.sql"
+        )
         identity_deactivation_grants_path = (
             ROOT / "infra/docker/identity-deactivation-grants.sql"
         )
@@ -2286,6 +2307,7 @@ def main(argv: list[str] | None = None) -> int:
             or not identity_offboarding_grants_path.is_file()
             or not identity_briefs_grants_path.is_file()
             or not identity_provisioning_grants_path.is_file()
+            or not workspace_membership_grants_path.is_file()
             or not identity_account_grants_path.is_file()
             or not identity_recovery_grants_path.is_file()
             or any(not path.is_file() for path in artifacts)
@@ -2342,6 +2364,9 @@ def main(argv: list[str] | None = None) -> int:
             encoding="utf-8"
         )
         identity_provisioning_grant_sql = identity_provisioning_grants_path.read_text(
+            encoding="utf-8"
+        )
+        workspace_membership_grant_sql = workspace_membership_grants_path.read_text(
             encoding="utf-8"
         )
         identity_group_grant_sql = identity_group_grants_path.read_text(
@@ -2458,8 +2483,8 @@ def main(argv: list[str] | None = None) -> int:
         database = resources["database"]
         evidence["database"] = database
         _, heads = migration_graph(ROOT)
-        if heads != ["0252"]:
-            raise RuntimeError("module-data acceptance requires migration head 0252")
+        if heads != ["0253"]:
+            raise RuntimeError("module-data acceptance requires migration head 0253")
         evidence["migrations"]["head_before_downgrade"] = heads[0]
         phase = "downgrade-to-0189"
         _container_details(
@@ -2961,10 +2986,33 @@ def main(argv: list[str] | None = None) -> int:
                 "identity_provisioning_role": "identity_provisioning_client",
             },
         )
+        phase = "install-workspace-membership-grants"
+        _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="owner",
+            password=owner_password,
+            database=database,
+            sql=workspace_membership_grant_sql,
+            variables={
+                "expected_database": database,
+                "migration_role": "owner",
+                "identity_owner": "identity_code",
+                "workspace_owner": "workspace_code",
+                "labeling_owner": "labeling_code",
+                "audit_owner": "audit_code",
+                "workspace_membership_role": "workspace_membership_client",
+            },
+        )
         resource_environment = backend.environment()
         resource_environment.update(
             {
-                f"AAP_MODULE_DATA_IDENTITY_{kind}_URL": URL.create(
+                (
+                    f"AAP_MODULE_DATA_{kind}_URL"
+                    if kind == "WORKSPACE_MEMBERSHIP"
+                    else f"AAP_MODULE_DATA_IDENTITY_{kind}_URL"
+                ): URL.create(
                     "postgresql+asyncpg",
                     username=role,
                     password=identity_passwords[role],

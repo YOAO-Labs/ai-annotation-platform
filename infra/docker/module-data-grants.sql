@@ -99,11 +99,11 @@ BEGIN
     END IF;
 END $$;
 
-REVOKE ALL ON SCHEMA aap_identity_v1, aap_identity_keys_v1, aap_identity_sessions_v1, aap_identity_accounts_v1, aap_identity_recovery_v1, aap_identity_groups_v1, aap_identity_deactivation_v1, aap_identity_invitations_v1, aap_identity_mail_v2, aap_identity_directory_v1, aap_identity_admin_passwords_v1, aap_identity_platform_roles_v1, aap_identity_suspensions_v1, aap_identity_deletions_v1, aap_identity_offboarding_v1, aap_identity_briefs_v1, aap_workspace_v1, aap_assets_v1,
+REVOKE ALL ON SCHEMA aap_identity_v1, aap_identity_keys_v1, aap_identity_sessions_v1, aap_identity_accounts_v1, aap_identity_recovery_v1, aap_identity_groups_v1, aap_identity_deactivation_v1, aap_identity_invitations_v1, aap_identity_mail_v2, aap_identity_directory_v1, aap_identity_admin_passwords_v1, aap_identity_platform_roles_v1, aap_identity_suspensions_v1, aap_identity_deletions_v1, aap_identity_offboarding_v1, aap_identity_briefs_v1, aap_workspace_membership_v1, aap_workspace_v1, aap_assets_v1,
     aap_labeling_v1, aap_jobs_v1, aap_learning_v1, aap_inference_v1,
     aap_insights_v1, aap_diagnostics_v1, aap_export_v1, aap_audit_v1, aap_settings_v1, aap_notifications_v1 FROM PUBLIC;
 REVOKE ALL ON ALL FUNCTIONS IN SCHEMA aap_identity_v1, aap_workspace_v1,
-    aap_identity_keys_v1, aap_identity_sessions_v1, aap_identity_accounts_v1, aap_identity_recovery_v1, aap_identity_groups_v1, aap_identity_deactivation_v1, aap_identity_invitations_v1, aap_identity_mail_v2, aap_identity_directory_v1, aap_identity_admin_passwords_v1, aap_identity_platform_roles_v1, aap_identity_suspensions_v1, aap_identity_deletions_v1, aap_identity_offboarding_v1, aap_identity_briefs_v1, aap_assets_v1, aap_labeling_v1, aap_jobs_v1, aap_learning_v1,
+    aap_identity_keys_v1, aap_identity_sessions_v1, aap_identity_accounts_v1, aap_identity_recovery_v1, aap_identity_groups_v1, aap_identity_deactivation_v1, aap_identity_invitations_v1, aap_identity_mail_v2, aap_identity_directory_v1, aap_identity_admin_passwords_v1, aap_identity_platform_roles_v1, aap_identity_suspensions_v1, aap_identity_deletions_v1, aap_identity_offboarding_v1, aap_identity_briefs_v1, aap_workspace_membership_v1, aap_assets_v1, aap_labeling_v1, aap_jobs_v1, aap_learning_v1,
     aap_inference_v1, aap_insights_v1, aap_diagnostics_v1, aap_export_v1,
     aap_audit_v1, aap_settings_v1, aap_notifications_v1 FROM PUBLIC;
 REVOKE ALL ON SCHEMA aap_identity_v1, aap_identity_keys_v1, aap_identity_sessions_v1, aap_identity_accounts_v1, aap_identity_recovery_v1, aap_identity_groups_v1, aap_identity_deactivation_v1, aap_identity_invitations_v1, aap_identity_mail_v2, aap_identity_directory_v1, aap_identity_admin_passwords_v1, aap_identity_platform_roles_v1, aap_identity_suspensions_v1, aap_identity_deletions_v1, aap_identity_offboarding_v1, aap_identity_briefs_v1, aap_workspace_v1, aap_assets_v1,
@@ -319,6 +319,14 @@ GRANT UPDATE (owner_id, updated_at) ON public.projects TO :"workspace_owner";
 GRANT SELECT (id, project_id, user_id, role), INSERT (id, project_id, user_id, role, assigned_by),
     UPDATE (id), DELETE
     ON public.project_members TO :"workspace_owner";
+GRANT SELECT (assigned_by, version, assigned_at, updated_at, weekly_target),
+    UPDATE (role, version, updated_at)
+    ON public.project_members TO :"workspace_owner";
+GRANT SELECT (
+    operation_id, actor_id, project_id, operation, request_hash, result, audit_id
+), INSERT (
+    operation_id, actor_id, project_id, operation, request_hash, result, audit_id
+) ON public.workspace_membership_operation_receipts TO :"workspace_owner";
 GRANT SELECT (source_project_id), UPDATE (source_project_id)
     ON public.project_templates TO :"workspace_owner";
 GRANT SELECT (operation_id, actor_id, project_id, request, result, created_at),
@@ -826,6 +834,20 @@ GRANT EXECUTE ON FUNCTION
 GRANT EXECUTE ON FUNCTION
     aap_workspace_v1.identity_brief_project_roles(uuid, uuid[])
     TO :"identity_owner";
+GRANT EXECUTE ON FUNCTION
+    aap_identity_v1.read_workspace_membership_accounts(uuid[])
+    TO :"workspace_owner";
+GRANT EXECUTE ON FUNCTION
+    aap_audit_v1.valid_request_context(jsonb),
+    aap_audit_v1.record_workspace_membership_event(text, jsonb, uuid, jsonb, jsonb)
+    TO :"workspace_owner";
+GRANT EXECUTE ON FUNCTION
+    aap_labeling_v1.read_membership_work(uuid, uuid, uuid, uuid),
+    aap_labeling_v1.lock_membership_work(uuid, uuid, text, boolean),
+    aap_labeling_v1.handoff_membership_annotation(uuid, uuid, uuid),
+    aap_labeling_v1.handoff_membership_reviewer(uuid, uuid, uuid),
+    aap_labeling_v1.release_membership_task_locks(uuid, uuid)
+    TO :"workspace_owner";
 GRANT EXECUTE ON FUNCTION
     aap_labeling_v1.identity_platform_role_facts(uuid, uuid[])
     TO :"identity_owner";
@@ -1407,6 +1429,8 @@ ALTER FUNCTION aap_identity_briefs_v1.execute_briefs_command(jsonb)
 REVOKE CREATE ON SCHEMA aap_identity_briefs_v1 FROM :"identity_owner";
 
 GRANT CREATE ON SCHEMA aap_workspace_v1 TO :"workspace_owner";
+GRANT USAGE, CREATE ON SCHEMA aap_workspace_membership_v1
+    TO :"workspace_owner";
 ALTER FUNCTION aap_workspace_v1.lock_project_reference(uuid) OWNER TO :"workspace_owner";
 ALTER FUNCTION aap_workspace_v1._project_read_failure(text)
     OWNER TO :"workspace_owner";
@@ -1462,6 +1486,38 @@ ALTER FUNCTION aap_workspace_v1.unlink_dataset(uuid, uuid, uuid, uuid, text, jso
     OWNER TO :"workspace_owner";
 ALTER VIEW aap_workspace_v1.project_catalog_configs OWNER TO :"workspace_owner";
 REVOKE CREATE ON SCHEMA aap_workspace_v1 FROM :"workspace_owner";
+ALTER FUNCTION aap_workspace_membership_v1._has_exact_keys(jsonb, text[])
+    OWNER TO :"workspace_owner";
+ALTER FUNCTION aap_workspace_membership_v1._failure(integer, jsonb, jsonb, boolean)
+    OWNER TO :"workspace_owner";
+ALTER FUNCTION aap_workspace_membership_v1._request_is_valid(jsonb)
+    OWNER TO :"workspace_owner";
+ALTER FUNCTION aap_workspace_membership_v1._membership_record(uuid, uuid)
+    OWNER TO :"workspace_owner";
+ALTER FUNCTION aap_workspace_membership_v1.membership_policy()
+    OWNER TO :"workspace_owner";
+ALTER FUNCTION aap_workspace_membership_v1.prepare_membership_command(jsonb)
+    OWNER TO :"workspace_owner";
+ALTER FUNCTION aap_workspace_membership_v1.apply_membership_command(jsonb)
+    OWNER TO :"workspace_owner";
+REVOKE CREATE ON SCHEMA aap_workspace_membership_v1 FROM :"workspace_owner";
+ALTER FUNCTION aap_identity_v1.read_workspace_membership_accounts(uuid[])
+    OWNER TO :"identity_owner";
+ALTER FUNCTION aap_audit_v1.record_workspace_membership_event(
+    text, jsonb, uuid, jsonb, jsonb
+) OWNER TO :"audit_owner";
+ALTER FUNCTION aap_labeling_v1.read_membership_work(uuid, uuid, uuid, uuid)
+    OWNER TO :"labeling_owner";
+ALTER FUNCTION aap_labeling_v1.lock_membership_work(uuid, uuid, text, boolean)
+    OWNER TO :"labeling_owner";
+ALTER FUNCTION aap_labeling_v1.handoff_membership_annotation(uuid, uuid, uuid)
+    OWNER TO :"labeling_owner";
+ALTER FUNCTION aap_labeling_v1.handoff_membership_reviewer(uuid, uuid, uuid)
+    OWNER TO :"labeling_owner";
+ALTER FUNCTION aap_labeling_v1.release_membership_task_locks(uuid, uuid)
+    OWNER TO :"labeling_owner";
+ALTER FUNCTION aap_labeling_v1._membership_python_repr(jsonb)
+    OWNER TO :"labeling_owner";
 
 ALTER FUNCTION aap_labeling_v1.invitation_work_summary(uuid, uuid, text)
     OWNER TO :"labeling_owner";
