@@ -22,6 +22,7 @@ from aap_workspace.owner_transfer_contract import (
     OwnerTransferSuccess,
 )
 from aap_workspace.owner_transfer_postgres import OwnerTransferPostgresData
+from app.config import settings
 from app.db.models.project import Project
 from app.db.models.user import User
 from tests.factory import create_project, create_user
@@ -367,4 +368,129 @@ async def test_owner_transfer_operation_id_contention_is_nonblocking(test_engine
             maker,
             [actor_id, target_id, second_id, employee_id],
             project_id,
+        )
+
+
+@pytest.mark.parametrize(
+    "corruption", ["duplicate", "unrequested", "coercible_boolean"]
+)
+async def test_owner_transfer_fails_closed_on_malformed_identity_lock_rows(
+    test_engine, corruption
+):
+    maker, actor_id, target_id, second_id, employee_id, project_id = await _seed(
+        test_engine
+    )
+    owner_url = make_url(settings.effective_migration_database_url)
+    client_url = make_url(_transfer_dsn(test_engine))
+    assert (owner_url.host, owner_url.port, owner_url.database) == (
+        client_url.host,
+        client_url.port,
+        client_url.database,
+    )
+    owner_dsn = owner_url.set(drivername="postgresql").render_as_string(
+        hide_password=False
+    )
+    other_id = uuid.uuid4()
+    rows = [
+        {
+            "id": str(actor_id),
+            "name": "Owner transfer actor",
+            "email": f"malformed-actor-{actor_id.hex}@example.test",
+            "role": "super_admin",
+            "is_active": True,
+        },
+        {
+            "id": str(target_id),
+            "name": "Owner transfer target",
+            "email": f"malformed-target-{target_id.hex}@example.test",
+            "role": "project_admin",
+            "is_active": True,
+        },
+    ]
+    if corruption == "duplicate":
+        rows.append(dict(rows[1]))
+    elif corruption == "unrequested":
+        rows.append(
+            {
+                "id": str(other_id),
+                "name": "Unrequested account",
+                "email": f"malformed-extra-{other_id.hex}@example.test",
+                "role": "employee",
+                "is_active": True,
+            }
+        )
+    else:
+        rows[0]["is_active"] = "true"
+    account_payload = json.dumps(
+        {"schema": "aap-identity-account-locks/v1", "accounts": rows}
+    )
+    request = _request(actor_id, project_id, target_id)
+    request_json = json.dumps(request.model_dump(mode="json", by_alias=True))
+    owner = await asyncpg.connect(owner_dsn)
+    transaction = owner.transaction()
+    started = False
+    try:
+        await transaction.start()
+        started = True
+        await owner.execute(
+            """
+            CREATE OR REPLACE FUNCTION aap_identity_v1.lock_accounts_update(
+                p_account_ids uuid[], p_nowait boolean
+            ) RETURNS jsonb
+            LANGUAGE sql VOLATILE PARALLEL UNSAFE SECURITY DEFINER
+            SET search_path = pg_catalog, pg_temp
+            AS $function$
+                SELECT $owner_transfer_test$"""
+            + account_payload
+            + """$owner_transfer_test$::jsonb
+            $function$
+            """
+        )
+        with pytest.raises(asyncpg.PostgresError) as malformed:
+            await owner.fetchval(
+                "SELECT aap_workspace_owner_transfer_v1.transfer_project_owner($1::jsonb)",
+                request_json,
+            )
+        assert malformed.value.sqlstate == "XX000"
+        assert "account lock" in str(malformed.value)
+        await transaction.rollback()
+        started = False
+
+        async with maker() as session:
+            state = (
+                (
+                    await session.execute(
+                        text(
+                            "SELECT project.owner_id, "
+                            "(SELECT count(*) FROM public.workspace_owner_transfer_operation_receipts "
+                            " WHERE operation_id=:operation_id) AS receipt_count "
+                            "FROM public.projects AS project WHERE project.id=:project_id"
+                        ),
+                        {
+                            "operation_id": request.operation_id,
+                            "project_id": project_id,
+                        },
+                    )
+                )
+                .mappings()
+                .one()
+            )
+            assert state["owner_id"] == actor_id
+            assert state["receipt_count"] == 0
+            functiondef = await session.scalar(
+                text(
+                    "SELECT pg_catalog.pg_get_functiondef("
+                    "'aap_identity_v1.lock_accounts_update(uuid[],boolean)'::regprocedure)"
+                )
+            )
+            assert "FOR UPDATE OF account NOWAIT" in functiondef
+    finally:
+        if started:
+            await transaction.rollback()
+        await owner.close()
+        await _cleanup(
+            maker,
+            [actor_id, target_id, second_id, employee_id],
+            project_id,
+            [request.operation_id],
         )

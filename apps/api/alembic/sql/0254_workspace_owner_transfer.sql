@@ -103,6 +103,8 @@ DECLARE
     v_column_name text;
     v_constraint_name text;
     v_datatype_name text;
+    v_account_row_count integer;
+    v_unique_account_count integer;
     v_rows integer;
 BEGIN
     IF NOT aap_workspace_membership_v1._has_exact_keys(
@@ -182,7 +184,7 @@ BEGIN
             v_table_name = TABLE_NAME,
             v_column_name = COLUMN_NAME,
             v_constraint_name = CONSTRAINT_NAME,
-            v_datatype_name = DATATYPE_NAME;
+            v_datatype_name = PG_DATATYPE_NAME;
         RAISE EXCEPTION USING
             ERRCODE = v_sqlstate,
             MESSAGE = v_message,
@@ -204,6 +206,42 @@ BEGIN
        OR pg_catalog.jsonb_typeof(v_account_result->'accounts') IS DISTINCT FROM 'array' THEN
         RAISE EXCEPTION USING ERRCODE = 'XX000',
             MESSAGE = 'invalid Workspace owner-transfer account lock result';
+    END IF;
+
+    IF EXISTS (
+        SELECT 1
+        FROM pg_catalog.jsonb_array_elements(v_account_result->'accounts') AS item(value)
+        WHERE pg_catalog.jsonb_typeof(item.value) IS DISTINCT FROM 'object'
+           OR NOT aap_workspace_membership_v1._has_exact_keys(
+               item.value,
+               ARRAY['id', 'name', 'email', 'role', 'is_active']::text[]
+           )
+           OR pg_catalog.jsonb_typeof(item.value->'id') IS DISTINCT FROM 'string'
+           OR (item.value->>'id') !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+           OR pg_catalog.jsonb_typeof(item.value->'name') IS DISTINCT FROM 'string'
+           OR pg_catalog.jsonb_typeof(item.value->'email') IS DISTINCT FROM 'string'
+           OR pg_catalog.jsonb_typeof(item.value->'role') IS DISTINCT FROM 'string'
+           OR pg_catalog.jsonb_typeof(item.value->'is_active') IS DISTINCT FROM 'boolean'
+    ) THEN
+        RAISE EXCEPTION USING ERRCODE = 'XX000',
+            MESSAGE = 'invalid Workspace owner-transfer account lock row';
+    END IF;
+
+    SELECT pg_catalog.count(*)::integer,
+           pg_catalog.count(DISTINCT account.id)::integer
+    INTO v_account_row_count, v_unique_account_count
+    FROM pg_catalog.jsonb_to_recordset(v_account_result->'accounts') AS account(
+        id uuid, name text, email text, role text, is_active boolean
+    );
+    IF v_account_row_count <> v_unique_account_count OR EXISTS (
+        SELECT 1
+        FROM pg_catalog.jsonb_to_recordset(v_account_result->'accounts') AS account(
+            id uuid, name text, email text, role text, is_active boolean
+        )
+        WHERE NOT (account.id = ANY(v_account_ids))
+    ) THEN
+        RAISE EXCEPTION USING ERRCODE = 'XX000',
+            MESSAGE = 'invalid Workspace owner-transfer account lock set';
     END IF;
 
     SELECT account.id, account.role, account.is_active
@@ -249,7 +287,7 @@ BEGIN
             v_table_name = TABLE_NAME,
             v_column_name = COLUMN_NAME,
             v_constraint_name = CONSTRAINT_NAME,
-            v_datatype_name = DATATYPE_NAME;
+            v_datatype_name = PG_DATATYPE_NAME;
         IF v_sqlstate IN ('55P03', '40001', '40P01') THEN
             RAISE EXCEPTION USING
                 ERRCODE = v_sqlstate,
