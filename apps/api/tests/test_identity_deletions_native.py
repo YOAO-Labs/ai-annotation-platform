@@ -90,6 +90,14 @@ def _manager(test_engine, secret: str) -> DeletionManager:
     )
 
 
+class _CapturedDeletionAuthenticator:
+    def __init__(self, verified):
+        self.verified = verified
+
+    async def authenticate_bound(self, _token: str):
+        return self.verified
+
+
 def _request(
     target_id: uuid.UUID,
     token: str,
@@ -892,6 +900,101 @@ async def test_pa_delete_scope_and_receiver_membership_are_legacy_exact(test_eng
             operation_ids=operation_ids,
             project_ids=[owned_project_id, foreign_project_id],
             task_ids=[cross_task, pending_task],
+        )
+
+
+@pytest.mark.asyncio
+async def test_stale_super_admin_snapshot_maps_fresh_project_admin_scope_failure(
+    test_engine,
+):
+    actor_fixture = await _seed(test_engine, role="super_admin", create_key=False)
+    owner_fixture = await _seed(test_engine, role="super_admin", create_key=False)
+    actor_id = actor_fixture["actor_id"]
+    owner_id = owner_fixture["actor_id"]
+    target_id, _ = await _add_user(test_engine, "employee")
+    foreign_project_id = await _add_project(
+        test_engine, owner_id, "Stale role deletion scope"
+    )
+    await _add_member(test_engine, foreign_project_id, target_id, owner_id)
+
+    secret = "identity-deletion-stale-role-scope-secret"
+    token = _token(actor_id, "super_admin", secret)
+    authenticated = Authenticator(PostgresData(_auth_dsn(test_engine)), secret)
+    accepted = await authenticated.authenticate_bound(token)
+    assert accepted.principal.role == "super_admin"
+    generation = accepted.principal.generation
+
+    maker = async_sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
+    async with maker.begin() as session:
+        await session.execute(
+            text("UPDATE public.users SET role='project_admin' WHERE id=:id"),
+            {"id": actor_id},
+        )
+        current = (
+            (
+                await session.execute(
+                    text(
+                        "SELECT role, credential_generation FROM public.users WHERE id=:id"
+                    ),
+                    {"id": actor_id},
+                )
+            )
+            .mappings()
+            .one()
+        )
+        assert current == {
+            "role": "project_admin",
+            "credential_generation": generation,
+        }
+
+    operation_id = uuid.uuid4()
+    request = _request(target_id, token, operation_id=operation_id)
+    manager = DeletionManager(
+        _CapturedDeletionAuthenticator(accepted),
+        DeletionPostgresData(_deletion_dsn(test_engine)),
+        secret,
+    )
+    try:
+        with pytest.raises(DeletionFailure) as denied:
+            await manager.execute(request)
+        assert denied.value.code == "delete_scope_forbidden"
+        assert denied.value.status_code == 403
+        assert denied.value.detail == "该用户跨多个项目，须由超级管理员处理"
+
+        async with maker() as session:
+            assert (
+                await session.scalar(
+                    text("SELECT is_active FROM public.users WHERE id=:id"),
+                    {"id": target_id},
+                )
+            ) is True
+            assert (
+                await session.scalar(
+                    text(
+                        "SELECT count(*) FROM public.identity_deletion_operation_receipts "
+                        "WHERE operation_id=:id"
+                    ),
+                    {"id": operation_id},
+                )
+                == 0
+            )
+            assert (
+                await session.scalar(
+                    text(
+                        "SELECT count(*) FROM public.audit_logs WHERE target_id=:id "
+                        "AND action='user.delete'"
+                    ),
+                    {"id": str(target_id)},
+                )
+                == 0
+            )
+    finally:
+        await _cleanup_deletion_world(
+            test_engine,
+            actor_ids=[actor_id, owner_id, target_id],
+            target_ids=[target_id],
+            operation_ids=[operation_id],
+            project_ids=[foreign_project_id],
         )
 
 
