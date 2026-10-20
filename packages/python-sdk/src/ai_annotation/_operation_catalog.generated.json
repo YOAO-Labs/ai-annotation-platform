@@ -20250,7 +20250,7 @@
       "path": "/api/v1/users/{user_id}/role/preview",
       "operation_id": "preview_user_role_change_api_v1_users__user_id__role_preview_get",
       "summary": "Preview User Role Change",
-      "description": "Platform-role preview.  Super administrator only (plan AUTH-04).",
+      "description": "Preview a platform-role change with current project and work blockers.",
       "tags": [
         "users"
       ],
@@ -22923,7 +22923,7 @@
       "path": "/api/v1/users/{user_id}/role",
       "operation_id": "change_user_role_api_v1_users__user_id__role_patch",
       "summary": "Change User Role",
-      "description": "Platform-role mutation.  Super administrator only (plan AUTH-04).\n\nA platform-role edit never cascades into any project's membership; project\nresponsibility is changed through the project member role endpoints.",
+      "description": "Change a platform role while preserving existing project responsibilities.\n\nA platform-role edit never cascades into any project's membership; project\nresponsibility is changed through the project member role endpoints.",
       "tags": [
         "users"
       ],

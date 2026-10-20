@@ -10,7 +10,7 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.enums import PLATFORM_ROLES, UserRole
+from app.db.enums import UserRole
 from app.db.models.project import Project
 from app.db.models.project_member import ProjectMember
 from app.db.models.task import Task
@@ -18,12 +18,10 @@ from app.db.models.task_lock import TaskLock
 from app.db.models.user import User
 from app.services.audit import AuditAction, AuditService
 from app.services.batch import BatchService
-from app.services.management import platform_role_change_blockers
 from app.services.user_lifecycle import (
     UserLifecycleService,
     retire_account_credentials,
     set_disabled_metadata,
-    set_platform_role,
 )
 
 _MANAGERS = (UserRole.SUPER_ADMIN, UserRole.PROJECT_ADMIN)
@@ -335,103 +333,6 @@ async def deactivate_user(
         request=request,
         status_code=200,
         detail={"email": user.email},
-    )
-    await db.commit()
-    await db.refresh(user)
-    return user
-
-
-async def change_user_role(
-    db: AsyncSession,
-    *,
-    user_id: str,
-    role: str,
-    actor: User,
-    request: Request,
-) -> User:
-    if role not in PLATFORM_ROLES:
-        raise HTTPException(status_code=400, detail=f"非法平台角色: {role}")
-
-    user = await db.get(User, user_id)
-    if user is None or not user.is_active:
-        raise HTTPException(status_code=404, detail="用户不存在")
-    if user.id == actor.id:
-        raise HTTPException(status_code=400, detail="不能修改自己的角色")
-
-    # Revalidate the actor and target under account locks.  Recompute the
-    # current role and the no-op case only after the fresh reload so a stale
-    # ORM identity cannot decide the mutation.
-    # The shared account owner refreshes both authority rows under the lock.
-
-    await UserLifecycleService.lock_super_admin_invariant(db)
-    await UserLifecycleService.lock_accounts(db, [actor.id, user.id])
-    fresh_actor = await db.get(User, actor.id, populate_existing=True)
-    if (
-        fresh_actor is None
-        or not fresh_actor.is_active
-        or fresh_actor.role != UserRole.SUPER_ADMIN.value
-    ):
-        raise HTTPException(status_code=403, detail="当前账号已无管理权限")
-    fresh_user = await db.get(User, user.id, populate_existing=True)
-    if fresh_user is None or not fresh_user.is_active:
-        raise HTTPException(status_code=404, detail="用户不存在")
-    user = fresh_user
-
-    old_role = user.role
-    new_role = role
-    if old_role == new_role:
-        return user
-
-    # Serialize against ownership transfers: hold the target's owned project
-    # rows so a concurrent transfer cannot interleave between the ownership
-    # blocker count and the role write (accounts are already locked above, and
-    # the transfer endpoint takes account -> project in the same order).
-    from app.db.models.project import Project as ProjectModel
-
-    try:
-        await db.execute(
-            select(ProjectModel.id)
-            .where(ProjectModel.owner_id == user.id)
-            .order_by(ProjectModel.id)
-            .with_for_update(nowait=True)
-        )
-    except DBAPIError as exc:
-        if getattr(exc.orig, "sqlstate", None) in {"55P03", "40001", "40P01"}:
-            raise HTTPException(
-                status_code=409, detail={"reason": "project_busy"}
-            ) from exc
-        raise
-
-    blockers = await platform_role_change_blockers(db, target=user, new_role=new_role)
-    if blockers:
-        raise HTTPException(
-            status_code=409,
-            detail={
-                "reason": "platform_role_change_blocked",
-                "blockers": blockers,
-            },
-        )
-
-    # —— super_admin 兜底：最后一名 super_admin 不可被降级 ——
-    if (
-        old_role == UserRole.SUPER_ADMIN.value
-        and new_role != UserRole.SUPER_ADMIN.value
-    ):
-        if (await UserLifecycleService.super_admin_status(db, user.id))[
-            "other_unreserved"
-        ] == 0:
-            raise HTTPException(status_code=400, detail="不能降级最后一名超级管理员")
-
-    set_platform_role(user, new_role)
-    await AuditService.log(
-        db,
-        actor=actor,
-        action=AuditAction.USER_ROLE_CHANGE,
-        target_type="user",
-        target_id=str(user.id),
-        request=request,
-        status_code=200,
-        detail={"email": user.email, "old": old_role, "new": new_role},
     )
     await db.commit()
     await db.refresh(user)

@@ -63,11 +63,6 @@ def reactivate_account(user: User) -> None:
     user.disabled_reason = None
 
 
-def set_platform_role(user: User, role: str) -> None:
-    """Apply a validated role change while the account lock is held."""
-    user.role = role
-
-
 async def retire_account_credentials(
     db: AsyncSession, user_id: uuid.UUID
 ) -> list[uuid.UUID]:

@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field
 from app.core.ratelimit import limiter
 from app.deps import bearer_scheme, get_db, require_roles
 from app.db.models.user import User
-from app.db.enums import PLATFORM_ROLES, UserRole
+from app.db.enums import UserRole
 from app.schemas.user import (
     OffboardingCommitRequest,
     OffboardingPreview,
@@ -32,9 +32,11 @@ from app.schemas.management import (
     UserPage,
 )
 from app.services.csv_export import csv_literal
-from app.services.management import (
-    role_impact_preview,
+from app.api.v1.platform_role_commands import (
+    execute_platform_role,
+    get_platform_role_commands,
 )
+from app.services.identity_platform_role_commands import PlatformRoleCommandsPort
 from app.api.v1.admin_password_commands import (
     execute_admin_password_reset,
     get_admin_password_commands,
@@ -50,7 +52,6 @@ from app.api.v1.invitation_commands import (
 from app.services.identity_invitation_commands import InvitationCommandsPort
 from app.services.identity_group_commands import GroupCommandsPort
 from app.application.legacy_user_lifecycle import (
-    change_user_role as change_user_role_workflow,
     deactivate_user as deactivate_user_workflow,
     delete_user as delete_user_workflow,
 )
@@ -349,24 +350,14 @@ class RoleChangePayload(BaseModel):
 @router.get("/{user_id}/role/preview", response_model=RoleImpactPreview)
 async def preview_user_role_change(
     user_id: UUID,
+    request: Request,
     role: str = Query(..., min_length=1),
-    db: AsyncSession = Depends(get_db),
-    actor: User = Depends(require_roles(UserRole.SUPER_ADMIN)),
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+    commands: PlatformRoleCommandsPort = Depends(get_platform_role_commands),
 ):
-    """Platform-role preview.  Super administrator only (plan AUTH-04)."""
-
-    if role not in PLATFORM_ROLES:
-        raise HTTPException(status_code=400, detail=f"非法平台角色: {role}")
-    target = await db.get(User, user_id)
-    if target is None or not target.is_active:
-        raise HTTPException(status_code=404, detail="用户不存在")
-    return await role_impact_preview(
-        db,
-        actor=actor,
-        target=target,
-        requested_role=role,
-        manager_target_check=True,
-        assignable_roles=PLATFORM_ROLES,
+    """Preview a platform-role change with current project and work blockers."""
+    return await execute_platform_role(
+        request, credentials, commands, "preview_role_change", user_id, role
     )
 
 
@@ -375,18 +366,19 @@ async def change_user_role(
     user_id: str,
     payload: RoleChangePayload,
     request: Request,
-    db: AsyncSession = Depends(get_db),
-    actor: User = Depends(require_roles(UserRole.SUPER_ADMIN)),
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+    commands: PlatformRoleCommandsPort = Depends(get_platform_role_commands),
 ):
-    """Platform-role mutation.  Super administrator only (plan AUTH-04).
+    """Change a platform role while preserving existing project responsibilities.
 
     A platform-role edit never cascades into any project's membership; project
     responsibility is changed through the project member role endpoints.
     """
 
-    return await change_user_role_workflow(
-        db, user_id=user_id, role=payload.role, actor=actor, request=request
+    data = await execute_platform_role(
+        request, credentials, commands, "change_platform_role", user_id, payload.role
     )
+    return data["user"]
 
 
 class AdminResetPasswordResponse(BaseModel):
