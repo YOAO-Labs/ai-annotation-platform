@@ -423,10 +423,12 @@ function validateRegistration(request, data) {
     account.id !== operationId ||
     account.email !== payload.email ||
     account.name !== payload.name ||
-    account.role !== "employee" ||
+    account.role !== "viewer" ||
     account.group_name !== null ||
     account.group_id !== null ||
     account.is_active !== true ||
+    account.status !== (data.email_verification_required ? "offline" : "online") ||
+    account.last_login_at !== null ||
     (data.email_verification_required && account.email_verified_at !== null) ||
     (!data.email_verification_required && account.email_verified_at === null)
   ) {
@@ -613,7 +615,7 @@ function testAccount(actorId, email, name, overrides = {}) {
     id: actorId,
     email,
     name,
-    role: "employee",
+    role: "viewer",
     group_name: null,
     group_id: null,
     status: "online",
@@ -650,7 +652,7 @@ function registrationData(request, verificationRequired = false, overrides = {})
   const payload = request.request.payload;
   const claims = {
     sub: actorId,
-    role: "employee",
+    role: "viewer",
     exp: 1893456000,
     jti: actorId,
     gen: 0n,
@@ -659,6 +661,7 @@ function registrationData(request, verificationRequired = false, overrides = {})
   return {
     account: testAccount(actorId, payload.email, payload.name, {
       email_verified_at: verificationRequired ? null : "2025-01-01T00:00:00Z",
+      status: verificationRequired ? "offline" : "online",
     }),
     claims: verificationRequired ? null : claims,
     access_token: verificationRequired ? null : makeJwt(claims),
@@ -695,6 +698,9 @@ function selfCheck() {
   );
   if (
     issued.receipt.account.id !== actorId ||
+    issued.receipt.account.role !== "viewer" ||
+    issued.receipt.account.status !== "online" ||
+    issued.receipt.account.last_login_at !== null ||
     issued.receipt.claims.generation_decimal !== "0" ||
     issued.receipt.access_token_sha256.length !== 64
   ) {
@@ -732,7 +738,9 @@ function selfCheck() {
   );
   if (
     !pending.receipt.email_verification_required ||
-    pending.receipt.access_token_sha256 !== null
+    pending.receipt.access_token_sha256 !== null ||
+    pending.receipt.account.status !== "offline" ||
+    pending.receipt.account.role !== "viewer"
   ) {
     fail();
   }
@@ -915,7 +923,7 @@ function selfCheck() {
   );
   checks += 1;
   const wrongRole = registrationData(register);
-  wrongRole.claims.role = "viewer";
+  wrongRole.claims.role = "employee";
   wrongRole.access_token = makeJwt(wrongRole.claims);
   expectFailure(() =>
     decodeRecoveryResponse(register, testReply(register, wrongRole), 200, "application/json"),
