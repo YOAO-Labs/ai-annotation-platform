@@ -607,7 +607,7 @@ async def test_installed_suspension_replay_reservation_credentials_and_host_samp
         assert suspend_audit[0]["target_type"] == "user"
         assert suspend_audit[0]["target_id"] == str(reservation_target_id)
         assert suspend_audit[0]["status_code"] == 200
-        assert suspend_audit[0]["detail_json"] == {"email": reservation.email}
+        assert suspend_audit[0]["detail_json"] == {"email": accepted_lifecycle["email"]}
         state_after_suspend = await _lifecycle_state(maker, reservation_target_id)
         assert state_after_suspend["credential_generation"] == 1
         assert state_after_suspend["is_active"] is False
