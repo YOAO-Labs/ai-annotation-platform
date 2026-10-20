@@ -9,19 +9,21 @@ last_reviewed: 2026-10-20
 
 协议对象只接受声明的 wire 字段名：版本字段为 `schema`。内部 Python 字段名 `protocol` 无论单独使用还是与 `schema` 同时提交都被拒绝；opaque 偏好值中的同名键不受影响。
 
-Identity 运行时提供认证准入、API key、核心会话、自助账户、全局分组目录与指派、账号恢复和在线扫描命令，供受信任的服务调用。公开用户接口仍是 `/api/v1/auth/` 和 `/api/v1/me/api-keys`。私有接口要求独立控制 Bearer；需要用户身份的操作将凭据放在 JSON 的 `token` 中，不能代替控制凭据。账号恢复使用匿名请求或单次挑战证明，邮件由同一工件的独立执行进程投递。
+Identity 运行时提供认证准入、API key、核心会话、自助账户、全局分组目录与指派、自助注销、注销到期处理、账号恢复和在线扫描命令，供受信任的服务调用。公开用户接口仍是 `/api/v1/auth/` 和 `/api/v1/me/api-keys`。私有接口要求独立控制 Bearer；需要用户身份的操作将凭据放在 JSON 的 `token` 中，不能代替控制凭据。账号恢复使用匿名请求或单次挑战证明，邮件与注销通知分别由独立执行进程投递。
 
-| 接口                                       | 用途                                           |
-| ------------------------------------------ | ---------------------------------------------- |
-| `GET /health`                              | 进程存活                                       |
-| `GET /ready`                               | 原生策略和所配置能力的精确函数权限             |
-| `POST /v1/identity/authenticate`           | JWT／API key 准入，返回 `aap-identity/v1` 主体 |
-| `POST /v1/identity/api-keys/execute`       | API key 列表、创建、修改、轮换和撤销           |
-| `POST /v1/identity/sessions/execute`       | 登录、刷新、登出和全端登出                     |
-| `POST /v1/identity/accounts/execute`       | 当前资料、改名、偏好、心跳、改密和头像引用     |
-| `POST /v1/identity/presence/mark-inactive` | 按已固定的 cutoff 批量标记离线                 |
-| `POST /v1/identity/groups/execute`         | 分组目录、查询、指派预览／执行                 |
-| `POST /v1/identity/recovery/execute`       | 开放注册、重置请求／消费、验证邮件重发／消费   |
+| 接口                                         | 用途                                           |
+| -------------------------------------------- | ---------------------------------------------- |
+| `GET /health`                                | 进程存活                                       |
+| `GET /ready`                                 | 原生策略和所配置能力的精确函数权限             |
+| `POST /v1/identity/authenticate`             | JWT／API key 准入，返回 `aap-identity/v1` 主体 |
+| `POST /v1/identity/api-keys/execute`         | API key 列表、创建、修改、轮换和撤销           |
+| `POST /v1/identity/sessions/execute`         | 登录、刷新、登出和全端登出                     |
+| `POST /v1/identity/accounts/execute`         | 当前资料、改名、偏好、心跳、改密和头像引用     |
+| `POST /v1/identity/presence/mark-inactive`   | 按已固定的 cutoff 批量标记离线                 |
+| `POST /v1/identity/groups/execute`           | 分组目录、查询、指派预览／执行                 |
+| `POST /v1/identity/deactivation/execute`     | 自助注销申请与撤销                             |
+| `POST /v1/identity/deactivation/process-due` | 分页处理已到期的自助注销申请                   |
+| `POST /v1/identity/recovery/execute`         | 开放注册、重置请求／消费、验证邮件重发／消费   |
 
 ## API key 请求
 
@@ -147,6 +149,45 @@ Identity 的 GROUP LOGIN 只有 `group_policy()` 与 `execute_group_command(json
 API 可设置 `IDENTITY_GROUP_DATABASE_URL` 或 `IDENTITY_GROUP_DATABASE_URL_FILE`；独立 Identity runtime 读取同名的 `IDENTITY_GROUP_DATABASE_URL(_FILE)` 配置。省略 DSN 时使用内嵌调用方事务；显式配置的 DSN 失败时返回不可用，不切换到其他写入者。Compose 用宿主机 `IDENTITY_RUNTIME_GROUP_DATABASE_URL_FILE` 选择文件，并在容器内挂载为 `IDENTITY_GROUP_DATABASE_URL_FILE`。专用 DSN 必须指向同一个 PostgreSQL 数据库，由它承载 Workspace scope function 和 Identity group schema。
 
 Invitation 接受仍走原 coordinator。它可在既有邀请事务中调用私有 `resolve_invitation_group(uuid,text)` 读取/创建组值；该 helper 不是公开 wire 操作，也没有授予 GROUP LOGIN。邀请、目录搜索、其他用户资料、平台角色和多-owner lifecycle 仍未整体迁移。部署 DSN、精确 grant、Audit 与 receipt 规则见 [DEV.md](https://github.com/yyq19990828/ai-annotation-platform/blob/main/DEV.md) 和 [ADR-0120](/dev/adr/0120-independent-identity-group-catalog-and-assignment)。
+
+## 自助注销与最后一名超级管理员围栏
+
+公开 `POST /api/v1/me/deactivation-request` 与 `DELETE /api/v1/me/deactivation-request` 保持现有路径和 `UserOut` 响应。API 以 `aap-identity-deactivation/v1` 调用 `POST /v1/identity/deactivation/execute`；该协议只接受 `schema`、`operation`、`operation_id`、`token`、`audit_context` 与 `payload`。`operation_id` 为 UUID，`token` 是 1–16,384 字符的有效 JWT／API key，且按 secret 处理。
+
+| operation                   | payload                                           | success data               |
+| --------------------------- | ------------------------------------------------- | -------------------------- |
+| `request_self_deactivation` | `{reason: string or null}`；最多 500 Unicode 字符 | `{account: AccountRecord}` |
+| `cancel_self_deactivation`  | `{}`                                              | `{account: AccountRecord}` |
+
+当前身份只能操作自己；四种启用平台角色都可申请。reason 按 Python `str.strip()` 修剪并限制 500 字符，不进入响应、Audit detail 或通知 payload。成功请求沿用七天 UTC 冷静期；重复申请与无待处理申请分别保留既有 400 错误。返回的 `account.id` 必须等于当前 actor。
+
+Identity 在变更或回放前重新验证当前 JWT／API key，并在同一事务内获取用户锁、核验凭据代际／API key hash、状态、请求回执和业务策略。成功 account、Audit、通知 outbox 与冻结操作结果共同提交；重放要求当前有效凭据，返回冻结 account，但不会恢复较新的注销字段或重复副作用。Native wire `aap-identity-deactivation-native/v1` 使用 actor、仅在 API key 时出现的 `expected_key_hash`、请求 HMAC 与派生 ID，不传原 bearer 或审计上下文进入幂等指纹。HMAC 域为 `aap-identity-deactivation/v1`，指纹只覆盖规范化的 `{operation,payload}`。
+
+用户命令失败使用公共失败 envelope，附加 `account_busy`、`invariant_busy`、`operation_conflict` 与 `policy_rejected`。策略失败在接受前即与 actor／operation／请求范围绑定，不产生成功回执。无效／停用身份沿用公共 401；用户锁或超管 fence 忙返回安全 409；请求范围冲突用 `{reason:operation_conflict}`；未配置选定 Identity capability 或显式连接故障返回 503，不回退到本地 User ORM。非策略错误不透出 PostgreSQL 诊断。
+
+自助超级管理员申请要求至少有一名**其他启用**超级管理员；若没有，返回 `400 您是最后一名超级管理员，请先指定继任者再申请注销`。如果还有其他启用超级管理员，但他们都已有未完成的注销申请，则返回 `400 其余超级管理员均已申请注销，请先让其他管理员撤销申请或指定继任者`。`unreserved` 的定义是启用且 `deactivation_requested_at`、`deactivation_scheduled_at` 都为空。Role preview 使用同一状态快照；会减少启用超级管理员的管理、停用和 offboarding 写入也要求保留至少一名其他未预留的超级管理员。
+
+这个约束由单个版本化 advisory try-lock 围栏串行化；所有减少超级管理员或改变其生命周期的路径都先取围栏，再按 UUID 顺序锁用户。锁竞争返回 `409`，重试必须沿用对应请求／页的操作 UUID。预留注销申请已被接受后，管理员 suspend 或 reactivate 不会撤销它；只有用户显式取消或到期处理成功才清除这三个请求字段。管理停用和 offboarding 原有的凭据副作用仍单独保留。
+
+到期执行由私有 `POST /v1/identity/deactivation/process-due` 提供，只接受 control Bearer，不接收用户 token、调用方指定的用户 ID 或时钟。请求精确为 `{schema:"aap-identity-deactivation-due/v1",operation_id:UUID,limit:int}`；limit 必须是严格整数 1–500，默认 256，是单页事务上限而不是总处理上限。响应是 `{schema,ok:true,operation_id,processed,examined,blocked_last_super_admin,has_more}`，其中 `processed + blocked_last_super_admin = examined <= limit`；不返回用户资料或通知值。错误只允许 `invalid_request`、`invariant_busy` 与 `operation_conflict`。
+
+调度器继续使用 `app.workers.deactivation.process_deactivation_requests` 和每日 04:00 UTC 节奏。Celery request UUID 固定为一次运行的 ID，各页用 `uuid5(run_id,"batch:N")` 固定；任务回放先读回已提交页，再继续领取。每页完成后 worker 持续读取，直到没有进展或 `has_more=false`，因此不存在总量截断。当前被锁定或因最后超级管理员保护而阻塞的页不会计作永久失败或丢弃；无进展就结束本轮，下一次日调度使用新 ID。
+
+Celery task 的兼容结果保持 `{processed: n}`，其中 `n` 是本次 run 成功注销的用户数；blocked-last-admin 与 examined page 数只存在于私有 operator page，不进入旧 task 响应。
+
+每名实际到期用户在停用前再次确认仍有其他启用超级管理员。通过后只做软删除：设为 inactive/offline、`disabled_kind=deleted`、`disabled_by=self`，reason 用原申请原因或 `自助注销申请到期`，然后清除三个请求字段。若该用户是最后一名实际启用超级管理员，保留所有请求字段与待处理账本，不写批准 Audit，也不发完成通知，并增加 `blocked_last_super_admin`。此自助到期流程不推进 JWT generation、不撤 API key，也不交接任务或项目。
+
+Audit 只允许 `user.deactivation_request`、`user.deactivation_cancel`、`user.deactivation_approve` 三种固定事件，调用 `aap_audit_v1.record_identity_deactivation_event(text,jsonb,jsonb,jsonb)`；请求 detail 只有 `scheduled_at` 和 `reason_present`，原因正文不保存。批准流程先插入批准事件，再对该 actor 的历史仅将现存 `actor_email` 和 `actor_role` 两列置空。历史 `detail_json`、通知 payload 中的既有邮箱／角色字段都保留；这不是完整 GDPR 或通用字段擦除保证。
+
+## 注销通知的 durable publisher
+
+注销申请和成功完成会在业务事务中调用 Notifications owner 的 `create_identity_deactivation_notifications(uuid,text,jsonb,uuid[])`：request 通知 `user.deactivation_requested` 发给当前启用的超级管理员（申请人是超管时也包含本人）；completion 通知 `user.deactivation_completed` 发给其他当前启用超级管理员，不包含被注销者。request payload 固定为 `{email,name,role,scheduled_at}`，completion 为 `{email,name,auto:true}`；reason 永不写入通知。创建时应用原有 in-app 偏好 truthiness（缺项默认为 true；null、false、0、空字符串／列表／对象视为静音）。业务 Notification 行和 `notification_delivery_outbox` 同事务提交，按 operation／recipient／type 去重；若用户在领取前删除通知，外键级联会取消待投递。
+
+独立 publisher 使用 `aap-notifications-delivery/v1` 和仅有三个函数权限的 `notification_publish_client`：`identity_delivery_policy()`、`claim_identity_deliveries(jsonb)`、`finish_identity_delivery(jsonb)`。领取必须先提交 lease，再向 `notify:{user_id}` 发布；只有 Redis 接受后才能确认。过期或旧 lease 不能确认，worker 失联后可由下一次 claim 接管；same Notification ID 会跨 retry 保持，因此语义为至少一次、允许重复 broker 消息。领取量 1–100（默认 16）、lease 60 秒、进程并发 4、Redis I/O timeout 不超过 5 秒，不需要 lease renewal。只有 `delivered` 和 `retry` 两种安全 finish 状态；publisher 不持有 Identity、AUTH、JWT signing secret 或其他 SQL 能力。
+
+同一安装工件的独立进程命令为 `python -m aap_identity_runtime.notification_worker`，由 `aap_identity_runtime.notification_config.NotificationPublisherSettings` 读取 `NOTIFICATION_PUBLISH_DATABASE_URL(_FILE)` 与 `NOTIFICATION_PUBLISH_REDIS_URL(_FILE)` 两组必需 secret。默认模式持续 poll，`--once` 只领取并处理一个 batch；它不是 HTTP server，也没有 HTTP health endpoint。API/Celery 可复用相同 executor、显式设置 `notification_publish_database_url` 并使用现有 task Redis 配置；default queue 每 10 秒的 relay 与独立 publisher 处理同一 leased outbox，不再并行做 ephemeral best-effort publish。Notifications owner、Compose secret 和运行限制见 [开发部署说明](/ops/deploy/development) 与 [ADR-0121](/dev/adr/0121-identity-self-deactivation-and-notification-delivery)。
+
+API／独立 Identity runtime 的自助 DSN 分别使用 `IDENTITY_DEACTIVATION_DATABASE_URL(_FILE)` 和 `IDENTITY_DEACTIVATION_OPERATOR_DATABASE_URL(_FILE)`；选择器可留空用于调用方事务，明确选择后连接失败不回退。API/Celery 的可选 Notifications SQL binding 为 `NOTIFICATION_PUBLISH_DATABASE_URL(_FILE)`，Redis 继续使用现有 task settings。可选 Compose 的 host selectors 是 `IDENTITY_RUNTIME_DEACTIVATION_DATABASE_URL_FILE`、`IDENTITY_RUNTIME_DEACTIVATION_OPERATOR_DATABASE_URL_FILE`、`IDENTITY_RUNTIME_NOTIFICATION_PUBLISH_DATABASE_URL_FILE` 和 `IDENTITY_RUNTIME_NOTIFICATION_PUBLISH_REDIS_URL_FILE`。独立 publisher secret 只映射到它自己的两项 `NOTIFICATION_PUBLISH_*_FILE`；这些 owner 能力须在共享 PostgreSQL transaction owner 中组合。
 
 ## 开放注册与账号恢复
 

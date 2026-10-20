@@ -3,7 +3,7 @@ audience: [dev]
 type: explanation
 since: v0.9.14
 status: stable
-last_reviewed: 2026-07-29
+last_reviewed: 2026-10-20
 ---
 
 # Task Lock
@@ -66,7 +66,9 @@ task lock 的目标是让“同一时刻谁在编辑这题”有一个明确答�
 
 任务、独立标注、视频章节、追踪任务、标注反馈和个人 API Key 路由先通过 `require_active_task_actor` 重新读取账号启用状态，并取得用户行的共享锁，再进入 handler 的资源锁。scheduler 的旧锁复用、任务领取服务也执行同一账号检查。这样，请求通过认证后即使遇到并发停用，也只能先完成原事务或观察到停用状态后停止。
 
-停用、删除、恢复及自助注销申请使用同一用户行锁和新鲜账号状态；到期注销任务跳过当前被其他事务锁定的账号，留待下一轮处理。凭证 generation 在数据库提交前递增，以优先使旧会话失效；若后续数据库提交失败，账号和交接数据回滚，但旧会话仍需重新登录，不能通过降低 generation 恢复旧凭证。
+管理员停用／删除／恢复、自助注销 request/cancel 共用新鲜用户行锁；任何会减少启用超级管理员的写入都先取全局最终管理员 advisory fence，再按 UUID 顺序锁 User。自助 due worker 用 operation-receipted pages 和 `SKIP LOCKED` 跳过当前在途账号，持续排空直到无进展；页大小不是总体 cap，并在每个超级管理员停用前再验证仍有其他实际启用者。Accepted self request 跨管理员 suspension/reactivation 继续有效。
+
+凭据副作用按所有者语义区分：管理员/offboarding 流程保持原有 generation、key 与职责交接规则；自助注销到期仅做 inactive/offline 软删除，不推进 JWT generation、不撤 API key、不迁移任务/项目。数据库提交失败时业务状态与自助请求／受限 Audit／Notification outbox 一起回滚；旧自助注销不会因人工 suspend/reactivate 自动取消。
 
 人员交接锁定操作者、目标账号及接收人，再核对项目、批次、任务与锁。由于既有批次管理和任务回写使用不同的资源锁顺序，交接使用 `NOWAIT` 行锁与非阻塞 task advisory lock；遇到在途写入时返回 `409` 要求刷新预览，避免等待构成锁循环。
 

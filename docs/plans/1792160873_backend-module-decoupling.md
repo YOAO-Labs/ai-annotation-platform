@@ -1,6 +1,6 @@
 # 后端业务模块解耦与跨语言替换设计
 
-> Status: 进行中。当前目标覆盖 identity、workspace、assets、labeling、inference、learning、insights、jobs、audit、notifications 及运行装配。前序 Python 进程内切片、常驻 API 恢复和既有训练作业执行权交接已完成。assets 视频探测三个操作已提供独立 Python 工件、流式合同及真实调用端的 Node 替换验收；同步 ZIP 与旧前缀扫描已纳入既有 Assets Source 工件及 0215 原生合同，并通过真实隔离服务、受限角色与故障恢复验收。Scene、位姿和标定切片已提取至既有 Catalog 工件，并通过隔离数据库、真实 HTTP/S3 与消费者资格验证；连接管理及本地图片/nuScenes 来源登记已迁入各自合同并完成本地验收；媒体/Blob、其余运维流程和其他模块继续推进。Identity 注册恢复与邮件的本地实现已完成对应进程／owner 资格；本次接续分组目录与指派 owner 切片，Workspace scope、审计、回执和 Compose 配置已有明确合同，但该组的集成／live 资格仍待完成。Go 月报保持独立实验，其可用性和容量不作为本目标门槛。当前各模块缺口见[模块部署与语言替换状态](../../docs-site/dev/concepts/module-deployment.md)。
+> Status: 进行中。当前目标覆盖 identity、workspace、assets、labeling、inference、learning、insights、jobs、audit、notifications 及运行装配。前序 Python 进程内切片、常驻 API 恢复和既有训练作业执行权交接已完成。assets 视频探测三个操作已提供独立 Python 工件、流式合同及真实调用端的 Node 替换验收；同步 ZIP 与旧前缀扫描已纳入既有 Assets Source 工件及 0215 原生合同，并通过真实隔离服务、受限角色与故障恢复验收。Scene、位姿和标定切片已提取至既有 Catalog 工件，并通过隔离数据库、真实 HTTP/S3 与消费者资格验证；连接管理及本地图片/nuScenes 来源登记已迁入各自合同并完成本地验收；媒体/Blob、其余运维流程和其他模块继续推进。Identity 注册恢复／邮件和分组目录／指派均已有本地 owner 及消费者资格；当前继续抽取自助注销／到期处理，并将其两类通知交由 Notifications outbox／publisher，最终超级管理员围栏跨入既有 API 生命周期写入。该切片的 database/API/Celery/Redis 资格尚待实际验收。Go 月报保持独立实验，其可用性和容量不作为本目标门槛。当前各模块缺口见[模块部署与语言替换状态](../../docs-site/dev/concepts/module-deployment.md)。
 >
 > 创建日期：2026-10-16。
 >
@@ -2691,9 +2691,10 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   missing-group preview compatibility and installed wheel cache/source checks.
   An inadvertently selected database metadata case was moved from the static
   check into the owned verifier and passed. Historical failures remain in reports.
-- The full goal remains active. Invitation lifecycle and mail, management directory
-  and other-user hydration, role/admin commands, the serialized final-super-admin
-  invariant and cross-owner offboarding are next. Primary Identity cutover,
+- The full goal remains active. Self-deactivation and the serialized final-
+  super-admin invariant, plus durable deactivation-notification delivery, are the
+  next slice. Invitation lifecycle and mail, management directory/role-admin
+  commands, other-user hydration and cross-owner offboarding remain. Primary Identity cutover,
   production deployment, remote CI and Go expansion are not part of this group.
 
 ### Identity group assembled artifact verification
@@ -2716,3 +2717,51 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   annotation at 0234, the unrelated test database at 0218 and all four original
   infrastructure containers. No push, remote CI, production or primary cutover
   was performed.
+
+### Identity self-deactivation and Notifications delivery (current slice)
+
+- Preserve the public POST/DELETE self-deactivation routes and `UserOut` while
+  moving request/cancel and scheduled due processing to the existing portable
+  Identity artifact. User commands use `aap-identity-deactivation/v1`; the
+  control-only due page uses `aap-identity-deactivation-due/v1`. The due `limit`
+  is a per-transaction page size (1–500, default 256), not a total processing
+  ceiling.
+- The new private Identity runtime modules are
+  `apps/identity/src/aap_identity/deactivation_contract.py`,
+  `deactivation_manager.py` and `deactivation_postgres.py`. API uses
+  `app/api/v1/deactivation_commands.py` and
+  `app/services/identity_deactivation_commands.py` with caller-transaction SQL
+  adaptation in `identity_deactivation_data.py`; the existing Celery task name
+  and daily 04:00 UTC schedule remain.
+- The fixed global super-admin try-advisory fence is shared by new self requests
+  and existing role/lifecycle reducers. Every reducing writer takes it before
+  sorted User locks; a conflict stays a safe 409. An accepted self request
+  survives admin suspend/reactivate. Due rechecks the actual active SA count
+  immediately before disabling an SA; a final-SA candidate stays pending and
+  increments `blocked_last_super_admin` rather than clearing its request.
+- Due uses stable Celery run/page UUIDs and frozen page receipts. Worker retries
+  replay the same page before continuing; pages drain until no progress, so there
+  is no total cap. Self due keeps legacy soft-delete semantics and does not
+  advance credential generation, revoke API keys or transfer tasks/projects.
+- Approval Audit redaction only clears the existing actor email/role columns;
+  historic `detail_json` and notification identity payloads remain. Do not call
+  this complete GDPR erasure. Identity calls Notifications to create the two
+  deactivation events and `notification_delivery_outbox` rows in the same
+  transaction.
+- Notifications portable publisher lives in
+  `apps/identity/src/aap_identity/notification_delivery_contract.py` and
+  `notification_delivery_postgres.py`; runtime config/entrypoint are
+  `aap_identity_runtime/notification_config.py` and
+  `notification_worker.py`. The default-queue relay task is
+  `app.workers.notification_delivery.relay_identity_notifications`, scheduled
+  every ten seconds. Its dedicated LOGIN has only policy/claim/finish
+  functions and a Redis identity. The independent non-HTTP process and the
+  every-ten-second default-queue relay use the same executor, committed leases
+  and stable Notification ID; delivery remains at-least-once.
+- API and standalone Compose configuration, migration artifact order and the
+  three restricted roles are recorded in DEV and ADR-0121. This plan entry adds
+  no deactivation pass count or qualification claim: database grants, the shared
+  legacy fence, due replay/no-progress behavior, Redis outage recovery and
+  standalone publisher consumer acceptance remain pending Root's actual checks.
+  No production deployment, daily Identity cutover, alternate-language provider
+  or Go expansion is included.

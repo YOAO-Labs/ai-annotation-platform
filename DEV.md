@@ -1242,6 +1242,24 @@ Create/update/delete、单人指派和批量 apply 写成功操作 receipt，并
 
 邀请接受仍由旧 coordinator 组合；它仅通过私有 `resolve_invitation_group(uuid,text)` helper 解析／创建邀请中的 group value，不授予 `identity_group_client` 此 helper 的调用权。目录搜索、平台角色／用户目录、邀请本身、停用／恢复／离职以及跨 owner 转交仍属于 Identity 后续工作。这个目录／指派切片没有单独完成完整 Identity 的部署、切换、语言替换或生产容量资格。完整字段、错误、Project scope、typed Audit 和 receipts 见[Identity 私有运行协议](/api/guides/identity-runtime)及 [ADR-0120](docs/adr/0120-independent-identity-group-catalog-and-assignment.md)。
 
+### Identity 自助注销与 durable 通知投递
+
+公开 `/api/v1/me/deactivation-request` 的 POST/DELETE 保持现有路径和 `UserOut`；身份命令位于 `POST /v1/identity/deactivation/execute`，使用 `aap-identity-deactivation/v1` 的 request/cancel 两项用户命令。到期处理位于 `POST /v1/identity/deactivation/process-due`，使用 `aap-identity-deactivation-due/v1` 的 operator 页面；它不接收用户 token、指定 user IDs 或调用方时钟。七天冷静期和 Python `str.strip()`/reason 长度保持既有语义，原因不会写入响应、Audit detail 或通知 payload。
+
+申请、取消与到期处理共用 versioned Identity owner。自助申请已经接受后，管理员 suspension/reactivation 不会取消它；仅显式取消或成功到期注销清除三个 `deactivation_*` 请求字段。请求超级管理员注销时必须至少还有另一名启用且未预留注销申请的超级管理员；Legacy API 的超管降级／停用／删除／离职也共用同一全局 try-advisory fence。所有这些减员操作先取 fence 再按 UUID 排序锁用户，争用返回 `409`。到期对每个超级管理员再核对当前实际启用数；若它将成为最后一个，保留申请／ledger 并返回 `blocked_last_super_admin`，不批准、不审计、不发完成通知。
+
+原 Celery task `app.workers.deactivation.process_deactivation_requests` 和每日 04:00 UTC 调度不变；每页 transaction limit 为严格整数 1–500（默认 256），不是全局上限。worker 用 Celery request UUID 作为稳定 run ID、`uuid5(run_id,"batch:N")` 固定 page operation ID；重试复用同一页回执，随后继续排空直到没有进展。旧 task 响应仍为 `{"processed": n}`，`n` 只统计成功注销用户，blocked/examined 留在私有页结果。到期 soft-delete 只标 inactive/offline 并更新既有停用 metadata，不推进 JWT generation、不吊销 API key，也不转交任务／项目。审批 Audit 仅在插入固定事件后将现有历史的 `actor_email`／`actor_role` 置空，保留 `detail_json` 和已存在通知 payload；这不是完整 GDPR 删除。
+
+Native migration 0241 按顺序安装 `0241_deactivation_notifications.sql`、`0241_identity_deactivation.sql`，之后应用当前 module／legacy grant sources。隔离 LOGIN grant 文件是 `infra/docker/identity-deactivation-grants.sql`，只安装三类无继承角色：`identity_deactivation_client` 可执行 `deactivation_policy()`／`execute_deactivation_command(jsonb)`；`identity_deactivation_operator` 可执行 `due_policy()`／`process_due_deactivations(jsonb)`；`notification_publish_client` 可执行 Notifications publisher 的 policy／claim／finish 三项函数。它们没有业务表权限。API 的 legacy `application_role` 只经 `module-data-grants.sql` 与 `lan-production-grants.sql` 获得私有最终管理员状态／锁 helper；这份 grant source 修改未应用到生产。
+
+API 与独立 Identity runtime 的用户能力 DSN 为 `IDENTITY_DEACTIVATION_DATABASE_URL(_FILE)`；到期 operator 使用 `IDENTITY_DEACTIVATION_OPERATOR_DATABASE_URL(_FILE)`。这两项在 API 可选，直接配置或 `_FILE` 每对最多一项；独立运行时省略所选能力时对应路由返回 503，显式 DSN 失败不回退本地 ORM。
+
+注销 request/completion 两种 Notification 由 Notifications owner 在 Identity 业务事务中写入 `notification_delivery_outbox`，创建时应用现有 in-app preference truthiness，不含注销原因。单体 API/Celery relay 可选 `NOTIFICATION_PUBLISH_DATABASE_URL(_FILE)` 并复用现有 task Redis 配置，每 10 秒运行；独立 publisher `python -m aap_identity_runtime.notification_worker` 默认持续 poll，`--once` 仅领取一个 batch，只接收 `NOTIFICATION_PUBLISH_DATABASE_URL(_FILE)` 与 `NOTIFICATION_PUBLISH_REDIS_URL(_FILE)`。两种执行方式使用同一个 lease executor；claim 先提交，Redis 接受前不确认，重试沿用同一 notification ID，投递为 at-least-once。publisher 没有 HTTP health endpoint，也没有 Identity/AUTH/control/JWT/SMTP 配置。
+
+可选 `docker-compose.identity.yml` 中 `identity-admission` 仅挂载 deactivation user/operator DSN；独立 `identity-notification-publisher` 服务只获得 Notifications 数据库与 Redis 两个 secret，并以同一 Identity image、非 root、只读方式启动。宿主机路径选择器分别为 `IDENTITY_RUNTIME_DEACTIVATION_DATABASE_URL_FILE`、`IDENTITY_RUNTIME_DEACTIVATION_OPERATOR_DATABASE_URL_FILE`、`IDENTITY_RUNTIME_NOTIFICATION_PUBLISH_DATABASE_URL_FILE`、`IDENTITY_RUNTIME_NOTIFICATION_PUBLISH_REDIS_URL_FILE`；运行容器内使用 `IDENTITY_DEACTIVATION_DATABASE_URL_FILE`、`IDENTITY_DEACTIVATION_OPERATOR_DATABASE_URL_FILE`、`NOTIFICATION_PUBLISH_DATABASE_URL_FILE`、`NOTIFICATION_PUBLISH_REDIS_URL_FILE`。DSN 必须指向同一 PostgreSQL owner database，以共同提交身份状态、Audit 与通知 outbox。完整协议、最后管理员状态、Audit 边界和 worker recovery 见[Identity 私有运行协议](/api/guides/identity-runtime#自助注销与最后一名超级管理员围栏)、[审计与通知](/dev/concepts/audit-and-notifications#自助注销的-durable-delivery)和 [ADR-0121](docs/adr/0121-identity-self-deactivation-and-notification-delivery.md)。
+
+本切片正在开发，数据库角色、Legacy API 竞态、Celery 逐页重放、真实 Redis publisher 与停服接管验证均待 Root 实际验收后记录；不表示 Identity 全模块、生产部署或另一语言提供方已经完成。Go 月报仍是独立实验。
+
 ## 普通批量结果检查点
 
 安装当前迁移和 `module-data-grants.sql` 后，为预先创建、无角色成员关系的 `preannotation_result_client` LOGIN 安装精确能力。数据库初始化必须已撤销 PUBLIC 的 TEMP，并按需给现有角色单独重授；授权脚本会核验此项，不隐式修改 PUBLIC ACL。本地一次性验收器执行该初始化：

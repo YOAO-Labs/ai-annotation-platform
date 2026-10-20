@@ -146,9 +146,11 @@ docker compose down -v       # 连数据卷一起删（清空 PG / MinIO，慎�
 
 默认开发栈仍由宿主机 API 内嵌装配 Identity owner；分组操作不需要单独数据库，也不能改成和 Workspace 分开的数据库，因为 assignment scope 投影和分组写入要在共享 PostgreSQL 事务中持锁。
 
-需要检查独立私有运行时配置时，可参考仓库根 `DEV.md` 中的 Identity grant 与 `docker-compose.identity.yml` 说明。该 Compose 文件不是默认开发栈，会启动 Admission 和 credential-mail 两个非 root、只读容器，并要求此 profile 的全部 secret 文件；分组切片额外要求 GROUP 专用 DSN 文件。宿主机选择器 `IDENTITY_RUNTIME_GROUP_DATABASE_URL_FILE` 在容器内映射为 `IDENTITY_GROUP_DATABASE_URL_FILE`。无论 API 是 caller-transaction 装配还是独立身份 owner，GROUP LOGIN 都只可执行 `group_policy()` 和 `execute_group_command(jsonb)`，不得配置表级授权；DSN 应指向已安装 0240 的同一 PostgreSQL 数据库。
+需要检查独立私有运行时配置时，可参考仓库根 `DEV.md` 中的 Identity grant 与 `docker-compose.identity.yml` 说明。该 Compose 文件不是默认开发栈；使用此文件时需要提供 profile 列出的完整 secret 文件路径。它定义 Admission、credential-mail 和 notification-publisher 三个非 root、只读运行进程。分组切片使用 GROUP 专用 DSN；注销 user 与 due 各用一个 identity function DSN；通知 publisher 有自己的 Notifications DSN 与 Redis DSN。宿主机的 `IDENTITY_RUNTIME_*_FILE` 路径在容器内映射为实际 `IDENTITY_*_FILE` 或 `NOTIFICATION_PUBLISH_*_FILE` 配置。
 
-API 可用 `IDENTITY_GROUP_DATABASE_URL`／`IDENTITY_GROUP_DATABASE_URL_FILE` 选择内嵌 adapter 的专用 GROUP DSN，独立进程使用 `IDENTITY_GROUP_DATABASE_URL`／`IDENTITY_GROUP_DATABASE_URL_FILE`；两种模式都不因已配置连接失败而回退。Python group contract/manager/Postgres owner、API adapter 与函数授权源已有实现，操作 DTO、manager/target scope 和邀请仍使用 legacy coordinator 的边界见[Identity 私有运行协议](/api/guides/identity-runtime#分组目录与指派)。本页只配置可选容器与 secret；数据库角色、API 消费者与真实管理 UI 的联调证据及生产资格仍待单独记录。
+API 可用 `IDENTITY_GROUP_DATABASE_URL`／`IDENTITY_GROUP_DATABASE_URL_FILE` 选择内嵌 adapter 的专用 GROUP DSN，独立进程使用同名配置；自助注销另有 `IDENTITY_DEACTIVATION_DATABASE_URL(_FILE)` 和 `IDENTITY_DEACTIVATION_OPERATOR_DATABASE_URL(_FILE)`。这些显式连接故障都不回退。组命令、最后超管 fence、到期页与 Notifications publisher 的合同见[Identity 私有运行协议](/api/guides/identity-runtime)。Admission 只取得自己的 Identity capability DSN；notification-publisher 只取得 `NOTIFICATION_PUBLISH_DATABASE_URL_FILE` 与 `NOTIFICATION_PUBLISH_REDIS_URL_FILE`，没有 control bearer、Identity DSN、JWT signing secret、SMTP 或 HTTP health endpoint。四个 Compose host selector 是 `IDENTITY_RUNTIME_DEACTIVATION_DATABASE_URL_FILE`、`IDENTITY_RUNTIME_DEACTIVATION_OPERATOR_DATABASE_URL_FILE`、`IDENTITY_RUNTIME_NOTIFICATION_PUBLISH_DATABASE_URL_FILE` 与 `IDENTITY_RUNTIME_NOTIFICATION_PUBLISH_REDIS_URL_FILE`。Publisher 使用与 Identity、Audit 和 Notifications outbox 相同的 PostgreSQL 数据库；不能拆成异库提交。
+
+注销 due worker 仍由原 API/Celery task 名按每日 04:00 UTC 启动；任务每页提交固定操作回执并继续排空，页大小不是总体 cap。独立 publisher 运行 `python -m aap_identity_runtime.notification_worker`，没有 HTTP health endpoint；它先 commit claim，再连接 Redis，送达后提交 finish。同一 Notification ID 重试时保持稳定，at-least-once 可能导致重复 broker 消息。该 Compose 配置只描述可选本地进程和 secret 边界；注销/恢复竞态、数据库角色、Celery 排空、Redis 故障接管和容量证据仍待单独验收。
 
 ---
 

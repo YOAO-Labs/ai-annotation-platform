@@ -3,7 +3,7 @@ audience: [dev]
 type: explanation
 since: v0.9.14
 status: stable
-last_reviewed: 2026-10-17
+last_reviewed: 2026-10-20
 ---
 
 # 审计与通知
@@ -28,33 +28,37 @@ last_reviewed: 2026-10-17
   caption="审计与通知的写入、持久化和在线分发边界"
 />
 
-通知创建不是事务型 outbox。默认调用仍先 `flush` 通知行、再尽力发布 Redis，由调用方稍后提交；调用方最终回滚时，在线端可能已经收到消息。讨论事件使用显式延迟发布：业务与通知同事务提交成功后才推送，Redis 失败不改变已提交结果，也没有后台重试或恰好一次推送保证。
+一般通知创建不是事务型 outbox。普通默认调用仍先 `flush` 通知行、再尽力发布 Redis，由调用方稍后提交；调用方最终回滚时，在线端可能已经收到消息。讨论事件使用显式延迟发布：业务与通知同事务提交成功后才推送，Redis 失败不改变已提交结果，也没有后台重试或恰好一次推送保证。自助注销的两种通知是窄范围例外：Notifications owner 同事务写持久投递 outbox，由独立 publisher 领取和重试；这不改变其他通知语义。
 
 ## 代码入口
 
-| 位置                                                        | 作用                                                    |
-| ----------------------------------------------------------- | ------------------------------------------------------- |
-| `apps/api/app/services/audit.py`                            | `AuditAction`、`AuditService.log()`、`log_many()`       |
-| `apps/api/app/middleware/audit.py`                          | HTTP 写请求响应后的 `http.*` 元数据审计                 |
-| `apps/api/app/workers/audit.py`                             | 异步持久化 HTTP 审计；投递失败时中间件同步回退          |
-| `apps/api/app/db/models/audit_log.py`                       | `AuditLog` 数据模型                                     |
-| `apps/api/app/api/v1/audit_logs.py`                         | audit 查询与导出                                        |
-| `apps/api/app/services/audit_summary.py`                    | 正常月报的本地 Python 归并                              |
-| `apps/audit-summary`、`apps/api/experiments`                | 显式隔离实验，不参与正常月报执行                        |
-| `apps/api/app/services/notification.py`                     | 通知写表与 Redis PubSub                                 |
-| `apps/api/app/services/notification_preferences.py`         | 只依赖标准库的通知类型与 toast 默认目录                 |
-| `apps/api/app/services/notification_preferences_command.py` | 通知偏好 JSONB 原子写入与新行默认值；不提交             |
-| `apps/api/app/services/discussion_notifications.py`         | 讨论事件收件人、原始目标身份与延迟发布记录              |
-| `apps/api/app/services/async_job_notify.py`                 | `async_jobs` 终态 → 通用 `job.*` 通知 helper            |
-| `apps/api/app/services/async_job_terminal.py`               | 不含 ORM/传输的不可变 `JobTerminal` 事实                |
-| `apps/api/app/application/job_terminal.py`                  | 领域终态绑定与信号兜底工作流，同事务协调状态/通知       |
-| `apps/api/app/application/job_cancellation.py`              | 取消准入、领域命令与执行停止请求组合，提交由入口持有    |
-| `apps/api/app/services/job_execution_control.py`            | 不依赖 broker 的协作取消执行端口                        |
-| 各领域服务的 `reconcile_job_terminal`                       | 只回填所属账本，保留各自终态语义                        |
-| `apps/api/app/workers/signals.py`                           | Celery 信号适配、连接与调用方提交/释放                  |
-| `apps/api/app/db/models/notification.py`                    | `Notification` 模型                                     |
-| `apps/api/app/api/v1/notifications.py`                      | 通知列表/已读及偏好的 HTTP 鉴权、校验、提交与提交后同步 |
-| `apps/api/app/api/v1/ws.py`                                 | `/ws/notifications` 在线推送                            |
+| 位置                                                               | 作用                                                    |
+| ------------------------------------------------------------------ | ------------------------------------------------------- |
+| `apps/api/app/services/audit.py`                                   | `AuditAction`、`AuditService.log()`、`log_many()`       |
+| `apps/api/app/middleware/audit.py`                                 | HTTP 写请求响应后的 `http.*` 元数据审计                 |
+| `apps/api/app/workers/audit.py`                                    | 异步持久化 HTTP 审计；投递失败时中间件同步回退          |
+| `apps/api/app/db/models/audit_log.py`                              | `AuditLog` 数据模型                                     |
+| `apps/api/app/api/v1/audit_logs.py`                                | audit 查询与导出                                        |
+| `apps/api/app/services/audit_summary.py`                           | 正常月报的本地 Python 归并                              |
+| `apps/audit-summary`、`apps/api/experiments`                       | 显式隔离实验，不参与正常月报执行                        |
+| `apps/api/app/services/notification.py`                            | 通知写表与 Redis PubSub                                 |
+| `apps/api/app/services/notification_preferences.py`                | 只依赖标准库的通知类型与 toast 默认目录                 |
+| `apps/api/app/services/notification_preferences_command.py`        | 通知偏好 JSONB 原子写入与新行默认值；不提交             |
+| `apps/api/app/services/discussion_notifications.py`                | 讨论事件收件人、原始目标身份与延迟发布记录              |
+| `apps/api/app/services/async_job_notify.py`                        | `async_jobs` 终态 → 通用 `job.*` 通知 helper            |
+| `apps/api/app/services/async_job_terminal.py`                      | 不含 ORM/传输的不可变 `JobTerminal` 事实                |
+| `apps/api/app/application/job_terminal.py`                         | 领域终态绑定与信号兜底工作流，同事务协调状态/通知       |
+| `apps/api/app/application/job_cancellation.py`                     | 取消准入、领域命令与执行停止请求组合，提交由入口持有    |
+| `apps/identity/src/aap_identity/notification_delivery_contract.py` | Notifications publisher 的纯值领取协议                  |
+| `apps/identity/src/aap_identity/notification_delivery_postgres.py` | Notifications publisher 的 PostgreSQL 执行器            |
+| `apps/identity/src/aap_identity_runtime/notification_worker.py`    | `NotificationDeliveryExecutor` 的独立运行入口           |
+| `apps/identity/src/aap_identity_runtime/notification_config.py`    | `NotificationPublisherSettings` 环境配置                |
+| `apps/api/app/services/job_execution_control.py`                   | 不依赖 broker 的协作取消执行端口                        |
+| 各领域服务的 `reconcile_job_terminal`                              | 只回填所属账本，保留各自终态语义                        |
+| `apps/api/app/workers/signals.py`                                  | Celery 信号适配、连接与调用方提交/释放                  |
+| `apps/api/app/db/models/notification.py`                           | `Notification` 模型                                     |
+| `apps/api/app/api/v1/notifications.py`                             | 通知列表/已读及偏好的 HTTP 鉴权、校验、提交与提交后同步 |
+| `apps/api/app/api/v1/ws.py`                                        | `/ws/notifications` 在线推送                            |
 
 ## Audit：记录发生了什么
 
@@ -268,6 +272,16 @@ HTTP 查询端点 `GET /api/v1/audit` 面向运营与排障，严格执行基于
 **特殊类型（不在 `KNOWN_NOTIFICATION_TYPES`，因此用户不能静音）：**
 
 - `feedback.reconcile_drift` — 双写对账发现不一致，仅发给 superadmin（`apps/api/app/workers/feedback_reconcile.py:76`）
+
+注销事件虽然进入现有可配置类型集合，但创建时的 in-app 偏好检查由 Notifications SQL owner 按 Python truthiness 执行，缺少 `in_app` 默认启用；静音时不会新建 Notification 或 outbox 行。通知 payload 不包含用户填写的注销原因。
+
+### 自助注销的 durable delivery
+
+`user.deactivation_requested` 与 `user.deactivation_completed` 由 Identity 生命周期事务通过 `aap_notifications_v1.create_identity_deactivation_notifications(uuid,text,jsonb,uuid[])` 交给 Notifications owner。该 capability 只创建两种固定业务事件及其 `notification_delivery_outbox` 行，并按 operation、recipient、type 去重；通知删除通过外键级联抑制尚未领取的投递。不会建立另一个通知队列或把 payload 拼到 API 响应中。
+
+独立 `notification_publish_client` LOGIN 仅有 `identity_delivery_policy()`、`claim_identity_deliveries(jsonb)` 和 `finish_identity_delivery(jsonb)` 三项能力，不能查询或更新 Notification 表，也不持 Identity/AUTH/mail 凭据。领取 transaction 提交后才向 Redis `notify:{user_id}` 发消息；只有 Redis 接受以后才能确认 lease。锁等待后的时间由数据库检查，旧 worker lease 不能确认新领取。Redis 未确认或 publisher 崩溃时允许下一次 claim 重试；消息使用同一 Notification id，投递是 at-least-once 而非 exactly-once。
+
+独立命令 `python -m aap_identity_runtime.notification_worker` 使用专用 `NOTIFICATION_PUBLISH_DATABASE_URL(_FILE)` 和 `NOTIFICATION_PUBLISH_REDIS_URL(_FILE)`，没有 HTTP 监听。主 API/Celery 可以把同一 publisher executor 装入默认队列 relay，每 10 秒领取；两种执行路径共享 lease 和同一 durable outbox，不再调用这两个注销事件的旧 best-effort 即时发布路径。详见 [Identity 私有协议](/api/guides/identity-runtime#注销通知的-durable-publisher) 和 [ADR-0121](/dev/adr/0121-identity-self-deactivation-and-notification-delivery)。
 
 新增可配置通知类型时要同步更新后端 `KNOWN_NOTIFICATION_TYPES` 与前端设置页标签；
 不可配置的运维类通知则刻意不进 `KNOWN`，避免被错误静音。

@@ -3,7 +3,7 @@ audience: [annotator, reviewer, project_admin, super_admin]
 type: reference
 since: v0.10.50
 status: stable
-last_reviewed: 2026-09-15
+last_reviewed: 2026-10-20
 ---
 
 # 通知中心
@@ -53,6 +53,8 @@ last_reviewed: 2026-09-15
 | `feedback.comment_mentioned`        | 任务留言提到了你   | 打开原任务留言并突出显示                                   | 任务留言 |
 | `user.deactivation_requested`       | 申请注销账号       | 仅标已读                                                   | 全部     |
 | `user.deactivation_completed`       | 账号注销完成       | 仅标已读                                                   | 全部     |
+
+注销申请通知只发给申请时的启用超级管理员；申请人本人是超级管理员时也会收到。注销完成通知只发给其他启用超级管理员。通知不包含申请原因。它们会和注销状态一起先写入收件箱，再由独立投递器推送；Redis 暂时不可用时实时提醒可能延迟，已保存的收件箱记录仍可在通知中心查看。
 
 > **任务直达**：点击任务或批次通知会先检查当前目标和权限，再打开对应工作台；退回理由以工作台读回的最新状态为准。目标被删除、转派或失去权限时显示说明，可重新打开或查看当前任务，不会自动进入另一条任务。首页“退回待处理”入口使用“待重做”筛选，选择批次及返回后保持该条件。
 >

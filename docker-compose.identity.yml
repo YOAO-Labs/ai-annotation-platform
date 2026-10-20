@@ -16,6 +16,8 @@ services:
       IDENTITY_ACCOUNT_DATABASE_URL_FILE: /run/secrets/identity_account_database_url
       IDENTITY_PRESENCE_DATABASE_URL_FILE: /run/secrets/identity_presence_database_url
       IDENTITY_GROUP_DATABASE_URL_FILE: /run/secrets/identity_group_database_url
+      IDENTITY_DEACTIVATION_DATABASE_URL_FILE: /run/secrets/identity_deactivation_database_url
+      IDENTITY_DEACTIVATION_OPERATOR_DATABASE_URL_FILE: /run/secrets/identity_deactivation_operator_database_url
       IDENTITY_RECOVERY_DATABASE_URL_FILE: /run/secrets/identity_recovery_database_url
       IDENTITY_RECOVERY_MAIL_KEY_FILE: /run/secrets/identity_recovery_mail_key
       IDENTITY_LOGIN_REDIS_URL_FILE: /run/secrets/identity_login_redis_url
@@ -34,6 +36,8 @@ services:
       - identity_account_database_url
       - identity_presence_database_url
       - identity_group_database_url
+      - identity_deactivation_database_url
+      - identity_deactivation_operator_database_url
       - identity_recovery_database_url
       - identity_recovery_mail_key
       - identity_login_redis_url
@@ -84,6 +88,25 @@ services:
       start_period: 30s
       retries: 3
 
+  identity-notification-publisher:
+    <<: *identity-runtime-image
+    command: ["python", "-m", "aap_identity_runtime.notification_worker"]
+    environment:
+      NOTIFICATION_PUBLISH_DATABASE_URL_FILE: /run/secrets/notification_publish_database_url
+      NOTIFICATION_PUBLISH_REDIS_URL_FILE: /run/secrets/notification_publish_redis_url
+    secrets:
+      - notification_publish_database_url
+      - notification_publish_redis_url
+    user: "10003:10003"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 64
+    mem_limit: 256m
+    cpus: 1
+    healthcheck:
+      disable: true
+
 secrets:
   identity_database_url:
     file: ${IDENTITY_RUNTIME_DATABASE_URL_FILE:?Set Identity function-only DSN file}
@@ -97,6 +120,14 @@ secrets:
     file: ${IDENTITY_RUNTIME_PRESENCE_DATABASE_URL_FILE:?Set Identity presence operator DSN file}
   identity_group_database_url:
     file: ${IDENTITY_RUNTIME_GROUP_DATABASE_URL_FILE:?Set Identity group function-only DSN file}
+  identity_deactivation_database_url:
+    file: ${IDENTITY_RUNTIME_DEACTIVATION_DATABASE_URL_FILE:?Set Identity deactivation command DSN file}
+  identity_deactivation_operator_database_url:
+    file: ${IDENTITY_RUNTIME_DEACTIVATION_OPERATOR_DATABASE_URL_FILE:?Set Identity deactivation operator DSN file}
+  notification_publish_database_url:
+    file: ${IDENTITY_RUNTIME_NOTIFICATION_PUBLISH_DATABASE_URL_FILE:?Set Notifications publisher DSN file}
+  notification_publish_redis_url:
+    file: ${IDENTITY_RUNTIME_NOTIFICATION_PUBLISH_REDIS_URL_FILE:?Set Notifications publisher Redis DSN file}
   identity_recovery_database_url:
     file: ${IDENTITY_RUNTIME_RECOVERY_DATABASE_URL_FILE:?Set Identity recovery function-only DSN file}
   identity_recovery_mail_key:

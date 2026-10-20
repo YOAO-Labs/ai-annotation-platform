@@ -2,14 +2,17 @@
 
 This package contains the JWT/API-key verifier, API-key management, core sessions
 and self-account command owners, the group catalog/assignment owner, their closed
-contracts and one private HTTP process.
+contracts and one private HTTP process. Self-deactivation user and due commands
+are the next Identity ownership slice; qualification is pending.
 The runtime has no application, SQLAlchemy, Celery or object-store dependency.
 Admission uses four PostgreSQL capabilities, key management uses two, and
 sessions use three plus a scoped Redis login-counter identity. Each configured
 capability has a separate database login. Self-account commands use three functions
 and presence maintenance uses one separate operator function. Registration,
 password recovery and email verification now have five versioned recovery
-operations. Group invitations, user directory/platform administration,
+operations. Self-deactivation adds separate two-function user and due-operator
+capabilities; the Notifications publisher is a distinct three-function/Redis
+process. Group invitations, user directory/platform administration,
 other-user hydration and
 multi-owner lifecycle remain in the API, so this is not yet a complete Identity
 service.
@@ -152,6 +155,50 @@ API/runtime `IDENTITY_GROUP_DATABASE_URL(_FILE)` selects the two-function owner;
 an explicit connection failure does not fall back, and a missing configured
 capability returns 503. The Compose host selector is
 `IDENTITY_RUNTIME_GROUP_DATABASE_URL_FILE`. See [ADR-0120](../../docs/adr/0120-independent-identity-group-catalog-and-assignment.md).
+
+## Self-deactivation and final-super-admin fence
+
+The next self-service commands use `aap-identity-deactivation/v1` for the
+current account's request/cancel operations and
+`aap-identity-deactivation-due/v1` for a control-bearer-only due page. The user
+must be authenticated by a current JWT/API key; an accepted request remains
+pending across administrative suspension/reactivation and is cleared only by
+explicit cancellation or successful due completion.
+
+An Identity-owned global advisory try-lock protects every operation that could
+reduce the active super-admin set. The same fence covers the self request and
+legacy role/lifecycle mutations, before ordered User row locks. A new
+super-admin request requires another active, unreserved super-admin; due
+processing rechecks the actual active count before disabling each one. If that
+would disable the last active super-admin, the page records a blocked outcome
+and preserves the pending request. Due page limits are per-transaction only:
+the existing daily worker drains pages until no progress, with no total user
+cap.
+
+The due effect remains the existing soft deletion and does not advance JWT
+generation, revoke API keys, or transfer tasks/projects. Approval Audit
+redaction is deliberately partial: it nulls only existing actor email/role
+columns and keeps detail JSON and old notification identity fields. It does not
+claim full GDPR erasure.
+
+The portable user/due command contracts and Postgres owner live in
+`aap_identity.deactivation_contract`, `aap_identity.deactivation_manager`, and
+`aap_identity.deactivation_postgres`; the runtime exposes both private protocols
+through its existing API process.
+
+Identity writes the two fixed deactivation events through the Notifications
+owner in the same database transaction. Delivery uses the separate
+`notification_publish_client` and the same package's
+`python -m aap_identity_runtime.notification_worker` process; this publisher
+requires only `NOTIFICATION_PUBLISH_DATABASE_URL(_FILE)` and
+`NOTIFICATION_PUBLISH_REDIS_URL(_FILE)`, with no Identity/auth/signing secret.
+Its portable DTO and Postgres execution live in
+`aap_identity.notification_delivery_contract` and
+`aap_identity.notification_delivery_postgres`; runtime settings are owned by
+`aap_identity_runtime.notification_config`.
+See [the private protocol](../../docs-site/api/guides/identity-runtime.md#自助注销与最后一名超级管理员围栏),
+[ADR-0121](../../docs/adr/0121-identity-self-deactivation-and-notification-delivery.md),
+and the [deployment slice status](../../docs-site/dev/concepts/module-deployment.md).
 
 ## Registration and credential recovery
 

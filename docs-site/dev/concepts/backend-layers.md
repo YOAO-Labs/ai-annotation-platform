@@ -2,7 +2,7 @@
 audience: [dev]
 type: explanation
 status: stable
-last_reviewed: 2026-10-19
+last_reviewed: 2026-10-20
 ---
 
 # 后端分层
@@ -220,7 +220,15 @@ Task 列表/详情、Data Manager、视频清单及轨迹转换的素材摘要�
 
 `services/notification_preferences.py` 只依赖标准库，持有可配置通知类型与默认 toast 目录；`services/notification_preferences_command.py` 持有 JSONB 原子 upsert 和新行默认值，直接保留缺失频道及未知扩展键，且不提交事务。偏好路由仍负责当前用户绑定、HTTP 输入错误、提交与提交后 `notifications.sync` 发布；命令层不导入 API、worker 或配置装配。
 
-版本化离职流程按账号→项目→目标/接收人成员→批次→任务→编辑 advisory→编辑锁读取稳定快照，再核对预览摘要与接收资格。传统停用/删除、自助注销和版本化离职仍保留各自语义，不合并为通用删除；Redis 凭据代际仍在 SQL 提交前推进，不把两者宣称为分布式原子事务。恢复不会重建旧密钥或退回已交接工作。
+`api/v1/deactivation_commands.py` 通过 `get_deactivation_commands`／`execute_deactivation` 将自助注销请求和撤销绑定到 `get_current_principal`；`services/identity_deactivation_commands.py` 装配 caller-transaction、专用 DSN 或 Identity runtime，`identity_deactivation_data.py` 仅保留既有 SQL Session 适配。到期 beat 仍使用 `app.workers.deactivation.process_deactivation_requests`，经 operator port 读取冻结页并持续排空，不直接扫描 User ORM 或写 Notification ORM。
+
+可移植实现分别位于 `apps/identity/src/aap_identity/deactivation_contract.py`、`deactivation_manager.py` 和 `deactivation_postgres.py`；runtime `api.py` 提供 user/due 两个私有协议。API/caller-transaction adapter 与独立 runtime 使用相同 manager/owner 数据协议，显式配置失败不回退。
+
+Identity 自助注销、传统管理员停用／删除与版本化离职仍保留不同语义，不合并为通用删除。自助到期只做 inactive/offline 软删除与原有停用 metadata，不推进凭据 generation、不撤 API key，也不转移任务／项目；管理停用与离职仍保留各自凭据和交接副作用。已接受的自助申请跨管理员 suspension/reactivation 保持有效。共享的最终超管 advisory try-lock 先于所有降级／停用／offboard 用户行锁；争用返回 409，role preview 与执行都从 Identity owner 的超管状态能力读取是否还存在未预留继任者。
+
+自助到期批准先写受限 Audit 事件，再只将该 actor 历史行的 `actor_email` 和 `actor_role` 置空；`detail_json` 与已存在的通知身份 payload 保留，这不是完整 GDPR 擦除。两种注销通知的业务行与 delivery outbox 由 Notifications owner 同事务创建；独立 publisher 或默认队列 relay 领取 lease 后推 Redis。其他通知调用方仍按各自的即时／提交后发布语义。
+
+版本化离职流程按账号→项目→目标/接收人成员→批次→任务→编辑 advisory→编辑锁读取稳定快照，再核对预览摘要与接收资格。恢复不会重建旧密钥或退回已交接工作。
 
 `application/project_class_rename.py` 组合 `services/project_workspace.py` 的类别绑定修改与 `AnnotationService.rename_class_name()` 的存量迁移；只由 HTTP 提交。当前管理权威锁之后取得项目排他围栏，与标注写入的 KEY SHARE 互斥，再刷新配置。工具参数只限制绑定，标注仍按项目/名称整体迁移，版本、预测与 alias 规则不变。项目配置与 ProjectTemplate 行命令也归 `services/project_workspace.py`；`application/project_workspace_configuration.py` 在请求事务内复核当前 actor、项目与模板权威，组合模板/源项目字段、项目 kind 与协作校验及 backend 启用/主绑定，HTTP 保留 commit 和响应。项目内嵌已保存流水线调用 `services/pipeline_template.py::validate_saved_pipeline` 校验结构；命名流水线的 backend 启用交叉校验仍由 `application/project_pipeline.py::apply_saved_pipeline` 持有。`services/project_template.py` 保留可见性/scope/payload helper，`apps/_shared/workspace_contract` 的公开纯函数提供 tool_bindings 读投影，API、模板、导出和应用调用方直接使用该合同。
 
