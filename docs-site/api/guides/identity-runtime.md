@@ -27,6 +27,7 @@ Identity 运行时提供认证准入、API key、核心会话、自助账户、�
 | `POST /v1/identity/platform-roles/execute`   | 平台角色预览与变更                             |
 | `POST /v1/identity/suspensions/execute`      | 管理员停用与恢复账号                           |
 | `POST /v1/identity/deletions/execute`        | 管理员删除账号与可选任务转交                   |
+| `POST /v1/identity/offboarding/execute`      | 离职预览与提交、任务职责交接                   |
 | `POST /v1/identity/deactivation/execute`     | 自助注销申请与撤销                             |
 | `POST /v1/identity/deactivation/process-due` | 分页处理已到期的自助注销申请                   |
 | `POST /v1/identity/recovery/execute`         | 开放注册、重置请求／消费、验证邮件重发／消费   |
@@ -369,6 +370,22 @@ Owner 在共享 last-super-admin fence 后，按 UUID 顺序锁 actor、target �
 DELETE 保留与 suspend/reactivate 不同的凭据行为：写 inactive/offline/deleted metadata，但不推进 generation、不改 API-key revoke state、reset-link use state 或 JWT/JTI。已接受的 self-deactivation fields 保持不变。Typed Audit helper 先清除 target 历史行的 `actor_email`／`actor_role` 并捕获数量，再 INSERT 固定 `USER_DELETE`；仅数量非零时在新 Audit detail 嵌入 `redacted_audit_rows`，不增加 `detail_json` UPDATE 权限。既有行的 actor ID、detail、IP 和 target 保留；该历史 actor redaction 不是完整擦除。成功删除和 inactive no-op 都冻结 receipt；重放重新认证当前 manager、核对 target generation/active state，匹配时返回冻结响应，不重复转交、释放 TaskLock、Audit 或脱敏；target 后续变化返回 `operation_conflict`。
 
 Migration 0247 与 `identity_deletion_client` 只开放 `deletion_policy()` 和 `execute_deletion_command(jsonb)`。API/runtime 可选 `IDENTITY_DELETION_DATABASE_URL(_FILE)`；Compose host selector 为 `IDENTITY_RUNTIME_DELETION_DATABASE_URL_FILE`。Selector 留空只关闭本 capability，private route 返回 503；显式 DSN 必须通过 readiness，失败不 fallback。Root 的最终最新用例并集通过 72 个 selected acceptance cases（71 DB/process、1 static artifact），零跳过；restore 与 dedicated-API 的最新通过结果覆盖早期夹具失败，重跑不重复计数。Source 与 installed package 各通过 502 项，104 个 installed 文件 hash 精确匹配；API assembly 576 项通过并明确延期 129 条规则，Node 21、SDK 35 项通过。Migration 0247 downgrade/restore 与 grants、codegen/catalog/schema、459 个环境变量和 48 个 sections 均通过。OpenAPI 只改变 DELETE description，public shapes 保持不变。受限 owner image 与禁网只读 API cold image 均通过；host sample 只用于有限并发联通，不是容器 CPU 时延、生产容量或 SLO。完整 hashes、路由覆盖、端到端样本和 12 receipts/12 Audit replay 检查见 [ADR-0127](/dev/adr/0127-independent-identity-deletion-commands)。offboarding、registration-status settings 与 dashboard hydration 仍不在此 slice。
+
+## 管理员离职预览与提交
+
+此 owner slice 只抽取 `GET /api/v1/users/{user_id}/offboarding-preview` 与 `POST /api/v1/users/{user_id}/offboarding`。Public 路径、UUID 422、原 DTO／默认值、忽略 extra fields、响应、错误和调用方保持；Preview 无 body。Commit 保留 `preview_version` required unbounded string、`reason` 默认为空且最多 500 字符、`mode=handoff|emergency_suspend`（默认 handoff）、`projects=[]` 和 nullable `owner_id/annotator_receiver_id/reviewer_receiver_id`。没有 project-count cap，remote Identity JSON reader 不能加 64 KiB body limit。模型不得提前拒绝重复 project ID；仍在原 scope、CAS 与 target-state 顺序后返回 422。
+
+Preview 返回固定七个顶层字段 `user/preview_version/generated_at/projects/api_keys/blockers/can_commit`。`preview_version` 继续使用精确的 Python `json.dumps(resource_state, sort_keys=True, default=str)` UTF-8 字节的 SHA-256；保留 `ensure_ascii`、默认分隔符空格、列表顺序、aware datetime 的 Python 字符串格式与 UUID 小写格式。它是快照版本，不是身份凭据或 HMAC。资源字段清单、null project ID 的旧 `None` 摘要语义、包含／排除字段、option 顺序和 blocker 顺序见 [ADR-0128](/dev/adr/0128-independent-identity-offboarding-commands)。
+
+Preview 是 advisory。Target missing 为 404；当前身份必须是 active super-admin/project-admin；self 为 400。Active super-admin target 的 last-unreserved 检查先于 PA role/scope 检查。PA 只能处理 employee；active target 的空项目集允许，inactive 且无 project 的用户返回 `inactive_unmanaged`，非空集合必须全部为 actor-owned。SA 跳过项目范围限制。`can_commit` 不是 commit gate，commit 必须在持锁后重算 scope、facts 与快照。
+
+Commit 在共享 last-super-admin fence 后，按 UUID 锁 actor/target/receivers，再依序锁 Project、相关 ProjectMember、target batches（含 archived）、相关 Tasks、每个 Task 的 edit advisory lock 和 target TaskLocks。Locked facts 更新后先检查 current scope，再比较 raw `preview_version`；因此新撤权优先于 stale-preview。Target role/state、duplicate project mapping、receiver 与 blockers 后续按旧顺序检查。Emergency suspend 仍检查 scope、CAS、state 和重复映射，但不检查接收人/工作阻塞，也不转交任务。
+
+Handoff 按原 project 与 role 顺序 `owner→annotator→reviewer` 执行。Owner 只转移 Project owner；annotator/reviewer 只转移未归档 target batch 和四个 active status 的 direct role Tasks。Task／Batch 的隐式 `updated_at` 变化和 annotator-only `assigned_at` 更新保持原语义；Batch `assigned_user_ids` 按 annotator UUID、reviewer UUID 重建，不去重。Emergency mode 对每个存在角色返回固定 unresolved reason `emergency_suspension_requires_later_handoff`，不写职责转移。两种模式都将用户置为 inactive/offline 并使用当前停用 metadata；normalized reason 写入 User，但原始 reason 不入 Audit。
+
+两种模式均在同一 PostgreSQL transaction 中更新用户、职责、凭据、TaskLocks、Audit 和 frozen receipt。更新目标状态后再 retire generation、active API keys 和未使用的 reset links，并在最后释放 target TaskLocks；保留已接受的 self-deactivation reservation。Typed `user.offboard` Audit 只写 `mode/reason_present/transfers/unresolved/revoked_api_key_count`。Private prepare/apply 由 `OffboardingPostgresData.transaction()` 持有同一连接和事务；不在 HTTP 间暴露事务，也不引入 saga、prepare ledger 或第二个 service。重放用 accepted `scope_basis`，当前 PA 仍须拥有/可见全部受理项目；新 target 引用不重新计算旧工作。
+
+Private protocol 是 `POST /v1/identity/offboarding/execute`，wire `aap-identity-offboarding/v1`、native `aap-identity-offboarding-native/v1`、policy `aap-identity-offboarding-policy/v1` / `aap-identity-offboarding/v1`。API HTTP composition 为 `apps/api/app/api/v1/offboarding_commands.py` 的 `require_offboarding_manager`、`get_offboarding_commands` 与 `execute_offboarding`；`IdentityOffboardingCommands` 装配 `OffboardingCommandsPort`，`IdentityOffboardingCommandData` 在同一 caller transaction 内执行 prepare/apply。API/runtime 可选 `IDENTITY_OFFBOARDING_DATABASE_URL(_FILE)`，Compose host selector 为 `IDENTITY_RUNTIME_OFFBOARDING_DATABASE_URL_FILE`。Migration 0248 的 `identity_offboarding_client` 仅有三个 typed functions。空 selector 关闭 standalone Identity runtime capability；嵌入式 API 在无专用 DSN 时继续使用 caller transaction。显式 DSN 必须 readiness pass，失败不 fallback。离职 owner 正在实施，本地 DB/runtime/restore/replay/image qualification 仍待 Root 验收；本文不记录新 owner 通过数。详细协议与闭合错误表见 [ADR-0128](/dev/adr/0128-independent-identity-offboarding-commands)。Offboarding 不是完整 GDPR 擦除，也不代表整个 Identity、production 或跨语言 provider 已完成。
 
 ## 自助注销与最后一名超级管理员围栏
 

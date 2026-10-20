@@ -212,7 +212,7 @@ CREATE TRIGGER trg_audit_log_no_delete BEFORE DELETE ON audit_logs ...
 参见 `apps/api/app/services/audit.py:AuditAction` 枚举。涵盖：
 
 - 认证：`auth.login` / `auth.logout` / `auth.logout_all`
-- 用户：`user.invite` / `user.register` / `user.role_change` / `user.password_change` / `user.deactivate`
+- 用户：`user.invite` / `user.register` / `user.role_change` / `user.password_change` / `user.deactivate` / `user.offboard`
 - 项目：`project.create/update/delete/transfer/member_add/member_remove`
 - 批次：`batch.created/status_changed/rejected/reset_to_draft/deleted/distribute_even`、`batch.bulk_*`
 - 任务：`task.submit/withdraw/review_claim/approve/reject/reopen`
@@ -307,6 +307,14 @@ MinIO 的 presigned **GET / download URL** 默认 1 小时 TTL（`apps/api/app/s
 
 `apps/api/app/main.py:28-36` 的 `_sentry_before_send` 钩子把 `Authorization` header 改为 `[REDACTED]`。同时 `send_default_pii=False`，Sentry 不会上传 cookies / 用户 IP。
 
+### 7.4 管理员离职预览与提交
+
+Identity offboarding 的 `preview_version` 是精确保留旧 Python snapshot 序列化的 SHA-256 compare token，不是身份凭据，也不替代当前 manager / project scope 检查。接收人姓名、邮箱和角色会参与摘要；因此每次提交都要在锁定资源后重算完整 snapshot，并在写入前重新验证当前 scope 和摘要。`can_commit` 只是预览提示，不能作为授权结果。
+
+`preview_version` 按旧公共合同为 unbounded string；stale 409 会原样回传 `expected_preview_version`。应将其视为不可信请求数据：不要写入日志、PostgreSQL JSONB 或控制/Audit payload。预览只展示 API-key ID 和受限元数据，不返回 key secret。提交 reason 最多 500 字符，按 Python `str.strip()` 归一化后保存在目标 User 的停用原因；原始 reason 不进入 Audit、错误、日志或 native prepare JSON。`user.offboard` Audit 只记录 `reason_present`，不是完整的数据擦除或匿名化保证。提交还会在同一事务推进凭据代际、撤销 active API keys 并消费未使用的 reset links。
+
+这些敏感事实只由 Identity owner 与 Workspace／Labeling／Audit typed capabilities 协调；调用角色没有其他 owner 的原始表权限。详细事务锁序、接收人投影、重放范围和错误优先级见 [Identity offboarding ADR](/dev/adr/0128-independent-identity-offboarding-commands)。此能力仍处于本地资格验收前，不代表生产切换或容量结论。
+
 ---
 
 ## 8. 安全测试与监控
@@ -324,23 +332,24 @@ MinIO 的 presigned **GET / download URL** 默认 1 小时 TTL（`apps/api/app/s
 
 ## 9. 关键文件索引
 
-| 主题                       | 路径                                                          |
-| -------------------------- | ------------------------------------------------------------- |
-| 角色枚举                   | `apps/api/app/db/enums.py`                                    |
-| 项目授权解析               | `apps/api/app/services/project_access.py`                     |
-| 成员角色变更 / 交接工作流  | `apps/api/app/application/project_membership.py`              |
-| 成员行所有者               | `apps/api/app/services/project_membership.py`                 |
-| 账号离职 / 恢复工作流      | `apps/api/app/application/user_lifecycle.py`                  |
-| 账号状态 / 凭据 / 资料     | `apps/api/app/services/{user_lifecycle,identity_commands}.py` |
-| 路由权限装饰器             | `apps/api/app/core/permissions.py`                            |
-| 密码策略                   | `apps/api/app/core/password.py`                               |
-| JWT 编解码                 | `apps/api/app/core/security.py`                               |
-| Token 黑名单               | `apps/api/app/core/token_blacklist.py`                        |
-| 限流                       | `apps/api/app/core/ratelimit.py`                              |
-| 审计服务                   | `apps/api/app/services/audit.py`                              |
-| 审计中间件                 | `apps/api/app/middleware/audit.py`                            |
-| 审计不可变 trigger         | `apps/api/alembic/versions/0032_audit_log_immutability.py`    |
-| 邀请服务                   | `apps/api/app/services/invitation.py`                         |
-| Bootstrap super_admin      | `apps/api/scripts/bootstrap_admin.py`                         |
-| 认证路由                   | `apps/api/app/api/v1/auth.py`                                 |
-| CORS / production 启动断言 | `apps/api/app/main.py:50-83`                                  |
+| 主题                        | 路径                                                                                                           |
+| --------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| 角色枚举                    | `apps/api/app/db/enums.py`                                                                                     |
+| 项目授权解析                | `apps/api/app/services/project_access.py`                                                                      |
+| 成员角色变更 / 交接工作流   | `apps/api/app/application/project_membership.py`                                                               |
+| 成员行所有者                | `apps/api/app/services/project_membership.py`                                                                  |
+| 离职预览 / 提交 owner       | `apps/identity/src/aap_identity/offboarding_{contract,manager,postgres}.py`                                    |
+| 离职 HTTP 组合 / 调用方数据 | `apps/api/app/api/v1/offboarding_commands.py`；`apps/api/app/services/identity_offboarding_{commands,data}.py` |
+| 账号锁 / 凭据共享能力       | `apps/api/app/services/user_lifecycle.py`（`UserLifecycleService.lock_accounts`）                              |
+| 路由权限装饰器              | `apps/api/app/core/permissions.py`                                                                             |
+| 密码策略                    | `apps/api/app/core/password.py`                                                                                |
+| JWT 编解码                  | `apps/api/app/core/security.py`                                                                                |
+| Token 黑名单                | `apps/api/app/core/token_blacklist.py`                                                                         |
+| 限流                        | `apps/api/app/core/ratelimit.py`                                                                               |
+| 审计服务                    | `apps/api/app/services/audit.py`                                                                               |
+| 审计中间件                  | `apps/api/app/middleware/audit.py`                                                                             |
+| 审计不可变 trigger          | `apps/api/alembic/versions/0032_audit_log_immutability.py`                                                     |
+| 邀请服务                    | `apps/api/app/services/invitation.py`                                                                          |
+| Bootstrap super_admin       | `apps/api/scripts/bootstrap_admin.py`                                                                          |
+| 认证路由                    | `apps/api/app/api/v1/auth.py`                                                                                  |
+| CORS / production 启动断言  | `apps/api/app/main.py:50-83`                                                                                   |

@@ -173,3 +173,4 @@
 - [0125 — Identity 平台角色预览与变更所有权](0125-independent-identity-platform-role-commands.md)
 - [0126 — Identity 管理员停用与恢复账号所有权](0126-independent-identity-suspension-commands.md)
 - [0127 — Identity 管理员删除账号所有权](0127-independent-identity-deletion-commands.md)
+- [0128 — Identity 离职预览与提交所有权](0128-independent-identity-offboarding-commands.md)
