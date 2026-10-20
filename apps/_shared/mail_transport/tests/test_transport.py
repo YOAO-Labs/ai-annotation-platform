@@ -162,17 +162,22 @@ class SMTPTransportTests(TestCase):
         self.assertFalse(any(call.startswith("send:") for call in smtp.calls))
         self.assertNotIn("server-secret", repr(result))
 
-    def test_auth_credentials_are_not_sent_when_relay_has_no_tls(self):
+    def test_plain_relay_with_credentials_remains_supported_when_tls_is_not_advertised(
+        self,
+    ):
         smtp = _SMTPDouble(advertises_tls=False)
         with patch("aap_mail_transport.transport.smtplib.SMTP", return_value=smtp):
-            result = send_message(_config(25), _message())
+            result = send_message(_config(2525), _message())
 
         self.assertEqual(
             (result.outcome, result.reason),
-            (MailOutcome.REJECTED, MailReason.TLS_FAILED),
+            (MailOutcome.DELIVERED, MailReason.SENT),
         )
-        self.assertNotIn("login", smtp.calls)
-        self.assertFalse(any(call.startswith("send:") for call in smtp.calls))
+        self.assertNotIn("starttls", smtp.calls)
+        self.assertLess(
+            smtp.calls.index("login"), smtp.calls.index("send:sender@example.test")
+        )
+        self.assertNotIn("password-secret", repr(result))
 
     def test_known_sender_and_data_rejections_keep_safe_reason_codes(self):
         cases = (

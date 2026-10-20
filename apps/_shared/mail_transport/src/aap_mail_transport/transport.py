@@ -84,17 +84,13 @@ def send_message(config: SMTPConfig, message: EmailMessage) -> MailDeliveryResul
         phase = "hello"
         with client:
             client.ehlo()
-            secure_transport = config.port == 465
             if config.port != 465:
                 advertises_starttls = client.has_extn("starttls")
                 if config.port == 587 or advertises_starttls:
                     phase = "tls"
                     client.starttls(context=ssl.create_default_context())
-                    secure_transport = True
                     phase = "hello"
                     client.ehlo()
-            if config.user and config.password and not secure_transport:
-                return _result(MailOutcome.REJECTED, MailReason.TLS_FAILED)
 
             if config.user and config.password:
                 phase = "auth"
