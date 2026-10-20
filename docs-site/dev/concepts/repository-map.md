@@ -83,6 +83,11 @@ last_reviewed: 2026-10-20
   selected cases（59 DB/process、5 pure/static），零跳过；旧行为、caller-transaction 和
   可选 private runtime 边界见
   [ADR-0129](/dev/adr/0129-identity-batched-user-brief-reads)。
+- Projects 成员列表 `projects.list_members` 在 Workspace 完成授权并按
+  `assigned_at DESC` 选择 membership rows 后，调用全局 `resolve_briefs` 一次补齐用户显示字段。
+  Membership role 仍是项目职责，brief role 是平台角色；响应保持原 DTO，空列表不访问 Identity，
+  缺失 profile 继续省略。该消费者另有 21 个限定案例（18 DB/process、3 pure/static）与 SDK 44
+  项序列化检查通过，不计入前述 owner 的 64 例；验证边界见 ADR-0129。
 - 分组目录与账号指派：`api/v1/group_commands.py` 收口 HTTP 请求与权限映射；
   `services/identity_group_commands.py` 选择本地事务、函数 DSN 或 Identity runtime，
   `services/identity_group_data.py` 只适配当前 SQL Session 上的本地 Group command data。

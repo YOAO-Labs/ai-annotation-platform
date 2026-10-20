@@ -214,6 +214,36 @@ counts were empty=0, global=1, project=2 and large=1. These are legacy helper
 compatibility measurements and single host samples, not new-owner performance,
 capacity or SLO claims.
 
+## Project-member list consumer
+
+`projects.list_members` now enriches the already-authorized Workspace membership
+rows with one call to the existing global `resolve_briefs` batch. Workspace
+continues to own membership selection, `assigned_at DESC` ordering, membership
+role, version and timestamps. The global brief supplies `user_name`,
+`user_email`, `platform_role` and `avatar_ref`; the project membership role
+remains the member's project duty. This consumer does not use the project-role
+overlay, add a public field such as `avatar_initial`, or issue per-member calls.
+The extra batch read replaces the former join. Embedded mode keeps the caller
+transaction; remote Workspace and Identity reads do not share a snapshot.
+
+An empty membership list makes no profile-owner call. Missing profile rows stay
+omitted, matching the old inner-join result, and inactive users remain eligible.
+The existing ten-field member response is unchanged. Its `platform_role` is a
+required four-value enum: an invalid historical global role still fails model
+validation, and `_member_out` still raises `ValidationError` when its target is
+missing. This slice does not make that field nullable or widen its schema.
+
+The pre-change public response and `_member_out` baseline was captured in
+`apps/api/tests/fixtures/project_member_profiles_legacy.json`, including inactive
+users, valid roles, ordering, versions and avatars. The focused acceptance union
+passed 21 selected cases with zero skips (18 database/process and three
+pure/static); it includes the focused Native/role-write cases and extended
+remote/dedicated API assertions. SDK serialization passed 44 checks, including
+two new member-response assertions, with no SDK production change. The existing
+114-file installed package and qualified owner image were unchanged and reused;
+they are not additional consumer qualification runs. These results qualify
+this consumer path only and do not add to the prior 64-case owner qualification.
+
 The full ten-module/seven-gate objective remains active. This internal read
 extraction does not qualify full Identity, provider-language replacement,
 production capacity or primary cutover.

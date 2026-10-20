@@ -1297,6 +1297,12 @@ API 配置可选 `IDENTITY_BRIEFS_DATABASE_URL`／`IDENTITY_BRIEFS_DATABASE_URL_
 
 Embedded SQLAlchemy adapter 必须留在调用方同一事务并且从不 commit/rollback；只有 `db.autoflush` 为 true 且不在 `no_autoflush` 块中时，text SQL 前才 flush。专用 asyncpg binding 拥有只读事务并总是关闭连接。两种绑定都不能在选定远程/DSN 出错时回退到 API ORM。Root 已在专用 0248 DB 上通过并清理旧 helper baseline，六用户夹具覆盖 global/project 与 1,201 IDs；legacy query calls 为 empty=0、global=1、project=2、large=1。这只固定兼容行为，不代表新 owner/remote runtime 性能结论。最终 owner union 为 64 个 distinct cases（59 DB/process、5 pure/static），零跳过；source/installed suites 各 549 项通过、114 个安装文件 hash 匹配，API assembly 625 项通过并明确延期 132 条规则，Node 21 与 SDK 43 项通过。Migration 0249 restore、受限 owner/cold API images、caller/API bindings 与 Compose selector checks 通过；精确 hashes、case 分类、清理和冷镜像时长边界见 [ADR-0129](docs/adr/0129-identity-batched-user-brief-reads.md)。这只限定 UserBrief slice；其他用户水合、完整 Identity、生产容量、十模块／七门槛、另一语言 provider 与 primary cutover 仍未完成。
 
+### Projects 成员列表的 UserBrief 消费
+
+`projects.list_members` 保留 Workspace 的成员授权、`assigned_at DESC` 顺序、项目职责和成员元数据；它在完成 ACL 检查后，对选中的用户 ID 调用一次全局 `resolve_briefs`，补充原有响应中的姓名、邮箱、平台角色和头像引用。项目职责仍来自 membership，`platform_role` 仍是必填的四值枚举；不增加 `avatar_initial` 或任何公开字段。空列表不访问 Identity，缺失 profile 继续按旧 inner-join 行为省略，停用用户不额外过滤。无效历史平台角色仍触发既有 DTO 校验错误。相较旧 JOIN，这条路径增加一次批量资料读取，不产生逐用户 RPC；远程 Workspace 与 Identity 查询没有共同快照。
+
+此消费者单独通过 21 个选定案例（18 DB/process、3 pure/static），零跳过；其中也包含对既有 remote/dedicated API 测试的扩展断言。SDK 序列化 44 项通过，含两项成员响应断言，SDK 生产代码未变。旧 public response 基线见 `apps/api/tests/fixtures/project_member_profiles_legacy.json`。这些数字独立于前一段 UserBrief owner 的 64 案例；不重复计算既有 owner package、镜像或恢复验收。其他项目成员读取与成员写入仍由各自现有流程负责。
+
 ### Identity 管理员临时密码重置
 
 当前 owner slice 只迁移 `POST /api/v1/users/{user_id}/admin-reset-password`，不改公开 UUID/path、3 次／分钟限流、状态码或三字段响应 `temp_password/message/target_email`。固定成功提示仍为 `请通过安全渠道告知用户首次登录后立即修改密码`；临时密码固定 16 个 ASCII 字符，来自 `A-Z`、`a-z`、`0-9` 和 `!@#$%^&*?`，并至少包含四类中的各一字符。密码及 bcrypt 不进入 logs、errors、repr 或 Audit。
