@@ -43,9 +43,11 @@ Identity account-lock boundary 用三项 typed SQL functions（SHARE／UPDATE／
 
 ## Workspace 项目成员生命周期命令
 
-项目成员新增、角色预览／变更与移除正在从 API ORM workflow 收口到 `apps/workspace` 的可移植 owner。命令协议为 `aap-workspace-membership/v1`，以 prepare → portable policy → apply 在同一 PostgreSQL 事务中组合 Workspace member row、Identity/Project 当前权威、Labeling 工作事实与交接、typed Audit 及不可变成功 receipt。现有 Python preview digest、blocker 顺序、CAS、NOWAIT/rollback 和公开 API/DTO/error mapping 保持；邀请接受继续由 Identity invitation owner 处理，不另建 membership writer。
+项目成员新增、角色预览／变更与移除已收口到 `apps/workspace` 的可移植 owner。命令协议为 `aap-workspace-membership/v1`，以 prepare → portable policy → apply 在同一 PostgreSQL 事务中组合 Workspace member row、Identity/Project 当前权威、Labeling 工作事实与交接、typed Audit 及不可变成功 receipt。现有 Python preview digest、blocker 顺序、CAS、NOWAIT/rollback 和公开 API/DTO/error mapping 保持；邀请接受继续由 Identity invitation owner 处理，不另建 membership writer。
 
-独立运行时的 private endpoint 为 `POST /v1/workspace/membership/execute`，health/readiness 分别是 `GET /health` 与 `GET /ready`；仅 `workspace_membership_client` LOGIN 可调用 policy、prepare、apply 三项函数。runtime 默认 `0.0.0.0:8172`、30 秒请求超时、8 个并发；API client timeout 默认 30 秒。API 可用 `WORKSPACE_MEMBERSHIP_URL` 与 control token 选择独立服务，或用 `WORKSPACE_MEMBERSHIP_DATABASE_URL(_FILE)` 选择本地专用 caller，未配置时保留 caller Session。Compose host selectors 为 `WORKSPACE_RUNTIME_MEMBERSHIP_DATABASE_URL_FILE` 与 `WORKSPACE_RUNTIME_CONTROL_TOKEN_FILE`。当前 slice 尚待本地 qualification；没有 runtime/image/database pass count 可据此宣称。owner 及私有合同见 [ADR-0133](/dev/adr/0133-workspace-membership-lifecycle-owner) 和[运行指南](/api/guides/workspace-runtime)。
+独立运行时的 private endpoint 为 `POST /v1/workspace/membership/execute`，health/readiness 分别是 `GET /health` 与 `GET /ready`；仅 `workspace_membership_client` LOGIN 可调用 policy、prepare、apply 三项函数。runtime 默认 `0.0.0.0:8172`、30 秒请求超时、8 个并发；API client timeout 默认 30 秒。API 可用 `WORKSPACE_MEMBERSHIP_URL` 与 control token 选择独立服务，或用 `WORKSPACE_MEMBERSHIP_DATABASE_URL(_FILE)` 选择本地专用 caller，未配置时保留 caller Session。Compose host selectors 为 `WORKSPACE_RUNTIME_MEMBERSHIP_DATABASE_URL_FILE` 与 `WORKSPACE_RUNTIME_CONTROL_TOKEN_FILE`。
+
+此切片已通过 119 个去重选定案例（96 DB/process、23 pure/static），无有效跳过；源码与独立安装包各通过 51 项。独立 owner 镜像匹配 9 个包文件，API 镜像核对 131 个包文件、65 个本轮应用／Native 输入及 head 0253。真实 API、职责交接、重启重放、备份恢复及错误优先级均已在隔离本地验证。API 仍为过渡期 `legacy_runtime` 装配；这些结果不等于整个 API 的凭据收口、完整 Workspace 或跨语言提供方资格。owner、精确范围和未完成项见 [ADR-0133](/dev/adr/0133-workspace-membership-lifecycle-owner) 和[运行指南](/api/guides/workspace-runtime)。
 
 ## 已存在的运行边界
 

@@ -33,4 +33,6 @@ API 默认使用本地 caller Session；可选 `WORKSPACE_MEMBERSHIP_DATABASE_UR
 
 ## 当前范围
 
-Workspace membership slice 的实现仍在本地 qualification 阶段，不能据此宣称独立部署或跨语言替换已通过。项目创建／转移、配置、模板、列表、mention 与其他 Workspace consumers 仍使用各自现有路径。其余模块、完整 Identity、十模块／七门槛目标、生产容量验证与 primary cutover 也仍未完成。Go 月报保持多语言架构实验，不构成该 owner 的语言提供方。
+成员命令切片已通过独立安装包、受限 Native 权限、进程／镜像、真实 API、并发交接、重启重放和备份恢复的本地限定验收；计数与边界见 [ADR-0133](/dev/adr/0133-workspace-membership-lifecycle-owner)。命令 owner 只持有三项 RPC 权限，API 验收仍使用过渡期 `legacy_runtime` 装配。
+
+项目创建／转移、配置、模板、列表、mention 与其他 Workspace consumers 仍使用各自现有路径。完整 Workspace、其余模块、完整 Identity、十模块／七门槛目标、另一语言提供方、生产容量验证与 primary cutover 也仍未完成。Go 月报保持多语言架构实验，不构成该 owner 的语言提供方。

@@ -471,7 +471,7 @@ writer 配置要求 lease 严格长于其 hard time limit。旧 cleanup Celery t
 
 API 默认保留现有 caller Session；`WORKSPACE_MEMBERSHIP_DATABASE_URL(_FILE)` 可选择本地专用事务数据连接，`WORKSPACE_MEMBERSHIP_URL` 可选择私有 Workspace runtime。远程调用必须配置独立 `WORKSPACE_MEMBERSHIP_CONTROL_TOKEN(_FILE)`，API timeout `WORKSPACE_MEMBERSHIP_TIMEOUT_SECONDS` 默认 30 秒；显式选择的 URL/DSN 失败不回退另一种 owner。独立 runtime 必须配置其 `WORKSPACE_MEMBERSHIP_DATABASE_URL(_FILE)` 和 control token，默认监听 `0.0.0.0:8172`、请求超时 30 秒、最多 8 个并发请求。Compose 宿主机通过 `WORKSPACE_RUNTIME_MEMBERSHIP_DATABASE_URL_FILE` 与 `WORKSPACE_RUNTIME_CONTROL_TOKEN_FILE` 选择 secret 文件。运行合同、私有错误 envelope、窄 SQL grants 与当前范围见[Workspace runtime guide](docs-site/api/guides/workspace-runtime.md)。
 
-此切片仍待本地 qualification；配置选项和协议文档不代表数据库、受限进程或 API image 验收已完成。它不迁移 Project 创建／转移、配置、模板、列表或 mention，也不完成 Workspace/Identity 的独立部署、生产容量验证或 primary cutover。
+成员命令切片已通过隔离本地的受限权限、独立包／进程／镜像、真实 API、并发交接、重启与备份恢复验收，详见 [ADR-0133](docs/adr/0133-workspace-membership-lifecycle-owner.md)。Native 的 `opaque_text_codec` 在执行事务内校验，迁移与进程需一起更新。它不迁移 Project 创建／转移、配置、模板、列表或 mention，也不完成整个 Workspace/Identity、另一语言提供方、生产容量验证或 primary cutover。
 
 ## 独立 Assets 目录服务
 

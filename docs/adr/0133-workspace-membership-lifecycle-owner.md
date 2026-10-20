@@ -82,8 +82,38 @@ the original token, and Native converts reason to JSONB only at Audit detail
 construction. This preserves stale-version/snapshot conflicts before a NUL
 reason can produce the original Audit error and transaction rollback.
 
-Local qualification is pending. No runtime, image, database, or production
-deployment result is implied by this decision record.
+Local scoped qualification passed 119 distinct selected cases: 96 database or
+process cases and 23 pure/static cases, with no effective failures or skips.
+Focused retries replace earlier failed or gated attempts in this count.
+Source and noneditable installed suites each passed 51 checks; the installed
+Workspace package and standalone image match nine source files. A fresh API
+image verifies 131 installed package files, 65 application/Native inputs,
+the public OpenAPI snapshot and migration head 0253. Its offline probe uses
+an explicit ordinary UID, read-only filesystem, no network and fixed budgets;
+these results do not establish production capacity or change the API image's
+default user configuration.
+
+Both public API bindings passed the 20 captured legacy HTTP cases plus four
+NUL conflict cases, with four business Audits and 22 HTTP access Audits each.
+The legacy capture shares an outer transaction timestamp, so unspecified
+member-list tie ordering is not compared: current `assigned_at DESC` is checked
+on actual timestamps and normalized rows are compared by user ID. Ordered
+snapshot arrays retain their UUID ordering. Five literal/control/Unicode
+reasons retain exact Audit values, matching replay returns frozen receipts,
+and changing the reason conflicts. A current NUL reason retains SQLSTATE
+22P05 and rollback; missing codec metadata blocks execution in all three
+bindings. Installed process exit/restart, capability revocation, backup
+restore, populated downgrade refusal and empty downgrade passed. Eight
+existing Identity restores remain a separate affected regression scope.
+
+Node self-checks passed 37 checks, including eight frozen digest vectors.
+The Node peer is a consumer and exercises only one controlled native add;
+it is not a replacement provider. Architecture checks passed 318 cases,
+with 133 inapplicable rules explicitly skipped; these are separate from the
+119-case selected qualification. The public API acceptance still uses the
+transitional `legacy_runtime` assembly; only the member command owner is
+qualified with the exact three-function LOGIN. No primary or production
+cutover, remote CI, push, or provider-language replacement is claimed.
 
 ## Consequences
 
@@ -123,8 +153,9 @@ deployment result is implied by this decision record.
 The implementation is a local architecture slice, not a provider-language
 replacement. The full Workspace and Identity goals, ten-module/seven-gate
 qualification, production capacity validation, and primary cutover remain
-unfinished. See the [Workspace runtime guide](/api/guides/workspace-runtime)
-and the [backend decoupling plan](../plans/1792160873_backend-module-decoupling.md).
+unfinished. See the [Workspace runtime guide](/api/guides/workspace-runtime).
+The repository implementation ledger is
+`docs/plans/1792160873_backend-module-decoupling.md`.
 
 The pre-change legacy baseline separately passed 20 HTTP cases, eight frozen
 preview-digest vectors, and four Audit checks. Those results capture old
