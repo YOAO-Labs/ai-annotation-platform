@@ -973,6 +973,11 @@ def _wire_policy_failure_matches(
                 and detail
                 == "目标项目只能分配标注员、审核员或观察者角色；超级管理员和项目管理员是全局角色"
             )
+            or (
+                failure.status_code == 400
+                and detail
+                == "账号平台角色与项目职责不兼容：员工可持有标注员/质检员/观察者，平台观察者仅可持有观察者，管理员通过项目负责人身份管理项目"
+            )
         )
     if operation == "accept_invitation":
         role_mismatch_details = _role_mismatch_details(
@@ -992,6 +997,11 @@ def _wire_policy_failure_matches(
                 failure.status_code == 400
                 and detail
                 == "目标项目只能分配标注员、审核员或观察者角色；超级管理员和项目管理员是全局角色"
+            )
+            or (
+                failure.status_code == 400
+                and detail
+                == "账号平台角色与项目职责不兼容：员工可持有标注员/质检员/观察者，平台观察者仅可持有观察者，管理员通过项目负责人身份管理项目"
             )
         )
     if operation == "resend_invitation":
@@ -1014,6 +1024,10 @@ def _wire_policy_failure_matches(
             failure.status_code == 400
             and detail
             == "目标项目只能分配标注员、审核员或观察者角色；超级管理员和项目管理员是全局角色"
+        ) or (
+            failure.status_code == 400
+            and detail
+            == "账号平台角色与项目职责不兼容：员工可持有标注员/质检员/观察者，平台观察者仅可持有观察者，管理员通过项目负责人身份管理项目"
         )
     return False
 
@@ -1837,7 +1851,13 @@ def _expected_policy_detail(
             "accept_invitation",
             "send_invitation_email",
         },
-        "platform_project_role_incompatible": {"create_invitation"},
+        "platform_project_role_incompatible": {
+            "create_invitation",
+            "resolve_invitation",
+            "register_invitation",
+            "accept_invitation",
+            "send_invitation_email",
+        },
         "account_project_role": {"create_invitation"},
         "project_admin_role_forbidden": {"create_invitation"},
         "project_not_found": {"create_invitation"},

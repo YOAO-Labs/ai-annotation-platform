@@ -241,6 +241,48 @@ def test_native_create_policy_accepts_only_request_bound_project_scope_details()
         decode_native_invitation_prepare_reply(command, native_failure)
 
 
+def test_register_accepts_closed_platform_project_role_incompatibility_error():
+    request = invitation_request("register_invitation")
+    detail = (
+        "账号平台角色与项目职责不兼容：员工可持有标注员/质检员/观察者，"
+        "平台观察者仅可持有观察者，管理员通过项目负责人身份管理项目"
+    )
+    with pytest.raises(InvitationFailure) as wire_error:
+        decode_invitation_reply(
+            request,
+            failure(request, "policy_rejected", 400, detail),
+        )
+    assert wire_error.value.status_code == 400
+
+    command = native_invitation_prepare_command(
+        request,
+        actor=None,
+        expected_key_hash=None,
+        request_fingerprint=invitation_request_fingerprint(INVITATION_SECRET, request)[
+            0
+        ],
+        derivation_id="c" * 64,
+        config=NativeInvitationConfig(
+            invitation_ttl_days=7,
+            max_invitations_per_day=30,
+            frontend_base_url="https://frontend.example.test",
+            expire_minutes=1440,
+        ),
+    )
+    native_failure = {
+        "schema": NATIVE_INVITATION_PROTOCOL,
+        "ok": False,
+        "error": {
+            "code": "policy_rejected",
+            "policy": "platform_project_role_incompatible",
+            "detail": detail,
+        },
+    }
+    with pytest.raises(InvitationFailure) as native_error:
+        decode_native_invitation_prepare_reply(command, native_failure)
+    assert native_error.value.status_code == 400
+
+
 def test_failure_decoder_rejects_arbitrary_policy_and_credential_details():
     create = invitation_request(
         "create_invitation", payload={"email": "invitee@example.test", "role": "bogus"}
