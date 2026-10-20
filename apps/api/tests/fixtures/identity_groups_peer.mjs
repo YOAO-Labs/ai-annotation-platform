@@ -400,29 +400,28 @@ function incomingJwtClaims(token) {
   if (!exact(header, ["alg", "typ"]) || header.alg !== "HS256" || header.typ !== "JWT") {
     fail();
   }
-  const claims = decodeJwtJson(parts[1], [
-    { path: ["exp"], min: 1n, max: maxPythonEpochSeconds },
-    { path: ["gen"], min: 0n, max: maxInt64 },
-  ]);
+  const claims = decodeJwtJson(parts[1], [{ path: ["gen"], min: 0n, max: maxInt64 }]);
   if (
-    !exact(claims, ["sub", "role", "exp", "jti", "gen", "iss"]) ||
-    typeof claims.role !== "string" ||
-    !roles.has(claims.role) ||
-    typeof claims.exp !== "bigint" ||
-    typeof claims.gen !== "bigint" ||
+    !isRecord(claims) ||
+    typeof claims.exp !== "number" ||
+    !Number.isSafeInteger(claims.exp) ||
+    claims.exp < 1 ||
+    claims.exp > Number(maxPythonEpochSeconds) ||
     claims.iss !== issuer
   ) {
     fail();
   }
+  const generation = claims.gen === undefined ? 0n : claims.gen;
+  if (typeof generation !== "bigint") fail();
   const sub = uuid(claims.sub);
   const jti = uuid(claims.jti);
-  const expiry = new Date(Number(claims.exp) * 1000);
+  const expiry = new Date(claims.exp * 1000);
   if (!Number.isFinite(expiry.valueOf()) || !validDateTime(expiry.toISOString())) fail();
   return {
     actorId: sub,
     credentialId: jti,
-    generation: claims.gen,
-    expiry: Number(claims.exp),
+    generation,
+    expiry: claims.exp,
   };
 }
 
@@ -543,7 +542,18 @@ function validatePreviewItem(value) {
       fail();
     }
   } else if (value.error === groupNotFound) {
-    if (value.email === null || value.name === null || value.next_group_name !== null) fail();
+    if (
+      value.email === null ||
+      value.name === null ||
+      [
+        value.current_group_id,
+        value.current_group_name,
+        value.next_group_id,
+        value.next_group_name,
+      ].some((item) => item !== null)
+    ) {
+      fail();
+    }
   } else {
     fail();
   }
@@ -584,7 +594,7 @@ function validateGroupFailure(request, error) {
     if (error.status_code !== null || error.detail !== null) fail();
     const operation = request.request.operation;
     const payload = request.request.payload;
-    if (error.code === "group_not_found" || error.code === "group_busy") {
+    if (error.code === "group_not_found") {
       if (
         !(
           ["update_group", "delete_group"].includes(operation) ||
@@ -594,6 +604,18 @@ function validateGroupFailure(request, error) {
       ) {
         fail();
       }
+    }
+    if (
+      error.code === "group_busy" &&
+      ![
+        "create_group",
+        "update_group",
+        "delete_group",
+        "assign_user_group",
+        "apply_group_assignments",
+      ].includes(operation)
+    ) {
+      fail();
     }
     if (error.code === "target_not_found" && operation !== "assign_user_group") fail();
     if (
@@ -729,13 +751,7 @@ function validateGroupData(request, data) {
         ) {
           fail();
         }
-        if (
-          !item.ok &&
-          item.error === groupNotFound &&
-          (payload.group_id === null ||
-            item.next_group_id !== payload.group_id ||
-            item.next_group_name !== null)
-        ) {
+        if (!item.ok && item.error === groupNotFound && payload.group_id === null) {
           fail();
         }
         return item;
@@ -989,21 +1005,24 @@ function makeAuditContext() {
   };
 }
 
+function makeTokenFromClaimsJson(claimsJson) {
+  const input =
+    Buffer.from('{"alg":"HS256","typ":"JWT"}').toString("base64url") +
+    "." +
+    Buffer.from(claimsJson).toString("base64url");
+  return `${input}.${Buffer.alloc(32, 3).toString("base64url")}`;
+}
+
 function makeToken(actorId, credentialId) {
-  const exp = 1_893_456_000n;
   const claims = {
     sub: actorId,
     role: "super_admin",
-    exp,
+    exp: 1_893_456_000n,
     jti: credentialId,
     gen: 0n,
     iss: issuer,
   };
-  const input =
-    Buffer.from('{"alg":"HS256","typ":"JWT"}').toString("base64url") +
-    "." +
-    Buffer.from(stringifyLossless(claims)).toString("base64url");
-  return `${input}.${Buffer.alloc(32, 3).toString("base64url")}`;
+  return makeTokenFromClaimsJson(stringifyLossless(claims));
 }
 
 function makeRequest(operation, operationId, token, payload = {}) {
@@ -1203,6 +1222,51 @@ function selfCheck() {
     "application/json",
   );
   if (unassignPreviewResult.receipt.data.group_id !== null) fail();
+  checks += 1;
+
+  const missingGroupPreview = makeRequest("preview_group_assignments", credentialId, token, {
+    user_ids: [targetId],
+    group_id: groupId,
+  });
+  const missingGroupItem = {
+    ...previewItem,
+    ok: false,
+    current_group_id: null,
+    current_group_name: null,
+    next_group_id: null,
+    next_group_name: null,
+    error: groupNotFound,
+  };
+  const missingGroupData = {
+    group_id: groupId,
+    group_name: null,
+    items: [missingGroupItem],
+    applicable: 0n,
+    blocked: 1n,
+  };
+  const missingGroupReceipt = decodeGroupResponse(
+    missingGroupPreview,
+    testReply(missingGroupPreview, missingGroupData, principal),
+    200,
+    "application/json",
+  );
+  if (missingGroupReceipt.receipt.data.items[0].next_group_id !== null) fail();
+  checks += 1;
+  expectFailure(() =>
+    decodeGroupResponse(
+      missingGroupPreview,
+      testReply(
+        missingGroupPreview,
+        {
+          ...missingGroupData,
+          items: [{ ...missingGroupItem, next_group_id: groupId }],
+        },
+        principal,
+      ),
+      200,
+      "application/json",
+    ),
+  );
   checks += 1;
 
   const unassign = makeRequest("assign_user_group", credentialId, token, {
@@ -1436,6 +1500,73 @@ function selfCheck() {
         ok: false,
         error: { code: "group_busy", status_code: null, detail: token },
       }),
+      200,
+      "application/json",
+    ),
+  );
+  checks += 1;
+
+  const busyEnvelope = JSON.stringify({
+    schema,
+    ok: false,
+    error: { code: "group_busy", status_code: null, detail: null },
+  });
+  const busyWrites = [
+    ["create_group", { name: "Busy group", description: null }],
+    ["update_group", { group_id: groupId, name: null, description: null }],
+    ["delete_group", { group_id: groupId }],
+    ["assign_user_group", { user_id: targetId, group_id: null }],
+    ["apply_group_assignments", { user_ids: [targetId], group_id: null }],
+  ];
+  for (const [operation, payload] of busyWrites) {
+    const request = makeRequest(operation, credentialId, token, payload);
+    const result = decodeGroupResponse(request, busyEnvelope, 200, "application/json");
+    if (result.receipt.error.code !== "group_busy") fail();
+    checks += 1;
+  }
+  expectFailure(() => decodeGroupResponse(listRequest, busyEnvelope, 200, "application/json"));
+  checks += 1;
+
+  for (const legacyRole of ["annotator", "reviewer"]) {
+    const legacyToken = makeTokenFromClaimsJson(
+      JSON.stringify({
+        sub: actorId,
+        role: legacyRole,
+        exp: 1_893_456_000,
+        jti: credentialId,
+        iss: issuer,
+        legacy_claim: "preserved by authentication, ignored for authorization",
+      }),
+    );
+    const legacyRequest = makeRequest("list_groups", credentialId, legacyToken);
+    const legacyResult = decodeGroupResponse(
+      legacyRequest,
+      testReply(legacyRequest, { items: [] }, principal),
+      200,
+      "application/json",
+    );
+    if (legacyResult.receipt.principal.generation_decimal !== "0") fail();
+    checks += 1;
+  }
+  const integralFloatExpiry = makeTokenFromClaimsJson(
+    `{"sub":"${actorId}","role":"reviewer","exp":1893456000.0,"jti":"${credentialId}","iss":"${issuer}","gen":0}`,
+  );
+  const floatExpiryRequest = makeRequest("list_groups", credentialId, integralFloatExpiry);
+  decodeGroupResponse(
+    floatExpiryRequest,
+    testReply(floatExpiryRequest, { items: [] }, principal),
+    200,
+    "application/json",
+  );
+  checks += 1;
+  const floatGeneration = makeTokenFromClaimsJson(
+    `{"sub":"${actorId}","role":"annotator","exp":1893456000,"jti":"${credentialId}","iss":"${issuer}","gen":0.0}`,
+  );
+  const floatGenerationRequest = makeRequest("list_groups", credentialId, floatGeneration);
+  expectFailure(() =>
+    decodeGroupResponse(
+      floatGenerationRequest,
+      testReply(floatGenerationRequest, { items: [] }, principal),
       200,
       "application/json",
     ),
