@@ -13,7 +13,6 @@ from sqlalchemy import and_, func, or_, select, true, union
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.enums import PLATFORM_ROLES, TaskStatus, UserRole
-from app.db.models.group import Group
 from app.db.models.project import Project
 from app.db.models.project_member import ProjectMember
 from app.db.models.task import Task
@@ -21,7 +20,6 @@ from app.db.models.task_batch import TaskBatch
 from app.db.models.task_lock import TaskLock
 from app.db.models.user import User
 from app.db.models.user_invitation import UserInvitation
-from app.schemas.group import GroupOut
 from app.schemas.invitation import InvitationOut
 from app.schemas.management import (
     BatchDistributionPreview,
@@ -328,66 +326,6 @@ async def user_stats(
         or 0
     )
     return UserStats(total=total, online=online, weekly_active=weekly_active)
-
-
-async def fetch_group_page(
-    db: AsyncSession,
-    *,
-    page: int,
-    page_size: int,
-    search: str | None = None,
-) -> tuple[list[GroupOut], int]:
-    query = select(Group)
-    if search and search.strip():
-        term = f"%{search.strip()}%"
-        query = query.where(or_(Group.name.ilike(term), Group.description.ilike(term)))
-    total = int(
-        await db.scalar(
-            select(func.count()).select_from(query.order_by(None).subquery())
-        )
-        or 0
-    )
-    rows = (
-        (
-            await db.execute(
-                query.order_by(Group.name.asc(), Group.id)
-                .offset((page - 1) * page_size)
-                .limit(page_size)
-            )
-        )
-        .scalars()
-        .all()
-    )
-    if not rows:
-        return [], total
-    ids = [group.id for group in rows]
-    counts = dict(
-        (
-            row[0],
-            int(row[1] or 0),
-        )
-        for row in (
-            await db.execute(
-                select(Group.id, func.count(User.id))
-                .outerjoin(
-                    User,
-                    (User.group_id == Group.id) & User.is_active.is_(True),
-                )
-                .where(Group.id.in_(ids))
-                .group_by(Group.id)
-            )
-        ).all()
-    )
-    return [
-        GroupOut(
-            id=group.id,
-            name=group.name,
-            description=group.description,
-            member_count=counts.get(group.id, 0),
-            created_at=group.created_at,
-        )
-        for group in rows
-    ], total
 
 
 def _invitation_status_clause(status: str, now: datetime):

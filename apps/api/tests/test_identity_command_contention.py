@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
+from datetime import UTC, datetime, timedelta
 import uuid
 
 import httpx
 import pytest
-from fastapi import HTTPException
 from sqlalchemy import delete, select, text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import async_sessionmaker
@@ -17,18 +19,79 @@ from app.db.models.audit_log import AuditLog
 from app.db.models.group import Group
 from app.db.models.user import User
 from app.deps import get_db
-from app.schemas.group import GroupUpdate
-from app.services.account_groups import AccountGroupService
 from tests.factory import create_user
+
+
+async def _group_command(db, actor_id, operation, payload, *, operation_id=None):
+    from aap_identity.contract import Principal
+    from aap_identity.group_contract import (
+        decode_native_group_command,
+        decode_native_group_reply,
+    )
+
+    actor = await db.get(User, actor_id)
+    command = decode_native_group_command(
+        {
+            "schema": "aap-identity-groups-native/v1",
+            "operation": operation,
+            "operation_id": str(operation_id or uuid.uuid4()),
+            "actor": Principal(
+                actor_id=actor.id,
+                name=actor.name,
+                email=actor.email,
+                role=actor.role,
+                is_active=True,
+                credential_type="jwt",
+                credential_id=uuid.uuid4(),
+                generation=actor.credential_generation,
+                scopes=None,
+                expires_at=datetime.now(UTC) + timedelta(minutes=5),
+            ).model_dump(mode="json"),
+            "expected_key_hash": None,
+            "request_fingerprint": hashlib.sha256(
+                json.dumps(payload, sort_keys=True).encode()
+            ).hexdigest(),
+            "derivation_id": "a" * 64,
+            "audit_context": {
+                "method": None,
+                "path": None,
+                "ip": None,
+                "request_id": None,
+            },
+            "payload": payload,
+        }
+    )
+    raw = await db.scalar(
+        text(
+            "SELECT aap_identity_groups_v1.execute_group_command(CAST(:command AS jsonb))"
+        ),
+        {"command": command.model_dump_json(by_alias=True)},
+    )
+    raw = json.loads(raw) if isinstance(raw, str) else raw
+    return decode_native_group_reply(command, raw)
+
+
+async def _cleanup_groups(maker, user_ids, group_ids):
+    async with maker.begin() as db:
+        await db.execute(text("SET LOCAL \"app.allow_audit_update\" = 'true'"))
+        await db.execute(
+            text(
+                "DELETE FROM public.identity_group_operation_receipts WHERE actor_id = ANY(CAST(:ids AS uuid[]))"
+            ),
+            {"ids": user_ids},
+        )
+        await db.execute(delete(AuditLog).where(AuditLog.actor_id.in_(user_ids)))
+        await db.execute(delete(User).where(User.id.in_(user_ids)))
+        await db.execute(delete(Group).where(Group.id.in_(group_ids)))
 
 
 @pytest.mark.parametrize("operation", ["rename", "delete"])
 async def test_cross_group_managers_do_not_deadlock_account_projections(
-    test_engine, monkeypatch, operation
+    test_engine, operation
 ):
     maker = async_sessionmaker(test_engine, expire_on_commit=False)
     key = uuid.uuid4().hex
-    async with maker() as setup:
+    async with maker.begin() as setup:
         first = await create_user(
             setup, "project_admin", f"first-{key}@groups.test", "First"
         )
@@ -41,30 +104,27 @@ async def test_cross_group_managers_do_not_deadlock_account_projections(
         first.group_id, first.group_name = group_a.id, group_a.name
         second.group_id, second.group_name = group_b.id, group_b.name
         user_ids, group_ids = [first.id, second.id], [group_a.id, group_b.id]
-        await setup.commit()
     ready, arrived = asyncio.Event(), 0
-    lock_group = AccountGroupService._group
-
-    async def synchronized_group(service, group_id):
-        nonlocal arrived
-        group = await lock_group(service, group_id)
-        arrived += 1
-        if arrived == 2:
-            ready.set()
-        await asyncio.wait_for(ready.wait(), 5)
-        return group
-
-    monkeypatch.setattr(AccountGroupService, "_group", synchronized_group)
 
     async def mutate(actor_id, group_id, name):
+        nonlocal arrived
         async with maker() as db:
-            owner = AccountGroupService(db)
+            await db.execute(
+                select(Group.id).where(Group.id == group_id).with_for_update()
+            )
+            arrived += 1
+            if arrived == 2:
+                ready.set()
+            await asyncio.wait_for(ready.wait(), 5)
+            payload = {"group_id": str(group_id)}
             if operation == "rename":
-                await owner.update(
-                    group_id, actor_id=actor_id, payload=GroupUpdate(name=name)
-                )
-            else:
-                await owner.delete(group_id, actor_id=actor_id)
+                payload.update(name=name, description=None)
+            await _group_command(
+                db,
+                actor_id,
+                "update_group" if operation == "rename" else "delete_group",
+                payload,
+            )
             await db.commit()
             return "committed"
 
@@ -100,10 +160,7 @@ async def test_cross_group_managers_do_not_deadlock_account_projections(
                     await check.scalars(select(Group).where(Group.id.in_(group_ids)))
                 ).all() == []
     finally:
-        async with maker() as cleanup:
-            await cleanup.execute(delete(User).where(User.id.in_(user_ids)))
-            await cleanup.execute(delete(Group).where(Group.id.in_(group_ids)))
-            await cleanup.commit()
+        await _cleanup_groups(maker, user_ids, group_ids)
 
 
 async def test_busy_logout_does_not_revoke_token_before_account_admission(
@@ -158,22 +215,26 @@ async def test_busy_logout_does_not_revoke_token_before_account_admission(
 async def test_group_authority_stays_fenced_until_commit_and_rechecks_disable(
     test_engine,
 ):
+    from aap_identity.group_contract import GroupFailure
+
     maker = async_sessionmaker(test_engine, expire_on_commit=False)
-    async with maker() as setup:
+    async with maker.begin() as setup:
         actor = await create_user(
             setup, "project_admin", f"authority-{uuid.uuid4()}@groups.test", "Manager"
         )
         actor_id = actor.id
-        await setup.commit()
-    group_id = None
+    group_id = uuid.uuid4()
+    original_name = f"fenced-{uuid.uuid4()}"
     try:
         async with maker() as writer:
-            from app.schemas.group import GroupCreate
-
-            _, group = await AccountGroupService(writer).create(
-                actor_id=actor_id, payload=GroupCreate(name=f"fenced-{uuid.uuid4()}")
+            reply = await _group_command(
+                writer,
+                actor_id,
+                "create_group",
+                {"name": original_name, "description": None},
+                operation_id=group_id,
             )
-            group_id, original_name = group.id, group.name
+            assert reply.data.group.id == group_id
             async with maker() as revoker:
                 with pytest.raises(DBAPIError) as busy:
                     await revoker.execute(
@@ -184,22 +245,24 @@ async def test_group_authority_stays_fenced_until_commit_and_rechecks_disable(
                 assert getattr(busy.value.orig, "sqlstate", None) == "55P03"
                 await revoker.rollback()
             await writer.commit()
-            async with maker() as revoker:
+            async with maker.begin() as revoker:
                 current = await revoker.scalar(
                     select(User).where(User.id == actor_id).with_for_update()
                 )
                 current.is_active = False
-                await revoker.commit()
-            with pytest.raises(HTTPException) as denied:
-                await AccountGroupService(writer).update(
-                    group_id, actor_id=actor_id, payload=GroupUpdate(name="not allowed")
+            with pytest.raises(GroupFailure) as denied:
+                await _group_command(
+                    writer,
+                    actor_id,
+                    "update_group",
+                    {
+                        "group_id": str(group_id),
+                        "name": "not allowed",
+                        "description": None,
+                    },
                 )
-            assert denied.value.status_code == 403
+            assert denied.value.code in {"credential_invalid", "user_inactive"}
         async with maker() as check:
             assert (await check.get(Group, group_id)).name == original_name
     finally:
-        async with maker() as cleanup:
-            if group_id is not None:
-                await cleanup.execute(delete(Group).where(Group.id == group_id))
-            await cleanup.execute(delete(User).where(User.id == actor_id))
-            await cleanup.commit()
+        await _cleanup_groups(maker, [actor_id], [group_id])

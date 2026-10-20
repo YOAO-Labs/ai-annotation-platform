@@ -930,7 +930,7 @@ BEGIN
         v_actor_role := v_principal->>'role';
         IF v_actor_role NOT IN ('super_admin', 'project_admin') THEN
             RETURN aap_identity_groups_v1._failure(
-                'policy_rejected', 403, pg_catalog.to_jsonb('当前账号已无管理权限'::text)
+                'policy_rejected', 403::smallint, pg_catalog.to_jsonb('当前账号已无管理权限'::text)
             );
         END IF;
         IF v_receipt.actor_id IS DISTINCT FROM v_actor_id
@@ -998,7 +998,7 @@ BEGIN
     v_actor_role := v_principal->>'role';
     IF v_actor_role NOT IN ('super_admin', 'project_admin') THEN
         RETURN aap_identity_groups_v1._failure(
-            'policy_rejected', 403, pg_catalog.to_jsonb('当前账号已无管理权限'::text)
+            'policy_rejected', 403::smallint, pg_catalog.to_jsonb('当前账号已无管理权限'::text)
         );
     END IF;
     v_audit_actor := pg_catalog.jsonb_build_object(
@@ -1040,12 +1040,12 @@ BEGIN
     ELSIF v_operation = 'create_group' THEN
         IF v_new_name = '' THEN
             RETURN aap_identity_groups_v1._failure(
-                'policy_rejected', 400, pg_catalog.to_jsonb('名称不能为空'::text)
+                'policy_rejected', 400::smallint, pg_catalog.to_jsonb('名称不能为空'::text)
             );
         END IF;
         IF EXISTS (SELECT 1 FROM public.groups WHERE name = v_new_name) THEN
             RETURN aap_identity_groups_v1._failure(
-                'policy_rejected', 409,
+                'policy_rejected', 409::smallint,
                 pg_catalog.to_jsonb(('已存在同名数据组: ' || v_new_name)::text)
             );
         END IF;
@@ -1054,7 +1054,7 @@ BEGIN
             VALUES (v_operation_id, v_new_name, v_description);
         EXCEPTION WHEN unique_violation THEN
             RETURN aap_identity_groups_v1._failure(
-                'policy_rejected', 409,
+                'policy_rejected', 409::smallint,
                 pg_catalog.to_jsonb(('已存在同名数据组: ' || v_new_name)::text)
             );
         END;
@@ -1071,7 +1071,7 @@ BEGIN
     ELSIF v_operation = 'update_group' THEN
         IF v_name_present AND v_new_name = '' THEN
             RETURN aap_identity_groups_v1._failure(
-                'policy_rejected', 400, pg_catalog.to_jsonb('名称不能为空'::text)
+                'policy_rejected', 400::smallint, pg_catalog.to_jsonb('名称不能为空'::text)
             );
         END IF;
         v_old_name := v_group_row.name;
@@ -1081,7 +1081,7 @@ BEGIN
                WHERE other.name = v_new_name AND other.id <> v_group_id
            ) THEN
             RETURN aap_identity_groups_v1._failure(
-                'policy_rejected', 409,
+                'policy_rejected', 409::smallint,
                 pg_catalog.to_jsonb(('已存在同名数据组: ' || (v_payload->>'name'))::text)
             );
         END IF;
@@ -1099,7 +1099,7 @@ BEGIN
                 UPDATE public.users SET group_name = v_new_name WHERE group_id = v_group_id;
             EXCEPTION WHEN unique_violation THEN
                 RETURN aap_identity_groups_v1._failure(
-                    'policy_rejected', 409,
+                    'policy_rejected', 409::smallint,
                     pg_catalog.to_jsonb(('已存在同名数据组: ' || (v_payload->>'name'))::text)
                 );
             END;
@@ -1349,7 +1349,7 @@ DECLARE
     v_group_id uuid;
 BEGIN
     IF p_invitation_id IS NULL OR p_token IS NULL
-       OR pg_catalog.octet_length(p_token) NOT BETWEEN 1 AND 64 THEN
+       OR pg_catalog.char_length(p_token) NOT BETWEEN 1 AND 64 THEN
         RETURN pg_catalog.jsonb_build_object(
             'error', pg_catalog.jsonb_build_object('code', 'invitation_invalid')
         );
@@ -1407,8 +1407,8 @@ BEGIN
     WHERE group_row.name = v_name
     FOR SHARE;
     IF NOT FOUND THEN
-        INSERT INTO public.groups (name)
-        VALUES (v_name)
+        INSERT INTO public.groups (id, name)
+        VALUES (pg_catalog.gen_random_uuid(), v_name)
         ON CONFLICT (name) DO NOTHING;
         SELECT group_row.id INTO v_group_id
         FROM public.groups AS group_row

@@ -235,7 +235,7 @@ DOMAIN_PACKAGES = (
             "app.services.notification_preferences",
         ),
     ),
-    DomainSpec(package="account_groups", legacy_facades=()),
+    DomainSpec(package="identity_group_commands", legacy_facades=()),
     DomainSpec(package="quality_job_dispatch", legacy_facades=()),
     DomainSpec(
         package="quality_job_lifecycle", legacy_facades=(), allowed_app_imports=()

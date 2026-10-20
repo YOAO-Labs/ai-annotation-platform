@@ -7,15 +7,15 @@ from uuid import UUID
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
+from fastapi.security import HTTPAuthorizationCredentials
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, or_
 from pydantic import BaseModel, ValidationError
 
 from app.config import settings
 from app.core.ratelimit import limiter
-from app.deps import get_db, require_roles
+from app.deps import bearer_scheme, get_db, require_roles
 from app.db.models.user import User
-from app.db.models.group import Group
 from app.db.enums import PLATFORM_ROLES, UserRole
 from app.schemas.user import (
     OffboardingCommitRequest,
@@ -32,7 +32,6 @@ from app.schemas.management import (
     BulkInviteRequest,
     BulkInviteResponse,
     BulkInviteResultItem,
-    GroupAssignmentPreviewItem,
     RoleImpactPreview,
     UserPage,
     UserPageItem,
@@ -45,7 +44,6 @@ from app.services.management import (
     fetch_managed_user_ids,
     fetch_user_page,
     role_impact_preview,
-    user_scope_clause,
     validate_platform_role_filter,
     user_stats as management_user_stats,
 )
@@ -56,11 +54,11 @@ from app.services.audit import (
     export_metadata_header,
 )
 from app.services.system_settings_service import SystemSettingsService
+from app.api.v1.group_commands import execute_group, get_group_commands
+from app.services.identity_group_commands import GroupCommandsPort
 from app.application.legacy_user_lifecycle import (
     admin_reset_password as admin_reset_password_workflow,
     change_user_role as change_user_role_workflow,
-    apply_bulk_group_assignment as apply_bulk_group_assignment_workflow,
-    assign_user_group as assign_user_group_workflow,
     bulk_error,
     deactivate_user as deactivate_user_workflow,
     delete_user as delete_user_workflow,
@@ -585,63 +583,19 @@ async def apply_bulk_invites(
     )
 
 
-async def _group_assignment_item(
-    db: AsyncSession,
-    *,
-    actor: User,
-    user_id: UUID,
-    group_id: UUID | None,
-) -> GroupAssignmentPreviewItem:
-    target = await db.scalar(
-        select(User).where(User.id == user_id, user_scope_clause(actor))
-    )
-    if target is None:
-        return GroupAssignmentPreviewItem(
-            user_id=user_id,
-            ok=False,
-            error="用户不存在或不在管理范围内",
-        )
-    group_name = None
-    if group_id is not None:
-        group_name = await db.scalar(select(Group.name).where(Group.id == group_id))
-        if group_name is None:
-            return GroupAssignmentPreviewItem(
-                user_id=user_id,
-                email=target.email,
-                name=target.name,
-                ok=False,
-                error="数据组不存在",
-            )
-    return GroupAssignmentPreviewItem(
-        user_id=user_id,
-        email=target.email,
-        name=target.name,
-        ok=True,
-        current_group_id=target.group_id,
-        current_group_name=target.group_name,
-        next_group_id=group_id,
-        next_group_name=group_name,
-    )
-
-
 @router.post("/groups/bulk/preview", response_model=BulkGroupAssignmentPreview)
 async def preview_bulk_group_assignment(
     payload: BulkGroupAssignmentRequest,
-    db: AsyncSession = Depends(get_db),
-    actor: User = Depends(require_roles(*_MANAGERS)),
+    request: Request,
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+    commands: GroupCommandsPort = Depends(get_group_commands),
 ):
-    items = [
-        await _group_assignment_item(
-            db, actor=actor, user_id=user_id, group_id=payload.group_id
-        )
-        for user_id in payload.user_ids
-    ]
-    return BulkGroupAssignmentPreview(
-        group_id=payload.group_id,
-        group_name=next((item.next_group_name for item in items if item.ok), None),
-        items=items,
-        applicable=sum(item.ok for item in items),
-        blocked=sum(not item.ok for item in items),
+    return await execute_group(
+        request,
+        credentials,
+        commands,
+        "preview_group_assignments",
+        payload.model_dump(mode="json"),
     )
 
 
@@ -649,11 +603,15 @@ async def preview_bulk_group_assignment(
 async def apply_bulk_group_assignment(
     payload: BulkGroupAssignmentRequest,
     request: Request,
-    db: AsyncSession = Depends(get_db),
-    actor: User = Depends(require_roles(*_MANAGERS)),
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+    commands: GroupCommandsPort = Depends(get_group_commands),
 ):
-    return await apply_bulk_group_assignment_workflow(
-        db, payload=payload, actor=actor, request=request
+    return await execute_group(
+        request,
+        credentials,
+        commands,
+        "apply_group_assignments",
+        payload.model_dump(mode="json"),
     )
 
 
@@ -871,9 +829,24 @@ async def assign_user_group(
     user_id: str,
     payload: GroupAssignPayload,
     request: Request,
-    db: AsyncSession = Depends(get_db),
-    actor: User = Depends(require_roles(*_MANAGERS)),
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+    commands: GroupCommandsPort = Depends(get_group_commands),
 ):
-    return await assign_user_group_workflow(
-        db, user_id=user_id, group_id=payload.group_id, actor=actor, request=request
+    try:
+        target_id = str(UUID(user_id))
+    except ValueError:
+        raise HTTPException(status_code=404, detail="用户不存在") from None
+    group_id = None
+    if payload.group_id:
+        try:
+            group_id = str(UUID(payload.group_id))
+        except ValueError:
+            raise HTTPException(status_code=404, detail="数据组不存在") from None
+    data = await execute_group(
+        request,
+        credentials,
+        commands,
+        "assign_user_group",
+        {"user_id": target_id, "group_id": group_id},
     )
+    return data["account"]

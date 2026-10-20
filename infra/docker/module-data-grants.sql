@@ -206,7 +206,7 @@ GRANT SELECT (
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.groups TO :"identity_owner";
 GRANT SELECT (
     id, token, role, group_name, invited_by, accepted_at, revoked_at, expires_at
-) ON public.user_invitations TO :"identity_owner";
+), UPDATE (id) ON public.user_invitations TO :"identity_owner";
 GRANT SELECT ON public.identity_credential_mail_outbox TO :"identity_owner";
 GRANT INSERT (
     id, actor_id, challenge_id, purpose, email, frontend_base_url,

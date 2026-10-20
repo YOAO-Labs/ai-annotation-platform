@@ -15,7 +15,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import hash_password
 from app.db.enums import PLATFORM_ROLES, UserRole
-from app.db.models.group import Group
 from app.db.models.project import Project
 from app.db.models.project_member import ProjectMember
 from app.db.models.task import Task
@@ -24,12 +23,6 @@ from app.db.models.user import User
 from app.services.audit import AuditAction, AuditService
 from app.services.batch import BatchService
 from app.services.management import platform_role_change_blockers
-from app.services.management import user_scope_clause
-from app.schemas.management import (
-    BulkGroupAssignmentRequest,
-    BulkGroupAssignmentResponse,
-    BulkGroupAssignmentResultItem,
-)
 from app.services.identity_commands import IdentityCommandService
 from app.services.user_lifecycle import (
     UserLifecycleService,
@@ -529,131 +522,3 @@ def bulk_error(exc: Exception) -> str:
     if isinstance(exc, ValidationError):
         return "; ".join(error["msg"] for error in exc.errors())
     return "处理失败，请稍后重试"
-
-
-async def apply_bulk_group_assignment(
-    db: AsyncSession,
-    *,
-    payload: BulkGroupAssignmentRequest,
-    actor: User,
-    request: Request,
-) -> BulkGroupAssignmentResponse:
-    accounts = await UserLifecycleService.lock_accounts(db, [actor.id])
-    actor = accounts.get(actor.id)
-    if actor is None or not actor.is_active or actor.role not in _MANAGERS:
-        raise HTTPException(status_code=403, detail="当前账号已无管理权限")
-    if (
-        payload.group_id is not None
-        and await db.scalar(select(Group.id).where(Group.id == payload.group_id))
-        is None
-    ):
-        raise HTTPException(status_code=404, detail="数据组不存在")
-    results: list[BulkGroupAssignmentResultItem] = []
-    for user_id in payload.user_ids:
-        item_tx = await db.begin_nested()
-        try:
-            target = await db.scalar(
-                select(User)
-                .where(User.id == user_id, user_scope_clause(actor))
-                .with_for_update(nowait=True)
-                .execution_options(populate_existing=True)
-            )
-            if target is None:
-                raise HTTPException(
-                    status_code=404, detail="用户不存在或不在管理范围内"
-                )
-            group = (
-                await db.scalar(select(Group).where(Group.id == payload.group_id))
-                if payload.group_id is not None
-                else None
-            )
-            IdentityCommandService.set_group_for_locked_user(
-                target,
-                group_id=group.id if group else None,
-                group_name=group.name if group else None,
-            )
-            await AuditService.log(
-                db,
-                actor=actor,
-                action="user.bulk_group_assign",
-                target_type="user",
-                target_id=str(target.id),
-                request=request,
-                status_code=200,
-                detail={
-                    "group_id": str(group.id) if group else None,
-                    "group_name": group.name if group else None,
-                },
-            )
-            await item_tx.commit()
-            results.append(BulkGroupAssignmentResultItem(user_id=user_id, ok=True))
-        except Exception as exc:
-            await item_tx.rollback()
-            results.append(
-                BulkGroupAssignmentResultItem(
-                    user_id=user_id,
-                    ok=False,
-                    retryable=True,
-                    error=bulk_error(exc),
-                )
-            )
-    await db.commit()
-    return BulkGroupAssignmentResponse(
-        items=results,
-        succeeded=sum(item.ok for item in results),
-        failed=sum(not item.ok for item in results),
-    )
-
-
-async def assign_user_group(
-    db: AsyncSession,
-    *,
-    user_id: str,
-    group_id: str | None,
-    actor: User,
-    request: Request,
-) -> User:
-    user, actor = await _lock_legacy_lifecycle_target(db, user_id, actor)
-    if user is None or not user.is_active:
-        raise HTTPException(status_code=404, detail="用户不存在")
-    if (
-        await db.scalar(
-            select(User.id).where(User.id == user.id, user_scope_clause(actor))
-        )
-        is None
-    ):
-        raise HTTPException(status_code=404, detail="用户不存在")
-
-    new_group: Group | None = None
-    if group_id:
-        new_group = await db.get(Group, group_id)
-        if new_group is None:
-            raise HTTPException(status_code=404, detail="数据组不存在")
-
-    old_group_id = user.group_id
-    old_group_name = user.group_name
-    IdentityCommandService.set_group_for_locked_user(
-        user,
-        group_id=new_group.id if new_group else None,
-        group_name=new_group.name if new_group else None,
-    )
-
-    await AuditService.log(
-        db,
-        actor=actor,
-        action="user.group_change",
-        target_type="user",
-        target_id=str(user.id),
-        request=request,
-        status_code=200,
-        detail={
-            "email": user.email,
-            "old_group_id": str(old_group_id) if old_group_id else None,
-            "old_group_name": old_group_name,
-            "new_group_id": str(new_group.id) if new_group else None,
-            "new_group_name": new_group.name if new_group else None,
-        },
-    )
-    await db.commit()
-    await db.refresh(user)
-    return user

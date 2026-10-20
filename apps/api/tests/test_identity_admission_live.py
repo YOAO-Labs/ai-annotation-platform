@@ -153,6 +153,7 @@ async def _start_container_identity(
     *,
     login_redis_url=None,
     enable_accounts=True,
+    enable_groups=False,
     enable_presence=True,
     recovery_mail_key=None,
 ):
@@ -180,6 +181,7 @@ async def _start_container_identity(
     }
     for enabled, kind, variable in (
         (enable_accounts, "ACCOUNTS", "IDENTITY_ACCOUNT_DATABASE_URL"),
+        (enable_groups, "GROUP", "IDENTITY_GROUP_DATABASE_URL"),
         (enable_presence, "PRESENCE", "IDENTITY_PRESENCE_DATABASE_URL"),
     ):
         if enabled:
@@ -314,6 +316,7 @@ def _start_identity(
     enable_keys=True,
     enable_sessions=True,
     enable_accounts=True,
+    enable_groups=False,
     enable_presence=True,
     login_redis_url=None,
     session_settings=None,
@@ -333,6 +336,8 @@ def _start_identity(
         values["login_redis_url"] = login_redis_url or os.environ["REDIS_URL"]
     if enable_accounts:
         values["account_database_url"] = _dsn("ACCOUNTS", test_engine)
+    if enable_groups:
+        values["group_database_url"] = _dsn("GROUP", test_engine)
     if enable_presence:
         values["presence_database_url"] = _dsn("PRESENCE", test_engine)
     if recovery_mail_key is not None:
@@ -382,6 +387,8 @@ def _start_api(
             "IDENTITY_SESSION_DATABASE_URL_FILE": "",
             "IDENTITY_ACCOUNT_DATABASE_URL": "",
             "IDENTITY_ACCOUNT_DATABASE_URL_FILE": "",
+            "IDENTITY_GROUP_DATABASE_URL": "",
+            "IDENTITY_GROUP_DATABASE_URL_FILE": "",
             "IDENTITY_PRESENCE_DATABASE_URL": "",
             "IDENTITY_PRESENCE_DATABASE_URL_FILE": "",
             "IDENTITY_RECOVERY_DATABASE_URL": "",

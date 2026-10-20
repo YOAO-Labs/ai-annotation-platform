@@ -141,14 +141,3 @@ class IdentityCommandService:
         """Set a credential while its account row is locked; None clears reset state."""
         user.password_hash = password_hash
         user.password_admin_reset_at = admin_reset_at
-
-    @staticmethod
-    def set_group_for_locked_user(
-        user: User,
-        *,
-        group_id: uuid.UUID | None,
-        group_name: str | None,
-    ) -> None:
-        """Set both account group projections under the caller-held account lock."""
-        user.group_id = group_id
-        user.group_name = group_name

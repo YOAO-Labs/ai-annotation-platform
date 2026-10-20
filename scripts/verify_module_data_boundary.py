@@ -41,6 +41,7 @@ IDENTITY_CLIENT_ROLES = {
     "KEYS": "identity_key_client",
     "SESSIONS": "identity_session_client",
     "ACCOUNTS": "identity_account_client",
+    "GROUP": "identity_group_client",
     "PRESENCE": "identity_presence_client",
     "RECOVERY": "identity_recovery_client",
     "MAIL": "identity_mail_client",
@@ -153,6 +154,7 @@ SQL_ARTIFACTS = (
     "0237_identity_sessions.sql",
     "0238_identity_accounts.sql",
     "0239_identity_recovery.sql",
+    "0240_identity_groups.sql",
 )
 SCHEMA_ARTIFACTS = (
     "0191_task_append.schema.json",
@@ -202,8 +204,11 @@ SCHEMA_ARTIFACTS = (
     "0237_identity_sessions.schema.json",
     "0238_identity_accounts.schema.json",
     "0239_identity_recovery.schema.json",
+    "0240_identity_groups.schema.json",
 )
 TEST_FILES = (
+    "tests/test_identity_groups_native.py",
+    "tests/test_identity_groups_roles.py",
     "tests/test_identity_challenges_native.py",
     "tests/test_identity_challenges_roles.py",
     "tests/test_identity_credential_mail_native.py",
@@ -1667,6 +1672,8 @@ def _install_and_rollback_frozen_sql(
         "SELECT aap_identity_recovery_v1.prepare_recovery_command(NULL::jsonb);\n"
         "SELECT aap_identity_recovery_v1.apply_recovery_command(NULL::jsonb);\n"
         "SELECT aap_identity_recovery_v1.mail_policy();\n"
+        "SELECT aap_identity_groups_v1.group_policy();\n"
+        "SELECT aap_identity_groups_v1.execute_group_command(NULL::jsonb);\n"
         "SELECT aap_identity_v1.lock_active_actor(NULL::uuid);\n"
         "SELECT aap_workspace_v1.lock_project_manager(NULL::uuid, NULL::uuid);\n"
         "SELECT aap_assets_v1.associate_project(NULL::uuid, NULL::uuid, NULL::uuid);\n"
@@ -1831,6 +1838,7 @@ def _install_and_rollback_frozen_sql(
             "AND to_regnamespace('aap_identity_v1') IS NULL "
             "AND to_regnamespace('aap_identity_accounts_v1') IS NULL "
             "AND to_regnamespace('aap_identity_recovery_v1') IS NULL "
+            "AND to_regnamespace('aap_identity_groups_v1') IS NULL "
             "AND to_regnamespace('aap_workspace_v1') IS NULL "
             "AND to_regnamespace('aap_assets_v1') IS NULL "
             "AND to_regnamespace('aap_labeling_v1') IS NULL "
@@ -1846,6 +1854,7 @@ def _install_and_rollback_frozen_sql(
             "AND to_regclass('public.task_append_operations') IS NULL "
             "AND to_regclass('public.identity_account_operation_receipts') IS NULL "
             "AND to_regclass('public.identity_recovery_operation_receipts') IS NULL "
+            "AND to_regclass('public.identity_group_operation_receipts') IS NULL "
             "AND to_regclass('public.identity_credential_mail_outbox') IS NULL "
             "AND to_regclass('public.task_creation_operations') IS NULL "
             "AND to_regclass('public.task_creation_chunks') IS NULL "
@@ -1983,6 +1992,7 @@ def main(argv: list[str] | None = None) -> int:
         identity_account_grants_path = (
             ROOT / "infra/docker/identity-accounts-grants.sql"
         )
+        identity_group_grants_path = ROOT / "infra/docker/identity-groups-grants.sql"
         identity_recovery_grants_path = (
             ROOT / "infra/docker/identity-recovery-grants.sql"
         )
@@ -2005,6 +2015,7 @@ def main(argv: list[str] | None = None) -> int:
             or not identity_grants_path.is_file()
             or not identity_key_grants_path.is_file()
             or not identity_session_grants_path.is_file()
+            or not identity_group_grants_path.is_file()
             or not identity_account_grants_path.is_file()
             or not identity_recovery_grants_path.is_file()
             or any(not path.is_file() for path in artifacts)
@@ -2034,6 +2045,9 @@ def main(argv: list[str] | None = None) -> int:
         identity_grant_sql = identity_grants_path.read_text(encoding="utf-8")
         identity_key_grant_sql = identity_key_grants_path.read_text(encoding="utf-8")
         identity_session_grant_sql = identity_session_grants_path.read_text(
+            encoding="utf-8"
+        )
+        identity_group_grant_sql = identity_group_grants_path.read_text(
             encoding="utf-8"
         )
         identity_account_grant_sql = identity_account_grants_path.read_text(
@@ -2144,8 +2158,8 @@ def main(argv: list[str] | None = None) -> int:
         database = resources["database"]
         evidence["database"] = database
         _, heads = migration_graph(ROOT)
-        if heads != ["0239"]:
-            raise RuntimeError("module-data acceptance requires migration head 0239")
+        if heads != ["0240"]:
+            raise RuntimeError("module-data acceptance requires migration head 0240")
         evidence["migrations"]["head_before_downgrade"] = heads[0]
         phase = "downgrade-to-0189"
         _container_details(
@@ -2420,6 +2434,24 @@ def main(argv: list[str] | None = None) -> int:
                 "identity_owner": "identity_code",
                 "identity_account_role": "identity_account_client",
                 "identity_presence_role": "identity_presence_client",
+            },
+        )
+        phase = "install-identity-group-grants"
+        _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="owner",
+            password=owner_password,
+            database=database,
+            sql=identity_group_grant_sql,
+            variables={
+                "expected_database": database,
+                "migration_role": "owner",
+                "identity_owner": "identity_code",
+                "workspace_owner": "workspace_code",
+                "audit_owner": "audit_code",
+                "identity_group_role": "identity_group_client",
             },
         )
         phase = "install-identity-recovery-grants"

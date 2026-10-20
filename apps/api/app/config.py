@@ -238,6 +238,8 @@ class Settings(BaseSettings):
     identity_session_database_url_file: str = ""
     identity_account_database_url: str = Field(default="", repr=False)
     identity_account_database_url_file: str = ""
+    identity_group_database_url: str = Field(default="", repr=False)
+    identity_group_database_url_file: str = ""
     identity_presence_database_url: str = Field(default="", repr=False)
     identity_presence_database_url_file: str = ""
     identity_recovery_database_url: str = Field(default="", repr=False)

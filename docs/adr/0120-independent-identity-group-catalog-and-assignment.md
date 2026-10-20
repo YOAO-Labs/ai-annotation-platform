@@ -1,6 +1,6 @@
 # 0120 — Identity 分组目录与指派独立所有权
 
-- Status: Accepted; implementation is in progress and runtime qualification is pending
+- Status: Accepted; group implementation and bounded local runtime qualification are complete
 - Date: 2026-10-20
 - Deciders: Maintainers
 - Supersedes: None
@@ -217,3 +217,15 @@ the boundary, not a claim that those checks passed.
 - Function-only grant contract: `infra/docker/identity-groups-grants.sql`.
 - Invitation remains a separate coordinator: `apps/api/app/application/invitation_acceptance.py`.
 - Remaining module gates: [module deployment status](../../docs-site/dev/concepts/module-deployment.md).
+
+## Local qualification
+
+The assembled group passes 67 distinct database/process cases, 272 installed-package
+tests and 39 independent Node consumer self-checks. AUTH-only API credentials
+exercise all eight routes through remote-container and dedicated-DSN owners.
+Current scope/credential fencing, ordered partial bulk results, response-loss
+restart replay, restored receipts/ACLs and populated-downgrade refusal are verified.
+The local 1 CPU / 256 MiB provider sample completes 12 creates at concurrency four
+in 0.138s, with observed p95 0.050s; its shared PostgreSQL budget is separate.
+These are local group results, not full Identity completion, production capacity
+or a replacement-language provider. No production or primary cutover was performed.

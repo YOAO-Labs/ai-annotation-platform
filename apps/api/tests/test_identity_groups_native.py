@@ -14,6 +14,7 @@ from app.db.models.group import Group
 from app.db.models.project import Project
 from app.db.models.project_member import ProjectMember
 from app.db.models.user import User
+from app.db.models.user_invitation import UserInvitation
 from tests.test_identity_auth_native import _cleanup, _seed
 
 
@@ -81,6 +82,168 @@ async def _execute(session: AsyncSession, command: dict) -> dict:
         {"request": json.dumps(command)},
     )
     return result.scalar_one()
+
+
+@pytest.mark.asyncio
+async def test_invitation_group_helper_rechecks_opaque_challenge_and_rolls_back(
+    test_engine,
+):
+    fixture = await _seed(test_engine, role="super_admin", create_key=False)
+    maker = async_sessionmaker(test_engine, expire_on_commit=False)
+    invitation_id = uuid.uuid4()
+    token = "旧链接" * 21 + "x"
+    name = f"Invite owner {invitation_id.hex}"
+
+    async def resolve(db, value):
+        return await db.scalar(
+            text("SELECT aap_identity_groups_v1.resolve_invitation_group(:id, :token)"),
+            {"id": invitation_id, "token": value},
+        )
+
+    try:
+        async with maker.begin() as db:
+            db.add(
+                UserInvitation(
+                    id=invitation_id,
+                    token=token,
+                    email=f"{invitation_id.hex}@groups.test",
+                    role="employee",
+                    group_name=f"\u3000{name}\u3000",
+                    invited_by=fixture["actor_id"],
+                    expires_at=datetime.now(UTC) + timedelta(days=1),
+                )
+            )
+        async with maker() as db:
+            assert await resolve(db, "wrong challenge") == {
+                "error": {"code": "invitation_invalid"}
+            }
+            assert (
+                await db.scalar(
+                    sa.select(sa.func.count())
+                    .select_from(Group)
+                    .where(Group.name == name)
+                )
+                == 0
+            )
+            resolved = await resolve(db, token)
+            assert resolved["name"] == name
+            uuid.UUID(resolved["id"])
+            assert await resolve(db, token) == resolved
+            await db.rollback()
+        async with maker.begin() as db:
+            assert (
+                await db.scalar(
+                    sa.select(sa.func.count())
+                    .select_from(Group)
+                    .where(Group.name == name)
+                )
+                == 0
+            )
+            inviter = await db.get(User, fixture["actor_id"], with_for_update=True)
+            inviter.role = "employee"
+        async with maker() as db:
+            assert await resolve(db, token) == {"error": {"code": "invitation_invalid"}}
+            assert (
+                await db.scalar(
+                    sa.select(sa.func.count())
+                    .select_from(Group)
+                    .where(Group.name == name)
+                )
+                == 0
+            )
+    finally:
+        async with maker.begin() as db:
+            await db.execute(
+                sa.delete(UserInvitation).where(UserInvitation.id == invitation_id)
+            )
+            await db.execute(sa.delete(Group).where(Group.name == name))
+        await _cleanup(test_engine, fixture)
+
+
+@pytest.mark.asyncio
+async def test_group_policy_rejections_are_atomic_and_keep_public_details(test_engine):
+    fixture = await _seed(test_engine, role="super_admin", create_key=False)
+    maker = async_sessionmaker(test_engine, expire_on_commit=False)
+    actor = _actor(fixture["actor_id"])
+    first_id, second_id = uuid.uuid4(), uuid.uuid4()
+    name = f"Existing {first_id.hex}"
+    try:
+        async with maker.begin() as db:
+            db.add_all(
+                [
+                    Group(id=first_id, name=name),
+                    Group(id=second_id, name=f"Other {second_id.hex}"),
+                ]
+            )
+        cases = [
+            (
+                "create_group",
+                {"name": "\u3000 ", "description": None},
+                400,
+                "名称不能为空",
+            ),
+            (
+                "create_group",
+                {"name": f"  {name} ", "description": None},
+                409,
+                f"已存在同名数据组: {name}",
+            ),
+            (
+                "update_group",
+                {"group_id": str(second_id), "name": f"  {name} ", "description": None},
+                409,
+                f"已存在同名数据组:   {name} ",
+            ),
+        ]
+        for operation, payload, status, detail in cases:
+            async with maker.begin() as db:
+                result = await _execute(
+                    db, _command(operation, uuid.uuid4(), actor, payload)
+                )
+                assert result["ok"] is False
+                assert result["error"] == {
+                    "code": "policy_rejected",
+                    "status_code": status,
+                    "detail": detail,
+                }
+        async with maker.begin() as db:
+            user = await db.get(User, fixture["actor_id"], with_for_update=True)
+            user.role = "employee"
+        async with maker.begin() as db:
+            result = await _execute(
+                db, _command("list_groups", uuid.uuid4(), actor, {})
+            )
+            assert result["error"] == {
+                "code": "policy_rejected",
+                "status_code": 403,
+                "detail": "当前账号已无管理权限",
+            }
+            assert (
+                await db.scalar(
+                    text(
+                        "SELECT count(*) FROM identity_group_operation_receipts WHERE actor_id=:id"
+                    ),
+                    {"id": fixture["actor_id"]},
+                )
+                == 0
+            )
+            assert (
+                await db.scalar(
+                    text("SELECT count(*) FROM audit_logs WHERE actor_id=:id"),
+                    {"id": fixture["actor_id"]},
+                )
+                == 0
+            )
+            assert (
+                await db.scalar(sa.select(Group.name).where(Group.id == second_id))
+                == f"Other {second_id.hex}"
+            )
+    finally:
+        async with maker.begin() as db:
+            await db.execute(
+                sa.delete(Group).where(Group.id.in_([first_id, second_id]))
+            )
+        await _cleanup(test_engine, fixture)
 
 
 def test_frozen_group_artifacts_and_owner_capabilities():

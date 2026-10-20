@@ -119,11 +119,12 @@ async def test_0239_preserves_live_legacy_challenge_links(test_engine, tmp_path:
         async with restored.begin() as db:
             assert (
                 await db.scalar(text("SELECT version_num FROM alembic_version"))
-                == "0239"
+                == "0240"
             )
             # This task owns the restored database. Clear only its copied recovery
             # state so the migration begins from a known empty 0239 image.
             for table in (
+                "identity_group_operation_receipts",
                 "identity_recovery_operation_receipts",
                 "identity_credential_mail_outbox",
                 "password_reset_tokens",
@@ -169,7 +170,7 @@ async def test_0239_preserves_live_legacy_challenge_links(test_engine, tmp_path:
                 },
             )
 
-        upgraded = _alembic(owner_url, "upgrade", "0239")
+        upgraded = _alembic(owner_url, "upgrade", "head")
         assert upgraded.returncode == 0, "Owned legacy challenge upgrade failed"
         _apply_grant_script(
             test_engine,

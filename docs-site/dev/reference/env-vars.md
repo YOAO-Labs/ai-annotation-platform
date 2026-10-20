@@ -486,6 +486,8 @@ last_reviewed: 2026-10-20
 | `IDENTITY_ACCOUNT_DATABASE_URL_FILE` | `—` | — |
 | `IDENTITY_PRESENCE_DATABASE_URL` | `—` | — |
 | `IDENTITY_PRESENCE_DATABASE_URL_FILE` | `—` | — |
+| `IDENTITY_GROUP_DATABASE_URL` | `—` | 内嵌 API 分组目录／指派可选 GROUP 两函数 LOGIN；留空使用当前 caller transaction。 |
+| `IDENTITY_GROUP_DATABASE_URL_FILE` | `—` | — |
 | `IDENTITY_RECOVERY_DATABASE_URL` | `—` | API 内嵌恢复与 mail kick 的四组配置；每一对直接值／文件最多设置一项。 未配置 recovery DSN 时沿用调用方事务；配置 recovery DSN 后，MAIL 和 MAIL_SETTINGS DSN 必须同时指定。 两个 mail DSN 都留空时，内嵌 mail kick 复用应用连接；显式 DSN 只成对使用。 |
 | `IDENTITY_RECOVERY_DATABASE_URL_FILE` | `—` | — |
 | `IDENTITY_RECOVERY_MAIL_KEY` | `—` | — |
@@ -499,6 +501,7 @@ last_reviewed: 2026-10-20
 | `IDENTITY_RUNTIME_SESSION_DATABASE_URL_FILE` | `—` | — |
 | `IDENTITY_RUNTIME_ACCOUNT_DATABASE_URL_FILE` | `—` | — |
 | `IDENTITY_RUNTIME_PRESENCE_DATABASE_URL_FILE` | `—` | — |
+| `IDENTITY_RUNTIME_GROUP_DATABASE_URL_FILE` | `—` | — |
 | `IDENTITY_RUNTIME_RECOVERY_DATABASE_URL_FILE` | `—` | — |
 | `IDENTITY_RUNTIME_RECOVERY_MAIL_KEY_FILE` | `—` | — |
 | `IDENTITY_RUNTIME_MAIL_DATABASE_URL_FILE` | `—` | — |

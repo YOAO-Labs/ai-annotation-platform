@@ -210,6 +210,11 @@ async def test_installed_group_owner_node_all_operations_restart_and_revocation(
     suffix = uuid.uuid4().hex
     try:
         async with maker.begin() as db:
+            await db.execute(
+                update(User)
+                .where(User.id == actor)
+                .values(credential_generation=2**63 - 1)
+            )
             targets = [
                 await create_user(
                     db,
@@ -232,7 +237,7 @@ async def test_installed_group_owner_node_all_operations_restart_and_revocation(
             enable_groups=True,
             enable_presence=False,
         )
-        token = _token(actor, secret)
+        token = _token(actor, secret, gen=2**63 - 1)
         jtis.append(uuid.UUID(decode_access_token(token, secret=secret)["jti"]))
 
         list_request = _command("list_groups", token)

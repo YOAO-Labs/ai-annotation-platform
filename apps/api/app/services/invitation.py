@@ -6,7 +6,6 @@ from datetime import datetime, timedelta, timezone
 
 from fastapi import HTTPException, status
 from sqlalchemy import func, select, update
-from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
@@ -19,13 +18,13 @@ from app.db.enums import (
     PlatformRole,
     UserRole,
 )
-from app.db.models.group import Group
 from app.db.models.project import Project
 from app.db.models.project_member import ProjectMember
 from app.db.models.task_batch import TaskBatch
 from app.db.models.user import User
 from app.db.models.user_invitation import UserInvitation
 from app.services.identity_commands import IdentityCommandService
+from app.services.identity_group_data import resolve_invitation_group
 from app.services.workspace_contract import membership_role_compatible
 from app.services.project_access import assert_membership_role_compatible
 from app.services.system_settings_service import SystemSettingsService
@@ -77,23 +76,6 @@ async def _lock_invitation_email(db: AsyncSession, email: str) -> None:
     await db.execute(
         select(func.pg_advisory_xact_lock(func.hashtextextended(email, 0)))
     )
-
-
-async def resolve_or_create_group(db: AsyncSession, name: str) -> Group:
-    query = select(Group).where(Group.name == name).with_for_update(read=True)
-    group = await db.scalar(query)
-    if group is not None:
-        return group
-
-    await db.execute(
-        pg_insert(Group)
-        .values(name=name)
-        .on_conflict_do_nothing(index_elements=[Group.name])
-    )
-    group = await db.scalar(query)
-    if group is None:  # pragma: no cover - INSERT 后的行在同事务内应始终可见
-        raise RuntimeError("failed to resolve invitation group")
-    return group
 
 
 async def _get_manageable_invitation(
@@ -505,19 +487,19 @@ class InvitationService:
                 detail="邀请中的数据组名称无效，请联系管理员重发邀请",
             )
         group = (
-            await resolve_or_create_group(db, group_name)
+            await resolve_invitation_group(db, invitation.id, invitation.token)
             if group_name is not None
             else None
         )
-        invitation.group_name = group.name if group else None
+        invitation.group_name = group["name"] if group else None
         assert_invitation_platform_role(invitation.role)
         return await IdentityCommandService(db).create_invited_account(
             email=invitation.email,
             name=name,
             password_hash=hash_password(password),
             role=invitation.role,
-            group_name=group.name if group else None,
-            group_id=group.id if group else None,
+            group_name=group["name"] if group else None,
+            group_id=group["id"] if group else None,
             now=datetime.now(timezone.utc),
         )
 

@@ -21,6 +21,9 @@ from aap_identity.account_contract import AccountFailure, decode_account_request
 from aap_identity.account_manager import AccountManager
 from aap_identity.account_postgres import AccountPostgresData
 from aap_identity.contract import IdentityFailure
+from aap_identity.group_contract import decode_group_request
+from aap_identity.group_manager import GroupManager
+from aap_identity.group_postgres import GroupPostgresData
 from aap_identity.key_contract import KeyFailure, decode_key_request
 from aap_identity.key_manager import KeyManager
 from aap_identity.key_postgres import KeyPostgresData
@@ -230,6 +233,7 @@ async def test_restored_authority_retains_revocation_and_refuses_populated_downg
     key_id = uuid.uuid4()
     session_id = uuid.uuid4()
     account_id = uuid.uuid4()
+    group_id = uuid.uuid4()
     snapshot = tmp_path / "authority.dump"
 
     class Counter:
@@ -273,6 +277,21 @@ async def test_restored_authority_retains_revocation_and_refuses_populated_downg
             "audit_context": {
                 "method": "PATCH",
                 "path": "/recovery/account",
+                "ip": "127.0.0.1",
+                "request_id": None,
+            },
+        }
+    )
+    group_command = decode_group_request(
+        {
+            "schema": "aap-identity-groups/v1",
+            "operation": "create_group",
+            "operation_id": str(group_id),
+            "token": _token(actor, secret, gen=9),
+            "payload": {"name": f"Restore group {group_id.hex}", "description": None},
+            "audit_context": {
+                "method": "POST",
+                "path": "/recovery/group",
                 "ip": "127.0.0.1",
                 "request_id": None,
             },
@@ -407,6 +426,11 @@ async def test_restored_authority_retains_revocation_and_refuses_populated_downg
             AccountPostgresData(_dsn("ACCOUNTS", test_engine)),
             secret,
         ).execute(account_command)
+        original_group = await GroupManager(
+            Authenticator(PostgresData(_dsn("AUTH", test_engine)), secret),
+            GroupPostgresData(_dsn("GROUP", test_engine)),
+            secret,
+        ).execute(group_command)
         dump = _postgres_tool(
             test_engine,
             ["pg_dump", "-U", "owner", "-Fc", test_engine.url.database],
@@ -476,6 +500,29 @@ async def test_restored_authority_retains_revocation_and_refuses_populated_downg
         account_manager = AccountManager(auth, account_data, secret)
         restored_account = await account_manager.execute(account_command)
         assert restored_account.data.account.name == "Restored account"
+        group_data = GroupPostgresData(
+            make_url(_dsn("GROUP", test_engine))
+            .set(database=clone)
+            .render_as_string(hide_password=False)
+        )
+        assert (await group_data.group_policy()).policy == "aap-identity-groups/v1"
+        group_manager = GroupManager(auth, group_data, secret)
+        restored_group = await group_manager.execute(group_command)
+        assert restored_group.data == original_group.data
+        async with restored.begin() as db:
+            await db.execute(
+                text("UPDATE public.groups SET name=:name WHERE id=:id"),
+                {"name": f"Changed {group_id.hex}", "id": group_id},
+            )
+        replayed_group = await group_manager.execute(group_command)
+        assert replayed_group.data == original_group.data
+        async with restored.connect() as db:
+            assert (
+                await db.scalar(
+                    text("SELECT name FROM groups WHERE id=:id"), {"id": group_id}
+                )
+                == f"Changed {group_id.hex}"
+            )
         async with restored.begin() as db:
             await db.execute(
                 text("UPDATE users SET name='Changed after restore' WHERE id=:id"),
@@ -672,6 +719,32 @@ async def test_restored_authority_retains_revocation_and_refuses_populated_downg
 
         _refuse_downgrade(
             owner_url,
+            revision="0239",
+            message=b"Cannot remove Identity group operation receipts",
+        )
+        async with restored.begin() as db:
+            assert (
+                await db.scalar(text("SELECT version_num FROM alembic_version"))
+                == "0240"
+            )
+            await db.execute(
+                text(
+                    "DELETE FROM public.identity_group_operation_receipts WHERE actor_id=:id"
+                ),
+                {"id": actor},
+            )
+            assert (
+                await db.scalar(
+                    text(
+                        "SELECT count(*) FROM public.identity_group_operation_receipts"
+                    )
+                )
+                == 0
+            )
+        removed_groups = _alembic(owner_url, "downgrade", "0239")
+        assert removed_groups.returncode == 0, "Owned empty group downgrade failed"
+        _refuse_downgrade(
+            owner_url,
             revision="0238",
             message=b"Cannot remove Identity recovery while challenges or retained state exist",
         )
@@ -777,7 +850,7 @@ async def test_restored_authority_retains_revocation_and_refuses_populated_downg
         record_property("restored_snapshot_sha256", hashlib.sha256(dump).hexdigest())
         record_property(
             "restored_authority",
-            "generation,jti,api-key,key-receipt,session-receipt,account-receipt,recovery-replay,credential-mail,database-schema-function-acls",
+            "generation,jti,api-key,key-receipt,session-receipt,account-receipt,group-receipt,recovery-replay,credential-mail,database-schema-function-acls",
         )
     finally:
         snapshot.unlink(missing_ok=True)
@@ -830,4 +903,14 @@ async def test_restored_authority_retains_revocation_and_refuses_populated_downg
                     )
                 await _cleanup(recovery_maker, recovery_actor, [])
             finally:
+                async with maker.begin() as db:
+                    await db.execute(
+                        text(
+                            "DELETE FROM public.identity_group_operation_receipts WHERE actor_id=:id"
+                        ),
+                        {"id": actor},
+                    )
+                    await db.execute(
+                        text("DELETE FROM public.groups WHERE id=:id"), {"id": group_id}
+                    )
                 await _cleanup(maker, actor, [jti])

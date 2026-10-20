@@ -2657,8 +2657,41 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   Invitation lifecycle, directory/admin workflows, other-user hydration and
   multi-owner transfers remain outstanding. The API group command/data adapters
   and portable Python group contract/manager/Postgres owner now have an
-  implementation boundary; this docs/Compose change records their deployment
-  inputs. Group native database, restricted-role and real-consumer qualification
-  evidence has not yet been added, so this slice has no completion claim here.
+  implementation boundary; the assembled source and local qualification now
+  cover all eight group operations.
   The full Identity module, other module rows, seven gates, production readiness
   and another-language provider remain active.
+
+### Identity group local qualification
+
+- The current group has 67 distinct database-backed and process acceptance passes,
+  including the original management/invitation regressions, native receipts,
+  exact two-function GROUP LOGIN, Workspace scope and cross-group manager locks.
+  The independent installed package passes 272 tests; its 54 installed source
+  files match the current source hashes. The Node consumer has 39 self-checks and
+  consumes all eight operations, preserving int64 generation, current authority,
+  partial/duplicate bulk inputs, response loss and restart replay. This is an
+  independent consumer, not a replacement-language provider.
+- A real API using only AUTH database privileges exercises all eight public routes
+  through both the readonly owner container and a dedicated GROUP DSN. An
+  otherwise healthy owner lacking Groups returns 503 without a local fallback.
+  Group/actor/target locks and captured Workspace project IDs fence ownership and
+  membership changes through commit; rename/delete synchronize both user fields.
+- Backup/restore preserves the group catalog, frozen operation outcomes and exact
+  role/function ACLs alongside prior Identity authority. Replaying a restored
+  create does not rewind a newer name. Populated group downgrade is refused;
+  empty group downgrade and the older challenge migration remain usable.
+  Invitation helpers retain valid 64-character opaque Unicode tokens and roll
+  back staged groups when registration does not commit.
+- A bounded local run with a 1 CPU / 256 MiB provider completes 12 creates at
+  concurrency four in 0.138 seconds, observed p95 0.050 seconds. PostgreSQL is a
+  shared local service; this sample does not establish production capacity.
+- The initial invitation regressions exposed missing row-lock column privilege
+  and a missing SQL UUID default. Both are fixed, with native policy status casts,
+  missing-group preview compatibility and installed wheel cache/source checks.
+  An inadvertently selected database metadata case was moved from the static
+  check into the owned verifier and passed. Historical failures remain in reports.
+- The full goal remains active. Invitation lifecycle and mail, management directory
+  and other-user hydration, role/admin commands, the serialized final-super-admin
+  invariant and cross-owner offboarding are next. Primary Identity cutover,
+  production deployment, remote CI and Go expansion are not part of this group.
