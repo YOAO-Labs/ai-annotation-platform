@@ -9,7 +9,7 @@ last_reviewed: 2026-10-20
 
 协议对象只接受声明的 wire 字段名：版本字段为 `schema`。内部 Python 字段名 `protocol` 无论单独使用还是与 `schema` 同时提交都被拒绝；opaque 偏好值中的同名键不受影响。
 
-Identity 运行时提供认证准入、API key、核心会话、自助账户、全局分组目录与指派、完整邀请生命周期、四项用户目录读取、自助注销、注销到期处理、账号恢复和在线扫描命令；平台角色预览／变更与管理员暂停／恢复账号 owners 均通过各自限定的本地资格。公开用户接口仍是 `/api/v1/auth/`、`/api/v1/me/api-keys` 与 `/api/v1/users`。私有接口要求独立控制 Bearer；需要用户身份的操作将凭据放在 JSON 的 `token` 中，不能代替控制凭据。注册/邀请证明凭据另置于 `payload`，与调用者身份 token 分开。账号恢复使用匿名请求或单次挑战证明，邮件与注销通知分别由独立执行进程投递。
+Identity 运行时提供认证准入、API key、核心会话、自助账户、全局分组目录与指派、完整邀请生命周期、四项用户目录读取、自助注销、注销到期处理、账号恢复和在线扫描命令；平台角色预览／变更与管理员暂停／恢复账号 owners 均通过各自限定的本地资格。内部批量 UserBrief reads 是当前实现切片，尚待资格验收。公开用户接口仍是 `/api/v1/auth/`、`/api/v1/me/api-keys` 与 `/api/v1/users`。私有接口要求独立控制 Bearer；需要用户身份的操作将凭据放在 JSON 的 `token` 中，不能代替控制凭据。注册/邀请证明凭据另置于 `payload`，与调用者身份 token 分开。账号恢复使用匿名请求或单次挑战证明，邮件与注销通知分别由独立执行进程投递。
 
 | 接口                                         | 用途                                           |
 | -------------------------------------------- | ---------------------------------------------- |
@@ -23,6 +23,7 @@ Identity 运行时提供认证准入、API key、核心会话、自助账户、�
 | `POST /v1/identity/groups/execute`           | 分组目录、查询、指派预览／执行                 |
 | `POST /v1/identity/invitations/execute`      | 邀请管理、批量操作、注册、接受与耐久邮件发送   |
 | `POST /v1/identity/directory/execute`        | 用户目录列表、查询、统计与导出                 |
+| `POST /v1/identity/briefs/execute`           | 内部批量 UserBrief 富化（实现中，资格待验收）  |
 | `POST /v1/identity/admin-passwords/execute`  | 管理员临时密码重置                             |
 | `POST /v1/identity/platform-roles/execute`   | 平台角色预览与变更                             |
 | `POST /v1/identity/suspensions/execute`      | 管理员停用与恢复账号                           |
@@ -243,6 +244,18 @@ Directory read slice 已通过限定的本地资格。Committed source `eeeaa16e
 API image SHA-256 `12eadf471566c1487a5830961928232e9abf4b01728912b03fb18fa70fc60479` 在无网络、只读、512 MiB cold container 核对 82 个 package files、70 个 API/native inputs、Directory 四路由和既有 13 Inv/5 Recovery/8 Group/2 Deactivation 路由、OpenAPI 与 0243 head。Public paths/fields/statuses 不变；OpenAPI 仅 users/stats description 更新。环境文档生成核对 447 个 variables／48 sections，codegen、schema export 通过。所用 API cold-proof 容器已移除。
 
 Live 用 540 个 synthetic users 覆盖超过 500 行与 64 KiB 的 list/export；int64 大页、生命周期引用类别、stale role 403、profile/context frozen export、no-repeat Audit、当前可见性 409、credential-generation fence 与 restart 也通过。受限 remote Identity container 的 1 CPU／256 MiB 边界只适用于该容器。另一个 12 次读取、并发 4 的 host-process sample 为 elapsed 0.232s、p50 0.077s、p95 0.081s，包含 Node process overhead；它不对应上述容器预算，也不是生产容量或 SLO。Node fixture 保留输入 JSON 数值 token 与 wide integers；20 位小数 `0.12345678901234568` 只验证既有后端 canonical form，不主张新的后端十进制精度。此前 Invitation/MailV2 的 68/375/324 counts 仍只属于该 slice。
+
+## 内部批量 UserBrief 读取（实现中，资格待验收）
+
+此 owner 抽取的是现有 API enrichment helper `app.services.user_brief.resolve_briefs` 与 `resolve_briefs_with_project_role`，不是可供用户任意查询的 public profile endpoint。所有调用方仍先授权自己的 task/project/result rows，再 enrichment 相关 user IDs；helper 没有 actor 参数，不使用 Directory 的 manager gate，也不改变公开 API／SDK schemas、paths、pagination 或 errors。
+
+Wire schema 为 `aap-identity-briefs/v1`，只接受 `schema/operation/payload`。`get_user_briefs` 的 payload 为 `{user_ids:[UUID,...]}`；`get_project_user_briefs` 为 `{project_id:UUID,user_ids:[UUID,...]}`。没有 token、actor、nonce、operation ID 或 audit context；调用只由内部 control Bearer 授权。UUID string 规范化，重复与空数组合法；`None` 输入不发送，空输入本地返回 `{}`。不加 ID 数量或 JSON body 大小上限。拒绝 `protocol` alias、未知/重复 JSON keys、NaN/Infinity 以及 number/boolean/null ID。坏 control Bearer 返回 401；无效请求返回闭合的 400 envelope；disabled capability、timeout 或 owner failure 返回 503 `Identity brief reads unavailable`，不做 ORM fallback。
+
+Wire success 的 data 是 `{project_id: UUID|null,users:[UserBrief,...]}`：全局读取的 `project_id` 必为 null，项目读取必须等于请求值；记录唯一、按 canonical UUID 字符串排序并且是请求 ID 子集，缺失用户不合成。`UserBrief` 精确为 `id/name/email/role/avatar_initial/avatar_ref`。输出包括 inactive/offline、pending retirement 与历史 role 的现存 User，不加状态筛选。项目角色取 Workspace 返回的 truthy membership role；空/缺失成员角色回退 User.role，owner/历史 assignee 无成员行时也保留 User brief。`avatar_initial` 由 Python 计算：`source=(name or email or "?").strip()`，有内容时取 `source[:1].upper()`，否则为 `"?"`。空白 name 不回退 email，不做 Unicode normalization，例如 `ß` 仍可变成多字符 `SS`。
+
+Native schema `aap-identity-briefs-native/v1` 使用同操作与 payload，只返回 `id/name/email/role/avatar_ref` 五个 source 字段；Identity Python owner 计算 initial 并在嵌入式或远程路径都验证 owner envelope、scope、ID 子集与输出形状。Migration 0249 计划提供 `aap_identity_briefs_v1` 下的 `briefs_policy()` 与 `execute_briefs_command(jsonb)`，dedicated LOGIN `identity_briefs_client` 只获这两项函数权限。Workspace 仅暴露 `identity_brief_project_roles(project_id,user_ids)`，不授权读取 ProjectMember 原表。
+
+API 可选 `IDENTITY_BRIEFS_DATABASE_URL(_FILE)`；两项互斥，留空时沿用现有 caller Session。已有 `IDENTITY_URL` 优先并调用 private HTTP。独立 runtime 的 DSN 也可留空，此时 briefs capability disabled；Compose host selector 为 `IDENTITY_RUNTIME_BRIEFS_DATABASE_URL_FILE`。嵌入式 SQLAlchemy adapter 永不提交或回滚调用方事务；text SQL 前只有 `autoflush=true` 且不在 `no_autoflush` 时才 flush。专用 asyncpg 绑定则拥有只读 transaction 并在每次调用后关闭连接。Root 已完成旧 helper 行为 baseline；新的 source/installed、SQL role、Node/runtime、restore 与真实 API binding qualification 仍待验收。完整契约与限制见 [ADR-0129](/dev/adr/0129-identity-batched-user-brief-reads)。
 
 ## 管理员临时密码重置
 

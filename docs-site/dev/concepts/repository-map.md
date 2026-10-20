@@ -75,6 +75,13 @@ last_reviewed: 2026-10-20
   `UserLifecycleService.lock_accounts`。Batch handoff/release helpers 已退役，Project owner
   transfer helper 继续供其他 workflows 使用。各命令的权限、回执和事务边界独立维护；offboarding
   已通过限定的本地资格，精确范围见 [ADR-0128](/dev/adr/0128-independent-identity-offboarding-commands)。
+- 批量 UserBrief enrichment：现有 `app/services/user_brief.py::resolve_briefs` 与
+  `resolve_briefs_with_project_role` 为已授权的任务／项目／结果补充六字段用户摘要；
+  调用者先检查自己的 rows，helper 不接收 actor，也不增加公共资料查询路由。Identity
+  portable owner 位于 `apps/identity/src/aap_identity/{briefs_contract,briefs_manager,briefs_postgres}.py`；
+  项目成员角色只通过 Workspace 的窄批量 capability 读取。当前提取与资格仍待完成，
+  旧行为、caller-transaction 和可选 private runtime 边界见
+  [ADR-0129](/dev/adr/0129-identity-batched-user-brief-reads)。
 - 分组目录与账号指派：`api/v1/group_commands.py` 收口 HTTP 请求与权限映射；
   `services/identity_group_commands.py` 选择本地事务、函数 DSN 或 Identity runtime，
   `services/identity_group_data.py` 只适配当前 SQL Session 上的本地 Group command data。

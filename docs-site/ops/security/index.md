@@ -315,6 +315,12 @@ Identity offboarding 的 `preview_version` 是精确保留旧 Python snapshot �
 
 这些敏感事实只由 Identity owner 与 Workspace／Labeling／Audit typed capabilities 协调；调用角色没有其他 owner 的原始表权限。该 owner 已通过限定的本地资格；详细事务锁序、接收人投影、重放范围、错误优先级和证据边界见 [Identity offboarding ADR](/dev/adr/0128-independent-identity-offboarding-commands)。本地资格不代表生产切换、容量或 SLO 结论。
 
+### 7.5 内部批量 UserBrief 富化（实现与资格待验收）
+
+UserBrief 只供已经通过授权检查的 task、project、result 等调用方补全显示摘要；该 helper 没有 actor 参数，不是任意用户资料目录 API，也不复用 Directory 的 manager-only scope。调用方必须先授权自己的业务行，再传关联 user IDs。私有 Identity endpoint 使用内部 control Bearer；caller transaction 路径继续使用当前受限应用连接，专用 LOGIN 只可执行两项 briefs 函数。
+
+返回值仅有 `id/name/email/role/avatar_initial/avatar_ref` 六字段，不含 credential hash、generation、API key 或管理状态；对已授权关联用户保留 inactive／历史角色的既有显示语义。ProjectMember role 从 Workspace 窄投影读取，Identity/API 不获其原表权限；没有 audit、receipt、缓存或逐用户 RPC。该 owner 仍在实施，详细输入范围、transaction/autoflush 边界、private error envelope 与函数 grants 见 [Identity UserBrief ADR](/dev/adr/0129-identity-batched-user-brief-reads)。
+
 ---
 
 ## 8. 安全测试与监控
@@ -338,6 +344,8 @@ Identity offboarding 的 `preview_version` 是精确保留旧 Python snapshot �
 | 项目授权解析                | `apps/api/app/services/project_access.py`                                                                      |
 | 成员角色变更 / 交接工作流   | `apps/api/app/application/project_membership.py`                                                               |
 | 成员行所有者                | `apps/api/app/services/project_membership.py`                                                                  |
+| UserBrief 内部读取 owner    | `apps/identity/src/aap_identity/{briefs_contract,briefs_manager,briefs_postgres}.py`                           |
+| UserBrief caller helpers    | `apps/api/app/services/user_brief.py::resolve_briefs[_with_project_role]`                                      |
 | 离职预览 / 提交 owner       | `apps/identity/src/aap_identity/offboarding_{contract,manager,postgres}.py`                                    |
 | 离职 HTTP 组合 / 调用方数据 | `apps/api/app/api/v1/offboarding_commands.py`；`apps/api/app/services/identity_offboarding_{commands,data}.py` |
 | 账号锁 / 凭据共享能力       | `apps/api/app/services/user_lifecycle.py`（`UserLifecycleService.lock_accounts`）                              |
