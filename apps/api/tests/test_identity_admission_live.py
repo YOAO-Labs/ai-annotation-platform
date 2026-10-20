@@ -157,6 +157,7 @@ async def _start_container_identity(
     enable_invitations=False,
     enable_directory=False,
     enable_admin_password=False,
+    enable_platform_role=False,
     enable_deactivation=False,
     enable_deactivation_operator=False,
     enable_presence=True,
@@ -193,6 +194,11 @@ async def _start_container_identity(
             enable_admin_password,
             "ADMIN_PASSWORD",
             "IDENTITY_ADMIN_PASSWORD_DATABASE_URL",
+        ),
+        (
+            enable_platform_role,
+            "PLATFORM_ROLE",
+            "IDENTITY_PLATFORM_ROLE_DATABASE_URL",
         ),
         (enable_deactivation, "DEACTIVATION", "IDENTITY_DEACTIVATION_DATABASE_URL"),
         (
@@ -338,6 +344,7 @@ def _start_identity(
     enable_invitations=False,
     enable_directory=False,
     enable_admin_password=False,
+    enable_platform_role=False,
     enable_deactivation=False,
     enable_deactivation_operator=False,
     enable_presence=True,
@@ -367,6 +374,8 @@ def _start_identity(
         values["directory_database_url"] = _dsn("DIRECTORY", test_engine)
     if enable_admin_password:
         values["admin_password_database_url"] = _dsn("ADMIN_PASSWORD", test_engine)
+    if enable_platform_role:
+        values["platform_role_database_url"] = _dsn("PLATFORM_ROLE", test_engine)
     if enable_deactivation:
         values["deactivation_database_url"] = _dsn("DEACTIVATION", test_engine)
     if enable_deactivation_operator:
@@ -430,6 +439,8 @@ def _start_api(
             "IDENTITY_DIRECTORY_DATABASE_URL_FILE": "",
             "IDENTITY_ADMIN_PASSWORD_DATABASE_URL": "",
             "IDENTITY_ADMIN_PASSWORD_DATABASE_URL_FILE": "",
+            "IDENTITY_PLATFORM_ROLE_DATABASE_URL": "",
+            "IDENTITY_PLATFORM_ROLE_DATABASE_URL_FILE": "",
             "IDENTITY_DEACTIVATION_DATABASE_URL": "",
             "IDENTITY_DEACTIVATION_DATABASE_URL_FILE": "",
             "IDENTITY_DEACTIVATION_OPERATOR_DATABASE_URL": "",
