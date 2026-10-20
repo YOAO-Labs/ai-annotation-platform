@@ -2,10 +2,17 @@ from __future__ import annotations
 
 import json
 import os
+import uuid
 
 import asyncpg
 import pytest
+from sqlalchemy import text
 from sqlalchemy.engine import make_url
+from sqlalchemy.ext.asyncio import create_async_engine
+
+from aap_identity.contract import IdentityUnavailable
+from aap_identity.directory_postgres import DirectoryPostgresData
+from app.config import settings
 
 
 def _dsn() -> str:
@@ -141,5 +148,68 @@ async def test_identity_directory_login_has_only_two_functions_and_no_table_acce
         for statement in forbidden:
             with pytest.raises(asyncpg.InsufficientPrivilegeError):
                 await connection.execute(statement)
+    finally:
+        await connection.close()
+
+
+@pytest.mark.asyncio
+async def test_directory_policy_rejects_explicit_public_function_grant():
+    dsn = _dsn()
+    function_name = f"identity_directory_probe_{uuid.uuid4().hex}"
+    owner_engine = create_async_engine(settings.effective_migration_database_url)
+    try:
+        async with owner_engine.begin() as connection:
+            await connection.execute(
+                text(
+                    f"CREATE FUNCTION public.{function_name}() RETURNS integer "
+                    "LANGUAGE sql IMMUTABLE AS $$ SELECT 1 $$"
+                )
+            )
+            await connection.execute(
+                text(f"REVOKE ALL ON FUNCTION public.{function_name}() FROM PUBLIC")
+            )
+            await connection.execute(
+                text(
+                    f"GRANT EXECUTE ON FUNCTION public.{function_name}() "
+                    "TO identity_directory_client"
+                )
+            )
+
+        with pytest.raises(IdentityUnavailable):
+            await DirectoryPostgresData(dsn).directory_policy()
+    finally:
+        async with owner_engine.begin() as connection:
+            await connection.execute(
+                text(f"DROP FUNCTION IF EXISTS public.{function_name}()")
+            )
+        await owner_engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_public_invoker_helper_cannot_write_private_tables():
+    connection = await asyncpg.connect(_dsn())
+    try:
+        assert await connection.fetchval(
+            "SELECT pg_catalog.has_function_privilege(current_user, "
+            "'public.record_mask_annotation_revision(uuid,uuid,uuid,integer,jsonb,text)', "
+            "'EXECUTE')"
+        )
+        assert not await connection.fetchval(
+            "SELECT pg_catalog.has_table_privilege(current_user, "
+            "'public.mask_annotation_revisions', 'INSERT')"
+        )
+        with pytest.raises(asyncpg.InsufficientPrivilegeError):
+            await connection.fetchval(
+                """
+                SELECT public.record_mask_annotation_revision(
+                    pg_catalog.gen_random_uuid(),
+                    pg_catalog.gen_random_uuid(),
+                    pg_catalog.gen_random_uuid(),
+                    1,
+                    '{}'::jsonb,
+                    'directory-role-probe'
+                )
+                """
+            )
     finally:
         await connection.close()
