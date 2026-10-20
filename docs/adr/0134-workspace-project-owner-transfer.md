@@ -78,3 +78,25 @@ statement counts exclude SQL executed inside Native functions and are not
 capacity measurements. Current implementation qualification is recorded in
 `docs/plans/1792160873_backend-module-decoupling.md`; legacy capture alone does
 not qualify the new implementation.
+
+The scoped final union passed 66 distinct selected cases: 59 database/process
+and seven pure/static cases, with no effective failures or skips. Failed
+fixture/diagnostic attempts were replaced by successful focused retries.
+Source and noneditable installed suites each passed 85 cases; all 14 installed
+package files match source without API/ORM/Celery imports. Four public bindings
+match all 17 captured HTTP responses and preserve the four caller transaction
+probes. Native/grant, malformed-reply rollback, raw DML and deferred-commit
+failure, real reply-loss recovery, two-capability coexistence, nine affected
+restores, and Python/Node image restart/supersession checks passed.
+
+The Python owner image matches 14 package files; the Node image matches five
+runtime inputs and uses pg@8.16.3 as UID 1000. The fresh API image matches 136
+installed package files and 72 application/Native inputs, unchanged OpenAPI and
+head 0254. The API cold proof explicitly supplies ordinary UID 10001, read-only
+filesystem, no network and fixed budgets; its default image user is unchanged.
+Architecture separately passes 318 cases with 133 existing inapplicable rules
+skipped. Codegen and the 509-route/93-module catalog remain unchanged. Exact
+code/image identities are in the implementation ledger. The accepted local
+transport experiment does not qualify full Workspace, separate databases,
+production capacity or the ten-module/seven-gate objective, and no primary or
+production cutover, push or remote CI was performed.

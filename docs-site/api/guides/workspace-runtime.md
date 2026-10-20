@@ -35,7 +35,7 @@ API 默认使用本地 caller Session；可选 `WORKSPACE_MEMBERSHIP_DATABASE_UR
 
 成员命令切片已通过独立安装包、受限 Native 权限、进程／镜像、真实 API、并发交接、重启重放和备份恢复的本地限定验收；计数与边界见 [ADR-0133](/dev/adr/0133-workspace-membership-lifecycle-owner)。命令 owner 只持有三项 RPC 权限，API 验收仍使用过渡期 `legacy_runtime` 装配。
 
-项目创建、配置、模板、列表、mention 与其他 Workspace consumers 仍使用各自现有路径。完整 Workspace、其余模块、完整 Identity、十模块／七门槛目标、另一语言提供方、生产容量验证与 primary cutover 也仍未完成。Go 月报保持多语言架构实验，不构成该 owner 的语言提供方。
+项目创建、配置、模板、列表、mention 与其他 Workspace consumers 仍使用各自现有路径。完整 Workspace、其余模块、完整 Identity、十模块／七门槛目标、完整模块的另一语言提供方、生产容量验证与 primary cutover 也仍未完成。Go 月报保持多语言架构实验，不构成该 owner 的语言提供方。
 
 ## 项目负责人转移
 
@@ -48,3 +48,5 @@ Native 先按 UUID 顺序锁当前操作人与接收账号，再取 Project 排�
 API 可选 `WORKSPACE_OWNER_TRANSFER_URL`，或二选一的 `WORKSPACE_OWNER_TRANSFER_DATABASE_URL(_FILE)`；未配置时使用 caller Session，显式失败不回退。共享成员命令的 control token 与 timeout。独立 runtime 支持只启用成员、只启用转移或同时启用，`/ready` 检查每个已配置能力和受限权限。可选 `docker-compose.workspace-owner-transfer.yml` 使用宿主端口 8173，通过 `WORKSPACE_RUNTIME_OWNER_TRANSFER_DATABASE_URL_FILE` 与 `WORKSPACE_RUNTIME_CONTROL_TOKEN_FILE` 挂载 secret。
 
 Node conformance provider 以标准 PostgreSQL 协议调用相同的两项函数，不代理 Python/API；其业务规则仍由 Native 执行。该提供方仅服务于本地单命令替换实验。完整 Workspace、独立数据库、生产容量与其他模块的剩余门槛继续推进。
+
+负责人转移切片的 66 个去重选定案例已完成本地限定验收，包含四条绑定路径与旧响应对照、受限数据库权限、事务错误、丢响应恢复、关联备份恢复和 Python／Node 镜像重启。独立 Node 提供方只覆盖这个命令的传输与事务，完整 Workspace 的语言替换仍待后续工作。验证范围见 [ADR-0134](/dev/adr/0134-workspace-project-owner-transfer)。

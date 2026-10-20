@@ -47,7 +47,7 @@
 - [0131](0131-identity-transactional-account-locks.md) — Identity 同事务账号锁与只读事实（本地实现中，资格验证待完成）
 - [0132](0132-identity-operational-provisioning-and-authority-reads.md) — Identity 运维账号 provisioning 与 authority facts 复用（已通过限定本地资格）
 - [0133](0133-workspace-membership-lifecycle-owner.md) — Workspace 项目成员生命周期命令 owner（成员命令本地限定验收通过）
-- [0134](0134-workspace-project-owner-transfer.md) — Workspace 项目负责人转移命令与本地传输提供方实验
+- [0134](0134-workspace-project-owner-transfer.md) — Workspace 项目负责人转移命令与本地传输提供方实验（限定本地验收通过）
 
 ### 已采纳（Accepted，归档）
 
