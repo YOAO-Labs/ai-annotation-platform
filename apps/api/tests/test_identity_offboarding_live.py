@@ -825,12 +825,32 @@ async def test_installed_owner_emergency_offboarding_preserves_work_and_redacts_
                 expire_at=datetime.now(UTC) + timedelta(hours=1),
             )
             db.add(lock)
+            lock_only_tasks = []
+            for status in ("pending", "completed"):
+                lock_only_task = await create_task(
+                    db, project_id=project.id, status=status
+                )
+                lock_only_task.assignee_id = actor_id
+                lock_only_task.reviewer_id = None
+                lock_only_task.updated_at = old_time
+                db.add(
+                    TaskLock(
+                        task_id=lock_only_task.id,
+                        user_id=target.id,
+                        expire_at=datetime.now(UTC) + timedelta(hours=1),
+                    )
+                )
+                lock_only_tasks.append(lock_only_task)
             await db.flush()
             target.credential_generation = 8
             target.status = "online"
             target_token = create_access_token(
                 str(target.id), "employee", secret=secret, expire_minutes=15, gen=8
             )
+        emergency_task_ids = [task.id, *(item.id for item in lock_only_tasks)]
+        emergency_tasks_before = await _task_rows(maker, emergency_task_ids)
+        emergency_lock_ids_before = await _lock_ids(maker, target.id)
+        assert len(emergency_lock_ids_before) == 3
         user_ids.append(target.id)
         actor_token = _token(actor_id, secret)
         jtis.extend(
@@ -857,6 +877,7 @@ async def test_installed_owner_emergency_offboarding_preserves_work_and_redacts_
         )
         preview = preview_response["data"]["preview"]
         project_preview = preview["projects"][0]
+        assert project_preview["locked_task_count"] == 3
         assert preview["can_commit"] is False
         assert [item["code"] for item in project_preview["blockers"]] == [
             "no_owner_receiver",
@@ -896,7 +917,7 @@ async def test_installed_owner_emergency_offboarding_preserves_work_and_redacts_
         for item in unresolved[1:]:
             assert item["batch_ids"] == [str(batch.id)]
             assert item["task_count"] == 1
-            assert item["lock_count"] == 1
+            assert item["lock_count"] == 2
         assert result["user"]["disabled_kind"] == "emergency_suspended"
         assert result["user"]["disabled_reason"] == reason.strip()
 
@@ -911,7 +932,7 @@ async def test_installed_owner_emergency_offboarding_preserves_work_and_redacts_
                 select(Project.owner_id).where(Project.id == project.id)
             )
             batch_state = (await _batch_state(maker, [batch.id]))[batch.id]
-            task_state = (await _task_rows(maker, [task.id]))[task.id]
+            task_states = await _task_rows(maker, emergency_task_ids)
             membership_count = await db.scalar(
                 select(text("count(*)"))
                 .select_from(ProjectMember)
@@ -925,9 +946,16 @@ async def test_installed_owner_emergency_offboarding_preserves_work_and_redacts_
         assert batch_state["reviewer_id"] == target.id
         assert batch_state["assigned_user_ids"] == [str(target.id)]
         assert batch_state["updated_at"] == old_time
+        assert task_states == emergency_tasks_before
+        task_state = task_states[task.id]
         assert task_state["assignee_id"] == target.id
         assert task_state["reviewer_id"] == target.id
         assert task_state["updated_at"] == old_time
+        for lock_only_task in lock_only_tasks:
+            lock_only_state = task_states[lock_only_task.id]
+            assert lock_only_state["assignee_id"] == actor_id
+            assert lock_only_state["reviewer_id"] is None
+            assert lock_only_state["batch_id"] is None
         assert membership_count == 1
         assert await _lock_ids(maker, target.id) == []
         account = await _account_state(maker, target.id)
