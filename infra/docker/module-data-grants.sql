@@ -733,7 +733,8 @@ GRANT SELECT (project_id), DELETE ON public.export_artifacts TO :"export_owner";
 -- Cross-owner function calls share one PostgreSQL transaction and retain the
 -- dataset -> current authority -> association -> Jobs/Labeling lock order.
 GRANT USAGE ON SCHEMA aap_identity_v1
-    TO :"identity_owner", :"workspace_owner", :"assets_owner", :"audit_owner", :"labeling_owner";
+    TO :"identity_owner", :"workspace_owner", :"assets_owner", :"audit_owner",
+       :"labeling_owner", :"learning_owner", :"inference_owner", :"workflow_role";
 GRANT USAGE ON SCHEMA aap_identity_keys_v1, aap_identity_sessions_v1,
     aap_identity_accounts_v1, aap_identity_recovery_v1, aap_identity_groups_v1,
     aap_identity_deactivation_v1, aap_identity_invitations_v1,
@@ -865,6 +866,17 @@ GRANT EXECUTE ON FUNCTION aap_identity_v1.lock_active_actor(uuid)
     TO :"workspace_owner", :"assets_owner", :"labeling_owner";
 GRANT EXECUTE ON FUNCTION aap_identity_v1.read_actor_facts(uuid)
     TO :"workspace_owner", :"assets_owner", :"labeling_owner";
+GRANT EXECUTE ON FUNCTION
+    aap_identity_v1.lock_accounts_share(uuid[], boolean),
+    aap_identity_v1.lock_accounts_update(uuid[], boolean),
+    aap_identity_v1.lock_accounts_key_share(uuid[], boolean)
+    TO :"workspace_owner", :"workflow_role";
+GRANT EXECUTE ON FUNCTION aap_identity_v1.lock_accounts_share(uuid[], boolean)
+    TO :"labeling_owner", :"learning_owner";
+GRANT EXECUTE ON FUNCTION aap_identity_v1.lock_accounts_update(uuid[], boolean)
+    TO :"inference_owner";
+GRANT EXECUTE ON FUNCTION aap_identity_v1.read_actor_facts(uuid)
+    TO :"workflow_role";
 GRANT EXECUTE ON FUNCTION aap_identity_v1.lock_audit_actor(uuid)
     TO :"audit_owner";
 GRANT EXECUTE ON FUNCTION aap_workspace_v1.lock_project_reference(uuid)
@@ -1122,6 +1134,12 @@ ALTER FUNCTION aap_identity_v1._admission_failure(text)
 ALTER FUNCTION aap_identity_v1.authentication_policy()
     OWNER TO :"identity_owner";
 ALTER FUNCTION aap_identity_v1.read_actor_context(uuid, text)
+    OWNER TO :"identity_owner";
+ALTER FUNCTION aap_identity_v1.lock_accounts_share(uuid[], boolean)
+    OWNER TO :"identity_owner";
+ALTER FUNCTION aap_identity_v1.lock_accounts_update(uuid[], boolean)
+    OWNER TO :"identity_owner";
+ALTER FUNCTION aap_identity_v1.lock_accounts_key_share(uuid[], boolean)
     OWNER TO :"identity_owner";
 ALTER FUNCTION aap_identity_v1.read_jwt_principal(
     uuid, uuid, bigint, timestamptz, boolean

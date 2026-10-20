@@ -210,7 +210,7 @@ async def test_restored_admin_password_receipt_replays_without_second_audit(
         async with restored.begin() as db:
             assert (
                 await db.scalar(text("SELECT version_num FROM public.alembic_version"))
-                == "0250"
+                == "0251"
             )
             await db.execute(
                 text(

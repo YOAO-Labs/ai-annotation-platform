@@ -187,6 +187,7 @@ SQL_ARTIFACTS = (
     "0249_identity_briefs_support.sql",
     "0249_identity_briefs.sql",
     "0250_identity_actor_context.sql",
+    "0251_identity_account_locks.sql",
 )
 SCHEMA_ARTIFACTS = (
     "0191_task_append.schema.json",
@@ -249,6 +250,7 @@ SCHEMA_ARTIFACTS = (
     "0248_identity_offboarding.schema.json",
     "0249_identity_briefs.schema.json",
     "0250_identity_actor_context.schema.json",
+    "0251_identity_account_locks.schema.json",
 )
 TEST_FILES = (
     "tests/test_identity_admin_passwords_native.py",
@@ -270,6 +272,7 @@ TEST_FILES = (
     "tests/test_identity_briefs_roles.py",
     "tests/test_identity_briefs_restore.py",
     "tests/test_identity_actor_context_native.py",
+    "tests/test_identity_account_locks_native.py",
     "tests/test_users_role_matrix.py::TestRoleMatrix::test_sa_cannot_demote_last_super_admin",
     "tests/test_identity_directory_native.py",
     "tests/test_identity_directory_roles.py",
@@ -1759,6 +1762,9 @@ def _install_and_rollback_frozen_sql(
         "SELECT aap_identity_offboarding_v1.prepare_offboarding_command('{}'::jsonb);\n"
         "SELECT aap_identity_offboarding_v1.apply_offboarding_command('{}'::jsonb);\n"
         "SELECT aap_identity_v1.read_actor_context(NULL::uuid,NULL::text);\n"
+        "SELECT aap_identity_v1.lock_accounts_share(ARRAY[]::uuid[], TRUE);\n"
+        "SELECT aap_identity_v1.lock_accounts_update(ARRAY[]::uuid[], FALSE);\n"
+        "SELECT aap_identity_v1.lock_accounts_key_share(ARRAY[]::uuid[], TRUE);\n"
         "SELECT aap_identity_briefs_v1.briefs_policy();\n"
         "SELECT aap_identity_briefs_v1.execute_briefs_command('{}'::jsonb);\n"
         "SELECT aap_identity_deactivation_v1.deactivation_policy();\n"
@@ -1974,6 +1980,12 @@ def _install_and_rollback_frozen_sql(
         for response in responses.get("aap-identity-briefs-policy/v1", [])
     ):
         raise RuntimeError("native Identity briefs policy probe did not succeed")
+    account_lock_replies = responses.get("aap-identity-account-locks/v1", [])
+    if len(account_lock_replies) != 3 or any(
+        response.get("accounts") != [] or set(response) != {"schema", "accounts"}
+        for response in account_lock_replies
+    ):
+        raise RuntimeError("native Identity account-lock probes did not succeed")
 
     rollback_state = _psql(
         container_id,
@@ -1999,6 +2011,9 @@ def _install_and_rollback_frozen_sql(
             "AND to_regnamespace('aap_identity_briefs_v1') IS NULL "
             "AND to_regprocedure('aap_workspace_v1.identity_brief_project_roles(uuid,uuid[])') IS NULL "
             "AND to_regprocedure('aap_identity_v1.read_actor_context(uuid,text)') IS NULL "
+            "AND to_regprocedure('aap_identity_v1.lock_accounts_share(uuid[],boolean)') IS NULL "
+            "AND to_regprocedure('aap_identity_v1.lock_accounts_update(uuid[],boolean)') IS NULL "
+            "AND to_regprocedure('aap_identity_v1.lock_accounts_key_share(uuid[],boolean)') IS NULL "
             "AND to_regnamespace('aap_identity_mail_v2') IS NULL "
             "AND to_regnamespace('aap_workspace_v1') IS NULL "
             "AND to_regnamespace('aap_assets_v1') IS NULL "
@@ -2391,8 +2406,8 @@ def main(argv: list[str] | None = None) -> int:
         database = resources["database"]
         evidence["database"] = database
         _, heads = migration_graph(ROOT)
-        if heads != ["0250"]:
-            raise RuntimeError("module-data acceptance requires migration head 0250")
+        if heads != ["0251"]:
+            raise RuntimeError("module-data acceptance requires migration head 0251")
         evidence["migrations"]["head_before_downgrade"] = heads[0]
         phase = "downgrade-to-0189"
         _container_details(
