@@ -10,6 +10,7 @@ import secrets
 import subprocess
 import uuid
 
+import httpx
 import pytest
 from sqlalchemy import delete, select, text
 
@@ -681,8 +682,13 @@ async def test_installed_owner_offboarding_handoff_response_loss_replay_and_reti
             len(await _audit_rows(maker, action="user.offboard", target_id=target.id))
             == 1
         )
-        assert (await _verdict(identity, control, target_token))["ok"] is False
-        assert (await _verdict(identity, control, api_key_value))["ok"] is False
+        async with httpx.AsyncClient(trust_env=False, timeout=20) as client:
+            assert (await _verdict(client, identity, control, target_token))[
+                "ok"
+            ] is False
+            assert (await _verdict(client, identity, control, api_key_value))[
+                "ok"
+            ] is False
 
         async with maker.begin() as db:
             new_key, _ = await create_api_key(
