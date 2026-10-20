@@ -159,7 +159,7 @@ GRANT SELECT (
     ON public.users TO :"identity_owner";
 GRANT INSERT (
     id, email, name, password_hash, credential_generation, role, group_name,
-    group_id, status, is_active, email_verified_at
+    group_id, status, is_active, email_verified_at, preferences
 ) ON public.users TO :"identity_owner";
 GRANT SELECT (
     id, user_id, name, key_prefix, key_hash, scopes, expires_at, last_used_at,
@@ -768,6 +768,9 @@ GRANT EXECUTE ON FUNCTION aap_audit_v1.record_identity_session_event(
 GRANT EXECUTE ON FUNCTION aap_audit_v1.record_identity_account_event(
     text, jsonb, jsonb, jsonb
 ) TO :"identity_owner";
+GRANT EXECUTE ON FUNCTION aap_audit_v1.record_identity_bootstrap_admin(
+    uuid, text, text
+) TO :"identity_owner";
 GRANT EXECUTE ON FUNCTION aap_audit_v1.record_identity_recovery_event(
     text, jsonb, jsonb, jsonb
 ) TO :"identity_owner";
@@ -1129,6 +1132,10 @@ GRANT CREATE ON SCHEMA aap_identity_briefs_v1 TO :"identity_owner";
 ALTER FUNCTION aap_identity_v1.lock_active_actor(uuid) OWNER TO :"identity_owner";
 ALTER FUNCTION aap_identity_v1.lock_audit_actor(uuid) OWNER TO :"identity_owner";
 ALTER FUNCTION aap_identity_v1.read_actor_facts(uuid) OWNER TO :"identity_owner";
+ALTER FUNCTION aap_identity_v1.read_provisioning_account(text)
+    OWNER TO :"identity_owner";
+ALTER FUNCTION aap_identity_v1.create_provisioning_account(jsonb)
+    OWNER TO :"identity_owner";
 ALTER FUNCTION aap_identity_v1._admission_failure(text)
     OWNER TO :"identity_owner";
 ALTER FUNCTION aap_identity_v1.authentication_policy()
@@ -1483,6 +1490,8 @@ ALTER FUNCTION aap_audit_v1.record_identity_platform_role_change(
 ALTER FUNCTION aap_audit_v1.record_identity_suspension_event(
     text, jsonb, uuid, jsonb, jsonb
 ) OWNER TO :"audit_owner";
+ALTER FUNCTION aap_audit_v1.record_identity_bootstrap_admin(uuid, text, text)
+    OWNER TO :"audit_owner";
 ALTER FUNCTION aap_audit_v1.record_identity_deletion_event(
     jsonb, uuid, jsonb, jsonb
 ) OWNER TO :"audit_owner";

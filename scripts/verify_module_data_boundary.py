@@ -58,6 +58,7 @@ IDENTITY_CLIENT_ROLES = {
     "OFFBOARDING": "identity_offboarding_client",
     "DIRECTORY": "identity_directory_client",
     "BRIEFS": "identity_briefs_client",
+    "PROVISIONING": "identity_provisioning_client",
 }
 MODULE_ROLES = (
     "identity_code",
@@ -188,6 +189,8 @@ SQL_ARTIFACTS = (
     "0249_identity_briefs.sql",
     "0250_identity_actor_context.sql",
     "0251_identity_account_locks.sql",
+    "0252_identity_provisioning_support.sql",
+    "0252_identity_provisioning.sql",
 )
 SCHEMA_ARTIFACTS = (
     "0191_task_append.schema.json",
@@ -251,6 +254,7 @@ SCHEMA_ARTIFACTS = (
     "0249_identity_briefs.schema.json",
     "0250_identity_actor_context.schema.json",
     "0251_identity_account_locks.schema.json",
+    "0252_identity_provisioning.schema.json",
 )
 TEST_FILES = (
     "tests/test_identity_admin_passwords_native.py",
@@ -271,6 +275,7 @@ TEST_FILES = (
     "tests/test_identity_briefs_native.py",
     "tests/test_identity_briefs_roles.py",
     "tests/test_identity_briefs_restore.py",
+    "tests/test_identity_provisioning_native.py",
     "tests/test_identity_actor_context_native.py",
     "tests/test_identity_account_locks_native.py",
     "tests/test_users_role_matrix.py::TestRoleMatrix::test_sa_cannot_demote_last_super_admin",
@@ -1733,6 +1738,9 @@ def _install_and_rollback_frozen_sql(
     owner_password: str,
     artifacts: tuple[Path, ...],
 ) -> None:
+    provisioning_id = str(uuid4())
+    provisioning_email = f"module-data-{uuid4().hex}@example.invalid"
+    provisioning_request = str(uuid4())
     install_sql = "\n".join(path.read_text(encoding="utf-8") for path in artifacts)
     sql = (
         "\\set ON_ERROR_STOP on\n"
@@ -1762,6 +1770,14 @@ def _install_and_rollback_frozen_sql(
         "SELECT aap_identity_offboarding_v1.prepare_offboarding_command('{}'::jsonb);\n"
         "SELECT aap_identity_offboarding_v1.apply_offboarding_command('{}'::jsonb);\n"
         "SELECT aap_identity_v1.read_actor_context(NULL::uuid,NULL::text);\n"
+        "SELECT aap_identity_v1.read_provisioning_account(:'provisioning_email');\n"
+        "SELECT aap_identity_v1.create_provisioning_account(jsonb_build_object("
+        "'schema','aap-identity-provisioning/v1',"
+        "'mode','bootstrap_admin','account_id',:'provisioning_id',"
+        "'email',:'provisioning_email','name','Provisioning probe',"
+        "'password_hash','probe-only-hash','now','2026-10-21T00:00:00+00:00',"
+        "'request_id',:'provisioning_request'));\n"
+        "SELECT aap_identity_v1.read_provisioning_account(:'provisioning_email');\n"
         "SELECT aap_identity_v1.lock_accounts_share(ARRAY[]::uuid[], TRUE);\n"
         "SELECT aap_identity_v1.lock_accounts_update(ARRAY[]::uuid[], FALSE);\n"
         "SELECT aap_identity_v1.lock_accounts_key_share(ARRAY[]::uuid[], TRUE);\n"
@@ -1860,6 +1876,9 @@ def _install_and_rollback_frozen_sql(
             "dataset_id": str(uuid4()),
             "operation_id": str(uuid4()),
             "project_id": str(uuid4()),
+            "provisioning_id": provisioning_id,
+            "provisioning_email": provisioning_email,
+            "provisioning_request": provisioning_request,
         },
     )
     responses: dict[str, list[dict]] = {}
@@ -1986,6 +2005,20 @@ def _install_and_rollback_frozen_sql(
         for response in account_lock_replies
     ):
         raise RuntimeError("native Identity account-lock probes did not succeed")
+    provisioning_replies = [
+        response
+        for response in responses.get("aap-identity-provisioning/v1", [])
+        if response.get("email") == provisioning_email
+    ]
+    if (
+        len(provisioning_replies) != 3
+        or provisioning_replies[0].get("account_id") is not None
+        or provisioning_replies[1].get("account_id") != provisioning_id
+        or provisioning_replies[2].get("account_id") != provisioning_id
+    ):
+        raise RuntimeError(
+            "native Identity provisioning lookup/create probes did not succeed"
+        )
 
     rollback_state = _psql(
         container_id,
@@ -2009,6 +2042,14 @@ def _install_and_rollback_frozen_sql(
             "AND to_regnamespace('aap_identity_deletions_v1') IS NULL "
             "AND to_regnamespace('aap_identity_offboarding_v1') IS NULL "
             "AND to_regnamespace('aap_identity_briefs_v1') IS NULL "
+            "AND to_regprocedure('aap_identity_v1.read_provisioning_account(text)') IS NULL "
+            "AND to_regprocedure('aap_identity_v1.create_provisioning_account(jsonb)') IS NULL "
+            "AND to_regprocedure('aap_audit_v1.record_identity_bootstrap_admin(uuid,text,text)') IS NULL "
+            "AND NOT EXISTS (SELECT 1 FROM public.users WHERE id=:'provisioning_id'::uuid) "
+            "AND NOT EXISTS (SELECT 1 FROM public.audit_logs "
+            "WHERE actor_id=:'provisioning_id'::uuid "
+            "AND action='system.bootstrap_admin' "
+            "AND request_id=:'provisioning_request') "
             "AND to_regprocedure('aap_workspace_v1.identity_brief_project_roles(uuid,uuid[])') IS NULL "
             "AND to_regprocedure('aap_identity_v1.read_actor_context(uuid,text)') IS NULL "
             "AND to_regprocedure('aap_identity_v1.lock_accounts_share(uuid[],boolean)') IS NULL "
@@ -2067,7 +2108,11 @@ def _install_and_rollback_frozen_sql(
             "WHERE tgrelid = 'public.async_jobs'::pg_catalog.regclass "
             "AND tgname = 'async_jobs_retain_project_scope' AND NOT tgisinternal);\n"
         ),
-        variables={"expected_database": database},
+        variables={
+            "expected_database": database,
+            "provisioning_id": provisioning_id,
+            "provisioning_request": provisioning_request,
+        },
     )
     if rollback_state.strip() != "t":
         raise RuntimeError("native frozen-SQL transaction did not roll back cleanly")
@@ -2202,6 +2247,9 @@ def main(argv: list[str] | None = None) -> int:
             ROOT / "infra/docker/identity-offboarding-grants.sql"
         )
         identity_briefs_grants_path = ROOT / "infra/docker/identity-briefs-grants.sql"
+        identity_provisioning_grants_path = (
+            ROOT / "infra/docker/identity-provisioning-grants.sql"
+        )
         identity_deactivation_grants_path = (
             ROOT / "infra/docker/identity-deactivation-grants.sql"
         )
@@ -2237,6 +2285,7 @@ def main(argv: list[str] | None = None) -> int:
             or not identity_deletion_grants_path.is_file()
             or not identity_offboarding_grants_path.is_file()
             or not identity_briefs_grants_path.is_file()
+            or not identity_provisioning_grants_path.is_file()
             or not identity_account_grants_path.is_file()
             or not identity_recovery_grants_path.is_file()
             or any(not path.is_file() for path in artifacts)
@@ -2290,6 +2339,9 @@ def main(argv: list[str] | None = None) -> int:
             encoding="utf-8"
         )
         identity_briefs_grant_sql = identity_briefs_grants_path.read_text(
+            encoding="utf-8"
+        )
+        identity_provisioning_grant_sql = identity_provisioning_grants_path.read_text(
             encoding="utf-8"
         )
         identity_group_grant_sql = identity_group_grants_path.read_text(
@@ -2406,8 +2458,8 @@ def main(argv: list[str] | None = None) -> int:
         database = resources["database"]
         evidence["database"] = database
         _, heads = migration_graph(ROOT)
-        if heads != ["0251"]:
-            raise RuntimeError("module-data acceptance requires migration head 0251")
+        if heads != ["0252"]:
+            raise RuntimeError("module-data acceptance requires migration head 0252")
         evidence["migrations"]["head_before_downgrade"] = heads[0]
         phase = "downgrade-to-0189"
         _container_details(
@@ -2890,6 +2942,23 @@ def main(argv: list[str] | None = None) -> int:
                 "identity_owner": "identity_code",
                 "workspace_owner": "workspace_code",
                 "identity_briefs_role": "identity_briefs_client",
+            },
+        )
+        phase = "install-identity-provisioning-grants"
+        _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="owner",
+            password=owner_password,
+            database=database,
+            sql=identity_provisioning_grant_sql,
+            variables={
+                "expected_database": database,
+                "migration_role": "owner",
+                "identity_owner": "identity_code",
+                "audit_owner": "audit_code",
+                "identity_provisioning_role": "identity_provisioning_client",
             },
         )
         resource_environment = backend.environment()

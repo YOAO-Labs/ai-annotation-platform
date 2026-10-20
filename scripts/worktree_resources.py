@@ -42,6 +42,8 @@ OWNER_LABEL = "org.aap.worktree-owner"
 OWNER_TAG = "aap-worktree-owner"
 IDENTITY_RUNTIME_CAPABILITIES = (
     "aap_identity_v1.authentication_policy()",
+    "aap_identity_v1.read_provisioning_account(text)",
+    "aap_identity_v1.create_provisioning_account(jsonb)",
     "aap_identity_v1.read_actor_context(uuid,text)",
     "aap_identity_v1.read_actor_facts(uuid)",
     "aap_identity_v1.lock_accounts_share(uuid[],boolean)",
