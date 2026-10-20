@@ -188,7 +188,8 @@ async def test_auth_only_deletion_api_bindings_and_public_contract(
                         text("GRANT SELECT ON public.users TO identity_deletion_client")
                     )
                 try:
-                    misprivileged = await client.delete(
+                    misprivileged = await client.request(
+                        "DELETE",
                         f"/api/v1/users/{blocked_target.id}",
                         headers=headers,
                         json={"transfer_to_user_id": None},
