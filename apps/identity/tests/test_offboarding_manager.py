@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import uuid
 from contextlib import asynccontextmanager
 
 import pytest
@@ -10,7 +11,9 @@ from aap_identity.contract import IdentityUnavailable
 from aap_identity.offboarding_contract import (
     NATIVE_OFFBOARDING_PROTOCOL,
     OffboardingFailure,
+    OffboardingLockFact,
     OffboardingResultRecord,
+    OffboardingTaskFact,
     OffboardingTransfer,
     decode_native_offboarding_command,
 )
@@ -341,6 +344,89 @@ async def test_emergency_suspend_skips_receivers_and_emits_legacy_unresolved_row
     ]
     assert reply.data.result.user.disabled_kind == "emergency_suspended"
     assert reply.data.result.user.disabled_reason == "emergency"
+
+
+@pytest.mark.asyncio
+async def test_emergency_unresolved_counts_lock_only_active_tasks_but_skips_completed():
+    actor = principal(role="super_admin")
+    facts = offboarding_facts()
+    active_lock_only_id = uuid.UUID("00000000-0000-4000-8000-000000000001")
+    completed_lock_only_id = uuid.UUID("99999999-9999-4999-8999-999999999999")
+    active_lock_only = OffboardingTaskFact.model_validate_json(
+        json.dumps(
+            {
+                "id": str(active_lock_only_id),
+                "project_id": str(PROJECT_ID),
+                "batch_id": None,
+                "status": "review",
+                "assignee_id": str(OWNER_RECEIVER_ID),
+                "reviewer_id": str(REVIEWER_RECEIVER_ID),
+                "version": 2,
+            }
+        )
+    )
+    completed_lock_only = OffboardingTaskFact.model_validate_json(
+        json.dumps(
+            {
+                "id": str(completed_lock_only_id),
+                "project_id": str(PROJECT_ID),
+                "batch_id": None,
+                "status": "completed",
+                "assignee_id": str(OWNER_RECEIVER_ID),
+                "reviewer_id": str(REVIEWER_RECEIVER_ID),
+                "version": 3,
+            }
+        )
+    )
+    active_lock = OffboardingLockFact.model_validate_json(
+        json.dumps(
+            {
+                "id": "00000000-0000-4000-8000-000000000002",
+                "task_id": str(active_lock_only_id),
+                "expire_at": TASK_TIME.isoformat(),
+            }
+        )
+    )
+    completed_lock = OffboardingLockFact.model_validate_json(
+        json.dumps(
+            {
+                "id": "99999999-9999-4999-8999-999999999998",
+                "task_id": str(completed_lock_only_id),
+                "expire_at": TASK_TIME.isoformat(),
+            }
+        )
+    )
+    facts = facts.model_copy(
+        update={
+            "tasks": [active_lock_only, *facts.tasks, completed_lock_only],
+            "locks": [active_lock, *facts.locks, completed_lock],
+        }
+    )
+    request = offboarding_request(
+        "commit_offboarding",
+        preview_version=legacy_offboarding_preview_version(facts),
+        mode="emergency_suspend",
+        projects=[],
+    )
+    data = Data(
+        lambda command: native_prepare_success(command, facts),
+        native_apply_success,
+    )
+    manager = OffboardingManager(
+        Authenticator(VerifiedCredential(actor, None)), data, OFFBOARDING_SECRET
+    )
+
+    reply = await manager.execute(request)
+
+    assert data.committed and not data.rolled_back
+    assert [
+        (item.role, item.task_count, item.lock_count)
+        for item in reply.data.result.unresolved
+    ] == [
+        ("owner", 0, 0),
+        ("annotator", 1, 2),
+        ("reviewer", 1, 2),
+    ]
 
 
 @pytest.mark.asyncio

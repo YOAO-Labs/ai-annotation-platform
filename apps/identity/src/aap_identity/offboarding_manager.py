@@ -588,10 +588,6 @@ def _build_plans(
                         task
                         for task in tasks_by_project[project.id]
                         if task.status in _HANDOFF_STATUSES
-                        and (
-                            task.assignee_id == target_id
-                            or task.reviewer_id == target_id
-                        )
                     ]
                     batch_ids = [batch.id for batch in batches_by_project[project.id]]
                     task_count = sum(
