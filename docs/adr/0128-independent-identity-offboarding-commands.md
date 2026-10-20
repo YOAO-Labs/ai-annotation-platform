@@ -425,24 +425,29 @@ only and 1 CPU/512 MiB; the container was removed. Its 40.662 seconds is the
 combined build and offline verification time, not startup latency.
 
 The pre-owner legacy characterization baseline passed two tests and cleaned up
-all owned resources. A later owned baseline used the same one-project/three-task
-and four-project/twelve-task fixtures:
+all owned resources. A later owner baseline measured the same scenario shapes
+(one project/three tasks and four projects/twelve tasks) in independently
+seeded runs. Each run created fresh UUIDs, timestamps and row data, so these are
+not the same fixture records; compare SQL calls, Python allocation and host
+time, not preview digests:
 
-| Fixture and phase              | Legacy calls / peak bytes / host ms | Owner calls / peak bytes / host ms |
-| ------------------------------ | ----------------------------------- | ---------------------------------- |
-| 1 project / 3 tasks, preview   | 11 / 1,196,316 / 41.509             | 3 / 375,862 / 19.855               |
-| 1 project / 3 tasks, commit    | 30 / 813,724 / 46.974               | 5 / 451,503 / 25.090               |
-| 4 projects / 12 tasks, preview | 20 / 908,996 / 48.771               | 3 / 504,082 / 23.728               |
-| 4 projects / 12 tasks, commit  | 54 / 959,931 / 65.541               | 5 / 597,522 / 34.108               |
+| Scenario shape and phase       | Legacy sample: calls / peak bytes / host ms | Owner sample: calls / peak bytes / host ms |
+| ------------------------------ | ------------------------------------------- | ------------------------------------------ |
+| 1 project / 3 tasks, preview   | 11 / 1,196,316 / 41.509                     | 3 / 375,862 / 19.855                       |
+| 1 project / 3 tasks, commit    | 30 / 813,724 / 46.974                       | 5 / 451,503 / 25.090                       |
+| 4 projects / 12 tasks, preview | 20 / 908,996 / 48.771                       | 3 / 504,082 / 23.728                       |
+| 4 projects / 12 tasks, commit  | 54 / 959,931 / 65.541                       | 5 / 597,522 / 34.108                       |
 
 The captured legacy preview vectors are
 `22377e1b9f071a85ada1364c91aaf3d2e70ff94de723d93574a6c29754f47d28` and
-`48b16b7c7558d05990a779d8ea10fb88e2c5f2f42db5057f573c07d299043497`; the
-owner vectors are
-`264f87baddcc06b1dfdd1317c2bae328058c5358cf085afe68ab4d79ddee3466` and
-`b0177f8512c5605c2736ac8ab0c7677d898fa26b962f8bf934f9924639983c5b` for the
-same fixtures, respectively. These are single instrumented samples; host times
-are not container CPU timing, an SLO or production-capacity evidence.
+`48b16b7c7558d05990a779d8ea10fb88e2c5f2f42db5057f573c07d299043497`. The
+portable owner reproduces the exact legacy bytes and SHA-256 values for these
+two fixed state-vector inputs in both source and installed-package tests. Those
+fixed vectors are the digest comparison oracle; preview hashes from the
+independently seeded benchmark runs naturally differ because their resource
+state contains new UUIDs, timestamps and data. These are single instrumented
+samples; host times are not container CPU timing, an SLO or production-capacity
+evidence.
 
 ## Consequences
 
