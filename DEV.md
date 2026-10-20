@@ -507,6 +507,7 @@ node --test scripts/check-workflow-names.test.mjs
 pnpm test                        # vitest 单测
 pnpm --filter @anno/web test:coverage  # 前端带覆盖率
 pnpm test:e2e                    # Playwright E2E（自启 :3001/:8010，使用 annotation_e2e）
+pnpm --filter @anno/web test:e2e:layout  # 无 API / 数据库的滚动布局回归（自启 :3218）
 pnpm --filter @anno/web test:e2e:visual  # 独立视觉基线
 pnpm --filter @anno/web test:e2e:stress  # 完整布局压力矩阵
 

@@ -1,3 +1,9 @@
+/* These full-viewport shells own their scrolling internally. Reserve space
+   in their scrollable panels rather than on the outer browser viewport. */
+:global(html):has(.appShell, .fullScreenWorkbench) {
+  scrollbar-gutter: auto;
+}
+
 .appShell {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
@@ -24,6 +30,7 @@
 
 .main {
   overflow: auto;
+  scrollbar-gutter: stable;
   background: transparent;
 }
 

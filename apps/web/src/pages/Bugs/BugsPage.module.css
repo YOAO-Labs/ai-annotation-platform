@@ -2,6 +2,7 @@
   height: 100%;
   padding: 24px;
   overflow: auto;
+  scrollbar-gutter: stable;
 }
 
 .title {
@@ -155,6 +156,7 @@
   max-height: calc(100vh - 140px);
   padding: 14px;
   overflow: auto;
+  scrollbar-gutter: stable;
   border-radius: var(--radius-md);
   background: var(--sc-muted);
   font-size: 12.5px;

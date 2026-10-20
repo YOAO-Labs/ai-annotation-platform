@@ -242,6 +242,7 @@
 .filePanel {
   max-height: 240px;
   overflow: auto;
+  scrollbar-gutter: stable;
 }
 
 .filePanelHeader {
@@ -321,6 +322,7 @@
 .progressPanel {
   max-height: 280px;
   overflow: auto;
+  scrollbar-gutter: stable;
 }
 
 .progressItem {
@@ -414,6 +416,7 @@
   max-height: 160px;
   margin-top: 6px;
   overflow: auto;
+  scrollbar-gutter: stable;
   font-size: 11.5px;
 }
 

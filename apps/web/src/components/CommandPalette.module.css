@@ -35,6 +35,7 @@
 .results {
   max-height: 380px;
   overflow-y: auto;
+  scrollbar-gutter: stable;
 }
 
 .empty {

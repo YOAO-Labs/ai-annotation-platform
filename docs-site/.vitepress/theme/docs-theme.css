@@ -13,6 +13,18 @@
  * 机制，与 apps/web 的 data-theme 约定不同），因此本文件的暗色覆盖使用 `.dark`。
  */
 
+/* Keep document navigation, native menus and search results stable when their
+   content starts or stops overflowing. Horizontal code/table scrollers and
+   the outline's hidden scrollbar keep their existing geometry. */
+html,
+.VPSidebar,
+.VPNavScreen,
+.VPMenu,
+.VPLocalNavOutlineDropdown .items,
+.VPLocalSearchBox .results {
+  scrollbar-gutter: stable;
+}
+
 :root {
   /* —— 共享字体栈（纯本地，无运行时网络字体请求）—— */
   --docs-font-sans:

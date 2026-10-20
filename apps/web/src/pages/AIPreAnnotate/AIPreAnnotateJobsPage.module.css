@@ -260,6 +260,7 @@
   margin: 0;
   padding: 10px;
   overflow: auto;
+  scrollbar-gutter: stable;
   color: var(--sc-muted-foreground);
   font-family: var(--font-mono);
   font-size: 11px;

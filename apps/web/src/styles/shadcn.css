@@ -10,6 +10,7 @@
 
 @import "tailwindcss";
 @import "tw-animate-css";
+@import "./scrollbars.css";
 
 /* 暗色走 data-theme，而非 shadcn 默认的 .dark class */
 @custom-variant dark ([data-theme="dark"] &);

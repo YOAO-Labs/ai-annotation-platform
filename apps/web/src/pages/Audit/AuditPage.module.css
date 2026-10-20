@@ -370,6 +370,7 @@
   position: relative;
   height: 560px;
   overflow: auto;
+  scrollbar-gutter: stable;
 }
 
 .emptyState {
@@ -502,6 +503,7 @@
   margin: 0;
   padding: 12px;
   overflow: auto;
+  scrollbar-gutter: stable;
   border: 1px solid var(--sc-border);
   border-radius: var(--radius-md);
   background: var(--sc-muted);
