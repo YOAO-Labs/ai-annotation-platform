@@ -60,7 +60,7 @@ async def _seed_task(
         project_id=project_id,
         display_id=f"T-RM-{uuid.uuid4().hex[:6]}",
         file_name="x.jpg",
-        file_path="/tmp/x.jpg",
+        file_path="visibility/x.jpg",
         file_type="image",
         tags=[],
         status=status,

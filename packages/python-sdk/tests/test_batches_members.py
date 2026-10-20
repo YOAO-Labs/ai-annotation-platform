@@ -1,5 +1,6 @@
 import json
 import uuid
+from pathlib import Path
 from uuid import uuid4
 
 import httpx
@@ -15,12 +16,27 @@ from ai_annotation.models import (
     Me,
     Member,
     ProjectMemberRolePreview,
+    UserBrief,
 )
 
 from .conftest import API
 
 PID = str(uuid4())
 BID = str(uuid4())
+
+
+@pytest.mark.parametrize("scope", ["global", "project"])
+def test_user_briefs_accept_actual_legacy_serialization(scope):
+    captured = json.loads(
+        (Path(__file__).parent / "fixtures/user_briefs_legacy.json").read_text()
+    )
+    briefs = captured[scope]
+    for key, payload in briefs.items():
+        brief = UserBrief.model_validate(payload)
+        assert str(brief.id) == key
+        assert brief.model_dump(mode="json") == payload
+    assert any(brief["avatar_initial"] == "SS" for brief in briefs.values())
+    assert any(brief["avatar_initial"] == "?" for brief in briefs.values())
 
 
 def _batch(**extra) -> dict:

@@ -252,6 +252,8 @@ class Settings(BaseSettings):
     identity_deletion_database_url_file: str = ""
     identity_offboarding_database_url: str = Field(default="", repr=False)
     identity_offboarding_database_url_file: str = ""
+    identity_briefs_database_url: str = Field(default="", repr=False)
+    identity_briefs_database_url_file: str = ""
     identity_invitation_database_url: str = Field(default="", repr=False)
     identity_invitation_database_url_file: str = ""
     identity_invitation_mail_timeout_seconds: float = Field(default=60, gt=0, le=120)

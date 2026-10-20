@@ -500,6 +500,8 @@ last_reviewed: 2026-10-20
 | `IDENTITY_DELETION_DATABASE_URL_FILE` | `—` | — |
 | `IDENTITY_OFFBOARDING_DATABASE_URL` | `—` | Offboarding preview and commit use an optional three-function Identity LOGIN. |
 | `IDENTITY_OFFBOARDING_DATABASE_URL_FILE` | `—` | — |
+| `IDENTITY_BRIEFS_DATABASE_URL` | `—` | Optional function-only profile reads; empty uses the API caller transaction. |
+| `IDENTITY_BRIEFS_DATABASE_URL_FILE` | `—` | — |
 | `IDENTITY_INVITATION_DATABASE_URL` | `—` | Complete Identity invitation lifecycle uses an optional three-function owner; mail-v2 is a separate optional four-function sender. |
 | `IDENTITY_INVITATION_DATABASE_URL_FILE` | `—` | — |
 | `IDENTITY_MAIL_V2_DATABASE_URL` | `—` | — |

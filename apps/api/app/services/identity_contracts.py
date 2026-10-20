@@ -16,6 +16,10 @@ class IdentityGatewayUnavailable(Exception):
     """Identity could not return a trustworthy admission result."""
 
 
+class IdentityBriefsUnavailable(IdentityGatewayUnavailable):
+    """The selected profile owner could not return a complete trusted response."""
+
+
 @dataclass(frozen=True, slots=True)
 class IdentityActorFacts:
     """Current account facts, separate from project-scoped authorization."""

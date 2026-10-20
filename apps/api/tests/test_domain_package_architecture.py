@@ -245,6 +245,16 @@ DOMAIN_PACKAGES = (
     DomainSpec(package="identity_suspension_commands", legacy_facades=()),
     DomainSpec(package="identity_deletion_commands", legacy_facades=()),
     DomainSpec(package="identity_offboarding_commands", legacy_facades=()),
+    DomainSpec(package="identity_briefs_commands", legacy_facades=()),
+    DomainSpec(
+        package="user_brief",
+        legacy_facades=(),
+        allowed_app_imports=(
+            "app.schemas.user",
+            "app.services.identity_briefs_commands",
+            "app.services.identity_gateway",
+        ),
+    ),
     DomainSpec(package="identity_invitation_commands", legacy_facades=()),
     DomainSpec(package="identity_mail_v2_delivery", legacy_facades=()),
     DomainSpec(package="quality_job_dispatch", legacy_facades=()),

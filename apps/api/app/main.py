@@ -24,6 +24,7 @@ from app.middleware.upload_body_limits import UploadBodyLimitMiddleware
 from app.services.storage import storage_service
 from app.services.ml_routing.contracts import RoutingError
 from app.services.labeling_prediction_contract import ApplyPredictionResultError
+from app.services.identity_contracts import IdentityBriefsUnavailable
 from app.deps import get_db
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -127,6 +128,15 @@ async def _mask_content_error_handler(_request: Request, _exc: MaskContentFailur
 
 
 app.add_exception_handler(MaskContentFailure, _mask_content_error_handler)
+
+
+async def _identity_briefs_error_handler(
+    _request: Request, _exc: IdentityBriefsUnavailable
+):
+    return JSONResponse(status_code=503, content={"detail": "身份资料服务暂不可用"})
+
+
+app.add_exception_handler(IdentityBriefsUnavailable, _identity_briefs_error_handler)
 
 
 async def _apply_prediction_result_error_handler(
