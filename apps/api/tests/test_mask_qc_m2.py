@@ -15,7 +15,8 @@ from app.db.models.mask_qc import MaskQCIssue, MaskQCRun
 from app.db.models.project import Project
 from app.db.models.task import Task
 from app.db.models.task_batch import TaskBatch
-from app.schemas.mask_qc import MaskQCConfig, MaskQCRunRequest
+from aap_workspace.mask_configuration_values import MaskQCConfig
+from app.schemas.mask_qc import MaskQCRunRequest
 from app.services.mask_qc.config import mask_qc_config_digest
 from app.services.mask_qc.service import (
     canonical_digest,

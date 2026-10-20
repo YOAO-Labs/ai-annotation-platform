@@ -22,7 +22,7 @@ from app.db.enums import UserRole
 from app.db.models.project_template import ProjectTemplate
 from app.db.models.user import User
 from app.deps import get_current_user, get_db
-from app.schemas.project_template import (
+from aap_workspace.configuration_requests import (
     ProjectTemplateCreate,
     ProjectTemplateOut,
     ProjectTemplateUpdate,

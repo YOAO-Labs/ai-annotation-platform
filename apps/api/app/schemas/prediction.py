@@ -1,3 +1,4 @@
+from aap_workspace.configuration_values import ToolUnitId as _ToolUnitId
 from app.schemas._jsonb_types import (
     BboxGeometry,
     KeypointGeometry,
@@ -6,7 +7,6 @@ from app.schemas._jsonb_types import (
     PolylineGeometry,
     RasterMaskGeometry,
     RotatedBboxGeometry,
-    ToolUnitId,
 )
 from pydantic import BaseModel
 from typing import Any, Literal, Union
@@ -53,7 +53,7 @@ class PredictionOut(BaseModel):
     source: str | None = None
     # v0.10.17 · 工具单位; to_internal_shape 按 result.type 推断 (rectanglelabels→bbox,
     # polygonlabels/multipolygonlabels→region, point/line→bbox 占位).
-    tool_unit_id: ToolUnitId = "bbox"
+    tool_unit_id: _ToolUnitId = "bbox"
     result: list[PredictionShape]
     cluster: int | None = None
     created_at: datetime

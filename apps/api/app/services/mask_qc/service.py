@@ -17,7 +17,8 @@ from app.db.models.async_job import AsyncJob, AsyncJobKind
 from app.db.models.mask_qc import MaskQCIssue, MaskQCRun
 from app.db.models.project import Project
 from app.db.models.task import Task
-from app.schemas.mask_qc import MaskQCConfig, MaskQCRunRequest
+from aap_workspace.mask_configuration_values import MaskQCConfig
+from app.schemas.mask_qc import MaskQCRunRequest
 from app.services.quality_job_dispatch import QualityJobDispatcher
 from app.services.async_job import create_job
 from app.services import async_job as async_job_svc

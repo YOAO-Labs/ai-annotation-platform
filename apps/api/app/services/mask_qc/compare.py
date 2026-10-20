@@ -11,7 +11,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.models.annotation import Annotation
 from app.db.models.mask_annotation_revision import MaskAnnotationRevision
 from app.db.models.video_tracker_job import VideoTrackerJob
-from app.schemas.mask_qc import MaskCompareBaseline, MaskCompareOut
+from aap_workspace.mask_configuration_values import (
+    MaskCompareBaseline as _MaskCompareBaseline,
+)
+from app.schemas.mask_qc import MaskCompareOut
 from app.services.mask_qc import compare_rles
 from app.services.mask_qc.service import MaskQCError
 from app.services.raster_mask_storage import load_coco_rle
@@ -345,7 +348,7 @@ async def build_mask_compare(
     *,
     annotation: Annotation,
     annotation_version: int,
-    baseline_kind: MaskCompareBaseline,
+    baseline_kind: _MaskCompareBaseline,
     frame_index: int | None,
     candidate_job_id: uuid.UUID | None,
     candidate_job_revision: int | None,

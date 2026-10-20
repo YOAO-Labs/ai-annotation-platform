@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.async_job import AsyncJob, AsyncJobStatus
 from app.db.models.mask_qc import MaskQCIssue, MaskQCRun
-from app.schemas.mask_qc import MaskQCConfig
+from aap_workspace.mask_configuration_values import MaskQCConfig
 from app.services.mask_qc import (
     SingleFrameThresholds,
     TemporalResolvedFrame,

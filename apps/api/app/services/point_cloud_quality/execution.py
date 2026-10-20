@@ -18,7 +18,7 @@ from app.db.models.point_cloud_quality import (
     PointCloudQualityRun,
 )
 from app.db.models.project import Project
-from app.schemas.point_cloud_quality import PointCloudQualityConfig
+from aap_workspace.point_quality_configuration_values import PointCloudQualityConfig
 from aap_assets_catalog.spatial_values import SensorCalibration
 from aap_assets_catalog.axis_convention import R_NORM
 from app.services.point_cloud_quality.config import severity_for_rule

@@ -14,7 +14,7 @@ from app.db.models.project import Project
 from app.db.models.task import Task
 from app.db.models.user import User
 from app.db.models.video_tracker_job import VideoTrackerJob, VideoTrackerJobStatus
-from app.schemas.project import VideoCollaborationConfig
+from aap_workspace.configuration_values import VideoCollaborationConfig
 from app.schemas.task import VideoMetadata
 from app.services.assets_media_summary import AssetsTaskMediaSummaryReader
 from app.services.video_context import derive_step

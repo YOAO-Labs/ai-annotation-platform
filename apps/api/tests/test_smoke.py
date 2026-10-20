@@ -21,7 +21,7 @@ def test_app_imports(app_module):
 
 def test_project_schema_validates_attribute_hotkey():
     """D.1 后端守卫：attribute_schema 中 hotkey 必须 1-9 + 仅 boolean/select + 全局唯一。"""
-    from app.schemas.project import ProjectUpdate
+    from aap_workspace.configuration_requests import ProjectUpdate
     from pydantic import ValidationError
 
     # ✅ valid：boolean + 数字 hotkey
@@ -88,7 +88,7 @@ def test_project_schema_validates_attribute_hotkey():
 
 def test_project_iou_threshold_range():
     """A.4：iou_dedup_threshold 必须在 [0.3, 0.95]。"""
-    from app.schemas.project import ProjectUpdate
+    from aap_workspace.configuration_requests import ProjectUpdate
     from pydantic import ValidationError
 
     assert (
@@ -108,7 +108,7 @@ def test_project_iou_threshold_range():
 
 def test_project_rendering_config_v0_10_10():
     """v0.10.10 · I17.3 · ProjectUpdate 接受 rendering_config，校验字段范围与 extra=forbid。"""
-    from app.schemas.project import ProjectUpdate
+    from aap_workspace.configuration_requests import ProjectUpdate
     from pydantic import ValidationError
 
     # 全字段合法

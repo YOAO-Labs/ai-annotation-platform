@@ -13,13 +13,13 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.sql.selectable import Select
 
 from aap_assets_video_inputs.evidence import VideoInputEvidence
+from aap_workspace.configuration_values import TOOL_UNIT_IDS as _SCHEMA_TOOL_UNIT_IDS
 
 from app.db.enums import UserRole
 from app.db.models.project import Project
 from app.db.models.user import User
 from app.db.models.prediction import Prediction, PredictionMeta, FailedPrediction
 from app.db.models.task import Task
-from app.schemas._jsonb_types import TOOL_UNIT_IDS as _SCHEMA_TOOL_UNIT_IDS
 from app.services.annotation_propagation import _new_track_id
 from app.services.labeling_write_scope import LabelingWriteScope
 from app.services.labeling_write_guard import lock_labeling_write

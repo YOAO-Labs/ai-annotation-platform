@@ -19,8 +19,8 @@ from app.db.models.project import Project
 from app.db.models.scene_track import SceneTrack, SceneTrackInterval
 from app.db.models.task import Task
 from app.db.models.task_dataset_item_link import TaskDatasetItemLink
+from aap_workspace.point_quality_configuration_values import PointCloudQualityConfig
 from app.schemas.point_cloud_quality import (
-    PointCloudQualityConfig,
     PointCloudQualityRunRequest,
 )
 from app.services.quality_job_dispatch import QualityJobDispatcher

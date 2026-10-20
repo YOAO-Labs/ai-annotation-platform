@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 
-from app.schemas.mask_qc import MaskQCConfig
+from aap_workspace.mask_configuration_values import MaskQCConfig
 
 DEFAULT_RULE_SEVERITIES = {
     "empty_mask": "blocker",

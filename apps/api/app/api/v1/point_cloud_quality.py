@@ -38,8 +38,10 @@ from app.services.project_access import (
     assert_capability,
     resolve_project_access,
 )
-from app.schemas.point_cloud_quality import (
+from aap_workspace.point_quality_configuration_values import (
     POINT_CLOUD_QUALITY_RULE_CODES,
+)
+from app.schemas.point_cloud_quality import (
     PointCloudQualityIssueOut,
     PointCloudQualityIssuePage,
     PointCloudQualityIssuePatch,

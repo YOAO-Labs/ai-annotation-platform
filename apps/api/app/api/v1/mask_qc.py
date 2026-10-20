@@ -35,9 +35,11 @@ from app.services.project_access import (
     assert_capability,
     resolve_project_access,
 )
-from app.schemas.mask_qc import (
+from aap_workspace.mask_configuration_values import (
     MASK_QC_RULE_CODES,
     MaskCompareBaseline,
+)
+from app.schemas.mask_qc import (
     MaskCompareOut,
     MaskQCIssueOut,
     MaskQCIssuePage,
