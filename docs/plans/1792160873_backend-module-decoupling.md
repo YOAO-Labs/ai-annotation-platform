@@ -1,6 +1,6 @@
 # 后端业务模块解耦与跨语言替换设计
 
-> Status: 进行中。当前目标覆盖 identity、workspace、assets、labeling、inference、learning、insights、jobs、audit、notifications 及运行装配。前序 Python 进程内切片、常驻 API 恢复和既有训练作业执行权交接已完成。assets 视频探测三个操作已提供独立 Python 工件、流式合同及真实调用端的 Node 替换验收；同步 ZIP 与旧前缀扫描已纳入既有 Assets Source 工件及 0215 原生合同，并通过真实隔离服务、受限角色与故障恢复验收。Scene、位姿和标定切片已提取至既有 Catalog 工件，并通过隔离数据库、真实 HTTP/S3 与消费者资格验证；连接管理及本地图片/nuScenes 来源登记已迁入各自合同并完成本地验收；媒体/Blob、其余运维流程和其他模块继续推进。Go 月报保持独立实验，其可用性和容量不作为本目标门槛。当前各模块缺口见[模块部署与语言替换状态](../../docs-site/dev/concepts/module-deployment.md)。
+> Status: 进行中。当前目标覆盖 identity、workspace、assets、labeling、inference、learning、insights、jobs、audit、notifications 及运行装配。前序 Python 进程内切片、常驻 API 恢复和既有训练作业执行权交接已完成。assets 视频探测三个操作已提供独立 Python 工件、流式合同及真实调用端的 Node 替换验收；同步 ZIP 与旧前缀扫描已纳入既有 Assets Source 工件及 0215 原生合同，并通过真实隔离服务、受限角色与故障恢复验收。Scene、位姿和标定切片已提取至既有 Catalog 工件，并通过隔离数据库、真实 HTTP/S3 与消费者资格验证；连接管理及本地图片/nuScenes 来源登记已迁入各自合同并完成本地验收；媒体/Blob、其余运维流程和其他模块继续推进。Identity 注册恢复与邮件的本地实现已完成对应进程／owner 资格；本次接续分组目录与指派 owner 切片，Workspace scope、审计、回执和 Compose 配置已有明确合同，但该组的集成／live 资格仍待完成。Go 月报保持独立实验，其可用性和容量不作为本目标门槛。当前各模块缺口见[模块部署与语言替换状态](../../docs-site/dev/concepts/module-deployment.md)。
 >
 > 创建日期：2026-10-16。
 >
@@ -492,7 +492,7 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
 - 写入权限解析与管理命令统一复用当前账号→项目→成员锁；项目为 KEY SHARE，阻止显式 FOR UPDATE 的所有权转移/删除而不阻塞普通计数更新。最初 SHARE 在双写实测中产生 40P01；改用 KEY SHARE 和 SQL 原子计数后，两次提交均成功、完成/审核数为 2/0。传统生命周期的项目围栏同步使用 KEY SHARE。
 - 任务生命周期/审核在命令边界重新取权，旧 `ProjectAccess` 只核对主体/资源绑定，不充当许可；审核显式核对当前 `review.write`。批次、任务以 NOWAIT 刷新并锁定，整批每 200 题提交后重新取权，保留部分提交与提交后质检/通知语义，不新增编辑者角色规则。
 - 离职先锁项目再锁目标/接收人成员，并刷新 Project、批次、任务和编辑锁行后核对快照/CAS。真实保留会话的旧项目曾允许前负责人停用成员，修复后拒绝 403；职责降级后的直接审核领取曾被接受，修复后拒绝 403 且未认领。
-- 数据组交叉改名/删除先复现两种 40P01，再以操作者权威 KEY SHARE 保留撤权互斥、允许非授权字段投影，两项均成功提交。退出冲突曾先吊销令牌，现先取得账号准入：409 不破坏令牌，随后可正常退出。新增账号权威围栏回归验证撤权锁提交前互斥、提交后停用阻断目录修改。
+- 旧 ORM 数据组路径的交叉改名/删除曾复现两种 40P01，再以操作者权威 KEY SHARE 保留撤权互斥、允许非授权字段投影；该组目录／指派路径现由下方 Identity owner slice 替换，当前 Group/User 与 Workspace scope 锁序以最新切片为准。退出冲突曾先吊销令牌，现先取得账号准入：409 不破坏令牌，随后可正常退出。新增账号权威围栏回归验证撤权锁提交前互斥、提交后停用阻断目录修改。
 - 617 个不同测试通过，其中 149 项为架构检查；69 项 lazy-root 规则不适用跳过。初轮因原生夹具残留额外超管影响“最后超管”前置条件，并因偏好锁误改 NOWAIT 破坏原有并发合并而中断；重置已验证可丢弃环境，保留原等待式偏好/登录锁，仅补跑失败、未完成及新改动范围，未改写合并/CAS 断言掩盖回归。
 - 真实 ASGI/JWT/PostgreSQL/Redis：写入持锁时离职/转移 409，提交后 200；旧凭据 401、恢复后旧题 404、前负责人写入 404，历史作者与标注保留、责任与编辑锁原子交接。数据组创建/重复/指派/改名/删除、临时密码登录、自助改密、旧密码拒绝和传统删除/GDPR 均验证，历史脱敏 2 条并记录同一计数。
 - 真实 HTTP 同项目双题审核均 200，计数为 2/0；202 题整批送审实测三次提交和三次当前权威获取、202 条逐题审计，额外 rejected 题保持不变。随后撤回、重送、重开、接受退回均 200，重开后完成/审核数为 1/0。原生脚本的初次路由/响应字段错误按实际 schema 修正，分段继续验证，没有以脚本错误修改产品契约。
@@ -2460,7 +2460,9 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   Public handlers consume Principal and values without loading User rows. A
   caller-session adapter only synchronizes already-loaded legacy instances;
   obsolete ORM name/avatar/preference/heartbeat/offline setters are removed.
-  Registration, recovery/email, group/admin and multi-owner lifecycle remain open.
+  At this checkpoint, registration, recovery/email, group/admin and multi-owner
+  lifecycle remain open; the later group catalog/assignment owner slice is
+  recorded separately below.
 - Native0238 adds one account policy and prepare/apply functions, with a separate
   one-function presence operator. User precedes current JWT/key locks; preference
   patches wait for the latest row and execute the full portable policy on that
@@ -2522,7 +2524,9 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   OpenAPI shapes are unchanged.
 - The module matrix now includes the completed seven self-account commands and
   separate presence operator, while retaining registration, recovery/email,
-  group/admin, other-user hydration and multi-owner lifecycle as unfinished work.
+  group invitation/admin workflows, other-user hydration and multi-owner
+  lifecycle as unfinished work at this checkpoint; the later group
+  catalog/assignment slice is recorded separately below.
 
 ### Identity self-account assembled artifact verification
 
@@ -2626,3 +2630,35 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   annotation at 0234 and the unrelated test database at 0218, with the same four
   infrastructure containers running. There is no push, remote CI, production or
   primary Identity cutover; full module and provider-language gates remain active.
+
+### Identity group catalog and assignment (current slice)
+
+- The next Identity boundary is the global group catalog plus single/bulk
+  account-group assignment. The closed `aap-identity-groups/v1` protocol contains
+  eight operations; the API retains public routes and DTOs while an optional
+  `identity_group_database_url` / `IDENTITY_GROUP_DATABASE_URL_FILE` selects the
+  existing Identity process's two-function GROUP LOGIN. Shared PostgreSQL remains
+  the transaction owner; this is not a separate-database or saga design.
+- Native migration 0240 adds `aap_identity_groups_v1.group_policy()` and
+  `execute_group_command(jsonb)`, the non-User-linked operation receipt and typed
+  Audit. Workspace provides
+  `aap_workspace_v1.lock_group_assignment_scope(uuid,uuid[],boolean)` instead of
+  granting Identity Project or ProjectMember reads. Project locks precede
+  membership locks; Group precedes actor/target User locks; mutation scopes remain
+  held through the caller commit. Name trimming follows Python Unicode
+  `str.strip()` exactly.
+- Super-admin and project-admin can manage the global catalog. Project-admin
+  assignment uses the requested self/owned-project/active-employee scope;
+  batch preview/apply preserves the legacy mixed-scope behavior and per-item
+  partial results. All group writes and receipts are atomic, while directory
+  reads and preview do not create receipts.
+- Invitation acceptance uses only a private `resolve_invitation_group(uuid,text)`
+  helper inside its legacy coordinator; the GROUP LOGIN cannot call that helper.
+  Invitation lifecycle, directory/admin workflows, other-user hydration and
+  multi-owner transfers remain outstanding. The API group command/data adapters
+  and portable Python group contract/manager/Postgres owner now have an
+  implementation boundary; this docs/Compose change records their deployment
+  inputs. Group native database, restricted-role and real-consumer qualification
+  evidence has not yet been added, so this slice has no completion claim here.
+  The full Identity module, other module rows, seven gates, production readiness
+  and another-language provider remain active.

@@ -15,6 +15,7 @@ services:
       IDENTITY_SESSION_DATABASE_URL_FILE: /run/secrets/identity_session_database_url
       IDENTITY_ACCOUNT_DATABASE_URL_FILE: /run/secrets/identity_account_database_url
       IDENTITY_PRESENCE_DATABASE_URL_FILE: /run/secrets/identity_presence_database_url
+      IDENTITY_GROUP_DATABASE_URL_FILE: /run/secrets/identity_group_database_url
       IDENTITY_RECOVERY_DATABASE_URL_FILE: /run/secrets/identity_recovery_database_url
       IDENTITY_RECOVERY_MAIL_KEY_FILE: /run/secrets/identity_recovery_mail_key
       IDENTITY_LOGIN_REDIS_URL_FILE: /run/secrets/identity_login_redis_url
@@ -32,6 +33,7 @@ services:
       - identity_session_database_url
       - identity_account_database_url
       - identity_presence_database_url
+      - identity_group_database_url
       - identity_recovery_database_url
       - identity_recovery_mail_key
       - identity_login_redis_url
@@ -93,6 +95,8 @@ secrets:
     file: ${IDENTITY_RUNTIME_ACCOUNT_DATABASE_URL_FILE:?Set Identity account command DSN file}
   identity_presence_database_url:
     file: ${IDENTITY_RUNTIME_PRESENCE_DATABASE_URL_FILE:?Set Identity presence operator DSN file}
+  identity_group_database_url:
+    file: ${IDENTITY_RUNTIME_GROUP_DATABASE_URL_FILE:?Set Identity group function-only DSN file}
   identity_recovery_database_url:
     file: ${IDENTITY_RUNTIME_RECOVERY_DATABASE_URL_FILE:?Set Identity recovery function-only DSN file}
   identity_recovery_mail_key:

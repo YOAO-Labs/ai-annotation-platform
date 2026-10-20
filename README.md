@@ -377,7 +377,7 @@ SDK 和 CLI 支持视频媒体／分段租约、追踪候选与质量审阅、Ma
 
 账户／会话、用户／分组／邀请、根健康、系统设置、审计、连接器及 ML 运维可通过 SDK 和 CLI 显式操作，见 [账户、管理与运维](./docs-site/dev/sdk/account-and-operations.md)。项目管理员的审计、预标队列与分组操作由服务器按项目归属限制；批量部分失败和健康降级保留机器可读回执及非零退出码。
 
-Identity 准入、API key、核心会话、自助账户及开放注册／密码恢复／邮箱验证可使用同一独立运行工件。账号变更、成功回执与业务审计共同提交；账号邮件先持久受理，再由只持投递与设置权限的独立进程发送，支持重启后继续处理。邀请、分组／管理员与多模块账号生命周期仍在推进。新验证器的受控切换要求旧 JWT 重新登录，API key 状态保留；当前日常环境尚未执行该切换，见[认证与权限](./docs-site/api/guides/auth.md)、[私有运行协议](./docs-site/api/guides/identity-runtime.md)及 [DEV.md](./DEV.md#identity-独立认证准入)。
+Identity 准入、API key、核心会话、自助账户、注册恢复／邮件及分组目录／指派正逐步归入同一 owner 工件。账号变更、成功回执与业务审计共同提交；账号邮件先持久受理，再由只持投递与设置权限的独立进程发送，支持重启后继续处理。分组指派还依赖 Workspace 当前 scope 投影。邀请接受协调、用户目录／平台管理员、其他用户资料和多模块账号生命周期仍在推进；该切片没有完成 Identity 全模块部署、另一语言替换或生产资格。新验证器的受控切换要求旧 JWT 重新登录，API key 状态保留；当前日常环境尚未执行该切换，见[认证与权限](./docs-site/api/guides/auth.md)、[私有运行协议](./docs-site/api/guides/identity-runtime.md)、[ADR-0120](./docs/adr/0120-independent-identity-group-catalog-and-assignment.md)及 [DEV.md](./DEV.md#identity-独立认证准入)。
 
 项目与批次维护、数据回填、成员绩效、搜索、指引资源及预测／标注导入见 [项目、批次与数据运维](./docs-site/dev/sdk/project-workflows.md)。分派绑定原预览版本，项目范围约束先于查询限制，批次导出与项目导出使用相同能力检查。
 

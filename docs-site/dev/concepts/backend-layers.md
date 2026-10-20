@@ -146,7 +146,7 @@ WebSocket 的活动账号与共享凭据 helper 在原 Session 内投影 `Identi
 
 `identity_session_commands.SessionCommandsPort` 用 `aap-identity-sessions/v1` 覆盖登录、刷新、登出和全端登出。独立提供方拥有密码验证、失败计数、签发及当前凭据围栏；API 保留通用限流和 Turnstile 边缘验证，不水合 User 或写会话状态。三函数 LOGIN 调用原生命令，User → 凭据锁保护当前 hash、generation 和 JTI，业务审计经 Audit 能力与状态、成功回执共同提交。错误密码等有效失败也提交业务审计；无效响应不确认事务。冻结声明可在重启和恢复后重放，当前角色与历史声明分别保留。注册／邀请等仍使用现有签发端，完整 Identity 和 API 权限边界尚未完成。
 
-项目权威使用 `FOR KEY SHARE`，与所有权转移/删除的显式 `FOR UPDATE` 互斥，但允许项目计数的普通更新；标注生命周期计数使用 SQL 原子增减及下限裁剪，不从旧 ORM 数值回写。账号数据组目录同样只对操作者持有账号权威 KEY SHARE，角色/启停/密码写入仍用完整账号写锁，避免两个管理员互改对方数据组时发生账号锁环。登录与偏好合并保留原有等待式账号锁，不把并发上下文合并或预设 CAS 改成抢锁失败。
+项目权威使用 `FOR KEY SHARE`，与所有权转移/删除的显式 `FOR UPDATE` 互斥，但允许项目计数的普通更新；标注生命周期计数使用 SQL 原子增减及下限裁剪，不从旧 ORM 数值回写。Group 指派现在通过 `aap_workspace_v1.lock_group_assignment_scope(uuid,uuid[],boolean)` 按 Project→ProjectMember 顺序锁定并重查项目范围，写入持有范围锁至事务提交；Group/User 锁与账号角色、停用和凭据写锁按 Group→User 顺序协调。登录与偏好合并保留原有等待式账号锁，不把并发上下文合并或预设 CAS 改成抢锁失败。
 
 作业列表/明细、取消和失败重试消费 `application/async_job_contracts.py` 的三个值端口，只传主体/资源 UUID 与原过滤参数，返回原响应或取消状态。`SqlAsyncJobReadAdapter` 私下持有列表谓词、ORM 与响应投影；`services/async_job_access.py::_can_access_job` 保留项目、导出能力和审核范围判断。取消/重试适配器绑定原请求 Session 与控制/派发端口，保留领域取消分支、HTTP 的最终提交，以及重试 claim 提交、派发失败补偿的原顺序。预期失败携带原 status/detail/headers；列表不改为逐行权限查询，初始身份事实不替代各领域的当前写入围栏。
 
@@ -212,11 +212,11 @@ Task 列表/详情、Data Manager、视频清单及轨迹转换的素材摘要�
 
 `services/labeling_assignment.py::LabelingTaskAssignmentService` 持有选定任务分派预览与写入，`schemas/labeling_assignment.py` 持有原公开请求/响应模型；Data Manager 的查询及保存视图不再代写 Task。确认使用当前管理围栏、共享批次接收人校验和非阻塞编辑围栏，复用已经锁定的批次/任务计划；领域只 flush，HTTP 保留审计与提交。缺失/null、任务覆盖/批次默认、审核态限制、预览摘要与逐项失败语义见 [Data Manager 查询与聚合](../reference/data-manager-query)。
 
-身份与责任交接由 `application/user_lifecycle.py`、`legacy_user_lifecycle.py`、`project_membership.py` 和 `project_workspace.py` 组合。`services/user_lifecycle.py` 持有账号锁、停用/恢复元数据与凭据代际；`identity_commands.py` 持有注册建号、自助资料、密码、心跳／离线扫描、偏好及用户数据组投影，`account_groups.py` 持有数据组目录和成员投影。核心会话状态由独立 Identity 命令持有。成员行写入留在 `services/project_membership.py`，任务/批次交接与编辑锁释放交给 `BatchService`，项目所有权由 workspace 写入，GDPR 审计历史脱敏由 `AuditService` 完成。
+身份与责任交接由 `application/user_lifecycle.py`、`legacy_user_lifecycle.py`、`project_membership.py` 和 `project_workspace.py` 组合。`services/user_lifecycle.py` 持有账号锁、停用/恢复元数据与凭据代际；`identity_commands.py` 持有注册建号、自助资料、密码、心跳／离线扫描与偏好。分组目录及账号指派由 `services/identity_group_commands.py` 装配，`identity_group_data.py` 保留现有 SQL Session 适配与邀请组名 helper；可独立运行的 Python owner 实现在 `apps/identity/src/aap_identity/{group_contract,group_manager,group_postgres}.py`，HTTP 请求适配位于 `api/v1/group_commands.py`。写入经过 Workspace 投影与类型化 Audit／冻结 receipt；API 可走本地事务、函数 DSN 或独立 Identity runtime。邀请接受仍由旧工作流组合，目录搜索、平台角色／用户目录与完整生命周期尚未迁入，因此这只是分组／指派切片，不表示 Identity 已完成独立部署或语言替换。核心会话状态由独立 Identity 命令持有。成员行写入留在 `services/project_membership.py`，任务/批次交接与编辑锁释放交给 `BatchService`，项目所有权由 workspace 写入，GDPR 审计历史脱敏由 `AuditService` 完成。
 
 在线状态扫描保留在 `workers/presence.py` 作为入口编排：每轮仍解析有效阈值并计算 UTC cutoff，随后提交、读取影响行数和记录日志；原 `status='online' AND (last_seen_at IS NULL OR last_seen_at < cutoff)` 的单次批量修改由 `IdentityCommandService.mark_inactive_accounts_offline(cutoff)` 持有。
 
-`application/invitation_acceptance.py` 组合身份邀请与 workspace 成员授予。`InvitationService` 保留 token、过期/撤销、当前邀请人和邮箱/项目/账号锁，以及邀请组名与接受状态写入；受邀账号字段由 `IdentityCommandService.create_invited_account` 写入，项目成员 INSERT、邀请人归属和并发重复 409 由 `project_membership.grant_invitation_membership` 持有。工作流不直接构造 User 或写 ProjectMember；HTTP 保留同一 Session 的审计 → commit → refresh → 注册 JWT 顺序。所有者不另行提交，不将本地跨域事务拆成 RPC。
+`application/invitation_acceptance.py` 组合身份邀请与 workspace 成员授予。`InvitationService` 保留 token、过期/撤销、当前邀请人和邮箱/项目/账号锁，以及邀请组名与接受状态写入；组名解析／创建通过 `identity_group_data.resolve_invitation_group()` 调用 Identity 私有 helper，但邀请接受仍保持旧 coordinator 与调用方事务。受邀账号字段由 `IdentityCommandService.create_invited_account` 写入，项目成员 INSERT、邀请人归属和并发重复 409 由 `project_membership.grant_invitation_membership` 持有。工作流不直接构造 User 或写 ProjectMember；HTTP 保留同一 Session 的审计 → commit → refresh → 注册 JWT 顺序。所有者不另行提交，不将本地跨域事务拆成 RPC。
 
 `services/notification_preferences.py` 只依赖标准库，持有可配置通知类型与默认 toast 目录；`services/notification_preferences_command.py` 持有 JSONB 原子 upsert 和新行默认值，直接保留缺失频道及未知扩展键，且不提交事务。偏好路由仍负责当前用户绑定、HTTP 输入错误、提交与提交后 `notifications.sync` 发布；命令层不导入 API、worker 或配置装配。
 

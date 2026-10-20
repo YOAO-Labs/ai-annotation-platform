@@ -67,9 +67,15 @@ last_reviewed: 2026-10-19
   明细与取消重查当前项目、导出能力及审核任务范围，不把历史作业归属当作当前授权。
 - 账号与责任交接：`app/application/{user_lifecycle,legacy_user_lifecycle,project_membership,project_workspace}.py`
   组合身份、workspace 与 labeling 所有者；账号写入在
-  `services/{user_lifecycle,identity_commands,account_groups}.py`，
+  `services/{user_lifecycle,identity_commands}.py`，
   成员行在 `services/project_membership.py`，任务/批次交接在 `BatchService`，
   GDPR 审计历史脱敏在 `AuditService`。预览/CAS、传统删除与离职、SQL/Redis 时序不混同。
+- 分组目录与账号指派：`api/v1/group_commands.py` 收口 HTTP 请求与权限映射；
+  `services/identity_group_commands.py` 选择本地事务、函数 DSN 或 Identity runtime，
+  `services/identity_group_data.py` 只适配当前 SQL Session 与旧邀请接受所需的私有 group helper。
+  可提取的 Python owner 位于 `apps/identity/src/aap_identity/{group_contract,group_manager,group_postgres}.py`，
+  通过 Workspace 项目成员投影维护作用域并将 Group 状态、审计与冻结 receipt 同事务提交。
+  目前只有目录／指派切片；邀请接受仍为旧 API 协调流程，目录管理及账号生命周期也尚未整体迁移。
 - 在线状态扫描：`workers/presence.py` 解析阈值、计算 cutoff 并持有提交/计数/日志；
   `IdentityCommandService.mark_inactive_accounts_offline(cutoff)` 以单条批量更新写身份状态，
   保留 online 与缺失/严格早于 cutoff 的 `last_seen_at` 条件。

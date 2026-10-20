@@ -1,15 +1,18 @@
 # Identity
 
 This package contains the JWT/API-key verifier, API-key management, core sessions
-and self-account command owners, their closed contracts, and one private HTTP process.
+and self-account command owners, the group catalog/assignment owner, their closed
+contracts and one private HTTP process.
 The runtime has no application, SQLAlchemy, Celery or object-store dependency.
 Admission uses four PostgreSQL capabilities, key management uses two, and
 sessions use three plus a scoped Redis login-counter identity. Each configured
 capability has a separate database login. Self-account commands use three functions
 and presence maintenance uses one separate operator function. Registration,
 password recovery and email verification now have five versioned recovery
-operations. Group/admin, other-user hydration and multi-owner lifecycle remain
-in the API, so this is not yet a complete Identity service.
+operations. Group invitations, user directory/platform administration,
+other-user hydration and
+multi-owner lifecycle remain in the API, so this is not yet a complete Identity
+service.
 
 ## Run
 
@@ -64,8 +67,8 @@ admission verdict describes the credential at resolution time; a business
 command requiring a final-write fence must explicitly call the native current
 principal lock on its own transaction. Admission by itself is not that fence.
 
-The package distributes admission, key, session, account, presence, recovery and
-mail schemas.
+The package distributes admission, key, session, account, presence, group,
+recovery and mail schemas.
 Generate/check them with `scripts/export_schema.py` / `--check`. Native data
 and privilege contracts live with migrations and the corresponding
 `infra/docker/identity-*-grants.sql` files. The Go experiment is not involved
@@ -97,6 +100,58 @@ See [ADR-0118](../../docs/adr/0118-independent-identity-account-commands.md) for
 locking, mutation receipts, current-credential replay and avatar commit/cleanup
 boundaries. Password verification/hash and preference merge belong to this
 package; S3 and image bytes do not.
+
+## Group catalog and assignments
+
+`POST /v1/identity/groups/execute` accepts the control bearer plus a user
+credential in `aap-identity-groups/v1`. It owns eight operations: `list_groups`,
+`query_groups`, `create_group`, `update_group`, `delete_group`,
+`preview_group_assignments`, `apply_group_assignments` and `assign_user_group`.
+The API consumes the current principal and value replies for these routes; it
+does not read Group or User rows directly for them.
+
+`GroupRecord` is exactly `{id,name,description,member_count,created_at}`;
+`created_at` is timezone-aware and `member_count` counts active users. List order is name then UUID. Search trims
+with Python `str.strip()` semantics and uses ILIKE on name or description;
+query page size is 1–500 and there is no new search-length limit. Names trim the
+same Unicode whitespace and retain the 1–100 character limit. Descriptions are
+nullable and at most 500 characters. Assignment batches contain 1–500 IDs,
+preserve duplicates and input order, and return the existing per-item public
+DTOs without imposing a response byte cap.
+
+Both super-admin and project-admin roles manage the global group catalog.
+Super-admin can assign any target. Project-admin assignment scope is self, a
+member of a currently owned project, or any active employee; bulk operations
+also retain inactive members of owned projects. Single-user assignment requires
+an active target. Out-of-scope targets stay indistinguishable from missing users.
+Preview and apply preserve partial per-item outcomes; a requested missing group
+is a top-level 404 on apply but a per-item failure in preview.
+
+The `identity_group_client` LOGIN can call only `group_policy()` and
+`execute_group_command(jsonb)`. It has no direct Group, User, Project or
+ProjectMember table rights. Workspace returns the currently managed user IDs
+through its scope capability; Identity does not infer scope from project tables.
+Writes lock Group before actor/target User rows. Workspace locks owned Projects
+before membership rows and holds the scope through commit. Bulk catalog changes
+prelock affected users in UUID order; transient conflicts stay retryable without
+leaking SQL errors.
+
+Successful receipts cover create/update/delete, single assignment and bulk apply
+(including an all-item-failed result); list, query and preview do not create
+receipts. Replay reauthenticates a current manager. Assignment replay checks
+current target visibility before returning frozen profile data. State, typed
+Audit and receipt commit together. The Audit owner accepts only the five group
+and group-assignment events; there is no generic Audit-table grant.
+
+Invitation acceptance remains a legacy coordinator. It calls the private
+`resolve_invitation_group(uuid,text)` helper within the existing transaction to
+resolve/create the invitation's group; this helper is not exposed through the
+GROUP LOGIN. Group migration therefore does not extract invitations, directory
+search, admin/lifecycle commands, or multi-owner member transfers. The optional
+API/runtime `IDENTITY_GROUP_DATABASE_URL(_FILE)` selects the two-function owner;
+an explicit connection failure does not fall back, and a missing configured
+capability returns 503. The Compose host selector is
+`IDENTITY_RUNTIME_GROUP_DATABASE_URL_FILE`. See [ADR-0120](../../docs/adr/0120-independent-identity-group-catalog-and-assignment.md).
 
 ## Registration and credential recovery
 

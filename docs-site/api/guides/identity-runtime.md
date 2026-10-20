@@ -9,7 +9,7 @@ last_reviewed: 2026-10-20
 
 协议对象只接受声明的 wire 字段名：版本字段为 `schema`。内部 Python 字段名 `protocol` 无论单独使用还是与 `schema` 同时提交都被拒绝；opaque 偏好值中的同名键不受影响。
 
-Identity 运行时提供认证准入、API key、核心会话、自助账户、账号恢复和在线扫描命令，供受信任的服务调用。公开用户接口仍是 `/api/v1/auth/` 和 `/api/v1/me/api-keys`。私有接口要求独立控制 Bearer；需要用户身份的操作将凭据放在 JSON 的 `token` 中，不能代替控制凭据。账号恢复使用匿名请求或单次挑战证明，邮件由同一工件的独立执行进程投递。
+Identity 运行时提供认证准入、API key、核心会话、自助账户、全局分组目录与指派、账号恢复和在线扫描命令，供受信任的服务调用。公开用户接口仍是 `/api/v1/auth/` 和 `/api/v1/me/api-keys`。私有接口要求独立控制 Bearer；需要用户身份的操作将凭据放在 JSON 的 `token` 中，不能代替控制凭据。账号恢复使用匿名请求或单次挑战证明，邮件由同一工件的独立执行进程投递。
 
 | 接口                                       | 用途                                           |
 | ------------------------------------------ | ---------------------------------------------- |
@@ -20,6 +20,7 @@ Identity 运行时提供认证准入、API key、核心会话、自助账户、�
 | `POST /v1/identity/sessions/execute`       | 登录、刷新、登出和全端登出                     |
 | `POST /v1/identity/accounts/execute`       | 当前资料、改名、偏好、心跳、改密和头像引用     |
 | `POST /v1/identity/presence/mark-inactive` | 按已固定的 cutoff 批量标记离线                 |
+| `POST /v1/identity/groups/execute`         | 分组目录、查询、指派预览／执行                 |
 | `POST /v1/identity/recovery/execute`       | 开放注册、重置请求／消费、验证邮件重发／消费   |
 
 ## API key 请求
@@ -84,7 +85,7 @@ API 保留通用限流和 Turnstile 验证，提供方重新检查失败计数�
 
 成功命令的状态、JTI／代次、业务审计和冻结声明回执共同提交。错误密码、停用或未验证的登录也会提交其经过验证的业务审计；格式错误或绑定错误的提供方响应不用于确认事务。响应丢失后重放要求当前认证，另一个有效凭据可用于恢复同一账号的冻结结果。重放不会再次登出新凭据、推进代次、记录业务审计或刷新旧声明；历史 token 可能已经失效。登录重放重新检查当前密码和 gate，账号角色取当前资料，签发声明保持冻结。
 
-提供方的签发时长、邮箱验证、失败计数阈值／窗口和 Redis 实例必须与边缘及剩余签发端匹配。修改签发策略或 signing secret 后，旧操作回执冲突。原生策略固定 issuer、HS256 和七天宽限；含会话回执时拒绝降级。邀请注册及分组／管理员流程仍有待提取，API 整体尚未撤除签名能力。
+提供方的签发时长、邮箱验证、失败计数阈值／窗口和 Redis 实例必须与边缘及剩余签发端匹配。修改签发策略或 signing secret 后，旧操作回执冲突。原生策略固定 issuer、HS256 和七天宽限；含会话回执时拒绝降级。分组目录／指派已有独立 Python owner 切片；邀请接受协调、其他注册签发、用户目录／平台管理员流程仍有待提取，API 整体尚未撤除签名能力。
 
 为保证重放字节稳定，JWT header 使用紧凑 JSON `alg`、`typ`，payload 字段顺序固定为 `sub`、`role`、`exp`、`jti`、`gen`、`iss`。UUID 为小写规范形式，代次和时间为十进制整数，Base64URL 不带填充。HS256 key 是 `HMAC-SHA256(secret UTF-8, issuer UTF-8)` 的小写 hex 字符串，再按 UTF-8 作为 HMAC key。会话派生 master 使用相同 secret 与独立域 `aap-identity-sessions/v1`；其 SHA-256 是派生标识，登录指纹是该 master 对按键排序、紧凑且非 ASCII 以 Unicode 转义表示的 `{email,password}` JSON 的 HMAC-SHA256。仓库的 `apps/identity/tests/fixtures/session_vectors.json` 提供公开测试向量，不含部署凭据；Python 和 Node 都核对相同结果。这是跨语言原语／序列化证据，尚非另一语言的完整提供方验收。
 
@@ -112,7 +113,40 @@ API 保留通用限流和 Turnstile 验证，提供方重新检查失败计数�
 
 账户角色只有 `account_policy`、`prepare_account_command`、`apply_account_command` 三函数；扫描角色只有 `mark_inactive_accounts_offline`。扫描请求是 `{schema:"aap-identity-presence/v1",cutoff:"带时区时间"}`，成功响应为相同 schema 和严格非负 64 位 affected。它保留 `online AND (last_seen_at IS NULL OR last_seen_at < cutoff)`，不新增 active 过滤。就绪检查只查询权限，不执行扫描。
 
-账户偏好保留原有大小和基数集合，不套用会话的 64 KiB 请求或准入的 16 MiB 响应上限；并发、截止时间及部署资源仍是实际运行边界。字节处理不持远程 SQL 锁。确定拒绝时清理新头像暂存对象，提交未知时保留字节并先核对资料／回执；旧对象只在确认提交后尽力清理。邀请、分组／管理员及多 owner 生命周期继续按[模块台账](/dev/concepts/module-deployment)推进。
+账户偏好保留原有大小和基数集合，不套用会话的 64 KiB 请求或准入的 16 MiB 响应上限；并发、截止时间及部署资源仍是实际运行边界。字节处理不持远程 SQL 锁。确定拒绝时清理新头像暂存对象，提交未知时保留字节并先核对资料／回执；旧对象只在确认提交后尽力清理。邀请接受协调、平台管理员及多 owner 生命周期继续按[模块台账](/dev/concepts/module-deployment)推进。
+
+## 分组目录与指派
+
+`POST /v1/identity/groups/execute` 使用 `aap-identity-groups/v1`，字段固定为 `schema`、`operation`、`operation_id`、`token`、`payload`。`operation_id` 是预先固定的 UUID；`token` 是非空且最多 16,384 字符的当前 JWT 或 API key，并作为 secret 处理。身份与平台角色由 Identity 重新解析，不能由请求传入权限布尔值。Native 协议用当前 `actor`、仅对 API key 出现的 `expected_key_hash`、请求指纹与派生 epoch 替代原 bearer，不把原 token 放入数据库命令。
+
+| operation                   | payload                                                             | data                                       |
+| --------------------------- | ------------------------------------------------------------------- | ------------------------------------------ |
+| `list_groups`               | empty object                                                        | `{items: GroupRecord[]}`                   |
+| `query_groups`              | `page` ≥ 1; `page_size` 1–500; nullable `search`                    | `{items,total,page,page_size,pages}`       |
+| `create_group`              | `name` 1–100; nullable `description` up to 500                      | `{group: GroupRecord}`                     |
+| `update_group`              | `group_id`; nullable `name` 1–100; nullable `description` up to 500 | `{group: GroupRecord}`                     |
+| `delete_group`              | `group_id`                                                          | `{group_id,deleted:true}`                  |
+| `preview_group_assignments` | 1–500 `user_ids`; nullable `group_id`                               | Existing `BulkGroupAssignmentPreview` DTO  |
+| `apply_group_assignments`   | 1–500 `user_ids`; nullable `group_id`                               | Existing `BulkGroupAssignmentResponse` DTO |
+| `assign_user_group`         | `user_id`; nullable `group_id`                                      | `{account: AccountRecord}`                 |
+
+`GroupRecord` 固定为 `{id,name,description,member_count,created_at}`；`created_at` 必须带时区，`member_count` 只计算启用账号。目录按 name、UUID 顺序返回；既有未分页 `list_groups` 不增加新的固定结果大小上限。查询页码从 1 开始，page size 为 1–500；`search` 以 Python `str.strip()` 规则修剪后，在 name 和 description 上执行 ILIKE，保留现有无长度上限的查询行为。总页数为 `ceil(total/page_size)`，空结果为 0。
+
+`create_group` 的 ID 固定为 `operation_id`。Group name 限 1–100 个字符并使用同一 Python Unicode trim；description 可为 null，最长 500 个字符。`update_group` 中 name 或 description 省略与 null 都表示不改；非 null description 会写入并审计，空字符串清除描述。只传入未变化的 name 不生成 Audit；创建的空白 name 返回 400 `名称不能为空`，重复名返回 409 `已存在同名数据组: ` 加组名（create 使用 trim 后名称，update 保留旧 API 的原始名称），更新去重和所有权拒绝不泄漏 SQL 文本。
+
+一次批量指派接受 1–500 个 user UUID；重复值与输入顺序保留，不新增统一 response byte ceiling。超级管理员可管理全局目录并指派任意目标。项目管理员也可管理全局目录；其指派范围是自己、当前任一所属项目成员，或任意启用 employee。批量操作还兼容其所属项目中的停用成员；单用户指派要求目标启用。范围外目标与不存在目标保持相同隐私响应。批量结果使用逐项状态，允许合法项目成员部分成功：请求的 group 不存在时，apply 返回顶层 404，preview 则为对应合格项返回错误；单用户指派的 AccountRecord.id 必须等于请求的 user_id。
+
+成功 envelope 包含 `schema`、`ok:true`、匹配的 `operation`／`operation_id`、当前 `principal` 和 `data`。失败 envelope 固定为 `{schema,ok:false,error:{code,status_code,detail}}`；native 非策略错误的后两项为 null，API 只映射已知安全错误，不传 SQL 诊断。新增错误为 `group_not_found`、`target_not_found`、`group_busy`、`account_busy`、`operation_conflict` 和 `policy_rejected`；找不到分组映射 HTTP 404「数据组不存在」，不可见或不存在的用户统一为 404「用户不存在」，Group/User 锁冲突映射 409 `{reason:group_busy|account_busy}`，操作范围冲突映射 409 `{reason:operation_conflict}`。逐项失败带安全旧消息和 `retryable:true`。策略错误只允许管理权撤销 403「当前账号已无管理权限」、空白名称 400「名称不能为空」及重名 409。重放使用 operation UUID 和请求 HMAC 取回冻结结果，但每次都要求当前 manager 身份；单用户指派重放还会重新检查当前目标可见范围。
+
+Create、update、delete、single assignment 与 bulk apply 都保存成功操作回执；bulk apply 即使每项失败仍冻结其已接受结果。List、query 和 preview 不建回执。回执与 Group/User 写入及 typed Audit 一起提交；同一操作 ID 不能用于不同 actor、操作或 payload。Catalog rename/delete 会按 UUID 顺序预锁所有受影响 User；用户撤权或 Workspace 归属变化不能越过持有的范围锁。
+
+`identity_group_operation_receipts` 保存 operation UUID、actor、operation、request HMAC epoch 与 frozen result，不带 live-User 外键。尝试再次使用同一个 ID 的不同用户／操作／请求会冲突；失败策略不落回执。HMAC 以 Identity secret 的 `aap-identity-groups/v1` 专用 domain 派生。Native Audit 写入使用 `record_identity_group_event(text,jsonb,jsonb,jsonb)`：仅接受 `group.create`、`group.update`、`group.delete`、`user.group_change`、`user.bulk_group_assign`，输入包含显式 `target_type`、`target_id` 和封闭 `detail`，只保存协议允许的业务 detail。无 Audit 表或泛化写函数授权。
+
+Identity 的 GROUP LOGIN 只有 `group_policy()` 与 `execute_group_command(jsonb)`，无直接 Group/User/Project/ProjectMember 表权限。Project assignment scope 由 Workspace 的 `lock_group_assignment_scope(uuid,uuid[],boolean)` 投影；Workspace 按 Project、ProjectMember 顺序读取／锁定，写入围栏持有至调用方提交。Group 修改先锁目标 Group，再锁 actor/target User；改名/删除按 UUID 顺序预锁受影响 User。Identity 不复制 Project scope，也不从 API 布尔值授权。
+
+API 可设置 `IDENTITY_GROUP_DATABASE_URL` 或 `IDENTITY_GROUP_DATABASE_URL_FILE`；独立 Identity runtime 读取同名的 `IDENTITY_GROUP_DATABASE_URL(_FILE)` 配置。省略 DSN 时使用内嵌调用方事务；显式配置的 DSN 失败时返回不可用，不切换到其他写入者。Compose 用宿主机 `IDENTITY_RUNTIME_GROUP_DATABASE_URL_FILE` 选择文件，并在容器内挂载为 `IDENTITY_GROUP_DATABASE_URL_FILE`。专用 DSN 必须指向同一个 PostgreSQL 数据库，由它承载 Workspace scope function 和 Identity group schema。
+
+Invitation 接受仍走原 coordinator。它可在既有邀请事务中调用私有 `resolve_invitation_group(uuid,text)` 读取/创建组值；该 helper 不是公开 wire 操作，也没有授予 GROUP LOGIN。邀请、目录搜索、其他用户资料、平台角色和多-owner lifecycle 仍未整体迁移。部署 DSN、精确 grant、Audit 与 receipt 规则见 [DEV.md](https://github.com/yyq19990828/ai-annotation-platform/blob/main/DEV.md) 和 [ADR-0120](/dev/adr/0120-independent-identity-group-catalog-and-assignment)。
 
 ## 开放注册与账号恢复
 

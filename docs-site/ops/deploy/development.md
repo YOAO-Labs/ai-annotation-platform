@@ -2,7 +2,7 @@
 audience: [dev, ops]
 type: how-to
 status: stable
-last_reviewed: 2026-10-18
+last_reviewed: 2026-10-20
 ---
 
 # 开发部署（本地）
@@ -141,6 +141,14 @@ docker compose down -v       # 连数据卷一起删（清空 PG / MinIO，慎�
 ```
 
 宿主机的 `pnpm dev:api` / `pnpm dev:web` 直接 Ctrl-C。
+
+## 可选 Identity owner 进程
+
+默认开发栈仍由宿主机 API 内嵌装配 Identity owner；分组操作不需要单独数据库，也不能改成和 Workspace 分开的数据库，因为 assignment scope 投影和分组写入要在共享 PostgreSQL 事务中持锁。
+
+需要检查独立私有运行时配置时，可参考仓库根 `DEV.md` 中的 Identity grant 与 `docker-compose.identity.yml` 说明。该 Compose 文件不是默认开发栈，会启动 Admission 和 credential-mail 两个非 root、只读容器，并要求此 profile 的全部 secret 文件；分组切片额外要求 GROUP 专用 DSN 文件。宿主机选择器 `IDENTITY_RUNTIME_GROUP_DATABASE_URL_FILE` 在容器内映射为 `IDENTITY_GROUP_DATABASE_URL_FILE`。无论 API 是 caller-transaction 装配还是独立身份 owner，GROUP LOGIN 都只可执行 `group_policy()` 和 `execute_group_command(jsonb)`，不得配置表级授权；DSN 应指向已安装 0240 的同一 PostgreSQL 数据库。
+
+API 可用 `IDENTITY_GROUP_DATABASE_URL`／`IDENTITY_GROUP_DATABASE_URL_FILE` 选择内嵌 adapter 的专用 GROUP DSN，独立进程使用 `IDENTITY_GROUP_DATABASE_URL`／`IDENTITY_GROUP_DATABASE_URL_FILE`；两种模式都不因已配置连接失败而回退。Python group contract/manager/Postgres owner、API adapter 与函数授权源已有实现，操作 DTO、manager/target scope 和邀请仍使用 legacy coordinator 的边界见[Identity 私有运行协议](/api/guides/identity-runtime#分组目录与指派)。本页只配置可选容器与 secret；数据库角色、API 消费者与真实管理 UI 的联调证据及生产资格仍待单独记录。
 
 ---
 

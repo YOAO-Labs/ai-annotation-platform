@@ -1224,7 +1224,23 @@ Fernet key 应单独配置，不与 JWT secret 共用。轮换时保留旧 key�
 
 Producer 的直启策略名是 `IDENTITY_ALLOW_OPEN_REGISTRATION`、`IDENTITY_EMAIL_VERIFICATION_REQUIRED` 和 `IDENTITY_FRONTEND_BASE_URL`；Compose 主机端以 `IDENTITY_RUNTIME_ALLOW_OPEN_REGISTRATION`、`IDENTITY_RUNTIME_EMAIL_VERIFICATION_REQUIRED`、`IDENTITY_RUNTIME_FRONTEND_BASE_URL` 提供值。SMTP 环境 fallback 与主 API 现存的 `SMTP_*` SMTP 测试邮件配置分开；Settings 中的 mail policy 优先。mail worker `/health` 为 liveness，`/ready` 检查 8171 端口上的原生能力、Settings 与 key；Compose 覆盖镜像原先检查 8170 的 healthcheck，容器只读并以 UID 10003 运行。
 
-这是本地架构切片，不代表 Identity 已完整独立、主环境已切换或已可用于生产；Go 月报只是实验，当前也没有另一语言的 recovery/mail provider。分组／管理员和多 owner 生命周期仍留在 API。详见 [ADR-0119](docs/adr/0119-independent-identity-recovery-and-mail.md)。
+这是本地架构切片，不代表 Identity 已完整独立、主环境已切换或已可用于生产；Go 月报只是实验，当前也没有另一语言的 recovery/mail provider。分组目录与指派已有独立 Python owner 切片，邀请接受编排、平台角色／用户目录及多 owner 生命周期仍由 API 组合，完整模块部署与资格验证尚未完成。详见 [ADR-0119](docs/adr/0119-independent-identity-recovery-and-mail.md) 与 [ADR-0120](docs/adr/0120-independent-identity-group-catalog-and-assignment.md)。
+
+### Identity 分组目录与指派
+
+私有 `POST /v1/identity/groups/execute` 以 `aap-identity-groups/v1` 承载全局目录读取／查询、创建／改名／删除、单人指派、批量预览和批量执行八项操作。公开管理路由仍保留现有权限、错误映射与 `BulkGroupAssignmentPreview`／`BulkGroupAssignmentResponse` DTO。`GroupRecord.member_count` 只统计启用用户；查询按 Python Unicode `str.strip()` 规则修剪，并在组名／描述上做 ILIKE，不加搜索长度上限。批量 user_ids 保留重复值与顺序，长度为 1–500。
+
+项目管理员和超级管理员都能管理全局目录。超级管理员可指派任意用户；项目管理员只可指派自己、当前所属项目成员或启用 employee，批量操作额外保留其所属项目内的停用成员；单用户指派目标必须启用。越权目标与不存在目标不能从响应中区分。批量仍逐项返回并允许部分成功；应用不存在的 group 时整体 404，预览则报告逐项错误。
+
+先应用 migration 0240 与当前 `module-data-grants.sql`，再预建无成员关系、非继承的 `identity_group_client` LOGIN，并按 `infra/docker/identity-groups-grants.sql` 文件头配置 owner 与角色参数。该 LOGIN 仅获得 `group_policy()` 和 `execute_group_command(jsonb)` 两项执行权限；不能直接读写 Group、User、Project 或 ProjectMember 表，也不能继承 owner。不要另外给 API 角色表权限或绕过 Workspace 投影。
+
+API 可用 `IDENTITY_GROUP_DATABASE_URL`／`IDENTITY_GROUP_DATABASE_URL_FILE` 为组命令选择专用函数 DSN，每对至多一种；留空使用 API 调用方事务，显式文件或远程服务失败不会回退。独立 Identity 进程使用 `IDENTITY_GROUP_DATABASE_URL(_FILE)`，缺少已选能力时返回 503。可选 Compose 的宿主机路径变量为 `IDENTITY_RUNTIME_GROUP_DATABASE_URL_FILE`，容器内映射为 `/run/secrets/identity_group_database_url`；文件必须可由 runtime 用户读取。两个 DSN 都应指向承载 Workspace 与 Identity owner schema 的同一个 PostgreSQL 数据库，以保留外层事务和投影锁。
+
+Group 写入先锁目标 Group，再按 owner 规则锁 actor/target User。Workspace 的 `aap_workspace_v1.lock_group_assignment_scope(uuid,uuid[],boolean)` 按 Project 在先、membership 在后的顺序锁定并重查范围；写入锁持有到调用事务提交。改名／删除需按 UUID 顺序预锁受影响的全部用户。争用 NOWAIT 仅转换为可安全重试的 409／逐项结果，不得暴露 SQL 诊断。组名空白和重复名的状态码、旧错误文本及 Unicode trim 保持既有语义。
+
+Create/update/delete、单人指派和批量 apply 写成功操作 receipt，并与业务状态及类型化 Audit 同事务提交；批量执行即便逐项全部失败也冻结受理结果。List/query/preview 不写 receipt。重放重新核验当前 manager；单人指派重放还必须重新确认目标当前可见，不能借历史回执泄露资料。Audit 仅允许 `group.create`、`group.update`、`group.delete`、`user.group_change` 和 `user.bulk_group_assign` 固定事件；审计入口接收封闭的 `target_type`、`target_id`、`detail`，只持久化允许的业务 detail。
+
+邀请接受仍由旧 coordinator 组合；它仅通过私有 `resolve_invitation_group(uuid,text)` helper 解析／创建邀请中的 group value，不授予 `identity_group_client` 此 helper 的调用权。目录搜索、平台角色／用户目录、邀请本身、停用／恢复／离职以及跨 owner 转交仍属于 Identity 后续工作。这个目录／指派切片没有单独完成完整 Identity 的部署、切换、语言替换或生产容量资格。完整字段、错误、Project scope、typed Audit 和 receipts 见[Identity 私有运行协议](/api/guides/identity-runtime)及 [ADR-0120](docs/adr/0120-independent-identity-group-catalog-and-assignment.md)。
 
 ## 普通批量结果检查点
 

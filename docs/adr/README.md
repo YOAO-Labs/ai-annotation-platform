@@ -165,3 +165,4 @@
 - [0117 — 核心会话命令与原子审计](0117-independent-identity-session-commands.md)
 - [0118 — 自助账户命令与在线状态所有权](0118-independent-identity-account-commands.md)
 - [0119 — Identity 注册恢复与凭据邮件独立所有权](0119-independent-identity-recovery-and-mail.md)
+- [0120 — Identity 分组目录与指派独立所有权](0120-independent-identity-group-catalog-and-assignment.md)
