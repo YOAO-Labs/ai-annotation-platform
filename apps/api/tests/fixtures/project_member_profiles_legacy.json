@@ -1,0 +1,124 @@
+{
+  "kind": "actual-legacy-project-member-profile-serialization",
+  "project_id": "8c46c960-310e-5f8e-b78f-5e25c4b0a6ca",
+  "inputs": [
+    {
+      "key": "active",
+      "user_id": "7ba90ca5-2542-5cb1-87fa-39b5ee4a9183",
+      "membership_id": "284c30fa-2209-5ebe-a34c-e1cfff2684e2",
+      "platform_role": "employee",
+      "role": "annotator",
+      "active": true,
+      "name": "  \u540d\u79f0 \ud83d\ude00",
+      "email": "active@member-profiles.test",
+      "avatar_ref": "preset:pixel-12",
+      "version": 3,
+      "assigned_at": "2026-01-01T00:00:00+00:00",
+      "updated_at": "2026-01-01T01:00:00+00:00"
+    },
+    {
+      "key": "inactive",
+      "user_id": "0c7a1037-2848-5d6a-b8a3-2551ab96e478",
+      "membership_id": "a444237f-944a-5c90-9825-94fac2413f37",
+      "platform_role": "employee",
+      "role": "reviewer",
+      "active": false,
+      "name": "\u00dfeta",
+      "email": "inactive@member-profiles.test",
+      "avatar_ref": null,
+      "version": 4,
+      "assigned_at": "2026-01-02T00:00:00+00:00",
+      "updated_at": "2026-01-02T01:00:00+00:00"
+    },
+    {
+      "key": "viewer",
+      "user_id": "baae6905-69bb-59e2-88cc-5c1fb0213d70",
+      "membership_id": "47078802-b6b7-51d4-967a-eaad20057589",
+      "platform_role": "viewer",
+      "role": "viewer",
+      "active": false,
+      "name": "Historical viewer",
+      "email": "viewer@member-profiles.test",
+      "avatar_ref": "upload:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "version": 5,
+      "assigned_at": "2026-01-03T00:00:00+00:00",
+      "updated_at": "2026-01-03T01:00:00+00:00"
+    }
+  ],
+  "list_response": [
+    {
+      "id": "47078802-b6b7-51d4-967a-eaad20057589",
+      "user_id": "baae6905-69bb-59e2-88cc-5c1fb0213d70",
+      "user_name": "Historical viewer",
+      "user_email": "viewer@member-profiles.test",
+      "role": "viewer",
+      "platform_role": "viewer",
+      "version": 5,
+      "assigned_at": "2026-01-03T00:00:00Z",
+      "updated_at": "2026-01-03T01:00:00Z",
+      "avatar_ref": "upload:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "id": "a444237f-944a-5c90-9825-94fac2413f37",
+      "user_id": "0c7a1037-2848-5d6a-b8a3-2551ab96e478",
+      "user_name": "\u00dfeta",
+      "user_email": "inactive@member-profiles.test",
+      "role": "reviewer",
+      "platform_role": "employee",
+      "version": 4,
+      "assigned_at": "2026-01-02T00:00:00Z",
+      "updated_at": "2026-01-02T01:00:00Z",
+      "avatar_ref": null
+    },
+    {
+      "id": "284c30fa-2209-5ebe-a34c-e1cfff2684e2",
+      "user_id": "7ba90ca5-2542-5cb1-87fa-39b5ee4a9183",
+      "user_name": "  \u540d\u79f0 \ud83d\ude00",
+      "user_email": "active@member-profiles.test",
+      "role": "annotator",
+      "platform_role": "employee",
+      "version": 3,
+      "assigned_at": "2026-01-01T00:00:00Z",
+      "updated_at": "2026-01-01T01:00:00Z",
+      "avatar_ref": "preset:pixel-12"
+    }
+  ],
+  "member_out_responses": [
+    {
+      "id": "284c30fa-2209-5ebe-a34c-e1cfff2684e2",
+      "user_id": "7ba90ca5-2542-5cb1-87fa-39b5ee4a9183",
+      "user_name": "  \u540d\u79f0 \ud83d\ude00",
+      "user_email": "active@member-profiles.test",
+      "role": "annotator",
+      "platform_role": "employee",
+      "version": 3,
+      "assigned_at": "2026-01-01T00:00:00Z",
+      "updated_at": "2026-01-01T01:00:00Z",
+      "avatar_ref": "preset:pixel-12"
+    },
+    {
+      "id": "a444237f-944a-5c90-9825-94fac2413f37",
+      "user_id": "0c7a1037-2848-5d6a-b8a3-2551ab96e478",
+      "user_name": "\u00dfeta",
+      "user_email": "inactive@member-profiles.test",
+      "role": "reviewer",
+      "platform_role": "employee",
+      "version": 4,
+      "assigned_at": "2026-01-02T00:00:00Z",
+      "updated_at": "2026-01-02T01:00:00Z",
+      "avatar_ref": null
+    },
+    {
+      "id": "47078802-b6b7-51d4-967a-eaad20057589",
+      "user_id": "baae6905-69bb-59e2-88cc-5c1fb0213d70",
+      "user_name": "Historical viewer",
+      "user_email": "viewer@member-profiles.test",
+      "role": "viewer",
+      "platform_role": "viewer",
+      "version": 5,
+      "assigned_at": "2026-01-03T00:00:00Z",
+      "updated_at": "2026-01-03T01:00:00Z",
+      "avatar_ref": "upload:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    }
+  ]
+}

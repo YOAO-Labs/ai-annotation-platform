@@ -45,6 +45,7 @@ from app.services.project_membership import (
     add_member as add_project_member,
     preview_role_change as preview_project_member_role_change,
 )
+from app.services.user_brief import resolve_briefs
 from app.db.models.user import User
 from app.db.models.project import Project
 from app.db.models.project_member import ProjectMember
@@ -1170,29 +1171,19 @@ async def list_members(
     project: Project = Depends(require_project_visible),
     db: AsyncSession = Depends(get_db),
 ):
-    rows = await db.execute(
-        select(ProjectMember, User.name, User.email, User.avatar_ref, User.role)
-        .join(User, User.id == ProjectMember.user_id)
-        .where(ProjectMember.project_id == project.id)
-        .order_by(ProjectMember.assigned_at.desc())
-    )
-    out = []
-    for member, user_name, user_email, avatar_ref, platform_role in rows.all():
-        out.append(
-            ProjectMemberOut(
-                id=member.id,
-                user_id=member.user_id,
-                user_name=user_name,
-                user_email=user_email,
-                role=member.role,
-                platform_role=platform_role,
-                version=member.version,
-                assigned_at=member.assigned_at,
-                updated_at=member.updated_at,
-                avatar_ref=avatar_ref,
-            )
+    members = (
+        await db.scalars(
+            select(ProjectMember)
+            .where(ProjectMember.project_id == project.id)
+            .order_by(ProjectMember.assigned_at.desc())
         )
-    return out
+    ).all()
+    briefs = await resolve_briefs(db, (member.user_id for member in members))
+    return [
+        _member_value(member, briefs[str(member.user_id)])
+        for member in members
+        if str(member.user_id) in briefs
+    ]
 
 
 @router.get(
@@ -1257,8 +1248,7 @@ async def list_mention_candidates(
     return out
 
 
-async def _member_out(db: AsyncSession, member: ProjectMember) -> ProjectMemberOut:
-    target = await db.get(User, member.user_id)
+def _member_value(member: ProjectMember, target) -> ProjectMemberOut:
     return ProjectMemberOut(
         id=member.id,
         user_id=member.user_id,
@@ -1271,6 +1261,11 @@ async def _member_out(db: AsyncSession, member: ProjectMember) -> ProjectMemberO
         updated_at=member.updated_at,
         avatar_ref=target.avatar_ref if target else None,
     )
+
+
+async def _member_out(db: AsyncSession, member: ProjectMember) -> ProjectMemberOut:
+    briefs = await resolve_briefs(db, [member.user_id])
+    return _member_value(member, briefs.get(str(member.user_id)))
 
 
 @router.post("/{project_id}/members", response_model=ProjectMemberOut, status_code=201)

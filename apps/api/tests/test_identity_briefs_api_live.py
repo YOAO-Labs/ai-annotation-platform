@@ -251,6 +251,37 @@ async def test_authorized_task_and_batch_routes_use_selected_briefs_owner(
                 "avatar_ref": None,
             }
 
+            member_response = await client.get(
+                f"/api/v1/projects/{caller['project_id']}/members", headers=headers
+            )
+            assert member_response.status_code == 200, member_response.text
+            member_by_user = {item["user_id"]: item for item in member_response.json()}
+            assert set(member_by_user) == {
+                str(caller["caller_id"]),
+                str(caller["batch_user_id"]),
+            }
+            member_reviewer = member_by_user[str(caller["batch_user_id"])]
+            assert set(member_reviewer) == {
+                "id",
+                "user_id",
+                "user_name",
+                "user_email",
+                "role",
+                "platform_role",
+                "version",
+                "assigned_at",
+                "updated_at",
+                "avatar_ref",
+            }
+            assert member_reviewer["role"] == "reviewer"
+            assert member_reviewer["platform_role"] == "employee"
+            assert member_reviewer["user_name"] == "Batch reviewer"
+            assert (
+                member_reviewer["user_email"]
+                == f"brief-batch-user-{suffix}@example.test"
+            )
+            assert member_reviewer["avatar_ref"] is None
+
             hidden_task = await client.get(
                 f"/api/v1/tasks/{caller['task_id']}", headers=outsider_headers
             )
@@ -267,6 +298,14 @@ async def test_authorized_task_and_batch_routes_use_selected_briefs_owner(
             assert hidden_batch.json()["detail"] == "项目不存在"
             assert f"brief-batch-user-{suffix}@example.test" not in hidden_batch.text
             assert "Batch reviewer" not in hidden_batch.text
+            hidden_members = await client.get(
+                f"/api/v1/projects/{caller['project_id']}/members",
+                headers=outsider_headers,
+            )
+            assert hidden_members.status_code == 404, hidden_members.text
+            assert hidden_members.json() == {"detail": "项目不存在"}
+            assert "Batch reviewer" not in hidden_members.text
+            assert f"brief-batch-user-{suffix}@example.test" not in hidden_members.text
     finally:
         if api:
             api.stop()
@@ -333,8 +372,15 @@ async def test_remote_briefs_owner_failure_does_not_fall_back_to_local_orm(
             response = await client.get(
                 f"/api/v1/tasks/{caller['task_id']}", headers=headers
             )
+            member_response = await client.get(
+                f"/api/v1/projects/{caller['project_id']}/members", headers=headers
+            )
         assert response.status_code == 503, response.text
         assert secret not in response.text and control not in response.text
+        assert member_response.status_code == 503, member_response.text
+        assert (
+            secret not in member_response.text and control not in member_response.text
+        )
     finally:
         if api:
             api.stop()

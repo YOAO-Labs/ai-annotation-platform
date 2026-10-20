@@ -371,6 +371,21 @@ def test_list_members(client, respx_mock):
     assert members[0].platform_role == "employee"
 
 
+def test_list_members_accepts_captured_legacy_serialization(client, respx_mock):
+    captured = json.loads(
+        (
+            Path(__file__).parent / "fixtures/project_member_profiles_legacy.json"
+        ).read_text()
+    )["list_response"]
+    respx_mock.get(f"{API}/projects/{PID}/members").mock(
+        return_value=httpx.Response(200, json=captured)
+    )
+    members = client.members.list(PID)
+    assert [str(item.id) for item in members] == [item["id"] for item in captured]
+    for actual, expected in zip(members, captured, strict=True):
+        assert actual.model_dump(mode="json") == expected
+
+
 def test_add_and_remove_member(client, respx_mock):
     member_id = str(uuid4())
     user_id = str(uuid4())
