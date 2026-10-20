@@ -84,6 +84,14 @@ def decode_provisioning_reply(
     if not isinstance(request, (ProvisioningLookupRequest, ProvisioningCreateRequest)):
         raise IdentityUnavailable()
     try:
+        model = (
+            ProvisioningCreateRequest
+            if isinstance(request, ProvisioningCreateRequest)
+            else ProvisioningLookupRequest
+        )
+        request = model.model_validate_json(
+            request.model_dump_json(by_alias=True, warnings=False)
+        )
         reply = ProvisioningReply.model_validate_json(_json_bytes(payload))
     except (ValidationError, ValueError, TypeError, UnicodeError, RecursionError):
         raise IdentityUnavailable() from None

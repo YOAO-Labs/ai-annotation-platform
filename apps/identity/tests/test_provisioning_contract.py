@@ -51,6 +51,27 @@ def _reply(email: str, account_id: uuid.UUID | None) -> dict:
     ).model_dump(mode="json", by_alias=True)
 
 
+@pytest.mark.parametrize(
+    "kind", ["lookup-protocol", "create-protocol", "create-mode", "create-time"]
+)
+def test_reply_binding_revalidates_forged_typed_requests(kind):
+    if kind == "lookup-protocol":
+        request = _lookup().model_copy(update={"protocol": "forged/v1"})
+        reply = _reply("admin", None)
+    else:
+        request = _create()
+        reply = _reply(request.email, request.account_id)
+        request = request.model_copy(
+            update={
+                "create-protocol": {"protocol": "forged/v1"},
+                "create-mode": {"mode": "import_admin"},
+                "create-time": {"now": False},
+            }[kind]
+        )
+    with pytest.raises(IdentityUnavailable):
+        decode_provisioning_reply(reply, request)
+
+
 def test_lookup_request_is_closed_strict_and_does_not_normalize_email():
     lookup = _lookup("  Admin@Example.Test  ")
     assert lookup.email == "  Admin@Example.Test  "

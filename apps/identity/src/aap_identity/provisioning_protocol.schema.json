@@ -13,10 +13,7 @@
           "type": "string"
         },
         "mode": {
-          "enum": [
-            "bootstrap_admin",
-            "import_admin"
-          ],
+          "enum": ["bootstrap_admin", "import_admin"],
           "title": "Mode",
           "type": "string"
         },
@@ -83,10 +80,7 @@
           "type": "string"
         }
       },
-      "required": [
-        "schema",
-        "email"
-      ],
+      "required": ["schema", "email"],
       "title": "ProvisioningLookupRequest",
       "type": "object"
     },
@@ -115,11 +109,7 @@
           "type": "string"
         }
       },
-      "required": [
-        "schema",
-        "email",
-        "account_id"
-      ],
+      "required": ["schema", "email", "account_id"],
       "title": "ProvisioningReply",
       "type": "object"
     }
