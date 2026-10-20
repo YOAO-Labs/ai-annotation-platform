@@ -1,0 +1,301 @@
+{
+  "$defs": {
+    "BriefsFailureDetail": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "const": "invalid_request",
+          "title": "Code",
+          "type": "string"
+        }
+      },
+      "required": ["code"],
+      "title": "BriefsFailureDetail",
+      "type": "object"
+    },
+    "BriefsPolicyReply": {
+      "additionalProperties": false,
+      "properties": {
+        "policy": {
+          "const": "aap-identity-briefs/v1",
+          "title": "Policy",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-identity-briefs-policy/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "policy"],
+      "title": "BriefsPolicyReply",
+      "type": "object"
+    },
+    "GetProjectUserBriefsPayload": {
+      "additionalProperties": false,
+      "properties": {
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "user_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "User Ids",
+          "type": "array"
+        }
+      },
+      "required": ["project_id", "user_ids"],
+      "title": "GetProjectUserBriefsPayload",
+      "type": "object"
+    },
+    "GetUserBriefsPayload": {
+      "additionalProperties": false,
+      "properties": {
+        "user_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "User Ids",
+          "type": "array"
+        }
+      },
+      "required": ["user_ids"],
+      "title": "GetUserBriefsPayload",
+      "type": "object"
+    },
+    "NativeBriefsFailureReply": {
+      "additionalProperties": false,
+      "properties": {
+        "error": {
+          "$ref": "#/$defs/BriefsFailureDetail"
+        },
+        "ok": {
+          "const": false,
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "schema": {
+          "const": "aap-identity-briefs-native/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "ok", "error"],
+      "title": "NativeBriefsFailureReply",
+      "type": "object"
+    },
+    "NativeBriefsReplyData": {
+      "additionalProperties": false,
+      "properties": {
+        "project_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Project Id"
+        },
+        "users": {
+          "items": {
+            "$ref": "#/$defs/NativeBriefsUserRecord"
+          },
+          "title": "Users",
+          "type": "array"
+        }
+      },
+      "required": ["project_id", "users"],
+      "title": "NativeBriefsReplyData",
+      "type": "object"
+    },
+    "NativeBriefsUserRecord": {
+      "additionalProperties": false,
+      "properties": {
+        "avatar_ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Avatar Ref"
+        },
+        "email": {
+          "title": "Email",
+          "type": "string"
+        },
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "role": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Role"
+        }
+      },
+      "required": ["id", "name", "email", "role", "avatar_ref"],
+      "title": "NativeBriefsUserRecord",
+      "type": "object"
+    },
+    "NativeGetProjectUserBriefsCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "operation": {
+          "const": "get_project_user_briefs",
+          "title": "Operation",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/GetProjectUserBriefsPayload"
+        },
+        "schema": {
+          "const": "aap-identity-briefs-native/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "operation", "payload"],
+      "title": "NativeGetProjectUserBriefsCommand",
+      "type": "object"
+    },
+    "NativeGetProjectUserBriefsReply": {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "$ref": "#/$defs/NativeBriefsReplyData"
+        },
+        "ok": {
+          "const": true,
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "operation": {
+          "const": "get_project_user_briefs",
+          "title": "Operation",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-identity-briefs-native/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "ok", "operation", "data"],
+      "title": "NativeGetProjectUserBriefsReply",
+      "type": "object"
+    },
+    "NativeGetUserBriefsCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "operation": {
+          "const": "get_user_briefs",
+          "title": "Operation",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/GetUserBriefsPayload"
+        },
+        "schema": {
+          "const": "aap-identity-briefs-native/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "operation", "payload"],
+      "title": "NativeGetUserBriefsCommand",
+      "type": "object"
+    },
+    "NativeGetUserBriefsReply": {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "$ref": "#/$defs/NativeBriefsReplyData"
+        },
+        "ok": {
+          "const": true,
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "operation": {
+          "const": "get_user_briefs",
+          "title": "Operation",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-identity-briefs-native/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "ok", "operation", "data"],
+      "title": "NativeGetUserBriefsReply",
+      "type": "object"
+    }
+  },
+  "$id": "aap-identity-briefs-native/v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "anyOf": [
+    {
+      "discriminator": {
+        "mapping": {
+          "get_project_user_briefs": "#/$defs/NativeGetProjectUserBriefsCommand",
+          "get_user_briefs": "#/$defs/NativeGetUserBriefsCommand"
+        },
+        "propertyName": "operation"
+      },
+      "oneOf": [
+        {
+          "$ref": "#/$defs/NativeGetUserBriefsCommand"
+        },
+        {
+          "$ref": "#/$defs/NativeGetProjectUserBriefsCommand"
+        }
+      ]
+    },
+    {
+      "discriminator": {
+        "mapping": {
+          "get_project_user_briefs": "#/$defs/NativeGetProjectUserBriefsReply",
+          "get_user_briefs": "#/$defs/NativeGetUserBriefsReply"
+        },
+        "propertyName": "operation"
+      },
+      "oneOf": [
+        {
+          "$ref": "#/$defs/NativeGetUserBriefsReply"
+        },
+        {
+          "$ref": "#/$defs/NativeGetProjectUserBriefsReply"
+        }
+      ]
+    },
+    {
+      "$ref": "#/$defs/NativeBriefsFailureReply"
+    },
+    {
+      "$ref": "#/$defs/BriefsPolicyReply"
+    }
+  ]
+}
