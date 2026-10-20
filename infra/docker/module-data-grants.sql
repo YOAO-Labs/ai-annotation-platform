@@ -99,27 +99,27 @@ BEGIN
     END IF;
 END $$;
 
-REVOKE ALL ON SCHEMA aap_identity_v1, aap_identity_keys_v1, aap_identity_sessions_v1, aap_identity_accounts_v1, aap_workspace_v1, aap_assets_v1,
+REVOKE ALL ON SCHEMA aap_identity_v1, aap_identity_keys_v1, aap_identity_sessions_v1, aap_identity_accounts_v1, aap_identity_recovery_v1, aap_workspace_v1, aap_assets_v1,
     aap_labeling_v1, aap_jobs_v1, aap_learning_v1, aap_inference_v1,
     aap_insights_v1, aap_diagnostics_v1, aap_export_v1, aap_audit_v1, aap_settings_v1, aap_notifications_v1 FROM PUBLIC;
 REVOKE ALL ON ALL FUNCTIONS IN SCHEMA aap_identity_v1, aap_workspace_v1,
-    aap_identity_keys_v1, aap_identity_sessions_v1, aap_identity_accounts_v1, aap_assets_v1, aap_labeling_v1, aap_jobs_v1, aap_learning_v1,
+    aap_identity_keys_v1, aap_identity_sessions_v1, aap_identity_accounts_v1, aap_identity_recovery_v1, aap_assets_v1, aap_labeling_v1, aap_jobs_v1, aap_learning_v1,
     aap_inference_v1, aap_insights_v1, aap_diagnostics_v1, aap_export_v1,
     aap_audit_v1, aap_settings_v1, aap_notifications_v1 FROM PUBLIC;
-REVOKE ALL ON SCHEMA aap_identity_v1, aap_identity_keys_v1, aap_identity_sessions_v1, aap_identity_accounts_v1, aap_workspace_v1, aap_assets_v1,
+REVOKE ALL ON SCHEMA aap_identity_v1, aap_identity_keys_v1, aap_identity_sessions_v1, aap_identity_accounts_v1, aap_identity_recovery_v1, aap_workspace_v1, aap_assets_v1,
     aap_labeling_v1, aap_jobs_v1, aap_learning_v1, aap_inference_v1,
     aap_insights_v1, aap_diagnostics_v1, aap_export_v1, aap_audit_v1, aap_settings_v1, aap_notifications_v1
     FROM :"asset_cleanup_role";
 REVOKE ALL ON ALL FUNCTIONS IN SCHEMA aap_identity_v1, aap_workspace_v1,
-    aap_identity_keys_v1, aap_identity_sessions_v1, aap_identity_accounts_v1, aap_assets_v1, aap_labeling_v1, aap_jobs_v1, aap_learning_v1,
+    aap_identity_keys_v1, aap_identity_sessions_v1, aap_identity_accounts_v1, aap_identity_recovery_v1, aap_assets_v1, aap_labeling_v1, aap_jobs_v1, aap_learning_v1,
     aap_inference_v1, aap_insights_v1, aap_diagnostics_v1, aap_export_v1,
     aap_audit_v1 FROM :"asset_cleanup_role";
-REVOKE ALL ON SCHEMA aap_identity_v1, aap_identity_keys_v1, aap_identity_sessions_v1, aap_identity_accounts_v1, aap_workspace_v1, aap_assets_v1,
+REVOKE ALL ON SCHEMA aap_identity_v1, aap_identity_keys_v1, aap_identity_sessions_v1, aap_identity_accounts_v1, aap_identity_recovery_v1, aap_workspace_v1, aap_assets_v1,
     aap_labeling_v1, aap_jobs_v1, aap_learning_v1, aap_inference_v1,
     aap_insights_v1, aap_diagnostics_v1, aap_export_v1, aap_audit_v1,
     aap_settings_v1, aap_notifications_v1 FROM :"mask_gc_role";
 REVOKE ALL ON ALL FUNCTIONS IN SCHEMA aap_identity_v1, aap_workspace_v1,
-    aap_identity_keys_v1, aap_identity_sessions_v1, aap_identity_accounts_v1, aap_assets_v1, aap_labeling_v1, aap_jobs_v1, aap_learning_v1,
+    aap_identity_keys_v1, aap_identity_sessions_v1, aap_identity_accounts_v1, aap_identity_recovery_v1, aap_assets_v1, aap_labeling_v1, aap_jobs_v1, aap_learning_v1,
     aap_inference_v1, aap_insights_v1, aap_diagnostics_v1, aap_export_v1,
     aap_audit_v1, aap_settings_v1, aap_notifications_v1 FROM :"mask_gc_role";
 GRANT CONNECT ON DATABASE :"expected_database" TO :"workflow_role";
@@ -150,17 +150,25 @@ GRANT SELECT (
     created_at
 ), UPDATE (
     id, credential_generation, last_login_at, last_seen_at, status, name, preferences,
-    password_hash, password_admin_reset_at, avatar_ref
+    password_hash, password_admin_reset_at, avatar_ref, email_verified_at
 )
     ON public.users TO :"identity_owner";
+GRANT INSERT (
+    id, email, name, password_hash, credential_generation, role, group_name,
+    group_id, status, is_active, email_verified_at
+) ON public.users TO :"identity_owner";
 GRANT SELECT (
     id, user_id, name, key_prefix, key_hash, scopes, expires_at, last_used_at,
     revoked_at, created_at
 ), INSERT (id, user_id, name, key_prefix, key_hash, scopes, expires_at),
     UPDATE (name, key_prefix, key_hash, scopes, expires_at, last_used_at, revoked_at)
     ON public.api_keys TO :"identity_owner";
-GRANT SELECT (id, user_id, used_at), UPDATE (used_at)
+GRANT SELECT (id, user_id, token_hash, issued_email, expires_at, used_at),
+    INSERT (id, user_id, token_hash, issued_email, expires_at), UPDATE (used_at)
     ON public.password_reset_tokens TO :"identity_owner";
+GRANT SELECT (id, user_id, token_hash, issued_email, expires_at, used_at),
+    INSERT (id, user_id, token_hash, issued_email, expires_at), UPDATE (used_at)
+    ON public.email_verification_tokens TO :"identity_owner";
 GRANT SELECT, INSERT, UPDATE, DELETE
     ON public.identity_revoked_jtis TO :"identity_owner";
 GRANT SELECT (
@@ -179,6 +187,23 @@ GRANT SELECT (
     operation_id, actor_id, operation, request_scope, result, audit_id
 )
     ON public.identity_account_operation_receipts TO :"identity_owner";
+GRANT SELECT (
+    operation_id, operation, actor_id, request_fingerprint, derivation_id,
+    result, audit_id, created_at
+), INSERT (
+    operation_id, operation, actor_id, request_fingerprint, derivation_id,
+    result, audit_id
+)
+    ON public.identity_recovery_operation_receipts TO :"identity_owner";
+GRANT SELECT ON public.identity_credential_mail_outbox TO :"identity_owner";
+GRANT INSERT (
+    id, actor_id, challenge_id, purpose, email, frontend_base_url,
+    token_hash, token_ciphertext, encryption_id, expires_at
+) ON public.identity_credential_mail_outbox TO :"identity_owner";
+GRANT UPDATE (
+    status, attempt, available_at, worker_id, lease_token, lease_seconds,
+    lease_expires_at, last_reason, updated_at
+) ON public.identity_credential_mail_outbox TO :"identity_owner";
 GRANT SELECT (id, owner_id, data_type, scene_mode, display_id, name), UPDATE (id),
     DELETE ON public.projects TO :"workspace_owner";
 GRANT SELECT (
@@ -537,7 +562,7 @@ GRANT SELECT, INSERT ON public.notifications TO :"notifications_owner";
 GRANT SELECT (user_id, type, channels)
     ON public.notification_preferences TO :"notifications_owner";
 
-GRANT USAGE ON SCHEMA aap_settings_v1 TO :"settings_owner", :"assets_owner";
+GRANT USAGE ON SCHEMA aap_settings_v1 TO :"settings_owner", :"assets_owner", :"identity_owner";
 GRANT USAGE ON SCHEMA aap_notifications_v1
     TO :"notifications_owner", :"jobs_owner";
 GRANT USAGE ON SCHEMA aap_identity_v1 TO :"jobs_owner", :"notifications_owner";
@@ -589,7 +614,7 @@ GRANT SELECT (project_id), DELETE ON public.export_artifacts TO :"export_owner";
 GRANT USAGE ON SCHEMA aap_identity_v1
     TO :"identity_owner", :"workspace_owner", :"assets_owner", :"audit_owner", :"labeling_owner";
 GRANT USAGE ON SCHEMA aap_identity_keys_v1, aap_identity_sessions_v1,
-    aap_identity_accounts_v1 TO :"identity_owner";
+    aap_identity_accounts_v1, aap_identity_recovery_v1 TO :"identity_owner";
 GRANT USAGE ON SCHEMA aap_workspace_v1 TO :"workspace_owner", :"assets_owner",
     :"labeling_owner", :"jobs_owner", :"workflow_role";
 GRANT USAGE ON SCHEMA aap_assets_v1 TO :"assets_owner", :"labeling_owner",
@@ -615,7 +640,12 @@ GRANT EXECUTE ON FUNCTION aap_audit_v1.record_identity_session_event(
 GRANT EXECUTE ON FUNCTION aap_audit_v1.record_identity_account_event(
     text, jsonb, jsonb, jsonb
 ) TO :"identity_owner";
+GRANT EXECUTE ON FUNCTION aap_audit_v1.record_identity_recovery_event(
+    text, jsonb, jsonb, jsonb
+) TO :"identity_owner";
 GRANT EXECUTE ON FUNCTION aap_audit_v1.valid_request_context(jsonb)
+    TO :"identity_owner";
+GRANT EXECUTE ON FUNCTION aap_settings_v1.identity_recovery_policy(jsonb)
     TO :"identity_owner";
 
 GRANT EXECUTE ON FUNCTION aap_identity_v1.lock_active_actor(uuid)
@@ -862,6 +892,7 @@ GRANT CREATE ON SCHEMA aap_identity_v1 TO :"identity_owner";
 GRANT CREATE ON SCHEMA aap_identity_keys_v1 TO :"identity_owner";
 GRANT CREATE ON SCHEMA aap_identity_sessions_v1 TO :"identity_owner";
 GRANT CREATE ON SCHEMA aap_identity_accounts_v1 TO :"identity_owner";
+GRANT CREATE ON SCHEMA aap_identity_recovery_v1 TO :"identity_owner";
 ALTER FUNCTION aap_identity_v1.lock_active_actor(uuid) OWNER TO :"identity_owner";
 ALTER FUNCTION aap_identity_v1.lock_audit_actor(uuid) OWNER TO :"identity_owner";
 ALTER FUNCTION aap_identity_v1.read_actor_facts(uuid) OWNER TO :"identity_owner";
@@ -921,6 +952,29 @@ ALTER FUNCTION aap_identity_accounts_v1.apply_account_command(jsonb)
 ALTER FUNCTION aap_identity_accounts_v1.mark_inactive_accounts_offline(timestamptz)
     OWNER TO :"identity_owner";
 REVOKE CREATE ON SCHEMA aap_identity_accounts_v1 FROM :"identity_owner";
+ALTER FUNCTION aap_identity_recovery_v1._failure(text)
+    OWNER TO :"identity_owner";
+ALTER FUNCTION aap_identity_recovery_v1._mail_failure(text)
+    OWNER TO :"identity_owner";
+ALTER FUNCTION aap_identity_recovery_v1._actor_record(uuid)
+    OWNER TO :"identity_owner";
+ALTER FUNCTION aap_identity_recovery_v1._token_record(text, uuid)
+    OWNER TO :"identity_owner";
+ALTER FUNCTION aap_identity_recovery_v1.recovery_policy()
+    OWNER TO :"identity_owner";
+ALTER FUNCTION aap_identity_recovery_v1.prepare_recovery_command(jsonb)
+    OWNER TO :"identity_owner";
+ALTER FUNCTION aap_identity_recovery_v1.apply_recovery_command(jsonb)
+    OWNER TO :"identity_owner";
+ALTER FUNCTION aap_identity_recovery_v1.mail_policy()
+    OWNER TO :"identity_owner";
+ALTER FUNCTION aap_identity_recovery_v1.claim_mail(jsonb)
+    OWNER TO :"identity_owner";
+ALTER FUNCTION aap_identity_recovery_v1.renew_mail(jsonb)
+    OWNER TO :"identity_owner";
+ALTER FUNCTION aap_identity_recovery_v1.finish_mail(jsonb)
+    OWNER TO :"identity_owner";
+REVOKE CREATE ON SCHEMA aap_identity_recovery_v1 FROM :"identity_owner";
 
 GRANT CREATE ON SCHEMA aap_workspace_v1 TO :"workspace_owner";
 ALTER FUNCTION aap_workspace_v1.lock_project_reference(uuid) OWNER TO :"workspace_owner";
@@ -1245,6 +1299,9 @@ ALTER FUNCTION aap_audit_v1.record_identity_session_event(
     text, jsonb, jsonb, jsonb
 ) OWNER TO :"audit_owner";
 ALTER FUNCTION aap_audit_v1.record_identity_account_event(
+    text, jsonb, jsonb, jsonb
+) OWNER TO :"audit_owner";
+ALTER FUNCTION aap_audit_v1.record_identity_recovery_event(
     text, jsonb, jsonb, jsonb
 ) OWNER TO :"audit_owner";
 ALTER FUNCTION aap_audit_v1.record_project_deletion(
