@@ -184,6 +184,16 @@ reauthenticate. They cannot preserve these callers' existing policy semantics.
   not qualification of the new functions. Do not rerun it against the new
   implementation.
 - The previous actor-context slice's 114 selected cases remain closed and
-  separate. Qualification for this account-lock slice is pending Root evidence.
-  The full ten-module/seven-gate objective remains active; no production or
-  primary cutover is claimed.
+  separate. This slice's latest union passed 231 distinct selected cases without
+  effective skips: native locks and grants, exact baseline parity, transaction
+  errors, Node consumption, both transfer/role-change orders, eight restores,
+  and a fresh Celery process with three real dispatches. Failed harness attempts
+  are retained and replaced by the latest pass rather than counted again.
+- Source and noneditable installed suites each passed 595 checks. All 119
+  package files match the current source, installed environment and fresh owner
+  and API images; the API proof also checks 150 application/native files.
+  OpenAPI remains byte-identical, codegen and the API catalog match, and 316
+  architecture checks passed with 132 existing inapplicable rules deferred.
+  Image timings describe build/offline verification, not startup latency or
+  production capacity. The full ten-module/seven-gate objective remains active;
+  no production or primary cutover is claimed.

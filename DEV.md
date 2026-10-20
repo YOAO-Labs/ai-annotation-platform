@@ -1385,7 +1385,7 @@ API wrappers 按自己的契约保留冲突语义：单账号 guard 映射 `acco
 
 帧 worker 每帧重新获取锁内 actor facts 和当前 project/member/task 权威，不缓存跨帧 actor，也不以 `db.refresh(User)` 代替锁后事实。busy 仍沿用 `permission_changed` 结果，不新增重试；删除账号仍走 `propagate_failed`，停用仍走 `permission_changed`。权限变化保留原阶段映射，包括 `source_task_locked`、`target_task_locked`，不统一改写原因。未锁定的 Workspace 查询和 bootstrap／import User 写入不在这次迁移范围。
 
-Root 的旧实现 baseline 在 owned disposable state 上通过 1 个测试、覆盖 15 个场景；`identity-write-fences-legacy.json` 与 `identity-write-fences-legacy-samples.json` 是旧行为记录，不是新函数资格结果，也不应对新实现重跑。新切片资格待 Root 验证；完整 Identity、十模块／七门槛、生产容量与 primary cutover 仍未完成。精确合同见 [ADR-0131](docs/adr/0131-identity-transactional-account-locks.md)。
+Root 的旧实现 baseline 在 owned disposable state 上通过 1 个测试、覆盖 15 个场景；`identity-write-fences-legacy.json` 与 `identity-write-fences-legacy-samples.json` 是旧行为记录，不应对新实现重跑，也不叠加到新资格数量。本切片的最新验收去重后 231 项全部通过、无有效跳过，覆盖三种真实锁模式、等待后当前行、SQLSTATE／rollback 差异、Node 受限调用、两种转移／角色变更顺序、八项恢复及新 Celery 进程的三次派发。源码与非 editable 安装各通过 595 项；119 个包文件指纹一致，新的 owner 容器及 API 冷加载容器也验证了这些文件，API 另核对 150 个应用／native 文件。架构检查通过 316 项，132 条既有不适用规则保持 deferred；OpenAPI、codegen 和 509-route／93-module 目录一致。完整 Identity、十模块／七门槛、生产容量与 primary cutover 仍未完成。精确合同见 [ADR-0131](docs/adr/0131-identity-transactional-account-locks.md)。
 
 ## 普通批量结果检查点
 

@@ -50,7 +50,7 @@ Migration 0251 在 `aap_identity_v1` 提供三项安全函数：`lock_accounts_s
 
 账号事实锁必须遵守账号 → Project → membership → resource 的既有顺序，保留每个调用方的 SHARE/UPDATE/KEY SHARE 和 NOWAIT/wait 选择。API 依旧由 caller 映射错误：单账号竞争保持 `account_busy`，账号／项目联合 guard 保持 `project_busy`，Project access 分别区分账号、项目、成员争用。`UserLifecycleService.lock_accounts` 对所有 DBAPIError 显式回滚并保留 `账号正在更新，请刷新后重试` 的旧 409 文案；其他调用方由原事务所有者决定回滚，不能在共享数据端口统一处理。
 
-跨帧 worker 每个待写帧都重新锁定并核对当前账号及项目／成员／任务权限，不使用跨帧快照或 `db.refresh(User)` 替代。忙碌仍映射到既有 `permission_changed`，无新重试；账号删除和停用的终态也保持旧区分。当前未锁定的 Workspace 查询与 bootstrap/import User 写入仍待迁移。旧行为 baseline 的一个测试覆盖 15 个场景，不能算作新实现资格；新 slice qualification 待 Root 验证。细节见 [ADR-0131](/dev/adr/0131-identity-transactional-account-locks)。
+跨帧 worker 每个待写帧都重新锁定并核对当前账号及项目／成员／任务权限，不使用跨帧快照或 `db.refresh(User)` 替代。忙碌仍映射到既有 `permission_changed`，无新重试；账号删除、停用、基础设施失败与阶段拒绝的分类也保持旧区分。当前未锁定的 Workspace 查询与 bootstrap/import User 写入仍待迁移。最新本地 qualification 去重后 231 项全部通过，包括受限 Node 调用、转移／角色变更竞态、恢复与新 Celery 进程。源码及非 editable 安装各通过 595 项，119 个包文件与独立 owner／API 容器指纹一致。旧行为 baseline 的一个测试覆盖 15 个场景，不能叠加到新资格数量。细节见 [ADR-0131](/dev/adr/0131-identity-transactional-account-locks)。
 
 ## API key 请求
 
