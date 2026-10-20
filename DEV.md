@@ -1147,7 +1147,7 @@ psql -v expected_database=annotation_test -v migration_role=owner \
 
 该 LOGIN 只有策略、登录候选和会话执行三项能力，不含准入、key、Audit 或表权限。登录／刷新／登出／全端登出的当前账号、密码 hash、generation、JTI 和 key 校验与在线状态、业务审计和成功操作回执共同提交。有效登录失败也保留业务审计；格式或主体绑定错误不能确认事务。内嵌装配可设 `IDENTITY_SESSION_DATABASE_URL(_FILE)` 使用该角色，远程服务故障不会回退。
 
-独立进程显式设置 `IDENTITY_DATABASE_URL(_FILE)`、`IDENTITY_TOKEN(_FILE)`、`IDENTITY_SIGNING_SECRET(_FILE)`，每对恰好一项；它不读取 API `.env`。key 命令另设 `IDENTITY_KEY_DATABASE_URL(_FILE)`；会话另设 `IDENTITY_SESSION_DATABASE_URL(_FILE)` 和 `IDENTITY_LOGIN_REDIS_URL(_FILE)`。账户与在线扫描分别设置 `IDENTITY_ACCOUNT_DATABASE_URL(_FILE)`、`IDENTITY_PRESENCE_DATABASE_URL(_FILE)`。未配置某类命令 DSN 时，该 RPC 返回 503，已配置能力仍可就绪。签名 secret 与所有剩余签发端一致。运行 `uv run --project apps/identity --locked --extra runtime python -m aap_identity_runtime`，或使用可选 `docker-compose.identity.yml` 及八个 `IDENTITY_RUNTIME_*_FILE`。`/health` 是进程存活，`/ready` 检查原生协议及已配置能力的精确函数权限。Secret 文件须对容器用户可读，源码目录不挂入运行镜像。
+独立进程显式设置 `IDENTITY_DATABASE_URL(_FILE)`、`IDENTITY_TOKEN(_FILE)`、`IDENTITY_SIGNING_SECRET(_FILE)`，每对恰好一项；它不读取 API `.env`。key 命令另设 `IDENTITY_KEY_DATABASE_URL(_FILE)`；会话另设 `IDENTITY_SESSION_DATABASE_URL(_FILE)` 和 `IDENTITY_LOGIN_REDIS_URL(_FILE)`。账户与在线扫描分别设置 `IDENTITY_ACCOUNT_DATABASE_URL(_FILE)`、`IDENTITY_PRESENCE_DATABASE_URL(_FILE)`。未配置某类命令 DSN 时，该 RPC 返回 503，已配置能力仍可就绪。签名 secret 与所有剩余签发端一致。运行 `uv run --project apps/identity --locked --extra runtime python -m aap_identity_runtime`，或使用可选 `docker-compose.identity.yml` 并提供所启用 capability 的 `IDENTITY_RUNTIME_*_FILE` selector。`/health` 是进程存活，`/ready` 检查原生协议及已配置能力的精确函数权限。Secret 文件须对容器用户可读，源码目录不挂入运行镜像。
 
 会话计数的 Redis 身份只需 `~login_failed:*`、`+get +incrby +expire +del +ping +select +client|setinfo +client|setname`，清除其他命令和频道权限。客户端的 `incr()` 实际发送 `INCRBY key 1`。API 边缘与提供方使用同一计数实例／命名空间；提供方拥有增量、清零及阈值复查，API 保留通用限流和 Turnstile 验证。Redis 不可用时维持现有计数 fail-open。直启配置 `IDENTITY_EXPIRE_MINUTES=1440`、`IDENTITY_EMAIL_VERIFICATION_REQUIRED=false`、`IDENTITY_LOGIN_CAPTCHA_THRESHOLD=5`、`IDENTITY_LOGIN_FAILED_WINDOW_SECONDS=3600`；Compose 使用相应的 `IDENTITY_RUNTIME_*`。这些值须与 API 的签发时长、有效邮箱验证策略、阈值和窗口一致，生产模式下有效邮箱策略可能为 true。Web 登录页收到 HTTP 400、`detail: "captcha_required"` 后展示验证，不从失败次数推算阈值；`X-Login-Failed-Count` 仅用于提示。挑战后的失败会清除已用证明并重建组件；登录成功清除本地挑战。
 
@@ -1168,7 +1168,7 @@ AAP_IDENTITY_LIVE_ACCEPTANCE=1 AAP_IDENTITY_KEYS_LIVE_ACCEPTANCE=1 AAP_IDENTITY_
 
 key 命令验收另覆盖无身份表权限的真实 API 调用层、Node 五项操作、丢响应后重启重放、有效期／省略字段／Unicode、撤销与缺失能力拒绝，以及备份恢复后的回执和 secret 变更冲突。公开请求保留原有单次 POST 行为；重放始终要求当前有效凭据，用 key 轮换自身后须换有效凭据重放。算法与轮换边界见 [ADR-0116](docs/adr/0116-independent-identity-key-commands.md) 和[私有运行协议](docs-site/api/guides/identity-runtime.md)。
 
-会话验收检查四项命令的无身份表 API 转发、受限 Redis、精确 64 位声明、登录计数／审计／验证码、重启重放，以及登录实际签发的 JWT 在 REST 和 socket 中使用。回执冻结原始声明，重放仍要求当前认证，不重新登出或推进代次；返回历史 token 不代表它当前有效。开放注册和邀请等仍由现有 API 签发，完整 Identity 与日常切换继续推进，见 [ADR-0117](docs/adr/0117-independent-identity-session-commands.md)。
+会话验收检查四项命令的无身份表 API 转发、受限 Redis、精确 64 位声明、登录计数／审计／验证码、重启重放，以及登录实际签发的 JWT 在 REST 和 socket 中使用。回执冻结原始声明，重放仍要求当前认证，不重新登出或推进代次；返回历史 token 不代表它当前有效。公开开放注册和其余账号签发继续沿用既有 recovery/API owners；完整 Identity 与日常切换继续推进，见 [ADR-0117](docs/adr/0117-independent-identity-session-commands.md)。
 
 ### 独立自助账户命令
 
@@ -1224,7 +1224,7 @@ Fernet key 应单独配置，不与 JWT secret 共用。轮换时保留旧 key�
 
 Producer 的直启策略名是 `IDENTITY_ALLOW_OPEN_REGISTRATION`、`IDENTITY_EMAIL_VERIFICATION_REQUIRED` 和 `IDENTITY_FRONTEND_BASE_URL`；Compose 主机端以 `IDENTITY_RUNTIME_ALLOW_OPEN_REGISTRATION`、`IDENTITY_RUNTIME_EMAIL_VERIFICATION_REQUIRED`、`IDENTITY_RUNTIME_FRONTEND_BASE_URL` 提供值。SMTP 环境 fallback 与主 API 现存的 `SMTP_*` SMTP 测试邮件配置分开；Settings 中的 mail policy 优先。mail worker `/health` 为 liveness，`/ready` 检查 8171 端口上的原生能力、Settings 与 key；Compose 覆盖镜像原先检查 8170 的 healthcheck，容器只读并以 UID 10003 运行。
 
-这是本地架构切片，不代表 Identity 已完整独立、主环境已切换或已可用于生产；Go 月报只是实验，当前也没有另一语言的 recovery/mail provider。分组目录与指派已有独立 Python owner 切片，邀请接受编排、平台角色／用户目录及多 owner 生命周期仍由 API 组合，完整模块部署与资格验证尚未完成。详见 [ADR-0119](docs/adr/0119-independent-identity-recovery-and-mail.md) 与 [ADR-0120](docs/adr/0120-independent-identity-group-catalog-and-assignment.md)。
+Recovery/mail、分组目录／指派与 self-deactivation/outbox 已有本地 Identity owner slice；完整 invitation lifecycle 与独立 MailV2 sender 是当前开发 slice，消费者／角色资格待 Root 验收。Identity 未完整独立，日常认证环境未切换，也没有另一语言 provider；Go 月报仍是独立实验。用户目录／平台管理员和其他多 owner lifecycle 仍留在 API。详见 [ADR-0119](docs/adr/0119-independent-identity-recovery-and-mail.md)、[ADR-0120](docs/adr/0120-independent-identity-group-catalog-and-assignment.md)、[ADR-0121](docs/adr/0121-identity-self-deactivation-and-notification-delivery.md) 与下方 [ADR-0122](docs/adr/0122-independent-identity-invitations-and-mail-v2.md)。
 
 ### Identity 分组目录与指派
 
@@ -1240,7 +1240,7 @@ Group 写入先锁目标 Group，再按 owner 规则锁 actor/target User。Work
 
 Create/update/delete、单人指派和批量 apply 写成功操作 receipt，并与业务状态及类型化 Audit 同事务提交；批量执行即便逐项全部失败也冻结受理结果。List/query/preview 不写 receipt。重放重新核验当前 manager；单人指派重放还必须重新确认目标当前可见，不能借历史回执泄露资料。Audit 仅允许 `group.create`、`group.update`、`group.delete`、`user.group_change` 和 `user.bulk_group_assign` 固定事件；审计入口接收封闭的 `target_type`、`target_id`、`detail`，只持久化允许的业务 detail。
 
-邀请接受仍由旧 coordinator 组合；它仅通过私有 `resolve_invitation_group(uuid,text)` helper 解析／创建邀请中的 group value，不授予 `identity_group_client` 此 helper 的调用权。目录搜索、平台角色／用户目录、邀请本身、停用／恢复／离职以及跨 owner 转交仍属于 Identity 后续工作。这个目录／指派切片没有单独完成完整 Identity 的部署、切换、语言替换或生产容量资格。完整字段、错误、Project scope、typed Audit 和 receipts 见[Identity 私有运行协议](/api/guides/identity-runtime)及 [ADR-0120](docs/adr/0120-independent-identity-group-catalog-and-assignment.md)。
+The earlier group slice reused private `resolve_invitation_group(uuid,text)` only to preserve its legacy accept path; the full invitation owner below now moves resolve/register/accept and management operations to Identity. The helper remains private and is not granted to `identity_group_client`. User directory, platform-role administration and other lifecycle flows remain outside these slices. Group fields, errors, Project scope, Audit and receipts remain in [ADR-0120](docs/adr/0120-independent-identity-group-catalog-and-assignment.md).
 
 ### Identity 自助注销与 durable 通知投递
 
@@ -1256,9 +1256,25 @@ API 与独立 Identity runtime 的用户能力 DSN 为 `IDENTITY_DEACTIVATION_DA
 
 注销 request/completion 两种 Notification 由 Notifications owner 在 Identity 业务事务中写入 `notification_delivery_outbox`，创建时应用现有 in-app preference truthiness，不含注销原因。单体 API/Celery relay 可选 `NOTIFICATION_PUBLISH_DATABASE_URL(_FILE)` 并复用现有 task Redis 配置，每 10 秒运行；独立 publisher `python -m aap_identity_runtime.notification_worker` 默认持续 poll，`--once` 仅领取一个 batch，只接收 `NOTIFICATION_PUBLISH_DATABASE_URL(_FILE)` 与 `NOTIFICATION_PUBLISH_REDIS_URL(_FILE)`。两种执行方式使用同一个 lease executor；claim 先提交，Redis 接受前不确认，重试沿用同一 notification ID，投递为 at-least-once。publisher 没有 HTTP health endpoint，也没有 Identity/AUTH/control/JWT/SMTP 配置。
 
-可选 `docker-compose.identity.yml` 中 `identity-admission` 仅挂载 deactivation user/operator DSN；独立 `identity-notification-publisher` 服务只获得 Notifications 数据库与 Redis 两个 secret，并以同一 Identity image、非 root、只读方式启动。宿主机路径选择器分别为 `IDENTITY_RUNTIME_DEACTIVATION_DATABASE_URL_FILE`、`IDENTITY_RUNTIME_DEACTIVATION_OPERATOR_DATABASE_URL_FILE`、`IDENTITY_RUNTIME_NOTIFICATION_PUBLISH_DATABASE_URL_FILE`、`IDENTITY_RUNTIME_NOTIFICATION_PUBLISH_REDIS_URL_FILE`；运行容器内使用 `IDENTITY_DEACTIVATION_DATABASE_URL_FILE`、`IDENTITY_DEACTIVATION_OPERATOR_DATABASE_URL_FILE`、`NOTIFICATION_PUBLISH_DATABASE_URL_FILE`、`NOTIFICATION_PUBLISH_REDIS_URL_FILE`。DSN 必须指向同一 PostgreSQL owner database，以共同提交身份状态、Audit 与通知 outbox。完整协议、最后管理员状态、Audit 边界和 worker recovery 见[Identity 私有运行协议](/api/guides/identity-runtime#自助注销与最后一名超级管理员围栏)、[审计与通知](/dev/concepts/audit-and-notifications#自助注销的-durable-delivery)和 [ADR-0121](docs/adr/0121-identity-self-deactivation-and-notification-delivery.md)。
+可选 `docker-compose.identity.yml` 中 `identity-admission` 仅挂载 deactivation user/operator DSN；独立 `identity-notification-publisher` 服务只获得 Notifications 数据库与 Redis 两个 secret，并以同一 Identity image、非 root、只读方式启动。宿主机路径选择器分别为 `IDENTITY_RUNTIME_DEACTIVATION_DATABASE_URL_FILE`、`IDENTITY_RUNTIME_DEACTIVATION_OPERATOR_DATABASE_URL_FILE`、`IDENTITY_RUNTIME_NOTIFICATION_PUBLISH_DATABASE_URL_FILE`、`IDENTITY_RUNTIME_NOTIFICATION_PUBLISH_REDIS_URL_FILE`；运行容器内使用 `IDENTITY_DEACTIVATION_DATABASE_URL_FILE`、`IDENTITY_DEACTIVATION_OPERATOR_DATABASE_URL_FILE`、`NOTIFICATION_PUBLISH_DATABASE_URL_FILE`、`NOTIFICATION_PUBLISH_REDIS_URL_FILE`。DSN 必须指向同一 PostgreSQL owner database，以共同提交身份状态、Audit 与通知 outbox。完整协议、最后管理员状态、Audit 边界和 worker recovery 见[Identity 私有运行协议](docs-site/api/guides/identity-runtime.md#自助注销与最后一名超级管理员围栏)、[审计与通知](docs-site/dev/concepts/audit-and-notifications.md#自助注销的-durable-delivery)和 [ADR-0121](docs/adr/0121-identity-self-deactivation-and-notification-delivery.md)。
 
-本切片正在开发，数据库角色、Legacy API 竞态、Celery 逐页重放、真实 Redis publisher 与停服接管验证均待 Root 实际验收后记录；不表示 Identity 全模块、生产部署或另一语言提供方已经完成。Go 月报仍是独立实验。
+Identity deactivation/outbox 已通过本地资格验收，逐项 evidence 与限定范围见[后端解耦计划](docs/plans/1792160873_backend-module-decoupling.md)。它只完成自助注销／due 与两类通知 delivery 的切片；不表示 Identity 全模块、生产部署或另一语言提供方已经完成。Go 月报仍是独立实验。
+
+### Identity 邀请 owner 与 MailV2 durable sender
+
+本次把完整 invitation lifecycle 从 API ORM workflows 移到 Identity，而不是只挪 `InvitationService`。私有 `POST /v1/identity/invitations/execute` 使用 `aap-identity-invitations/v1`，覆盖 13 项操作：单人创建、批量预览／应用、数组读取、分页查询、统计、CSV/JSON 导出、撤销、换新链接、发送当前链接、匿名链接解析、首次注册和已有账号接受。公开路由、schemas、SDK fields、错误／HTTP status 与导出格式保持当前契约。
+
+`identity_invitation_client` LOGIN 只有 `invitation_policy()`、`prepare_invitation_command(jsonb)`、`apply_invitation_command(jsonb)`。API 与独立 Identity runtime 分别配置 `IDENTITY_INVITATION_DATABASE_URL(_FILE)`；Compose Admission 用 host selector `IDENTITY_RUNTIME_INVITATION_DATABASE_URL_FILE` 挂载。没有此 capability 时所选 runtime 返回 503，明确选择连接失败绝不回退 API User/Invitation ORM。角色只可执行函数，不获得业务表、序列、DDL 或 GROUP/MAIL helper 权限。
+
+Migration 0242 按顺序安装 `0242_identity_invitations_support.sql`、`0242_invitation_mail.sql`、`0242_identity_invitations.sql`，先建立跨 owner 协调能力和 mail support，再安装邀请 RPC。受理／接受以当前 inviter、User credentials、project owner、Invitation token 和 Group/Workspace member 权威共同围栏；事务提交原子包含 User、Group、ProjectMember、token 状态与 typed Audit。Labeling 的当前 active-batch count 只作完成页 work hint，不创建或分配任务。
+
+邀请账号／项目角色、批量与查询保真、 quota/TTL、锁序、receipt/Audit 与安全失败细节见 [Identity 私有运行协议](docs-site/api/guides/identity-runtime.md#邀请生命周期) 和 [ADR-0122](docs/adr/0122-independent-identity-invitations-and-mail-v2.md)。项目管理员仍只能管理自己创建的邀请；管理员邀请角色仅由超级管理员签发；已接受邀请不编辑平台角色。老 token proof 列保持 authoritative，不迁移为 hash；值 1–64 Unicode 字符保持 opaque。
+
+邀请 email 使用 separate `aap-identity-mail-native/v2`，不改变 recovery `aap-identity-mail/v1`。`identity_mail_v2_client` 只有 `mail_policy()`、`claim_mail(jsonb)`、`renew_mail(jsonb)`、`finish_mail(jsonb)` 四个函数；V1 client 保持仅领取 password-reset 与 email-verification purpose。API `send-email` 保留 HTTP 200/502 与原 invitation link；Identity durable-accept 后最多等默认 60 秒（上限 120）查询 private pending/sent/failed，timeout 后仍为 502 而不是 202，已接受 intent 仍能被 worker 接管。
+
+独立 sender `python -m aap_identity_runtime.mail_worker_v2` 通过可选 `mail-v2` Compose profile 运行。它只得到 MailV2 DSN、`MAIL_SETTINGS` DSN、Recovery Fernet key 与 SMTP fallback，不带 Identity/Auth/control/JWT signing secret；邮箱/链接发送在 lease commit 后执行，不持 SQL 锁。host `IDENTITY_RUNTIME_MAIL_V2_DATABASE_URL_FILE` 选择自己的四函数 DSN；现有 `IDENTITY_RUNTIME_MAIL_SETTINGS_DATABASE_URL_FILE` 与 `IDENTITY_RUNTIME_RECOVERY_MAIL_KEY_FILE` 挂载复用，旧的 `IDENTITY_MAIL_SMTP_*` host fallback 映射成 `IDENTITY_MAIL_V2_SMTP_*`。SMTP unknown outcome 是 at-least-once，同 Message-ID 可能重发；当前 invitation 仍保持 valid。API embedded kick 可选 `IDENTITY_MAIL_V2_DATABASE_URL` 或 `IDENTITY_MAIL_V2_DATABASE_URL_FILE`，不注入 SMTP 凭据到 producer。轮换 Fernet key 时保留旧 key，直到相关 pending 邮件送达或被人工处理。
+
+邀请／MailV2 source和隔离验收正在实施；本页没有添加通过计数。Root 后续会按实际运行记录 migration/role、consumer、durable intent、SMTP uncertainty、sender restart、backup/restore 结果。该切片不完成用户目录、平台角色后台、全部 Identity、多语言 provider 或生产部署。
 
 ## 普通批量结果检查点
 

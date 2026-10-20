@@ -16,6 +16,7 @@ services:
       IDENTITY_ACCOUNT_DATABASE_URL_FILE: /run/secrets/identity_account_database_url
       IDENTITY_PRESENCE_DATABASE_URL_FILE: /run/secrets/identity_presence_database_url
       IDENTITY_GROUP_DATABASE_URL_FILE: /run/secrets/identity_group_database_url
+      IDENTITY_INVITATION_DATABASE_URL_FILE: /run/secrets/identity_invitation_database_url
       IDENTITY_DEACTIVATION_DATABASE_URL_FILE: /run/secrets/identity_deactivation_database_url
       IDENTITY_DEACTIVATION_OPERATOR_DATABASE_URL_FILE: /run/secrets/identity_deactivation_operator_database_url
       IDENTITY_RECOVERY_DATABASE_URL_FILE: /run/secrets/identity_recovery_database_url
@@ -25,6 +26,7 @@ services:
       IDENTITY_EMAIL_VERIFICATION_REQUIRED: ${IDENTITY_RUNTIME_EMAIL_VERIFICATION_REQUIRED:-false}
       IDENTITY_ALLOW_OPEN_REGISTRATION: ${IDENTITY_RUNTIME_ALLOW_OPEN_REGISTRATION:-false}
       IDENTITY_FRONTEND_BASE_URL: ${IDENTITY_RUNTIME_FRONTEND_BASE_URL:-http://localhost:3000}
+      IDENTITY_INVITATION_FRONTEND_BASE_URL: ${IDENTITY_INVITATION_FRONTEND_BASE_URL:-http://localhost:5173}
       IDENTITY_LOGIN_CAPTCHA_THRESHOLD: ${IDENTITY_RUNTIME_LOGIN_CAPTCHA_THRESHOLD:-5}
       IDENTITY_LOGIN_FAILED_WINDOW_SECONDS: ${IDENTITY_RUNTIME_LOGIN_FAILED_WINDOW_SECONDS:-3600}
       IDENTITY_TOKEN_FILE: /run/secrets/identity_token
@@ -36,6 +38,7 @@ services:
       - identity_account_database_url
       - identity_presence_database_url
       - identity_group_database_url
+      - identity_invitation_database_url
       - identity_deactivation_database_url
       - identity_deactivation_operator_database_url
       - identity_recovery_database_url
@@ -66,6 +69,43 @@ services:
       IDENTITY_MAIL_SMTP_FROM: ${IDENTITY_MAIL_SMTP_FROM:-}
     secrets:
       - identity_mail_database_url
+      - identity_mail_settings_database_url
+      - identity_recovery_mail_key
+    user: "10003:10003"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 64
+    mem_limit: 256m
+    cpus: 1
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8171/ready', timeout=2)",
+        ]
+      interval: 30s
+      timeout: 3s
+      start_period: 30s
+      retries: 3
+
+  identity-mail-v2:
+    <<: *identity-runtime-image
+    profiles: ["mail-v2"]
+    command: ["python", "-m", "aap_identity_runtime.mail_worker_v2"]
+    environment:
+      IDENTITY_MAIL_V2_DATABASE_URL_FILE: /run/secrets/identity_mail_v2_database_url
+      IDENTITY_MAIL_V2_SETTINGS_DATABASE_URL_FILE: /run/secrets/identity_mail_settings_database_url
+      IDENTITY_MAIL_V2_ENCRYPTION_KEY_FILE: /run/secrets/identity_recovery_mail_key
+      IDENTITY_MAIL_V2_SMTP_HOST: ${IDENTITY_MAIL_SMTP_HOST:-}
+      IDENTITY_MAIL_V2_SMTP_PORT: ${IDENTITY_MAIL_SMTP_PORT:-0}
+      IDENTITY_MAIL_V2_SMTP_USER: ${IDENTITY_MAIL_SMTP_USER:-}
+      IDENTITY_MAIL_V2_SMTP_PASSWORD: ${IDENTITY_MAIL_SMTP_PASSWORD:-}
+      IDENTITY_MAIL_V2_SMTP_FROM: ${IDENTITY_MAIL_SMTP_FROM:-}
+    secrets:
+      - identity_mail_v2_database_url
       - identity_mail_settings_database_url
       - identity_recovery_mail_key
     user: "10003:10003"
@@ -120,6 +160,10 @@ secrets:
     file: ${IDENTITY_RUNTIME_PRESENCE_DATABASE_URL_FILE:?Set Identity presence operator DSN file}
   identity_group_database_url:
     file: ${IDENTITY_RUNTIME_GROUP_DATABASE_URL_FILE:?Set Identity group function-only DSN file}
+  identity_invitation_database_url:
+    file: ${IDENTITY_RUNTIME_INVITATION_DATABASE_URL_FILE:?Set Identity invitation function-only DSN file}
+  identity_mail_v2_database_url:
+    file: ${IDENTITY_RUNTIME_MAIL_V2_DATABASE_URL_FILE:-/dev/null}
   identity_deactivation_database_url:
     file: ${IDENTITY_RUNTIME_DEACTIVATION_DATABASE_URL_FILE:?Set Identity deactivation command DSN file}
   identity_deactivation_operator_database_url:

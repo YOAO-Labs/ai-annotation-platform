@@ -1,9 +1,10 @@
 # Identity
 
 This package contains the JWT/API-key verifier, API-key management, core sessions
-and self-account command owners, the group catalog/assignment owner, their closed
-contracts and one private HTTP process. Self-deactivation user and due commands
-are the next Identity ownership slice; qualification is pending.
+and self-account command owners, the group catalog/assignment owner, and the
+invitation/mail-v2 owners and their closed contracts. It has one private HTTP
+process plus separate private worker entrypoints. Invitation/mail-v2
+qualification is pending.
 The runtime has no application, SQLAlchemy, Celery or object-store dependency.
 Admission uses four PostgreSQL capabilities, key management uses two, and
 sessions use three plus a scoped Redis login-counter identity. Each configured
@@ -12,7 +13,8 @@ and presence maintenance uses one separate operator function. Registration,
 password recovery and email verification now have five versioned recovery
 operations. Self-deactivation adds separate two-function user and due-operator
 capabilities; the Notifications publisher is a distinct three-function/Redis
-process. Group invitations, user directory/platform administration,
+process. Invitation commands use a separate three-function Identity capability;
+MailV2 uses its own four-function sender role. User directory/platform administration,
 other-user hydration and
 multi-owner lifecycle remain in the API, so this is not yet a complete Identity
 service.
@@ -40,13 +42,16 @@ the supplied credential. Concurrency and deadlines are bounded. Account preferen
 retain their existing accepted size/cardinality set rather than inheriting the
 smaller admission/session byte limits.
 
-`docker-compose.identity.yml` starts the optional admission and credential-mail
-processes from the same `aap-identity:local` image. The image contains installed
-packages, not an application source bind, and both services support a read-only
-root filesystem. Session commands require their own database DSN and Redis
-identity; admission and API-key management do not use Redis. No capability needs
-S3 credentials. See the [private protocol guide](../../docs-site/api/guides/identity-runtime.md)
-and [local runbook](../../DEV.md) for configuration and exact permissions.
+`docker-compose.identity.yml` starts optional admission and Recovery credential-
+mail processes from the same `aap-identity:local` image. The opt-in `mail-v2`
+profile adds `identity-mail-v2` with its own MAILV2 DSN plus the existing
+MAIL_SETTINGS and Fernet key files; only this sender receives SMTP fallback
+configuration. These services use installed packages, not an application
+source bind, and support a read-only root filesystem. Session commands require
+their own database DSN and Redis identity; admission and API-key management do
+not use Redis. No capability needs S3 credentials. See the
+[private protocol guide](../../docs-site/api/guides/identity-runtime.md) and
+[local runbook](../../DEV.md) for configuration and exact permissions.
 
 The monolithic application's Identity function allowlist is included in
 `infra/docker/lan-production-grants.sql`; this grant-source change has not been
@@ -71,7 +76,7 @@ command requiring a final-write fence must explicitly call the native current
 principal lock on its own transaction. Admission by itself is not that fence.
 
 The package distributes admission, key, session, account, presence, group,
-recovery and mail schemas.
+invitation, recovery, MailV1 and MailV2 schemas.
 Generate/check them with `scripts/export_schema.py` / `--check`. Native data
 and privilege contracts live with migrations and the corresponding
 `infra/docker/identity-*-grants.sql` files. The Go experiment is not involved
@@ -146,19 +151,89 @@ current target visibility before returning frozen profile data. State, typed
 Audit and receipt commit together. The Audit owner accepts only the five group
 and group-assignment events; there is no generic Audit-table grant.
 
-Invitation acceptance remains a legacy coordinator. It calls the private
-`resolve_invitation_group(uuid,text)` helper within the existing transaction to
-resolve/create the invitation's group; this helper is not exposed through the
-GROUP LOGIN. Group migration therefore does not extract invitations, directory
-search, admin/lifecycle commands, or multi-owner member transfers. The optional
-API/runtime `IDENTITY_GROUP_DATABASE_URL(_FILE)` selects the two-function owner;
-an explicit connection failure does not fall back, and a missing configured
-capability returns 503. The Compose host selector is
-`IDENTITY_RUNTIME_GROUP_DATABASE_URL_FILE`. See [ADR-0120](../../docs/adr/0120-independent-identity-group-catalog-and-assignment.md).
+The earlier group slice exposed only the private
+`resolve_invitation_group(uuid,text)` helper to the legacy acceptance workflow;
+the helper remains private to Identity and is not granted to `identity_group_client`.
+The full invitation contract below now owns resolve/register/accept and its
+multi-owner transaction. Group search, directory/admin and all other
+multi-owner lifecycle work remain outside this slice. The optional API/runtime
+`IDENTITY_GROUP_DATABASE_URL(_FILE)` still selects only the two-function GROUP
+owner and never the invitation helper. See [ADR-0120](../../docs/adr/0120-independent-identity-group-catalog-and-assignment.md).
+
+## Invitation lifecycle and MailV2
+
+The private `POST /v1/identity/invitations/execute` speaks
+`aap-identity-invitations/v1` and owns thirteen existing actions: single and
+batch creation/preview, list/query/stats/export, revoke/resend/send-current-link,
+public link resolution/registration and authenticated existing-account
+acceptance. Existing HTTP routes, response fields and SDK inputs stay unchanged.
+Manager operations and existing-account acceptance require a current user
+credential in `token`; public resolve/register use null there and keep the proof
+in `payload.invitation_token`. The two tokens are never interchangeable.
+
+Invitation policy rechecks the current inviter, issuance role, project owner,
+target account and compatible project role before committing. Project admins
+create and manage only their own invitation rows, cannot use global scope, and
+may invite only employee/viewer; privileged platform roles require a current
+super-admin issuer. User, optional Group, Workspace ProjectMember, invitation
+consumption and typed Audit commit in one database transaction. Labels from
+Labeling report current active batches as a work hint; they do not create or
+assign tasks. Owner/project moves, credential revocation and duplicate member
+acceptance are fenced before commit.
+
+Batch preview rolls back the full enclosing transaction and returns no tokens
+or links; apply commits successful rows with savepoints and keeps ordered
+per-item results. List has no total-row cap; query remains capped at 500 rows
+and preserves current date/ILIKE semantics. CSV/JSON encoding stays in HTTP
+after the owner has selected, counted and audited the export. Successful
+public operations keep the same allowed link/token response fields; receipts
+never store a second plaintext proof or generated JWT.
+
+`identity_invitation_client` can execute only `invitation_policy()`,
+`prepare_invitation_command(jsonb)` and `apply_invitation_command(jsonb)`.
+Workspace owns the project and membership locks, Labeling owns the active-batch
+summary, Settings provides a bounded invitation policy snapshot, Audit receives
+only fixed invitation events, and Identity privately reuses the Group helper.
+The invitation owner locks sorted User authorities, then the email advisory
+key, then Project, then Invitation/ProjectMember; it captures project ownership
+before locking and revalidates it after locks. This keeps User, Group, Workspace
+membership, proof consumption and Audit atomic in the shared PostgreSQL owner.
+
+`POST /api/v1/invitations/{id}/send-email` still returns 200 on completed send
+and 502 on failure/timeout, sends the current link, and never rotates or revokes
+the invitation. A durable intent is accepted before the bounded HTTP wait
+(default 60 seconds, maximum 120). If the wait expires while status is pending,
+the sender may deliver later; SMTP rejection retires only that send intent. An
+explicit resend/new-link operation is required to rotate a token.
+
+Invitation SMTP is isolated from the Identity producer in the versioned
+`aap-identity-mail-v2` protocol. `identity_mail_v2_client` can execute exactly
+`mail_policy()`, `claim_mail(jsonb)`, `renew_mail(jsonb)` and
+`finish_mail(jsonb)`; the v2 worker handles invitation plus the two recovery
+purposes, while the original v1 worker and grants remain valid and recovery-only.
+It claims a typed invitation lease and commits before SMTP, with no SQL lock
+held across network I/O. Its `user_id` is the issuer; recipient email and
+invitation/project values come from the sealed V2 lease. Unknown SMTP outcome
+is at-least-once with the same Message-ID; the current invitation state is
+rechecked at claim/renew/finish boundaries. Keep old Fernet keys available until
+pending messages encrypted with them are delivered or manually handled.
+
+API/runtime invitation DSN uses `IDENTITY_INVITATION_DATABASE_URL(_FILE)`;
+the API may optionally configure `IDENTITY_MAIL_V2_DATABASE_URL(_FILE)` for an
+embedded kick after commit. Runtime link fallback is
+`IDENTITY_INVITATION_FRONTEND_BASE_URL=http://localhost:5173`, separate from
+Recovery's 3000 fallback; system `frontend_base_url` still overrides it.
+The opt-in Compose `mail-v2` profile runs
+`python -m aap_identity_runtime.mail_worker_v2` with its own four-function
+MAILV2 DSN, the existing MAIL_SETTINGS DSN and Recovery Fernet key, and SMTP
+fallbacks; it receives no AUTH/control/JWT/signing credential. See [the private
+protocol](../../docs-site/api/guides/identity-runtime.md#邀请生命周期),
+[ADR-0122](../../docs/adr/0122-independent-identity-invitations-and-mail-v2.md),
+and the [module status](../../docs-site/dev/concepts/module-deployment.md).
 
 ## Self-deactivation and final-super-admin fence
 
-The next self-service commands use `aap-identity-deactivation/v1` for the
+Self-service commands use `aap-identity-deactivation/v1` for the
 current account's request/cancel operations and
 `aap-identity-deactivation-due/v1` for a control-bearer-only due page. The user
 must be authenticated by a current JWT/API key; an accepted request remains

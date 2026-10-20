@@ -1,6 +1,6 @@
 # 后端业务模块解耦与跨语言替换设计
 
-> Status: 进行中。当前目标覆盖 identity、workspace、assets、labeling、inference、learning、insights、jobs、audit、notifications 及运行装配。前序 Python 进程内切片、常驻 API 恢复和既有训练作业执行权交接已完成。assets 视频探测三个操作已提供独立 Python 工件、流式合同及真实调用端的 Node 替换验收；同步 ZIP 与旧前缀扫描已纳入既有 Assets Source 工件及 0215 原生合同，并通过真实隔离服务、受限角色与故障恢复验收。Scene、位姿和标定切片已提取至既有 Catalog 工件，并通过隔离数据库、真实 HTTP/S3 与消费者资格验证；连接管理及本地图片/nuScenes 来源登记已迁入各自合同并完成本地验收；媒体/Blob、其余运维流程和其他模块继续推进。Identity 注册恢复／邮件和分组目录／指派均已有本地 owner 及消费者资格；当前继续抽取自助注销／到期处理，并将其两类通知交由 Notifications outbox／publisher，最终超级管理员围栏跨入既有 API 生命周期写入。该切片已通过隔离本地 database/API/Celery/Redis、并发最终超管保护及备份恢复验收，独立运行与 API 装配镜像均已验证与提交源码一致。Go 月报保持独立实验，其可用性和容量不作为本目标门槛。当前各模块缺口见[模块部署与语言替换状态](../../docs-site/dev/concepts/module-deployment.md)。
+> Status: 进行中。当前目标覆盖 identity、workspace、assets、labeling、inference、learning、insights、jobs、audit、notifications 及运行装配。前序 Python 进程内切片、常驻 API 恢复和既有训练作业执行权交接已完成。assets 视频探测三个操作已提供独立 Python 工件、流式合同及真实调用端的 Node 替换验收；同步 ZIP 与旧前缀扫描已纳入既有 Assets Source 工件及 0215 原生合同，并通过真实隔离服务、受限角色与故障恢复验收。Scene、位姿和标定切片已提取至既有 Catalog 工件，并通过隔离数据库、真实 HTTP/S3 与消费者资格验证；连接管理及本地图片/nuScenes 来源登记已迁入各自合同并完成本地验收；媒体/Blob、其余运维流程和其他模块继续推进。Identity 注册恢复／邮件、分组目录／指派及自助注销／due 均已完成对应本地 owner 与限定资格；当前推进完整 invitation lifecycle 与 Durable MailV2 sender，身份／Workspace／Audit 原事务和现有 public API shape 保持，邀请消费、邮件 v2 sender、公共 200/502 wait 与 Compose profile 的资格待本次实际验收。Go 月报保持独立实验，其可用性和容量不作为本目标门槛。当前各模块缺口见[模块部署与语言替换状态](../../docs-site/dev/concepts/module-deployment.md)。
 >
 > 创建日期：2026-10-16。
 >
@@ -2691,10 +2691,12 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   missing-group preview compatibility and installed wheel cache/source checks.
   An inadvertently selected database metadata case was moved from the static
   check into the owned verifier and passed. Historical failures remain in reports.
-- The full goal remains active. Self-deactivation and the serialized final-
-  super-admin invariant, plus durable deactivation-notification delivery, are the
-  next slice. Invitation lifecycle and mail, management directory/role-admin
-  commands, other-user hydration and cross-owner offboarding remain. Primary Identity cutover,
+- The full goal remains active. At this group checkpoint, self-deactivation and
+  the serialized final-super-admin invariant with durable deactivation-mail
+  delivery were the next slice; the following deactivation section records that
+  qualification. Complete invitation lifecycle and MailV2 are now the current
+  slice. Management directory/role-admin commands, other-user hydration and
+  cross-owner offboarding remain. Primary Identity cutover,
   production deployment, remote CI and Go expansion are not part of this group.
 
 ### Identity group assembled artifact verification
@@ -2815,3 +2817,51 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   extraction, complete credential closure and replacement-provider gates remain.
   No primary Identity cutover, production deployment, remote CI, push, release or
   Go expansion was performed.
+
+### Identity complete invitation ownership and MailV2 (current slice)
+
+- The next Identity owner boundary covers all 13 existing invitation operations:
+  create, batch preview/apply, list/query/stats/export, revoke, resend, send
+  current email, resolve proof, register and accept an existing account. Public
+  API paths/schemas/SDK fields/statuses stay stable while the API replaces ORM
+  work with `aap-identity-invitations/v1` value commands.
+- Portable owner source is
+  `apps/identity/src/aap_identity/{invitation_contract,invitation_manager,invitation_postgres}.py`;
+  runtime API/config remains in `aap_identity_runtime`. API binds routes through
+  `app/api/v1/invitation_commands.py`,
+  `app/services/identity_invitation_commands.py` and
+  `identity_invitation_data.py`. Invitation state and successful operation
+  receipts have no live-User FK or plaintext second proof copy.
+- User, Group, Invitation proof, Workspace project/membership, Settings policy,
+  Labeling active-work hint and fixed Audit events are coordinated in one shared
+  PostgreSQL transaction. Authority order is sorted Users → email advisory key
+  → Project → Invitation/ProjectMember, with captured project-owner scope
+  revalidated after locks. Batch preview fully rolls back; batch apply uses
+  successful per-item savepoints. Existing manager scope, role compatibility,
+  list/query/stats/export semantics, 500-item limits, no list total cap and
+  all current validation/error/response rules remain.
+- Invitation email uses a separate closed `aap-identity-mail-native/v2` schema
+  and `identity_mail_v2_client`, while the existing v1 Recovery mail protocol,
+  role and worker stay recovery-only. A successful send intent is durable before
+  the API wait; public `send-email` still maps sent to 200 and failed/bounded
+  pending to 502, never 202, and always keeps the current link valid. Explicit
+  `resend` rotates proof without sending mail; SMTP failure does not rotate,
+  revoke or invalidate the invitation.
+- Migration 0242 load order is support → mail → invitation core:
+  `0242_identity_invitations_support.sql`,
+  `0242_invitation_mail.sql`, then `0242_identity_invitations.sql`. Dedicated
+  invite and MAILv2 roles get only their exact function allowlists from
+  `infra/docker/identity-invitations-grants.sql`. A `mail-v2` Compose profile
+  provides an independent non-root worker with its own MAILV2 DSN and the
+  already-scoped MAIL_SETTINGS/Fernet files; the Identity producer receives no
+  SMTP credential. The V2 process can accept, send and audit invitation mail
+  after short database transactions and may repeat an uncertain SMTP delivery
+  with a stable Message-ID.
+- At this checkpoint the 13-operation source, V2 sender, migration/role/image
+  assembly, public API preservation, actual SMTP acceptance/uncertain delivery,
+  sender restart/lease takeover and backup/restore checks are still being
+  implemented or awaited. This plan entry records the contract and deployment
+  boundary only; it adds no pass count and makes no invitation/mail qualification
+  claim. Directory/admin ownership, full Identity, remaining module gates,
+  alternate-language provider, production capacity and Go experiment status are
+  unchanged; no primary cutover or production deployment is included.

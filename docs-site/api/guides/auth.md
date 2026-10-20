@@ -94,6 +94,10 @@ Content-Type: application/json
 
 管理角色通过 `POST /api/v1/users/invite` 提交 `email`、平台角色 `role`（项目管理员可邀请 `employee` / `viewer`，超级管理员可选全部平台角色）、可选 `group_name`、可选目标 `project_id` 与项目角色 `project_member_role`（`annotator` / `reviewer` / `viewer`）。平台角色与项目角色分别保存，互不代填；目标项目的角色兼容性（例如平台 `viewer` 只能获得只读项目角色）在接受时校验。响应中的 `invite_url` 可直接复制使用。
 
+这组公开邀请路径与字段保持不变；Identity owner 事务负责创建、批量预览／执行、查询、统计、导出、撤销、换新链接、解析、注册和接受，CSV/JSON 序列化留在 HTTP。项目角色必须与平台身份兼容；已有账号接受邀请只增加兼容的项目成员行，不修改平台角色。邀请上限、过期时间与接收项目所有权会在写事务内重新校验。
+
+项目管理员只能创建员工／观察者邀请和管理本人创建的记录；超级管理员可以管理全部邀请，并且只有当前超级管理员可邀请项目管理员／超级管理员。需要项目的邀请要求目标项目仍存在且有启用的管理员 owner；项目管理员邀请人必须仍是该项目 owner。匿名 link resolve/register 请求用 payload `invitation_token`，与登录用户 Bearer 完全分开。
+
 公开的 `GET /api/v1/auth/invitations/{token}` 校验邀请并返回目标项目摘要。新账号通过 `POST /api/v1/auth/register` 提交 `token`、`name`、`password`，账号、用户组和项目成员关系在同一事务内建立。已有账号先登录，再调用：
 
 ```http
@@ -191,7 +195,9 @@ Content-Type: application/json
 | `GET /api/v1/groups/query?page=1&page_size=50&search=`                                    | 分页返回数据组及启用成员数                                                                                                                                                                                                                                                                                                                  |
 | `GET /api/v1/invitations/query`                                                           | 支持 `status`、`scope`、`project_id`、`role`、`email`、`search`、`created_from`、`created_to`                                                                                                                                                                                                                                               |
 | `GET /api/v1/invitations/stats` / `GET /api/v1/invitations/export`                        | 使用邀请列表的同一过滤和权限范围                                                                                                                                                                                                                                                                                                            |
-| `POST /api/v1/invitations/{id}/send-email`                                                | 使用当前有效 token 发送邀请邮件；不轮换链接，SMTP 失败返回 `502` 且邀请保持有效                                                                                                                                                                                                                                                             |
+| `POST /api/v1/invitations/{id}/send-email`                                                | 用当前 token 发送邮件，沿用 `200`／`502` 和原链接；不轮换邀请                                                                                                                                                                                                                                                                               |
+
+邀请邮件先写入 durable send intent，再由独立 MailV2 sender 执行 SMTP；邮件网络调用不持 User、Project 或 Invitation SQL 锁。API 最多等待配置的时间（默认 60 秒，最大 120 秒），其后仍返回旧 502 而不是新增 202；pending intent 仍可恢复，超时前后均不作废或轮换链接。SMTP 明确拒绝也只结束当前发送 intent，不撤销邀请。暂时故障时用户可重新发送当前邀请，可能收到同一链接的重复邮件；必须选择「新链接」才会轮换 token 并让旧链接失效。V1 credential-mail API/role 继续只负责密码重置与邮箱验证，不能领取 invitation purpose。
 
 批量邀请先调用 `POST /api/v1/users/bulk-invite/preview`，确认每行的校验结果后调用 `POST /api/v1/users/bulk-invite`。批量接口为每行建立独立保存点；成功行提交，失败行返回 `retryable` 和错误信息，客户端可以只重试失败行。数据组批量替换使用 `POST /api/v1/users/groups/bulk/preview` 和 `POST /api/v1/users/groups/bulk`，`group_id=null` 表示清除数据组。
 

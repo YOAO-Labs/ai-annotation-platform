@@ -9,7 +9,7 @@ last_reviewed: 2026-10-20
 
 协议对象只接受声明的 wire 字段名：版本字段为 `schema`。内部 Python 字段名 `protocol` 无论单独使用还是与 `schema` 同时提交都被拒绝；opaque 偏好值中的同名键不受影响。
 
-Identity 运行时提供认证准入、API key、核心会话、自助账户、全局分组目录与指派、自助注销、注销到期处理、账号恢复和在线扫描命令，供受信任的服务调用。公开用户接口仍是 `/api/v1/auth/` 和 `/api/v1/me/api-keys`。私有接口要求独立控制 Bearer；需要用户身份的操作将凭据放在 JSON 的 `token` 中，不能代替控制凭据。账号恢复使用匿名请求或单次挑战证明，邮件与注销通知分别由独立执行进程投递。
+Identity 运行时提供认证准入、API key、核心会话、自助账户、全局分组目录与指派、完整邀请生命周期、自助注销、注销到期处理、账号恢复和在线扫描命令，供受信任的服务调用。公开用户接口仍是 `/api/v1/auth/` 和 `/api/v1/me/api-keys`。私有接口要求独立控制 Bearer；需要用户身份的操作将凭据放在 JSON 的 `token` 中，不能代替控制凭据。注册/邀请证明凭据另置于 `payload`，与调用者身份 token 分开。账号恢复使用匿名请求或单次挑战证明，邮件与注销通知分别由独立执行进程投递。
 
 | 接口                                         | 用途                                           |
 | -------------------------------------------- | ---------------------------------------------- |
@@ -21,6 +21,7 @@ Identity 运行时提供认证准入、API key、核心会话、自助账户、�
 | `POST /v1/identity/accounts/execute`         | 当前资料、改名、偏好、心跳、改密和头像引用     |
 | `POST /v1/identity/presence/mark-inactive`   | 按已固定的 cutoff 批量标记离线                 |
 | `POST /v1/identity/groups/execute`           | 分组目录、查询、指派预览／执行                 |
+| `POST /v1/identity/invitations/execute`      | 邀请管理、批量操作、注册、接受与耐久邮件发送   |
 | `POST /v1/identity/deactivation/execute`     | 自助注销申请与撤销                             |
 | `POST /v1/identity/deactivation/process-due` | 分页处理已到期的自助注销申请                   |
 | `POST /v1/identity/recovery/execute`         | 开放注册、重置请求／消费、验证邮件重发／消费   |
@@ -87,7 +88,7 @@ API 保留通用限流和 Turnstile 验证，提供方重新检查失败计数�
 
 成功命令的状态、JTI／代次、业务审计和冻结声明回执共同提交。错误密码、停用或未验证的登录也会提交其经过验证的业务审计；格式错误或绑定错误的提供方响应不用于确认事务。响应丢失后重放要求当前认证，另一个有效凭据可用于恢复同一账号的冻结结果。重放不会再次登出新凭据、推进代次、记录业务审计或刷新旧声明；历史 token 可能已经失效。登录重放重新检查当前密码和 gate，账号角色取当前资料，签发声明保持冻结。
 
-提供方的签发时长、邮箱验证、失败计数阈值／窗口和 Redis 实例必须与边缘及剩余签发端匹配。修改签发策略或 signing secret 后，旧操作回执冲突。原生策略固定 issuer、HS256 和七天宽限；含会话回执时拒绝降级。分组目录／指派已有独立 Python owner 切片；邀请接受协调、其他注册签发、用户目录／平台管理员流程仍有待提取，API 整体尚未撤除签名能力。
+提供方的签发时长、邮箱验证、失败计数阈值／窗口和 Redis 实例必须与边缘及剩余签发端匹配。修改签发策略或 signing secret 后，旧操作回执冲突。原生策略固定 issuer、HS256 和七天宽限；含会话回执时拒绝降级。分组目录／指派与完整 invitation lifecycle 采用独立 Identity owners；用户目录／平台管理员及其他用户 hydration 仍留在 API，整体日常签名能力尚未撤除。
 
 为保证重放字节稳定，JWT header 使用紧凑 JSON `alg`、`typ`，payload 字段顺序固定为 `sub`、`role`、`exp`、`jti`、`gen`、`iss`。UUID 为小写规范形式，代次和时间为十进制整数，Base64URL 不带填充。HS256 key 是 `HMAC-SHA256(secret UTF-8, issuer UTF-8)` 的小写 hex 字符串，再按 UTF-8 作为 HMAC key。会话派生 master 使用相同 secret 与独立域 `aap-identity-sessions/v1`；其 SHA-256 是派生标识，登录指纹是该 master 对按键排序、紧凑且非 ASCII 以 Unicode 转义表示的 `{email,password}` JSON 的 HMAC-SHA256。仓库的 `apps/identity/tests/fixtures/session_vectors.json` 提供公开测试向量，不含部署凭据；Python 和 Node 都核对相同结果。这是跨语言原语／序列化证据，尚非另一语言的完整提供方验收。
 
@@ -115,7 +116,7 @@ API 保留通用限流和 Turnstile 验证，提供方重新检查失败计数�
 
 账户角色只有 `account_policy`、`prepare_account_command`、`apply_account_command` 三函数；扫描角色只有 `mark_inactive_accounts_offline`。扫描请求是 `{schema:"aap-identity-presence/v1",cutoff:"带时区时间"}`，成功响应为相同 schema 和严格非负 64 位 affected。它保留 `online AND (last_seen_at IS NULL OR last_seen_at < cutoff)`，不新增 active 过滤。就绪检查只查询权限，不执行扫描。
 
-账户偏好保留原有大小和基数集合，不套用会话的 64 KiB 请求或准入的 16 MiB 响应上限；并发、截止时间及部署资源仍是实际运行边界。字节处理不持远程 SQL 锁。确定拒绝时清理新头像暂存对象，提交未知时保留字节并先核对资料／回执；旧对象只在确认提交后尽力清理。邀请接受协调、平台管理员及多 owner 生命周期继续按[模块台账](/dev/concepts/module-deployment)推进。
+账户偏好保留原有大小和基数集合，不套用会话的 64 KiB 请求或准入的 16 MiB 响应上限；并发、截止时间及部署资源仍是实际运行边界。字节处理不持远程 SQL 锁。确定拒绝时清理新头像暂存对象，提交未知时保留字节并先核对资料／回执；旧对象只在确认提交后尽力清理。用户目录／平台管理员及多 owner lifecycle 继续按[模块台账](/dev/concepts/module-deployment)推进。
 
 ## 分组目录与指派
 
@@ -148,7 +149,57 @@ Identity 的 GROUP LOGIN 只有 `group_policy()` 与 `execute_group_command(json
 
 API 可设置 `IDENTITY_GROUP_DATABASE_URL` 或 `IDENTITY_GROUP_DATABASE_URL_FILE`；独立 Identity runtime 读取同名的 `IDENTITY_GROUP_DATABASE_URL(_FILE)` 配置。省略 DSN 时使用内嵌调用方事务；显式配置的 DSN 失败时返回不可用，不切换到其他写入者。Compose 用宿主机 `IDENTITY_RUNTIME_GROUP_DATABASE_URL_FILE` 选择文件，并在容器内挂载为 `IDENTITY_GROUP_DATABASE_URL_FILE`。专用 DSN 必须指向同一个 PostgreSQL 数据库，由它承载 Workspace scope function 和 Identity group schema。
 
-Invitation 接受仍走原 coordinator。它可在既有邀请事务中调用私有 `resolve_invitation_group(uuid,text)` 读取/创建组值；该 helper 不是公开 wire 操作，也没有授予 GROUP LOGIN。邀请、目录搜索、其他用户资料、平台角色和多-owner lifecycle 仍未整体迁移。部署 DSN、精确 grant、Audit 与 receipt 规则见 [DEV.md](https://github.com/yyq19990828/ai-annotation-platform/blob/main/DEV.md) 和 [ADR-0120](/dev/adr/0120-independent-identity-group-catalog-and-assignment)。
+此前 group slice 只通过私有 `resolve_invitation_group(uuid,text)` helper 兼容旧邀请 coordinator；该 helper 仍由 Identity 内部调用，不公开为操作，也没有授予 GROUP LOGIN。现在完整邀请 lifecycle 使用独立的 `aap-identity-invitations/v1` owner；它保留 Public HTTP 与 workspace membership 边界，详见下一节及 [ADR-0122](/dev/adr/0122-independent-identity-invitations-and-mail-v2)。分组的查询/指派协议与当前 scope 仍见 [ADR-0120](/dev/adr/0120-independent-identity-group-catalog-and-assignment)。
+
+## 邀请生命周期
+
+现有创建、批量预览／执行、查询、统计、CSV/JSON 导出、撤销、换新链接、邮件发送、链接解析、首次注册和已有账号接受共 13 项操作统一使用私有 `POST /v1/identity/invitations/execute` 与 `aap-identity-invitations/v1`。Envelope 固定为 `schema`、`operation`、`operation_id`、`token`、`audit_context`、`payload`。`token` 是 manager 或 accept 调用者的当前 JWT/API key；匿名 resolve/register 时必须为 null。邀请链接中的证明使用 `payload.invitation_token`，不能与调用者 token 混淆。密码、token、明文链接和密文在模型 repr／日志中隐藏；只在既有成功响应里保留允许的 token/link 字段，失败永不回显凭据或数据库诊断。
+
+| operation                  | 用途与重要保真规则                                                                                                     |
+| -------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `create_invitation`        | 单人创建；按现有 Python validator 修剪并小写 email，trim group name，空值转 null。                                     |
+| `preview_invitation_batch` | 最多 500 项，执行完整外层 rollback；不返回邀请 token/link，不留下配额、Audit、替换行或回执。                           |
+| `apply_invitation_batch`   | 保留有序逐项结果与成功／失败计数；成功行用 savepoint 提交，逐项身份稳定可重放。                                        |
+| `list_invitations`         | 兼容旧数组读取，项目管理员仅自己的邀请且不能请求 `scope=all`；超级管理员可读全局。                                     |
+| `query_invitations`        | 最多 500 行分页，按 `created_at/id` 倒序；保留包含式日期过滤和现有 ILIKE wildcard 行为。                               |
+| `invitation_stats`         | 使用同一权限范围和过滤条件，总计状态按 accepted、revoked、expired、pending 顺序协调。                                  |
+| `export_invitations`       | owner 选择记录、计数并记 `invitation.export` Audit；CSV/JSON 编码由 HTTP 表示层负责，无新行数或字节上限。              |
+| `revoke_invitation`        | 已 revoked 时幂等成功；accepted invitation 不可撤销。                                                                  |
+| `resend_invitation`        | 明确轮换 token，恢复过期／已撤销记录；accepted invitation 不可重发，且此操作本身不发邮件。                             |
+| `send_invitation_email`    | 为当前链接建立 durable send intent；不轮换 token、更新有效期或改变邀请状态。                                           |
+| `resolve_invitation`       | 匿名 proof 解析公开注册链接；无当前 manager token，不泄漏 SQL/SMTP 诊断。                                              |
+| `register_invitation`      | 使用邀请 proof 新建 active/online、已验证账号；User/Group/Member、proof 消费、Audit 同事务提交，JWT 由 Identity 签发。 |
+| `accept_invitation`        | 已有账号使用同邮箱、当前有效 user credential 加入项目；不修改平台角色，不静默合并账号。                                |
+
+平台角色与项目角色独立校验。项目管理员只能邀请 `employee`／`viewer`，且只能管理自己创建的邀请行；不能使用 `scope=all`。超级管理员可管理所有行，只有当前超级管理员能签发 `project_admin`／`super_admin` 邀请。新项目邀请只允许 `annotator`、`reviewer`、`viewer`；employee 可持有三种项目角色，platform viewer 仅可持 viewer。管理员账号不能通过邀请获得项目成员行，已有账号接受时不改平台角色。
+
+Create/resolve/accept/send 均重新确认 inviter 是当前启用管理者；有权限级别的受邀角色要求签发人当前为超级管理员。目标项目仍须存在并有启用的 manager owner；project_admin 还必须是当前 owner。保持无效链接 404 与已用／撤销／过期／issuer/project 不再有效的 410 区别。注册和接受都要求匹配当前登录邮箱及兼容项目角色；account-only invitation 和重复成员接受继续返回 409。
+
+单人 email/group 规则保留现有 validator；批量单项长度校验仍较宽（email/group 最多 1000、role/project role 最多 100），多项上限 500。预览时逐项拒绝错误记录和重复成功 email，不把单行错误提升为整批失败。Apply 在一笔外层事务里提交每个成功 savepoint，返回原 `index/email/ok/retryable/error` 结果及成功／失败数。列表不加总行 cap；query 和 stats/export 使用相同当前权限与筛选，不加固定响应字节或 profile URL 限制。
+
+Per-inviter daily quota 通过锁住 issuer 后数滚动 24 小时窗口；默认 `max_invitations_per_day=30`、`invitation_ttl_days=7`，policy 允许 quota 1–1000、TTL 1–90。非法 deployment policy fail closed，TTL 沿用已记录的默认 fallback。create 只令同 email 的未接受前序邀请过期：project_admin 只更新自己创建的，super_admin 可全局更新。Group value trim 使用 Python Unicode 规则，长度不超过 100。
+
+Native schema `aap_identity_invitations_v1` 在 migration 0242 安装。`identity_invitation_client` LOGIN 精确只有 `invitation_policy()`、`prepare_invitation_command(jsonb)`、`apply_invitation_command(jsonb)`，没有 AUTH/GROUP/MAIL、foreign helper schema、表／列／序列或 DDL 权限。Prepare 收集当前 proof/facts 后释放 SQL 锁；注册 bcrypt、JWT 签名和加密都在 SQL 锁外做；Apply 在提交前重新校验全部用户／邀请／项目／凭据围栏，并验证 native 与投影 wire reply。
+
+参与的 User authority 先按 UUID 排序锁定，再取 email advisory key `hashtextextended(email,0)`，随后才锁 Project，最后 Invitation/ProjectMember；Group helper 在相同 Identity owner 内继续执行。先由 Workspace 捕获 project id/name/owner，再取相关 User 锁并重读/锁定捕获的项目 owner；迁移 owner 会导致安全可重试 409，不能使用过期授权布尔值。Project membership 与 User/Group/invitation/Audit 状态在一个 PostgreSQL transaction 原子提交；Labeling 只提供当前活动批次数作为 work hint，不创建或分配任务。
+
+成功变更回执以 actor（匿名 operation 可为 null）、operation、UUID、HMAC fingerprint 和 derivation epoch 绑定，无 live User/Invitation FK，不复制第二份明文 proof。Replay 重查当前凭据和行管理范围，不修改新行、不重复 Audit；注册 replay 在 generation 撤销后不能签出可用凭据。邀请 Audit 固定事件为 `user.invite`、`user.bulk_invite`、`user.invite_revoke`、`user.invite_resend`、`user.register`、`user.invite_accept_existing`、`invitation.export`、`invitation.send_email`，维持旧 target/status/detail 形状，不包含密码、token、链接或 Fernet ciphertext。唯一的组解析 helper `resolve_invitation_group(uuid,text)` 仍是 Identity 私有调用，不授予 GROUP LOGIN。
+
+## 邀请邮件与 MailV2
+
+`POST /api/v1/invitations/{id}/send-email` 保持现有 200 成功和 502 失败，发送当前已存在的链接；错误不轮换、撤销或作废邀请，不改为公开 202。Invitation owner 先 durable-accept intent，再由 HTTP gateway 对同一个 operation UUID 短轮询 private `mail_status=pending|sent|failed`。默认 bounded wait 60 秒，最多 120 秒；达到时限仍 pending/unknown 时返回兼容 502，但 intent 仍可恢复并可能稍后发出。用户仍可重复点击当前邀请的邮件操作；SMTP outcome 未知时 at-least-once 允许同一 Message-ID 的重复邮件。永久 SMTP rejection 只终止这条 delivery intent，邀请 token 和链接仍有效。
+
+不要把 MailV2 加进恢复邮件 v1 的 closed schema。V1 继续接受 recovery 的两种 purpose，`claim_mail` 必须过滤 invitation rows，避免未知 purpose 阻塞旧 worker。V2 使用 `aap-identity-mail-native/v2`、policy `aap-identity-mail-policy/v2` 和 wire `aap-identity-mail/v2`；`identity_mail_v2_client` 精确拥有 `mail_policy()`、`claim_mail(jsonb)`、`renew_mail(jsonb)`、`finish_mail(jsonb)` 四个函数。V2 MailExecutor 处理 reset、verification 和 invitation 三个 purpose；同一 `identity_credential_mail_outbox` 延展 `invitation_id` 及封闭 invitation context。邀请行的 `user_id` 是 issuer 而非 recipient User，typed `InvitationMailV2Lease` 同时显式给 `issuer_id`、`invitation_id`、recipient/project values，不能当作收件人身份授权。
+
+V2 claim／renew／finish 在发送前后重新校验当前 invitation token hash、有效期、接受／撤销／superseded 状态以及 inviter/project scope。SMTP 网络期间不持 SQL 锁；claim 先提交 lease，current scope 在 claim/renew boundary 围住发送。已经在 SMTP 中的消息无法撤回，因此重发、接受或撤销与正在发送邮件交错时仍按至少一次语义处理。所有目的共用现有 Fernet epoch/key，V2 不存 plaintext token/link 副本，也不回退到当前 key 或新 token；旧 V1 recovery outbox、roles、schemas 与 worker 保持可用。
+
+独立 sender 运行 `python -m aap_identity_runtime.mail_worker_v2`，同一 `MailExecutor` 重用已提取的 SMTP transport；该进程只持 MAILV2 DSN、MAIL_SETTINGS DSN、Fernet key 与 SMTP fallback，不带 Identity/AUTH/control/signing secret，不使用 User/Invitation SQL 事务来发送。`mail_policy/claim/renew/finish` 的短事务在 SMTP 网络调用前后提交，不持 SQL lock。Claims 保存同一 message ID；unknown timeout 允许重复邮件而不损坏邀请链接。邮件 Settings DB snapshot 覆盖 env fallback。
+
+Invitation API 使用可选 `IDENTITY_INVITATION_DATABASE_URL(_FILE)` 和 `IDENTITY_MAIL_V2_DATABASE_URL(_FILE)`；独立 Identity runtime 选择 `IDENTITY_INVITATION_DATABASE_URL(_FILE)`，并复用既有 recovery Fernet key。Invitation DSN 缺失／显式失败分别按 capability 503／fail closed。API embedded MailV2 kick 可选 MAILV2 DSN；选择邀请 owner 但未选择 mail kick 时允许独立 mail-v2 服务消费，绝不 fallback 到 caller SQL。API mail wait 配置 `IDENTITY_INVITATION_MAIL_TIMEOUT_SECONDS` 默认60、必须 >0 且 ≤120。Runtime invitation link fallback 为独立 `IDENTITY_INVITATION_FRONTEND_BASE_URL` 默认 `http://localhost:5173`; Settings 的 system `frontend_base_url` 若设置则覆盖，Recovery Runtime 原 `http://localhost:3000` fallback 不变。
+
+可选 Compose `--profile mail-v2` 启动 `identity-mail-v2`：它使用 `IDENTITY_RUNTIME_MAIL_V2_DATABASE_URL_FILE` 新文件；既有 `IDENTITY_RUNTIME_MAIL_SETTINGS_DATABASE_URL_FILE` 和 `IDENTITY_RUNTIME_RECOVERY_MAIL_KEY_FILE` 分别映射到 V2 `IDENTITY_MAIL_V2_SETTINGS_DATABASE_URL_FILE`、`IDENTITY_MAIL_V2_ENCRYPTION_KEY_FILE`；原宿主机 `IDENTITY_MAIL_SMTP_*` fallback 映射到 `IDENTITY_MAIL_V2_SMTP_*`。身份、Settings、key 和 SMTP 只授予 sender；`identity-admission` 没有 SMTP fallback credentials。V1 `identity-mail` 服务/LOGIN 仍有效并只领取 recovery intents。迁移 0242 先加载 `0242_identity_invitations_support.sql`，再 Mail 的 `0242_invitation_mail.sql`，最后 `0242_identity_invitations.sql`；grant 入口见 [DEV.md](https://github.com/yyq19990828/ai-annotation-platform/blob/main/DEV.md) 和 [ADR-0122](/dev/adr/0122-independent-identity-invitations-and-mail-v2)。
+
+完整邀请所有权仍是进行中的一块，不代表用户目录、平台角色管理、其他用户 hydration、全部 offboarding、整个 Identity、另一语言 provider 或生产容量已完成。`v1` 恢复邮件保持原协议；没有新的 Notifications event、Jobs backfill、生产切换或 Go 扩展。
 
 ## 自助注销与最后一名超级管理员围栏
 

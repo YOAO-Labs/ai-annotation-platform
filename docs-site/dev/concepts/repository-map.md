@@ -72,10 +72,10 @@ last_reviewed: 2026-10-20
   GDPR 审计历史脱敏在 `AuditService`。预览/CAS、传统删除与离职、SQL/Redis 时序不混同。
 - 分组目录与账号指派：`api/v1/group_commands.py` 收口 HTTP 请求与权限映射；
   `services/identity_group_commands.py` 选择本地事务、函数 DSN 或 Identity runtime，
-  `services/identity_group_data.py` 只适配当前 SQL Session 与旧邀请接受所需的私有 group helper。
+  `services/identity_group_data.py` 只适配当前 SQL Session 上的本地 Group command data。
   可提取的 Python owner 位于 `apps/identity/src/aap_identity/{group_contract,group_manager,group_postgres}.py`，
   通过 Workspace 项目成员投影维护作用域并将 Group 状态、审计与冻结 receipt 同事务提交。
-  目前只有目录／指派切片；邀请接受仍为旧 API 协调流程，目录管理及账号生命周期也尚未整体迁移。
+  该 owner 只覆盖目录／指派；invite group resolution 由下列 Identity invitation owner 通过私有 helper 内部调用，不授予 GROUP LOGIN。用户目录、平台角色管理与其余账号生命周期仍未整体迁移。
 - 自助注销与到期处理：`api/v1/deactivation_commands.py` 用 `get_current_principal` 和
   `get_deactivation_commands`／`execute_deactivation` 绑定两个用户命令；
   `services/identity_deactivation_commands.py` 适配两个 versioned port，
@@ -91,9 +91,10 @@ last_reviewed: 2026-10-20
 - 在线状态扫描：`workers/presence.py` 解析阈值、计算 cutoff 并持有提交/计数/日志；
   `IdentityCommandService.mark_inactive_accounts_offline(cutoff)` 以单条批量更新写身份状态，
   保留 online 与缺失/严格早于 cutoff 的 `last_seen_at` 条件。
-- 邀请接受：`application/invitation_acceptance.py` 组合 `InvitationService`、`IdentityCommandService` 与 `project_membership.grant_invitation_membership`。邀请、账号、成员各由对应所有者写入；原 token/当前权限锁与重复 409 保持，HTTP 持有审计、最终提交和 JWT 签发。
+- 完整邀请生命周期：`api/v1/invitation_commands.py` 通过 Principal/value dependencies 装配 13 项 invitation contract；`services/identity_invitation_commands.py` 选择调用方事务或 Identity runtime，`identity_invitation_data.py` 只适配本地 SQL。可移植 owner 位于 `apps/identity/src/aap_identity/{invitation_contract,invitation_manager,invitation_postgres}.py`；User/Invitation/Group、Workspace membership、Audit 与 token proof 在一个调用方事务中组合，不水合 API ORM User/Project/ProjectMember/TaskBatch。
+- Invitation MailV2：`services/identity_mail_v2_delivery.py` 在邀请 owner commit 后等待有界私有 pending/sent/failed 状态；`app.workers.identity_mail_v2_delivery.relay_invitation_mail` 每 10 秒在 default queue 执行相同 MailV2 executor。独立 sender 用 `apps/identity/src/aap_identity/{mail_v2_contract,mail_v2_postgres}.py`、`aap_identity_runtime.mail_config_v2` 和 `mail_worker_v2.py`，只有 MAILV2/MAIL_SETTINGS/key/SMTP 能力，不持 AUTH/Invitation/User 表权限。
 - 自有 API key 管理：`services/api_key_contracts.ApiKeyManagementPort` 消费 `aap-identity-keys/v1` 值消息，`api_key_service.IdentityKeyManagement` 装配调用方事务、函数专用连接或独立运行时。`deps.get_current_principal` 提供准入和审计身份；管理路由不水合 User 或写 key ORM。Identity 命令所有者持有五项操作、当前凭据围栏、签发和冻结回执。
-- 核心会话：`services/identity_session_commands.SessionCommandsPort` 消费 `aap-identity-sessions/v1`，装配同一 Identity 提供方的登录、刷新、登出和全端登出；API 保留限流和 Turnstile 验证，不水合 User 或写会话状态。提供方拥有密码验证、失败计数、当前凭据围栏、冻结签发回执和同事务 Audit 能力；三函数 LOGIN 与登录计数 Redis ACL 分离于其他能力。注册／邀请等签发与完整账号流程仍待迁移。
+- 核心会话：`services/identity_session_commands.SessionCommandsPort` 消费 `aap-identity-sessions/v1`，装配同一 Identity 提供方的登录、刷新、登出和全端登出；API 保留限流和 Turnstile 验证，不水合 User 或写会话状态。提供方拥有密码验证、失败计数、当前凭据围栏、冻结签发回执和同事务 Audit 能力；三函数 LOGIN 与登录计数 Redis ACL 分离于其他能力。其他公开注册签发、用户目录／平台管理和完整账号生命周期仍待迁移。
 - 类别重命名：`application/project_class_rename.py` 组合 workspace 绑定与
   `AnnotationService.rename_class_name()`；管理权威及排他项目锁在修改前刷新。
   工具选择只收窄配置，存量标注的项目级名称迁移及原版本语义保留。
@@ -344,21 +345,21 @@ last_reviewed: 2026-10-20
 
 `workers/celery_app.py` 与各模块装饰器是注册名/签名真值；下表覆盖全部 first-party task-bearing 模块，不含 Celery 内建任务。Python 注册表导入核对不是 broker、消费者或真实模型资格。
 
-| 家族               | task-bearing 模块（模块内 task 数）                                                                                                                                                                                                              | tasks | beat 项 |
-| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----: | ------: |
-| 推理 / 追踪 / 控制 | `tasks`(1)、`predictions_retry`(1)、`frame_preannotate`(4)、`video_tracker`(1)、`ml_health`(3)                                                                                                                                                   |    10 |       3 |
-| 素材派生           | `media`(8)、`image_pyramid`(2)                                                                                                                                                                                                                   |    10 |       2 |
-| 质检 / Mask 执行   | `video_track_quality`(1)、`mask_qc`(1)、`point_cloud_quality`(1)、`mask_repair`(2)、`mask_format_import`(1)                                                                                                                                      |     6 |       0 |
-| 导入 / 建题 / 导出 | `dataset_import`(1)、`create_tasks`(1)、`cross_frame_job`(1)、`export`(1)、`training_dataset`(1)                                                                                                                                                 |     5 |       0 |
-| 学习编排 / 保留    | `sample_evaluations`(2)、`active_learning`(2)、`learning_policy`(1)、`training_study`(1)、`training_preview_cleanup`(1)、`training_observability_cleanup`(1)                                                                                     |     8 |       6 |
-| 支撑持久化 / 维护  | `cleanup`(4)、`audit`(1)、`audit_partition`(2)、`task_events`(1)、`presence`(1)、`deactivation`(1)、`notification_delivery`(1)、`analytics`(1)、`async_jobs_cleanup`(1)、`export_cleanup`(1)、`prediction_partition`(1)、`feedback_reconcile`(1) |    16 |      14 |
-| 合计               | 35 个模块                                                                                                                                                                                                                                        |    55 |      25 |
+| 家族               | task-bearing 模块（模块内 task 数）                                                                                                                                                                                                                                              | tasks | beat 项 |
+| ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----: | ------: |
+| 推理 / 追踪 / 控制 | `tasks`(1)、`predictions_retry`(1)、`frame_preannotate`(4)、`video_tracker`(1)、`ml_health`(3)                                                                                                                                                                                   |    10 |       3 |
+| 素材派生           | `media`(8)、`image_pyramid`(2)                                                                                                                                                                                                                                                   |    10 |       2 |
+| 质检 / Mask 执行   | `video_track_quality`(1)、`mask_qc`(1)、`point_cloud_quality`(1)、`mask_repair`(2)、`mask_format_import`(1)                                                                                                                                                                      |     6 |       0 |
+| 导入 / 建题 / 导出 | `dataset_import`(1)、`create_tasks`(1)、`cross_frame_job`(1)、`export`(1)、`training_dataset`(1)                                                                                                                                                                                 |     5 |       0 |
+| 学习编排 / 保留    | `sample_evaluations`(2)、`active_learning`(2)、`learning_policy`(1)、`training_study`(1)、`training_preview_cleanup`(1)、`training_observability_cleanup`(1)                                                                                                                     |     8 |       6 |
+| 支撑持久化 / 维护  | `cleanup`(4)、`audit`(1)、`audit_partition`(2)、`task_events`(1)、`presence`(1)、`deactivation`(1)、`notification_delivery`(1)、`identity_mail_v2_delivery`(1)、`analytics`(1)、`async_jobs_cleanup`(1)、`export_cleanup`(1)、`prediction_partition`(1)、`feedback_reconcile`(1) |    17 |      15 |
+| 合计               | 36 个模块                                                                                                                                                                                                                                                                        |    56 |      26 |
 
 include 另外包含 `signals`、`heartbeat`，后者是 worker bootstep，不是 task/beat。任务、结果与 accepted content 保持 JSON，调度使用 UTC。静态 exact-name 路由如下；未覆盖项走 default，项目/设备选择的动态队列不等同于该表，队列声明也不证明消费者正在运行。
 
 | 队列            | exact-name 路由数 |
 | --------------- | ----------------: |
-| `default`       |                10 |
+| `default`       |                11 |
 | `ml`            |                 3 |
 | `media`         |                16 |
 | `image-pyramid` |                 1 |
@@ -369,7 +370,7 @@ include 另外包含 `signals`、`heartbeat`，后者是 worker bootstep，不�
 | `audit`         |                 2 |
 | `maintenance`   |                 5 |
 | `gpu.control`   |                 1 |
-| 合计            |                51 |
+| 合计            |                52 |
 
 注册名不是函数名的简单推导：质检保留 `app.workers.point_cloud_quality.run` 和 `app.workers.video_track_quality.run`。训练数据构建保留 version/job/attempt 与明确执行身份，质检传 run ID、修复/导入传 batch ID；不能在不迁移生产者和在途消息的情况下改名、重排参数或把它们宣称为跨语言公共协议。
 
