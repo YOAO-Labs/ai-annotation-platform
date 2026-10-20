@@ -1511,6 +1511,8 @@ BEGIN
         false, v_result, v_scope_basis, v_audit_id
     );
 
+    PERFORM pg_catalog.set_config('aap.identity_offboarding_prepare', '', true);
+
     RETURN pg_catalog.jsonb_build_object(
         'schema', 'aap-identity-offboarding-native/v1',
         'ok', true,

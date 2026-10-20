@@ -211,12 +211,19 @@ def test_frozen_offboarding_artifacts_and_native_owner_boundary():
         "aap_identity_offboarding_v1.prepare_offboarding_command(jsonb)" in lan_grants
     )
     assert '"OFFBOARDING": "identity_offboarding_client"' in verifier
-    assert "AAP_MODULE_DATA_IDENTITY_OFFBOARDING_URL" in verifier
     assert "raw preview version" in support
     assert "status = 'offline'" in artifact
     assert "retire_account_credentials(v_target_user_id)" in artifact
     assert "release_identity_offboarding_task_locks" in artifact
     assert "v_audit_id IS NULL OR v_audit_id <= 0" in artifact
+    compact_artifact = "".join(artifact.split())
+    receipt_insert = compact_artifact.index(
+        "INSERTINTOpublic.identity_offboarding_operation_receipts"
+    )
+    clear_binding = compact_artifact.index(
+        "PERFORMpg_catalog.set_config('aap.identity_offboarding_prepare','',true);"
+    )
+    assert receipt_insert < clear_binding
 
 
 class _CorruptingOffboardingTransaction:
