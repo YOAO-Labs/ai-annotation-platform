@@ -5,13 +5,17 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import select as io_select
 import secrets
+import uuid
 import subprocess
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from fastapi import HTTPException, Request
 from sqlalchemy import delete, select, text
 
+from aap_identity.contract import Principal
 from aap_identity.security import create_access_token
 from app.db.models.api_key import ApiKey
 from app.db.models.user import User
@@ -56,6 +60,79 @@ def _node(identity, control, request):
     assert result.returncode == 0, "Independent Node actor-context peer failed"
     assert control not in result.stdout and control not in result.stderr
     return json.loads(result.stdout)
+
+
+class _ForbiddenCallerDatabase:
+    def __getattr__(self, name):
+        raise AssertionError(
+            f"actor-context remote path touched caller database: {name}"
+        )
+
+
+def _start_node_owner(*, control, actor_id, role, scenarios):
+    profile = {
+        "name": "  Node-owned fresh name ß  ",
+        "email": " node-owned@example.test ",
+        "weekly_target_default": 2147483647,
+    }
+    config = {
+        "schema": "aap-identity-actor/v1",
+        "control_token": control,
+        "actor_id": str(actor_id),
+        "admitted_role": role,
+        "profile": profile,
+        "scenarios": scenarios,
+    }
+    process = subprocess.Popen(
+        [
+            "node",
+            str(ROOT / "apps/api/tests/fixtures/identity_actor_context_peer.mjs"),
+            "--serve",
+        ],
+        cwd=ROOT,
+        env={"PATH": os.environ.get("PATH", "")},
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        encoding="utf-8",
+        bufsize=1,
+    )
+    try:
+        assert process.stdin is not None and process.stdout is not None
+        process.stdin.write(
+            json.dumps(config, ensure_ascii=False, allow_nan=False) + "\n"
+        )
+        process.stdin.close()
+        ready_set, _, _ = io_select.select([process.stdout], [], [], 10)
+        if not ready_set:
+            pytest.fail("Independent Node actor-context owner did not become ready")
+        ready_line = process.stdout.readline()
+        assert control not in ready_line
+        ready = json.loads(ready_line)
+        assert set(ready) == {"ready", "origin"} and ready["ready"] is True
+        assert ready["origin"].startswith("http://127.0.0.1:")
+        return process, ready["origin"], profile
+    except BaseException:
+        if process.poll() is None:
+            process.terminate()
+        try:
+            process.communicate(timeout=5)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.communicate(timeout=5)
+        raise
+
+
+def _stop_node_owner(process, control):
+    if process.poll() is None:
+        process.terminate()
+    try:
+        stdout, stderr = process.communicate(timeout=5)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        stdout, stderr = process.communicate(timeout=5)
+    assert control not in stdout and control not in stderr
 
 
 def _request_with_admitted_state(principal):
@@ -273,3 +350,95 @@ async def test_installed_owner_node_and_admitted_actor_context_preserve_fences(
         if identity:
             identity.stop()
         await _cleanup_actor(maker, actor_id)
+
+
+async def test_python_gateway_consumes_independent_node_actor_context_peer():
+    actor_id = uuid.uuid4()
+    control = secrets.token_urlsafe(32)
+    scenarios = [
+        "success",
+        "malformed_json",
+        "wrong_id",
+        "wrong_role",
+        "nonboolean_active",
+        "extra_field",
+        "credential_invalid",
+        "invalid_request",
+    ]
+    process, origin, profile = _start_node_owner(
+        control=control,
+        actor_id=actor_id,
+        role="employee",
+        scenarios=scenarios,
+    )
+    try:
+        from app.services.identity_gateway import IdentityGateway
+
+        gateway = IdentityGateway(
+            identity_url=origin,
+            identity_token=control,
+            timeout_seconds=3,
+            signing_secret=secrets.token_urlsafe(32),
+        )
+        principal = Principal(
+            actor_id=actor_id,
+            name="Admitted snapshot name",
+            email="admitted-snapshot@example.test",
+            role="employee",
+            is_active=True,
+            credential_type="jwt",
+            credential_id=uuid.uuid4(),
+            generation=0,
+            scopes=None,
+            expires_at=datetime.now(UTC) + timedelta(minutes=5),
+        )
+        caller_db = _ForbiddenCallerDatabase()
+
+        actor = await gateway.actor_context(principal, db=caller_db)
+        assert actor.id == actor_id
+        assert actor.name == profile["name"]
+        assert actor.email == profile["email"]
+        assert actor.role == "employee" and actor.is_active is True
+        assert actor.weekly_target_default == 2147483647
+        assert principal.name == "Admitted snapshot name"
+        assert principal.email == "admitted-snapshot@example.test"
+
+        from app.deps import get_current_user
+
+        for scenario in scenarios[1:6]:
+            request = _request_with_admitted_state(principal)
+            with pytest.raises(HTTPException) as failure:
+                await get_current_user(
+                    request,
+                    principal=principal,
+                    db=caller_db,
+                    identity=gateway,
+                )
+            assert failure.value.status_code == 503, scenario
+            assert request.state.identity_principal is principal
+
+        credential_request = _request_with_admitted_state(principal)
+        with pytest.raises(HTTPException) as credential_failure:
+            await get_current_user(
+                credential_request,
+                principal=principal,
+                db=caller_db,
+                identity=gateway,
+            )
+        assert credential_failure.value.status_code == 401
+        assert credential_failure.value.headers == {"WWW-Authenticate": "Bearer"}
+        for field in ("identity_principal", "api_key_scopes", "api_key_id"):
+            assert not hasattr(credential_request.state, field)
+
+        invalid_request = _request_with_admitted_state(principal)
+        with pytest.raises(HTTPException) as invalid_failure:
+            await get_current_user(
+                invalid_request,
+                principal=principal,
+                db=caller_db,
+                identity=gateway,
+            )
+        assert invalid_failure.value.status_code == 503
+        assert invalid_request.state.identity_principal is principal
+    finally:
+        _stop_node_owner(process, control)

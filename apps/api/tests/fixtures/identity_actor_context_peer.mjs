@@ -1,4 +1,4 @@
-import { request as httpRequest } from "node:http";
+import { createServer, request as httpRequest } from "node:http";
 import { request as httpsRequest } from "node:https";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -512,6 +512,40 @@ function selfCheck() {
   checks += 1;
   expectFailure(() => parseStrictJson('{"weekly_target_default":NaN}'));
   checks += 1;
+  const serverConfig = validateServerConfig(
+    parseStrictJson(
+      stringifyLossless({
+        schema,
+        control_token: "synthetic-control-token",
+        actor_id: actorId,
+        admitted_role: "employee",
+        profile: {
+          name: "  Node-owned name ß  ",
+          email: " node-owned@example.test ",
+          weekly_target_default: new JsonNumber("2147483647"),
+        },
+        scenarios: ["success", "wrong_id"],
+      }),
+    ),
+  );
+  if (serverConfig.actorId !== actorId || serverConfig.scenarios.length !== 2) fail();
+  checks += 1;
+  expectFailure(() =>
+    validateServerConfig({
+      schema,
+      control_token: "synthetic-control-token",
+      actor_id: actorId,
+      admitted_role: "employee",
+      profile: {
+        name: "Node name",
+        email: "node@example.test",
+        weekly_target_default: new JsonNumber("1"),
+      },
+      scenarios: ["success"],
+      token: "unexpected",
+    }),
+  );
+  checks += 1;
   return checks;
 }
 
@@ -530,9 +564,172 @@ async function readInput() {
   }
 }
 
+function validateServerConfig(value) {
+  if (
+    !exact(value, [
+      "schema",
+      "control_token",
+      "actor_id",
+      "admitted_role",
+      "profile",
+      "scenarios",
+    ]) ||
+    value.schema !== schema ||
+    typeof value.control_token !== "string" ||
+    !/^[\x21-\x7e]{1,4096}$/.test(value.control_token) ||
+    !roles.has(value.admitted_role) ||
+    !Array.isArray(value.scenarios) ||
+    value.scenarios.length === 0 ||
+    !value.scenarios.every((item) =>
+      [
+        "success",
+        "malformed_json",
+        "wrong_id",
+        "wrong_role",
+        "nonboolean_active",
+        "extra_field",
+        "credential_invalid",
+        "invalid_request",
+      ].includes(item),
+    ) ||
+    !exact(value.profile, ["name", "email", "weekly_target_default"]) ||
+    typeof value.profile.name !== "string" ||
+    typeof value.profile.email !== "string" ||
+    (value.profile.weekly_target_default !== null &&
+      !(value.profile.weekly_target_default instanceof JsonNumber))
+  ) {
+    fail();
+  }
+  if (value.profile.weekly_target_default !== null) int32(value.profile.weekly_target_default);
+  return {
+    controlToken: value.control_token,
+    actorId: uuid(value.actor_id),
+    admittedRole: value.admitted_role,
+    profile: value.profile,
+    scenarios: value.scenarios,
+  };
+}
+
+function serverJson(response, status, value) {
+  const body = Buffer.from(stringifyLossless(value), "utf8");
+  response.writeHead(status, {
+    "content-type": "application/json; charset=utf-8",
+    "content-length": body.length,
+    connection: "close",
+  });
+  response.end(body);
+}
+
+async function readServerRequest(request) {
+  const chunks = [];
+  let size = 0;
+  for await (const chunk of request) {
+    size += chunk.length;
+    if (size > 1024 * 1024) fail();
+    chunks.push(chunk);
+  }
+  return parseStrictJson(new TextDecoder("utf-8", { fatal: true }).decode(Buffer.concat(chunks)));
+}
+
+function actorEnvelope(config, scenario) {
+  if (scenario === "credential_invalid" || scenario === "invalid_request") {
+    return {
+      status: scenario === "invalid_request" ? 400 : 200,
+      value: { schema, ok: false, error: { code: scenario } },
+    };
+  }
+  const actor = {
+    id: config.actorId,
+    name: config.profile.name,
+    email: config.profile.email,
+    role: config.admittedRole,
+    is_active: true,
+    weekly_target_default: config.profile.weekly_target_default,
+  };
+  if (scenario === "wrong_id") actor.id = "22222222-2222-4222-8222-222222222222";
+  if (scenario === "wrong_role") actor.role = "viewer";
+  if (scenario === "nonboolean_active") actor.is_active = 1;
+  if (scenario === "extra_field") actor.preferences = { private: true };
+  return { status: 200, value: { schema, ok: true, data: actor } };
+}
+
+async function serveNodeOwner() {
+  // Test-only opposite-direction peer for exercising the Python consumer.
+  const config = validateServerConfig(await readInput());
+  let scenarioIndex = 0;
+  const server = createServer(async (request, response) => {
+    try {
+      if (request.method !== "POST" || request.url !== endpoint) {
+        serverJson(response, 404, { detail: "Not Found" });
+        return;
+      }
+      if (request.headers.authorization !== `Bearer ${config.controlToken}`) {
+        serverJson(response, 401, { detail: "Unauthorized" });
+        return;
+      }
+      const contentType = request.headers["content-type"];
+      if (
+        typeof contentType !== "string" ||
+        contentType.split(";", 1)[0].trim().toLowerCase() !== "application/json"
+      ) {
+        serverJson(response, 400, { detail: "Invalid request" });
+        return;
+      }
+      let actorRequest;
+      try {
+        actorRequest = validateRequest(await readServerRequest(request));
+      } catch {
+        serverJson(response, 400, actorFailureReply("invalid_request"));
+        return;
+      }
+      if (
+        actorRequest.actor_id !== config.actorId ||
+        actorRequest.admitted_role !== config.admittedRole
+      ) {
+        serverJson(response, 400, actorFailureReply("invalid_request"));
+        return;
+      }
+      if (scenarioIndex >= config.scenarios.length) {
+        serverJson(response, 503, { detail: "No configured scenario remains" });
+        return;
+      }
+      const scenario = config.scenarios[scenarioIndex++];
+      if (scenario === "malformed_json") {
+        const body = Buffer.from(`{"schema":"${schema}","ok":true`, "utf8");
+        response.writeHead(200, {
+          "content-type": "application/json; charset=utf-8",
+          "content-length": body.length,
+          connection: "close",
+        });
+        response.end(body);
+        return;
+      }
+      const reply = actorEnvelope(config, scenario);
+      serverJson(response, reply.status, reply.value);
+    } catch {
+      if (!response.headersSent) serverJson(response, 500, { detail: "Request failed" });
+      else response.destroy();
+    }
+  });
+  await new Promise((resolveListening, rejectListening) => {
+    server.once("error", rejectListening);
+    server.listen(0, "127.0.0.1", resolveListening);
+  });
+  const address = server.address();
+  if (!address || typeof address === "string") fail();
+  process.stdout.write(
+    `${JSON.stringify({ ready: true, origin: `http://127.0.0.1:${address.port}` })}\n`,
+  );
+  process.once("SIGTERM", () => server.close(() => process.exit(0)));
+}
+
 async function main() {
   if (process.argv[2] === "--self-check") {
     process.stdout.write(`${JSON.stringify({ ok: true, checks: selfCheck() })}\n`);
+    return;
+  }
+  if (process.argv[2] === "--serve") {
+    await serveNodeOwner();
     return;
   }
   const input = await readInput();
