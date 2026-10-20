@@ -7,12 +7,11 @@ from fastapi import HTTPException
 from botocore.exceptions import BotoCoreError, ClientError
 from sqlalchemy import select
 from training_contract.initialization import (
-    POLICY,
-    POLICY_DIGEST,
-    SEGMENTATION_POLICY,
-    SEGMENTATION_POLICY_DIGEST,
+    policy_for_model,
     validate_pin,
 )
+from training_contract.models import model_spec
+from aap_task_contract import normalize_task
 from training_contract.dataset import (
     SEGMENTATION,
     config_task,
@@ -44,16 +43,18 @@ def model_id(pin):
     return uuid.UUID(pin["model_version_id"]) if pin else None
 
 
-def compatible_pin(pin, framework, base_model, classes=None):
+def compatible_pin(pin, framework, base_model, classes=None, *, framework_version=None):
     validate_pin(pin)
     reasons = []
-    expected_task = SEGMENTATION if base_model == "yolo11n-seg" else "image-detection"
-    if pin["task"] != expected_task:
+    expected_task = model_spec(framework, base_model).task
+    if normalize_task(pin["task"]) != expected_task:
         reasons.append("初始化来源与目标训练任务不同")
     if framework != pin["framework"]:
         reasons.append("来源训练器与当前训练器不同")
+    if framework_version is not None and framework_version != pin["framework_version"]:
+        reasons.append("来源模型与目标训练器版本不同，尚未通过跨版本初始化资格检查")
     if base_model != pin["base_model"]:
-        reasons.append("须使用来源模型相同的 YOLO11 规格，不能重映射模型结构")
+        reasons.append("须使用来源模型相同的家族及规格，不能重映射模型结构")
     if classes is not None and classes != pin["classes"]:
         reasons.append("训练数据的原生类别及顺序须与来源模型完全一致")
     return reasons
@@ -96,17 +97,18 @@ async def source_pin(db, project_id, version_id):
         raise ValueError("初始化模型缺少同项目的成功执行与冻结数据来源")
     config, provenance = run.config, version.provenance
     segmentation = config_task(config) == SEGMENTATION
-    policy = SEGMENTATION_POLICY if segmentation else POLICY
+    policy = policy_for_model(config["base_model"]["id"], version.framework_version)
     source_contract = data_contract(dataset.manifest) if segmentation else None
     if segmentation and (
         data_task(source_contract) != SEGMENTATION
         or config.get("data_contract") != source_contract
-        or config.get("base_model", {}).get("id") != "yolo11n-seg"
+        or model_spec(version.framework, config["base_model"]["id"]).task
+        != SEGMENTATION
     ):
         raise ValueError("分割初始化缺少一致的来源任务、架构和数据桥接")
     if (
-        version.framework != POLICY["framework"]
-        or version.framework_version != POLICY["framework_version"]
+        version.framework != policy["framework"]
+        or version.framework_version != policy["framework_version"]
         or config.get("framework") != version.framework
         or config.get("framework_version") != version.framework_version
         or content_digest(config) != run.config_digest
@@ -141,7 +143,7 @@ async def source_pin(db, project_id, version_id):
     }
     pin = {
         "kind": "trained_model",
-        "policy_digest": SEGMENTATION_POLICY_DIGEST if segmentation else POLICY_DIGEST,
+        "policy_digest": content_digest(policy),
         "project_id": str(project_id),
         "model_version_id": str(version.id),
         "model_name": version.name,
@@ -276,7 +278,23 @@ async def eligibility(
                 "pin": None,
             }
     try:
-        reasons = compatible_pin(pin, framework, base_model, classes)
+        from app.services.training_runs import controlled_template
+
+        target = controlled_template(framework, base_model)
+        reasons = compatible_pin(
+            pin,
+            framework,
+            base_model,
+            classes,
+            framework_version=target["framework_version"],
+        )
+    except HTTPException as exc:
+        return {
+            "model_version_id": version_id,
+            "eligible": False,
+            "reasons": [str(exc.detail)[:300]],
+            "pin": None,
+        }
     except (ValueError, KeyError, TypeError, AttributeError) as exc:
         return {
             "model_version_id": version_id,
@@ -298,13 +316,29 @@ async def eligibility(
 
 
 async def resolve(
-    db, project_id, source, framework, base_model, classes=None, *, full=True
+    db,
+    project_id,
+    source,
+    framework,
+    base_model,
+    classes=None,
+    *,
+    full=True,
+    framework_version=None,
 ):
     if source is None or source.kind == "catalog":
         return None
     try:
         pin, metrics = await source_pin(db, project_id, source.model_version_id)
-        reasons = compatible_pin(pin, framework, base_model, classes)
+        if framework_version is None:
+            from app.services.training_runs import controlled_template
+
+            framework_version = controlled_template(framework, base_model)[
+                "framework_version"
+            ]
+        reasons = compatible_pin(
+            pin, framework, base_model, classes, framework_version=framework_version
+        )
         if source.source_digest != pin["source_digest"]:
             reasons.append("初始化来源身份已变化，请明确重新选择并预检")
         if reasons:
@@ -335,6 +369,7 @@ async def validate_accepted(
             base_model,
             classes,
             full=full,
+            framework_version=pin["framework_version"],
         )
         if current != pin:
             raise ValueError("初始化来源与已接受的固定身份不符")

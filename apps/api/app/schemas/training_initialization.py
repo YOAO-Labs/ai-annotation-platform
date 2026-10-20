@@ -59,8 +59,8 @@ class FrozenTrainingInitialization(BaseModel):
     dataset_id: uuid.UUID
     framework: Literal["ultralytics"]
     framework_version: str
-    task: Literal["image-detection"]
-    model_family: Literal["yolo11"]
+    task: Literal["image-detection", "detect"]
+    model_family: Literal["yolov8", "yolo11", "yolo26"]
     base_model: str
     artifact: InitializationArtifact
     classes: list[str] = Field(min_length=1, max_length=10000)

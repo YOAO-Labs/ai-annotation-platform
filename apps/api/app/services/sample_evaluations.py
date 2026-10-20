@@ -474,11 +474,16 @@ def successful_evidence(run, attempt, row, result):
         or (result.meta or {}).get("trained_model") != identity
     ):
         raise ValueError("Prediction candidate or task identity differs")
+    from app.services.controlled_segmentation import runtime_for_reference
+
     predictions = selected_engine.predictions_from_wire(
         result.result,
         spec["native_to_benchmark"],
         **(
             {
+                "runtime_qualification": runtime_for_reference(
+                    spec["model_ref"], spec["profile"]["ultralytics_version"]
+                ),
                 "metadata": result.meta,
                 "width": frozen["width"],
                 "height": frozen["height"],

@@ -225,12 +225,24 @@ def expected_receipt(version):
 
         try:
             qualification = segmentation_identity(
-                version.provenance["base_model"]["id"]
+                version.provenance["base_model"]["id"], version.framework_version
             )
         except (KeyError, ValueError, TypeError) as exc:
             raise HTTPException(status_code=409, detail="模型分割回流资格缺失") from exc
         if version.provenance.get("model_return") != qualification:
             raise HTTPException(status_code=409, detail="模型分割回流资格已变化")
+        receipt.update(qualification)
+    elif version.framework == "ultralytics" and version.framework_version != "8.4.177":
+        from training_contract.model_return import ultralytics_identity
+
+        try:
+            qualification = ultralytics_identity(
+                version.provenance["base_model"]["id"], version.framework_version
+            )
+        except (KeyError, ValueError, TypeError) as exc:
+            raise HTTPException(status_code=409, detail="模型回流资格缺失") from exc
+        if version.provenance.get("model_return") != qualification:
+            raise HTTPException(status_code=409, detail="模型回流资格已变化")
         receipt.update(qualification)
     elif version.framework == "libreyolo":
         qualification = registration_eligibility(

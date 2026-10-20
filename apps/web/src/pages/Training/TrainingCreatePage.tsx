@@ -13,7 +13,11 @@ import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-quer
 import { Check, Download, FileUp, FlaskConical } from "lucide-react";
 import { projectsApi } from "@/api/projects";
 import { trainingDatasetsApi, type TrainingDatasetOut } from "@/api/trainingDatasets";
-import { trainingRunsApi, type TrainingRunCreate } from "@/api/trainingRuns";
+import {
+  trainingRunsApi,
+  type TrainingCatalogModel,
+  type TrainingRunCreate,
+} from "@/api/trainingRuns";
 import {
   recipeCandidate,
   initializationReference,
@@ -97,6 +101,38 @@ type DatasetHandoffPreview = {
   intentOwner: object;
 };
 const steps = ["数据与模型", "配置参数", "核对并开始"];
+const familyLabels: Record<string, string> = {
+  yolov8: "YOLOv8",
+  yolo11: "YOLO11",
+  yolo26: "YOLO26",
+  yolo9: "YOLO9",
+};
+const sizeLabels: Record<string, string> = {
+  n: "Nano",
+  t: "Tiny",
+  s: "Small",
+  m: "Medium",
+  l: "Large",
+  x: "Extra large",
+  c: "C 型",
+};
+function modelFamily(base: TrainingCatalogModel) {
+  if (base.model_family) return base.model_family;
+  const id = base.id.toLowerCase();
+  return id.startsWith("yolov8")
+    ? "yolov8"
+    : id.startsWith("libreyolo9")
+      ? "yolo9"
+      : id.startsWith("yolo26")
+        ? "yolo26"
+        : id.startsWith("yolo11")
+          ? "yolo11"
+          : base.id;
+}
+function modelSizeLabel(base: TrainingCatalogModel) {
+  const size = base.model_size ?? /([ntsmlxc])(?:-seg)?$/.exec(base.id)?.[1];
+  return size ? `${sizeLabels[size] ?? size} (${size})` : base.id;
+}
 type ExperimentTask = NonNullable<TrainingDraft["task"]>;
 function taskName(task: ExperimentTask, current: string) {
   const generated = /^(detect|segment)-(\d{8}-\d{6})$/.exec(current);
@@ -232,6 +268,11 @@ function TrainingCreateContent({
   if (params.get("return_run")) backParams.set("run", params.get("return_run")!);
   const back = `/projects/${projectId}/learning?${backParams}`;
 
+  const [familyFilter, setFamilyFilter] = useState<{
+    task: ExperimentTask;
+    framework: string;
+    family: string;
+  } | null>(null);
   const catalog = useQuery({
     queryKey: ["training-catalog", projectId, userId, queryScope],
     queryFn: ({ signal }) => trainingRunsApi.catalog(projectId, { signal }),
@@ -340,6 +381,17 @@ function TrainingCreateContent({
     catalog.data?.items.filter((item) =>
       item.base_models.some((base) => (base.task ?? "detect") === task),
     ) ?? [];
+  const taskModels = template?.base_models.filter((base) => (base.task ?? "detect") === task) ?? [];
+  const families = [...new Set(taskModels.map(modelFamily))];
+  const family =
+    selectedBase && (selectedBase.task ?? "detect") === task
+      ? modelFamily(selectedBase)
+      : familyFilter &&
+          familyFilter.task === task &&
+          familyFilter.framework === draft.framework &&
+          families.includes(familyFilter.family)
+        ? familyFilter.family
+        : (families[0] ?? "");
   const datasets = useInfiniteQuery({
     queryKey: ["training-datasets", projectId, "ready-pages", userId, queryScope, task],
     initialPageParam: 0,
@@ -495,6 +547,7 @@ function TrainingCreateContent({
   const chooseTask = (next: ExperimentTask) => {
     if (next === task) return;
     const snapshot = state.current.current;
+    setFamilyFilter(null);
     const compatible = catalog.data?.items.filter((item) =>
       item.base_models.some((base) => (base.task ?? "detect") === next),
     );
@@ -1515,13 +1568,14 @@ function TrainingCreateContent({
                     className={`${trainingInputClass} mt-1.5`}
                     value={draft.framework}
                     disabled={!task || !frameworks.length}
-                    onChange={(event) =>
+                    onChange={(event) => {
+                      setFamilyFilter(null);
                       update({
                         framework: event.target.value,
                         baseModel: "",
                         initialization: undefined,
-                      })
-                    }
+                      });
+                    }}
                   >
                     {!frameworks.some((item) => item.framework === draft.framework) && (
                       <option value={draft.framework}>
@@ -1536,7 +1590,32 @@ function TrainingCreateContent({
                   </select>
                 </label>
                 <label className="text-xs text-muted-foreground">
-                  基础模型
+                  模型家族
+                  <select
+                    aria-label="模型家族"
+                    className={`${trainingInputClass} mt-1.5`}
+                    value={family}
+                    disabled={!task || !families.length}
+                    onChange={(event) => {
+                      if (!task || event.target.value === family || locked || checking) return;
+                      setFamilyFilter({
+                        task,
+                        framework: draft.framework,
+                        family: event.target.value,
+                      });
+                      update({ baseModel: "", initialization: undefined });
+                    }}
+                  >
+                    {!families.length && <option value="">先选择可用的训练器</option>}
+                    {families.map((value) => (
+                      <option key={value} value={value}>
+                        {familyLabels[value] ?? value}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="text-xs text-muted-foreground sm:col-span-2">
+                  基础模型（规格）
                   <select
                     aria-label="基础模型"
                     className={cn(
@@ -1559,11 +1638,11 @@ function TrainingCreateContent({
                           {draft.baseModel}（目录不可用或与数据任务不匹配）
                         </option>
                       )}
-                    {template?.base_models
-                      .filter((item) => (item.task ?? "detect") === task)
+                    {taskModels
+                      .filter((item) => modelFamily(item) === family)
                       .map((item) => (
                         <option value={item.id} key={item.id}>
-                          {item.id} · {trainingTaskLabel(item.task)}
+                          {item.id} · {modelSizeLabel(item)} · {trainingTaskLabel(item.task)}
                         </option>
                       ))}
                   </select>
@@ -1628,7 +1707,7 @@ function TrainingCreateContent({
                 </p>
               )}
               <p className="mt-5 text-xs leading-relaxed text-muted-foreground">
-                训练数据、训练器与基础模型按所选任务筛选。切换任务后需重新选择数据与模型；已有参数会保留，选择模型时将核对兼容性。
+                训练数据、训练器、模型家族与规格按所选任务筛选。切换任务后需重新选择数据与模型；已有参数会保留，选择模型时将核对兼容性。
               </p>
               <Link
                 to={`/projects/${projectId}/learning?tab=data`}

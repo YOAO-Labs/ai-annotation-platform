@@ -24,6 +24,15 @@ export type {
 
 export type FrozenTrainingInitialization = NonNullable<TrainingInitializationEligibility["pin"]>;
 
+export type TrainingCatalogModel = TrainingTemplate["base_models"][number] & {
+  model_family?: string | null;
+  model_size?: string | null;
+};
+
+export type TrainingCatalogTemplate = Omit<TrainingTemplate, "base_models"> & {
+  base_models: TrainingCatalogModel[];
+};
+
 export interface TrainingCatalog {
   enabled: boolean;
   online: boolean;
@@ -31,7 +40,7 @@ export interface TrainingCatalog {
   resource_id: string | null;
   initialization_policy_digest?: string | null;
   native_budget_policy_digest?: string | null;
-  items: TrainingTemplate[];
+  items: TrainingCatalogTemplate[];
 }
 
 export interface TrainingEpochEvent {

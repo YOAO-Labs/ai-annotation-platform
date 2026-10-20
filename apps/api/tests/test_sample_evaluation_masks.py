@@ -342,6 +342,7 @@ async def test_shared_qualification_uses_independent_segment_profile_and_task_di
         **run.spec["model_ref"],
         "registry_id": str(uuid.uuid4()),
         "framework": "ultralytics",
+        "framework_version": "8.4.177",
     }
     monkeypatch.setattr(
         managed.trained_models, "resolve_reference", AsyncMock(return_value=ref)

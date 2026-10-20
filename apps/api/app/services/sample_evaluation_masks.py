@@ -10,7 +10,7 @@ from collections import Counter
 from aap_protocol_v2.mask_interaction import CocoRlePayload, canonical_rle_bytes
 from training_contract.model_return import (
     SEGMENTATION_OUTPUT_CONTRACT,
-    SEGMENTATION_RUNTIME,
+    segmentation_runtime,
 )
 
 from app.services import sample_evaluation_engine as detection
@@ -110,7 +110,9 @@ def mask_iou(first_rle, second_rle):
     return intersection / (first["area_pixels"] + second["area_pixels"] - intersection)
 
 
-def normalize_predictions(raw, native_to_benchmark, *, width, height):
+def normalize_predictions(
+    raw, native_to_benchmark, *, width, height, runtime_qualification=None
+):
     """Freeze managed wire output; confidence filtering belongs to its strategy."""
     return predictions_from_wire(
         raw["result"],
@@ -118,6 +120,7 @@ def normalize_predictions(raw, native_to_benchmark, *, width, height):
         metadata=raw["meta"],
         width=width,
         height=height,
+        runtime_qualification=runtime_qualification,
     )
 
 
@@ -166,17 +169,35 @@ def _checked(items, class_count, predictions):
         raise ValueError("Instance-mask evidence exceeds the sample byte budget")
 
 
-def predictions_from_wire(items, mapping, *, metadata, width, height):
+def predictions_from_wire(
+    items, mapping, *, metadata, width, height, runtime_qualification=None
+):
+    runtime = (
+        segmentation_runtime("8.4.177")
+        if runtime_qualification is None
+        else runtime_qualification
+    )
+    if not isinstance(runtime, dict):
+        raise ValueError("Unqualified frozen mask evaluation runtime")
+    canonical = segmentation_runtime(runtime.get("ultralytics"))
+    if runtime.get("ultralytics") != "8.4.177":
+        if type(runtime.get("end2end")) is not bool:
+            raise ValueError("Frozen mask evaluation head is unavailable")
+        canonical.update(
+            end2end=runtime["end2end"], nms=False if runtime["end2end"] else None
+        )
+    if runtime != canonical:
+        raise ValueError("Unqualified frozen mask evaluation runtime")
     segmentation = metadata.get("segmentation") if isinstance(metadata, dict) else None
     if (
         not isinstance(segmentation, dict)
         or segmentation.get("dimensions") != [height, width]
         or segmentation.get("output_contract") != SEGMENTATION_OUTPUT_CONTRACT
         or any(
-            segmentation.get(key) != SEGMENTATION_RUNTIME[key]
+            segmentation.get(key) != runtime[key]
             for key in ("decoder", "mask_processing")
         )
-        or segmentation.get("runtime_qualification") != SEGMENTATION_RUNTIME
+        or segmentation.get("runtime_qualification") != runtime
     ):
         raise ValueError(
             "Mask prediction processing or dimensions differ from the frozen source"

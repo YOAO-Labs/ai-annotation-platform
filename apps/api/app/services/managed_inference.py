@@ -6,6 +6,7 @@ import base64
 import uuid
 
 from fastapi import HTTPException
+from training_contract.models import model_spec
 
 from app.db.models.ml_backend_registry import MLBackendRegistry
 from app.db.models.trained_model import ModelDeployment
@@ -53,8 +54,24 @@ async def qualification(db, project, model_id, deployment_id):
         db, project.id, deployment.registry_id
     )
     segment = normalize_task(ref.get("task") or "detect") == "segment"
+    framework_version = ref.get("framework_version")
+    if framework_version not in {"8.4.177", "8.4.183"}:
+        raise reject("runtime_unqualified", "模型缺少已核验的冻结训练器版本")
+    profile_params = {}
+    selected_model = None
+    if framework_version != "8.4.177":
+        try:
+            base_model = ref["provenance"]["base_model"]["id"]
+            selected_model = model_spec("ultralytics", base_model)
+            if selected_model.task != ("segment" if segment else "detect"):
+                raise ValueError("Frozen model task differs")
+        except (KeyError, TypeError, ValueError) as exc:
+            raise reject(
+                "runtime_unqualified", "模型缺少已核验的家族及规格身份"
+            ) from exc
+        profile_params["params"] = {"base_model": base_model}
     profile = await MLBackendClient(backend).managed_evaluation_request(
-        "segment/profile" if segment else "profile"
+        "segment/profile" if segment else "profile", **profile_params
     )
     checked = EvaluationProfile.model_validate(profile).model_dump(
         mode="json", by_alias=True
@@ -62,7 +79,12 @@ async def qualification(db, project, model_id, deployment_id):
     if (
         checked["profile_digest"]
         != content_digest({k: v for k, v in checked.items() if k != "profile_digest"})
-        or checked["ultralytics_version"] != "8.4.177"
+        or checked["ultralytics_version"] != framework_version
+        or (
+            selected_model is not None
+            and selected_model.end2end
+            and checked["options"].get("nms") is not False
+        )
         or checked["implementation"]
         != ("aap-ultralytics-instance-mask" if segment else "aap-ultralytics-detection")
     ):
@@ -114,11 +136,29 @@ def verify_inference(spec, row, inference):
         "conf": spec["confidence"],
         "nms_iou": spec["nms_iou"],
     }
+    expected_end2end = None
+    if spec["profile"]["ultralytics_version"] != "8.4.177":
+        ref = spec["model_ref"]
+        try:
+            native = model_spec("ultralytics", ref["provenance"]["base_model"]["id"])
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ValueError("Frozen inference model identity is unavailable") from exc
+        if (
+            ref.get("framework_version") != spec["profile"]["ultralytics_version"]
+            or native.task != ("segment" if segmentation_spec(spec) else "detect")
+            or (native.end2end and expected["options"].get("nms") is not False)
+        ):
+            raise ValueError("Inference profile differs from the frozen native head")
+        expected_end2end = native.end2end
     if (
         not isinstance(inference, dict)
         or set(inference) != {*expected, "end2end"}
         or any(inference.get(k) != v for k, v in expected.items())
         or type(inference.get("end2end")) is not bool
+        or (
+            expected_end2end is not None
+            and inference.get("end2end") != expected_end2end
+        )
     ):
         raise ValueError("Inference execution identity differs from the frozen request")
 

@@ -2,10 +2,18 @@
 
 from training_contract import ADAPTERS  # re-export the shared legacy identity
 from training_contract.dataset import DETECTION, SEGMENTATION
+from training_contract.models import model_spec
 
 
 def capabilities(framework, task=None, base_model=None):
     adapter = ADAPTERS[framework]
+    try:
+        segment_return = (
+            framework == "ultralytics"
+            and model_spec(framework, base_model).task == SEGMENTATION
+        )
+    except (ValueError, TypeError):
+        segment_return = False
     return {
         "tasks": [task]
         if task
@@ -13,10 +21,7 @@ def capabilities(framework, task=None, base_model=None):
         "resume": True,
         "artifact_download": True,
         "model_registration": adapter["model_registration"]
-        and (
-            task != SEGMENTATION
-            or (framework == "ultralytics" and base_model == "yolo11n-seg")
-        ),
+        and (task != SEGMENTATION or segment_return),
     }
 
 

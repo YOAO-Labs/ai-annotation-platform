@@ -5,7 +5,8 @@ import math
 
 from training_contract.model_return import (
     SEGMENTATION_OUTPUT_CONTRACT,
-    SEGMENTATION_RUNTIME,
+    segmentation_identity,
+    segmentation_runtime,
 )
 
 from app.schemas._jsonb_types import RasterMaskGeometry
@@ -21,10 +22,39 @@ MAX_MASK_ELEMENTS = 128_000_000
 MAX_INSTANCES = 300
 
 
+def runtime_for_reference(ref, framework_version=None):
+    """Resolve only the frozen model/profile, never a response-provided version."""
+    runtime = ref.get("runtime_qualification")
+    if (
+        framework_version is not None
+        and ref.get("framework_version") is not None
+        and ref["framework_version"] != framework_version
+    ):
+        raise ValueError("Frozen segmentation model and profile versions differ")
+    version = ref.get("framework_version") or framework_version
+    if version is None and isinstance(runtime, dict):
+        version = runtime.get("ultralytics")
+    if version == "8.4.177":
+        expected = segmentation_runtime(version)
+    else:
+        try:
+            expected = segmentation_identity(
+                ref["provenance"]["base_model"]["id"], version
+            )["runtime_qualification"]
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ValueError(
+                "Frozen segmentation model identity is unavailable"
+            ) from exc
+    if runtime != expected and not (runtime is None and version == "8.4.177"):
+        raise ValueError("Unqualified frozen segmentation runtime")
+    return expected
+
+
 def validate_results(results, ref):
     identity = {
         key: ref[key] for key in ("model_version_id", "sha256", "classes_digest")
     }
+    runtime = runtime_for_reference(ref)
     for result in results:
         meta = result.meta or {}
         segmentation = meta.get("segmentation")
@@ -32,9 +62,9 @@ def validate_results(results, ref):
             raise ValueError("Segmentation model identity is missing or mismatched")
         expected = {
             "output_contract": SEGMENTATION_OUTPUT_CONTRACT,
-            "decoder": SEGMENTATION_RUNTIME["decoder"],
-            "mask_processing": SEGMENTATION_RUNTIME["mask_processing"],
-            "runtime_qualification": SEGMENTATION_RUNTIME,
+            "decoder": runtime["decoder"],
+            "mask_processing": runtime["mask_processing"],
+            "runtime_qualification": runtime,
         }
         if any(segmentation.get(key) != value for key, value in expected.items()):
             raise ValueError("Unqualified segmentation decoder or runtime")

@@ -1417,3 +1417,81 @@ describe("configuration import and recovery", () => {
     expect(localStorage.getItem(trainingDraftKey(owner))).toContain("1e-6");
   });
 });
+
+it("filters catalog models by task, family and native scale and restores the selected family", async () => {
+  const base = (
+    id: string,
+    family: string,
+    size: string,
+    task: "detect" | "segment" = "detect",
+  ) => ({
+    id,
+    filename: `${id}.pt`,
+    sha256: "f".repeat(64),
+    model_family: family,
+    model_size: size,
+    task,
+  });
+  vi.mocked(trainingRunsApi.catalog).mockResolvedValue({
+    ...catalog,
+    items: [
+      {
+        ...catalog.items[0],
+        version: "8.4.183",
+        base_models: [
+          base("yolo11n", "yolo11", "n"),
+          base("yolov8n", "yolov8", "n"),
+          base("yolov8x", "yolov8", "x"),
+          base("yolo26s", "yolo26", "s"),
+          base("yolo26m-seg", "yolo26", "m", "segment"),
+        ],
+      },
+    ],
+  });
+  vi.mocked(trainingRunsApi.parameterSchema).mockImplementation(
+    async (_project, _framework, id) => ({
+      ...schema,
+      framework_version: "8.4.183",
+      schema_id: `schema-${id}`,
+      model_family: id.startsWith("yolov8")
+        ? "yolov8"
+        : id.startsWith("yolo26")
+          ? "yolo26"
+          : "yolo11",
+      task: id.endsWith("-seg") ? "segment" : "detect",
+    }),
+  );
+  const user = userEvent.setup();
+  const view = mount();
+  expect(screen.getByLabelText("模型家族")).toBeDisabled();
+  await user.selectOptions(screen.getByLabelText("实验任务"), "detect");
+  await screen.findByRole("option", { name: "YOLOv8" });
+  await user.selectOptions(screen.getByLabelText("模型家族"), "yolov8");
+  const models = screen.getByLabelText("基础模型");
+  expect(within(models).getByRole("option", { name: /^yolov8n · Nano/ })).toBeVisible();
+  expect(within(models).getByRole("option", { name: /^yolov8x · Extra large/ })).toBeVisible();
+  expect(within(models).queryByRole("option", { name: /^yolo11/ })).not.toBeInTheDocument();
+  expect(within(models).queryByRole("option", { name: /^yolo26/ })).not.toBeInTheDocument();
+  await user.selectOptions(models, "yolov8x");
+  await waitFor(() => expect(models).toHaveValue("yolov8x"));
+  view.unmount();
+  mount();
+  await waitFor(() => expect(screen.getByLabelText("模型家族")).toHaveValue("yolov8"));
+  expect(screen.getByLabelText("基础模型")).toHaveValue("yolov8x");
+  await user.selectOptions(screen.getByLabelText("模型家族"), "yolo26");
+  expect(screen.getByLabelText("基础模型")).toHaveValue("");
+  expect(
+    within(screen.getByLabelText("基础模型")).getByRole("option", { name: /^yolo26s · Small/ }),
+  ).toBeVisible();
+  const stored = JSON.parse(localStorage.getItem(trainingDraftKey("user-1:project-1"))!);
+  expect(stored.baseModel).toBe("");
+  expect(stored.initialization).toBeUndefined();
+  await user.selectOptions(screen.getByLabelText("实验任务"), "segment");
+  expect(screen.getByLabelText("模型家族")).toHaveValue("yolo26");
+  expect(screen.queryByRole("option", { name: "YOLOv8" })).not.toBeInTheDocument();
+  expect(
+    within(screen.getByLabelText("基础模型")).getByRole("option", {
+      name: /^yolo26m-seg · Medium/,
+    }),
+  ).toBeVisible();
+});

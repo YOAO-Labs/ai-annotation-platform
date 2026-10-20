@@ -17,14 +17,16 @@ from app.services import training_initialization as service
 from app.services.training_evaluations import parse_evaluation, SEMANTICS
 
 
-def source_fixture(monkeypatch):
+def source_fixture(
+    monkeypatch, *, base_model="yolo11n-seg", framework_version="8.4.177"
+):
     project_id, run_id, attempt_id, dataset_id = (uuid.uuid4() for _ in range(4))
     classes = ["shape"]
     config = {
         "task": "segment",
         "framework": "ultralytics",
-        "framework_version": "8.4.177",
-        "base_model": {"id": "yolo11n-seg"},
+        "framework_version": framework_version,
+        "base_model": {"id": base_model},
         "data_contract": dict(SEGMENTATION_CONTRACT),
         "classes": classes,
         "dataset_id": str(dataset_id),
@@ -54,7 +56,7 @@ def source_fixture(monkeypatch):
         "validation_digest": config["validation_digest"],
         "evaluation": {
             "framework": "ultralytics",
-            "version": "8.4.177",
+            "version": framework_version,
             "task": "instance-segmentation",
         },
         "summary": {
@@ -80,7 +82,7 @@ def source_fixture(monkeypatch):
             },
             "evaluator": {
                 "framework": "ultralytics",
-                "version": "8.4.177",
+                "version": framework_version,
                 "task": "instance-segmentation",
                 "implementation": "ultralytics.models.yolo.segment.val.SegmentationValidator",
                 "source_sha256": "e" * 64,
@@ -132,7 +134,7 @@ def source_fixture(monkeypatch):
         run_id=run_id,
         attempt_id=attempt_id,
         framework="ultralytics",
-        framework_version="8.4.177",
+        framework_version=framework_version,
         artifact=weights,
         classes=classes,
         bindings=classes,
