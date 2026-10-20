@@ -12,11 +12,21 @@ from sqlalchemy import text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from aap_identity.authenticator import VerifiedCredential
+from aap_identity.authenticator import Authenticator, VerifiedCredential
 from aap_identity.contract import IdentityUnavailable, Principal
-from aap_identity.directory_contract import decode_directory_request
-from aap_identity.directory_manager import DirectoryManager
+from aap_identity.directory_contract import (
+    DirectoryFailure,
+    decode_directory_request,
+    decode_native_directory_reply,
+    native_directory_command,
+)
+from aap_identity.directory_manager import (
+    DirectoryManager,
+    directory_request_fingerprint,
+)
 from aap_identity.directory_postgres import DirectoryPostgresData
+from aap_identity.postgres import PostgresData
+from aap_identity.security import create_access_token
 from app.db.native_schema import NATIVE_MANAGED_TABLES
 from tests.test_identity_auth_native import _cleanup, _seed
 
@@ -46,6 +56,20 @@ def _directory_dsn() -> str:
         .set(drivername="postgresql")
         .render_as_string(hide_password=False)
     )
+
+
+def _auth_dsn(test_engine) -> str:
+    if os.environ.get("AAP_MODULE_DATA_ROLE_ACCEPTANCE") != "1":
+        pytest.skip("Identity directory role acceptance requires the owned verifier")
+    value = os.environ.get("AAP_MODULE_DATA_IDENTITY_AUTH_URL")
+    assert value and os.environ.get("AAP_MODULE_DATA_PG_CONTAINER_ID")
+    parsed = make_url(value)
+    assert (parsed.host, parsed.port, parsed.database) == (
+        test_engine.url.host,
+        test_engine.url.port,
+        test_engine.url.database,
+    )
+    return parsed.set(drivername="postgresql").render_as_string(hide_password=False)
 
 
 def _audit_context() -> dict[str, str]:
@@ -278,6 +302,89 @@ async def test_directory_reads_validate_filters_and_projection(test_engine):
                     "detail": "非法平台角色: annotator",
                 },
             }
+    finally:
+        await _cleanup(test_engine, fixture)
+
+
+@pytest.mark.asyncio
+async def test_native_command_rechecks_manager_role_after_jwt_admission(test_engine):
+    fixture = await _seed(test_engine, role="super_admin", create_key=False)
+    maker = async_sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
+    secret = "directory-native-stale-manager-test-secret"
+    token = create_access_token(
+        str(fixture["actor_id"]),
+        "super_admin",
+        secret=secret,
+        expire_minutes=15,
+    )
+    authenticator = Authenticator(PostgresData(_auth_dsn(test_engine)), secret)
+    directory_data = DirectoryPostgresData(_directory_dsn())
+    directory_manager = DirectoryManager(authenticator, directory_data, secret)
+    request = decode_directory_request(
+        {
+            "schema": "aap-identity-directory/v1",
+            "operation": "user_stats",
+            "operation_id": str(uuid.uuid4()),
+            "token": token,
+            "audit_context": {
+                "method": "GET",
+                "path": "/api/v1/users/stats",
+                "ip": "127.0.0.1",
+                "request_id": str(uuid.uuid4()),
+            },
+            "payload": {
+                "status": "all",
+                "project_id": None,
+                "group_id": None,
+                "role": None,
+                "search": None,
+            },
+        }
+    )
+    verified = await authenticator.authenticate_bound(token)
+    assert verified.principal.role == "super_admin"
+    generation = verified.principal.generation
+
+    try:
+        async with maker.begin() as session:
+            stored_generation = await session.scalar(
+                text("SELECT credential_generation FROM public.users WHERE id=:id"),
+                {"id": fixture["actor_id"]},
+            )
+            assert stored_generation == generation
+            await session.execute(
+                text("UPDATE public.users SET role='employee' WHERE id=:id"),
+                {"id": fixture["actor_id"]},
+            )
+
+        native = native_directory_command(
+            request,
+            actor=verified.principal,
+            expected_key_hash=verified.key_hash,
+            request_fingerprint=directory_request_fingerprint(secret, request),
+            derivation_id=directory_manager.derivation_id,
+        )
+        command_payload = native.model_dump(mode="json", by_alias=True)
+        with pytest.raises(DirectoryFailure) as raised:
+            async with directory_data.transaction() as transaction:
+                reply = await transaction.execute_directory_command(command_payload)
+                decode_native_directory_reply(native, reply)
+        assert raised.value.code == "manager_required"
+        assert raised.value.status_code == 403
+        assert raised.value.detail == "需要角色权限: super_admin或project_admin"
+
+        async with maker() as session:
+            assert (
+                await session.scalar(
+                    text("SELECT credential_generation FROM public.users WHERE id=:id"),
+                    {"id": fixture["actor_id"]},
+                )
+                == generation
+            )
+
+        current = await authenticator.authenticate_bound(token)
+        assert current.principal.role == "employee"
+        assert current.principal.generation == generation
     finally:
         await _cleanup(test_engine, fixture)
 
