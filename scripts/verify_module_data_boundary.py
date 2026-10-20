@@ -54,6 +54,7 @@ IDENTITY_CLIENT_ROLES = {
     "ADMIN_PASSWORD": "identity_admin_password_client",
     "PLATFORM_ROLE": "identity_platform_role_client",
     "SUSPENSION": "identity_suspension_client",
+    "DELETION": "identity_deletion_client",
     "DIRECTORY": "identity_directory_client",
 }
 MODULE_ROLES = (
@@ -177,6 +178,8 @@ SQL_ARTIFACTS = (
     "0245_identity_platform_roles.sql",
     "0246_identity_suspensions_support.sql",
     "0246_identity_suspensions.sql",
+    "0247_identity_deletions_support.sql",
+    "0247_identity_deletions.sql",
 )
 SCHEMA_ARTIFACTS = (
     "0191_task_append.schema.json",
@@ -235,6 +238,7 @@ SCHEMA_ARTIFACTS = (
     "0245_platform_role_workspace_facts.schema.json",
     "0245_platform_role_labeling_facts.schema.json",
     "0246_identity_suspensions.schema.json",
+    "0247_identity_deletions.schema.json",
 )
 TEST_FILES = (
     "tests/test_identity_admin_passwords_native.py",
@@ -246,6 +250,9 @@ TEST_FILES = (
     "tests/test_identity_suspensions_native.py",
     "tests/test_identity_suspensions_roles.py",
     "tests/test_identity_suspensions_restore.py",
+    "tests/test_identity_deletions_native.py",
+    "tests/test_identity_deletions_roles.py",
+    "tests/test_identity_deletions_restore.py",
     "tests/test_users_role_matrix.py::TestRoleMatrix::test_sa_cannot_demote_last_super_admin",
     "tests/test_identity_directory_native.py",
     "tests/test_identity_directory_roles.py",
@@ -1729,6 +1736,8 @@ def _install_and_rollback_frozen_sql(
         "SELECT aap_identity_platform_roles_v1.execute_platform_role_command('{}'::jsonb);\n"
         "SELECT aap_identity_suspensions_v1.suspension_policy();\n"
         "SELECT aap_identity_suspensions_v1.execute_suspension_command('{}'::jsonb);\n"
+        "SELECT aap_identity_deletions_v1.deletion_policy();\n"
+        "SELECT aap_identity_deletions_v1.execute_deletion_command('{}'::jsonb);\n"
         "SELECT aap_identity_deactivation_v1.deactivation_policy();\n"
         "SELECT aap_identity_deactivation_v1.execute_deactivation_command(NULL::jsonb);\n"
         "SELECT aap_identity_deactivation_v1.due_policy();\n"
@@ -1871,6 +1880,7 @@ def _install_and_rollback_frozen_sql(
         "aap-identity-admin-passwords-native/v1": "invalid_request",
         "aap-identity-platform-roles-native/v1": "invalid_request",
         "aap-identity-suspensions-native/v1": "invalid_request",
+        "aap-identity-deletions-native/v1": "invalid_request",
     }
     if any(
         not any(
@@ -1920,6 +1930,12 @@ def _install_and_rollback_frozen_sql(
         for response in responses.get("aap-identity-suspensions-policy/v1", [])
     ):
         raise RuntimeError("native Identity suspension policy probe did not succeed")
+    if not any(
+        response.get("schema") == "aap-identity-deletions-policy/v1"
+        and response.get("policy") == "aap-identity-deletions/v1"
+        for response in responses.get("aap-identity-deletions-policy/v1", [])
+    ):
+        raise RuntimeError("native Identity deletion policy probe did not succeed")
 
     rollback_state = _psql(
         container_id,
@@ -1940,6 +1956,7 @@ def _install_and_rollback_frozen_sql(
             "AND to_regnamespace('aap_identity_admin_passwords_v1') IS NULL "
             "AND to_regnamespace('aap_identity_platform_roles_v1') IS NULL "
             "AND to_regnamespace('aap_identity_suspensions_v1') IS NULL "
+            "AND to_regnamespace('aap_identity_deletions_v1') IS NULL "
             "AND to_regnamespace('aap_identity_mail_v2') IS NULL "
             "AND to_regnamespace('aap_workspace_v1') IS NULL "
             "AND to_regnamespace('aap_assets_v1') IS NULL "
@@ -1964,6 +1981,7 @@ def _install_and_rollback_frozen_sql(
             "AND to_regclass('public.identity_admin_password_reset_receipts') IS NULL "
             "AND to_regclass('public.identity_platform_role_operation_receipts') IS NULL "
             "AND to_regclass('public.identity_suspension_operation_receipts') IS NULL "
+            "AND to_regclass('public.identity_deletion_operation_receipts') IS NULL "
             "AND to_regclass('public.identity_deactivation_requests') IS NULL "
             "AND to_regclass('public.notification_delivery_outbox') IS NULL "
             "AND to_regclass('public.identity_credential_mail_outbox') IS NULL "
@@ -2119,6 +2137,9 @@ def main(argv: list[str] | None = None) -> int:
         identity_suspension_grants_path = (
             ROOT / "infra/docker/identity-suspensions-grants.sql"
         )
+        identity_deletion_grants_path = (
+            ROOT / "infra/docker/identity-deletions-grants.sql"
+        )
         identity_deactivation_grants_path = (
             ROOT / "infra/docker/identity-deactivation-grants.sql"
         )
@@ -2151,6 +2172,7 @@ def main(argv: list[str] | None = None) -> int:
             or not identity_admin_password_grants_path.is_file()
             or not identity_platform_role_grants_path.is_file()
             or not identity_suspension_grants_path.is_file()
+            or not identity_deletion_grants_path.is_file()
             or not identity_account_grants_path.is_file()
             or not identity_recovery_grants_path.is_file()
             or any(not path.is_file() for path in artifacts)
@@ -2195,6 +2217,9 @@ def main(argv: list[str] | None = None) -> int:
             encoding="utf-8"
         )
         identity_suspension_grant_sql = identity_suspension_grants_path.read_text(
+            encoding="utf-8"
+        )
+        identity_deletion_grant_sql = identity_deletion_grants_path.read_text(
             encoding="utf-8"
         )
         identity_group_grant_sql = identity_group_grants_path.read_text(
@@ -2311,8 +2336,8 @@ def main(argv: list[str] | None = None) -> int:
         database = resources["database"]
         evidence["database"] = database
         _, heads = migration_graph(ROOT)
-        if heads != ["0246"]:
-            raise RuntimeError("module-data acceptance requires migration head 0246")
+        if heads != ["0247"]:
+            raise RuntimeError("module-data acceptance requires migration head 0247")
         evidence["migrations"]["head_before_downgrade"] = heads[0]
         phase = "downgrade-to-0189"
         _container_details(
@@ -2740,6 +2765,25 @@ def main(argv: list[str] | None = None) -> int:
                 "workspace_owner": "workspace_code",
                 "audit_owner": "audit_code",
                 "identity_suspension_role": "identity_suspension_client",
+            },
+        )
+        phase = "install-identity-deletion-grants"
+        _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="owner",
+            password=owner_password,
+            database=database,
+            sql=identity_deletion_grant_sql,
+            variables={
+                "expected_database": database,
+                "migration_role": "owner",
+                "identity_owner": "identity_code",
+                "workspace_owner": "workspace_code",
+                "labeling_owner": "labeling_code",
+                "audit_owner": "audit_code",
+                "identity_deletion_role": "identity_deletion_client",
             },
         )
         resource_environment = backend.environment()
